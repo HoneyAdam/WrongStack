@@ -1,0 +1,258 @@
+import * as fs from 'node:fs';
+import * as fsp from 'node:fs/promises';
+import * as path from 'node:path';
+import { randomBytes } from 'node:crypto';
+import type {
+  ResumedSession,
+  SessionData,
+  SessionEvent,
+  SessionMetadata,
+  SessionStore,
+  SessionSummary,
+  SessionWriter,
+} from '../types/session.js';
+import type { Message } from '../types/messages.js';
+import type { ContentBlock } from '../types/blocks.js';
+import { ensureDir } from '../utils/atomic-write.js';
+
+export interface SessionStoreOptions {
+  dir: string;
+}
+
+export class DefaultSessionStore implements SessionStore {
+  private readonly dir: string;
+
+  constructor(opts: SessionStoreOptions) {
+    this.dir = opts.dir;
+  }
+
+  async create(meta: Omit<SessionMetadata, 'startedAt'>): Promise<SessionWriter> {
+    await ensureDir(this.dir);
+    const startedAt = new Date().toISOString();
+    const id = meta.id ?? `${startedAt.replace(/[:.]/g, '-')}-${randomBytes(2).toString('hex')}`;
+    const file = path.join(this.dir, `${id}.jsonl`);
+    let handle: fsp.FileHandle;
+    try {
+      handle = await fsp.open(file, 'a', 0o600);
+    } catch (err) {
+      throw new Error(`Failed to open session file: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    try {
+      return new FileSessionWriter(id, handle, startedAt, meta);
+    } catch (err) {
+      await handle.close().catch(() => {});
+      throw err;
+    }
+  }
+
+  async resume(id: string): Promise<ResumedSession> {
+    const data = await this.load(id);
+    const file = path.join(this.dir, `${id}.jsonl`);
+    let handle: fsp.FileHandle;
+    try {
+      handle = await fsp.open(file, 'a', 0o600);
+    } catch (err) {
+      throw new Error(
+        `Failed to open session "${id}" for append: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    const writer = new FileSessionWriter(
+      id,
+      handle,
+      new Date().toISOString(),
+      {
+        id,
+        model: data.metadata.model,
+        provider: data.metadata.provider,
+      },
+      { resumed: true },
+    );
+    return { writer, data };
+  }
+
+  async load(id: string): Promise<SessionData> {
+    const file = path.join(this.dir, `${id}.jsonl`);
+    const raw = await fsp.readFile(file, 'utf8');
+    const lines = raw.split('\n').filter((l) => l.trim());
+    const events: SessionEvent[] = [];
+    for (const line of lines) {
+      try {
+        events.push(JSON.parse(line) as SessionEvent);
+      } catch {
+        // skip malformed lines
+      }
+    }
+    const meta = this.metaFromEvents(id, events);
+    const { messages, usage } = this.replay(events);
+    return { metadata: meta, events, messages, usage };
+  }
+
+  async list(limit = 20): Promise<SessionSummary[]> {
+    try {
+      await ensureDir(this.dir);
+      const files = await fsp.readdir(this.dir);
+      const sessions: SessionSummary[] = [];
+      for (const f of files) {
+        if (!f.endsWith('.jsonl')) continue;
+        const full = path.join(this.dir, f);
+        try {
+          const stat = await fsp.stat(full);
+          const id = f.replace(/\.jsonl$/, '');
+          const summary = await this.summarize(id, stat.mtime.toISOString());
+          sessions.push(summary);
+        } catch {
+          // skip unreadable
+        }
+      }
+      sessions.sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1));
+      return sessions.slice(0, limit);
+    } catch {
+      return [];
+    }
+  }
+
+  async delete(id: string): Promise<void> {
+    await fsp.unlink(path.join(this.dir, `${id}.jsonl`));
+  }
+
+  private async summarize(id: string, mtime: string): Promise<SessionSummary> {
+    try {
+      const data = await this.load(id);
+      const firstUser = data.events.find((e) => e.type === 'user_input');
+      const title =
+        firstUser && firstUser.type === 'user_input'
+          ? userInputTitle(firstUser.content)
+          : '(empty session)';
+      return {
+        id,
+        title,
+        startedAt: data.metadata.startedAt,
+        model: data.metadata.model ?? 'unknown',
+        provider: data.metadata.provider ?? 'unknown',
+        tokenTotal: data.usage.input + data.usage.output,
+      };
+    } catch {
+      return {
+        id,
+        title: '(damaged)',
+        startedAt: mtime,
+        model: 'unknown',
+        provider: 'unknown',
+        tokenTotal: 0,
+      };
+    }
+  }
+
+  private metaFromEvents(id: string, events: SessionEvent[]): SessionMetadata {
+    const start = events.find((e) => e.type === 'session_start');
+    const end = events.find((e) => e.type === 'session_end');
+    return {
+      id,
+      startedAt: start?.ts ?? new Date(0).toISOString(),
+      endedAt: end?.ts,
+      model: start && start.type === 'session_start' ? start.model : undefined,
+      provider: start && start.type === 'session_start' ? start.provider : undefined,
+    };
+  }
+
+  private replay(events: SessionEvent[]): { messages: Message[]; usage: SessionData['usage'] } {
+    const messages: Message[] = [];
+    let usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+    const openToolUses = new Set<string>();
+    for (const e of events) {
+      if (e.type === 'user_input') {
+        messages.push({ role: 'user', content: e.content });
+      } else if (e.type === 'llm_response') {
+        messages.push({ role: 'assistant', content: e.content });
+        for (const b of e.content) {
+          if (b.type === 'tool_use') openToolUses.add(b.id);
+        }
+        usage = {
+          input: usage.input + (e.usage.input ?? 0),
+          output: usage.output + (e.usage.output ?? 0),
+          cacheRead: (usage.cacheRead ?? 0) + (e.usage.cacheRead ?? 0),
+          cacheWrite: (usage.cacheWrite ?? 0) + (e.usage.cacheWrite ?? 0),
+        };
+      } else if (e.type === 'tool_result') {
+        if (!openToolUses.has(e.id)) {
+          // Orphan tool_result: tool_use was never seen. Appending as-is to preserve data
+          // rather than dropping it, but semantically this session is incomplete.
+        }
+        openToolUses.delete(e.id);
+        const content: ContentBlock[] = [
+          {
+            type: 'tool_result',
+            tool_use_id: e.id,
+            content: typeof e.content === 'string' ? e.content : JSON.stringify(e.content),
+            is_error: e.isError,
+          },
+        ];
+        const last = messages[messages.length - 1];
+        if (last && last.role === 'user' && Array.isArray(last.content)) {
+          last.content.push(...content);
+        } else {
+          messages.push({ role: 'user', content });
+        }
+      }
+    }
+    if (openToolUses.size > 0) {
+      throw new Error(
+        `Session damaged: ${openToolUses.size} tool_use blocks without matching results`,
+      );
+    }
+    return { messages, usage };
+  }
+}
+
+class FileSessionWriter implements SessionWriter {
+  private closed = false;
+  constructor(
+    public readonly id: string,
+    private readonly handle: fsp.FileHandle,
+    private readonly startedAt: string,
+    private readonly meta: Omit<SessionMetadata, 'startedAt'>,
+    opts: { resumed?: boolean } = {},
+  ) {
+    const record = `${JSON.stringify({
+      type: opts.resumed ? 'session_resumed' : 'session_start',
+      ts: startedAt,
+      id,
+      model: meta.model ?? 'unknown',
+      provider: meta.provider ?? 'unknown',
+    })}\n`;
+    try {
+      const fd = (this.handle as unknown as { fd: number }).fd;
+      fs.writeSync(fd, record, null, 'utf8');
+    } catch {
+      // best-effort during construction
+    }
+  }
+
+  async append(event: SessionEvent): Promise<void> {
+    if (this.closed) return;
+    try {
+      await this.handle.appendFile(`${JSON.stringify(event)}\n`, 'utf8');
+    } catch (err) {
+      console.warn('[session] append failed:', err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async close(): Promise<void> {
+    if (this.closed) return;
+    this.closed = true;
+    try {
+      await this.handle.close();
+    } catch {
+      // ignore
+    }
+  }
+}
+
+function userInputTitle(content: string | ContentBlock[]): string {
+  if (typeof content === 'string') return content.slice(0, 60);
+  const text = content
+    .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+    .map((b) => b.text)
+    .join(' ');
+  return (text || '(non-text input)').slice(0, 60);
+}

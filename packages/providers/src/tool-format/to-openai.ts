@@ -1,0 +1,162 @@
+import type {
+  ContentBlock,
+  Message,
+  Tool,
+  TextBlock,
+  ToolUseBlock,
+  ToolResultBlock,
+} from '@wrongstack/core';
+
+export interface OpenAIToolSchema {
+  type: 'function';
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
+}
+
+export function toolsToOpenAI(tools: Tool[]): OpenAIToolSchema[] {
+  return tools.map((t) => ({
+    type: 'function',
+    function: {
+      name: t.name,
+      description: t.description,
+      parameters: (t.inputSchema as Record<string, unknown>) ?? {
+        type: 'object',
+        properties: {},
+      },
+    },
+  }));
+}
+
+export interface OpenAIMessage {
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content?: string | OpenAIContent[];
+  tool_calls?: OpenAIToolCall[];
+  tool_call_id?: string;
+  name?: string;
+}
+
+export interface OpenAIContent {
+  type: 'text' | 'image_url';
+  text?: string;
+  image_url?: { url: string };
+}
+
+export interface OpenAIToolCall {
+  id: string;
+  type: 'function';
+  function: { name: string; arguments: string };
+}
+
+export interface ConvertOptions {
+  flattenContentToString?: boolean;
+  stripCacheControl?: boolean;
+  systemAsMessage?: boolean;
+  emptyToolCallContent?: 'null' | 'empty_string';
+}
+
+export function messagesToOpenAI(
+  system: TextBlock[] | undefined,
+  messages: Message[],
+  opts: ConvertOptions = {},
+): OpenAIMessage[] {
+  const out: OpenAIMessage[] = [];
+
+  if (system && system.length > 0) {
+    const sysText = system.map((b) => b.text).join('\n\n');
+    if (opts.systemAsMessage) {
+      out.push({ role: 'user', content: sysText });
+    } else {
+      out.push({ role: 'system', content: sysText });
+    }
+  }
+
+  for (const msg of messages) {
+    if (msg.role === 'user') {
+      const blocks = normalizeContent(msg.content);
+      const toolResults = blocks.filter((b): b is ToolResultBlock => b.type === 'tool_result');
+      const others = blocks.filter((b) => b.type !== 'tool_result');
+
+      if (others.length > 0) {
+        out.push({
+          role: 'user',
+          content: opts.flattenContentToString
+            ? blocksToString(others)
+            : blocksToContentArray(others),
+        });
+      }
+      for (const r of toolResults) {
+        const content =
+          typeof r.content === 'string' ? r.content : JSON.stringify(r.content);
+        out.push({
+          role: 'tool',
+          tool_call_id: r.tool_use_id,
+          content,
+        });
+      }
+    } else if (msg.role === 'assistant') {
+      const blocks = normalizeContent(msg.content);
+      const textBlocks = blocks.filter((b): b is TextBlock => b.type === 'text');
+      const toolUses = blocks.filter((b): b is ToolUseBlock => b.type === 'tool_use');
+      const text = textBlocks.map((b) => b.text).join('');
+      const toolCalls: OpenAIToolCall[] = toolUses.map((u) => ({
+        id: u.id,
+        type: 'function',
+        function: { name: u.name, arguments: JSON.stringify(u.input) },
+      }));
+
+      const message: OpenAIMessage = { role: 'assistant' };
+      if (toolCalls.length > 0) {
+        message.tool_calls = toolCalls;
+        if (text) {
+          message.content = text;
+        } else if (opts.emptyToolCallContent === 'empty_string') {
+          message.content = '';
+        }
+      } else {
+        message.content = text;
+      }
+      out.push(message);
+    }
+  }
+  return out;
+}
+
+function normalizeContent(content: string | ContentBlock[]): ContentBlock[] {
+  return typeof content === 'string' ? [{ type: 'text', text: content }] : content;
+}
+
+function blocksToString(blocks: ContentBlock[]): string {
+  return blocks
+    .map((b) => {
+      if (b.type === 'text') return b.text;
+      if (b.type === 'image') return '[image]';
+      return '';
+    })
+    .join('');
+}
+
+function blocksToContentArray(blocks: ContentBlock[]): OpenAIContent[] | string {
+  const hasImage = blocks.some((b) => b.type === 'image');
+  if (!hasImage) {
+    return blocks
+      .filter((b): b is TextBlock => b.type === 'text')
+      .map((b) => b.text)
+      .join('');
+  }
+  return blocks
+    .map((b): OpenAIContent | null => {
+      if (b.type === 'text') return { type: 'text', text: b.text };
+      if (b.type === 'image') {
+        const url =
+          b.source.type === 'url'
+            ? b.source.url ?? ''
+            : `data:${b.source.media_type ?? 'image/png'};base64,${b.source.data ?? ''}`;
+        return { type: 'image_url', image_url: { url } };
+      }
+      return null;
+    })
+    .filter((c): c is OpenAIContent => c !== null);
+}

@@ -1,0 +1,153 @@
+import * as fs from 'node:fs/promises';
+import type { Tool } from '@wrongstack/core';
+import { safeResolve } from './_util.js';
+
+interface JsonInput {
+  file?: string;
+  data?: string;
+  query?: string;
+  format?: 'json' | 'json5' | 'yaml';
+  validate?: boolean;
+}
+
+interface JsonOutput {
+  data: unknown;
+  formatted: string;
+  type: string;
+  keys?: string[];
+  query_result?: unknown;
+  error?: string;
+}
+
+export const jsonTool: Tool<JsonInput, JsonOutput> = {
+  name: 'json',
+  description:
+    'Parse, query, and validate JSON/JSON5/YAML. Use `query` with JMESPath-like paths to extract values.',
+  usageHint:
+    'Provide `file` path or `data` string. `query` supports dot notation (e.g. "results[0].name"). `format` outputs in specified format.',
+  permission: 'auto',
+  mutating: false,
+  timeoutMs: 5_000,
+  inputSchema: {
+    type: 'object',
+    properties: {
+      file: { type: 'string', description: 'Path to JSON/JSON5/YAML file' },
+      data: { type: 'string', description: 'JSON/JSON5/YAML string (alternative to file)' },
+      query: { type: 'string', description: 'JMESPath-like query (e.g. "a.b[0].c" or "a[*].name")' },
+      format: {
+        type: 'string',
+        enum: ['json', 'json5', 'yaml'],
+        description: 'Output format (default: json)',
+      },
+      validate: {
+        type: 'boolean',
+        description: 'Validate syntax only, no output (default: false)',
+      },
+    },
+  },
+  async execute(input) {
+    const format = input.format ?? 'json';
+
+    let parsed: unknown;
+    let raw: string;
+
+    if (input.file) {
+      try {
+        raw = await fs.readFile(input.file, 'utf8');
+      } catch {
+        return { data: null, formatted: '', type: 'unknown', error: `Could not read file` };
+      }
+    } else if (input.data) {
+      raw = input.data;
+    } else {
+      return { data: null, formatted: '', type: 'unknown', error: 'Provide file or data' };
+    }
+
+    try {
+      parsed = JSON.parse(raw);
+    } catch (e) {
+      return {
+        data: null,
+        formatted: '',
+        type: 'unknown',
+        error: `Parse failed: ${e instanceof Error ? e.message : String(e)}`,
+      };
+    }
+
+    if (input.validate) {
+      return {
+        data: parsed,
+        formatted: 'valid',
+        type: Array.isArray(parsed) ? 'array' : typeof parsed,
+        keys: typeof parsed === 'object' && parsed !== null ? Object.keys(parsed as object) : undefined,
+      };
+    }
+
+    const queryResult = input.query ? query(parsed, input.query) : undefined;
+    const formatted = formatOutput(queryResult ?? parsed, format);
+
+    return {
+      data: parsed,
+      formatted,
+      type: Array.isArray(parsed) ? 'array' : typeof parsed,
+      keys: typeof parsed === 'object' && parsed !== null ? Object.keys(parsed as object) : undefined,
+      query_result: queryResult,
+    };
+  },
+};
+
+function query(data: unknown, path: string): unknown {
+  const parts = path.replace(/\[(\d+)\]/g, '.$1').split('.').filter(Boolean);
+  let current: unknown = data;
+
+  for (const part of parts) {
+    if (current === null || current === undefined) return undefined;
+
+    const idx = Number(part);
+    if (!Number.isNaN(idx) && Array.isArray(current)) {
+      current = current[idx];
+    } else if (typeof current === 'object' && current !== null) {
+      current = (current as Record<string, unknown>)[part];
+    } else {
+      return undefined;
+    }
+  }
+
+  return current;
+}
+
+function formatOutput(data: unknown, format: string): string {
+  if (format === 'json5') {
+    return JSON.stringify(data, null, 2)
+      .replace(/,\s*}/g, '}')
+      .replace(/,\s*\]/g, ']');
+  }
+  if (format === 'yaml') {
+    return toYaml(data);
+  }
+  return JSON.stringify(data, null, 2);
+}
+
+function toYaml(data: unknown, indent = 0): string {
+  if (data === null) return 'null\n';
+  if (data === undefined) return '';
+  if (typeof data === 'boolean') return String(data) + '\n';
+  if (typeof data === 'number') return String(data) + '\n';
+  if (typeof data === 'string') {
+    if (data.includes('\n') || data.includes(':') || data.includes('#')) {
+      return `"${data.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"\n`;
+    }
+    return data + '\n';
+  }
+  if (Array.isArray(data)) {
+    if (data.length === 0) return '[]\n';
+    const prefix = '  '.repeat(indent);
+    return data.map((item) => `${prefix}- ${toYaml(item, indent + 1).trimStart()}`).join('');
+  }
+  if (typeof data === 'object') {
+    const prefix = '  '.repeat(indent);
+    const entries = Object.entries(data as Record<string, unknown>);
+    return entries.map(([k, v]) => `${prefix}${k}: ${toYaml(v, indent + 1)}`).join('');
+  }
+  return String(data) + '\n';
+}

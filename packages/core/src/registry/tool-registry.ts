@@ -1,0 +1,43 @@
+import type { Tool } from '../types/tool.js';
+
+export class ToolRegistry {
+  private readonly tools = new Map<string, { tool: Tool; owner: string }>();
+
+  register(tool: Tool, owner = 'core'): void {
+    if (this.tools.has(tool.name)) {
+      throw new Error(`Tool "${tool.name}" already registered`);
+    }
+    this.tools.set(tool.name, { tool, owner });
+  }
+
+  unregister(name: string): boolean {
+    return this.tools.delete(name);
+  }
+
+  replace(name: string, tool: Tool, owner = 'core'): void {
+    if (!this.tools.has(name)) {
+      throw new Error(`Tool "${name}" not registered; cannot replace`);
+    }
+    this.tools.set(name, { tool, owner });
+  }
+
+  get(name: string): Tool | undefined {
+    return this.tools.get(name)?.tool;
+  }
+
+  ownerOf(name: string): string | undefined {
+    return this.tools.get(name)?.owner;
+  }
+
+  list(): Tool[] {
+    return Array.from(this.tools.values()).map((e) => e.tool);
+  }
+
+  listWithOwner(): { tool: Tool; owner: string }[] {
+    return Array.from(this.tools.values());
+  }
+
+  clear(): void {
+    this.tools.clear();
+  }
+}

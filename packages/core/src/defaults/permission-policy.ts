@@ -1,0 +1,141 @@
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import type { Context } from '../core/context.js';
+import type { PermissionDecision, PermissionPolicy, TrustPolicy } from '../types/permission.js';
+import type { Tool } from '../types/tool.js';
+import type { InputReader } from '../types/input-reader.js';
+import { matchAny, matchGlob } from '../utils/glob-match.js';
+import { atomicWrite } from '../utils/atomic-write.js';
+import { safeParse } from '../utils/safe-json.js';
+
+export interface PermissionPolicyOptions {
+  trustFile: string;
+  yolo?: boolean;
+  promptDelegate?: (
+    tool: Tool,
+    input: unknown,
+    suggestedPattern: string,
+  ) => Promise<'yes' | 'no' | 'always' | 'deny'>;
+  inputReader?: InputReader;
+}
+
+export class DefaultPermissionPolicy implements PermissionPolicy {
+  private policy: TrustPolicy = {};
+  private loaded = false;
+  private readonly trustFile: string;
+  private readonly yolo: boolean;
+  private readonly promptDelegate?: PermissionPolicyOptions['promptDelegate'];
+
+  constructor(opts: PermissionPolicyOptions) {
+    this.trustFile = opts.trustFile;
+    this.yolo = opts.yolo ?? false;
+    this.promptDelegate = opts.promptDelegate;
+  }
+
+  async reload(): Promise<void> {
+    try {
+      const raw = await fs.readFile(this.trustFile, 'utf8');
+      const parsed = safeParse<TrustPolicy>(raw);
+      if (parsed.ok && parsed.value) this.policy = parsed.value;
+    } catch {
+      this.policy = {};
+    }
+    this.loaded = true;
+  }
+
+  async evaluate(tool: Tool, input: unknown, _ctx: Context): Promise<PermissionDecision> {
+    if (!this.loaded) await this.reload();
+
+    // 1. Tool-namespace matching (mcp__server__* etc.)
+    const namespaceEntry = this.findNamespaceEntry(tool.name);
+
+    // 2. Tool-name entry
+    const entry = this.policy[tool.name] ?? namespaceEntry;
+
+    // 3. Compute subject (the thing being matched)
+    const subject = this.subjectFor(tool.name, input);
+
+    // 4. Deny — absolute
+    if (entry?.deny && subject && matchAny(entry.deny, subject)) {
+      return { permission: 'deny', source: 'deny', reason: 'matched deny pattern' };
+    }
+    if (tool.permission === 'deny') {
+      return { permission: 'deny', source: 'default', reason: 'tool default deny' };
+    }
+
+    // 5. Allow
+    if (entry?.allow && subject && matchAny(entry.allow, subject)) {
+      return { permission: 'auto', source: 'trust', reason: 'matched allow pattern' };
+    }
+    if (entry?.auto) {
+      return { permission: 'auto', source: 'trust' };
+    }
+
+    // 6. YOLO
+    if (this.yolo) {
+      return { permission: 'auto', source: 'yolo' };
+    }
+
+    // 7. Tool default
+    if (tool.permission === 'auto') {
+      return { permission: 'auto', source: 'default' };
+    }
+
+    // 8. Confirm — delegate to prompt
+    if (this.promptDelegate) {
+      const decision = await this.promptDelegate(tool, input, subject ?? tool.name);
+      if (decision === 'always') {
+        await this.trust({ tool: tool.name, pattern: subject ?? tool.name });
+        return { permission: 'auto', source: 'user', reason: 'user always-allowed' };
+      }
+      if (decision === 'deny') {
+        return { permission: 'deny', source: 'user', reason: 'user denied' };
+      }
+      return { permission: decision === 'yes' ? 'auto' : 'deny', source: 'user' };
+    }
+    return { permission: 'confirm', source: 'default' };
+  }
+
+  async trust(rule: { tool: string; pattern: string }): Promise<void> {
+    if (!this.loaded) await this.reload();
+    const entry = this.policy[rule.tool] ?? {};
+    entry.allow = Array.from(new Set([...(entry.allow ?? []), rule.pattern]));
+    this.policy[rule.tool] = entry;
+    try {
+      await atomicWrite(this.trustFile, JSON.stringify(this.policy, null, 2));
+    } catch (err) {
+      // Revert in-memory state since disk write failed
+      const existing = this.policy[rule.tool];
+      if (existing?.allow) {
+        const idx = existing.allow.indexOf(rule.pattern);
+        if (idx !== -1) existing.allow.splice(idx, 1);
+      }
+      throw err;
+    }
+  }
+
+  private subjectFor(toolName: string, input: unknown): string | undefined {
+    if (!input || typeof input !== 'object') return undefined;
+    const obj = input as Record<string, unknown>;
+    if (toolName === 'bash' && typeof obj.command === 'string') {
+      return obj.command as string;
+    }
+    if (typeof obj.path === 'string') {
+      // normalize Windows backslashes for glob matching
+      return (obj.path as string).replace(/\\/g, '/');
+    }
+    if (typeof obj.url === 'string') {
+      return obj.url as string;
+    }
+    return undefined;
+  }
+
+  private findNamespaceEntry(toolName: string): TrustPolicy[string] | undefined {
+    for (const key of Object.keys(this.policy)) {
+      if (key.includes('*') && matchGlob(key, toolName)) {
+        return this.policy[key];
+      }
+    }
+    return undefined;
+  }
+}

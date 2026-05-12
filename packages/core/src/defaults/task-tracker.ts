@@ -1,0 +1,228 @@
+import type { TaskNode, TaskGraph, TaskFilter, TaskSort, TaskProgress } from '../types/task-graph.js';
+import { computeTaskProgress } from '../types/task-graph.js';
+
+export interface TaskStore {
+  saveGraph(graph: TaskGraph): Promise<void>;
+  loadGraph(id: string): Promise<TaskGraph | null>;
+  listGraphs(): Promise<{ id: string; title: string; updatedAt: number }[]>;
+  deleteGraph(id: string): Promise<void>;
+}
+
+export interface TaskTrackerOptions {
+  store: TaskStore;
+}
+
+export interface TaskTransition {
+  from: TaskNode['status'];
+  to: TaskNode['status'];
+  timestamp: number;
+  reason?: string;
+}
+
+export class TaskTracker {
+  private graph: TaskGraph | null = null;
+  private transitions: TaskTransition[] = [];
+
+  constructor(private readonly opts: TaskTrackerOptions) {}
+
+  async createGraph(specId: string, title: string): Promise<TaskGraph> {
+    this.graph = {
+      id: crypto.randomUUID(),
+      specId,
+      title,
+      nodes: new Map(),
+      edges: [],
+      rootNodes: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    await this.opts.store.saveGraph(this.graph);
+    return this.graph;
+  }
+
+  async loadGraph(id: string): Promise<TaskGraph | null> {
+    this.graph = await this.opts.store.loadGraph(id);
+    return this.graph;
+  }
+
+  addNode(node: Omit<TaskNode, 'id' | 'createdAt' | 'updatedAt'>): TaskNode {
+    if (!this.graph) throw new Error('No graph loaded');
+
+    const now = Date.now();
+    const newNode: TaskNode = {
+      ...node,
+      id: crypto.randomUUID(),
+      status: node.status ?? 'pending',
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    this.graph.nodes.set(newNode.id, newNode);
+
+    if (!node.parentId) {
+      this.graph.rootNodes.push(newNode.id);
+    }
+
+    this.graph.updatedAt = now;
+    this.opts.store.saveGraph(this.graph);
+
+    return newNode;
+  }
+
+  addEdge(from: string, to: string, type: TaskGraph['edges'][0]['type'] = 'depends_on'): void {
+    if (!this.graph) throw new Error('No graph loaded');
+
+    const edge = {
+      id: crypto.randomUUID(),
+      from,
+      to,
+      type,
+    };
+
+    this.graph.edges.push(edge);
+    this.graph.updatedAt = Date.now();
+    this.opts.store.saveGraph(this.graph);
+  }
+
+  updateNodeStatus(id: string, status: TaskNode['status'], reason?: string): void {
+    if (!this.graph) throw new Error('No graph loaded');
+
+    const node = this.graph.nodes.get(id);
+    if (!node) throw new Error(`Node ${id} not found`);
+
+    const from = node.status;
+    node.status = status;
+    node.updatedAt = Date.now();
+
+    if (status === 'completed') {
+      node.completedAt = Date.now();
+    }
+
+    this.transitions.push({ from, to: status, timestamp: Date.now(), reason });
+
+    // Auto-unblock dependents
+    if (status === 'completed') {
+      this.unblockDependents(id);
+    }
+
+    // Auto-block blockers
+    if (status === 'in_progress') {
+      this.checkAndBlockIfNeeded(id);
+    }
+
+    this.graph.updatedAt = Date.now();
+    this.opts.store.saveGraph(this.graph);
+  }
+
+  getNode(id: string): TaskNode | undefined {
+    return this.graph?.nodes.get(id);
+  }
+
+  getAllNodes(filter?: TaskFilter, sort?: TaskSort): TaskNode[] {
+    if (!this.graph) return [];
+
+    let nodes = Array.from(this.graph.nodes.values());
+
+    if (filter) {
+      nodes = nodes.filter((n) => {
+        if (filter.status?.length && !filter.status.includes(n.status)) return false;
+        if (filter.priority?.length && !filter.priority.includes(n.priority)) return false;
+        if (filter.type?.length && !filter.type.includes(n.type)) return false;
+        if (filter.assignee?.length && n.assignee && !filter.assignee.includes(n.assignee)) return false;
+        if (filter.tags?.length && n.tags && !n.tags.some((t) => filter.tags!.includes(t))) return false;
+        if (filter.specRequirementId && n.specRequirementId !== filter.specRequirementId) return false;
+        return true;
+      });
+    }
+
+    if (sort) {
+      nodes.sort((a, b) => {
+        const aVal = a[sort.field] ?? '';
+        const bVal = b[sort.field] ?? '';
+        const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
+        return sort.direction === 'asc' ? cmp : -cmp;
+      });
+    }
+
+    return nodes;
+  }
+
+  getChildren(parentId: string): TaskNode[] {
+    if (!this.graph) return [];
+    return Array.from(this.graph.nodes.values()).filter((n) => n.parentId === parentId);
+  }
+
+  getDependents(taskId: string): string[] {
+    if (!this.graph) return [];
+    return this.graph.edges
+      .filter((e) => e.from === taskId && e.type === 'depends_on')
+      .map((e) => e.to);
+  }
+
+  getBlockers(taskId: string): string[] {
+    if (!this.graph) return [];
+    return this.graph.edges
+      .filter((e) => e.to === taskId && e.type === 'depends_on')
+      .map((e) => e.from);
+  }
+
+  canStart(taskId: string): boolean {
+    const blockers = this.getBlockers(taskId);
+    return blockers.every((id) => {
+      const node = this.graph?.nodes.get(id);
+      return node?.status === 'completed';
+    });
+  }
+
+  getProgress(): TaskProgress {
+    if (!this.graph) {
+      return {
+        total: 0, pending: 0, inProgress: 0, blocked: 0,
+        failed: 0, review: 0, completed: 0,
+        percentComplete: 0, estimatedHours: 0, actualHours: 0,
+      };
+    }
+    return computeTaskProgress(this.graph);
+  }
+
+  getTransitions(taskId?: string): TaskTransition[] {
+    if (!taskId) return [...this.transitions];
+    // Would need taskId tracking per transition
+    return [...this.transitions];
+  }
+
+  private unblockDependents(completedId: string): void {
+    if (!this.graph) return;
+    const dependents = this.getDependents(completedId);
+    for (const depId of dependents) {
+      const dep = this.graph.nodes.get(depId);
+      if (dep?.status === 'blocked') {
+        const remainingBlockers = this.getBlockers(depId);
+        const allUnblocked = remainingBlockers.every((id) => {
+          const blocker = this.graph?.nodes.get(id);
+          return blocker?.status === 'completed';
+        });
+        if (allUnblocked) {
+          dep.status = 'pending';
+          dep.updatedAt = Date.now();
+        }
+      }
+    }
+  }
+
+  private checkAndBlockIfNeeded(taskId: string): void {
+    if (!this.graph) return;
+    const blockers = this.getBlockers(taskId);
+    const someBlocked = blockers.some((id) => {
+      const blocker = this.graph?.nodes.get(id);
+      return blocker?.status !== 'completed';
+    });
+    if (someBlocked) {
+      const node = this.graph.nodes.get(taskId);
+      if (node) {
+        node.status = 'blocked';
+        node.updatedAt = Date.now();
+      }
+    }
+  }
+}

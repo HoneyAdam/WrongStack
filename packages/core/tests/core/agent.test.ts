@@ -1,0 +1,342 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import { Container } from '../../src/kernel/container.js';
+import { EventBus } from '../../src/kernel/events.js';
+import { TOKENS } from '../../src/kernel/tokens.js';
+import { ToolRegistry } from '../../src/registry/tool-registry.js';
+import { ProviderRegistry } from '../../src/registry/provider-registry.js';
+import { Agent, createDefaultPipelines } from '../../src/core/agent.js';
+import { Context } from '../../src/core/context.js';
+import { DefaultLogger } from '../../src/defaults/logger.js';
+import { DefaultRetryPolicy } from '../../src/defaults/retry-policy.js';
+import { DefaultErrorHandler } from '../../src/defaults/error-handler.js';
+import { DefaultSecretScrubber } from '../../src/defaults/secret-scrubber.js';
+import { DefaultTokenCounter } from '../../src/defaults/token-counter.js';
+import { DefaultPermissionPolicy } from '../../src/defaults/permission-policy.js';
+import { DefaultSessionStore } from '../../src/defaults/session-store.js';
+import type { Tool } from '../../src/types/tool.js';
+import { MockProvider, StreamingMockProvider } from '../helpers/mock-provider.js';
+
+async function buildAgent(provider: MockProvider, extraTools: Tool[] = []) {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-ag-'));
+  const trustFile = path.join(tmp, 'trust.json');
+  const sessionDir = path.join(tmp, 'sessions');
+
+  const container = new Container();
+  container.bind(TOKENS.Logger, () => new DefaultLogger({ level: 'error' }));
+  container.bind(TOKENS.RetryPolicy, () => new DefaultRetryPolicy());
+  container.bind(TOKENS.ErrorHandler, () => new DefaultErrorHandler());
+  container.bind(TOKENS.SecretScrubber, () => new DefaultSecretScrubber());
+  container.bind(TOKENS.TokenCounter, () => new DefaultTokenCounter());
+  container.bind(
+    TOKENS.PermissionPolicy,
+    () => new DefaultPermissionPolicy({ trustFile, yolo: true }),
+  );
+
+  const tools = new ToolRegistry();
+  for (const t of extraTools) tools.register(t);
+  const providers = new ProviderRegistry();
+  const events = new EventBus();
+  const pipelines = createDefaultPipelines();
+
+  const sessionStore = new DefaultSessionStore({ dir: sessionDir });
+  const session = await sessionStore.create({ id: '', model: 'test', provider: 'mock' });
+
+  const ctx = new Context({
+    systemPrompt: [{ type: 'text', text: 'You are a test agent.' }],
+    provider,
+    session,
+    signal: new AbortController().signal,
+    tokenCounter: container.resolve(TOKENS.TokenCounter),
+    cwd: tmp,
+    projectRoot: tmp,
+    model: 'test-model',
+  });
+
+  const agent = new Agent({
+    container,
+    tools,
+    providers,
+    events,
+    pipelines,
+    context: ctx,
+    maxIterations: 10,
+  });
+  return { agent, ctx, tools, tmp, sessionStore };
+}
+
+describe('Agent', () => {
+  let cleanupDirs: string[] = [];
+  beforeEach(() => {
+    cleanupDirs = [];
+  });
+  afterEach(async () => {
+    for (const d of cleanupDirs) await fs.rm(d, { recursive: true, force: true });
+  });
+
+  it('returns done on plain end_turn response', async () => {
+    const provider = new MockProvider([
+      { content: [{ type: 'text', text: 'hi' }], stopReason: 'end_turn' },
+    ]);
+    const { agent, tmp } = await buildAgent(provider);
+    cleanupDirs.push(tmp);
+    const result = await agent.run('hello');
+    expect(result.status).toBe('done');
+    expect(result.finalText).toBe('hi');
+    expect(provider.calls).toBe(1);
+  });
+
+  it('executes tool use and continues', async () => {
+    const echo: Tool = {
+      name: 'echo',
+      description: 'echo input',
+      inputSchema: { type: 'object', properties: { text: { type: 'string' } } },
+      permission: 'auto',
+      mutating: false,
+      async execute(input) {
+        return (input as { text: string }).text;
+      },
+    };
+    const provider = new MockProvider([
+      {
+        content: [
+          { type: 'tool_use', id: 'u1', name: 'echo', input: { text: 'pong' } },
+        ],
+        stopReason: 'tool_use',
+      },
+      { content: [{ type: 'text', text: 'done' }], stopReason: 'end_turn' },
+    ]);
+    const { agent, tmp } = await buildAgent(provider, [echo]);
+    cleanupDirs.push(tmp);
+    const result = await agent.run('ping');
+    expect(result.status).toBe('done');
+    expect(provider.calls).toBe(2);
+  });
+
+  it('handles unknown tool with error result', async () => {
+    const provider = new MockProvider([
+      {
+        content: [{ type: 'tool_use', id: 'u1', name: 'nope', input: {} }],
+        stopReason: 'tool_use',
+      },
+      { content: [{ type: 'text', text: 'recovered' }], stopReason: 'end_turn' },
+    ]);
+    const { agent, tmp } = await buildAgent(provider);
+    cleanupDirs.push(tmp);
+    const result = await agent.run('try');
+    expect(result.status).toBe('done');
+    expect(result.finalText).toBe('recovered');
+  });
+
+  it('respects max iterations', async () => {
+    const script = Array.from({ length: 20 }, () => ({
+      content: [{ type: 'tool_use' as const, id: 'u', name: 'echo', input: {} }],
+      stopReason: 'tool_use' as const,
+    }));
+    const echo: Tool = {
+      name: 'echo',
+      description: '',
+      inputSchema: { type: 'object' },
+      permission: 'auto',
+      mutating: false,
+      async execute() {
+        return '';
+      },
+    };
+    const provider = new MockProvider(script);
+    const { agent, tmp } = await buildAgent(provider, [echo]);
+    cleanupDirs.push(tmp);
+    const result = await agent.run('loop', { maxIterations: 3 });
+    expect(result.status).toBe('max_iterations');
+  });
+
+  it('aborts cleanly on signal', async () => {
+    const provider = new MockProvider([
+      { content: [{ type: 'text', text: 'ok' }], stopReason: 'end_turn' },
+    ]);
+    const { agent, tmp } = await buildAgent(provider);
+    cleanupDirs.push(tmp);
+    const ctrl = new AbortController();
+    ctrl.abort();
+    const result = await agent.run('hi', { signal: ctrl.signal });
+    expect(result.status).toBe('aborted');
+  });
+
+  it('captures tool errors as error tool_result and continues', async () => {
+    const exploding: Tool = {
+      name: 'boom',
+      description: '',
+      inputSchema: { type: 'object' },
+      permission: 'auto',
+      mutating: false,
+      async execute() {
+        throw new Error('tool exploded');
+      },
+    };
+    const provider = new MockProvider([
+      {
+        content: [{ type: 'tool_use', id: 'u1', name: 'boom', input: {} }],
+        stopReason: 'tool_use',
+      },
+      { content: [{ type: 'text', text: 'after error' }], stopReason: 'end_turn' },
+    ]);
+    const { agent, tmp } = await buildAgent(provider, [exploding]);
+    cleanupDirs.push(tmp);
+    const result = await agent.run('go');
+    expect(result.status).toBe('done');
+    expect(provider.calls).toBe(2);
+  });
+
+  it('accepts ContentBlock[] input including image blocks', async () => {
+    const provider = new MockProvider([
+      { content: [{ type: 'text', text: 'saw it' }], stopReason: 'end_turn' },
+    ]);
+    const { agent, ctx, tmp } = await buildAgent(provider);
+    cleanupDirs.push(tmp);
+    const result = await agent.run([
+      { type: 'text', text: 'what is in this image?' },
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+    ]);
+    expect(result.status).toBe('done');
+    const firstUser = ctx.messages.find((m) => m.role === 'user');
+    expect(firstUser).toBeDefined();
+    expect(Array.isArray(firstUser!.content)).toBe(true);
+    expect((firstUser!.content as unknown[]).length).toBe(2);
+  });
+
+  it('uses stream() path for streaming-capable providers and emits text_delta', async () => {
+    const provider = new StreamingMockProvider([
+      { content: [{ type: 'text', text: 'hello world' }], stopReason: 'end_turn' },
+    ]);
+    const { agent, tmp } = await buildAgent(provider as unknown as MockProvider);
+    cleanupDirs.push(tmp);
+    const deltas: string[] = [];
+    agent.events.on('provider.text_delta', (p) => deltas.push(p.text));
+    const result = await agent.run('hi');
+    expect(result.status).toBe('done');
+    expect(result.finalText).toBe('hello world');
+    expect(deltas.length).toBeGreaterThanOrEqual(2);
+    expect(deltas.join('')).toBe('hello world');
+  });
+
+  it('streams tool_use blocks and emits tool_use_start/stop events', async () => {
+    const provider = new StreamingMockProvider([
+      {
+        content: [
+          { type: 'tool_use', id: 'u1', name: 'echo', input: { text: 'pong' } },
+        ],
+        stopReason: 'tool_use',
+      },
+      { content: [{ type: 'text', text: 'done' }], stopReason: 'end_turn' },
+    ]);
+    const echo: Tool = {
+      name: 'echo',
+      description: '',
+      inputSchema: { type: 'object' },
+      permission: 'auto',
+      mutating: false,
+      async execute(input) {
+        return (input as { text: string }).text;
+      },
+    };
+    const { agent, tmp } = await buildAgent(provider as unknown as MockProvider, [echo]);
+    cleanupDirs.push(tmp);
+    const toolStarts: { id: string; name: string }[] = [];
+    agent.events.on('provider.tool_use_start', (p) => toolStarts.push({ id: p.id, name: p.name }));
+    const result = await agent.run('go');
+    expect(result.status).toBe('done');
+    expect(toolStarts).toEqual([{ id: 'u1', name: 'echo' }]);
+  });
+
+  it('preserves partial assistant text when aborted mid-stream', async () => {
+    // Custom streaming provider that yields a few text deltas, then waits
+    // long enough for the abort to fire mid-stream.
+    const ctrlBox: { current?: AbortController } = {};
+    const provider = {
+      id: 'partial-mock',
+      capabilities: {
+        tools: false,
+        parallelTools: false,
+        vision: false,
+        streaming: true,
+        promptCache: false,
+        systemPrompt: true,
+        jsonMode: false,
+        maxContext: 200_000,
+        cacheControl: 'none' as const,
+      },
+      // biome-ignore lint/correctness/useYield: stub
+      async *stream(_req: { model: string }, opts: { signal: AbortSignal }) {
+        yield { type: 'message_start', model: 'm' };
+        yield { type: 'text_delta', text: 'partial ' };
+        yield { type: 'text_delta', text: 'answer' };
+        // Abort happens here
+        ctrlBox.current?.abort();
+        // Wait a tick so the abort propagates before the next yield
+        await new Promise((r) => setImmediate(r));
+        if (opts.signal.aborted) throw new DOMException('aborted', 'AbortError');
+        yield { type: 'text_delta', text: ' that should not appear' };
+        yield { type: 'message_stop', stopReason: 'end_turn', usage: { input: 5, output: 3 } };
+      },
+      async complete() {
+        throw new Error('unused');
+      },
+    } as unknown as MockProvider;
+    const { agent, ctx, tmp } = await buildAgent(provider);
+    cleanupDirs.push(tmp);
+    const ctrl = new AbortController();
+    ctrlBox.current = ctrl;
+    const deltas: string[] = [];
+    agent.events.on('provider.text_delta', (p) => deltas.push(p.text));
+    const result = await agent.run('hi', { signal: ctrl.signal });
+    expect(result.status).toBe('aborted');
+    expect(result.finalText).toBe('partial answer');
+    expect(deltas.join('')).toBe('partial answer');
+    // Partial assistant message must be in the transcript so the next turn
+    // has the context.
+    const last = ctx.messages[ctx.messages.length - 1];
+    expect(last?.role).toBe('assistant');
+    const firstBlock = Array.isArray(last?.content) ? last.content[0] : undefined;
+    expect(firstBlock).toMatchObject({ type: 'text', text: 'partial answer' });
+  });
+
+  it('drains context abort hooks on normal completion', async () => {
+    const provider = new StreamingMockProvider([
+      { content: [{ type: 'text', text: 'ok' }], stopReason: 'end_turn' },
+    ]);
+    const { agent, ctx, tmp } = await buildAgent(provider as unknown as MockProvider);
+    cleanupDirs.push(tmp);
+    let hookFired = false;
+    ctx.registerAbortHook(() => {
+      hookFired = true;
+    });
+    await agent.run('hi');
+    expect(hookFired).toBe(true);
+  });
+
+  it('serialises object tool results as JSON', async () => {
+    const objTool: Tool = {
+      name: 'objres',
+      description: '',
+      inputSchema: { type: 'object' },
+      permission: 'auto',
+      mutating: false,
+      async execute() {
+        return { foo: 1, bar: ['a', 'b'] };
+      },
+    };
+    const provider = new MockProvider([
+      {
+        content: [{ type: 'tool_use', id: 'u1', name: 'objres', input: {} }],
+        stopReason: 'tool_use',
+      },
+      { content: [{ type: 'text', text: 'k' }], stopReason: 'end_turn' },
+    ]);
+    const { agent, tmp } = await buildAgent(provider, [objTool]);
+    cleanupDirs.push(tmp);
+    const result = await agent.run('go');
+    expect(result.status).toBe('done');
+  });
+});

@@ -1,0 +1,26 @@
+node_modules/
+dist/
+coverage/
+.DS_Store
+*.log
+.env
+.env.local
+.wrongstack/sessions/
+.wrongstack/logs/
+.wrongstack/memory.md
+.wrongstack/trust.json
+.wrongstack/config.local.*
+*.tsbuildinfo
+.turbo/
+.bun/
+
+.dfmt/
+.dfmc/
+
+# Editor swap files
+*.swp
+*~
+
+# Vitest coverage
+coverage/
+coverage/**

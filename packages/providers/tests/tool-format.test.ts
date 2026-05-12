@@ -1,0 +1,267 @@
+import { describe, it, expect } from 'vitest';
+import { messagesToOpenAI, toolsToOpenAI } from '../src/tool-format/to-openai.js';
+import { contentFromOpenAI } from '../src/tool-format/from-openai.js';
+import { toolsToAnthropic } from '../src/tool-format/to-anthropic.js';
+import { contentFromAnthropic } from '../src/tool-format/from-anthropic.js';
+import type { Message, Tool } from '@wrongstack/core';
+
+describe('tool-format conversions', () => {
+  it('toolsToAnthropic passes name and schema', () => {
+    const t: Tool = {
+      name: 'read',
+      description: 'read',
+      inputSchema: { type: 'object', properties: { path: { type: 'string' } } },
+      permission: 'auto',
+      mutating: false,
+      async execute() {
+        return '';
+      },
+    };
+    const out = toolsToAnthropic([t]);
+    expect(out[0]).toEqual({
+      name: 'read',
+      description: 'read',
+      input_schema: { type: 'object', properties: { path: { type: 'string' } } },
+    });
+  });
+
+  it('messagesToOpenAI splits tool_results into tool role messages', () => {
+    const messages: Message[] = [
+      { role: 'user', content: 'hi' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'using' },
+          { type: 'tool_use', id: 'u1', name: 'read', input: { path: 'a' } },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'u1', content: 'file contents' },
+        ],
+      },
+    ];
+    const out = messagesToOpenAI(undefined, messages);
+    expect(out.some((m) => m.role === 'tool' && m.tool_call_id === 'u1')).toBe(true);
+    const assistant = out.find((m) => m.role === 'assistant');
+    expect(assistant?.tool_calls).toHaveLength(1);
+  });
+
+  it('contentFromOpenAI parses tool_calls', () => {
+    const content = contentFromOpenAI({
+      message: {
+        role: 'assistant',
+        content: null,
+        tool_calls: [
+          {
+            id: 'tc1',
+            type: 'function',
+            function: { name: 'read', arguments: '{"path":"a.ts"}' },
+          },
+        ],
+      },
+      finish_reason: 'tool_calls',
+    });
+    expect(content[0]).toMatchObject({
+      type: 'tool_use',
+      id: 'tc1',
+      name: 'read',
+      input: { path: 'a.ts' },
+    });
+  });
+
+  it('contentFromOpenAI handles malformed args with jsonArgumentsBuggy', () => {
+    const content = contentFromOpenAI(
+      {
+        message: {
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: 'tc1',
+              type: 'function',
+              function: { name: 'read', arguments: '{"path":"a",}' },
+            },
+          ],
+        },
+        finish_reason: 'tool_calls',
+      },
+      { jsonArgumentsBuggy: true },
+    );
+    expect(content[0]).toMatchObject({
+      type: 'tool_use',
+      input: { path: 'a' },
+    });
+  });
+
+  it('contentFromOpenAI surfaces unparseable args as __raw_arguments', () => {
+    const content = contentFromOpenAI({
+      message: {
+        role: 'assistant',
+        content: null,
+        tool_calls: [
+          {
+            id: 'tc1',
+            type: 'function',
+            function: { name: 'read', arguments: 'not-json' },
+          },
+        ],
+      },
+      finish_reason: 'tool_calls',
+    });
+    expect(content[0]).toMatchObject({
+      type: 'tool_use',
+      input: { __raw_arguments: 'not-json' },
+    });
+  });
+
+  it('contentFromOpenAI emits an empty text block when message is empty', () => {
+    const content = contentFromOpenAI({
+      message: { role: 'assistant', content: null },
+      finish_reason: 'stop',
+    });
+    expect(content).toHaveLength(1);
+    expect(content[0]).toEqual({ type: 'text', text: '' });
+  });
+
+  it('toolsToOpenAI wraps tools in {type:function, function:{...}}', () => {
+    const t: Tool = {
+      name: 'edit',
+      description: 'edit',
+      inputSchema: { type: 'object', properties: {} },
+      permission: 'confirm',
+      mutating: true,
+      async execute() {
+        return '';
+      },
+    };
+    const out = toolsToOpenAI([t]);
+    expect(out[0]?.type).toBe('function');
+    expect(out[0]?.function.name).toBe('edit');
+    expect(out[0]?.function.description).toBe('edit');
+  });
+
+  it('toolsToOpenAI falls back to empty schema when none provided', () => {
+    const t: Tool = {
+      name: 'noop',
+      description: '',
+      inputSchema: undefined as unknown as Record<string, unknown>,
+      permission: 'auto',
+      mutating: false,
+      async execute() {
+        return '';
+      },
+    };
+    const out = toolsToOpenAI([t]);
+    expect(out[0]?.function.parameters).toEqual({ type: 'object', properties: {} });
+  });
+
+  it('messagesToOpenAI prepends system as system role by default', () => {
+    const out = messagesToOpenAI(
+      [{ type: 'text', text: 'be terse' }],
+      [{ role: 'user', content: 'hi' }],
+    );
+    expect(out[0]?.role).toBe('system');
+    expect(out[0]?.content).toBe('be terse');
+  });
+
+  it('messagesToOpenAI merges system as user message when systemAsMessage:true', () => {
+    const out = messagesToOpenAI(
+      [{ type: 'text', text: 'be terse' }],
+      [{ role: 'user', content: 'hi' }],
+      { systemAsMessage: true },
+    );
+    expect(out[0]?.role).toBe('user');
+    expect(out[0]?.content).toBe('be terse');
+  });
+
+  it('messagesToOpenAI emits empty string content for tool-only assistant message under emptyToolCallContent:empty_string', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'u1', name: 'x', input: {} }],
+      },
+    ];
+    const out = messagesToOpenAI(undefined, messages, {
+      emptyToolCallContent: 'empty_string',
+    });
+    const a = out.find((m) => m.role === 'assistant')!;
+    expect(a.content).toBe('');
+    expect(a.tool_calls).toHaveLength(1);
+  });
+
+  it('messagesToOpenAI flattens image content to text marker under flattenContentToString', () => {
+    const messages: Message[] = [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'see: ' },
+          { type: 'image', source: { type: 'url', url: 'https://x/p.png' } },
+        ],
+      },
+    ];
+    const out = messagesToOpenAI(undefined, messages, { flattenContentToString: true });
+    const u = out.find((m) => m.role === 'user')!;
+    expect(u.content).toContain('see: ');
+    expect(u.content).toContain('[image]');
+  });
+
+  it('messagesToOpenAI keeps image_url entries when image present without flatten', () => {
+    const messages: Message[] = [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'see' },
+          { type: 'image', source: { type: 'url', url: 'https://x/p.png' } },
+        ],
+      },
+    ];
+    const out = messagesToOpenAI(undefined, messages);
+    const u = out.find((m) => m.role === 'user')!;
+    expect(Array.isArray(u.content)).toBe(true);
+    const arr = u.content as Array<{ type: string; image_url?: { url: string } }>;
+    expect(arr.find((c) => c.type === 'image_url')?.image_url?.url).toBe('https://x/p.png');
+  });
+
+  it('messagesToOpenAI builds data URI for base64 image source', () => {
+    const messages: Message[] = [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: { type: 'base64', media_type: 'image/jpeg', data: 'AAAA' },
+          },
+        ],
+      },
+    ];
+    const out = messagesToOpenAI(undefined, messages);
+    const u = out.find((m) => m.role === 'user')!;
+    const arr = u.content as Array<{ type: string; image_url?: { url: string } }>;
+    expect(arr[0]?.image_url?.url).toBe('data:image/jpeg;base64,AAAA');
+  });
+
+  it('contentFromAnthropic copies text, tool_use, tool_result and drops unknowns', () => {
+    const blocks = contentFromAnthropic([
+      { type: 'text', text: 'hi' },
+      { type: 'tool_use', id: 'u1', name: 'read', input: { path: 'a' } },
+      { type: 'tool_result', tool_use_id: 'u1', content: 'ok', is_error: false },
+      { type: 'unknown_block' },
+      // missing required fields — should be dropped
+      { type: 'tool_use' },
+      { type: 'text' },
+    ]);
+    expect(blocks).toHaveLength(3);
+    expect(blocks[0]?.type).toBe('text');
+    expect(blocks[1]?.type).toBe('tool_use');
+    expect(blocks[2]?.type).toBe('tool_result');
+  });
+
+  it('contentFromAnthropic defaults missing tool_use input to empty object', () => {
+    const blocks = contentFromAnthropic([
+      { type: 'tool_use', id: 'u', name: 'n' },
+    ]);
+    expect(blocks[0]).toMatchObject({ type: 'tool_use', input: {} });
+  });
+});

@@ -1,0 +1,61 @@
+# WrongStack — llms.txt
+
+Built on the wrong stack. Shipped anyway. CLI AI coding agent.
+
+## Install
+
+    npm install -g wrongstack
+
+## Minimal config
+
+    # ~/.wrongstack/config.json
+    {
+      "version": 1,
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-6",
+      "apiKey": "sk-ant-..."
+    }
+
+## CLI surface
+
+    wstack                         # REPL
+    wstack "<task>"                # single-shot
+    wstack resume [<id>]           # continue session
+    wstack init                    # scaffold
+    wstack diag                    # diagnostics
+    wstack version
+
+## Slash commands (in REPL)
+
+    /help /clear /compact [aggressive] /usage /tools
+    /skill [name] /use <provider> /model <name> /save /load /exit
+
+## Built-in tools (8 + memory)
+
+    read write edit glob grep bash fetch todo
+    remember forget
+
+## Providers
+
+    anthropic openai openai-compatible
+    Presets: groq, deepseek, moonshot, glm, ollama, openrouter,
+             fireworks, together, xai, cerebras
+
+## Override surface
+
+    Container.bind / override / decorate
+    Pipeline.use / prepend / insertBefore / insertAfter / replace / remove
+    ToolRegistry.register / replace / unregister
+    ProviderRegistry.register
+    EventBus.on (observe-only)
+
+## Plugin contract
+
+    interface Plugin {
+      name: string;
+      apiVersion: string;
+      dependsOn?: string[];
+      conflictsWith?: string[];
+      setup(api: PluginAPI): void | Promise<void>;
+      teardown?(api: PluginAPI): void | Promise<void>;
+    }

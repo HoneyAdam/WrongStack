@@ -1,0 +1,17 @@
+{
+  "name": "wrongstack",
+  "version": "0.0.1",
+  "type": "module",
+  "bin": {
+    "wstack": "./src/index.js",
+    "wrongstack": "./src/index.js"
+  },
+  "files": ["src"],
+  "scripts": {
+    "build": "echo 'no build'",
+    "typecheck": "echo 'no typecheck'"
+  },
+  "dependencies": {
+    "@wrongstack/cli": "workspace:*"
+  }
+}

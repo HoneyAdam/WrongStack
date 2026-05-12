@@ -1,0 +1,38 @@
+import type { Token } from './container.js';
+import type { Logger } from '../types/logger.js';
+import type { TokenCounter } from '../types/token-counter.js';
+import type { SessionStore } from '../types/session.js';
+import type { MemoryStore } from '../types/memory.js';
+import type { PermissionPolicy } from '../types/permission.js';
+import type { Compactor } from '../types/compactor.js';
+import type { PathResolver } from '../types/path-resolver.js';
+import type { ConfigLoader } from '../types/config.js';
+import type { Renderer } from '../types/renderer.js';
+import type { InputReader } from '../types/input-reader.js';
+import type { ErrorHandler } from '../types/error-handler.js';
+import type { RetryPolicy } from '../types/retry-policy.js';
+import type { SkillLoader } from '../types/skill.js';
+import type { SystemPromptBuilder } from '../types/system-prompt.js';
+import type { SecretScrubber } from '../types/secret-scrubber.js';
+import type { ModelsRegistry } from '../types/models-registry.js';
+
+const t = <T>(name: string): Token<T> => Symbol(name) as Token<T>;
+
+export const TOKENS = {
+  Logger: t<Logger>('Logger'),
+  TokenCounter: t<TokenCounter>('TokenCounter'),
+  SessionStore: t<SessionStore>('SessionStore'),
+  MemoryStore: t<MemoryStore>('MemoryStore'),
+  PermissionPolicy: t<PermissionPolicy>('PermissionPolicy'),
+  Compactor: t<Compactor>('Compactor'),
+  PathResolver: t<PathResolver>('PathResolver'),
+  ConfigLoader: t<ConfigLoader>('ConfigLoader'),
+  Renderer: t<Renderer>('Renderer'),
+  InputReader: t<InputReader>('InputReader'),
+  ErrorHandler: t<ErrorHandler>('ErrorHandler'),
+  RetryPolicy: t<RetryPolicy>('RetryPolicy'),
+  SkillLoader: t<SkillLoader>('SkillLoader'),
+  SystemPromptBuilder: t<SystemPromptBuilder>('SystemPromptBuilder'),
+  SecretScrubber: t<SecretScrubber>('SecretScrubber'),
+  ModelsRegistry: t<ModelsRegistry>('ModelsRegistry'),
+} as const;
