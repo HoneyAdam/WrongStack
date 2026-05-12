@@ -62,6 +62,8 @@ const BOOLEAN_FLAGS = new Set([
   'version',
   'no-banner',
   'no-features',
+  'tui',
+  'no-tui',
 ]);
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -617,6 +619,18 @@ export async function main(argv: string[]): Promise<number> {
       } finally {
         process.off('SIGINT', onSigint);
       }
+    } else if (flags.tui && !flags['no-tui']) {
+      // Lazy-load to avoid pulling React/Ink into the cold path for non-TUI usage.
+      const { runTui } = await import('@wrongstack/tui');
+      code = await runTui({
+        agent,
+        events,
+        slashRegistry,
+        attachments,
+        tokenCounter,
+        model: context.model,
+        banner: !flags['no-banner'],
+      });
     } else {
       code = await runRepl({
         agent,

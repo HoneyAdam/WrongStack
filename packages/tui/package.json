@@ -1,13 +1,9 @@
 {
-  "name": "@wrongstack/cli",
+  "name": "@wrongstack/tui",
   "version": "0.0.1",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "bin": {
-    "wstack": "./dist/index.js",
-    "wrongstack": "./dist/index.js"
-  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -22,13 +18,12 @@
   },
   "dependencies": {
     "@wrongstack/core": "workspace:*",
-    "@wrongstack/providers": "workspace:*",
-    "@wrongstack/tools": "workspace:*",
-    "@wrongstack/mcp": "workspace:*",
-    "@wrongstack/tui": "workspace:*"
+    "ink": "^5.0.1",
+    "react": "^18.3.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "@types/react": "^18.3.12",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2"
   }
