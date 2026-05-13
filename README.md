@@ -14,10 +14,14 @@ Provider catalog comes from [models.dev](https://models.dev) — no hardcoded pr
 ## Install
 
 ```bash
-npm install -g wrongstack
+npm install -g @wrongstack/cli
 # or
-pnpm add -g wrongstack
+pnpm add -g @wrongstack/cli
 ```
+
+Installing `@wrongstack/cli` pulls in the rest of the stack as dependencies — `@wrongstack/core`, `@wrongstack/providers`, `@wrongstack/tools`, `@wrongstack/mcp`, and `@wrongstack/tui`. The TUI is shipped but lazy-loaded behind `--tui`, so plain-REPL users pay no React/Ink import cost at startup.
+
+After install, both `wstack` and `wrongstack` are on your `PATH`.
 
 ## First-run setup
 
@@ -362,7 +366,7 @@ A plugin declares `apiVersion: "^1.0"` and gets the full `PluginAPI`: container,
 | `@wrongstack/tools` | 33 built-in tools |
 | `@wrongstack/mcp` | MCP server registry + reconnection logic |
 | `@wrongstack/cli` | REPL, subcommands, slash commands, terminal renderer |
-| `@wrongstack/tui` | Ink-based TUI (paste collapse, @-picker, image paste) — lazy-loaded |
+| `@wrongstack/tui` | Ink-based TUI (paste collapse, @-picker, image paste) — lazy-loaded behind `--tui` |
 
 ## Architecture
 

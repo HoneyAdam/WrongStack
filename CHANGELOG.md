@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Version 0.1.0** — all packages bumped to 0.1.0; plugin `apiVersion` minimum now `^0.1.0`
+  - Plugins using `apiVersion: "^1.0"` will no longer load — update to `^0.1.0`
+
+## [0.1.0] — 2026-05-13
+
 ### Added
 
 - **TUI (React/Ink)** — full-screen terminal UI with alternate screen buffer, streaming text, slash command picker, file picker (`@` token), message queue, and crash recovery
@@ -53,6 +60,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Streaming flicker** — per-character Ink re-renders during streaming now throttled at 100ms, eliminating visible flash/jitter on fast providers
 
-## [0.0.1] — 2026-05-12
+## [0.1.0] — 2026-05-13
 
 Initial release.

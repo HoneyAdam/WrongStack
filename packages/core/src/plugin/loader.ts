@@ -7,7 +7,7 @@ import type { Logger } from '../types/logger.js';
  * (PluginAPI, types/plugin) changes in a way that breaks existing setup
  * functions. Plugins declare `apiVersion: "^1.0"` to opt into this contract.
  */
-export const KERNEL_API_VERSION = '1.0.0';
+export const KERNEL_API_VERSION = '0.1.0';
 
 export interface LoadPluginsOptions {
   apiFactory: (plugin: Plugin) => PluginAPI;
