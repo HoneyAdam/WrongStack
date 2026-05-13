@@ -16,8 +16,10 @@ export interface PickerResult {
  */
 function hasApiKey(provider: ResolvedProvider, config?: Config): boolean {
   if (provider.envVars.some((v) => !!process.env[v])) return true;
-  const stored = config?.providers?.[provider.id]?.apiKey;
-  if (typeof stored === 'string' && stored.length > 0) return true;
+  const entry = config?.providers?.[provider.id];
+  if (!entry) return false;
+  if (typeof entry.apiKey === 'string' && entry.apiKey.length > 0) return true;
+  if (Array.isArray(entry.apiKeys) && entry.apiKeys.some((k) => k?.apiKey)) return true;
   return false;
 }
 
@@ -54,7 +56,63 @@ export async function runPicker(deps: {
   // Drop unsupported wire families — they need a plugin and can't be
   // selected through this path.
   const supported = providers.filter((p) => p.family !== 'unsupported');
-  if (supported.length === 0) {
+
+  // Build the display list by overlaying saved config on top of the
+  // catalog. Two kinds of saved entries matter:
+  //   1. The map key matches a catalog id (`zai-coding-plan`) — the
+  //      user may have overridden family/baseUrl. We MUST honor those
+  //      overrides for grouping/display, otherwise an entry the user
+  //      saved as `family: "anthropic"` would still appear under the
+  //      catalog's `openai-compatible` group.
+  //   2. The map key is an alias not in the catalog. Its `cfg.type` may
+  //      still point at a catalog id, in which case we inherit the
+  //      model list and display name from there.
+  const catalogById = new Map(supported.map((p) => [p.id, p]));
+  const overlay = config?.providers ?? {};
+  const seen = new Set<string>();
+  const merged: ResolvedProvider[] = [];
+  for (const p of supported) {
+    const cfg = overlay[p.id];
+    seen.add(p.id);
+    if (cfg) {
+      merged.push({
+        ...p,
+        family: cfg.family ?? p.family,
+        apiBase: cfg.baseUrl ?? p.apiBase,
+        envVars: cfg.envVars && cfg.envVars.length > 0 ? cfg.envVars : p.envVars,
+        // When the user has saved an explicit model list, it wins — they
+        // know which models their endpoint actually serves (e.g. LM
+        // Studio, vLLM, or a proxy with custom model ids). Otherwise the
+        // catalog list keeps providing suggestions.
+        models:
+          cfg.models && cfg.models.length > 0
+            ? cfg.models.map((m) => ({ id: m, name: m }))
+            : p.models,
+      });
+    } else {
+      merged.push(p);
+    }
+  }
+  for (const [id, cfg] of Object.entries(overlay)) {
+    if (seen.has(id)) continue;
+    if (!cfg?.family || cfg.family === 'unsupported') continue;
+    const catalogType = cfg.type && cfg.type !== id ? cfg.type : undefined;
+    const inherited = catalogType ? catalogById.get(catalogType) : undefined;
+    merged.push({
+      id,
+      name: inherited ? `${inherited.name} ${color.dim('(alias)')}` : id,
+      family: cfg.family,
+      apiBase: cfg.baseUrl ?? inherited?.apiBase,
+      envVars: cfg.envVars ?? inherited?.envVars ?? [],
+      models:
+        cfg.models && cfg.models.length > 0
+          ? cfg.models.map((m) => ({ id: m, name: m }))
+          : inherited?.models ?? [],
+      npm: inherited?.npm,
+    });
+  }
+
+  if (merged.length === 0) {
     renderer.writeError('No supported providers found in catalog.');
     return undefined;
   }
@@ -63,11 +121,11 @@ export async function runPicker(deps: {
   // vars set), fall back to the full list and prompt the user to add a
   // key — picking a keyless provider here is still useful because the
   // very next step (`wstack auth <prov>`) needs to know which provider.
-  const keyed = supported.filter((p) => hasApiKey(p, config));
+  const keyed = merged.filter((p) => hasApiKey(p, config));
   let displayList = keyed;
   let showingFallback = false;
   if (keyed.length === 0) {
-    displayList = supported;
+    displayList = merged;
     showingFallback = true;
   }
 
@@ -92,9 +150,10 @@ export async function runPicker(deps: {
     renderer.write(`  ${color.bold(fam)}\n`);
     for (const p of list) {
       const envFound = p.envVars.some((v) => !!process.env[v]);
+      const entry = config?.providers?.[p.id];
       const configKey =
-        typeof config?.providers?.[p.id]?.apiKey === 'string' &&
-        (config!.providers![p.id]!.apiKey as string).length > 0;
+        (typeof entry?.apiKey === 'string' && entry.apiKey.length > 0) ||
+        (Array.isArray(entry?.apiKeys) && entry!.apiKeys!.some((k) => k?.apiKey));
       // ● green = env key, ◉ cyan = stored in config, ○ dim = no key
       const marker = envFound
         ? color.green('●')

@@ -365,13 +365,29 @@ export async function main(argv: string[]): Promise<number> {
     }
   }
 
-  // Resolve provider details from models.dev
-  const resolvedProvider = await modelsRegistry.getProvider(config.provider).catch(() => undefined);
+  // Resolve provider details from models.dev. An alias may not match a
+  // catalog id directly, so we also try `cfg.type` (which points at the
+  // catalog entry the alias was derived from). When neither resolves AND
+  // the user has explicitly set `family` in their config, this is a
+  // deliberate custom/local provider — staying silent is the right call;
+  // logging would just train people to ignore the warning.
+  const savedProviderCfg = config.providers?.[config.provider];
+  let resolvedProvider = await modelsRegistry.getProvider(config.provider).catch(() => undefined);
+  if (!resolvedProvider && savedProviderCfg?.type && savedProviderCfg.type !== config.provider) {
+    resolvedProvider = await modelsRegistry
+      .getProvider(savedProviderCfg.type)
+      .catch(() => undefined);
+  }
   if (!resolvedProvider) {
-    logger.warn(
-      `Provider "${config.provider}" not found in models.dev. Continuing with raw config.`,
-    );
-  } else if (resolvedProvider.family === 'unsupported') {
+    if (!savedProviderCfg?.family) {
+      logger.warn(
+        `Provider "${config.provider}" not found in models.dev. Continuing with raw config.`,
+      );
+    }
+  } else if (resolvedProvider.family === 'unsupported' && !savedProviderCfg?.family) {
+    // Catalog says unsupported AND the user hasn't supplied their own
+    // family override — bail. With an override we trust the user knows
+    // how to route this endpoint.
     process.stderr.write(
       `Provider "${config.provider}" uses an unsupported wire family (${resolvedProvider.npm}). ` +
         `Install a plugin to enable it, or pick a different provider.\n`,
@@ -539,13 +555,15 @@ export async function main(argv: string[]): Promise<number> {
   };
   let provider: ReturnType<ProviderRegistry['create']>;
   try {
-    if (config.features.modelsRegistry) {
-      provider = providerRegistry.create({ ...providerConfig, type: config.provider });
+    const cfgWithType = { ...providerConfig, type: config.provider };
+    if (config.features.modelsRegistry && providerRegistry.has(config.provider)) {
+      // Catalog-backed type: registry knows it, so use the factory. Config
+      // overrides (family, baseUrl, envVars) still apply inside `makeProvider`.
+      provider = providerRegistry.create(cfgWithType);
     } else {
-      provider = makeProviderFromConfig(config.provider, {
-        ...providerConfig,
-        type: config.provider,
-      });
+      // Custom provider (not in catalog), or modelsRegistry feature
+      // disabled. Requires `family` to be set in the saved config.
+      provider = makeProviderFromConfig(config.provider, cfgWithType);
     }
   } catch (err) {
     process.stderr.write(
@@ -926,6 +944,21 @@ export async function main(argv: string[]): Promise<number> {
       // its own <History> component, so the renderer has nothing
       // useful to add here anyway.
       renderer.setSilent(true);
+      // Resolve banner-only metadata: family (effective wire family the
+      // provider is configured to speak) + the last 3 chars of the active
+      // API key. Source order matches what `makeProvider` actually uses
+      // at runtime, so the visible tail matches the key the agent will
+      // send. Env-sourced keys are included so users using e.g.
+      // ANTHROPIC_API_KEY without storing a config key still see a tail.
+      const banneredFamily = savedProviderCfg?.family ?? resolvedProvider?.family;
+      const banneredKey =
+        savedProviderCfg?.apiKey ??
+        config.apiKey ??
+        (resolvedProvider?.envVars ?? savedProviderCfg?.envVars ?? [])
+          .map((v) => process.env[v])
+          .find((v): v is string => !!v);
+      const banneredKeyTail =
+        banneredKey && banneredKey.length >= 3 ? banneredKey.slice(-3) : undefined;
       try {
         code = await runTui({
           agent,
@@ -939,6 +972,8 @@ export async function main(argv: string[]): Promise<number> {
           yolo: !!config.yolo,
           appVersion: CLI_VERSION,
           provider: config.provider,
+          family: banneredFamily,
+          keyTail: banneredKeyTail,
           effectiveMaxContext,
           // Opt-in: alt-screen disables the terminal's native scrollback,
           // so we default to false. `--no-alt-screen` is kept as a no-op

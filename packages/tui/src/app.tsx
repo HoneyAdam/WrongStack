@@ -52,6 +52,10 @@ export interface AppProps {
   appVersion?: string;
   /** Provider id shown in the banner ("openai", "anthropic", …). Defaults to "agent". */
   provider?: string;
+  /** Wire family for the configured provider — rendered under provider in the banner. */
+  family?: string;
+  /** Last 3 chars of the active API key, shown in the banner for "did I pick the right key?" verification. */
+  keyTail?: string;
   /**
    * Real max-context token budget for the *active model*, resolved by the
    * CLI via the ModelsRegistry. The provider object only knows its family
@@ -282,6 +286,8 @@ export function App({
   yolo = false,
   appVersion,
   provider,
+  family,
+  keyTail,
   effectiveMaxContext,
   onExit,
 }: AppProps): React.ReactElement {
@@ -296,6 +302,8 @@ export function App({
             provider: provider ?? 'agent',
             model,
             cwd: agent.ctx.cwd,
+            family,
+            keyTail,
           },
         ]
       : [],

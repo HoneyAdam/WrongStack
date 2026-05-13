@@ -4,7 +4,6 @@ import * as os from 'node:os';
 import {
   color,
   atomicWrite,
-  rewriteConfigEncrypted,
   type Config,
   type SecretVault,
   type SessionStore,
@@ -17,6 +16,7 @@ import {
 import type { TerminalRenderer } from '../renderer.js';
 import type { ReadlineInputReader } from '../input-reader.js';
 import { CLI_VERSION, API_VERSION } from '../version.js';
+import { runAuthMenu, runAuthDirect } from '../auth-menu.js';
 
 export type SubcommandHandler = (args: string[], deps: SubcommandDeps) => Promise<number>;
 
@@ -57,81 +57,45 @@ export const subcommands: Record<string, SubcommandHandler> = {
 };
 
 /**
- * Store an API key for a provider in the global config, encrypted at rest.
- * Usage: `wstack auth <providerId> [--family <fam>] [--base-url <url>]`
+ * Manage API keys.
  *
- * If the provider is in the models.dev catalog, family/baseUrl come from
- * there. For custom providers, pass them via flags — that's the only way
- * to make the system fully offline-capable.
+ * - `wstack auth` (no args) opens the interactive manager: list saved
+ *   providers, add/update/delete keys, set the active key per provider,
+ *   or pick a new provider from the models.dev catalog.
+ * - `wstack auth <providerId> [--label <l>] [--family <f>] [--base-url <u>] [--env <a,b>]`
+ *   is the scripted one-shot: prompt for a single key and append it
+ *   under `<l>` (default "default", auto-suffixed on collision).
+ *
+ * Keys are stored under `providers[<id>].apiKeys[]`, encrypted at rest
+ * by the secret vault. The legacy single-key `apiKey` field is still
+ * honored for reads and is kept in sync with the active entry.
  */
 async function authCmd(args: string[], deps: SubcommandDeps): Promise<number> {
   const flags = parseAuthFlags(args);
-  let providerId = flags.positional[0];
-  if (!providerId) {
-    providerId = (await deps.reader.readLine('Provider id: ')).trim();
-  }
-  if (!providerId) {
-    deps.renderer.writeError('Provider id is required.');
-    return 1;
-  }
-
-  let family: WireFamily | undefined = flags.family;
-  let baseUrl: string | undefined = flags.baseUrl;
-  let envVars: string[] | undefined = flags.envVars;
-
-  // If catalog knows this provider, use its defaults — but flags still win.
-  try {
-    const known = await deps.modelsRegistry.getProvider(providerId);
-    if (known) {
-      if (!family) family = known.family;
-      if (!baseUrl) baseUrl = known.apiBase;
-      if (!envVars) envVars = known.envVars;
-    }
-  } catch {
-    // catalog unavailable — that's fine, user can pass --family
-  }
-
-  if (!family) {
-    deps.renderer.writeError(
-      `Provider "${providerId}" not in catalog. Pass --family <anthropic|openai|openai-compatible|google> to register it manually.`,
-    );
-    return 1;
-  }
-
-  const apiKey = (
-    await deps.reader.readSecret(
-      `API key for ${providerId} (hidden, stored encrypted in ${deps.paths.globalConfig}): `,
-    )
-  ).trim();
-  if (!apiKey) {
-    deps.renderer.writeError('No key entered. Nothing saved.');
-    return 1;
-  }
-
-  const patch = {
-    providers: {
-      [providerId]: {
-        type: providerId,
-        apiKey,
-        family,
-        ...(baseUrl ? { baseUrl } : {}),
-        ...(envVars && envVars.length > 0 ? { envVars } : {}),
-      },
-    },
+  const menuDeps = {
+    renderer: deps.renderer,
+    reader: deps.reader,
+    modelsRegistry: deps.modelsRegistry,
+    vault: deps.vault,
+    globalConfigPath: deps.paths.globalConfig,
   };
-  try {
-    await rewriteConfigEncrypted(deps.paths.globalConfig, deps.vault, patch);
-    deps.renderer.writeInfo(`Stored encrypted key for ${providerId}.`);
-    deps.renderer.writeInfo(`Use: wstack --provider ${providerId} "<task>"`);
-    return 0;
-  } catch (err) {
-    deps.renderer.writeError(`auth: ${err instanceof Error ? err.message : String(err)}`);
-    return 1;
+
+  if (flags.positional.length === 0) {
+    return runAuthMenu(menuDeps);
   }
+
+  return runAuthDirect(menuDeps, {
+    providerId: flags.positional[0]!,
+    label: flags.label,
+    family: flags.family,
+    baseUrl: flags.baseUrl,
+    envVars: flags.envVars,
+  });
 }
 
 interface AuthFlags {
   positional: string[];
+  label?: string;
   family?: WireFamily;
   baseUrl?: string;
   envVars?: string[];
@@ -141,7 +105,10 @@ function parseAuthFlags(args: string[]): AuthFlags {
   const out: AuthFlags = { positional: [] };
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
-    if (a === '--family') {
+    if (a === '--label') {
+      const v = args[++i];
+      if (v) out.label = v;
+    } else if (a === '--family') {
       const v = args[++i];
       if (v) out.family = v as WireFamily;
     } else if (a === '--base-url') {
@@ -371,23 +338,54 @@ async function modelsCmd(args: string[], deps: SubcommandDeps): Promise<number> 
     deps.renderer.writeError('Usage: wstack models <provider> | refresh');
     return 1;
   }
-  const provider = await deps.modelsRegistry.getProvider(providerId);
+  // If the requested id is an alias (`providers[id].type` points at a
+  // different catalog entry), fall back to that catalog id so the user
+  // still gets the model list.
+  let lookupId = providerId;
+  const savedAlias = deps.config.providers?.[providerId];
+  if (savedAlias?.type && savedAlias.type !== providerId) {
+    lookupId = savedAlias.type;
+  }
+  const provider = await deps.modelsRegistry.getProvider(lookupId);
   if (!provider) {
-    deps.renderer.writeError(`Provider "${providerId}" not in catalog.`);
+    deps.renderer.writeError(
+      lookupId !== providerId
+        ? `Alias "${providerId}" points at catalog id "${lookupId}" which is not in the cache.`
+        : `Provider "${providerId}" not in catalog.`,
+    );
     return 1;
+  }
+  if (lookupId !== providerId) {
+    deps.renderer.write(color.dim(`(showing catalog models for "${lookupId}" via alias "${providerId}")\n`));
   }
   deps.renderer.write(`${color.bold(provider.name)} ${color.dim(`(${provider.id})`)}\n`);
   if (provider.doc) deps.renderer.write(color.dim(`Docs: ${provider.doc}\n`));
-  const sorted = [...provider.models].sort((a, b) =>
-    (b.release_date ?? '').localeCompare(a.release_date ?? ''),
-  );
+  // User-saved model list wins when present — `wstack models <id>` should
+  // reflect what the user has configured for that endpoint, not what
+  // models.dev thinks is on offer (e.g. LM Studio with custom model ids).
+  // When a user model id ALSO exists in the catalog we surface the
+  // catalog metadata (ctx/cost/caps); otherwise we just print the id.
+  const userModels = deps.config.providers?.[providerId]?.models;
+  const catalogById = new Map(provider.models.map((m) => [m.id, m]));
+  const sorted = userModels && userModels.length > 0
+    ? userModels.map((id) => catalogById.get(id) ?? { id, name: id })
+    : [...provider.models].sort((a, b) =>
+        (b.release_date ?? '').localeCompare(a.release_date ?? ''),
+      );
+  if (userModels && userModels.length > 0) {
+    deps.renderer.write(color.dim(`(${userModels.length} model(s) from your saved config)\n`));
+  }
   for (const m of sorted) {
     const caps: string[] = [];
-    if (m.tool_call) caps.push('tools');
-    if (m.reasoning) caps.push('reasoning');
-    if (m.modalities?.input?.includes('image')) caps.push('vision');
-    const ctx = m.limit?.context ? `${(m.limit.context / 1000).toFixed(0)}k` : '?';
-    const cost = m.cost?.input !== undefined ? `$${m.cost.input}/$${m.cost.output ?? '?'}` : '';
+    if ('tool_call' in m && m.tool_call) caps.push('tools');
+    if ('reasoning' in m && m.reasoning) caps.push('reasoning');
+    if ('modalities' in m && m.modalities?.input?.includes('image')) caps.push('vision');
+    const ctx = 'limit' in m && m.limit?.context
+      ? `${(m.limit.context / 1000).toFixed(0)}k`
+      : '?';
+    const cost = 'cost' in m && m.cost?.input !== undefined
+      ? `$${m.cost.input}/$${m.cost.output ?? '?'}`
+      : '';
     deps.renderer.write(
       `  ${m.id.padEnd(40)} ${color.dim(ctx.padStart(6))}  ${color.dim(cost.padEnd(14))} ${color.dim(caps.join(','))}\n`,
     );
@@ -493,7 +491,8 @@ async function helpCmd(_args: string[], deps: SubcommandDeps): Promise<number> {
     '  wstack resume [<id>]         Resume a session',
     '  wstack sessions              List recent sessions',
     '  wstack init                  Pick provider + model from models.dev',
-    '  wstack auth <provider>       Store API key (encrypted at rest)',
+    '  wstack auth                  Interactive key manager (list/add/update/delete)',
+    '  wstack auth <provider>       Append one key for a provider (encrypted at rest)',
     '  wstack resume <id>           Resume a session (loads transcript + appends)',
     '  wstack config [show|edit]    Show or edit effective config',
     '  wstack tools                 List registered tools',

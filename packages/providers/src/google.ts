@@ -128,8 +128,72 @@ function toolsToGemini(tools: Tool[]): Array<Record<string, unknown>> {
   return tools.map((t) => ({
     name: t.name,
     description: t.description,
-    parameters: (t.inputSchema as Record<string, unknown>) ?? { type: 'object', properties: {} },
+    parameters: sanitizeSchemaForGemini(t.inputSchema as Record<string, unknown> | undefined)
+      ?? { type: 'object', properties: {} },
   }));
+}
+
+/**
+ * Gemini's function-declaration `parameters` field accepts an OpenAPI 3.0
+ * Schema subset — a strict superset of "JSON Schema minus a bunch of
+ * keywords". Sending the raw JSON Schema (which Zod/JSON-Schema converters
+ * happily emit with `additionalProperties`, `$schema`, etc.) makes the API
+ * fail with `Unknown name "additionalProperties"` and friends. Walk the
+ * schema and keep only what Gemini understands.
+ *
+ * Spec reference (OpenAPI 3.0 Schema Object → Gemini): supported keywords
+ * are type, format, description, nullable, enum, items, properties,
+ * required, anyOf, minLength/maxLength, pattern, minimum/maximum,
+ * minItems/maxItems, minProperties/maxProperties, propertyOrdering.
+ * Anything else — additionalProperties, $schema, $ref, definitions,
+ * default, examples, const, allOf, oneOf, not, dependencies, if/then/else
+ * — gets dropped silently.
+ */
+const GEMINI_ALLOWED_KEYS = new Set([
+  'type', 'format', 'description', 'nullable', 'enum',
+  'items', 'properties', 'required',
+  'anyOf', 'minLength', 'maxLength', 'pattern',
+  'minimum', 'maximum', 'minItems', 'maxItems',
+  'minProperties', 'maxProperties', 'propertyOrdering',
+  'title',
+]);
+
+function sanitizeSchemaForGemini(node: unknown): Record<string, unknown> | undefined {
+  if (node === null || node === undefined) return undefined;
+  if (Array.isArray(node)) {
+    // Used only for `enum` / `required` / `anyOf` arrays — handled per-key
+    // below. Bare arrays here would be malformed schemas, drop.
+    return undefined;
+  }
+  if (typeof node !== 'object') return undefined;
+  const src = node as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(src)) {
+    if (!GEMINI_ALLOWED_KEYS.has(k)) continue;
+    if (k === 'properties' && v && typeof v === 'object') {
+      const props: Record<string, unknown> = {};
+      for (const [pname, pschema] of Object.entries(v as Record<string, unknown>)) {
+        const cleaned = sanitizeSchemaForGemini(pschema);
+        if (cleaned) props[pname] = cleaned;
+      }
+      out['properties'] = props;
+    } else if (k === 'items') {
+      const cleaned = sanitizeSchemaForGemini(v);
+      if (cleaned) out['items'] = cleaned;
+    } else if (k === 'anyOf' && Array.isArray(v)) {
+      const cleaned = v
+        .map((s) => sanitizeSchemaForGemini(s))
+        .filter((s): s is Record<string, unknown> => s !== undefined);
+      if (cleaned.length > 0) out['anyOf'] = cleaned;
+    } else if (k === 'required' && Array.isArray(v)) {
+      out['required'] = v.filter((s) => typeof s === 'string');
+    } else if (k === 'enum' && Array.isArray(v)) {
+      out['enum'] = v;
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
 }
 
 function messagesToGemini(messages: Message[]): GeminiContent[] {

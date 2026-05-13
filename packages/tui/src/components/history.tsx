@@ -25,6 +25,10 @@ export type HistoryEntry =
       provider: string;
       model: string;
       cwd: string;
+      /** Wire family the provider is configured to speak (anthropic, openai, …). */
+      family?: string;
+      /** Last 3 chars of the active API key — quick visual confirmation that the right account is wired up. */
+      keyTail?: string;
     };
 
 export interface HistoryProps {
@@ -226,6 +230,19 @@ function Banner({
           {entry.provider}/{entry.model}
         </Text>
       </Text>
+      {entry.family ? (
+        <Text>
+          <Text color="cyan">{'      family    '}</Text>
+          <Text dimColor>{entry.family}</Text>
+        </Text>
+      ) : null}
+      {entry.keyTail ? (
+        <Text>
+          <Text color="cyan">{'      key       '}</Text>
+          <Text dimColor>{'●●●…'}</Text>
+          <Text>{entry.keyTail}</Text>
+        </Text>
+      ) : null}
       <Text>
         <Text color="cyan">{'      cwd       '}</Text>
         <Text dimColor>{cwdShort}</Text>

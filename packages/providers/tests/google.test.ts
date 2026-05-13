@@ -142,4 +142,80 @@ describe('GoogleProvider', () => {
     const inline = userParts.find((p) => p['inlineData']);
     expect(inline?.['inlineData']).toEqual({ mimeType: 'image/jpeg', data: 'AAA' });
   });
+
+  it('strips JSON-Schema keywords Gemini rejects (additionalProperties, $schema, default, allOf)', async () => {
+    let body: Record<string, unknown> | undefined;
+    const fetchImpl = vi.fn(async (_url: unknown, init: { body?: string } = {}) => {
+      body = JSON.parse(init.body ?? '{}');
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          candidates: [{ content: { role: 'model', parts: [{ text: 'ok' }] } }],
+          usageMetadata: {},
+        }),
+        text: async () => '',
+      };
+    }) as unknown as typeof fetch;
+    const p = new GoogleProvider({ apiKey: 'k', fetchImpl });
+    await p.complete(
+      {
+        model: 'gemini',
+        maxTokens: 1,
+        messages: [{ role: 'user', content: 'x' }],
+        tools: [
+          {
+            name: 'edit',
+            description: 'edit',
+            permission: 'auto',
+            mutating: true,
+            async execute() {
+              return '';
+            },
+            inputSchema: {
+              type: 'object',
+              $schema: 'http://json-schema.org/draft-07/schema#',
+              additionalProperties: false,
+              required: ['path'],
+              properties: {
+                path: { type: 'string', description: 'where' },
+                opts: {
+                  type: 'object',
+                  additionalProperties: false,
+                  default: {},
+                  properties: {
+                    nested: { type: 'string', allOf: [{ minLength: 1 }] },
+                  },
+                },
+                tags: {
+                  type: 'array',
+                  items: { type: 'string', $ref: '#/defs/Tag' },
+                },
+              },
+            } as Record<string, unknown>,
+          },
+        ],
+      },
+      { signal: new AbortController().signal },
+    );
+    const tools = body?.['tools'] as Array<{ functionDeclarations: Array<{ parameters: Record<string, unknown> }> }>;
+    const params = tools[0]!.functionDeclarations[0]!.parameters;
+    // Top-level forbidden keys are gone
+    expect(params['additionalProperties']).toBeUndefined();
+    expect(params['$schema']).toBeUndefined();
+    // Allowed keys survive
+    expect(params['type']).toBe('object');
+    expect(params['required']).toEqual(['path']);
+    const props = params['properties'] as Record<string, Record<string, unknown>>;
+    expect(props['path']).toEqual({ type: 'string', description: 'where' });
+    // Nested object also sanitized
+    expect(props['opts']?.['additionalProperties']).toBeUndefined();
+    expect(props['opts']?.['default']).toBeUndefined();
+    const nested = (props['opts']?.['properties'] as Record<string, Record<string, unknown>> | undefined)?.['nested'];
+    expect(nested?.['allOf']).toBeUndefined();
+    expect(nested?.['type']).toBe('string');
+    // Array items sanitized
+    expect((props['tags']?.['items'] as Record<string, unknown>)?.['$ref']).toBeUndefined();
+    expect((props['tags']?.['items'] as Record<string, unknown>)?.['type']).toBe('string');
+  });
 });

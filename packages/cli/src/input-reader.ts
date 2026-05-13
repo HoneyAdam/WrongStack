@@ -107,9 +107,14 @@ export class ReadlineInputReader implements InputReader {
   }
 
   /**
-   * Read a single line of input without echoing it to the terminal. Used
-   * for API keys / passwords. Non-TTY input is read normally — there's
-   * nothing to hide when piped.
+   * Read a line of input while masking each character with a bullet so the
+   * user gets visual confirmation that bytes are arriving (especially on
+   * paste, which previously felt like nothing happened). Pasted chunks
+   * are echoed as a run of bullets, Backspace/DEL erases one bullet, and
+   * Ctrl+U / Ctrl+W are honored. Non-TTY input is read normally — there's
+   * nothing to hide when piped, and echoing bullets to a file is noise.
+   *
+   * Returns the raw entered string (no trim — caller decides).
    */
   async readSecret(prompt: string): Promise<string> {
     const stdin = process.stdin;
@@ -124,11 +129,23 @@ export class ReadlineInputReader implements InputReader {
       stdin.setRawMode(true);
       stdin.resume();
       stdin.setEncoding('utf8');
+
+      const eraseChar = () => {
+        // Move cursor back, overwrite with space, move back again.
+        process.stdout.write('\b \b');
+      };
+      const eraseAll = () => {
+        for (let i = 0; i < buf.length; i++) eraseChar();
+      };
+
       const onData = (chunk: string) => {
+        // Process the whole chunk at once — paste arrives as one event.
+        // We walk char-by-char so embedded control bytes (e.g. a stray
+        // CR inside a paste) terminate input cleanly.
         for (const ch of chunk) {
           if (ch === '\r' || ch === '\n') {
             cleanup();
-            process.stdout.write('\n');
+            process.stdout.write(`  ${dim(`[${buf.length} chars]`)}\n`);
             resolve(buf);
             return;
           }
@@ -138,11 +155,31 @@ export class ReadlineInputReader implements InputReader {
             process.stdout.write('\n');
             process.exit(130);
           }
-          if (ch === '' || ch === '\b') {
-            buf = buf.slice(0, -1);
+          if (ch === '') {
+            // Ctrl+U — clear line
+            eraseAll();
+            buf = '';
             continue;
           }
+          if (ch === '') {
+            // Ctrl+W — erase last whitespace-delimited token
+            const m = buf.match(/(\S+\s*)$/);
+            const drop = m ? m[0].length : buf.length;
+            for (let i = 0; i < drop; i++) eraseChar();
+            buf = buf.slice(0, buf.length - drop);
+            continue;
+          }
+          if (ch === '' || ch === '\b') {
+            if (buf.length > 0) {
+              buf = buf.slice(0, -1);
+              eraseChar();
+            }
+            continue;
+          }
+          // Skip other control bytes silently (escape sequences, etc.).
+          if (ch < ' ') continue;
           buf += ch;
+          process.stdout.write('•');
         }
       };
       const cleanup = () => {
@@ -159,4 +196,11 @@ export class ReadlineInputReader implements InputReader {
     this.rl?.close();
     this.rl = undefined;
   }
+}
+
+// Local ANSI dim — kept inline so this module has no @wrongstack/core
+// dependency for its single visual flourish.
+function dim(s: string): string {
+  if (!process.stdout.isTTY) return s;
+  return `[2m${s}[22m`;
 }

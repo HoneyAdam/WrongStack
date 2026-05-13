@@ -26,6 +26,10 @@ export interface RunTuiOptions {
   appVersion?: string;
   /** Provider id for the startup banner ("openai", "anthropic", ...). */
   provider?: string;
+  /** Wire family — shown beneath provider in the banner. */
+  family?: string;
+  /** Last 3 chars of the active API key — shown in the banner for visual key-pick verification. */
+  keyTail?: string;
   /**
    * Model-specific maxContext (tokens), resolved by the CLI via the
    * ModelsRegistry. When omitted, the TUI falls back to the provider
@@ -160,6 +164,8 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
           yolo: opts.yolo,
           appVersion: opts.appVersion,
           provider: opts.provider,
+          family: opts.family,
+          keyTail: opts.keyTail,
           effectiveMaxContext: opts.effectiveMaxContext,
           onExit,
         }),

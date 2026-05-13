@@ -183,6 +183,29 @@ export class DefaultConfigLoader implements ConfigLoader {
       cfg = decryptConfigSecrets(cfg, this.vault);
     }
 
+    // Multi-key resolution: when a provider has `apiKeys[]` configured,
+    // mirror the active entry into `apiKey` so downstream construction
+    // code (provider registry, wire adapters) needs no changes. Honors
+    // `activeKey` (by label), else falls back to the first entry. A
+    // pre-existing `apiKey` set by env/CLI flags wins so an explicit
+    // override still beats the saved list.
+    if (cfg.providers) {
+      for (const pcfg of Object.values(cfg.providers)) {
+        if (!pcfg || typeof pcfg !== 'object') continue;
+        const keys = (pcfg as { apiKeys?: Array<{ label: string; apiKey: string }> }).apiKeys;
+        if (!Array.isArray(keys) || keys.length === 0) continue;
+        const existing = (pcfg as { apiKey?: string }).apiKey;
+        if (existing && existing.length > 0) continue;
+        const activeLabel = (pcfg as { activeKey?: string }).activeKey;
+        const chosen = activeLabel
+          ? keys.find((k) => k.label === activeLabel) ?? keys[0]
+          : keys[0];
+        if (chosen?.apiKey) {
+          (pcfg as { apiKey?: string }).apiKey = chosen.apiKey;
+        }
+      }
+    }
+
     this.validateBehavior(cfg);
     if (this.strict) this.validateIdentity(cfg);
     return Object.freeze(cfg) as Config;

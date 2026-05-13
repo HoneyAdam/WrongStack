@@ -1,4 +1,6 @@
 import { spawn } from 'node:child_process';
+import { statSync } from 'node:fs';
+import { dirname } from 'node:path';
 import type { Tool } from '@wrongstack/core';
 
 type GitSubcommand =
@@ -102,12 +104,12 @@ function findGitDir(cwd: string): string | null {
   let dir = cwd;
   for (let i = 0; i < 20; i++) {
     try {
-      const stat = require('node:fs').statSync(`${dir}/.git`);
+      const stat = statSync(`${dir}/.git`);
       if (stat.isDirectory()) return dir;
     } catch {
       // continue
     }
-    const parent = require('node:path').dirname(dir);
+    const parent = dirname(dir);
     if (parent === dir) break;
     dir = parent;
   }

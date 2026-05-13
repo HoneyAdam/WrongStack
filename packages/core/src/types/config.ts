@@ -41,9 +41,31 @@ export interface ToolsConfig {
   autoExtendLimit?: boolean;
 }
 
+export interface ProviderApiKey {
+  /** Short human-readable label (e.g. "personal", "work", "rate-limit-backup"). */
+  label: string;
+  /**
+   * The key itself. The field name contains `apiKey` so the secret-vault
+   * walker will encrypt it on write and decrypt it on read.
+   */
+  apiKey: string;
+  /** ISO-8601 timestamp the key was added. */
+  createdAt: string;
+}
+
 export interface ProviderConfig {
   type: string;
+  /**
+   * Legacy single-key field. Still honored as a fallback when `apiKeys`
+   * is empty. When `apiKeys`/`activeKey` are present, the config loader
+   * mirrors the active entry into this field so downstream consumers
+   * (provider construction, wire adapters) need no changes.
+   */
   apiKey?: string;
+  /** Multiple keys for the same provider — pick one with `activeKey`. */
+  apiKeys?: ProviderApiKey[];
+  /** Label of the entry in `apiKeys` to use. Defaults to the first one. */
+  activeKey?: string;
   baseUrl?: string;
   headers?: Record<string, string>;
   model?: string;
