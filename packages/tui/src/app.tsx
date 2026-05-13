@@ -449,8 +449,16 @@ export function App({
       if (state.slashPicker.open) dispatch({ type: 'slashPickerClose' });
       return;
     }
-    // Strip the leading '/' and everything after the first space
-    const query = (trimmed.slice(1).split(/\s/)[0] ?? '').toLowerCase();
+    // Once any whitespace appears after the leading '/', the user has moved
+    // past the command name into argument territory (e.g. `/model glm-5.1`).
+    // Keeping the picker open here is actively harmful: Enter would route to
+    // acceptSlashPickerSelection() and overwrite the typed args with just
+    // `/<cmd> `. Close the picker so Enter submits the full line.
+    if (/\s/.test(trimmed)) {
+      if (state.slashPicker.open) dispatch({ type: 'slashPickerClose' });
+      return;
+    }
+    const query = trimmed.slice(1).toLowerCase();
     const allCommands = slashRegistry.listWithOwner();
     const matches: SlashCommandMatch[] = allCommands
       .filter(({ cmd }) => {
