@@ -12,6 +12,21 @@ export interface Middleware<T> {
   owner?: string;
 }
 
+export interface PipelineOptions {
+  /** When true and the target middleware is not found, operations silently no-op instead of throwing. */
+  optional?: boolean;
+}
+
+/**
+ * Read-only view of a pipeline. Returned to consumers (plugins, hooks)
+ * so they can inspect but not mutate the chain.
+ */
+export interface ReadonlyPipeline<T> {
+  readonly size: number;
+  list(): readonly string[];
+  run(input: T): Promise<T>;
+}
+
 export class Pipeline<T> {
   private readonly chain: Middleware<T>[] = [];
 
@@ -27,32 +42,46 @@ export class Pipeline<T> {
     return this;
   }
 
-  insertBefore(target: string, mw: Middleware<T>): this {
+  /**
+   * Insert mw immediately before the first occurrence of target.
+   * If called multiple times with the same target, each call inserts
+   * before the target's current position — so after insertBefore('B', X)
+   * then insertBefore('B', Y), the order is Y → X → B.
+   */
+  insertBefore(target: string, mw: Middleware<T>, opts?: PipelineOptions): this {
     this.ensureUnique(mw.name);
-    const idx = this.indexOf(target);
+    const idx = this.indexOf(target, opts?.optional);
+    if (idx === -1) return this;
     this.chain.splice(idx, 0, mw);
     return this;
   }
 
-  insertAfter(target: string, mw: Middleware<T>): this {
+  /**
+   * Insert mw immediately after the first occurrence of target.
+   * If called multiple times with the same target, each call inserts
+   * after the target's current position — so after insertAfter('B', X)
+   * then insertAfter('B', Y), the order is B → X → Y.
+   */
+  insertAfter(target: string, mw: Middleware<T>, opts?: PipelineOptions): this {
     this.ensureUnique(mw.name);
-    const idx = this.indexOf(target);
+    const idx = this.indexOf(target, opts?.optional);
+    if (idx === -1) return this;
     this.chain.splice(idx + 1, 0, mw);
     return this;
   }
 
-  replace(target: string, mw: Middleware<T>): this {
+  replace(target: string, mw: Middleware<T>, opts?: PipelineOptions): this {
     if (mw.name !== target) this.ensureUnique(mw.name);
-    const idx = this.indexOf(target);
+    const idx = this.indexOf(target, opts?.optional);
+    if (idx === -1) return this;
     this.chain[idx] = mw;
     return this;
   }
 
-  remove(name: string): this {
-    const idx = this.indexOf(name);
-    if (idx !== -1) {
-      this.chain.splice(idx, 1);
-    }
+  remove(name: string, opts?: PipelineOptions): this {
+    const idx = this.indexOf(name, opts?.optional);
+    if (idx === -1) return this;
+    this.chain.splice(idx, 1);
     return this;
   }
 
@@ -62,6 +91,18 @@ export class Pipeline<T> {
 
   size(): number {
     return this.chain.length;
+  }
+
+  /** Return a read-only view suitable for passing to plugins. */
+  asReadonly(): ReadonlyPipeline<T> {
+    // The returned object's methods close over `this`, so it always sees the live chain.
+    // list() returns Object.freeze to prevent external mutation of the returned array.
+    const self = this;
+    return Object.freeze({
+      get size() { return self.size(); },
+      list() { return Object.freeze(self.list()); },
+      run(input: T) { return self.run(input); },
+    });
   }
 
   async run(input: T): Promise<T> {
@@ -81,9 +122,11 @@ export class Pipeline<T> {
     return dispatch(0, input);
   }
 
-  private indexOf(name: string): number {
+  private indexOf(name: string, optional = false): number {
     const idx = this.chain.findIndex((m) => m.name === name);
-    if (idx === -1) throw new Error(`Pipeline: middleware "${name}" not found`);
+    if (idx === -1 && !optional) {
+      throw new Error(`Pipeline: middleware "${name}" not found`);
+    }
     return idx;
   }
 

@@ -1,7 +1,13 @@
 import type { Plugin, PluginAPI } from '../types/plugin.js';
 import type { Logger } from '../types/logger.js';
 
-export const KERNEL_API_VERSION = '0.0.1';
+/**
+ * Stable plugin API contract version. This is intentionally independent of
+ * the package version: bump only when the surface visible to plugins
+ * (PluginAPI, types/plugin) changes in a way that breaks existing setup
+ * functions. Plugins declare `apiVersion: "^1.0"` to opt into this contract.
+ */
+export const KERNEL_API_VERSION = '1.0.0';
 
 export interface LoadPluginsOptions {
   apiFactory: (plugin: Plugin) => PluginAPI;

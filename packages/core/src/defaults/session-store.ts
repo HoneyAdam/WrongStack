@@ -43,7 +43,7 @@ export class DefaultSessionStore implements SessionStore {
       throw new Error(`Failed to open session file: ${err instanceof Error ? err.message : String(err)}`);
     }
     try {
-      return new FileSessionWriter(id, handle, startedAt, meta);
+      return new FileSessionWriter(id, handle, startedAt, meta, { dir: this.dir });
     } catch (err) {
       await handle.close().catch(() => {});
       throw err;
@@ -70,7 +70,7 @@ export class DefaultSessionStore implements SessionStore {
         model: data.metadata.model,
         provider: data.metadata.provider,
       },
-      { resumed: true },
+      { resumed: true, dir: this.dir },
     );
     return { writer, data };
   }
@@ -96,28 +96,43 @@ export class DefaultSessionStore implements SessionStore {
     try {
       await ensureDir(this.dir);
       const files = await fsp.readdir(this.dir);
-      const sessions: SessionSummary[] = [];
-      for (const f of files) {
-        if (!f.endsWith('.jsonl')) continue;
-        const full = path.join(this.dir, f);
-        try {
-          const stat = await fsp.stat(full);
-          const id = f.replace(/\.jsonl$/, '');
-          const summary = await this.summarize(id, stat.mtime.toISOString());
-          sessions.push(summary);
-        } catch {
-          // skip unreadable
-        }
-      }
-      sessions.sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1));
-      return sessions.slice(0, limit);
+      const ids = files
+        .filter((f) => f.endsWith('.jsonl'))
+        .map((f) => f.replace(/\.jsonl$/, ''));
+      // Read all manifests in parallel; fall back to full load only for
+      // sessions that haven't been closed cleanly (or predate the manifest).
+      const sessions = await Promise.all(
+        ids.map((id) => this.summaryFor(id).catch(() => null)),
+      );
+      const out = sessions.filter((s): s is SessionSummary => s !== null);
+      out.sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1));
+      return out.slice(0, limit);
     } catch {
       return [];
     }
   }
 
+  private async summaryFor(id: string): Promise<SessionSummary> {
+    const manifest = path.join(this.dir, `${id}.summary.json`);
+    try {
+      const raw = await fsp.readFile(manifest, 'utf8');
+      return JSON.parse(raw) as SessionSummary;
+    } catch {
+      // Manifest missing/corrupt — fall back to a full parse and backfill
+      // the manifest so the next `list()` hits the fast path.
+      const full = path.join(this.dir, `${id}.jsonl`);
+      const stat = await fsp.stat(full);
+      const summary = await this.summarize(id, stat.mtime.toISOString());
+      fsp
+        .writeFile(manifest, JSON.stringify(summary), { mode: 0o600 })
+        .catch(() => undefined);
+      return summary;
+    }
+  }
+
   async delete(id: string): Promise<void> {
     await fsp.unlink(path.join(this.dir, `${id}.jsonl`));
+    await fsp.unlink(path.join(this.dir, `${id}.summary.json`)).catch(() => undefined);
   }
 
   private async summarize(id: string, mtime: string): Promise<SessionSummary> {
@@ -166,6 +181,7 @@ export class DefaultSessionStore implements SessionStore {
     const openToolUses = new Set<string>();
     for (const e of events) {
       if (e.type === 'user_input') {
+        openToolUses.clear();
         messages.push({ role: 'user', content: e.content });
       } else if (e.type === 'llm_response') {
         messages.push({ role: 'assistant', content: e.content });
@@ -180,12 +196,13 @@ export class DefaultSessionStore implements SessionStore {
         };
       } else if (e.type === 'tool_result') {
         if (!openToolUses.has(e.id)) {
-          // Orphan tool_result: tool_use was never seen. Appending as-is to preserve
-          // data rather than dropping it, but semantically the session is incomplete.
+          // Orphan tool_result: tool_use was never seen. Skip to avoid
+          // corrupting the replayed message sequence.
           this.events?.emit('session.damaged', {
             sessionId,
             detail: `Orphan tool_result "${e.id}" has no matching tool_use`,
           });
+          continue;
         }
         openToolUses.delete(e.id);
         const content: ContentBlock[] = [
@@ -215,13 +232,27 @@ export class DefaultSessionStore implements SessionStore {
 
 class FileSessionWriter implements SessionWriter {
   private closed = false;
+  private manifestFile: string;
+  private summary: SessionSummary;
+  private tokenIn = 0;
+  private tokenOut = 0;
+
   constructor(
     public readonly id: string,
     private readonly handle: fsp.FileHandle,
     private readonly startedAt: string,
     private readonly meta: Omit<SessionMetadata, 'startedAt'>,
-    opts: { resumed?: boolean } = {},
+    opts: { resumed?: boolean; dir?: string } = {},
   ) {
+    this.manifestFile = opts.dir ? path.join(opts.dir, `${id}.summary.json`) : '';
+    this.summary = {
+      id,
+      title: '(empty session)',
+      startedAt,
+      model: meta.model ?? 'unknown',
+      provider: meta.provider ?? 'unknown',
+      tokenTotal: 0,
+    };
     const record = `${JSON.stringify({
       type: opts.resumed ? 'session_resumed' : 'session_start',
       ts: startedAt,
@@ -239,6 +270,7 @@ class FileSessionWriter implements SessionWriter {
 
   async append(event: SessionEvent): Promise<void> {
     if (this.closed) return;
+    this.observeForSummary(event);
     try {
       await this.handle.appendFile(`${JSON.stringify(event)}\n`, 'utf8');
     } catch (err) {
@@ -246,9 +278,36 @@ class FileSessionWriter implements SessionWriter {
     }
   }
 
+  /**
+   * Watch events as they're appended and keep the summary state hot, so
+   * `close()` can flush a `<id>.summary.json` manifest without re-reading
+   * the JSONL. `list()` reads only manifests, turning a per-session full
+   * parse into a single stat+read.
+   */
+  private observeForSummary(event: SessionEvent): void {
+    if (event.type === 'user_input' && this.summary.title === '(empty session)') {
+      this.summary = { ...this.summary, title: userInputTitle(event.content) };
+    } else if (event.type === 'llm_response') {
+      this.tokenIn += event.usage.input;
+      this.tokenOut += event.usage.output;
+      this.summary = { ...this.summary, tokenTotal: this.tokenIn + this.tokenOut };
+    } else if (event.type === 'session_end') {
+      // session_end usage is the canonical total — prefer it if non-zero.
+      const total = event.usage.input + event.usage.output;
+      if (total > 0) this.summary = { ...this.summary, tokenTotal: total };
+    }
+  }
+
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    if (this.manifestFile) {
+      try {
+        await fsp.writeFile(this.manifestFile, JSON.stringify(this.summary), { mode: 0o600 });
+      } catch {
+        // manifest write is best-effort; list() falls back to full load.
+      }
+    }
     try {
       await this.handle.close();
     } catch {

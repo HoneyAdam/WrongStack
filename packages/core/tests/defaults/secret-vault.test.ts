@@ -87,6 +87,33 @@ describe('DefaultSecretVault', () => {
     await fs.rm(dir, { recursive: true, force: true });
   });
 
+  it('encryptConfigSecrets covers refreshToken / sessionKey / password / private_key (suffix matching)', async () => {
+    const { dir, vault } = await makeVault();
+    const enc = encryptConfigSecrets(
+      {
+        refreshToken: 'r-1',
+        sessionKey: 's-1',
+        password: 'p-1',
+        client_secret: 'cs-1',
+        private_key: 'pk-1',
+        Bearer: 'B-1',
+        publicKey: 'pub-not-secret',
+        baseUrl: 'http://x',
+      },
+      vault,
+    ) as Record<string, string>;
+    expect(enc.refreshToken?.startsWith('enc:v1:')).toBe(true);
+    expect(enc.sessionKey?.startsWith('enc:v1:')).toBe(true);
+    expect(enc.password?.startsWith('enc:v1:')).toBe(true);
+    expect(enc.client_secret?.startsWith('enc:v1:')).toBe(true);
+    expect(enc.private_key?.startsWith('enc:v1:')).toBe(true);
+    expect(enc.Bearer?.startsWith('enc:v1:')).toBe(true);
+    // publicKey is on the override list — must NOT be encrypted.
+    expect(enc.publicKey).toBe('pub-not-secret');
+    expect(enc.baseUrl).toBe('http://x');
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
   it('encryptConfigSecrets idempotent on already-encrypted values', async () => {
     const { dir, vault } = await makeVault();
     const enc1 = encryptConfigSecrets(

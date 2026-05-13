@@ -94,10 +94,51 @@ export class Container {
     return this.entries.get(token)?.owner;
   }
 
+  /**
+   * Remove a token's binding (along with any decorators stacked on it).
+   * Returns true if the token existed. Use this to withdraw temporary
+   * bindings installed by a short-lived run or plugin — without it, the
+   * entry persists in the map forever.
+   */
+  unbind<T>(token: Token<T>): boolean {
+    return this.entries.delete(token);
+  }
+
+  /**
+   * Drop every binding. Intended for tests and short-lived CLI invocations
+   * that rebuild the container from scratch. Production code should prefer
+   * `unbind` on the specific tokens it owns.
+   */
+  clear(): void {
+    this.entries.clear();
+  }
+
   list(): Array<{ token: symbol; owner: string }> {
     return Array.from(this.entries.entries()).map(([token, entry]) => ({
       token,
       owner: entry.owner,
     }));
+  }
+
+  /**
+   * Inspect a binding's full shape, including decorator count and whether
+   * a singleton value is cached. Returns null if the token is unbound.
+   * Decorator and factory function references are not exposed — only counts
+   * and metadata, to keep internal state hidden.
+   */
+  inspect<T>(token: Token<T>): {
+    owner: string;
+    singleton: boolean;
+    decoratorCount: number;
+    cached: boolean;
+  } | null {
+    const entry = this.entries.get(token);
+    if (!entry) return null;
+    return {
+      owner: entry.owner,
+      singleton: entry.singleton,
+      decoratorCount: entry.decorators.length,
+      cached: entry.cache !== undefined,
+    };
   }
 }

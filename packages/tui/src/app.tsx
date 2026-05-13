@@ -5,6 +5,7 @@ import { Box, useApp } from 'ink';
 import type {
   Agent,
   AttachmentStore,
+  ContentBlock,
   EventBus,
   SlashCommandRegistry,
   TokenCounter,
@@ -16,6 +17,13 @@ import { StatusBar } from './components/status-bar.js';
 import { FilePicker } from './components/file-picker.js';
 import { searchFiles } from './file-search.js';
 import { readClipboardImage } from './clipboard.js';
+import { createQueueSlashCommand } from './queue-slash.js';
+
+export interface QueueItem {
+  id: number;
+  displayText: string;
+  blocks: ContentBlock[];
+}
 
 export interface AppProps {
   agent: Agent;
@@ -45,6 +53,11 @@ type State = {
   hint: string;
   nextId: number;
   picker: { open: boolean; query: string; matches: string[]; selected: number };
+  /** Tool calls currently in-flight, by tool_use id. Surface in the status bar. */
+  runningTools: Map<string, { name: string; startedAt: number }>;
+  /** FIFO of user messages typed while the agent was running. Drained when idle. */
+  queue: QueueItem[];
+  nextQueueId: number;
 };
 
 type Action =
@@ -61,7 +74,13 @@ type Action =
   | { type: 'pickerOpen'; query: string }
   | { type: 'pickerClose' }
   | { type: 'pickerSetMatches'; query: string; matches: string[] }
-  | { type: 'pickerMove'; delta: number };
+  | { type: 'pickerMove'; delta: number }
+  | { type: 'toolStarted'; id: string; name: string }
+  | { type: 'toolEnded'; id?: string; name?: string }
+  | { type: 'enqueue'; item: Omit<QueueItem, 'id'> }
+  | { type: 'dequeueFirst' }
+  | { type: 'queueClear' }
+  | { type: 'queueDelete'; positions: number[] };
 
 const MAX_HISTORY_ENTRIES = 500;
 
@@ -129,6 +148,53 @@ export function reducer(state: State, action: Action): State {
       const next = (state.picker.selected + action.delta + n) % n;
       return { ...state, picker: { ...state.picker, selected: next } };
     }
+    case 'toolStarted': {
+      const next = new Map(state.runningTools);
+      next.set(action.id, { name: action.name, startedAt: Date.now() });
+      return { ...state, runningTools: next };
+    }
+    case 'toolEnded': {
+      const next = new Map(state.runningTools);
+      if (action.id !== undefined && next.has(action.id)) {
+        next.delete(action.id);
+        return { ...state, runningTools: next };
+      }
+      if (action.name !== undefined) {
+        // Fall back to clearing the oldest running entry with this name —
+        // `tool.executed` doesn't carry the tool_use id, so we approximate.
+        for (const [id, info] of next) {
+          if (info.name === action.name) {
+            next.delete(id);
+            return { ...state, runningTools: next };
+          }
+        }
+      }
+      return state;
+    }
+    case 'enqueue': {
+      const item: QueueItem = { ...action.item, id: state.nextQueueId };
+      return {
+        ...state,
+        queue: [...state.queue, item],
+        nextQueueId: state.nextQueueId + 1,
+      };
+    }
+    case 'dequeueFirst': {
+      if (state.queue.length === 0) return state;
+      return { ...state, queue: state.queue.slice(1) };
+    }
+    case 'queueClear': {
+      if (state.queue.length === 0) return state;
+      return { ...state, queue: [] };
+    }
+    case 'queueDelete': {
+      if (state.queue.length === 0 || action.positions.length === 0) return state;
+      // Positions are 1-based; convert to 0-based set for fast filtering.
+      const drop = new Set(action.positions.map((p) => p - 1).filter((i) => i >= 0));
+      const filtered = state.queue.filter((_, i) => !drop.has(i));
+      if (filtered.length === state.queue.length) return state;
+      return { ...state, queue: filtered };
+    }
   }
 }
 
@@ -164,6 +230,9 @@ export function App({
     hint: '',
     nextId: 1,
     picker: { open: false, query: '', matches: [], selected: 0 },
+    runningTools: new Map(),
+    queue: [],
+    nextQueueId: 1,
   });
 
   const builderRef = useRef<InputBuilder | null>(null);
@@ -173,6 +242,11 @@ export function App({
 
   const activeCtrlRef = useRef<AbortController | null>(null);
   const projectRoot = agent.ctx.projectRoot;
+
+  // Latest state snapshot — async callbacks (the queue drainer, slash command
+  // closures) read this instead of capturing `state` to avoid stale closures.
+  const stateRef = useRef<State>(state);
+  stateRef.current = state;
 
   // Detect an active `@<query>` token at the cursor and drive the picker.
   // Reruns whenever buffer/cursor changes — guards against stale results.
@@ -269,20 +343,62 @@ export function App({
     }
   };
 
+  // Register the TUI-only /queue command for the lifetime of this App.
+  useEffect(() => {
+    const cmd = createQueueSlashCommand({
+      getQueue: () => stateRef.current.queue,
+      clear: () => dispatch({ type: 'queueClear' }),
+      deleteAt: (positions) => dispatch({ type: 'queueDelete', positions }),
+    });
+    slashRegistry.register(cmd);
+    return () => {
+      slashRegistry.unregister('queue');
+    };
+  }, [slashRegistry]);
+
   // Subscribe to provider streaming events.
   useEffect(() => {
     const offDelta = events.on('provider.text_delta', (e) => {
       dispatch({ type: 'streamDelta', delta: e.text });
     });
+    const offToolStart = events.on('tool.started', (e) => {
+      dispatch({ type: 'toolStarted', id: e.id, name: e.name });
+    });
     const offTool = events.on('tool.executed', (e) => {
       dispatch({
         type: 'addEntry',
-        entry: { kind: 'tool', name: e.name, durationMs: e.durationMs, ok: e.ok },
+        entry: {
+          kind: 'tool',
+          name: e.name,
+          durationMs: e.durationMs,
+          ok: e.ok,
+          input: e.input,
+          output: e.output,
+        },
+      });
+      // `tool.executed` has no tool_use id; the reducer falls back to
+      // clearing the oldest running entry that matches this name.
+      dispatch({ type: 'toolEnded', name: e.name });
+    });
+    const offRetry = events.on('provider.retry', (e) => {
+      const secs = (e.delayMs / 1000).toFixed(e.delayMs >= 1000 ? 1 : 2);
+      dispatch({
+        type: 'addEntry',
+        entry: { kind: 'warn', text: `⟳ retry ${e.attempt} in ${secs}s — ${e.description}` },
+      });
+    });
+    const offProvErr = events.on('provider.error', (e) => {
+      dispatch({
+        type: 'addEntry',
+        entry: { kind: 'error', text: e.description },
       });
     });
     return () => {
       offDelta();
+      offToolStart();
       offTool();
+      offRetry();
+      offProvErr();
     };
   }, [events]);
 
@@ -298,10 +414,22 @@ export function App({
       if (activeCtrlRef.current) {
         activeCtrlRef.current.abort();
         dispatch({ type: 'status', status: 'aborting' });
-        dispatch({
-          type: 'addEntry',
-          entry: { kind: 'warn', text: 'Iteration cancelled. Press Ctrl+C again to exit.' },
-        });
+        const droppedCount = stateRef.current.queue.length;
+        if (droppedCount > 0) {
+          dispatch({ type: 'queueClear' });
+          dispatch({
+            type: 'addEntry',
+            entry: {
+              kind: 'warn',
+              text: `Iteration cancelled. Dropped ${droppedCount} queued message${droppedCount === 1 ? '' : 's'}. Press Ctrl+C again to exit.`,
+            },
+          });
+        } else {
+          dispatch({
+            type: 'addEntry',
+            entry: { kind: 'warn', text: 'Iteration cancelled. Press Ctrl+C again to exit.' },
+          });
+        }
       } else {
         dispatch({
           type: 'addEntry',
@@ -316,7 +444,10 @@ export function App({
   }, [state.interrupts, state.status, exit, onExit]);
 
   const handleKey = async (input: string, key: KeyEvent) => {
-    if (state.status !== 'idle') return;
+    // Note: we no longer block input while the agent is running. Enter
+    // routes through the queue when busy (see submit()), but typing,
+    // backspace, paste, and clipboard-image all stay live.
+    if (state.status === 'aborting') return;
 
     // Picker takes precedence over normal input handling when open.
     if (state.picker.open) {
@@ -412,40 +543,13 @@ export function App({
     dispatch({ type: 'setBuffer', buffer: next, cursor: state.cursor + input.length });
   };
 
-  const submit = async () => {
-    const raw = state.buffer;
-    const trimmed = raw.trim();
-    if (!trimmed && state.placeholders.length === 0) return;
-
-    dispatch({ type: 'resetInterrupts' });
-    dispatch({ type: 'addEntry', entry: { kind: 'user', text: trimmed || '(attachments only)' } });
-
-    if (trimmed.startsWith('/')) {
-      dispatch({ type: 'clearInput' });
-      try {
-        const res = await slashRegistry.dispatch(trimmed, agent.ctx);
-        if (res?.message) {
-          dispatch({ type: 'addEntry', entry: { kind: 'info', text: res.message } });
-        }
-        if (res?.exit) {
-          exit();
-          onExit(0);
-        }
-      } catch (err) {
-        dispatch({
-          type: 'addEntry',
-          entry: { kind: 'error', text: err instanceof Error ? err.message : String(err) },
-        });
-      }
-      return;
-    }
-
-    const builder = builderRef.current;
-    if (!builder) return;
-    if (trimmed) builder.appendText(trimmed);
-    const blocks = await builder.submit();
-    dispatch({ type: 'clearInput' });
-
+  /**
+   * Drive a single iteration: run the agent against `blocks`, render the
+   * result into history, then if any messages were typed while we were
+   * busy, pull the head of the queue and recurse. Recursion terminates
+   * when the queue is empty (status stays idle).
+   */
+  const runBlocks = async (blocks: ContentBlock[]): Promise<void> => {
     const ctrl = new AbortController();
     activeCtrlRef.current = ctrl;
     dispatch({ type: 'status', status: 'running' });
@@ -457,8 +561,9 @@ export function App({
       const result = await agent.run(blocks, { signal: ctrl.signal });
 
       // Flush the streamed text into history as a single assistant entry.
-      if (state.streamingText || (result.status === 'done' && result.finalText)) {
-        const text = state.streamingText || result.finalText || '';
+      const streamed = stateRef.current.streamingText;
+      if (streamed || (result.status === 'done' && result.finalText)) {
+        const text = streamed || result.finalText || '';
         if (text.trim()) dispatch({ type: 'addEntry', entry: { kind: 'assistant', text } });
       }
       dispatch({ type: 'streamReset' });
@@ -500,6 +605,65 @@ export function App({
       activeCtrlRef.current = null;
       dispatch({ type: 'status', status: 'idle' });
     }
+
+    // Drain the queue. If the run was aborted, the SIGINT handler has
+    // already cleared the queue, so the head will be undefined.
+    const head = stateRef.current.queue[0];
+    if (head) {
+      dispatch({ type: 'dequeueFirst' });
+      await runBlocks(head.blocks);
+    }
+  };
+
+  const submit = async () => {
+    const raw = state.buffer;
+    const trimmed = raw.trim();
+    if (!trimmed && state.placeholders.length === 0) return;
+
+    dispatch({ type: 'resetInterrupts' });
+
+    // Slash commands always dispatch immediately, even mid-iteration —
+    // they don't conflict with a running agent.
+    if (trimmed.startsWith('/')) {
+      dispatch({ type: 'addEntry', entry: { kind: 'user', text: trimmed } });
+      dispatch({ type: 'clearInput' });
+      try {
+        const res = await slashRegistry.dispatch(trimmed, agent.ctx);
+        if (res?.message) {
+          dispatch({ type: 'addEntry', entry: { kind: 'info', text: res.message } });
+        }
+        if (res?.exit) {
+          exit();
+          onExit(0);
+        }
+      } catch (err) {
+        dispatch({
+          type: 'addEntry',
+          entry: { kind: 'error', text: err instanceof Error ? err.message : String(err) },
+        });
+      }
+      return;
+    }
+
+    const builder = builderRef.current;
+    if (!builder) return;
+    if (trimmed) builder.appendText(trimmed);
+    const blocks = await builder.submit();
+    const displayText = trimmed || '(attachments only)';
+    dispatch({ type: 'clearInput' });
+
+    if (state.status !== 'idle') {
+      // Agent is busy — queue this message for the drainer to pick up.
+      dispatch({
+        type: 'addEntry',
+        entry: { kind: 'user', text: displayText, queued: true },
+      });
+      dispatch({ type: 'enqueue', item: { displayText, blocks } });
+      return;
+    }
+
+    dispatch({ type: 'addEntry', entry: { kind: 'user', text: displayText } });
+    await runBlocks(blocks);
   };
 
   const inputHint = useMemo(() => {
@@ -516,7 +680,7 @@ export function App({
         value={state.buffer}
         cursor={state.cursor}
         placeholders={state.placeholders}
-        disabled={state.status !== 'idle'}
+        disabled={state.status === 'aborting'}
         hint={inputHint}
         onKey={handleKey}
       />
@@ -531,10 +695,29 @@ export function App({
         model={model}
         state={state.status}
         tokenCounter={tokenCounter}
-        hint={state.hint}
+        hint={renderRunningTools(state.runningTools) || state.hint}
+        queueCount={state.queue.length}
       />
     </Box>
   );
+}
+
+/**
+ * Render an at-a-glance "running: …" hint for the status bar. Shows the
+ * oldest in-flight tool by name; if more than one, appends "(+N)".
+ */
+export function renderRunningTools(
+  running: ReadonlyMap<string, { name: string; startedAt: number }>,
+): string {
+  if (running.size === 0) return '';
+  let oldest: { name: string; startedAt: number } | null = null;
+  for (const info of running.values()) {
+    if (!oldest || info.startedAt < oldest.startedAt) oldest = info;
+  }
+  if (!oldest) return '';
+  const elapsedSec = ((Date.now() - oldest.startedAt) / 1000).toFixed(1);
+  const more = running.size > 1 ? ` (+${running.size - 1})` : '';
+  return `running: ${oldest.name} ${elapsedSec}s${more}`;
 }
 
 /**

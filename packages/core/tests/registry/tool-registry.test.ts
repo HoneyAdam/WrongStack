@@ -28,16 +28,29 @@ describe('ToolRegistry', () => {
     expect(() => r.register(t('a'))).toThrow(/already/);
   });
 
-  it('replace requires existing', () => {
+  it('override requires existing', () => {
     const r = new ToolRegistry();
-    expect(() => r.replace('a', t('a'))).toThrow(/not registered/);
+    expect(() => r.override('a', t('a'))).toThrow(/not registered/);
   });
 
-  it('replace works and tracks owner', () => {
+  it('override works and tracks owner', () => {
     const r = new ToolRegistry();
     r.register(t('a'), 'core');
-    r.replace('a', t('a'), 'plug');
+    r.override('a', t('a'), 'plug');
     expect(r.ownerOf('a')).toBe('plug');
+  });
+
+  it('registerDefault skips if already registered', () => {
+    const r = new ToolRegistry();
+    r.register(t('a'), 'core');
+    r.registerDefault(t('a'), 'plug');
+    expect(r.ownerOf('a')).toBe('core');
+  });
+
+  it('registerDefault registers when empty', () => {
+    const r = new ToolRegistry();
+    r.registerDefault(t('a'), 'core');
+    expect(r.list().map((x) => x.name)).toEqual(['a']);
   });
 
   it('unregister', () => {

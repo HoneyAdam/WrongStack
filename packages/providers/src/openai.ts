@@ -1,13 +1,12 @@
 import type {
   Capabilities,
-  Provider,
   Request,
-  Response,
-  StopReason,
   StreamEvent,
+  StopReason,
   Usage,
 } from '@wrongstack/core';
 import { ProviderError, safeParse } from '@wrongstack/core';
+import { parseProviderHttpError } from './error-parse.js';
 import {
   messagesToOpenAI,
   toolsToOpenAI,
@@ -15,7 +14,7 @@ import {
 } from './tool-format/to-openai.js';
 import { normalizeOpenAI } from './stop-reason.js';
 import { parseSSE } from './sse.js';
-import { aggregateStream } from './aggregate.js';
+import { WireAdapter } from './wire-adapter.js';
 
 export interface OpenAIProviderOptions {
   apiKey: string;
@@ -32,13 +31,14 @@ export interface OpenAIProviderOptions {
 
 const DEFAULT_BASE = 'https://api.openai.com/v1';
 
-export class OpenAIProvider implements Provider {
-  readonly id: string;
-  readonly capabilities: Capabilities;
+export class OpenAIProvider extends WireAdapter {
+  override readonly id: string;
+  override readonly capabilities: Capabilities;
+
   protected readonly opts: OpenAIProviderOptions;
 
   constructor(opts: OpenAIProviderOptions) {
-    if (!opts.apiKey) throw new Error('OpenAIProvider: apiKey required');
+    super(opts.apiKey, opts.baseUrl ?? DEFAULT_BASE, opts.fetchImpl);
     this.opts = opts;
     this.id = opts.id ?? 'openai';
     this.capabilities = {
@@ -55,26 +55,30 @@ export class OpenAIProvider implements Provider {
     };
   }
 
-  async complete(req: Request, opts: { signal: AbortSignal }): Promise<Response> {
-    return aggregateStream(this.stream(req, opts));
+  protected override buildUrl(_req: Request): string {
+    const base = this.baseUrl.replace(/\/+$/, '');
+    if (/\/chat\/completions$/.test(base)) return base;
+    if (/\/v\d+(\/[a-z0-9_-]+)*$/i.test(base)) return `${base}/chat/completions`;
+    return `${base}/v1/chat/completions`;
   }
 
-  async *stream(req: Request, opts: { signal: AbortSignal }): AsyncIterable<StreamEvent> {
-    const url = this.endpoint();
+  protected override buildHeaders(req: Request): Record<string, string> {
     const headers: Record<string, string> = {
-      'content-type': 'application/json',
-      accept: 'text/event-stream',
-      authorization: `Bearer ${this.opts.apiKey}`,
+      ...super.buildHeaders(req),
+      authorization: `Bearer ${this.apiKey}`,
     };
-    if (this.opts.organization) headers['openai-organization'] = this.opts.organization;
+    if (this.opts.organization) {
+      headers['openai-organization'] = this.opts.organization;
+    }
+    return headers;
+  }
 
-    const messages = messagesToOpenAI(this.stripCacheControl(req), req.messages, {
-      ...this.opts.quirks,
-    });
-
+  protected override buildBody(req: Request): Record<string, unknown> {
     const body: Record<string, unknown> = {
       model: req.model,
-      messages,
+      messages: messagesToOpenAI(this.stripCacheControl(req), req.messages, {
+        ...this.opts.quirks,
+      }),
       max_tokens: req.maxTokens,
       stream: true,
       stream_options: { include_usage: true },
@@ -95,51 +99,18 @@ export class OpenAIProvider implements Provider {
     if (req.temperature !== undefined) body['temperature'] = req.temperature;
     if (req.topP !== undefined) body['top_p'] = req.topP;
     if (req.stopSequences) body['stop'] = req.stopSequences;
-
-    const f = this.opts.fetchImpl ?? fetch;
-    let httpRes: Awaited<ReturnType<typeof fetch>>;
-    try {
-      httpRes = await f(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-        signal: opts.signal,
-      });
-    } catch (err) {
-      if (opts.signal.aborted) throw err;
-      throw new ProviderError(
-        err instanceof Error ? err.message : String(err),
-        0,
-        true,
-        this.id,
-        err,
-      );
-    }
-
-    if (!httpRes.ok) {
-      const text = await httpRes.text().catch(() => '');
-      throw new ProviderError(
-        `OpenAI HTTP ${httpRes.status}: ${text.slice(0, 500)}`,
-        httpRes.status,
-        httpRes.status === 429 || (httpRes.status >= 500 && httpRes.status < 600),
-        this.id,
-      );
-    }
-
-    yield* parseOpenAIStream(httpRes.body, req.model);
+    return body;
   }
 
-  /**
-   * Resolve the /chat/completions endpoint. Tolerates baseUrls that already end
-   * with a versioned segment (`/v1`, `/v4`, `/paas/v4`, …) — what models.dev
-   * returns for OpenAI-compatible vendors like z.ai. If a caller passes the
-   * full path with `/chat/completions` already, use it as-is.
-   */
-  protected endpoint(): string {
-    const base = (this.opts.baseUrl ?? DEFAULT_BASE).replace(/\/+$/, '');
-    if (/\/chat\/completions$/.test(base)) return base;
-    if (/\/v\d+(\/[a-z0-9_-]+)*$/i.test(base)) return `${base}/chat/completions`;
-    return `${base}/v1/chat/completions`;
+  protected override parseStream(
+    body: Parameters<typeof parseSSE>[0],
+    fallbackModel: string,
+  ): AsyncIterable<StreamEvent> {
+    return parseOpenAIStream(body, fallbackModel);
+  }
+
+  protected override translateError(status: number, text: string): ProviderError {
+    return parseProviderHttpError(this.id, status, text);
   }
 
   private stripCacheControl(req: Request): typeof req.system {
@@ -151,6 +122,8 @@ export class OpenAIProvider implements Provider {
     });
   }
 }
+
+type Response2Body = ReadableStream<Uint8Array> | NodeJS.ReadableStream | null;
 
 /**
  * Translate an OpenAI /chat/completions SSE stream into canonical StreamEvent[].
@@ -167,7 +140,7 @@ export class OpenAIProvider implements Provider {
  * the first chunk that carries one.
  */
 async function* parseOpenAIStream(
-  body: Awaited<ReturnType<typeof fetch>>['body'],
+  body: Response2Body,
   fallbackModel: string,
 ): AsyncIterable<StreamEvent> {
   let model = fallbackModel;
@@ -175,7 +148,6 @@ async function* parseOpenAIStream(
   let stopReason: StopReason = 'end_turn';
   let started = false;
   let textOpen = false;
-  // Tool call streams: keyed by the delta's `index` (not the SSE event).
   const toolByIndex = new Map<number, { id: string; name: string; argBuf: string }>();
 
   for await (const msg of parseSSE(body)) {
@@ -245,7 +217,6 @@ async function* parseOpenAIStream(
     }
   }
 
-  // Close out any open tool calls.
   for (const entry of toolByIndex.values()) {
     const input = entry.argBuf
       ? (safeParse<unknown>(entry.argBuf).value ?? { _raw: entry.argBuf })

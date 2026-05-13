@@ -111,7 +111,7 @@ function walk<T>(node: T, vault: SecretVault, transform: (s: string) => string):
   }
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
-    if (typeof v === 'string' && SECRET_KEYS.has(k)) {
+    if (typeof v === 'string' && isSecretField(k)) {
       out[k] = transform(v);
     } else if (typeof v === 'object' && v !== null) {
       out[k] = walk(v, vault, transform);
@@ -122,7 +122,24 @@ function walk<T>(node: T, vault: SecretVault, transform: (s: string) => string):
   return out as T;
 }
 
-const SECRET_KEYS = new Set(['apiKey', 'authToken', 'bearer']);
+/**
+ * A key is treated as secret-bearing if its name (case-insensitive) contains
+ * one of these tokens. Captures common variants like `apiKey`, `authToken`,
+ * `refreshToken`, `sessionKey`, `password`, `client_secret`, `bearer`, etc.
+ * Use a named field with `isSecret: false` annotation if you must opt out —
+ * see `NON_SECRET_OVERRIDES` below.
+ */
+const SECRET_KEY_PATTERN = /(?:apikey|api_key|authtoken|auth_token|bearer|secret|password|passwd|pwd|refreshtoken|refresh_token|sessionkey|session_key|access[_-]?token|private[_-]?key)/i;
+
+// Field names that contain the literal substring "key" but are not secrets.
+// Keep this list short; the substring rule itself is intentionally narrow.
+const NON_SECRET_OVERRIDES = new Set(['publickey', 'public_key']);
+
+function isSecretField(name: string): boolean {
+  const lc = name.toLowerCase();
+  if (NON_SECRET_OVERRIDES.has(lc)) return false;
+  return SECRET_KEY_PATTERN.test(lc);
+}
 
 /**
  * Re-write `~/.wrongstack/config.json` (or any path) with all secret-bearing
@@ -195,7 +212,7 @@ function walkCount<T>(node: T, vault: SecretVault, counter: { n: number }): T {
   }
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
-    if (typeof v === 'string' && SECRET_KEYS_FOR_MIGRATION.has(k) && !vault.isEncrypted(v) && v.length > 0) {
+    if (typeof v === 'string' && isSecretField(k) && !vault.isEncrypted(v) && v.length > 0) {
       out[k] = vault.encrypt(v);
       counter.n++;
     } else if (typeof v === 'object' && v !== null) {
@@ -206,8 +223,6 @@ function walkCount<T>(node: T, vault: SecretVault, counter: { n: number }): T {
   }
   return out as T;
 }
-
-const SECRET_KEYS_FOR_MIGRATION = new Set(['apiKey', 'authToken', 'bearer']);
 
 function deepMerge<T extends Record<string, unknown>>(a: T, b: Record<string, unknown>): T {
   const out: Record<string, unknown> = { ...a };

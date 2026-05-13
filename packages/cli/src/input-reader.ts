@@ -13,6 +13,7 @@ export class ReadlineInputReader implements InputReader {
   private rl?: readline.Interface;
   private readonly historyFile: string;
   private history: string[] = [];
+  private pending = false;
 
   constructor(opts: ReadlineInputReaderOptions = {}) {
     this.historyFile = opts.historyFile ?? path.join(os.homedir(), '.wrongstack', 'history');
@@ -50,17 +51,31 @@ export class ReadlineInputReader implements InputReader {
 
   async readLine(prompt?: string): Promise<string> {
     if (this.history.length === 0) await this.loadHistory();
-    const rl = this.ensure();
-    return new Promise<string>((resolve, reject) => {
-      rl.question(prompt ?? '> ', (line) => {
-        if (line.trim()) {
-          this.history.push(line);
-          void this.saveHistory();
-        }
-        resolve(line);
+    while (this.pending) {
+      // Wait for the current read to settle before accepting another.
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    }
+    this.pending = true;
+    try {
+      const rl = this.ensure();
+      if ((rl as unknown as { _flushed?: boolean })._flushed) {
+        rl.close();
+        this.rl = undefined;
+      }
+      const fresh = this.ensure();
+      return new Promise<string>((resolve, reject) => {
+        fresh.question(prompt ?? '> ', (line) => {
+          if (line.trim()) {
+            this.history.push(line);
+            void this.saveHistory();
+          }
+          resolve(line);
+        });
+        fresh.once('close', () => reject(new Error('EOF')));
       });
-      rl.once('close', () => reject(new Error('EOF')));
-    });
+    } finally {
+      this.pending = false;
+    }
   }
 
   async readKey(prompt: string, options: PromptOption[]): Promise<string> {

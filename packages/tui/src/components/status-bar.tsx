@@ -7,9 +7,16 @@ export interface StatusBarProps {
   state: 'idle' | 'running' | 'streaming' | 'aborting';
   tokenCounter?: TokenCounter;
   hint?: string;
+  queueCount?: number;
 }
 
-export function StatusBar({ model, state, tokenCounter, hint }: StatusBarProps): React.ReactElement {
+export function StatusBar({
+  model,
+  state,
+  tokenCounter,
+  hint,
+  queueCount = 0,
+}: StatusBarProps): React.ReactElement {
   const usage = tokenCounter?.total();
   const cost = tokenCounter?.estimateCost();
   const cache = tokenCounter?.cacheStats();
@@ -42,6 +49,12 @@ export function StatusBar({ model, state, tokenCounter, hint }: StatusBarProps):
         <>
           <Text dimColor>│</Text>
           <Text color="yellow">${cost.total.toFixed(4)}</Text>
+        </>
+      ) : null}
+      {queueCount > 0 ? (
+        <>
+          <Text dimColor>│</Text>
+          <Text color="cyan">⌛ queued: {queueCount}</Text>
         </>
       ) : null}
       {hint ? (

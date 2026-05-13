@@ -6,6 +6,11 @@ export { DefaultErrorHandler } from './error-handler.js';
 export { DefaultTokenCounter } from './token-counter.js';
 export { DefaultSessionStore, type SessionStoreOptions } from './session-store.js';
 export {
+  RecoveryLock,
+  type RecoveryLockOptions,
+  type AbandonedSession,
+} from './recovery-lock.js';
+export {
   DefaultAttachmentStore,
   type AttachmentStoreOptions,
 } from './attachment-store.js';
@@ -20,7 +25,7 @@ export {
 export { DefaultMemoryStore, type MemoryStoreOptions } from './memory-store.js';
 export { DefaultPermissionPolicy, type PermissionPolicyOptions } from './permission-policy.js';
 export { DefaultSkillLoader, type SkillLoaderOptions } from './skill-loader.js';
-export { DefaultConfigLoader, type ConfigLoaderOptions } from './config-loader.js';
+export { DefaultConfigLoader, type ConfigLoaderOptions, type ConfigSource } from './config-loader.js';
 export { HybridCompactor, type CompactorOptions } from './compactor.js';
 export {
   DefaultModelsRegistry,
@@ -66,9 +71,21 @@ export {
 export {
   TaskFlow,
   SpecDrivenDev,
-  type TaskFlowEvents,
   type TaskFlowPhase,
   type TaskFlowOptions,
   type TaskFlowExecutionContext,
+  type TaskFlowEventMap,
+  type TaskFlowEventName,
   type SpecDrivenDevOptions,
 } from './task-flow.js';
+// Types live in types/tool-executor.ts and are exported via types/index.ts.
+// Here we only re-export the runtime value to avoid duplicate-symbol errors.
+export { ToolExecutor } from './tool-executor.js';
+export {
+  contextManagerTool,
+  createContextManagerTool,
+  type ContextManagerInput,
+  type ContextManagerResult,
+  type ContextManagerAction,
+  type ContextManagerToolOptions,
+} from './context-manager.js';

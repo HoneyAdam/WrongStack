@@ -26,3 +26,5 @@ export * from './agent-bridge.js';
 export * from './multi-agent.js';
 export * from './spec.js';
 export * from './task-graph.js';
+export * from './tool-executor.js';
+export * from './slash-command.js';

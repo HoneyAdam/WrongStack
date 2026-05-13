@@ -10,6 +10,7 @@ export {
   type Middleware,
   type MiddlewareHandler,
   type NextFn,
+  type PipelineOptions,
 } from './pipeline.js';
 export {
   EventBus,

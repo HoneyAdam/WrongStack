@@ -18,6 +18,8 @@ import { DefaultPermissionPolicy } from '../../src/defaults/permission-policy.js
 import { DefaultSessionStore } from '../../src/defaults/session-store.js';
 import type { Tool } from '../../src/types/tool.js';
 import { MockProvider, StreamingMockProvider } from '../helpers/mock-provider.js';
+import { ProviderError } from '../../src/types/provider.js';
+import type { Provider, Request, Response, StreamEvent, Capabilities } from '../../src/types/provider.js';
 
 async function buildAgent(provider: MockProvider, extraTools: Tool[] = []) {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-ag-'));
@@ -338,5 +340,152 @@ describe('Agent', () => {
     cleanupDirs.push(tmp);
     const result = await agent.run('go');
     expect(result.status).toBe('done');
+  });
+
+  it('emits provider.retry on retryable ProviderError and recovers', async () => {
+    class FlakyProvider implements Provider {
+      readonly id = 'flaky';
+      readonly capabilities: Capabilities = {
+        tools: false,
+        parallelTools: false,
+        vision: false,
+        streaming: false,
+        promptCache: false,
+        systemPrompt: true,
+        jsonMode: false,
+        maxContext: 100_000,
+        cacheControl: 'none',
+      };
+      calls = 0;
+      async complete(req: Request): Promise<Response> {
+        this.calls++;
+        if (this.calls === 1) {
+          throw new ProviderError('flaky HTTP 529', 529, true, 'flaky', {
+            body: {
+              type: 'overloaded_error',
+              message: 'High traffic detected. Upgrade for highspeed model.',
+              requestId: '06534785201de9c0',
+            },
+          });
+        }
+        return {
+          content: [{ type: 'text', text: 'recovered' }],
+          stopReason: 'end_turn',
+          usage: { input: 1, output: 1 },
+          model: req.model,
+        };
+      }
+      // biome-ignore lint/correctness/useYield: stub
+      async *stream(): AsyncIterable<StreamEvent> {
+        throw new Error('not used');
+      }
+    }
+    const provider = new FlakyProvider();
+    const { agent, tmp, ctx } = await buildAgent(provider as unknown as MockProvider);
+    cleanupDirs.push(tmp);
+    // Override retry policy to a near-zero delay so the test runs fast.
+    (agent as unknown as { container: Container }).container.override(
+      TOKENS.RetryPolicy,
+      () => ({
+        shouldRetry: (err: Error | ProviderError, attempt: number) =>
+          err instanceof ProviderError && err.retryable && attempt < 3,
+        delayMs: () => 1,
+      }),
+    );
+    // Replace the context's provider with our flaky one.
+    (ctx as unknown as { provider: Provider }).provider = provider;
+
+    const retries: Array<{ providerId: string; attempt: number; status: number; description: string }> = [];
+    const errors: Array<{ providerId: string; status: number; description: string }> = [];
+    (agent as unknown as { events: EventBus }).events.on('provider.retry', (e) => retries.push(e));
+    (agent as unknown as { events: EventBus }).events.on('provider.error', (e) => errors.push(e));
+
+    const result = await agent.run('ping');
+    expect(result.status).toBe('done');
+    expect(provider.calls).toBe(2);
+    expect(retries).toHaveLength(1);
+    expect(retries[0]?.providerId).toBe('flaky');
+    expect(retries[0]?.status).toBe(529);
+    expect(retries[0]?.attempt).toBe(1);
+    expect(retries[0]?.description).toContain('overloaded (529)');
+    expect(retries[0]?.description).toContain('High traffic detected');
+    expect(errors).toHaveLength(0);
+  });
+
+  it('emits tool.executed with truncated output preview', async () => {
+    const longOutput = 'A'.repeat(2000);
+    const echo: Tool = {
+      name: 'echo',
+      description: 'returns big string',
+      inputSchema: { type: 'object', properties: { text: { type: 'string' } } },
+      permission: 'auto',
+      mutating: false,
+      async execute() {
+        return longOutput;
+      },
+    };
+    const provider = new MockProvider([
+      {
+        content: [{ type: 'tool_use', id: 'u1', name: 'echo', input: { text: 'big' } }],
+        stopReason: 'tool_use',
+      },
+      { content: [{ type: 'text', text: 'ok' }], stopReason: 'end_turn' },
+    ]);
+    const { agent, tmp } = await buildAgent(provider, [echo]);
+    cleanupDirs.push(tmp);
+
+    const executed: Array<{ name: string; output?: string; input?: unknown; ok: boolean }> = [];
+    (agent as unknown as { events: EventBus }).events.on('tool.executed', (e) => {
+      executed.push({ name: e.name, output: e.output, input: e.input, ok: e.ok });
+    });
+
+    const result = await agent.run('go');
+    expect(result.status).toBe('done');
+    expect(executed).toHaveLength(1);
+    expect(executed[0]?.name).toBe('echo');
+    expect(executed[0]?.input).toEqual({ text: 'big' });
+    // Capped at 400 with trailing ellipsis.
+    expect(executed[0]?.output?.length).toBe(400);
+    expect(executed[0]?.output?.endsWith('…')).toBe(true);
+  });
+
+  it('emits provider.error when retries are exhausted', async () => {
+    class AlwaysFailProvider implements Provider {
+      readonly id = 'doomed';
+      readonly capabilities: Capabilities = {
+        tools: false,
+        parallelTools: false,
+        vision: false,
+        streaming: false,
+        promptCache: false,
+        systemPrompt: true,
+        jsonMode: false,
+        maxContext: 100_000,
+        cacheControl: 'none',
+      };
+      async complete(): Promise<Response> {
+        throw new ProviderError('doomed HTTP 400', 400, false, 'doomed', {
+          body: { type: 'invalid_request_error', message: 'bad request' },
+        });
+      }
+      // biome-ignore lint/correctness/useYield: stub
+      async *stream(): AsyncIterable<StreamEvent> {
+        throw new Error('not used');
+      }
+    }
+    const provider = new AlwaysFailProvider();
+    const { agent, tmp, ctx } = await buildAgent(provider as unknown as MockProvider);
+    cleanupDirs.push(tmp);
+    (ctx as unknown as { provider: Provider }).provider = provider;
+
+    const errors: Array<{ providerId: string; status: number; description: string }> = [];
+    (agent as unknown as { events: EventBus }).events.on('provider.error', (e) => errors.push(e));
+
+    const result = await agent.run('ping');
+    expect(result.status).toBe('failed');
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.providerId).toBe('doomed');
+    expect(errors[0]?.status).toBe(400);
+    expect(errors[0]?.description).toContain('invalid request (400)');
   });
 });

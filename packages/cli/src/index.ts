@@ -17,6 +17,7 @@ import {
   DefaultErrorHandler,
   DefaultTokenCounter,
   DefaultSessionStore,
+  RecoveryLock,
   DefaultAttachmentStore,
   DefaultSecretVault,
   migratePlaintextSecrets,
@@ -28,6 +29,7 @@ import {
   DefaultModelsRegistry,
   HybridCompactor,
   Context,
+  createContextManagerTool,
   createDefaultPipelines,
   loadPlugins,
   resolveWstackPaths,
@@ -64,6 +66,8 @@ const BOOLEAN_FLAGS = new Set([
   'no-features',
   'tui',
   'no-tui',
+  'no-recovery',
+  'recover',
 ]);
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -339,9 +343,15 @@ export async function main(argv: string[]): Promise<number> {
     }
   }
 
+  // Compactor — also wired into createContextManagerTool below
+  const compactor = container.resolve(TOKENS.Compactor);
+
   // Tool registry
   const toolRegistry = new ToolRegistry();
   for (const t of builtinTools) toolRegistry.register(t);
+  toolRegistry.registerDefault(
+    createContextManagerTool({ compactor }),
+  );
   if (config.features.memory) {
     toolRegistry.register(rememberTool(memoryStore));
     toolRegistry.register(forgetTool(memoryStore));
@@ -377,6 +387,30 @@ export async function main(argv: string[]): Promise<number> {
       renderer.write('\n');
       streamingActive = false;
     }
+  });
+
+  // Provider hiccups — render a single friendly line instead of leaving the
+  // raw JSON body in logger output. retry events show a countdown; error
+  // events surface a final failure that won't be retried.
+  events.on('provider.retry', (p) => {
+    spinner.stop();
+    if (streamingActive) {
+      renderer.write('\n');
+      streamingActive = false;
+    }
+    const secs = (p.delayMs / 1000).toFixed(p.delayMs >= 1000 ? 1 : 2);
+    process.stderr.write(
+      color.yellow(`  ⟳ retry ${p.attempt} in ${secs}s — ${p.description}\n`),
+    );
+    spinner.start(color.dim(`${config.provider}/${config.model} thinking…`));
+  });
+  events.on('provider.error', (p) => {
+    spinner.stop();
+    if (streamingActive) {
+      renderer.write('\n');
+      streamingActive = false;
+    }
+    process.stderr.write(color.red(`  ✗ ${p.description}\n`));
   });
 
   // Provider instance — registry-driven by default, but falls through to
@@ -417,7 +451,38 @@ export async function main(argv: string[]): Promise<number> {
 
   // Session — fresh by default, or resumed from disk if --resume <id> was passed.
   const sessionStore = container.resolve(TOKENS.SessionStore);
-  const resumeId = typeof flags['resume'] === 'string' ? flags['resume'] : undefined;
+  let resumeId = typeof flags['resume'] === 'string' ? flags['resume'] : undefined;
+
+  // Crash recovery: if the last interactive run was killed mid-flight,
+  // its `active.json` lockfile is still on disk and the session has no
+  // `session_end` event. Offer to resume it before opening a fresh one.
+  // Skipped when the user explicitly chose `--resume <id>` or asked to
+  // bypass with `--no-recovery`.
+  const recoveryLock = new RecoveryLock({
+    dir: wpaths.projectSessions,
+    sessionStore,
+  });
+  if (!resumeId && !flags['no-recovery']) {
+    const abandoned = await recoveryLock.checkAbandoned();
+    if (abandoned && abandoned.messageCount > 0) {
+      const choice = await promptRecovery(reader, renderer, abandoned, !!flags['recover']);
+      if (choice === 'resume') {
+        resumeId = abandoned.sessionId;
+      } else if (choice === 'delete') {
+        await sessionStore.delete(abandoned.sessionId).catch(() => undefined);
+        await recoveryLock.clear();
+      } else {
+        // 'skip' — leave the file on disk, just clear the lock so we
+        // don't ask again every launch.
+        await recoveryLock.clear();
+      }
+    } else if (abandoned) {
+      // Empty session (no real work done) — silently discard.
+      await sessionStore.delete(abandoned.sessionId).catch(() => undefined);
+      await recoveryLock.clear();
+    }
+  }
+
   let session;
   let restoredMessages: import('@wrongstack/core').Message[] = [];
   if (resumeId) {
@@ -442,6 +507,9 @@ export async function main(argv: string[]): Promise<number> {
       provider: config.provider,
     });
   }
+
+  // Claim the lock for this session. Released in the finally block below.
+  await recoveryLock.write(session.id).catch(() => undefined);
 
   // Attachment store: per-session, spooled under sessions/<id>/attachments/.
   const attachments = new DefaultAttachmentStore({
@@ -496,6 +564,9 @@ export async function main(argv: string[]): Promise<number> {
     }
   }
 
+  // Slash registry — created before plugins so plugins can register commands.
+  const slashRegistry = new SlashCommandRegistry();
+
   // Plugins
   if (config.features.plugins && config.plugins && config.plugins.length > 0) {
     const resolvedPlugins: Plugin[] = [];
@@ -519,6 +590,7 @@ export async function main(argv: string[]): Promise<number> {
             pipelines: pipelines as unknown as Parameters<typeof createApi>[1]['pipelines'],
             toolRegistry,
             providerRegistry,
+            slashCommandRegistry: slashRegistry,
             mcpRegistry,
             config,
             log: logger,
@@ -527,8 +599,6 @@ export async function main(argv: string[]): Promise<number> {
     }
   }
 
-  // Slash registry
-  const slashRegistry = new SlashCommandRegistry();
   const slashCmds = buildBuiltinSlashCommands({
     registry: slashRegistry,
     toolRegistry,
@@ -650,9 +720,56 @@ export async function main(argv: string[]): Promise<number> {
       usage: tokenCounter.total(),
     });
     await session.close();
+    await recoveryLock.clear().catch(() => undefined);
     await reader.close();
   }
   return code;
+}
+
+/**
+ * Prompt the user about an abandoned session. The lockfile lifecycle
+ * guarantees we only get here when the previous instance died without
+ * writing `session_end` AND there's real work on disk (≥1 message).
+ *
+ * `--recover` short-circuits to "resume" without asking; piped/non-TTY
+ * input degrades to the same — the alternative is hanging on stdin or
+ * forcing the user to remember a flag they never typed.
+ */
+async function promptRecovery(
+  reader: ReadlineInputReader,
+  renderer: TerminalRenderer,
+  abandoned: import('@wrongstack/core').AbandonedSession,
+  autoRecover: boolean,
+): Promise<'resume' | 'delete' | 'skip'> {
+  const minutes = Math.round(abandoned.ageMs / 60_000);
+  const ageLabel =
+    minutes < 1 ? `${Math.round(abandoned.ageMs / 1000)}s ago` :
+    minutes < 60 ? `${minutes} min ago` :
+    `${Math.round(minutes / 60)}h ago`;
+  const summary = `Previous session was killed mid-run: ${abandoned.sessionId} (${abandoned.messageCount} messages, ${ageLabel}).`;
+  if (autoRecover) {
+    renderer.writeInfo(`${summary} Auto-resuming (--recover).`);
+    return 'resume';
+  }
+  if (!process.stdin.isTTY) {
+    renderer.writeInfo(`${summary} Non-interactive — leaving as-is. Use \`wstack resume ${abandoned.sessionId}\` or pass \`--recover\` to auto-resume.`);
+    return 'skip';
+  }
+  renderer.writeInfo(summary);
+  const answer = await reader.readKey(
+    `${color.amber('?')} Recover it? ${color.dim('[')}${color.bold('Y')}es / ${color.bold('n')}o / ${color.bold('d')}elete${color.dim(']')} `,
+    [
+      { key: 'y', label: 'yes', value: 'resume' },
+      { key: 'Y', label: 'yes', value: 'resume' },
+      { key: '\r', label: 'yes', value: 'resume' },
+      { key: '\n', label: 'yes', value: 'resume' },
+      { key: 'n', label: 'no', value: 'skip' },
+      { key: 'N', label: 'no', value: 'skip' },
+      { key: 'd', label: 'delete', value: 'delete' },
+      { key: 'D', label: 'delete', value: 'delete' },
+    ],
+  );
+  return answer as 'resume' | 'delete' | 'skip';
 }
 
 function fmtTok(n: number): string {

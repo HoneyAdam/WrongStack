@@ -1,5 +1,6 @@
 import type { Container } from '../kernel/container.js';
 import type { EventBus, EventName, Listener } from '../kernel/events.js';
+import type { Pipeline } from '../kernel/pipeline.js';
 import type { Tool } from '../types/tool.js';
 import type { Config } from '../types/config.js';
 import type { Logger } from '../types/logger.js';
@@ -9,18 +10,26 @@ import type {
   ToolRegistryView,
   ProviderRegistryView,
   MCPRegistryView,
+  SlashCommandRegistryView,
   ProviderFactory,
 } from '../types/plugin.js';
 import type { ToolRegistry } from '../registry/tool-registry.js';
 import type { ProviderRegistry } from '../registry/provider-registry.js';
+import type { SlashCommandRegistry } from '../registry/slash-command-registry.js';
 
 export interface PluginAPIInit {
   ownerName: string;
   container: Container;
   events: EventBus;
+  /**
+   * The agent's concrete pipelines. `DefaultPluginAPI` converts each to a
+   * `ReadonlyPipeline` before exposing them to the plugin — plugins can
+   * inspect and invoke pipelines but cannot mutate them.
+   */
   pipelines: PluginPipelines;
   toolRegistry: ToolRegistry;
   providerRegistry: ProviderRegistry;
+  slashCommandRegistry?: SlashCommandRegistry;
   mcpRegistry?: MCPRegistryView;
   config: Config;
   log: Logger;
@@ -33,6 +42,7 @@ export class DefaultPluginAPI implements PluginAPI {
   readonly tools: ToolRegistryView;
   readonly providers: ProviderRegistryView;
   readonly mcp: MCPRegistryView;
+  readonly slashCommands: SlashCommandRegistryView;
   readonly config: Config;
   readonly log: Logger;
   private readonly pluginCleanupFns: Array<() => void> = [];
@@ -41,9 +51,16 @@ export class DefaultPluginAPI implements PluginAPI {
     const owner = init.ownerName;
     this.container = init.container;
     this.events = init.events;
-    this.pipelines = init.pipelines;
     this.config = init.config;
     this.log = init.log.child({ plugin: owner });
+
+    // Convert concrete pipelines to read-only views before passing to plugins.
+    const pipelines = init.pipelines as unknown as Record<string, Pipeline<unknown>>;
+    const readonlyPipelines: PluginPipelines = {} as PluginPipelines;
+    for (const [key, pipeline] of Object.entries(pipelines)) {
+      readonlyPipelines[key] = pipeline.asReadonly() as PluginPipelines[typeof key];
+    }
+    this.pipelines = readonlyPipelines;
 
     const tr = init.toolRegistry;
     this.tools = {
@@ -61,6 +78,16 @@ export class DefaultPluginAPI implements PluginAPI {
     };
 
     this.mcp = init.mcpRegistry ?? noopMcp;
+
+    const scr = init.slashCommandRegistry;
+    this.slashCommands = scr
+      ? {
+          register: (cmd) => scr.register(cmd, owner),
+          unregister: (name) => scr.unregister(name),
+          get: (name) => scr.get(name),
+          list: () => scr.list(),
+        }
+      : noopSlashCommands;
   }
 
   onEvent<K extends EventName>(event: K, handler: Listener<K>): () => void {
@@ -82,4 +109,11 @@ const noopMcp: MCPRegistryView = {
   stop: async () => undefined,
   restart: async () => undefined,
   list: () => [],
+};
+
+const noopSlashCommands: SlashCommandRegistryView = {
+  register() { /* noop */ },
+  unregister() { return false; },
+  get() { return undefined; },
+  list() { return []; },
 };

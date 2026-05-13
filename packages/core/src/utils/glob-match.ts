@@ -1,10 +1,14 @@
 /**
  * Minimal glob matcher for trust patterns.
- * Supports: *, **, ?, character classes [abc], [a-z], negation [!...].
+ * Supports: *, **, ?, character classes [abc], [a-z], negation [!...] or [^...].
+ *
+ * Both `[!...]` (shell glob convention) and `[^...]` (regex convention) are
+ * accepted because users coming from either world will reach for what they
+ * know; rejecting one silently fails open in a security-sensitive context.
  */
 
 function escapeRegex(s: string): string {
-  return s.replace(/[.+^${}()|\\]/g, '\\$&');
+  return s.replace(/[.+^${}()|\\/]/g, '\\$&');
 }
 
 export function compileGlob(pattern: string): RegExp {
@@ -30,13 +34,23 @@ export function compileGlob(pattern: string): RegExp {
     } else if (c === '[') {
       let cls = '[';
       i++;
-      if (pattern[i] === '!') {
+      if (pattern[i] === '!' || pattern[i] === '^') {
         cls += '^';
         i++;
       }
       while (i < pattern.length && pattern[i] !== ']') {
         const ch = pattern[i] ?? '';
-        cls += escapeRegex(ch);
+        // Inside a regex class, only `]`, `\`, and `^`/`-` at boundaries need
+        // escaping. We've already consumed the leading `^`; the rest are
+        // literal. Escape `\` defensively and pass the rest through verbatim
+        // so ranges like `a-z` continue to work.
+        if (ch === '\\') {
+          cls += '\\\\';
+        } else if (ch === ']' || ch === '^') {
+          cls += `\\${ch}`;
+        } else {
+          cls += ch;
+        }
         i++;
       }
       cls += ']';

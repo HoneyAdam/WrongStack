@@ -172,4 +172,73 @@ describe('DefaultSessionStore', () => {
     await store.delete('doomed');
     await expect(fs.access(path.join(tmp, 'doomed.jsonl'))).rejects.toThrow();
   });
+
+  it('writes a summary manifest on close and list() reads it without parsing the jsonl', async () => {
+    const w = await store.create({ id: 's-mani', model: 'mx', provider: 'px' });
+    await w.append({
+      type: 'user_input',
+      ts: new Date().toISOString(),
+      content: 'hello there!',
+    });
+    await w.append({
+      type: 'llm_response',
+      ts: new Date().toISOString(),
+      content: [{ type: 'text', text: 'hi' }],
+      stopReason: 'end_turn',
+      usage: { input: 10, output: 5 },
+    });
+    await w.close();
+
+    const manifestPath = path.join(tmp, 's-mani.summary.json');
+    const manifestRaw = await fs.readFile(manifestPath, 'utf8');
+    const manifest = JSON.parse(manifestRaw);
+    expect(manifest).toMatchObject({
+      id: 's-mani',
+      model: 'mx',
+      provider: 'px',
+      tokenTotal: 15,
+    });
+    expect(manifest.title).toContain('hello');
+
+    // Now truncate the JSONL so list() would fail if it tried to parse —
+    // proves the fast path only touched the manifest.
+    await fs.writeFile(path.join(tmp, 's-mani.jsonl'), '{not json');
+    const list = await store.list();
+    expect(list).toHaveLength(1);
+    expect(list[0]!.id).toBe('s-mani');
+    expect(list[0]!.tokenTotal).toBe(15);
+  });
+
+  it('list() backfills a manifest from the jsonl when one is missing', async () => {
+    // Hand-write a session WITHOUT going through the writer, so no manifest exists.
+    const file = path.join(tmp, 'legacy.jsonl');
+    const events = [
+      {
+        type: 'session_start',
+        ts: '2026-05-13T10:00:00.000Z',
+        id: 'legacy',
+        model: 'old',
+        provider: 'p',
+      },
+      { type: 'user_input', ts: '2026-05-13T10:00:01.000Z', content: 'older query' },
+    ];
+    await fs.writeFile(file, events.map((e) => JSON.stringify(e)).join('\n') + '\n');
+
+    const list = await store.list();
+    expect(list).toHaveLength(1);
+    expect(list[0]!.title).toContain('older');
+
+    // After the first list(), the manifest should now exist.
+    const manifest = path.join(tmp, 'legacy.summary.json');
+    await expect(fs.access(manifest)).resolves.toBeUndefined();
+  });
+
+  it('delete() removes both the jsonl and its manifest', async () => {
+    const w = await store.create({ id: 'gone', model: 'm', provider: 'p' });
+    await w.append({ type: 'user_input', ts: new Date().toISOString(), content: 'x' });
+    await w.close();
+    await expect(fs.access(path.join(tmp, 'gone.summary.json'))).resolves.toBeUndefined();
+    await store.delete('gone');
+    await expect(fs.access(path.join(tmp, 'gone.summary.json'))).rejects.toThrow();
+  });
 });

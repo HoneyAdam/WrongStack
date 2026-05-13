@@ -9,6 +9,7 @@ import type {
   SkillLoader,
   TokenCounter,
   Renderer,
+  Context,
 } from '@wrongstack/core';
 import { color } from '@wrongstack/core';
 
@@ -34,6 +35,7 @@ export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashComma
     initCommand(opts),
     clearCommand(opts),
     compactCommand(opts),
+    contextCommand(opts),
     usageCommand(opts),
     toolsCommand(opts),
     skillCommand(opts),
@@ -225,9 +227,15 @@ function helpCommand(opts: SlashCommandContext): SlashCommand {
     description: 'Show available slash commands.',
     async run() {
       const lines = ['Available slash commands:'];
-      for (const cmd of opts.registry.list()) {
-        const aliases = cmd.aliases ? ` (${cmd.aliases.map((a) => `/${a}`).join(', ')})` : '';
-        lines.push(`  /${cmd.name}${aliases} — ${cmd.description}`);
+      for (const { cmd, owner, fullName } of opts.registry.listWithOwner()) {
+        const isBuiltin = owner === 'core';
+        // Builtins: no prefix. Plugins: prefix shown.
+        const prefix = isBuiltin ? '' : `${owner}:`;
+        const aliases = cmd.aliases
+          ? cmd.aliases.map((a) => `/${prefix}${a}`).join(', ')
+          : '';
+        const aliasStr = aliases ? ` (${aliases})` : '';
+        lines.push(`  /${prefix}${cmd.name}${aliasStr} — ${cmd.description}`);
       }
       opts.renderer.write(`${lines.join('\n')}\n`);
     },
@@ -244,6 +252,93 @@ function clearCommand(opts: SlashCommandContext): SlashCommand {
       opts.renderer.writeInfo('Session cleared.');
     },
   };
+}
+
+function contextCommand(opts: SlashCommandContext): SlashCommand {
+  return {
+    name: 'context',
+    aliases: ['ctx'],
+    description: 'Show context window summary.',
+    async run(args, ctx) {
+      const messages = ctx.messages;
+      const detailed = args.trim() === 'detail';
+
+      const pairCount = countTurnPairs(messages);
+      const estimatedTokens = estimateTokens(messages);
+      const toolUseCount = countToolUses(messages);
+      const toolResultCount = countToolResults(messages);
+
+      const lines = [
+        `${color.bold('Context Window')}`,
+        `  messages:    ${messages.length} total (${pairCount} user+assistant pairs)`,
+        `  tokens (≈):  ${estimatedTokens.toLocaleString()} (chars ÷ 4 estimate)`,
+        `  system prompt: ${ctx.systemPrompt.length} block${ctx.systemPrompt.length !== 1 ? 's' : ''}`,
+        `  tools:       ${toolUseCount} calls made, ${toolResultCount} results in history`,
+        `  read files:  ${ctx.readFiles.size} files`,
+        `  todos:       ${ctx.todos.filter((t) => t.status === 'in_progress').length} in_progress / ${ctx.todos.filter((t) => t.status === 'pending').length} pending / ${ctx.todos.filter((t) => t.status === 'completed').length} completed`,
+      ];
+
+      if (detailed) {
+        lines.push(`  model:       ${ctx.model}`);
+        lines.push(`  cwd:         ${ctx.cwd}`);
+        lines.push(`  projectRoot: ${ctx.projectRoot}`);
+        lines.push(`  file mtimes: ${ctx.fileMtimes.size} tracked`);
+        if (ctx.readFiles.size > 0) {
+          lines.push(`  file list:   ${[...ctx.readFiles].join(', ')}`);
+        }
+      }
+
+      opts.renderer.write(`${lines.join('\n')}\n`);
+    },
+  };
+}
+
+function countTurnPairs(messages: Context['messages']): number {
+  let count = 0;
+  for (const m of messages) {
+    if (m.role === 'user' || m.role === 'assistant') count++;
+  }
+  return Math.floor(count / 2);
+}
+
+function countToolUses(messages: Context['messages']): number {
+  let count = 0;
+  for (const m of messages) {
+    const content = m.content;
+    if (Array.isArray(content)) {
+      count += content.filter((b) => b.type === 'tool_use').length;
+    }
+  }
+  return count;
+}
+
+function countToolResults(messages: Context['messages']): number {
+  let count = 0;
+  for (const m of messages) {
+    const content = m.content;
+    if (Array.isArray(content)) {
+      count += content.filter((b) => b.type === 'tool_result').length;
+    }
+  }
+  return count;
+}
+
+function estimateTokens(messages: Context['messages']): number {
+  let total = 0;
+  for (const m of messages) {
+    const content = m.content;
+    if (typeof content === 'string') {
+      total += Math.ceil(content.length / 4);
+    } else if (Array.isArray(content)) {
+      for (const b of content) {
+        if (b.type === 'text') total += Math.ceil(b.text.length / 4);
+        else if (b.type === 'tool_use' || b.type === 'tool_result') {
+          total += Math.ceil(JSON.stringify(b).length / 4);
+        }
+      }
+    }
+  }
+  return total;
 }
 
 function compactCommand(opts: SlashCommandContext): SlashCommand {

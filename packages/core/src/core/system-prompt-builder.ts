@@ -87,6 +87,26 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
       const hint = t.usageHint ?? t.description;
       lines.push(`\n### ${t.name}\n${hint.trim()}`);
     }
+
+    // Context management guidance — included when context_manager is present.
+    // This layer teaches the model WHEN and HOW to use it proactively.
+    const hasContextManager = tools.some((t) => t.name === 'context_manager');
+    if (hasContextManager) {
+      lines.push(`
+## Context management
+
+When the conversation grows long and context window usage exceeds what you can track,
+use the context_manager tool proactively — do NOT wait to be told:
+
+- Call \`context_manager\` with \`{"action":"check"}\` to see current token budget and message counts.
+- When the conversation exceeds ~70% of your context window, call \`{"action":"summary"}\` or \`{"action":"compact"}\` to reclaim space.
+- Use \`{"action":"prune"}\` to surgically remove specific irrelevant message ranges (e.g. old debug output).
+- Use \`{"action":"add_note"}\` to inject a summary note at a specific point after a complex operation.
+
+**Never** stuff redundant information into a tool result. If you summarize a file, do not paste its full content —
+summarize it, and let the tool result hold only the summary.`);
+    }
+
     return lines.join('\n');
   }
 

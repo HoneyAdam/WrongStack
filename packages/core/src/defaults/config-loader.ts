@@ -84,31 +84,42 @@ function deepMerge<T>(base: T, patch: Partial<T>): T {
   return out as T;
 }
 
+/**
+ * A single config source. Higher priority wins in merges.
+ * Sources are applied in priority order (lowest first), so a source
+ * with priority=10 overrides one with priority=1.
+ */
+export interface ConfigSource {
+  /** Unique name for debugging and error messages. */
+  name: string;
+  /** Lower numbers merge first, higher numbers override lower. Default: 50. */
+  priority?: number;
+  /**
+   * Read the raw config patch. Return an empty object if unavailable.
+   * Errors are surfaced but do not abort loading — the source is skipped.
+   */
+  read(): Promise<Partial<Config>>;
+}
+
 export interface ConfigLoaderOptions {
   paths: WstackPaths;
-  /**
-   * Whether to require provider/model to be configured before returning.
-   * When false (default), loader returns a Config with the fields possibly
-   * empty — caller decides whether to interactively configure or fail.
-   */
   strict?: boolean;
-  /**
-   * Optional vault used to decrypt `enc:v1:...` values for apiKey-like
-   * fields after the layered merge. Caller usually wires up
-   * `DefaultSecretVault` with `paths.secretsKey`.
-   */
   vault?: SecretVault;
+  /** Extra sources merged after the built-in layers. */
+  sources?: ConfigSource[];
 }
 
 export class DefaultConfigLoader implements ConfigLoader {
   private readonly paths: WstackPaths;
   private readonly strict: boolean;
   private readonly vault: SecretVault | undefined;
+  private readonly extraSources: ConfigSource[];
 
   constructor(opts: ConfigLoaderOptions) {
     this.paths = opts.paths;
     this.strict = opts.strict ?? false;
     this.vault = opts.vault;
+    this.extraSources = opts.sources ?? [];
   }
 
   async load(opts: { cliFlags?: Partial<Config>; cwd?: string } = {}): Promise<Config> {
@@ -128,14 +139,26 @@ export class DefaultConfigLoader implements ConfigLoader {
       if (v) fn(cfg, v);
     }
 
-    // Layer 5: CLI flags
+    // Layer 5: extra sources — sorted by priority (lowest first)
+    const sorted = [...this.extraSources].sort((a, b) => (a.priority ?? 50) - (b.priority ?? 50));
+    for (const src of sorted) {
+      try {
+        const patch = await src.read();
+        if (patch && Object.keys(patch).length > 0) {
+          cfg = deepMerge(cfg, patch);
+        }
+      } catch (err) {
+        // Best-effort: skip failing sources so one bad source doesn't block boot.
+        console.warn(`Config source "${src.name}" failed`, err);
+      }
+    }
+
+    // Layer 6: CLI flags
     if (opts.cliFlags) {
       cfg = deepMerge(cfg, opts.cliFlags);
     }
 
-    // Decrypt apiKey-like fields if a vault is configured. Plaintext values
-    // pass through untouched, so configs without secrets and env-derived
-    // values keep working.
+    // Decrypt apiKey-like fields if a vault is configured.
     if (this.vault) {
       cfg = decryptConfigSecrets(cfg, this.vault);
     }

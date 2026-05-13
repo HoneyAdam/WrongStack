@@ -1,3 +1,4 @@
+import type { Request } from '@wrongstack/core';
 import { OpenAIProvider, type OpenAIProviderOptions } from './openai.js';
 import type { Capabilities } from '@wrongstack/core';
 
@@ -22,8 +23,10 @@ export interface OpenAICompatibleOptions {
 }
 
 export class OpenAICompatibleProvider extends OpenAIProvider {
+  private readonly extraHeaders?: Record<string, string>;
+
   constructor(opts: OpenAICompatibleOptions) {
-    const oaOpts: OpenAIProviderOptions = {
+    super({
       apiKey: opts.apiKey,
       baseUrl: opts.baseUrl,
       fetchImpl: opts.fetchImpl,
@@ -34,18 +37,14 @@ export class OpenAICompatibleProvider extends OpenAIProvider {
         parallelToolsDisabled: opts.quirks?.parallelToolsDisabled,
         jsonArgumentsBuggy: opts.quirks?.jsonArgumentsBuggy,
       },
+    });
+    this.extraHeaders = opts.headers;
+  }
+
+  protected override buildHeaders(req: Request): Record<string, string> {
+    return {
+      ...super.buildHeaders(req),
+      ...this.extraHeaders,
     };
-    super(oaOpts);
-    if (opts.headers) {
-      // Wrap fetch to inject extra headers
-      const base = oaOpts.fetchImpl ?? fetch;
-      this.opts.fetchImpl = ((input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
-        const merged = {
-          ...((init?.headers as Record<string, string>) ?? {}),
-          ...opts.headers,
-        };
-        return base(input, { ...init, headers: merged });
-      }) as typeof fetch;
-    }
   }
 }

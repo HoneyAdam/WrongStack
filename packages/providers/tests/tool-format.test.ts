@@ -264,4 +264,146 @@ describe('tool-format conversions', () => {
     ]);
     expect(blocks[0]).toMatchObject({ type: 'tool_use', input: {} });
   });
+
+  it('contentFromAnthropic coerces non-object tool_use input to empty object', () => {
+    const blocks = contentFromAnthropic([
+      { type: 'tool_use', id: 'u1', name: 'n', input: 'oops' },
+      { type: 'tool_use', id: 'u2', name: 'n', input: [1, 2] },
+      { type: 'tool_use', id: 'u3', name: 'n', input: null },
+    ]);
+    expect(blocks).toHaveLength(3);
+    for (const b of blocks) expect(b).toMatchObject({ type: 'tool_use', input: {} });
+  });
+
+  it('contentFromAnthropic preserves base64 and URL image blocks', () => {
+    const blocks = contentFromAnthropic([
+      {
+        type: 'image',
+        source: { type: 'base64', media_type: 'image/png', data: 'AAAA' },
+      },
+      { type: 'image', source: { type: 'url', url: 'https://x/p.png' } },
+    ]);
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0]).toEqual({
+      type: 'image',
+      source: { type: 'base64', media_type: 'image/png', data: 'AAAA' },
+    });
+    expect(blocks[1]).toEqual({
+      type: 'image',
+      source: { type: 'url', url: 'https://x/p.png' },
+    });
+  });
+
+  it('contentFromAnthropic preserves structured tool_result content arrays', () => {
+    const blocks = contentFromAnthropic([
+      {
+        type: 'tool_result',
+        tool_use_id: 'u1',
+        content: [
+          { type: 'text', text: 'see below:' },
+          { type: 'image', source: { type: 'url', url: 'https://x/r.png' } },
+        ],
+      },
+    ]);
+    const result = blocks[0] as {
+      type: 'tool_result';
+      content: Array<{ type: string }>;
+    };
+    expect(result.type).toBe('tool_result');
+    expect(Array.isArray(result.content)).toBe(true);
+    expect(result.content).toHaveLength(2);
+    expect(result.content[0]?.type).toBe('text');
+    expect(result.content[1]?.type).toBe('image');
+  });
+
+  it('contentFromAnthropic invokes onUnsupported for unknown block types', () => {
+    const seen: string[] = [];
+    const blocks = contentFromAnthropic(
+      [
+        { type: 'text', text: 'ok' },
+        { type: 'thinking' },
+        { type: 'server_tool_use' },
+      ],
+      { onUnsupported: (t) => seen.push(t) },
+    );
+    expect(blocks).toHaveLength(1);
+    expect(seen).toEqual(['thinking', 'server_tool_use']);
+  });
+
+  it('contentFromOpenAI auto-recovers malformed args via sanitizer (no flag needed)', () => {
+    const content = contentFromOpenAI({
+      message: {
+        role: 'assistant',
+        content: null,
+        tool_calls: [
+          {
+            id: 'tc1',
+            type: 'function',
+            function: { name: 'read', arguments: '{"path":"a",}' },
+          },
+        ],
+      },
+      finish_reason: 'tool_calls',
+    });
+    expect(content[0]).toMatchObject({ type: 'tool_use', input: { path: 'a' } });
+  });
+
+  it('contentFromOpenAI calls onParseFailure when sanitizer also fails', () => {
+    const failures: Array<{ toolName: string; toolCallId: string; raw: string }> = [];
+    const content = contentFromOpenAI(
+      {
+        message: {
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: 'tc1',
+              type: 'function',
+              function: { name: 'read', arguments: 'not-json-at-all' },
+            },
+          ],
+        },
+        finish_reason: 'tool_calls',
+      },
+      { onParseFailure: (info) => failures.push(info) },
+    );
+    expect(failures).toEqual([
+      { toolName: 'read', toolCallId: 'tc1', raw: 'not-json-at-all' },
+    ]);
+    expect(content[0]).toMatchObject({ input: { __raw_arguments: 'not-json-at-all' } });
+  });
+
+  it('contentFromOpenAI flags scalar/array JSON args as parse failure', () => {
+    // JSON parses fine but the result isn't an object — tool would receive
+    // an unexpected shape, so we want the same failure signal.
+    const failures: Array<{ toolName: string }> = [];
+    const content = contentFromOpenAI(
+      {
+        message: {
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: 'tc-arr',
+              type: 'function',
+              function: { name: 'x', arguments: '[1,2,3]' },
+            },
+          ],
+        },
+        finish_reason: 'tool_calls',
+      },
+      { onParseFailure: (info) => failures.push({ toolName: info.toolName }) },
+    );
+    expect(failures).toEqual([{ toolName: 'x' }]);
+    expect(content[0]).toMatchObject({ input: { __raw_arguments: '[1,2,3]' } });
+  });
+
+  it('contentFromOpenAI preserves whitespace-only text content', () => {
+    const content = contentFromOpenAI({
+      message: { role: 'assistant', content: '   \n  ' },
+      finish_reason: 'stop',
+    });
+    expect(content).toHaveLength(1);
+    expect(content[0]).toEqual({ type: 'text', text: '   \n  ' });
+  });
 });

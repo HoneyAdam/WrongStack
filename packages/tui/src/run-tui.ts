@@ -26,38 +26,84 @@ const BRACKETED_PASTE_OFF = '\x1b[?2004l';
 
 export async function runTui(opts: RunTuiOptions): Promise<number> {
   const stdout = process.stdout;
-  if (stdout.isTTY) stdout.write(BRACKETED_PASTE_ON);
+  const stdin = process.stdin;
+
+  // Ink requires a TTY on both stdin and stdout. Without this guard the
+  // render call would fail with a terse internal Ink error; bail with a
+  // clear message so a piped invocation (`echo hi | wstack --tui`) tells
+  // the user what to do instead.
+  if (!stdout.isTTY || !stdin.isTTY) {
+    process.stderr.write(
+      'wstack: --tui requires an interactive terminal on both stdin and stdout.\n' +
+        '       Drop the flag (use the plain REPL) or run wstack directly without piping.\n',
+    );
+    return 2;
+  }
+
+  stdout.write(BRACKETED_PASTE_ON);
+
+  // Track cleanup state so signal handlers don't double-disable.
+  let cleaned = false;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    try {
+      stdout.write(BRACKETED_PASTE_OFF);
+    } catch {
+      // stdout may already be closed during shutdown — ignore.
+    }
+  };
+
+  // If the process is killed externally (terminal closed, SIGTERM from a
+  // supervisor) waitUntilExit's .then/.catch never runs. Register signal +
+  // exit listeners so the terminal isn't left in bracketed-paste mode.
+  const signals: NodeJS.Signals[] = ['SIGTERM', 'SIGHUP', 'SIGINT'];
+  const signalHandler = () => cleanup();
+  const exitHandler = () => cleanup();
+  for (const s of signals) process.on(s, signalHandler);
+  process.on('exit', exitHandler);
+
+  const detachListeners = () => {
+    for (const s of signals) process.off(s, signalHandler);
+    process.off('exit', exitHandler);
+  };
 
   return new Promise<number>((resolve) => {
     let exitCode = 0;
     const onExit = (code: number) => {
       exitCode = code;
     };
-    const cleanup = () => {
-      if (stdout.isTTY) stdout.write(BRACKETED_PASTE_OFF);
+    const settle = (code: number) => {
+      cleanup();
+      detachListeners();
+      resolve(code);
     };
-    const instance = render(
-      React.createElement(App, {
-        agent: opts.agent,
-        slashRegistry: opts.slashRegistry,
-        attachments: opts.attachments,
-        events: opts.events,
-        tokenCounter: opts.tokenCounter,
-        model: opts.model,
-        banner: opts.banner ?? true,
-        onExit,
-      }),
-      { exitOnCtrlC: false },
-    );
+
+    let instance: ReturnType<typeof render>;
+    try {
+      instance = render(
+        React.createElement(App, {
+          agent: opts.agent,
+          slashRegistry: opts.slashRegistry,
+          attachments: opts.attachments,
+          events: opts.events,
+          tokenCounter: opts.tokenCounter,
+          model: opts.model,
+          banner: opts.banner ?? true,
+          onExit,
+        }),
+        { exitOnCtrlC: false },
+      );
+    } catch (err) {
+      process.stderr.write(
+        `wstack: TUI failed to start: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+      settle(1);
+      return;
+    }
     instance
       .waitUntilExit()
-      .then(() => {
-        cleanup();
-        resolve(exitCode);
-      })
-      .catch(() => {
-        cleanup();
-        resolve(1);
-      });
+      .then(() => settle(exitCode))
+      .catch(() => settle(1));
   });
 }

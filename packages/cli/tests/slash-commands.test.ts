@@ -54,7 +54,16 @@ function makeRig() {
   return { registry, renderer, toolRegistry, tokenCounter };
 }
 
-const fakeCtx = { messages: [], todos: [] } as unknown as Context;
+const fakeCtx = {
+  messages: [],
+  todos: [],
+  systemPrompt: [],
+  readFiles: new Set(),
+  fileMtimes: new Map(),
+  model: 'test-model',
+  cwd: '/tmp',
+  projectRoot: '/proj',
+} as unknown as Context;
 
 describe('built-in slash commands', () => {
   it('/help lists all commands', async () => {
@@ -129,5 +138,58 @@ describe('built-in slash commands', () => {
     const ctx = { messages: [] } as unknown as Context;
     await registry.dispatch('/compact', ctx);
     expect(renderer.infos.some((i) => i.includes('Compaction'))).toBe(true);
+  });
+
+  it('/context shows context window summary', async () => {
+    const { registry, renderer } = makeRig();
+    const ctx = {
+      messages: [
+        { role: 'user', content: [{ type: 'text', text: 'hello' }] },
+        { role: 'assistant', content: [{ type: 'text', text: 'hi' }] },
+        { role: 'user', content: [{ type: 'text', text: 'world' }] },
+        { role: 'assistant', content: [{ type: 'tool_use', id: '1', name: 'bash', input: {} }, { type: 'text', text: 'done' }] },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: '1', content: 'ok' }] },
+      ],
+      todos: [
+        { id: '1', content: 'fix bug', status: 'in_progress' },
+        { id: '2', content: 'write test', status: 'pending' },
+        { id: '3', content: 'done', status: 'completed' },
+      ],
+      systemPrompt: [{ type: 'text', text: 'You are helpful' }],
+      readFiles: new Set(['a.ts', 'b.ts']),
+      fileMtimes: new Map(),
+      model: 'claude-sonnet-4-6',
+      cwd: '/tmp',
+      projectRoot: '/proj',
+    } as unknown as Context;
+    await registry.dispatch('/context', ctx);
+    expect(renderer.output).toContain('Context Window');
+    expect(renderer.output).toContain('messages:');
+    expect(renderer.output).toContain('in_progress');
+    expect(renderer.output).toContain('pending');
+  });
+
+  it('/ctx aliases /context', async () => {
+    const { registry, renderer } = makeRig();
+    const ctx = { messages: [], todos: [], systemPrompt: [], readFiles: new Set(), fileMtimes: new Map() } as unknown as Context;
+    await registry.dispatch('/ctx', ctx);
+    expect(renderer.output).toContain('Context Window');
+  });
+
+  it('/context detail shows extra fields', async () => {
+    const { registry, renderer } = makeRig();
+    const ctx = {
+      messages: [],
+      todos: [],
+      systemPrompt: [],
+      readFiles: new Set(),
+      fileMtimes: new Map(),
+      model: 'claude-sonnet-4-6',
+      cwd: '/tmp',
+      projectRoot: '/proj',
+    } as unknown as Context;
+    await registry.dispatch('/context detail', ctx);
+    expect(renderer.output).toContain('model:');
+    expect(renderer.output).toContain('cwd:');
   });
 });

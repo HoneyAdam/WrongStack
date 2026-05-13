@@ -10,13 +10,27 @@ export class ToolRegistry {
     this.tools.set(tool.name, { tool, owner });
   }
 
+  /**
+   * Register a tool as a default. If the tool name is already registered,
+   * this is a no-op — the existing registration (from core or another
+   * plugin) takes precedence. Use `override` to intentionally replace.
+   */
+  registerDefault(tool: Tool, owner = 'core'): void {
+    if (this.tools.has(tool.name)) return;
+    this.tools.set(tool.name, { tool, owner });
+  }
+
   unregister(name: string): boolean {
     return this.tools.delete(name);
   }
 
-  replace(name: string, tool: Tool, owner = 'core'): void {
+  /**
+   * Override an existing tool. Throws if the tool is not already registered.
+   * Plugins use this to replace built-in tools with custom implementations.
+   */
+  override(name: string, tool: Tool, owner = 'core'): void {
     if (!this.tools.has(name)) {
-      throw new Error(`Tool "${name}" not registered; cannot replace`);
+      throw new Error(`Tool "${name}" not registered; cannot override`);
     }
     this.tools.set(name, { tool, owner });
   }

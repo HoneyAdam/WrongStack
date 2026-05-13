@@ -1,5 +1,4 @@
-import { randomUUID } from 'node:crypto';
-import type { Container, Token } from '../kernel/container.js';
+import type { Container } from '../kernel/container.js';
 import type { EventBus } from '../kernel/events.js';
 import { Pipeline } from '../kernel/pipeline.js';
 import { RunController } from '../kernel/run-controller.js';
@@ -20,6 +19,7 @@ import type { Plugin, PluginAPI } from '../types/plugin.js';
 import type { Context, RunOptions } from './context.js';
 import type { ToolRegistry } from '../registry/tool-registry.js';
 import type { ProviderRegistry } from '../registry/provider-registry.js';
+import { ToolExecutor } from '../defaults/tool-executor.js';
 
 export const DEFAULT_MAX_ITERATIONS = 100;
 
@@ -103,6 +103,7 @@ export class Agent {
   private readonly executionStrategy: 'parallel' | 'sequential' | 'smart';
   private readonly perIterationOutputCapBytes: number;
   private readonly plugins: { plugin: Plugin; api: PluginAPI }[] = [];
+  private readonly toolExecutor: ToolExecutor;
 
   constructor(init: AgentInit) {
     this.container = init.container;
@@ -115,6 +116,14 @@ export class Agent {
     this.iterationTimeoutMs = init.iterationTimeoutMs ?? 300_000;
     this.executionStrategy = init.executionStrategy ?? 'smart';
     this.perIterationOutputCapBytes = init.perIterationOutputCapBytes ?? 100_000;
+    this.toolExecutor = new ToolExecutor(this.tools, {
+      permissionPolicy: this.permission,
+      secretScrubber: this.scrubber,
+      renderer: this.renderer,
+      events: this.events,
+      iterationTimeoutMs: this.iterationTimeoutMs,
+      perIterationOutputCapBytes: this.perIterationOutputCapBytes,
+    });
   }
 
   private get logger(): Logger {
@@ -441,11 +450,37 @@ export class Agent {
         const isProviderErr = err instanceof ProviderError;
         const errAsErr = err instanceof Error ? err : new Error(String(err));
         const canRetry = this.retry.shouldRetry(isProviderErr ? err : errAsErr, attempt);
-        if (!canRetry) throw err;
-        const delay = this.retry.delayMs(attempt);
-        this.logger.warn(`Provider call retry ${attempt + 1} after ${delay}ms`, {
-          err: errAsErr.message,
-        });
+        // For ProviderError we have a structured `describe()`; for anything
+        // else (e.g. a TypeError from a malformed body) we fall back to the
+        // raw message.
+        const description = isProviderErr
+          ? (err as ProviderError).describe()
+          : errAsErr.message;
+        if (!canRetry) {
+          if (isProviderErr) {
+            this.events.emit('provider.error', {
+              providerId: (err as ProviderError).providerId,
+              status: (err as ProviderError).status,
+              description,
+              retryable: false,
+            });
+          }
+          throw err;
+        }
+        const delay = Math.round(this.retry.delayMs(attempt));
+        const attemptNum = attempt + 1;
+        this.logger.warn(
+          `Provider retry ${attemptNum} in ${delay}ms — ${description}`,
+        );
+        if (isProviderErr) {
+          this.events.emit('provider.retry', {
+            providerId: (err as ProviderError).providerId,
+            attempt: attemptNum,
+            delayMs: delay,
+            status: (err as ProviderError).status,
+            description,
+          });
+        }
         await new Promise<void>((resolve, reject) => {
           const t = setTimeout(resolve, delay);
           const onAbort = () => {
@@ -467,67 +502,16 @@ export class Agent {
     toolUses: ToolUseBlock[],
     signal: AbortSignal,
   ): Promise<ToolResultBlock[]> {
-    const results = new Array<ToolResultBlock>(toolUses.length);
-    let outputBudget = this.perIterationOutputCapBytes;
+    const { outputs } = await this.toolExecutor.executeBatch(
+      toolUses,
+      this.ctx,
+      this.executionStrategy,
+    );
 
-    const runOne = async (use: ToolUseBlock, index: number): Promise<void> => {
-      const start = Date.now();
-      const tool = this.tools.get(use.name);
-      let result: ToolResultBlock;
-      if (!tool) {
-        result = {
-          type: 'tool_result',
-          tool_use_id: use.id,
-          content: `Tool "${use.name}" is not registered. Available tools: ${this.tools
-            .list()
-            .map((t) => t.name)
-            .join(', ')}`,
-          is_error: true,
-        };
-      } else {
-        try {
-          const decision = await this.permission.evaluate(tool, use.input, this.ctx);
-          if (decision.permission === 'deny') {
-            result = {
-              type: 'tool_result',
-              tool_use_id: use.id,
-              content: `Tool "${use.name}" denied: ${decision.reason ?? 'policy'}`,
-              is_error: true,
-            };
-          } else if (decision.permission === 'confirm') {
-            result = {
-              type: 'tool_result',
-              tool_use_id: use.id,
-              content: `Tool "${use.name}" requires user confirmation but no prompt handler was available.`,
-              is_error: true,
-            };
-          } else {
-            this.renderer?.writeToolCall(use.name, use.input);
-            const output = await this.runToolWithTimeout(tool, use.input, signal);
-            const text = serialize(output);
-            const scrubbed = this.scrubber.scrub(text);
-            const capped = enforceCap(scrubbed, outputBudget);
-            outputBudget = Math.max(0, outputBudget - capped.length);
-            result = {
-              type: 'tool_result',
-              tool_use_id: use.id,
-              content: capped,
-              is_error: false,
-            };
-            this.renderer?.writeToolResult(use.name, capped, false);
-          }
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          result = {
-            type: 'tool_result',
-            tool_use_id: use.id,
-            content: `Tool "${use.name}" threw: ${msg}`,
-            is_error: true,
-          };
-          this.renderer?.writeToolResult(use.name, msg, true);
-        }
-      }
-      // Run tool-call pipeline
+    // Post-processing: pipeline, session, events
+    for (const { result, tool, durationMs } of outputs) {
+      const use = toolUses.find((u) => u.id === result.tool_use_id);
+      if (!use) continue;
       await this.pipelines.toolCall.run({
         toolUse: use,
         result,
@@ -537,115 +521,21 @@ export class Agent {
       await this.ctx.session.append({
         type: 'tool_result',
         ts: new Date().toISOString(),
-        id: use.id,
+        id: result.tool_use_id,
         content: result.content,
         isError: !!result.is_error,
       });
       this.events.emit('tool.executed', {
         name: use.name,
-        durationMs: Date.now() - start,
+        durationMs,
         ok: !result.is_error,
         input: use.input,
+        output: truncateForEvent(result.content),
       });
-      results[index] = result;
-    };
-
-    // Execution strategy
-    if (this.executionStrategy === 'sequential') {
-      for (let i = 0; i < toolUses.length; i++) {
-        const use = toolUses[i];
-        if (use) await runOne(use, i);
-      }
-    } else if (this.executionStrategy === 'parallel') {
-      await Promise.all(toolUses.map((use, i) => runOne(use, i)));
-    } else {
-      // smart: non-mutating in parallel, then mutating sequentially
-      const nonMutating: { use: ToolUseBlock; index: number }[] = [];
-      const mutating: { use: ToolUseBlock; index: number }[] = [];
-      for (let i = 0; i < toolUses.length; i++) {
-        const use = toolUses[i];
-        if (!use) continue;
-        const tool = this.tools.get(use.name);
-        if (tool?.mutating) mutating.push({ use, index: i });
-        else nonMutating.push({ use, index: i });
-      }
-      await Promise.all(nonMutating.map(({ use, index }) => runOne(use, index)));
-      for (const { use, index } of mutating) {
-        await runOne(use, index);
-      }
     }
-    return results;
-  }
 
-  private async runToolWithTimeout(
-    tool: Tool,
-    input: unknown,
-    parentSignal: AbortSignal,
-  ): Promise<unknown> {
-    const timeoutMs = tool.timeoutMs ?? this.iterationTimeoutMs;
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(new Error('tool timeout')), timeoutMs);
-    const combined = anySignal([parentSignal, ctrl.signal]);
-    try {
-      const out = await tool.execute(input, this.ctx, { signal: combined });
-      return out;
-    } finally {
-      clearTimeout(timer);
-    }
+    return outputs.map((o) => o.result);
   }
-}
-
-function anySignal(signals: AbortSignal[]): AbortSignal {
-  if ('any' in AbortSignal && typeof (AbortSignal as { any?: (s: AbortSignal[]) => AbortSignal }).any === 'function') {
-    return (AbortSignal as { any: (s: AbortSignal[]) => AbortSignal }).any(signals);
-  }
-  const ctrl = new AbortController();
-  const abortSources: AbortSignal[] = [];
-  for (const s of signals) {
-    if (s.aborted) {
-      ctrl.abort(s.reason);
-      return ctrl.signal;
-    }
-    abortSources.push(s);
-  }
-  for (const s of abortSources) {
-    s.addEventListener('abort', () => ctrl.abort(s.reason), { once: true });
-  }
-  return ctrl.signal;
-}
-
-function serialize(value: unknown): string {
-  if (typeof value === 'string') return value;
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'object') {
-    if (Array.isArray(value)) return value.map(serialize).join('\n');
-    if ('text' in (value as Record<string, unknown>)) {
-      const t = (value as Record<string, unknown>).text;
-      // If .text is a string, return it directly; otherwise fall through to
-      // JSON.stringify so nested objects don't become "[object Object]".
-      return typeof t === 'string' ? t : JSON.stringify(value, null, 2);
-    }
-    try {
-      return JSON.stringify(value, null, 2);
-    } catch {
-      return String(value);
-    }
-  }
-  return String(value);
-}
-
-function enforceCap(text: string, capBytes: number): string {
-  if (capBytes <= 0) return '[truncated: iteration output cap exceeded]';
-  const textBytes = Buffer.byteLength(text, 'utf8');
-  if (textBytes <= capBytes) return text;
-  // Pre-calculate the truncation message byte size so the final output
-  // does not exceed capBytes by more than a few bytes.
-  const marker = `\n…[truncated ${textBytes - capBytes} bytes]…\n`;
-  const markerBytes = Buffer.byteLength(marker, 'utf8');
-  const available = capBytes - markerBytes;
-  if (available <= 0) return '[truncated: iteration output cap exceeded]';
-  const half = Math.floor(available / 2);
-  return `${text.slice(0, half)}${marker}${text.slice(textBytes - half)}`;
 }
 
 function toError(err: unknown): Error {
@@ -661,7 +551,20 @@ function safeJsonOrRaw(s: string): unknown {
   }
 }
 
-// Keep crypto import live so meta hooks can use it.
-export { randomUUID };
-export type { Token };
-
+/**
+ * Render a tool result body for inclusion in the `tool.executed` event.
+ * Tool outputs can be large (file dumps, command output); UIs only want a
+ * preview line, so cap at ~400 chars with an ellipsis marker. Structured
+ * content blocks are flattened to their text portions.
+ */
+function truncateForEvent(content: string | ToolResultBlock['content'], max = 400): string {
+  const s = typeof content === 'string'
+    ? content
+    : Array.isArray(content)
+      ? content
+          .map((b) => (b.type === 'text' ? b.text : `[${b.type}]`))
+          .join('')
+      : '';
+  if (!s) return '';
+  return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
+}

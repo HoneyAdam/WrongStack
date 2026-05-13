@@ -1,18 +1,17 @@
 import type {
   Capabilities,
   Message,
-  Provider,
   Request,
-  Response,
-  StopReason,
   StreamEvent,
+  StopReason,
   Usage,
 } from '@wrongstack/core';
 import { ProviderError, safeParse } from '@wrongstack/core';
+import { parseProviderHttpError } from './error-parse.js';
 import { toolsToAnthropic } from './tool-format/to-anthropic.js';
 import { normalizeAnthropic } from './stop-reason.js';
 import { parseSSE } from './sse.js';
-import { aggregateStream } from './aggregate.js';
+import { WireAdapter } from './wire-adapter.js';
 
 export interface AnthropicProviderOptions {
   apiKey: string;
@@ -25,9 +24,9 @@ export interface AnthropicProviderOptions {
 const DEFAULT_BASE = 'https://api.anthropic.com';
 const DEFAULT_VERSION = '2023-06-01';
 
-export class AnthropicProvider implements Provider {
-  readonly id = 'anthropic';
-  readonly capabilities: Capabilities = {
+export class AnthropicProvider extends WireAdapter {
+  override readonly id = 'anthropic';
+  override readonly capabilities: Capabilities = {
     tools: true,
     parallelTools: true,
     vision: true,
@@ -38,29 +37,34 @@ export class AnthropicProvider implements Provider {
     maxContext: 200_000,
     cacheControl: 'native',
   };
+
   private readonly opts: AnthropicProviderOptions;
 
   constructor(opts: AnthropicProviderOptions) {
-    if (!opts.apiKey) throw new Error('AnthropicProvider: apiKey required');
+    super(opts.apiKey, opts.baseUrl ?? DEFAULT_BASE, opts.fetchImpl);
     this.opts = opts;
   }
 
-  async complete(req: Request, opts: { signal: AbortSignal }): Promise<Response> {
-    return aggregateStream(this.stream(req, opts));
+  protected override buildUrl(_req: Request): string {
+    const base = this.baseUrl.replace(/\/+$/, '');
+    if (/\/v\d+\/messages$/.test(base)) return base;
+    if (/\/v\d+$/.test(base)) return `${base}/messages`;
+    return `${base}/v1/messages`;
   }
 
-  async *stream(req: Request, opts: { signal: AbortSignal }): AsyncIterable<StreamEvent> {
-    const url = this.endpoint();
+  protected override buildHeaders(req: Request): Record<string, string> {
     const headers: Record<string, string> = {
-      'content-type': 'application/json',
-      accept: 'text/event-stream',
-      'x-api-key': this.opts.apiKey,
+      ...super.buildHeaders(req),
+      'x-api-key': this.apiKey,
       'anthropic-version': this.opts.apiVersion ?? DEFAULT_VERSION,
     };
     if (this.opts.beta && this.opts.beta.length > 0) {
       headers['anthropic-beta'] = this.opts.beta.join(',');
     }
+    return headers;
+  }
 
+  protected override buildBody(req: Request): Record<string, unknown> {
     const body: Record<string, unknown> = {
       model: req.model,
       max_tokens: req.maxTokens,
@@ -73,52 +77,18 @@ export class AnthropicProvider implements Provider {
     if (req.topP !== undefined) body['top_p'] = req.topP;
     if (req.stopSequences) body['stop_sequences'] = req.stopSequences;
     if (req.toolChoice) body['tool_choice'] = req.toolChoice;
-
-    const f = this.opts.fetchImpl ?? fetch;
-    let httpRes: Response2;
-    try {
-      httpRes = (await f(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-        signal: opts.signal,
-      })) as unknown as Response2;
-    } catch (err) {
-      if (opts.signal.aborted) throw err;
-      throw new ProviderError(
-        err instanceof Error ? err.message : String(err),
-        0,
-        true,
-        this.id,
-        err,
-      );
-    }
-
-    if (!httpRes.ok) {
-      const text = await safeText(httpRes);
-      throw new ProviderError(
-        `Anthropic HTTP ${httpRes.status}: ${text.slice(0, 500)}`,
-        httpRes.status,
-        httpRes.status === 429 ||
-          httpRes.status === 529 ||
-          (httpRes.status >= 500 && httpRes.status < 600),
-        this.id,
-      );
-    }
-
-    yield* parseAnthropicStream(httpRes.body, req.model);
+    return body;
   }
 
-  /**
-   * Resolve the /messages endpoint. Tolerates baseUrls that already include
-   * the version segment — e.g. proxies surfaced via models.dev like
-   * `https://api.minimax.io/anthropic/v1` — so we don't end up with `/v1/v1/messages`.
-   */
-  private endpoint(): string {
-    const base = (this.opts.baseUrl ?? DEFAULT_BASE).replace(/\/+$/, '');
-    if (/\/v\d+\/messages$/.test(base)) return base;
-    if (/\/v\d+$/.test(base)) return `${base}/messages`;
-    return `${base}/v1/messages`;
+  protected override parseStream(
+    body: Parameters<typeof parseSSE>[0],
+    fallbackModel: string,
+  ): AsyncIterable<StreamEvent> {
+    return parseAnthropicStream(body, fallbackModel);
+  }
+
+  protected override translateError(status: number, text: string): ProviderError {
+    return parseProviderHttpError(this.id, status, text);
   }
 
   private normalizeMessage(m: Message): Record<string, unknown> {
@@ -129,22 +99,7 @@ export class AnthropicProvider implements Provider {
   }
 }
 
-// Avoid name conflict with the canonical Response type
-type Response2 = {
-  ok: boolean;
-  status: number;
-  json(): Promise<unknown>;
-  text(): Promise<string>;
-  body: ReadableStream<Uint8Array> | NodeJS.ReadableStream | null;
-};
-
-async function safeText(res: Response2): Promise<string> {
-  try {
-    return await res.text();
-  } catch {
-    return '';
-  }
-}
+type Response2Body = ReadableStream<Uint8Array> | NodeJS.ReadableStream | null;
 
 /**
  * Translate Anthropic's SSE wire format into canonical StreamEvent[].
@@ -158,7 +113,7 @@ async function safeText(res: Response2): Promise<string> {
  * message_delta.usage.
  */
 async function* parseAnthropicStream(
-  body: Response2['body'],
+  body: Response2Body,
   fallbackModel: string,
 ): AsyncIterable<StreamEvent> {
   type BlockKind = 'text' | 'tool_use' | 'unknown';
@@ -253,11 +208,11 @@ async function* parseAnthropicStream(
           0,
           false,
           'anthropic',
+          { body: { type: err?.type, message: err?.message } },
         );
       }
     }
   }
-  // Guarantee a message_stop in case the upstream omitted it.
   if (started) {
     yield { type: 'message_stop', stopReason, usage };
   }

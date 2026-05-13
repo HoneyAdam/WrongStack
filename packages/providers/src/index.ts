@@ -11,6 +11,7 @@ import { AnthropicProvider } from './anthropic.js';
 import { OpenAIProvider } from './openai.js';
 import { OpenAICompatibleProvider } from './openai-compatible.js';
 import { GoogleProvider } from './google.js';
+import { WireAdapter } from './wire-adapter.js';
 
 export { AnthropicProvider, type AnthropicProviderOptions } from './anthropic.js';
 export { OpenAIProvider, type OpenAIProviderOptions } from './openai.js';
@@ -20,7 +21,9 @@ export {
   type CompatibilityQuirks,
 } from './openai-compatible.js';
 export { GoogleProvider, type GoogleProviderOptions } from './google.js';
+export { WireAdapter } from './wire-adapter.js';
 export { capabilitiesFor } from './capabilities.js';
+export { parseProviderHttpError } from './error-parse.js';
 export { normalizeAnthropic, normalizeOpenAI } from './stop-reason.js';
 export { toolsToAnthropic } from './tool-format/to-anthropic.js';
 export { contentFromAnthropic } from './tool-format/from-anthropic.js';
@@ -103,6 +106,19 @@ function makeProvider(p: ResolvedProvider, cfg: ProviderConfig): Provider {
   }
   const baseUrl = cfg.baseUrl ?? p.apiBase;
 
+  if (!family || family === 'unsupported') {
+    if (family === 'unsupported') {
+      throw new Error(
+        `Provider "${p.id}" uses an unsupported wire family (${p.npm ?? 'unknown'}). ` +
+          `Register a custom factory via a plugin to enable it.`,
+      );
+    }
+    throw new Error(
+      `Provider "${p.id}" has no wire family configured. ` +
+        `Set an explicit family ("anthropic" | "openai" | "openai-compatible" | "google") in config or the models.dev catalog.`,
+    );
+  }
+
   switch (family) {
     case 'anthropic':
       return new AnthropicProvider({ apiKey: apiKey!, baseUrl });
@@ -123,11 +139,6 @@ function makeProvider(p: ResolvedProvider, cfg: ProviderConfig): Provider {
       });
     case 'google':
       return new GoogleProvider({ id: p.id, apiKey: apiKey!, baseUrl });
-    case 'unsupported':
-      throw new Error(
-        `Provider "${p.id}" uses an unsupported wire family (${p.npm ?? 'unknown'}). ` +
-          `Register a custom factory via a plugin to enable it.`,
-      );
   }
 }
 

@@ -1,18 +1,17 @@
 import type {
   Capabilities,
   Message,
-  Provider,
   Request,
-  Response,
-  StopReason,
   StreamEvent,
-  Usage,
+  StopReason,
   Tool,
+  Usage,
 } from '@wrongstack/core';
 import { ProviderError, safeParse } from '@wrongstack/core';
+import { parseProviderHttpError } from './error-parse.js';
 import { normalizeOpenAI } from './stop-reason.js';
 import { parseSSE } from './sse.js';
-import { aggregateStream } from './aggregate.js';
+import { WireAdapter } from './wire-adapter.js';
 
 /**
  * Google Gemini wire format (generativelanguage.googleapis.com).
@@ -54,13 +53,14 @@ interface GeminiCandidate {
   finishReason?: string;
 }
 
-export class GoogleProvider implements Provider {
-  readonly id: string;
-  readonly capabilities: Capabilities;
+export class GoogleProvider extends WireAdapter {
+  override readonly id: string;
+  override readonly capabilities: Capabilities;
+
   private readonly opts: GoogleProviderOptions;
 
   constructor(opts: GoogleProviderOptions) {
-    if (!opts.apiKey) throw new Error('GoogleProvider: apiKey required');
+    super(opts.apiKey, opts.baseUrl ?? DEFAULT_BASE, opts.fetchImpl);
     this.opts = opts;
     this.id = opts.id ?? 'google';
     this.capabilities = {
@@ -77,14 +77,18 @@ export class GoogleProvider implements Provider {
     };
   }
 
-  async complete(req: Request, opts: { signal: AbortSignal }): Promise<Response> {
-    return aggregateStream(this.stream(req, opts));
+  protected override buildUrl(req: Request): string {
+    return `${this.baseUrl}/models/${encodeURIComponent(req.model)}:streamGenerateContent?alt=sse`;
   }
 
-  async *stream(req: Request, opts: { signal: AbortSignal }): AsyncIterable<StreamEvent> {
-    const base = this.opts.baseUrl ?? DEFAULT_BASE;
-    const url = `${base}/models/${encodeURIComponent(req.model)}:streamGenerateContent?alt=sse`;
+  protected override buildHeaders(req: Request): Record<string, string> {
+    return {
+      ...super.buildHeaders(req),
+      'x-goog-api-key': this.apiKey,
+    };
+  }
 
+  protected override buildBody(req: Request): Record<string, unknown> {
     const body: Record<string, unknown> = {
       contents: messagesToGemini(req.messages),
       generationConfig: this.buildGenConfig(req),
@@ -97,42 +101,18 @@ export class GoogleProvider implements Provider {
     if (req.tools && req.tools.length > 0) {
       body['tools'] = [{ functionDeclarations: toolsToGemini(req.tools) }];
     }
+    return body;
+  }
 
-    const f = this.opts.fetchImpl ?? fetch;
-    let httpRes: Awaited<ReturnType<typeof fetch>>;
-    try {
-      httpRes = await f(url, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          accept: 'text/event-stream',
-          'x-goog-api-key': this.opts.apiKey,
-        },
-        body: JSON.stringify(body),
-        signal: opts.signal,
-      });
-    } catch (err) {
-      if (opts.signal.aborted) throw err;
-      throw new ProviderError(
-        err instanceof Error ? err.message : String(err),
-        0,
-        true,
-        this.id,
-        err,
-      );
-    }
+  protected override parseStream(
+    body: Parameters<typeof parseSSE>[0],
+    fallbackModel: string,
+  ): AsyncIterable<StreamEvent> {
+    return parseGoogleStream(body, fallbackModel);
+  }
 
-    if (!httpRes.ok) {
-      const text = await httpRes.text().catch(() => '');
-      throw new ProviderError(
-        `Google HTTP ${httpRes.status}: ${text.slice(0, 500)}`,
-        httpRes.status,
-        httpRes.status === 429 || (httpRes.status >= 500 && httpRes.status < 600),
-        this.id,
-      );
-    }
-
-    yield* parseGoogleStream(httpRes.body, req.model);
+  protected override translateError(status: number, text: string): ProviderError {
+    return parseProviderHttpError(this.id, status, text);
   }
 
   private buildGenConfig(req: Request): Record<string, unknown> {
@@ -168,7 +148,6 @@ function messagesToGemini(messages: Message[]): GeminiContent[] {
       if (parts.length > 0) out.push({ role: 'model', parts });
       continue;
     }
-    // user role — may contain tool_result blocks
     const textParts: GeminiPart[] = [];
     const functionParts: GeminiPart[] = [];
     for (const b of blocks) {
@@ -197,6 +176,8 @@ function messagesToGemini(messages: Message[]): GeminiContent[] {
   return out;
 }
 
+type Response2Body = ReadableStream<Uint8Array> | NodeJS.ReadableStream | null;
+
 /**
  * Translate Gemini's `:streamGenerateContent?alt=sse` wire format into
  * canonical StreamEvent[]. Each chunk is a full `data: <json>` line with
@@ -205,7 +186,7 @@ function messagesToGemini(messages: Message[]): GeminiContent[] {
  * arguments, so we emit tool_use_start + tool_use_stop together.
  */
 async function* parseGoogleStream(
-  body: Awaited<ReturnType<typeof fetch>>['body'],
+  body: Response2Body,
   fallbackModel: string,
 ): AsyncIterable<StreamEvent> {
   let model = fallbackModel;

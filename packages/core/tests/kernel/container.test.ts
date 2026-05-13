@@ -81,4 +81,52 @@ describe('Container', () => {
     c.decorate(LOGGER, (i) => i, 'plugin-a');
     expect(c.ownerOf(LOGGER)).toMatch(/core\+plugin-a/);
   });
+
+  it('unbind removes a binding and returns true; false for unknown', () => {
+    const c = new Container();
+    c.bind(LOGGER, () => ({ msg: 'x' }));
+    expect(c.has(LOGGER)).toBe(true);
+    expect(c.unbind(LOGGER)).toBe(true);
+    expect(c.has(LOGGER)).toBe(false);
+    expect(c.unbind(LOGGER)).toBe(false);
+    expect(() => c.resolve(LOGGER)).toThrow(/not bound/);
+  });
+
+  it('unbind discards decorators stacked on the token', () => {
+    const c = new Container();
+    c.bind(LOGGER, () => ({ msg: 'base' }));
+    c.decorate(LOGGER, (i) => ({ msg: `${i.msg}+dec` }));
+    expect(c.resolve(LOGGER).msg).toBe('base+dec');
+    c.unbind(LOGGER);
+    // Re-bind: should NOT inherit the previous decorator chain.
+    c.bind(LOGGER, () => ({ msg: 'fresh' }));
+    expect(c.resolve(LOGGER).msg).toBe('fresh');
+  });
+
+  it('clear drops every binding', () => {
+    const c = new Container();
+    c.bind(LOGGER, () => ({ msg: 'a' }));
+    c.bind(COUNTER, () => ({ count: 0 }));
+    expect(c.list()).toHaveLength(2);
+    c.clear();
+    expect(c.list()).toHaveLength(0);
+    expect(c.has(LOGGER)).toBe(false);
+  });
+
+  it('inspect returns decorator count + cache state', () => {
+    const c = new Container();
+    c.bind(LOGGER, () => ({ msg: 'x' }), { owner: 'core' });
+    expect(c.inspect(LOGGER)).toEqual({
+      owner: 'core',
+      singleton: true,
+      decoratorCount: 0,
+      cached: false,
+    });
+    c.decorate(LOGGER, (i) => i, 'plug');
+    c.resolve(LOGGER);
+    const after = c.inspect(LOGGER)!;
+    expect(after.decoratorCount).toBe(1);
+    expect(after.cached).toBe(true);
+    expect(c.inspect(COUNTER)).toBeNull();
+  });
 });

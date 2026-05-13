@@ -1,0 +1,216 @@
+import * as fsp from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import type { SessionStore } from '../types/session.js';
+import { ensureDir } from '../utils/atomic-write.js';
+
+/**
+ * Per-project lockfile used for crash detection. The CLI writes one of
+ * these alongside the session JSONLs (`<projectSessions>/active.json`)
+ * when an interactive run starts, and deletes it on clean exit. If we
+ * find one on the next launch whose owning PID is dead (or whose host
+ * doesn't match), we know the previous run was killed mid-flight and
+ * the session it was writing to is a recovery candidate.
+ *
+ * The lockfile is intentionally per-project (already isolated by
+ * `wpaths.projectSessions`), so two TUIs in two different repos do not
+ * fight each other.
+ */
+export interface RecoveryLockOptions {
+  /** Directory the lockfile lives in. Usually `wpaths.projectSessions`. */
+  dir: string;
+  /** This process's PID. Default: `process.pid`. */
+  pid?: number;
+  /** Hostname recorded for the lock. Default: `os.hostname()`. */
+  hostname?: string;
+  /** Locks older than this are considered orphaned (disk wiped, etc.). Default 24h. */
+  maxAgeMs?: number;
+  /** Used to check whether the abandoned session was actually closed cleanly. */
+  sessionStore?: SessionStore;
+  /**
+   * Override the PID-liveness probe. Default: `process.kill(pid, 0)` —
+   * succeeds (or throws EPERM) when the PID is alive, throws ESRCH when
+   * it is gone. Tests inject a deterministic stub.
+   */
+  isPidAlive?: (pid: number) => boolean;
+}
+
+export interface AbandonedSession {
+  sessionId: string;
+  pid: number;
+  startedAt: string;
+  /** Lockfile age in ms at the time of the check. */
+  ageMs: number;
+  /** Number of messages already on disk for this session. */
+  messageCount: number;
+}
+
+interface LockFile {
+  v: 1;
+  sessionId: string;
+  pid: number;
+  hostname: string;
+  startedAt: string;
+}
+
+const LOCK_FILE = 'active.json';
+const DEFAULT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+export class RecoveryLock {
+  private readonly file: string;
+  private readonly pid: number;
+  private readonly hostname: string;
+  private readonly maxAgeMs: number;
+  private readonly sessionStore?: SessionStore;
+  private readonly probe: (pid: number) => boolean;
+
+  constructor(opts: RecoveryLockOptions) {
+    this.file = path.join(opts.dir, LOCK_FILE);
+    this.pid = opts.pid ?? process.pid;
+    this.hostname = opts.hostname ?? os.hostname();
+    this.maxAgeMs = opts.maxAgeMs ?? DEFAULT_MAX_AGE_MS;
+    this.sessionStore = opts.sessionStore;
+    this.probe = opts.isPidAlive ?? defaultIsPidAlive;
+  }
+
+  /**
+   * Examine the lockfile and decide whether it represents an abandoned
+   * session. Returns `null` if the file is missing, points to a live
+   * instance, references a clean-closed session, is too old, or is
+   * malformed. Otherwise returns enough detail to prompt the user.
+   *
+   * Important: this is a read-only check. We never delete an active
+   * lock from here — if another wstack instance is alive, the caller
+   * should bail or run with a fresh session instead.
+   */
+  async checkAbandoned(): Promise<AbandonedSession | null> {
+    const lock = await this.readLock();
+    if (!lock) return null;
+
+    const ageMs = Date.now() - new Date(lock.startedAt).getTime();
+    if (Number.isNaN(ageMs) || ageMs < 0) {
+      // Clock skew or corrupted timestamp — treat as orphan.
+      return null;
+    }
+    if (ageMs > this.maxAgeMs) return null;
+
+    // PID liveness only meaningful on the same host. Different host
+    // means we can't probe — assume abandoned (the other machine's
+    // wstack can't be holding *our* sessions dir unless it was
+    // shared via network mount, in which case the user is on their
+    // own).
+    if (lock.hostname === this.hostname && this.probe(lock.pid)) {
+      // Another wstack on this box is actively writing here.
+      return null;
+    }
+
+    let messageCount = 0;
+    if (this.sessionStore) {
+      try {
+        const data = await this.sessionStore.load(lock.sessionId);
+        const closed = data.events.some((e) => e.type === 'session_end');
+        if (closed) return null;
+        messageCount = data.messages.length;
+      } catch {
+        // Lock points to a session that doesn't exist on disk (deleted
+        // out from under us). Nothing to recover.
+        return null;
+      }
+    }
+
+    return {
+      sessionId: lock.sessionId,
+      pid: lock.pid,
+      startedAt: lock.startedAt,
+      ageMs,
+      messageCount,
+    };
+  }
+
+  /**
+   * Claim the lock for the given session. Overwrites any existing lock
+   * — the caller should have already handled abandonment (via
+   * `checkAbandoned`) before calling this.
+   */
+  async write(sessionId: string): Promise<void> {
+    await ensureDir(path.dirname(this.file));
+    const lock: LockFile = {
+      v: 1,
+      sessionId,
+      pid: this.pid,
+      hostname: this.hostname,
+      startedAt: new Date().toISOString(),
+    };
+    // Atomic write: write to .tmp and rename. Important on Windows
+    // where a partial write of `active.json` would be readable.
+    const tmp = `${this.file}.tmp`;
+    await fsp.writeFile(tmp, JSON.stringify(lock), { mode: 0o600 });
+    await fsp.rename(tmp, this.file);
+  }
+
+  /**
+   * Release the lock. Idempotent — silently succeeds if the file is
+   * already gone (e.g. someone else cleared it, or the directory was
+   * wiped).
+   */
+  async clear(): Promise<void> {
+    try {
+      await fsp.unlink(this.file);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') return;
+      throw err;
+    }
+  }
+
+  private async readLock(): Promise<LockFile | null> {
+    let raw: string;
+    try {
+      raw = await fsp.readFile(this.file, 'utf8');
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') return null;
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (!isLockFile(parsed)) return null;
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+}
+
+function isLockFile(v: unknown): v is LockFile {
+  if (typeof v !== 'object' || v === null) return false;
+  const o = v as Record<string, unknown>;
+  return (
+    o['v'] === 1 &&
+    typeof o['sessionId'] === 'string' &&
+    typeof o['pid'] === 'number' &&
+    typeof o['hostname'] === 'string' &&
+    typeof o['startedAt'] === 'string'
+  );
+}
+
+/**
+ * Probe whether a process is alive without sending it a real signal.
+ *
+ * Unix: `process.kill(pid, 0)` succeeds for our own processes, throws
+ *   EPERM for others (still alive, just not ours), and throws ESRCH
+ *   when the PID is gone.
+ * Windows (Node 22+): same call returns true if the process exists,
+ *   throws otherwise.
+ */
+function defaultIsPidAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'EPERM') return true; // alive, but owned by someone else
+    return false;
+  }
+}

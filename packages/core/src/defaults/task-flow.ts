@@ -4,7 +4,24 @@ import type { DoneCondition } from '../types/multi-agent.js';
 import { TaskTracker } from './task-tracker.js';
 import { SpecParser } from './spec-parser.js';
 import { TaskGenerator, DefaultTaskStore } from './task-generator.js';
-import { EventEmitter } from 'node:events';
+import type { EventBus } from '../kernel/events.js';
+
+/**
+ * Extended event map used internally by TaskFlow and multi-agent components.
+ * These events are emitted on the injected EventBus and are a subset of
+ * the full EventMap — they do not require a separate registration.
+ */
+export interface TaskFlowEventMap {
+  'phase.change': { from: TaskFlowPhase; to: TaskFlowPhase };
+  'task.started': { taskId: string };
+  'task.completed': { taskId: string; result?: unknown };
+  'task.failed': { taskId: string; error: string };
+  'task.review': { taskId: string };
+  'spec.analyzed': { analysis: SpecAnalysis };
+  'progress': { percent: number; message: string };
+  'done': { graph: TaskGraph };
+  'error': { phase: TaskFlowPhase; error: Error };
+}
 
 export type TaskFlowPhase =
   | 'idle'
@@ -17,20 +34,11 @@ export type TaskFlowPhase =
   | 'done'
   | 'failed';
 
-export interface TaskFlowEvents {
-  'phase.change': { from: TaskFlowPhase; to: TaskFlowPhase };
-  'task.started': { taskId: string };
-  'task.completed': { taskId: string; result?: unknown };
-  'task.failed': { taskId: string; error: string };
-  'task.review': { taskId: string };
-  'spec.analyzed': { analysis: SpecAnalysis };
-  'progress': { percent: number; message: string };
-  'done': { graph: TaskGraph };
-  'error': { phase: TaskFlowPhase; error: Error };
-}
+export type TaskFlowEventName = keyof TaskFlowEventMap;
 
 export interface TaskFlowOptions {
   tracker: TaskTracker;
+  events: EventBus;
   doneCondition?: DoneCondition;
   maxConcurrent?: number;
 }
@@ -41,14 +49,18 @@ export interface TaskFlowExecutionContext {
   onTaskFail?: (task: TaskNode, error: Error) => void;
 }
 
-export class TaskFlow extends EventEmitter {
+export class TaskFlow {
   private phase: TaskFlowPhase = 'idle';
   private spec: Specification | null = null;
   private graph: TaskGraph | null = null;
   private stopped = false;
 
   constructor(private readonly opts: TaskFlowOptions) {
-    super();
+    this.setPhase('idle');
+  }
+
+  private emit<K extends TaskFlowEventName>(event: K, payload: TaskFlowEventMap[K]): void {
+    (this.opts.events.emit as (event: string, payload: unknown) => void)(event, payload);
   }
 
   async fromSpec(specContent: string): Promise<TaskGraph> {
@@ -213,22 +225,26 @@ export class TaskFlow extends EventEmitter {
 
 export interface SpecDrivenDevOptions {
   workingDirectory: string;
+  events: EventBus;
   doneCondition?: DoneCondition;
 }
 
 export class SpecDrivenDev {
   private store: DefaultTaskStore;
   private tracker: TaskTracker;
+  private readonly events: EventBus;
   private flows = new Map<string, TaskFlow>();
 
   constructor(opts: SpecDrivenDevOptions) {
     this.store = new DefaultTaskStore();
     this.tracker = new TaskTracker({ store: this.store });
+    this.events = opts.events;
   }
 
   async createFlow(specContent: string, options?: Partial<TaskFlowOptions>): Promise<TaskFlow> {
     const flow = new TaskFlow({
       tracker: this.tracker,
+      events: this.events,
       ...options,
     });
 

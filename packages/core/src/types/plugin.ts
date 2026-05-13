@@ -1,10 +1,14 @@
 import type { Container } from '../kernel/container.js';
 import type { EventBus, EventName, Listener } from '../kernel/events.js';
-import type { Pipeline } from '../kernel/pipeline.js';
+import type { ReadonlyPipeline } from '../kernel/pipeline.js';
 import type { Tool } from './tool.js';
 import type { Provider, Request, Response } from './provider.js';
 import type { Config } from './config.js';
 import type { Logger } from './logger.js';
+import type { SlashCommand } from './slash-command.js';
+import type { TextBlock } from './blocks.js';
+import type { Context } from '../core/context.js';
+import type { ToolCallPipelinePayload } from '../core/agent.js';
 
 export interface ToolRegistryView {
   register(t: Tool): void;
@@ -31,11 +35,22 @@ export interface MCPRegistryView {
   list(): { name: string; state: string; toolCount: number }[];
 }
 
+export interface SlashCommandRegistryView {
+  register(cmd: SlashCommand): void;
+  unregister(name: string): boolean;
+  get(name: string): SlashCommand | undefined;
+  list(): SlashCommand[];
+}
+
 export interface PluginPipelines {
-  request: Pipeline<Request>;
-  response: Pipeline<Response>;
-  // biome-ignore lint/suspicious/noExplicitAny: pipelines are heterogeneous
-  [k: string]: Pipeline<any>;
+  request: ReadonlyPipeline<Request>;
+  response: ReadonlyPipeline<Response>;
+  toolCall: ReadonlyPipeline<ToolCallPipelinePayload>;
+  userInput: ReadonlyPipeline<{ content: import('./blocks.js').ContentBlock[]; text: string; ctx: Context }>;
+  assistantOutput: ReadonlyPipeline<TextBlock>;
+  contextWindow: ReadonlyPipeline<Context>;
+  // biome-ignore lint/suspicious/noExplicitAny: plugins may extend with custom pipelines
+  [k: string]: ReadonlyPipeline<any>;
 }
 
 export interface PluginAPI {
@@ -45,6 +60,7 @@ export interface PluginAPI {
   tools: ToolRegistryView;
   providers: ProviderRegistryView;
   mcp: MCPRegistryView;
+  slashCommands: SlashCommandRegistryView;
   config: Config;
   log: Logger;
   /**
