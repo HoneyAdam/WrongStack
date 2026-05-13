@@ -16,6 +16,7 @@ import {
 } from '@wrongstack/core';
 import type { TerminalRenderer } from '../renderer.js';
 import type { ReadlineInputReader } from '../input-reader.js';
+import { CLI_VERSION, API_VERSION } from '../version.js';
 
 export type SubcommandHandler = (args: string[], deps: SubcommandDeps) => Promise<number>;
 
@@ -447,7 +448,7 @@ async function diagCmd(_args: string[], deps: SubcommandDeps): Promise<number> {
   const age = await deps.modelsRegistry.ageSeconds();
   const lines = [
     color.bold('WrongStack diagnostics'),
-    `  apiVersion:    0.0.1`,
+    `  apiVersion:    ${API_VERSION}`,
     `  cwd:           ${deps.cwd}`,
     `  projectRoot:   ${deps.projectRoot}`,
     `  projectHash:   ${deps.paths.projectHash}`,
@@ -478,7 +479,7 @@ async function usageCmd(_args: string[], deps: SubcommandDeps): Promise<number> 
 
 async function versionCmd(_args: string[], deps: SubcommandDeps): Promise<number> {
   deps.renderer.write(
-    `WrongStack 0.0.1 (apiVersion 0.0.1, node ${process.version}, ${os.platform()})\n`,
+    `WrongStack ${CLI_VERSION} (apiVersion ${API_VERSION}, node ${process.version}, ${os.platform()})\n`,
   );
   return 0;
 }

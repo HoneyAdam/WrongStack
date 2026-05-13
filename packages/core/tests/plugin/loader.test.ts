@@ -9,7 +9,7 @@ const log = new DefaultLogger({ level: 'error' });
 function p(overrides: Partial<Plugin> = {}): Plugin {
   return {
     name: overrides.name ?? 'p',
-    apiVersion: overrides.apiVersion ?? '^1.0',
+    apiVersion: overrides.apiVersion ?? '^0.1',
     setup: overrides.setup ?? (() => undefined),
     ...overrides,
   };

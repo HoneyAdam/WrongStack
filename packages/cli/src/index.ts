@@ -154,27 +154,8 @@ function resolveBundledSkillsDir(): string | undefined {
   }
 }
 
-/**
- * Read this package's own version at module load. Tries the
- * compiled-adjacent package.json (dist sibling) first and falls back
- * to walking up from src/ for the dev/test path. Returns "dev" when
- * neither resolves so the startup banner never shows blank.
- */
-function readOwnVersion(): string {
-  const req = createRequire(import.meta.url);
-  const candidates = ['../package.json', '../../package.json'];
-  for (const rel of candidates) {
-    try {
-      const pkg = req(rel) as { version?: unknown };
-      if (typeof pkg.version === 'string' && pkg.version.length > 0) return pkg.version;
-    } catch {
-      // try next
-    }
-  }
-  return 'dev';
-}
-
-const CLI_VERSION = readOwnVersion();
+import { CLI_VERSION } from './version.js';
+export { CLI_VERSION };
 
 async function ensureProjectMeta(paths: WstackPaths, projectRoot: string): Promise<void> {
   try {

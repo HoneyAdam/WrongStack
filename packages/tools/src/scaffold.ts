@@ -27,7 +27,7 @@ const BUILT_IN_TEMPLATES: Record<string, { description: string; files: Record<st
     files: {
       'package.json': JSON.stringify({
         name: '{{name}}',
-        version: '0.0.1',
+        version: '0.1.1',
         type: 'module',
         main: './dist/index.js',
         scripts: { build: 'tsc', test: 'vitest run' },
@@ -46,7 +46,7 @@ const BUILT_IN_TEMPLATES: Record<string, { description: string; files: Record<st
     files: {
       'package.json': JSON.stringify({
         name: '{{name}}',
-        version: '0.0.1',
+        version: '0.1.1',
         type: 'module',
         bin: { '{{name}}': './src/index.js' },
         scripts: { build: 'tsc', start: 'node dist/index.js' },

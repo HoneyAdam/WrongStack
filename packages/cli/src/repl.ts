@@ -8,6 +8,7 @@ import { InputBuilder, color } from '@wrongstack/core';
 import { theme } from './theme.js';
 import type { TerminalRenderer } from './renderer.js';
 import type { ReadlineInputReader } from './input-reader.js';
+import { CLI_VERSION } from './version.js';
 
 export interface ReplOptions {
   agent: Agent;
@@ -177,7 +178,7 @@ function renderProgress(ratio: number, width: number): string {
 
 function printBanner(renderer: TerminalRenderer): void {
   const lines = [
-    theme.primary(theme.bold('WrongStack')) + color.dim(' v0.0.1'),
+    theme.primary(theme.bold('WrongStack')) + color.dim(` v${CLI_VERSION}`),
     color.dim('Built on the wrong stack. Shipped anyway.'),
     color.dim('Type /help for commands, /exit to quit.'),
     '',
