@@ -1,55 +1,60 @@
-import * as path from 'node:path';
-import * as os from 'node:os';
 import * as fs from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import {
   Agent,
+  AutoCompactionMiddleware,
+  type Config,
   Container,
+  Context,
+  DefaultAttachmentStore,
+  DefaultConfigLoader,
+  DefaultErrorHandler,
+  DefaultLogger,
+  DefaultMemoryStore,
+  DefaultModelsRegistry,
+  DefaultPathResolver,
+  DefaultPermissionPolicy,
+  DefaultRetryPolicy,
+  DefaultSecretScrubber,
+  DefaultSecretVault,
+  DefaultSessionStore,
+  DefaultSkillLoader,
+  DefaultSystemPromptBuilder,
+  DefaultTokenCounter,
   EventBus,
+  HybridCompactor,
+  type Plugin,
+  ProviderRegistry,
+  QueueStore,
+  RecoveryLock,
+  SlashCommandRegistry,
+  type SystemPromptBuilder,
   TOKENS,
   ToolRegistry,
-  ProviderRegistry,
-  SlashCommandRegistry,
-  DefaultLogger,
-  DefaultPathResolver,
-  DefaultSecretScrubber,
-  DefaultRetryPolicy,
-  DefaultErrorHandler,
-  DefaultTokenCounter,
-  DefaultSessionStore,
-  RecoveryLock,
-  QueueStore,
-  DefaultAttachmentStore,
-  DefaultSecretVault,
-  migratePlaintextSecrets,
-  DefaultMemoryStore,
-  DefaultPermissionPolicy,
-  DefaultSkillLoader,
-  DefaultConfigLoader,
-  DefaultSystemPromptBuilder,
-  DefaultModelsRegistry,
-  HybridCompactor,
-  Context,
+  type WstackPaths,
+  color,
   createContextManagerTool,
   createDefaultPipelines,
   loadPlugins,
+  migratePlaintextSecrets,
   resolveWstackPaths,
-  color,
-  type Plugin,
-  type Config,
-  type SystemPromptBuilder,
-  type WstackPaths,
 } from '@wrongstack/core';
-import { buildProviderFactoriesFromRegistry, makeProviderFromConfig } from '@wrongstack/providers';
-import { builtinTools, rememberTool, forgetTool } from '@wrongstack/tools';
 import { MCPRegistry } from '@wrongstack/mcp';
-import { TerminalRenderer } from './renderer.js';
+import {
+  buildProviderFactoriesFromRegistry,
+  capabilitiesFor,
+  makeProviderFromConfig,
+} from '@wrongstack/providers';
+import { builtinTools, forgetTool, rememberTool } from '@wrongstack/tools';
 import { ReadlineInputReader } from './input-reader.js';
+import { makePromptDelegate } from './permission-prompt.js';
+import { TerminalRenderer } from './renderer.js';
 import { runRepl } from './repl.js';
+import { SessionStats } from './session-stats.js';
 import { buildBuiltinSlashCommands } from './slash-commands/index.js';
 import { Spinner } from './spinner.js';
-import { SessionStats } from './session-stats.js';
-import { makePromptDelegate } from './permission-prompt.js';
 import { subcommands } from './subcommands/index.js';
 
 interface ParsedArgs {
@@ -70,6 +75,8 @@ const BOOLEAN_FLAGS = new Set([
   'no-recovery',
   'recover',
   'no-alt-screen',
+  'output-json',
+  'prompt',
 ]);
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -144,6 +151,28 @@ function resolveBundledSkillsDir(): string | undefined {
   }
 }
 
+/**
+ * Read this package's own version at module load. Tries the
+ * compiled-adjacent package.json (dist sibling) first and falls back
+ * to walking up from src/ for the dev/test path. Returns "dev" when
+ * neither resolves so the startup banner never shows blank.
+ */
+function readOwnVersion(): string {
+  const req = createRequire(import.meta.url);
+  const candidates = ['../package.json', '../../package.json'];
+  for (const rel of candidates) {
+    try {
+      const pkg = req(rel) as { version?: unknown };
+      if (typeof pkg.version === 'string' && pkg.version.length > 0) return pkg.version;
+    } catch {
+      // try next
+    }
+  }
+  return 'dev';
+}
+
+const CLI_VERSION = readOwnVersion();
+
 async function ensureProjectMeta(paths: WstackPaths, projectRoot: string): Promise<void> {
   try {
     await fs.mkdir(paths.projectDir, { recursive: true });
@@ -187,9 +216,7 @@ export async function main(argv: string[]): Promise<number> {
     try {
       const { migrated } = await migratePlaintextSecrets(file, vault);
       if (migrated > 0) {
-        process.stderr.write(
-          `[wstack] Encrypted ${migrated} plaintext secret(s) in ${file}\n`,
-        );
+        process.stderr.write(`[wstack] Encrypted ${migrated} plaintext secret(s) in ${file}\n`);
       }
     } catch {
       // best-effort — never block boot on migration issues
@@ -284,7 +311,10 @@ export async function main(argv: string[]): Promise<number> {
     TOKENS.TokenCounter,
     () => new DefaultTokenCounter({ registry: modelsRegistry, providerId: config.provider }),
   );
-  container.bind(TOKENS.SessionStore, () => new DefaultSessionStore({ dir: wpaths.projectSessions }));
+  container.bind(
+    TOKENS.SessionStore,
+    () => new DefaultSessionStore({ dir: wpaths.projectSessions }),
+  );
   const memoryStore = new DefaultMemoryStore({ paths: wpaths });
   container.bind(TOKENS.MemoryStore, () => memoryStore);
   // Skills are an opt-in feature pack — when disabled we still bind a
@@ -345,14 +375,11 @@ export async function main(argv: string[]): Promise<number> {
     }
   }
 
-  // Compactor — also wired into createContextManagerTool below
-  const compactor = container.resolve(TOKENS.Compactor);
-
   // Tool registry
   const toolRegistry = new ToolRegistry();
   for (const t of builtinTools) toolRegistry.register(t);
   toolRegistry.registerDefault(
-    createContextManagerTool({ compactor }),
+    createContextManagerTool({ compactor: container.resolve(TOKENS.Compactor) }),
   );
   if (config.features.memory) {
     toolRegistry.register(rememberTool(memoryStore));
@@ -401,9 +428,7 @@ export async function main(argv: string[]): Promise<number> {
       streamingActive = false;
     }
     const secs = (p.delayMs / 1000).toFixed(p.delayMs >= 1000 ? 1 : 2);
-    process.stderr.write(
-      color.yellow(`  ⟳ retry ${p.attempt} in ${secs}s — ${p.description}\n`),
-    );
+    process.stderr.write(color.yellow(`  ⟳ retry ${p.attempt} in ${secs}s — ${p.description}\n`));
     spinner.start(color.dim(`${config.provider}/${config.model} thinking…`));
   });
   events.on('provider.error', (p) => {
@@ -496,9 +521,7 @@ export async function main(argv: string[]): Promise<number> {
         `Resumed session ${resumed.data.metadata.id} — ${restoredMessages.length} messages, ${resumed.data.usage.input + resumed.data.usage.output} tokens used previously.`,
       );
     } catch (err) {
-      renderer.writeError(
-        `Resume failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      renderer.writeError(`Resume failed: ${err instanceof Error ? err.message : String(err)}`);
       return 2;
     }
   } else {
@@ -547,6 +570,58 @@ export async function main(argv: string[]): Promise<number> {
   }
 
   const pipelines = createDefaultPipelines();
+
+  // Resolve compactor — bound earlier (strategy-aware binding moved before provider creation)
+  const compactor = container.resolve(TOKENS.Compactor);
+
+  // Auto-compaction: monitor token load and compact when thresholds are crossed.
+  // Skipped when config.context.autoCompact is false.
+  //
+  // Resolve the *model-specific* maxContext via the registry — the
+  // provider object only knows its family default (e.g. anthropic =
+  // 200k), which is wrong for variants like Claude Opus 4.7 with the
+  // 1M-context beta. Falls back to the provider baseline when the
+  // registry can't resolve the model.
+  const resolvedCaps = await capabilitiesFor(modelsRegistry, config.provider, context.model).catch(
+    () => undefined,
+  );
+  const effectiveMaxContext =
+    config.context.effectiveMaxContext ??
+    resolvedCaps?.maxContext ??
+    provider.capabilities.maxContext;
+  if (config.context.autoCompact !== false) {
+    const autoCompactor = new AutoCompactionMiddleware(
+      compactor,
+      effectiveMaxContext,
+      (ctx) => {
+        const msgs = ctx.messages;
+        let total = 0;
+        for (const m of msgs) {
+          if (typeof m.content === 'string') total += Math.ceil(m.content.length / 4);
+          else if (Array.isArray(m.content)) {
+            for (const b of m.content) {
+              if (b.type === 'text') total += Math.ceil(b.text.length / 4);
+              else if (b.type === 'tool_use' || b.type === 'tool_result') {
+                total += Math.ceil(JSON.stringify(b).length / 4);
+              }
+            }
+          }
+        }
+        return total;
+      },
+      {
+        warn: config.context.warnThreshold,
+        soft: config.context.softThreshold,
+        hard: config.context.hardThreshold,
+      },
+      'soft',
+    );
+    pipelines.contextWindow.use({
+      name: 'AutoCompaction',
+      handler: autoCompactor.handler(),
+    });
+  }
+
   const agent = new Agent({
     container,
     tools: toolRegistry,
@@ -615,6 +690,8 @@ export async function main(argv: string[]): Promise<number> {
     skillLoader,
     tokenCounter,
     renderer,
+    memoryStore,
+    context,
     onExit: () => {
       void mcpRegistry.stopAll();
     },
@@ -662,7 +739,12 @@ export async function main(argv: string[]): Promise<number> {
   // Single-shot vs REPL
   let code = 0;
   try {
-    if (positional.length > 0) {
+    // --prompt flag takes precedence: treat it like a positional query
+    const promptFlag = typeof flags['prompt'] === 'string' ? flags['prompt'] : undefined;
+    if (promptFlag) {
+      positional.unshift(promptFlag);
+    }
+    if (positional.length > 0 || promptFlag) {
       const query = positional.join(' ');
       const ctrl = new AbortController();
       const onSigint = () => ctrl.abort();
@@ -670,8 +752,30 @@ export async function main(argv: string[]): Promise<number> {
       const startedAt = Date.now();
       const before = tokenCounter.total();
       const costBefore = tokenCounter.estimateCost().total;
+      let result: import('@wrongstack/core').RunResult;
       try {
-        const result = await agent.run(query, { signal: ctrl.signal });
+        result = await agent.run(query, { signal: ctrl.signal });
+      } finally {
+        process.off('SIGINT', onSigint);
+      }
+      const after = tokenCounter.total();
+      const costAfter = tokenCounter.estimateCost().total;
+      const usage = {
+        input: after.input - before.input,
+        output: after.output - before.output,
+        iterations: result.iterations,
+        cost: costAfter - costBefore,
+        elapsedMs: Date.now() - startedAt,
+      };
+      if (flags['output-json']) {
+        const json = JSON.stringify({
+          status: result.status,
+          finalText: result.finalText ?? null,
+          error: result.error instanceof Error ? result.error.message : (result.error ?? null),
+          usage,
+        });
+        process.stdout.write(json + '\n');
+      } else {
         if (result.status === 'failed') {
           code = 1;
           renderer.writeError(
@@ -685,17 +789,14 @@ export async function main(argv: string[]): Promise<number> {
           code = 1;
           renderer.writeWarning(`Hit max iterations (${result.iterations}).`);
         }
-        const after = tokenCounter.total();
-        const costAfter = tokenCounter.estimateCost().total;
+        if (result.finalText) renderer.write('\n' + result.finalText + '\n');
         renderer.write(
           '\n' +
             color.dim(
-              `[in: ${fmtTok(after.input - before.input)}  out: ${fmtTok(after.output - before.output)}  iters: ${result.iterations}  cost: $${(costAfter - costBefore).toFixed(4)}  ${((Date.now() - startedAt) / 1000).toFixed(1)}s]`,
+              `[in: ${fmtTok(usage.input)}  out: ${fmtTok(usage.output)}  iters: ${usage.iterations}  cost: ${usage.cost.toFixed(4)}  ${(usage.elapsedMs / 1000).toFixed(1)}s]`,
             ) +
             '\n',
         );
-      } finally {
-        process.off('SIGINT', onSigint);
       }
     } else if (flags.tui && !flags['no-tui']) {
       // Lazy-load to avoid pulling React/Ink into the cold path for non-TUI usage.
@@ -721,6 +822,9 @@ export async function main(argv: string[]): Promise<number> {
           banner: !flags['no-banner'],
           queueStore,
           yolo: !!config.yolo,
+          appVersion: CLI_VERSION,
+          provider: config.provider,
+          effectiveMaxContext,
           altScreen: !flags['no-alt-screen'],
           // Alt-screen exit erases the TUI view. Print a one-line hint
           // into the user's normal terminal so they know the session is
@@ -779,16 +883,20 @@ async function promptRecovery(
 ): Promise<'resume' | 'delete' | 'skip'> {
   const minutes = Math.round(abandoned.ageMs / 60_000);
   const ageLabel =
-    minutes < 1 ? `${Math.round(abandoned.ageMs / 1000)}s ago` :
-    minutes < 60 ? `${minutes} min ago` :
-    `${Math.round(minutes / 60)}h ago`;
+    minutes < 1
+      ? `${Math.round(abandoned.ageMs / 1000)}s ago`
+      : minutes < 60
+        ? `${minutes} min ago`
+        : `${Math.round(minutes / 60)}h ago`;
   const summary = `Previous session was killed mid-run: ${abandoned.sessionId} (${abandoned.messageCount} messages, ${ageLabel}).`;
   if (autoRecover) {
     renderer.writeInfo(`${summary} Auto-resuming (--recover).`);
     return 'resume';
   }
   if (!process.stdin.isTTY) {
-    renderer.writeInfo(`${summary} Non-interactive — leaving as-is. Use \`wstack resume ${abandoned.sessionId}\` or pass \`--recover\` to auto-resume.`);
+    renderer.writeInfo(
+      `${summary} Non-interactive — leaving as-is. Use \`wstack resume ${abandoned.sessionId}\` or pass \`--recover\` to auto-resume.`,
+    );
     return 'skip';
   }
   renderer.writeInfo(summary);
