@@ -168,3 +168,210 @@ describe('StreamableHTTPTransport — connection failure modes', () => {
     expect(t.getState()).toBe('disconnected');
   });
 });
+
+describe('StreamableHTTPTransport — connect/callTool with mocked fetch', () => {
+  function mkFetch(
+    handlers: ((url: string, init: { body?: string; headers?: Record<string, string> }) => Promise<Response> | Response)[],
+  ): typeof globalThis.fetch {
+    let i = 0;
+    return ((url: string, init: { body?: string; headers?: Record<string, string> } = {}) => {
+      const h = handlers[i++];
+      if (!h) throw new Error(`unexpected fetch (no handler for call ${i})`);
+      return Promise.resolve(h(url, init));
+    }) as unknown as typeof globalThis.fetch;
+  }
+
+  function jsonRes(body: unknown, init: { status?: number; headers?: Record<string, string> } = {}): Response {
+    return new Response(JSON.stringify(body), {
+      status: init.status ?? 200,
+      headers: { 'content-type': 'application/json', ...(init.headers ?? {}) },
+    });
+  }
+
+  it('connect → initialize → tools/list happy path', async () => {
+    const calls: { method: string; body: any }[] = [];
+    const fetchImpl = mkFetch([
+      (_u, init) => {
+        const body = JSON.parse(init.body ?? '{}');
+        calls.push({ method: body.method, body });
+        return jsonRes({ jsonrpc: '2.0', id: body.id, result: { protocolVersion: '2024-11-05' } });
+      },
+      (_u, init) => {
+        const body = JSON.parse(init.body ?? '{}');
+        calls.push({ method: body.method, body });
+        return jsonRes({ jsonrpc: '2.0' });
+      },
+      (_u, init) => {
+        const body = JSON.parse(init.body ?? '{}');
+        calls.push({ method: body.method, body });
+        return jsonRes({
+          jsonrpc: '2.0',
+          id: body.id,
+          result: { tools: [{ name: 'hello', description: 'd', inputSchema: { type: 'object' } }] },
+        });
+      },
+    ]);
+    const origFetch = globalThis.fetch;
+    (globalThis as { fetch: typeof globalThis.fetch }).fetch = fetchImpl;
+    try {
+      const t = new StreamableHTTPTransport({ name: 'x', url: 'https://m.test' });
+      await t.connect();
+      expect(t.getState()).toBe('connected');
+      expect(t.listTools().map((x) => x.name)).toEqual(['hello']);
+      expect(calls.map((c) => c.method)).toEqual([
+        'initialize',
+        'notifications/initialized',
+        'tools/list',
+      ]);
+    } finally {
+      (globalThis as { fetch: typeof globalThis.fetch }).fetch = origFetch;
+    }
+  });
+
+  it('callTool returns { content, isError } after a successful connect', async () => {
+    const fetchImpl = mkFetch([
+      // initialize
+      (_u, init) => jsonRes({ jsonrpc: '2.0', id: JSON.parse(init.body ?? '{}').id, result: {} }),
+      // notifications/initialized — postRaw requires a valid JSON-RPC line
+      () => jsonRes({ jsonrpc: '2.0' }),
+      // tools/list
+      (_u, init) => jsonRes({
+        jsonrpc: '2.0',
+        id: JSON.parse(init.body ?? '{}').id,
+        result: { tools: [{ name: 'hello' }] },
+      }),
+      // tools/call
+      (_u, init) => jsonRes({
+        jsonrpc: '2.0',
+        id: JSON.parse(init.body ?? '{}').id,
+        result: { content: 'hi', isError: false },
+      }),
+    ]);
+    const origFetch = globalThis.fetch;
+    (globalThis as { fetch: typeof globalThis.fetch }).fetch = fetchImpl;
+    try {
+      const t = new StreamableHTTPTransport({ name: 'x', url: 'https://m.test' });
+      await t.connect();
+      const res = await t.callTool('hello', { who: 'world' });
+      expect(res.content).toBe('hi');
+      expect(res.isError).toBe(false);
+    } finally {
+      (globalThis as { fetch: typeof globalThis.fetch }).fetch = origFetch;
+    }
+  });
+
+  it('callTool surfaces error responses', async () => {
+    const fetchImpl = mkFetch([
+      (_u, init) => jsonRes({ jsonrpc: '2.0', id: JSON.parse(init.body ?? '{}').id, result: {} }),
+      () => jsonRes({ jsonrpc: '2.0' }),
+      (_u, init) => jsonRes({
+        jsonrpc: '2.0',
+        id: JSON.parse(init.body ?? '{}').id,
+        result: { tools: [] },
+      }),
+      (_u, init) => jsonRes({
+        jsonrpc: '2.0',
+        id: JSON.parse(init.body ?? '{}').id,
+        error: { code: -32601, message: 'bad call' },
+      }),
+    ]);
+    const origFetch = globalThis.fetch;
+    (globalThis as { fetch: typeof globalThis.fetch }).fetch = fetchImpl;
+    try {
+      const t = new StreamableHTTPTransport({ name: 'x', url: 'https://m.test' });
+      await t.connect();
+      const res = await t.callTool('nope', {});
+      expect(res.isError).toBe(true);
+      expect(res.content).toContain('bad call');
+    } finally {
+      (globalThis as { fetch: typeof globalThis.fetch }).fetch = origFetch;
+    }
+  });
+
+  it('connect throws when initialize returns a JSON-RPC error', async () => {
+    const fetchImpl = mkFetch([
+      (_u, init) => jsonRes({
+        jsonrpc: '2.0',
+        id: JSON.parse(init.body ?? '{}').id,
+        error: { code: -1, message: 'no good' },
+      }),
+    ]);
+    const origFetch = globalThis.fetch;
+    (globalThis as { fetch: typeof globalThis.fetch }).fetch = fetchImpl;
+    try {
+      const t = new StreamableHTTPTransport({ name: 'x', url: 'https://m.test' });
+      await expect(t.connect()).rejects.toThrow(/initialize failed/);
+      expect(t.getState()).toBe('failed');
+    } finally {
+      (globalThis as { fetch: typeof globalThis.fetch }).fetch = origFetch;
+    }
+  });
+
+  it('connect throws when initialize body cannot be parsed', async () => {
+    const fetchImpl = mkFetch([
+      () => new Response('totally not JSON', {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    ]);
+    const origFetch = globalThis.fetch;
+    (globalThis as { fetch: typeof globalThis.fetch }).fetch = fetchImpl;
+    try {
+      const t = new StreamableHTTPTransport({ name: 'x', url: 'https://m.test' });
+      await expect(t.connect()).rejects.toThrow();
+      expect(t.getState()).toBe('failed');
+    } finally {
+      (globalThis as { fetch: typeof globalThis.fetch }).fetch = origFetch;
+    }
+  });
+
+  it('connect parses NDJSON body when content-type is not application/json', async () => {
+    const ndjson = [
+      JSON.stringify({ jsonrpc: '2.0', id: 1, result: {} }),
+      '',
+    ].join('\n');
+    const fetchImpl = mkFetch([
+      () => new Response(ndjson, { status: 200, headers: { 'content-type': 'text/event-stream' } }),
+      // notifications/initialized — postRaw requires a valid JSON-RPC line
+      () => jsonRes({ jsonrpc: '2.0' }),
+      // tools/list
+      (_u, init) => jsonRes({
+        jsonrpc: '2.0',
+        id: JSON.parse(init.body ?? '{}').id,
+        result: { tools: [] },
+      }),
+    ]);
+    const origFetch = globalThis.fetch;
+    (globalThis as { fetch: typeof globalThis.fetch }).fetch = fetchImpl;
+    try {
+      const t = new StreamableHTTPTransport({ name: 'x', url: 'https://m.test' });
+      await t.connect();
+      expect(t.getState()).toBe('connected');
+    } finally {
+      (globalThis as { fetch: typeof globalThis.fetch }).fetch = origFetch;
+    }
+  });
+
+  it('connect throws when init returns non-OK status', async () => {
+    const fetchImpl = mkFetch([
+      () => new Response('err', { status: 502, statusText: 'Bad Gateway' }),
+    ]);
+    const origFetch = globalThis.fetch;
+    (globalThis as { fetch: typeof globalThis.fetch }).fetch = fetchImpl;
+    try {
+      const t = new StreamableHTTPTransport({ name: 'x', url: 'https://m.test' });
+      await expect(t.connect()).rejects.toThrow(/initialize HTTP 502/);
+      expect(t.getState()).toBe('failed');
+    } finally {
+      (globalThis as { fetch: typeof globalThis.fetch }).fetch = origFetch;
+    }
+  });
+
+  it('onToolsChanged subscribe + unsubscribe', () => {
+    const t = new StreamableHTTPTransport({ name: 'x', url: 'https://x' });
+    const cb = vi.fn();
+    const off = t.onToolsChanged(cb);
+    off();
+    expect(cb).not.toHaveBeenCalled();
+  });
+});

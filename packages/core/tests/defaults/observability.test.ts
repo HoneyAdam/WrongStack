@@ -189,6 +189,70 @@ describe('wireMetricsToEvents', () => {
     expect(sink.snapshot().series.find((s) => s.name === 'agent.iterations.total')?.values.value).toBe(2);
   });
 
+  it('translates every wired event type into the matching metric', () => {
+    const bus = new EventBus();
+    const sink = new InMemoryMetricsSink();
+    const unwire = wireMetricsToEvents(bus, sink);
+
+    bus.emit('session.started', { id: 's1' });
+    bus.emit('session.ended', {
+      id: 's1',
+      usage: { input: 100, output: 50, cacheRead: 10, cacheWrite: 5 },
+    });
+    bus.emit('session.damaged', { sessionId: 's1', detail: 'truncated' });
+    bus.emit('iteration.limit_reached', {
+      currentIterations: 10,
+      currentLimit: 10,
+      grant: () => {},
+      deny: () => {},
+    });
+    bus.emit('provider.response', {
+      ctx: {} as any,
+      usage: { input: 100, output: 50, cacheRead: 7, cacheWrite: 3 },
+      stopReason: 'end_turn',
+    });
+    bus.emit('provider.retry', {
+      providerId: 'anthropic',
+      attempt: 1,
+      delayMs: 100,
+      status: 503,
+      description: 'retry',
+    });
+    bus.emit('provider.error', {
+      providerId: 'anthropic',
+      status: 500,
+      description: 'boom',
+      retryable: false,
+    });
+    bus.emit('tool.started', { name: 'read', id: '1' });
+    bus.emit('token.threshold', { used: 1000, limit: 8000 });
+    bus.emit('mcp.server.connected', { name: 'gh', toolCount: 5 });
+    bus.emit('mcp.server.reconnected', { name: 'gh', toolCount: 5 });
+    bus.emit('mcp.server.disconnected', { name: 'gh', reason: 'eof' });
+    bus.emit('error', { err: new Error('x'), phase: 'tool' });
+
+    const snap = sink.snapshot();
+    const has = (name: string) => snap.series.some((s) => s.name === name);
+    expect(has('agent.sessions.started')).toBe(true);
+    expect(has('agent.sessions.ended')).toBe(true);
+    expect(has('agent.session.tokens.input')).toBe(true);
+    expect(has('agent.session.tokens.output')).toBe(true);
+    expect(has('agent.sessions.damaged')).toBe(true);
+    expect(has('agent.iteration_limit.hit')).toBe(true);
+    expect(has('provider.responses.total')).toBe(true);
+    expect(has('provider.tokens.cache_write')).toBe(true);
+    expect(has('provider.retries.total')).toBe(true);
+    expect(has('provider.errors.total')).toBe(true);
+    expect(has('tool.starts.total')).toBe(true);
+    expect(has('agent.tokens.used')).toBe(true);
+    expect(has('mcp.connects.total')).toBe(true);
+    expect(has('mcp.reconnects.total')).toBe(true);
+    expect(has('mcp.disconnects.total')).toBe(true);
+    expect(has('agent.errors.total')).toBe(true);
+
+    unwire();
+  });
+
   it('listener exception in metrics does not crash EventBus', () => {
     const bus = new EventBus();
     bus.setLogger({ error: vi.fn() });

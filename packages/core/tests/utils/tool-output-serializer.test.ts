@@ -38,6 +38,22 @@ describe('createToolOutputSerializer', () => {
     it('JSON stringifies objects without text property', () => {
       expect(serializer.serialize({ foo: 'bar' })).toBe('{\n  "foo": "bar"\n}');
     });
+
+    it('falls back to String() when JSON.stringify throws on circular refs', () => {
+      const circular: Record<string, unknown> = { name: 'cyc' };
+      circular.self = circular;
+      // The fallback path returns the result of String(value) — for plain
+      // objects this is "[object Object]". The important contract is it
+      // does NOT throw.
+      expect(() => serializer.serialize(circular)).not.toThrow();
+      expect(serializer.serialize(circular)).toBe('[object Object]');
+    });
+
+    it('handles numbers and booleans via String() fallback', () => {
+      expect(serializer.serialize(42)).toBe('42');
+      expect(serializer.serialize(true)).toBe('true');
+      expect(serializer.serialize(false)).toBe('false');
+    });
   });
 
   describe('enforceCap', () => {
@@ -90,6 +106,15 @@ describe('createToolOutputSerializer', () => {
       expect(result.text).not.toBe('abcdefghijklmnopqrstuvwxyz');
       // budget 20 minus marker bytes is negative, so returns simple truncation
       expect(result.text).toContain('[truncated');
+      expect(result.newBudget).toBe(0);
+    });
+
+    it('keeps head + tail with marker when budget has room for both', () => {
+      // 1000-byte budget against 2000-byte text → marker fits, head+tail are nonempty.
+      const text = 'A'.repeat(1000) + 'B'.repeat(1000);
+      const result = serializer.enforceCap(text, 200);
+      // We should see the marker between two slices.
+      expect(result.text).toMatch(/A+\n…\[truncated \d+ bytes\]…\nB+/);
       expect(result.newBudget).toBe(0);
     });
 

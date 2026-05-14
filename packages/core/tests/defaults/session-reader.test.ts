@@ -198,6 +198,57 @@ describe('DefaultSessionReader (L2-A)', () => {
     expect(text).toContain('ASSISTANT');
   });
 
+  it('markdown export renders tool_use / tool_result / error / compaction blocks', async () => {
+    const file = path.join(dir, 'rich.jsonl');
+    const events = [
+      { type: 'session_start', ts: '2026-01-01T00:00:00.000Z', id: 'rich', model: 'm', provider: 'p' },
+      { type: 'user_input', ts: '2026-01-01T00:00:01.000Z', content: 'do it' },
+      { type: 'llm_response', ts: '2026-01-01T00:00:02.000Z', content: [{ type: 'text', text: 'sure' }], stopReason: 'tool_use', usage: { input: 10, output: 5 } },
+      { type: 'tool_use', ts: '2026-01-01T00:00:03.000Z', id: 'tu1', name: 'bash', input: { command: 'ls' } },
+      { type: 'tool_result', ts: '2026-01-01T00:00:04.000Z', id: 'tu1', content: 'file.txt', isError: false },
+      { type: 'tool_result', ts: '2026-01-01T00:00:05.000Z', id: 'tu2', content: 'oops', isError: true },
+      { type: 'error', ts: '2026-01-01T00:00:06.000Z', phase: 'tool', message: 'kapow' },
+      { type: 'compaction', ts: '2026-01-01T00:00:07.000Z', before: 1000, after: 500 },
+    ];
+    await fs.writeFile(file, events.map((e) => JSON.stringify(e)).join('\n') + '\n');
+    const md = await reader.export('rich', { format: 'markdown' });
+    expect(md).toContain('### Tool call: `bash`');
+    expect(md).toContain('### Tool result');
+    expect(md).toContain('### Tool result (error)');
+    expect(md).toContain('**Error**');
+    expect(md).toContain('kapow');
+    expect(md).toContain('**Compaction**');
+    expect(md).toContain('1000 → 500');
+  });
+
+  it('text export renders tool_use / tool_result / error blocks', async () => {
+    const file = path.join(dir, 'rich2.jsonl');
+    const events = [
+      { type: 'session_start', ts: '2026-01-01T00:00:00.000Z', id: 'rich2', model: 'm', provider: 'p' },
+      { type: 'tool_use', ts: '2026-01-01T00:00:03.000Z', id: 'tu1', name: 'bash', input: { command: 'ls' } },
+      { type: 'tool_result', ts: '2026-01-01T00:00:04.000Z', id: 'tu1', content: 'file.txt', isError: false },
+      { type: 'tool_result', ts: '2026-01-01T00:00:05.000Z', id: 'tu2', content: 'fail', isError: true },
+      { type: 'error', ts: '2026-01-01T00:00:06.000Z', phase: 'tool', message: 'kapow' },
+    ];
+    await fs.writeFile(file, events.map((e) => JSON.stringify(e)).join('\n') + '\n');
+    const text = await reader.export('rich2', { format: 'text' });
+    expect(text).toContain('TOOL_USE bash');
+    expect(text).toContain('TOOL_RESULT');
+    expect(text).toContain('TOOL_RESULT (error)');
+    expect(text).toContain('ERROR (tool)');
+  });
+
+  it('export renders stop reason hint when non-end_turn', async () => {
+    const file = path.join(dir, 'stoppy.jsonl');
+    const events = [
+      { type: 'session_start', ts: '2026-01-01T00:00:00.000Z', id: 'stoppy', model: 'm', provider: 'p' },
+      { type: 'llm_response', ts: '2026-01-01T00:00:02.000Z', content: [{ type: 'text', text: 'truncated' }], stopReason: 'max_tokens', usage: { input: 1, output: 1 } },
+    ];
+    await fs.writeFile(file, events.map((e) => JSON.stringify(e)).join('\n') + '\n');
+    const md = await reader.export('stoppy', { format: 'markdown' });
+    expect(md).toContain('*stop: max_tokens*');
+  });
+
   it('metadata returns session header without errors', async () => {
     await seedSession(dir, 'a', { model: 'gpt-4', provider: 'openai', startedAt: '2026-01-01T00:00:00.000Z', title: 'q' });
     const meta = await reader.metadata('a');

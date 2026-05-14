@@ -178,4 +178,31 @@ describe('Pipeline', () => {
       expect(calls).toEqual(['a', 'b']);
     });
   });
+
+  describe('asReadonly', () => {
+    it('returns a frozen view with size + list + run methods', async () => {
+      const p = new Pipeline<number>();
+      p.use({ name: 'plus-one', handler: async (v, next) => next(v + 1) });
+      const view = p.asReadonly();
+      expect(view.size).toBe(1);
+      expect(view.list()).toEqual(['plus-one']);
+      expect(Object.isFrozen(view)).toBe(true);
+      expect(await view.run(0)).toBe(1);
+    });
+
+    it('size on the view reflects subsequent mutations', () => {
+      const p = new Pipeline<number>();
+      const view = p.asReadonly();
+      expect(view.size).toBe(0);
+      p.use({ name: 'm', handler: async (v, next) => next(v) });
+      expect(view.size).toBe(1);
+    });
+
+    it('list snapshot from the view is frozen', () => {
+      const p = new Pipeline<number>();
+      p.use({ name: 'm', handler: async (v, next) => next(v) });
+      const snap = p.asReadonly().list();
+      expect(Object.isFrozen(snap)).toBe(true);
+    });
+  });
 });

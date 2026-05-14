@@ -195,4 +195,253 @@ describe('runAuthMenu', () => {
     const code = await runAuthMenu(deps);
     expect(code).toBe(0);
   });
+
+  it('exits with 0 on "quit" and on "exit" aliases', async () => {
+    for (const cmd of ['quit', 'exit']) {
+      const { deps } = await setupDeps({ scripted: { lines: [cmd] } });
+      const code = await runAuthMenu(deps);
+      expect(code).toBe(0);
+    }
+  });
+
+  it('writes a key after picking a catalog entry by number', async () => {
+    const { deps, configPath } = await setupDeps({
+      catalog: {
+        anthropic: {
+          id: 'anthropic',
+          name: 'Anthropic',
+          family: 'anthropic',
+          apiBase: 'https://api.anthropic.com',
+          envVars: ['ANTHROPIC_API_KEY'],
+        },
+      },
+      scripted: {
+        // Top menu: 'a' (add) → empty filter → pick '1' (the only entry) →
+        // accept family default → accept baseUrl default → accept alias →
+        // empty label → then 'q' to leave the loop.
+        lines: ['a', '', '1', '', '', '', '', 'q'],
+        secrets: ['sk-anth-test'],
+      },
+    });
+    const code = await runAuthMenu(deps);
+    expect(code).toBe(0);
+    const raw = JSON.parse(await fs.readFile(configPath, 'utf8'));
+    expect(raw.providers.anthropic).toBeDefined();
+    expect(raw.providers.anthropic.family).toBe('anthropic');
+  });
+
+  it('unknown selection writes an error and re-prompts', async () => {
+    const { deps } = await setupDeps({
+      scripted: { lines: ['xyzzy', 'q'] },
+    });
+    const code = await runAuthMenu(deps);
+    expect(code).toBe(0);
+    expect(deps.renderer.writeError).toHaveBeenCalledWith(
+      expect.stringContaining('Unknown selection'),
+    );
+  });
+
+  it('catalog filter that matches nothing writes an error', async () => {
+    const { deps } = await setupDeps({
+      catalog: {
+        anthropic: { id: 'anthropic', name: 'Anthropic', family: 'anthropic', envVars: ['X'] },
+      },
+      scripted: { lines: ['a', 'no-match-xyz', 'q'] },
+    });
+    await runAuthMenu(deps);
+    expect(deps.renderer.writeError).toHaveBeenCalledWith(
+      expect.stringMatching(/No providers match/),
+    );
+  });
+
+  it('manages an existing provider via numeric pick + back', async () => {
+    const { deps } = await setupDeps({
+      preExisting: {
+        providers: {
+          openai: {
+            type: 'openai',
+            family: 'openai',
+            apiKeys: [
+              { label: 'default', apiKey: 'plain', createdAt: '2025-01-01T00:00:00.000Z' },
+            ],
+            activeKey: 'default',
+          },
+        },
+      },
+      scripted: { lines: ['1', 'b', 'q'] },
+    });
+    const code = await runAuthMenu(deps);
+    expect(code).toBe(0);
+  });
+
+  it('deletes a key with confirmation', async () => {
+    const { deps, configPath } = await setupDeps({
+      preExisting: {
+        providers: {
+          openai: {
+            type: 'openai',
+            family: 'openai',
+            apiKeys: [
+              { label: 'default', apiKey: 'plain', createdAt: '2025-01-01T00:00:00.000Z' },
+              { label: 'extra', apiKey: 'plain2', createdAt: '2025-01-01T00:00:00.000Z' },
+            ],
+            activeKey: 'default',
+          },
+        },
+      },
+      // 1 -> manage openai; d 2 -> delete second key; y -> confirm; b -> back; q -> quit
+      scripted: { lines: ['1', 'd 2', 'y', 'b', 'q'] },
+    });
+    const code = await runAuthMenu(deps);
+    expect(code).toBe(0);
+    const raw = JSON.parse(await fs.readFile(configPath, 'utf8'));
+    const labels = (raw.providers.openai.apiKeys as { label: string }[]).map((k) => k.label);
+    expect(labels).toEqual(['default']);
+  });
+
+  it('s <n> sets active key', async () => {
+    const { deps, configPath } = await setupDeps({
+      preExisting: {
+        providers: {
+          openai: {
+            type: 'openai',
+            family: 'openai',
+            apiKeys: [
+              { label: 'default', apiKey: 'plain', createdAt: '2025-01-01T00:00:00.000Z' },
+              { label: 'extra', apiKey: 'plain2', createdAt: '2025-01-01T00:00:00.000Z' },
+            ],
+            activeKey: 'default',
+          },
+        },
+      },
+      // 1 -> manage; s 2 -> set extra as active; b; q
+      scripted: { lines: ['1', 's 2', 'b', 'q'] },
+    });
+    await runAuthMenu(deps);
+    const raw = JSON.parse(await fs.readFile(configPath, 'utf8'));
+    expect(raw.providers.openai.activeKey).toBe('extra');
+  });
+
+  it('f <family> edits the wire family', async () => {
+    const { deps, configPath } = await setupDeps({
+      preExisting: {
+        providers: {
+          custom: {
+            type: 'custom',
+            family: 'openai',
+            apiKeys: [{ label: 'default', apiKey: 'plain', createdAt: '' }],
+            activeKey: 'default',
+          },
+        },
+      },
+      scripted: { lines: ['1', 'f', 'openai-compatible', 'b', 'q'] },
+    });
+    await runAuthMenu(deps);
+    const raw = JSON.parse(await fs.readFile(configPath, 'utf8'));
+    expect(raw.providers.custom.family).toBe('openai-compatible');
+  });
+
+  it('B edits the baseUrl', async () => {
+    const { deps, configPath } = await setupDeps({
+      preExisting: {
+        providers: {
+          custom: {
+            type: 'custom',
+            family: 'openai',
+            apiKeys: [{ label: 'default', apiKey: 'plain', createdAt: '' }],
+            activeKey: 'default',
+          },
+        },
+      },
+      scripted: { lines: ['1', 'B', 'https://new.base/v1', 'b', 'q'] },
+    });
+    await runAuthMenu(deps);
+    const raw = JSON.parse(await fs.readFile(configPath, 'utf8'));
+    expect(raw.providers.custom.baseUrl).toBe('https://new.base/v1');
+  });
+
+  it('m edits the visible models list', async () => {
+    const { deps, configPath } = await setupDeps({
+      preExisting: {
+        providers: {
+          custom: {
+            type: 'custom',
+            family: 'openai',
+            apiKeys: [{ label: 'default', apiKey: 'plain', createdAt: '' }],
+            activeKey: 'default',
+          },
+        },
+      },
+      scripted: { lines: ['1', 'm', 'gpt-x, gpt-y', 'b', 'q'] },
+    });
+    await runAuthMenu(deps);
+    const raw = JSON.parse(await fs.readFile(configPath, 'utf8'));
+    expect(raw.providers.custom.models).toEqual(['gpt-x', 'gpt-y']);
+  });
+
+  it('x removes the provider with confirmation', async () => {
+    const { deps, configPath } = await setupDeps({
+      preExisting: {
+        providers: {
+          doomed: {
+            type: 'doomed',
+            family: 'openai',
+            apiKeys: [{ label: 'default', apiKey: 'plain', createdAt: '' }],
+          },
+        },
+      },
+      scripted: { lines: ['1', 'x', 'y', 'q'] },
+    });
+    await runAuthMenu(deps);
+    const raw = JSON.parse(await fs.readFile(configPath, 'utf8'));
+    expect(raw.providers.doomed).toBeUndefined();
+  });
+
+  it('u <n> updates the key value', async () => {
+    const { deps, configPath } = await setupDeps({
+      preExisting: {
+        providers: {
+          openai: {
+            type: 'openai',
+            family: 'openai',
+            apiKeys: [{ label: 'default', apiKey: 'old', createdAt: '' }],
+            activeKey: 'default',
+          },
+        },
+      },
+      // 1 -> manage; u 1 -> update first; secrets[0] is the new key
+      scripted: { lines: ['1', 'u 1', 'b', 'q'], secrets: ['fresh-key'] },
+    });
+    await runAuthMenu(deps);
+    const raw = JSON.parse(await fs.readFile(configPath, 'utf8'));
+    // Encrypted on disk
+    const serialized = JSON.stringify(raw);
+    expect(serialized).not.toContain('fresh-key');
+  });
+
+  it('c (custom provider) writes a new entry from manual input', async () => {
+    const { deps, configPath } = await setupDeps({
+      // c -> custom flow; type=local-llama; family=openai-compatible; baseUrl;
+      // models empty; envVars empty; label empty (default); then q
+      scripted: {
+        lines: ['c', 'local-llama', 'openai-compatible', 'http://localhost:11434/v1', '', '', '', 'q'],
+        secrets: ['llama-key'],
+      },
+    });
+    const code = await runAuthMenu(deps);
+    expect(code).toBe(0);
+    const raw = JSON.parse(await fs.readFile(configPath, 'utf8'));
+    expect(raw.providers['local-llama'].family).toBe('openai-compatible');
+    expect(raw.providers['local-llama'].baseUrl).toBe('http://localhost:11434/v1');
+  });
+
+  it('c rejects an invalid family', async () => {
+    const { deps } = await setupDeps({
+      scripted: { lines: ['c', 'local-llama', 'bogus-family', 'q'] },
+    });
+    await runAuthMenu(deps);
+    expect(deps.renderer.writeError).toHaveBeenCalledWith(
+      expect.stringMatching(/Invalid family/),
+    );
+  });
 });

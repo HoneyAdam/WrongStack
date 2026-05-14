@@ -90,3 +90,50 @@ describe('buildArgs (via execute in non-git dir)', () => {
     expect(result).toHaveProperty('exitCode');
   });
 });
+
+describe('gitTool live execution (uses the test repo itself)', () => {
+  // We're running inside the WrongStack repo, so process.cwd() resolves to a
+  // real git working tree — exercises runGit end-to-end.
+  const ctx = makeCtx(process.cwd());
+
+  it('executes `git status` and returns exit code 0', async () => {
+    const result = await gitTool.execute({ command: 'status' }, ctx, makeOpts());
+    expect(result.exitCode).toBe(0);
+    expect(result.command).toBe('status');
+    expect(typeof result.stdout).toBe('string');
+  });
+
+  it('executes `git log --oneline -n 1` and returns at least one commit', async () => {
+    const result = await gitTool.execute(
+      { command: 'log', format: 'oneline', limit: 1 },
+      ctx,
+      makeOpts(),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.split('\n').filter(Boolean).length).toBeGreaterThan(0);
+  });
+
+  it('returns exit code != 0 when git is invoked with bogus args', async () => {
+    const result = await gitTool.execute(
+      { command: 'status', args: '--not-a-real-flag' } as never,
+      ctx,
+      makeOpts(),
+    );
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr.length).toBeGreaterThan(0);
+  });
+
+  it('aborts when the signal is fired before spawn', async () => {
+    const ac = new AbortController();
+    ac.abort();
+    const result = await gitTool.execute(
+      { command: 'log' },
+      ctx,
+      { signal: ac.signal },
+    );
+    // Aborted signal causes ENOENT / AbortError; exitCode comes from
+    // child.on('error') path. We just verify the tool resolves rather than
+    // throws.
+    expect(result.exitCode).not.toBe(0);
+  });
+});
