@@ -20,7 +20,7 @@ describe('execTool', () => {
   });
 
   it('blocks command strings with embedded shell metacharacters via allowlist', async () => {
-    // Pre-0.1.5 the tool also pattern-matched against a forbidden-regex list,
+    // Pre-0.1.6 the tool also pattern-matched against a forbidden-regex list,
     // but that was dead code (only the command name was tested). Today the
     // allowlist alone suffices: 'echo hello; rm -rf /' is not the key 'echo'.
     const ctx = makeCtx();

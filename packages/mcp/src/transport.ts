@@ -185,7 +185,7 @@ export class SSETransport {
       const initRes = await this.httpPost('initialize', {
         protocolVersion: '2024-11-05',
         capabilities: { tools: {} },
-        clientInfo: { name: 'wrongstack', version: '0.1.5' },
+        clientInfo: { name: 'wrongstack', version: '0.1.6' },
       });
 
       if (initRes.error) {
@@ -394,7 +394,7 @@ export class StreamableHTTPTransport {
           params: {
             protocolVersion: '2024-11-05',
             capabilities: { tools: {} },
-            clientInfo: { name: 'wrongstack', version: '0.1.5' },
+            clientInfo: { name: 'wrongstack', version: '0.1.6' },
           },
         }),
         signal,

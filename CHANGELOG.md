@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.5] — 2026-05-14
+## [0.1.6] — 2026-05-14
 
 Security hardening pass: 7 CRITICAL, 16 HIGH, 20 MEDIUM, 9 LOW findings from
 a forensic codebase review closed out. **No public API breaking changes.**
@@ -154,9 +154,9 @@ need the prior behavior.
   re-validation, IPv6 v4-mapped, public-IP sanity).
 - TypeScript and tsup versions aligned across all packages
   (was: root 5.9.3 + 8.5.1, packages 5.7.2 + 8.3.5).
-- MCP `clientInfo.version` bumped to `0.1.5`.
+- MCP `clientInfo.version` bumped to `0.1.6`.
 
-### Follow-up hardening (post-initial 0.1.5 pass)
+### Follow-up hardening (post-initial 0.1.6 audit pass)
 
 - **`system-prompt-builder.gitStatus` bounded at 2 s.** A hung `git status`
   (corrupt index, `.git/index.lock` held by another process, slow network
@@ -216,7 +216,7 @@ need the prior behavior.
 
 ### Added — new published package
 
-- **`@wrongstack/plug-lsp@0.1.5`** — Language Server Protocol plugin.
+- **`@wrongstack/plug-lsp@0.1.6`** — Language Server Protocol plugin.
   Auto-discovers `tsserver` / `pyright` / `gopls` / `rust-analyzer` in
   the workspace, exposes `lsp_hover`, `lsp_definition`, `lsp_references`,
   `lsp_diagnostics`, `lsp_format_document`, `lsp_rename_symbol` tools.

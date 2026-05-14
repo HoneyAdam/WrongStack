@@ -82,7 +82,7 @@ const tools = new ToolRegistry([readTool, editTool, bashTool]);
 const all = new ToolRegistry(builtinTools);
 ```
 
-## Security properties (0.1.5 hardening)
+## Security properties (0.1.6 hardening)
 
 - **`bash` / `exec` child env sanitized** to a fixed allowlist + secret-substring strip (`TOKEN` / `SECRET` / `PASSWORD` / `AUTH` / `BEARER` / `COOKIE` / `PRIVATE` / `KEY`). Opt-out via `WRONGSTACK_BASH_ENV_PASSTHROUGH=1`.
 - **`bash` POSIX process-group kill** with `SIGTERM → 800 ms → SIGKILL`. Runaway grandchildren can't survive the timeout.

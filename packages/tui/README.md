@@ -26,7 +26,7 @@ const exitCode = await runTui({
   model: 'claude-sonnet-4-6',
   banner: true,
   yolo: false,
-  appVersion: '0.1.5',
+  appVersion: '0.1.6',
   provider: 'anthropic',
   family: 'anthropic',
   keyTail: '…ABC',
@@ -41,7 +41,7 @@ process.exit(exitCode);
 
 ```
 ┌─ banner ─────────────────────────────────────────────┐
-│  wrongstack 0.1.5 — anthropic · claude-sonnet-4-6    │
+│  wrongstack 0.1.6 — anthropic · claude-sonnet-4-6    │
 └──────────────────────────────────────────────────────┘
   user> refactor auth.ts to async/await
   ⠋ thinking (3 tools used · 4.2k tokens · 1.3s)

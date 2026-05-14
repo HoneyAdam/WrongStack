@@ -21,7 +21,7 @@ This pulls in the full stack — `@wrongstack/core`, `@wrongstack/providers`, `@
 
 After install, `wrongstack` is on your `PATH`. (`wstack` works too — it's an alias.)
 
-### What's new in 0.1.5
+### What's new in 0.1.6
 
 A forensic-audit security pass: **7 CRITICAL, 16 HIGH, 20 MEDIUM, 9 LOW**
 findings closed. No public API breaking changes.
