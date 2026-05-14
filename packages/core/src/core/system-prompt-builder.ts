@@ -53,6 +53,10 @@ export interface DefaultSystemPromptBuilderOptions {
   memoryStore?: MemoryStore;
   skillLoader?: SkillLoader;
   modeStore?: ModeStore;
+  /** Pre-resolved mode id — shown in environment block (e.g. "debugger", "code-reviewer"). */
+  modeId?: string;
+  /** Pre-resolved model capabilities — enables adaptive context thresholds. */
+  modelCapabilities?: ModelCapabilities;
   todayIso?: string;
 }
 
@@ -62,7 +66,7 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
 
   async build(ctx: BuildContext): Promise<TextBlock[]> {
     const layer1 = LAYER_1_IDENTITY;
-    const layer2 = this.buildToolUsage(ctx.tools, ctx.capabilities);
+    const layer2 = this.buildToolUsage(ctx.tools);
     const layer3 = await this.buildEnvironment(ctx);
     const layer4 = await this.buildMemoryAndSkills();
     const layer5 = await this.buildMode();
@@ -92,7 +96,7 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
     return blocks;
   }
 
-  private buildToolUsage(tools: Tool[], capabilities?: ModelCapabilities): string {
+  private buildToolUsage(tools: Tool[]): string {
     if (tools.length === 0) return '## Tool usage\n\nNo tools registered.';
     const lines = ['## Tool usage'];
     for (const t of tools) {
@@ -118,7 +122,7 @@ When unsure about a file's current state, read it first rather than assuming.`);
     if (hasContextManager) {
       // Adaptive threshold based on model context window size.
       // Small context (<=32k) → trigger earlier; large context (>=128k) → more relaxed.
-      const maxCtx = capabilities?.maxContextTokens ?? 128000;
+      const maxCtx = this.opts.modelCapabilities?.maxContextTokens ?? 128000;
       const threshold = maxCtx <= 32000 ? '50' : '70';
       lines.push(`
 ## Context management
@@ -165,11 +169,11 @@ summarize it, and let the tool result hold only the summary.`);
         `- Running on: ${ctx.provider ?? '<unknown provider>'}/${ctx.model ?? '<unknown model>'}`,
       );
     }
-    if (ctx.activeModeId && ctx.activeModeId !== 'default') {
-      lines.push(`- Mode: ${ctx.activeModeId}`);
+    if (this.opts.modeId && this.opts.modeId !== 'default') {
+      lines.push(`- Mode: ${this.opts.modeId}`);
     }
-    if (ctx.capabilities) {
-      lines.push(`- Context window: ${ctx.capabilities.maxContextTokens.toLocaleString()} tokens max`);
+    if (this.opts.modelCapabilities) {
+      lines.push(`- Context window: ${this.opts.modelCapabilities.maxContextTokens.toLocaleString()} tokens max`);
     }
     const text = lines.join('\n');
     this.envCache = text;

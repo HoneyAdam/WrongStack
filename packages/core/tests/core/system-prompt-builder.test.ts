@@ -147,4 +147,66 @@ describe('DefaultSystemPromptBuilder', () => {
     expect(env).toMatch(/branch=/);
     expect(env).toMatch(/modified/);
   });
+
+  it('shows modeId in environment block when set and not default', async () => {
+    const b = new DefaultSystemPromptBuilder({ modeId: 'debugger', todayIso: '2026-05-13' });
+    const blocks = await b.build({ cwd: tmp, projectRoot: tmp, tools: [] });
+    const env = blocks[2]?.text ?? '';
+    expect(env).toContain('Mode: debugger');
+  });
+
+  it('omits modeId when default', async () => {
+    const b = new DefaultSystemPromptBuilder({ modeId: 'default', todayIso: '2026-05-13' });
+    const blocks = await b.build({ cwd: tmp, projectRoot: tmp, tools: [] });
+    const env = blocks[2]?.text ?? '';
+    expect(env).not.toContain('Mode:');
+  });
+
+  it('shows context window size when modelCapabilities provided', async () => {
+    const b = new DefaultSystemPromptBuilder({
+      modelCapabilities: { maxContextTokens: 32768, supportsTools: true, supportsVision: false, supportsReasoning: false },
+      todayIso: '2026-05-13',
+    });
+    const blocks = await b.build({ cwd: tmp, projectRoot: tmp, tools: [] });
+    const env = blocks[2]?.text ?? '';
+    // toLocaleString('en-US') would produce "32,768"; check that the raw number
+    // appears somewhere near "tokens max" without asserting the locale form.
+    expect(env).toMatch(/Context window:.*\d+.*tokens max/);
+  });
+
+  it('uses 50% threshold for small context windows in context management', async () => {
+    const ctxManagerTool: Tool = {
+      name: 'context_manager',
+      description: 'manage context',
+      inputSchema: { type: 'object' },
+      permission: 'auto',
+      mutating: true,
+      async execute() { return ''; },
+    };
+    // <= 32000 triggers 50% threshold.
+    const b = new DefaultSystemPromptBuilder({
+      modelCapabilities: { maxContextTokens: 32000, supportsTools: true, supportsVision: false, supportsReasoning: false },
+    });
+    const blocks = await b.build({ cwd: tmp, projectRoot: tmp, tools: [ctxManagerTool] });
+    const toolBlock = blocks[1]?.text ?? '';
+    expect(toolBlock).toContain('~50%');
+    expect(toolBlock).not.toContain('~70%');
+  });
+
+  it('uses 70% threshold for large context windows in context management', async () => {
+    const ctxManagerTool: Tool = {
+      name: 'context_manager',
+      description: 'manage context',
+      inputSchema: { type: 'object' },
+      permission: 'auto',
+      mutating: true,
+      async execute() { return ''; },
+    };
+    const b = new DefaultSystemPromptBuilder({
+      modelCapabilities: { maxContextTokens: 128000, supportsTools: true, supportsVision: true, supportsReasoning: true },
+    });
+    const blocks = await b.build({ cwd: tmp, projectRoot: tmp, tools: [ctxManagerTool] });
+    const toolBlock = blocks[1]?.text ?? '';
+    expect(toolBlock).toContain('~70%');
+  });
 });

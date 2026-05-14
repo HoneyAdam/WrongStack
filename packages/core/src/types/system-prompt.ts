@@ -17,10 +17,6 @@ export interface BuildContext {
   provider?: string;
   /** Model id (e.g. "claude-sonnet-4-6", "MiniMax-M2.7"). */
   model?: string;
-  /** Currently active mode id (e.g. "debugger", "default"). */
-  activeModeId?: string;
-  /** Model capabilities for context-aware prompt composition. */
-  capabilities?: ModelCapabilities;
 }
 
 export interface SystemPromptBuilder {
