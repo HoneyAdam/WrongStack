@@ -6,7 +6,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   Agent,
-  Container,
+  type Container,
   Context,
   type Config,
   type ConfigStore,

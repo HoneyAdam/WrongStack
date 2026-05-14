@@ -75,13 +75,16 @@ function parseToolArguments(
   } catch {
     // First-pass failed — try the sanitizer (handles trailing commas,
     // JS-style comments, smart quotes the model sometimes emits).
-    try {
-      const sanitized = JSON.parse(sanitizeJsonString(raw)) as unknown;
-      if (sanitized && typeof sanitized === 'object' && !Array.isArray(sanitized)) {
-        return sanitized as Record<string, unknown>;
+    const sanitized = sanitizeJsonString(raw);
+    if (sanitized !== null) {
+      try {
+        const parsed = JSON.parse(sanitized) as unknown;
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          return parsed as Record<string, unknown>;
+        }
+      } catch {
+        // fall through
       }
-    } catch {
-      // fall through
     }
     opts.onParseFailure?.({ toolName, toolCallId, raw });
     return { __raw_arguments: raw };

@@ -239,7 +239,6 @@ describe('validateAgainstSchema', () => {
     const r = validateAgainstSchema({ x: 1 }, {
       type: 'object',
       properties: { x: { type: 'integer' } },
-      // biome-ignore lint: testing unknown keyword
       futureKeyword: { totally: 'unknown' } as never,
     });
     expect(r.ok).toBe(true);

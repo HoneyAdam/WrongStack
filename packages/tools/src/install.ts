@@ -1,5 +1,6 @@
 import type { Tool, ToolStreamEvent } from '@wrongstack/core';
-import { safeResolve, spawnStream } from './_util.js';
+import { safeResolve } from './_util.js';
+import { spawnStream } from './_spawn-stream.js';
 
 interface InstallInput {
   packages?: string | string[];

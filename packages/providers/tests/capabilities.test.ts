@@ -18,6 +18,13 @@ const SAMPLE: ModelsDevPayload = {
         modalities: { input: ['text', 'image'], output: ['text'] },
         limit: { context: 200_000 },
       },
+      'claude-text-only': {
+        id: 'claude-text-only',
+        name: 'Claude Text Only',
+        tool_call: false,
+        modalities: { input: ['text'], output: ['text'] },
+        limit: { context: 100_000 },
+      },
     },
   },
   google: {
@@ -73,5 +80,14 @@ describe('capabilitiesFor', () => {
     expect(c.tools).toBe(true);
     expect(c.vision).toBe(true);
     expect(c.maxContext).toBe(200_000);
+  });
+
+  it('model-level tool and vision limits narrow the family baseline', async () => {
+    const c = await capabilitiesFor(reg(), 'anthropic', 'claude-text-only');
+    expect(c.tools).toBe(false);
+    expect(c.parallelTools).toBe(false);
+    expect(c.vision).toBe(false);
+    expect(c.cacheControl).toBe('native');
+    expect(c.maxContext).toBe(100_000);
   });
 });

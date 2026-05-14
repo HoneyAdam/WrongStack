@@ -2,35 +2,18 @@ import type { Message } from '../types/messages.js';
 import type { TodoItem, Context } from './context.js';
 
 /**
- * Observable wrapper for the mutable conversation state. Provides snapshot
- * and change-notification semantics on top of the existing `Context`
- * mutable fields (messages, todos, meta), without forcing every call site
- * to migrate.
- *
- * Design notes:
- *
- *  - This is a **wrapper**, not a replacement. The underlying `Context`
- *    fields are still mutated directly by tools and middleware that don't
- *    know about ConversationState. The wrapper observes those mutations by
- *    snapshotting on each accessor call, comparing length/identity, and
- *    firing onChange. This is intentional during migration: it lets new
- *    code subscribe to changes without breaking the unaware-existing code.
- *
- *  - For full decoupling (the dev-plan #1 target), every mutation must go
- *    through `ConversationState.appendMessage()` etc. instead of
- *    `ctx.messages.push(...)`. That's a follow-up refactor — the API shape
- *    here is designed to support it.
- *
- *  - `meta` is a free-form bag; we shallow-watch its keys. Deep mutations
- *    inside `meta.foo` won't trigger onChange. Use immutable replacement
- *    (`setMeta('foo', newValue)`) if you need notification.
+ * Observable wrapper for mutable conversation state. Production code should
+ * mutate messages, todos, and meta through this API so subscribers see a
+ * deterministic change stream. The underlying Context arrays are still
+ * exposed for read compatibility and legacy tests.
  */
 export type StateChange =
   | { kind: 'message_appended'; message: Message }
   | { kind: 'messages_replaced'; messages: readonly Message[] }
   | { kind: 'todos_replaced'; todos: readonly TodoItem[] }
   | { kind: 'meta_set'; key: string; value: unknown }
-  | { kind: 'meta_deleted'; key: string };
+  | { kind: 'meta_deleted'; key: string }
+  | { kind: 'meta_cleared' };
 
 export type StateChangeHandler = (change: StateChange, state: ConversationState) => void;
 
@@ -47,8 +30,6 @@ export class ConversationState {
   constructor(ctx: Context) {
     this.ctx = ctx;
   }
-
-  // ─── Read API ───────────────────────────────────────────────────────
 
   get messages(): readonly Message[] {
     return this.ctx.messages;
@@ -67,29 +48,29 @@ export class ConversationState {
    * that need a stable view across an async boundary.
    */
   snapshot(): ReadonlyConversationState {
-    return {
-      messages: [...this.ctx.messages],
-      todos: [...this.ctx.todos],
-      meta: { ...this.ctx.meta },
-    };
+    // Return a frozen view — no defensive spread needed since the returned
+    // object is deep-frozen and callers receive it as ReadonlyConversationState.
+    return Object.freeze({
+      messages: Object.freeze([...this.ctx.messages]),
+      todos: Object.freeze([...this.ctx.todos]),
+      meta: Object.freeze({ ...this.ctx.meta }),
+    });
   }
 
-  // ─── Write API (preferred — fires onChange) ─────────────────────────
-
   appendMessage(message: Message): void {
-    this.ctx.messages.push(message);
+    this.ctx.messages.splice(this.ctx.messages.length, 0, message);
     this.emit({ kind: 'message_appended', message });
   }
 
   replaceMessages(messages: Message[]): void {
     this.ctx.messages.length = 0;
-    this.ctx.messages.push(...messages);
+    this.ctx.messages.splice(0, 0, ...messages);
     this.emit({ kind: 'messages_replaced', messages: [...messages] });
   }
 
   replaceTodos(todos: TodoItem[]): void {
     this.ctx.todos.length = 0;
-    this.ctx.todos.push(...todos);
+    this.ctx.todos.splice(0, 0, ...todos);
     this.emit({ kind: 'todos_replaced', todos: [...todos] });
   }
 
@@ -104,14 +85,16 @@ export class ConversationState {
     this.emit({ kind: 'meta_deleted', key });
   }
 
-  // ─── Subscription ───────────────────────────────────────────────────
+  clearMeta(): void {
+    const keys = Object.keys(this.ctx.meta);
+    if (keys.length === 0) return;
+    for (const key of keys) delete this.ctx.meta[key];
+    this.emit({ kind: 'meta_cleared' });
+  }
 
   /**
-   * Subscribe to mutations that go through this wrapper. Note: mutations
-   * that bypass the wrapper (e.g. `ctx.messages.push(...)` directly) are
-   * NOT observed — by design during migration, since we don't want to
-   * monkey-patch arrays. Migrating call sites to use this API is the
-   * dev-plan #1 work.
+   * Subscribe to mutations that go through this wrapper. Direct mutations of
+   * the compatibility arrays are intentionally not observed.
    */
   onChange(listener: StateChangeHandler): () => void {
     this.listeners.add(listener);
@@ -120,14 +103,18 @@ export class ConversationState {
 
   private emit(change: StateChange): void {
     for (const h of this.listeners) {
-      try { h(change, this); } catch { /* ignore listener errors */ }
+      try {
+        h(change, this);
+      } catch {
+        // Listeners are observational only; one bad subscriber must not
+        // prevent state mutation or block sibling listeners.
+      }
     }
   }
 }
 
 /**
- * Convenience constructor — creates a ConversationState bound to the
- * given Context. The wrapper holds a reference, not a copy.
+ * Convenience constructor. The wrapper holds a reference, not a copy.
  */
 export function wrapAsState(ctx: Context): ConversationState {
   return new ConversationState(ctx);

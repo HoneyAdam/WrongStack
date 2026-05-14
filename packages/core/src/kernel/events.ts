@@ -77,6 +77,14 @@ export interface EventMap {
    * tool history line without re-fetching from the session log.
    */
   'tool.executed': {
+    /**
+     * The tool_use id (e.g. "toolu_…") issued by the provider for this call.
+     * Pairs with `tool.started.id` so subscribers can correlate start/finish
+     * even when the model fires multiple tools in parallel with identical
+     * inputs. Optional only for legacy emit sites — new code should always
+     * set it.
+     */
+    id?: string;
     name: string;
     durationMs: number;
     ok: boolean;
@@ -92,7 +100,15 @@ export interface EventMap {
    * outage) means the next iteration may hit context overflow. Observability
    * layers / dashboards subscribe to this to surface the silent regression.
    */
-  'compaction.failed': { err: Error; aggressive: boolean };
+  'compaction.failed': {
+    err: Error;
+    aggressive: boolean;
+    level: 'warn' | 'soft' | 'hard';
+    tokens: number;
+    maxContext: number;
+    load: number;
+    fatal: boolean;
+  };
   'mcp.server.connected': { name: string; toolCount: number };
   'mcp.server.reconnected': { name: string; toolCount: number };
   'mcp.server.disconnected': { name: string; reason: string };

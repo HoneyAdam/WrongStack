@@ -197,9 +197,9 @@ export class ToolExecutor {
     toolUseId?: string,
   ): Promise<unknown> {
     if (parentSignal.aborted) {
-      throw parentSignal.reason instanceof Error
-        ? parentSignal.reason
-        : new Error(typeof parentSignal.reason === 'string' ? parentSignal.reason : 'aborted');
+      // Re-throw the original abort reason, whether it's an Error, string, or undefined.
+      if (parentSignal.reason instanceof Error) throw parentSignal.reason;
+      throw new Error(typeof parentSignal.reason === 'string' ? parentSignal.reason : 'aborted');
     }
     const timeoutMs = tool.timeoutMs ?? this.iterationTimeoutMs;
     const ctrl = new AbortController();

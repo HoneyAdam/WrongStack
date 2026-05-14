@@ -12,7 +12,6 @@ import type { Tracer } from '../types/observability.js';
 import type { Logger } from '../types/logger.js';
 import type { RetryPolicy } from '../types/retry-policy.js';
 import type { ErrorHandler } from '../types/error-handler.js';
-import type { Compactor } from '../types/compactor.js';
 import type { PermissionPolicy } from '../types/permission.js';
 import type { SecretScrubber } from '../types/secret-scrubber.js';
 import type { Renderer } from '../types/renderer.js';
@@ -178,11 +177,6 @@ export class Agent {
   private get scrubber(): SecretScrubber {
     return this.container.resolve(TOKENS.SecretScrubber);
   }
-  private get compactor(): Compactor | undefined {
-    return this.container.has(TOKENS.Compactor)
-      ? this.container.resolve(TOKENS.Compactor)
-      : undefined;
-  }
   private get renderer(): Renderer | undefined {
     return this.container.has(TOKENS.Renderer)
       ? this.container.resolve(TOKENS.Renderer)
@@ -245,6 +239,7 @@ export class Agent {
     let iterations = 0;
     let effectiveLimit = opts.maxIterations ?? this.maxIterations;
     const hasHardLimit = effectiveLimit > 0 && Number.isFinite(effectiveLimit);
+    let recoveryRetries = 0;
 
     for (let i = 0; ; i++) {
       iterations = i + 1;
@@ -279,17 +274,33 @@ export class Agent {
           logger: this.logger,
           tracer: this.tracer,
         });
+        recoveryRetries = 0;
       } catch (err) {
         if (controller.signal.aborted) {
           this.events.emit('error', { err: toError(err), phase: 'provider' });
           return { status: 'aborted', iterations, error: toWrongStackError(err, 'AGENT_ABORTED') };
         }
         const recovered = await this.errorHandler.recover(err, this.ctx);
-        if (!recovered) {
+        if (!recovered || recovered.action === 'fail') {
           this.events.emit('error', { err: toError(err), phase: 'provider' });
-          return { status: 'failed', iterations, error: toWrongStackError(err) };
+          return {
+            status: 'failed',
+            iterations,
+            error: toWrongStackError(recovered?.error ?? err),
+          };
         }
-        res = recovered;
+        if (recovered.action === 'retry') {
+          recoveryRetries++;
+          if (recoveryRetries > 2) {
+            this.events.emit('error', { err: toError(err), phase: 'provider' });
+            return { status: 'failed', iterations, error: toWrongStackError(err) };
+          }
+          if (recovered.model) this.ctx.model = recovered.model;
+          this.logger.info(`Recovered provider error via ${recovered.reason}; retrying turn`);
+          continue;
+        }
+        recoveryRetries = 0;
+        res = recovered.response;
       }
 
       const responseResult = await this.processResponse(res, req);
@@ -470,6 +481,7 @@ export class Agent {
             isError: !!reRunResult.result.is_error,
           });
           this.events.emit('tool.executed', {
+            id: reRunResult.result.tool_use_id,
             name: tool!.name,
             durationMs: reRunResult.durationMs,
             ok: !reRunResult.result.is_error,
@@ -477,8 +489,7 @@ export class Agent {
             output: truncateForEvent(reRunResult.result.content),
           });
         }
-        // Add the tool result to messages
-        this.ctx.state.appendMessage({ role: 'user', content: [reRunResult.result] });
+        // Re-run result already appended above — skip the generic append at loop end.
         continue;
       }
 
@@ -498,6 +509,7 @@ export class Agent {
         isError: !!result.is_error,
       });
       this.events.emit('tool.executed', {
+        id: result.tool_use_id,
         name: use.name,
         durationMs,
         ok: !result.is_error,
@@ -552,12 +564,11 @@ export class Agent {
   }
 
   /**
-   * Run context window pipeline if compactor is present.
+   * Run context window pipeline. The pipeline may be empty, or it may contain
+   * middleware with its own injected dependencies.
    */
   private async compactContextIfNeeded(): Promise<void> {
-    if (this.compactor) {
-      await this.pipelines.contextWindow.run(this.ctx);
-    }
+    await this.pipelines.contextWindow.run(this.ctx);
   }
 
 }

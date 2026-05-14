@@ -73,7 +73,7 @@ describe('extractRunEnv', () => {
 describe('ConversationState — read API', () => {
   it('mirrors the underlying Context fields', () => {
     const ctx = mkContext();
-    ctx.messages.push(userMessage('hi'));
+    ctx.state.appendMessage(userMessage('hi'));
     ctx.todos.push({ id: 't1', content: 'do', status: 'pending' });
     ctx.meta.foo = 'bar';
 
@@ -85,11 +85,11 @@ describe('ConversationState — read API', () => {
 
   it('snapshot() returns shallow copies that are isolated from later mutations', () => {
     const ctx = mkContext();
-    ctx.messages.push(userMessage('first'));
+    ctx.state.appendMessage(userMessage('first'));
     const state = wrapAsState(ctx);
 
     const snap = state.snapshot();
-    ctx.messages.push(userMessage('second'));
+    state.appendMessage(userMessage('second'));
 
     expect(snap.messages).toHaveLength(1);
     expect(state.messages).toHaveLength(2);
@@ -112,7 +112,7 @@ describe('ConversationState — write API and onChange', () => {
 
   it('replaceMessages swaps the contents and fires the change', () => {
     const ctx = mkContext();
-    ctx.messages.push(userMessage('old'));
+    ctx.state.appendMessage(userMessage('old'));
     const state = wrapAsState(ctx);
     const cb = vi.fn();
     state.onChange(cb);
@@ -164,6 +164,21 @@ describe('ConversationState — write API and onChange', () => {
     expect(cb).toHaveBeenCalledOnce();
     expect((cb.mock.calls[0]![0] as { kind: string }).kind).toBe('meta_deleted');
     expect(ctx.meta.present).toBeUndefined();
+  });
+
+  it('clearMeta removes all keys and emits once', () => {
+    const ctx = mkContext();
+    const state = wrapAsState(ctx);
+    const cb = vi.fn();
+    state.setMeta('a', 1);
+    state.setMeta('b', 2);
+    state.onChange(cb);
+
+    state.clearMeta();
+
+    expect(ctx.meta).toEqual({});
+    expect(cb).toHaveBeenCalledOnce();
+    expect((cb.mock.calls[0]![0] as { kind: string }).kind).toBe('meta_cleared');
   });
 
   it('unsubscribe stops future notifications', () => {

@@ -122,7 +122,12 @@ export class DefaultSessionStore implements SessionStore {
         ids.map((id) => this.summaryFor(id).catch(() => null)),
       );
       const out = sessions.filter((s): s is SessionSummary => s !== null);
-      out.sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1));
+      out.sort((a, b) => {
+        if (a.startedAt < b.startedAt) return 1;
+        if (a.startedAt > b.startedAt) return -1;
+        // Equal timestamps — use id as tiebreaker for stable sort
+        return a.id.localeCompare(b.id);
+      });
       return out.slice(0, limit);
     } catch {
       return [];

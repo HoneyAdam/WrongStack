@@ -40,11 +40,17 @@ export function safeStringify(value: unknown, pretty = false): string {
   }
 }
 
-/** Attempt to parse JSON5-style input and return a valid JSON string.
- *  Handles trailing commas, single-line comments, and unquoted keys
- *  that are common in provider output.
+/**
+ * Attempt to parse JSON5-style input and return a valid JSON string.
+ * Handles trailing commas, single-line comments, and unquoted keys
+ * that are common in provider output.
+ *
+ * Returns the sanitized string if it parses successfully as JSON,
+ * or `null` if the input cannot be made valid. Callers use this to
+ * decide whether to proceed with the parsed result or fall back to
+ * raw handling.
  */
-export function sanitizeJsonString(s: string): string {
+export function sanitizeJsonString(s: string): string | null {
   let out = s.trim();
 
   // Stage 1: strip single-line comments (// to end of line) that appear
@@ -56,14 +62,13 @@ export function sanitizeJsonString(s: string): string {
   // Stage 2: strip trailing commas before } or ]
   out = out.replace(/,(\s*[}\]])/g, '$1');
 
-  // Stage 3: attempt full parse; if it fails, return the stripped version
-  // so the caller can decide what to do. Return undefined on parse failure
-  // so callers can distinguish "already valid JSON" from "unrecoverable".
+  // Stage 3: attempt full parse; return null if it fails so callers can
+  // distinguish "already valid JSON" from "unrecoverable".
   try {
     JSON.parse(out);
     return out;
   } catch {
-    return out; // stripped but still not valid JSON; caller handles it
+    return null; // stripped but still not valid JSON; caller handles it
   }
 }
 

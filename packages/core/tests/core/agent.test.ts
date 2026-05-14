@@ -526,4 +526,147 @@ describe('Agent', () => {
     expect(typeof result.error?.severity).toBe('string');
     expect(typeof result.error?.describe()).toBe('string');
   });
+
+  it('honors ErrorHandler retry decisions instead of treating truthy recovery as a response', async () => {
+    class FailsThenSucceedsProvider implements Provider {
+      readonly id = 'recoverable';
+      readonly capabilities: Capabilities = {
+        tools: false,
+        parallelTools: false,
+        vision: false,
+        streaming: false,
+        promptCache: false,
+        systemPrompt: true,
+        jsonMode: false,
+        maxContext: 100_000,
+        cacheControl: 'none',
+      };
+      calls = 0;
+      async complete(req: Request): Promise<Response> {
+        this.calls++;
+        if (this.calls === 1) {
+          throw new ProviderError('context length exceeded', 413, false, 'recoverable');
+        }
+        return {
+          content: [{ type: 'text', text: `ok:${req.model}` }],
+          stopReason: 'end_turn',
+          usage: { input: 1, output: 1 },
+          model: req.model,
+        };
+      }
+      // biome-ignore lint/correctness/useYield: stub
+      async *stream(): AsyncIterable<StreamEvent> {
+        throw new Error('not used');
+      }
+    }
+
+    const provider = new FailsThenSucceedsProvider();
+    const { agent, tmp, ctx } = await buildAgent(provider as unknown as MockProvider);
+    cleanupDirs.push(tmp);
+    (ctx as unknown as { provider: Provider }).provider = provider;
+    (agent as unknown as { container: Container }).container.override(
+      TOKENS.ErrorHandler,
+      () => ({
+        recover: async () => ({ action: 'retry' as const, reason: 'test_retry', model: 'fallback-model' }),
+        classify: () => ({ kind: 'context_overflow' as const, retryable: false }),
+      }),
+    );
+
+    const result = await agent.run('ping');
+    expect(result.status).toBe('done');
+    expect(result.finalText).toBe('ok:fallback-model');
+    expect(provider.calls).toBe(2);
+  });
+
+  it('honors ErrorHandler continue decisions as provider responses', async () => {
+    class RecoverViaContinueProvider implements Provider {
+      readonly id = 'continue-provider';
+      readonly capabilities: Capabilities = {
+        tools: false,
+        parallelTools: false,
+        vision: false,
+        streaming: false,
+        promptCache: false,
+        systemPrompt: true,
+        jsonMode: false,
+        maxContext: 100_000,
+        cacheControl: 'none',
+      };
+      calls = 0;
+      async complete(): Promise<Response> {
+        this.calls++;
+        throw new ProviderError('server failed', 500, false, 'continue-provider');
+      }
+      // biome-ignore lint/correctness/useYield: stub
+      async *stream(): AsyncIterable<StreamEvent> {
+        throw new Error('not used');
+      }
+    }
+
+    const provider = new RecoverViaContinueProvider();
+    const { agent, tmp, ctx } = await buildAgent(provider as unknown as MockProvider);
+    cleanupDirs.push(tmp);
+    (ctx as unknown as { provider: Provider }).provider = provider;
+    (agent as unknown as { container: Container }).container.override(
+      TOKENS.ErrorHandler,
+      () => ({
+        recover: async () => ({
+          action: 'continue' as const,
+          response: {
+            content: [{ type: 'text' as const, text: 'synthetic recovery' }],
+            stopReason: 'end_turn' as const,
+            usage: { input: 0, output: 0 },
+            model: 'test-model',
+          },
+        }),
+        classify: () => ({ kind: 'server' as const, retryable: true }),
+      }),
+    );
+
+    const result = await agent.run('ping');
+    expect(result.status).toBe('done');
+    expect(result.finalText).toBe('synthetic recovery');
+    expect(provider.calls).toBe(1);
+  });
+
+  it('honors ErrorHandler fail decisions as terminal failures', async () => {
+    class RecoverViaFailProvider implements Provider {
+      readonly id = 'fail-provider';
+      readonly capabilities: Capabilities = {
+        tools: false,
+        parallelTools: false,
+        vision: false,
+        streaming: false,
+        promptCache: false,
+        systemPrompt: true,
+        jsonMode: false,
+        maxContext: 100_000,
+        cacheControl: 'none',
+      };
+      async complete(): Promise<Response> {
+        throw new ProviderError('server failed', 500, false, 'fail-provider');
+      }
+      // biome-ignore lint/correctness/useYield: stub
+      async *stream(): AsyncIterable<StreamEvent> {
+        throw new Error('not used');
+      }
+    }
+
+    const provider = new RecoverViaFailProvider();
+    const { agent, tmp, ctx } = await buildAgent(provider as unknown as MockProvider);
+    cleanupDirs.push(tmp);
+    (ctx as unknown as { provider: Provider }).provider = provider;
+    const terminal = new Error('terminal recovery decision');
+    (agent as unknown as { container: Container }).container.override(
+      TOKENS.ErrorHandler,
+      () => ({
+        recover: async () => ({ action: 'fail' as const, reason: 'terminal', error: terminal }),
+        classify: () => ({ kind: 'server' as const, retryable: false }),
+      }),
+    );
+
+    const result = await agent.run('ping');
+    expect(result.status).toBe('failed');
+    expect(result.error?.message).toBe('terminal recovery decision');
+  });
 });

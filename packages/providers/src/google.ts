@@ -12,6 +12,7 @@ import { parseProviderHttpError } from './error-parse.js';
 import { normalizeGemini } from './stop-reason.js';
 import { parseSSE } from './sse.js';
 import { WireAdapter } from './wire-adapter.js';
+import { capabilitiesForFamily } from './family-capabilities.js';
 
 /**
  * Google Gemini wire format (generativelanguage.googleapis.com).
@@ -71,18 +72,9 @@ export class GoogleProvider extends WireAdapter {
     super(opts.apiKey, opts.baseUrl ?? DEFAULT_BASE, opts.fetchImpl);
     this.opts = opts;
     this.id = opts.id ?? 'google';
-    this.capabilities = {
-      tools: true,
-      parallelTools: true,
-      vision: true,
-      streaming: true,
-      promptCache: false,
-      systemPrompt: true,
-      jsonMode: true,
-      maxContext: 1_000_000,
-      cacheControl: 'none',
+    this.capabilities = capabilitiesForFamily('google', {
       ...opts.capabilities,
-    };
+    });
   }
 
   protected override buildUrl(req: Request): string {

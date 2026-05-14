@@ -6,7 +6,7 @@ import type {
   StreamEvent,
   WireFamily,
 } from '@wrongstack/core';
-import { ProviderError } from '@wrongstack/core';
+import type { ProviderError } from '@wrongstack/core';
 import { parseProviderHttpError } from './error-parse.js';
 import { parseSSE, type SSEMessage } from './sse.js';
 import { WireAdapter } from './wire-adapter.js';

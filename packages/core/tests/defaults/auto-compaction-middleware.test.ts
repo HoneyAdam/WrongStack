@@ -119,7 +119,7 @@ describe('AutoCompactionMiddleware', () => {
     expect(compactor.compactCalls[0].aggressive).toBe(false); // not aggressive until hard
   });
 
-  it('swallows compaction errors and still calls next', async () => {
+  it('throws compaction errors at hard threshold by default', async () => {
     const badCompactor: Compactor = {
       async compact() { throw new Error('compaction failed'); },
     };
@@ -131,9 +131,11 @@ describe('AutoCompactionMiddleware', () => {
 
     const ctx = mockContext(0);
     let ran = false;
-    await mw.handler()(ctx, async (c) => { ran = true; return c; });
+    await expect(mw.handler()(ctx, async (c) => { ran = true; return c; })).rejects.toThrow(
+      /Auto-compaction failed/,
+    );
 
-    expect(ran).toBe(true); // next was still called
+    expect(ran).toBe(false);
   });
 
   it('uses custom estimator', async () => {
@@ -158,7 +160,12 @@ describe('AutoCompactionMiddleware', () => {
       },
     };
     const events = new EventBus();
-    const failures: { err: Error; aggressive: boolean }[] = [];
+    const failures: Array<{
+      err: Error;
+      aggressive: boolean;
+      level: 'warn' | 'soft' | 'hard';
+      fatal: boolean;
+    }> = [];
     events.on('compaction.failed', (p) => failures.push(p));
 
     const mw = new AutoCompactionMiddleware(
@@ -166,28 +173,36 @@ describe('AutoCompactionMiddleware', () => {
       10000,
       simpleEstimator(9500), // hard load → aggressive
       { warn: 0.5, soft: 0.75, hard: 0.9 },
-      'soft',
-      events,
+      { aggressiveOn: 'soft', events },
     );
 
     let ran = false;
-    await mw.handler()(mockContext(0), async (c) => { ran = true; return c; });
-    expect(ran).toBe(true); // failure swallowed — loop continues
+    await expect(mw.handler()(mockContext(0), async (c) => { ran = true; return c; })).rejects.toThrow(
+      /Auto-compaction failed/,
+    );
+    expect(ran).toBe(false);
     expect(failures).toHaveLength(1);
     expect(failures[0]!.err.message).toBe('summarizer model unavailable');
     expect(failures[0]!.aggressive).toBe(true);
+    expect(failures[0]!.level).toBe('hard');
+    expect(failures[0]!.fatal).toBe(true);
   });
 
-  it('still swallows compaction errors with no EventBus (backward compatible)', async () => {
+  it('can be configured to continue after compaction errors', async () => {
     const badCompactor: Compactor = {
       async compact() { throw new Error('boom'); },
     };
-    const mw = new AutoCompactionMiddleware(badCompactor, 10000, simpleEstimator(9500), {
-      warn: 0.5,
-      soft: 0.75,
-      hard: 0.9,
-    });
-    // No events arg — call site looks like all the old callers.
+    const mw = new AutoCompactionMiddleware(
+      badCompactor,
+      10000,
+      simpleEstimator(9500),
+      {
+        warn: 0.5,
+        soft: 0.75,
+        hard: 0.9,
+      },
+      { failureMode: 'continue' },
+    );
     let ran = false;
     await mw.handler()(mockContext(0), async (c) => { ran = true; return c; });
     expect(ran).toBe(true);

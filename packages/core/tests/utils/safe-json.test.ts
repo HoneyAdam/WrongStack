@@ -34,4 +34,8 @@ describe('safe-json', () => {
     expect(sanitizeJsonString('{"a":1,}')).toBe('{"a":1}');
     expect(sanitizeJsonString('[1,2,3,]')).toBe('[1,2,3]');
   });
+  it('sanitizeJsonString returns null for unrecoverable input', () => {
+    expect(sanitizeJsonString('{not json at all}')).toBe(null);
+    expect(sanitizeJsonString('{"a":1]')).toBe(null); // mismatched bracket
+  });
 });

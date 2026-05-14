@@ -32,11 +32,11 @@ function fakeContext(messages: Message[], signal = new AbortController().signal)
   } as unknown as Context;
   (ctx as unknown as { state: unknown }).state = {
     replaceMessages(next: Message[]) {
-      ctx.messages.length = 0;
-      ctx.messages.push(...next);
+      messages.length = 0;
+      messages.splice(0, 0, ...next);
     },
     appendMessage(m: Message) {
-      ctx.messages.push(m);
+      messages.splice(messages.length, 0, m);
     },
   };
   return ctx;
@@ -245,7 +245,7 @@ describe('SelectiveCompactor', () => {
       const messages = Array(50).fill(null).map((_, i) =>
         makeMessage(i % 2 === 0 ? 'user' : 'assistant', [makeTextBlock('x'.repeat(50))])
       );
-      ctx.messages = messages;
+      ctx.state.replaceMessages(messages);
       // Test hard load path
       const result = (compactor as any).computeTargetBudget(0.95, false);
       expect(result).toBe(500); // 50% of 1000

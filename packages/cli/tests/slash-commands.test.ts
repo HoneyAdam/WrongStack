@@ -136,13 +136,29 @@ describe('built-in slash commands', () => {
     const registry = new SlashCommandRegistry();
     const renderer = new FakeRenderer();
     renderer.output = 'something';
+    const messages = [{ role: 'user' as const, content: 'old message' }];
+    const todos = [{ id: '1', content: 'old todo', status: 'pending' as const }];
+    const meta: Record<string, unknown> = { old: 'meta' };
     const ctx = {
-      messages: [{ role: 'user', content: 'old message' }],
-      todos: [{ id: '1', content: 'old todo', status: 'pending' }],
+      messages,
+      todos,
       readFiles: new Set(['old.txt']),
       fileMtimes: new Map([['old.txt', 123]]),
-      meta: { old: 'meta' },
+      meta,
     } as unknown as Context;
+    (ctx as unknown as { state: Pick<Context['state'], 'replaceMessages' | 'replaceTodos' | 'deleteMeta'> }).state = {
+      replaceMessages(next) {
+        messages.length = 0;
+        messages.splice(0, 0, ...next);
+      },
+      replaceTodos(next) {
+        todos.length = 0;
+        todos.splice(0, 0, ...next);
+      },
+      deleteMeta(key) {
+        delete meta[key];
+      },
+    };
     const cmds = buildBuiltinSlashCommands({
       registry,
       toolRegistry: new ToolRegistry(),

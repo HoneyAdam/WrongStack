@@ -214,7 +214,7 @@ async function assertNotPrivate(hostname: string): Promise<void> {
 function isPrivateIPv4(addr: string): boolean {
   // net.isIP rejects octal/hex/decimal forms, so when isIP(addr) === 4 we
   // know it's canonical dotted-quad and safe to parse this way.
-  const parts = addr.split('.').map((p) => parseInt(p, 10));
+  const parts = addr.split('.').map((p) => Number.parseInt(p, 10));
   if (parts.length !== 4 || parts.some((n) => Number.isNaN(n) || n < 0 || n > 255)) {
     return true; // defensive
   }
@@ -273,7 +273,7 @@ function expandIPv6(addr: string): number[] | null {
     const out: number[] = [];
     for (const g of s.split(':')) {
       if (g.length === 0 || g.length > 4) return null;
-      const n = parseInt(g, 16);
+      const n = Number.parseInt(g, 16);
       if (Number.isNaN(n) || n < 0 || n > 0xffff) return null;
       out.push(n);
     }

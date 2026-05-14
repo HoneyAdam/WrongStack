@@ -2,13 +2,32 @@
  * Minimal glob matcher for trust patterns.
  * Supports: *, **, ?, character classes [abc], [a-z], negation [!...] or [^...].
  *
- * Both `[!...]` (shell glob convention) and `[^...]` (regex convention) are
- * accepted because users coming from either world will reach for what they
- * know; rejecting one silently fails open in a security-sensitive context.
+ * Compiled regexes are cached so repeated calls with the same pattern
+ * avoid recompilation overhead.
  */
 
 function escapeRegex(s: string): string {
-  return s.replace(/[.+^${}()|\\/]/g, '\\$&');
+  return s.replace(/[.+^${}()|\\]/g, '\\$&');
+}
+
+// Module-level cache to avoid recompiling the same pattern on every call.
+// LRU-ish eviction keeps unbounded growth in check for long-running processes.
+const COMPILED_GLOB_CACHE = new Map<string, RegExp>();
+const CACHE_MAX_SIZE = 2000;
+
+function getCachedGlob(pattern: string): RegExp {
+  const cached = COMPILED_GLOB_CACHE.get(pattern);
+  if (cached) return cached;
+  if (COMPILED_GLOB_CACHE.size >= CACHE_MAX_SIZE) {
+    // Evict oldest 25% when at capacity
+    const keys = [...COMPILED_GLOB_CACHE.keys()];
+    for (let i = 0; i < Math.floor(CACHE_MAX_SIZE / 4); i++) {
+      COMPILED_GLOB_CACHE.delete(keys[i]!);
+    }
+  }
+  const re = compileGlob(pattern);
+  COMPILED_GLOB_CACHE.set(pattern, re);
+  return re;
 }
 
 export function compileGlob(pattern: string): RegExp {
@@ -66,7 +85,7 @@ export function compileGlob(pattern: string): RegExp {
 }
 
 export function matchGlob(pattern: string, input: string): boolean {
-  return compileGlob(pattern).test(input);
+  return getCachedGlob(pattern).test(input);
 }
 
 export function matchAny(patterns: string[], input: string): boolean {

@@ -16,6 +16,7 @@ import {
 import { normalizeOpenAI } from './stop-reason.js';
 import { parseSSE } from './sse.js';
 import { WireAdapter } from './wire-adapter.js';
+import { capabilitiesForFamily } from './family-capabilities.js';
 
 export interface OpenAIProviderOptions {
   apiKey: string;
@@ -42,18 +43,11 @@ export class OpenAIProvider extends WireAdapter {
     super(opts.apiKey, opts.baseUrl ?? DEFAULT_BASE, opts.fetchImpl);
     this.opts = opts;
     this.id = opts.id ?? 'openai';
-    this.capabilities = {
-      tools: true,
+    this.capabilities = capabilitiesForFamily('openai', {
       parallelTools: !opts.quirks?.parallelToolsDisabled,
-      vision: true,
-      streaming: true,
-      promptCache: false,
       systemPrompt: !opts.quirks?.systemAsMessage,
-      jsonMode: true,
-      maxContext: 128_000,
-      cacheControl: 'auto',
       ...opts.capabilities,
-    };
+    });
   }
 
   protected override buildUrl(_req: Request): string {

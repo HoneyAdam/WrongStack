@@ -1,6 +1,5 @@
 import { ProviderError } from '../types/provider.js';
-import type { ErrorHandler } from '../types/error-handler.js';
-import type { Response } from '../types/provider.js';
+import type { ErrorHandler, RecoveryDecision } from '../types/error-handler.js';
 import type { Context } from '../core/context.js';
 
 import type { Compactor } from '../types/compactor.js';
@@ -8,16 +7,20 @@ import type { ModelsRegistry } from '../types/models-registry.js';
 
 /**
  * Tiered error recovery strategies.
- * Each strategy is attempted in order until one succeeds.
+ * Each strategy is attempted in order until one returns a decision.
  */
 export interface RecoveryStrategy {
   /** Human-readable label for logs. */
   label: string;
   /** Optional compactor for context_overflow recovery. */
   compactor?: Compactor;
-  /** Returns a substitute Response, or null to fall through to the next strategy. */
-  attempt: (err: unknown, ctx: Context) => Promise<Response | null>;
+  /** Returns an explicit recovery decision, or null to fall through. */
+  attempt: (err: unknown, ctx: Context) => Promise<RecoveryDecision | null>;
 }
+
+// Package-level compiled regex for hot paths — avoids repeated compilation.
+const CONTEXT_OVERFLOW_RE = /context|too long|tokens/i;
+const NETWORK_ERR_RE = /ECONN|ETIMEDOUT|ETIME|ENOTFOUND|EAI_AGAIN|fetch failed/i;
 
 /**
  * Builds the ordered list of recovery strategies used by DefaultErrorHandler.
@@ -32,100 +35,79 @@ export function buildRecoveryStrategies(opts?: {
       label: 'context_overflow_reduce',
       compactor: opts?.compactor,
       async attempt(err, ctx) {
-        if (err instanceof ProviderError && (err.status === 413 || /context|too long|tokens/i.test(err.message))) {
-          if (this.compactor) {
-            try {
-              const report = await this.compactor.compact(ctx, { aggressive: true });
-              if (report.after < report.before) {
-                return {
-                  content: [{ type: 'text', text: '[context compacted automatically — please retry]' }],
-                  stopReason: 'end_turn',
-                  usage: { input: 0, output: 0 },
-                  model: ctx.model,
-                };
-              }
-            } catch {
-              // compact failed — fall through
+        if (!(err instanceof ProviderError)) return null;
+        if (err.status !== 413 && !CONTEXT_OVERFLOW_RE.test(err.message)) return null;
+
+        if (this.compactor) {
+          try {
+            const report = await this.compactor.compact(ctx, { aggressive: true });
+            if (report.after < report.before) {
+              return { action: 'retry', reason: 'context_compacted' };
             }
+          } catch {
+            // compact failed; fall through
           }
-          return null;
         }
         return null;
       },
     },
     {
       label: 'rate_limit_backoff',
-      async attempt(err, ctx) {
-        if (err instanceof ProviderError && err.status === 429) {
-          // Prefer the parsed Retry-After hint the provider extracted into
-          // body.retryAfterMs; fall back to 5s when absent.
-          const delayMs = err.body?.retryAfterMs ?? 5_000;
-          // Clamp between 1s and 60s.
-          const delay = Math.max(1_000, Math.min(delayMs, 60_000));
-          await new Promise((r) => setTimeout(r, delay));
-          return {
-            content: [{ type: 'text', text: '[rate limit backoff applied — please retry]' }],
-            stopReason: 'end_turn',
-            usage: { input: 0, output: 0 },
-            model: ctx.model,
-          };
-        }
-        return null;
+      async attempt(err) {
+        if (!(err instanceof ProviderError) || err.status !== 429) return null;
+
+        // Prefer the parsed Retry-After hint the provider extracted into
+        // body.retryAfterMs; fall back to 5s when absent.
+        const delayMs = err.body?.retryAfterMs ?? 5_000;
+        // Clamp between 1s and 60s.
+        const delay = Math.max(1_000, Math.min(delayMs, 60_000));
+        await new Promise((r) => setTimeout(r, delay));
+        return { action: 'retry', reason: 'rate_limit_backoff' };
       },
     },
     {
       label: 'downgrade_model',
       async attempt(err, ctx) {
-        if (err instanceof ProviderError && (err.status === 429 || err.status === 529 || err.status >= 500)) {
-          const registry = opts?.modelsRegistry;
-          if (!registry) return null;
+        if (!(err instanceof ProviderError)) return null;
+        if (err.status !== 429 && err.status !== 529 && err.status < 500) return null;
 
-          try {
-            const providerId = ctx.provider?.id;
-            if (!providerId) return null;
-            const provider = await registry.getProvider(providerId);
-            if (!provider) return null;
+        const registry = opts?.modelsRegistry;
+        if (!registry) return null;
 
-            const currentModel = await registry.getModel(providerId, ctx.model);
-            if (!currentModel) return null;
+        try {
+          const providerId = ctx.provider?.id;
+          if (!providerId) return null;
+          const provider = await registry.getProvider(providerId);
+          if (!provider) return null;
 
-            // Find a cheaper fallback model with the same capabilities.
-            // Prefer models with lower input cost, preferring the same family.
-            const candidates = provider.models.filter((m) => {
-              const modelCost = m.cost?.input ?? Number.POSITIVE_INFINITY;
-              const currentCost = currentModel.cost?.input ?? Number.POSITIVE_INFINITY;
-              // Must be cheaper.
-              if (modelCost >= currentCost) return false;
-              // Must support tools if the original did.
-              if (currentModel.capabilities.tools && !m.tool_call) return false;
-              // Must support vision if the original did.
-              if (currentModel.capabilities.vision && !m.modalities?.input?.includes('image')) return false;
-              return true;
-            });
+          const currentModel = await registry.getModel(providerId, ctx.model);
+          if (!currentModel) return null;
 
-            if (candidates.length === 0) return null;
+          // Find a cheaper fallback model with the same capabilities.
+          // Prefer models with lower input cost, preferring the same family.
+          const candidates = provider.models.filter((m) => {
+            const modelCost = m.cost?.input ?? Number.POSITIVE_INFINITY;
+            const currentCost = currentModel.cost?.input ?? Number.POSITIVE_INFINITY;
+            if (modelCost >= currentCost) return false;
+            if (currentModel.capabilities.tools && !m.tool_call) return false;
+            if (currentModel.capabilities.vision && !m.modalities?.input?.includes('image')) return false;
+            return true;
+          });
 
-            // Pick the cheapest one.
-            const fallback = candidates.reduce((prev, curr) =>
-              (curr.cost?.input ?? 0) < (prev.cost?.input ?? 0) ? curr : prev,
-            );
+          if (candidates.length === 0) return null;
 
-            return {
-              content: [
-                {
-                  type: 'text',
-                  text: `[model downgrade: ${ctx.model} → ${fallback.id} — please retry]`,
-                },
-              ],
-              stopReason: 'end_turn',
-              usage: { input: 0, output: 0 },
-              model: fallback.id,
-            };
-          } catch {
-            return null;
-          }
+          const fallback = candidates.reduce((prev, curr) =>
+            (curr.cost?.input ?? 0) < (prev.cost?.input ?? 0) ? curr : prev,
+          );
+
+          return {
+            action: 'retry',
+            reason: 'model_downgrade',
+            model: fallback.id,
+          };
+        } catch {
+          return null;
         }
-        return null;
       },
     },
   ];
@@ -162,18 +144,18 @@ export class DefaultErrorHandler implements ErrorHandler {
       if (err.status === 429) return { kind: 'rate_limit', retryable: true };
       if (err.status === 529) return { kind: 'overloaded', retryable: true };
       if (err.status >= 500) return { kind: 'server', retryable: true };
-      if (err.status === 413 || /context|too long|tokens/i.test(err.message)) {
+      if (err.status === 413 || CONTEXT_OVERFLOW_RE.test(err.message)) {
         return { kind: 'context_overflow', retryable: false };
       }
       if (err.status >= 400) return { kind: 'client', retryable: false };
     }
-    if (err instanceof Error && /ECONN|ETIMEDOUT|ETIME|ENOTFOUND|EAI_AGAIN|fetch failed/i.test(err.message)) {
+    if (err instanceof Error && NETWORK_ERR_RE.test(err.message)) {
       return { kind: 'network', retryable: true };
     }
     return { kind: 'unknown', retryable: false };
   }
 
-  async recover(err: unknown, ctx: Context): Promise<Response | null> {
+  async recover(err: unknown, ctx: Context): Promise<RecoveryDecision | null> {
     for (const strategy of this.strategies) {
       const result = await strategy.attempt(err, ctx);
       if (result !== null) return result;

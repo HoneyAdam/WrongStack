@@ -29,11 +29,11 @@ function fakeContext(messages: Message[]): Context {
   const ctx = { messages } as unknown as Context;
   (ctx as unknown as { state: unknown }).state = {
     replaceMessages(next: Message[]) {
-      ctx.messages.length = 0;
-      ctx.messages.push(...next);
+      messages.length = 0;
+      messages.splice(0, 0, ...next);
     },
     appendMessage(m: Message) {
-      ctx.messages.push(m);
+      messages.splice(messages.length, 0, m);
     },
   };
   return ctx;

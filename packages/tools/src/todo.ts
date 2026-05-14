@@ -52,7 +52,7 @@ export const todoTool: Tool<TodoInput, TodoOutput> = {
         }
       }
     }
-    ctx.todos = items;
+    ctx.state.replaceTodos(items);
     return {
       count: items.length,
       in_progress: items.filter((t) => t.status === 'in_progress').length,

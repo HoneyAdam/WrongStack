@@ -593,10 +593,12 @@ export function App({
   // baseline when the CLI couldn't resolve it (e.g. unknown model id).
   const maxContext = effectiveMaxContext ?? agent.ctx.provider.capabilities.maxContext;
   const contextWindow = useMemo(
-    () =>
-      lastInputTokens > 0 && maxContext > 0
+    () => {
+      void state.contextChipVersion;
+      return lastInputTokens > 0 && maxContext > 0
         ? { used: lastInputTokens, max: maxContext }
-        : undefined,
+        : undefined;
+    },
     [lastInputTokens, maxContext, state.contextChipVersion],
   );
 

@@ -243,6 +243,8 @@ export class SelectiveCompactor implements Compactor {
       }
     }
     let saved = 0;
+    let changed = false;
+    const nextMessages = [...messages];
     for (let i = 0; i < preserveStart; i++) {
       const msg = messages[i];
       if (!msg || !Array.isArray(msg.content)) continue;
@@ -259,8 +261,12 @@ export class SelectiveCompactor implements Compactor {
           is_error: b.is_error,
         };
       });
-      messages[i] = { ...msg, content: newContent };
+      if (newContent.some((b, idx) => b !== msg.content[idx])) {
+        nextMessages[i] = { ...msg, content: newContent };
+        changed = true;
+      }
     }
+    if (changed) ctx.state.replaceMessages(nextMessages);
     return saved;
   }
 

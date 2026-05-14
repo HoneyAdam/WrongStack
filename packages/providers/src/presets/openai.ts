@@ -9,6 +9,7 @@ import { parseToolInput } from '../_tool-input.js';
 import { messagesToOpenAI, toolsToOpenAI } from '../tool-format/to-openai.js';
 import { normalizeOpenAI } from '../stop-reason.js';
 import { defineWireFormat } from '../wire-format.js';
+import { capabilitiesForFamily } from '../family-capabilities.js';
 
 interface OpenAIStreamState {
   model: string;
@@ -23,17 +24,7 @@ interface OpenAIStreamState {
 export const openaiWireFormat = defineWireFormat<OpenAIStreamState>({
   id: 'openai',
   family: 'openai',
-  capabilities: {
-    tools: true,
-    parallelTools: true,
-    vision: true,
-    streaming: true,
-    promptCache: false,
-    systemPrompt: true,
-    jsonMode: true,
-    maxContext: 128_000,
-    cacheControl: 'auto',
-  },
+  capabilities: capabilitiesForFamily('openai'),
   defaultBaseUrl: 'https://api.openai.com/v1',
   buildUrl: (base) => {
     const b = base.replace(/\/+$/, '');

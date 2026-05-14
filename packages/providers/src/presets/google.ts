@@ -8,6 +8,7 @@ import type { Message, Request, StreamEvent, StopReason, Tool, Usage } from '@wr
 import { safeParse } from '@wrongstack/core';
 import { normalizeGemini } from '../stop-reason.js';
 import { defineWireFormat } from '../wire-format.js';
+import { capabilitiesForFamily } from '../family-capabilities.js';
 
 interface GeminiPart {
   text?: string;
@@ -39,17 +40,7 @@ interface GoogleStreamState {
 export const googleWireFormat = defineWireFormat<GoogleStreamState>({
   id: 'google',
   family: 'google',
-  capabilities: {
-    tools: true,
-    parallelTools: true,
-    vision: true,
-    streaming: true,
-    promptCache: false,
-    systemPrompt: true,
-    jsonMode: true,
-    maxContext: 1_000_000,
-    cacheControl: 'none',
-  },
+  capabilities: capabilitiesForFamily('google'),
   defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta',
   buildUrl: (base, req) =>
     `${base}/models/${encodeURIComponent(req.model)}:streamGenerateContent?alt=sse`,

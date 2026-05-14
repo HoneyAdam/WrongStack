@@ -13,6 +13,7 @@ import { parseToolInput } from '../_tool-input.js';
 import { toolsToAnthropic } from '../tool-format/to-anthropic.js';
 import { normalizeAnthropic } from '../stop-reason.js';
 import { defineWireFormat } from '../wire-format.js';
+import { capabilitiesForFamily } from '../family-capabilities.js';
 
 type BlockKind = 'text' | 'tool_use' | 'unknown';
 
@@ -29,17 +30,7 @@ const DEFAULT_VERSION = '2023-06-01';
 export const anthropicWireFormat = defineWireFormat<AnthropicStreamState>({
   id: 'anthropic',
   family: 'anthropic',
-  capabilities: {
-    tools: true,
-    parallelTools: true,
-    vision: true,
-    streaming: true,
-    promptCache: true,
-    systemPrompt: true,
-    jsonMode: false,
-    maxContext: 200_000,
-    cacheControl: 'native',
-  },
+  capabilities: capabilitiesForFamily('anthropic'),
   defaultBaseUrl: 'https://api.anthropic.com',
   buildUrl: (base) => {
     const b = base.replace(/\/+$/, '');

@@ -55,9 +55,19 @@ export class HybridCompactor implements Compactor {
       }
     }
     let saved = 0;
-    for (let i = 0; i < preserveStart; i++) {
+    let changed = false;
+    const nextMessages = new Array(messages.length);
+    for (let i = 0; i < messages.length; i++) {
       const msg = messages[i];
-      if (!msg || !Array.isArray(msg.content)) continue;
+      // Only process messages before the preservation window
+      if (i >= preserveStart) {
+        nextMessages[i] = msg;
+        continue;
+      }
+      if (!msg || !Array.isArray(msg.content)) {
+        nextMessages[i] = msg;
+        continue;
+      }
       const newContent: ContentBlock[] = msg.content.map((b) => {
         if (b.type !== 'tool_result') return b;
         const tokens = estimateToolResultTokens(b.content);
@@ -71,8 +81,15 @@ export class HybridCompactor implements Compactor {
         };
         return elided;
       });
-      messages[i] = { ...msg, content: newContent };
+      // Check whether any block actually changed by reference equality
+      if (newContent.length === msg.content.length && newContent.every((b, idx) => b === msg.content[idx])) {
+        nextMessages[i] = msg;
+      } else {
+        nextMessages[i] = { ...msg, content: newContent };
+        changed = true;
+      }
     }
+    if (changed) ctx.state.replaceMessages(nextMessages);
     return saved;
   }
 

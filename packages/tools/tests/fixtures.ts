@@ -11,6 +11,8 @@ export interface Sandbox {
 
 export async function mkSandbox(): Promise<Sandbox> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-tools-'));
+  const messages: Context['messages'] = [];
+  const todos: Context['todos'] = [];
   const ctx = {
     cwd: dir,
     projectRoot: dir,
@@ -26,14 +28,24 @@ export async function mkSandbox(): Promise<Sandbox> {
       this.readFiles.add(p);
       this.fileMtimes.set(p, m);
     },
-    todos: [],
+    todos,
     session: {
       id: 'test',
       append: async () => undefined,
       close: async () => undefined,
     },
-    messages: [],
+    messages,
   } as unknown as Context;
+  (ctx as unknown as { state: Pick<Context['state'], 'replaceMessages' | 'replaceTodos'> }).state = {
+    replaceMessages(next) {
+      messages.length = 0;
+      messages.splice(0, 0, ...next);
+    },
+    replaceTodos(next) {
+      todos.length = 0;
+      todos.splice(0, 0, ...next);
+    },
+  };
   return {
     dir,
     ctx,

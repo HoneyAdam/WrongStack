@@ -1,1 +1,1 @@
-require(\"vitest\")  
+require('vitest');

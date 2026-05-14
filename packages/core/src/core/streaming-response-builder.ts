@@ -79,6 +79,7 @@ export function handleContentBlockStop(state: StreamingState, ev: { index?: numb
 
 export function handleTextDelta(state: StreamingState, text: string): void {
   if (state.currentTextIndex === -1) {
+    // No open text block — create one and track it.
     state.currentTextIndex = state.textBuffers.length;
     state.textBuffers.push('');
     state.blockOrder.push({ kind: 'text', idx: state.currentTextIndex });

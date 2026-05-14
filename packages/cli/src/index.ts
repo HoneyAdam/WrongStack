@@ -88,6 +88,7 @@ const BOOLEAN_FLAGS = new Set([
   'output-json',
   'prompt',
   'metrics',
+  'webui',
 ]);
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -733,7 +734,7 @@ export async function main(argv: string[]): Promise<number> {
   // Hydrate the transcript when resuming so the model sees the prior
   // conversation. Order is preserved from the JSONL log.
   if (restoredMessages.length > 0) {
-    context.messages.push(...restoredMessages);
+    context.state.replaceMessages(restoredMessages);
   }
 
   const pipelines = createDefaultPipelines();
@@ -817,8 +818,11 @@ export async function main(argv: string[]): Promise<number> {
         soft: config.context.softThreshold,
         hard: config.context.hardThreshold,
       },
-      'soft',
-      events,
+      {
+        aggressiveOn: 'soft',
+        failureMode: 'throw_on_hard',
+        events,
+      },
     );
     pipelines.contextWindow.use({
       name: 'AutoCompaction',
@@ -1206,6 +1210,31 @@ export async function main(argv: string[]): Promise<number> {
       } finally {
         renderer.setSilent(false);
       }
+    } else if (flags.webui) {
+      // Start WebUI WebSocket server alongside REPL
+      const { runWebUI } = await import('./webui-server.js');
+      // Start the WebSocket server in the background
+      const webuiPromise = runWebUI({
+        agent,
+        events,
+        session,
+        port: Number.parseInt(String(flags.port ?? '3457'), 10),
+        modelsRegistry,
+        globalConfigPath: wpaths.globalConfig,
+      });
+      // Also run REPL so user can interact in terminal
+      code = await runRepl({
+        agent,
+        renderer,
+        reader,
+        slashRegistry,
+        tokenCounter,
+        attachments,
+        effectiveMaxContext,
+        projectName: path.basename(projectRoot) || undefined,
+      });
+      // Wait for webui to complete (only on exit)
+      await webuiPromise;
     } else {
       code = await runRepl({
         agent,
@@ -1215,6 +1244,7 @@ export async function main(argv: string[]): Promise<number> {
         tokenCounter,
         attachments,
         effectiveMaxContext,
+        projectName: path.basename(projectRoot) || undefined,
       });
     }
   } finally {

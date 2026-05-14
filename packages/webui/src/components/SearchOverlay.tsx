@@ -1,0 +1,132 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useUIStore, useChatStore } from '@/stores';
+import { Search, X, ArrowUp, ArrowDown } from 'lucide-react';
+import { cn } from '@/lib/utils';
+
+/**
+ * Ctrl+F overlay that searches the current chat transcript. Hits are
+ * counted as the user types; ↑/↓ step between hits and Enter scrolls the
+ * highlighted message into view. The actual highlight is handed off via a
+ * DOM data attribute so we don't need to invasively rewrap message
+ * rendering — see ChatView for where the active hit gets the highlight
+ * class applied.
+ */
+export function SearchOverlay() {
+  const open = useUIStore((s) => s.searchOpen);
+  const setOpen = useUIStore((s) => s.setSearchOpen);
+  const query = useUIStore((s) => s.searchQuery);
+  const setQuery = useUIStore((s) => s.setSearchQuery);
+  const messages = useChatStore((s) => s.messages);
+
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [activeHit, setActiveHit] = useState(0);
+
+  useEffect(() => {
+    if (open) requestAnimationFrame(() => inputRef.current?.focus());
+  }, [open]);
+
+  const hits = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [] as string[];
+    return messages
+      .filter((m) => {
+        if (m.role === 'tool') {
+          return (
+            (m.toolName ?? '').toLowerCase().includes(q) ||
+            (m.toolResult ?? '').toLowerCase().includes(q) ||
+            JSON.stringify(m.toolInput ?? '').toLowerCase().includes(q)
+          );
+        }
+        return m.content.toLowerCase().includes(q);
+      })
+      .map((m) => m.id);
+  }, [messages, query]);
+
+  useEffect(() => {
+    if (activeHit >= hits.length) setActiveHit(0);
+  }, [hits, activeHit]);
+
+  useEffect(() => {
+    const id = hits[activeHit];
+    if (!id) return;
+    const el = document.querySelector(`[data-message-id="${id}"]`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('ring-2', 'ring-primary');
+      const t = setTimeout(() => {
+        el.classList.remove('ring-2', 'ring-primary');
+      }, 1200);
+      return () => clearTimeout(t);
+    }
+  }, [hits, activeHit]);
+
+  if (!open) return null;
+
+  const step = (dir: 1 | -1) => {
+    if (hits.length === 0) return;
+    setActiveHit((i) => (i + dir + hits.length) % hits.length);
+  };
+
+  return (
+    <div className="absolute top-2 right-4 z-30 w-[28rem] max-w-[calc(100%-2rem)] rounded-lg border bg-popover shadow-xl">
+      <div className="flex items-center gap-2 px-3 py-2">
+        <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+        <input
+          ref={inputRef}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.preventDefault();
+              setOpen(false);
+            } else if (e.key === 'Enter') {
+              e.preventDefault();
+              step(e.shiftKey ? -1 : 1);
+            } else if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              step(1);
+            } else if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              step(-1);
+            }
+          }}
+          placeholder="Search in chat…"
+          className="flex-1 bg-transparent outline-none text-sm placeholder:text-muted-foreground"
+        />
+        <span className="text-xs text-muted-foreground tabular-nums shrink-0">
+          {hits.length === 0 ? (query ? '0' : '') : `${activeHit + 1} / ${hits.length}`}
+        </span>
+        <button
+          type="button"
+          onClick={() => step(-1)}
+          disabled={hits.length === 0}
+          className={cn(
+            'p-1 rounded hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed',
+          )}
+          title="Previous hit"
+        >
+          <ArrowUp className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => step(1)}
+          disabled={hits.length === 0}
+          className={cn(
+            'p-1 rounded hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed',
+          )}
+          title="Next hit"
+        >
+          <ArrowDown className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          className="p-1 rounded hover:bg-muted text-muted-foreground"
+          title="Close (Esc)"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+}

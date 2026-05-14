@@ -45,14 +45,17 @@
   },
   "dependencies": {
     "@wrongstack/core": "workspace:*",
-    "@wrongstack/providers": "workspace:*",
-    "@wrongstack/plug-lsp": "workspace:*",
-    "@wrongstack/tools": "workspace:*",
     "@wrongstack/mcp": "workspace:*",
-    "@wrongstack/tui": "workspace:*"
+    "@wrongstack/plug-lsp": "workspace:*",
+    "@wrongstack/providers": "workspace:*",
+    "@wrongstack/tools": "workspace:*",
+    "@wrongstack/tui": "workspace:*",
+    "@wrongstack/webui": "workspace:*",
+    "ws": "^8.20.1"
   },
   "devDependencies": {
     "@types/node": "^22.19.19",
+    "@types/ws": "^8.18.1",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3"
   }

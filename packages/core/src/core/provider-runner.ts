@@ -84,7 +84,10 @@ export async function runProviderWithRetry(opts: RunProviderOptions): Promise<Re
           if (settled) return;
           settled = true;
           clearTimeout(t);
-          signal.removeEventListener('abort', onAbort);
+          // Note: listener is auto-removed via { once: true }, no need to call
+          // removeEventListener. Calling it here after the signal has already
+          // aborted (and the listener already fired) would be a no-op, but
+          // keeping it removed avoids confusion about lifetime.
         };
         const onAbort = () => {
           cleanup();

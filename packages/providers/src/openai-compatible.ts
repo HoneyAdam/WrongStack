@@ -1,6 +1,7 @@
 import type { Request } from '@wrongstack/core';
 import { OpenAIProvider, type OpenAIProviderOptions } from './openai.js';
 import type { Capabilities } from '@wrongstack/core';
+import { capabilitiesForFamily } from './family-capabilities.js';
 
 export interface CompatibilityQuirks {
   stripCacheControl?: boolean;
@@ -38,7 +39,11 @@ export class OpenAICompatibleProvider extends OpenAIProvider {
       baseUrl: opts.baseUrl,
       fetchImpl: opts.fetchImpl,
       id: opts.id,
-      capabilities: opts.capabilities,
+      capabilities: capabilitiesForFamily('openai-compatible', {
+        parallelTools: !opts.quirks?.parallelToolsDisabled,
+        systemPrompt: !opts.quirks?.systemAsMessage,
+        ...opts.capabilities,
+      }),
       quirks: opts.quirks,
     });
     this.extraHeaders = opts.headers;

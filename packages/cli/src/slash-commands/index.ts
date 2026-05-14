@@ -375,11 +375,11 @@ function clearCommand(opts: SlashCommandContext): SlashCommand {
     async run(_args, ctx) {
       // Clear context: messages, todos, readFiles, fileMtimes
       if (ctx) {
-        ctx.messages = [];
-        ctx.todos = [];
+        ctx.state.replaceMessages([]);
+        ctx.state.replaceTodos([]);
         ctx.readFiles.clear();
         ctx.fileMtimes.clear();
-        ctx.meta = {};
+        for (const key of Object.keys(ctx.meta)) ctx.state.deleteMeta(key);
       }
       // Clear memory store (all scopes)
       await opts.memoryStore?.clear();

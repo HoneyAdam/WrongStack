@@ -84,7 +84,7 @@ describe('recovery strategies', () => {
     } as Context;
   }
 
-  it('context_overflow strategy compacts on 413 and returns a hint response', async () => {
+  it('context_overflow strategy compacts on 413 and asks the agent to retry', async () => {
     const compactor: Compactor = {
       compact: vi.fn(async () => ({
         before: 10_000,
@@ -94,9 +94,7 @@ describe('recovery strategies', () => {
     } as unknown as Compactor;
     const eh = new DefaultErrorHandler(buildRecoveryStrategies({ compactor }));
     const res = await eh.recover(provErr('payload too big', 413), makeCtx());
-    expect(res).not.toBeNull();
-    expect(res!.content[0]).toMatchObject({ type: 'text' });
-    expect((res!.content[0] as { text: string }).text).toMatch(/compacted/i);
+    expect(res).toEqual({ action: 'retry', reason: 'context_compacted' });
     expect(compactor.compact).toHaveBeenCalled();
   });
 
@@ -122,15 +120,14 @@ describe('recovery strategies', () => {
     expect(res).toBeNull();
   });
 
-  it('rate_limit_backoff waits then returns a retry hint', { timeout: 10_000 }, async () => {
+  it('rate_limit_backoff waits then asks the agent to retry', { timeout: 10_000 }, async () => {
     const eh = new DefaultErrorHandler(buildRecoveryStrategies());
     const err = new ProviderError('rate limited', 429, true, 'test', { body: { retryAfterMs: 1100 } });
     const start = Date.now();
     const res = await eh.recover(err, makeCtx());
     const elapsed = Date.now() - start;
-    expect(res).not.toBeNull();
+    expect(res).toEqual({ action: 'retry', reason: 'rate_limit_backoff' });
     expect(elapsed).toBeGreaterThanOrEqual(1000);
-    expect((res!.content[0] as { text: string }).text).toMatch(/rate limit/i);
   });
 
   it('rate_limit_backoff clamps suggested wait to 1s minimum', { timeout: 10_000 }, async () => {
@@ -161,8 +158,11 @@ describe('recovery strategies', () => {
     } as unknown as ModelsRegistry;
     const eh = new DefaultErrorHandler(buildRecoveryStrategies({ modelsRegistry }));
     const res = await eh.recover(provErr('server', 503), makeCtx());
-    expect(res).not.toBeNull();
-    expect(res!.model).toBe('gpt-3.5');
+    expect(res).toEqual({
+      action: 'retry',
+      reason: 'model_downgrade',
+      model: 'gpt-3.5',
+    });
   });
 
   it('downgrade_model returns null when no cheaper model exists', async () => {

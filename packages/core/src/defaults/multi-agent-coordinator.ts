@@ -307,17 +307,13 @@ export class DefaultMultiAgentCoordinator
     this.completedResults.push(result);
     this.totalIterations += result.iterations;
     if (this.inFlight === 0) {
-      // Suppress the warning on the no-runner pattern: runDispatched
-      // intentionally never bumps inFlight when no runner is wired, so
-      // hitting zero here on completion is expected for that callsite.
-      // Only treat it as a caller bug when a runner IS wired (true
-      // double-completion).
       if (this.runner) {
         this.emit('warning', {
           type: 'inFlight_underflow',
           taskId: result.taskId,
           subagentId: result.subagentId,
         });
+        return;
       }
     } else {
       this.inFlight--;

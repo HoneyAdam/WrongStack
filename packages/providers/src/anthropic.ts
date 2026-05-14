@@ -13,6 +13,7 @@ import { toolsToAnthropic } from './tool-format/to-anthropic.js';
 import { normalizeAnthropic } from './stop-reason.js';
 import { parseSSE } from './sse.js';
 import { WireAdapter } from './wire-adapter.js';
+import { capabilitiesForFamily } from './family-capabilities.js';
 
 export interface AnthropicProviderOptions {
   apiKey: string;
@@ -27,17 +28,7 @@ const DEFAULT_VERSION = '2023-06-01';
 
 export class AnthropicProvider extends WireAdapter {
   override readonly id = 'anthropic';
-  override readonly capabilities: Capabilities = {
-    tools: true,
-    parallelTools: true,
-    vision: true,
-    streaming: true,
-    promptCache: true,
-    systemPrompt: true,
-    jsonMode: false,
-    maxContext: 200_000,
-    cacheControl: 'native',
-  };
+  override readonly capabilities: Capabilities = capabilitiesForFamily('anthropic');
 
   private readonly opts: AnthropicProviderOptions;
 

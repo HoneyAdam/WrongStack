@@ -420,9 +420,7 @@ export class StreamableHTTPTransport {
               data = parsed;
               break;
             }
-          } catch {
-            continue;
-          }
+          } catch {}
         }
       }
 
@@ -485,9 +483,7 @@ export class StreamableHTTPTransport {
       try {
         const parsed = JSON.parse(line);
         if (isJsonRpcResult(parsed)) return parsed;
-      } catch {
-        continue;
-      }
+      } catch {}
     }
     throw new Error('Could not parse response as JSON-RPC');
   }

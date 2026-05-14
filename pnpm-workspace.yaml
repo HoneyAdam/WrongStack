@@ -1,5 +1,6 @@
 packages:
   - "packages/*"
+  - "packages/webui/**"
   - "apps/*"
 allowBuilds:
   '@biomejs/biome': true

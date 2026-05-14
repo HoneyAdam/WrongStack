@@ -11,6 +11,7 @@ import type { Request, StreamEvent, StopReason } from '@wrongstack/core';
 import { safeParse } from '@wrongstack/core';
 import { parseToolInput } from '../_tool-input.js';
 import { defineWireFormat } from '../wire-format.js';
+import { capabilitiesForFamily } from '../family-capabilities.js';
 
 interface MistralStreamState {
   model: string;
@@ -22,17 +23,10 @@ interface MistralStreamState {
 export const mistralWireFormat = defineWireFormat<MistralStreamState>({
   id: 'mistral',
   family: 'openai-compatible',
-  capabilities: {
-    tools: true,
-    parallelTools: true,
-    vision: false,
-    streaming: true,
-    promptCache: false,
-    systemPrompt: true,
+  capabilities: capabilitiesForFamily('openai-compatible', {
     jsonMode: true,
     maxContext: 128_000,
-    cacheControl: 'none',
-  },
+  }),
   defaultBaseUrl: 'https://api.mistral.ai/v1',
   buildUrl: (base) => `${base.replace(/\/+$/, '')}/chat/completions`,
   buildHeaders: (apiKey) => ({ authorization: `Bearer ${apiKey}` }),

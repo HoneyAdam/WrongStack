@@ -34,6 +34,7 @@ export { anthropicWireFormat } from './presets/anthropic.js';
 export { openaiWireFormat } from './presets/openai.js';
 export { googleWireFormat } from './presets/google.js';
 export { capabilitiesFor } from './capabilities.js';
+export { capabilitiesForFamily, CAPABILITIES_BY_FAMILY } from './family-capabilities.js';
 export { parseProviderHttpError } from './error-parse.js';
 export { normalizeAnthropic, normalizeOpenAI } from './stop-reason.js';
 export { toolsToAnthropic } from './tool-format/to-anthropic.js';

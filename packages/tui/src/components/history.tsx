@@ -53,7 +53,7 @@ export function History({ entries, streamingText, toolStream }: HistoryProps): R
   // — they're already in scrollback at the width they were drawn for.
   const termWidth = stdout?.columns ?? 80;
   const tail = streamingText ? tailForDisplay(streamingText, MAX_STREAM_DISPLAY_CHARS) : '';
-  const toolTail = toolStream && toolStream.text
+  const toolTail = toolStream?.text
     ? tailForDisplay(toolStream.text, MAX_STREAM_DISPLAY_CHARS)
     : '';
 

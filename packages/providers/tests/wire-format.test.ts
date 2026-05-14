@@ -153,7 +153,6 @@ describe('WireFormatProvider — declarative wire format', () => {
       fetchImpl: customFetch,
     });
 
-    // biome-ignore lint/correctness/noUnusedExpressions: drains the iterator
     for await (const _ of provider.stream(
       { model: 'mini-1', messages: [], maxTokens: 100 },
       { signal: new AbortController().signal },
