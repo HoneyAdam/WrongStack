@@ -133,6 +133,24 @@ describe('DefaultSystemPromptBuilder', () => {
     expect(a[2]?.text).toBe(c[2]?.text);
   });
 
+  it('keys the env cache by projectRoot — different roots produce different blocks', async () => {
+    const tmp2 = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-prompt2-'));
+    try {
+      // Marker only present in the second root so the language detector
+      // produces a distinguishable block.
+      await fs.writeFile(path.join(tmp2, 'go.mod'), 'module x');
+      const b = new DefaultSystemPromptBuilder({ todayIso: '2026-05-13' });
+      const r1 = await b.build({ cwd: tmp, projectRoot: tmp, tools: [] });
+      const r2 = await b.build({ cwd: tmp2, projectRoot: tmp2, tools: [] });
+      // Second root must not be served the first root's cached output.
+      expect(r2[2]?.text).not.toBe(r1[2]?.text);
+      expect(r2[2]?.text).toContain(tmp2);
+      expect(r2[2]?.text).toContain('Go');
+    } finally {
+      await fs.rm(tmp2, { recursive: true, force: true });
+    }
+  });
+
   it('reports git branch when .git directory exists', async () => {
     const { spawnSync } = await import('node:child_process');
     const init = spawnSync('git', ['init', '--quiet', '--initial-branch=main'], {

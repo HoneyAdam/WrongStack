@@ -16,21 +16,13 @@ You operate inside the user's terminal with direct read and write access to thei
 ## Core principles
 
 1. **Read before you write.** Always inspect the relevant files before proposing changes. Assumptions about code you haven't read are bugs in waiting.
-
 2. **Prefer surgical edits over rewrites.** When modifying existing files, use the edit tool with str_replace; only use write for new files or full replacements explicitly requested.
-
 3. **Show your work.** Before non-trivial changes, briefly state what you're about to do — one sentence, not a wall of text. After tool calls, summarize what happened, not what you did mechanically.
-
 4. **Be honest about limits.** If you don't know, say so. If something failed, say what failed and what you'll try next. Never fabricate file contents, API responses, or test results.
-
 5. **Be concise.** The user is a developer in a terminal. No marketing language, no "great question!", no bullet-point lists when prose works. If a one-liner answers, a one-liner is the answer.
-
 6. **Ask when blocked, proceed when not.** If the task is ambiguous in a way that meaningfully changes the approach, ask. If it's ambiguous in a way that doesn't, pick a reasonable default and proceed, stating the assumption.
-
 7. **Trust the tools.** If a permission prompt is shown, the user will answer. Do not preemptively explain that you "would like to" do something — call the tool, let the permission flow decide.
-
 8. **Format for scanability.** Use code blocks for code, backticks for file paths, bold for key terms. One-liners stay one line. Paragraphs max 3 sentences.
-
 9. **Recover explicitly.** When a tool fails, state: (1) what failed, (2) what you tried, (3) what you'll attempt next. Never silently skip.
 
 ## Decision heuristics
@@ -63,7 +55,14 @@ export interface DefaultSystemPromptBuilderOptions {
 }
 
 export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
-  private envCache?: string;
+  /**
+   * Cached environment block, keyed by projectRoot. A single builder
+   * instance is normally reused across turns of the same agent run, but
+   * tests and library consumers may reuse it across runs with different
+   * roots; keying the cache prevents leaking the first call's project
+   * state into a later call against an unrelated project.
+   */
+  private envCacheByRoot = new Map<string, string>();
   private skillCache?: string;
   constructor(private readonly opts: DefaultSystemPromptBuilderOptions = {}) {}
 
@@ -164,14 +163,20 @@ summarize it, and let the tool result hold only the summary.`);
   }
 
   private async buildEnvironment(ctx: BuildContext): Promise<string> {
-    if (this.envCache) return this.envCache;
+    const cached = this.envCacheByRoot.get(ctx.projectRoot);
+    if (cached) return cached;
     const today = this.opts.todayIso ?? new Date().toISOString().slice(0, 10);
     const platform = `${os.platform()} ${os.release()}`;
     const shell = process.env.SHELL ?? process.env.ComSpec ?? 'unknown';
     const node = process.version;
     const isGit = await this.dirExists(path.join(ctx.projectRoot, '.git'));
-    const git = isGit ? await this.gitStatus(ctx.projectRoot) : 'not a git repo';
-    const langs = await this.detectLanguages(ctx.projectRoot);
+    // Fan out the per-root probes so the prompt build doesn't serialize
+    // ~12 fs.access calls plus the git status spawn back-to-back. On a
+    // cold cache (CI / first turn) this trims hundreds of ms.
+    const [git, langs] = await Promise.all([
+      isGit ? this.gitStatus(ctx.projectRoot) : Promise.resolve('not a git repo'),
+      this.detectLanguages(ctx.projectRoot),
+    ]);
 
     const lines = [
       '## Environment',
@@ -200,7 +205,7 @@ summarize it, and let the tool result hold only the summary.`);
       lines.push('', '## Skills in scope for this session', this.skillCache);
     }
     const text = lines.join('\n');
-    this.envCache = text;
+    this.envCacheByRoot.set(ctx.projectRoot, text);
     return text;
   }
 
@@ -239,8 +244,22 @@ summarize it, and let the tool result hold only the summary.`);
 
   private async gitStatus(root: string): Promise<string> {
     return new Promise((resolve) => {
+      let settled = false;
+      const finish = (s: string): void => {
+        if (settled) return;
+        settled = true;
+        resolve(s);
+      };
+      let proc: ReturnType<typeof spawn> | undefined;
+      // 2 s ceiling: a hung git status (corrupt index, .git/index.lock
+      // held by another process, network FS hiccup) must not stall the
+      // whole prompt build for a turn.
+      const timer = setTimeout(() => {
+        proc?.kill('SIGKILL');
+        finish('git timeout');
+      }, 2000);
       try {
-        const proc = spawn('git', ['status', '--porcelain=v1', '--branch'], {
+        proc = spawn('git', ['status', '--porcelain=v1', '--branch'], {
           cwd: root,
           stdio: ['ignore', 'pipe', 'ignore'],
         });
@@ -248,19 +267,24 @@ summarize it, and let the tool result hold only the summary.`);
         proc.stdout?.on('data', (c) => {
           buf += c.toString();
         });
-        proc.on('error', () => resolve('git error'));
+        proc.on('error', () => {
+          clearTimeout(timer);
+          finish('git error');
+        });
         proc.on('close', () => {
+          clearTimeout(timer);
           const lines = buf.split('\n').filter(Boolean);
           const branchLine = lines[0] ?? '';
-          const branchMatch = /## ([^\s.]+)/.exec(branchLine);
+          const branchMatch = branchLine.match(/## ([^\s.]+)/);
           const branch = branchMatch?.[1] ?? 'detached';
           const dirty = lines.slice(1);
           const staged = dirty.filter((l) => /^[MARCD]/.test(l)).length;
           const modified = dirty.length - staged;
-          resolve(`branch=${branch}, ${modified} modified, ${staged} staged`);
+          finish(`branch=${branch}, ${modified} modified, ${staged} staged`);
         });
       } catch {
-        resolve('git unavailable');
+        clearTimeout(timer);
+        finish('git unavailable');
       }
     });
   }
@@ -279,15 +303,19 @@ summarize it, and let the tool result hold only the summary.`);
       ['composer.json', 'PHP'],
       ['mix.exs', 'Elixir'],
     ];
-    const langs = new Set<string>();
-    for (const [marker, lang] of checks) {
-      try {
-        await fs.access(path.join(root, marker));
-        langs.add(lang);
-      } catch {
-        // skip
-      }
-    }
+    // Fan out the marker probes. Sequential await on 11 fs.access calls
+    // adds latency on cold cache for no reason — each probe is independent.
+    const hits = await Promise.all(
+      checks.map(async ([marker, lang]) => {
+        try {
+          await fs.access(path.join(root, marker));
+          return lang;
+        } catch {
+          return null;
+        }
+      }),
+    );
+    const langs = new Set(hits.filter((l): l is string => l !== null));
     return langs.size === 0 ? 'unknown' : Array.from(langs).join(', ');
   }
 }
