@@ -190,6 +190,45 @@ need the prior behavior.
   `XDG_CONFIG_HOME` later without rewriting consumers. `TOKENS.ModeStore`
   registered so DI consumers can resolve it.
 
+### Bugs.md triage round — 6 closed, 4 false-positive, 3 by-design
+
+- **`memory-store.remember()` race fixed** — concurrent remember/forget/
+  consolidate/clear calls were lost because of unlocked read-modify-write.
+  Added per-scope async chain so writes serialize per scope while
+  different scopes still run in parallel.
+- **`estimateToolInputTokens` no longer mutates caller's input** — the
+  per-input cache used to attach `__tokenEstimate` to the input object,
+  which threw on `Object.freeze`'d inputs. Moved to a module-level
+  `WeakMap<object, number>`.
+- **`parseProviderHttpError` surfaces truncation** — raw HTTP error
+  bodies over 2 KB were silently truncated. `ProviderErrorBody` gains
+  `truncated: boolean` and `rawLength: number`.
+- **`OpenAICompatibleProvider` quirks redundancy** — explicit `...?.x`
+  reassignments after the spread copied the same values; collapsed to
+  the spread alone.
+- **Coordinator `inFlight_underflow` warning de-noised** — only fires
+  when a runner is wired (true double-completion), not on every legit
+  no-runner-pattern completion.
+- **`compaction.failed` event** — auto-compaction errors were swallowed
+  silently by design (don't crash the loop), but with zero observability
+  signal. Middleware now emits `compaction.failed` when wired with an
+  EventBus. Backward-compatible.
+
+### Added — new published package
+
+- **`@wrongstack/plug-lsp@0.1.5`** — Language Server Protocol plugin.
+  Auto-discovers `tsserver` / `pyright` / `gopls` / `rust-analyzer` in
+  the workspace, exposes `lsp_hover`, `lsp_definition`, `lsp_references`,
+  `lsp_diagnostics`, `lsp_format_document`, `lsp_rename_symbol` tools.
+  Includes `wrongstack-lsp-setup` binary for one-shot install. CLI now
+  depends on it as a workspace package.
+
+### Added — per-package READMEs
+
+Each published package now ships its own README so npmjs.com renders
+something useful: `core`, `cli`, `providers`, `tools`, `tui`, `mcp`,
+`plug-lsp`.
+
 ## [0.1.4] — 2026-05-14
 
 ### Fixed
