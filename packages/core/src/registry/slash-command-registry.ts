@@ -8,7 +8,7 @@ import type { SlashCommand } from '../types/slash-command.js';
  * Commands registered by plugins use a namespaced name: `pluginName:commandName`.
  * This prevents collisions with built-in commands and other plugins.
  */
-export { SlashCommand };
+export type { SlashCommand };
 
 export class SlashCommandRegistry {
   private readonly cmds = new Map<string, { cmd: SlashCommand; owner: string }>();

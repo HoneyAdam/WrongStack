@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises';
+import { writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   Agent,
@@ -9,22 +9,27 @@ import {
   Container,
   Context,
   DefaultAttachmentStore,
-  DefaultConfigLoader,
+  DefaultConfigStore,
   DefaultErrorHandler,
   DefaultLogger,
   DefaultMemoryStore,
   DefaultModelsRegistry,
-  DefaultPathResolver,
   DefaultPermissionPolicy,
   DefaultRetryPolicy,
   DefaultSecretScrubber,
-  DefaultSecretVault,
   DefaultSessionStore,
   DefaultSkillLoader,
   DefaultSystemPromptBuilder,
   DefaultTokenCounter,
   EventBus,
   HybridCompactor,
+  InMemoryMetricsSink,
+  DefaultHealthRegistry,
+  wireMetricsToEvents,
+  startMetricsServer,
+  type MetricsServerHandle,
+  type MetricsSink,
+  type HealthRegistry,
   type Plugin,
   ProviderRegistry,
   QueueStore,
@@ -33,13 +38,10 @@ import {
   type SystemPromptBuilder,
   TOKENS,
   ToolRegistry,
-  type WstackPaths,
   color,
   createContextManagerTool,
   createDefaultPipelines,
   loadPlugins,
-  migratePlaintextSecrets,
-  resolveWstackPaths,
 } from '@wrongstack/core';
 import { MCPRegistry } from '@wrongstack/mcp';
 import {
@@ -47,9 +49,10 @@ import {
   capabilitiesFor,
   makeProviderFromConfig,
 } from '@wrongstack/providers';
-import { builtinTools, forgetTool, rememberTool } from '@wrongstack/tools';
+import { forgetTool, rememberTool } from '@wrongstack/tools';
+import { builtinTools } from '@wrongstack/tools/builtin';
 import { ReadlineInputReader } from './input-reader.js';
-import { makePromptDelegate } from './permission-prompt.js';
+import { makePromptDelegate, makeConfirmAwaiter } from './permission-prompt.js';
 import { runPicker, saveToGlobalConfig } from './picker.js';
 import { runLaunchPrompts, runProjectCheck } from './pre-launch.js';
 import { TerminalRenderer } from './renderer.js';
@@ -57,6 +60,9 @@ import { runRepl } from './repl.js';
 import { SessionStats } from './session-stats.js';
 import { buildBuiltinSlashCommands } from './slash-commands/index.js';
 import { Spinner } from './spinner.js';
+import { fmtTok, patchConfig } from './utils.js';
+import { bootConfig } from './boot-config.js';
+import { MultiAgentHost } from './multi-agent.js';
 import { subcommands } from './subcommands/index.js';
 
 interface ParsedArgs {
@@ -80,6 +86,7 @@ const BOOLEAN_FLAGS = new Set([
   'alt-screen',
   'output-json',
   'prompt',
+  'metrics',
 ]);
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -119,31 +126,6 @@ function parseArgs(argv: string[]): ParsedArgs {
   return { flags, positional };
 }
 
-function flagsToConfigPatch(flags: Record<string, string | boolean>): Partial<Config> {
-  const patch: Partial<Config> = {};
-  if (typeof flags['provider'] === 'string') patch.provider = flags['provider'];
-  if (typeof flags['model'] === 'string') patch.model = flags['model'];
-  if (typeof flags['cwd'] === 'string') patch.cwd = flags['cwd'];
-  if (typeof flags['log-level'] === 'string') {
-    patch.log = { level: flags['log-level'] as Config['log']['level'] };
-  } else if (flags['verbose']) {
-    patch.log = { level: 'debug' };
-  } else if (flags['trace']) {
-    patch.log = { level: 'trace' };
-  }
-  if (flags['yolo']) patch.yolo = true;
-  if (flags['no-features']) {
-    patch.features = {
-      mcp: false,
-      plugins: false,
-      memory: false,
-      modelsRegistry: false,
-      skills: false,
-    };
-  }
-  return patch;
-}
-
 function resolveBundledSkillsDir(): string | undefined {
   try {
     const req = createRequire(import.meta.url);
@@ -157,29 +139,8 @@ function resolveBundledSkillsDir(): string | undefined {
 import { CLI_VERSION } from './version.js';
 export { CLI_VERSION };
 
-async function ensureProjectMeta(paths: WstackPaths, projectRoot: string): Promise<void> {
-  try {
-    await fs.mkdir(paths.projectDir, { recursive: true });
-    const meta = {
-      hash: paths.projectHash,
-      root: projectRoot,
-      lastSeen: new Date().toISOString(),
-    };
-    await fs.writeFile(paths.projectMeta, JSON.stringify(meta, null, 2));
-  } catch {
-    // best-effort
-  }
-}
-
 export async function main(argv: string[]): Promise<number> {
   const { flags, positional } = parseArgs(argv);
-
-  const cwd = typeof flags['cwd'] === 'string' ? path.resolve(flags['cwd']) : process.cwd();
-  const pathResolver = new DefaultPathResolver(cwd);
-  const projectRoot = pathResolver.projectRoot;
-  const userHome = os.homedir();
-  const wpaths = resolveWstackPaths({ projectRoot, userHome });
-  await ensureProjectMeta(wpaths, projectRoot);
 
   // `wstack resume <id>` is sugar for `wstack --resume <id>`. Lift it
   // before subcommand dispatch so resume falls through to the normal
@@ -189,32 +150,17 @@ export async function main(argv: string[]): Promise<number> {
     positional.splice(0, 2);
   }
 
-  // Vault must come first so the config loader can decrypt apiKey-like
-  // fields. It lazily creates ~/.wrongstack/.key on first encrypt/decrypt.
-  const vault = new DefaultSecretVault({ keyFile: wpaths.secretsKey });
-
-  // Auto-encrypt any plaintext secrets users still have in their config
-  // files (left over from before the vault existed, or hand-written).
-  // Silent no-op for already-encrypted configs.
-  for (const file of [wpaths.globalConfig, wpaths.projectLocalConfig]) {
-    try {
-      const { migrated } = await migratePlaintextSecrets(file, vault);
-      if (migrated > 0) {
-        process.stderr.write(`[wstack] Encrypted ${migrated} plaintext secret(s) in ${file}\n`);
-      }
-    } catch {
-      // best-effort — never block boot on migration issues
-    }
-  }
-
-  const configLoader = new DefaultConfigLoader({ paths: wpaths, vault });
-  let config: Config;
+  // Resolve paths, create vault, migrate plaintext secrets, load config.
+  let boot;
   try {
-    config = await configLoader.load({ cliFlags: flagsToConfigPatch(flags) });
+    boot = await bootConfig(flags);
   } catch (err) {
     process.stderr.write(`Config error: ${err instanceof Error ? err.message : String(err)}\n`);
     return 2;
   }
+  const { paths, config: _config, vault } = boot;
+  let config = _config;
+  const { cwd, projectRoot, userHome, wpaths, pathResolver } = paths;
 
   // Logger — operational log lives in user home
   const logger = new DefaultLogger({
@@ -313,7 +259,7 @@ export async function main(argv: string[]): Promise<number> {
         // with the picked pair patched in (and re-freeze) instead of
         // mutating in place — Object.freeze blocks runtime writes even
         // when a TS cast hides it from the compiler.
-        config = Object.freeze({ ...config, provider: picked.provider, model: picked.model });
+        config = patchConfig(config, { provider: picked.provider, model: picked.model });
 
         if (picked.provider !== prevProvider || picked.model !== prevModel) {
           const saved = await saveToGlobalConfig(
@@ -361,7 +307,7 @@ export async function main(argv: string[]): Promise<number> {
     // Propagate yolo → permission policy reads config.yolo. Config is
     // frozen so we rebuild (same pattern as the picker patch above).
     if (choices.yolo !== config.yolo) {
-      config = Object.freeze({ ...config, yolo: choices.yolo });
+      config = patchConfig(config, { yolo: choices.yolo });
     }
   }
 
@@ -398,6 +344,13 @@ export async function main(argv: string[]): Promise<number> {
 
   // Build container + services
   const container = new Container();
+  // L1-B: a single ConfigStore is the source of truth for runtime config.
+  // Subsystems that care about live updates (provider switching, extension
+  // reload) resolve this and call .watch() — everything else can still read
+  // the flat `config` snapshot. We mutate the store on /model and similar
+  // commands so observers re-render automatically.
+  const configStore = new DefaultConfigStore(config);
+  container.bind(TOKENS.ConfigStore, () => configStore);
   container.bind(TOKENS.Logger, () => logger);
   container.bind(TOKENS.PathResolver, () => pathResolver);
   container.bind(TOKENS.SecretScrubber, () => new DefaultSecretScrubber());
@@ -485,6 +438,79 @@ export async function main(argv: string[]): Promise<number> {
 
   const events = new EventBus();
   events.setLogger(logger);
+
+  // Observability — opt-in via --metrics. Writes a snapshot to
+  // <session-dir>/metrics.json on shutdown so users get a post-run summary
+  // without standing up a scrape endpoint. The sink is also exposed via the
+  // /metrics slash command for live inspection mid-session.
+  let metricsSink: MetricsSink | undefined;
+  let healthRegistry: HealthRegistry | undefined;
+  let metricsServerHandle: MetricsServerHandle | undefined;
+  // --metrics-port implies --metrics (you can't scrape what isn't recorded).
+  const metricsPortFlag = flags['metrics-port'];
+  const metricsPort =
+    typeof metricsPortFlag === 'string' && metricsPortFlag.length > 0
+      ? Number.parseInt(metricsPortFlag, 10)
+      : undefined;
+  if (metricsPort !== undefined && !flags.metrics) flags.metrics = true;
+  if (flags.metrics) {
+    metricsSink = new InMemoryMetricsSink();
+    wireMetricsToEvents(events, metricsSink);
+    healthRegistry = new DefaultHealthRegistry();
+    healthRegistry.register({
+      name: 'session-store',
+      check: async () => {
+        try {
+          await fs.access(wpaths.projectSessions);
+          return { status: 'healthy' };
+        } catch (e) {
+          return { status: 'unhealthy', detail: e instanceof Error ? e.message : 'access denied' };
+        }
+      },
+    });
+    healthRegistry.register({
+      name: 'provider',
+      check: async () => ({
+        status: 'healthy',
+        data: { id: config.provider, model: config.model },
+      }),
+    });
+
+    const dumpMetrics = () => {
+      if (!metricsSink) return;
+      try {
+        const out = path.join(wpaths.projectSessions, 'metrics.json');
+        const snap = metricsSink.snapshot();
+        // Sync write — async fs APIs can't survive process.exit().
+        writeFileSync(out, JSON.stringify(snap, null, 2));
+      } catch {
+        // Snapshot is best-effort — never block shutdown on it.
+      }
+    };
+    process.on('exit', dumpMetrics);
+    process.on('SIGINT', () => { dumpMetrics(); process.exit(130); });
+
+    // L3-C: optional Prometheus scrape endpoint. Bound to 127.0.0.1 by
+    // default — operators who want network-visible metrics set
+    // METRICS_HOST=0.0.0.0 explicitly. Failure to bind is logged but does
+    // not fail the run; the in-process sink keeps recording.
+    if (metricsPort !== undefined && Number.isFinite(metricsPort)) {
+      try {
+        metricsServerHandle = await startMetricsServer({
+          port: metricsPort,
+          host: process.env.METRICS_HOST ?? '127.0.0.1',
+          sink: metricsSink,
+          // V2-C: mount /healthz on the same listener so k8s probes can
+          // hit one endpoint per pod for both observability and liveness.
+          healthRegistry,
+        });
+        logger.info(`metrics endpoint listening on ${metricsServerHandle.url} (healthz on same port)`);
+        process.on('exit', () => { void metricsServerHandle?.close().catch(() => {}); });
+      } catch (err) {
+        logger.warn(`metrics endpoint failed to start: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  }
 
   // Spinner: visible "thinking…" line during each model request.
   const spinner = new Spinner();
@@ -659,6 +685,20 @@ export async function main(argv: string[]): Promise<number> {
   // Session stats tracker — subscribes to events; rendered at the end.
   const stats = new SessionStats(events, tokenCounter);
 
+  // Last-N error ring buffer surfaced by /diag. Captures whatever `error`
+  // events the agent emits during a run (provider failures, retries, etc).
+  const errorRing: { ts: string; phase: string; code: string; message: string }[] = [];
+  events.on('error', (e) => {
+    const err = e.err as unknown;
+    const code =
+      err && typeof err === 'object' && 'code' in err && typeof (err as { code: unknown }).code === 'string'
+        ? (err as { code: string }).code
+        : 'UNKNOWN';
+    const message = e.err instanceof Error ? e.err.message : String(e.err);
+    errorRing.push({ ts: new Date().toISOString(), phase: e.phase, code, message });
+    if (errorRing.length > 5) errorRing.shift();
+  });
+
   const ctxSignal = new AbortController().signal;
   const context = new Context({
     systemPrompt,
@@ -677,6 +717,31 @@ export async function main(argv: string[]): Promise<number> {
   }
 
   const pipelines = createDefaultPipelines();
+
+  // L1-F error boundary: a crashing plugin-owned middleware shouldn't kill
+  // the agent run. Core-owned middleware still rethrows so genuine bugs in
+  // the framework surface loudly. Plugin owners are identified by the
+  // `owner` field set by the slash-command/middleware registration helper.
+  const installBoundary = <T,>(p: { setErrorHandler: (h: (ev: { middleware: string; owner?: string; err: unknown }) => 'rethrow' | 'swallow') => unknown }) => {
+    p.setErrorHandler((ev) => {
+      const fromPlugin = !!ev.owner && ev.owner !== 'core';
+      logger.error(
+        `Pipeline middleware "${ev.middleware}" crashed (owner=${ev.owner ?? 'unknown'}); ${fromPlugin ? 'swallowed' : 'rethrown'}`,
+        ev.err,
+      );
+      events.emit('error', {
+        err: ev.err instanceof Error ? ev.err : new Error(String(ev.err)),
+        phase: `pipeline:${ev.middleware}`,
+      });
+      return fromPlugin ? 'swallow' : 'rethrow';
+    });
+  };
+  installBoundary(pipelines.request);
+  installBoundary(pipelines.response);
+  installBoundary(pipelines.toolCall);
+  installBoundary(pipelines.userInput);
+  installBoundary(pipelines.assistantOutput);
+  installBoundary(pipelines.contextWindow);
 
   // Resolve compactor — bound earlier (strategy-aware binding moved before provider creation)
   const compactor = container.resolve(TOKENS.Compactor);
@@ -751,6 +816,7 @@ export async function main(argv: string[]): Promise<number> {
     iterationTimeoutMs: config.tools.iterationTimeoutMs,
     executionStrategy: config.tools.defaultExecutionStrategy,
     perIterationOutputCapBytes: config.tools.perIterationOutputCapBytes,
+    confirmAwaiter: makeConfirmAwaiter(reader),
   });
 
   // MCP servers
@@ -784,6 +850,11 @@ export async function main(argv: string[]): Promise<number> {
       const { default: createApi } = await import('./plugin-api-factory.js');
       await loadPlugins(resolvedPlugins, {
         log: logger,
+        // Each plugin's `configSchema` is validated against the matching
+        // `Config.extensions[name]` subtree before its `setup()` runs.
+        // The plugin then reads the same data through `api.config.extensions`
+        // (or, once L1-B lands, via `ConfigStore.getExtension(name)`).
+        pluginOptions: config.extensions ?? {},
         apiFactory: (plugin) =>
           createApi(plugin.name, {
             container,
@@ -866,12 +937,32 @@ export async function main(argv: string[]): Promise<number> {
           : makeProviderFromConfig(providerId, cfgWithType);
       context.provider = newProvider;
       context.model = modelId;
-      config = Object.freeze({ ...config, provider: providerId, model: modelId });
+      config = patchConfig(config, { provider: providerId, model: modelId });
+      // L1-B: propagate the change to the ConfigStore so any subsystem
+      // that subscribed via .watch() re-renders. Crucially, /diag now
+      // reads the live provider via the store.
+      configStore.update({ provider: providerId, model: modelId });
       return null;
     } catch (err) {
       return err instanceof Error ? err.message : String(err);
     }
   };
+
+  // L1-E: lazily-instantiated multi-agent host. Wired into /spawn and
+  // /agents slash commands; constructed on first invocation so users
+  // who never spawn subagents pay nothing.
+  const multiAgentHost = new MultiAgentHost({
+    container,
+    toolRegistry,
+    providerRegistry,
+    configStore,
+    events,
+    systemPromptBuilder: promptBuilder,
+    session,
+    tokenCounter,
+    projectRoot,
+    cwd,
+  });
 
   const slashCmds = buildBuiltinSlashCommands({
     registry: slashRegistry,
@@ -883,6 +974,25 @@ export async function main(argv: string[]): Promise<number> {
     renderer,
     memoryStore,
     context,
+    metricsSink,
+    healthRegistry,
+    onSpawn: async (description) => {
+      const { subagentId, taskId } = await multiAgentHost.spawn(description);
+      return `Spawned subagent ${subagentId} for task ${taskId}. Use /agents to track progress.`;
+    },
+    onAgents: () => {
+      const s = multiAgentHost.status();
+      const lines = [s.summary];
+      for (const p of s.pending) {
+        lines.push(`  pending  ${p.taskId.slice(0, 8)} → ${p.description.slice(0, 60)}`);
+      }
+      for (const r of s.completed) {
+        lines.push(
+          `  ${r.status === 'success' ? color.green('✓') : color.red('✗')}        ${r.taskId.slice(0, 8)} ${r.iterations}it ${r.toolCalls}tc ${r.durationMs}ms`,
+        );
+      }
+      return lines.join('\n');
+    },
     onExit: () => {
       void mcpRegistry.stopAll();
     },
@@ -903,14 +1013,25 @@ export async function main(argv: string[]): Promise<number> {
     onDiag: () => {
       const u = tokenCounter.total();
       const cost = tokenCounter.estimateCost();
+      const errSection = errorRing.length === 0
+        ? []
+        : [
+            '',
+            `${color.bold('Recent errors')} (last ${errorRing.length}):`,
+            ...errorRing.map((e) => `  [${e.ts}] ${e.phase} ${e.code} — ${e.message}`),
+          ];
+      // Read current provider from the ConfigStore so /diag always shows
+      // the live value, even if /model swapped it mid-session (L1-B).
+      const liveCfg = configStore.get();
       return [
         `${color.bold('WrongStack diag')}`,
-        `  provider:     ${config.provider} / ${context.model}`,
+        `  provider:     ${liveCfg.provider} / ${context.model}`,
         `  projectRoot:  ${projectRoot}`,
         `  tokens:       in ${u.input}  out ${u.output}  cacheR ${u.cacheRead ?? 0}`,
         `  cost:         $${cost.total.toFixed(4)}`,
         `  tools:        ${toolRegistry.list().length}`,
         `  mcpServers:   ${mcpRegistry.list().length}`,
+        ...errSection,
       ].join('\n');
     },
     onStats: () => stats.format(),
@@ -952,17 +1073,29 @@ export async function main(argv: string[]): Promise<number> {
         const json = JSON.stringify({
           status: result.status,
           finalText: result.finalText ?? null,
-          error: result.error instanceof Error ? result.error.message : (result.error ?? null),
+          error: result.error
+            ? {
+                code: result.error.code,
+                subsystem: result.error.subsystem,
+                severity: result.error.severity,
+                recoverable: result.error.recoverable,
+                message: result.error.message,
+                context: result.error.context ?? null,
+              }
+            : null,
           usage,
         });
         process.stdout.write(json + '\n');
       } else {
         if (result.status === 'failed') {
           code = 1;
-          renderer.writeError(
-            'Failed: ' +
-              (result.error instanceof Error ? result.error.message : String(result.error)),
-          );
+          const err = result.error;
+          if (err) {
+            const tag = err.recoverable ? ' (recoverable)' : '';
+            renderer.writeError(`Failed [${err.severity}]${tag}: ${err.describe()}`);
+          } else {
+            renderer.writeError('Failed.');
+          }
         } else if (result.status === 'aborted') {
           code = 130;
           renderer.writeWarning('Aborted.');
@@ -1118,12 +1251,6 @@ async function promptRecovery(
     ],
   );
   return answer as 'resume' | 'delete' | 'skip';
-}
-
-function fmtTok(n: number): string {
-  if (n < 1000) return String(n);
-  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
-  return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
 

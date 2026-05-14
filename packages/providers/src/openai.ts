@@ -5,7 +5,7 @@ import type {
   StopReason,
   Usage,
 } from '@wrongstack/core';
-import { ProviderError, safeParse } from '@wrongstack/core';
+import { type ProviderError, safeParse } from '@wrongstack/core';
 import { parseProviderHttpError } from './error-parse.js';
 import {
   messagesToOpenAI,

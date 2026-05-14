@@ -271,7 +271,6 @@ describe('Agent', () => {
         maxContext: 200_000,
         cacheControl: 'none' as const,
       },
-      // biome-ignore lint/correctness/useYield: stub
       async *stream(_req: { model: string }, opts: { signal: AbortSignal }) {
         yield { type: 'message_start', model: 'm' };
         yield { type: 'text_delta', text: 'partial ' };
@@ -489,5 +488,42 @@ describe('Agent', () => {
     expect(errors[0]?.providerId).toBe('doomed');
     expect(errors[0]?.status).toBe(400);
     expect(errors[0]?.description).toContain('invalid request (400)');
+  });
+
+  it('typed RunResult.error: provider error becomes WrongStackError', async () => {
+    class FailProvider implements Provider {
+      readonly id = 'fail-prov';
+      readonly capabilities: Capabilities = {
+        tools: false,
+        parallelTools: false,
+        vision: false,
+        streaming: false,
+        promptCache: false,
+        systemPrompt: true,
+        jsonMode: false,
+        maxContext: 100_000,
+        cacheControl: 'none',
+      };
+      async complete(): Promise<Response> {
+        throw new ProviderError('bad request', 400, false, 'fail-prov');
+      }
+      // biome-ignore lint/correctness/useYield: stub
+      async *stream(): AsyncIterable<StreamEvent> {
+        throw new Error('not used');
+      }
+    }
+    const provider = new FailProvider();
+    const { agent, tmp, ctx } = await buildAgent(provider as unknown as MockProvider);
+    cleanupDirs.push(tmp);
+    (ctx as unknown as { provider: Provider }).provider = provider;
+
+    const result = await agent.run('ping');
+    expect(result.status).toBe('failed');
+    // result.error is typed as WrongStackError — ProviderError already extends it
+    expect(result.error).toBeDefined();
+    expect(result.error?.code).toBe('PROVIDER_INVALID_REQUEST');
+    expect(result.error?.subsystem).toBe('provider');
+    expect(typeof result.error?.severity).toBe('string');
+    expect(typeof result.error?.describe()).toBe('string');
   });
 });

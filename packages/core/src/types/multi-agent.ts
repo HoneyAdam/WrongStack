@@ -1,13 +1,15 @@
 import type { BridgeMessage, AgentBridge } from './agent-bridge.js';
-import type { RunResult } from '../core/agent.js';
+import type { SubagentBudget } from '../defaults/subagent-budget.js';
 
 export interface SubagentConfig {
-  id: string;
+  id?: string;
   name: string;
-  role: string;
+  role?: string;
   prompt?: string;
   maxIterations?: number;
   maxToolCalls?: number;
+  maxTokens?: number;
+  maxCostUsd?: number;
   timeoutMs?: number;
   tools?: string[];
   model?: string;
@@ -50,6 +52,18 @@ export interface MultiAgentConfig {
   maxConcurrent?: number;
   doneCondition: DoneCondition;
   timeoutMs?: number;
+  /**
+   * Optional default budget applied to every spawned subagent. Per-subagent
+   * fields in `SubagentConfig` override these. Coordinator enforces them by
+   * constructing a `SubagentBudget` per spawn — see `SubagentRunContext.budget`.
+   */
+  defaultBudget?: {
+    maxIterations?: number;
+    maxToolCalls?: number;
+    maxTokens?: number;
+    maxCostUsd?: number;
+    timeoutMs?: number;
+  };
 }
 
 export interface SpawnResult {
@@ -80,6 +94,34 @@ export interface MultiAgentCoordinator {
   stop(subagentId: string): Promise<void>;
   stopAll(): Promise<void>;
   getStatus(): CoordinatorStatus;
+}
+
+/**
+ * Caller-supplied runner that actually executes a task. The coordinator
+ * provides isolated state (own budget, own AbortSignal, own bridge handle)
+ * and enforces concurrency limits — the runner just runs the task and reports
+ * the outcome. This is the injection seam that decouples the coordinator
+ * from `Agent` so it can be tested with mocks and reused for non-Agent
+ * subagents (workers, MCP-driven subagents, etc.).
+ */
+export type SubagentRunner = (
+  task: TaskSpec,
+  ctx: SubagentRunContext,
+) => Promise<SubagentRunOutcome>;
+
+export interface SubagentRunContext {
+  subagentId: string;
+  config: SubagentConfig;
+  budget: SubagentBudget;
+  signal: AbortSignal;
+  /** Null until `setSubagentBridge` is called for this subagent. */
+  bridge: AgentBridge | null;
+}
+
+export interface SubagentRunOutcome {
+  result?: unknown;
+  iterations: number;
+  toolCalls: number;
 }
 
 export interface CoordinatorStatus {

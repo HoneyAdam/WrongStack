@@ -1,7 +1,7 @@
 import type { Container } from '../kernel/container.js';
 import type { EventBus, EventName, Listener } from '../kernel/events.js';
 import type { ReadonlyPipeline } from '../kernel/pipeline.js';
-import type { Tool } from './tool.js';
+import type { Tool, JSONSchema } from './tool.js';
 import type { Provider, Request, Response } from './provider.js';
 import type { Config } from './config.js';
 import type { Logger } from './logger.js';
@@ -73,14 +73,70 @@ export interface PluginAPI {
   onEvent<K extends EventName>(event: K, handler: Listener<K>): () => void;
 }
 
+/**
+ * Capability declaration — informs the host which subsystems a plugin
+ * intends to touch. Used for diagnostics and per-plugin enable/disable UX
+ * (e.g. "this plugin registers tools — disable to remove them"). Not
+ * enforced at runtime: a plugin that declares `tools: false` can still
+ * call `api.tools.register()`, but the host can flag the discrepancy.
+ */
+export interface PluginCapabilities {
+  /** Will register tools via `api.tools.register()`. */
+  tools?: boolean;
+  /** Will register provider factories via `api.providers.register()`. */
+  providers?: boolean;
+  /**
+   * Pipelines the plugin hooks into. Use the standard names
+   * (`request | response | toolCall | userInput | assistantOutput | contextWindow`)
+   * or custom pipeline names exposed by other plugins.
+   */
+  pipelines?: string[];
+  /** Will register slash commands via `api.slashCommands.register()`. */
+  slashCommands?: boolean;
+  /** Will start MCP servers via `api.mcp.start()`. */
+  mcp?: boolean;
+}
+
+/**
+ * Structured dependency declaration. The string form (`dependsOn: ['foo']`)
+ * is shorthand for `[{ name: 'foo' }]` — both work. Use the structured form
+ * when you need a version constraint:
+ *
+ *   dependsOn: [{ name: 'wstack-auth', version: '^1.2.0' }]
+ */
+export interface PluginDependency {
+  name: string;
+  /** npm-style semver range. Supports `^`, `~`, exact, and unprefixed. */
+  version?: string;
+}
+
 export interface Plugin {
   name: string;
   version?: string;
+  /** One-line summary for `wstack plugins list` and error messages. */
+  description?: string;
+  /** Semver range against the kernel API version (KERNEL_API_VERSION). */
   apiVersion: string;
-  /** Mandatory plugin dependencies — loading fails if any are absent. */
-  dependsOn?: string[];
+  /**
+   * Capability hints — what subsystems the plugin will register against.
+   * Optional; provided for diagnostics and UX. The loader does not enforce
+   * these, but mismatch is surfaced via logger at warn level.
+   */
+  capabilities?: PluginCapabilities;
+  /**
+   * JSON Schema for the options under `Config.plugins[<name>].options`.
+   * When present, the loader validates that section before calling `setup`
+   * and rejects the plugin with a clear error path on failure.
+   */
+  configSchema?: JSONSchema;
+  /**
+   * Mandatory plugin dependencies — loading fails if any are absent or
+   * version-incompatible. Accepts both the legacy string-array form and
+   * the structured form with version constraints.
+   */
+  dependsOn?: (string | PluginDependency)[];
   /** Optional plugin dependencies — silently skipped if absent. */
-  optionalDeps?: string[];
+  optionalDeps?: (string | PluginDependency)[];
   conflictsWith?: string[];
   setup(api: PluginAPI): void | Promise<void>;
   teardown?(api: PluginAPI): void | Promise<void>;

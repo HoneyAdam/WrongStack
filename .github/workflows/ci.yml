@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# L3-D: the gate. typecheck → build → test must ALL be green for the
+# branch to be mergeable. Failing any one step fails the workflow; we do
+# not split into independent jobs because the build step depends on
+# typecheck passing and the test step depends on the build artifacts
+# (dts files exposed by per-package exports).
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.12.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck (all packages, parallel)
+        run: pnpm typecheck
+
+      - name: Build (all packages)
+        run: pnpm build
+
+      - name: Test (vitest)
+        run: pnpm test

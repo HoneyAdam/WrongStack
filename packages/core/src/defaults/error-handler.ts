@@ -81,17 +81,19 @@ export function buildRecoveryStrategies(opts?: {
           if (!registry) return null;
 
           try {
-            const provider = await registry.getProvider(ctx.provider.id);
+            const providerId = ctx.provider?.id;
+            if (!providerId) return null;
+            const provider = await registry.getProvider(providerId);
             if (!provider) return null;
 
-            const currentModel = await registry.getModel(ctx.provider.id, ctx.model);
+            const currentModel = await registry.getModel(providerId, ctx.model);
             if (!currentModel) return null;
 
             // Find a cheaper fallback model with the same capabilities.
             // Prefer models with lower input cost, preferring the same family.
             const candidates = provider.models.filter((m) => {
-              const modelCost = m.cost?.input ?? Infinity;
-              const currentCost = currentModel.cost?.input ?? Infinity;
+              const modelCost = m.cost?.input ?? Number.POSITIVE_INFINITY;
+              const currentCost = currentModel.cost?.input ?? Number.POSITIVE_INFINITY;
               // Must be cheaper.
               if (modelCost >= currentCost) return false;
               // Must support tools if the original did.

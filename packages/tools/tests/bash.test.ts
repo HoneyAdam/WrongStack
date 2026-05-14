@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as os from 'node:os';
+import type { ToolProgressEvent, ToolStreamEvent } from '@wrongstack/core';
 import { bashTool } from '../src/bash.js';
 import { mkSandbox, newSignal } from './fixtures.js';
 
@@ -63,4 +64,60 @@ describe('bashTool', () => {
       await sb.cleanup();
     }
   }, 15_000);
+
+  it('exposes executeStream and emits a final event', async () => {
+    const sb = await mkSandbox();
+    try {
+      expect(typeof bashTool.executeStream).toBe('function');
+      const events: ToolStreamEvent[] = [];
+      for await (const ev of bashTool.executeStream!(
+        { command: echoCmd },
+        sb.ctx,
+        { signal: newSignal() },
+      )) {
+        events.push(ev);
+      }
+      const finals = events.filter((e) => e.type === 'final');
+      expect(finals).toHaveLength(1);
+      // Output reaches the final event
+      const out = (finals[0] as { output: { output: string } }).output;
+      expect(out.output).toContain('hello');
+    } finally {
+      await sb.cleanup();
+    }
+  });
+
+  it('declares an estimatedDurationMs hint', () => {
+    expect(typeof bashTool.estimatedDurationMs).toBe('number');
+    expect(bashTool.estimatedDurationMs).toBeGreaterThan(0);
+  });
+
+  it('background command yields a single final event', async () => {
+    const sb = await mkSandbox();
+    try {
+      const events: ToolStreamEvent[] = [];
+      // `exit 0` finishes instantly on both shells — the assertion is about
+      // event shape, not subprocess lifetime, so the fastest-exiting command
+      // avoids holding the sandbox temp dir on Windows.
+      const cmd = isWin ? 'exit 0' : 'true';
+      for await (const ev of bashTool.executeStream!(
+        { command: cmd, background: true },
+        sb.ctx,
+        { signal: newSignal() },
+      )) {
+        events.push(ev);
+      }
+      // Background runs return immediately with just the final event,
+      // no partial_output (stdio is 'ignore').
+      const progressEvents = events.filter(
+        (e): e is ToolProgressEvent => e.type !== 'final',
+      );
+      expect(progressEvents).toEqual([]);
+      expect(events.filter((e) => e.type === 'final')).toHaveLength(1);
+    } finally {
+      // On Windows the detached child may still hold the temp dir for a
+      // moment after exit — swallow the cleanup race; the OS reaps soon.
+      try { await sb.cleanup(); } catch { /* ignore */ }
+    }
+  });
 });

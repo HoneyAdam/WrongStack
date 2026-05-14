@@ -7,7 +7,7 @@ import type {
   Tool,
   Usage,
 } from '@wrongstack/core';
-import { ProviderError, safeParse } from '@wrongstack/core';
+import { type ProviderError, safeParse } from '@wrongstack/core';
 import { parseProviderHttpError } from './error-parse.js';
 import { normalizeGemini } from './stop-reason.js';
 import { parseSSE } from './sse.js';

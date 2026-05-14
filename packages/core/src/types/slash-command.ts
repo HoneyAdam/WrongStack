@@ -14,6 +14,13 @@ export interface SlashCommand {
   aliases?: string[];
   description: string;
   /**
+   * Optional detailed help shown by `/help <name>`. Use this for usage,
+   * arguments, examples, side-effects — anything that doesn't fit in
+   * `description`. Renders verbatim, so format with line breaks.
+   * If absent, `/help <name>` falls back to `description`.
+   */
+  help?: string;
+  /**
    * Execute the command.
    * @param args Everything after the command name (trimmed by dispatch).
    * @param ctx The current agent context.

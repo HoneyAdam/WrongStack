@@ -1,5 +1,5 @@
 import * as dns from 'node:dns/promises';
-import type { Tool } from '@wrongstack/core';
+import type { Tool, ToolStreamEvent } from '@wrongstack/core';
 import { truncateMiddle } from './_util.js';
 
 interface FetchInput {
@@ -80,7 +80,15 @@ export const fetchTool: Tool<FetchInput, FetchOutput> = {
     },
     required: ['url'],
   },
-  async execute(input, _ctx, opts) {
+  async execute(input, ctx, opts) {
+    let final: FetchOutput | undefined;
+    for await (const ev of fetchTool.executeStream!(input, ctx, opts)) {
+      if (ev.type === 'final') final = ev.output;
+    }
+    if (!final) throw new Error('fetch: stream ended without final event');
+    return final;
+  },
+  async *executeStream(input, _ctx, opts): AsyncGenerator<ToolStreamEvent<FetchOutput>> {
     if (!input?.url) throw new Error('fetch: url is required');
     const u = new URL(input.url);
     if (u.protocol !== 'https:' && u.protocol !== 'http:') {
@@ -90,6 +98,8 @@ export const fetchTool: Tool<FetchInput, FetchOutput> = {
       throw new Error('fetch: http:// blocked (HTTPS required by default)');
     }
     await assertNotPrivate(u.hostname);
+
+    yield { type: 'log', text: `GET ${input.url}` };
 
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(new Error('fetch timeout')), TIMEOUT_MS);
@@ -103,16 +113,33 @@ export const fetchTool: Tool<FetchInput, FetchOutput> = {
         throw new Error(`fetch: refusing to read binary content-type "${ct}"`);
       }
 
+      yield { type: 'log', text: `HTTP ${res.status} ${ct}`, data: { status: res.status, contentType: ct } };
+
       const reader = res.body?.getReader();
       let received = 0;
       const chunks: Uint8Array[] = [];
+      let pendingBytes = 0;
+      const FLUSH_AT = 4 * 1024;
       if (reader) {
         for (;;) {
           const { value, done } = await reader.read();
           if (done) break;
           if (!value) continue;
           received += value.byteLength;
+          pendingBytes += value.byteLength;
           chunks.push(value);
+          if (pendingBytes >= FLUSH_AT) {
+            // Snapshot recent bytes for the partial_output. Keep it cheap —
+            // don't try to decode UTF-8 boundaries; the TUI just needs a
+            // "things are happening" signal.
+            const recent = Buffer.from(value).toString('utf8');
+            yield {
+              type: 'partial_output',
+              text: recent,
+              data: { received },
+            };
+            pendingBytes = 0;
+          }
           if (received > MAX_BYTES) break;
         }
       }
@@ -125,11 +152,14 @@ export const fetchTool: Tool<FetchInput, FetchOutput> = {
       else if (ct.includes('application/json')) content = prettyJson(text);
       else content = text;
 
-      return {
-        content: truncateMiddle(content, MAX_BYTES),
-        status: res.status,
-        content_type: ct,
-        url: res.url,
+      yield {
+        type: 'final',
+        output: {
+          content: truncateMiddle(content, MAX_BYTES),
+          status: res.status,
+          content_type: ct,
+          url: res.url,
+        },
       };
     } finally {
       clearTimeout(timer);

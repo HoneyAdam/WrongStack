@@ -1,5 +1,7 @@
-import type { Plugin, PluginAPI } from '../types/plugin.js';
+import type { Plugin, PluginAPI, PluginDependency } from '../types/plugin.js';
 import type { Logger } from '../types/logger.js';
+import { PluginError } from '../types/errors.js';
+import { validateAgainstSchema } from '../utils/json-schema-validate.js';
 
 /**
  * Stable plugin API contract version. This is intentionally independent of
@@ -13,6 +15,13 @@ export interface LoadPluginsOptions {
   apiFactory: (plugin: Plugin) => PluginAPI;
   log: Logger;
   kernelApiVersion?: string;
+  /**
+   * Per-plugin options keyed by plugin name. When a plugin declares
+   * `configSchema`, the loader validates `pluginOptions[plugin.name]`
+   * against it before calling `setup`. Pass `Config.plugins` shaped
+   * `{ [name]: { options } }` or any flat record.
+   */
+  pluginOptions?: Record<string, unknown>;
 }
 
 function parseSemver(v: string): [number, number, number] {
@@ -20,20 +29,25 @@ function parseSemver(v: string): [number, number, number] {
   return [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0];
 }
 
-function satisfies(range: string, kernelVersion: string): boolean {
-  const [kMaj, kMin, kPatch] = parseSemver(kernelVersion);
+function satisfies(range: string, version: string): boolean {
+  const [vMaj, vMin, vPatch] = parseSemver(version);
   const trimmed = range.trim();
   const op = trimmed.startsWith('^') ? '^' : trimmed.startsWith('~') ? '~' : '=';
   const ver = trimmed.replace(/^[\^~=]/, '');
   const [rMaj, rMin, rPatch] = parseSemver(ver);
   if (op === '^') {
-    if (rMaj === 0) return kMaj === 0 && kMin === rMin && kPatch >= rPatch;
-    return kMaj === rMaj && (kMin > rMin || (kMin === rMin && kPatch >= rPatch));
+    if (rMaj === 0) return vMaj === 0 && vMin === rMin && vPatch >= rPatch;
+    return vMaj === rMaj && (vMin > rMin || (vMin === rMin && vPatch >= rPatch));
   }
   if (op === '~') {
-    return kMaj === rMaj && kMin === rMin && kPatch >= rPatch;
+    return vMaj === rMaj && vMin === rMin && vPatch >= rPatch;
   }
-  return kMaj === rMaj && kMin === rMin && kPatch === rPatch;
+  return vMaj === rMaj && vMin === rMin && vPatch === rPatch;
+}
+
+/** Normalize either `string` or `PluginDependency` into the structured form. */
+function normalizeDep(d: string | PluginDependency): PluginDependency {
+  return typeof d === 'string' ? { name: d } : d;
 }
 
 function topoSort(plugins: Plugin[]): Plugin[] {
@@ -46,20 +60,52 @@ function topoSort(plugins: Plugin[]): Plugin[] {
   const visit = (p: Plugin, stack: string[]) => {
     if (visited.has(p.name)) return;
     if (visiting.has(p.name)) {
-      throw new Error(`Plugin dependency cycle: ${[...stack, p.name].join(' -> ')}`);
+      throw new PluginError({
+        message: `Plugin dependency cycle: ${[...stack, p.name].join(' -> ')}`,
+        code: 'PLUGIN_LOAD_FAILED',
+        pluginName: p.name,
+      });
     }
     visiting.add(p.name);
-    for (const dep of p.dependsOn ?? []) {
-      const d = map.get(dep);
+    for (const raw of p.dependsOn ?? []) {
+      const dep = normalizeDep(raw);
+      const d = map.get(dep.name);
       if (!d) {
-        throw new Error(`Plugin "${p.name}" depends on missing plugin "${dep}"`);
+        throw new PluginError({
+          message: `Plugin "${p.name}" depends on missing plugin "${dep.name}"`,
+          code: 'PLUGIN_MISSING_DEPENDENCY',
+          pluginName: p.name,
+          context: { dependency: dep.name },
+        });
+      }
+      // Version constraint check — only when both declared range and the
+      // dependency's actual version are available. Missing either side is
+      // tolerated: plugins without `version` are treated as wildcard.
+      if (dep.version && d.version && !satisfies(dep.version, d.version)) {
+        throw new PluginError({
+          message: `Plugin "${p.name}" requires "${dep.name}@${dep.version}", found ${d.version}`,
+          code: 'PLUGIN_LOAD_FAILED',
+          pluginName: p.name,
+          context: { dependency: dep.name, required: dep.version, found: d.version },
+        });
       }
       visit(d, [...stack, p.name]);
     }
     // Optional deps are silently skipped if the plugin is not loaded.
-    for (const dep of p.optionalDeps ?? []) {
-      const d = map.get(dep);
-      if (d) visit(d, [...stack, p.name]);
+    for (const raw of p.optionalDeps ?? []) {
+      const dep = normalizeDep(raw);
+      const d = map.get(dep.name);
+      if (d) {
+        if (dep.version && d.version && !satisfies(dep.version, d.version)) {
+          throw new PluginError({
+            message: `Plugin "${p.name}" optional dep "${dep.name}@${dep.version}" found ${d.version}`,
+            code: 'PLUGIN_LOAD_FAILED',
+            pluginName: p.name,
+            context: { dependency: dep.name, required: dep.version, found: d.version },
+          });
+        }
+        visit(d, [...stack, p.name]);
+      }
     }
     visiting.delete(p.name);
     visited.add(p.name);
@@ -83,7 +129,12 @@ export async function loadPlugins(
   for (const p of plugins) {
     for (const c of p.conflictsWith ?? []) {
       if (names.has(c)) {
-        throw new Error(`Plugin "${p.name}" conflicts with loaded plugin "${c}"`);
+        throw new PluginError({
+          message: `Plugin "${p.name}" conflicts with loaded plugin "${c}"`,
+          code: 'PLUGIN_LOAD_FAILED',
+          pluginName: p.name,
+          context: { conflictsWith: c },
+        });
       }
     }
   }
@@ -98,15 +149,43 @@ export async function loadPlugins(
 
   for (const plugin of sorted) {
     if (!satisfies(plugin.apiVersion, kernelVersion)) {
-      const err = new Error(
-        `Plugin "${plugin.name}" requires apiVersion ${plugin.apiVersion}; kernel is ${kernelVersion}`,
-      );
+      const err = new PluginError({
+        message: `Plugin "${plugin.name}" requires apiVersion ${plugin.apiVersion}; kernel is ${kernelVersion}`,
+        code: 'PLUGIN_API_MISMATCH',
+        pluginName: plugin.name,
+        context: { required: plugin.apiVersion, kernel: kernelVersion },
+      });
       opts.log.error(err.message);
       failed.push({ plugin, err });
       continue;
     }
+    // configSchema validation — runs before setup() so a bad config never
+    // reaches plugin code. The plugin's options are looked up by plugin name
+    // in the host-supplied options bag.
+    if (plugin.configSchema && opts.pluginOptions) {
+      const pluginOpts = opts.pluginOptions[plugin.name];
+      if (pluginOpts !== undefined) {
+        const result = validateAgainstSchema(pluginOpts, plugin.configSchema);
+        if (!result.ok) {
+          const firstErr = result.errors[0];
+          const detail = firstErr
+            ? `${firstErr.path}: ${firstErr.message}`
+            : 'config invalid';
+          const err = new PluginError({
+            message: `Plugin "${plugin.name}" config invalid — ${detail}`,
+            code: 'PLUGIN_LOAD_FAILED',
+            pluginName: plugin.name,
+            context: { errors: result.errors },
+          });
+          opts.log.error(err.message);
+          failed.push({ plugin, err });
+          continue;
+        }
+      }
+    }
     try {
-      const api = opts.apiFactory(plugin);
+      const rawApi = opts.apiFactory(plugin);
+      const api = plugin.capabilities ? wrapApiForCapabilityCheck(plugin, rawApi, opts.log) : rawApi;
       await plugin.setup(api);
       loaded.push(plugin);
       opts.log.info(`Plugin "${plugin.name}" loaded`);
@@ -116,4 +195,108 @@ export async function loadPlugins(
     }
   }
   return { loaded, failed };
+}
+
+/**
+ * Tear down loaded plugins in reverse-dependency order. `teardown()` is
+ * best-effort: errors are caught and logged so a single misbehaving plugin
+ * can't abort the host shutdown sequence.
+ *
+ * Pass the result of a prior `loadPlugins(...)` call's `loaded` array, plus
+ * the original `LoadPluginsOptions` so the same `apiFactory` (and the same
+ * PluginAPI surface the plugin saw during `setup`) is used for `teardown`.
+ */
+export async function unloadPlugins(
+  loadedPlugins: Plugin[],
+  opts: LoadPluginsOptions,
+): Promise<void> {
+  // Reverse order — last loaded is first torn down, mirroring stack-style
+  // resource ownership when plugin B depends on plugin A.
+  const ordered = [...loadedPlugins].reverse();
+  for (const plugin of ordered) {
+    if (typeof plugin.teardown !== 'function') continue;
+    try {
+      const api = opts.apiFactory(plugin);
+      await plugin.teardown(api);
+      opts.log.info(`Plugin "${plugin.name}" torn down`);
+    } catch (err) {
+      opts.log.error(`Plugin "${plugin.name}" teardown failed`, err);
+    }
+  }
+}
+
+/**
+ * Wrap the PluginAPI so calls that contradict the plugin's declared
+ * capabilities are logged. Doesn't block the call — plugin keeps working;
+ * we just surface the lie so the host can flag it (or escalate to a hard
+ * fail in a dev build via env var).
+ */
+function wrapApiForCapabilityCheck(plugin: Plugin, api: PluginAPI, log: { error(msg: string, ctx?: unknown): void; warn?(msg: string, ctx?: unknown): void; info?(msg: string, ctx?: unknown): void }): PluginAPI {
+  const caps = plugin.capabilities ?? {};
+  const warn = (subsystem: string, detail: string) => {
+    const msg = `Plugin "${plugin.name}" used ${subsystem} without declaring capabilities.${subsystem} — ${detail}`;
+    if (typeof log.warn === 'function') log.warn(msg);
+    else log.error(msg);
+  };
+
+  // Wrap tools.register
+  const wrappedTools = caps.tools !== false ? api.tools : new Proxy(api.tools, {
+    get(target, prop, receiver) {
+      if (prop === 'register') {
+        return (t: unknown) => {
+          warn('tools', `register(${(t as { name?: string })?.name ?? '<unknown>'})`);
+          return (target.register as (x: unknown) => unknown)(t);
+        };
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+  // Wrap providers.register
+  const wrappedProviders = caps.providers !== false ? api.providers : new Proxy(api.providers, {
+    get(target, prop, receiver) {
+      if (prop === 'register') {
+        return (f: unknown) => {
+          warn('providers', `register(${(f as { type?: string })?.type ?? '<unknown>'})`);
+          return (target.register as (x: unknown) => unknown)(f);
+        };
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+  // Wrap slashCommands.register
+  const wrappedSlash = caps.slashCommands !== false ? api.slashCommands : new Proxy(api.slashCommands, {
+    get(target, prop, receiver) {
+      if (prop === 'register') {
+        return (c: unknown) => {
+          warn('slashCommands', `register(${(c as { name?: string })?.name ?? '<unknown>'})`);
+          return (target.register as (x: unknown) => unknown)(c);
+        };
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+  // Wrap mcp.start
+  const wrappedMcp = caps.mcp !== false ? api.mcp : new Proxy(api.mcp, {
+    get(target, prop, receiver) {
+      if (prop === 'start') {
+        return (cfg: unknown) => {
+          warn('mcp', `start(${(cfg as { name?: string })?.name ?? '<unknown>'})`);
+          return (target.start as (x: unknown) => unknown)(cfg);
+        };
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+
+  return new Proxy(api, {
+    get(target, prop, receiver) {
+      switch (prop) {
+        case 'tools': return wrappedTools;
+        case 'providers': return wrappedProviders;
+        case 'slashCommands': return wrappedSlash;
+        case 'mcp': return wrappedMcp;
+        default: return Reflect.get(target, prop, receiver);
+      }
+    },
+  });
 }

@@ -16,7 +16,7 @@ function makeMessage(role: string, content: ContentBlock[] | string): Message {
 }
 
 function fakeContext(messages: Message[], signal = new AbortController().signal): Context {
-  return {
+  const ctx = {
     messages,
     model: 'test-model',
     signal,
@@ -29,7 +29,17 @@ function fakeContext(messages: Message[], signal = new AbortController().signal)
     registerAbortHook: vi.fn(),
     drainAbortHooks: vi.fn(),
     clone: vi.fn(),
+  } as unknown as Context;
+  (ctx as unknown as { state: unknown }).state = {
+    replaceMessages(next: Message[]) {
+      ctx.messages.length = 0;
+      ctx.messages.push(...next);
+    },
+    appendMessage(m: Message) {
+      ctx.messages.push(m);
+    },
   };
+  return ctx;
 }
 
 function makeFakeProvider(responses: string[]): Provider {

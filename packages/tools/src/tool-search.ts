@@ -62,7 +62,7 @@ export const toolSearchTool: Tool<ToolSearchInput, ToolSearchOutput> = {
     const tools = ctx.tools;
     const query = input.query?.toLowerCase() ?? '';
 
-    let filtered = tools.filter((t: Tool) => {
+    const filtered = tools.filter((t: Tool) => {
       if (query && !t.name.toLowerCase().includes(query) && !t.description.toLowerCase().includes(query)) {
         return false;
       }

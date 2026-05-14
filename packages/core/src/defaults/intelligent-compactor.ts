@@ -131,7 +131,9 @@ export class IntelligentCompactor implements Compactor {
     };
     const summaryTokens = this.estimateTokens([summaryMsg]);
 
-    ctx.messages.splice(0, boundary, summaryMsg);
+    // L1-A: route through ConversationState so subscribers see the rewrite.
+    const tail = ctx.messages.slice(boundary);
+    ctx.state.replaceMessages([summaryMsg, ...tail]);
     return Math.max(0, removedTokens - summaryTokens);
   }
 
@@ -153,7 +155,7 @@ export class IntelligentCompactor implements Compactor {
   private findExchangeStart(messages: Message[], userIndex: number): number {
     // Walk backwards from userIndex to find where this logical exchange began.
     // An exchange starts after the last assistant message that had no tool calls.
-    let idx = userIndex;
+    const idx = userIndex;
     for (let i = userIndex - 1; i >= 0; i--) {
       const m = messages[i];
       if (!m) continue;

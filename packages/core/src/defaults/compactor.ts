@@ -104,7 +104,9 @@ export class HybridCompactor implements Compactor {
       { role: 'assistant', content: 'Continuing from compacted context.' },
     ];
 
-    ctx.messages.splice(0, boundary, ...summary);
+    // L1-A: route through ConversationState so subscribers see the rewrite.
+    const tail = ctx.messages.slice(boundary);
+    ctx.state.replaceMessages([...summary, ...tail]);
     return Math.max(0, removedTokens - this.estimateMessages(summary));
   }
 

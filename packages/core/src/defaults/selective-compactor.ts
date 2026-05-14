@@ -130,10 +130,12 @@ export class SelectiveCompactor implements Compactor {
    * insert summaries where the selector provided them.
    */
   private async executePlan(ctx: Context, plan: SelectorResult): Promise<void> {
-    const messages = ctx.messages;
-    if (messages.length === 0) return;
+    if (ctx.messages.length === 0) return;
 
-    // Process collapsed ranges in reverse order to preserve indices
+    // Process collapsed ranges in reverse order to preserve indices. We work
+    // on a local copy and commit through `ctx.state.replaceMessages` at the
+    // end so subscribers see a single state change for the whole rewrite.
+    const messages = [...ctx.messages];
     const sortedCollapsed = [...plan.collapsed].sort((a, b) => b.from - a.from);
 
     for (const range of sortedCollapsed) {
@@ -141,7 +143,6 @@ export class SelectiveCompactor implements Compactor {
 
       let summary = range.summary;
       if (!summary) {
-        // Call the summarizer for this range
         const toSummarize = messages.slice(range.from, range.to + 1);
         summary = await this.summarizeRange(toSummarize, ctx);
       }
@@ -151,12 +152,10 @@ export class SelectiveCompactor implements Compactor {
         content: `[prior_turns_${range.from}-${range.to}: ${summary}]`,
       };
 
-      // Replace the range with the summary message
       messages.splice(range.from, range.to - range.from + 1, summaryMsg);
     }
 
-    // Verify kept ranges are still present; if selector marked something
-    // that was already collapsed, this is a no-op (range may be out of bounds).
+    ctx.state.replaceMessages(messages);
   }
 
   private async summarizeRange(messages: Message[], ctx: Context): Promise<string> {
@@ -215,7 +214,8 @@ export class SelectiveCompactor implements Compactor {
       role: 'system',
       content: `[${removed.length} earlier turns trimmed — see session log for details]`,
     };
-    messages.splice(0, boundary, summaryMsg);
+    const tail = messages.slice(boundary);
+    ctx.state.replaceMessages([summaryMsg, ...tail]);
 
     return Math.max(0, removedTokens - this.estimateTokens([summaryMsg]));
   }

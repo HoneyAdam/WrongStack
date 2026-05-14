@@ -77,4 +77,87 @@ describe('MCPRegistry', () => {
     const reg = new MCPRegistry({ toolRegistry: toolReg, events, log: silentLog });
     await expect(reg.stop('nope')).resolves.toBeUndefined();
   });
+
+  it('health returns alive=true only for connected servers', async () => {
+    const reg = new MCPRegistry({ toolRegistry: toolReg, events, log: silentLog });
+    await reg.start(stdioCfg('s1', { enabled: false }));
+    const h = reg.health();
+    expect(h).toHaveLength(0); // disabled = not registered
+  });
+
+  it('health reflects failed state', async () => {
+    const reg = new MCPRegistry({ toolRegistry: toolReg, events, log: silentLog });
+    await reg.start(
+      stdioCfg('failing', { command: '__nonexistent__', startupTimeoutMs: 50 }),
+    );
+    // Give retries time to exhaust
+    await new Promise((r) => setTimeout(r, 5000));
+    const h = reg.health();
+    const entry = h.find((s) => s.name === 'failing');
+    expect(entry?.alive).toBe(false);
+  }, 10_000);
+
+  it('stop unregisters exit listener to avoid memory leaks', async () => {
+    const reg = new MCPRegistry({ toolRegistry: toolReg, events, log: silentLog });
+    const start = reg.start(stdioCfg('listener-check', { enabled: false }));
+    await start;
+    // stop must not throw even though no client was created
+    await expect(reg.stop('listener-check')).resolves.toBeUndefined();
+  });
+
+  describe('L2-B reconnect backoff cap', () => {
+    it('scheduleReconnect transitions to failed after MAX_RECONNECT_CYCLES', () => {
+      const reg = new MCPRegistry({ toolRegistry: toolReg, events, log: silentLog });
+      // Create an empty slot manually via the private servers map for a
+      // self-contained test that doesn't depend on a real subprocess.
+      const slot = {
+        cfg: stdioCfg('exhausted'),
+        state: 'disconnected' as const,
+        toolNames: [] as string[],
+        attempts: 0,
+        reconnectPending: false,
+        reconnectCycles: 5,
+      };
+      (reg as unknown as { servers: Map<string, typeof slot> }).servers.set('exhausted', slot);
+      const disconnected: { name: string; reason: string }[] = [];
+      events.on('mcp.server.disconnected', (e) => disconnected.push(e));
+      (reg as unknown as { scheduleReconnect: (s: typeof slot) => void }).scheduleReconnect(slot);
+      expect(slot.state).toBe('failed');
+      expect(slot.reconnectPending).toBe(false);
+      expect(disconnected[0]?.reason).toContain('reconnect-exhausted');
+    });
+
+    it('scheduleReconnect picks a bounded delay with jitter', () => {
+      const reg = new MCPRegistry({ toolRegistry: toolReg, events, log: silentLog });
+      // Cycle 4 → base = 1000 * 2^4 = 16000ms, then ±20% jitter capped at 30s.
+      const slot = {
+        cfg: stdioCfg('delay-check'),
+        state: 'disconnected' as const,
+        toolNames: [] as string[],
+        attempts: 0,
+        reconnectPending: false,
+        reconnectCycles: 4,
+      };
+      (reg as unknown as { servers: Map<string, typeof slot> }).servers.set('delay-check', slot);
+      // Spy on setTimeout to capture the delay without actually waiting.
+      const originalSetTimeout = global.setTimeout;
+      let captured = 0;
+      (global.setTimeout as unknown as (fn: () => void, ms: number) => unknown) = ((
+        _fn: () => void,
+        ms: number,
+      ) => {
+        captured = ms;
+        return 0;
+      }) as never;
+      try {
+        (reg as unknown as { scheduleReconnect: (s: typeof slot) => void }).scheduleReconnect(slot);
+      } finally {
+        global.setTimeout = originalSetTimeout;
+      }
+      // 16s base ±20% jitter → between 12.8s and 19.2s.
+      expect(captured).toBeGreaterThanOrEqual(12_000);
+      expect(captured).toBeLessThanOrEqual(20_000);
+      expect(slot.reconnectPending).toBe(true);
+    });
+  });
 });

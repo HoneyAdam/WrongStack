@@ -5,11 +5,21 @@ import type { Message } from '../../src/types/messages.js';
 import type { Provider } from '../../src/types/provider.js';
 
 function fakeContext(messages: Message[]): Context {
-  return {
+  const ctx = {
     messages,
     model: 'test-model',
     signal: new AbortController().signal,
   } as unknown as Context;
+  (ctx as unknown as { state: unknown }).state = {
+    replaceMessages(next: Message[]) {
+      ctx.messages.length = 0;
+      ctx.messages.push(...next);
+    },
+    appendMessage(m: Message) {
+      ctx.messages.push(m);
+    },
+  };
+  return ctx;
 }
 
 function makeFakeProvider(responses: string[]): Provider {

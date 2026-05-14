@@ -150,7 +150,7 @@ async function fileLogs(
 
   const rl = createInterface({
     input: createReadStream(path),
-    crlfDelay: Infinity,
+    crlfDelay: Number.POSITIVE_INFINITY,
   });
 
   for await (const line of rl) {

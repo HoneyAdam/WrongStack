@@ -9,6 +9,7 @@ import { theme } from './theme.js';
 import type { TerminalRenderer } from './renderer.js';
 import type { ReadlineInputReader } from './input-reader.js';
 import { CLI_VERSION } from './version.js';
+import { fmtTok } from './utils.js';
 
 export interface ReplOptions {
   agent: Agent;
@@ -90,9 +91,13 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
       if (result.status === 'aborted') {
         opts.renderer.writeWarning('Aborted.');
       } else if (result.status === 'failed') {
-        opts.renderer.writeError(
-          `Failed: ${result.error instanceof Error ? result.error.message : String(result.error)}`,
-        );
+        const err = result.error;
+        if (err) {
+          const tag = err.recoverable ? ' (recoverable)' : '';
+          opts.renderer.writeError(`Failed [${err.severity}]${tag}: ${err.describe()}`);
+        } else {
+          opts.renderer.writeError('Failed.');
+        }
       } else if (result.status === 'max_iterations') {
         opts.renderer.writeWarning(`Hit max iterations (${result.iterations}).`);
       }
@@ -153,11 +158,6 @@ async function readPossiblyMultiline(opts: ReplOptions): Promise<string> {
   return buf;
 }
 
-function fmtTok(n: number): string {
-  if (n < 1000) return String(n);
-  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
-  return `${(n / 1_000_000).toFixed(1)}M`;
-}
 
 const FILLED = '█';
 const EMPTY = '░';

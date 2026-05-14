@@ -159,7 +159,7 @@ Req 3`);
       // IDs should be sequential and start with REQ- prefix
       expect(spec.requirements.every((r) => r.id.startsWith('REQ-'))).toBe(true);
       // Extract numbers and verify they increase
-      const nums = spec.requirements.map((r) => parseInt(r.id.split('-')[1]));
+      const nums = spec.requirements.map((r) => Number.parseInt(r.id.split('-')[1]));
       expect(nums[1] > nums[0]).toBe(true);
       expect(nums[2] > nums[1]).toBe(true);
     });

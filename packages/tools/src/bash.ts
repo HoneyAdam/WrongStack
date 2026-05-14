@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import * as os from 'node:os';
-import type { Tool } from '@wrongstack/core';
+import type { Tool, ToolStreamEvent } from '@wrongstack/core';
 import { stripAnsi } from '@wrongstack/core';
 import { truncateMiddle } from './_util.js';
 
@@ -19,6 +19,11 @@ interface BashOutput {
 
 const MAX_OUTPUT = 32_768;
 const DEFAULT_TIMEOUT = 30_000;
+// Flush partial_output every 200ms or when 4 KiB accumulates — whichever
+// comes first. Smaller batches make the TUI feel responsive; larger ones
+// keep EventBus traffic reasonable on chatty processes.
+const STREAM_FLUSH_INTERVAL_MS = 200;
+const STREAM_FLUSH_BYTES = 4 * 1024;
 
 export const bashTool: Tool<BashInput, BashOutput> = {
   name: 'bash',
@@ -29,6 +34,7 @@ export const bashTool: Tool<BashInput, BashOutput> = {
   mutating: true,
   timeoutMs: 30_000,
   maxOutputBytes: MAX_OUTPUT,
+  estimatedDurationMs: 3_000,
   inputSchema: {
     type: 'object',
     properties: {
@@ -39,6 +45,14 @@ export const bashTool: Tool<BashInput, BashOutput> = {
     required: ['command'],
   },
   async execute(input, ctx, opts) {
+    let final: BashOutput | undefined;
+    for await (const ev of bashTool.executeStream!(input, ctx, opts)) {
+      if (ev.type === 'final') final = ev.output;
+    }
+    if (!final) throw new Error('bash: stream ended without final event');
+    return final;
+  },
+  async *executeStream(input, ctx, opts): AsyncGenerator<ToolStreamEvent<BashOutput>> {
     if (!input?.command) throw new Error('bash: command is required');
     const timeoutMs = Math.min(input.timeout_ms ?? DEFAULT_TIMEOUT, 600_000);
 
@@ -51,70 +65,135 @@ export const bashTool: Tool<BashInput, BashOutput> = {
     const env: NodeJS.ProcessEnv = { ...process.env };
     env['WRONGSTACK_SESSION_ID'] = ctx.session.id;
 
-    return new Promise<BashOutput>((resolve, reject) => {
-      let child: ReturnType<typeof spawn>;
-      try {
-        child = spawn(shell, args, {
-          cwd: ctx.projectRoot,
-          env,
-          stdio: input.background ? 'ignore' : ['ignore', 'pipe', 'pipe'],
-          detached: input.background,
-          signal: opts.signal,
-        });
-      } catch (err) {
-        return reject(err);
-      }
+    const child = spawn(shell, args, {
+      cwd: ctx.projectRoot,
+      env,
+      stdio: input.background ? 'ignore' : ['ignore', 'pipe', 'pipe'],
+      detached: input.background,
+      signal: opts.signal,
+    });
 
-      if (input.background) {
-        const pid = child.pid;
-        if (typeof pid === 'number') child.unref();
-        return resolve({
+    if (input.background) {
+      const pid = child.pid;
+      if (typeof pid === 'number') child.unref();
+      yield {
+        type: 'final',
+        output: {
           output: `[background] pid=${pid ?? 'unknown'}`,
           exit_code: null,
           timed_out: false,
           pid,
-        });
+        },
+      };
+      return;
+    }
+
+    let buf = '';
+    let pending = '';
+    let timedOut = false;
+    const timers: NodeJS.Timeout[] = [];
+    const timer = setTimeout(() => {
+      timedOut = true;
+      if (isWin) {
+        try { child.kill(); } catch { /* ignore */ }
+      } else {
+        try {
+          child.kill('SIGTERM');
+          const killTimer = setTimeout(() => {
+            try { child.kill('SIGKILL'); } catch { /* ignore */ }
+          }, 2000);
+          timers.push(killTimer);
+        } catch { /* ignore */ }
       }
+    }, timeoutMs);
+    timers.push(timer);
+    timer.unref?.();
 
-      let buf = '';
-      let timedOut = false;
-      const timers: NodeJS.Timeout[] = [];
-      const timer = setTimeout(() => {
-        timedOut = true;
-        if (isWin) {
-          try { child.kill(); } catch { /* ignore */ }
-        } else {
-          try {
-            child.kill('SIGTERM');
-            const killTimer = setTimeout(() => {
-              try { child.kill('SIGKILL'); } catch { /* ignore */ }
-            }, 2000);
-            timers.push(killTimer);
-          } catch { /* ignore */ }
-        }
-      }, timeoutMs);
-      timers.push(timer);
-      timer.unref?.();
-
-      child.stdout?.on('data', (chunk) => {
-        buf += chunk.toString();
-      });
-      child.stderr?.on('data', (chunk) => {
-        buf += chunk.toString();
-      });
-      child.on('error', (err) => {
-        for (const t of timers) clearTimeout(t);
-        reject(err);
-      });
-      child.on('close', (code) => {
-        for (const t of timers) clearTimeout(t);
-        const cleaned = stripAnsi(buf).replace(/\r\n?/g, '\n');
-        resolve({
-          output: truncateMiddle(cleaned, MAX_OUTPUT),
-          exit_code: code,
-          timed_out: timedOut,
-        });
-      });
+    // Bridge the EventEmitter-style child to an async iterator. We push
+    // chunks into a queue and let the generator pull them; this lets us
+    // yield 'partial_output' events to the executor at flush boundaries.
+    type Chunk = { kind: 'data'; text: string } | { kind: 'end'; code: number | null } | { kind: 'error'; err: Error };
+    const queue: Chunk[] = [];
+    let resolveNext: ((c: Chunk) => void) | null = null;
+    const push = (c: Chunk) => {
+      if (resolveNext) {
+        const r = resolveNext;
+        resolveNext = null;
+        r(c);
+      } else {
+        queue.push(c);
+      }
+    };
+    const next = (): Promise<Chunk> => new Promise((resolve) => {
+      const c = queue.shift();
+      if (c) resolve(c);
+      else resolveNext = resolve;
     });
+
+    let lastFlush = Date.now();
+    const flush = () => {
+      if (pending.length === 0) return null;
+      const text = pending;
+      pending = '';
+      lastFlush = Date.now();
+      return text;
+    };
+
+    child.stdout?.on('data', (chunk) => {
+      const text = chunk.toString();
+      buf += text;
+      pending += text;
+      push({ kind: 'data', text });
+    });
+    child.stderr?.on('data', (chunk) => {
+      const text = chunk.toString();
+      buf += text;
+      pending += text;
+      push({ kind: 'data', text });
+    });
+    child.on('error', (err) => {
+      for (const t of timers) clearTimeout(t);
+      push({ kind: 'error', err });
+    });
+    child.on('close', (code) => {
+      for (const t of timers) clearTimeout(t);
+      push({ kind: 'end', code });
+    });
+
+    try {
+      while (true) {
+        const c = await next();
+        if (c.kind === 'error') throw c.err;
+        if (c.kind === 'end') {
+          const remainder = flush();
+          if (remainder !== null) {
+            yield { type: 'partial_output', text: remainder };
+          }
+          const cleaned = stripAnsi(buf).replace(/\r\n?/g, '\n');
+          yield {
+            type: 'final',
+            output: {
+              output: truncateMiddle(cleaned, MAX_OUTPUT),
+              exit_code: c.code,
+              timed_out: timedOut,
+            },
+          };
+          return;
+        }
+        // Decide whether to flush. Time-based OR size-based to keep latency
+        // low for slow-emitting commands without overwhelming the TUI for
+        // chatty ones.
+        const now = Date.now();
+        if (pending.length >= STREAM_FLUSH_BYTES || now - lastFlush >= STREAM_FLUSH_INTERVAL_MS) {
+          const text = flush();
+          if (text) yield { type: 'partial_output', text };
+        }
+      }
+    } finally {
+      for (const t of timers) clearTimeout(t);
+    }
   },
 };
+
+// Re-export types so consumers can narrow on stream events.
+export type { BashInput, BashOutput };

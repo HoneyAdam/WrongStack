@@ -1,5 +1,4 @@
-import { spawn } from 'node:child_process';
-import type { Tool } from '@wrongstack/core';
+import type { Tool, ToolStreamEvent } from '@wrongstack/core';
 
 interface SearchInput {
   query: string;
@@ -45,22 +44,43 @@ export const searchTool: Tool<SearchInput, SearchOutput> = {
     },
     required: ['query'],
   },
-  async execute(input, _ctx, opts) {
+  async execute(input, ctx, opts) {
+    let final: SearchOutput | undefined;
+    for await (const ev of searchTool.executeStream!(input, ctx, opts)) {
+      if (ev.type === 'final') final = ev.output;
+    }
+    if (!final) throw new Error('search: stream ended without final event');
+    return final;
+  },
+  async *executeStream(input, _ctx, opts): AsyncGenerator<ToolStreamEvent<SearchOutput>> {
     if (!input?.query) throw new Error('search: query is required');
 
     const num = Math.max(1, Math.min(input.num_results ?? DEFAULT_NUM, MAX_RESULTS));
     const source = input.source ?? 'duckduckgo';
 
+    yield { type: 'log', text: `Querying ${source} for "${input.query}"…`, data: { source, query: input.query } };
+
+    let output: SearchOutput;
     switch (source) {
       case 'duckduckgo':
-        return await duckduckgoSearch(input.query, num, opts.signal);
+        output = await duckduckgoSearch(input.query, num, opts.signal);
+        break;
       case 'google':
-        return await googleSearch(input.query, num, opts.signal);
+        output = await googleSearch(input.query, num, opts.signal);
+        break;
       case 'bing':
-        return await bingSearch(input.query, num, opts.signal);
+        output = await bingSearch(input.query, num, opts.signal);
+        break;
       default:
         throw new Error(`search: unknown source "${source}"`);
     }
+
+    yield {
+      type: 'partial_output',
+      text: `${output.results.length} results from ${output.source}`,
+      data: { count: output.results.length },
+    };
+    yield { type: 'final', output };
   },
 };
 
@@ -85,23 +105,33 @@ async function duckduckgoSearch(
   };
 }
 
+function takeFrom<T>(iter: Iterable<T>, max: number): T[] {
+  const out: T[] = [];
+  for (const item of iter) {
+    if (out.length >= max) break;
+    out.push(item);
+  }
+  return out;
+}
+
 function parseDuckDuckGo(html: string, num: number): SearchOutput['results'] {
   const results: SearchOutput['results'] = [];
   const snippetRegex = /<a class="result-link"[^>]+href="([^"]+)"[^>]*>([^<]+)<\/a>/gi;
   const snippet2Regex = /<a class="result-snippet"[^>]*>([^<]+)<\/a>/gi;
-  let match: RegExpExecArray | null;
 
-  const linkMatches: { url: string; title: string }[] = [];
-  while ((match = snippetRegex.exec(html)) !== null && linkMatches.length < num) {
-    if (!match[1] || !match[2]) continue;
-    linkMatches.push({ url: match[1], title: stripTags(match[2]) });
-  }
+  const linkMatches = takeFrom(
+    [...html.matchAll(snippetRegex)]
+      .filter((m) => m[1] && m[2])
+      .map((m) => ({ url: m[1]!, title: stripTags(m[2]!) })),
+    num,
+  );
 
-  const snippetMatches: string[] = [];
-  while ((match = snippet2Regex.exec(html)) !== null && snippetMatches.length < num) {
-    if (!match[1]) continue;
-    snippetMatches.push(stripTags(match[1]));
-  }
+  const snippetMatches = takeFrom(
+    [...html.matchAll(snippet2Regex)]
+      .filter((m) => m[1])
+      .map((m) => stripTags(m[1]!)),
+    num,
+  );
 
   for (let i = 0; i < linkMatches.length && i < num; i++) {
     const entry = linkMatches[i];
@@ -143,25 +173,23 @@ function parseGoogleResults(html: string, num: number): SearchOutput['results'] 
   const urlRegex = /<cite[^>]*>([^<]+)<\/cite>/gi;
   const snippetRegex = /<span[^>]*class="[^"]*aXCZ0b[^>]*>([^<]+)<\/span>/gi;
 
-  const titles: string[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = titleRegex.exec(html)) !== null && titles.length < num) {
-    if (!m[1]) continue;
-    titles.push(stripTags(m[1]));
-  }
+  const titles = takeFrom(
+    [...html.matchAll(titleRegex)].filter((m) => m[1]).map((m) => stripTags(m[1]!)),
+    num,
+  );
 
-  const urls: string[] = [];
-  while ((m = urlRegex.exec(html)) !== null && urls.length < num) {
-    if (!m[1]) continue;
-    const url = stripTags(m[1]).replace(/^\*(https?:\/\/[^\s]+).*$/, '$1');
-    if (url.startsWith('http')) urls.push(url);
-  }
+  const urls = takeFrom(
+    [...html.matchAll(urlRegex)]
+      .filter((m) => m[1])
+      .map((m) => stripTags(m[1]!).replace(/^\*(https?:\/\/[^\s]+).*$/, '$1'))
+      .filter((u) => u.startsWith('http')),
+    num,
+  );
 
-  const snippets: string[] = [];
-  while ((m = snippetRegex.exec(html)) !== null && snippets.length < num) {
-    if (!m[1]) continue;
-    snippets.push(stripTags(m[1]));
-  }
+  const snippets = takeFrom(
+    [...html.matchAll(snippetRegex)].filter((m) => m[1]).map((m) => stripTags(m[1]!)),
+    num,
+  );
 
   for (let i = 0; i < Math.min(titles.length, num); i++) {
     results.push({
@@ -201,18 +229,17 @@ function parseBingResults(html: string, num: number): SearchOutput['results'] {
   const titleRegex = /<h2[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>([^<]+)<\/a>\s*<\/h2>/gi;
   const snippetRegex = /<p[^>]*class="[^"]*b_paractl[^"]*"[^>]*>([^<]+)<\/p>/gi;
 
-  const entries: { url: string; title: string }[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = titleRegex.exec(html)) !== null && entries.length < num) {
-    if (!m[1] || !m[2]) continue;
-    entries.push({ url: m[1], title: stripTags(m[2]) });
-  }
+  const entries = takeFrom(
+    [...html.matchAll(titleRegex)]
+      .filter((m) => m[1] && m[2])
+      .map((m) => ({ url: m[1]!, title: stripTags(m[2]!) })),
+    num,
+  );
 
-  const snippets: string[] = [];
-  while ((m = snippetRegex.exec(html)) !== null && snippets.length < num) {
-    if (!m[1]) continue;
-    snippets.push(stripTags(m[1]));
-  }
+  const snippets = takeFrom(
+    [...html.matchAll(snippetRegex)].filter((m) => m[1]).map((m) => stripTags(m[1]!)),
+    num,
+  );
 
   for (let i = 0; i < entries.length; i++) {
     results.push({

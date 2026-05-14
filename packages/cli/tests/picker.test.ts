@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Writable } from 'node:stream';
-import {
-  type ResolvedProvider,
-  type ModelsDevModel,
+import type {
+  ResolvedProvider,
+  ModelsDevModel,
 } from '@wrongstack/core';
 import { TerminalRenderer } from '../src/renderer.js';
 import { runPicker, saveToGlobalConfig } from '../src/picker.js';

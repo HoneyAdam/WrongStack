@@ -54,7 +54,7 @@ export async function runAuthMenu(deps: AuthMenuDeps): Promise<number> {
       continue;
     }
 
-    const idx = parseInt(choice, 10);
+    const idx = Number.parseInt(choice, 10);
     if (!Number.isNaN(idx) && idx >= 1 && idx <= ids.length) {
       const pid = ids[idx - 1]!;
       await manageProvider(pid, deps);
@@ -158,7 +158,7 @@ async function manageProvider(providerId: string, deps: AuthMenuDeps): Promise<v
     if (!raw || raw === 'b' || raw === 'back') return;
 
     const [verb, argRaw] = raw.split(/\s+/, 2);
-    const arg = argRaw ? parseInt(argRaw, 10) : NaN;
+    const arg = argRaw ? Number.parseInt(argRaw, 10) : Number.NaN;
 
     if (verb === 'a' || verb === 'add') {
       await addKeyForProvider(providerId, deps, cfg);
@@ -387,7 +387,7 @@ async function addForNewProvider(deps: AuthMenuDeps): Promise<void> {
   if (!answer) return;
 
   let chosen: ResolvedProvider | undefined;
-  const num = parseInt(answer, 10);
+  const num = Number.parseInt(answer, 10);
   if (!Number.isNaN(num) && num >= 1 && num <= ordered.length) {
     chosen = ordered[num - 1];
   } else {

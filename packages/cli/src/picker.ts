@@ -201,7 +201,7 @@ export async function runPicker(deps: {
     return undefined;
   }
 
-  const providerIdx = parseInt(providerAnswer, 10);
+  const providerIdx = Number.parseInt(providerAnswer, 10);
   if (Number.isNaN(providerIdx) || providerIdx < 1 || providerIdx > ordered.length) {
     // Try matching by id
     const byId = ordered.find((o) => o.provider.id.toLowerCase() === providerAnswer.toLowerCase());
@@ -310,7 +310,7 @@ async function resolveModelSelection(
   renderer: TerminalRenderer,
   _reader: ReadlineInputReader,
 ): Promise<PickerResult | undefined> {
-  const idx = parseInt(answer, 10);
+  const idx = Number.parseInt(answer, 10);
   let modelId: string | undefined;
 
   if (!Number.isNaN(idx) && idx >= 1 && idx <= models.length) {

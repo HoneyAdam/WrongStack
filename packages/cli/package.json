@@ -1,6 +1,6 @@
 {
   "name": "@wrongstack/cli",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -18,7 +18,7 @@
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
   },
   "dependencies": {
     "@wrongstack/core": "workspace:*",
@@ -28,7 +28,7 @@
     "@wrongstack/tui": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^22.10.0",
+    "@types/node": "^22.19.19",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2"
   }

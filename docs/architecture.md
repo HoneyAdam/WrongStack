@@ -1,0 +1,326 @@
+# Architecture
+
+How WrongStack is wired together, from the bottom up.
+
+---
+
+## Package layout
+
+```
+packages/
+  core/         types + kernel + defaults — the runtime, zero opinions
+  providers/    Anthropic / OpenAI / Google / OpenAI-compatible adapters
+  tools/        bash, read, write, edit, grep, …, plus the meta-tools
+  mcp/          MCP client + registry + stdio/SSE/streamable-http transports
+  cli/          REPL, subcommands, interactive pickers, slash commands
+  tui/          React/Ink terminal UI (lazy-loaded behind --tui)
+apps/
+  wrongstack/   bin entry — runs cli/main(argv)
+```
+
+Each package depends only on what's below it. `core` depends on nothing
+WrongStack-internal; `providers`/`tools`/`mcp` depend on `core`; `cli`/`tui`
+depend on everything beneath.
+
+---
+
+## The kernel (≤600 lines total)
+
+`packages/core/src/kernel/` holds four primitives. Nothing else in the codebase
+is allowed to expand it without a strong reason.
+
+### `Container`
+
+A typed DI container indexed by `Token<T>` (a branded `symbol`). Bindings
+support `factory`, `value`, and `decorator` forms; resolution is lazy and
+memoized. The well-known tokens are in [`tokens.ts`](../packages/core/src/kernel/tokens.ts):
+
+```
+TOKENS.Logger          TOKENS.TokenCounter      TOKENS.SessionStore
+TOKENS.MemoryStore     TOKENS.PermissionPolicy  TOKENS.Compactor
+TOKENS.PathResolver    TOKENS.ConfigLoader      TOKENS.ConfigStore
+TOKENS.Renderer        TOKENS.InputReader       TOKENS.ErrorHandler
+TOKENS.RetryPolicy     TOKENS.SkillLoader       TOKENS.SystemPromptBuilder
+TOKENS.SecretScrubber  TOKENS.ModelsRegistry
+```
+
+The CLI binds defaults at boot; plugins can rebind any token before
+`Agent.run`. There is no service-locator pattern — every dependency arrives
+through the container explicitly.
+
+### `Pipeline<T>`
+
+Linear middleware over a value of type `T`. Six pipelines run per agent step:
+
+| Pipeline | Value | Fires |
+|---|---|---|
+| `userInput` | `{ content, text, ctx }` | every user turn |
+| `request` | `Request` | before each provider call |
+| `response` | `Response` | after each provider call |
+| `assistantOutput` | `TextBlock` | per assistant text block |
+| `toolCall` | `{ toolUse, result, ctx, tool }` | after every tool call |
+| `contextWindow` | `Context` | before sending if context might be too large |
+
+Middleware shape:
+
+```ts
+const mw: Middleware<Request> = {
+  name: 'my-mw',
+  owner: 'my-plugin',
+  handler: async (req, next) => {
+    const before = perf.now();
+    const out = await next(req);
+    log('took', perf.now() - before);
+    return out;
+  },
+};
+```
+
+L1-F gave `Pipeline` a `setErrorHandler(fn)` so the host can decide
+rethrow-vs-swallow when a plugin handler crashes. Default is rethrow.
+
+### `EventBus`
+
+Typed pub/sub. Every meaningful runtime moment fires an event:
+`iteration.started`, `provider.text_delta`, `tool.executed`,
+`tool.progress`, `compaction.completed`, `provider.retry`,
+`provider.error`, and ~30 more. See [`events.ts`](../packages/core/src/kernel/events.ts).
+
+The CLI subscribes for spinner / live-tail / session-log; the TUI subscribes
+the same events into React state; observability sinks subscribe via
+`wireMetricsToEvents`.
+
+### `RunController`
+
+One per `Agent.run`. Owns the `AbortController`, chains the parent signal,
+and drains abort hooks when the run ends (whether normally, by abort, or
+by throw).
+
+---
+
+## `Context` and the L1-A reactive split
+
+`Context` is the live agent-run object: messages, todos, system prompt,
+session writer, tools, provider, signal, cwd, model, meta. It's the
+parameter passed to every Tool's `execute(input, ctx, opts)`.
+
+After L1-A:
+
+- `Context implements RunEnv` — the read-only env interface (provider,
+  session, signal, tokenCounter, cwd, projectRoot, model, systemPrompt,
+  tools). Subsystems that only read declare `RunEnv` and accept any
+  `Context` for free.
+- `ctx.state: ConversationState` — observable wrapper over the mutable
+  fields. `ctx.state.appendMessage(m)` and `ctx.state.replaceMessages(ms)`
+  fire `onChange` events that the UI can subscribe to.
+- The public `Tool.execute(input, ctx, opts)` API is **unchanged.** Tools
+  that mutate `ctx.messages` directly still work; subscribers just don't
+  see those mutations until the next state-routed write.
+
+`Agent.run` and every compactor now route through `ctx.state`. Direct
+mutation is reserved for legacy and external tool code.
+
+```ts
+const unsubscribe = ctx.state.onChange((change, state) => {
+  if (change.kind === 'message_appended') updateUI(change.message);
+});
+```
+
+---
+
+## Agent lifecycle
+
+```text
+                   ┌───────────┐
+   user input ────►│ Agent.run │
+                   └─────┬─────┘
+                         │   normalizeAndEmitUserInput
+                         │     → userInput pipeline
+                         │     → ctx.state.appendMessage
+                         ▼
+                   ┌──────────────────────────┐
+                   │ for each iteration       │
+                   │   build request          │ ← request pipeline
+                   │   provider.complete      │ ← provider.complete span
+                   │   stream into Response   │ ← provider.text_delta / response pipeline
+                   │   if assistant text only → done
+                   │   else: tool_use blocks  │
+                   │     ToolExecutor.run     │
+                   │       permission check   │
+                   │       tool.execute(eS)   │ ← tool.<name> span
+                   │       toolCall pipeline  │
+                   │       ctx.state.append   │
+                   │   loop                   │
+                   └──────────────────────────┘
+                         │
+                         ▼
+                   ┌─────────────┐
+                   │ RunResult   │
+                   └─────────────┘
+```
+
+Iteration cap is a soft limit: when reached, the agent fires
+`iteration.limit_reached` and either auto-extends by 100 or waits for a
+listener to grant/deny. Default is auto-extend.
+
+Errors at any layer are surfaced as `WrongStackError` (extends `Error`
+with `code`, `severity`, `recoverable`). `RunResult.error` is typed
+`WrongStackError | undefined`.
+
+---
+
+## Providers — declarative wire formats
+
+A `Provider` adapts a model's HTTP API to the unified `complete` /
+`stream` interface. After L0-C, the three built-ins live as
+`WireFormatConfig` presets:
+
+```ts
+const config: WireFormatConfig<MyStreamState> = {
+  family: 'openai-compatible',
+  buildRequestBody: (req) => ({ ... }),
+  parseResponse: (json) => ({ content, stopReason, usage, model }),
+  createStreamState: () => ({ ... }),
+  parseStreamEvent: (event, state) => yieldDeltas(...),
+  finalizeStream: (state) => finalResponse(...),
+};
+```
+
+`WireFormatProvider` consumes the config and gives you a fully-wired
+`Provider`. The compat re-exports (`class AnthropicProvider extends
+WireFormatProvider`) keep the legacy `new AnthropicProvider(...)` shape
+working for one minor.
+
+See [`provider-author-guide.md`](provider-author-guide.md) for writing
+a new one.
+
+---
+
+## Tools — the streaming contract
+
+A `Tool` is the runtime-callable interface that the model invokes:
+
+```ts
+interface Tool<I, O> {
+  name: string;
+  description: string;
+  inputSchema: JSONSchema;
+  permission: 'auto' | 'confirm' | 'deny';
+  mutating: boolean;
+  execute(input, ctx, opts): Promise<O>;
+  executeStream?(input, ctx, opts): AsyncIterable<ToolStreamEvent<O>>;
+  cleanup?(input, ctx): Promise<void>;
+}
+```
+
+When defined, `executeStream` is preferred: yields `log`, `partial_output`,
+`metric`, `file_changed`, or `warning` events, then a terminal
+`{ type: 'final', output }`. The executor publishes each event as
+`tool.progress` on the EventBus; the TUI live-tails.
+
+See [`tool-author-guide.md`](tool-author-guide.md).
+
+---
+
+## MCP integration
+
+`MCPClient` speaks JSON-RPC 2.0 over three transports: `stdio` (child
+process), `sse` (server-sent events), `streamable-http` (session-based
+NDJSON). `MCPRegistry` manages a fleet of clients with:
+
+- Exponential backoff + jitter on reconnect (capped at 5 cycles, then
+  transitions to `failed` and surfaces in `/diag`)
+- Tool-list cache that invalidates on `notifications/tools/list_changed`
+- Tool namespace prefix: `mcp__<serverName>__<toolName>`
+
+Built-in presets in [`mcp-servers.ts`](../packages/core/src/defaults/mcp-servers.ts):
+filesystem, github, context7, brave-search, block, everart, slack, aws,
+google-maps, sentinel. All disabled by default.
+
+---
+
+## Plugins
+
+Plugins declare `capabilities` (`tools`, `providers`, `slashCommands`,
+`mcp`, `pipelines`) and receive a scoped `api`:
+
+```ts
+export default {
+  name: 'my-plugin',
+  apiVersion: '^0.1.0',
+  capabilities: { tools: true },
+  async setup(api) {
+    api.tools.register(myTool);
+  },
+  async teardown() {
+    // close handles, kill subprocesses, etc.
+  },
+};
+```
+
+The loader runs `teardown()` on SIGINT and natural exit. When a plugin
+calls `api.tools.register` but `capabilities.tools !== true`, the loader
+logs a warning (L0-D capability check).
+
+See [`plugin-author-guide.md`](plugin-author-guide.md).
+
+---
+
+## Observability (opt-in, noop by default)
+
+Three pillars, all behind interfaces with noop default impls:
+
+| Pillar | Interface | Default | Opt-in via |
+|---|---|---|---|
+| Metrics | `MetricsSink` | `NoopMetricsSink` | `--metrics` CLI flag |
+| Traces | `Tracer` | `NoopTracer` | bind a real `OTelTracer` |
+| Health | `HealthRegistry` | `DefaultHealthRegistry` | enabled with `--metrics` |
+
+L3-C added a Prometheus pull endpoint: `--metrics-port 9090` starts an
+HTTP server on `127.0.0.1` exposing `/metrics` in v0.0.4 text format.
+Set `METRICS_HOST=0.0.0.0` to bind publicly.
+
+`Agent.run` opens an `Agent.run` span. `provider.complete` and
+`tool.<name>` are child spans. Everything is noop unless you wire a real
+tracer.
+
+---
+
+## Session storage
+
+JSONL files under `<projectDir>/.wrongstack/sessions/<id>.jsonl`. Each
+line is one `SessionEvent`: `user_input`, `llm_request`, `llm_response`,
+`tool_use`, `tool_result`, `compaction`, `error`, plus mode/task/agent/
+skill events.
+
+`DefaultSessionStore.list()` reads a side-car `<id>.summary.json` for
+fast listing; only damaged or pre-manifest sessions force a full parse.
+
+L2-A added `DefaultSessionReader` over this store with query/replay/
+search/export. Export formats: markdown, json, text.
+
+---
+
+## CLI entry shape
+
+`packages/cli/src/index.ts` does:
+
+1. Parse argv → flags + positional
+2. `bootConfig(flags)` — resolve paths, create vault, migrate secrets, load config
+3. Subcommand dispatch if `positional[0]` matches (`init`, `auth`, `mcp`, …)
+4. Otherwise: pre-launch prompts (project check, mode, yolo) on interactive TTY
+5. Wire container, registries, pipelines, system prompt builder, mcp registry,
+   plugins, multi-agent host
+6. `runRepl(...)` or `runTui(...)` based on mode
+
+The CLI knows nothing the plugins / providers / tools couldn't also do —
+it's just the assembly of defaults + the interactive shell.
+
+---
+
+## Where to look next
+
+- **Building a plugin** → [plugin-author-guide.md](plugin-author-guide.md)
+- **Adding a new provider** → [provider-author-guide.md](provider-author-guide.md)
+- **Writing a tool** → [tool-author-guide.md](tool-author-guide.md)
+- **Recent changes** → [`../CHANGELOG.md`](../CHANGELOG.md)

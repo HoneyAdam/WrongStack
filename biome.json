@@ -21,7 +21,9 @@
         "noConsoleLog": "off",
         "noImplicitAnyLet": "off",
         "noGlobalIsFinite": "off",
-        "noConfusingVoidType": "off"
+        "noConfusingVoidType": "off",
+        "noAssignInExpressions": "warn",
+        "noControlCharactersInRegex": "warn"
       },
       "style": {
         "useNodejsImportProtocol": "error",
@@ -45,5 +47,17 @@
       "trailingCommas": "all",
       "semicolons": "always"
     }
-  }
+  },
+  "overrides": [
+    {
+      "include": ["**/*.test.ts", "**/*.test.tsx"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off"
+          }
+        }
+      }
+    }
+  ]
 }

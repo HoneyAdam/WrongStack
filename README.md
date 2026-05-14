@@ -459,11 +459,33 @@ Models    → models.dev/api.json fetched + cached + classified
 
 State lives in the agent layer only. Kernel, providers, and the models registry are stateless within a single run (the registry persists its cache).
 
+For the full walk-through — including the L1-A reactive `ConversationState`,
+how the six pipelines fire per turn, and how plugins / MCP / observability
+plug in — see [`docs/architecture.md`](docs/architecture.md).
+
+## Contributor docs
+
+| Doc | What it covers |
+|---|---|
+| [`docs/architecture.md`](docs/architecture.md) | Package layout, the kernel primitives (Container/Pipeline/EventBus/RunController), the agent lifecycle, the L1-A reactive split |
+| [`docs/plugin-author-guide.md`](docs/plugin-author-guide.md) | Building a plugin end-to-end: capabilities, dependencies, configSchema, teardown contract, testing |
+| [`docs/provider-author-guide.md`](docs/provider-author-guide.md) | Adding an LLM provider declaratively via `WireFormatConfig`, stream-state design, vendor quirks |
+| [`docs/tool-author-guide.md`](docs/tool-author-guide.md) | Writing a tool: streaming `executeStream`, permission semantics, `cleanup` vs `registerAbortHook`, the mtime contract |
+
+## Benchmarks
+
+`pnpm bench` runs all `*.bench.ts` files via a separate vitest config
+and writes results to `bench-results.json` (gitignored). The current
+suite covers compactor hot paths, token estimation, JSON-schema
+validation, and the system prompt builder. See
+[`vitest.bench.config.ts`](vitest.bench.config.ts).
+
 ## Status
 
-- **535 tests passing** across 76 test files
-- All 6 packages build clean with TypeScript strict + `noUncheckedIndexedAccess`
+- **1526 tests passing** across 156 test files (~12s)
+- All 7 packages build clean with TypeScript strict + `noUncheckedIndexedAccess`
 - Node 22+ only, ESM-only, no CommonJS bundles
+- CI gate: `pnpm typecheck && pnpm build && pnpm test` all required
 
 ## License
 

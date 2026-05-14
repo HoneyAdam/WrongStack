@@ -6,8 +6,9 @@ import { TOKENS } from '../kernel/tokens.js';
 import type { Tool } from '../types/tool.js';
 import type { ContentBlock, TextBlock, ToolResultBlock, ToolUseBlock } from '../types/blocks.js';
 import { isTextBlock, isToolUseBlock } from '../types/blocks.js';
-import type { Request, Response, Provider } from '../types/provider.js';
-import { ProviderError } from '../types/provider.js';
+import type { Request, Response } from '../types/provider.js';
+import { type WrongStackError, AgentError, toWrongStackError } from '../types/errors.js';
+import type { Tracer } from '../types/observability.js';
 import type { Logger } from '../types/logger.js';
 import type { RetryPolicy } from '../types/retry-policy.js';
 import type { ErrorHandler } from '../types/error-handler.js';
@@ -20,14 +21,22 @@ import type { Context, RunOptions } from './context.js';
 import type { ToolRegistry } from '../registry/tool-registry.js';
 import type { ProviderRegistry } from '../registry/provider-registry.js';
 import { ToolExecutor } from '../defaults/tool-executor.js';
-import { streamProviderToResponse } from './streaming-response-builder.js';
+import { runProviderWithRetry } from './provider-runner.js';
+import { requestLimitExtension } from './iteration-limit.js';
 
 /** Default iteration cap. Use 0 or Infinity via config to disable. */
 export const DEFAULT_MAX_ITERATIONS = 100;
 
 export interface RunResult {
   status: 'done' | 'failed' | 'max_iterations' | 'aborted';
-  error?: unknown;
+  /**
+   * Set when `status === 'failed'` (always) or `'aborted'` (when the abort
+   * carried an error context). Always a `WrongStackError` so callers can
+   * branch on `code`, `severity`, and `recoverable` without parsing strings.
+   * Raw throws are wrapped into an `AgentError` with code `AGENT_RUN_FAILED`
+   * by `Agent.run` before they reach this field.
+   */
+  error?: WrongStackError;
   finalText?: string;
   iterations: number;
 }
@@ -49,6 +58,20 @@ export interface AgentInit {
    * emit `iteration.limit_reached` and wait for a listener to grant/deny.
    */
   autoExtendLimit?: boolean;
+  /**
+   * Optional confirm handler. When set, the executor calls it synchronously
+   * when a tool needs user confirmation (CLI path). When omitted, the
+   * executor returns a `ToolConfirmPendingResult` and the agent emits
+   * `tool.confirm_needed` for the TUI to resolve.
+   */
+  confirmAwaiter?: import('../types/tool-executor.js').ConfirmAwaiter | undefined;
+  /**
+   * Optional tracer. When provided, `Agent.run` opens an `agent.run` span,
+   * per-iteration `agent.iteration` spans, and `provider.complete` spans
+   * inside the retry loop. Tool spans are opened by the ToolExecutor.
+   * Default is `NoopTracer` (zero overhead).
+   */
+  tracer?: Tracer | undefined;
 }
 
 export interface AgentPipelines {
@@ -113,6 +136,7 @@ export class Agent {
   private readonly plugins: { plugin: Plugin; api: PluginAPI }[] = [];
   private readonly toolExecutor: ToolExecutor;
   private readonly autoExtendLimit: boolean;
+  private readonly tracer: Tracer | undefined;
 
   constructor(init: AgentInit) {
     this.container = init.container;
@@ -126,13 +150,16 @@ export class Agent {
     this.executionStrategy = init.executionStrategy ?? 'smart';
     this.perIterationOutputCapBytes = init.perIterationOutputCapBytes ?? 100_000;
     this.autoExtendLimit = init.autoExtendLimit ?? true;
+    this.tracer = init.tracer;
     this.toolExecutor = new ToolExecutor(this.tools, {
       permissionPolicy: this.permission,
       secretScrubber: this.scrubber,
       renderer: this.renderer,
       events: this.events,
+      confirmAwaiter: init.confirmAwaiter,
       iterationTimeoutMs: this.iterationTimeoutMs,
       perIterationOutputCapBytes: this.perIterationOutputCapBytes,
+      tracer: this.tracer,
     });
   }
 
@@ -179,9 +206,30 @@ export class Agent {
     // is aborted. Tools / MCP / file handles register via ctx.registerAbortHook.
     controller.onAbort(() => this.ctx.drainAbortHooks());
 
+    const span = this.tracer?.startSpan('agent.run', {
+      'agent.model': opts.model ?? this.ctx.model,
+      'agent.executionStrategy': opts.executionStrategy ?? this.executionStrategy,
+    });
     try {
-      return await this.runInner(userInput, opts, controller);
+      const result = await this.runInner(userInput, opts, controller);
+      span?.setAttribute('agent.status', result.status);
+      span?.setAttribute('agent.iterations', result.iterations);
+      return result;
+    } catch (err) {
+      // Any throw that escapes runInner is treated as a hard agent failure.
+      // Wrap into a WrongStackError so callers always see a structured error
+      // and never have to unwrap `unknown` in user-facing paths.
+      const wse = err instanceof AgentError ? err : toWrongStackError(err);
+      this.events.emit('error', { err: toError(err), phase: 'agent' });
+      if (err instanceof Error) span?.recordError(err);
+      span?.setAttribute('agent.status', 'failed');
+      return {
+        status: signal.aborted ? 'aborted' : 'failed',
+        iterations: 0,
+        error: wse,
+      };
     } finally {
+      span?.end();
       await controller.dispose();
     }
   }
@@ -195,8 +243,8 @@ export class Agent {
 
     let finalText = '';
     let iterations = 0;
-    let maxIter = opts.maxIterations ?? this.maxIterations;
-    const hasHardLimit = maxIter > 0 && Number.isFinite(maxIter);
+    let effectiveLimit = opts.maxIterations ?? this.maxIterations;
+    const hasHardLimit = effectiveLimit > 0 && Number.isFinite(effectiveLimit);
 
     for (let i = 0; ; i++) {
       iterations = i + 1;
@@ -204,14 +252,15 @@ export class Agent {
         return { status: 'aborted', iterations };
       }
 
-      const limitResult = await this.checkIterationLimit(
+      const limitCheck = await this.checkIterationLimit(
         i,
-        maxIter,
+        effectiveLimit,
         hasHardLimit,
         iterations,
       );
-      if (limitResult !== undefined) {
-        return { ...limitResult, finalText };
+      effectiveLimit = limitCheck.limit;
+      if (limitCheck.exit) {
+        return { ...limitCheck.exit, finalText };
       }
 
       this.events.emit('iteration.started', { ctx: this.ctx, index: i });
@@ -220,16 +269,25 @@ export class Agent {
 
       let res: Response;
       try {
-        res = await this.callProviderWithRetry(this.ctx.provider, req, controller.signal);
+        res = await runProviderWithRetry({
+          provider: this.ctx.provider,
+          request: req,
+          signal: controller.signal,
+          ctx: this.ctx,
+          events: this.events,
+          retry: this.retry,
+          logger: this.logger,
+          tracer: this.tracer,
+        });
       } catch (err) {
         if (controller.signal.aborted) {
           this.events.emit('error', { err: toError(err), phase: 'provider' });
-          return { status: 'aborted', iterations, error: err };
+          return { status: 'aborted', iterations, error: toWrongStackError(err, 'AGENT_ABORTED') };
         }
         const recovered = await this.errorHandler.recover(err, this.ctx);
         if (!recovered) {
           this.events.emit('error', { err: toError(err), phase: 'provider' });
-          return { status: 'failed', iterations, error: err };
+          return { status: 'failed', iterations, error: toWrongStackError(err) };
         }
         res = recovered;
       }
@@ -263,7 +321,7 @@ export class Agent {
   private async normalizeAndEmitUserInput(userInput: AgentInput): Promise<void> {
     const { blocks, text } = normalizeInput(userInput);
     await this.pipelines.userInput.run({ content: blocks, text, ctx: this.ctx });
-    this.ctx.messages.push({ role: 'user', content: blocks });
+    this.ctx.state.appendMessage({ role: 'user', content: blocks });
     await this.ctx.session.append({
       type: 'user_input',
       ts: new Date().toISOString(),
@@ -273,24 +331,31 @@ export class Agent {
 
   /**
    * Check if iteration limit has been reached and request extension if needed.
-   * Returns RunResult if loop should exit, undefined otherwise.
+   * Returns the new effective limit (possibly extended) and a RunResult if
+   * the loop should exit. Returns `{ limit }` with no result when the
+   * iteration may proceed.
    */
   private async checkIterationLimit(
     iterationIndex: number,
-    maxIter: number,
+    limit: number,
     hasHardLimit: boolean,
     currentIterations: number,
-  ): Promise<RunResult | undefined> {
-    if (hasHardLimit && iterationIndex >= maxIter) {
-      const extendBy = await this.requestLimitExtension(currentIterations);
+  ): Promise<{ limit: number; exit?: RunResult }> {
+    if (hasHardLimit && iterationIndex >= limit) {
+      const extendBy = await requestLimitExtension({
+        events: this.events,
+        currentIterations,
+        currentLimit: this.maxIterations,
+        autoExtend: this.autoExtendLimit,
+      });
       if (extendBy > 0) {
-        maxIter += extendBy;
-        this.logger.info(`Iteration limit extended by ${extendBy} (new limit: ${maxIter})`);
-      } else {
-        return { status: 'max_iterations', iterations: currentIterations };
+        const newLimit = limit + extendBy;
+        this.logger.info(`Iteration limit extended by ${extendBy} (new limit: ${newLimit})`);
+        return { limit: newLimit };
       }
+      return { limit, exit: { status: 'max_iterations', iterations: currentIterations } };
     }
-    return undefined;
+    return { limit };
   }
 
   /**
@@ -327,7 +392,7 @@ export class Agent {
     // aborted mid-stream — having the partial text in `ctx.messages`
     // means the next turn can continue with full context and the
     // session log is consistent.
-    this.ctx.messages.push({ role: 'assistant', content: res.content });
+    this.ctx.state.appendMessage({ role: 'assistant', content: res.content });
     await this.ctx.session.append({
       type: 'llm_response',
       ts: new Date().toISOString(),
@@ -365,6 +430,10 @@ export class Agent {
 
   /**
    * Execute tools and append tool results to context.
+   * When a tool returns `tool_confirm_pending` (no confirmAwaiter set),
+   * we pause and emit `tool.confirm_needed`. The run is blocked until
+   * the event listener resolves the confirmation, then we re-run the
+   * single tool.
    */
   private async executeTools(toolUses: ToolUseBlock[]): Promise<void> {
     const { outputs } = await this.toolExecutor.executeBatch(
@@ -376,6 +445,43 @@ export class Agent {
     // Post-processing: pipeline, session, events
     const useById = new Map(toolUses.map((u) => [u.id, u]));
     for (const { result, tool, durationMs } of outputs) {
+      // Handle pending confirm: block the agent loop and wait for TUI resolution
+      if (result.type === 'tool_confirm_pending') {
+        const decision = await this.waitForConfirm({
+          tool: tool!,
+          input: result.input,
+          toolUseId: result.toolUseId,
+          suggestedPattern: result.suggestedPattern,
+        });
+        // Re-run this single tool with the resolved decision
+        const reRunResult = await this.executeSingleWithDecision(
+          tool!,
+          { id: result.toolUseId, name: tool!.name, input: result.input },
+          decision,
+        );
+        const use = useById.get(reRunResult.result.tool_use_id);
+        if (use) {
+          await this.pipelines.toolCall.run({ toolUse: use, result: reRunResult.result, ctx: this.ctx, tool });
+          await this.ctx.session.append({
+            type: 'tool_result',
+            ts: new Date().toISOString(),
+            id: reRunResult.result.tool_use_id,
+            content: reRunResult.result.content,
+            isError: !!reRunResult.result.is_error,
+          });
+          this.events.emit('tool.executed', {
+            name: tool!.name,
+            durationMs: reRunResult.durationMs,
+            ok: !reRunResult.result.is_error,
+            input: result.input,
+            output: truncateForEvent(reRunResult.result.content),
+          });
+        }
+        // Add the tool result to messages
+        this.ctx.state.appendMessage({ role: 'user', content: [reRunResult.result] });
+        continue;
+      }
+
       const use = useById.get(result.tool_use_id);
       if (!use) continue;
       await this.pipelines.toolCall.run({
@@ -400,7 +506,49 @@ export class Agent {
       });
     }
 
-    this.ctx.messages.push({ role: 'user', content: outputs.map((o) => o.result) });
+    this.ctx.state.appendMessage({ role: 'user', content: outputs.map((o) => o.result) as ToolResultBlock[] });
+  }
+
+  private waitForConfirm(info: {
+    tool: Tool;
+    input: unknown;
+    toolUseId: string;
+    suggestedPattern: string;
+  }): Promise<'yes' | 'no' | 'always' | 'deny'> {
+    return new Promise((resolve) => {
+      this.events.emit('tool.confirm_needed', {
+        tool: info.tool,
+        input: info.input,
+        toolUseId: info.toolUseId,
+        suggestedPattern: info.suggestedPattern,
+        resolve,
+      });
+    });
+  }
+
+  private async executeSingleWithDecision(
+    tool: Tool,
+    use: { id: string; name: string; input: unknown },
+    decision: 'yes' | 'no' | 'always' | 'deny',
+  ): Promise<{ result: ToolResultBlock; durationMs: number }> {
+    const start = Date.now();
+    if (decision === 'no' || decision === 'deny') {
+      return {
+        result: { type: 'tool_result', tool_use_id: use.id, content: `Tool "${tool.name}" denied by user.`, is_error: true },
+        durationMs: Date.now() - start,
+      };
+    }
+    // 'yes' or 'always' — execute
+    try {
+      const result = await this.toolExecutor.executeTool(tool, use as ToolUseBlock, this.ctx, this.perIterationOutputCapBytes);
+      return { result, durationMs: Date.now() - start };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        result: { type: 'tool_result', tool_use_id: use.id, content: `Tool "${tool.name}" threw: ${msg}`, is_error: true },
+        durationMs: Date.now() - start,
+      };
+    }
   }
 
   /**
@@ -412,133 +560,6 @@ export class Agent {
     }
   }
 
-  /**
-   * Emit an event asking listeners (CLI/TUI) whether to extend the iteration
-   * limit. Returns the number of additional iterations granted. If no listener
-   * responds or the user declines, returns 0.
-   */
-  private async requestLimitExtension(currentIterations: number): Promise<number> {
-    return new Promise((resolve) => {
-      let resolved = false;
-      const timer = setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          resolve(0);
-        }
-      }, 30_000);
-      const wrappedDeny = () => {
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(timer);
-          resolve(0);
-        }
-      };
-      const wrappedGrant = (extra: number) => {
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(timer);
-          resolve(Math.max(0, extra));
-        }
-      };
-      // Auto-extend when enabled (default). Listeners can still override by
-      // calling deny() synchronously before this emit returns.
-      if (this.autoExtendLimit) {
-        this.events.emit('iteration.limit_reached', {
-          currentIterations,
-          currentLimit: this.maxIterations,
-          grant: wrappedGrant,
-          deny: wrappedDeny,
-        });
-        // Give listeners a tick to deny, then auto-grant.
-        setImmediate(() => {
-          if (!resolved) {
-            resolved = true;
-            clearTimeout(timer);
-            resolve(100);
-          }
-        });
-      } else {
-        this.events.emit('iteration.limit_reached', {
-          currentIterations,
-          currentLimit: this.maxIterations,
-          grant: wrappedGrant,
-          deny: wrappedDeny,
-        });
-      }
-    });
-  }
-
-  /**
-   * Consume a Provider.stream() into a Response, emitting text_delta and
-   * tool_use lifecycle events to the EventBus as they arrive. Delegates to
-   * streaming-response-builder.ts for actual event handling.
-   */
-  private async streamProviderToResponse(
-    provider: Provider,
-    req: Request,
-    signal: AbortSignal,
-  ): Promise<Response> {
-    return streamProviderToResponse(provider, req, signal, this.ctx, this.events);
-  }
-
-  private async callProviderWithRetry(
-    provider: Provider,
-    req: Request,
-    signal: AbortSignal,
-  ): Promise<Response> {
-    let attempt = 0;
-    for (;;) {
-      try {
-        if (provider.capabilities.streaming) {
-          return await this.streamProviderToResponse(provider, req, signal);
-        }
-        return await provider.complete(req, { signal });
-      } catch (err) {
-        if (signal.aborted) throw err;
-        const isProviderErr = err instanceof ProviderError;
-        const errAsErr = err instanceof Error ? err : new Error(String(err));
-        const canRetry = this.retry.shouldRetry(isProviderErr ? err : errAsErr, attempt);
-        const description = isProviderErr
-          ? (err as ProviderError).describe()
-          : errAsErr.message;
-        if (!canRetry) {
-          if (isProviderErr) {
-            this.events.emit('provider.error', {
-              providerId: (err as ProviderError).providerId,
-              status: (err as ProviderError).status,
-              description,
-              retryable: false,
-            });
-          }
-          throw err;
-        }
-        const delay = Math.round(this.retry.delayMs(attempt));
-        const attemptNum = attempt + 1;
-        this.logger.warn(
-          `Provider retry ${attemptNum} in ${delay}ms — ${description}`,
-        );
-        if (isProviderErr) {
-          this.events.emit('provider.retry', {
-            providerId: (err as ProviderError).providerId,
-            attempt: attemptNum,
-            delayMs: delay,
-            status: (err as ProviderError).status,
-            description,
-          });
-        }
-        await new Promise<void>((resolve, reject) => {
-          const t = setTimeout(resolve, delay);
-          const onAbort = () => {
-            clearTimeout(t);
-            reject(new Error('aborted'));
-          };
-          if (signal.aborted) onAbort();
-          signal.addEventListener('abort', onAbort, { once: true });
-        });
-        attempt++;
-      }
-    }
-  }
 }
 
 function toError(err: unknown): Error {

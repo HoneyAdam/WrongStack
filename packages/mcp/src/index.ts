@@ -8,3 +8,4 @@ export {
 } from './client.js';
 export { wrapMCPTool } from './wrap-tool.js';
 export { MCPRegistry, type MCPRegistryOptions } from './registry.js';
+export { SSETransport, StreamableHTTPTransport, SSEReader, type HttpTransportOptions } from './transport.js';

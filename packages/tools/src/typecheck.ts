@@ -1,7 +1,6 @@
-import { spawn } from 'node:child_process';
 import * as path from 'node:path';
-import type { Tool } from '@wrongstack/core';
-import { safeResolve } from './_util.js';
+import type { Tool, ToolStreamEvent } from '@wrongstack/core';
+import { safeResolve, spawnStream } from './_util.js';
 
 interface TypecheckInput {
   project?: string;
@@ -44,26 +43,58 @@ export const typecheckTool: Tool<TypecheckInput, TypecheckOutput> = {
     },
   },
   async execute(input, ctx, opts) {
+    let final: TypecheckOutput | undefined;
+    for await (const ev of typecheckTool.executeStream!(input, ctx, opts)) {
+      if (ev.type === 'final') final = ev.output;
+    }
+    if (!final) throw new Error('typecheck: stream ended without final event');
+    return final;
+  },
+  async *executeStream(input, ctx, opts): AsyncGenerator<ToolStreamEvent<TypecheckOutput>> {
     const cwd = input.cwd ? safeResolve(input.cwd, ctx) : ctx.cwd;
 
+    let args: string[];
+    let project: string;
     if (input.all) {
-      return runTsc(['--noEmit'], cwd, opts.signal, 'workspace');
+      args = ['--noEmit'];
+      project = 'workspace';
+    } else {
+      const tsconfig = input.project ? safeResolve(input.project, ctx) : await findTsConfig(cwd);
+      args = ['--noEmit'];
+      if (input.strict) args.push('--strict');
+      if (tsconfig) args.push('--project', tsconfig);
+      project = tsconfig ?? 'default';
     }
 
-    const tsconfig = input.project
-      ? safeResolve(input.project, ctx)
-      : await findTsConfig(cwd);
+    yield { type: 'log', text: `tsc ${args.join(' ')}`, data: { project } };
 
-    const args = ['--noEmit'];
-    if (input.strict) args.push('--strict');
-    if (tsconfig) args.push('--project', tsconfig);
+    const result = yield* spawnStream({
+      cmd: 'npx',
+      args: ['tsc', ...args],
+      cwd,
+      signal: opts.signal,
+      maxBytes: 200_000,
+    });
 
-    return runTsc(args, cwd, opts.signal, tsconfig ?? 'default');
+    const errors = (result.stdout.match(/error TS/g) || []).length;
+    const warnings = (result.stdout.match(/warning/g) || []).length;
+
+    yield {
+      type: 'final',
+      output: {
+        project,
+        exit_code: result.exitCode,
+        errors,
+        warnings,
+        output: result.stdout || result.stderr || result.error || '',
+        truncated: result.truncated,
+      },
+    };
   },
 };
 
 async function findTsConfig(cwd: string): Promise<string | null> {
-  const { stat } = require('node:fs/promises');
+  const { stat } = await import('node:fs/promises');
   const candidates = ['tsconfig.json', 'tsconfig.base.json'];
   for (const f of candidates) {
     try {
@@ -74,42 +105,4 @@ async function findTsConfig(cwd: string): Promise<string | null> {
     }
   }
   return null;
-}
-
-function runTsc(
-  args: string[],
-  cwd: string,
-  signal: AbortSignal,
-  project: string,
-): Promise<TypecheckOutput> {
-  return new Promise((resolve) => {
-    let stdout = '';
-    let stderr = '';
-    const MAX = 200_000;
-
-    const child = spawn('npx', ['tsc', ...args], { cwd, signal, stdio: ['ignore', 'pipe', 'pipe'] });
-    child.stdout?.on('data', (c) => { if (stdout.length < MAX) stdout += c.toString(); });
-    child.stderr?.on('data', (c) => { if (stderr.length < MAX) stderr += c.toString(); });
-
-    child.on('close', (code) => {
-      const errors = (stdout.match(/error TS/g) || []).length;
-      resolve({
-        project,
-        exit_code: code ?? 0,
-        errors,
-        warnings: (stdout.match(/warning/g) || []).length,
-        output: stdout || stderr,
-        truncated: stdout.length >= MAX,
-      });
-    });
-
-    child.on('error', (e) => resolve({
-      project,
-      exit_code: 1,
-      errors: 0,
-      warnings: 0,
-      output: e.message,
-      truncated: false,
-    }));
-  });
 }

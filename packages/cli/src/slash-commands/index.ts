@@ -11,6 +11,8 @@ import type {
   Renderer,
   Context,
   MemoryStore,
+  MetricsSink,
+  HealthRegistry,
 } from '@wrongstack/core';
 import { color } from '@wrongstack/core';
 
@@ -24,6 +26,8 @@ export interface SlashCommandContext {
   renderer: Renderer;
   memoryStore?: MemoryStore;
   context?: Context;
+  metricsSink?: MetricsSink;
+  healthRegistry?: HealthRegistry;
   onExit?: () => void;
   onClear?: () => void;
   /**
@@ -35,6 +39,15 @@ export interface SlashCommandContext {
   onDiag?: () => string;
   /** Same contract as `onDiag`. Returns `null` when there's no activity yet. */
   onStats?: () => string | null;
+  /**
+   * Optional spawn handler — wired by the CLI when the multi-agent host is
+   * available. Receives the task description and returns a one-line summary
+   * once the subagent finishes (or an error). When unset, `/spawn` reports
+   * that multi-agent is not enabled.
+   */
+  onSpawn?: (description: string) => Promise<string>;
+  /** Lists active and completed subagents. Same on/off semantics as onSpawn. */
+  onAgents?: () => string;
 }
 
 export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashCommand[] {
@@ -48,6 +61,10 @@ export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashComma
     skillCommand(opts),
     diagCommand(opts),
     statsCommand(opts),
+    spawnCommand(opts),
+    agentsCommand(opts),
+    metricsCommand(opts),
+    healthCommand(opts),
     memoryCommand(opts),
     saveCommand(opts),
     loadCommand(opts),
@@ -137,11 +154,10 @@ function initCommand(opts: SlashCommandContext): SlashCommand {
         opts.renderer.writeInfo(`Wrote ${file}`);
         opts.renderer.writeInfo(`Pre-filled: ${detected.hints.join(', ')}. Edit the file to add anything else worth remembering.`);
         return { message: msg };
-      } else {
-        const msg = `Wrote ${file}\nNo project type auto-detected. Edit the file to add build/test commands and conventions.`;
-        opts.renderer.writeInfo(`Wrote ${file}`);
-        return { message: msg };
       }
+      const msg = `Wrote ${file}\nNo project type auto-detected. Edit the file to add build/test commands and conventions.`;
+      opts.renderer.writeInfo(`Wrote ${file}`);
+      return { message: msg };
     },
   };
 }
@@ -273,12 +289,64 @@ function statsCommand(opts: SlashCommandContext): SlashCommand {
 function helpCommand(opts: SlashCommandContext): SlashCommand {
   return {
     name: 'help',
-    description: 'Show available slash commands.',
-    async run() {
+    description: 'Show available slash commands. Pass a name for detailed help.',
+    help: [
+      'Usage:',
+      '  /help            List every command with its one-line description.',
+      '  /help <name>     Show detailed help for one command (falls back to the description).',
+      '',
+      'Examples:',
+      '  /help',
+      '  /help context',
+      '  /help model',
+    ].join('\n'),
+    async run(args) {
+      const query = args.trim();
+      if (query) {
+        // Strip a leading slash if the user wrote `/help /foo`.
+        const needle = query.startsWith('/') ? query.slice(1) : query;
+        let match:
+          | { cmd: SlashCommand; owner: string; fullName: string }
+          | undefined;
+        for (const entry of opts.registry.listWithOwner()) {
+          const aliases = entry.cmd.aliases ?? [];
+          const candidates = [
+            entry.cmd.name,
+            entry.fullName,
+            ...aliases,
+            ...aliases.map(
+              (a) => (entry.owner === 'core' ? a : `${entry.owner}:${a}`),
+            ),
+          ];
+          if (candidates.includes(needle)) {
+            match = entry;
+            break;
+          }
+        }
+        if (!match) {
+          return { message: `Unknown command: /${needle}. Run /help to list commands.` };
+        }
+        const prefix = match.owner === 'core' ? '' : `${match.owner}:`;
+        const header = `/${prefix}${match.cmd.name}`;
+        const aliasLine =
+          match.cmd.aliases && match.cmd.aliases.length > 0
+            ? `Aliases: ${match.cmd.aliases.map((a) => `/${prefix}${a}`).join(', ')}\n`
+            : '';
+        const body = match.cmd.help ?? match.cmd.description;
+        return {
+          message: [
+            header,
+            '─'.repeat(header.length),
+            aliasLine + (match.cmd.help ? '' : `${match.cmd.description}\n`),
+            body,
+          ]
+            .filter(Boolean)
+            .join('\n'),
+        };
+      }
       const lines = ['Available slash commands:'];
-      for (const { cmd, owner, fullName } of opts.registry.listWithOwner()) {
+      for (const { cmd, owner } of opts.registry.listWithOwner()) {
         const isBuiltin = owner === 'core';
-        // Builtins: no prefix. Plugins: prefix shown.
         const prefix = isBuiltin ? '' : `${owner}:`;
         const aliases = cmd.aliases
           ? cmd.aliases.map((a) => `/${prefix}${a}`).join(', ')
@@ -286,6 +354,7 @@ function helpCommand(opts: SlashCommandContext): SlashCommand {
         const aliasStr = aliases ? ` (${aliases})` : '';
         lines.push(`  /${prefix}${cmd.name}${aliasStr} — ${cmd.description}`);
       }
+      lines.push('', 'Run `/help <name>` for detailed help on a specific command.');
       return { message: lines.join('\n') };
     },
   };
@@ -295,6 +364,14 @@ function clearCommand(opts: SlashCommandContext): SlashCommand {
   return {
     name: 'clear',
     description: 'Reset the session and start a new one.',
+    help: [
+      'Usage:',
+      '  /clear',
+      '',
+      'Wipes everything in the current REPL state: messages, todos, read-file tracking,',
+      'file mtimes, meta. Memory store entries (all scopes) are cleared too. The terminal',
+      'is wiped. Use this when you want a fresh conversation without restarting `wstack`.',
+    ].join('\n'),
     async run(_args, ctx) {
       // Clear context: messages, todos, readFiles, fileMtimes
       if (ctx) {
@@ -320,6 +397,14 @@ function contextCommand(opts: SlashCommandContext): SlashCommand {
     name: 'context',
     aliases: ['ctx'],
     description: 'Show context window summary.',
+    help: [
+      'Usage:',
+      '  /context           Show counts: messages, est. tokens, tool calls, todos, read files.',
+      '  /context detail    As above, plus model, cwd, projectRoot, and the file list.',
+      '',
+      'Token estimate is a `chars ÷ 4` heuristic, not a real tokenizer call —',
+      'good enough to spot growth between turns.',
+    ].join('\n'),
     async run(args, ctx) {
       const messages = ctx.messages;
       const detailed = args.trim() === 'detail';
@@ -408,6 +493,14 @@ function compactCommand(opts: SlashCommandContext): SlashCommand {
   return {
     name: 'compact',
     description: 'Compact the context window.',
+    help: [
+      'Usage:',
+      '  /compact              Run the configured compactor with default settings.',
+      '  /compact aggressive   Compact more aggressively — keeps fewer recent turns verbatim.',
+      '',
+      'The compactor summarizes older turns to reclaim tokens. The default keeps the most',
+      'recent K message pairs untouched; aggressive halves that window.',
+    ].join('\n'),
     async run(args, ctx) {
       if (!opts.compactor) {
         const msg = 'No compactor configured.';
@@ -460,15 +553,14 @@ function skillCommand(opts: SlashCommandContext): SlashCommand {
         const lines = list.map((s) => `  ${s.name.padEnd(24)} ${color.dim(`[${s.source}]`)} ${s.description.split('\n')[0]}`);
         const msg = `Skills:\n${lines.join('\n')}\n`;
         return { message: msg };
-      } else {
-        const skill = await opts.skillLoader.find(args.trim());
-        if (!skill) {
-          const msg = `Skill "${args.trim()}" not found.`;
-          return { message: msg };
-        }
-        const body = await opts.skillLoader.readBody(skill.name);
-        return { message: body };
       }
+      const skill = await opts.skillLoader.find(args.trim());
+      if (!skill) {
+        const msg = `Skill "${args.trim()}" not found.`;
+        return { message: msg };
+      }
+      const body = await opts.skillLoader.readBody(skill.name);
+      return { message: body };
     },
   };
 }
@@ -526,6 +618,109 @@ function exitCommand(opts: SlashCommandContext): SlashCommand {
     async run() {
       opts.onExit?.();
       return { exit: true };
+    },
+  };
+}
+
+function metricsCommand(opts: SlashCommandContext): SlashCommand {
+  return {
+    name: 'metrics',
+    description: 'Show metrics snapshot (requires --metrics flag).',
+    async run() {
+      if (!opts.metricsSink) {
+        return { message: 'Metrics not enabled. Restart with --metrics to collect.' };
+      }
+      const snap = opts.metricsSink.snapshot();
+      if (snap.series.length === 0) {
+        return { message: 'No metrics recorded yet.' };
+      }
+      const lines: string[] = [];
+      // Group by metric name for a more readable dump
+      const byName = new Map<string, typeof snap.series>();
+      for (const s of snap.series) {
+        const bucket = byName.get(s.name) ?? [];
+        bucket.push(s);
+        byName.set(s.name, bucket);
+      }
+      for (const [name, series] of [...byName.entries()].sort()) {
+        lines.push(color.dim(`# ${name}`));
+        for (const s of series) {
+          const labels = Object.entries(s.labels).map(([k, v]) => `${k}=${v}`).join(' ');
+          const labelStr = labels ? color.dim(` {${labels}}`) : '';
+          if (s.type === 'histogram') {
+            lines.push(
+              `  count=${s.values.count} sum=${s.values.sum} min=${s.values.min} max=${s.values.max} p50=${s.values.p50} p95=${s.values.p95} p99=${s.values.p99}${labelStr}`,
+            );
+          } else {
+            lines.push(`  ${s.values.value}${labelStr}`);
+          }
+        }
+      }
+      const msg = lines.join('\n');
+      return { message: msg };
+    },
+  };
+}
+
+function healthCommand(opts: SlashCommandContext): SlashCommand {
+  return {
+    name: 'health',
+    description: 'Run health checks (requires --metrics flag).',
+    async run() {
+      if (!opts.healthRegistry) {
+        return { message: 'Health checks not enabled. Restart with --metrics.' };
+      }
+      const result = await opts.healthRegistry.run();
+      const lines: string[] = [
+        `${statusIcon(result.status)} overall: ${result.status}`,
+        ...result.checks.map((c) => {
+          const detail = c.detail ? color.dim(` — ${c.detail}`) : '';
+          return `  ${statusIcon(c.status)} ${c.name}: ${c.status}${detail}`;
+        }),
+      ];
+      return { message: lines.join('\n') };
+    },
+  };
+}
+
+function statusIcon(status: string): string {
+  if (status === 'healthy') return color.green('●');
+  if (status === 'degraded') return color.yellow('●');
+  return color.red('●');
+}
+
+function spawnCommand(opts: SlashCommandContext): SlashCommand {
+  return {
+    name: 'spawn',
+    description:
+      'Spawn an isolated subagent to handle a task. Usage: /spawn <task description>',
+    async run(args) {
+      const description = args.trim();
+      if (!description) return { message: 'Usage: /spawn <task description>' };
+      if (!opts.onSpawn) {
+        return { message: 'Multi-agent is not enabled in this session.' };
+      }
+      try {
+        const summary = await opts.onSpawn(description);
+        return { message: summary };
+      } catch (err) {
+        return {
+          message: `Spawn failed: ${err instanceof Error ? err.message : String(err)}`,
+        };
+      }
+    },
+  };
+}
+
+function agentsCommand(opts: SlashCommandContext): SlashCommand {
+  return {
+    name: 'agents',
+    description: 'Show status of spawned subagents (pending + completed tasks).',
+    async run() {
+      if (!opts.onAgents) {
+        return { message: 'Multi-agent is not enabled in this session.' };
+      }
+      return { message: opts.onAgents() };
     },
   };
 }

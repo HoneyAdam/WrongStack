@@ -4,6 +4,8 @@ import type { SessionWriter } from '../types/session.js';
 import type { Provider, Usage } from '../types/provider.js';
 import type { TokenCounter } from '../types/token-counter.js';
 import type { Tool } from '../types/tool.js';
+import type { RunEnv } from './run-env.js';
+import { ConversationState } from './conversation-state.js';
 
 export interface TodoItem {
   id: string;
@@ -31,7 +33,15 @@ export interface ContextInit {
   tools?: Tool[];
 }
 
-export class Context {
+/**
+ * L1-A: `Context` is the live agent-run object. Its read-only environment
+ * shape is exposed by the `RunEnv` interface (every field below the
+ * conversation state) and its mutable shape by `ConversationState` (the
+ * `state` accessor). New code should declare the narrower type at its
+ * parameter — pass `ctx` for it. Existing tools that accept `Context`
+ * still work because `Context` structurally satisfies both.
+ */
+export class Context implements RunEnv {
   messages: Message[] = [];
   todos: TodoItem[] = [];
   readFiles = new Set<string>();
@@ -60,10 +70,29 @@ export class Context {
   }
 
   /**
+   * Observable wrapper over the mutable conversation state. Lazy so
+   * subsystems that don't subscribe pay nothing. Mutations made directly
+   * on `ctx.messages` / `ctx.todos` are still visible through this
+   * wrapper's read API (it holds a reference, not a copy) but only
+   * mutations that go through `state.appendMessage()` etc. fire
+   * `onChange`. New code should prefer the wrapper API.
+   */
+  private _state: ConversationState | null = null;
+  get state(): ConversationState {
+    if (!this._state) this._state = new ConversationState(this);
+    return this._state;
+  }
+
+  /**
    * Register a teardown hook tied to the current run's abort signal. The
    * hook fires when the run aborts OR ends normally — Agent.run wires
    * this through a RunController. When no run is active the hook fires
    * immediately so callers don't leak resources.
+   *
+   * **Scope:** these hooks fire on the **whole agent run's** abort, not on
+   * an individual tool call. For per-tool teardown of resources owned by
+   * the tool author (child processes, handles), prefer `Tool.cleanup` —
+   * see its JSDoc for the full rule.
    */
   private abortHooks = new Set<() => void | Promise<void>>();
   registerAbortHook(fn: () => void | Promise<void>): () => void {

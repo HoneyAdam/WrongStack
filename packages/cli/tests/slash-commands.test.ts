@@ -71,6 +71,36 @@ describe('built-in slash commands', () => {
     const result = await registry.dispatch('/help', fakeCtx);
     expect(result?.message).toContain('/help');
     expect(result?.message).toContain('/exit');
+    expect(result?.message).toContain('/help <name>');
+  });
+
+  it('/help <name> renders detailed help when defined', async () => {
+    const { registry } = makeRig();
+    const result = await registry.dispatch('/help help', fakeCtx);
+    expect(result?.message).toContain('/help');
+    expect(result?.message).toContain('Usage:');
+    expect(result?.message).toContain('Examples:');
+  });
+
+  it('/help <name> falls back to description for commands without help', async () => {
+    const { registry } = makeRig();
+    const result = await registry.dispatch('/help exit', fakeCtx);
+    expect(result?.message).toContain('/exit');
+    // Description should be present somewhere in the body.
+    expect(result?.message?.length ?? 0).toBeGreaterThan(8);
+  });
+
+  it('/help <name> resolves aliases', async () => {
+    const { registry } = makeRig();
+    const result = await registry.dispatch('/help ctx', fakeCtx);
+    expect(result?.message).toContain('/context');
+    expect(result?.message?.toLowerCase()).toContain('context');
+  });
+
+  it('/help <unknown> tells the user the command is unknown', async () => {
+    const { registry } = makeRig();
+    const result = await registry.dispatch('/help no-such-command', fakeCtx);
+    expect(result?.message).toMatch(/Unknown command/);
   });
 
   it('/tools lists registered tools', async () => {
@@ -193,5 +223,102 @@ describe('built-in slash commands', () => {
     await registry.dispatch('/context detail', ctx);
     expect(renderer.output).toContain('model:');
     expect(renderer.output).toContain('cwd:');
+  });
+
+  describe('L1-E /spawn and /agents', () => {
+    it('/spawn without onSpawn reports multi-agent not enabled', async () => {
+      const { registry } = makeRig();
+      const r = await registry.dispatch('/spawn write the docs', fakeCtx);
+      expect(r?.message).toContain('not enabled');
+    });
+
+    it('/spawn requires a task description', async () => {
+      const registry = new SlashCommandRegistry();
+      const toolRegistry = new ToolRegistry();
+      const renderer = new FakeRenderer();
+      const tokenCounter = new DefaultTokenCounter();
+      const compactor = new HybridCompactor({ preserveK: 5 });
+      const cmds = buildBuiltinSlashCommands({
+        registry,
+        toolRegistry,
+        compactor,
+        tokenCounter,
+        renderer:
+          renderer as unknown as Parameters<typeof buildBuiltinSlashCommands>[0]['renderer'],
+        onSpawn: async () => 'should not be called',
+        onAgents: () => '',
+      });
+      for (const c of cmds) registry.register(c);
+      const r = await registry.dispatch('/spawn   ', fakeCtx);
+      expect(r?.message).toMatch(/Usage:/);
+    });
+
+    it('/spawn forwards description and returns summary', async () => {
+      const registry = new SlashCommandRegistry();
+      const toolRegistry = new ToolRegistry();
+      const renderer = new FakeRenderer();
+      const tokenCounter = new DefaultTokenCounter();
+      const compactor = new HybridCompactor({ preserveK: 5 });
+      const onSpawn = vi.fn(async (desc: string) => `spawned: ${desc}`);
+      const cmds = buildBuiltinSlashCommands({
+        registry,
+        toolRegistry,
+        compactor,
+        tokenCounter,
+        renderer:
+          renderer as unknown as Parameters<typeof buildBuiltinSlashCommands>[0]['renderer'],
+        onSpawn,
+        onAgents: () => 'no agents',
+      });
+      for (const c of cmds) registry.register(c);
+      const r = await registry.dispatch('/spawn refactor the auth code', fakeCtx);
+      expect(onSpawn).toHaveBeenCalledWith('refactor the auth code');
+      expect(r?.message).toContain('spawned:');
+    });
+
+    it('/agents returns whatever onAgents produces', async () => {
+      const registry = new SlashCommandRegistry();
+      const toolRegistry = new ToolRegistry();
+      const renderer = new FakeRenderer();
+      const tokenCounter = new DefaultTokenCounter();
+      const compactor = new HybridCompactor({ preserveK: 5 });
+      const cmds = buildBuiltinSlashCommands({
+        registry,
+        toolRegistry,
+        compactor,
+        tokenCounter,
+        renderer:
+          renderer as unknown as Parameters<typeof buildBuiltinSlashCommands>[0]['renderer'],
+        onSpawn: async () => '',
+        onAgents: () => '2 pending, 1 completed.\n  ✓        abc12345',
+      });
+      for (const c of cmds) registry.register(c);
+      const r = await registry.dispatch('/agents', fakeCtx);
+      expect(r?.message).toContain('2 pending');
+    });
+
+    it('/spawn surfaces errors thrown by the host', async () => {
+      const registry = new SlashCommandRegistry();
+      const toolRegistry = new ToolRegistry();
+      const renderer = new FakeRenderer();
+      const tokenCounter = new DefaultTokenCounter();
+      const compactor = new HybridCompactor({ preserveK: 5 });
+      const cmds = buildBuiltinSlashCommands({
+        registry,
+        toolRegistry,
+        compactor,
+        tokenCounter,
+        renderer:
+          renderer as unknown as Parameters<typeof buildBuiltinSlashCommands>[0]['renderer'],
+        onSpawn: async () => {
+          throw new Error('no provider configured');
+        },
+        onAgents: () => '',
+      });
+      for (const c of cmds) registry.register(c);
+      const r = await registry.dispatch('/spawn do a thing', fakeCtx);
+      expect(r?.message).toMatch(/Spawn failed/);
+      expect(r?.message).toContain('no provider configured');
+    });
   });
 });

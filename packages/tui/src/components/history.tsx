@@ -1,6 +1,7 @@
-import React from 'react';
+import type React from 'react';
 import { Box, Static, Text, useStdout } from 'ink';
 import { renderMarkdownTables } from '../markdown-table.js';
+import { ConfirmPrompt } from './confirm-prompt.js';
 
 export type HistoryEntry =
   | { id: number; kind: 'user'; text: string; queued?: boolean }
@@ -29,20 +30,32 @@ export type HistoryEntry =
       family?: string;
       /** Last 3 chars of the active API key — quick visual confirmation that the right account is wired up. */
       keyTail?: string;
-    };
+    }
+  /** Tool confirmation shown while waiting for the user to approve/deny. */
+  | { id: number; kind: 'confirm'; toolName: string; input: unknown; suggestedPattern: string };
 
 export interface HistoryProps {
   entries: HistoryEntry[];
   streamingText?: string;
+  /**
+   * Optional live tail of the currently streaming tool. Rendered below the
+   * assistant tail so the user sees both at once: model thinking and tool
+   * output. Cleared automatically when the tool's `tool.executed` event
+   * fires and the final entry lands in `entries`.
+   */
+  toolStream?: { toolUseId: string; name: string; text: string } | null;
 }
 
-export function History({ entries, streamingText }: HistoryProps): React.ReactElement {
+export function History({ entries, streamingText, toolStream }: HistoryProps): React.ReactElement {
   const { stdout } = useStdout();
   // Terminal width drives table column sizing. We snapshot it at render
   // time; Static-emitted entries won't reflow on resize, which is fine
   // — they're already in scrollback at the width they were drawn for.
   const termWidth = stdout?.columns ?? 80;
   const tail = streamingText ? tailForDisplay(streamingText, MAX_STREAM_DISPLAY_CHARS) : '';
+  const toolTail = toolStream && toolStream.text
+    ? tailForDisplay(toolStream.text, MAX_STREAM_DISPLAY_CHARS)
+    : '';
 
   // Finalized entries go through <Static>: Ink prints each one ONCE and
   // never re-renders them, which means they flow into the terminal's
@@ -66,6 +79,12 @@ export function History({ entries, streamingText }: HistoryProps): React.ReactEl
           <Text>{tail}</Text>
         </Box>
       ) : null}
+      {toolTail ? (
+        <Box flexDirection="column">
+          <Text dimColor>{`◆ ${toolStream!.name} `}</Text>
+          <Text>{toolTail}</Text>
+        </Box>
+      ) : null}
     </>
   );
 }
@@ -87,23 +106,24 @@ function DiffBlock({ rows, hidden }: { rows: DiffLineRow[]; hidden: number }): R
   return (
     <Box flexDirection="column" marginLeft={4} marginTop={0}>
       {rows.map((row, i) => {
+        const key = i;
         if (row.kind === 'hunk') {
           return (
-            <Text key={i} color="cyan" dimColor>
+            <Text key={key} color="cyan" dimColor>
               {row.text}
             </Text>
           );
         }
         if (row.kind === 'meta') {
           return (
-            <Text key={i} dimColor>
+            <Text key={key} dimColor>
               {row.text}
             </Text>
           );
         }
         if (row.kind === 'ctx') {
           return (
-            <Text key={i} dimColor>
+            <Text key={key} dimColor>
               {row.text}
             </Text>
           );
@@ -112,7 +132,7 @@ function DiffBlock({ rows, hidden }: { rows: DiffLineRow[]; hidden: number }): R
         const bg = row.kind === 'add' ? 'green' : 'red';
         const fg = row.kind === 'add' ? 'black' : 'white';
         return (
-          <Text key={i} backgroundColor={bg} color={fg}>
+          <Text key={key} backgroundColor={bg} color={fg}>
             {row.text}
           </Text>
         );
@@ -157,22 +177,15 @@ function Entry({ entry, termWidth }: { entry: HistoryEntry; termWidth: number })
             ) : null}
             <Text dimColor>{`  ·  ${fmtDuration(entry.durationMs)}`}</Text>
           </Text>
-          {outLines.map((line, i) => {
-            const isLast = i === outLines.length - 1 && !diff;
-            const prefix = isLast ? '  └─ ' : '  ├─ ';
-            // Lines starting with '!' are stderr/error summaries — paint
-            // them red even on overall-success runs (e.g. bash with
-            // exit 0 + stderr output).
-            const errish = !entry.ok || line.startsWith('!');
-            return (
-              <Text key={i}>
-                <Text dimColor>{prefix}</Text>
-                <Text color={errish ? 'red' : undefined} dimColor={!errish}>
-                  {line}
-                </Text>
+          {outLines.map((line, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: tool output lines are static, index is stable
+            <Text key={i}>
+              <Text dimColor>{i === outLines.length - 1 && !diff ? '  └─ ' : '  ├─ '}</Text>
+              <Text color={!entry.ok || line.startsWith('!') ? 'red' : undefined} dimColor={entry.ok && !line.startsWith('!')}>
+                {line}
               </Text>
-            );
-          })}
+            </Text>
+          ))}
           {diff ? <DiffBlock rows={diff.rows} hidden={diff.hidden} /> : null}
         </Box>
       );
@@ -185,6 +198,37 @@ function Entry({ entry, termWidth }: { entry: HistoryEntry; termWidth: number })
       return <Text color="red">{entry.text}</Text>;
     case 'turn-summary':
       return <Text dimColor>{entry.text}</Text>;
+    case 'confirm':
+      return (
+        <Box flexDirection="column" borderStyle="single" borderTop={false} borderLeft={false} borderRight={false} borderBottom={false} paddingX={1}>
+          <Box flexDirection="row">
+            <Text bold color="yellow">⚠ Confirm</Text>
+            <Text>  </Text>
+            <Text bold>{entry.toolName}</Text>
+          </Box>
+          {entry.input && typeof entry.input === 'object' ? (
+            <Text dimColor>
+              {Object.entries(entry.input as Record<string, unknown>)
+                .filter(([k]) => k !== 'content' && k !== 'new_string')
+                .map(([k, v]) => `${k}: ${String(v).slice(0, 80)}`)
+                .join('  ')}
+            </Text>
+          ) : null}
+          <Text dimColor>─────────────────</Text>
+          <Box flexDirection="row">
+            <Text>
+              <Text bold color="green">[↵]</Text>
+              <Text dimColor> yes    </Text>
+              <Text bold color="red">[Esc]</Text>
+              <Text dimColor> no    </Text>
+              <Text bold color="cyan">[Ctrl+A]</Text>
+              <Text dimColor> always ({entry.suggestedPattern})    </Text>
+              <Text bold color="red">[Ctrl+D]</Text>
+              <Text dimColor> deny</Text>
+            </Text>
+          </Box>
+        </Box>
+      );
     case 'banner':
       return <Banner entry={entry} />;
   }
@@ -945,7 +989,7 @@ function scanNumberedRange(text: string): { first?: number; last?: number; count
   let count = 0;
   for (const line of text.split('\n')) {
     const m = line.match(/^\s*(\d+)→/);
-    if (m && m[1]) {
+    if (m?.[1]) {
       const n = Number.parseInt(m[1], 10);
       if (Number.isFinite(n)) {
         if (first === undefined) first = n;

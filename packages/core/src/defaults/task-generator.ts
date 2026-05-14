@@ -1,6 +1,6 @@
 import type { Specification, SpecRequirement } from '../types/spec.js';
 import type { TaskNode, TaskGraph, TaskType, TaskPriority } from '../types/task-graph.js';
-import { TaskTracker } from './task-tracker.js';
+import type { TaskTracker } from './task-tracker.js';
 import type { TaskStore } from './task-tracker.js';
 
 export interface TaskGeneratorOptions {

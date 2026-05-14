@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import type { Tool } from '@wrongstack/core';
+import type { Tool, ToolProgressEvent, ToolStreamEvent } from '@wrongstack/core';
 import { safeResolve } from './_util.js';
 
 const DEFAULT_IGNORE = ['node_modules', '.git', 'dist', 'build', '.next', 'coverage', '__pycache__'];
@@ -62,7 +62,15 @@ export const treeTool: Tool<TreeInput, TreeOutput> = {
       },
     },
   },
-  async execute(input, ctx) {
+  async execute(input, ctx, opts) {
+    let final: TreeOutput | undefined;
+    for await (const ev of treeTool.executeStream!(input, ctx, opts)) {
+      if (ev.type === 'final') final = ev.output;
+    }
+    if (!final) throw new Error('tree: stream ended without final event');
+    return final;
+  },
+  async *executeStream(input, ctx): AsyncGenerator<ToolStreamEvent<TreeOutput>> {
     const basePath = input.path ? safeResolve(input.path, ctx) : ctx.cwd;
     const maxDepth = input.depth ?? 3;
     const showFiles = input.show_files ?? true;
@@ -72,10 +80,26 @@ export const treeTool: Tool<TreeInput, TreeOutput> = {
     const filterGlob = input.glob;
 
     const lines: string[] = [basePath];
-    let totalFiles = 0;
-    let totalDirs = 0;
+    const totals = { totalFiles: { value: 0 }, totalDirs: { value: 0 } };
 
-    await walkDir(basePath, '', 0, {
+    // Walker pushes progress into an async queue; the generator drains it.
+    const queue: ToolProgressEvent[] = [];
+    const FLUSH_EVERY = 200; // emit metric every 200 entries seen
+    let lastEmittedTotal = 0;
+
+    const tickProgress = () => {
+      const seen = totals.totalFiles.value + totals.totalDirs.value;
+      if (seen - lastEmittedTotal >= FLUSH_EVERY) {
+        queue.push({
+          type: 'metric',
+          text: `${seen} entries`,
+          data: { files: totals.totalFiles.value, dirs: totals.totalDirs.value },
+        });
+        lastEmittedTotal = seen;
+      }
+    };
+
+    const walkPromise = walkDir(basePath, 0, {
       maxDepth,
       exclude,
       showFiles,
@@ -85,16 +109,38 @@ export const treeTool: Tool<TreeInput, TreeOutput> = {
       lines,
       prefix: '',
       isLast: true,
-      totalFiles: { value: 0 },
-      totalDirs: { value: 0 },
+      totalFiles: totals.totalFiles,
+      totalDirs: totals.totalDirs,
+      onProgress: tickProgress,
     });
 
-    return {
-      tree: lines.join('\n'),
-      total_files: totalFiles,
-      total_dirs: totalDirs,
-      truncated: false,
-      path: basePath,
+    // Race the walk against periodic flushes — yield metrics while it runs.
+    let walkDone = false;
+    walkPromise.finally(() => {
+      walkDone = true;
+    });
+
+    while (!walkDone || queue.length > 0) {
+      if (queue.length > 0) {
+        yield queue.shift()!;
+      } else {
+        await Promise.race([
+          walkPromise,
+          new Promise<void>((r) => setTimeout(r, 50)),
+        ]).catch(() => undefined);
+      }
+    }
+    await walkPromise; // surface any error
+
+    yield {
+      type: 'final',
+      output: {
+        tree: lines.join('\n'),
+        total_files: totals.totalFiles.value,
+        total_dirs: totals.totalDirs.value,
+        truncated: false,
+        path: basePath,
+      },
     };
   },
 };
@@ -111,11 +157,11 @@ interface WalkOptions {
   isLast: boolean;
   totalFiles: { value: number };
   totalDirs: { value: number };
+  onProgress?: () => void;
 }
 
 async function walkDir(
   dir: string,
-  name: string,
   depth: number,
   opts: WalkOptions,
 ): Promise<void> {
@@ -132,6 +178,7 @@ async function walkDir(
     const fileCount = filtered.filter((e) => e.isFile()).length;
     opts.totalDirs.value += dirCount;
     opts.totalFiles.value += fileCount;
+    opts.onProgress?.();
   }
 
   const items = filtered.sort((a, b) => {
@@ -155,7 +202,7 @@ async function walkDir(
 
     if (entry.isDirectory() && (opts.maxDepth === 0 || depth < opts.maxDepth)) {
       const childPrefix = opts.prefix + connector;
-      await walkDir(path.join(dir, entry.name), entry.name, depth + 1, {
+      await walkDir(path.join(dir, entry.name), depth + 1, {
         ...opts,
         prefix: childPrefix,
         isLast,

@@ -1,4 +1,4 @@
-import React from 'react';
+import type React from 'react';
 import { Box, Text } from 'ink';
 import type { TokenCounter } from '@wrongstack/core';
 import type { GitInfo } from '../git-info.js';

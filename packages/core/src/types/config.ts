@@ -84,6 +84,8 @@ export interface ProviderConfig {
 }
 
 export interface MCPServerConfig {
+  /** Human-readable description shown in `wstack mcp list`. */
+  description?: string;
   name: string;
   transport: 'stdio' | 'sse' | 'streamable-http';
   command?: string;
@@ -144,8 +146,53 @@ export interface Config {
   features: FeaturesConfig;
   yolo?: boolean;
   cwd?: string;
+  /**
+   * Per-plugin namespaced config sections. Each plugin reads its own
+   * subtree via `ConfigStore.getExtension(pluginName)`. Plugins should
+   * declare a `configSchema` so the loader validates this section
+   * automatically before `setup()` runs.
+   *
+   * Example:
+   *   extensions: {
+   *     'wstack-auth': { tokenUrl: 'https://...', refreshBefore: 300 },
+   *     'wstack-metrics': { sink: 'prometheus', port: 9090 },
+   *   }
+   */
+  extensions?: Record<string, Record<string, unknown>>;
 }
 
 export interface ConfigLoader {
   load(opts?: { cliFlags?: Partial<Config>; cwd?: string }): Promise<Config>;
+}
+
+/**
+ * Subscribable view over Config. Plugins and CLI subsystems use this instead
+ * of holding a frozen Config reference, so they can react to runtime updates
+ * (e.g. `/model` switching the active provider, secrets rotation, dynamic
+ * extension reload).
+ *
+ * The store enforces immutability — `get()` always returns a frozen object.
+ * Updates happen through `update(partial)`, which produces a new Config
+ * (structurally cloned, then frozen) and notifies watchers.
+ */
+export interface ConfigStore {
+  get(): Readonly<Config>;
+  /**
+   * Get a typed top-level section. Convenience for consumers that only
+   * care about one slice (e.g. `tools` or `context`).
+   */
+  getSection<K extends keyof Config>(key: K): Readonly<Config[K]>;
+  /**
+   * Return the extension namespace for `pluginName`, or an empty record
+   * when none is configured. The returned object is frozen.
+   */
+  getExtension(pluginName: string): Readonly<Record<string, unknown>>;
+  /**
+   * Apply a partial update. Returns the new Config. Watchers are notified
+   * synchronously after the update completes. Throws if the result fails
+   * any registered invariants (currently: version must stay 1).
+   */
+  update(partial: Partial<Config>): Readonly<Config>;
+  /** Subscribe to changes. Returns an unsubscribe function. */
+  watch(cb: (next: Readonly<Config>, prev: Readonly<Config>) => void): () => void;
 }

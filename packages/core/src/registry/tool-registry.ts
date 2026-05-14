@@ -1,11 +1,17 @@
 import type { Tool } from '../types/tool.js';
+import { WrongStackError } from '../types/errors.js';
 
 export class ToolRegistry {
   private readonly tools = new Map<string, { tool: Tool; owner: string }>();
 
   register(tool: Tool, owner = 'core'): void {
     if (this.tools.has(tool.name)) {
-      throw new Error(`Tool "${tool.name}" already registered`);
+      throw new WrongStackError({
+        message: `Tool "${tool.name}" already registered`,
+        code: 'REGISTRY_DUPLICATE',
+        subsystem: 'container',
+        context: { tool: tool.name },
+      });
     }
     this.tools.set(tool.name, { tool, owner });
   }
@@ -41,7 +47,12 @@ export class ToolRegistry {
    */
   override(name: string, tool: Tool, owner = 'core'): void {
     if (!this.tools.has(name)) {
-      throw new Error(`Tool "${name}" not registered; cannot override`);
+      throw new WrongStackError({
+        message: `Tool "${name}" not registered; cannot override`,
+        code: 'REGISTRY_NOT_FOUND',
+        subsystem: 'container',
+        context: { tool: name },
+      });
     }
     this.tools.set(name, { tool, owner });
   }

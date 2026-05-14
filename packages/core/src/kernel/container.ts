@@ -1,3 +1,5 @@
+import { WrongStackError } from '../types/errors.js';
+
 /**
  * Container — dependency injection with explicit bind / override / decorate.
  *
@@ -29,7 +31,12 @@ export class Container {
 
   bind<T>(token: Token<T>, factory: Factory<T>, opts: BindOptions = {}): void {
     if (this.entries.has(token)) {
-      throw new Error(`Container: token "${token.description ?? 'unknown'}" already bound`);
+      throw new WrongStackError({
+        message: `Container: token "${token.description ?? 'unknown'}" already bound`,
+        code: 'CONTAINER_TOKEN_ALREADY_BOUND',
+        subsystem: 'container',
+        context: { token: token.description },
+      });
     }
     this.entries.set(token, {
       factory: factory as Factory<unknown>,
@@ -42,9 +49,12 @@ export class Container {
   override<T>(token: Token<T>, factory: Factory<T>, opts: BindOptions = {}): void {
     const existing = this.entries.get(token);
     if (!existing) {
-      throw new Error(
-        `Container: cannot override "${token.description ?? 'unknown'}" — not bound`,
-      );
+      throw new WrongStackError({
+        message: `Container: cannot override "${token.description ?? 'unknown'}" — not bound`,
+        code: 'CONTAINER_TOKEN_NOT_BOUND',
+        subsystem: 'container',
+        context: { token: token.description },
+      });
     }
     this.entries.set(token, {
       factory: factory as Factory<unknown>,
@@ -57,9 +67,12 @@ export class Container {
   decorate<T>(token: Token<T>, decorator: Decorator<T>, owner = 'core'): void {
     const existing = this.entries.get(token);
     if (!existing) {
-      throw new Error(
-        `Container: cannot decorate "${token.description ?? 'unknown'}" — not bound`,
-      );
+      throw new WrongStackError({
+        message: `Container: cannot decorate "${token.description ?? 'unknown'}" — not bound`,
+        code: 'CONTAINER_TOKEN_NOT_BOUND',
+        subsystem: 'container',
+        context: { token: token.description },
+      });
     }
     existing.decorators.push(decorator as Decorator<unknown>);
     existing.cache = undefined;
@@ -69,9 +82,12 @@ export class Container {
   resolve<T>(token: Token<T>): T {
     const entry = this.entries.get(token);
     if (!entry) {
-      throw new Error(
-        `Container: token "${token.description ?? 'unknown'}" not bound`,
-      );
+      throw new WrongStackError({
+        message: `Container: token "${token.description ?? 'unknown'}" not bound`,
+        code: 'CONTAINER_TOKEN_NOT_BOUND',
+        subsystem: 'container',
+        context: { token: token.description },
+      });
     }
     if (entry.singleton && entry.cache !== undefined) {
       return entry.cache as T;

@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { spawn } from 'node:child_process';
-import type { Tool } from '@wrongstack/core';
+import type { Tool, ToolStreamEvent } from '@wrongstack/core';
 import { compileGlob } from '@wrongstack/core';
 import { isBinaryBuffer, safeResolve } from './_util.js';
 
@@ -47,21 +47,31 @@ export const grepTool: Tool<GrepInput, GrepOutput> = {
     required: ['pattern'],
   },
   async execute(input, ctx, opts) {
+    let final: GrepOutput | undefined;
+    for await (const ev of grepTool.executeStream!(input, ctx, opts)) {
+      if (ev.type === 'final') final = ev.output;
+    }
+    if (!final) throw new Error('grep: stream ended without final event');
+    return final;
+  },
+  async *executeStream(input, ctx, opts): AsyncGenerator<ToolStreamEvent<GrepOutput>> {
     if (!input?.pattern) throw new Error('grep: pattern is required');
     const base = input.path ? safeResolve(input.path, ctx) : ctx.cwd;
     const mode = input.output_mode ?? 'content';
     const limit = Math.max(1, Math.min(input.limit ?? 200, 2000));
 
     const rgAvailable = await detectRg(opts.signal);
-
     if (rgAvailable) {
       try {
-        return await runRg(input, base, mode, limit, opts.signal);
+        yield* runRgStream(input, base, mode, limit, opts.signal);
+        return;
       } catch {
         // fall through to native
       }
     }
-    return await runNative(input, base, mode, limit, opts.signal);
+    yield { type: 'log', text: 'Falling back to native grep…' };
+    const out = await runNative(input, base, mode, limit, opts.signal);
+    yield { type: 'final', output: out };
   },
 };
 
@@ -77,42 +87,122 @@ async function detectRg(signal: AbortSignal): Promise<boolean> {
   });
 }
 
-function runRg(
+async function* runRgStream(
   input: GrepInput,
   base: string,
   mode: 'content' | 'files_with_matches' | 'count',
   limit: number,
   signal: AbortSignal,
-): Promise<GrepOutput> {
-  return new Promise((resolve, reject) => {
-    const args: string[] = ['--no-heading'];
-    if (input.case_insensitive) args.push('-i');
-    if (mode === 'files_with_matches') args.push('-l');
-    if (mode === 'count') args.push('-c');
-    if (mode === 'content') {
-      args.push('-n');
-      if (input.context_lines) args.push('-C', String(input.context_lines));
-    }
-    if (input.glob) args.push('--glob', input.glob);
-    args.push('--', input.pattern, base);
+): AsyncGenerator<ToolStreamEvent<GrepOutput>> {
+  const args: string[] = ['--no-heading'];
+  if (input.case_insensitive) args.push('-i');
+  if (mode === 'files_with_matches') args.push('-l');
+  if (mode === 'count') args.push('-c');
+  if (mode === 'content') {
+    args.push('-n');
+    if (input.context_lines) args.push('-C', String(input.context_lines));
+  }
+  if (input.glob) args.push('--glob', input.glob);
+  args.push('--', input.pattern, base);
 
-    const child = spawn('rg', args, { signal, stdio: ['ignore', 'pipe', 'pipe'] });
-    let buf = '';
-    child.stdout?.on('data', (chunk) => {
-      buf += chunk.toString();
-    });
-    child.on('error', reject);
-    child.on('close', () => {
-      const lines = buf.split('\n').filter(Boolean);
-      const sliced = lines.slice(0, limit);
-      resolve({
-        matches: sliced,
-        count: lines.length,
-        truncated: lines.length > limit,
-        used: 'rg',
-      });
-    });
+  const matches: string[] = [];
+  let buf = '';
+  let totalLines = 0;
+  let batchSinceFlush = 0;
+  const FLUSH_AT = 16; // yield a partial_output every 16 matches
+
+  const child = spawn('rg', args, { signal, stdio: ['ignore', 'pipe', 'pipe'] });
+
+  type Chunk = { kind: 'out' | 'close' | 'error'; data: string };
+  const queue: Chunk[] = [];
+  let waiter: (() => void) | undefined;
+  const wake = () => {
+    if (waiter) {
+      const w = waiter;
+      waiter = undefined;
+      w();
+    }
+  };
+  child.stdout?.on('data', (c) => {
+    queue.push({ kind: 'out', data: c.toString() });
+    wake();
   });
+  child.on('error', (e) => {
+    queue.push({ kind: 'error', data: e.message });
+    wake();
+  });
+  child.on('close', () => {
+    queue.push({ kind: 'close', data: '' });
+    wake();
+  });
+
+  let pendingBatch: string[] = [];
+  let errored = false;
+  for (;;) {
+    while (queue.length === 0) {
+      await new Promise<void>((r) => {
+        waiter = r;
+      });
+    }
+    const c = queue.shift()!;
+    if (c.kind === 'error') {
+      errored = true;
+      continue;
+    }
+    if (c.kind === 'close') break;
+    buf += c.data;
+    const idx = buf.lastIndexOf('\n');
+    if (idx === -1) continue;
+    const ready = buf.slice(0, idx);
+    buf = buf.slice(idx + 1);
+    for (const line of ready.split('\n')) {
+      if (!line) continue;
+      totalLines++;
+      if (matches.length < limit) {
+        matches.push(line);
+        pendingBatch.push(line);
+        batchSinceFlush++;
+      }
+    }
+    if (batchSinceFlush >= FLUSH_AT) {
+      yield {
+        type: 'partial_output',
+        text: pendingBatch.join('\n'),
+        data: { matches_so_far: matches.length },
+      };
+      pendingBatch = [];
+      batchSinceFlush = 0;
+    }
+  }
+
+  if (buf.trim()) {
+    for (const line of buf.split('\n')) {
+      if (!line) continue;
+      totalLines++;
+      if (matches.length < limit) {
+        matches.push(line);
+        pendingBatch.push(line);
+      }
+    }
+  }
+  if (pendingBatch.length > 0) {
+    yield {
+      type: 'partial_output',
+      text: pendingBatch.join('\n'),
+      data: { matches_so_far: matches.length },
+    };
+  }
+  if (errored) throw new Error('rg: spawn error');
+
+  yield {
+    type: 'final',
+    output: {
+      matches,
+      count: totalLines,
+      truncated: totalLines > limit,
+      used: 'rg',
+    },
+  };
 }
 
 async function runNative(

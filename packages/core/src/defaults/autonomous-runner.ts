@@ -3,6 +3,7 @@ import type { RunResult } from '../core/agent.js';
 import type { Context, RunOptions } from '../core/context.js';
 import type { Agent } from '../core/agent.js';
 import type { DoneCondition } from '../types/multi-agent.js';
+import { toWrongStackError } from '../types/errors.js';
 
 export interface DoneCheckResult {
   done: boolean;
@@ -116,7 +117,7 @@ export class AutonomousRunner {
         if ((e as Error).message.includes('timeout')) {
           const timeoutResult: RunResult & { toolCalls: number; reason?: string } = {
             status: 'failed',
-            error: e,
+            error: toWrongStackError(e),
             iterations: this.iterations,
             toolCalls: this.toolCalls,
             reason: 'iteration timeout',

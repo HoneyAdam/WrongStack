@@ -1,0 +1,157 @@
+import type { MCPServerConfig } from '../types/config.js';
+
+/**
+ * Built-in MCP server presets available to all WrongStack users out of the box.
+ * These servers must be explicitly enabled in config (disabled by default).
+ *
+ * To enable: set `mcpServers: { serverName: { enabled: true } }` in your config.
+ *
+ * Some servers require environment variables or additional config — see notes below.
+ *
+ * Transport types:
+ *   stdio       — spawns a local npm package binary via child_process
+ *   sse         — HTTP SSE endpoint (client POSTs requests)
+ *   streamable-http — session-based HTTP with NDJSON responses
+ */
+
+/** Filesystem access: read, write, list, search, tree. Good for exploring projects. */
+export const filesystemServer = (): MCPServerConfig => ({
+  name: 'filesystem',
+  description: 'Read, write, and navigate the local filesystem (read-heavy tools)',
+  transport: 'stdio',
+  command: 'npx',
+  args: ['-y', '@modelcontextprotocol/server-filesystem', '.'],
+  permission: 'confirm',
+});
+
+/** GitHub API: issues, PRs, repos, search, file operations. Requires GITHUB_PERSONAL_ACCESS_TOKEN. */
+export const githubServer = (): MCPServerConfig => ({
+  name: 'github',
+  description: 'GitHub API — issues, PRs, repos, search, file ops (requires GITHUB_PERSONAL_ACCESS_TOKEN)',
+  transport: 'stdio',
+  command: 'npx',
+  args: ['-y', '@modelcontextprotocol/server-github'],
+  env: { GITHUB_PERSONAL_ACCESS_TOKEN: process.env.GITHUB_PERSONAL_ACCESS_TOKEN ?? '' },
+  permission: 'confirm',
+});
+
+/**
+ * Context7 — codebase-aware documentation and Q&A using context from your code.
+ * Live documentation for any library, grounded in your actual versions.
+ */
+export const context7Server = (): MCPServerConfig => ({
+  name: 'context7',
+  description: 'Codebase-aware documentation and Q&A (context7.ai)',
+  transport: 'streamable-http',
+  url: 'https://server.context7.ai/mcp',
+  permission: 'confirm',
+});
+
+/**
+ * Brave Search — web search via Brave Browser's API.
+ * Requires BRAVE_SEARCH_API_KEY. Free tier: 2,000 queries/month.
+ * Sign up at https://api.search.brave.com/
+ */
+export const braveSearchServer = (): MCPServerConfig => ({
+  name: 'brave-search',
+  description: 'Web search (Brave). Requires BRAVE_SEARCH_API_KEY — free tier 2k queries/month',
+  transport: 'stdio',
+  command: 'npx',
+  args: ['-y', '@modelcontextprotocol/server-brave-search'],
+  env: { BRAVE_SEARCH_API_KEY: process.env.BRAVE_SEARCH_API_KEY ?? '' },
+  permission: 'confirm',
+});
+
+/**
+ * Block (Block, Inc.) — Postgres database access via SQL.
+ * Useful for running queries against a connected database during development.
+ */
+export const blockServer = (): MCPServerConfig => ({
+  name: 'block',
+  description: 'Postgres database access via SQL (Block MCP server)',
+  transport: 'stdio',
+  command: 'npx',
+  args: ['-y', '@modelcontextprotocol/server-block'],
+  permission: 'confirm',
+});
+
+/**
+ * EverArt — AI image generation via various providers.
+ * Requires EVERART_API_KEY.
+ */
+export const everArtServer = (): MCPServerConfig => ({
+  name: 'everart',
+  description: 'AI image generation (EverArt). Requires EVERART_API_KEY',
+  transport: 'stdio',
+  command: 'npx',
+  args: ['-y', '@modelcontextprotocol/server-everart'],
+  env: { EVERART_API_KEY: process.env.EVERART_API_KEY ?? '' },
+  permission: 'confirm',
+});
+
+/**
+ * Slack — messaging, channels, search.
+ * Requires SLACK_BOT_TOKEN and either SLACK_TEAM_ID or SLACK_USER_TOKEN.
+ */
+export const slackServer = (): MCPServerConfig => ({
+  name: 'slack',
+  description: 'Slack — messaging, channels, search. Requires SLACK_BOT_TOKEN + SLACK_TEAM_ID',
+  transport: 'stdio',
+  command: 'npx',
+  args: ['-y', '@modelcontextprotocol/server-slack'],
+  env: {
+    SLACK_BOT_TOKEN: process.env.SLACK_BOT_TOKEN ?? '',
+    SLACK_TEAM_ID: process.env.SLACK_TEAM_ID ?? '',
+  },
+  permission: 'confirm',
+});
+
+/**
+ * AWS knowledge base — EC2, S3, Lambda, IAM, CloudFormation, cost management.
+ * Requires AWS access key + secret in environment.
+ */
+export const awsServer = (): MCPServerConfig => ({
+  name: 'aws',
+  description: 'AWS — EC2, S3, Lambda, IAM, CloudFormation, costs. Requires AWS credentials',
+  transport: 'stdio',
+  command: 'npx',
+  args: ['-y', '@modelcontextprotocol/server-aws'],
+  permission: 'confirm',
+});
+
+/**
+ * Google Maps — directions, distance matrix, geocoding, places.
+ * Requires GOOGLE_MAPS_API_KEY.
+ */
+export const googleMapsServer = (): MCPServerConfig => ({
+  name: 'google-maps',
+  description: 'Google Maps — directions, geocoding, places. Requires GOOGLE_MAPS_API_KEY',
+  transport: 'stdio',
+  command: 'npx',
+  args: ['-y', '@modelcontextprotocol/server-google-maps'],
+  env: { GOOGLE_MAPS_API_KEY: process.env.GOOGLE_MAPS_API_KEY ?? '' },
+  permission: 'confirm',
+});
+
+/** Sentinel — security vulnerability scanning (sentinel-labs). */
+export const sentinelServer = (): MCPServerConfig => ({
+  name: 'sentinel',
+  description: 'Security vulnerability scanning (Sentinel)',
+  transport: 'streamable-http',
+  url: 'https://mcp.sentinel.ai',
+  permission: 'deny', // security tool — require explicit confirmation
+});
+
+/** Everything bundled — full set of built-in servers. Useful for `wstack mcp add --all`. */
+export const allServers = (): Record<string, MCPServerConfig> => ({
+  filesystem: { ...filesystemServer(), enabled: false },
+  github: { ...githubServer(), enabled: false },
+  context7: { ...context7Server(), enabled: false },
+  'brave-search': { ...braveSearchServer(), enabled: false },
+  block: { ...blockServer(), enabled: false },
+  everart: { ...everArtServer(), enabled: false },
+  slack: { ...slackServer(), enabled: false },
+  aws: { ...awsServer(), enabled: false },
+  'google-maps': { ...googleMapsServer(), enabled: false },
+  sentinel: { ...sentinelServer(), enabled: false },
+});

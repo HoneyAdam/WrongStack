@@ -1,6 +1,5 @@
-import { spawn } from 'node:child_process';
-import type { Tool } from '@wrongstack/core';
-import { safeResolve } from './_util.js';
+import type { Tool, ToolStreamEvent } from '@wrongstack/core';
+import { safeResolve, spawnStream } from './_util.js';
 
 interface AuditInput {
   cwd?: string;
@@ -43,19 +42,23 @@ export const auditTool: Tool<AuditInput, AuditOutput> = {
         enum: ['low', 'moderate', 'high', 'critical'],
         description: 'Minimum severity level to report',
       },
-      fix: {
-        type: 'boolean',
-        description: 'Attempt to fix vulnerabilities (default: false)',
-      },
-      packages: {
-        type: 'string',
-        description: 'Specific package(s) to audit (comma-separated)',
-      },
+      fix: { type: 'boolean', description: 'Attempt to fix vulnerabilities (default: false)' },
+      packages: { type: 'string', description: 'Specific package(s) to audit (comma-separated)' },
     },
   },
   async execute(input, ctx, opts) {
+    let final: AuditOutput | undefined;
+    for await (const ev of auditTool.executeStream!(input, ctx, opts)) {
+      if (ev.type === 'final') final = ev.output;
+    }
+    if (!final) throw new Error('audit: stream ended without final event');
+    return final;
+  },
+  async *executeStream(input, ctx, opts): AsyncGenerator<ToolStreamEvent<AuditOutput>> {
     const cwd = input.cwd ? safeResolve(input.cwd, ctx) : ctx.cwd;
     const manager = await detectManager(cwd);
+    yield { type: 'log', text: `Auditing with ${manager}…`, data: { manager } };
+
     const args = ['audit', '--json'];
     if (input.fix) args.push('--fix');
     if (input.packages) {
@@ -63,44 +66,23 @@ export const auditTool: Tool<AuditInput, AuditOutput> = {
       args.push(...pkgs.map((p: string) => p.trim()));
     }
 
-    return runAudit(manager, args, cwd, opts.signal);
+    const result = yield* spawnStream({
+      cmd: manager,
+      args,
+      cwd,
+      signal: opts.signal,
+      maxBytes: 100_000,
+    });
+
+    yield { type: 'final', output: parseAuditOutput(result.stdout, result.exitCode) };
   },
 };
 
 async function detectManager(cwd: string): Promise<string> {
-  const { stat } = require('node:fs/promises');
+  const { stat } = await import('node:fs/promises');
   try { await stat(`${cwd}/pnpm-lock.yaml`); return 'pnpm'; } catch { /* */ }
   try { await stat(`${cwd}/yarn.lock`); return 'yarn'; } catch { /* */ }
   return 'npm';
-}
-
-function runAudit(
-  manager: string,
-  args: string[],
-  cwd: string,
-  signal: AbortSignal,
-): Promise<AuditOutput> {
-  return new Promise((resolve) => {
-    let stdout = '';
-    let stderr = '';
-    const MAX = 100_000;
-
-    const child = spawn(manager, args, { cwd, signal, stdio: ['ignore', 'pipe', 'pipe'] });
-    child.stdout?.on('data', (c) => { if (stdout.length < MAX) stdout += c.toString(); });
-    child.stderr?.on('data', (c) => { if (stderr.length < MAX) stderr += c.toString(); });
-    child.on('close', (code) => {
-      const result = parseAuditOutput(stdout, code ?? 0);
-      resolve(result);
-    });
-    child.on('error', (e) => resolve({
-      exit_code: 1,
-      vulnerabilities: [],
-      total: 0,
-      summary: e.message,
-      output: e.message,
-      truncated: false,
-    }));
-  });
 }
 
 function parseAuditOutput(json: string, exitCode: number): AuditOutput {

@@ -1,7 +1,27 @@
 import type { Tool, Permission } from '@wrongstack/core';
 import type { MCPClient, MCPTool } from './client.js';
 
+/**
+ * Keywords that indicate a mutating operation.
+ * Applied to both the tool name and its inputSchema property names.
+ */
 const MUTATING_RE = /create|update|delete|write|send|set|put|post|patch|remove|rename|move/i;
+
+function isMutatingTool(mcpTool: MCPTool): boolean {
+  if (MUTATING_RE.test(mcpTool.name)) return true;
+  // Check property names in the input schema for mutating intent.
+  // e.g. { properties: { createTable: {...}, dropIndex: {...} } }
+  const schema = mcpTool.inputSchema;
+  if (schema && typeof schema === 'object') {
+    const props = (schema as { properties?: Record<string, unknown> }).properties;
+    if (props) {
+      for (const key of Object.keys(props)) {
+        if (MUTATING_RE.test(key)) return true;
+      }
+    }
+  }
+  return false;
+}
 
 export function wrapMCPTool(
   serverName: string,
@@ -15,7 +35,7 @@ export function wrapMCPTool(
     description: mcpTool.description ?? `${qualifiedName} (MCP tool)`,
     usageHint: `Tool provided by MCP server "${serverName}". ${mcpTool.description ?? ''}`,
     permission,
-    mutating: MUTATING_RE.test(mcpTool.name),
+    mutating: isMutatingTool(mcpTool),
     inputSchema: mcpTool.inputSchema ?? { type: 'object', properties: {} },
     async execute(input, ctx, opts) {
       const res = await client.callTool(mcpTool.name, input);

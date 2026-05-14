@@ -113,7 +113,7 @@ function runCmd(cmd: string, args: string[]): Promise<string | null> {
   return new Promise((resolve) => {
     const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
-    child.stdout.on('data', (c) => (out += String(c)));
+    child.stdout.on('data', (c) => { out += String(c); });
     child.on('error', () => resolve(null));
     child.on('exit', (code) => resolve(code === 0 ? out : null));
   });

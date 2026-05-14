@@ -18,6 +18,7 @@ import { StatusBar } from './components/status-bar.js';
 import { FilePicker } from './components/file-picker.js';
 import { SlashMenu } from './components/slash-menu.js';
 import { ModelPicker, type ProviderOption } from './components/model-picker.js';
+import { ConfirmPrompt } from './components/confirm-prompt.js';
 import { searchFiles } from './file-search.js';
 import { readClipboardImage } from './clipboard.js';
 import { createQueueSlashCommand } from './queue-slash.js';
@@ -93,6 +94,14 @@ type State = {
   cursor: number;
   placeholders: string[];
   streamingText: string;
+  /**
+   * Live tail of the currently streaming tool's stdout/progress text. Mirrors
+   * the assistant `streamingText` pattern but is keyed by tool_use id so the
+   * tail is cleared automatically when that tool finishes. Only one tool's
+   * stream is shown at a time — multi-tool streaming is rare and stacking
+   * tails fights for the same screen space.
+   */
+  toolStream: { toolUseId: string; name: string; text: string } | null;
   status: 'idle' | 'running' | 'streaming' | 'aborting';
   interrupts: number;
   hint: string;
@@ -119,6 +128,14 @@ type State = {
     pickedProviderId?: string;
     hint?: string;
   };
+  /** Pending tool confirmation — shown in place of the input when active. */
+  confirm: {
+    toolUseId: string;
+    toolName: string;
+    input: unknown;
+    suggestedPattern: string;
+    resolve: (decision: 'yes' | 'no' | 'always' | 'deny') => void;
+  } | null;
 };
 
 type Action =
@@ -138,6 +155,8 @@ type Action =
   | { type: 'pickerMove'; delta: number }
   | { type: 'toolStarted'; id: string; name: string }
   | { type: 'toolEnded'; id?: string; name?: string }
+  | { type: 'toolStreamAppend'; toolUseId: string; name: string; text: string }
+  | { type: 'toolStreamClear'; toolUseId?: string; name?: string }
   | { type: 'enqueue'; item: Omit<QueueItem, 'id'> }
   | { type: 'dequeueFirst' }
   | { type: 'queueClear' }
@@ -153,7 +172,9 @@ type Action =
   | { type: 'modelPickerHint'; text?: string }
   | { type: 'historyPush'; text: string }
   | { type: 'historyUp' }
-  | { type: 'historyDown' };
+  | { type: 'historyDown' }
+  | { type: 'confirmOpen'; info: State['confirm'] }
+  | { type: 'confirmClose' };
 
 export function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -242,6 +263,34 @@ export function reducer(state: State, action: Action): State {
         }
       }
       return state;
+    }
+    case 'toolStreamAppend': {
+      // Only one tool's stream is shown at a time. If a different tool is
+      // currently streaming, switch — last writer wins. Streams from
+      // not-yet-acknowledged tools take over as soon as data arrives, which
+      // matches user intuition (whatever just produced output is what's
+      // visible).
+      const cur = state.toolStream;
+      if (cur && cur.toolUseId === action.toolUseId) {
+        return {
+          ...state,
+          toolStream: { ...cur, text: cur.text + action.text },
+        };
+      }
+      return {
+        ...state,
+        toolStream: { toolUseId: action.toolUseId, name: action.name, text: action.text },
+      };
+    }
+    case 'toolStreamClear': {
+      if (state.toolStream === null) return state;
+      // Clear only when the finishing tool matches the streaming one. A
+      // stale `tool.executed` for a different tool must not blank the
+      // currently-visible stream.
+      const t = state.toolStream;
+      if (action.toolUseId !== undefined && action.toolUseId !== t.toolUseId) return state;
+      if (action.name !== undefined && action.toolUseId === undefined && action.name !== t.name) return state;
+      return { ...state, toolStream: null };
     }
     case 'enqueue': {
       const item: QueueItem = { ...action.item, id: state.nextQueueId };
@@ -364,6 +413,10 @@ export function reducer(state: State, action: Action): State {
         ...state,
         modelPicker: { ...state.modelPicker, hint: action.text },
       };
+    case 'confirmOpen':
+      return { ...state, confirm: action.info };
+    case 'confirmClose':
+      return { ...state, confirm: null };
   }
 }
 
@@ -414,6 +467,7 @@ export function App({
     cursor: 0,
     placeholders: [],
     streamingText: '',
+    toolStream: null,
     status: 'idle' as const,
     interrupts: 0,
     hint: '',
@@ -432,6 +486,7 @@ export function App({
       modelOptions: [],
       selected: 0,
     },
+    confirm: null,
   });
 
   const builderRef = useRef<InputBuilder | null>(null);
@@ -522,6 +577,7 @@ export function App({
   // Todo counts come from the agent's context, which is mutated by
   // the `todo` tool. Re-read on each render — array access is O(N) on
   // a list that's typically < 20 items.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: nowTick intentionally triggers re-render; ctx.todos is not React state
   const todos = useMemo(() => {
     const counts = { pending: 0, inProgress: 0, completed: 0 };
     for (const t of agent.ctx.todos) {
@@ -537,6 +593,7 @@ export function App({
 
   // Detect an active `@<query>` token at the cursor and drive the picker.
   // Reruns whenever buffer/cursor changes — guards against stale results.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: picker state reads are intentional — dispatching based on stale picker state is harmless
   useEffect(() => {
     const detected = detectAtToken(state.buffer, state.cursor);
     if (!detected) {
@@ -561,6 +618,7 @@ export function App({
   }, [state.buffer, state.cursor, projectRoot]);
 
   // Detect an active `/<query>` token at the cursor and drive the slash picker.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: slashPicker state reads are intentional — same pattern as @ picker above
   useEffect(() => {
     const trimmed = state.buffer.trimStart();
     if (!trimmed.startsWith('/')) {
@@ -777,6 +835,7 @@ export function App({
       // Strip any bracketed-paste DCS sequences that some providers echo
       // into the stream. They are invisible in a real terminal but appear as
       // junk text if Ink's raw rendering catches them.
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: bracketed paste escape sequences are intentional
       const text = e.text.replace(/\x1b\[200~|\x1b\[201~/g, '');
       streamingTextRef.current += text;
       pendingDeltaRef.current += text;
@@ -784,6 +843,20 @@ export function App({
     });
     const offToolStart = events.on('tool.started', (e) => {
       dispatch({ type: 'toolStarted', id: e.id, name: e.name });
+    });
+    const offToolProgress = events.on('tool.progress', (e) => {
+      // Only `partial_output` becomes the live tail. Other event kinds
+      // (`log`, `warning`, `metric`, `file_changed`) are deliberately not
+      // rendered here — they pile up too fast and would steal screen real
+      // estate from the assistant text. They still flow through EventBus
+      // for observability/metrics consumers.
+      if (e.event.type !== 'partial_output' || !e.event.text) return;
+      dispatch({
+        type: 'toolStreamAppend',
+        toolUseId: e.id,
+        name: e.name,
+        text: e.event.text,
+      });
     });
     const offTool = events.on('tool.executed', (e) => {
       dispatch({
@@ -800,6 +873,9 @@ export function App({
       // `tool.executed` has no tool_use id; the reducer falls back to
       // clearing the oldest running entry that matches this name.
       dispatch({ type: 'toolEnded', name: e.name });
+      // Clear the live tail for this tool — the final entry is now in
+      // <Static>, no need to keep mirroring it below.
+      dispatch({ type: 'toolStreamClear', name: e.name });
     });
     const offRetry = events.on('provider.retry', (e) => {
       const secs = (e.delayMs / 1000).toFixed(e.delayMs >= 1000 ? 1 : 2);
@@ -814,12 +890,35 @@ export function App({
         entry: { kind: 'error', text: e.description },
       });
     });
+    const offConfirmNeeded = events.on('tool.confirm_needed', (e) => {
+      dispatch({
+        type: 'addEntry',
+        entry: {
+          kind: 'confirm',
+          toolName: e.tool.name,
+          input: e.input,
+          suggestedPattern: e.suggestedPattern,
+        },
+      });
+      dispatch({
+        type: 'confirmOpen',
+        info: {
+          toolUseId: e.toolUseId,
+          toolName: e.tool.name,
+          input: e.input,
+          suggestedPattern: e.suggestedPattern,
+          resolve: e.resolve,
+        },
+      });
+    });
     return () => {
       offDelta();
       offToolStart();
+      offToolProgress();
       offTool();
       offRetry();
       offProvErr();
+      offConfirmNeeded();
       if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
     };
   }, [events]);
@@ -1083,30 +1182,32 @@ export function App({
     // Strip bracketed-paste markers if the terminal sent them through.
     // The wrapped payload is always treated as a paste regardless of size.
     let bracketedPaste = false;
+    let cleanInput = input;
     if (input.includes('\x1b[200~') || input.includes('\x1b[201~')) {
-      input = input.replace(/\x1b\[200~/g, '').replace(/\x1b\[201~/g, '');
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: bracketed paste escape sequences are intentional
+      cleanInput = input.replace(/\x1b\[200~/g, '').replace(/\x1b\[201~/g, '');
       bracketedPaste = true;
     }
 
     // Paste detection: chunks larger than threshold or containing a newline
     // are routed through InputBuilder instead of inserted character-by-char.
-    if (bracketedPaste || input.length > PASTE_THRESHOLD_CHARS || input.includes('\n')) {
+    if (bracketedPaste || cleanInput.length > PASTE_THRESHOLD_CHARS || cleanInput.includes('\n')) {
       const builder = builderRef.current;
       if (!builder) return;
-      const ph = await builder.appendPaste(input);
+      const ph = await builder.appendPaste(cleanInput);
       if (ph) {
-        const lineCount = input.split('\n').length;
+        const lineCount = cleanInput.split('\n').length;
         dispatch({ type: 'addPlaceholder', ph: `${ph} (${lineCount} lines)` });
       } else {
         const next =
-          state.buffer.slice(0, state.cursor) + input + state.buffer.slice(state.cursor);
-        dispatch({ type: 'setBuffer', buffer: next, cursor: state.cursor + input.length });
+          state.buffer.slice(0, state.cursor) + cleanInput + state.buffer.slice(state.cursor);
+        dispatch({ type: 'setBuffer', buffer: next, cursor: state.cursor + cleanInput.length });
       }
       return;
     }
 
-    const next = state.buffer.slice(0, state.cursor) + input + state.buffer.slice(state.cursor);
-    dispatch({ type: 'setBuffer', buffer: next, cursor: state.cursor + input.length });
+    const next = state.buffer.slice(0, state.cursor) + cleanInput + state.buffer.slice(state.cursor);
+    dispatch({ type: 'setBuffer', buffer: next, cursor: state.cursor + cleanInput.length });
   };
 
   /**
@@ -1133,7 +1234,7 @@ export function App({
       // run() returns and flash through the tail Box.
       const streamed = streamingTextRef.current;
       const text = result.status === 'done' && result.finalText ? result.finalText : streamed;
-      if (text && text.trim()) {
+      if (text?.trim()) {
         dispatch({ type: 'addEntry', entry: { kind: 'assistant', text } });
       }
       // Clear every form of streaming state in lockstep — ref, pending
@@ -1150,12 +1251,13 @@ export function App({
       if (result.status === 'aborted') {
         dispatch({ type: 'addEntry', entry: { kind: 'warn', text: 'Aborted.' } });
       } else if (result.status === 'failed') {
+        const err = result.error;
+        const text = err
+          ? `Failed [${err.severity}${err.recoverable ? ', recoverable' : ''}]: ${err.describe()}`
+          : 'Failed.';
         dispatch({
           type: 'addEntry',
-          entry: {
-            kind: 'error',
-            text: `Failed: ${result.error instanceof Error ? result.error.message : String(result.error)}`,
-          },
+          entry: { kind: 'error', text },
         });
       } else if (result.status === 'max_iterations') {
         dispatch({
@@ -1266,7 +1368,7 @@ export function App({
 
   return (
     <Box flexDirection="column">
-      <History entries={state.entries} streamingText={state.streamingText} />
+      <History entries={state.entries} streamingText={state.streamingText} toolStream={state.toolStream} />
       <Input
         value={state.buffer}
         cursor={state.cursor}
@@ -1297,6 +1399,14 @@ export function App({
           selected={state.modelPicker.selected}
           pickedProviderId={state.modelPicker.pickedProviderId}
           hint={state.modelPicker.hint}
+        />
+      ) : null}
+      {state.confirm ? (
+        <ConfirmPrompt
+          toolName={state.confirm.toolName}
+          input={state.confirm.input}
+          suggestedPattern={state.confirm.suggestedPattern}
+          onDecision={state.confirm.resolve}
         />
       ) : null}
       <StatusBar

@@ -6,7 +6,7 @@ import type { MemoryStore } from '../types/memory.js';
 import type { PermissionPolicy } from '../types/permission.js';
 import type { Compactor } from '../types/compactor.js';
 import type { PathResolver } from '../types/path-resolver.js';
-import type { ConfigLoader } from '../types/config.js';
+import type { ConfigLoader, ConfigStore } from '../types/config.js';
 import type { Renderer } from '../types/renderer.js';
 import type { InputReader } from '../types/input-reader.js';
 import type { ErrorHandler } from '../types/error-handler.js';
@@ -27,6 +27,7 @@ export const TOKENS = {
   Compactor: t<Compactor>('Compactor'),
   PathResolver: t<PathResolver>('PathResolver'),
   ConfigLoader: t<ConfigLoader>('ConfigLoader'),
+  ConfigStore: t<ConfigStore>('ConfigStore'),
   Renderer: t<Renderer>('Renderer'),
   InputReader: t<InputReader>('InputReader'),
   ErrorHandler: t<ErrorHandler>('ErrorHandler'),

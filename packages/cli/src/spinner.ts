@@ -1,4 +1,5 @@
 import { color } from '@wrongstack/core';
+import { fmtTok } from './utils.js';
 
 const FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const FILLED = '█';
@@ -100,10 +101,4 @@ function renderProgress(ratio: number, width: number): string {
   const filled = clamped === 0 ? 0 : Math.max(1, Math.round(clamped * width));
   const capped = Math.min(width, filled);
   return FILLED.repeat(capped) + EMPTY.repeat(width - capped);
-}
-
-function fmtTok(n: number): string {
-  if (n < 1000) return String(n);
-  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
-  return `${(n / 1_000_000).toFixed(1)}M`;
 }

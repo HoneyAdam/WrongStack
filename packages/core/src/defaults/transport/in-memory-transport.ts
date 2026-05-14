@@ -8,6 +8,16 @@ export class InMemoryBridgeTransport implements BridgeTransport {
   private readonly subs = new Map<string, Set<(msg: BridgeMessage) => void>>();
 
   send(msg: BridgeMessage, to: string): Promise<void> {
+    // Broadcast: deliver to every subscriber except the sender.
+    if (to === '*') {
+      for (const [id, handlers] of this.subs) {
+        if (id === msg.from) continue;
+        for (const h of handlers) {
+          try { h(msg); } catch { /* ignore */ }
+        }
+      }
+      return Promise.resolve();
+    }
     const handlers = this.subs.get(to);
     if (handlers) {
       for (const h of handlers) {

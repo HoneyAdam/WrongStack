@@ -16,6 +16,14 @@ export {
   DEFAULT_MAX_ITERATIONS,
 } from './core/agent.js';
 export { Context, type ContextInit, type RunOptions, type TodoItem } from './core/context.js';
+export { extractRunEnv, type RunEnv } from './core/run-env.js';
+export {
+  ConversationState,
+  wrapAsState,
+  type ReadonlyConversationState,
+  type StateChange,
+  type StateChangeHandler,
+} from './core/conversation-state.js';
 export {
   InputBuilder,
   type InputBuilderOptions,
@@ -33,4 +41,4 @@ export {
   type SlashCommand,
 } from './registry/slash-command-registry.js';
 export { DefaultPluginAPI, type PluginAPIInit } from './plugin/api.js';
-export { loadPlugins, KERNEL_API_VERSION, type LoadPluginsOptions } from './plugin/loader.js';
+export { loadPlugins, unloadPlugins, KERNEL_API_VERSION, type LoadPluginsOptions } from './plugin/loader.js';

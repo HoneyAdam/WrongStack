@@ -1,6 +1,8 @@
 import type { ContentBlock, TextBlock } from './blocks.js';
 import type { Message } from './messages.js';
 import type { Tool } from './tool.js';
+import type { ErrorCode } from './errors.js';
+import { WrongStackError } from './errors.js';
 
 export interface Usage {
   input: number;
@@ -81,12 +83,11 @@ export interface ProviderErrorBody {
   raw?: string;
 }
 
-export class ProviderError extends Error {
+export class ProviderError extends WrongStackError {
   public readonly status: number;
   public readonly retryable: boolean;
   public readonly providerId: string;
   public readonly body?: ProviderErrorBody;
-  public override readonly cause?: unknown;
 
   constructor(
     message: string,
@@ -95,13 +96,20 @@ export class ProviderError extends Error {
     providerId: string,
     opts: { body?: ProviderErrorBody; cause?: unknown } = {},
   ) {
-    super(message);
+    super({
+      message,
+      code: providerStatusToCode(status, opts.body?.type),
+      subsystem: 'provider',
+      severity: status >= 500 ? 'error' : 'warning',
+      recoverable: retryable,
+      context: { providerId, status },
+      cause: opts.cause,
+    });
     this.name = 'ProviderError';
     this.status = status;
     this.retryable = retryable;
     this.providerId = providerId;
     this.body = opts.body;
-    this.cause = opts.cause;
   }
 
   /**
@@ -116,7 +124,7 @@ export class ProviderError extends Error {
    *   "anthropic invalid request (400): messages.0.role must be one of 'user'|'assistant'"
    *   "groq HTTP 500 (server error)"
    */
-  describe(): string {
+  override describe(): string {
     const kind = describeStatus(this.status, this.body?.type);
     const head = `${this.providerId} ${kind}`;
     const detail = this.body?.message?.trim();
@@ -146,4 +154,15 @@ function describeStatus(status: number, type?: string): string {
 
 function truncate(s: string, n: number): string {
   return s.length <= n ? s : `${s.slice(0, n - 1)}…`;
+}
+
+function providerStatusToCode(status: number, type?: string): ErrorCode {
+  if (status === 0) return 'PROVIDER_NETWORK_ERROR';
+  if (type === 'rate_limit_error' || status === 429) return 'PROVIDER_RATE_LIMITED';
+  if (type === 'authentication_error' || status === 401) return 'PROVIDER_AUTH_FAILED';
+  if (type === 'overloaded_error' || status === 529) return 'PROVIDER_OVERLOADED';
+  if (type === 'invalid_request_error' || status === 400) return 'PROVIDER_INVALID_REQUEST';
+  if (status === 408) return 'PROVIDER_NETWORK_ERROR';
+  if (status >= 500) return 'PROVIDER_SERVER_ERROR';
+  return 'PROVIDER_INVALID_REQUEST';
 }

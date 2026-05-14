@@ -11,3 +11,8 @@ export {
   estimateToolResultTokens,
   estimateTextTokens,
 } from './token-estimate.js';
+export {
+  validateAgainstSchema,
+  type ValidationError,
+  type ValidationResult,
+} from './json-schema-validate.js';

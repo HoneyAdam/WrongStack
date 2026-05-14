@@ -94,8 +94,7 @@ function runPatch(args: string[], cwd: string, signal: AbortSignal): Promise<{ e
 function extractPatchedFiles(output: string): string[] {
   const files: string[] = [];
   const re = /patching file (.+)/gi;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(output)) !== null) {
+  for (const m of output.matchAll(re)) {
     if (m[1]) files.push(m[1]);
   }
   return files;

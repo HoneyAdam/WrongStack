@@ -148,33 +148,30 @@ function processFile(
   const classRegex = /class\s+(\w+)/g;
   const typeRegex = /(?:type|interface)\s+(\w+)\s*[=<]/g;
 
-  let match: RegExpExecArray | null;
   const allMatches: { name: string; sig: string; type: string; line: number }[] = [];
 
   if (target === 'all' || target === 'function') {
-    while ((match = functionRegex.exec(content)) !== null) {
-      if (!match[1]) continue;
-      allMatches.push({ name: match[1], sig: match[2] ?? '', type: 'function', line: content.slice(0, match.index).split('\n').length });
+    for (const m of content.matchAll(functionRegex)) {
+      if (!m[1]) continue;
+      allMatches.push({ name: m[1], sig: m[2] ?? '', type: 'function', line: content.slice(0, m.index).split('\n').length });
     }
-    while ((match = arrowRegex.exec(content)) !== null) {
-      if (!match[1]) continue;
-      allMatches.push({ name: match[1], sig: match[2] ?? '', type: 'arrow', line: content.slice(0, match.index).split('\n').length });
+    for (const m of content.matchAll(arrowRegex)) {
+      if (!m[1]) continue;
+      allMatches.push({ name: m[1], sig: m[2] ?? '', type: 'arrow', line: content.slice(0, m.index).split('\n').length });
     }
   }
 
   if (target === 'all' || target === 'class') {
-    functionRegex.lastIndex = 0;
-    while ((match = classRegex.exec(content)) !== null) {
-      if (!match[1]) continue;
-      allMatches.push({ name: match[1], sig: '', type: 'class', line: content.slice(0, match.index).split('\n').length });
+    for (const m of content.matchAll(classRegex)) {
+      if (!m[1]) continue;
+      allMatches.push({ name: m[1], sig: '', type: 'class', line: content.slice(0, m.index).split('\n').length });
     }
   }
 
   if (target === 'all' || target === 'type') {
-    functionRegex.lastIndex = 0;
-    while ((match = typeRegex.exec(content)) !== null) {
-      if (!match[1]) continue;
-      allMatches.push({ name: match[1], sig: match[0] ?? '', type: 'type', line: content.slice(0, match.index).split('\n').length });
+    for (const m of content.matchAll(typeRegex)) {
+      if (!m[1]) continue;
+      allMatches.push({ name: m[1], sig: m[0] ?? '', type: 'type', line: content.slice(0, m.index).split('\n').length });
     }
   }
 

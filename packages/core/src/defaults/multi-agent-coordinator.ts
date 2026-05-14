@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import type {
   MultiAgentCoordinator,
   CoordinatorStatus,
@@ -7,10 +8,34 @@ import type {
   TaskSpec,
   TaskResult,
   MultiAgentConfig,
+  SubagentContext,
+  SubagentRunner,
+  SubagentRunContext,
 } from '../types/multi-agent.js';
 import type { AgentBridge, BridgeMessage } from '../types/agent-bridge.js';
-import { EventEmitter } from 'node:events';
-import type { SubagentContext } from '../types/multi-agent.js';
+import { SubagentBudget, BudgetExceededError } from './subagent-budget.js';
+
+type SubagentStatus = 'running' | 'idle' | 'stopped' | 'error';
+
+interface SubagentEntry {
+  config: SubagentConfig;
+  context: SubagentContext;
+  status: SubagentStatus;
+  currentTask?: string;
+  abortController: AbortController;
+  /** Lazily created on first dispatch — budget is per-task, not per-subagent. */
+  activeBudget?: SubagentBudget;
+}
+
+export interface MultiAgentCoordinatorOptions {
+  /**
+   * Callback that executes a task on behalf of a subagent. Required for
+   * `assign()` to actually run anything — without it, tasks queue forever.
+   * The coordinator provides per-subagent isolation (own budget, own signal,
+   * own bridge) and enforces timeout + concurrency.
+   */
+  runner?: SubagentRunner;
+}
 
 export class DefaultMultiAgentCoordinator
   extends EventEmitter
@@ -18,22 +43,20 @@ export class DefaultMultiAgentCoordinator
 {
   readonly coordinatorId: string;
   readonly config: MultiAgentConfig;
+  private readonly runner?: SubagentRunner;
 
-  private readonly subagents = new Map<string, {
-    config: SubagentConfig;
-    context: SubagentContext;
-    status: 'running' | 'idle' | 'stopped' | 'error';
-    currentTask?: string;
-  }>();
+  private readonly subagents = new Map<string, SubagentEntry>();
 
   private pendingTasks: TaskSpec[] = [];
   private completedResults: TaskResult[] = [];
   private totalIterations = 0;
+  private inFlight = 0;
 
-  constructor(config: MultiAgentConfig) {
+  constructor(config: MultiAgentConfig, options: MultiAgentCoordinatorOptions = {}) {
     super();
     this.coordinatorId = config.coordinatorId;
     this.config = config;
+    this.runner = options.runner;
   }
 
   async spawn(subagent: SubagentConfig): Promise<SpawnResult> {
@@ -41,36 +64,28 @@ export class DefaultMultiAgentCoordinator
     const context: SubagentContext = {
       subagentId: id,
       tasks: [],
+      // parentBridge: wired by the caller via setSubagentBridge() once the
+      // bidirectional bridge is created. Reads gated by hasParentBridge().
       parentBridge: null as unknown as AgentBridge,
       doneCondition: this.config.doneCondition,
       maxConcurrent: this.config.maxConcurrent ?? 4,
     };
 
-    // parentBridge: set by the caller via assign() once the subagent's bridge
-    // has been created and wired up. The coordinator stores it here so it can
-    // forward messages. Access is gated through hasParentBridge() to avoid
-    // accidental null access.
     this.subagents.set(id, {
-      config: subagent,
+      config: { ...subagent, id },
       context,
       status: 'idle',
+      abortController: new AbortController(),
     });
 
     this.emit('subagent.started', { subagent: { ...subagent, id } });
 
-    return {
-      subagentId: id,
-      agentId: id,
-    };
+    return { subagentId: id, agentId: id };
   }
 
   async assign(task: TaskSpec): Promise<void> {
     this.pendingTasks.push(task);
-
-    const available = this.getAvailableSubagent();
-    if (available) {
-      await this.dispatch(available, task);
-    }
+    this.tryDispatchNext();
   }
 
   async delegate(to: string, msg: BridgeMessage): Promise<void> {
@@ -83,8 +98,8 @@ export class DefaultMultiAgentCoordinator
   }
 
   /**
-   * Wire up the communication bridge for a subagent. Call this after `spawn()`
-   * once the caller has created the bidirectional bridge connection.
+   * Wire up the communication bridge for a subagent. Call after spawn() once
+   * the caller has created the bidirectional connection.
    */
   setSubagentBridge(subagentId: string, bridge: AgentBridge): void {
     const subagent = this.subagents.get(subagentId);
@@ -96,9 +111,11 @@ export class DefaultMultiAgentCoordinator
     const subagent = this.subagents.get(subagentId);
     if (!subagent) return;
 
+    // Abort any in-flight run, then sever the bridge so further messages fail
+    // fast instead of silently queueing on a dead subagent.
+    subagent.abortController.abort();
     subagent.status = 'stopped';
     subagent.currentTask = undefined;
-    // Sever the bridge so no further messages can be sent to this subagent.
     subagent.context.parentBridge = null as unknown as AgentBridge;
 
     this.emit('subagent.stopped', { subagentId, reason: 'stopped by coordinator' });
@@ -126,78 +143,189 @@ export class DefaultMultiAgentCoordinator
     };
   }
 
-  private getAvailableSubagent(): string | null {
+  /** Expose snapshot of completed results — useful for callers awaiting all done. */
+  results(): readonly TaskResult[] {
+    return this.completedResults;
+  }
+
+  /**
+   * Manual completion — for callers that drive subagents without a runner
+   * (e.g. external orchestrators). When a runner is configured the coordinator
+   * calls this itself.
+   */
+  completeTask(result: TaskResult): void {
+    this.recordCompletion(result);
+  }
+
+  // --- internal dispatching ---------------------------------------------
+
+  private tryDispatchNext(): void {
+    while (this.canDispatch()) {
+      const subagentId = this.findIdleSubagent();
+      if (!subagentId) return;
+      const task = this.pendingTasks.shift();
+      if (!task) return;
+      void this.runDispatched(subagentId, task);
+    }
+  }
+
+  private canDispatch(): boolean {
+    const max = this.config.maxConcurrent ?? 4;
+    return this.inFlight < max && this.pendingTasks.length > 0;
+  }
+
+  private findIdleSubagent(): string | null {
     for (const [id, s] of this.subagents) {
       if (s.status === 'idle') return id;
     }
     return null;
   }
 
-  private async dispatch(subagentId: string, task: TaskSpec): Promise<void> {
+  private async runDispatched(subagentId: string, task: TaskSpec): Promise<void> {
     const subagent = this.subagents.get(subagentId);
     if (!subagent) return;
 
     subagent.status = 'running';
     subagent.currentTask = task.id;
     task.subagentId = subagentId;
-
     subagent.context.tasks.push(task);
+    this.inFlight++;
 
-    // Guard: if parentBridge is null (not yet wired), queue the message and
-    // the caller must call setSubagentBridge() before the subagent can receive it.
-    if (!subagent.context.parentBridge) {
-      this.emit('task.assigned', { task, subagentId });
+    this.emit('task.assigned', { task, subagentId });
+
+    // Budget combines coordinator defaults with per-subagent and per-task overrides.
+    // Precedence: task > subagent > coordinator default.
+    const budget = new SubagentBudget({
+      maxIterations: subagent.config.maxIterations ?? this.config.defaultBudget?.maxIterations,
+      maxToolCalls: task.maxToolCalls ?? subagent.config.maxToolCalls ?? this.config.defaultBudget?.maxToolCalls,
+      maxTokens: subagent.config.maxTokens ?? this.config.defaultBudget?.maxTokens,
+      maxCostUsd: subagent.config.maxCostUsd ?? this.config.defaultBudget?.maxCostUsd,
+      timeoutMs: task.timeoutMs ?? subagent.config.timeoutMs ?? this.config.defaultBudget?.timeoutMs,
+    });
+    subagent.activeBudget = budget;
+
+    const startTime = Date.now();
+    const runCtx: SubagentRunContext = {
+      subagentId,
+      config: subagent.config,
+      budget,
+      signal: subagent.abortController.signal,
+      bridge: subagent.context.parentBridge || null,
+    };
+
+    let result: TaskResult;
+
+    if (!this.runner) {
+      // No runner wired — caller drives execution via completeTask(). Leave
+      // the subagent in 'running' state; status reverts when caller reports.
       return;
     }
 
-    await subagent.context.parentBridge.send({
-      id: randomUUID(),
-      type: 'task',
-      from: this.coordinatorId,
-      to: subagentId,
-      payload: task,
-      timestamp: Date.now(),
+    budget.start();
+    try {
+      const outcome = await this.executeWithTimeout(this.runner, task, runCtx, budget);
+      result = {
+        subagentId,
+        taskId: task.id,
+        status: 'success',
+        result: outcome.result,
+        iterations: outcome.iterations,
+        toolCalls: outcome.toolCalls,
+        durationMs: Date.now() - startTime,
+      };
+    } catch (err) {
+      // Order matters: a timeout calls abort() to signal cooperative runners,
+      // which also flips `signal.aborted=true`. Inspect the error first so we
+      // surface 'timeout' rather than masking it as 'stopped'.
+      const status: TaskResult['status'] =
+        err instanceof BudgetExceededError && err.kind === 'timeout'
+          ? 'timeout'
+          : subagent.abortController.signal.aborted
+            ? 'stopped'
+            : 'failed';
+      result = {
+        subagentId,
+        taskId: task.id,
+        status,
+        error: err instanceof Error ? err.message : String(err),
+        iterations: budget.usage().iterations,
+        toolCalls: budget.usage().toolCalls,
+        durationMs: Date.now() - startTime,
+      };
+    }
+
+    this.recordCompletion(result);
+  }
+
+  private async executeWithTimeout(
+    runner: SubagentRunner,
+    task: TaskSpec,
+    ctx: SubagentRunContext,
+    budget: SubagentBudget,
+  ) {
+    const timeoutMs = budget.limits.timeoutMs;
+    if (timeoutMs === undefined) return runner(task, ctx);
+
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        // Abort the subagent's signal so cooperative runners can clean up.
+        this.subagents.get(ctx.subagentId)?.abortController.abort();
+        reject(new BudgetExceededError('timeout', timeoutMs, Date.now()));
+      }, timeoutMs);
     });
-    this.emit('task.assigned', { task, subagentId });
+
+    try {
+      return await Promise.race([runner(task, ctx), timeoutPromise]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
-  private isDone(): boolean {
-    if (this.config.doneCondition.type === 'all_tasks_done') {
-      return this.pendingTasks.length === 0 &&
-        this.completedResults.every((r) => r.status === 'success');
-    }
-    if (this.config.doneCondition.maxIterations && this.totalIterations >= this.config.doneCondition.maxIterations) {
-      return true;
-    }
-    return false;
-  }
-
-  completeTask(result: TaskResult): void {
+  private recordCompletion(result: TaskResult): void {
     this.completedResults.push(result);
     this.totalIterations += result.iterations;
+    this.inFlight = Math.max(0, this.inFlight - 1);
 
     const subagent = this.subagents.get(result.subagentId);
-    if (subagent) {
-      subagent.status = 'idle';
+    if (subagent && subagent.status !== 'stopped') {
+      subagent.status = result.status === 'failed' || result.status === 'timeout' ? 'error' : 'idle';
       subagent.currentTask = undefined;
+      // Reset error state on next assignment so a transient failure doesn't
+      // permanently sideline the subagent.
+      if (subagent.status === 'error') {
+        queueMicrotask(() => {
+          if (subagent.status === 'error') subagent.status = 'idle';
+          this.tryDispatchNext();
+        });
+      }
     }
 
     this.emit('task.completed', {
-      task: this.pendingTasks.shift()!,
+      task: subagent?.context.tasks.find((t) => t.id === result.taskId) ?? { id: result.taskId },
       result,
     });
 
-    if (this.pendingTasks.length > 0) {
-      const available = this.getAvailableSubagent();
-      if (available) {
-        const nextTask = this.pendingTasks.shift()!;
-        this.dispatch(available, nextTask);
-      }
-    } else if (this.isDone()) {
+    this.tryDispatchNext();
+
+    if (this.isDone()) {
       this.emit('done', {
         results: this.completedResults,
         totalIterations: this.totalIterations,
       });
     }
+  }
+
+  private isDone(): boolean {
+    if (this.config.doneCondition.type === 'all_tasks_done') {
+      return this.pendingTasks.length === 0 && this.inFlight === 0;
+    }
+    if (
+      this.config.doneCondition.maxIterations !== undefined &&
+      this.totalIterations >= this.config.doneCondition.maxIterations
+    ) {
+      return true;
+    }
+    return false;
   }
 }

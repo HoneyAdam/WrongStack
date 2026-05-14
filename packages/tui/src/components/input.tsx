@@ -1,4 +1,4 @@
-import React from 'react';
+import type React from 'react';
 import { Box, Text, useInput } from 'ink';
 
 export interface InputProps {
@@ -57,6 +57,7 @@ export function Input({
   return (
     <Box flexDirection="column">
       {placeholders.map((p, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: placeholders are append-only, index is stable
         <Text key={i} dimColor>
           {'  ↳ '}
           {p}

@@ -73,7 +73,7 @@ describe('InMemoryAgentBridge', () => {
     expect(messages[0].payload.data).toBe('hello');
   });
 
-  it('broadcast sends to wildcard (transport must support it)', async () => {
+  it('broadcast reaches every other subscriber but not the sender', async () => {
     const messages: any[] = [];
     bridge.subscribe((msg) => { messages.push(msg); });
 
@@ -81,21 +81,23 @@ describe('InMemoryAgentBridge', () => {
     await otherBridge.broadcast(createMessage('task', 'agent2', { data: 'broadcast' }));
     await otherBridge.stop();
 
-    // Note: InMemoryBridgeTransport doesn't have wildcard ('*') subscribers,
-    // so broadcast is effectively a no-op in the current implementation.
-    // This test documents the expected behavior once a wildcard mechanism is added.
-    expect(messages).toHaveLength(0);
+    // L2-E: broadcast delivers to all subscribers except the sender, so
+    // agent1 sees agent2's broadcast exactly once.
+    expect(messages).toHaveLength(1);
+    expect(messages[0].payload.data).toBe('broadcast');
   });
 
-  it('stopped bridge does not deliver messages', async () => {
+  it('stopped subscriber stops receiving messages', async () => {
     const messages: any[] = [];
     bridge.subscribe((msg) => { messages.push(msg); });
+
+    // Stop agent1 BEFORE the broadcast — it should not receive any new traffic.
+    await bridge.stop();
 
     const otherBridge = new InMemoryAgentBridge({ agentId: 'agent2', coordinatorId: 'coord1' }, transport);
     await otherBridge.broadcast(createMessage('task', 'agent2', { data: 'test' }));
     await otherBridge.stop();
 
-    // After stop the bridge's subscription is cleared, so no messages should be received
     expect(messages).toHaveLength(0);
   });
 

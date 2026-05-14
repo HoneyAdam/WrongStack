@@ -6,6 +6,27 @@
 export type NextFn<T> = (value: T) => Promise<T>;
 export type MiddlewareHandler<T> = (value: T, next: NextFn<T>) => Promise<T>;
 
+/**
+ * Called when a middleware crashes (throws or rejects). Used by the
+ * Pipeline's error boundary to log the offender without aborting the run.
+ *
+ * Return `'rethrow'` to propagate the error (default for core middleware),
+ * or `'swallow'` to skip past the crashing middleware and continue with the
+ * value the previous one produced. Plugin middleware should usually be
+ * swallowed so one bad plugin can't kill an agent run.
+ */
+export type PipelineErrorPolicy = 'rethrow' | 'swallow';
+
+export interface PipelineErrorEvent {
+  middleware: string;
+  owner?: string;
+  err: unknown;
+}
+
+export type PipelineErrorHandler = (
+  ev: PipelineErrorEvent,
+) => PipelineErrorPolicy | Promise<PipelineErrorPolicy>;
+
 export interface Middleware<T> {
   name: string;
   handler: MiddlewareHandler<T>;
@@ -29,6 +50,21 @@ export interface ReadonlyPipeline<T> {
 
 export class Pipeline<T> {
   private readonly chain: Middleware<T>[] = [];
+  private errorHandler?: PipelineErrorHandler;
+
+  /**
+   * Install an error boundary. When a middleware throws or rejects, the
+   * handler is called and decides whether to swallow (continue with the
+   * pre-handler value) or rethrow. Without a handler, errors propagate.
+   *
+   * Wire one per pipeline at boot — the host CLI typically installs a
+   * single boundary that logs to the operational log and emits a
+   * `pipeline.error` event for /diag.
+   */
+  setErrorHandler(handler: PipelineErrorHandler | undefined): this {
+    this.errorHandler = handler;
+    return this;
+  }
 
   use(mw: Middleware<T> | Middleware<unknown>): this {
     this.ensureUnique(mw.name);
@@ -120,6 +156,7 @@ export class Pipeline<T> {
   async run(input: T): Promise<T> {
     let index = -1;
     const chain = this.chain;
+    const errorHandler = this.errorHandler;
 
     const dispatch = async (i: number, value: T): Promise<T> => {
       if (i <= index) {
@@ -128,7 +165,17 @@ export class Pipeline<T> {
       index = i;
       const mw = chain[i];
       if (!mw) return value;
-      return mw.handler(value, (v) => dispatch(i + 1, v));
+      try {
+        return await mw.handler(value, (v) => dispatch(i + 1, v));
+      } catch (err) {
+        if (!errorHandler) throw err;
+        const policy = await errorHandler({ middleware: mw.name, owner: mw.owner, err });
+        if (policy === 'rethrow') throw err;
+        // Swallow: continue with the value that was about to flow into this
+        // middleware. Subsequent middleware after the crashed one is skipped
+        // — error boundary is "skip the broken layer", not "skip the rest".
+        return value;
+      }
     };
 
     return dispatch(0, input);

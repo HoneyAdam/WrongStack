@@ -27,3 +27,6 @@ coverage/
 coverage/**
 
 .reports/
+
+# Vitest benchmark output (V0-A)
+bench-results.json

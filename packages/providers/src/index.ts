@@ -22,6 +22,17 @@ export {
 } from './openai-compatible.js';
 export { GoogleProvider, type GoogleProviderOptions } from './google.js';
 export { WireAdapter } from './wire-adapter.js';
+export {
+  WireFormatProvider,
+  defineWireFormat,
+  createWireFormatFactory,
+  type WireFormatConfig,
+  type WireFactoryOptions,
+} from './wire-format.js';
+export { mistralWireFormat } from './presets/mistral.js';
+export { anthropicWireFormat } from './presets/anthropic.js';
+export { openaiWireFormat } from './presets/openai.js';
+export { googleWireFormat } from './presets/google.js';
 export { capabilitiesFor } from './capabilities.js';
 export { parseProviderHttpError } from './error-parse.js';
 export { normalizeAnthropic, normalizeOpenAI } from './stop-reason.js';

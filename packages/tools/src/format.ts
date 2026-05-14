@@ -1,6 +1,5 @@
-import { spawn } from 'node:child_process';
-import type { Tool } from '@wrongstack/core';
-import { safeResolve } from './_util.js';
+import type { Tool, ToolStreamEvent } from '@wrongstack/core';
+import { safeResolve, spawnStream } from './_util.js';
 
 interface FormatInput {
   files?: string | string[];
@@ -46,26 +45,65 @@ export const formatTool: Tool<FormatInput, FormatOutput> = {
     },
   },
   async execute(input, ctx, opts) {
+    let final: FormatOutput | undefined;
+    for await (const ev of formatTool.executeStream!(input, ctx, opts)) {
+      if (ev.type === 'final') final = ev.output;
+    }
+    if (!final) throw new Error('format: stream ended without final event');
+    return final;
+  },
+  async *executeStream(input, ctx, opts): AsyncGenerator<ToolStreamEvent<FormatOutput>> {
     const cwd = input.cwd ? safeResolve(input.cwd, ctx) : ctx.cwd;
     const fixer = input.fixer ?? 'auto';
 
     const detected = fixer === 'auto' ? await detectFixer(cwd) : fixer;
     if (!detected) {
-      return {
-        fixer: 'none',
-        files_checked: 0,
-        files_changed: 0,
-        output: 'No formatter found (biome.json, .prettierrc)',
-        truncated: false,
+      yield {
+        type: 'final',
+        output: {
+          fixer: 'none',
+          files_checked: 0,
+          files_changed: 0,
+          output: 'No formatter found (biome.json, .prettierrc)',
+          truncated: false,
+        },
       };
+      return;
     }
 
-    return await runFormatter(detected, input, cwd, opts.signal);
+    yield { type: 'log', text: `Running ${detected}…`, data: { fixer: detected, check: !!input.check } };
+
+    const args: string[] = ['format', '--write'];
+    if (input.check) args[args.length - 1] = '--check';
+    if (input.files) {
+      const files = Array.isArray(input.files) ? input.files : input.files.split(',');
+      args.push('--', ...files.map((f) => f.trim()));
+    }
+
+    const result = yield* spawnStream({
+      cmd: detected,
+      args,
+      cwd,
+      signal: opts.signal,
+      maxBytes: 100_000,
+    });
+
+    const changed = (result.stdout.match(/changed/g) || []).length;
+    yield {
+      type: 'final',
+      output: {
+        fixer: detected,
+        files_checked: 0,
+        files_changed: changed,
+        output: result.stdout || result.stderr || result.error || '',
+        truncated: result.truncated,
+      },
+    };
   },
 };
 
 async function detectFixer(cwd: string): Promise<string | null> {
-  const { stat } = require('node:fs/promises');
+  const { stat } = await import('node:fs/promises');
   try {
     await stat(`${cwd}/biome.json`);
     return 'biome';
@@ -77,54 +115,4 @@ async function detectFixer(cwd: string): Promise<string | null> {
       return 'biome';
     }
   }
-}
-
-async function runFormatter(
-  fixer: string,
-  input: FormatInput,
-  cwd: string,
-  signal: AbortSignal,
-): Promise<FormatOutput> {
-  const args: string[] = ['format', '--write'];
-  if (input.check) args[args.length - 1] = '--check';
-  if (input.files) {
-    const files = Array.isArray(input.files) ? input.files : input.files.split(',');
-    args.push('--', ...files.map((f) => f.trim()));
-  }
-
-  return runCommand(fixer, args, cwd, signal);
-}
-
-function runCommand(
-  cmd: string,
-  args: string[],
-  cwd: string,
-  signal: AbortSignal,
-): Promise<FormatOutput> {
-  return new Promise((resolve) => {
-    let stdout = '';
-    let stderr = '';
-    const MAX = 100_000;
-
-    const child = spawn(cmd, args, { cwd, signal, stdio: ['ignore', 'pipe', 'pipe'] });
-    child.stdout?.on('data', (c) => { if (stdout.length < MAX) stdout += c.toString(); });
-    child.stderr?.on('data', (c) => { if (stderr.length < MAX) stderr += c.toString(); });
-    child.on('close', (code) => {
-      const changed = (stdout.match(/changed/g) || []).length;
-      resolve({
-        fixer: cmd,
-        files_checked: 0,
-        files_changed: changed,
-        output: stdout || stderr,
-        truncated: stdout.length >= MAX,
-      });
-    });
-    child.on('error', (e) => resolve({
-      fixer: cmd,
-      files_checked: 0,
-      files_changed: 0,
-      output: e.message,
-      truncated: false,
-    }));
-  });
 }

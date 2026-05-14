@@ -4,7 +4,19 @@ import type { Context } from '../../src/core/context.js';
 import type { Message } from '../../src/types/messages.js';
 
 function fakeContext(messages: Message[]): Context {
-  return { messages } as unknown as Context;
+  const ctx = { messages } as unknown as Context;
+  // Minimal state shim — compactors route mutations through ctx.state since
+  // L1-A, but we don't want each test to spin up the full Context.
+  (ctx as unknown as { state: unknown }).state = {
+    replaceMessages(next: Message[]) {
+      ctx.messages.length = 0;
+      ctx.messages.push(...next);
+    },
+    appendMessage(m: Message) {
+      ctx.messages.push(m);
+    },
+  };
+  return ctx;
 }
 
 describe('HybridCompactor', () => {

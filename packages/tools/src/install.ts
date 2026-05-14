@@ -1,6 +1,5 @@
-import { spawn } from 'node:child_process';
-import type { Tool } from '@wrongstack/core';
-import { safeResolve } from './_util.js';
+import type { Tool, ToolStreamEvent } from '@wrongstack/core';
+import { safeResolve, spawnStream } from './_util.js';
 
 interface InstallInput {
   packages?: string | string[];
@@ -45,8 +44,18 @@ export const installTool: Tool<InstallInput, InstallOutput> = {
     },
   },
   async execute(input, ctx, opts) {
+    let final: InstallOutput | undefined;
+    for await (const ev of installTool.executeStream!(input, ctx, opts)) {
+      if (ev.type === 'final') final = ev.output;
+    }
+    if (!final) throw new Error('install: stream ended without final event');
+    return final;
+  },
+  async *executeStream(input, ctx, opts): AsyncGenerator<ToolStreamEvent<InstallOutput>> {
     const cwd = input.cwd ? safeResolve(input.cwd, ctx) : ctx.cwd;
     const pkgManager = await detectPackageManager(cwd);
+    yield { type: 'log', text: `Resolving with ${pkgManager}…`, data: { phase: 'resolve' } };
+
     const save = input.save === 'dev' ? '-D' : input.save === 'optional' ? '-O' : '';
     const globalFlag = input.global ? ['-g'] : [];
 
@@ -61,17 +70,36 @@ export const installTool: Tool<InstallInput, InstallOutput> = {
       args.push('install', ...globalFlag);
     }
 
-    if (input.packages) {
-      const pkgs = Array.isArray(input.packages) ? input.packages : input.packages.split(',');
-      args.push(...pkgs.map((p) => p.trim()));
-    }
+    const pkgList = input.packages
+      ? (Array.isArray(input.packages) ? input.packages : input.packages.split(',')).map((p) => p.trim())
+      : [];
+    if (pkgList.length > 0) args.push(...pkgList);
 
-    return runInstall(pkgManager, args, cwd, opts.signal, input.packages ? (Array.isArray(input.packages) ? input.packages : input.packages.split(',')).map((p: string) => p.trim()) : []);
+    yield { type: 'log', text: `Fetching ${pkgList.length || 'all'} packages…`, data: { phase: 'fetch' } };
+
+    const result = yield* spawnStream({
+      cmd: pkgManager,
+      args,
+      cwd,
+      signal: opts.signal,
+      maxBytes: 100_000,
+    });
+
+    yield {
+      type: 'final',
+      output: {
+        packages: pkgList,
+        exit_code: result.exitCode,
+        output: result.stdout || result.stderr || result.error || '',
+        dry_run: args.includes('--dry-run'),
+        truncated: result.truncated,
+      },
+    };
   },
 };
 
 async function detectPackageManager(cwd: string): Promise<string> {
-  const { stat } = require('node:fs/promises');
+  const { stat } = await import('node:fs/promises');
   try {
     await stat(`${cwd}/pnpm-lock.yaml`);
     return 'pnpm';
@@ -83,36 +111,4 @@ async function detectPackageManager(cwd: string): Promise<string> {
       return 'npm';
     }
   }
-}
-
-function runInstall(
-  manager: string,
-  args: string[],
-  cwd: string,
-  signal: AbortSignal,
-  packages: string[],
-): Promise<InstallOutput> {
-  return new Promise((resolve) => {
-    let stdout = '';
-    let stderr = '';
-    const MAX = 100_000;
-
-    const child = spawn(manager, args, { cwd, signal, stdio: ['ignore', 'pipe', 'pipe'] });
-    child.stdout?.on('data', (c) => { if (stdout.length < MAX) stdout += c.toString(); });
-    child.stderr?.on('data', (c) => { if (stderr.length < MAX) stderr += c.toString(); });
-    child.on('close', (code) => resolve({
-      packages,
-      exit_code: code ?? 0,
-      output: stdout || stderr,
-      dry_run: args.includes('--dry-run'),
-      truncated: stdout.length >= MAX,
-    }));
-    child.on('error', (e) => resolve({
-      packages,
-      exit_code: 1,
-      output: e.message,
-      dry_run: false,
-      truncated: false,
-    }));
-  });
 }

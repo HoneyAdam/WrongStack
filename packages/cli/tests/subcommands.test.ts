@@ -4,6 +4,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import {
+  DefaultSessionStore,
   ToolRegistry,
   resolveWstackPaths,
   type Config,
@@ -285,6 +286,226 @@ describe('subcommands', () => {
     expect(text).toContain('apiVersion');
     expect(text).toContain('projectRoot');
     expect(text).toContain('cacheAge');
+  });
+
+  it('doctor returns 0 when minimum config is healthy', async () => {
+    const rig = withRig();
+    const paths = resolveWstackPaths({
+      projectRoot: tmp,
+      globalRoot: path.join(tmp, 'g'),
+      userHome: tmp,
+    });
+    const config = {
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-6',
+      providers: { anthropic: { envVars: ['ANTHROPIC_API_KEY'] } },
+      log: { level: 'error' },
+    } as unknown as Config;
+    process.env.ANTHROPIC_API_KEY = 'sk-test';
+    try {
+      const code = await subcommands['doctor']!(
+        [],
+        mkDeps({ renderer: rig.renderer, config, paths }),
+      );
+      expect(code).toBe(0);
+      const text = stripAnsi(rig.out.buf);
+      expect(text).toContain('WrongStack doctor');
+      expect(text).toContain('provider');
+      expect(text).toContain('anthropic');
+      expect(text).toContain('api key');
+    } finally {
+      delete process.env.ANTHROPIC_API_KEY;
+    }
+  });
+
+  it('doctor returns 1 when no provider/model configured', async () => {
+    const rig = withRig();
+    const paths = resolveWstackPaths({
+      projectRoot: tmp,
+      globalRoot: path.join(tmp, 'g'),
+      userHome: tmp,
+    });
+    const config = { providers: {}, log: { level: 'error' } } as unknown as Config;
+    const code = await subcommands['doctor']!(
+      [],
+      mkDeps({ renderer: rig.renderer, config, paths }),
+    );
+    expect(code).toBe(1);
+    const text = stripAnsi(rig.out.buf);
+    expect(text).toMatch(/no provider configured/);
+    expect(text).toMatch(/no model configured/);
+    expect(text).toContain('failed');
+  });
+
+  it('doctor warns on stale models cache', async () => {
+    const rig = withRig();
+    const paths = resolveWstackPaths({
+      projectRoot: tmp,
+      globalRoot: path.join(tmp, 'g'),
+      userHome: tmp,
+    });
+    const config = {
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-6',
+      providers: { anthropic: { envVars: ['ANTHROPIC_API_KEY'] } },
+      log: { level: 'error' },
+    } as unknown as Config;
+    const reg: ModelsRegistry = {
+      ...fakeRegistry([fakeProvider()]),
+      ageSeconds: async () => 30 * 24 * 3600,
+    } as ModelsRegistry;
+    process.env.ANTHROPIC_API_KEY = 'sk-test';
+    try {
+      const code = await subcommands['doctor']!(
+        [],
+        mkDeps({ renderer: rig.renderer, config, paths, modelsRegistry: reg }),
+      );
+      expect(code).toBe(0);
+      const text = stripAnsi(rig.out.buf);
+      expect(text).toMatch(/30 days old/);
+      expect(text).toContain('warning');
+    } finally {
+      delete process.env.ANTHROPIC_API_KEY;
+    }
+  });
+
+  it('doctor flags MCP server with stdio transport but no command', async () => {
+    const rig = withRig();
+    const paths = resolveWstackPaths({
+      projectRoot: tmp,
+      globalRoot: path.join(tmp, 'g'),
+      userHome: tmp,
+    });
+    const config = {
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-6',
+      providers: { anthropic: { envVars: ['ANTHROPIC_API_KEY'] } },
+      log: { level: 'error' },
+      mcpServers: {
+        broken: { name: 'broken', enabled: true, transport: 'stdio' },
+      },
+    } as unknown as Config;
+    process.env.ANTHROPIC_API_KEY = 'sk-test';
+    try {
+      const code = await subcommands['doctor']!(
+        [],
+        mkDeps({ renderer: rig.renderer, config, paths }),
+      );
+      expect(code).toBe(1);
+      const text = stripAnsi(rig.out.buf);
+      expect(text).toContain('mcp:broken');
+      expect(text).toMatch(/stdio transport requires command/);
+    } finally {
+      delete process.env.ANTHROPIC_API_KEY;
+    }
+  });
+
+  it('export <id> writes markdown to stdout by default', async () => {
+    const rig = withRig();
+    const sessionsDir = path.join(tmp, 'sessions');
+    await fs.mkdir(sessionsDir, { recursive: true });
+    const id = 'sess-1';
+    const events = [
+      { type: 'session_start', ts: '2026-05-14T10:00:00.000Z', id, model: 'm', provider: 'p' },
+      { type: 'user_input', ts: '2026-05-14T10:00:01.000Z', content: 'hello world' },
+      {
+        type: 'llm_response',
+        ts: '2026-05-14T10:00:02.000Z',
+        content: [{ type: 'text', text: 'hi there' }],
+        stopReason: 'end_turn',
+        usage: { input: 10, output: 5 },
+      },
+      {
+        type: 'session_end',
+        ts: '2026-05-14T10:00:03.000Z',
+        usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0 },
+      },
+    ];
+    await fs.writeFile(
+      path.join(sessionsDir, `${id}.jsonl`),
+      events.map((e) => JSON.stringify(e)).join('\n') + '\n',
+    );
+    const sessionStore = new DefaultSessionStore({ dir: sessionsDir });
+    const code = await subcommands['export']!(
+      [id],
+      mkDeps({ renderer: rig.renderer, sessionStore }),
+    );
+    expect(code).toBe(0);
+    const text = stripAnsi(rig.out.buf);
+    expect(text).toContain('hello world');
+    expect(text).toContain('hi there');
+  });
+
+  it('export <id> --format json emits JSONL', async () => {
+    const rig = withRig();
+    const sessionsDir = path.join(tmp, 'sessions');
+    await fs.mkdir(sessionsDir, { recursive: true });
+    const id = 'sess-json';
+    const events = [
+      { type: 'session_start', ts: '2026-05-14T10:00:00.000Z', id, model: 'm', provider: 'p' },
+      { type: 'user_input', ts: '2026-05-14T10:00:01.000Z', content: 'q' },
+    ];
+    await fs.writeFile(
+      path.join(sessionsDir, `${id}.jsonl`),
+      events.map((e) => JSON.stringify(e)).join('\n') + '\n',
+    );
+    const sessionStore = new DefaultSessionStore({ dir: sessionsDir });
+    const code = await subcommands['export']!(
+      [id, '--format', 'json'],
+      mkDeps({ renderer: rig.renderer, sessionStore }),
+    );
+    expect(code).toBe(0);
+    const text = stripAnsi(rig.out.buf);
+    // Format is pretty JSON — keys may have spaces.
+    expect(text).toMatch(/"type"\s*:\s*"session_start"/);
+    expect(text).toMatch(/"type"\s*:\s*"user_input"/);
+  });
+
+  it('export <id> --out writes to file', async () => {
+    const rig = withRig();
+    const sessionsDir = path.join(tmp, 'sessions');
+    await fs.mkdir(sessionsDir, { recursive: true });
+    const id = 'sess-out';
+    const events = [
+      { type: 'session_start', ts: '2026-05-14T10:00:00.000Z', id, model: 'm', provider: 'p' },
+      { type: 'user_input', ts: '2026-05-14T10:00:01.000Z', content: 'hello' },
+    ];
+    await fs.writeFile(
+      path.join(sessionsDir, `${id}.jsonl`),
+      events.map((e) => JSON.stringify(e)).join('\n') + '\n',
+    );
+    const sessionStore = new DefaultSessionStore({ dir: sessionsDir });
+    const outFile = path.join(tmp, 'export.md');
+    const code = await subcommands['export']!(
+      [id, '--out', outFile],
+      mkDeps({ renderer: rig.renderer, sessionStore, cwd: tmp }),
+    );
+    expect(code).toBe(0);
+    const written = await fs.readFile(outFile, 'utf8');
+    expect(written).toContain('hello');
+    expect(stripAnsi(rig.out.buf)).toMatch(/Wrote \d+ bytes/);
+  });
+
+  it('export without id prints usage and exits 1', async () => {
+    const rig = withRig();
+    const sessionStore = new DefaultSessionStore({ dir: tmp });
+    const code = await subcommands['export']!(
+      [],
+      mkDeps({ renderer: rig.renderer, sessionStore }),
+    );
+    expect(code).toBe(1);
+    expect(stripAnsi(rig.err.buf)).toMatch(/Usage:/);
+  });
+
+  it('export rejects unknown flags', async () => {
+    const rig = withRig();
+    const sessionStore = new DefaultSessionStore({ dir: tmp });
+    const code = await subcommands['export']!(
+      ['abc', '--frobnicate'],
+      mkDeps({ renderer: rig.renderer, sessionStore }),
+    );
+    expect(code).toBe(1);
+    expect(stripAnsi(rig.err.buf)).toContain('--frobnicate');
   });
 
   it('projects reports empty when no projects dir', async () => {

@@ -5,6 +5,7 @@
 
 import type { Usage } from '../types/provider.js';
 import type { Context } from '../core/context.js';
+import type { Tool, ToolProgressEvent } from '../types/tool.js';
 
 export interface EventMap {
   'session.started': { id: string };
@@ -51,6 +52,25 @@ export interface EventMap {
     retryable: boolean;
   };
   'tool.started': { name: string; id: string; input?: unknown };
+  /**
+   * Fired for each ToolProgressEvent yielded by `Tool.executeStream`. UIs
+   * subscribe to render incremental progress (streaming bash output, file
+   * tree counts, etc.) without the tool having to know about the UI.
+   */
+  'tool.progress': { name: string; id: string; event: ToolProgressEvent };
+  /**
+   * Fired when a tool call needs user confirmation and no confirmHandler
+   * is registered on the executor. The TUI renders a confirmation dialog
+   * from this event. Resolution is driven by calling the resolve function
+   * passed in the payload with a decision string ('yes' | 'no' | 'always' | 'deny').
+   */
+  'tool.confirm_needed': {
+    tool: Tool;
+    input: unknown;
+    toolUseId: string;
+    suggestedPattern: string;
+    resolve: (decision: 'yes' | 'no' | 'always' | 'deny') => void;
+  };
   /**
    * `output` is a truncated preview of the tool's serialized result text
    * (capped at ~400 chars by the emitter). UIs render this inline in the
@@ -126,5 +146,17 @@ export class EventBus {
 
   clear(): void {
     this.listeners.clear();
+  }
+
+  /**
+   * V2-D: introspection helper. Pass an `event` to count handlers for a
+   * single key, or omit to get the total across every event. Used by the
+   * leak-detection smoke test to flag handler accumulation across runs.
+   */
+  listenerCount(event?: EventName): number {
+    if (event !== undefined) return this.listeners.get(event)?.size ?? 0;
+    let total = 0;
+    for (const set of this.listeners.values()) total += set.size;
+    return total;
   }
 }

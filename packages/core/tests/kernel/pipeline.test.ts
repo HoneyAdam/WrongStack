@@ -107,4 +107,75 @@ describe('Pipeline', () => {
     expect(await p.run('')).toBe('AB');
     expect(order).toEqual(['a-before', 'b-before', 'b-after', 'a-after']);
   });
+
+  describe('error boundary (L1-F)', () => {
+    it('rethrows by default when middleware crashes', async () => {
+      const p = new Pipeline<number>();
+      p.use({
+        name: 'crash',
+        handler: async () => {
+          throw new Error('boom');
+        },
+      });
+      await expect(p.run(1)).rejects.toThrow('boom');
+    });
+
+    it('swallows when the handler returns "swallow"', async () => {
+      const seen: { middleware: string; owner?: string }[] = [];
+      const p = new Pipeline<number>();
+      p.use({
+        name: 'bad-plugin',
+        owner: 'sneaky',
+        handler: async () => {
+          throw new Error('oops');
+        },
+      });
+      p.setErrorHandler((ev) => {
+        seen.push({ middleware: ev.middleware, owner: ev.owner });
+        return 'swallow';
+      });
+      // Value going into the crashed middleware passes through unchanged.
+      expect(await p.run(7)).toBe(7);
+      expect(seen).toEqual([{ middleware: 'bad-plugin', owner: 'sneaky' }]);
+    });
+
+    it('rethrows when the handler returns "rethrow"', async () => {
+      const p = new Pipeline<number>();
+      p.use({ name: 'good', handler: async (v, next) => next(v + 1) });
+      p.use({ name: 'kaboom', handler: async () => { throw new Error('x'); } });
+      p.setErrorHandler(() => 'rethrow');
+      await expect(p.run(0)).rejects.toThrow('x');
+    });
+
+    it('after swallow, subsequent middleware is skipped (skip-the-broken-layer semantics)', async () => {
+      const calls: string[] = [];
+      const p = new Pipeline<number>();
+      p.use({
+        name: 'a',
+        handler: async (v, next) => {
+          calls.push('a');
+          return next(v + 1);
+        },
+      });
+      p.use({
+        name: 'b',
+        handler: async () => {
+          calls.push('b');
+          throw new Error('crash');
+        },
+      });
+      p.use({
+        name: 'c',
+        handler: async (v, next) => {
+          calls.push('c');
+          return next(v * 10);
+        },
+      });
+      p.setErrorHandler(() => 'swallow');
+      // a runs (+1), b throws and is swallowed → run returns the value
+      // flowing into b. c never executes — error boundary skips one layer.
+      expect(await p.run(0)).toBe(1);
+      expect(calls).toEqual(['a', 'b']);
+    });
+  });
 });

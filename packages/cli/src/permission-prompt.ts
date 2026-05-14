@@ -1,4 +1,4 @@
-import type { Tool, InputReader } from '@wrongstack/core';
+import type { Tool, InputReader, ConfirmAwaiter } from '@wrongstack/core';
 import { color } from '@wrongstack/core';
 import { renderDiff } from './diff-renderer.js';
 import { theme } from './theme.js';
@@ -31,6 +31,18 @@ export function makePromptDelegate(reader: InputReader) {
       ],
     );
     return answer as PromptDecision;
+  };
+}
+
+/**
+ * Create a ConfirmAwaiter for the CLI path. Wraps makePromptDelegate
+ * with the ConfirmAwaiter type signature expected by the Agent.
+ */
+export function makeConfirmAwaiter(reader: InputReader): ConfirmAwaiter {
+  const delegate = makePromptDelegate(reader);
+  return async (tool, input, _toolUseId, suggestedPattern) => {
+    const result = await delegate(tool, input, suggestedPattern);
+    return result as 'yes' | 'no' | 'always' | 'deny';
   };
 }
 
