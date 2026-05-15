@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { color } from '@wrongstack/core';
 import type { SlashCommand } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
@@ -45,7 +46,7 @@ export function buildTodosCommand(opts: SlashCommandContext): SlashCommand {
         case 'add': {
           if (!restJoined) return { message: 'Usage: /todos add <text>' };
           ctx.todos.push({
-            id: `todo_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            id: `todo_${Date.now()}_${randomUUID().slice(0, 7)}`,
             content: restJoined,
             status: 'pending',
           });

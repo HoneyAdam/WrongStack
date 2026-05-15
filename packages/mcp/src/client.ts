@@ -1,4 +1,5 @@
 import { type ChildProcess, spawn } from 'node:child_process';
+import { buildChildEnv } from '@wrongstack/core';
 import { type HttpTransportOptions, SSETransport, StreamableHTTPTransport } from './transport.js';
 
 export type Transport = 'stdio' | 'sse' | 'streamable-http';
@@ -161,7 +162,7 @@ export class MCPClient {
     this.rxBuffer = '';
 
     const child = spawn(this.opts.command, this.opts.args ?? [], {
-      env: { ...process.env, ...this.opts.env },
+      env: buildChildEnv({ extra: this.opts.env }),
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     this.child = child;

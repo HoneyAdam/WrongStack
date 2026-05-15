@@ -9,6 +9,7 @@ export {
   PROMETHEUS_CONTENT_TYPE,
   type MetricsServerOptions,
   type MetricsServerHandle,
+  type MetricsTlsOptions,
 } from './prometheus.js';
 export {
   buildOtlpMetricsRequest,

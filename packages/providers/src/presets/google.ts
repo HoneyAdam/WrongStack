@@ -5,6 +5,7 @@
  * turns.
  */
 import type { Message, Request, StopReason, StreamEvent, Tool, Usage } from '@wrongstack/core';
+import { randomUUID } from 'node:crypto';
 import { safeParse } from '@wrongstack/core';
 import { capabilitiesForFamily } from '../family-capabilities.js';
 import { normalizeGemini } from '../stop-reason.js';
@@ -95,7 +96,7 @@ export const googleWireFormat = defineWireFormat<GoogleStreamState>({
         out.push({ type: 'text_delta', text: part.text });
       } else if (part.functionCall) {
         state.sawFunctionCall = true;
-        const id = `${part.functionCall.name}_${Math.random().toString(36).slice(2, 10)}`;
+        const id = `${part.functionCall.name}_${randomUUID().slice(0, 8)}`;
         out.push({ type: 'tool_use_start', id, name: part.functionCall.name });
         const providerMeta =
           typeof part.thoughtSignature === 'string'

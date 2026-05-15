@@ -189,7 +189,7 @@ export const useChatStore = create<ChatState>()(
       thinkingStartedAt: null,
 
       addMessage: (msg) => {
-        const id = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+        const id = `msg_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
         const fullMsg: ChatMessage = { ...msg, id, timestamp: Date.now() };
         set((state) => ({
           messages: [...state.messages, fullMsg],

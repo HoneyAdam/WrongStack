@@ -5,6 +5,7 @@ export * from './color.js';
 export * from './glob-match.js';
 export * from './diff.js';
 export * from './wstack-paths.js';
+export * from './child-env.js';
 export {
   createToolOutputSerializer,
   type ToolOutputSerializerOptions,

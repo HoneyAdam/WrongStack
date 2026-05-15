@@ -37,7 +37,7 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
   const clients = new Map<WebSocket, ConnectedClient>();
   let abortController: AbortController | null = null;
 
-  const wss = new WebSocketServer({ port });
+  const wss = new WebSocketServer({ port, host: '127.0.0.1' });
 
   console.log(`[WebUI] WebSocket server starting on ws://localhost:${port}`);
 

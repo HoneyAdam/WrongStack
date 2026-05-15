@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { MemoryScope, MemoryStore } from '../types/memory.js';
@@ -90,7 +91,7 @@ export class DefaultMemoryStore implements MemoryStore {
       }
       const ts = new Date().toISOString();
       // Use a stable ID so forget() can target exact entries regardless of content.
-      const id = `mem_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+      const id = `mem_${Date.now()}_${randomUUID().slice(0, 8)}`;
       const entry = `\n- [${ts}] ${id} ${text.replace(/\n/g, ' ')}\n`;
       const next = existing.trim()
         ? existing.replace(/\n+$/, '') + entry

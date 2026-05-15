@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { WSClientMessage, WSServerMessage } from '../types';
 
 type EventHandler = (msg: WSServerMessage) => void;
@@ -230,7 +231,7 @@ export class WrongStackWebSocketClient {
   }
 
   sendMessage(content: string): string {
-    const id = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    const id = `msg_${Date.now()}_${randomUUID().slice(0, 8)}`;
     this.send({
       type: 'user_message',
       payload: {

@@ -1,5 +1,11 @@
 import type { HealthRegistry, MetricsSink, MetricsSnapshot } from '../types/observability.js';
 
+/** TLS options for HTTPS metrics endpoint. */
+export interface MetricsTlsOptions {
+  cert: string;
+  key: string;
+}
+
 /**
  * L3-C: Prometheus text exposition format renderer.
  *
@@ -111,6 +117,8 @@ export interface MetricsServerOptions {
   healthRegistry?: HealthRegistry;
   /** Path to serve health JSON on. Defaults to /healthz. */
   healthPath?: string;
+  /** Enable HTTPS by providing TLS key/cert. Both required. */
+  tls?: MetricsTlsOptions;
 }
 
 export interface MetricsServerHandle {
@@ -129,13 +137,15 @@ export interface MetricsServerHandle {
  * operators who want network scraping opt in explicitly with host: '0.0.0.0'.
  */
 export async function startMetricsServer(opts: MetricsServerOptions): Promise<MetricsServerHandle> {
-  const { createServer } = await import('node:http');
+  const tls = opts.tls;
+  const useHttps = !!(tls?.cert && tls?.key);
   const host = opts.host ?? '127.0.0.1';
   const path = opts.path ?? '/metrics';
   const healthPath = opts.healthPath ?? '/healthz';
   const healthRegistry = opts.healthRegistry;
 
-  const server = createServer((req, res) => {
+  type RequestListener = (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => void;
+  const listener: RequestListener = (req, res) => {
     if (!req.url || req.method !== 'GET') {
       res.statusCode = req.url ? 405 : 400;
       res.end();
@@ -143,7 +153,6 @@ export async function startMetricsServer(opts: MetricsServerOptions): Promise<Me
     }
     // Strip query string for the route match.
     const url = req.url.split('?')[0];
-
     if (url === path) {
       let body: string;
       try {
@@ -159,12 +168,9 @@ export async function startMetricsServer(opts: MetricsServerOptions): Promise<Me
       res.end(body);
       return;
     }
-
     if (healthRegistry && url === healthPath) {
-      // Health responses are async — run the checks then emit JSON.
       healthRegistry.run().then(
         (agg) => {
-          // Status maps: healthy → 200, degraded → 200 (still serving), unhealthy → 503.
           res.statusCode = agg.status === 'unhealthy' ? 503 : 200;
           res.setHeader('content-type', 'application/json; charset=utf-8');
           res.end(JSON.stringify(agg, null, 2));
@@ -177,11 +183,23 @@ export async function startMetricsServer(opts: MetricsServerOptions): Promise<Me
       );
       return;
     }
-
     res.statusCode = 404;
     res.setHeader('content-type', 'text/plain; charset=utf-8');
     res.end('Not Found');
-  });
+  };
+
+  let server: import('node:http').Server;
+  if (useHttps && tls) {
+    const { createServer } = await import('node:https');
+    const { readFileSync } = await import('node:fs');
+    server = createServer(
+      { cert: readFileSync(tls.cert), key: readFileSync(tls.key) },
+      listener,
+    );
+  } else {
+    const { createServer } = await import('node:http');
+    server = createServer(listener);
+  }
 
   await new Promise<void>((resolve, reject) => {
     const onError = (err: Error) => {
@@ -199,12 +217,13 @@ export async function startMetricsServer(opts: MetricsServerOptions): Promise<Me
 
   const addr = server.address();
   const boundPort = typeof addr === 'object' && addr ? addr.port : opts.port;
+  const protocol = useHttps ? 'https' : 'http';
   return {
     port: boundPort,
-    url: `http://${host}:${boundPort}${path}`,
+    url: `${protocol}://${host}:${boundPort}${path}`,
     close: () =>
       new Promise<void>((resolve, reject) => {
-        server.close((err) => (err ? reject(err) : resolve()));
+        server.close((err: Error | undefined) => (err ? reject(err) : resolve()));
       }),
   };
 }
