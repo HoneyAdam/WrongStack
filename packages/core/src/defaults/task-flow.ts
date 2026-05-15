@@ -1,4 +1,4 @@
-import type { TaskGraph, TaskNode, TaskStatus } from '../types/task-graph.js';
+import type { TaskGraph, TaskNode } from '../types/task-graph.js';
 import type { Specification, SpecAnalysis } from '../types/spec.js';
 import type { DoneCondition } from '../types/multi-agent.js';
 import { TaskTracker } from './task-tracker.js';
@@ -83,7 +83,6 @@ export class TaskFlow {
     }
 
     this.setPhase('generating');
-    const store = new DefaultTaskStore();
     const generator = new TaskGenerator({ taskTracker: this.opts.tracker });
     this.graph = await generator.generateFromSpec(this.spec);
 
@@ -112,13 +111,14 @@ export class TaskFlow {
         if (!result || !task) continue;
 
         if (result.status === 'rejected') {
-          this.opts.tracker.updateNodeStatus(task.id, 'failed', (result as PromiseRejectedResult).reason?.message);
-          this.emit('task.failed', { taskId: task.id, error: (result as PromiseRejectedResult).reason?.message ?? 'unknown' });
-          ctx.onTaskFail?.(task, (result as PromiseRejectedResult).reason as Error);
+          const reason = result.reason as Error | undefined;
+          this.opts.tracker.updateNodeStatus(task.id, 'failed', reason?.message);
+          this.emit('task.failed', { taskId: task.id, error: reason?.message ?? 'unknown' });
+          ctx.onTaskFail?.(task, reason as Error);
         } else {
           this.opts.tracker.updateNodeStatus(task.id, 'completed');
-          this.emit('task.completed', { taskId: task.id, result: (result as PromiseFulfilledResult<unknown>).value });
-          ctx.onTaskComplete?.(task, (result as PromiseFulfilledResult<unknown>).value);
+          this.emit('task.completed', { taskId: task.id, result: result.value });
+          ctx.onTaskComplete?.(task, result.value);
         }
 
         this.emitProgress();

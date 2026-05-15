@@ -1,7 +1,6 @@
 import type { Specification, SpecRequirement } from '../types/spec.js';
 import type { TaskNode, TaskGraph, TaskType, TaskPriority } from '../types/task-graph.js';
-import type { TaskTracker } from './task-tracker.js';
-import type { TaskStore } from './task-tracker.js';
+import type { TaskTracker, TaskStore } from './task-tracker.js';
 
 export interface TaskGeneratorOptions {
   taskTracker: TaskTracker;
@@ -34,30 +33,20 @@ export class TaskGenerator {
       });
     }
 
-    // Group requirements by priority
-    const criticalReqs = spec.requirements.filter((r) => r.priority === 'critical');
-    const highReqs = spec.requirements.filter((r) => r.priority === 'high');
-    const mediumReqs = spec.requirements.filter((r) => r.priority === 'medium');
-    const lowReqs = spec.requirements.filter((r) => r.priority === 'low');
-
-    for (const req of criticalReqs) {
-      const task = this.createTaskFromRequirement(req, spec.title);
-      this.opts.taskTracker.addNode(task);
+    // Group requirements by priority in a single pass, then emit in priority order.
+    const byPriority: Record<TaskPriority, SpecRequirement[]> = {
+      critical: [], high: [], medium: [], low: [],
+    };
+    for (const req of spec.requirements) {
+      const bucket = byPriority[req.priority] ?? byPriority.medium;
+      bucket.push(req);
     }
 
-    for (const req of highReqs) {
-      const task = this.createTaskFromRequirement(req, spec.title);
-      this.opts.taskTracker.addNode(task);
-    }
-
-    for (const req of mediumReqs) {
-      const task = this.createTaskFromRequirement(req, spec.title);
-      this.opts.taskTracker.addNode(task);
-    }
-
-    for (const req of lowReqs) {
-      const task = this.createTaskFromRequirement(req, spec.title);
-      this.opts.taskTracker.addNode(task);
+    const order: TaskPriority[] = ['critical', 'high', 'medium', 'low'];
+    for (const p of order) {
+      for (const req of byPriority[p]) {
+        this.opts.taskTracker.addNode(this.createTaskFromRequirement(req));
+      }
     }
 
     // API tasks
@@ -80,7 +69,7 @@ export class TaskGenerator {
     }
 
     // Test tasks
-    const testTask = this.opts.taskTracker.addNode({
+    this.opts.taskTracker.addNode({
       title: 'Write Tests',
       description: 'Comprehensive test coverage for all features',
       type: 'test',
@@ -89,7 +78,7 @@ export class TaskGenerator {
     });
 
     // Documentation tasks
-    const docsTask = this.opts.taskTracker.addNode({
+    this.opts.taskTracker.addNode({
       title: 'Update Documentation',
       description: 'Update docs for new features',
       type: 'docs',
@@ -100,18 +89,15 @@ export class TaskGenerator {
     return graph;
   }
 
-  private createTaskFromRequirement(req: SpecRequirement, specTitle: string): Omit<TaskNode, 'id' | 'createdAt' | 'updatedAt'> {
-    const type = this.mapRequirementType(req.type);
-    const tags = [req.type, req.priority];
-
+  private createTaskFromRequirement(req: SpecRequirement): Omit<TaskNode, 'id' | 'createdAt' | 'updatedAt'> {
     return {
       title: req.description,
-      description: this.buildDescription(req, specTitle),
-      type,
-      priority: this.mapPriority(req.priority),
+      description: this.buildDescription(req),
+      type: this.mapRequirementType(req.type),
+      priority: req.priority,
       status: 'pending',
       specRequirementId: req.id,
-      tags,
+      tags: [req.type, req.priority],
       estimateHours: this.estimateHours(req),
     };
   }
@@ -128,7 +114,7 @@ export class TaskGenerator {
     };
   }
 
-  private buildDescription(req: SpecRequirement, specTitle: string): string {
+  private buildDescription(req: SpecRequirement): string {
     const lines = [
       req.description,
       '',
@@ -158,16 +144,6 @@ export class TaskGenerator {
       case 'performance': return 'feature';
       case 'ux': return 'feature';
       default: return 'feature';
-    }
-  }
-
-  private mapPriority(priority: SpecRequirement['priority']): TaskPriority {
-    switch (priority) {
-      case 'critical': return 'critical';
-      case 'high': return 'high';
-      case 'medium': return 'medium';
-      case 'low': return 'low';
-      default: return 'medium';
     }
   }
 

@@ -10,6 +10,13 @@ export interface TaskStore {
 
 export interface TaskTrackerOptions {
   store: TaskStore;
+  /**
+   * Called when an in-the-background persistence (`saveGraph`) rejects.
+   * The synchronous TaskTracker methods (addNode/addEdge/updateNodeStatus)
+   * fire-and-forget their writes; without this, a failing store silently
+   * loses graph mutations. Defaults to a console.warn.
+   */
+  onPersistError?: (err: unknown) => void;
 }
 
 export interface TaskTransition {
@@ -64,7 +71,7 @@ export class TaskTracker {
     }
 
     this.graph.updatedAt = now;
-    this.opts.store.saveGraph(this.graph);
+    this.persist();
 
     return newNode;
   }
@@ -72,16 +79,14 @@ export class TaskTracker {
   addEdge(from: string, to: string, type: TaskGraph['edges'][0]['type'] = 'depends_on'): void {
     if (!this.graph) throw new Error('No graph loaded');
 
-    const edge = {
+    this.graph.edges.push({
       id: crypto.randomUUID(),
       from,
       to,
       type,
-    };
-
-    this.graph.edges.push(edge);
+    });
     this.graph.updatedAt = Date.now();
-    this.opts.store.saveGraph(this.graph);
+    this.persist();
   }
 
   updateNodeStatus(id: string, status: TaskNode['status'], reason?: string): void {
@@ -91,14 +96,15 @@ export class TaskTracker {
     if (!node) throw new Error(`Node ${id} not found`);
 
     const from = node.status;
+    const now = Date.now();
     node.status = status;
-    node.updatedAt = Date.now();
+    node.updatedAt = now;
 
     if (status === 'completed') {
-      node.completedAt = Date.now();
+      node.completedAt = now;
     }
 
-    this.transitions.push({ from, to: status, timestamp: Date.now(), reason });
+    this.transitions.push({ from, to: status, timestamp: now, reason });
 
     // Auto-unblock dependents
     if (status === 'completed') {
@@ -110,8 +116,8 @@ export class TaskTracker {
       this.checkAndBlockIfNeeded(id);
     }
 
-    this.graph.updatedAt = Date.now();
-    this.opts.store.saveGraph(this.graph);
+    this.graph.updatedAt = now;
+    this.persist();
   }
 
   getNode(id: string): TaskNode | undefined {
@@ -137,9 +143,7 @@ export class TaskTracker {
 
     if (sort) {
       nodes.sort((a, b) => {
-        const aVal = a[sort.field] ?? '';
-        const bVal = b[sort.field] ?? '';
-        const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
+        const cmp = compareByField(a, b, sort.field);
         return sort.direction === 'asc' ? cmp : -cmp;
       });
     }
@@ -224,5 +228,36 @@ export class TaskTracker {
         node.updatedAt = Date.now();
       }
     }
+  }
+
+  /**
+   * Fire-and-forget persistence with attached error handler.
+   * Synchronous mutators (addNode/addEdge/updateNodeStatus) use this to
+   * avoid forcing an async cascade through every caller; if the store
+   * rejects, the configured `onPersistError` is invoked so failures are
+   * surfaced instead of swallowed by an unhandled promise rejection.
+   */
+  private persist(): void {
+    if (!this.graph) return;
+    this.opts.store.saveGraph(this.graph).catch((err) => {
+      if (this.opts.onPersistError) this.opts.onPersistError(err);
+      else console.warn('[task-tracker] saveGraph failed:', err instanceof Error ? err.message : String(err));
+    });
+  }
+}
+
+const PRIORITY_RANK: Record<TaskNode['priority'], number> = {
+  critical: 0, high: 1, medium: 2, low: 3,
+};
+const STATUS_RANK: Record<TaskNode['status'], number> = {
+  in_progress: 0, pending: 1, review: 2, blocked: 3, failed: 4, completed: 5,
+};
+
+function compareByField(a: TaskNode, b: TaskNode, field: TaskSort['field']): number {
+  switch (field) {
+    case 'priority': return PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
+    case 'status': return STATUS_RANK[a.status] - STATUS_RANK[b.status];
+    case 'createdAt': return a.createdAt - b.createdAt;
+    case 'updatedAt': return a.updatedAt - b.updatedAt;
   }
 }

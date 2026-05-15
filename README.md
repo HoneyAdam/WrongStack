@@ -17,7 +17,7 @@ Provider catalog comes from [models.dev](https://models.dev) — no hardcoded pr
 npm install -g wrongstack
 ```
 
-This pulls in the full stack — `@wrongstack/core`, `@wrongstack/providers`, `@wrongstack/tools`, `@wrongstack/mcp`, and `@wrongstack/tui`. The TUI is shipped but lazy-loaded behind `--tui`, so plain-REPL users pay no React/Ink import cost at startup.
+This pulls in the full stack — `@wrongstack/core`, `@wrongstack/providers`, `@wrongstack/tools`, `@wrongstack/mcp`, `@wrongstack/plug-lsp`, and `@wrongstack/tui`. The TUI is shipped but lazy-loaded behind `--tui`, so plain-REPL users pay no React/Ink import cost at startup. The web-based UI (`@wrongstack/webui`) is available as a separate binary (`webui`).
 
 After install, `wrongstack` is on your `PATH`. (`wstack` works too — it's an alias.)
 
@@ -59,7 +59,7 @@ Highlights — full catalogue in [`SECURITY.md`](SECURITY.md):
   permission-trust subject; closes cross-tool subject collisions.
 - **`compaction.failed` event** — observability for the previously-
   silent auto-compaction error path.
-- **+138 new tests** (now **1802 passing**), 5 new per-package READMEs
+- **+144 new tests** (now **1808 passing**, 1 skipped), 5 new per-package READMEs
   (`core`, `cli`, `providers`, `tools`, `tui`).
 
 ### What's new in 0.1.4
@@ -192,7 +192,7 @@ You can also switch at runtime inside the REPL or TUI with the `/model` and `/us
 wrongstack --tui --yolo "add unit tests for src/auth.ts"
 ```
 
-## Two interactive modes
+## Three interactive surfaces
 
 **Plain REPL** (default): readline-based, multiline heredoc, slash commands, streaming text. Works everywhere a terminal works.
 
@@ -205,6 +205,27 @@ wrongstack --tui --yolo "add unit tests for src/auth.ts"
 - Streaming text rendered live from the provider's SSE stream
 - Signal-safe cleanup: `SIGINT`/`SIGTERM`/`SIGHUP`/`exit` all disable bracketed paste mode on the way out
 - Non-TTY guard: refuses to start with exit code 2 when stdin or stdout is piped
+
+**Web UI** (`@wrongstack/webui`): React + Radix + Tailwind frontend with a Node `ws` backend that reuses the same `bootConfig()` / vault / agent assembly the CLI uses. Standalone `webui` binary serves the static bundle on port `3456` and the WebSocket on `3457`. The CLI can also opt in with `wrongstack --webui`. Both paths bind to `127.0.0.1` by default — set `WS_HOST=0.0.0.0` for LAN access. Highlights:
+
+- Topbar status bar mirroring the TUI: ctx% · token in/out · cache hit · cost (click for per-turn breakdown) · live elapsed · iteration counter · streaming chars/sec
+- Per-message footer: token usage `42,103→1,287 · $0.0234`, `Pin` / `Edit & resend` / `Retry` / view-raw-markdown, plus a run summary `3 iter · 4 tools · 2.1s · $0.0234` attached to the last assistant bubble of each turn
+- Tool bubbles: collapsed one-line summary by default, live `tool.progress` stream while running, side-by-side line-numbered gutter when the output exceeds 25 lines, "Download as file" + Copy on hover
+- Sidebar: live TODO snapshot, Pinned panel (scroll-to-bubble), History with search + Today/Yesterday/This week/Earlier grouping + star-to-favourite, drag-to-resize handle
+- Welcome screen: no-providers CTA, "Pick back up" recent sessions, recent prompts as one-click refills, four prompt cards by intent (Explore / Build / Debug / Refactor)
+- Overlays: `Ctrl+K` command palette, `Ctrl+M` quick model switcher (saved providers + lazy-loaded models), `Ctrl+F` chat search, `?` shortcuts cheat-sheet, `Ctrl+Shift+D` compact density toggle
+- Smart-paste hint when dropping > 800 chars, message queue while a run is in-flight (drained one-at-a-time on `run.result`), connection-lost banner with live retry countdown, dynamic favicon badge + optional completion chime when the tab is hidden
+- Slash commands grouped by category (Run / Session / Inspect / App) with `↑↓ Tab Enter` keyboard nav and aliases
+- Day-separator dividers when transcripts span midnight; tab title carries `{iter} · {session-title} · {project} · WrongStack`
+
+```bash
+# Standalone (recommended for the full experience)
+webui                          # binds backend to 127.0.0.1:3457, serves UI on 3456
+WS_HOST=0.0.0.0 webui          # expose on the LAN
+
+# Or piggy-back on the CLI process
+wrongstack --webui
+```
 
 ## Built-in tools
 
@@ -449,7 +470,7 @@ The CLI auto-migrates any plaintext keys it finds in `config.json` on every boot
 
 ## Observability events
 
-The `EventBus` carries 23 typed events including `tool.started` and `tool.executed` (closes the gap between "model decided to call a tool" and "tool finished" — the TUI uses these to render the live "running: <tool> Ns" indicator), `provider.text_delta` (live streaming text), `session.damaged`, `token.threshold`, `token.cost_estimate_unavailable`, `compaction.fired`, `compaction.failed`, `provider.retry`, `provider.error`, and per-MCP-server connection events.
+The `EventBus` carries **24 typed events**: `session.started`, `session.ended`, `session.damaged`, `iteration.started`, `iteration.completed`, `iteration.limit_reached`, `provider.response`, `provider.text_delta`, `provider.tool_use_start`, `provider.tool_use_stop`, `provider.retry`, `provider.error`, `tool.started`, `tool.progress`, `tool.confirm_needed`, `tool.executed` (closes the gap between "model decided to call a tool" and "tool finished" — the TUI uses these to render the live "running: <tool> Ns" indicator), `token.threshold`, `token.cost_estimate_unavailable`, `compaction.fired`, `compaction.failed`, `mcp.server.connected`, `mcp.server.reconnected`, `mcp.server.disconnected`, and `error`.
 
 Subscribe with `events.on(name, fn)` or `events.once(name, fn)`; listeners that throw are caught and logged, never re-thrown.
 
@@ -504,6 +525,8 @@ A plugin declares `apiVersion: "^1.0"` and gets the full `PluginAPI`: container,
 | `@wrongstack/mcp` | MCP server registry + reconnection logic | [packages/mcp](packages/mcp/README.md) |
 | `@wrongstack/cli` | REPL, subcommands, slash commands, terminal renderer | [packages/cli](packages/cli/README.md) |
 | `@wrongstack/tui` | Ink-based TUI (paste collapse, @-picker, image paste) — lazy-loaded behind `--tui` | [packages/tui](packages/tui/README.md) |
+| `@wrongstack/plug-lsp` | LSP plugin: exposes language server protocol tools (`wrongstack-lsp-setup` binary) | [packages/plug-lsp](packages/plug-lsp/README.md) |
+| `@wrongstack/webui` | Standalone web UI (React + Radix + Tailwind frontend, `ws`-backed Node backend reusing the CLI's boot path) — `webui` binary, also reachable via `wrongstack --webui` | — |
 
 ## Architecture
 
@@ -542,9 +565,9 @@ validation, and the system prompt builder. See
 
 ## Status
 
-- **1802 tests passing** across 181 test files (~12 s)
-- Coverage: ≥85 % lines / ≥70 % branches / ≥85 % functions / ≥82 % statements (enforced in `vitest.config.ts`)
-- All 6 published packages build clean with TypeScript strict + `noUncheckedIndexedAccess`
+- **1808 tests passing** across 181 test files (~12 s, 1 skipped)
+- Coverage thresholds enforced in `vitest.config.ts`: ≥85 % lines / ≥85 % functions / ≥70 % branches / ≥82 % statements
+- All 8 packages build clean with TypeScript strict + `noUncheckedIndexedAccess`
 - Node 22+ only, ESM-only, no CommonJS bundles
 - CI gate: `pnpm typecheck && pnpm build && pnpm test` all required
 - Threat model and adversary trust assumptions: [`SECURITY.md`](SECURITY.md)

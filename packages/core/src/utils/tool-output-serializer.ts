@@ -45,7 +45,6 @@ export function createToolOutputSerializer(opts: ToolOutputSerializerOptions = {
     }
     const half = Math.floor(available / 2);
     const first = text.slice(0, half);
-    const textBytesHalf = Buffer.byteLength(first, 'utf8');
     const second = text.slice(text.length - half);
     return { text: `${first}${marker}${second}`, newBudget: 0 };
   }

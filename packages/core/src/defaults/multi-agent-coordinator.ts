@@ -123,9 +123,8 @@ export class DefaultMultiAgentCoordinator
   }
 
   async stopAll(): Promise<void> {
-    for (const id of this.subagents.keys()) {
-      await this.stop(id);
-    }
+    // allSettled so one failure doesn't leave other subagents un-stopped.
+    await Promise.allSettled([...this.subagents.keys()].map((id) => this.stop(id)));
   }
 
   getStatus(): CoordinatorStatus {
@@ -264,13 +263,14 @@ export class DefaultMultiAgentCoordinator
           : subagent.abortController.signal.aborted
             ? 'stopped'
             : 'failed';
+      const usage = budget.usage();
       result = {
         subagentId,
         taskId: task.id,
         status,
         error: err instanceof Error ? err.message : String(err),
-        iterations: budget.usage().iterations,
-        toolCalls: budget.usage().toolCalls,
+        iterations: usage.iterations,
+        toolCalls: usage.toolCalls,
         durationMs: Date.now() - startTime,
       };
     }
@@ -306,17 +306,17 @@ export class DefaultMultiAgentCoordinator
   private recordCompletion(result: TaskResult): void {
     this.completedResults.push(result);
     this.totalIterations += result.iterations;
-    if (this.inFlight === 0) {
-      if (this.runner) {
-        this.emit('warning', {
-          type: 'inFlight_underflow',
-          taskId: result.taskId,
-          subagentId: result.subagentId,
-        });
-        return;
-      }
-    } else {
+    if (this.inFlight > 0) {
       this.inFlight--;
+    } else if (this.runner) {
+      // Runner-driven path completed without an outstanding inFlight slot —
+      // shouldn't happen unless completeTask was called externally.
+      this.emit('warning', {
+        type: 'inFlight_underflow',
+        taskId: result.taskId,
+        subagentId: result.subagentId,
+      });
+      return;
     }
 
     const subagent = this.subagents.get(result.subagentId);

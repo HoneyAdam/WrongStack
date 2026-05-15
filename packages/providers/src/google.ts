@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { type ProviderError, safeParse } from '@wrongstack/core';
 import type {
   Capabilities,
   Message,
@@ -7,7 +9,6 @@ import type {
   Tool,
   Usage,
 } from '@wrongstack/core';
-import { type ProviderError, safeParse } from '@wrongstack/core';
 import { parseProviderHttpError } from './error-parse.js';
 import { normalizeGemini } from './stop-reason.js';
 import { parseSSE } from './sse.js';
@@ -247,8 +248,13 @@ function messagesToGemini(messages: Message[]): GeminiContent[] {
         });
       }
     }
-    if (textParts.length > 0) out.push({ role: 'user', parts: textParts });
-    if (functionParts.length > 0) out.push({ role: 'function', parts: functionParts });
+    const userParts: GeminiPart[] = [...textParts];
+    // Include function responses as parts of the user turn — Gemini's API
+    // accepts functionResponse blocks inline with text in a single user role.
+    // This handles the case where a user message consists only of tool_result
+    // blocks (no text): without this, the turn is silently dropped.
+    if (functionParts.length > 0) userParts.push(...functionParts);
+    if (userParts.length > 0) out.push({ role: 'user', parts: userParts });
   }
   return out;
 }
@@ -303,7 +309,7 @@ async function* parseGoogleStream(
         yield { type: 'text_delta', text: part.text };
       } else if (part.functionCall) {
         sawFunctionCall = true;
-        const id = `${part.functionCall.name}_${Math.random().toString(36).slice(2, 10)}`;
+        const id = randomUUID();
         yield { type: 'tool_use_start', id, name: part.functionCall.name };
         // Stash the opaque thought_signature so it can be echoed back on
         // the next request. Without this the Gemini API rejects with 400

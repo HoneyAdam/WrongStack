@@ -98,7 +98,14 @@ describe('GoogleProvider', () => {
     expect(body?.['systemInstruction']).toEqual({ parts: [{ text: 'be terse' }] });
     const contents = body?.['contents'] as Array<{ role: string; parts: unknown[] }>;
     expect(contents.find((c) => c.role === 'model')).toBeDefined();
-    expect(contents.find((c) => c.role === 'function')).toBeDefined();
+    // Tool results are inlined into the user turn with functionResponse parts
+    // (Gemini API spec) — not as a separate 'function' role. This was a bug
+    // where all-non-text user messages were silently dropped; now fixed.
+    const userWithFn = contents.find((c) =>
+      c.role === 'user' &&
+      (c.parts as unknown[]).some((p) => typeof p === 'object' && 'functionResponse' in (p as object)),
+    );
+    expect(userWithFn).toBeDefined();
     const tools = body?.['tools'] as Array<{ functionDeclarations: unknown[] }>;
     expect(tools[0]?.functionDeclarations).toHaveLength(1);
     const cfg = body?.['generationConfig'] as Record<string, unknown>;

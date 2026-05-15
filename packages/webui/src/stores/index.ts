@@ -79,6 +79,22 @@ export interface ChatMessage {
   usage?: Usage;
   streaming?: boolean;
   parentId?: string;
+  /** Live progress lines for an in-flight tool, populated from
+   *  tool.progress WS events. Each line is shown in chronological order
+   *  inside the tool bubble while it's still running, and cleared once the
+   *  final tool.executed lands (toolResult takes over). Capped to the last
+   *  ~30 lines so a chatty bash command can't grow this unbounded. */
+  progressLines?: string[];
+  /** End-of-run summary attached to the last assistant message of a turn
+   *  after run.result lands. Populated by the run.result handler in
+   *  useWebSocket — gives the user a single-line readout of what just
+   *  happened (iterations, tool calls, elapsed time, cost). */
+  runSummary?: {
+    iterations: number;
+    tools: number;
+    durationMs: number;
+    costDelta: number;
+  };
 }
 
 export interface SessionInfo {
@@ -100,6 +116,16 @@ interface ChatState {
   isLoading: boolean;
   abortController: AbortController | null;
   executions: Map<string, ToolExecution>;
+  /** Messages typed while the agent was running. Drained one-at-a-time
+   *  after run.result lands so the user can stack up follow-ups without
+   *  waiting for each turn to finish. */
+  queue: string[];
+  /** Snapshot taken at the start of the current run (first iteration.started
+   *  after idle). Used by run.result to compute the per-turn summary —
+   *  duration is now-at minus this `at`, cost delta is the difference
+   *  between the session's current cost and the cost captured here. Null
+   *  while idle. */
+  runStart: { at: number; cost: number } | null;
 
   // Actions
   addMessage: (msg: Omit<ChatMessage, 'id' | 'timestamp'>) => string;
@@ -113,13 +139,28 @@ interface ChatState {
    *  expects to see. */
   finalizeMessage: (id: string) => void;
   setToolResult: (id: string, result: string, ok: boolean) => void;
+  /** Append a single progress line to the tool bubble identified by its
+   *  ChatMessage id. Capped at 30 lines (oldest dropped) so chatty tools
+   *  don't bloat memory or rerender too aggressively. */
+  appendToolProgress: (id: string, line: string) => void;
   setLoading: (loading: boolean) => void;
   setAbortController: (ctrl: AbortController | null) => void;
   clearMessages: () => void;
   setCurrentAssistantMessage: (id: string | null) => void;
   setCurrentToolId: (id: string | null) => void;
+  /** Remove the message identified by `id` and every message after it.
+   *  Used by the "edit + regenerate" action on user bubbles — the user
+   *  clicks the pencil, types a corrected prompt, and we want everything
+   *  downstream of that point to disappear so the new send looks like a
+   *  fresh branch from this question. */
+  truncateAfter: (id: string) => void;
   addExecution: (exec: ToolExecution) => void;
   updateExecution: (id: string, updates: Partial<ToolExecution>) => void;
+  enqueue: (text: string) => void;
+  dequeue: () => string | null;
+  removeQueued: (idx: number) => void;
+  clearQueue: () => void;
+  setRunStart: (s: { at: number; cost: number } | null) => void;
 }
 
 export const useChatStore = create<ChatState>()(
@@ -131,6 +172,8 @@ export const useChatStore = create<ChatState>()(
       isLoading: false,
       abortController: null,
       executions: new Map(),
+      queue: [],
+      runStart: null,
 
       addMessage: (msg) => {
         const id = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
@@ -175,9 +218,22 @@ export const useChatStore = create<ChatState>()(
         set((state) => ({
           messages: state.messages.map((m) =>
             m.id === id
-              ? { ...m, toolResult: result, isError: !ok }
+              ? { ...m, toolResult: result, isError: !ok, progressLines: undefined }
               : m
           ),
+        }));
+      },
+
+      appendToolProgress: (id, line) => {
+        set((state) => ({
+          messages: state.messages.map((m) => {
+            if (m.id !== id) return m;
+            const prev = m.progressLines ?? [];
+            const next = [...prev, line];
+            // Bounded buffer: keep the most recent 30 lines.
+            const trimmed = next.length > 30 ? next.slice(next.length - 30) : next;
+            return { ...m, progressLines: trimmed };
+          }),
         }));
       },
 
@@ -197,6 +253,17 @@ export const useChatStore = create<ChatState>()(
 
       setCurrentToolId: (id) => set({ currentToolId: id }),
 
+      truncateAfter: (id) =>
+        set((state) => {
+          const idx = state.messages.findIndex((m) => m.id === id);
+          if (idx === -1) return state;
+          return {
+            messages: state.messages.slice(0, idx),
+            currentAssistantMessageId: null,
+            currentToolId: null,
+          };
+        }),
+
       addExecution: (exec) => {
         set((state) => {
           const newExecutions = new Map(state.executions);
@@ -215,6 +282,20 @@ export const useChatStore = create<ChatState>()(
           return { executions: newExecutions };
         });
       },
+
+      enqueue: (text) =>
+        set((state) => ({ queue: [...state.queue, text] })),
+      dequeue: () => {
+        const q = get().queue;
+        if (q.length === 0) return null;
+        const [next, ...rest] = q;
+        set({ queue: rest });
+        return next!;
+      },
+      removeQueued: (idx) =>
+        set((state) => ({ queue: state.queue.filter((_, i) => i !== idx) })),
+      clearQueue: () => set({ queue: [] }),
+      setRunStart: (s) => set({ runStart: s }),
     }),
     {
       name: 'wrongstack-chat',
@@ -238,14 +319,28 @@ interface ConfigState {
   apiKey?: string;
   wsUrl: string;
   wsConnected: boolean;
+  /** Fine-grained connection state from the WS client. Drives the topbar's
+   *  reconnect indicator. */
+  wsStatus:
+    | { state: 'connecting' }
+    | { state: 'open' }
+    | { state: 'closed'; error?: string }
+    | { state: 'reconnecting'; attempt: number; nextRetryAt: number; lastError?: string };
   theme: 'light' | 'dark' | 'system';
   autoConnect: boolean;
+  /** Play a soft synthesized chime when run.result lands with status=done.
+   *  Off by default — opt-in via the Command Palette. Persisted so the
+   *  preference survives reloads. Actual playback only fires after the
+   *  user has interacted with the page (Web Audio autoplay policy). */
+  soundOnComplete: boolean;
 
   setProvider: (provider: string) => void;
   setModel: (model: string) => void;
   setConfig: (config: Partial<Omit<ConfigState, 'setProvider' | 'setModel' | 'setConfig' | 'setTheme'>>) => void;
   setTheme: (theme: 'light' | 'dark' | 'system') => void;
   setWsConnected: (connected: boolean) => void;
+  setWsStatus: (s: ConfigState['wsStatus']) => void;
+  setSoundOnComplete: (on: boolean) => void;
 }
 
 export const useConfigStore = create<ConfigState>()(
@@ -268,13 +363,17 @@ export const useConfigStore = create<ConfigState>()(
         return `ws://${window.location.hostname}:3457`;
       })(),
       wsConnected: false,
+      wsStatus: { state: 'connecting' },
       theme: 'system',
       autoConnect: true,
+      soundOnComplete: false,
       setProvider: (provider) => set({ provider }),
       setModel: (model) => set({ model }),
       setConfig: (config) => set(config),
       setTheme: (theme) => set({ theme }),
       setWsConnected: (connected) => set({ wsConnected: connected }),
+      setWsStatus: (wsStatus) => set({ wsStatus, wsConnected: wsStatus.state === 'open' }),
+      setSoundOnComplete: (on) => set({ soundOnComplete: on }),
     }),
     {
       name: 'wrongstack-config',
@@ -310,6 +409,9 @@ interface SessionState {
   modes: Array<{ id: string; name: string; description: string }>;
   /** Iteration progress while the agent is running. Resets on run.result. */
   iteration: { index: number; max: number } | null;
+  /** Live snapshot of context.todos — backend broadcasts on every
+   *  tool.executed, and the sidebar/overlay reads from here. */
+  todos: Array<{ id: string; content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string }>;
 
   setSession: (session: SessionInfo | null) => void;
   updateUsage: (usage: Usage) => void;
@@ -326,6 +428,7 @@ interface SessionState {
   }) => void;
   setIteration: (it: { index: number; max: number } | null) => void;
   setModes: (modes: Array<{ id: string; name: string; description: string }>) => void;
+  setTodos: (todos: SessionState['todos']) => void;
 }
 
 export const useSessionStore = create<SessionState>()(
@@ -344,6 +447,7 @@ export const useSessionStore = create<SessionState>()(
       mode: 'default',
       modes: [],
       iteration: null,
+      todos: [],
 
       setSession: (session) => set({ session }),
 
@@ -393,6 +497,7 @@ export const useSessionStore = create<SessionState>()(
 
       setIteration: (iteration) => set({ iteration }),
       setModes: (modes) => set({ modes }),
+      setTodos: (todos) => set({ todos }),
     }),
     {
       name: 'wrongstack-session',
@@ -426,6 +531,34 @@ interface UIState {
   /** Rolling list of recently sent user prompts so ↑ in an empty input can
    *  recall them like a terminal. Capped to ~50 to keep storage bounded. */
   promptHistory: string[];
+  /** Sidebar width in pixels. User can drag the right edge to resize.
+   *  Clamped to [200, 480] in the drag handler. Persisted. */
+  sidebarWidth: number;
+  /** Assistant message ids the user pinned. Persisted across reloads so a
+   *  user who pins a long debugging answer doesn't lose the bookmark on a
+   *  refresh. Note: messages themselves aren't persisted, so a pin's only
+   *  useful within the same in-memory session — the sidebar Pinned panel
+   *  prunes ids that no longer correspond to a live message. */
+  pinnedIds: string[];
+  /** "Compact mode" — denser spacing throughout the chat. Off by default;
+   *  power users with long sessions like the tighter layout. Toggle via
+   *  Ctrl+Shift+D globally. */
+  compactMode: boolean;
+  /** Open state for the Quick Model Switcher overlay. Lives in the store
+   *  so the topbar's model chip can open it imperatively without smuggling
+   *  synthetic keyboard events through the DOM. Ctrl+M toggles this too. */
+  modelSwitcherOpen: boolean;
+  /** Session ids the user starred in the history list. Persisted across
+   *  reloads. Starred sessions float to the top of the history sidebar
+   *  regardless of date bucket so a long-running project session stays
+   *  reachable without scrolling. */
+  favoriteSessionIds: string[];
+  /** Local UI nicknames for sessions, keyed by session id. The backend
+   *  session.title is auto-derived from the first user message and isn't
+   *  user-editable yet; this lets a user rename a session in the WebUI
+   *  ("Auth refactor exploration") without a backend round-trip. Used by
+   *  the History list, recent-sessions cards, and the tab title. */
+  sessionNicknames: Record<string, string>;
 
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
@@ -438,6 +571,13 @@ interface UIState {
   setSearchOpen: (open: boolean) => void;
   setSearchQuery: (q: string) => void;
   pushPrompt: (text: string) => void;
+  setSidebarWidth: (px: number) => void;
+  togglePin: (id: string) => void;
+  unpinAll: () => void;
+  toggleCompactMode: () => void;
+  setModelSwitcherOpen: (open: boolean) => void;
+  toggleFavoriteSession: (id: string) => void;
+  setSessionNickname: (id: string, nickname: string) => void;
 }
 
 export const useUIStore = create<UIState>()(
@@ -453,6 +593,12 @@ export const useUIStore = create<UIState>()(
       searchOpen: false,
       searchQuery: '',
       promptHistory: [],
+      sidebarWidth: 288,
+      pinnedIds: [],
+      compactMode: false,
+      modelSwitcherOpen: false,
+      favoriteSessionIds: [],
+      sessionNicknames: {},
 
       toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
       setSidebarOpen: (open) => set({ sidebarOpen: open }),
@@ -472,6 +618,37 @@ export const useUIStore = create<UIState>()(
           const filtered = state.promptHistory.filter((p) => p !== trimmed);
           return { promptHistory: [trimmed, ...filtered].slice(0, 50) };
         }),
+      setSidebarWidth: (px) =>
+        set({ sidebarWidth: Math.max(200, Math.min(480, Math.round(px))) }),
+      togglePin: (id) =>
+        set((state) => {
+          const has = state.pinnedIds.includes(id);
+          return {
+            pinnedIds: has
+              ? state.pinnedIds.filter((p) => p !== id)
+              : [...state.pinnedIds, id],
+          };
+        }),
+      unpinAll: () => set({ pinnedIds: [] }),
+      toggleCompactMode: () => set((s) => ({ compactMode: !s.compactMode })),
+      setModelSwitcherOpen: (open) => set({ modelSwitcherOpen: open }),
+      toggleFavoriteSession: (id) =>
+        set((state) => {
+          const has = state.favoriteSessionIds.includes(id);
+          return {
+            favoriteSessionIds: has
+              ? state.favoriteSessionIds.filter((s) => s !== id)
+              : [...state.favoriteSessionIds, id],
+          };
+        }),
+      setSessionNickname: (id, nickname) =>
+        set((state) => {
+          const trimmed = nickname.trim();
+          const next = { ...state.sessionNicknames };
+          if (trimmed) next[id] = trimmed;
+          else delete next[id];
+          return { sessionNicknames: next };
+        }),
     }),
     {
       name: 'wrongstack-ui',
@@ -480,7 +657,12 @@ export const useUIStore = create<UIState>()(
       // load so the user doesn't reopen the app into an open dialog.
       partialize: (s) => ({
         sidebarOpen: s.sidebarOpen,
+        sidebarWidth: s.sidebarWidth,
         promptHistory: s.promptHistory,
+        pinnedIds: s.pinnedIds,
+        compactMode: s.compactMode,
+        favoriteSessionIds: s.favoriteSessionIds,
+        sessionNicknames: s.sessionNicknames,
       }),
     },
   ),

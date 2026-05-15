@@ -425,6 +425,24 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
       });
     });
 
+    events.on('tool.progress', (e) => {
+      // Streaming progress (bash stdout chunks, fetch body deltas, scan
+      // counts...). We forward the lightweight shape: id + type + text so
+      // the UI can render an inline "live" preview while the tool is still
+      // running. Heavy `data` blob is intentionally dropped here — the
+      // frontend doesn't need it and broadcasting it would balloon the WS
+      // traffic for tools that emit progress every few ms.
+      broadcast({
+        type: 'tool.progress',
+        payload: {
+          id: e.id,
+          name: e.name,
+          eventType: e.event.type,
+          text: e.event.text,
+        },
+      });
+    });
+
     events.on('tool.executed', (e) => {
       broadcast({
         type: 'tool.executed',
@@ -440,6 +458,13 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
           input: e.input,
           output: e.output,
         },
+      });
+      // Push the current todo snapshot too — the TodoWrite tool mutates
+      // context.todos in place, and a side-panel that needs to react to
+      // that change shouldn't have to poll. Cheap (todos are tiny).
+      broadcast({
+        type: 'todos.updated',
+        payload: { todos: [...context.todos] },
       });
     });
 
@@ -1082,6 +1107,95 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
             messages: context.messages.length,
             todos: context.todos.length,
           },
+        });
+        break;
+      }
+
+      case 'todos.get': {
+        // On-demand snapshot — used when a UI surface first mounts and
+        // needs to render the live todo list without waiting for the next
+        // tool.executed to broadcast.
+        send(ws, {
+          type: 'todos.updated',
+          payload: { todos: [...context.todos] },
+        });
+        break;
+      }
+
+      case 'todos.clear': {
+        // Manual override — the agent normally curates this list via
+        // TodoWrite, but the user might want a clean slate without losing
+        // the rest of the context. Drop the array in place so any code
+        // path still holding a reference sees the change (`length = 0`
+        // mutates instead of replacing).
+        context.todos.length = 0;
+        sendResult(ws, true, 'Todos cleared');
+        broadcast({ type: 'todos.updated', payload: { todos: [] } });
+        break;
+      }
+
+      case 'files.list': {
+        // Lightweight project file picker for the chat `@` mention popup.
+        // Walks projectRoot, skipping the heavyweight build/vcs/node_modules
+        // dirs that would blow up the response on a real project. Applies
+        // a fuzzy substring match against the (lowercased) query and caps
+        // the result so the popup never has to paginate.
+        const payload = (msg as { payload?: { query?: string; limit?: number } }).payload ?? {};
+        const query = (payload.query ?? '').toLowerCase();
+        const limit = payload.limit ?? 50;
+        const SKIP_DIRS = new Set([
+          '.git', 'node_modules', 'dist', 'build', '.next', '.turbo', '.cache',
+          'target', 'coverage', '.nyc_output', 'out', '.pnpm-store', '.parcel-cache',
+        ]);
+        const results: string[] = [];
+        async function walk(dir: string, rel: string, depth: number): Promise<void> {
+          if (depth > 8 || results.length >= 600) return;
+          let entries: import('node:fs').Dirent[] = [];
+          try {
+            entries = await fs.readdir(dir, { withFileTypes: true });
+          } catch {
+            return;
+          }
+          for (const e of entries) {
+            if (results.length >= 600) return;
+            if (e.name.startsWith('.') && e.name !== '.wrongstack' && e.name !== '.env.example') {
+              // hide dotfiles by default; pick a couple common ones the user
+              // might want anyway
+              if (e.name !== '.gitignore' && e.name !== '.eslintrc' && e.name !== '.prettierrc') continue;
+            }
+            const childRel = rel ? `${rel}/${e.name}` : e.name;
+            if (e.isDirectory()) {
+              if (SKIP_DIRS.has(e.name)) continue;
+              await walk(path.join(dir, e.name), childRel, depth + 1);
+            } else if (e.isFile()) {
+              results.push(childRel);
+            }
+          }
+        }
+        await walk(projectRoot, '', 0);
+        // Score: exact basename match > prefix > substring. Cheap heuristic
+        // that's good enough for a picker.
+        const scored: Array<{ path: string; score: number }> = [];
+        for (const p of results) {
+          if (!query) {
+            scored.push({ path: p, score: 0 });
+            continue;
+          }
+          const lower = p.toLowerCase();
+          const base = lower.split('/').pop() ?? lower;
+          let score = 0;
+          if (base === query) score = 100;
+          else if (base.startsWith(query)) score = 60;
+          else if (lower.includes(query)) score = 20;
+          else continue;
+          // Penalise depth so root files come first.
+          score -= p.split('/').length;
+          scored.push({ path: p, score });
+        }
+        scored.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
+        send(ws, {
+          type: 'files.list',
+          payload: { files: scored.slice(0, limit).map((s) => s.path) },
         });
         break;
       }

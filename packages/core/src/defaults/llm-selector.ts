@@ -183,7 +183,7 @@ export class LLMSelector implements MessageSelector {
     if (jsonStart === -1 || jsonEnd === -1) {
       // Can't parse — use fallback
       return this.fallbackSelect(
-        Array.from({ length: messageCount }, (_, i) => ({ role: 'user', content: '' } as Message)),
+        Array.from({ length: messageCount }, () => ({ role: 'user', content: '' } as Message)),
         this.maxContextTokens,
       );
     }
@@ -193,7 +193,7 @@ export class LLMSelector implements MessageSelector {
       parsed = JSON.parse(raw.slice(jsonStart, jsonEnd + 1));
     } catch {
       return this.fallbackSelect(
-        Array.from({ length: messageCount }, (_, i) => ({ role: 'user', content: '' } as Message)),
+        Array.from({ length: messageCount }, () => ({ role: 'user', content: '' } as Message)),
         this.maxContextTokens,
       );
     }

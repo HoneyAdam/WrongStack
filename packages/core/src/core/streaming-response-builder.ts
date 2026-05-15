@@ -74,6 +74,7 @@ export function handleContentBlockStart(
 
 export function handleContentBlockStop(state: StreamingState, ev: { index?: number }): void {
   // No-op for now, but tracks block boundaries for providers that need it
+  void state;
   void ev;
 }
 
@@ -195,10 +196,17 @@ export async function streamProviderToResponse(
     try {
       // Race the drain against a short deadline so a non-cooperative
       // provider stream can't pin shutdown.
-      await Promise.race([
-        Promise.resolve(iter.return?.()),
-        new Promise<void>((resolve) => setTimeout(resolve, 500)),
-      ]);
+      let drainTimer: ReturnType<typeof setTimeout> | null = null;
+      try {
+        await Promise.race([
+          Promise.resolve(iter.return?.()),
+          new Promise<void>((resolve) => {
+            drainTimer = setTimeout(resolve, 500);
+          }),
+        ]);
+      } finally {
+        if (drainTimer) clearTimeout(drainTimer);
+      }
     } catch {
       // best-effort
     }

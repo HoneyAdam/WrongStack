@@ -1,5 +1,4 @@
 import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
 import type { Context } from '../core/context.js';
 import type { PermissionDecision, PermissionPolicy, TrustPolicy } from '../types/permission.js';
 import type { Tool } from '../types/tool.js';

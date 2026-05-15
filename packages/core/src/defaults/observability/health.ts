@@ -50,8 +50,9 @@ export class DefaultHealthRegistry implements HealthRegistry {
   }
 
   private async runOne(check: HealthCheck): Promise<HealthCheckResult> {
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const timeout = new Promise<HealthCheckResult>((resolve) => {
-      setTimeout(
+      timer = setTimeout(
         () => resolve({ status: 'unhealthy', detail: `timeout after ${this.timeoutMs}ms` }),
         this.timeoutMs,
       );
@@ -60,6 +61,8 @@ export class DefaultHealthRegistry implements HealthRegistry {
       return await Promise.race([check.check(), timeout]);
     } catch (err) {
       return { status: 'unhealthy', detail: err instanceof Error ? err.message : String(err) };
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
 }

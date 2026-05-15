@@ -131,10 +131,10 @@ export class HybridCompactor implements Compactor {
     let total = 0;
     for (const m of messages) {
       if (typeof m.content === 'string') {
-        total += estimateTextTokens(m.content);
+        total += this.estimator(m.content);
       } else {
         for (const b of m.content) {
-          if (b.type === 'text') total += estimateTextTokens(b.text);
+          if (b.type === 'text') total += this.estimator(b.text);
           else if (b.type === 'tool_use') total += estimateToolInputTokens(b.input);
           else if (b.type === 'tool_result') total += estimateToolResultTokens(b.content);
         }

@@ -1,16 +1,12 @@
 import type { Specification, SpecAnalysis, SpecRequirement, SpecSection, SpecValidationResult } from '../types/spec.js';
 
-export interface SpecParserOptions {
-  strict?: boolean;
-}
-
 export class SpecParser {
-  constructor(private readonly opts: SpecParserOptions = {}) {}
 
   parse(content: string): Specification {
     const lines = content.split('\n');
     const sections = this.extractSections(lines);
     const requirements = this.extractRequirements(lines);
+    const now = Date.now();
 
     return {
       id: crypto.randomUUID(),
@@ -20,8 +16,8 @@ export class SpecParser {
       overview: this.extractOverview(lines),
       sections,
       requirements,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      createdAt: now,
+      updatedAt: now,
     };
   }
 
@@ -131,23 +127,14 @@ export class SpecParser {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) return null;
 
-    const typeMap: Record<string, SpecRequirement['type']> = {
-      'functional': 'functional',
-      'non-functional': 'non-functional',
-      'security': 'security',
-      'performance': 'performance',
-      'ux': 'ux',
-    };
-
+    const lower = trimmed.toLowerCase();
+    const types: SpecRequirement['type'][] = ['functional', 'non-functional', 'security', 'performance', 'ux'];
     let type: SpecRequirement['type'] = 'functional';
-    let priority: SpecRequirement['priority'] = 'medium';
-
-    for (const [key, val] of Object.entries(typeMap)) {
-      if (trimmed.toLowerCase().includes(`[${key}]`)) {
-        type = val;
-      }
+    for (const t of types) {
+      if (lower.includes(`[${t}]`)) type = t;
     }
 
+    let priority: SpecRequirement['priority'] = 'medium';
     if (trimmed.includes('[critical]') || trimmed.includes('[prio:high]')) {
       priority = 'critical';
     } else if (trimmed.includes('[high]')) {
@@ -255,9 +242,10 @@ export class SpecParser {
       }
     }
 
+    const reqIds = new Set(spec.requirements.map((r) => r.id));
     const blockedByIds = new Set(spec.requirements.flatMap((r) => r.blockedBy ?? []));
     for (const id of blockedByIds) {
-      if (!spec.requirements.find((r) => r.id === id)) {
+      if (!reqIds.has(id)) {
         errors.push({ path: 'requirements', message: `BlockedBy references non-existent requirement: ${id}` });
       }
     }

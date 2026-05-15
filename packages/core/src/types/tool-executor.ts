@@ -1,4 +1,3 @@
-import type { Context } from '../core/context.js';
 import type { Tool } from '../types/tool.js';
 import type { ToolResultBlock, ToolUseBlock } from '../types/blocks.js';
 

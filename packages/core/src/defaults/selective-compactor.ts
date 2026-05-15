@@ -2,7 +2,7 @@ import type { Compactor, CompactReport } from '../types/compactor.js';
 import type { Context } from '../core/context.js';
 import type { Message } from '../types/messages.js';
 import type { Provider, Request } from '../types/provider.js';
-import type { ContentBlock, TextBlock } from '../types/blocks.js';
+import type { ContentBlock } from '../types/blocks.js';
 import { isTextBlock } from '../types/blocks.js';
 import type { MessageSelector, SelectorResult } from '../types/selector.js';
 import { LLMSelector } from './llm-selector.js';
@@ -92,7 +92,7 @@ export class SelectiveCompactor implements Compactor {
 
     // Phase 2: LLM-driven selective compaction
     const afterPhase1 = this.estimateTokens(ctx.messages);
-    const targetBudget = this.computeTargetBudget(load, opts.aggressive ?? false);
+    const targetBudget = this.computeTargetBudget(load);
 
     if (afterPhase1 > targetBudget) {
       const savedSelective = await this.runSelector(ctx, targetBudget);
@@ -115,7 +115,7 @@ export class SelectiveCompactor implements Compactor {
       result = await this.selector.select(ctx.messages, targetBudget);
     } catch {
       // Fallback to aggressive recency preservation
-      return this.aggressiveRecencyTrim(ctx, targetBudget);
+      return this.aggressiveRecencyTrim(ctx);
     }
 
     // Execute the selector's plan
@@ -190,9 +190,8 @@ export class SelectiveCompactor implements Compactor {
    * Fallback when selector fails: aggressively trim from the oldest end
    * until we hit targetBudget.
    */
-  private aggressiveRecencyTrim(ctx: Context, targetBudget: number): number {
+  private aggressiveRecencyTrim(ctx: Context): number {
     const messages = ctx.messages;
-    const before = this.estimateTokens(messages);
     const preserveIdx = Math.max(0, messages.length - this.preserveK * 2);
 
     if (preserveIdx <= 0) return 0;
@@ -220,7 +219,7 @@ export class SelectiveCompactor implements Compactor {
     return Math.max(0, removedTokens - this.estimateTokens([summaryMsg]));
   }
 
-  private computeTargetBudget(load: number, aggressive: boolean): number {
+  private computeTargetBudget(load: number): number {
     if (load >= this.hardThreshold) {
       return Math.floor(this.maxContext * 0.5); // keep only 50%
     }
@@ -244,10 +243,18 @@ export class SelectiveCompactor implements Compactor {
     }
     let saved = 0;
     let changed = false;
-    const nextMessages = [...messages];
-    for (let i = 0; i < preserveStart; i++) {
+    const nextMessages = new Array(messages.length);
+    for (let i = 0; i < messages.length; i++) {
       const msg = messages[i];
-      if (!msg || !Array.isArray(msg.content)) continue;
+      // Only process messages before the preservation window
+      if (i >= preserveStart) {
+        nextMessages[i] = msg;
+        continue;
+      }
+      if (!msg || !Array.isArray(msg.content)) {
+        nextMessages[i] = msg;
+        continue;
+      }
       const newContent: ContentBlock[] = msg.content.map((b) => {
         if (b.type !== 'tool_result') return b;
         const text = typeof b.content === 'string' ? b.content : JSON.stringify(b.content);
@@ -261,7 +268,10 @@ export class SelectiveCompactor implements Compactor {
           is_error: b.is_error,
         };
       });
-      if (newContent.some((b, idx) => b !== msg.content[idx])) {
+      // map() preserves length, so only block ref-equality matters here.
+      if (newContent.every((b, idx) => b === msg.content[idx])) {
+        nextMessages[i] = msg;
+      } else {
         nextMessages[i] = { ...msg, content: newContent };
         changed = true;
       }

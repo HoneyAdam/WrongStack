@@ -105,7 +105,7 @@ export {
 } from './autonomous-runner.js';
 
 // Spec-driven development: parser, task-generator, task-tracker, task-flow
-export { SpecParser, type SpecParserOptions } from './spec-parser.js';
+export { SpecParser } from './spec-parser.js';
 export {
   TaskGenerator,
   DefaultTaskStore,

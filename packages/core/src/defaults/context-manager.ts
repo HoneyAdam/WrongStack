@@ -199,7 +199,6 @@ export function createContextManagerTool(opts: ContextManagerToolOptions = {}): 
               notes: `Invalid range [${from}, ${to}] for ${messages.length} messages.`,
             };
           }
-          const toSummarize = messages.slice(from, to + 1);
           const summaryText = input.text ?? '[summary placeholder — provide "text" to record the summary]';
           const summaryMsg: Message = {
             role: 'system',

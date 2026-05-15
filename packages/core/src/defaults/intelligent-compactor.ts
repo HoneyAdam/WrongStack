@@ -85,7 +85,11 @@ export class IntelligentCompactor implements Compactor {
     const reductions: CompactReport['reductions'] = [];
 
     const load = beforeTokens / this.maxContext;
-    const aggressive = opts.aggressive ?? load >= this.softThreshold;
+    // Past hardThreshold, force aggressive regardless of caller preference —
+    // the alternative (lightweight elision) is unlikely to recover enough.
+    const aggressive = load >= this.hardThreshold
+      ? true
+      : opts.aggressive ?? load >= this.softThreshold;
 
     // Phase 1: always run elision (preserves recent K pairs)
     const saved1 = this.eliseOldToolResults(ctx);
@@ -155,7 +159,6 @@ export class IntelligentCompactor implements Compactor {
   private findExchangeStart(messages: Message[], userIndex: number): number {
     // Walk backwards from userIndex to find where this logical exchange began.
     // An exchange starts after the last assistant message that had no tool calls.
-    const idx = userIndex;
     for (let i = userIndex - 1; i >= 0; i--) {
       const m = messages[i];
       if (!m) continue;

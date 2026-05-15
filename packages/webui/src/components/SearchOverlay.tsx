@@ -46,17 +46,82 @@ export function SearchOverlay() {
     if (activeHit >= hits.length) setActiveHit(0);
   }, [hits, activeHit]);
 
+  // Paint every match of the current query inside chat bubbles using the
+  // CSS Custom Highlights API. We walk the text nodes under every
+  // `[data-message-id]` element, build Range objects per hit, then register
+  // two highlights: `chat-search` covers everything, `chat-search-active`
+  // covers only the message currently navigated to (so the user can see
+  // where they are in the list). The registry is cleared on unmount and on
+  // every query change so stale ranges don't linger.
+  useEffect(() => {
+    // Feature-detect — falls back to silent no-op on older browsers; the
+    // ring-flash navigation behaviour below still works.
+    const win = window as unknown as {
+      CSS?: { highlights?: Map<string, unknown> };
+      Highlight?: new (...ranges: Range[]) => unknown;
+    };
+    const highlights = win.CSS?.highlights;
+    const HighlightCtor = win.Highlight;
+    if (!highlights || !HighlightCtor) return;
+    const clear = () => {
+      highlights.delete('chat-search');
+      highlights.delete('chat-search-active');
+    };
+    const q = query.trim();
+    if (!q || !open) {
+      clear();
+      return;
+    }
+    const lcQuery = q.toLowerCase();
+    const allRanges: Range[] = [];
+    const activeRanges: Range[] = [];
+    const activeId = hits[activeHit];
+    document.querySelectorAll('[data-message-id]').forEach((el) => {
+      const id = (el as HTMLElement).dataset.messageId;
+      const isActive = id === activeId;
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      let node = walker.nextNode() as Text | null;
+      while (node) {
+        const text = node.nodeValue ?? '';
+        if (text.length > 0) {
+          const lc = text.toLowerCase();
+          let from = 0;
+          while (from <= lc.length - lcQuery.length) {
+            const at = lc.indexOf(lcQuery, from);
+            if (at === -1) break;
+            const range = document.createRange();
+            range.setStart(node, at);
+            range.setEnd(node, at + lcQuery.length);
+            allRanges.push(range);
+            if (isActive) activeRanges.push(range);
+            from = at + lcQuery.length;
+          }
+        }
+        node = walker.nextNode() as Text | null;
+      }
+    });
+    if (allRanges.length > 0) {
+      highlights.set('chat-search', new HighlightCtor(...allRanges) as never);
+    } else {
+      highlights.delete('chat-search');
+    }
+    if (activeRanges.length > 0) {
+      highlights.set(
+        'chat-search-active',
+        new HighlightCtor(...activeRanges) as never,
+      );
+    } else {
+      highlights.delete('chat-search-active');
+    }
+    return clear;
+  }, [query, hits, activeHit, open]);
+
   useEffect(() => {
     const id = hits[activeHit];
     if (!id) return;
     const el = document.querySelector(`[data-message-id="${id}"]`);
     if (el) {
       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      el.classList.add('ring-2', 'ring-primary');
-      const t = setTimeout(() => {
-        el.classList.remove('ring-2', 'ring-primary');
-      }, 1200);
-      return () => clearTimeout(t);
     }
   }, [hits, activeHit]);
 

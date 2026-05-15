@@ -87,17 +87,21 @@ export interface CriticalPathResult {
 }
 
 export function computeTaskProgress(graph: TaskGraph): TaskProgress {
-  const nodes = Array.from(graph.nodes.values());
-  const total = nodes.length;
-  const completed = nodes.filter((n) => n.status === 'completed').length;
-  const pending = nodes.filter((n) => n.status === 'pending').length;
-  const inProgress = nodes.filter((n) => n.status === 'in_progress').length;
-  const blocked = nodes.filter((n) => n.status === 'blocked').length;
-  const failed = nodes.filter((n) => n.status === 'failed').length;
-  const review = nodes.filter((n) => n.status === 'review').length;
-
-  const estimatedHours = nodes.reduce((sum, n) => sum + (n.estimateHours ?? 0), 0);
-  const actualHours = nodes.reduce((sum, n) => sum + (n.actualHours ?? 0), 0);
+  let completed = 0, pending = 0, inProgress = 0, blocked = 0, failed = 0, review = 0;
+  let estimatedHours = 0, actualHours = 0;
+  for (const n of graph.nodes.values()) {
+    switch (n.status) {
+      case 'completed': completed++; break;
+      case 'pending': pending++; break;
+      case 'in_progress': inProgress++; break;
+      case 'blocked': blocked++; break;
+      case 'failed': failed++; break;
+      case 'review': review++; break;
+    }
+    estimatedHours += n.estimateHours ?? 0;
+    actualHours += n.actualHours ?? 0;
+  }
+  const total = graph.nodes.size;
 
   return {
     total,
@@ -131,20 +135,23 @@ export function findCriticalPath(graph: TaskGraph): CriticalPathResult {
 
 export function topologicalSort(graph: TaskGraph): string[] {
   const visited = new Set<string>();
+  const inStack = new Set<string>();
   const result: string[] = [];
 
-  function visit(id: string) {
+  function visit(id: string): void {
+    // Cycle: callers must detect cycles up-front if they care; we just stop recursing.
+    if (inStack.has(id)) return;
     if (visited.has(id)) return;
+    if (!graph.nodes.has(id)) return;
+
     visited.add(id);
+    inStack.add(id);
 
-    const node = graph.nodes.get(id);
-    if (!node) return;
-
-    const outgoing = graph.edges.filter((e) => e.from === id);
-    for (const edge of outgoing) {
-      visit(edge.to);
+    for (const edge of graph.edges) {
+      if (edge.from === id) visit(edge.to);
     }
 
+    inStack.delete(id);
     result.push(id);
   }
 

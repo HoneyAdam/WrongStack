@@ -8,6 +8,10 @@ import {
   useHistoryStore,
   type SessionHistoryEntry,
 } from '@/stores';
+import { toast } from '@/components/Toaster';
+import { ensureNotificationPermission, notifyIfHidden } from '@/lib/notify';
+import { playCompletionChime } from '@/lib/chime';
+import { setFaviconStatus, installFaviconVisibilityReset } from '@/lib/favicon';
 import type { WSServerMessage } from '@/types';
 
 /**
@@ -164,6 +168,14 @@ function installHandlers(ws: WrongStackWebSocketClient): () => void {
     });
   });
 
+  on('key.operation_result', (msg) => {
+    // Provider/key/model.switch operations report back here. Toast is the
+    // right surface — these are transient acks/errors, not chat content.
+    const p = msg.payload as { success: boolean; message: string };
+    if (p.success) toast.success(p.message);
+    else toast.error(p.message);
+  });
+
   on('context.compacted', (msg) => {
     const payload = msg.payload as {
       before: number;
@@ -200,6 +212,18 @@ function installHandlers(ws: WrongStackWebSocketClient): () => void {
     // Make sure the running indicator stays visible even if some earlier
     // event dropped isLoading prematurely.
     useChatStore.getState().setLoading(true);
+    if (typeof document !== 'undefined' && document.hidden) {
+      setFaviconStatus('running');
+    }
+    // First iteration of a fresh run — snapshot start time + cost so
+    // run.result can compute a per-turn summary (duration, cost delta).
+    // Subsequent iterations in the same loop preserve the original start.
+    if (useChatStore.getState().runStart === null) {
+      useChatStore.getState().setRunStart({
+        at: Date.now(),
+        cost: useSessionStore.getState().cost,
+      });
+    }
     // Don't pre-create an empty assistant bubble — text_delta lazy-creates
     // one when the model actually writes something.
     useChatStore.getState().setCurrentAssistantMessage(null);
@@ -253,9 +277,25 @@ function installHandlers(ws: WrongStackWebSocketClient): () => void {
   });
 
   on('tool.progress', (msg) => {
-    // Reserved for live tool output; currently logged for observability only.
-    // eslint-disable-next-line no-console
-    console.debug('[WS] Tool progress:', msg.payload);
+    // Live progress feed for an in-flight tool. We route each event onto
+    // the tool bubble matched by backend tool_use id (set by tool.started).
+    // Skip pure 'metric' events with no text — they're useful to logs but
+    // would clutter the chat with empty rows.
+    const payload = msg.payload as {
+      id: string;
+      name: string;
+      eventType: 'log' | 'warning' | 'metric' | 'file_changed' | 'partial_output';
+      text?: string;
+    };
+    const text = (payload.text ?? '').trim();
+    if (!text) return;
+    const messages = useChatStore.getState().messages;
+    const owner = messages.find((m) => m.toolUseId === payload.id);
+    if (!owner) return;
+    // Prefix warnings so they're visually distinct; everything else flows in
+    // as-is. partial_output (bash stdout etc.) is the common case.
+    const prefix = payload.eventType === 'warning' ? '⚠ ' : '';
+    useChatStore.getState().appendToolProgress(owner.id, prefix + text);
   });
 
   on('tool.executed', (msg) => {
@@ -326,7 +366,17 @@ function installHandlers(ws: WrongStackWebSocketClient): () => void {
     // (collapse model-emitted duplicate paragraphs) and drop the streaming
     // flag so a fresh iteration starts a new bubble.
     const id = useChatStore.getState().currentAssistantMessageId;
-    if (id) useChatStore.getState().finalizeMessage(id);
+    if (id) {
+      useChatStore.getState().finalizeMessage(id);
+      // Attribute the run's usage to this bubble so the user can see what
+      // each answer cost. Iterations that loop on tool_use don't get an
+      // attribution here — `usage` from a mid-loop response covers tool
+      // arguments, not user-visible content. Only the terminal response
+      // (or any with real output) gets the badge.
+      if (payload.usage.output > 0) {
+        useChatStore.getState().updateMessage(id, { usage: payload.usage });
+      }
+    }
     useChatStore.getState().setCurrentAssistantMessage(null);
   });
 
@@ -355,12 +405,84 @@ function installHandlers(ws: WrongStackWebSocketClient): () => void {
     useSessionStore.getState().setIteration(null);
     useChatStore.getState().setLoading(false);
     useChatStore.getState().setCurrentAssistantMessage(null);
+    // Compute a per-turn summary and attach it to the last assistant
+    // message of this run, then clear runStart for the next turn. Tools
+    // are counted by walking the chat backwards for tool bubbles whose
+    // timestamp is after runStart.at.
+    const runStart = useChatStore.getState().runStart;
+    if (runStart && payload.status === 'done') {
+      const all = useChatStore.getState().messages;
+      let lastAssistantIdx = -1;
+      let toolCount = 0;
+      for (let i = all.length - 1; i >= 0; i--) {
+        const m = all[i]!;
+        if (m.role === 'assistant' && lastAssistantIdx === -1 && m.content) {
+          lastAssistantIdx = i;
+        }
+        if (m.role === 'tool' && m.timestamp >= runStart.at) {
+          toolCount += 1;
+        }
+        // Stop walking when we cross the user message that started this run.
+        if (m.role === 'user' && m.timestamp <= runStart.at) break;
+      }
+      if (lastAssistantIdx !== -1) {
+        const sessionCost = useSessionStore.getState().cost;
+        useChatStore.getState().updateMessage(all[lastAssistantIdx]!.id, {
+          runSummary: {
+            iterations: payload.iterations,
+            tools: toolCount,
+            durationMs: Date.now() - runStart.at,
+            costDelta: Math.max(0, sessionCost - runStart.cost),
+          },
+        });
+      }
+    }
+    useChatStore.getState().setRunStart(null);
     if (payload.status !== 'done' && payload.error) {
       useChatStore.getState().addMessage({
         role: 'assistant',
         content: `Error: ${payload.error.message}`,
         isError: true,
       });
+      toast.error(`Run ended: ${payload.error.message}`);
+      notifyIfHidden('WrongStack run failed', payload.error.message);
+      if (typeof document !== 'undefined' && document.hidden) {
+        setFaviconStatus('error');
+      }
+    } else if (payload.status === 'done') {
+      // Two-pronged "you can come back now" signal:
+      //   • Toast: lands in-page when the user returns, no permission needed.
+      //   • OS notification: only when the tab is actually hidden AND the
+      //     user previously granted permission. Cheap if neither applies.
+      if (typeof document !== 'undefined' && document.hidden) {
+        toast.success(`Run completed in ${payload.iterations} iteration${payload.iterations === 1 ? '' : 's'}`);
+        notifyIfHidden(
+          'WrongStack run finished',
+          `Completed in ${payload.iterations} iteration${payload.iterations === 1 ? '' : 's'}.`,
+        );
+        setFaviconStatus('ready');
+      }
+      // Lazy permission ask — only after the first successful run, so a
+      // user who never sticks around long enough for one doesn't see a
+      // permission prompt on mount.
+      void ensureNotificationPermission();
+      // Optional chime — fires regardless of tab visibility because users
+      // often want the audible cue specifically when their attention is
+      // elsewhere. Synthesized via Web Audio, see lib/chime.ts. Off by
+      // default; user opts in via Command Palette.
+      if (useConfigStore.getState().soundOnComplete) {
+        try { playCompletionChime(); } catch { /* audio policy may block */ }
+      }
+    }
+    // Drain a queued follow-up if the user typed while we were running.
+    // We pull one message at a time so the queue doesn't all fire as a
+    // single mega-prompt — each one starts its own iteration loop.
+    const next = useChatStore.getState().dequeue();
+    if (next) {
+      const client = getWSClient(useConfigStore.getState().wsUrl);
+      useChatStore.getState().addMessage({ role: 'user', content: next });
+      useChatStore.getState().setLoading(true);
+      client.sendMessage(next);
     }
   });
 
@@ -497,6 +619,13 @@ function installHandlers(ws: WrongStackWebSocketClient): () => void {
     useChatStore.getState().addMessage({ role: 'assistant', content: lines.join('\n') });
   });
 
+  on('todos.updated', (msg) => {
+    const p = msg.payload as {
+      todos: Array<{ id: string; content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string }>;
+    };
+    useSessionStore.getState().setTodos(p.todos ?? []);
+  });
+
   on('modes.list', (msg) => {
     const p = msg.payload as {
       modes: Array<{ id: string; name: string; description: string; isActive: boolean }>;
@@ -537,30 +666,36 @@ function installHandlers(ws: WrongStackWebSocketClient): () => void {
  */
 export function useWebSocketBootstrap(): void {
   const { autoConnect, wsUrl } = useConfigStore();
-  const { setWsConnected } = useConfigStore();
+  const setWsStatus = useConfigStore((s) => s.setWsStatus);
   const installed = useRef(false);
 
   useEffect(() => {
     if (!autoConnect) return;
+    installFaviconVisibilityReset();
     const ws = getWSClient(wsUrl);
 
-    ws.connect()
-      .then(() => setWsConnected(true))
-      .catch((err) => {
-        // eslint-disable-next-line no-console
-        console.error('[WS] Connection failed:', err);
-        setWsConnected(false);
-      });
+    // Subscribe to fine-grained status — the topbar uses this to flip
+    // between "Connecting…", "Connected", "Reconnecting (attempt 3, retrying in 8s)",
+    // and the terminal "Disconnected" with the last error.
+    const offStatus = ws.onStatus((s) => setWsStatus(s));
+
+    ws.connect().catch((err) => {
+      // eslint-disable-next-line no-console
+      console.error('[WS] Connection failed:', err);
+    });
 
     // installed.current guards against React StrictMode's double-mount in dev.
-    if (installed.current) return;
+    if (installed.current) {
+      return () => { offStatus(); };
+    }
     installed.current = true;
     const off = installHandlers(ws);
     return () => {
       off();
+      offStatus();
       installed.current = false;
     };
-  }, [autoConnect, wsUrl, setWsConnected]);
+  }, [autoConnect, wsUrl, setWsStatus]);
 }
 
 /**

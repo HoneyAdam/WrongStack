@@ -391,7 +391,10 @@ export class Agent {
     res: Response,
     req: Request,
   ): Promise<{ finalText: string; aborted: boolean; done: boolean }> {
-    const processedRes = await this.pipelines.response.run(res);
+    // Run response middleware and adopt any transform it returns so later code
+    // sees the processed value (currently no middleware is registered, but the
+    // pattern matches `assistantOutput` below).
+    res = await this.pipelines.response.run(res);
     this.events.emit('provider.response', {
       ctx: this.ctx,
       usage: res.usage,

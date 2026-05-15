@@ -1,11 +1,12 @@
 import type React from 'react';
 import { useRef, useCallback, useState, useEffect } from 'react';
-import { Send, Square } from 'lucide-react';
+import { Send, Square, Pencil } from 'lucide-react';
 import { Button } from './ui/button';
 import { cn } from '@/lib/utils';
-import { useChatStore, useUIStore } from '@/stores';
+import { useChatStore, useUIStore, useSessionStore } from '@/stores';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { downloadChatAsMarkdown } from './CommandPalette';
+import { FilePicker } from './FilePicker';
 
 /**
  * Slash command registry. Each entry knows its triggers (so /model and
@@ -14,36 +15,69 @@ import { downloadChatAsMarkdown } from './CommandPalette';
  * entry here, write a `run` body, done — no need to touch the popup or
  * dispatcher.
  */
+type SlashCategory = 'Session' | 'Inspect' | 'Run' | 'App';
+
 interface SlashCommandDef {
   /** Primary name (the one shown). */
   name: string;
   /** Optional alternative spellings — typed by the user, dispatched here. */
   aliases?: string[];
   description: string;
+  /** Logical bucket the command belongs to. Drives the section headings
+   *  in the slash menu popup so a user scanning the list can find what
+   *  they want by category. */
+  category: SlashCategory;
 }
 
 const SLASH_COMMANDS: SlashCommandDef[] = [
-  { name: '/help', description: 'Show every slash command and what it does' },
-  { name: '/export', description: 'Download the current chat as markdown' },
-  { name: '/clear', description: 'Wipe current context (keeps session id, disk record stays)' },
-  { name: '/new', description: 'Start a brand-new session (fresh on disk and in memory)' },
-  { name: '/compact', description: 'Shrink context — elide ancient tool output' },
-  { name: '/debug', aliases: ['/context'], description: 'Per-section context size breakdown' },
-  { name: '/tools', description: 'List every registered tool the model can call' },
-  { name: '/memory', description: 'Show all remembered notes (project + user scope)' },
-  { name: '/skill', aliases: ['/skills'], description: 'List active skills' },
-  { name: '/diag', description: 'Runtime diagnostics (provider, tools, features, mode, usage)' },
-  { name: '/stats', description: 'Session stats: tokens, cache hit ratio, cost, elapsed' },
-  { name: '/save', description: 'Force-flush the session (auto-saved already)' },
-  { name: '/abort', aliases: ['/stop'], description: 'Abort the current run' },
-  { name: '/settings', aliases: ['/model'], description: 'Open settings (provider/model/keys)' },
+  { name: '/help', category: 'App', description: 'Show every slash command and what it does' },
+  { name: '/export', category: 'Session', description: 'Download the current chat as markdown' },
+  { name: '/todos', category: 'Inspect', description: 'List current todos (try `/todos clear` to reset)' },
+  { name: '/clear', category: 'Session', description: 'Wipe current context (keeps session id, disk record stays)' },
+  { name: '/new', category: 'Session', description: 'Start a brand-new session (fresh on disk and in memory)' },
+  { name: '/compact', category: 'Session', description: 'Shrink context — elide ancient tool output' },
+  { name: '/debug', category: 'Inspect', aliases: ['/context'], description: 'Per-section context size breakdown' },
+  { name: '/tools', category: 'Inspect', description: 'List every registered tool the model can call' },
+  { name: '/memory', category: 'Inspect', description: 'Show all remembered notes (project + user scope)' },
+  { name: '/skill', category: 'Inspect', aliases: ['/skills'], description: 'List active skills' },
+  { name: '/diag', category: 'Inspect', description: 'Runtime diagnostics (provider, tools, features, mode, usage)' },
+  { name: '/stats', category: 'Inspect', description: 'Session stats: tokens, cache hit ratio, cost, elapsed' },
+  { name: '/save', category: 'Session', description: 'Force-flush the session (auto-saved already)' },
+  { name: '/abort', category: 'Run', aliases: ['/stop'], description: 'Abort the current run' },
+  { name: '/settings', category: 'App', aliases: ['/model'], description: 'Open settings (provider/model/keys)' },
 ];
+
+const SLASH_CATEGORY_ORDER: SlashCategory[] = ['Run', 'Session', 'Inspect', 'App'];
 
 /**
  * Match what the user typed against the registry. Empty query lists
  * everything; otherwise filter by primary name AND alias prefixes so
  * `/sto` finds `/stop` (alias of /abort).
  */
+/**
+ * Find an open `@`-mention at the cursor. Scans backwards: if we hit
+ * whitespace before an `@`, there's no mention. The `@` must be either at
+ * the very start of the buffer or immediately preceded by whitespace —
+ * email addresses like `a@b.com` shouldn't trigger the picker.
+ */
+function detectAtMention(value: string, cursor: number): { start: number; query: string } | null {
+  let i = cursor - 1;
+  while (i >= 0) {
+    const c = value[i]!;
+    if (c === '@') {
+      const prev = i > 0 ? value[i - 1] : '';
+      if (i === 0 || /\s/.test(prev ?? '')) {
+        return { start: i, query: value.slice(i + 1, cursor) };
+      }
+      return null;
+    }
+    // Allow path chars (letters/digits/_/-./).
+    if (/\s/.test(c)) return null;
+    i--;
+  }
+  return null;
+}
+
 function matchSlash(query: string): SlashCommandDef[] {
   const q = query.toLowerCase();
   if (q === '/' || q === '') return SLASH_COMMANDS;
@@ -56,6 +90,10 @@ function matchSlash(query: string): SlashCommandDef[] {
 
 export function ChatInput() {
   const { isLoading, setLoading, addMessage, clearMessages } = useChatStore();
+  const queue = useChatStore((s) => s.queue);
+  const enqueue = useChatStore((s) => s.enqueue);
+  const removeQueued = useChatStore((s) => s.removeQueued);
+  const clearQueue = useChatStore((s) => s.clearQueue);
   const { setCurrentView } = useUIStore();
   const pushPrompt = useUIStore((s) => s.pushPrompt);
   const promptHistory = useUIStore((s) => s.promptHistory);
@@ -67,11 +105,26 @@ export function ChatInput() {
    *  Reset to -1 whenever the user types something that's NOT a history
    *  navigation. */
   const [historyIdx, setHistoryIdx] = useState(-1);
+  /** Open `@`-mention picker state. We track the starting position of the
+   *  `@` in the textarea so on pick we can replace the partial token
+   *  (`@compa`) with the chosen path. Null = closed. */
+  const [atMention, setAtMention] = useState<{ start: number; query: string } | null>(null);
+  /** Transient hint shown after a large paste. The user can read it for a
+   *  few seconds then it auto-dismisses. We only surface it for genuinely
+   *  big drops (>800 chars) — smaller pastes don't need a callout. */
+  const [pasteHint, setPasteHint] = useState<{ chars: number; lines: number } | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const runSlashCommand = useCallback(
     (raw: string): boolean => {
-      const cmd = raw.trim().toLowerCase();
+      const trimmed = raw.trim();
+      // Split into head (with leading slash) + the rest. Lowercase the
+      // head so `/Todos` and `/TODOS` route the same; preserve case on
+      // the args because the user might be inserting a content string.
+      const sp = trimmed.indexOf(' ');
+      const head = (sp === -1 ? trimmed : trimmed.slice(0, sp)).toLowerCase();
+      const args = sp === -1 ? '' : trimmed.slice(sp + 1).trim();
+      const cmd = head;
       switch (cmd) {
         case '/help': {
           // Render the registry inline as an assistant message.
@@ -120,6 +173,38 @@ export function ChatInput() {
         case '/save':
           ws.saveSession();
           return true;
+        case '/todos': {
+          // Sub-commands: `/todos` (default = list), `/todos clear`. We
+          // pull live state from the session store so the rendered output
+          // matches what the sidebar already shows — no separate fetch.
+          const sub = args.toLowerCase();
+          if (sub === 'clear') {
+            client?.clearTodos?.();
+            return true;
+          }
+          const list = useSessionStore.getState().todos;
+          if (list.length === 0) {
+            addMessage({
+              role: 'assistant',
+              content: '✅ **Todos** — _empty. Ask the agent to plan something and they\'ll show up here._',
+            });
+            return true;
+          }
+          const lines: string[] = [
+            `✅ **Todos** (${list.filter((t) => t.status === 'completed').length}/${list.length} done)`,
+            '',
+          ];
+          for (const t of list) {
+            const mark =
+              t.status === 'completed' ? '[x]' : t.status === 'in_progress' ? '[~]' : '[ ]';
+            const text =
+              t.status === 'in_progress' && t.activeForm ? t.activeForm : t.content;
+            lines.push(`- ${mark} ${text}`);
+          }
+          lines.push('', '_Use `/todos clear` to wipe the list._');
+          addMessage({ role: 'assistant', content: lines.join('\n') });
+          return true;
+        }
         case '/export':
           downloadChatAsMarkdown();
           addMessage({ role: 'assistant', content: '📥 Chat exported to your downloads folder.' });
@@ -168,6 +253,15 @@ export function ChatInput() {
     setHistoryIdx(-1);
     pushPrompt(content);
 
+    // If the agent is still running, queue the follow-up instead of
+    // dropping it. The run.result handler in useWebSocket drains the
+    // queue one message at a time. We also enable the textarea while
+    // running so this code path is reachable.
+    if (isLoading) {
+      enqueue(content);
+      return;
+    }
+
     try {
       if (client?.isConnected) {
         addMessage({ role: 'user', content });
@@ -180,19 +274,45 @@ export function ChatInput() {
       console.error('Failed to send:', err);
       setLoading(false);
     }
-  }, [input, client, sendMessage, setLoading, addMessage, runSlashCommand, pushPrompt]);
+  }, [input, isLoading, enqueue, client, sendMessage, setLoading, addMessage, runSlashCommand, pushPrompt]);
 
   const handleAbort = useCallback(() => {
     sendAbort();
     setLoading(false);
   }, [sendAbort, setLoading]);
 
+  /** "Stop & edit" — abort the in-flight run, then pull the last user
+   *  message back into the input so the user can rewrite the prompt and
+   *  resend. Saves the two-step dance of clicking Abort, waiting for the
+   *  agent to settle, then hunting for the original prompt. */
+  const handleStopAndEdit = useCallback(() => {
+    sendAbort();
+    setLoading(false);
+    const all = useChatStore.getState().messages;
+    for (let i = all.length - 1; i >= 0; i--) {
+      const m = all[i]!;
+      if (m.role === 'user' && m.content) {
+        setInput(m.content);
+        requestAnimationFrame(() => {
+          const ta = textareaRef.current;
+          if (ta) {
+            ta.style.height = 'auto';
+            ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+            ta.focus();
+            ta.setSelectionRange(m.content.length, m.content.length);
+          }
+        });
+        return;
+      }
+    }
+  }, [sendAbort, setLoading]);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Terminal-style prompt history: ↑ pulls the previous user prompt,
-    // ↓ steps forward. Only active when the slash popup is closed AND the
+    // ↓ steps forward. Only active when both popups are closed AND the
     // input is empty OR already showing a history entry. We keep the cursor
     // ergonomic — once the user starts editing, we drop out of history mode.
-    if (slashSuggestions.length === 0 && promptHistory.length > 0) {
+    if (slashSuggestions.length === 0 && !atMention && promptHistory.length > 0) {
       if (e.key === 'ArrowUp') {
         const ta = e.currentTarget;
         // Only steal ↑ if we're on the first line (so multi-line editing
@@ -296,56 +416,190 @@ export function ChatInput() {
   };
 
   return (
+    <div className="flex flex-col gap-2">
+      {/* Smart paste hint — transient, auto-dismisses after 4s. We don't
+          *do* anything with it (no auto-attach), just inform; users who
+          pasted by accident can still Cmd+Z. */}
+      {pasteHint && (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-300 px-2.5 py-1.5 text-xs flex items-center justify-between gap-2 animate-message">
+          <span>
+            Pasted <span className="font-mono tabular-nums">{pasteHint.chars.toLocaleString()}</span> chars
+            (<span className="font-mono tabular-nums">{pasteHint.lines}</span> lines) — fenced code blocks render best with{' '}
+            <span className="font-mono">```</span>.
+          </span>
+          <button
+            type="button"
+            onClick={() => setPasteHint(null)}
+            className="text-amber-600/70 hover:text-amber-600 dark:text-amber-300/70 dark:hover:text-amber-300 shrink-0"
+            title="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      )}
+      {/* Queue visualization — shows messages the user stacked while the
+          agent was still running. Each row has a remove button; the whole
+          queue can be cleared. The hook below drains them after run.result. */}
+      {queue.length > 0 && (
+        <div className="rounded-lg border bg-muted/30 p-2 text-xs">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
+              Queued ({queue.length})
+            </span>
+            <button
+              type="button"
+              onClick={clearQueue}
+              className="text-muted-foreground hover:text-destructive text-xs"
+            >
+              Clear all
+            </button>
+          </div>
+          <ul className="space-y-1">
+            {queue.map((q, i) => (
+              <li
+                key={i}
+                className="flex items-start justify-between gap-2 rounded bg-background/60 border px-2 py-1"
+              >
+                <span className="truncate flex-1 min-w-0">{q}</span>
+                <button
+                  type="button"
+                  onClick={() => removeQueued(i)}
+                  className="text-muted-foreground hover:text-destructive shrink-0"
+                  title="Remove from queue"
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
     <form onSubmit={handleSubmit} className="flex items-end gap-2">
       <div className="relative flex-1">
+        {/* @-mention file picker — takes priority over the slash popup
+            since `@` and `/` can't both be active at the cursor. */}
+        {atMention && (
+          <FilePicker
+            query={atMention.query}
+            onClose={() => setAtMention(null)}
+            onPick={(p) => {
+              // Replace the partial `@query` with `@<path> `, then move
+              // the cursor after the inserted space so typing continues
+              // naturally.
+              const before = input.slice(0, atMention.start);
+              const after = input.slice(
+                atMention.start + 1 + atMention.query.length,
+              );
+              const inserted = `@${p} `;
+              const next = before + inserted + after;
+              setInput(next);
+              setAtMention(null);
+              requestAnimationFrame(() => {
+                const ta = textareaRef.current;
+                if (ta) {
+                  const pos = before.length + inserted.length;
+                  ta.focus();
+                  ta.setSelectionRange(pos, pos);
+                  ta.style.height = 'auto';
+                  ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+                }
+              });
+            }}
+          />
+        )}
+
         {/* Slash command popup — descriptions inline, ↑/↓ to select, Tab to
             autocomplete, Enter to dispatch directly. Click also works. */}
-        {slashSuggestions.length > 0 && (
-          <div className="absolute bottom-full left-0 right-0 mb-2 rounded-lg border bg-popover shadow-md p-1 text-sm max-h-72 overflow-auto">
-            <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-muted-foreground border-b mb-1">
-              ↑/↓ select · Tab complete · Enter dispatch · Esc dismiss
+        {!atMention && slashSuggestions.length > 0 && (() => {
+          // Bucket the suggestions by category and preserve the global
+          // index across categories — the keyboard navigation (↑/↓) tracks
+          // a flat index, so each rendered row needs to map back to its
+          // position in the un-grouped `slashSuggestions` array.
+          const byCategory: Record<string, Array<{ cmd: SlashCommandDef; idx: number }>> = {};
+          slashSuggestions.forEach((cmd, idx) => {
+            (byCategory[cmd.category] ??= []).push({ cmd, idx });
+          });
+          const orderedCategories = SLASH_CATEGORY_ORDER.filter((c) => byCategory[c]?.length);
+          return (
+            <div className="absolute bottom-full left-0 right-0 mb-2 rounded-lg border bg-popover shadow-md p-1 text-sm max-h-72 overflow-auto">
+              <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-muted-foreground border-b mb-1">
+                ↑/↓ select · Tab complete · Enter dispatch · Esc dismiss
+              </div>
+              {orderedCategories.map((cat) => (
+                <div key={cat} className="mb-1">
+                  <div className="px-3 pt-1 pb-0.5 text-[10px] uppercase tracking-wider text-muted-foreground/70 font-semibold">
+                    {cat}
+                  </div>
+                  {byCategory[cat]!.map(({ cmd, idx }) => (
+                    <button
+                      type="button"
+                      key={cmd.name}
+                      onClick={() => {
+                        setInput('');
+                        runSlashCommand(cmd.name);
+                      }}
+                      onMouseEnter={() => setSlashIndex(idx)}
+                      className={cn(
+                        'w-full text-left px-3 py-1.5 rounded transition-colors flex items-center gap-3',
+                        idx === slashIndex
+                          ? 'bg-accent text-accent-foreground'
+                          : 'hover:bg-accent/40',
+                      )}
+                    >
+                      <span className="font-mono shrink-0">{cmd.name}</span>
+                      {cmd.aliases?.length ? (
+                        <span className="text-xs text-muted-foreground/70 font-mono shrink-0">
+                          ({cmd.aliases.join(', ')})
+                        </span>
+                      ) : null}
+                      <span className="text-xs text-muted-foreground truncate">
+                        — {cmd.description}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ))}
             </div>
-            {slashSuggestions.map((cmd, idx) => (
-              <button
-                type="button"
-                key={cmd.name}
-                onClick={() => {
-                  setInput('');
-                  runSlashCommand(cmd.name);
-                }}
-                onMouseEnter={() => setSlashIndex(idx)}
-                className={cn(
-                  'w-full text-left px-3 py-1.5 rounded transition-colors flex items-center gap-3',
-                  idx === slashIndex
-                    ? 'bg-accent text-accent-foreground'
-                    : 'hover:bg-accent/40',
-                )}
-              >
-                <span className="font-mono shrink-0">{cmd.name}</span>
-                {cmd.aliases?.length ? (
-                  <span className="text-xs text-muted-foreground/70 font-mono shrink-0">
-                    ({cmd.aliases.join(', ')})
-                  </span>
-                ) : null}
-                <span className="text-xs text-muted-foreground truncate">
-                  — {cmd.description}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
+          );
+        })()}
         <textarea
           ref={textareaRef}
           value={input}
           onChange={(e) => {
-            setInput(e.target.value);
+            const v = e.target.value;
+            setInput(v);
             adjustTextareaHeight();
             // Manual typing drops us out of history mode so the next
             // Enter sends the user's edits, not a stale history entry.
             if (historyIdx >= 0) setHistoryIdx(-1);
+            // Detect / refresh @-mention based on cursor position.
+            const cur = e.target.selectionStart ?? v.length;
+            setAtMention(detectAtMention(v, cur));
+          }}
+          onSelect={(e) => {
+            const ta = e.currentTarget;
+            setAtMention(detectAtMention(ta.value, ta.selectionStart));
           }}
           onKeyDown={handleKeyDown}
-          placeholder={client?.isConnected ? "Message WrongStack... (type / for commands)" : "Connect to server first..."}
+          onPaste={(e) => {
+            // Surface a tiny hint when the user drops a chunky payload —
+            // helps them realize they pasted the wrong thing (e.g. an
+            // entire file when they meant a snippet). 4-second TTL.
+            const text = e.clipboardData?.getData('text') ?? '';
+            if (text.length > 800) {
+              const lines = text.split('\n').length;
+              setPasteHint({ chars: text.length, lines });
+              setTimeout(() => setPasteHint(null), 4000);
+            }
+          }}
+          placeholder={
+            !client?.isConnected
+              ? 'Connect to server first…'
+              : isLoading
+                ? 'Agent is running — type to queue a follow-up…'
+                : 'Message WrongStack… (type / for commands, @ for files)'
+          }
           className={cn(
             'flex min-h-[44px] w-full resize-none rounded-lg border border-input bg-background px-4 py-3 pr-12',
             'text-sm ring-offset-background placeholder:text-muted-foreground',
@@ -354,7 +608,7 @@ export function ChatInput() {
             'scrollbar-thin'
           )}
           rows={1}
-          disabled={isLoading || !client?.isConnected}
+          disabled={!client?.isConnected}
         />
 
         {input.length > 0 && (
@@ -366,15 +620,28 @@ export function ChatInput() {
 
       <div className="flex gap-1">
         {isLoading ? (
-          <Button
-            type="button"
-            size="icon"
-            variant="destructive"
-            onClick={handleAbort}
-            className="h-[44px] w-[44px] rounded-lg"
-          >
-            <Square className="h-4 w-4 fill-current" />
-          </Button>
+          <>
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              onClick={handleStopAndEdit}
+              className="h-[44px] w-[44px] rounded-lg"
+              title="Stop run and edit the last prompt (reuse + rewrite)"
+            >
+              <Pencil className="h-4 w-4" />
+            </Button>
+            <Button
+              type="button"
+              size="icon"
+              variant="destructive"
+              onClick={handleAbort}
+              className="h-[44px] w-[44px] rounded-lg"
+              title="Abort the current run"
+            >
+              <Square className="h-4 w-4 fill-current" />
+            </Button>
+          </>
         ) : (
           <Button
             type="submit"
@@ -387,5 +654,6 @@ export function ChatInput() {
         )}
       </div>
     </form>
+    </div>
   );
 }

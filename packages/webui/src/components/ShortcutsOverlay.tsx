@@ -36,6 +36,8 @@ const SHORTCUTS: Array<{ section: string; items: Shortcut[] }> = [
       { keys: ['Ctrl', 'L'], description: 'Clear context (same as /clear)' },
       { keys: ['Ctrl', 'N'], description: 'Start a new session (same as /new)' },
       { keys: ['Ctrl', 'E'], description: 'Export chat as markdown' },
+      { keys: ['Ctrl', 'M'], description: 'Quick model switcher overlay' },
+      { keys: ['Ctrl', 'Shift', 'D'], description: 'Toggle compact UI density' },
       { keys: ['Esc'], description: 'Abort the current run (when running)' },
     ],
   },

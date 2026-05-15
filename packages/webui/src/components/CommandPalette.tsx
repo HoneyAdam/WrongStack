@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useUIStore, useChatStore, useHistoryStore, useConfigStore } from '@/stores';
+import { useUIStore, useChatStore, useHistoryStore, useConfigStore, useSessionStore } from '@/stores';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';
 import {
@@ -21,6 +21,9 @@ import {
   Sun,
   Moon,
   Monitor,
+  Maximize2,
+  Volume2,
+  VolumeX,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -141,6 +144,13 @@ export function CommandPalette() {
         keywords: ['export', 'save', 'markdown', 'download'],
         run: () => downloadChatAsMarkdown(),
       },
+      {
+        id: 'export-html', category: 'Session', label: 'Export chat as HTML',
+        hint: 'Self-contained, opens in any browser',
+        icon: Download,
+        keywords: ['export', 'html', 'download', 'archive'],
+        run: () => downloadChatAsHtml(),
+      },
       // Navigation
       {
         id: 'history', category: 'Command', label: 'Open history', icon: HistoryIcon,
@@ -172,6 +182,31 @@ export function CommandPalette() {
         id: 'theme-system', category: 'Theme', label: 'Theme: Follow system', icon: Monitor,
         keywords: ['theme', 'system', 'auto'],
         run: () => setTheme('system'),
+      },
+      {
+        id: 'compact-toggle', category: 'Command', label: 'Toggle compact density', icon: Maximize2,
+        hint: 'Ctrl+Shift+D',
+        keywords: ['compact', 'dense', 'density', 'size'],
+        run: () => useUIStore.getState().toggleCompactMode(),
+      },
+      {
+        id: 'sound-toggle', category: 'Command',
+        label: useConfigStore.getState().soundOnComplete
+          ? 'Sound on completion: ON — turn off'
+          : 'Sound on completion: OFF — turn on',
+        icon: useConfigStore.getState().soundOnComplete ? Volume2 : VolumeX,
+        hint: 'Chime when a run finishes',
+        keywords: ['sound', 'audio', 'chime', 'notify', 'beep'],
+        run: () => {
+          const next = !useConfigStore.getState().soundOnComplete;
+          useConfigStore.getState().setSoundOnComplete(next);
+          // Play once immediately when enabling so the user hears what
+          // they just signed up for (and so Web Audio gets the gesture
+          // permission unlocked).
+          if (next) {
+            import('@/lib/chime').then((m) => m.playCompletionChime()).catch(() => {});
+          }
+        },
       },
     ];
 
@@ -374,6 +409,102 @@ export function downloadChatAsMarkdown(): void {
   const a = document.createElement('a');
   a.href = url;
   a.download = `wrongstack-chat-${now}.md`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Build a stand-alone HTML export of the current chat. Self-contained
+ * (inline CSS, no external assets) so the file opens cleanly anywhere
+ * and survives being emailed / pasted into a wiki / archived offline.
+ * Code-block highlighting is intentionally not included — would require
+ * shipping a syntax highlighter, and the export is already readable
+ * with the basic monospace styling.
+ */
+export function downloadChatAsHtml(): void {
+  const messages = useChatStore.getState().messages;
+  const session = useSessionStore.getState();
+  const now = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+  const escape = (s: string) =>
+    s
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+
+  const turns = messages.map((m) => {
+    if (m.role === 'tool') {
+      const status = m.isError ? '❌' : m.toolResult !== undefined ? '✅' : '⏳';
+      return `
+        <section class="bubble tool ${m.isError ? 'error' : ''}">
+          <header><span class="icon">🔧</span><code>${escape(m.toolName ?? 'tool')}</code> ${status}</header>
+          ${m.toolInput !== undefined
+            ? `<details><summary>Input</summary><pre>${escape(JSON.stringify(m.toolInput, null, 2))}</pre></details>`
+            : ''}
+          ${m.toolResult
+            ? `<details><summary>Output</summary><pre>${escape(m.toolResult)}</pre></details>`
+            : ''}
+        </section>`;
+    }
+    const cls = m.role === 'user' ? 'user' : 'assistant';
+    const icon = m.role === 'user' ? '👤' : '🤖';
+    const role = m.role === 'user' ? 'User' : 'Assistant';
+    // Keep newlines but escape everything — we deliberately don't render
+    // markdown here. Static HTML with preserved whitespace is faithful to
+    // what the user actually saw, and dodges the whole "rendered markdown
+    // syntax-highlighting drift" problem.
+    return `
+      <section class="bubble ${cls}">
+        <header><span class="icon">${icon}</span><strong>${role}</strong></header>
+        <pre class="content">${escape(m.content)}</pre>
+      </section>`;
+  });
+
+  const html = `<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<title>WrongStack chat — ${escape(session.session?.title || session.projectName || 'export')}</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 920px; margin: 24px auto; padding: 0 16px; }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  .meta { color: #666; font-size: 12px; margin-bottom: 24px; }
+  .bubble { margin: 12px 0; padding: 10px 14px; border-radius: 10px; border: 1px solid #ddd; }
+  .bubble header { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: #666; margin-bottom: 6px; }
+  .bubble header .icon { margin-right: 4px; }
+  .bubble.user { background: #eef4ff; border-color: #c8d8f5; }
+  .bubble.assistant { background: #fff; }
+  .bubble.tool { background: #fafafa; }
+  .bubble.tool.error { background: #fff5f5; border-color: #f5c8c8; }
+  pre.content, .bubble pre { white-space: pre-wrap; word-break: break-word; font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; margin: 0; }
+  details summary { cursor: pointer; color: #555; font-size: 12px; }
+  details pre { margin-top: 6px; background: #f4f4f4; padding: 8px; border-radius: 6px; max-height: 360px; overflow: auto; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #0d0d0f; color: #e6e6e6; }
+    .bubble { border-color: #2a2a2e; }
+    .bubble.user { background: #16213a; border-color: #2a3d6b; }
+    .bubble.assistant { background: #161618; }
+    .bubble.tool { background: #131315; }
+    .bubble.tool.error { background: #2a1717; border-color: #5c2a2a; }
+    details pre { background: #1a1a1c; }
+    .meta, .bubble header, details summary { color: #999; }
+  }
+</style>
+</head><body>
+<h1>WrongStack chat — ${escape(session.session?.title || session.projectName || 'export')}</h1>
+<div class="meta">
+  Exported ${new Date().toISOString()}${session.session?.provider ? ` · ${escape(session.session.provider)}/${escape(session.session.model)}` : ''} · ${messages.length} message${messages.length === 1 ? '' : 's'}
+</div>
+${turns.join('')}
+</body></html>`;
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `wrongstack-chat-${now}.html`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

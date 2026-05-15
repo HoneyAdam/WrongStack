@@ -1,7 +1,11 @@
+import { useEffect, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
-import { Search, Wrench, Bug, Sparkles, Zap, Keyboard } from 'lucide-react';
+import { Search, Wrench, Bug, Sparkles, Zap, Keyboard, Clock, KeyRound, ArrowRight, ArchiveRestore } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useSessionStore, useConfigStore } from '@/stores';
+import { useSessionStore, useConfigStore, useUIStore, useHistoryStore } from '@/stores';
+import { getWSClient } from '@/lib/ws-client';
+import type { WSServerMessage } from '@/types';
+import { useWebSocket } from '@/hooks/useWebSocket';
 
 interface PromptCard {
   icon: LucideIcon;
@@ -84,6 +88,46 @@ function fillTextarea(text: string): void {
 export function WelcomeScreen() {
   const { projectName } = useSessionStore();
   const { provider, model } = useConfigStore();
+  const wsConnected = useConfigStore((s) => s.wsConnected);
+  const wsUrl = useConfigStore((s) => s.wsUrl);
+  const setCurrentView = useUIStore((s) => s.setCurrentView);
+  /** Saved-provider count. We subscribe directly to `providers.saved`
+   *  because SettingsPanel is the canonical owner of that state but isn't
+   *  always mounted (only when the user is on the Settings tab). undefined
+   *  means "not yet fetched" — we skip the CTA in that state to avoid a
+   *  flash on first paint. */
+  const [savedCount, setSavedCount] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    if (!wsConnected) return;
+    const client = getWSClient(wsUrl);
+    const off = client.on('providers.saved', (msg: WSServerMessage) => {
+      const p = msg.payload as { providers: unknown[] };
+      setSavedCount(p.providers?.length ?? 0);
+    });
+    client.listSavedProviders();
+    return () => { off(); };
+  }, [wsConnected, wsUrl]);
+  /** Recent prompts harvested from the user's typing history. The same
+   *  store that powers ↑/↓ recall in the input — surfacing them here turns
+   *  a blank welcome screen into a useful "pick up where you left off"
+   *  surface, without any backend round-trip. Limited to 6 so it doesn't
+   *  dominate the page. */
+  const promptHistory = useUIStore((s) => s.promptHistory);
+  const recentPrompts = promptHistory.slice(0, 6);
+  /** Recent sessions surfaced as one-click resume buttons. Drives the
+   *  "pick back up" workflow without sending the user to the History tab.
+   *  We fetch on first paint when connected; the listing is otherwise
+   *  populated by the History tab on demand. */
+  const { listSessions, resumeSession } = useWebSocket();
+  const historyEntries = useHistoryStore((s) => s.entries);
+  useEffect(() => {
+    if (wsConnected && historyEntries.length === 0) listSessions(10);
+    // Intentionally only fire on first connect — refreshing on every
+    // historyEntries change would loop after the response lands.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wsConnected]);
+  const sessionNicknames = useUIStore((s) => s.sessionNicknames);
+  const recentSessions = historyEntries.filter((e) => !e.isCurrent).slice(0, 4);
 
   return (
     <div className="flex flex-col gap-8 py-8 px-2 max-w-5xl mx-auto w-full">
@@ -120,6 +164,40 @@ export function WelcomeScreen() {
           )}
         </div>
       </div>
+
+      {/* No-keys CTA — shown only when the backend is connected and the
+          providers.saved response confirmed zero registered keys. Lands
+          above the prompt cards because clicking those won't work until
+          the user adds a key. Quietly disappears once at least one
+          provider is registered. */}
+      {wsConnected && savedCount === 0 && (
+        <button
+          type="button"
+          onClick={() => setCurrentView('settings')}
+          className={cn(
+            'group rounded-xl border bg-gradient-to-br from-amber-500/10 via-amber-500/5 to-transparent',
+            'border-amber-500/30 hover:border-amber-500/50 transition-colors',
+            'p-4 flex items-center gap-4 text-left',
+          )}
+        >
+          <span className="flex items-center justify-center w-12 h-12 rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400 shrink-0">
+            <KeyRound className="h-6 w-6" />
+          </span>
+          <div className="flex-1 min-w-0">
+            <h3 className="text-base font-semibold mb-1">
+              No API key configured yet
+            </h3>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              Register a provider in Settings before sending a message —
+              otherwise the agent has nothing to talk to. Anthropic, OpenAI,
+              Google, and any OpenAI-compatible endpoint all work.
+            </p>
+          </div>
+          <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 font-medium shrink-0 group-hover:translate-x-0.5 transition-transform">
+            Open Settings <ArrowRight className="h-3.5 w-3.5" />
+          </span>
+        </button>
+      )}
 
       {/* Prompt cards */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -161,6 +239,72 @@ export function WelcomeScreen() {
           );
         })}
       </div>
+
+      {/* Recent sessions — one-click resume. We pull the most recent
+          non-current sessions so the user can pick back up without leaving
+          the welcome screen. Hidden when there's nothing to show (fresh
+          install / first run). */}
+      {recentSessions.length > 0 && (
+        <div className="rounded-xl border bg-muted/20 p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <ArchiveRestore className="h-4 w-4 text-muted-foreground" />
+            <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium">
+              Pick back up
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {recentSessions.map((entry) => (
+              <button
+                key={entry.id}
+                type="button"
+                onClick={() => resumeSession(entry.id)}
+                className="text-left rounded-lg border border-border/40 bg-background/60 hover:border-primary/40 hover:bg-accent/30 px-3 py-2 transition-colors group/sess"
+                title={entry.title}
+              >
+                <div className="text-sm font-medium truncate text-foreground group-hover/sess:text-primary">
+                  {sessionNicknames[entry.id] || entry.title || '(empty)'}
+                </div>
+                <div className="text-[10px] text-muted-foreground font-mono truncate mt-0.5">
+                  {entry.provider}/{entry.model}
+                  {entry.tokenTotal > 0 && (
+                    <span className="ml-2">· {entry.tokenTotal.toLocaleString()} tok</span>
+                  )}
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Recent prompts — your own past prompts as one-click refills. Slash
+          commands aren't included (the quick-commands block below handles
+          those). Shows nothing until you've actually typed something. */}
+      {recentPrompts.length > 0 && (
+        <div className="rounded-xl border bg-muted/20 p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Clock className="h-4 w-4 text-muted-foreground" />
+            <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium">
+              Recent prompts
+            </span>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            {recentPrompts
+              .filter((p) => !p.startsWith('/'))
+              .slice(0, 5)
+              .map((p, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => fillTextarea(p)}
+                  className="text-left text-xs leading-relaxed text-muted-foreground hover:text-foreground border border-transparent hover:border-border/60 rounded-lg px-3 py-2 hover:bg-background/60 transition-colors line-clamp-2"
+                  title={p}
+                >
+                  {p}
+                </button>
+              ))}
+          </div>
+        </div>
+      )}
 
       {/* Slash command quick-ref */}
       <div className="rounded-xl border bg-muted/20 p-4">

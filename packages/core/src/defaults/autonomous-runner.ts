@@ -1,9 +1,9 @@
-import { randomUUID } from 'node:crypto';
-import type { RunResult } from '../core/agent.js';
-import type { Context, RunOptions } from '../core/context.js';
-import type { Agent } from '../core/agent.js';
+import type { Agent, RunResult } from '../core/agent.js';
+import type { Context } from '../core/context.js';
 import type { DoneCondition } from '../types/multi-agent.js';
 import { toWrongStackError } from '../types/errors.js';
+
+type AutonomousResult = RunResult & { toolCalls: number; reason?: string };
 
 export interface DoneCheckResult {
   done: boolean;
@@ -13,7 +13,14 @@ export interface DoneCheckResult {
 }
 
 export class DoneConditionChecker {
-  constructor(private readonly condition: DoneCondition) {}
+  private readonly compiledRegex: RegExp | null;
+
+  constructor(private readonly condition: DoneCondition) {
+    this.compiledRegex =
+      condition.type === 'output_match' && condition.pattern
+        ? new RegExp(condition.pattern)
+        : null;
+  }
 
   check(state: { iterations: number; toolCalls: number; lastOutput?: string }): DoneCheckResult {
     switch (this.condition.type) {
@@ -30,11 +37,8 @@ export class DoneConditionChecker {
         break;
 
       case 'output_match':
-        if (this.condition.pattern && state.lastOutput) {
-          const regex = new RegExp(this.condition.pattern);
-          if (regex.test(state.lastOutput)) {
-            return { done: true, reason: `output matched pattern "${this.condition.pattern}"`, ...state };
-          }
+        if (this.compiledRegex && state.lastOutput && this.compiledRegex.test(state.lastOutput)) {
+          return { done: true, reason: `output matched pattern "${this.condition.pattern}"`, ...state };
         }
         break;
 
@@ -53,7 +57,7 @@ export interface AutonomousRunnerOptions {
   doneCondition: DoneCondition;
   iterationTimeoutMs?: number;
   onIteration?: (state: { iteration: number; toolCalls: number }) => void;
-  onDone?: (result: RunResult & { toolCalls: number; reason?: string }) => void;
+  onDone?: (result: AutonomousResult) => void;
 }
 
 export class AutonomousRunner {
@@ -67,7 +71,7 @@ export class AutonomousRunner {
     this.doneChecker = new DoneConditionChecker(opts.doneCondition);
   }
 
-  async run(): Promise<RunResult & { toolCalls: number; reason?: string }> {
+  async run(): Promise<AutonomousResult> {
     while (!this.stopped) {
       const check = this.doneChecker.check({
         iterations: this.iterations,
@@ -76,7 +80,7 @@ export class AutonomousRunner {
       });
 
       if (check.done) {
-        const result: RunResult & { toolCalls: number; reason?: string } = {
+        const result: AutonomousResult = {
           status: 'done',
           iterations: this.iterations,
           toolCalls: this.toolCalls,
@@ -99,11 +103,10 @@ export class AutonomousRunner {
 
         this.iterations++;
         this.lastOutput = result.finalText;
-
         this.toolCalls++;
 
         if (result.status === 'failed' || result.status === 'aborted') {
-          const failedResult: RunResult & { toolCalls: number; reason?: string } = {
+          const failedResult: AutonomousResult = {
             status: result.status,
             error: result.error,
             iterations: this.iterations,
@@ -113,9 +116,9 @@ export class AutonomousRunner {
           return failedResult;
         }
       } catch (e) {
-        // Continue on tool errors, abort on fatal errors
-        if ((e as Error).message.includes('timeout')) {
-          const timeoutResult: RunResult & { toolCalls: number; reason?: string } = {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (msg.includes('timeout')) {
+          const timeoutResult: AutonomousResult = {
             status: 'failed',
             error: toWrongStackError(e),
             iterations: this.iterations,

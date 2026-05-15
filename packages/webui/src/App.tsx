@@ -6,6 +6,9 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { CommandPalette, downloadChatAsMarkdown } from './components/CommandPalette';
 import { ShortcutsOverlay } from './components/ShortcutsOverlay';
+import { QuickModelSwitcher } from './components/QuickModelSwitcher';
+import { ConnectionBanner } from './components/ConnectionBanner';
+import { Toaster } from './components/Toaster';
 import { useUIStore, useChatStore, useSessionStore } from '@/stores';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';
@@ -13,29 +16,64 @@ import { useWebSocketBootstrap } from '@/hooks/useWebSocket';
 
 function AppInner() {
   const { theme } = useTheme();
-  const { currentView, sidebarOpen, toggleSidebar, setSearchOpen } = useUIStore();
+  const { currentView, sidebarOpen, toggleSidebar, setSearchOpen, setSidebarOpen } = useUIStore();
   const isLoading = useChatStore((s) => s.isLoading);
   const iteration = useSessionStore((s) => s.iteration);
+  const projectName = useSessionStore((s) => s.projectName);
+  const sessionTitle = useSessionStore((s) => s.session?.title);
+  const sessionId = useSessionStore((s) => s.session?.id);
+  // User-set local nickname for the current session — takes precedence
+  // over the backend title in the tab strip and topbar.
+  const nickname = useUIStore((s) =>
+    sessionId ? s.sessionNicknames[sessionId] : undefined,
+  );
   const ws = useWebSocket();
+
+  // Mobile-friendly: collapse the sidebar automatically below the md
+  // breakpoint (768px). Tracks viewport changes so a window resize behaves
+  // the same as a fresh load. We only AUTO-close — re-opening (or keeping
+  // it open) on small screens stays a user decision, so we never call
+  // setSidebarOpen(true) here.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(max-width: 768px)');
+    const apply = () => {
+      if (mq.matches && useUIStore.getState().sidebarOpen) {
+        setSidebarOpen(false);
+      }
+    };
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, [setSidebarOpen]);
   // Install WS handlers exactly once for the whole app. Every other consumer
   // (ChatInput, ConfirmDialog, SettingsPanel) uses the cheap `useWebSocket()`
   // hook which returns action methods only — see hooks/useWebSocket.ts for
   // the duplicate-handler trap this avoids.
   useWebSocketBootstrap();
 
-  // Reflect the agent's run state in the browser tab title so background
-  // tabs can tell at a glance whether work is still in progress. Restores
-  // the original title when idle.
+  // Reflect the agent's run state + session identity in the browser tab
+  // title. Pinned/grouped tab strips become readable at a glance — the
+  // project name surfaces first so multiple WrongStack windows on the same
+  // bar can still be distinguished, then the session title (if any), then
+  // the running indicator. Falls back gracefully when fields are missing.
   useEffect(() => {
-    const baseTitle = 'WrongStack';
+    const parts: string[] = [];
     if (isLoading) {
-      const it = iteration ? ` · iter ${iteration.index}${iteration.max ? `/${iteration.max}` : ''}` : '';
-      document.title = `● running${it} — ${baseTitle}`;
-    } else {
-      document.title = baseTitle;
+      const it = iteration
+        ? ` iter ${iteration.index}${iteration.max ? `/${iteration.max}` : ''}`
+        : '';
+      parts.push(`●${it}`);
     }
-    return () => { document.title = baseTitle; };
-  }, [isLoading, iteration]);
+    const sessionLabel = nickname?.trim() || sessionTitle?.trim();
+    const projectLabel = projectName?.trim();
+    if (sessionLabel) parts.push(sessionLabel);
+    if (projectLabel) parts.push(projectLabel);
+    parts.push('WrongStack');
+    const title = parts.filter(Boolean).join(' · ');
+    document.title = title;
+    return () => { document.title = 'WrongStack'; };
+  }, [isLoading, iteration, projectName, sessionTitle, nickname]);
 
   // Global keyboard shortcuts for the actions that don't have a dedicated
   // owner (palette/shortcuts handle their own). Bound here so they fire
@@ -80,6 +118,12 @@ function AppInner() {
           downloadChatAsMarkdown();
         }
       }
+      // Ctrl+Shift+D toggles compact UI density. Distinct from Ctrl+D
+      // (which is reserved as the browser bookmark accelerator).
+      if (mod && e.shiftKey && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        useUIStore.getState().toggleCompactMode();
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -89,6 +133,7 @@ function AppInner() {
     <div className={cn('flex h-screen', theme)}>
       {sidebarOpen && <Sidebar />}
       <main className="flex-1 flex flex-col overflow-hidden">
+        <ConnectionBanner />
         {currentView === 'chat' && <ChatView />}
         {currentView === 'settings' && <SettingsPanel />}
       </main>
@@ -97,6 +142,8 @@ function AppInner() {
       <ConfirmDialog />
       <CommandPalette />
       <ShortcutsOverlay />
+      <QuickModelSwitcher />
+      <Toaster />
     </div>
   );
 }

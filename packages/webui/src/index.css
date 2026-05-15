@@ -127,3 +127,29 @@
 .markdown-content blockquote {
   @apply border-l-4 border-primary pl-4 italic text-muted-foreground;
 }
+
+/* CSS Custom Highlights API — used by SearchOverlay to mark all matches
+   of the current query inside chat bubbles without mutating the DOM. The
+   `chat-search` highlight covers every hit; `chat-search-active` is only
+   applied to the message the user is currently navigated to. Browser
+   support: Chrome 105+ / Firefox 140+ / Safari 17.2+ — older browsers
+   silently skip rendering, the ring-flash navigation fallback still
+   works. */
+::highlight(chat-search) {
+  background-color: rgb(250 204 21 / 0.35);
+  color: inherit;
+}
+
+::highlight(chat-search-active) {
+  background-color: rgb(250 204 21 / 0.85);
+  color: rgb(24 24 27);
+}
+
+.dark ::highlight(chat-search) {
+  background-color: rgb(234 179 8 / 0.4);
+}
+
+.dark ::highlight(chat-search-active) {
+  background-color: rgb(250 204 21 / 0.95);
+  color: rgb(24 24 27);
+}

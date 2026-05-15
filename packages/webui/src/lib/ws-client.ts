@@ -6,6 +6,13 @@ interface PendingConfirm {
   resolve: (decision: 'yes' | 'no' | 'always' | 'deny') => void;
 }
 
+/** Internal connection lifecycle states the UI subscribes to. */
+export type WsStatus =
+  | { state: 'connecting' }
+  | { state: 'open' }
+  | { state: 'closed'; error?: string }
+  | { state: 'reconnecting'; attempt: number; nextRetryAt: number; lastError?: string };
+
 export class WrongStackWebSocketClient {
   private ws: WebSocket | null = null;
   private url: string;
@@ -17,6 +24,28 @@ export class WrongStackWebSocketClient {
   private messageQueue: WSClientMessage[] = [];
   private pendingConfirms: Map<string, PendingConfirm> = new Map();
   private sessionId: string | null = null;
+  /** Stored last close reason / error message so the UI can show "what
+   *  went wrong" while reconnecting instead of a generic spinner. */
+  private lastErrorText: string | undefined;
+  private statusListeners = new Set<(s: WsStatus) => void>();
+  private currentStatus: WsStatus = { state: 'connecting' };
+
+  onStatus(fn: (s: WsStatus) => void): () => void {
+    this.statusListeners.add(fn);
+    fn(this.currentStatus);
+    return () => this.statusListeners.delete(fn);
+  }
+
+  get status(): WsStatus {
+    return this.currentStatus;
+  }
+
+  private setStatus(s: WsStatus) {
+    this.currentStatus = s;
+    for (const fn of this.statusListeners) {
+      try { fn(s); } catch { /* listener errors must not break the socket */ }
+    }
+  }
 
   constructor(url?: string) {
     this.url = url ?? defaultWsUrl();
@@ -28,6 +57,8 @@ export class WrongStackWebSocketClient {
         resolve();
         return;
       }
+
+      this.setStatus({ state: 'connecting' });
 
       try {
         this.ws = new WebSocket(this.url);
@@ -41,6 +72,8 @@ export class WrongStackWebSocketClient {
           clearTimeout(connectTimeout);
           console.log('[WS Client] Connected');
           this.reconnectAttempts = 0;
+          this.lastErrorText = undefined;
+          this.setStatus({ state: 'open' });
           this.flushMessageQueue();
           resolve();
         };
@@ -56,14 +89,25 @@ export class WrongStackWebSocketClient {
 
         this.ws.onerror = (error) => {
           console.error('[WS Client] Error', error);
+          // ErrorEvent in browsers is intentionally opaque — Chrome won't
+          // expose the underlying reason for security. We stash a generic
+          // hint so the UI has something to display.
+          this.lastErrorText = 'Connection error (see browser devtools)';
         };
 
-        this.ws.onclose = () => {
-          console.log('[WS Client] Disconnected');
+        this.ws.onclose = (ev) => {
+          console.log('[WS Client] Disconnected', ev.code, ev.reason);
+          if (ev.reason && !this.lastErrorText) {
+            this.lastErrorText = `${ev.reason} (code ${ev.code})`;
+          } else if (!this.lastErrorText && ev.code !== 1000) {
+            this.lastErrorText = `Closed with code ${ev.code}`;
+          }
           this.attemptReconnect();
         };
       } catch (err) {
         clearTimeout((globalThis as Record<string, unknown>).connectTimeout as number);
+        this.lastErrorText = err instanceof Error ? err.message : String(err);
+        this.setStatus({ state: 'closed', error: this.lastErrorText });
         reject(err);
       }
     });
@@ -72,12 +116,20 @@ export class WrongStackWebSocketClient {
   private attemptReconnect() {
     if (!this.shouldReconnect || this.reconnectAttempts >= this.maxReconnectAttempts) {
       console.log('[WS Client] Not reconnecting');
+      this.setStatus({ state: 'closed', error: this.lastErrorText ?? 'Disconnected' });
       return;
     }
 
     this.reconnectAttempts++;
     const delay = Math.min(this.reconnectDelay * 2 ** (this.reconnectAttempts - 1), 30000);
+    const nextRetryAt = Date.now() + delay;
     console.log(`[WS Client] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
+    this.setStatus({
+      state: 'reconnecting',
+      attempt: this.reconnectAttempts,
+      nextRetryAt,
+      lastError: this.lastErrorText,
+    });
 
     setTimeout(async () => {
       if (this.shouldReconnect) {
@@ -88,6 +140,13 @@ export class WrongStackWebSocketClient {
         }
       }
     }, delay);
+  }
+
+  /** Force an immediate reconnect attempt, bypassing the backoff timer. */
+  retryNow(): void {
+    if (this.currentStatus.state === 'open') return;
+    this.reconnectAttempts = 0;
+    void this.connect().catch(() => undefined);
   }
 
   private flushMessageQueue() {
@@ -303,6 +362,18 @@ export class WrongStackWebSocketClient {
 
   switchMode(id: string) {
     this.send({ type: 'mode.switch', payload: { id } });
+  }
+
+  listFiles(query?: string, limit?: number) {
+    this.send({ type: 'files.list', payload: { query, limit } });
+  }
+
+  getTodos() {
+    this.send({ type: 'todos.get' });
+  }
+
+  clearTodos() {
+    this.send({ type: 'todos.clear' });
   }
 
   listSessions(limit = 50) {
