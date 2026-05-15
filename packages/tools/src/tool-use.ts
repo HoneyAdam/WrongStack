@@ -58,6 +58,9 @@ export const toolUseTool: Tool<ToolUseInput, ToolUseOutput> = {
       };
     }
 
+    // `deny` is a hard policy gate — bypassing it through a meta-tool
+    // would defeat the whole point of the permission system. Keep this
+    // check even though the outer `tool_use` already requires `confirm`.
     if (tool.permission === 'deny') {
       return {
         tool: input.tool,
@@ -67,14 +70,14 @@ export const toolUseTool: Tool<ToolUseInput, ToolUseOutput> = {
       };
     }
 
-    if (tool.permission === 'confirm' && input.input) {
-      return {
-        tool: input.tool,
-        success: false,
-        error: `tool_use: tool "${input.tool}" requires confirmation`,
-        executionMs: Date.now() - start,
-      };
-    }
+    // Note: inner `permission === 'confirm'` is intentionally NOT short-
+    // circuited here. The outer `tool_use` itself has `permission: 'confirm'`,
+    // so the user already saw the full args (including which inner tool will
+    // run, and with what input) before approving the meta-call. Duplicating
+    // the check inside execute() turned every confirm-tool dispatch through
+    // `tool_use` into a hard failure — the model would see "requires
+    // confirmation" with no way to proceed, even after the user said yes.
+    // `batch_tool_use` already follows this same model.
 
     try {
       const result = await tool.execute(input.input, ctx, opts);

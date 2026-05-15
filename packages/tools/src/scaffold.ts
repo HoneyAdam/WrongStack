@@ -1,6 +1,5 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import * as fsSync from 'node:fs';
 import type { Tool } from '@wrongstack/core';
 import { safeResolve } from './_util.js';
 
@@ -103,7 +102,7 @@ export const scaffoldTool: Tool<ScaffoldInput, ScaffoldOutput> = {
 
     const builtIn = BUILT_IN_TEMPLATES[input.template];
     if (builtIn) {
-      return handleBuiltIn(name, builtIn.files, cwd, input.dry_run ?? false, vars);
+      return await handleBuiltIn(name, builtIn.files, cwd, input.dry_run ?? false, vars);
     }
 
     return {
@@ -117,13 +116,13 @@ export const scaffoldTool: Tool<ScaffoldInput, ScaffoldOutput> = {
   },
 };
 
-function handleBuiltIn(
+async function handleBuiltIn(
   name: string,
   templateFiles: Record<string, string>,
   cwd: string,
   dryRun: boolean,
   vars: Record<string, string>,
-): ScaffoldOutput {
+): Promise<ScaffoldOutput> {
   const files: string[] = [];
   let filesCreated = 0;
 
@@ -132,8 +131,8 @@ function handleBuiltIn(
     const fullPath = path.join(cwd, resolvedPath);
 
     if (!dryRun) {
-      fsSync.mkdirSync(path.dirname(fullPath), { recursive: true });
-      fsSync.writeFileSync(fullPath, substituteVars(content, name, vars), 'utf8');
+      await fs.mkdir(path.dirname(fullPath), { recursive: true });
+      await fs.writeFile(fullPath, substituteVars(content, name, vars), 'utf8');
     }
     files.push(resolvedPath);
     filesCreated++;

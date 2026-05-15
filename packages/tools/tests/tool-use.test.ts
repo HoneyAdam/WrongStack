@@ -40,16 +40,20 @@ describe('toolUseTool', () => {
     expect(result.error).toContain('denied by policy');
   });
 
-  it('returns error for confirm tool', async () => {
+  it('dispatches confirm-permission tools (outer tool_use already gated the call)', async () => {
+    // `tool_use` itself has permission: 'confirm', so the user has already
+    // seen and approved the inner tool name + args by the time execute()
+    // runs. Previously this path errored with "requires confirmation",
+    // making it impossible to invoke any confirm-tool via tool_use.
     const ctx = makeCtx([{
       name: 'needs-confirm',
-      execute: vi.fn(),
+      execute: vi.fn().mockResolvedValue({ ok: true }),
       permission: 'confirm',
       mutating: false,
     }]);
     const result = await toolUseTool.execute({ tool: 'needs-confirm', input: {} }, ctx, makeOpts());
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('requires confirmation');
+    expect(result.success).toBe(true);
+    expect(result.result).toEqual({ ok: true });
   });
 
   it('returns error when execute throws', async () => {
