@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { buildChildEnv } from '@wrongstack/core';
 import type { Tool } from '@wrongstack/core';
 import { safeResolve } from './_util.js';
 
@@ -140,8 +141,9 @@ function runPatch(
 
     // Force C locale so `extractPatchedFiles` (which greps for the English
     // "patching file" prefix) doesn't silently miss-count on systems with
-    // localized GNU patch output (fr/de/es etc.).
-    const env = { ...process.env, LANG: 'C', LC_ALL: 'C' };
+    // localized GNU patch output (fr/de/es etc.). Use buildChildEnv to
+    // strip API keys and other secrets from the parent environment.
+    const env = { ...buildChildEnv(), LANG: 'C', LC_ALL: 'C' };
     const child = spawn('patch', args, { cwd, signal, env, stdio: ['pipe', 'pipe', 'pipe'] });
     child.stdout?.on('data', (c) => {
       stdout += c.toString();

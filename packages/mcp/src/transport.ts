@@ -24,6 +24,14 @@ export interface HttpTransportOptions {
  *
  * The SSE reader parses the SSE protocol (event:, data:, blank line to dispatch).
  */
+/**
+ * Cap on the pending-line buffer. The upstream SSE parser
+ * (packages/providers/src/sse.ts) already enforces 256 KB; this
+ * reader is used only inside MCP HTTP transports, but defense-in-depth
+ * says we should never let a malicious stream pin memory.
+ */
+const SSE_READER_MAX_BUFFER = 256 * 1024;
+
 export class SSEReader {
   private buffer = '';
   private listeners: Array<
@@ -42,6 +50,11 @@ export class SSEReader {
 
   feed(chunk: string): void {
     this.buffer += chunk;
+    if (this.buffer.length > SSE_READER_MAX_BUFFER) {
+      throw new Error(
+        `SSE: pending line exceeds ${SSE_READER_MAX_BUFFER} bytes — upstream is not framing events`,
+      );
+    }
     let idx = this.buffer.indexOf('\n');
     while (idx !== -1) {
       const line = this.buffer.slice(0, idx);

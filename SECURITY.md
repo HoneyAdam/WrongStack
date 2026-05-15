@@ -104,7 +104,7 @@ when permission prompts are approved out of habit.
 
 ### Secrets at rest
 
-- **AES-256-GCM vault** ([packages/core/src/defaults/secret-vault.ts](packages/core/src/defaults/secret-vault.ts))
+- **AES-256-GCM vault** ([packages/core/src/security/secret-vault.ts](packages/core/src/security/secret-vault.ts))
   for `apiKey`-shaped fields in `~/.wrongstack/config.json`. Key file
   written with `0o600` and `'wx'` exclusive-create flag (race-safe).
 - **Per-field decrypt** — one corrupted ciphertext doesn't kill boot;
@@ -112,7 +112,7 @@ when permission prompts are approved out of habit.
 - **Plaintext migration** on every boot for users coming from earlier
   versions: detects unencrypted secret-bearing keys and rewrites the
   config encrypted.
-- **Secret scrubber** ([packages/core/src/defaults/secret-scrubber.ts](packages/core/src/defaults/secret-scrubber.ts))
+- **Secret scrubber** ([packages/core/src/security/secret-scrubber.ts](packages/core/src/security/secret-scrubber.ts))
   redacts known key shapes (Anthropic / OpenAI / GitHub / GCP / Slack /
   Stripe / AWS / Twilio / JWT / mongo-postgres-mysql-redis URIs / Bearer
   / generic high-entropy `*_KEY=` patterns) from any text or object before
@@ -120,7 +120,7 @@ when permission prompts are approved out of habit.
 
 ### Permission policy
 
-[packages/core/src/defaults/permission-policy.ts](packages/core/src/defaults/permission-policy.ts)
+[packages/core/src/security/permission-policy.ts](packages/core/src/security/permission-policy.ts)
 
 - Trust rules: per-tool allow/deny glob patterns persisted to
   `~/.wrongstack/trust.json` via atomic write.

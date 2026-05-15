@@ -262,6 +262,7 @@ async function globNative(
     for (const e of entries) {
       if (DEFAULT_IGNORE.includes(e.name)) continue;
       const full = path.join(dir, e.name);
+      if (e.isSymbolicLink()) continue;
       if (e.isDirectory()) {
         await walk(full);
       } else if (e.isFile()) {

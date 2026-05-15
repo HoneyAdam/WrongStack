@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { buildChildEnv } from '@wrongstack/core';
 import type { ToolProgressEvent } from '@wrongstack/core';
 
 export interface SpawnStreamResult {
@@ -39,6 +40,7 @@ export async function* spawnStream(
   const child = spawn(opts.cmd, opts.args, {
     cwd: opts.cwd,
     signal: opts.signal,
+    env: buildChildEnv(),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
