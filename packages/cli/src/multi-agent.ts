@@ -14,6 +14,8 @@ import {
   Director,
   EventBus,
   makeAgentSubagentRunner,
+  makeDirectorSessionFactory,
+  type DirectorSessionFactory,
   type MultiAgentCoordinator,
   type Provider,
   type ProviderRegistry,
@@ -63,6 +65,28 @@ export interface MultiAgentHostOptions {
    * `directorMode` is true; ignored otherwise.
    */
   manifestPath?: string;
+  /**
+   * Absolute path to the fleet's shared scratchpad directory. When set,
+   * subagent system prompts are augmented with a "Shared notes" block
+   * pointing here so agents can pass conclusions through the filesystem
+   * without going through the bridge. Directory is created on first
+   * spawn. Only meaningful in director mode.
+   */
+  sharedScratchpadPath?: string;
+  /**
+   * Absolute path to the directory under which per-subagent JSONL
+   * transcripts land — typically `<projectSessions>/<sessionId>/subagents/`.
+   * When set, the host builds a `DirectorSessionFactory` rooted there and
+   * each spawned subagent gets its own session writer (instead of sharing
+   * the parent session). Director mode only.
+   */
+  sessionsRoot?: string;
+  /**
+   * Director run id for namespacing per-subagent JSONLs. Defaults to the
+   * coordinator id when omitted. Pass an explicit id when resuming from a
+   * prior fleet manifest.
+   */
+  directorRunId?: string;
 }
 
 /**
@@ -75,6 +99,9 @@ export class MultiAgentHost {
    *  coordinator; the host's `coordinator` field still points at it so
    *  the rest of the methods don't need to branch. */
   private director?: Director;
+  /** Lazily built alongside the director — produces per-subagent JSONL
+   *  writers under `<sessionsRoot>/<runId>/`. Null in non-director mode. */
+  private sessionFactory?: DirectorSessionFactory;
   private readonly pending = new Map<string, { description: string; subagentId: string }>();
   private readonly results: TaskResult[] = [];
   private readonly opts: MultiAgentHostOptions;
@@ -83,11 +110,38 @@ export class MultiAgentHost {
     this.opts = opts;
   }
 
+  /**
+   * Force the lazy build path to run *now* and return the live Director,
+   * or null when director mode is off. Used by the CLI to register the
+   * fleet's LLM-callable orchestration tools (spawn_subagent,
+   * assign_task, await_tasks, ask_subagent, roll_up, terminate_subagent,
+   * fleet_status, fleet_usage) into the leader's ToolRegistry before the
+   * agent starts — without this, the leader literally cannot see the
+   * orchestration tools and `--director` becomes a no-op.
+   */
+  async ensureDirector(): Promise<Director | null> {
+    if (!this.opts.directorMode) return null;
+    await this.ensureCoordinator();
+    return this.director ?? null;
+  }
+
   private async ensureCoordinator(): Promise<MultiAgentCoordinator> {
     if (this.coordinator) return this.coordinator;
     const config: Config = this.deps.configStore.get() as Config;
 
-    const factory = async (subCfg: { model?: string; provider?: string; tools?: string[] }) => {
+    // Build the per-subagent session factory when both director mode and
+    // a sessions root are configured. We do this *before* the agent
+    // factory so the closure can ask the factory for a writer per spawn
+    // without re-creating it each time. In legacy (non-director) mode we
+    // skip this and keep the parent-session-sharing path.
+    if (this.opts.directorMode && this.opts.sessionsRoot && !this.sessionFactory) {
+      this.sessionFactory = makeDirectorSessionFactory({
+        sessionsRoot: this.opts.sessionsRoot,
+        directorRunId: this.opts.directorRunId,
+      });
+    }
+
+    const factory = async (subCfg: { id?: string; name?: string; model?: string; provider?: string; tools?: string[] }) => {
       const events = new EventBus();
       // Per-subagent provider: honor `subCfg.provider` when set so a
       // single director run can mix providers (e.g. sonnet for editor,
@@ -105,14 +159,28 @@ export class MultiAgentHost {
         provider: subCfg.provider ?? config.provider,
       });
 
-      // Reuse session id and append channel; subagent events get tagged
-      // by source via the event bus rather than persisted to a separate
-      // file. Keeps replay simple.
-      const parentSession = this.deps.session;
-      const subSession: SessionWriter = {
-        id: parentSession.id,
-        append: (ev) => parentSession.append({ ...ev }),
-      } as SessionWriter;
+      // In director mode with a session factory, each subagent gets its
+      // own JSONL transcript rooted under the director run directory —
+      // makes replay trivial because every subagent's tape is already
+      // separated. Outside director mode (or when no sessionsRoot is
+      // configured) we keep the legacy parent-session-sharing path so
+      // the simple coordinator flow is unaffected.
+      let subSession: SessionWriter;
+      if (this.sessionFactory) {
+        const subagentName = subCfg.name ?? subCfg.id ?? `sub_${randomUUID().slice(0, 8)}`;
+        subSession = await this.sessionFactory.createSubagentSession({
+          subagentId: subagentName,
+          provider: subCfg.provider ?? config.provider,
+          model: subCfg.model ?? config.model,
+          title: `subagent: ${subagentName}`,
+        });
+      } else {
+        const parentSession = this.deps.session;
+        subSession = {
+          id: parentSession.id,
+          append: (ev) => parentSession.append({ ...ev }),
+        } as SessionWriter;
+      }
 
       const ctx = new Context({
         systemPrompt: baseSystem,
@@ -162,6 +230,7 @@ export class MultiAgentHost {
         config: coordinatorConfig,
         runner,
         manifestPath: this.opts.manifestPath,
+        sharedScratchpadPath: this.opts.sharedScratchpadPath,
       });
       // Same task.completed drain pattern as the simple path. Using
       // Director.on() keeps the public surface clean — we don't need to

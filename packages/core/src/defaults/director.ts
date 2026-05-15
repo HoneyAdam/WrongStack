@@ -63,6 +63,66 @@ export interface DirectorOptions {
    * `DEFAULT_SUBAGENT_BASELINE`). Pass an empty string to suppress.
    */
   subagentBaseline?: string;
+  /**
+   * Absolute path to a directory the fleet can use as a shared scratchpad
+   * (read + write by every subagent). When set, the director creates it on
+   * construction and `subagentSystemPrompt()` automatically injects a
+   * "Shared notes" block telling subagents where to drop their findings.
+   * This is the cheap fleet-coordination channel — agents don't need each
+   * other's transcripts, just each other's conclusions.
+   *
+   * Convention: under a fleet run rooted at `<sessionsRoot>/<runId>/`,
+   * pass `<sessionsRoot>/<runId>/shared/` here.
+   */
+  sharedScratchpadPath?: string;
+  /**
+   * Maximum number of spawns this director can perform across its
+   * lifetime. Default: unlimited. Acts as a hard fleet-wide cost cap —
+   * a runaway leader that keeps spawning workers gets cut off cleanly
+   * instead of burning provider tokens until the user kills the
+   * process. The N+1-th spawn call rejects with a `DirectorBudgetError`.
+   */
+  maxSpawns?: number;
+  /**
+   * Maximum nesting depth for spawns. The director constructed by the
+   * user is at depth `spawnDepth` (default 0); any subagent that itself
+   * acts as a director would construct its own `Director` with
+   * `spawnDepth: parent.spawnDepth + 1`. When `spawnDepth >= maxSpawnDepth`,
+   * `spawn()` rejects. Default: 2 (root director can spawn workers; a
+   * worker that becomes a sub-director cannot itself spawn further).
+   * This stops infinite recursive director chains from a hostile or
+   * confused prompt.
+   */
+  maxSpawnDepth?: number;
+  /**
+   * Current spawn-chain depth for this director instance. Defaults to 0.
+   * A nested director should pass `parent.spawnDepth + 1`. Together with
+   * `maxSpawnDepth` this bounds the chain.
+   */
+  spawnDepth?: number;
+}
+
+/**
+ * Thrown by `Director.spawn()` when a configured spawn cap (`maxSpawns`,
+ * `maxSpawnDepth`) is hit. Distinct error class so callers — including
+ * the `spawn_subagent` tool surface — can recognize the budget case and
+ * report it cleanly instead of treating it like an unexpected failure.
+ */
+export class DirectorBudgetError extends Error {
+  readonly kind: 'max_spawns' | 'max_spawn_depth';
+  readonly limit: number;
+  readonly observed: number;
+  constructor(kind: 'max_spawns' | 'max_spawn_depth', limit: number, observed: number) {
+    super(
+      kind === 'max_spawns'
+        ? `Director spawn budget exceeded: tried to spawn #${observed} but maxSpawns is ${limit}`
+        : `Director spawn depth budget exceeded: this director is at depth ${observed} and maxSpawnDepth is ${limit}`,
+    );
+    this.name = 'DirectorBudgetError';
+    this.kind = kind;
+    this.limit = limit;
+    this.observed = observed;
+  }
 }
 
 export class Director {
@@ -109,6 +169,19 @@ export class Director {
   private readonly roster?: Record<string, SubagentConfig>;
   private readonly directorPreamble: string;
   private readonly subagentBaseline: string;
+  /** Absolute path to the fleet's shared scratchpad directory, or null
+   *  when none was configured. Exposed as a readonly getter for callers
+   *  that need to surface the path to the user (e.g. the CLI logging
+   *  the location after `--director` boots). */
+  readonly sharedScratchpadPath: string | null;
+  /** Spawn cap (lifetime total). Infinity means unlimited. */
+  readonly maxSpawns: number;
+  /** Nesting cap. The N-th director in a chain has `spawnDepth = N-1`. */
+  readonly maxSpawnDepth: number;
+  /** This director's position in a director chain. Root director = 0. */
+  readonly spawnDepth: number;
+  /** Live spawn counter for `maxSpawns` enforcement. */
+  private spawnCount = 0;
 
   constructor(opts: DirectorOptions) {
     this.id = opts.config.coordinatorId || randomUUID();
@@ -116,6 +189,16 @@ export class Director {
     this.roster = opts.roster;
     this.directorPreamble = opts.directorPreamble ?? DEFAULT_DIRECTOR_PREAMBLE;
     this.subagentBaseline = opts.subagentBaseline ?? DEFAULT_SUBAGENT_BASELINE;
+    this.sharedScratchpadPath = opts.sharedScratchpadPath ?? null;
+    this.maxSpawns = opts.maxSpawns ?? Infinity;
+    this.maxSpawnDepth = opts.maxSpawnDepth ?? 2;
+    this.spawnDepth = opts.spawnDepth ?? 0;
+    if (this.sharedScratchpadPath) {
+      // Create the directory eagerly so subagents that try to write
+      // there on first iteration don't trip on ENOENT. Fire-and-forget;
+      // any failure surfaces later when an agent actually writes.
+      void fsp.mkdir(this.sharedScratchpadPath, { recursive: true }).catch(() => undefined);
+    }
     this.transport = new InMemoryBridgeTransport();
     this.bridge = new InMemoryAgentBridge(
       { agentId: this.id, coordinatorId: this.id },
@@ -159,6 +242,15 @@ export class Director {
     config: SubagentConfig,
     priceLookup?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number },
   ): Promise<string> {
+    // Enforce safety caps BEFORE touching the coordinator — a refused
+    // spawn must not leak partial state into the manifest or fleet bus.
+    if (this.spawnDepth >= this.maxSpawnDepth) {
+      throw new DirectorBudgetError('max_spawn_depth', this.maxSpawnDepth, this.spawnDepth);
+    }
+    if (this.spawnCount >= this.maxSpawns) {
+      throw new DirectorBudgetError('max_spawns', this.maxSpawns, this.spawnCount + 1);
+    }
+    this.spawnCount += 1;
     const result = await this.coordinator.spawn(config);
     this.subagentMeta.set(result.subagentId, {
       provider: config.provider,
@@ -439,6 +531,7 @@ export class Director {
       baseline: this.subagentBaseline,
       role: config.prompt,
       task: taskBrief,
+      sharedScratchpad: this.sharedScratchpadPath ?? undefined,
       override: config.systemPromptOverride,
     });
   }
@@ -517,8 +610,19 @@ function makeSpawnTool(director: Director, roster?: Record<string, SubagentConfi
       if (typeof i.maxIterations === 'number') cfg.maxIterations = i.maxIterations;
       if (typeof i.maxToolCalls === 'number') cfg.maxToolCalls = i.maxToolCalls;
       if (typeof i.maxCostUsd === 'number') cfg.maxCostUsd = i.maxCostUsd;
-      const subagentId = await director.spawn(cfg);
-      return { subagentId, provider: cfg.provider, model: cfg.model, name: cfg.name };
+      try {
+        const subagentId = await director.spawn(cfg);
+        return { subagentId, provider: cfg.provider, model: cfg.model, name: cfg.name };
+      } catch (err) {
+        // Surface DirectorBudgetError (and any other spawn failure) as a
+        // structured `{ error, kind }` payload so the leader model can
+        // read the cap and replan — throwing would tear down the whole
+        // tool call and give the model no signal to recover from.
+        if (err instanceof DirectorBudgetError) {
+          return { error: err.message, kind: err.kind, limit: err.limit, observed: err.observed };
+        }
+        return { error: err instanceof Error ? err.message : String(err) };
+      }
     },
   };
 }

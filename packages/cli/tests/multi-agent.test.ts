@@ -277,5 +277,87 @@ describe('MultiAgentHost', () => {
       expect(u).toHaveProperty('totals');
       await host.stopAll();
     });
+
+    it('ensureDirector() returns null when director mode is off', async () => {
+      const host = new MultiAgentHost(makeDeps());
+      expect(await host.ensureDirector()).toBeNull();
+    });
+
+    it('ensureDirector() eagerly builds the Director and exposes 8 tools', async () => {
+      const host = new MultiAgentHost(makeDeps(), { directorMode: true });
+      const director = await host.ensureDirector();
+      expect(director).not.toBeNull();
+      const tools = director!.tools();
+      expect(tools.map((t) => t.name).sort()).toEqual([
+        'ask_subagent',
+        'assign_task',
+        'await_tasks',
+        'fleet_status',
+        'fleet_usage',
+        'roll_up',
+        'spawn_subagent',
+        'terminate_subagent',
+      ]);
+      // After ensureDirector(), the host considers itself in director
+      // mode — the lazy build flipped the flag.
+      expect(host.isDirectorMode()).toBe(true);
+      await host.stopAll();
+    });
+
+    it('director-mode spawn uses the per-subagent session factory when sessionsRoot is set', async () => {
+      const os = await import('node:os');
+      const path = await import('node:path');
+      const fs = await import('node:fs/promises');
+      const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-subsessions-'));
+
+      const host = new MultiAgentHost(makeDeps(), {
+        directorMode: true,
+        sessionsRoot: tmpRoot,
+        directorRunId: 'run-test',
+      });
+      const director = await host.ensureDirector();
+      const { taskId } = await host.spawn('a job', { name: 'worker-1' });
+      // Wait for the task to actually run — the factory closure (which
+      // creates the per-subagent JSONL) only fires when the runner picks
+      // up the task. host.spawn returns as soon as assign is called.
+      await director!.awaitTasks([taskId]);
+      const runDir = path.join(tmpRoot, 'run-test');
+      const entries = await fs.readdir(runDir);
+      // At least one JSONL file under the run dir means the factory was
+      // actually invoked with the director's session writer.
+      expect(entries.some((e) => e.endsWith('.jsonl'))).toBe(true);
+      await host.stopAll();
+      await fs.rm(tmpRoot, { recursive: true, force: true });
+    });
+
+    it('director-mode passes sharedScratchpadPath through to Director', async () => {
+      const os = await import('node:os');
+      const path = await import('node:path');
+      const fs = await import('node:fs/promises');
+      const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-scratch-'));
+      const scratch = path.join(tmpRoot, 'shared');
+
+      const host = new MultiAgentHost(makeDeps(), {
+        directorMode: true,
+        sharedScratchpadPath: scratch,
+      });
+      const director = await host.ensureDirector();
+      expect(director!.sharedScratchpadPath).toBe(scratch);
+      // Any subagent prompt the director composes carries the path so
+      // agents can find the scratchpad without further plumbing.
+      const out = director!.subagentSystemPrompt({ name: 'x', prompt: 'r' }, 'task');
+      expect(out).toContain('Shared notes:');
+      expect(out).toContain(scratch);
+      // The directory is created lazily (fire-and-forget mkdir in the
+      // Director constructor). Give it a tick to settle, then verify —
+      // if it still doesn't exist, the first write would create it
+      // anyway thanks to `recursive: true`, so the assertion here is a
+      // soft check that the eager-mkdir code path actually ran.
+      await new Promise((r) => setTimeout(r, 50));
+      const stat = await fs.stat(scratch).catch(() => null);
+      expect(stat?.isDirectory() ?? false).toBe(true);
+      await host.stopAll();
+      await fs.rm(tmpRoot, { recursive: true, force: true });
+    });
   });
 });

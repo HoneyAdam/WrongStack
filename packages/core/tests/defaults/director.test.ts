@@ -556,4 +556,113 @@ describe('Director orchestration', () => {
     expect(() => off()).not.toThrow();
     expect(() => off()).not.toThrow(); // second call is a no-op
   });
+
+  describe('safety caps (Phase 6)', () => {
+    it('maxSpawns refuses the N+1-th spawn with DirectorBudgetError', async () => {
+      const { DirectorBudgetError } = await import('../../src/defaults/director.js');
+      const dir = new Director({
+        config: { coordinatorId: 'cap', doneCondition: { type: 'all_tasks_done' } },
+        runner: async () => ({ result: 'ok', iterations: 1, toolCalls: 0 }),
+        maxSpawns: 2,
+      });
+      await dir.spawn({ name: 'a' });
+      await dir.spawn({ name: 'b' });
+      let caught: unknown;
+      try {
+        await dir.spawn({ name: 'c' });
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toBeInstanceOf(DirectorBudgetError);
+      expect((caught as InstanceType<typeof DirectorBudgetError>).kind).toBe('max_spawns');
+      expect((caught as InstanceType<typeof DirectorBudgetError>).limit).toBe(2);
+      // Status should reflect only the two spawns that actually landed.
+      const s = dir.status();
+      expect(s.subagents.length).toBe(2);
+      await dir.shutdown();
+    });
+
+    it('maxSpawnDepth refuses spawn when director is too deep', async () => {
+      const { DirectorBudgetError } = await import('../../src/defaults/director.js');
+      // A "nested" director at depth >= cap — it cannot spawn at all.
+      const dir = new Director({
+        config: { coordinatorId: 'deep', doneCondition: { type: 'all_tasks_done' } },
+        runner: async () => ({ result: 'ok', iterations: 1, toolCalls: 0 }),
+        maxSpawnDepth: 2,
+        spawnDepth: 2, // already at the cap
+      });
+      let caught: unknown;
+      try {
+        await dir.spawn({ name: 'a' });
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toBeInstanceOf(DirectorBudgetError);
+      expect((caught as InstanceType<typeof DirectorBudgetError>).kind).toBe('max_spawn_depth');
+      await dir.shutdown();
+    });
+
+    it('default maxSpawnDepth is 2 — root director (depth 0) can spawn', async () => {
+      const dir = new Director({
+        config: { coordinatorId: 'root', doneCondition: { type: 'all_tasks_done' } },
+        runner: async () => ({ result: 'ok', iterations: 1, toolCalls: 0 }),
+      });
+      expect(dir.maxSpawnDepth).toBe(2);
+      expect(dir.spawnDepth).toBe(0);
+      expect(dir.maxSpawns).toBe(Infinity);
+      // Root spawn should succeed since 0 < 2.
+      await expect(dir.spawn({ name: 'a' })).resolves.toBeTruthy();
+      await dir.shutdown();
+    });
+
+    it('spawn_subagent tool surfaces budget error as structured { error, kind }', async () => {
+      const dir = new Director({
+        config: { coordinatorId: 'cap-tool', doneCondition: { type: 'all_tasks_done' } },
+        runner: async () => ({ result: 'ok', iterations: 1, toolCalls: 0 }),
+        maxSpawns: 1,
+      });
+      const tools = dir.tools();
+      const spawnTool = tools.find((t) => t.name === 'spawn_subagent')!;
+      // First call succeeds.
+      const r1 = await spawnTool.execute({ name: 'first' });
+      expect((r1 as { subagentId: string }).subagentId).toBeTruthy();
+      // Second call hits the cap. Must NOT throw — the leader needs a
+      // readable error payload to replan.
+      const r2 = await spawnTool.execute({ name: 'second' });
+      expect(r2).toMatchObject({
+        kind: 'max_spawns',
+        limit: 1,
+      });
+      expect((r2 as { error: string }).error).toMatch(/spawn budget exceeded/i);
+      await dir.shutdown();
+    });
+
+    it('isolation regression: subagent prompts do not leak siblings or parent', () => {
+      const dir = new Director({
+        config: { coordinatorId: 'iso', doneCondition: { type: 'all_tasks_done' } },
+        // The director's own "leader" prompt — must NOT appear inside any subagent prompt.
+      });
+      const a: SubagentConfig = { name: 'A', prompt: 'You are A. SECRET_A=alpha.', systemPromptOverride: 'OVERRIDE_A' };
+      const b: SubagentConfig = { name: 'B', prompt: 'You are B. SECRET_B=bravo.', systemPromptOverride: 'OVERRIDE_B' };
+      const promptA = dir.subagentSystemPrompt(a, 'task A');
+      const promptB = dir.subagentSystemPrompt(b, 'task B');
+
+      // A's prompt must mention A's role + override only — never B's.
+      expect(promptA).toContain('SECRET_A=alpha');
+      expect(promptA).toContain('OVERRIDE_A');
+      expect(promptA).not.toContain('SECRET_B');
+      expect(promptA).not.toContain('OVERRIDE_B');
+
+      // Symmetric.
+      expect(promptB).toContain('SECRET_B=bravo');
+      expect(promptB).toContain('OVERRIDE_B');
+      expect(promptB).not.toContain('SECRET_A');
+      expect(promptB).not.toContain('OVERRIDE_A');
+
+      // And neither leaks the director-leader preamble's signature
+      // (i.e. subagents never see the director's own playbook).
+      expect(promptA).not.toContain('You are the Director');
+      expect(promptB).not.toContain('You are the Director');
+    });
+  });
 });

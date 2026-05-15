@@ -43,6 +43,7 @@ import {
   createContextManagerTool,
   createDefaultPipelines,
   loadPlugins,
+  FLEET_ROSTER,
 } from '@wrongstack/core';
 import { MCPRegistry } from '@wrongstack/mcp';
 import {
@@ -983,11 +984,21 @@ export async function main(argv: string[]): Promise<number> {
   // path defaults to `<projectSessions>/<sessionId>/fleet.json`; users can
   // override via `WRONGSTACK_FLEET_MANIFEST` if they want a fixed path.
   const directorMode = flags['director'] === true;
+  // Convention: director artifacts all live under the same fleet root —
+  //   <projectSessions>/<sessionId>/
+  //     ├─ fleet.json              (manifest)
+  //     ├─ shared/                 (cross-agent scratchpad)
+  //     └─ subagents/              (per-subagent JSONL transcripts)
+  // The user can override the manifest path with WRONGSTACK_FLEET_MANIFEST
+  // but the scratchpad + transcripts always sit relative to the session.
+  const fleetRoot = directorMode ? path.join(wpaths.projectSessions, session.id) : undefined;
   const manifestPath = directorMode
     ? (typeof process.env['WRONGSTACK_FLEET_MANIFEST'] === 'string'
         ? process.env['WRONGSTACK_FLEET_MANIFEST']
-        : path.join(wpaths.projectSessions, session.id, 'fleet.json'))
+        : path.join(fleetRoot!, 'fleet.json'))
     : undefined;
+  const sharedScratchpadPath = directorMode ? path.join(fleetRoot!, 'shared') : undefined;
+  const subagentSessionsRoot = directorMode ? path.join(fleetRoot!, 'subagents') : undefined;
   const multiAgentHost = new MultiAgentHost({
     container,
     toolRegistry,
@@ -999,9 +1010,35 @@ export async function main(argv: string[]): Promise<number> {
     tokenCounter,
     projectRoot,
     cwd,
-  }, { directorMode, manifestPath });
+  }, {
+    directorMode,
+    manifestPath,
+    sharedScratchpadPath,
+    sessionsRoot: subagentSessionsRoot,
+    directorRunId: session.id,
+  });
   if (directorMode) {
-    renderer.writeInfo(`Director mode enabled. Fleet manifest → ${manifestPath}`);
+    // Eagerly build the director so its 8 LLM-callable orchestration
+    // tools (`spawn_subagent`, `assign_task`, `await_tasks`,
+    // `ask_subagent`, `roll_up`, `terminate_subagent`, `fleet_status`,
+    // `fleet_usage`) get registered into the leader's ToolRegistry
+    // *before* the agent starts streaming. Without this the leader has
+    // no way to discover the fleet surface and `--director` ends up as
+    // a manifest-only flag with no orchestration. Pass `FLEET_ROSTER`
+    // so `spawn_subagent` can accept `role: 'bug-hunter'` shortcuts.
+    const director = await multiAgentHost.ensureDirector();
+    if (director) {
+      for (const tool of director.tools(FLEET_ROSTER)) {
+        toolRegistry.register(tool);
+      }
+      renderer.writeInfo(`Director mode enabled. Roster: ${Object.keys(FLEET_ROSTER).join(', ')}`);
+      renderer.writeInfo(`  fleet root → ${fleetRoot}`);
+      renderer.writeInfo(`  manifest   → ${manifestPath}`);
+      renderer.writeInfo(`  scratchpad → ${sharedScratchpadPath}`);
+      renderer.writeInfo(`  subagents  → ${subagentSessionsRoot}`);
+    } else {
+      renderer.writeInfo(`Director mode enabled. Fleet manifest → ${manifestPath}`);
+    }
   }
 
   const slashCmds = buildBuiltinSlashCommands({

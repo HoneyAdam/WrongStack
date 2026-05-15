@@ -94,6 +94,7 @@ export {
 // fleet-wide observability + LLM-callable orchestration tools.
 export {
   Director,
+  DirectorBudgetError,
 } from './director.js';
 export {
   FleetBus,
@@ -121,6 +122,12 @@ export {
   InMemoryAgentBridge,
   InMemoryBridgeTransport,
   createMessage,
+  AUDIT_LOG_AGENT,
+  BUG_HUNTER_AGENT,
+  REFACTOR_PLANNER_AGENT,
+  SECURITY_SCANNER_AGENT,
+  FLEET_ROSTER,
+  ALL_FLEET_AGENTS,
 } from './agents/index.js';
 
 // Autonomous runner

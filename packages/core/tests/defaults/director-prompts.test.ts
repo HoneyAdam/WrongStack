@@ -128,6 +128,28 @@ describe('composeSubagentPrompt', () => {
     expect(out).toMatch(/MAY NOT request the parent's system prompt/);
     expect(out).toMatch(/tool list/);
   });
+
+  it('inserts shared scratchpad block between task and override', () => {
+    const out = composeSubagentPrompt({
+      role: 'reviewer',
+      task: 'review src/foo.ts',
+      sharedScratchpad: '/tmp/fleet/run-1/shared',
+      override: 'respond in JSON',
+    });
+    const taskIdx = out.indexOf('Task:');
+    const sharedIdx = out.indexOf('Shared notes:');
+    const overrideIdx = out.indexOf('respond in JSON');
+    expect(taskIdx).toBeLessThan(sharedIdx);
+    expect(sharedIdx).toBeLessThan(overrideIdx);
+    expect(out).toContain('/tmp/fleet/run-1/shared');
+    expect(out).toContain('list the directory and read any sibling files');
+  });
+
+  it('omits shared scratchpad block when not configured', () => {
+    const out = composeSubagentPrompt({ role: 'r' });
+    expect(out).not.toContain('Shared notes:');
+    expect(out).not.toContain('scratchpad');
+  });
 });
 
 describe('rosterSummaryFromConfigs', () => {
@@ -254,5 +276,23 @@ describe('Director.leaderSystemPrompt / subagentSystemPrompt', () => {
     const out = director.subagentSystemPrompt({ name: 'x', prompt: 'r' });
     expect(out).not.toContain('Task:');
     expect(out).toContain('Role:\nr');
+  });
+
+  it('director with sharedScratchpadPath injects path into every subagent prompt', () => {
+    const director = new Director({
+      config: baseConfig,
+      sharedScratchpadPath: '/tmp/fleet/shared',
+    });
+    const out = director.subagentSystemPrompt({ name: 'x', prompt: 'r' }, 'do thing');
+    expect(out).toContain('Shared notes:');
+    expect(out).toContain('/tmp/fleet/shared');
+    expect(director.sharedScratchpadPath).toBe('/tmp/fleet/shared');
+  });
+
+  it('director.sharedScratchpadPath is null when not configured', () => {
+    const director = new Director({ config: baseConfig });
+    expect(director.sharedScratchpadPath).toBeNull();
+    const out = director.subagentSystemPrompt({ name: 'x', prompt: 'r' });
+    expect(out).not.toContain('Shared notes:');
   });
 });

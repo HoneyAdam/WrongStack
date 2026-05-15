@@ -121,11 +121,40 @@ calling them when building each Agent.
   external `/spawn` / `/agents` / `/fleet` surface; under the hood,
   the host's task lifecycle now flows through `Director.spawn` /
   `Director.assign` so the in-memory manifest entries get populated.
-  On shutdown — or on-demand via `/fleet manifest` — the director
-  writes `fleet.json` to `<projectSessions>/<sessionId>/fleet.json`
-  (override with the `WRONGSTACK_FLEET_MANIFEST` env var).
-  `MultiAgentHost` gains `manifest()` returning the written path and
-  `isDirectorMode()` for slash-command branching.
+  On boot, the host *eagerly* builds the Director and registers
+  `director.tools(FLEET_ROSTER)` into the leader's `ToolRegistry` —
+  the 8 LLM-callable orchestration tools (`spawn_subagent`,
+  `assign_task`, `await_tasks`, `ask_subagent`, `roll_up`,
+  `terminate_subagent`, `fleet_status`, `fleet_usage`) are visible to
+  the leader from the first message, so a prompt like "spawn a
+  bug-hunter and a security-scanner in parallel, then roll up their
+  findings" actually orchestrates rather than narrating. `FLEET_ROSTER`
+  (4 pre-built agents: Audit Log, Bug Hunter, Refactor Planner,
+  Security Scanner) is automatically attached as the roster so
+  `spawn_subagent({ role: "bug-hunter" })` works out of the box.
+  Director artifacts share one root —
+  `<projectSessions>/<sessionId>/`:
+  - `fleet.json` (manifest)
+  - `shared/` (fleet-wide scratchpad — see below)
+  - `subagents/<name>.jsonl` (per-subagent transcripts)
+  `MultiAgentHost` gains `ensureDirector()`, `manifest()`,
+  `isDirectorMode()` for surface code; new options:
+  `sharedScratchpadPath`, `sessionsRoot`, `directorRunId`.
+- **Shared scratchpad for the fleet.** When `--director` is on, every
+  subagent's system prompt automatically carries a "Shared notes"
+  block pointing at `<fleetRoot>/shared/`. Agents drop conclusions
+  into stable filenames (`findings.md`, `security.md`, etc.) and read
+  sibling files before starting their own work — cheap
+  filesystem-mediated coordination without going through the bridge
+  for every paste. `Director.sharedScratchpadPath` is a readonly
+  getter that surfaces the path; `composeSubagentPrompt` gains a
+  `sharedScratchpad` part layered between Task and Override.
+- **Per-subagent JSONL transcripts.** In director mode, each
+  spawned subagent gets its own JSONL writer under
+  `<fleetRoot>/subagents/<name>.jsonl` (instead of multiplexing into
+  the parent session). Backed by `makeDirectorSessionFactory`, which
+  is now wired into `MultiAgentHost`. Replay-friendly: each
+  transcript is independently consumable.
 - **`/spawn` flag parser.** Now accepts `--provider=<id>` /
   `--model=<id>` / `--name="..."` / `--tools=a,b,c` plus short forms
   `-p` / `-m` / `-n`. Quoted multi-word names supported via
@@ -142,22 +171,50 @@ calling them when building each Agent.
   running with `--director`. Wired through a new `onFleet` callback
   on `SlashCommandContext`.
 
-**Tests** — 58 new tests across 5 files, all green:
+**Tests** — 75 new tests across 5 files, all green:
 
-- Core: 17 director tests (provider isolation, task routing, usage
-  roll-up, ask/round-trip, rollUp markdown/JSON/empty, manifest disk
-  persistence, FleetBus subscribe/filter/onAny, per-subagent JSONL
-  isolation, tool surface stability) + 23 director-prompts tests
-  (layering order, override-last-wins, empty-section suppression,
-  roster summary rendering, parent-context exfil regression guard).
-- CLI: 2 multi-agent tests for provider routing + 4 director-mode
-  tests (isDirectorMode flips after lazy build, manifest null
-  off-mode, manifest written on-disk in director mode, status/usage
-  API stable in director mode) + 5 slash-command tests for `/spawn`
-  (long/short flag forms, tool slice parsing, quoted names, legacy
-  single-arg preservation) + 7 `/fleet` tests (default → status,
-  status/usage/manifest dispatch, kill with/without target, help,
-  unknown subcommand hint).
+- Core: 22 director tests (17 prior + 5 safety: maxSpawns rejects
+  N+1, maxSpawnDepth rejects too-deep, defaults sane, spawn_subagent
+  tool returns structured budget error, sibling/parent isolation
+  regression) + 27 director-prompts tests (now including
+  shared-scratchpad layering and `Director.sharedScratchpadPath`
+  getter for set/null cases).
+- CLI: 2 multi-agent provider-routing tests + 8 director-mode tests
+  (isDirectorMode flips after lazy build, manifest null off-mode,
+  manifest written on-disk in director mode, status/usage API
+  stable in director mode, `ensureDirector()` returns null without
+  the flag, `ensureDirector()` exposes the 8 orchestration tools,
+  per-subagent JSONL writer is used when sessionsRoot is set,
+  scratchpad path threads through to Director and into composed
+  prompts) + 5 slash-command tests for `/spawn` + 7 `/fleet` tests.
+
+### Added — safety caps (Phase 6)
+
+- **`DirectorOptions.maxSpawns`** — lifetime cap on `Director.spawn()`
+  calls. Default: `Infinity` (off). The N+1-th spawn rejects with a
+  new `DirectorBudgetError`, status `subagents` reflect only the
+  spawns that actually landed, no partial manifest entries are
+  written. Use this to stop a runaway leader from billing tokens
+  forever.
+- **`DirectorOptions.maxSpawnDepth` + `spawnDepth`** — bounds the
+  nesting of director-of-director chains. The root director sits at
+  `spawnDepth: 0` (default); a sub-director constructed by a worker
+  should pass `spawnDepth: parent.spawnDepth + 1`. When
+  `spawnDepth >= maxSpawnDepth` (default `2`), `spawn()` refuses.
+  This stops a hostile or confused prompt from constructing an
+  infinitely-deep director chain.
+- **`DirectorBudgetError`** — new typed error class with
+  `kind: 'max_spawns' | 'max_spawn_depth'`, `limit`, `observed`.
+  Exported from `@wrongstack/core`. The `spawn_subagent` tool catches
+  this case and returns a structured `{ error, kind, limit, observed }`
+  payload so the leader model can read the cap and replan instead of
+  the tool call tearing down.
+- **Isolation regression test pinned.** Verifies that
+  `Director.subagentSystemPrompt(A)` and `subagentSystemPrompt(B)`
+  never share content — neither sibling roles, sibling overrides, nor
+  the director's own leader preamble leak into a subagent's prompt.
+  Guards against a future composer change that accidentally smuggles
+  parent or sibling context into the subagent layer.
 
 ### Changed — plugin API
 
@@ -174,8 +231,10 @@ calling them when building each Agent.
 - TUI/WebUI fleet panels (subscribe to `FleetBus.onAny` for live view)
 - `wstack replay <runId>` subcommand (rehydrate from `fleet.json`
   manifest)
-- `maxSpawnDepth` enforcement in the `spawn_subagent` tool
-- Hostile-prompt regression pack (bridge exfil attempts)
+- Bridge-level exfil enforcement (currently the subagent baseline
+  prompt forbids requesting parent state, but the transport itself
+  doesn't reject such requests — the leader/director is responsible
+  for ignoring them when they arrive)
 
 The core protocol and isolation invariants are proven; surface work
 above can land independently without touching the core layer.

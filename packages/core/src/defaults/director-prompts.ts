@@ -129,6 +129,16 @@ export interface SubagentPromptParts {
    *  but exposed here in case the factory wants it duplicated in the
    *  system prompt for reinforcement. */
   task?: string;
+  /**
+   * Absolute path to a shared scratchpad directory the whole fleet can
+   * read/write. When set, the composer adds a "Shared notes" block that
+   * tells the subagent where to drop findings and where to look for
+   * sibling output. This is the cheap fleet-coordination channel —
+   * agents don't need each other's transcripts, just each other's
+   * conclusions. Falls between `task` and `override` so the override
+   * can still narrow or replace it.
+   */
+  sharedScratchpad?: string;
   /** Final per-spawn override from `SubagentConfig.systemPromptOverride`.
    *  Added last so it wins on conflict — that's by design: the spawn site
    *  knows the most about what this specific subagent should do. */
@@ -159,6 +169,17 @@ export function composeSubagentPrompt(parts: SubagentPromptParts = {}): string {
   }
   if (parts.task && parts.task.trim().length > 0) {
     sections.push(`Task:\n${parts.task.trim()}`);
+  }
+  if (parts.sharedScratchpad && parts.sharedScratchpad.trim().length > 0) {
+    sections.push(
+      `Shared notes:\n` +
+      `A scratchpad shared with the rest of the fleet is mounted at \`${parts.sharedScratchpad.trim()}\`.\n` +
+      `- Write your final findings as markdown files there (e.g. \`findings.md\`, \`security.md\`).\n` +
+      `- Before starting, list the directory and read any sibling files relevant to your task — ` +
+      `they may already contain context you can build on.\n` +
+      `- Use stable filenames (one file per concern); overwrite instead of appending so the ` +
+      `Director sees the latest state.`,
+    );
   }
   if (parts.override && parts.override.trim().length > 0) {
     sections.push(parts.override.trim());
