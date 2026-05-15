@@ -8,6 +8,7 @@ import type {
   TaskSpec,
 } from '../types/multi-agent.js';
 import { BudgetExceededError } from './subagent-budget.js';
+import type { FleetBus } from './fleet-bus.js';
 
 /**
  * Caller-supplied factory that builds an isolated `Agent` for a subagent.
@@ -32,6 +33,13 @@ export interface AgentRunnerOptions {
    * input (e.g. JSON contracts, role-prefixed prompts).
    */
   formatTaskInput?: (task: TaskSpec, config: SubagentConfig) => AgentInput;
+  /**
+   * When set, the runner attaches the subagent's EventBus to this FleetBus
+   * on task start and detaches it when the task finishes. This is the
+   * injection seam that lets the TUI fleet panel observe subagent activity
+   * live — without it, FleetBus stays empty.
+   */
+  fleetBus?: FleetBus;
 }
 
 /**
@@ -55,6 +63,12 @@ export function makeAgentSubagentRunner(opts: AgentRunnerOptions): SubagentRunne
 
   return async (task: TaskSpec, ctx: SubagentRunContext): Promise<SubagentRunOutcome> => {
     const { agent, events } = await opts.factory(ctx.config);
+
+    // Attach subagent EventBus to FleetBus so the TUI fleet panel (and any
+    // other FleetBus subscriber) can observe this subagent live. Detach on
+    // task finish — each task is a fresh Agent + EventBus, so we never
+    // want a stale bus lingering after the run.
+    const detachFleet = opts.fleetBus?.attach(ctx.subagentId, events, task.id);
 
     // Hook budget into the agent's event stream. We capture errors thrown by
     // recordToolCall/recordUsage so the budget can short-circuit the run by
@@ -117,6 +131,7 @@ export function makeAgentSubagentRunner(opts: AgentRunnerOptions): SubagentRunne
     try {
       result = await agent.run(format(task, ctx.config), { signal: aborter.signal });
     } finally {
+      detachFleet?.();
       ctx.signal.removeEventListener('abort', onParentAbort);
       for (const u of unsub) u();
     }

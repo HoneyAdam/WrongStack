@@ -40,7 +40,7 @@ export interface MultiAgentCoordinatorOptions {
 export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiAgentCoordinator {
   readonly coordinatorId: string;
   readonly config: MultiAgentConfig;
-  private readonly runner?: SubagentRunner;
+  private runner?: SubagentRunner;
 
   private readonly subagents = new Map<string, SubagentEntry>();
 
@@ -54,6 +54,15 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
     this.coordinatorId = config.coordinatorId;
     this.config = config;
     this.runner = options.runner;
+  }
+
+  /**
+   * Replace the runner after construction. Used when the runner depends
+   * on infrastructure (e.g. FleetBus) that isn't available until after
+   * the coordinator's owning Director is built.
+   */
+  setRunner(runner: SubagentRunner): void {
+    this.runner = runner;
   }
 
   async spawn(subagent: SubagentConfig): Promise<SpawnResult> {

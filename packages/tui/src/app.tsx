@@ -4,7 +4,9 @@ import type {
   Agent,
   AttachmentStore,
   ContentBlock,
+  Director,
   EventBus,
+  FleetEvent,
   QueueStore,
   SlashCommandRegistry,
   TokenCounter,
@@ -15,6 +17,7 @@ import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { readClipboardImage } from './clipboard.js';
 import { ConfirmPrompt } from './components/confirm-prompt.js';
 import { FilePicker } from './components/file-picker.js';
+import { FleetPanel } from './components/fleet-panel.js';
 import { History, type HistoryEntry } from './components/history.js';
 import { Input, type KeyEvent } from './components/input.js';
 import { ModelPicker, type ProviderOption } from './components/model-picker.js';
@@ -28,6 +31,21 @@ export interface QueueItem {
   id: number;
   displayText: string;
   blocks: ContentBlock[];
+}
+
+/** Per-subagent state tracked live from the FleetBus. */
+export interface FleetEntry {
+  id: string;
+  name: string;
+  provider?: string;
+  model?: string;
+  status: 'idle' | 'running' | 'success' | 'failed' | 'timeout' | 'stopped';
+  streamingText: string;
+  iterations: number;
+  toolCalls: number;
+  cost: number;
+  startedAt: number;
+  lastEventAt: number;
 }
 
 /** A registered slash command matched against the user's current / query. */
@@ -84,6 +102,12 @@ export interface AppProps {
   onClearHistory?: (
     dispatch: React.Dispatch<{ type: 'clearHistory' } | { type: 'resetContextChip' }>,
   ) => void;
+
+  // --- Fleet ---
+  /** Live director for fleet panel rendering. Null when director mode is off. */
+  director: Director | null;
+  /** Optional roster for human-readable subagent names. */
+  fleetRoster?: Record<string, { name: string }>;
 }
 
 type DraftEntry = HistoryEntry extends infer T
@@ -142,6 +166,10 @@ type State = {
   } | null;
   /** Incremented on /clear so the context chip re-reads from agent.ctx tokens. */
   contextChipVersion: number;
+  /** Live fleet state: per-subagent entries from FleetBus events. Keyed by subagentId. */
+  fleet: Record<string, FleetEntry>;
+  /** Fleet-wide accumulated cost. */
+  fleetCost: number;
 };
 
 type Action =
@@ -182,7 +210,16 @@ type Action =
   | { type: 'historyDown' }
   | { type: 'confirmOpen'; info: State['confirm'] }
   | { type: 'confirmClose' }
-  | { type: 'resetContextChip' };
+  | { type: 'resetContextChip' }
+  // Fleet actions
+  | { type: 'fleetSeed'; entries: FleetEntry[]; cost: number }
+  | { type: 'fleetSpawn'; id: string; name?: string; provider?: string; model?: string }
+  | { type: 'fleetStart'; id: string; taskId?: string }
+  | { type: 'fleetDelta'; id: string; text: string }
+  | { type: 'fleetTool'; id: string }
+  | { type: 'fleetUsage'; id: string; input: number; output: number; cacheRead: number; cacheWrite: number }
+  | { type: 'fleetDone'; id: string; status: FleetEntry['status']; iterations: number; toolCalls: number }
+  | { type: 'fleetCost'; cost: number };
 
 export function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -439,6 +476,97 @@ export function reducer(state: State, action: Action): State {
       return { ...state, confirm: null };
     case 'resetContextChip':
       return { ...state, contextChipVersion: state.contextChipVersion + 1 };
+    // --- Fleet ---
+    case 'fleetSeed': {
+      const seeded: Record<string, FleetEntry> = {};
+      for (const e of action.entries) seeded[e.id] = e;
+      return { ...state, fleet: seeded, fleetCost: action.cost };
+    }
+    case 'fleetSpawn': {
+      if (state.fleet[action.id]) return state;
+      const entry: FleetEntry = {
+        id: action.id,
+        name: action.name ?? action.id.slice(0, 8),
+        provider: action.provider,
+        model: action.model,
+        status: 'idle',
+        streamingText: '',
+        iterations: 0,
+        toolCalls: 0,
+        cost: 0,
+        startedAt: Date.now(),
+        lastEventAt: Date.now(),
+      };
+      return { ...state, fleet: { ...state.fleet, [action.id]: entry } };
+    }
+    case 'fleetStart': {
+      const cur = state.fleet[action.id];
+      if (!cur) return state;
+      return {
+        ...state,
+        fleet: {
+          ...state.fleet,
+          [action.id]: { ...cur, status: 'running' as const, streamingText: '', startedAt: Date.now() },
+        },
+      };
+    }
+    case 'fleetDelta': {
+      const cur = state.fleet[action.id];
+      if (!cur) return state;
+      // Keep only the last ~200 chars for display
+      const appended = (cur.streamingText + action.text).slice(-200);
+      return {
+        ...state,
+        fleet: {
+          ...state.fleet,
+          [action.id]: { ...cur, streamingText: appended, lastEventAt: Date.now() },
+        },
+      };
+    }
+    case 'fleetTool': {
+      const cur = state.fleet[action.id];
+      if (!cur) return state;
+      return {
+        ...state,
+        fleet: {
+          ...state.fleet,
+          [action.id]: { ...cur, toolCalls: cur.toolCalls + 1, lastEventAt: Date.now() },
+        },
+      };
+    }
+    case 'fleetUsage': {
+      const cur = state.fleet[action.id];
+      if (!cur) return state;
+      // Compute cost delta from raw token counts using a simplified pricing
+      // model. The actual per-model pricing is applied by FleetUsageAggregator;
+      // here we approximate as a live display hint.
+      const cost = cur.cost;
+      return {
+        ...state,
+        fleet: { ...state.fleet, [action.id]: { ...cur, cost, lastEventAt: Date.now() } },
+      };
+    }
+    case 'fleetDone': {
+      const cur = state.fleet[action.id];
+      if (!cur) return state;
+      return {
+        ...state,
+        fleet: {
+          ...state.fleet,
+          [action.id]: {
+            ...cur,
+            status: action.status,
+            iterations: action.iterations,
+            toolCalls: action.toolCalls,
+            streamingText: '',
+            lastEventAt: Date.now(),
+          },
+        },
+      };
+    }
+    case 'fleetCost': {
+      return { ...state, fleetCost: action.cost };
+    }
   }
 }
 
@@ -462,6 +590,8 @@ export function App({
   switchProviderAndModel,
   effectiveMaxContext,
   onExit,
+  director,
+  fleetRoster,
   onClearHistory,
 }: AppProps): React.ReactElement {
   const { exit } = useApp();
@@ -511,6 +641,8 @@ export function App({
     },
     confirm: null,
     contextChipVersion: 0,
+    fleet: {},
+    fleetCost: 0,
   });
 
   const builderRef = useRef<InputBuilder | null>(null);
@@ -1007,6 +1139,103 @@ export function App({
       if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
     };
   }, [events]);
+
+  // --- FleetBus → TUI dispatch bridge ---
+  // Subscribes to every event on the director's FleetBus and dispatches
+  // fleet state actions. Text deltas are throttled (FLUSH_MS) to avoid
+  // flooding React re-renders; other events dispatch immediately.
+  // Seeds initial fleet state from director.status() on mount so the
+  // panel reflects subagents spawned before the TUI attached.
+  useEffect(() => {
+    const d = director;
+    if (!d) return;
+    const FLUSH_MS = 150;
+
+    // Seed: discover already-spawned subagents from the coordinator.
+    const status = d.status();
+    for (const s of status.subagents) {
+      const meta = d.getSubagentMeta(s.id);
+      dispatch({
+        type: 'fleetSpawn',
+        id: s.id,
+        name: meta?.name ?? s.name,
+        provider: meta?.provider,
+        model: meta?.model,
+      });
+    }
+    // Also seed cost from the usage aggregator.
+    dispatch({ type: 'fleetCost', cost: d.snapshot().total.cost });
+
+    // Discover new subagents on first FleetBus event for an unknown id.
+    const seen = new Set(Object.keys(status.subagents));
+
+    // Throttled delta accumulator per subagent.
+    const pending = new Map<string, string>();
+    let flushTimer: ReturnType<typeof setTimeout> | null = null;
+    const doFlush = () => {
+      for (const [id, text] of pending) {
+        if (text) dispatch({ type: 'fleetDelta', id, text });
+      }
+      pending.clear();
+      flushTimer = null;
+    };
+
+    const offFleet = d.fleet.onAny((e: FleetEvent) => {
+      // Discover new subagents.
+      if (!seen.has(e.subagentId)) {
+        seen.add(e.subagentId);
+        const meta = d.getSubagentMeta(e.subagentId);
+        dispatch({ type: 'fleetSpawn', id: e.subagentId, name: meta?.name, provider: meta?.provider, model: meta?.model });
+      }
+
+      switch (e.type) {
+        case 'iteration.started':
+          dispatch({ type: 'fleetStart', id: e.subagentId });
+          break;
+        case 'provider.text_delta': {
+          const p = e.payload as { text?: string };
+          if (p?.text) {
+            const cur = pending.get(e.subagentId) ?? '';
+            pending.set(e.subagentId, cur + p.text);
+            if (!flushTimer) flushTimer = setTimeout(doFlush, FLUSH_MS);
+          }
+          break;
+        }
+        case 'tool.executed':
+          dispatch({ type: 'fleetTool', id: e.subagentId });
+          break;
+        case 'provider.response': {
+          // Surface live cost from the aggregator (already computed with
+          // per-model pricing). The fleetUsage reducer case is a stub that
+          // preserves cost; fleetCost carries the real value.
+          dispatch({ type: 'fleetCost', cost: d.snapshot().total.cost });
+          break;
+        }
+        case 'session.ended':
+          // Subagent finished — leave status update to task.completed.
+          break;
+      }
+    });
+
+    // Task completions come via the director (not FleetBus).
+    const offDone = d.on('task.completed', (payload) => {
+      dispatch({
+        type: 'fleetDone',
+        id: payload.result.subagentId,
+        status: payload.result.status,
+        iterations: payload.result.iterations,
+        toolCalls: payload.result.toolCalls,
+      });
+      dispatch({ type: 'fleetCost', cost: d.snapshot().total.cost });
+    });
+
+    return () => {
+      offFleet();
+      offDone();
+      if (flushTimer) clearTimeout(flushTimer);
+      doFlush(); // commit any pending deltas before cleanup
+    };
+  }, [director]);
 
   // Handle SIGINT: first cancels current iteration, second exits.
   useEffect(() => {
@@ -1517,7 +1746,15 @@ export function App({
         git={gitInfo}
         context={contextWindow}
         projectName={projectName}
+        subagentCount={Object.keys(state.fleet).length}
       />
+      {director ? (
+        <FleetPanel
+          entries={state.fleet}
+          totalCost={state.fleetCost}
+          roster={fleetRoster}
+        />
+      ) : null}
     </Box>
   );
 }

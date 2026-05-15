@@ -8,6 +8,7 @@ import type {
   Agent,
   AttachmentStore,
   Config,
+  Director,
   EventBus,
   ModelsRegistry,
   RecoveryLock,
@@ -50,6 +51,10 @@ export interface ExecutionDeps {
   resolvedProvider: ResolvedProvider | undefined;
   getPickableProviders: () => Promise<Array<{ id: string; family: string; models: string[] }>>;
   switchProviderAndModel: (providerId: string, modelId: string) => string | null;
+  /** Live director instance for the TUI fleet panel. Null when director mode is off. */
+  director: Director | null;
+  /** Fleet roster for human-readable subagent names. */
+  fleetRoster?: Record<string, { name: string }>;
 }
 
 export async function execute(deps: ExecutionDeps): Promise<number> {
@@ -78,6 +83,8 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
     resolvedProvider,
     getPickableProviders,
     switchProviderAndModel,
+    director,
+    fleetRoster,
   } = deps;
 
   let code = 0;
@@ -184,6 +191,8 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
           switchProviderAndModel,
           effectiveMaxContext,
           altScreen: flags['alt-screen'] === true,
+          director,
+          fleetRoster,
           onAfterExit: () => {
             process.stdout.write(
               color.dim(`Session saved: ${session.id} — resume with `) +

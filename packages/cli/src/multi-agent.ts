@@ -151,8 +151,50 @@ export class MultiAgentHost {
       });
     }
 
+    // Phase 1: Build coordinator/Director WITHOUT a runner. The runner
+    // needs FleetBus which only exists after the Director is created.
+    const coordinatorConfig = {
+      coordinatorId: randomUUID(),
+      doneCondition: { type: 'all_tasks_done' as const },
+      maxConcurrent: 2,
+      defaultBudget: { maxToolCalls: 20, maxIterations: 20, timeoutMs: 120_000 },
+    };
+
+    if (this.opts.directorMode) {
+      this.director = new Director({
+        config: coordinatorConfig,
+        manifestPath: this.opts.manifestPath,
+        sharedScratchpadPath: this.opts.sharedScratchpadPath,
+      });
+      this.director.on('task.completed', ({ task, result }) => {
+        this.results.push(result);
+        this.pending.delete(task.id);
+      });
+      this.coordinator = (
+        this.director as unknown as { coordinator: MultiAgentCoordinator }
+      ).coordinator;
+    } else {
+      this.coordinator = new DefaultMultiAgentCoordinator(coordinatorConfig, {});
+      (this.coordinator as unknown as { on: Function }).on(
+        'task.completed',
+        ({ task, result }: { task: { id: string }; result: TaskResult }) => {
+          this.results.push(result);
+          this.pending.delete(task.id);
+        },
+      );
+    }
+
+    // Phase 2: Build the runner — FleetBus is now available via
+    // this.director?.fleet (set in Phase 1 for director mode).
     const runner = this.buildSubagentRunner(config);
-    return this.buildCoordinator(runner);
+
+    // Phase 3: Inject the runner into the coordinator.
+    const innerCoord: DefaultMultiAgentCoordinator = this.opts.directorMode
+      ? (this.director as unknown as { coordinator: DefaultMultiAgentCoordinator }).coordinator
+      : (this.coordinator as DefaultMultiAgentCoordinator);
+    innerCoord.setRunner(runner);
+
+    return this.coordinator;
   }
 
   /**
@@ -219,51 +261,7 @@ export class MultiAgentHost {
       return { agent, events };
     };
 
-    return makeAgentSubagentRunner({ factory });
-  }
-
-  /**
-   * Build the coordinator (or Director wrapper) with task-completion
-   * drain wired into the host's result buffer.
-   */
-  private buildCoordinator(
-    runner: ReturnType<typeof makeAgentSubagentRunner>,
-  ): MultiAgentCoordinator {
-    const coordinatorConfig = {
-      coordinatorId: randomUUID(),
-      doneCondition: { type: 'all_tasks_done' as const },
-      maxConcurrent: 2,
-      defaultBudget: { maxToolCalls: 20, maxIterations: 20, timeoutMs: 120_000 },
-    };
-
-    if (this.opts.directorMode) {
-      this.director = new Director({
-        config: coordinatorConfig,
-        runner,
-        manifestPath: this.opts.manifestPath,
-        sharedScratchpadPath: this.opts.sharedScratchpadPath,
-      });
-      this.director.on('task.completed', ({ task, result }) => {
-        this.results.push(result);
-        this.pending.delete(task.id);
-      });
-      this.coordinator = (
-        this.director as unknown as { coordinator: MultiAgentCoordinator }
-      ).coordinator;
-      return this.coordinator;
-    }
-
-    this.coordinator = new DefaultMultiAgentCoordinator(coordinatorConfig, { runner });
-
-    (this.coordinator as unknown as { on: Function }).on(
-      'task.completed',
-      ({ task, result }: { task: { id: string }; result: TaskResult }) => {
-        this.results.push(result);
-        this.pending.delete(task.id);
-      },
-    );
-
-    return this.coordinator;
+    return makeAgentSubagentRunner({ factory, fleetBus: this.director?.fleet });
   }
 
   /**

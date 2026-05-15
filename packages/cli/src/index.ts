@@ -24,6 +24,7 @@ import {
   DefaultSkillLoader,
   DefaultSystemPromptBuilder,
   DefaultTokenCounter,
+  Director,
   EventBus,
   FLEET_ROSTER,
   type HealthRegistry,
@@ -737,6 +738,7 @@ export async function main(argv: string[]): Promise<number> {
   // path defaults to `<projectSessions>/<sessionId>/fleet.json`; users can
   // override via `WRONGSTACK_FLEET_MANIFEST` if they want a fixed path.
   const directorMode = flags['director'] === true;
+  let director: Director | null = null;
   // Convention: director artifacts all live under the same fleet root —
   //   <projectSessions>/<sessionId>/
   //     ├─ fleet.json              (manifest)
@@ -786,7 +788,7 @@ export async function main(argv: string[]): Promise<number> {
     // no way to discover the fleet surface and `--director` ends up as
     // a manifest-only flag with no orchestration. Pass `FLEET_ROSTER`
     // so `spawn_subagent` can accept `role: 'bug-hunter'` shortcuts.
-    const director = await multiAgentHost.ensureDirector();
+    director = await multiAgentHost.ensureDirector();
     if (director) {
       for (const tool of director.tools(FLEET_ROSTER)) {
         toolRegistry.register(tool);
@@ -987,6 +989,8 @@ export async function main(argv: string[]): Promise<number> {
     resolvedProvider: resolvedProvider ?? undefined,
     getPickableProviders: () => buildPickableProviders(modelsRegistry, config),
     switchProviderAndModel,
+    director: director ?? null,
+    fleetRoster: FLEET_ROSTER as Record<string, { name: string }>,
   });
 }
 

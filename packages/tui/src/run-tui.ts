@@ -1,7 +1,10 @@
 import type {
   Agent,
   AttachmentStore,
+  Director,
   EventBus,
+  FleetBus,
+  FleetUsageAggregator,
   QueueStore,
   SlashCommandRegistry,
   TokenCounter,
@@ -63,6 +66,21 @@ export interface RunTuiOptions {
   onClearHistory?: (
     dispatch: React.Dispatch<{ type: 'clearHistory' } | { type: 'resetContextChip' }>,
   ) => void;
+
+  // --- Fleet surface (director mode) ---
+
+  /**
+   * Live director instance. When set, the TUI renders a fleet panel
+   * showing every spawned subagent, its current task, streaming output,
+   * and runtime cost — updated live from the FleetBus. Pass null or omit
+   * when multi-agent / director mode is disabled.
+   */
+  director?: Director | null;
+  /**
+   * Optional roster reference for resolving subagent role ids to
+   * human-readable names. Same value passed to director.tools().
+   */
+  fleetRoster?: Record<string, { name: string }>;
 }
 
 // Bracketed paste mode wraps any pasted text with these markers, letting us
@@ -178,6 +196,8 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
           switchProviderAndModel: opts.switchProviderAndModel,
           effectiveMaxContext: opts.effectiveMaxContext,
           onExit,
+          director: opts.director ?? null,
+          fleetRoster: opts.fleetRoster,
           onClearHistory: opts.onClearHistory
             ? (dispatch) => opts.onClearHistory!(dispatch)
             : undefined,

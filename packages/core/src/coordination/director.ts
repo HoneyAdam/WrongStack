@@ -507,6 +507,24 @@ export class Director {
   }
 
   /**
+   * Look up provider/model metadata for a spawned subagent. Returns
+   * undefined when the subagent id is unknown (not yet spawned, or
+   * already torn down). Callers — notably the TUI fleet panel — use
+   * this to render human-readable provider/model tags next to each
+   * subagent row without reaching into private state.
+   */
+  getSubagentMeta(id: string): { provider?: string; model?: string; name?: string } | undefined {
+    const usage = this.subagentMeta.get(id);
+    const manifest = this.manifestEntries.get(id);
+    if (!usage && !manifest) return undefined;
+    return {
+      provider: usage?.provider ?? manifest?.provider,
+      model: usage?.model ?? manifest?.model,
+      name: manifest?.name,
+    };
+  }
+
+  /**
    * Compose the leader/director-agent system prompt: fleet preamble +
    * (optional) roster summary + user base prompt. Pass the result to your
    * leader Agent's `ctx.systemPrompt` when constructing it.

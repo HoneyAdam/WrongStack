@@ -1,17 +1,17 @@
 {
-  "directorRunId": "5c353247-167f-4fda-a20c-ab3a7d5ecea0",
-  "writtenAt": "2026-05-15T22:01:37.777Z",
+  "directorRunId": "66769ea4-0c56-4d6c-b786-e8522c9fe922",
+  "writtenAt": "2026-05-15T23:32:18.589Z",
   "children": [
     {
-      "subagentId": "32ce1c1c-9bb8-4259-88cb-4157add688a9",
+      "subagentId": "796f6939-4752-4ba0-9603-a9b0f3b6667c",
       "name": "checker",
       "role": "general",
       "taskIds": [
-        "361e3192-1cbf-40c4-9433-7002388f5fda"
+        "385adda9-0cf3-41b1-9047-9e51cd840d6e"
       ],
       "results": [
         {
-          "taskId": "361e3192-1cbf-40c4-9433-7002388f5fda",
+          "taskId": "385adda9-0cf3-41b1-9047-9e51cd840d6e",
           "status": "pending"
         }
       ]
