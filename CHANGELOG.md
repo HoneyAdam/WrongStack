@@ -7,6 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7] — 2026-05-15
+
+WebUI polish + publishing pass. `@wrongstack/webui` debuts on npm; all
+other packages re-publish in lockstep. No breaking changes.
+
+### Added — `@wrongstack/webui` (first npm release)
+
+- **Standalone WebUI is now publishable.** `dist/server/entry.js` ships
+  with a `#!/usr/bin/env node` shebang so `npx @wrongstack/webui` works
+  after install. `files: ["dist", "README.md", "LICENSE"]` keeps the
+  tarball lean — no source bleed.
+- **Vim-style chat navigation** — `j` / `k` step between message bubbles,
+  `g` / `Shift+G` jump to first / last, `c` copies the focused bubble's
+  text, `Esc` clears focus. Only active when not typing in an input.
+  Documented in the `?` shortcuts overlay.
+- **In-text search highlighting via CSS Custom Highlights API.** Ctrl+F
+  now paints every match of the query with a soft yellow background;
+  the active hit gets a stronger amber. No DOM mutation, plays cleanly
+  with ReactMarkdown re-renders. Silent no-op fallback on browsers
+  without the API.
+- **Inline error stack-trace expander.** Assistant `isError` bodies
+  detect V8 / Python / Java stack frames and collapse them behind a
+  "Show stack trace (N frames)" toggle. The lead message stays visible.
+- **Token estimate + context-budget chip in the input.** Past ~400 chars,
+  the character counter grows a `≈Nt` token estimate (4-char heuristic).
+  Tints amber when projected `lastInput + draft + 64` ≥ 85% of context
+  window, red at 100%. Hover reveals the exact projection.
+- **Drag-and-drop file attach.** Drag files from the OS onto the chat
+  input → tokens are inserted as `@<basename>` and the FilePicker opens
+  pre-seeded with the last dropped basename for workspace-path
+  resolution. Multi-file supported; non-file drags ignored.
+- **Pretty tool-input renderer** — `ToolInputView` replaces the raw JSON
+  dump for non-diff tools with a key:value list; nested values are
+  expandable rows with collapsed `[N items]` / `{N keys}` summaries.
+- **Preferences sub-section in Settings → Appearance.** Toggle compact
+  density and "Sound on completion" (Web Audio synthesized chime,
+  plays only when the tab is hidden, gated by user preference).
+
+### Fixed — `@wrongstack/webui` typecheck
+
+- **`WSClientMessage` union** now includes `modes.list`, `mode.switch`,
+  `files.list`, `todos.get`, `todos.clear` — handlers existed in
+  `ws-client.ts` but lacked type declarations, so `send()` rejected
+  them at compile time.
+- **`WSServerMessage` union** now includes `WSFilesList`,
+  `WSTodosUpdated`, `WSModesList`. The `.on()` consumers were casting
+  payloads against shapes not in the union, which produced
+  non-overlapping-cast errors.
+- **`Sidebar.groupedHistory`** IIFE return type missed the `star?: boolean`
+  field that the Favorites group literal already used.
+
+### Added — release tooling
+
+- **`scripts/bump-version.mjs`** — lockstep version bumper. Computes the
+  next version from the highest seen across the workspace, writes the
+  same value into all 10 package.json files (root, every `packages/*`,
+  and `apps/wrongstack`). Leaves `workspace:*` cross-deps untouched —
+  pnpm rewrites them at publish time.
+- **Root scripts** — `pnpm version:patch|minor|major|set`,
+  `pnpm release:check` (typecheck + test + build),
+  `pnpm release:dry` (full dry-run), `pnpm release` (gate + publish).
+- **`publishConfig.access: "public"`** added to every publishable
+  package so `pnpm publish` no longer needs the `--access public` flag.
+
 ## [0.1.6] — 2026-05-14
 
 Security hardening pass: 7 CRITICAL, 16 HIGH, 20 MEDIUM, 9 LOW findings from
