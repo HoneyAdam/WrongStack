@@ -1,13 +1,13 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { EventBus, Logger } from '@wrongstack/core';
+import type { DocumentTracker } from './document-tracker.js';
+import { languageIdFor } from './language-detect.js';
+import { nextReconnectDelay } from './server/lifecycle.js';
+import { LSPServer } from './server/lsp-server.js';
 import type { AutoStartMode, PlugLSPConfig } from './types.js';
 import { LSPError, LSPErrorCode } from './types.js';
-import { languageIdFor } from './language-detect.js';
 import { findWorkspaceRoot } from './workspace-root.js';
-import { LSPServer } from './server/lsp-server.js';
-import { nextReconnectDelay } from './server/lifecycle.js';
-import type { DocumentTracker } from './document-tracker.js';
 
 export interface RegistryContext {
   cwd: string;
@@ -42,7 +42,9 @@ export class LSPRegistry {
       await Promise.all(
         this.list()
           .filter((s) => s.config.languages.some((lang) => languages.has(lang)))
-          .map((s) => s.start().catch((err) => this.ctx.log.warn(`LSP ${s.name} failed to start`, err))),
+          .map((s) =>
+            s.start().catch((err) => this.ctx.log.warn(`LSP ${s.name} failed to start`, err)),
+          ),
       );
     }
   }
@@ -50,7 +52,11 @@ export class LSPRegistry {
   async shutdown(): Promise<void> {
     for (const timer of this.reconnectTimers.values()) clearTimeout(timer);
     this.reconnectTimers.clear();
-    await Promise.all(this.list().map((s) => s.shutdown().catch((err) => this.ctx.log.warn(`LSP ${s.name} shutdown failed`, err))));
+    await Promise.all(
+      this.list().map((s) =>
+        s.shutdown().catch((err) => this.ctx.log.warn(`LSP ${s.name} shutdown failed`, err)),
+      ),
+    );
   }
 
   async findForPath(filePath: string, signal?: AbortSignal): Promise<LSPServer | null> {
@@ -100,7 +106,11 @@ export class LSPRegistry {
     this.languageIndex.clear();
     for (const [name, cfg] of Object.entries(this.cfg.servers)) {
       if (cfg.enabled === false) continue;
-      const rootPath = findWorkspaceRoot(path.join(this.cwd, '__probe__'), cfg.rootPatterns, this.cwd);
+      const rootPath = findWorkspaceRoot(
+        path.join(this.cwd, '__probe__'),
+        cfg.rootPatterns,
+        this.cwd,
+      );
       const server = new LSPServer(name, cfg, {
         cwd: this.cwd,
         rootPath,
@@ -111,7 +121,9 @@ export class LSPRegistry {
       this.servers.set(name, server);
       for (const language of cfg.languages) {
         if (this.languageIndex.has(language)) {
-          this.ctx.log.warn(`LSP language "${language}" is claimed by multiple servers; using first`);
+          this.ctx.log.warn(
+            `LSP language "${language}" is claimed by multiple servers; using first`,
+          );
           continue;
         }
         this.languageIndex.set(language, name);
@@ -136,7 +148,8 @@ export class LSPRegistry {
     server.state = 'reconnecting';
     const timer = setTimeout(() => {
       this.reconnectTimers.delete(server.name);
-      void server.start()
+      void server
+        .start()
         .then(() => {
           this.reconnectAttempts.delete(server.name);
           return this.tracker.reopenForServer(server);
@@ -147,7 +160,7 @@ export class LSPRegistry {
           server.state = 'failed';
           this.scheduleReconnect(server);
         });
-        /* v8 ignore stop */
+      /* v8 ignore stop */
     }, nextReconnectDelay(attempt));
     this.reconnectTimers.set(server.name, timer);
   }
@@ -160,7 +173,7 @@ async function detectProjectLanguages(root: string): Promise<Set<string>> {
     let entries: import('node:fs').Dirent[];
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
-    /* v8 ignore next -- unreadable directories depend on OS permissions. */
+      /* v8 ignore next -- unreadable directories depend on OS permissions. */
     } catch {
       return;
     }

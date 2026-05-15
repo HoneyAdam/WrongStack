@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { Director } from '../../src/defaults/director.js';
+import { Director } from '../../src/coordination/director.js';
 import type {
   SubagentConfig,
   SubagentRunContext,
@@ -505,7 +505,7 @@ describe('Director orchestration', () => {
     const os = await import('node:os');
     const fsp = await import('node:fs/promises');
     const path = await import('node:path');
-    const { makeDirectorSessionFactory } = await import('../../src/defaults/director-session.js');
+    const { makeDirectorSessionFactory } = await import('../../src/coordination/director-session.js');
 
     const tmpRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'wrongstack-director-test-'));
     try {
@@ -559,7 +559,7 @@ describe('Director orchestration', () => {
 
   describe('safety caps (Phase 6)', () => {
     it('maxSpawns refuses the N+1-th spawn with DirectorBudgetError', async () => {
-      const { DirectorBudgetError } = await import('../../src/defaults/director.js');
+      const { DirectorBudgetError } = await import('../../src/coordination/director.js');
       const dir = new Director({
         config: { coordinatorId: 'cap', doneCondition: { type: 'all_tasks_done' } },
         runner: async () => ({ result: 'ok', iterations: 1, toolCalls: 0 }),
@@ -583,7 +583,7 @@ describe('Director orchestration', () => {
     });
 
     it('maxSpawnDepth refuses spawn when director is too deep', async () => {
-      const { DirectorBudgetError } = await import('../../src/defaults/director.js');
+      const { DirectorBudgetError } = await import('../../src/coordination/director.js');
       // A "nested" director at depth >= cap — it cannot spawn at all.
       const dir = new Director({
         config: { coordinatorId: 'deep', doneCondition: { type: 'all_tasks_done' } },

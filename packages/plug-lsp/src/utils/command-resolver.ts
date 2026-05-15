@@ -1,15 +1,15 @@
+import { spawn } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { spawn } from 'node:child_process';
 
 export async function resolveServerCommand(command: string, cwd: string): Promise<string | null> {
   const local = await findLocalBinary(cwd, command);
   if (local) return local;
-  return await commandExistsOnPath(command) ? command : null;
+  return (await commandExistsOnPath(command)) ? command : null;
 }
 
 export async function findLocalBinary(cwd: string, command: string): Promise<string | null> {
-  if (path.isAbsolute(command)) return await fileExists(command) ? path.normalize(command) : null;
+  if (path.isAbsolute(command)) return (await fileExists(command)) ? path.normalize(command) : null;
   let dir = path.resolve(cwd);
   for (;;) {
     const binDir = path.join(dir, 'node_modules', '.bin');
@@ -25,7 +25,8 @@ export async function findLocalBinary(cwd: string, command: string): Promise<str
 
 export async function commandExistsOnPath(command: string): Promise<boolean> {
   const probe = process.platform === 'win32' ? 'where.exe' : 'sh';
-  const args = process.platform === 'win32' ? [command] : ['-lc', `command -v ${shellQuote(command)}`];
+  const args =
+    process.platform === 'win32' ? [command] : ['-lc', `command -v ${shellQuote(command)}`];
   return new Promise((resolve) => {
     const child = spawn(probe, args, { stdio: 'ignore', windowsHide: true });
     child.on('error', () => resolve(false));

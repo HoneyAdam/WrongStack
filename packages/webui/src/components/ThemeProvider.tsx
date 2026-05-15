@@ -1,6 +1,6 @@
+import { useConfigStore } from '@/stores';
 import type React from 'react';
 import { createContext, useContext, useEffect, useState } from 'react';
-import { useConfigStore } from '@/stores';
 
 type Theme = 'light' | 'dark' | 'system';
 
@@ -53,11 +53,7 @@ export function ThemeProvider({
     },
   };
 
-  return (
-    <ThemeProviderContext.Provider value={value}>
-      {children}
-    </ThemeProviderContext.Provider>
-  );
+  return <ThemeProviderContext.Provider value={value}>{children}</ThemeProviderContext.Provider>;
 }
 
 export function useTheme() {

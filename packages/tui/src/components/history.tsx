@@ -1,5 +1,5 @@
-import type React from 'react';
 import { Box, Static, Text, useStdout } from 'ink';
+import type React from 'react';
 import { renderMarkdownTables } from '../markdown-table.js';
 import { ConfirmPrompt } from './confirm-prompt.js';
 
@@ -146,7 +146,10 @@ function DiffBlock({ rows, hidden }: { rows: DiffLineRow[]; hidden: number }): R
   );
 }
 
-function Entry({ entry, termWidth }: { entry: HistoryEntry; termWidth: number }): React.ReactElement {
+function Entry({
+  entry,
+  termWidth,
+}: { entry: HistoryEntry; termWidth: number }): React.ReactElement {
   switch (entry.kind) {
     case 'user':
       return (
@@ -181,7 +184,10 @@ function Entry({ entry, termWidth }: { entry: HistoryEntry; termWidth: number })
             // biome-ignore lint/suspicious/noArrayIndexKey: tool output lines are static, index is stable
             <Text key={i}>
               <Text dimColor>{i === outLines.length - 1 && !diff ? '  └─ ' : '  ├─ '}</Text>
-              <Text color={!entry.ok || line.startsWith('!') ? 'red' : undefined} dimColor={entry.ok && !line.startsWith('!')}>
+              <Text
+                color={!entry.ok || line.startsWith('!') ? 'red' : undefined}
+                dimColor={entry.ok && !line.startsWith('!')}
+              >
                 {line}
               </Text>
             </Text>
@@ -200,10 +206,20 @@ function Entry({ entry, termWidth }: { entry: HistoryEntry; termWidth: number })
       return <Text dimColor>{entry.text}</Text>;
     case 'confirm':
       return (
-        <Box flexDirection="column" borderStyle="single" borderTop={false} borderLeft={false} borderRight={false} borderBottom={false} paddingX={1}>
+        <Box
+          flexDirection="column"
+          borderStyle="single"
+          borderTop={false}
+          borderLeft={false}
+          borderRight={false}
+          borderBottom={false}
+          paddingX={1}
+        >
           <Box flexDirection="row">
-            <Text bold color="yellow">⚠ Confirm</Text>
-            <Text>  </Text>
+            <Text bold color="yellow">
+              ⚠ Confirm
+            </Text>
+            <Text> </Text>
             <Text bold>{entry.toolName}</Text>
           </Box>
           {entry.input && typeof entry.input === 'object' ? (
@@ -217,13 +233,21 @@ function Entry({ entry, termWidth }: { entry: HistoryEntry; termWidth: number })
           <Text dimColor>─────────────────</Text>
           <Box flexDirection="row">
             <Text>
-              <Text bold color="green">[↵]</Text>
-              <Text dimColor> yes    </Text>
-              <Text bold color="red">[Esc]</Text>
-              <Text dimColor> no    </Text>
-              <Text bold color="cyan">[Ctrl+A]</Text>
-              <Text dimColor> always ({entry.suggestedPattern})    </Text>
-              <Text bold color="red">[Ctrl+D]</Text>
+              <Text bold color="green">
+                [↵]
+              </Text>
+              <Text dimColor> yes </Text>
+              <Text bold color="red">
+                [Esc]
+              </Text>
+              <Text dimColor> no </Text>
+              <Text bold color="cyan">
+                [Ctrl+A]
+              </Text>
+              <Text dimColor> always ({entry.suggestedPattern}) </Text>
+              <Text bold color="red">
+                [Ctrl+D]
+              </Text>
               <Text dimColor> deny</Text>
             </Text>
           </Box>
@@ -248,13 +272,7 @@ function Banner({
 }): React.ReactElement {
   const cwdShort = shortenPath(entry.cwd, 48);
   return (
-    <Box
-      flexDirection="column"
-      borderStyle="round"
-      borderColor="magenta"
-      paddingX={2}
-      paddingY={0}
-    >
+    <Box flexDirection="column" borderStyle="round" borderColor="magenta" paddingX={2} paddingY={0}>
       <Text>
         <Text color="magenta" bold>
           {'  ▟▛  '}
@@ -540,7 +558,8 @@ export function formatToolOutput(
       if (!diff) return [files && files.length === 0 ? 'no changes' : 'empty diff'];
       const head: string[] = [];
       if (mode) head.push(mode);
-      if (files && files.length > 0) head.push(`${files.length} file${files.length === 1 ? '' : 's'}`);
+      if (files && files.length > 0)
+        head.push(`${files.length} file${files.length === 1 ? '' : 's'}`);
       if (truncated) head.push('truncated');
       return head.length > 0 ? [head.join(' · ')] : [];
     }

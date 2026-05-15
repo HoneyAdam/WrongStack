@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { InMemoryMetricsSink } from '../../src/defaults/observability/metrics.js';
+import { InMemoryMetricsSink } from '../../src/observability/metrics.js';
 import {
   renderPrometheus,
   startMetricsServer,
   PROMETHEUS_CONTENT_TYPE,
-} from '../../src/defaults/observability/prometheus.js';
+} from '../../src/observability/prometheus.js';
 
 describe('Prometheus exposition (L3-C)', () => {
   it('renders counters and gauges as their Prometheus types', () => {
@@ -91,7 +91,7 @@ describe('Prometheus exposition (L3-C)', () => {
 
 describe('/healthz endpoint (V2-C)', () => {
   it('serves /healthz next to /metrics when a HealthRegistry is provided', async () => {
-    const { DefaultHealthRegistry } = await import('../../src/defaults/observability/health.js');
+    const { DefaultHealthRegistry } = await import('../../src/observability/health.js');
     const sink = new InMemoryMetricsSink();
     const health = new DefaultHealthRegistry();
     health.register({
@@ -117,7 +117,7 @@ describe('/healthz endpoint (V2-C)', () => {
   });
 
   it('returns 503 when at least one check is unhealthy', async () => {
-    const { DefaultHealthRegistry } = await import('../../src/defaults/observability/health.js');
+    const { DefaultHealthRegistry } = await import('../../src/observability/health.js');
     const sink = new InMemoryMetricsSink();
     const health = new DefaultHealthRegistry();
     health.register({
@@ -137,7 +137,7 @@ describe('/healthz endpoint (V2-C)', () => {
   });
 
   it('returns 200 for degraded (still-serving) status', async () => {
-    const { DefaultHealthRegistry } = await import('../../src/defaults/observability/health.js');
+    const { DefaultHealthRegistry } = await import('../../src/observability/health.js');
     const sink = new InMemoryMetricsSink();
     const health = new DefaultHealthRegistry();
     health.register({
@@ -157,7 +157,7 @@ describe('/healthz endpoint (V2-C)', () => {
   });
 
   it('supports custom healthPath', async () => {
-    const { DefaultHealthRegistry } = await import('../../src/defaults/observability/health.js');
+    const { DefaultHealthRegistry } = await import('../../src/observability/health.js');
     const handle = await startMetricsServer({
       port: 0,
       sink: new InMemoryMetricsSink(),

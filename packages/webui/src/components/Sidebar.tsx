@@ -1,32 +1,38 @@
-import { useEffect, useState } from 'react';
-import { useUIStore, useChatStore, useSessionStore, useConfigStore, useHistoryStore } from '@/stores';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';
 import {
-  MessageSquare,
-  History,
-  Settings as SettingsIcon,
-  PanelLeftClose,
-  Trash2,
-  RotateCcw,
-  Zap,
-  Database,
-  Wifi,
-  WifiOff,
-  RefreshCw,
-  Loader2,
+  useChatStore,
+  useConfigStore,
+  useHistoryStore,
+  useSessionStore,
+  useUIStore,
+} from '@/stores';
+import {
   CheckCircle2,
   Circle,
   CircleDot,
+  Database,
+  History,
   ListTodo,
+  Loader2,
+  MessageSquare,
+  PanelLeftClose,
   Pin,
+  RefreshCw,
+  RotateCcw,
   Search,
-  X,
+  Settings as SettingsIcon,
   Star,
+  Trash2,
+  Wifi,
+  WifiOff,
+  X,
+  Zap,
 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { Button } from './ui/button';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs';
 import { ScrollArea } from './ui/scroll-area';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 
 /**
  * Sidebar: navigation + at-a-glance session info. Settings live in the main
@@ -65,7 +71,11 @@ export function Sidebar() {
     .map((id) => messages.find((m) => m.id === id))
     .filter((m): m is NonNullable<typeof m> => !!m && m.content.length > 0);
   const { wsConnected, wsUrl, provider, model } = useConfigStore();
-  const { entries: historyEntries, loading: historyLoading, error: historyError } = useHistoryStore();
+  const {
+    entries: historyEntries,
+    loading: historyLoading,
+    error: historyError,
+  } = useHistoryStore();
   const { listSessions, deleteSession, resumeSession, client } = useWebSocket();
   // Pull the current todo snapshot once on connect so a freshly-opened
   // tab doesn't sit todo-less until the next tool runs.
@@ -107,7 +117,11 @@ export function Sidebar() {
    *  list reads like a journal instead of one long undifferentiated stream.
    *  Boundaries are local midnight. Entries with unparseable timestamps
    *  fall into "Earlier" so they're not silently dropped. */
-  const groupedHistory = ((): Array<{ label: string; rows: typeof historyEntries; star?: boolean }> => {
+  const groupedHistory = ((): Array<{
+    label: string;
+    rows: typeof historyEntries;
+    star?: boolean;
+  }> => {
     const q = historyQuery.trim().toLowerCase();
     const filtered = q
       ? historyEntries.filter(
@@ -123,12 +137,23 @@ export function Sidebar() {
     const todayStart = startOfDay.getTime();
     const yesterdayStart = todayStart - 86_400_000;
     const weekStart = todayStart - 6 * 86_400_000;
-    const buckets: { today: typeof historyEntries; yesterday: typeof historyEntries; week: typeof historyEntries; older: typeof historyEntries } = {
-      today: [], yesterday: [], week: [], older: [],
+    const buckets: {
+      today: typeof historyEntries;
+      yesterday: typeof historyEntries;
+      week: typeof historyEntries;
+      older: typeof historyEntries;
+    } = {
+      today: [],
+      yesterday: [],
+      week: [],
+      older: [],
     };
     for (const e of filtered) {
       const ts = Date.parse(e.startedAt);
-      if (Number.isNaN(ts)) { buckets.older.push(e); continue; }
+      if (Number.isNaN(ts)) {
+        buckets.older.push(e);
+        continue;
+      }
       if (ts >= todayStart) buckets.today.push(e);
       else if (ts >= yesterdayStart) buckets.yesterday.push(e);
       else if (ts >= weekStart) buckets.week.push(e);
@@ -241,21 +266,13 @@ export function Sidebar() {
                 'flex items-center gap-2 px-3 py-2 rounded-lg text-sm',
                 wsConnected
                   ? 'bg-green-500/10 text-green-600 dark:text-green-400'
-                  : 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400'
+                  : 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400',
               )}
             >
-              {wsConnected ? (
-                <Wifi className="h-4 w-4" />
-              ) : (
-                <WifiOff className="h-4 w-4" />
-              )}
-              <span className="font-medium">
-                {wsConnected ? 'Connected' : 'Disconnected'}
-              </span>
+              {wsConnected ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
+              <span className="font-medium">{wsConnected ? 'Connected' : 'Disconnected'}</span>
             </div>
-            <div className="text-xs text-muted-foreground mt-2 px-1 font-mono">
-              {wsUrl}
-            </div>
+            <div className="text-xs text-muted-foreground mt-2 px-1 font-mono">{wsUrl}</div>
           </div>
 
           {/* Active model — clickable shortcut to settings */}
@@ -287,7 +304,9 @@ export function Sidebar() {
               </div>
               <div className="flex flex-col p-2 rounded-lg bg-muted/50">
                 <span className="text-muted-foreground">Duration</span>
-                <span className="text-lg font-semibold">{formatDuration(session?.startedAt ?? null)}</span>
+                <span className="text-lg font-semibold">
+                  {formatDuration(session?.startedAt ?? null)}
+                </span>
               </div>
               <div className="flex flex-col p-2 rounded-lg bg-muted/50">
                 <span className="text-muted-foreground">Input</span>
@@ -344,9 +363,7 @@ export function Sidebar() {
                     >
                       <Icon className="h-3.5 w-3.5 mt-0.5 shrink-0" />
                       <span className="break-words">
-                        {t.status === 'in_progress' && t.activeForm
-                          ? t.activeForm
-                          : t.content}
+                        {t.status === 'in_progress' && t.activeForm ? t.activeForm : t.content}
                       </span>
                     </li>
                   );
@@ -381,9 +398,7 @@ export function Sidebar() {
                       <button
                         type="button"
                         onClick={() => {
-                          const el = document.querySelector(
-                            `[data-message-id="${m.id}"]`,
-                          );
+                          const el = document.querySelector(`[data-message-id="${m.id}"]`);
                           if (!el) return;
                           el.scrollIntoView({ behavior: 'smooth', block: 'center' });
                           el.classList.add('ring-2', 'ring-amber-500/60');
@@ -529,134 +544,143 @@ export function Sidebar() {
               <div className="p-2 space-y-3">
                 {groupedHistory.map((group) => (
                   <div key={group.label} className="space-y-1">
-                    <div className={cn(
-                      'sticky top-0 z-[1] px-1 pb-1 text-[10px] uppercase tracking-wider font-semibold bg-card/90 backdrop-blur-sm flex items-center gap-1',
-                      group.star ? 'text-amber-500' : 'text-muted-foreground/80',
-                    )}>
+                    <div
+                      className={cn(
+                        'sticky top-0 z-[1] px-1 pb-1 text-[10px] uppercase tracking-wider font-semibold bg-card/90 backdrop-blur-sm flex items-center gap-1',
+                        group.star ? 'text-amber-500' : 'text-muted-foreground/80',
+                      )}
+                    >
                       {group.star && <Star className="h-3 w-3 fill-current" />}
-                      {group.label} <span className="text-muted-foreground/50 font-normal normal-case ml-1">({group.rows.length})</span>
+                      {group.label}{' '}
+                      <span className="text-muted-foreground/50 font-normal normal-case ml-1">
+                        ({group.rows.length})
+                      </span>
                     </div>
                     {group.rows.map((entry) => (
-                  <div
-                    key={entry.id}
-                    className={cn(
-                      'group relative rounded-md border text-sm transition-colors',
-                      entry.isCurrent
-                        ? 'bg-primary/5 border-primary/40'
-                        : 'bg-card border-border/60 hover:bg-muted/40 hover:border-primary/40',
-                    )}
-                  >
-                    <button
-                      type="button"
-                      disabled={entry.isCurrent || renamingId === entry.id}
-                      onClick={() => resumeSession(entry.id)}
-                      onDoubleClick={(e) => {
-                        // Double-click anywhere on the row enters rename mode.
-                        // We stop propagation so it doesn't also fire the
-                        // single-click resume handler.
-                        e.stopPropagation();
-                        setRenamingId(entry.id);
-                        setRenameDraft(sessionNicknames[entry.id] ?? entry.title ?? '');
-                      }}
-                      className="block w-full rounded-md px-3 py-2 pr-16 text-left disabled:cursor-default focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      <div className="min-w-0 flex-1">
-                        {renamingId === entry.id ? (
-                          <input
-                            autoFocus
-                            value={renameDraft}
-                            onChange={(e) => setRenameDraft(e.target.value)}
-                            onClick={(e) => e.stopPropagation()}
-                            onBlur={() => {
-                              setSessionNickname(entry.id, renameDraft);
-                              setRenamingId(null);
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                setSessionNickname(entry.id, renameDraft);
-                                setRenamingId(null);
-                              } else if (e.key === 'Escape') {
-                                e.preventDefault();
-                                setRenamingId(null);
-                              }
-                            }}
-                            placeholder={entry.title || 'Nickname'}
-                            className="w-full text-sm bg-background border border-input rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-ring"
-                          />
-                        ) : (
-                          <div
-                            className="font-medium truncate text-foreground"
-                            title={
-                              sessionNicknames[entry.id]
-                                ? `${sessionNicknames[entry.id]} — original: ${entry.title}`
-                                : `${entry.title}\n\nDouble-click to rename`
-                            }
-                          >
-                            {sessionNicknames[entry.id] || entry.title || '(empty)'}
-                          </div>
+                      <div
+                        key={entry.id}
+                        className={cn(
+                          'group relative rounded-md border text-sm transition-colors',
+                          entry.isCurrent
+                            ? 'bg-primary/5 border-primary/40'
+                            : 'bg-card border-border/60 hover:bg-muted/40 hover:border-primary/40',
                         )}
-                        <div className="text-[10px] text-muted-foreground font-mono truncate mt-0.5">
-                          {entry.provider}/{entry.model}
-                        </div>
-                        <div className="flex items-center gap-2 text-[10px] text-muted-foreground/80 mt-0.5">
-                          <span>{formatRelative(entry.startedAt)}</span>
-                          {entry.tokenTotal > 0 && (
-                            <>
-                              <span>·</span>
-                              <span className="tabular-nums">
-                                {entry.tokenTotal.toLocaleString()} tok
-                              </span>
-                            </>
-                          )}
-                          {entry.isCurrent && (
-                            <>
-                              <span>·</span>
-                              <span className="text-primary font-medium">active</span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </button>
-                    {/* Star toggle — always rendered (not hidden behind hover)
+                      >
+                        <button
+                          type="button"
+                          disabled={entry.isCurrent || renamingId === entry.id}
+                          onClick={() => resumeSession(entry.id)}
+                          onDoubleClick={(e) => {
+                            // Double-click anywhere on the row enters rename mode.
+                            // We stop propagation so it doesn't also fire the
+                            // single-click resume handler.
+                            e.stopPropagation();
+                            setRenamingId(entry.id);
+                            setRenameDraft(sessionNicknames[entry.id] ?? entry.title ?? '');
+                          }}
+                          className="block w-full rounded-md px-3 py-2 pr-16 text-left disabled:cursor-default focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          <div className="min-w-0 flex-1">
+                            {renamingId === entry.id ? (
+                              <input
+                                autoFocus
+                                value={renameDraft}
+                                onChange={(e) => setRenameDraft(e.target.value)}
+                                onClick={(e) => e.stopPropagation()}
+                                onBlur={() => {
+                                  setSessionNickname(entry.id, renameDraft);
+                                  setRenamingId(null);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    setSessionNickname(entry.id, renameDraft);
+                                    setRenamingId(null);
+                                  } else if (e.key === 'Escape') {
+                                    e.preventDefault();
+                                    setRenamingId(null);
+                                  }
+                                }}
+                                placeholder={entry.title || 'Nickname'}
+                                className="w-full text-sm bg-background border border-input rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-ring"
+                              />
+                            ) : (
+                              <div
+                                className="font-medium truncate text-foreground"
+                                title={
+                                  sessionNicknames[entry.id]
+                                    ? `${sessionNicknames[entry.id]} — original: ${entry.title}`
+                                    : `${entry.title}\n\nDouble-click to rename`
+                                }
+                              >
+                                {sessionNicknames[entry.id] || entry.title || '(empty)'}
+                              </div>
+                            )}
+                            <div className="text-[10px] text-muted-foreground font-mono truncate mt-0.5">
+                              {entry.provider}/{entry.model}
+                            </div>
+                            <div className="flex items-center gap-2 text-[10px] text-muted-foreground/80 mt-0.5">
+                              <span>{formatRelative(entry.startedAt)}</span>
+                              {entry.tokenTotal > 0 && (
+                                <>
+                                  <span>·</span>
+                                  <span className="tabular-nums">
+                                    {entry.tokenTotal.toLocaleString()} tok
+                                  </span>
+                                </>
+                              )}
+                              {entry.isCurrent && (
+                                <>
+                                  <span>·</span>
+                                  <span className="text-primary font-medium">active</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </button>
+                        {/* Star toggle — always rendered (not hidden behind hover)
                         when already favorited, so the user can tell at a
                         glance which rows are starred without hovering each
                         one. The Trash sits beside it but only on hover. */}
-                    <div className="absolute right-2 top-2 flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => toggleFavoriteSession(entry.id)}
-                        className={cn(
-                          'transition-opacity hover:text-amber-500',
-                          favoriteSessionIds.includes(entry.id)
-                            ? 'opacity-100 text-amber-500'
-                            : 'opacity-0 group-hover:opacity-100 text-muted-foreground',
-                        )}
-                        title={favoriteSessionIds.includes(entry.id) ? 'Unfavorite' : 'Mark as favorite'}
-                      >
-                        <Star
-                          className={cn(
-                            'h-3.5 w-3.5',
-                            favoriteSessionIds.includes(entry.id) && 'fill-current',
-                          )}
-                        />
-                      </button>
-                      {!entry.isCurrent && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (window.confirm(`Delete session "${entry.title}"?`)) {
-                              deleteSession(entry.id);
+                        <div className="absolute right-2 top-2 flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => toggleFavoriteSession(entry.id)}
+                            className={cn(
+                              'transition-opacity hover:text-amber-500',
+                              favoriteSessionIds.includes(entry.id)
+                                ? 'opacity-100 text-amber-500'
+                                : 'opacity-0 group-hover:opacity-100 text-muted-foreground',
+                            )}
+                            title={
+                              favoriteSessionIds.includes(entry.id)
+                                ? 'Unfavorite'
+                                : 'Mark as favorite'
                             }
-                          }}
-                          className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
-                          title="Delete session"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
+                          >
+                            <Star
+                              className={cn(
+                                'h-3.5 w-3.5',
+                                favoriteSessionIds.includes(entry.id) && 'fill-current',
+                              )}
+                            />
+                          </button>
+                          {!entry.isCurrent && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (window.confirm(`Delete session "${entry.title}"?`)) {
+                                  deleteSession(entry.id);
+                                }
+                              }}
+                              className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+                              title="Delete session"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     ))}
                   </div>
                 ))}

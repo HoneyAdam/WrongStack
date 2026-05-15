@@ -3,7 +3,15 @@ import * as path from 'node:path';
 import type { Tool, ToolProgressEvent, ToolStreamEvent } from '@wrongstack/core';
 import { safeResolve } from './_util.js';
 
-const DEFAULT_IGNORE = ['node_modules', '.git', 'dist', 'build', '.next', 'coverage', '__pycache__'];
+const DEFAULT_IGNORE = [
+  'node_modules',
+  '.git',
+  'dist',
+  'build',
+  '.next',
+  'coverage',
+  '__pycache__',
+];
 
 interface TreeInput {
   path?: string;
@@ -129,7 +137,9 @@ export const treeTool: Tool<TreeInput, TreeOutput> = {
         // setTimeout was never cleared when walkPromise won — one stray
         // timer per drain iteration accumulated on the event loop.
         let pollTimer: ReturnType<typeof setTimeout> | undefined;
-        const poll = new Promise<void>((r) => { pollTimer = setTimeout(r, 50); });
+        const poll = new Promise<void>((r) => {
+          pollTimer = setTimeout(r, 50);
+        });
         try {
           await Promise.race([walkPromise, poll]).catch(() => undefined);
         } finally {
@@ -167,12 +177,10 @@ interface WalkOptions {
   onProgress?: () => void;
 }
 
-async function walkDir(
-  dir: string,
-  depth: number,
-  opts: WalkOptions,
-): Promise<void> {
-  const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => [] as import('node:fs').Dirent[]);
+async function walkDir(dir: string, depth: number, opts: WalkOptions): Promise<void> {
+  const entries = await fs
+    .readdir(dir, { withFileTypes: true })
+    .catch(() => [] as import('node:fs').Dirent[]);
 
   const filtered = entries.filter((e) => {
     if (!opts.showHidden && e.name.startsWith('.')) return false;

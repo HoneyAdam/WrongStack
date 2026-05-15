@@ -1,6 +1,6 @@
 import type { Tool, ToolStreamEvent } from '@wrongstack/core';
-import { safeResolve } from './_util.js';
 import { spawnStream } from './_spawn-stream.js';
+import { safeResolve } from './_util.js';
 
 interface LintInput {
   files?: string | string[];
@@ -33,7 +33,8 @@ export const lintTool: Tool<LintInput, LintOutput> = {
     properties: {
       files: {
         type: 'string',
-        description: 'Files/patterns: single path, comma-separated list, or glob (e.g. "src/**/*.ts")',
+        description:
+          'Files/patterns: single path, comma-separated list, or glob (e.g. "src/**/*.ts")',
       },
       fix: { type: 'boolean', description: 'Auto-fix fixable issues (default: false)' },
       linter: {
@@ -93,7 +94,9 @@ export const lintTool: Tool<LintInput, LintOutput> = {
       output: {
         linter: detected,
         files_checked: input.files
-          ? (Array.isArray(input.files) ? input.files.length : input.files.split(',').length)
+          ? Array.isArray(input.files)
+            ? input.files.length
+            : input.files.split(',').length
           : 0,
         errors,
         warnings,

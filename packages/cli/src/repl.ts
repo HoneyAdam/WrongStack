@@ -1,15 +1,10 @@
-import type {
-  Agent,
-  AttachmentStore,
-  SlashCommandRegistry,
-  TokenCounter,
-} from '@wrongstack/core';
+import type { Agent, AttachmentStore, SlashCommandRegistry, TokenCounter } from '@wrongstack/core';
 import { InputBuilder, color } from '@wrongstack/core';
-import { theme } from './theme.js';
-import type { TerminalRenderer } from './renderer.js';
 import type { ReadlineInputReader } from './input-reader.js';
-import { CLI_VERSION } from './version.js';
+import type { TerminalRenderer } from './renderer.js';
+import { theme } from './theme.js';
 import { fmtTok } from './utils.js';
+import { CLI_VERSION } from './version.js';
 
 export interface ReplOptions {
   agent: Agent;
@@ -54,79 +49,78 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
   // path — exceptions, EOF, breakouts. Previously a throw between `on`
   // and the final `off` left the listener installed across REPL restarts.
   try {
-
-  for (;;) {
-    let raw: string;
-    try {
-      raw = await readPossiblyMultiline(opts);
-    } catch {
-      break; // EOF (Ctrl+D)
-    }
-    const trimmed = raw.trim();
-    if (!trimmed) {
-      interrupts = 0;
-      continue;
-    }
-    interrupts = 0;
-
-    if (trimmed.startsWith('/')) {
+    for (;;) {
+      let raw: string;
       try {
-        const res = await opts.slashRegistry.dispatch(trimmed, opts.agent.ctx);
-        if (res?.message) opts.renderer.write(`${res.message}\n`);
-        if (res?.exit) break;
+        raw = await readPossiblyMultiline(opts);
+      } catch {
+        break; // EOF (Ctrl+D)
+      }
+      const trimmed = raw.trim();
+      if (!trimmed) {
+        interrupts = 0;
+        continue;
+      }
+      interrupts = 0;
+
+      if (trimmed.startsWith('/')) {
+        try {
+          const res = await opts.slashRegistry.dispatch(trimmed, opts.agent.ctx);
+          if (res?.message) opts.renderer.write(`${res.message}\n`);
+          if (res?.exit) break;
+        } catch (err) {
+          opts.renderer.writeError(err instanceof Error ? err.message : String(err));
+        }
+        continue;
+      }
+
+      // Route through InputBuilder so big pastes collapse to placeholders.
+      const ph = await builder.appendPaste(raw);
+      if (ph) {
+        const lineCount = raw.split('\n').length;
+        opts.renderer.write(color.dim(`  ↳ ${ph} (${lineCount} lines)\n`));
+      }
+      const blocks = await builder.submit();
+
+      const runCtrl = new AbortController();
+      activeCtrl = runCtrl;
+      try {
+        const startedAt = Date.now();
+        const before = opts.tokenCounter?.total();
+        const costBefore = opts.tokenCounter?.estimateCost().total ?? 0;
+        const result = await opts.agent.run(blocks, { signal: runCtrl.signal });
+        if (result.status === 'aborted') {
+          opts.renderer.writeWarning('Aborted.');
+        } else if (result.status === 'failed') {
+          const err = result.error;
+          if (err) {
+            const tag = err.recoverable ? ' (recoverable)' : '';
+            opts.renderer.writeError(`Failed [${err.severity}]${tag}: ${err.describe()}`);
+          } else {
+            opts.renderer.writeError('Failed.');
+          }
+        } else if (result.status === 'max_iterations') {
+          opts.renderer.writeWarning(`Hit max iterations (${result.iterations}).`);
+        }
+        if (opts.tokenCounter && before) {
+          const after = opts.tokenCounter.total();
+          const costAfter = opts.tokenCounter.estimateCost().total;
+          const ctxChip =
+            opts.effectiveMaxContext && opts.effectiveMaxContext > 0
+              ? `  ctx: ${renderContextChip(after.input, opts.effectiveMaxContext)}`
+              : '';
+          opts.renderer.write(
+            `\n${color.dim(
+              `[in: ${fmtTok(after.input - before.input)}  out: ${fmtTok(after.output - before.output)}  iters: ${result.iterations}  cost: ${(costAfter - costBefore).toFixed(4)}  ${((Date.now() - startedAt) / 1000).toFixed(1)}s]${ctxChip}`,
+            )}\n`,
+          );
+        }
       } catch (err) {
         opts.renderer.writeError(err instanceof Error ? err.message : String(err));
+      } finally {
+        activeCtrl = undefined;
       }
-      continue;
     }
-
-    // Route through InputBuilder so big pastes collapse to placeholders.
-    const ph = await builder.appendPaste(raw);
-    if (ph) {
-      const lineCount = raw.split('\n').length;
-      opts.renderer.write(color.dim(`  ↳ ${ph} (${lineCount} lines)\n`));
-    }
-    const blocks = await builder.submit();
-
-    const runCtrl = new AbortController();
-    activeCtrl = runCtrl;
-    try {
-      const startedAt = Date.now();
-      const before = opts.tokenCounter?.total();
-      const costBefore = opts.tokenCounter?.estimateCost().total ?? 0;
-      const result = await opts.agent.run(blocks, { signal: runCtrl.signal });
-      if (result.status === 'aborted') {
-        opts.renderer.writeWarning('Aborted.');
-      } else if (result.status === 'failed') {
-        const err = result.error;
-        if (err) {
-          const tag = err.recoverable ? ' (recoverable)' : '';
-          opts.renderer.writeError(`Failed [${err.severity}]${tag}: ${err.describe()}`);
-        } else {
-          opts.renderer.writeError('Failed.');
-        }
-      } else if (result.status === 'max_iterations') {
-        opts.renderer.writeWarning(`Hit max iterations (${result.iterations}).`);
-      }
-      if (opts.tokenCounter && before) {
-        const after = opts.tokenCounter.total();
-        const costAfter = opts.tokenCounter.estimateCost().total;
-        const ctxChip =
-          opts.effectiveMaxContext && opts.effectiveMaxContext > 0
-            ? `  ctx: ${renderContextChip(after.input, opts.effectiveMaxContext)}`
-            : '';
-        opts.renderer.write(
-          `\n${color.dim(
-            `[in: ${fmtTok(after.input - before.input)}  out: ${fmtTok(after.output - before.output)}  iters: ${result.iterations}  cost: ${(costAfter - costBefore).toFixed(4)}  ${((Date.now() - startedAt) / 1000).toFixed(1)}s]${ctxChip}`,
-          )}\n`,
-        );
-      }
-    } catch (err) {
-      opts.renderer.writeError(err instanceof Error ? err.message : String(err));
-    } finally {
-      activeCtrl = undefined;
-    }
-  }
 
     return 0;
   } finally {
@@ -135,7 +129,9 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
     // mid-loop would leave the SIGINT handler attached for the rest of
     // the process lifetime (and the reader's terminal handle open).
     process.off('SIGINT', onSigint);
-    await opts.reader.close().catch(() => { /* best-effort */ });
+    await opts.reader.close().catch(() => {
+      /* best-effort */
+    });
   }
 }
 
@@ -170,7 +166,6 @@ async function readPossiblyMultiline(opts: ReplOptions): Promise<string> {
   }
   return buf;
 }
-
 
 const FILLED = '█';
 const EMPTY = '░';

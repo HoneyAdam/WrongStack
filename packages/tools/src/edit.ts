@@ -2,8 +2,8 @@ import * as fs from 'node:fs/promises';
 import {
   atomicWrite,
   detectNewlineStyle,
-  toStyle,
   normalizeToLf,
+  toStyle,
   unifiedDiff,
 } from '@wrongstack/core';
 import type { Tool } from '@wrongstack/core';
@@ -64,9 +64,7 @@ export const editTool: Tool<EditInput, EditOutput> = {
 
     // Read-before-write invariant
     if (!ctx.hasRead(absPath)) {
-      throw new Error(
-        `edit: file "${input.path}" was not read in this session. Read it first.`,
-      );
+      throw new Error(`edit: file "${input.path}" was not read in this session. Read it first.`);
     }
     // Stale-read detection. Tolerance accounts for filesystem mtime
     // resolution: ext4/APFS report ms, but Windows FAT and some network

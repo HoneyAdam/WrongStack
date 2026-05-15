@@ -1,6 +1,6 @@
 import type { Tool, ToolStreamEvent } from '@wrongstack/core';
-import { safeResolve } from './_util.js';
 import { spawnStream } from './_spawn-stream.js';
+import { safeResolve } from './_util.js';
 
 interface AuditInput {
   cwd?: string;
@@ -27,8 +27,7 @@ interface AuditOutput {
 
 export const auditTool: Tool<AuditInput, AuditOutput> = {
   name: 'audit',
-  description:
-    'Run npm/pnpm security audit. Returns vulnerabilities sorted by severity.',
+  description: 'Run npm/pnpm security audit. Returns vulnerabilities sorted by severity.',
   usageHint:
     'Set `level` to filter minimum severity. `fix` attempts auto-fix. `packages` checks specific packages.',
   permission: 'confirm',
@@ -81,8 +80,18 @@ export const auditTool: Tool<AuditInput, AuditOutput> = {
 
 async function detectManager(cwd: string): Promise<string> {
   const { stat } = await import('node:fs/promises');
-  try { await stat(`${cwd}/pnpm-lock.yaml`); return 'pnpm'; } catch { /* */ }
-  try { await stat(`${cwd}/yarn.lock`); return 'yarn'; } catch { /* */ }
+  try {
+    await stat(`${cwd}/pnpm-lock.yaml`);
+    return 'pnpm';
+  } catch {
+    /* */
+  }
+  try {
+    await stat(`${cwd}/yarn.lock`);
+    return 'yarn';
+  } catch {
+    /* */
+  }
   return 'npm';
 }
 
@@ -113,9 +122,10 @@ function parseAuditOutput(json: string, exitCode: number): AuditOutput {
     }
 
     const total = advisories.length;
-    const summary = total === 0
-      ? 'No vulnerabilities found'
-      : `Found ${total} vulnerabilities: ${advisories.filter((a) => a.severity === 'critical').length} critical, ${advisories.filter((a) => a.severity === 'high').length} high`;
+    const summary =
+      total === 0
+        ? 'No vulnerabilities found'
+        : `Found ${total} vulnerabilities: ${advisories.filter((a) => a.severity === 'critical').length} critical, ${advisories.filter((a) => a.severity === 'high').length} high`;
 
     return {
       exit_code: exitCode,

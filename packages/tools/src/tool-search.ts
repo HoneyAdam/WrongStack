@@ -63,7 +63,11 @@ export const toolSearchTool: Tool<ToolSearchInput, ToolSearchOutput> = {
     const query = input.query?.toLowerCase() ?? '';
 
     const filtered = tools.filter((t: Tool) => {
-      if (query && !t.name.toLowerCase().includes(query) && !t.description.toLowerCase().includes(query)) {
+      if (
+        query &&
+        !t.name.toLowerCase().includes(query) &&
+        !t.description.toLowerCase().includes(query)
+      ) {
         return false;
       }
       if (input.permission && t.permission !== input.permission) {

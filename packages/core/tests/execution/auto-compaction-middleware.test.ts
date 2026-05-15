@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { AutoCompactionMiddleware } from '../../src/defaults/auto-compaction-middleware.js';
+import { AutoCompactionMiddleware } from '../../src/execution/auto-compaction-middleware.js';
 import { EventBus } from '../../src/kernel/events.js';
 import type { Context } from '../../src/core/context.js';
 import type { Compactor, CompactReport } from '../../src/types/compactor.js';

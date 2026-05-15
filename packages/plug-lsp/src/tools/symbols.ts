@@ -4,7 +4,7 @@ import { formatDocumentSymbols, formatWorkspaceSymbols } from '../formatters/sym
 import { supportsDocumentSymbol, supportsWorkspaceSymbol } from '../server/capabilities.js';
 import { LSPError, LSPErrorCode } from '../types.js';
 import { pathToUri } from '../utils/uri.js';
-import { requireServer, resolveInputPath, stringifyToolError, type ToolDeps } from './shared.js';
+import { type ToolDeps, requireServer, resolveInputPath, stringifyToolError } from './shared.js';
 
 interface SymbolsInput {
   path?: string;
@@ -19,7 +19,11 @@ export function createSymbolsTool(deps: ToolDeps): Tool<SymbolsInput, string> {
     usageHint: 'Pass `path` for a file outline, or `query` for workspace symbol search.',
     inputSchema: {
       type: 'object',
-      properties: { path: { type: 'string' }, query: { type: 'string' }, limit: { type: 'integer' } },
+      properties: {
+        path: { type: 'string' },
+        query: { type: 'string' },
+        limit: { type: 'integer' },
+      },
     },
     permission: 'auto',
     mutating: false,
@@ -30,9 +34,16 @@ export function createSymbolsTool(deps: ToolDeps): Tool<SymbolsInput, string> {
           const file = resolveInputPath(input.path, ctx);
           const server = await requireServer(deps.registry, file, opts.signal);
           if (server.capabilities && !supportsDocumentSymbol(server.capabilities)) {
-            throw new LSPError(LSPErrorCode.CapabilityMissing, `Server "${server.name}" does not support document symbols`);
+            throw new LSPError(
+              LSPErrorCode.CapabilityMissing,
+              `Server "${server.name}" does not support document symbols`,
+            );
           }
-          const symbols = await server.documentSymbol({ textDocument: { uri: pathToUri(file) } }, 5000, opts.signal);
+          const symbols = await server.documentSymbol(
+            { textDocument: { uri: pathToUri(file) } },
+            5000,
+            opts.signal,
+          );
           return formatDocumentSymbols(file, symbols, ctx.cwd);
         }
         const query = input.query ?? '';

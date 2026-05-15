@@ -17,7 +17,17 @@
  * collapsed view used before.
  */
 
-const FALLBACK_HEAD_FIELDS = ['path', 'file_path', 'pattern', 'command', 'cmd', 'url', 'query', 'description', 'content'];
+const FALLBACK_HEAD_FIELDS = [
+  'path',
+  'file_path',
+  'pattern',
+  'command',
+  'cmd',
+  'url',
+  'query',
+  'description',
+  'content',
+];
 
 export function summarizeToolInput(toolName: string | undefined, input: unknown): string {
   if (input === null || input === undefined) return '';

@@ -1,16 +1,20 @@
-import type { Tool, InputReader, ConfirmAwaiter } from '@wrongstack/core';
+import type { InputReader, Tool } from '@wrongstack/core';
 import { color } from '@wrongstack/core';
 import { renderDiff } from './diff-renderer.js';
 import { theme } from './theme.js';
 
 export type PromptDecision = 'yes' | 'no' | 'always' | 'deny';
 
+/** Signature the Agent expects for confirming tool calls. */
+export type ConfirmAwaiter = (
+  tool: Tool,
+  input: unknown,
+  toolUseId: string,
+  suggestedPattern: string,
+) => Promise<'yes' | 'no' | 'always' | 'deny'>;
+
 export function makePromptDelegate(reader: InputReader) {
-  return async (
-    tool: Tool,
-    input: unknown,
-    suggestedPattern: string,
-  ): Promise<PromptDecision> => {
+  return async (tool: Tool, input: unknown, suggestedPattern: string): Promise<PromptDecision> => {
     process.stdout.write(`\n${theme.primary('▍')} ${theme.bold(tool.name)}\n`);
     process.stdout.write(`${color.dim(stringifyInput(input))}\n`);
 
@@ -40,7 +44,7 @@ export function makePromptDelegate(reader: InputReader) {
  */
 export function makeConfirmAwaiter(reader: InputReader): ConfirmAwaiter {
   const delegate = makePromptDelegate(reader);
-  return async (tool, input, _toolUseId, suggestedPattern) => {
+  return async (tool: Tool, input: unknown, _toolUseId: string, suggestedPattern: string) => {
     const result = await delegate(tool, input, suggestedPattern);
     return result as 'yes' | 'no' | 'always' | 'deny';
   };

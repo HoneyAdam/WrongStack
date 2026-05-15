@@ -1,5 +1,8 @@
-import { useEffect } from 'react';
+import { useWebSocket } from '@/hooks/useWebSocket';
 import { useUIStore } from '@/stores';
+import { AlertTriangle, FileEdit, Globe, ShieldAlert, Terminal, Wrench } from 'lucide-react';
+import { useEffect } from 'react';
+import { DiffView, diffFromToolInput } from './DiffView';
 import { Button } from './ui/button';
 import {
   Dialog,
@@ -9,9 +12,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from './ui/dialog';
-import { Terminal, ShieldAlert, AlertTriangle, FileEdit, Globe, Wrench } from 'lucide-react';
-import { useWebSocket } from '@/hooks/useWebSocket';
-import { DiffView, diffFromToolInput } from './DiffView';
 
 /**
  * Pick the right hero icon for the tool being confirmed. Helps the user
@@ -146,8 +146,8 @@ export function ConfirmDialog() {
             Confirm: {confirmInfo.toolName}
           </DialogTitle>
           <DialogDescription>
-            The agent wants to {isEdit ? 'modify a file' : 'run this tool'}.
-            Review the request below and decide whether to proceed.
+            The agent wants to {isEdit ? 'modify a file' : 'run this tool'}. Review the request
+            below and decide whether to proceed.
           </DialogDescription>
         </DialogHeader>
 
@@ -177,7 +177,8 @@ export function ConfirmDialog() {
                   {confirmInfo.suggestedPattern}
                 </div>
                 <div className="text-xs text-muted-foreground mt-1">
-                  Picking <span className="font-medium">Always</span> will whitelist matching calls for this project.
+                  Picking <span className="font-medium">Always</span> will whitelist matching calls
+                  for this project.
                 </div>
               </div>
             </div>

@@ -1,32 +1,32 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { useUIStore, useConfigStore } from '@/stores';
+import { useWebSocket } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';
+import { useConfigStore, useUIStore } from '@/stores';
 import type { WSServerMessage } from '@/types';
-import { ScrollArea } from './ui/scroll-area';
 import {
-  X,
-  Network,
-  Key,
-  Globe,
-  Cpu,
   AlertCircle,
   CheckCircle2,
-  Loader2,
-  RefreshCw,
-  Trash2,
-  Plus,
+  Cpu,
   Eye,
   EyeOff,
-  Palette,
-  Sun,
-  Moon,
+  Globe,
+  Key,
+  Loader2,
   Monitor,
+  Moon,
+  Network,
+  Palette,
+  Plus,
+  RefreshCw,
+  Sun,
+  Trash2,
+  X,
 } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useTheme } from './ThemeProvider';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs';
-import { useWebSocket } from '@/hooks/useWebSocket';
-import { useTheme } from './ThemeProvider';
+import { ScrollArea } from './ui/scroll-area';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 
 interface CatalogProvider {
   id: string;
@@ -78,7 +78,10 @@ export function SettingsPanel() {
   const [isLoadingCatalog, setIsLoadingCatalog] = useState(false);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [isLoadingSaved, setIsLoadingSaved] = useState(false);
-  const [operationStatus, setOperationStatus] = useState<{ success: boolean; message: string } | null>(null);
+  const [operationStatus, setOperationStatus] = useState<{
+    success: boolean;
+    message: string;
+  } | null>(null);
 
   // Provider tab selection
   const [providerTab, setProviderTab] = useState<ProviderTab>('catalog');
@@ -97,7 +100,7 @@ export function SettingsPanel() {
   const [newProviderApiKey, setNewProviderApiKey] = useState('');
 
   // Current provider config from catalog
-  const currentCatalogProvider = catalogProviders.find(p => p.id === provider);
+  const currentCatalogProvider = catalogProviders.find((p) => p.id === provider);
 
   // Load catalog and saved providers on mount
   useEffect(() => {
@@ -112,7 +115,7 @@ export function SettingsPanel() {
     const handleProviderModels = (msg: WSServerMessage) => {
       if (msg.type === 'provider.models') {
         const payload = msg.payload as { provider: string; models: CatalogModel[] };
-        setCatalogModels(prev => ({ ...prev, [payload.provider]: payload.models }));
+        setCatalogModels((prev) => ({ ...prev, [payload.provider]: payload.models }));
         setIsLoadingModels(false);
       }
     };
@@ -170,43 +173,63 @@ export function SettingsPanel() {
   // Selecting a provider just loads its model list and stages the pick locally.
   // The actual backend switch fires when the user picks a model — that's the
   // single point where (provider, model) both have meaningful values to send.
-  const handleProviderSelect = useCallback((providerId: string) => {
-    setProvider(providerId);
-    if (!catalogModels[providerId]) {
-      setIsLoadingModels(true);
-      ws.listProviderModels?.(providerId);
-    }
-  }, [catalogModels, setProvider, ws]);
+  const handleProviderSelect = useCallback(
+    (providerId: string) => {
+      setProvider(providerId);
+      if (!catalogModels[providerId]) {
+        setIsLoadingModels(true);
+        ws.listProviderModels?.(providerId);
+      }
+    },
+    [catalogModels, setProvider, ws],
+  );
 
-  const handleModelSelect = useCallback((modelId: string) => {
-    setModel(modelId);
-    // Tell the backend to actually swap the agent's provider+model. Backend
-    // will rebuild the provider instance, persist the choice to the config
-    // file, and broadcast a fresh session.start — useWebSocket's session.start
-    // handler then re-syncs our config store so the chip stays in sync.
-    ws.switchModel?.(provider, modelId);
-    setOperationStatus({ success: true, message: `Switching to ${provider} / ${modelId}…` });
-  }, [setModel, ws, provider]);
+  const handleModelSelect = useCallback(
+    (modelId: string) => {
+      setModel(modelId);
+      // Tell the backend to actually swap the agent's provider+model. Backend
+      // will rebuild the provider instance, persist the choice to the config
+      // file, and broadcast a fresh session.start — useWebSocket's session.start
+      // handler then re-syncs our config store so the chip stays in sync.
+      ws.switchModel?.(provider, modelId);
+      setOperationStatus({ success: true, message: `Switching to ${provider} / ${modelId}…` });
+    },
+    [setModel, ws, provider],
+  );
 
-  const handleAddKey = useCallback((providerId: string) => {
-    if (!newKeyLabel.trim() || !newKeyValue.trim()) return;
-    ws.addKey?.(providerId, newKeyLabel.trim(), newKeyValue.trim());
-    setNewKeyLabel('');
-    setNewKeyValue('');
-    setShowAddKeyForm(null);
-  }, [ws, newKeyLabel, newKeyValue]);
+  const handleAddKey = useCallback(
+    (providerId: string) => {
+      if (!newKeyLabel.trim() || !newKeyValue.trim()) return;
+      ws.addKey?.(providerId, newKeyLabel.trim(), newKeyValue.trim());
+      setNewKeyLabel('');
+      setNewKeyValue('');
+      setShowAddKeyForm(null);
+    },
+    [ws, newKeyLabel, newKeyValue],
+  );
 
-  const handleDeleteKey = useCallback((providerId: string, label: string) => {
-    ws.deleteKey?.(providerId, label);
-  }, [ws]);
+  const handleDeleteKey = useCallback(
+    (providerId: string, label: string) => {
+      ws.deleteKey?.(providerId, label);
+    },
+    [ws],
+  );
 
-  const handleSetActiveKey = useCallback((providerId: string, label: string) => {
-    ws.setActiveKey?.(providerId, label);
-  }, [ws]);
+  const handleSetActiveKey = useCallback(
+    (providerId: string, label: string) => {
+      ws.setActiveKey?.(providerId, label);
+    },
+    [ws],
+  );
 
   const handleAddProvider = useCallback(() => {
     if (!newProviderId.trim()) return;
-    ws.addProvider?.(newProviderId.trim(), newProviderFamily, newProviderBaseUrl || undefined, newProviderApiKey || undefined);
+    ws.addProvider?.(
+      newProviderId.trim(),
+      newProviderFamily,
+      newProviderBaseUrl || undefined,
+      newProviderApiKey || undefined,
+    );
     setNewProviderId('');
     setNewProviderFamily('openai-compatible');
     setNewProviderBaseUrl('');
@@ -214,9 +237,12 @@ export function SettingsPanel() {
     setShowAddProviderForm(false);
   }, [ws, newProviderId, newProviderFamily, newProviderBaseUrl, newProviderApiKey]);
 
-  const handleRemoveProvider = useCallback((providerId: string) => {
-    ws.removeProvider?.(providerId);
-  }, [ws]);
+  const handleRemoveProvider = useCallback(
+    (providerId: string) => {
+      ws.removeProvider?.(providerId);
+    },
+    [ws],
+  );
 
   // Group catalog by family, with optional text filter applied first. 115+
   // providers in the catalog made scrolling alone impractical.
@@ -232,11 +258,14 @@ export function SettingsPanel() {
         );
       })
     : catalogProviders;
-  const catalogByFamily = filteredCatalog.reduce((acc, p) => {
-    if (!acc[p.family]) acc[p.family] = [];
-    acc[p.family]!.push(p);
-    return acc;
-  }, {} as Record<string, CatalogProvider[]>);
+  const catalogByFamily = filteredCatalog.reduce(
+    (acc, p) => {
+      if (!acc[p.family]) acc[p.family] = [];
+      acc[p.family]!.push(p);
+      return acc;
+    },
+    {} as Record<string, CatalogProvider[]>,
+  );
 
   return (
     <div className="flex flex-col h-full">
@@ -294,11 +323,19 @@ export function SettingsPanel() {
               </div>
 
               {operationStatus && (
-                <div className={cn(
-                  'p-3 rounded-lg mb-4 flex items-center gap-2',
-                  operationStatus.success ? 'bg-green-500/10 text-green-600' : 'bg-red-500/10 text-red-600'
-                )}>
-                  {operationStatus.success ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+                <div
+                  className={cn(
+                    'p-3 rounded-lg mb-4 flex items-center gap-2',
+                    operationStatus.success
+                      ? 'bg-green-500/10 text-green-600'
+                      : 'bg-red-500/10 text-red-600',
+                  )}
+                >
+                  {operationStatus.success ? (
+                    <CheckCircle2 className="h-4 w-4" />
+                  ) : (
+                    <AlertCircle className="h-4 w-4" />
+                  )}
                   {operationStatus.message}
                 </div>
               )}
@@ -324,7 +361,7 @@ export function SettingsPanel() {
                     </div>
                   ) : (
                     <>
-                      {families.map(family => {
+                      {families.map((family) => {
                         const providers = catalogByFamily[family];
                         if (!providers?.length) return null;
                         return (
@@ -333,7 +370,7 @@ export function SettingsPanel() {
                               {family}
                             </h3>
                             <div className="grid grid-cols-1 gap-2">
-                              {providers.map(p => (
+                              {providers.map((p) => (
                                 <button
                                   type="button"
                                   key={p.id}
@@ -342,13 +379,15 @@ export function SettingsPanel() {
                                     'flex flex-col items-start p-3 rounded-lg border text-left transition-all',
                                     provider === p.id
                                       ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
-                                      : 'border-border hover:bg-muted'
+                                      : 'border-border hover:bg-muted',
                                   )}
                                 >
                                   <div className="flex w-full justify-between items-start">
                                     <div>
                                       <span className="font-medium">{p.name}</span>
-                                      <span className="ml-2 text-xs text-muted-foreground">({p.id})</span>
+                                      <span className="ml-2 text-xs text-muted-foreground">
+                                        ({p.id})
+                                      </span>
                                     </div>
                                     <div className="flex items-center gap-2">
                                       {p.hasApiKey && (
@@ -362,7 +401,9 @@ export function SettingsPanel() {
                                           ENV: {p.envVars[0]}
                                         </span>
                                       )}
-                                      {provider === p.id && <CheckCircle2 className="h-4 w-4 text-primary" />}
+                                      {provider === p.id && (
+                                        <CheckCircle2 className="h-4 w-4 text-primary" />
+                                      )}
                                     </div>
                                   </div>
                                   <div className="text-xs text-muted-foreground mt-1">
@@ -387,7 +428,11 @@ export function SettingsPanel() {
                     <p className="text-sm text-muted-foreground">
                       Manage your API keys and provider configurations
                     </p>
-                    <Button size="sm" variant="outline" onClick={() => setShowAddProviderForm(!showAddProviderForm)}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setShowAddProviderForm(!showAddProviderForm)}
+                    >
                       <Plus className="h-4 w-4 mr-1" />
                       Add Provider
                     </Button>
@@ -400,12 +445,12 @@ export function SettingsPanel() {
                       <Input
                         placeholder="Provider ID (e.g. my-llm-server)"
                         value={newProviderId}
-                        onChange={e => setNewProviderId(e.target.value)}
+                        onChange={(e) => setNewProviderId(e.target.value)}
                       />
                       <select
                         className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                         value={newProviderFamily}
-                        onChange={e => setNewProviderFamily(e.target.value)}
+                        onChange={(e) => setNewProviderFamily(e.target.value)}
                       >
                         <option value="anthropic">Anthropic</option>
                         <option value="openai">OpenAI</option>
@@ -415,19 +460,27 @@ export function SettingsPanel() {
                       <Input
                         placeholder="Base URL (optional, e.g. http://localhost:11434/v1)"
                         value={newProviderBaseUrl}
-                        onChange={e => setNewProviderBaseUrl(e.target.value)}
+                        onChange={(e) => setNewProviderBaseUrl(e.target.value)}
                       />
                       <Input
                         type="password"
                         placeholder="API Key (optional)"
                         value={newProviderApiKey}
-                        onChange={e => setNewProviderApiKey(e.target.value)}
+                        onChange={(e) => setNewProviderApiKey(e.target.value)}
                       />
                       <div className="flex gap-2">
-                        <Button size="sm" onClick={handleAddProvider} disabled={!newProviderId.trim()}>
+                        <Button
+                          size="sm"
+                          onClick={handleAddProvider}
+                          disabled={!newProviderId.trim()}
+                        >
                           Add
                         </Button>
-                        <Button size="sm" variant="ghost" onClick={() => setShowAddProviderForm(false)}>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setShowAddProviderForm(false)}
+                        >
                           Cancel
                         </Button>
                       </div>
@@ -445,7 +498,7 @@ export function SettingsPanel() {
                       <p className="text-sm">Add a provider to get started</p>
                     </div>
                   ) : (
-                    savedProviders.map(sp => (
+                    savedProviders.map((sp) => (
                       <div key={sp.id} className="border rounded-lg p-4 space-y-3">
                         <div className="flex justify-between items-start">
                           <div>
@@ -455,7 +508,11 @@ export function SettingsPanel() {
                             )}
                           </div>
                           <div className="flex gap-2">
-                            <Button size="icon" variant="ghost" onClick={() => handleRemoveProvider(sp.id)}>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => handleRemoveProvider(sp.id)}
+                            >
                               <Trash2 className="h-4 w-4 text-destructive" />
                             </Button>
                           </div>
@@ -475,7 +532,9 @@ export function SettingsPanel() {
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => setShowAddKeyForm(showAddKeyForm === sp.id ? null : sp.id)}
+                              onClick={() =>
+                                setShowAddKeyForm(showAddKeyForm === sp.id ? null : sp.id)
+                              }
                             >
                               <Plus className="h-3 w-3 mr-1" />
                               Add Key
@@ -486,8 +545,11 @@ export function SettingsPanel() {
                             <p className="text-xs text-muted-foreground">No keys configured</p>
                           )}
 
-                          {sp.apiKeys.map(key => (
-                            <div key={key.label} className="flex items-center justify-between p-2 bg-muted/50 rounded">
+                          {sp.apiKeys.map((key) => (
+                            <div
+                              key={key.label}
+                              className="flex items-center justify-between p-2 bg-muted/50 rounded"
+                            >
                               <div>
                                 <span className="text-sm font-medium">{key.label}</span>
                                 {key.isActive && (
@@ -501,11 +563,19 @@ export function SettingsPanel() {
                               </div>
                               <div className="flex gap-1">
                                 {!key.isActive && (
-                                  <Button size="sm" variant="ghost" onClick={() => handleSetActiveKey(sp.id, key.label)}>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => handleSetActiveKey(sp.id, key.label)}
+                                  >
                                     Set Active
                                   </Button>
                                 )}
-                                <Button size="icon" variant="ghost" onClick={() => handleDeleteKey(sp.id, key.label)}>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  onClick={() => handleDeleteKey(sp.id, key.label)}
+                                >
                                   <Trash2 className="h-3 w-3 text-destructive" />
                                 </Button>
                               </div>
@@ -518,24 +588,44 @@ export function SettingsPanel() {
                               <Input
                                 placeholder="Key label (e.g. default, production)"
                                 value={newKeyLabel}
-                                onChange={e => setNewKeyLabel(e.target.value)}
+                                onChange={(e) => setNewKeyLabel(e.target.value)}
                               />
                               <div className="flex gap-2">
                                 <Input
                                   type={showNewKeyValue ? 'text' : 'password'}
                                   placeholder="API key"
                                   value={newKeyValue}
-                                  onChange={e => setNewKeyValue(e.target.value)}
+                                  onChange={(e) => setNewKeyValue(e.target.value)}
                                 />
-                                <Button size="icon" variant="ghost" onClick={() => setShowNewKeyValue(!showNewKeyValue)}>
-                                  {showNewKeyValue ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  onClick={() => setShowNewKeyValue(!showNewKeyValue)}
+                                >
+                                  {showNewKeyValue ? (
+                                    <EyeOff className="h-4 w-4" />
+                                  ) : (
+                                    <Eye className="h-4 w-4" />
+                                  )}
                                 </Button>
                               </div>
                               <div className="flex gap-2">
-                                <Button size="sm" onClick={() => handleAddKey(sp.id)} disabled={!newKeyLabel.trim() || !newKeyValue.trim()}>
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleAddKey(sp.id)}
+                                  disabled={!newKeyLabel.trim() || !newKeyValue.trim()}
+                                >
                                   Save Key
                                 </Button>
-                                <Button size="sm" variant="ghost" onClick={() => { setShowAddKeyForm(null); setNewKeyLabel(''); setNewKeyValue(''); }}>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    setShowAddKeyForm(null);
+                                    setNewKeyLabel('');
+                                    setNewKeyValue('');
+                                  }}
+                                >
                                   Cancel
                                 </Button>
                               </div>
@@ -555,10 +645,19 @@ export function SettingsPanel() {
                 <>
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-medium">{currentCatalogProvider?.name || provider}</p>
+                      <p className="text-sm font-medium">
+                        {currentCatalogProvider?.name || provider}
+                      </p>
                       <p className="text-xs text-muted-foreground">{provider}</p>
                     </div>
-                    <Button variant="ghost" size="sm" onClick={() => { setIsLoadingModels(true); ws.listProviderModels?.(provider); }}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setIsLoadingModels(true);
+                        ws.listProviderModels?.(provider);
+                      }}
+                    >
                       <RefreshCw className={cn('h-4 w-4', isLoadingModels && 'animate-spin')} />
                     </Button>
                   </div>
@@ -570,7 +669,7 @@ export function SettingsPanel() {
                     </div>
                   ) : (
                     <div className="space-y-1">
-                      {(catalogModels[provider] || []).map(m => (
+                      {(catalogModels[provider] || []).map((m) => (
                         <button
                           type="button"
                           key={m.id}
@@ -579,13 +678,13 @@ export function SettingsPanel() {
                             'w-full flex items-center justify-between p-3 rounded-lg border text-left transition-all',
                             model === m.id
                               ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
-                              : 'border-border hover:bg-muted'
+                              : 'border-border hover:bg-muted',
                           )}
                         >
                           <div>
                             <span className="font-medium">{m.name || m.id}</span>
                             <div className="flex gap-2 mt-1">
-                              {m.capabilities.map(cap => (
+                              {m.capabilities.map((cap) => (
                                 <span key={cap} className="text-xs bg-muted px-1.5 py-0.5 rounded">
                                   {cap}
                                 </span>
@@ -595,16 +694,21 @@ export function SettingsPanel() {
                           <div className="text-right text-xs text-muted-foreground">
                             {m.contextWindow && <div>{m.contextWindow / 1000}k context</div>}
                             {m.inputCost && m.outputCost && (
-                              <div>${m.inputCost}/${m.outputCost}</div>
+                              <div>
+                                ${m.inputCost}/${m.outputCost}
+                              </div>
                             )}
-                            {model === m.id && <CheckCircle2 className="h-4 w-4 text-primary mt-1" />}
+                            {model === m.id && (
+                              <CheckCircle2 className="h-4 w-4 text-primary mt-1" />
+                            )}
                           </div>
                         </button>
                       ))}
 
                       {catalogModels[provider]?.length === 0 && (
                         <p className="text-sm text-muted-foreground text-center py-4">
-                          No models found for this provider. The catalog might be empty or still loading.
+                          No models found for this provider. The catalog might be empty or still
+                          loading.
                         </p>
                       )}
                     </div>
@@ -621,7 +725,10 @@ export function SettingsPanel() {
             {/* Connection Tab */}
             <TabsContent value="connection" className="space-y-4">
               <div className="space-y-3">
-                <label htmlFor="websocket-url" className="text-sm font-medium flex items-center gap-2">
+                <label
+                  htmlFor="websocket-url"
+                  className="text-sm font-medium flex items-center gap-2"
+                >
                   <Globe className="h-4 w-4 text-muted-foreground" />
                   WebSocket Server URL
                 </label>
@@ -640,10 +747,13 @@ export function SettingsPanel() {
               <div className="p-4 rounded-lg border bg-muted/50">
                 <h4 className="text-sm font-medium mb-2">Starting the WebSocket Server</h4>
                 <p className="text-xs text-muted-foreground mb-3">
-                  Standalone: run <code className="bg-muted px-1 py-0.5 rounded">./dev.ps1</code> from
-                  the repo root, or set WS_HOST/WS_PORT before launching{' '}
-                  <code className="bg-muted px-1 py-0.5 rounded">node packages/webui/dist/server/entry.js</code>.
-                  Or alongside the CLI: <code className="bg-muted px-1 py-0.5 rounded">wstack --webui</code>.
+                  Standalone: run <code className="bg-muted px-1 py-0.5 rounded">./dev.ps1</code>{' '}
+                  from the repo root, or set WS_HOST/WS_PORT before launching{' '}
+                  <code className="bg-muted px-1 py-0.5 rounded">
+                    node packages/webui/dist/server/entry.js
+                  </code>
+                  . Or alongside the CLI:{' '}
+                  <code className="bg-muted px-1 py-0.5 rounded">wstack --webui</code>.
                 </p>
               </div>
             </TabsContent>
@@ -732,9 +842,7 @@ function PreferenceToggle({
   configKey?: 'soundOnComplete';
 }) {
   const uiVal = useUIStore((s) => (selector ? selector(s) : false));
-  const cfgVal = useConfigStore((s) =>
-    configKey ? (s[configKey] as boolean) : false,
-  );
+  const cfgVal = useConfigStore((s) => (configKey ? (s[configKey] as boolean) : false));
   const on = selector ? uiVal : cfgVal;
   const handleToggle = () => {
     if (selector) onChange?.();
@@ -761,9 +869,7 @@ function PreferenceToggle({
         onClick={handleToggle}
         className={cn(
           'shrink-0 relative inline-flex h-5 w-9 rounded-full border transition-colors',
-          on
-            ? 'bg-primary border-primary'
-            : 'bg-muted border-input hover:bg-muted/80',
+          on ? 'bg-primary border-primary' : 'bg-muted border-input hover:bg-muted/80',
         )}
       >
         <span

@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { ChevronRight, ChevronDown, ChevronsDown, ChevronsUp } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronsDown, ChevronsUp } from 'lucide-react';
+import { useMemo, useState } from 'react';
 
 /** When a tool dumps hundreds of lines of output, the chat turns into a
  *  scroll-wall. This threshold gates the auto-collapse: anything longer
@@ -142,12 +142,16 @@ export function ToolResult({ toolName, result, isError, className }: Props) {
           />
         )}
         {(shape.exitCode !== undefined || shape.duration) && (
-          <div className={cn(
-            'flex items-center gap-3 text-[11px] px-2 py-1 border-t bg-muted/30 tabular-nums',
-            shape.exitCode && shape.exitCode !== 0 ? 'text-destructive' : 'text-muted-foreground',
-          )}>
+          <div
+            className={cn(
+              'flex items-center gap-3 text-[11px] px-2 py-1 border-t bg-muted/30 tabular-nums',
+              shape.exitCode && shape.exitCode !== 0 ? 'text-destructive' : 'text-muted-foreground',
+            )}
+          >
             {shape.exitCode !== undefined && (
-              <span>exit code: <span className="font-mono">{shape.exitCode}</span></span>
+              <span>
+                exit code: <span className="font-mono">{shape.exitCode}</span>
+              </span>
             )}
             {shape.duration && <span>{shape.duration}</span>}
           </div>
@@ -183,7 +187,10 @@ function detectShape(toolName: string | undefined, result: string): Shape {
     return { kind: 'numbered' };
   }
   // ---- JSON ---------------------------------------------------------
-  if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+  if (
+    (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+    (trimmed.startsWith('[') && trimmed.endsWith(']'))
+  ) {
     try {
       const parsed = JSON.parse(trimmed);
       if (typeof parsed === 'object' && parsed !== null) {
@@ -249,10 +256,12 @@ function JsonResult({
         <span>{expanded ? 'collapse' : 'expand'}</span>
       </button>
       {expanded && (
-        <pre className={cn(
-          'text-xs font-mono whitespace-pre p-2 max-h-96 overflow-auto',
-          isError ? 'text-destructive' : 'text-foreground',
-        )}>
+        <pre
+          className={cn(
+            'text-xs font-mono whitespace-pre p-2 max-h-96 overflow-auto',
+            isError ? 'text-destructive' : 'text-foreground',
+          )}
+        >
           {pretty}
         </pre>
       )}

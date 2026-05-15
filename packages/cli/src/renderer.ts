@@ -1,7 +1,7 @@
 import type { ContentBlock, Renderer, TextBlock } from '@wrongstack/core';
 import { color } from '@wrongstack/core';
-import { theme } from './theme.js';
 import { renderDiff } from './diff-renderer.js';
+import { theme } from './theme.js';
 
 export interface TerminalRendererOptions {
   out?: NodeJS.WriteStream;
@@ -64,7 +64,8 @@ export class TerminalRenderer implements Renderer {
     } else if (block.type === 'tool_use') {
       this.writeToolCall(block.name, block.input);
     } else if (block.type === 'tool_result') {
-      const text = typeof block.content === 'string' ? block.content : JSON.stringify(block.content);
+      const text =
+        typeof block.content === 'string' ? block.content : JSON.stringify(block.content);
       this.writeToolResult('result', text, !!block.is_error);
     }
   }
@@ -119,7 +120,9 @@ export class TerminalRenderer implements Renderer {
       this.out.write(`      ${color.dim(capped)}\n`);
     }
     if (moreCount > 0) {
-      this.out.write(`      ${color.dim(`+${moreCount} more line${moreCount === 1 ? '' : 's'}`)}\n`);
+      this.out.write(
+        `      ${color.dim(`+${moreCount} more line${moreCount === 1 ? '' : 's'}`)}\n`,
+      );
     }
     this.lineStart = true;
   }
@@ -163,7 +166,10 @@ function renderMarkdown(s: string): string {
   // Bold
   out = out.replace(/\*\*([^*]+)\*\*/g, (_m, text) => theme.bold(text));
   // Italic — single-asterisk
-  out = out.replace(/(^|[^*])\*([^*\n]+)\*([^*]|$)/g, (_m, l, t, r) => `${l}${color.italic(t)}${r}`);
+  out = out.replace(
+    /(^|[^*])\*([^*\n]+)\*([^*]|$)/g,
+    (_m, l, t, r) => `${l}${color.italic(t)}${r}`,
+  );
   return out;
 }
 
@@ -256,4 +262,3 @@ function summarize(value: unknown, name: string): string {
   }
   return '';
 }
-

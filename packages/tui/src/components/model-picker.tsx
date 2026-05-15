@@ -1,5 +1,5 @@
-import type React from 'react';
 import { Box, Text } from 'ink';
+import type React from 'react';
 
 export interface ProviderOption {
   id: string;
@@ -39,7 +39,9 @@ export function ModelPicker({
   if (step === 'provider') {
     return (
       <Box flexDirection="column" paddingX={1}>
-        <Text color="cyan" bold>━━ Switch model — Step 1/2: Pick provider ━━</Text>
+        <Text color="cyan" bold>
+          ━━ Switch model — Step 1/2: Pick provider ━━
+        </Text>
         <Text dimColor>↑/↓ navigate · Enter select · Esc cancel</Text>
         {providerOptions.length === 0 ? (
           <Text dimColor>(no providers with keys — add one via `wstack auth`)</Text>
@@ -49,7 +51,10 @@ export function ModelPicker({
               {i === selected ? '› ' : '  '}
               <Text bold>{p.id.padEnd(28)}</Text>
               <Text dimColor> [{p.family}]</Text>
-              <Text dimColor>  {p.models.length} model{p.models.length === 1 ? '' : 's'}</Text>
+              <Text dimColor>
+                {' '}
+                {p.models.length} model{p.models.length === 1 ? '' : 's'}
+              </Text>
             </Text>
           ))
         )}
@@ -60,8 +65,7 @@ export function ModelPicker({
   return (
     <Box flexDirection="column" paddingX={1}>
       <Text color="cyan" bold>
-        ━━ Switch model — Step 2/2: Pick model{' '}
-        ({pickedProviderId}) ━━
+        ━━ Switch model — Step 2/2: Pick model ({pickedProviderId}) ━━
       </Text>
       <Text dimColor>↑/↓ navigate · Enter select · Esc back · Ctrl-C cancel</Text>
       {modelOptions.length === 0 ? (

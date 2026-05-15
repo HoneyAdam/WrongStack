@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useUIStore, useConfigStore } from '@/stores';
 import { useWebSocket } from '@/hooks/useWebSocket';
-import { getWSClient } from '@/lib/ws-client';
-import { Cpu, Search, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { getWSClient } from '@/lib/ws-client';
+import { useConfigStore, useUIStore } from '@/stores';
 import type { WSServerMessage } from '@/types';
+import { ArrowRight, Cpu, Search } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 interface SavedProvider {
   id: string;
@@ -72,7 +72,10 @@ export function QuickModelSwitcher() {
       const p = msg.payload as { provider: string; models: CatalogModel[] };
       setModelsByProvider((prev) => ({ ...prev, [p.provider]: p.models }));
     });
-    return () => { offSaved(); offModels(); };
+    return () => {
+      offSaved();
+      offModels();
+    };
   }, [wsUrl]);
 
   useEffect(() => {
@@ -99,7 +102,13 @@ export function QuickModelSwitcher() {
    *  the search filter. The active row floats to the top so the user can
    *  see what they're currently on. */
   const candidates = useMemo(() => {
-    const list: Array<{ provider: string; model: string; modelName: string; contextWindow?: number; isCurrent: boolean }> = [];
+    const list: Array<{
+      provider: string;
+      model: string;
+      modelName: string;
+      contextWindow?: number;
+      isCurrent: boolean;
+    }> = [];
     for (const sp of saved) {
       const models = modelsByProvider[sp.id] ?? [];
       for (const m of models) {
@@ -114,10 +123,11 @@ export function QuickModelSwitcher() {
     }
     const q = query.toLowerCase().trim();
     const filtered = q
-      ? list.filter((c) =>
-          c.provider.toLowerCase().includes(q) ||
-          c.model.toLowerCase().includes(q) ||
-          c.modelName.toLowerCase().includes(q),
+      ? list.filter(
+          (c) =>
+            c.provider.toLowerCase().includes(q) ||
+            c.model.toLowerCase().includes(q) ||
+            c.modelName.toLowerCase().includes(q),
         )
       : list;
     return filtered.sort((a, b) => {
@@ -142,7 +152,9 @@ export function QuickModelSwitcher() {
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center bg-background/60 backdrop-blur-sm pt-[15vh]"
-      onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) setOpen(false);
+      }}
     >
       <div className="w-full max-w-xl rounded-xl border bg-popover shadow-2xl overflow-hidden">
         <div className="flex items-center gap-2 border-b px-3 py-2">
@@ -150,7 +162,10 @@ export function QuickModelSwitcher() {
           <input
             ref={inputRef}
             value={query}
-            onChange={(e) => { setQuery(e.target.value); setSelected(0); }}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setSelected(0);
+            }}
             onKeyDown={(e) => {
               if (e.key === 'ArrowDown') {
                 e.preventDefault();
@@ -191,7 +206,12 @@ export function QuickModelSwitcher() {
                   c.isCurrent && 'font-medium',
                 )}
               >
-                <Cpu className={cn('h-4 w-4 shrink-0', c.isCurrent ? 'text-primary' : 'text-muted-foreground')} />
+                <Cpu
+                  className={cn(
+                    'h-4 w-4 shrink-0',
+                    c.isCurrent ? 'text-primary' : 'text-muted-foreground',
+                  )}
+                />
                 <div className="min-w-0 flex-1">
                   <div className="truncate">
                     <span className="text-muted-foreground">{c.provider}</span>
@@ -205,7 +225,9 @@ export function QuickModelSwitcher() {
                   )}
                 </div>
                 {c.isCurrent ? (
-                  <span className="text-[10px] uppercase tracking-wide text-primary font-semibold">active</span>
+                  <span className="text-[10px] uppercase tracking-wide text-primary font-semibold">
+                    active
+                  </span>
                 ) : (
                   <ArrowRight className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100" />
                 )}

@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { TaskNode, TaskGraph } from '../../src/types/task-graph.js';
 import type { Specification } from '../../src/types/spec.js';
-import { TaskFlow, SpecDrivenDev } from '../../src/defaults/task-flow.js';
-import { TaskTracker } from '../../src/defaults/task-tracker.js';
-import { DefaultTaskStore } from '../../src/defaults/task-generator.js';
+import { TaskFlow, SpecDrivenDev } from '../../src/sdd/task-flow.js';
+import { TaskTracker } from '../../src/sdd/task-tracker.js';
+import { DefaultTaskStore } from '../../src/sdd/task-generator.js';
 import { EventBus } from '../../src/kernel/events.js';
 
 function makeSpec(overrides: Partial<Specification> = {}): Specification {

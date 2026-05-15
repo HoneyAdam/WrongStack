@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { DefaultMemoryStore } from '../../src/defaults/memory-store.js';
+import { DefaultMemoryStore } from '../../src/storage/memory-store.js';
 import { resolveWstackPaths } from '../../src/utils/wstack-paths.js';
 
 describe('DefaultMemoryStore', () => {

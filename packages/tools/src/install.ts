@@ -1,6 +1,6 @@
 import type { Tool, ToolStreamEvent } from '@wrongstack/core';
-import { safeResolve } from './_util.js';
 import { spawnStream } from './_spawn-stream.js';
+import { safeResolve } from './_util.js';
 
 interface InstallInput {
   packages?: string | string[];
@@ -20,8 +20,7 @@ interface InstallOutput {
 
 export const installTool: Tool<InstallInput, InstallOutput> = {
   name: 'install',
-  description:
-    'Install npm packages. Detects pnpm/npm/yarn and uses the right package manager.',
+  description: 'Install npm packages. Detects pnpm/npm/yarn and uses the right package manager.',
   usageHint:
     'Set `packages` to install. `save` as dependency type. `global` for global install. `dry_run` to preview.',
   permission: 'confirm',
@@ -32,7 +31,8 @@ export const installTool: Tool<InstallInput, InstallOutput> = {
     properties: {
       packages: {
         type: 'string',
-        description: 'Package(s) to install: single name, comma-separated list, or empty for all deps',
+        description:
+          'Package(s) to install: single name, comma-separated list, or empty for all deps',
       },
       save: {
         type: 'string',
@@ -40,7 +40,10 @@ export const installTool: Tool<InstallInput, InstallOutput> = {
         description: 'Save as regular, dev, or optional dependency',
       },
       cwd: { type: 'string', description: 'Working directory (default: cwd)' },
-      dry_run: { type: 'boolean', description: 'Preview install without modifying (default: false)' },
+      dry_run: {
+        type: 'boolean',
+        description: 'Preview install without modifying (default: false)',
+      },
       global: { type: 'boolean', description: 'Install globally (default: false)' },
     },
   },
@@ -72,11 +75,17 @@ export const installTool: Tool<InstallInput, InstallOutput> = {
     }
 
     const pkgList = input.packages
-      ? (Array.isArray(input.packages) ? input.packages : input.packages.split(',')).map((p) => p.trim())
+      ? (Array.isArray(input.packages) ? input.packages : input.packages.split(',')).map((p) =>
+          p.trim(),
+        )
       : [];
     if (pkgList.length > 0) args.push(...pkgList);
 
-    yield { type: 'log', text: `Fetching ${pkgList.length || 'all'} packages…`, data: { phase: 'fetch' } };
+    yield {
+      type: 'log',
+      text: `Fetching ${pkgList.length || 'all'} packages…`,
+      data: { phase: 'fetch' },
+    };
 
     const result = yield* spawnStream({
       cmd: pkgManager,

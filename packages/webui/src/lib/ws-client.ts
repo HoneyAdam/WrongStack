@@ -1,4 +1,4 @@
-import type { WSServerMessage, WSClientMessage } from '../types';
+import type { WSClientMessage, WSServerMessage } from '../types';
 
 type EventHandler = (msg: WSServerMessage) => void;
 
@@ -43,7 +43,11 @@ export class WrongStackWebSocketClient {
   private setStatus(s: WsStatus) {
     this.currentStatus = s;
     for (const fn of this.statusListeners) {
-      try { fn(s); } catch { /* listener errors must not break the socket */ }
+      try {
+        fn(s);
+      } catch {
+        /* listener errors must not break the socket */
+      }
     }
   }
 
@@ -165,7 +169,7 @@ export class WrongStackWebSocketClient {
         suggestedPattern: string;
         resolve: (d: 'yes' | 'no' | 'always' | 'deny') => void;
       };
-      
+
       this.pendingConfirms.set(payload.id, {
         resolve: payload.resolve,
       });

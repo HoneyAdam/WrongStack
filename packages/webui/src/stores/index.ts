@@ -1,7 +1,7 @@
-import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import type { Usage } from '@wrongstack/core';
 import type { ContentBlock } from '@wrongstack/core';
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 
 /**
  * Strip immediately-repeated paragraphs/lines from an assistant reply.
@@ -25,11 +25,7 @@ function dedupeRepeatedBlocks(text: string): string {
     const lines = p.split('\n');
     const out: string[] = [];
     for (const line of lines) {
-      if (
-        out.length > 0 &&
-        line.trim().length > 0 &&
-        out[out.length - 1]!.trim() === line.trim()
-      ) {
+      if (out.length > 0 && line.trim().length > 0 && out[out.length - 1]!.trim() === line.trim()) {
         continue;
       }
       out.push(line);
@@ -188,18 +184,14 @@ export const useChatStore = create<ChatState>()(
 
       updateMessage: (id, updates) => {
         set((state) => ({
-          messages: state.messages.map((m) =>
-            m.id === id ? { ...m, ...updates } : m
-          ),
+          messages: state.messages.map((m) => (m.id === id ? { ...m, ...updates } : m)),
         }));
       },
 
       appendToMessage: (id, text) => {
         set((state) => ({
           messages: state.messages.map((m) =>
-            m.id === id
-              ? { ...m, content: m.content + text }
-              : m
+            m.id === id ? { ...m, content: m.content + text } : m,
           ),
         }));
       },
@@ -207,9 +199,7 @@ export const useChatStore = create<ChatState>()(
       finalizeMessage: (id) => {
         set((state) => ({
           messages: state.messages.map((m) =>
-            m.id === id
-              ? { ...m, content: dedupeRepeatedBlocks(m.content), streaming: false }
-              : m
+            m.id === id ? { ...m, content: dedupeRepeatedBlocks(m.content), streaming: false } : m,
           ),
         }));
       },
@@ -217,9 +207,7 @@ export const useChatStore = create<ChatState>()(
       setToolResult: (id, result, ok) => {
         set((state) => ({
           messages: state.messages.map((m) =>
-            m.id === id
-              ? { ...m, toolResult: result, isError: !ok, progressLines: undefined }
-              : m
+            m.id === id ? { ...m, toolResult: result, isError: !ok, progressLines: undefined } : m,
           ),
         }));
       },
@@ -248,8 +236,7 @@ export const useChatStore = create<ChatState>()(
           executions: new Map(),
         }),
 
-      setCurrentAssistantMessage: (id) =>
-        set({ currentAssistantMessageId: id }),
+      setCurrentAssistantMessage: (id) => set({ currentAssistantMessageId: id }),
 
       setCurrentToolId: (id) => set({ currentToolId: id }),
 
@@ -283,8 +270,7 @@ export const useChatStore = create<ChatState>()(
         });
       },
 
-      enqueue: (text) =>
-        set((state) => ({ queue: [...state.queue, text] })),
+      enqueue: (text) => set((state) => ({ queue: [...state.queue, text] })),
       dequeue: () => {
         const q = get().queue;
         if (q.length === 0) return null;
@@ -292,8 +278,7 @@ export const useChatStore = create<ChatState>()(
         set({ queue: rest });
         return next!;
       },
-      removeQueued: (idx) =>
-        set((state) => ({ queue: state.queue.filter((_, i) => i !== idx) })),
+      removeQueued: (idx) => set((state) => ({ queue: state.queue.filter((_, i) => i !== idx) })),
       clearQueue: () => set({ queue: [] }),
       setRunStart: (s) => set({ runStart: s }),
     }),
@@ -304,8 +289,8 @@ export const useChatStore = create<ChatState>()(
       // backend no longer has context for (the next session.start clearMessages
       // anyway). Keep theme/wsUrl in useConfigStore, transcripts ephemeral.
       partialize: () => ({}),
-    }
-  )
+    },
+  ),
 );
 
 // ============================================
@@ -336,7 +321,9 @@ interface ConfigState {
 
   setProvider: (provider: string) => void;
   setModel: (model: string) => void;
-  setConfig: (config: Partial<Omit<ConfigState, 'setProvider' | 'setModel' | 'setConfig' | 'setTheme'>>) => void;
+  setConfig: (
+    config: Partial<Omit<ConfigState, 'setProvider' | 'setModel' | 'setConfig' | 'setTheme'>>,
+  ) => void;
   setTheme: (theme: 'light' | 'dark' | 'system') => void;
   setWsConnected: (connected: boolean) => void;
   setWsStatus: (s: ConfigState['wsStatus']) => void;
@@ -377,8 +364,8 @@ export const useConfigStore = create<ConfigState>()(
     }),
     {
       name: 'wrongstack-config',
-    }
-  )
+    },
+  ),
 );
 
 // ============================================
@@ -411,7 +398,12 @@ interface SessionState {
   iteration: { index: number; max: number } | null;
   /** Live snapshot of context.todos — backend broadcasts on every
    *  tool.executed, and the sidebar/overlay reads from here. */
-  todos: Array<{ id: string; content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string }>;
+  todos: Array<{
+    id: string;
+    content: string;
+    status: 'pending' | 'in_progress' | 'completed';
+    activeForm?: string;
+  }>;
 
   setSession: (session: SessionInfo | null) => void;
   updateUsage: (usage: Usage) => void;
@@ -502,8 +494,8 @@ export const useSessionStore = create<SessionState>()(
     {
       name: 'wrongstack-session',
       partialize: () => ({}),
-    }
-  )
+    },
+  ),
 );
 
 // ============================================
@@ -618,15 +610,12 @@ export const useUIStore = create<UIState>()(
           const filtered = state.promptHistory.filter((p) => p !== trimmed);
           return { promptHistory: [trimmed, ...filtered].slice(0, 50) };
         }),
-      setSidebarWidth: (px) =>
-        set({ sidebarWidth: Math.max(200, Math.min(480, Math.round(px))) }),
+      setSidebarWidth: (px) => set({ sidebarWidth: Math.max(200, Math.min(480, Math.round(px))) }),
       togglePin: (id) =>
         set((state) => {
           const has = state.pinnedIds.includes(id);
           return {
-            pinnedIds: has
-              ? state.pinnedIds.filter((p) => p !== id)
-              : [...state.pinnedIds, id],
+            pinnedIds: has ? state.pinnedIds.filter((p) => p !== id) : [...state.pinnedIds, id],
           };
         }),
       unpinAll: () => set({ pinnedIds: [] }),

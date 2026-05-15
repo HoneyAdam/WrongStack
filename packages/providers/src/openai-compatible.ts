@@ -1,7 +1,7 @@
 import type { Request } from '@wrongstack/core';
-import { OpenAIProvider, type OpenAIProviderOptions } from './openai.js';
 import type { Capabilities } from '@wrongstack/core';
 import { capabilitiesForFamily } from './family-capabilities.js';
+import { OpenAIProvider, type OpenAIProviderOptions } from './openai.js';
 
 export interface CompatibilityQuirks {
   stripCacheControl?: boolean;

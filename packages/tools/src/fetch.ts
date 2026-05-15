@@ -118,7 +118,11 @@ export const fetchTool: Tool<FetchInput, FetchOutput> = {
         throw new Error(`fetch: refusing to read binary content-type "${ct}"`);
       }
 
-      yield { type: 'log', text: `HTTP ${res.status} ${ct}`, data: { status: res.status, contentType: ct } };
+      yield {
+        type: 'log',
+        text: `HTTP ${res.status} ${ct}`,
+        data: { status: res.status, contentType: ct },
+      };
 
       const reader = res.body?.getReader();
       let received = 0;
@@ -175,9 +179,8 @@ export const fetchTool: Tool<FetchInput, FetchOutput> = {
 async function assertNotPrivate(hostname: string): Promise<void> {
   if (ALLOW_PRIVATE) return;
 
-  const host = hostname.startsWith('[') && hostname.endsWith(']')
-    ? hostname.slice(1, -1)
-    : hostname;
+  const host =
+    hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname;
 
   if (host === 'localhost' || host.endsWith('.localhost')) {
     throw new Error('fetch: blocked localhost target');
@@ -219,15 +222,15 @@ function isPrivateIPv4(addr: string): boolean {
     return true; // defensive
   }
   const [a, b, c] = parts as [number, number, number, number];
-  if (a === 0) return true;                       // 0.0.0.0/8
-  if (a === 10) return true;                      // 10.0.0.0/8
-  if (a === 127) return true;                     // 127.0.0.0/8 loopback
-  if (a === 169 && b === 254) return true;        // 169.254.0.0/16 link-local + AWS/GCE/Azure IMDS
+  if (a === 0) return true; // 0.0.0.0/8
+  if (a === 10) return true; // 10.0.0.0/8
+  if (a === 127) return true; // 127.0.0.0/8 loopback
+  if (a === 169 && b === 254) return true; // 169.254.0.0/16 link-local + AWS/GCE/Azure IMDS
   if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
-  if (a === 192 && b === 168) return true;        // 192.168.0.0/16
+  if (a === 192 && b === 168) return true; // 192.168.0.0/16
   if (a === 192 && b === 0 && c === 0) return true; // 192.0.0.0/24 reserved
   if (a === 100 && b >= 64 && b <= 127) return true; // 100.64.0.0/10 CGNAT
-  if (a >= 224) return true;                      // 224.0.0.0/4 multicast + 240.0.0.0/4 reserved
+  if (a >= 224) return true; // 224.0.0.0/4 multicast + 240.0.0.0/4 reserved
   return false;
 }
 
@@ -244,8 +247,12 @@ function isPrivateIPv6(addr: string): boolean {
   // embedded IPv4 as two 16-bit words. Node URL normalizes the dotted form
   // to this representation (e.g. ::ffff:127.0.0.1 → ::ffff:7f00:1).
   if (
-    groups[0] === 0 && groups[1] === 0 && groups[2] === 0 &&
-    groups[3] === 0 && groups[4] === 0 && groups[5] === 0xffff
+    groups[0] === 0 &&
+    groups[1] === 0 &&
+    groups[2] === 0 &&
+    groups[3] === 0 &&
+    groups[4] === 0 &&
+    groups[5] === 0xffff
   ) {
     const a = (groups[6] ?? 0) >> 8;
     const b = (groups[6] ?? 0) & 0xff;

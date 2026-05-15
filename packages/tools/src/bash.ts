@@ -2,8 +2,8 @@ import { spawn } from 'node:child_process';
 import * as os from 'node:os';
 import type { Tool, ToolStreamEvent } from '@wrongstack/core';
 import { stripAnsi } from '@wrongstack/core';
-import { truncateMiddle } from './_util.js';
 import { buildChildEnv } from './_env.js';
+import { truncateMiddle } from './_util.js';
 
 interface BashInput {
   command: string;
@@ -63,8 +63,8 @@ export const bashTool: Tool<BashInput, BashOutput> = {
 
     const isWin = os.platform() === 'win32';
     const shell = isWin
-      ? process.env['COMSPEC'] ?? 'cmd.exe'
-      : process.env['SHELL'] ?? '/bin/bash';
+      ? (process.env['COMSPEC'] ?? 'cmd.exe')
+      : (process.env['SHELL'] ?? '/bin/bash');
     const args = isWin ? ['/c', input.command] : ['-c', input.command];
 
     const env = buildChildEnv(ctx.session?.id);
@@ -106,28 +106,44 @@ export const bashTool: Tool<BashInput, BashOutput> = {
     const timer = setTimeout(() => {
       timedOut = true;
       if (isWin) {
-        try { child.kill(); } catch { /* ignore */ }
+        try {
+          child.kill();
+        } catch {
+          /* ignore */
+        }
       } else {
         try {
           // Kill the process group, not just the shell — pid is positive,
           // group id is the negated pid. Without this a runaway grandchild
           // ('sleep 9999 & disown') survives bash termination.
           if (typeof child.pid === 'number') {
-            try { process.kill(-child.pid, 'SIGTERM'); } catch { child.kill('SIGTERM'); }
+            try {
+              process.kill(-child.pid, 'SIGTERM');
+            } catch {
+              child.kill('SIGTERM');
+            }
           } else {
             child.kill('SIGTERM');
           }
           const killTimer = setTimeout(() => {
             try {
               if (typeof child.pid === 'number') {
-                try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
+                try {
+                  process.kill(-child.pid, 'SIGKILL');
+                } catch {
+                  child.kill('SIGKILL');
+                }
               } else {
                 child.kill('SIGKILL');
               }
-            } catch { /* ignore */ }
+            } catch {
+              /* ignore */
+            }
           }, 2000);
           timers.push(killTimer);
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       }
     }, timeoutMs);
     timers.push(timer);
@@ -136,7 +152,10 @@ export const bashTool: Tool<BashInput, BashOutput> = {
     // Bridge the EventEmitter-style child to an async iterator. We push
     // chunks into a queue and let the generator pull them; this lets us
     // yield 'partial_output' events to the executor at flush boundaries.
-    type Chunk = { kind: 'data'; text: string } | { kind: 'end'; code: number | null } | { kind: 'error'; err: Error };
+    type Chunk =
+      | { kind: 'data'; text: string }
+      | { kind: 'end'; code: number | null }
+      | { kind: 'error'; err: Error };
     const queue: Chunk[] = [];
     let resolveNext: ((c: Chunk) => void) | null = null;
     const push = (c: Chunk) => {
@@ -148,11 +167,12 @@ export const bashTool: Tool<BashInput, BashOutput> = {
         queue.push(c);
       }
     };
-    const next = (): Promise<Chunk> => new Promise((resolve) => {
-      const c = queue.shift();
-      if (c) resolve(c);
-      else resolveNext = resolve;
-    });
+    const next = (): Promise<Chunk> =>
+      new Promise((resolve) => {
+        const c = queue.shift();
+        if (c) resolve(c);
+        else resolveNext = resolve;
+      });
 
     let lastFlush = Date.now();
     const flush = () => {

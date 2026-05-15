@@ -1,6 +1,6 @@
-import { useEffect } from 'react';
 import { useUIStore } from '@/stores';
 import { Keyboard, X } from 'lucide-react';
+import { useEffect } from 'react';
 
 interface Shortcut {
   keys: string[];
@@ -133,7 +133,9 @@ export function ShortcutsOverlay() {
           ))}
         </div>
         <div className="border-t px-5 py-3 text-xs text-muted-foreground">
-          Press <kbd className="font-mono text-[10px] border rounded px-1 py-0.5 bg-background">?</kbd> any time to reopen this list.
+          Press{' '}
+          <kbd className="font-mono text-[10px] border rounded px-1 py-0.5 bg-background">?</kbd>{' '}
+          any time to reopen this list.
         </div>
       </div>
     </div>

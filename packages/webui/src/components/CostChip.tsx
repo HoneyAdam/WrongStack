@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
-import { useChatStore, useSessionStore } from '@/stores';
 import { cn } from '@/lib/utils';
+import { useChatStore, useSessionStore } from '@/stores';
+import { useEffect, useRef, useState } from 'react';
 
 /**
  * Clickable cost figure in the topbar. Tap to drop a small popover with a
@@ -42,7 +42,14 @@ export function CostChip() {
    *  the delta computed in that handler (session cost at end minus at
    *  start of this turn). Falls back to nothing if no data yet. */
   const turns = (() => {
-    const rows: Array<{ id: string; preview: string; cost: number; tools: number; ms: number; ts: number }> = [];
+    const rows: Array<{
+      id: string;
+      preview: string;
+      cost: number;
+      tools: number;
+      ms: number;
+      ts: number;
+    }> = [];
     for (const m of messages) {
       if (m.role === 'assistant' && m.runSummary && m.runSummary.costDelta > 0) {
         rows.push({
@@ -60,7 +67,11 @@ export function CostChip() {
   })();
 
   const fmt$ = (v: number) =>
-    v >= 0.01 ? `$${v.toFixed(4)}` : v > 0 ? `$${v.toFixed(6).replace(/0+$/, '').replace(/\.$/, '')}` : '$0';
+    v >= 0.01
+      ? `$${v.toFixed(4)}`
+      : v > 0
+        ? `$${v.toFixed(6).replace(/0+$/, '').replace(/\.$/, '')}`
+        : '$0';
 
   const haveRates = inputCost > 0 || outputCost > 0;
 
@@ -88,10 +99,19 @@ export function CostChip() {
           </div>
           {haveRates ? (
             <div className="text-[11px] text-muted-foreground font-mono mb-3 border-b pb-2">
-              <div className="flex justify-between"><span>input  /1M</span><span>${inputCost.toFixed(2)}</span></div>
-              <div className="flex justify-between"><span>output /1M</span><span>${outputCost.toFixed(2)}</span></div>
+              <div className="flex justify-between">
+                <span>input /1M</span>
+                <span>${inputCost.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>output /1M</span>
+                <span>${outputCost.toFixed(2)}</span>
+              </div>
               {cacheReadCost > 0 && (
-                <div className="flex justify-between"><span>cache  /1M</span><span>${cacheReadCost.toFixed(2)}</span></div>
+                <div className="flex justify-between">
+                  <span>cache /1M</span>
+                  <span>${cacheReadCost.toFixed(2)}</span>
+                </div>
               )}
             </div>
           ) : (

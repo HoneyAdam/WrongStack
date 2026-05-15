@@ -3,7 +3,7 @@ import {
   InMemoryBridgeTransport,
   InMemoryAgentBridge,
   createMessage,
-} from '../../src/defaults/agent-bridge.js';
+} from '../../src/coordination/agent-bridge.js';
 
 describe('InMemoryBridgeTransport', () => {
   let transport: InMemoryBridgeTransport;
@@ -109,43 +109,47 @@ describe('InMemoryAgentBridge', () => {
   });
 
   it('request throws on duplicate in-flight request id', async () => {
-    const p1 = bridge.request(createMessage('task', 'agent1', { data: 1 }, 'coord1'), 10_000);
+    const msg = createMessage('task', 'agent1', { data: 1 }, 'coord1');
+    const p1 = bridge.request(msg, 500);
     // Second concurrent request with the same id is a caller bug — reject loudly.
     await expect(
-      bridge.request(createMessage('task', 'agent1', { data: 2 }, 'coord1'), 10_000)
+      bridge.request(msg, 500)
     ).rejects.toThrow('collides');
-    // Resolve the first so we don't leak.
-    transport.send(createMessage('task', 'coord1', {}, 'agent1'), 'agent1');
+    // Resolve the first so we don't leak — send a response with the SAME id.
+    transport.send({ ...msg, type: 'response' as const, from: 'coord1', to: 'agent1', payload: {}, timestamp: Date.now(), priority: 'normal' as const }, 'agent1');
     await expect(p1).resolves.toBeDefined();
   });
 
   it('guard clears after timeout so the id can be reused', async () => {
-    // Use a transport that never delivers, so the request hangs and times out.
-    const p1 = bridge.request(createMessage('task', 'agent1', { data: 1 }, 'coord1'), 50);
+    const msg = createMessage('task', 'agent1', { data: 1 }, 'coord1');
+    // First request times out — guard + pending entry are both removed.
+    const p1 = bridge.request(msg, 50);
     await expect(p1).rejects.toThrow('timed out');
     // After the timeout fires, the guard is removed — reuse is now safe.
+    // Same id should NOT throw 'collides'.
     await expect(
-      bridge.request(createMessage('task', 'agent1', { data: 2 }, 'coord1'), 10_000)
-    ).rejects.toThrow('collides');
+      bridge.request(msg, 100)
+    ).rejects.toThrow('timed out');
   });
 
   it('guard clears when send() throws synchronously', async () => {
-    const badTransport = new InMemoryBridgeTransport();
+    // Create a transport whose send always rejects.
+    const badTransport = {
+      send: () => Promise.reject(new Error('send broken')),
+      subscribe: () => () => {},
+      close: () => Promise.resolve(),
+    };
     const badBridge = new InMemoryAgentBridge(
       { agentId: 'bad', coordinatorId: 'coord1' },
       badTransport,
     );
-    // Stub send to reject so the catch in request() fires.
-    const sendStub = badTransport.send.bind(badTransport);
-    badTransport.send = async () => { throw new Error('send broken'); };
     await expect(
       badBridge.request(createMessage('task', 'bad', {}, 'coord1'), 100)
     ).rejects.toThrow('send broken');
-    badTransport.send = sendStub;
-    // Id is free again — no "collides" error.
+    // Id is free again — no "collides" error on retry.
     await expect(
       badBridge.request(createMessage('task', 'bad', {}, 'coord1'), 100)
-    ).rejects.toThrow('send broken'); // still fails on send, but not on guard
+    ).rejects.toThrow('send broken');
     await badBridge.stop();
   });
 });

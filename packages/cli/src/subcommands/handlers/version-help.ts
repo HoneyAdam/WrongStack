@@ -1,0 +1,40 @@
+import * as os from 'node:os';
+import { color } from '@wrongstack/core';
+import { API_VERSION, CLI_VERSION } from '../../version.js';
+import type { SubcommandDeps, SubcommandHandler } from '../index.js';
+
+export const versionCmd: SubcommandHandler = async (_args, deps) => {
+  deps.renderer.write(
+    `WrongStack ${CLI_VERSION} (apiVersion ${API_VERSION}, node ${process.version}, ${os.platform()})\n`,
+  );
+  return 0;
+};
+
+export const helpCmd: SubcommandHandler = async (_args, deps) => {
+  const lines = [
+    color.bold('WrongStack — usage'),
+    '',
+    '  wstack                       Start REPL',
+    '  wstack "<task>"              Run task and exit',
+    '  wstack resume [<id>]         Resume a session',
+    '  wstack sessions              List recent sessions',
+    '  wstack init                  Pick provider + model from models.dev',
+    '  wstack auth                  Interactive key manager (list/add/update/delete)',
+    '  wstack config [show|edit]    Show or edit effective config',
+    '  wstack tools                 List registered tools',
+    '  wstack skills                List discovered skills',
+    '  wstack providers [--all]     List providers from models.dev',
+    '  wstack models [<provider>]   List models',
+    '  wstack models refresh        Force-refresh cache',
+    '  wstack mcp [list]            List MCP servers',
+    '  wstack plugin [list]         List plugins',
+    '  wstack projects              List tracked projects',
+    '  wstack diag                  Full diagnostics',
+    '  wstack doctor                Health checks',
+    '  wstack export <id> [opts]    Render a session',
+    '  wstack usage                 Token + cost summary',
+    '  wstack version               Print version',
+  ];
+  deps.renderer.write(lines.join('\n') + '\n');
+  return 0;
+};

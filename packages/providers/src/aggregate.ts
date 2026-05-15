@@ -1,10 +1,4 @@
-import type {
-  ContentBlock,
-  Response,
-  StopReason,
-  StreamEvent,
-  Usage,
-} from '@wrongstack/core';
+import type { ContentBlock, Response, StopReason, StreamEvent, Usage } from '@wrongstack/core';
 import { parseToolInput } from './_tool-input.js';
 
 /**
@@ -25,13 +19,18 @@ export async function aggregateStream(
   let usage: Usage = { input: 0, output: 0 };
   const textBuffers: string[] = [];
   let currentTextIndex = -1;
-  const toolBuffers = new Map<string, { name: string; partial: string; input?: unknown; providerMeta?: Record<string, unknown> }>();
-  const thinkingBuffers: Array<{ textBuf: string; signature?: string; providerMeta?: Record<string, unknown> }> = [];
+  const toolBuffers = new Map<
+    string,
+    { name: string; partial: string; input?: unknown; providerMeta?: Record<string, unknown> }
+  >();
+  const thinkingBuffers: Array<{
+    textBuf: string;
+    signature?: string;
+    providerMeta?: Record<string, unknown>;
+  }> = [];
   let currentThinkingIndex = -1;
   const blockOrder: Array<
-    | { kind: 'text'; idx: number }
-    | { kind: 'tool'; id: string }
-    | { kind: 'thinking'; idx: number }
+    { kind: 'text'; idx: number } | { kind: 'tool'; id: string } | { kind: 'thinking'; idx: number }
   > = [];
 
   for await (const ev of stream) {

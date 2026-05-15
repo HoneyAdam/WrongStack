@@ -36,4 +36,3 @@ export function isBinaryBuffer(buf: Buffer): boolean {
   }
   return false;
 }
-

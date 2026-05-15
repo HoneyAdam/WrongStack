@@ -1,10 +1,10 @@
+import { spawn } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { spawn } from 'node:child_process';
 import type { Tool, ToolStreamEvent } from '@wrongstack/core';
 import { compileGlob } from '@wrongstack/core';
+import { capSubject, compileUserRegex } from './_regex.js';
 import { isBinaryBuffer, safeResolve } from './_util.js';
-import { compileUserRegex, capSubject } from './_regex.js';
 
 interface GrepInput {
   pattern: string;
@@ -164,7 +164,11 @@ async function* runRgStream(
     if (buf.length > MAX_BUF_BYTES && !bufOverflow) {
       bufOverflow = true;
       buf = buf.slice(-MAX_BUF_BYTES);
-      try { child.kill('SIGTERM'); } catch { /* ignore */ }
+      try {
+        child.kill('SIGTERM');
+      } catch {
+        /* ignore */
+      }
     }
     const idx = buf.lastIndexOf('\n');
     if (idx === -1) continue;

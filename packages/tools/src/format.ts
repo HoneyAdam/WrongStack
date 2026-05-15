@@ -1,6 +1,6 @@
 import type { Tool, ToolStreamEvent } from '@wrongstack/core';
-import { safeResolve } from './_util.js';
 import { spawnStream } from './_spawn-stream.js';
+import { safeResolve } from './_util.js';
 
 interface FormatInput {
   files?: string | string[];
@@ -19,10 +19,8 @@ interface FormatOutput {
 
 export const formatTool: Tool<FormatInput, FormatOutput> = {
   name: 'format',
-  description:
-    'Format files with biome or prettier. Use `check` to verify without modifying.',
-  usageHint:
-    'Set `files` (glob or comma-separated). `check` only validates. `fixer` forces tool.',
+  description: 'Format files with biome or prettier. Use `check` to verify without modifying.',
+  usageHint: 'Set `files` (glob or comma-separated). `check` only validates. `fixer` forces tool.',
   permission: 'confirm',
   mutating: true,
   timeoutMs: 60_000,
@@ -72,7 +70,11 @@ export const formatTool: Tool<FormatInput, FormatOutput> = {
       return;
     }
 
-    yield { type: 'log', text: `Running ${detected}…`, data: { fixer: detected, check: !!input.check } };
+    yield {
+      type: 'log',
+      text: `Running ${detected}…`,
+      data: { fixer: detected, check: !!input.check },
+    };
 
     const args: string[] = ['format', '--write'];
     if (input.check) args[args.length - 1] = '--check';

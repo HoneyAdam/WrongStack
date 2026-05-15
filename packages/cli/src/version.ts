@@ -21,6 +21,8 @@ let API_VERSION = '0.0.0';
 try {
   const corePkg = req('@wrongstack/core/package.json') as { wrongstackApiVersion?: string };
   if (corePkg.wrongstackApiVersion) API_VERSION = corePkg.wrongstackApiVersion;
-} catch { /* fallback */ }
+} catch {
+  /* fallback */
+}
 
 export { API_VERSION };

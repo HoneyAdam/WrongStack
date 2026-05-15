@@ -74,7 +74,8 @@ export function handleQueueCommand(args: string, deps: QueueSlashDeps): string {
     if (uniqueValid.length === 0) {
       const parts = ['No valid positions to delete.'];
       if (invalid.length > 0) parts.push(`Invalid: ${invalid.join(', ')}.`);
-      if (outOfRange.length > 0) parts.push(`Out of range (queue has ${queue.length}): ${outOfRange.join(', ')}.`);
+      if (outOfRange.length > 0)
+        parts.push(`Out of range (queue has ${queue.length}): ${outOfRange.join(', ')}.`);
       return parts.join(' ');
     }
     deps.deleteAt(uniqueValid);

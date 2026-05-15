@@ -1,5 +1,5 @@
-import type React from 'react';
 import { Box, Text } from 'ink';
+import type React from 'react';
 import type { SlashCommandMatch } from '../app.js';
 
 export interface SlashMenuProps {
@@ -23,9 +23,7 @@ export function SlashMenu({ query, matches, selected }: SlashMenuProps): React.R
           <Text dimColor> — {m.description}</Text>
         </Text>
       ))}
-      {matches.length === 0 && (
-        <Text dimColor>No matching commands</Text>
-      )}
+      {matches.length === 0 && <Text dimColor>No matching commands</Text>}
     </Box>
   );
 }

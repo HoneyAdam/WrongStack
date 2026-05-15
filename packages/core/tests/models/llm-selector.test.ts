@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Provider } from '../../src/types/provider.js';
 import type { Message } from '../../src/types/messages.js';
-import { LLMSelector } from '../../src/defaults/llm-selector.js';
+import { LLMSelector } from '../../src/models/llm-selector.js';
 
 function makeTextBlock(text: string) {
   return { type: 'text' as const, text };

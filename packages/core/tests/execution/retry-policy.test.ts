@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DefaultRetryPolicy } from '../../src/defaults/retry-policy.js';
+import { DefaultRetryPolicy } from '../../src/execution/retry-policy.js';
 import { ProviderError } from '../../src/types/provider.js';
 
 describe('DefaultRetryPolicy', () => {

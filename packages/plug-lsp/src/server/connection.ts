@@ -113,7 +113,8 @@ export class Connection {
       const pending = this.pending.get(id);
       if (!pending) return;
       this.pending.delete(id);
-      if (msg.error) pending.reject(new LSPError(LSPErrorCode.ProtocolError, msg.error.message, msg.error));
+      if (msg.error)
+        pending.reject(new LSPError(LSPErrorCode.ProtocolError, msg.error.message, msg.error));
       else pending.resolve(msg.result);
       return;
     }

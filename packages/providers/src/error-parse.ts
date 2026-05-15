@@ -67,9 +67,7 @@ function parseBody(rawText: string): ProviderErrorBody {
 
   // request_id (Anthropic), id (some compatible providers)
   const reqId =
-    stringOf(parsed['request_id']) ??
-    stringOf(parsed['requestId']) ??
-    stringOf(parsed['id']);
+    stringOf(parsed['request_id']) ?? stringOf(parsed['requestId']) ?? stringOf(parsed['id']);
   if (reqId) body.requestId = reqId;
 
   return body;

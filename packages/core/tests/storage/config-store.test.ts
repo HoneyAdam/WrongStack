@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { DefaultConfigStore } from '../../src/defaults/config-store.js';
+import { DefaultConfigStore } from '../../src/storage/config-store.js';
 import type { Config } from '../../src/types/config.js';
 
 const baseConfig: Config = {

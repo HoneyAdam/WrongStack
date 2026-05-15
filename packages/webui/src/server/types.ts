@@ -3,12 +3,12 @@
 
 import type {
   Agent,
-  EventBus,
-  SessionWriter,
-  ModelsRegistry,
-  ToolRegistry,
   ConfigStore,
+  EventBus,
+  ModelsRegistry,
   SecretVault,
+  SessionWriter,
+  ToolRegistry,
 } from '@wrongstack/core';
 
 export interface WSServerMessage {

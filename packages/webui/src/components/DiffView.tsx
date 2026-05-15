@@ -1,5 +1,5 @@
-import { useMemo } from 'react';
 import { cn } from '@/lib/utils';
+import { useMemo } from 'react';
 
 interface DiffViewProps {
   oldText: string;
@@ -35,9 +35,7 @@ export function DiffView({ oldText, newText, caption }: DiffViewProps) {
   return (
     <div className="rounded-lg border bg-background/40 overflow-hidden text-xs">
       <div className="flex items-center justify-between px-3 py-1.5 border-b bg-muted/40">
-        <span className="font-mono text-muted-foreground truncate">
-          {caption ?? 'diff'}
-        </span>
+        <span className="font-mono text-muted-foreground truncate">{caption ?? 'diff'}</span>
         <span className="font-mono shrink-0">
           <span className="text-emerald-600 dark:text-emerald-400">+{adds}</span>
           <span className="text-muted-foreground mx-1">·</span>

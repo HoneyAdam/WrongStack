@@ -3,10 +3,10 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   type Config,
-  type WstackPaths,
   DefaultConfigLoader,
   DefaultPathResolver,
   DefaultSecretVault,
+  type WstackPaths,
   migratePlaintextSecrets,
   resolveWstackPaths,
 } from '@wrongstack/core';
@@ -32,7 +32,9 @@ export interface BootConfigResult {
  *   - secret vault creation + plaintext migration
  *   - config loading with CLI flag overrides
  */
-export async function bootConfig(flags: Record<string, string | boolean>): Promise<BootConfigResult> {
+export async function bootConfig(
+  flags: Record<string, string | boolean>,
+): Promise<BootConfigResult> {
   const cwd = typeof flags['cwd'] === 'string' ? path.resolve(flags['cwd']) : process.cwd();
   const pathResolver = new DefaultPathResolver(cwd);
   const projectRoot = pathResolver.projectRoot;

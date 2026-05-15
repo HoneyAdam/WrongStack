@@ -1,11 +1,22 @@
-import { useEffect, useState } from 'react';
-import type { LucideIcon } from 'lucide-react';
-import { Search, Wrench, Bug, Sparkles, Zap, Keyboard, Clock, KeyRound, ArrowRight, ArchiveRestore } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { useSessionStore, useConfigStore, useUIStore, useHistoryStore } from '@/stores';
-import { getWSClient } from '@/lib/ws-client';
-import type { WSServerMessage } from '@/types';
 import { useWebSocket } from '@/hooks/useWebSocket';
+import { cn } from '@/lib/utils';
+import { getWSClient } from '@/lib/ws-client';
+import { useConfigStore, useHistoryStore, useSessionStore, useUIStore } from '@/stores';
+import type { WSServerMessage } from '@/types';
+import type { LucideIcon } from 'lucide-react';
+import {
+  ArchiveRestore,
+  ArrowRight,
+  Bug,
+  Clock,
+  KeyRound,
+  Keyboard,
+  Search,
+  Sparkles,
+  Wrench,
+  Zap,
+} from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 interface PromptCard {
   icon: LucideIcon;
@@ -22,9 +33,9 @@ const CARDS: PromptCard[] = [
     hint: 'Understand the code before changing it',
     tone: 'text-blue-600 dark:text-blue-400 bg-blue-500/10 border-blue-500/20',
     prompts: [
-      "Walk me through this codebase: list the top-level packages, the role of each, and how they depend on one another. Highlight any cross-cutting abstractions I should understand first.",
+      'Walk me through this codebase: list the top-level packages, the role of each, and how they depend on one another. Highlight any cross-cutting abstractions I should understand first.',
       "Find every place where the WebSocket protocol is defined or consumed (server handlers, client send/receive, type contracts). Show me the message-type table and any gaps where the type isn't enforced.",
-      "Locate the entrypoint that boots the agent for normal runs. Trace the call chain from CLI launch all the way to the first model call — what middleware, hooks, and tools are wired along the way?",
+      'Locate the entrypoint that boots the agent for normal runs. Trace the call chain from CLI launch all the way to the first model call — what middleware, hooks, and tools are wired along the way?',
     ],
   },
   {
@@ -34,8 +45,8 @@ const CARDS: PromptCard[] = [
     tone: 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
     prompts: [
       "Add a slash command `/export` that dumps the current chat (messages + tool calls + usage) as a markdown file to ~/.wrongstack/exports/ and surfaces a 'saved to X' toast. Wire backend + ws-client + slash menu entry.",
-      "Create a notification toast system (Zustand store + portal-rendered <Toast/> component) and migrate every existing `key.operation_result` success/failure message to use it instead of dropping into chat.",
-      "Add structured JSON logging to the WebSocket server: each handler logs `{ts, level, type, payload}` to ~/.wrongstack/logs/webui.jsonl. Make it tail-friendly and respect the existing log.level config.",
+      'Create a notification toast system (Zustand store + portal-rendered <Toast/> component) and migrate every existing `key.operation_result` success/failure message to use it instead of dropping into chat.',
+      'Add structured JSON logging to the WebSocket server: each handler logs `{ts, level, type, payload}` to ~/.wrongstack/logs/webui.jsonl. Make it tail-friendly and respect the existing log.level config.',
     ],
   },
   {
@@ -44,9 +55,9 @@ const CARDS: PromptCard[] = [
     hint: 'Track a problem to its root cause',
     tone: 'text-amber-600 dark:text-amber-400 bg-amber-500/10 border-amber-500/20',
     prompts: [
-      "Something feels off with token accounting — the cost chip and the per-message tally drift apart over a long session. Reproduce locally if you can, then propose a fix. Start by reading the TokenCounter + provider.response handler.",
-      "The WebSocket sometimes silently stops streaming text mid-response on lossy networks. Check the reconnect logic, message queue, and how we handle a half-completed text_delta stream after a reconnect.",
-      "I want to know why ctx % climbs so fast in long sessions. Use the existing /debug context breakdown to identify the largest contributors and propose three concrete pruning strategies (with token savings estimates).",
+      'Something feels off with token accounting — the cost chip and the per-message tally drift apart over a long session. Reproduce locally if you can, then propose a fix. Start by reading the TokenCounter + provider.response handler.',
+      'The WebSocket sometimes silently stops streaming text mid-response on lossy networks. Check the reconnect logic, message queue, and how we handle a half-completed text_delta stream after a reconnect.',
+      'I want to know why ctx % climbs so fast in long sessions. Use the existing /debug context breakdown to identify the largest contributors and propose three concrete pruning strategies (with token savings estimates).',
     ],
   },
   {
@@ -55,7 +66,7 @@ const CARDS: PromptCard[] = [
     hint: 'Clean up without breaking behavior',
     tone: 'text-violet-600 dark:text-violet-400 bg-violet-500/10 border-violet-500/20',
     prompts: [
-      "Find duplicated logic between packages/cli/src/webui-server.ts and packages/webui/src/server/index.ts. Extract the shared bits into a single source of truth (likely the webui package) and update the CLI to import it.",
+      'Find duplicated logic between packages/cli/src/webui-server.ts and packages/webui/src/server/index.ts. Extract the shared bits into a single source of truth (likely the webui package) and update the CLI to import it.',
       "Look at the Zustand stores in packages/webui/src/stores/index.ts — anything that should be a derived selector instead of stored state? Anything persisted that shouldn't be? Propose a leaner shape and migration plan.",
       "Audit the slash command dispatcher: pull each command's run logic into its own module under packages/webui/src/commands/, make the registry data-driven, and ensure /help auto-generates from the registry (not a hardcoded list).",
     ],
@@ -105,7 +116,9 @@ export function WelcomeScreen() {
       setSavedCount(p.providers?.length ?? 0);
     });
     client.listSavedProviders();
-    return () => { off(); };
+    return () => {
+      off();
+    };
   }, [wsConnected, wsUrl]);
   /** Recent prompts harvested from the user's typing history. The same
    *  store that powers ↑/↓ recall in the input — surfacing them here turns
@@ -153,9 +166,10 @@ export function WelcomeScreen() {
             ?
           </h2>
           <p className="text-sm text-muted-foreground mt-2 max-w-2xl mx-auto leading-relaxed">
-            WrongStack is connected to your project and ready to read, edit, run commands, search the codebase,
-            track todos, and remember context across sessions. Pick a starting prompt below, write your own,
-            or type <span className="font-mono text-foreground/80">/</span> for the full command palette.
+            WrongStack is connected to your project and ready to read, edit, run commands, search
+            the codebase, track todos, and remember context across sessions. Pick a starting prompt
+            below, write your own, or type <span className="font-mono text-foreground/80">/</span>{' '}
+            for the full command palette.
           </p>
           {provider && model && (
             <p className="text-xs text-muted-foreground/70 mt-2 font-mono">
@@ -184,13 +198,11 @@ export function WelcomeScreen() {
             <KeyRound className="h-6 w-6" />
           </span>
           <div className="flex-1 min-w-0">
-            <h3 className="text-base font-semibold mb-1">
-              No API key configured yet
-            </h3>
+            <h3 className="text-base font-semibold mb-1">No API key configured yet</h3>
             <p className="text-sm text-muted-foreground leading-relaxed">
-              Register a provider in Settings before sending a message —
-              otherwise the agent has nothing to talk to. Anthropic, OpenAI,
-              Google, and any OpenAI-compatible endpoint all work.
+              Register a provider in Settings before sending a message — otherwise the agent has
+              nothing to talk to. Anthropic, OpenAI, Google, and any OpenAI-compatible endpoint all
+              work.
             </p>
           </div>
           <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 font-medium shrink-0 group-hover:translate-x-0.5 transition-transform">

@@ -28,8 +28,7 @@ interface OutdatedOutput {
 
 export const outdatedTool: Tool<OutdatedInput, OutdatedOutput> = {
   name: 'outdated',
-  description:
-    'Check for outdated npm packages. Shows current, wanted, and latest versions.',
+  description: 'Check for outdated npm packages. Shows current, wanted, and latest versions.',
   usageHint:
     'Set `check` to filter specific packages. `format` as list or table. `include_deprecated` shows deprecated packages.',
   permission: 'auto',
@@ -68,8 +67,18 @@ export const outdatedTool: Tool<OutdatedInput, OutdatedOutput> = {
 
 async function detectManager(cwd: string): Promise<string> {
   const { stat } = require('node:fs/promises');
-  try { await stat(`${cwd}/pnpm-lock.yaml`); return 'pnpm'; } catch { /* */ }
-  try { await stat(`${cwd}/yarn.lock`); return 'yarn'; } catch { /* */ }
+  try {
+    await stat(`${cwd}/pnpm-lock.yaml`);
+    return 'pnpm';
+  } catch {
+    /* */
+  }
+  try {
+    await stat(`${cwd}/yarn.lock`);
+    return 'yarn';
+  } catch {
+    /* */
+  }
   return 'npm';
 }
 
@@ -85,19 +94,25 @@ function runOutdated(
     const MAX = 100_000;
 
     const child = spawn(manager, args, { cwd, signal, stdio: ['ignore', 'pipe', 'pipe'] });
-    child.stdout?.on('data', (c) => { if (stdout.length < MAX) stdout += c.toString(); });
-    child.stderr?.on('data', (c) => { if (stderr.length < MAX) stderr += c.toString(); });
+    child.stdout?.on('data', (c) => {
+      if (stdout.length < MAX) stdout += c.toString();
+    });
+    child.stderr?.on('data', (c) => {
+      if (stderr.length < MAX) stderr += c.toString();
+    });
     child.on('close', (code) => {
       const result = parseOutdatedOutput(stdout, code ?? 0);
       resolve(result);
     });
-    child.on('error', (e) => resolve({
-      exit_code: 1,
-      packages: [],
-      total: 0,
-      output: e.message,
-      truncated: false,
-    }));
+    child.on('error', (e) =>
+      resolve({
+        exit_code: 1,
+        packages: [],
+        total: 0,
+        output: e.message,
+        truncated: false,
+      }),
+    );
   });
 }
 

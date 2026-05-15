@@ -9,13 +9,13 @@ import { ToolRegistry } from '../../src/registry/tool-registry.js';
 import { ProviderRegistry } from '../../src/registry/provider-registry.js';
 import { Agent, createDefaultPipelines } from '../../src/core/agent.js';
 import { Context } from '../../src/core/context.js';
-import { DefaultLogger } from '../../src/defaults/logger.js';
-import { DefaultRetryPolicy } from '../../src/defaults/retry-policy.js';
-import { DefaultErrorHandler } from '../../src/defaults/error-handler.js';
-import { DefaultSecretScrubber } from '../../src/defaults/secret-scrubber.js';
-import { DefaultTokenCounter } from '../../src/defaults/token-counter.js';
-import { DefaultPermissionPolicy } from '../../src/defaults/permission-policy.js';
-import { DefaultSessionStore } from '../../src/defaults/session-store.js';
+import { DefaultLogger } from '../../src/infrastructure/logger.js';
+import { DefaultRetryPolicy } from '../../src/execution/retry-policy.js';
+import { DefaultErrorHandler } from '../../src/execution/error-handler.js';
+import { DefaultSecretScrubber } from '../../src/security/secret-scrubber.js';
+import { DefaultTokenCounter } from '../../src/infrastructure/token-counter.js';
+import { DefaultPermissionPolicy } from '../../src/security/permission-policy.js';
+import { DefaultSessionStore } from '../../src/storage/session-store.js';
 import { MockProvider } from '../helpers/mock-provider.js';
 
 /**

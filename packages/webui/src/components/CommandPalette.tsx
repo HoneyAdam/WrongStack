@@ -1,31 +1,37 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useUIStore, useChatStore, useHistoryStore, useConfigStore, useSessionStore } from '@/stores';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';
 import {
-  Search,
-  Hash,
-  History as HistoryIcon,
-  Cpu,
-  Settings as SettingsIcon,
-  Wrench,
-  Brain,
-  Sparkles,
-  Stethoscope,
-  BarChart3,
-  Trash2,
-  RotateCcw,
+  useChatStore,
+  useConfigStore,
+  useHistoryStore,
+  useSessionStore,
+  useUIStore,
+} from '@/stores';
+import {
   ArchiveRestore,
+  BarChart3,
+  Brain,
+  Cpu,
   Database,
   Download,
-  Sun,
-  Moon,
-  Monitor,
+  Hash,
+  History as HistoryIcon,
+  type LucideIcon,
   Maximize2,
+  Monitor,
+  Moon,
+  RotateCcw,
+  Search,
+  Settings as SettingsIcon,
+  Sparkles,
+  Stethoscope,
+  Sun,
+  Trash2,
   Volume2,
   VolumeX,
-  type LucideIcon,
+  Wrench,
 } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 /**
  * Cross-cut search-everything overlay invoked with Ctrl/Cmd+K. Mirrors the
@@ -89,40 +95,65 @@ export function CommandPalette() {
     const base: PaletteItem[] = [
       // Commands
       {
-        id: 'help', category: 'Command', label: 'Show slash commands', icon: Hash,
+        id: 'help',
+        category: 'Command',
+        label: 'Show slash commands',
+        icon: Hash,
         keywords: ['help', 'commands', '?'],
         run: () => {
-          addMessage({ role: 'assistant', content: 'Type `/` in the message box to see every slash command.' });
+          addMessage({
+            role: 'assistant',
+            content: 'Type `/` in the message box to see every slash command.',
+          });
         },
       },
       {
-        id: 'tools', category: 'Command', label: 'List tools', icon: Wrench,
+        id: 'tools',
+        category: 'Command',
+        label: 'List tools',
+        icon: Wrench,
         keywords: ['tools', 'list'],
         run: () => ws.listTools(),
       },
       {
-        id: 'memory', category: 'Command', label: 'Show memory', icon: Brain,
+        id: 'memory',
+        category: 'Command',
+        label: 'Show memory',
+        icon: Brain,
         keywords: ['memory', 'remember', 'notes'],
         run: () => ws.listMemory(),
       },
       {
-        id: 'skills', category: 'Command', label: 'List skills', icon: Sparkles,
+        id: 'skills',
+        category: 'Command',
+        label: 'List skills',
+        icon: Sparkles,
         keywords: ['skills'],
         run: () => ws.listSkills(),
       },
       {
-        id: 'diag', category: 'Command', label: 'Runtime diagnostics', icon: Stethoscope,
+        id: 'diag',
+        category: 'Command',
+        label: 'Runtime diagnostics',
+        icon: Stethoscope,
         keywords: ['diag', 'diagnostics', 'debug'],
         run: () => ws.getDiag(),
       },
       {
-        id: 'stats', category: 'Command', label: 'Session stats (tokens, cache, cost)', icon: BarChart3,
+        id: 'stats',
+        category: 'Command',
+        label: 'Session stats (tokens, cache, cost)',
+        icon: BarChart3,
         keywords: ['stats', 'tokens', 'cost', 'cache'],
         run: () => ws.getStats(),
       },
       // Session actions
       {
-        id: 'clear', category: 'Session', label: 'Clear context', hint: 'Wipe in-memory context, keep session id', icon: Trash2,
+        id: 'clear',
+        category: 'Session',
+        label: 'Clear context',
+        hint: 'Wipe in-memory context, keep session id',
+        icon: Trash2,
         keywords: ['clear', 'reset', 'wipe'],
         run: () => {
           clearMessages();
@@ -130,22 +161,34 @@ export function CommandPalette() {
         },
       },
       {
-        id: 'new', category: 'Session', label: 'New session', hint: 'Brand-new on disk + memory', icon: RotateCcw,
+        id: 'new',
+        category: 'Session',
+        label: 'New session',
+        hint: 'Brand-new on disk + memory',
+        icon: RotateCcw,
         keywords: ['new', 'fresh', 'session'],
         run: () => ws.client?.newSession?.(),
       },
       {
-        id: 'compact', category: 'Session', label: 'Compact context', icon: Database,
+        id: 'compact',
+        category: 'Session',
+        label: 'Compact context',
+        icon: Database,
         keywords: ['compact', 'shrink', 'context'],
         run: () => ws.client?.compactContext?.(),
       },
       {
-        id: 'export', category: 'Session', label: 'Export chat as markdown', icon: Download,
+        id: 'export',
+        category: 'Session',
+        label: 'Export chat as markdown',
+        icon: Download,
         keywords: ['export', 'save', 'markdown', 'download'],
         run: () => downloadChatAsMarkdown(),
       },
       {
-        id: 'export-html', category: 'Session', label: 'Export chat as HTML',
+        id: 'export-html',
+        category: 'Session',
+        label: 'Export chat as HTML',
         hint: 'Self-contained, opens in any browser',
         icon: Download,
         keywords: ['export', 'html', 'download', 'archive'],
@@ -153,44 +196,66 @@ export function CommandPalette() {
       },
       // Navigation
       {
-        id: 'history', category: 'Command', label: 'Open history', icon: HistoryIcon,
+        id: 'history',
+        category: 'Command',
+        label: 'Open history',
+        icon: HistoryIcon,
         keywords: ['history', 'sessions'],
         run: () => setCurrentView('history'),
       },
       {
-        id: 'settings', category: 'Command', label: 'Open settings', icon: SettingsIcon,
+        id: 'settings',
+        category: 'Command',
+        label: 'Open settings',
+        icon: SettingsIcon,
         keywords: ['settings', 'config'],
         run: () => setCurrentView('settings'),
       },
       {
-        id: 'model', category: 'Command', label: 'Change provider/model', icon: Cpu,
+        id: 'model',
+        category: 'Command',
+        label: 'Change provider/model',
+        icon: Cpu,
         keywords: ['model', 'provider', 'change'],
         run: () => setCurrentView('settings'),
       },
       // Theme
       {
-        id: 'theme-light', category: 'Theme', label: 'Theme: Light', icon: Sun,
+        id: 'theme-light',
+        category: 'Theme',
+        label: 'Theme: Light',
+        icon: Sun,
         keywords: ['theme', 'light', 'mode'],
         run: () => setTheme('light'),
       },
       {
-        id: 'theme-dark', category: 'Theme', label: 'Theme: Dark', icon: Moon,
+        id: 'theme-dark',
+        category: 'Theme',
+        label: 'Theme: Dark',
+        icon: Moon,
         keywords: ['theme', 'dark', 'mode'],
         run: () => setTheme('dark'),
       },
       {
-        id: 'theme-system', category: 'Theme', label: 'Theme: Follow system', icon: Monitor,
+        id: 'theme-system',
+        category: 'Theme',
+        label: 'Theme: Follow system',
+        icon: Monitor,
         keywords: ['theme', 'system', 'auto'],
         run: () => setTheme('system'),
       },
       {
-        id: 'compact-toggle', category: 'Command', label: 'Toggle compact density', icon: Maximize2,
+        id: 'compact-toggle',
+        category: 'Command',
+        label: 'Toggle compact density',
+        icon: Maximize2,
         hint: 'Ctrl+Shift+D',
         keywords: ['compact', 'dense', 'density', 'size'],
         run: () => useUIStore.getState().toggleCompactMode(),
       },
       {
-        id: 'sound-toggle', category: 'Command',
+        id: 'sound-toggle',
+        category: 'Command',
         label: useConfigStore.getState().soundOnComplete
           ? 'Sound on completion: ON — turn off'
           : 'Sound on completion: OFF — turn on',
@@ -231,12 +296,7 @@ export function CommandPalette() {
     const q = query.toLowerCase().trim();
     if (!q) return items;
     return items.filter((it) => {
-      const hay = [
-        it.label,
-        it.hint ?? '',
-        it.category,
-        ...(it.keywords ?? []),
-      ]
+      const hay = [it.label, it.hint ?? '', it.category, ...(it.keywords ?? [])]
         .join(' ')
         .toLowerCase();
       return hay.includes(q);
@@ -278,7 +338,9 @@ export function CommandPalette() {
                 setIndex((i) => (i + 1) % Math.max(1, filtered.length));
               } else if (e.key === 'ArrowUp') {
                 e.preventDefault();
-                setIndex((i) => (i - 1 + Math.max(1, filtered.length)) % Math.max(1, filtered.length));
+                setIndex(
+                  (i) => (i - 1 + Math.max(1, filtered.length)) % Math.max(1, filtered.length),
+                );
               } else if (e.key === 'Enter') {
                 e.preventDefault();
                 dispatchPick(filtered[index]);
@@ -347,9 +409,7 @@ function renderGroupedList(
                     <div className="text-xs text-muted-foreground truncate">{item.hint}</div>
                   )}
                 </div>
-                {active && (
-                  <span className="text-[10px] text-muted-foreground">↵</span>
-                )}
+                {active && <span className="text-[10px] text-muted-foreground">↵</span>}
               </button>
             );
           })}
@@ -441,12 +501,16 @@ export function downloadChatAsHtml(): void {
       return `
         <section class="bubble tool ${m.isError ? 'error' : ''}">
           <header><span class="icon">🔧</span><code>${escape(m.toolName ?? 'tool')}</code> ${status}</header>
-          ${m.toolInput !== undefined
-            ? `<details><summary>Input</summary><pre>${escape(JSON.stringify(m.toolInput, null, 2))}</pre></details>`
-            : ''}
-          ${m.toolResult
-            ? `<details><summary>Output</summary><pre>${escape(m.toolResult)}</pre></details>`
-            : ''}
+          ${
+            m.toolInput !== undefined
+              ? `<details><summary>Input</summary><pre>${escape(JSON.stringify(m.toolInput, null, 2))}</pre></details>`
+              : ''
+          }
+          ${
+            m.toolResult
+              ? `<details><summary>Output</summary><pre>${escape(m.toolResult)}</pre></details>`
+              : ''
+          }
         </section>`;
     }
     const cls = m.role === 'user' ? 'user' : 'assistant';

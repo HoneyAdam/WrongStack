@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
-import { useConfigStore } from '@/stores';
-import { getWSClient } from '@/lib/ws-client';
-import { WifiOff, Loader2, X, RotateCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { getWSClient } from '@/lib/ws-client';
+import { useConfigStore } from '@/stores';
+import { Loader2, RotateCcw, WifiOff, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 /**
  * Prominent connection-lost banner. The ConnectionChip in the topbar is
@@ -70,9 +70,7 @@ export function ConnectionBanner() {
             ? `Reconnecting to backend (attempt ${wsStatus.attempt}) — retrying in ${remaining}s`
             : 'Disconnected from backend'}
         </div>
-        {errorText && (
-          <div className="text-xs opacity-80 truncate">{errorText}</div>
-        )}
+        {errorText && <div className="text-xs opacity-80 truncate">{errorText}</div>}
       </div>
       <button
         type="button"

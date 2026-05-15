@@ -4,8 +4,14 @@ import { humanToLSP } from '../position.js';
 import { supportsRename } from '../server/capabilities.js';
 import { LSPError, LSPErrorCode } from '../types.js';
 import { pathToUri } from '../utils/uri.js';
+import {
+  type ToolDeps,
+  readDocumentContent,
+  requireServer,
+  resolveInputPath,
+  stringifyToolError,
+} from './shared.js';
 import { applyWorkspaceEdit } from './workspace-edit.js';
-import { readDocumentContent, requireServer, resolveInputPath, stringifyToolError, type ToolDeps } from './shared.js';
 
 interface RenameInput {
   path: string;
@@ -18,7 +24,8 @@ export function createRenameTool(deps: ToolDeps): Tool<RenameInput, string> {
   return {
     name: 'lsp_rename',
     description: 'Rename a symbol semantically across the workspace.',
-    usageHint: 'Prefer this over find-and-replace for functions, classes, variables, and types. This mutates files and requires confirmation.',
+    usageHint:
+      'Prefer this over find-and-replace for functions, classes, variables, and types. This mutates files and requires confirmation.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -38,15 +45,22 @@ export function createRenameTool(deps: ToolDeps): Tool<RenameInput, string> {
         const file = resolveInputPath(input.path, ctx);
         const server = await requireServer(deps.registry, file, opts.signal);
         if (server.capabilities && !supportsRename(server.capabilities)) {
-          throw new LSPError(LSPErrorCode.CapabilityMissing, `Server "${server.name}" does not support rename`);
+          throw new LSPError(
+            LSPErrorCode.CapabilityMissing,
+            `Server "${server.name}" does not support rename`,
+          );
         }
         const content = await readDocumentContent(file, deps.tracker);
         const position = humanToLSP(content, { line: input.line, character: input.character });
-        const edit = await server.rename({
-          textDocument: { uri: pathToUri(file) },
-          position,
-          newName: input.new_name,
-        }, 15_000, opts.signal);
+        const edit = await server.rename(
+          {
+            textDocument: { uri: pathToUri(file) },
+            position,
+            newName: input.new_name,
+          },
+          15_000,
+          opts.signal,
+        );
         if (!edit) return 'Rename produced no edits.';
         const summary = summarizeWorkspaceEdit(edit, ctx.cwd);
         const applied = await applyWorkspaceEdit(edit, deps.tracker);

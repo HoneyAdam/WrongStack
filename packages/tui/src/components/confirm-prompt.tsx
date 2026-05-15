@@ -1,5 +1,5 @@
-import type React from 'react';
 import { Box, Text, useInput } from 'ink';
+import type React from 'react';
 
 export interface ConfirmPromptProps {
   toolName: string;
@@ -28,7 +28,13 @@ function hasDiff(input: unknown): boolean {
 }
 
 function renderDiffLine(line: string): React.ReactElement {
-  const prefix = line.startsWith('+') ? 'green' : line.startsWith('-') ? 'red' : line.startsWith('@@') ? 'cyan' : undefined;
+  const prefix = line.startsWith('+')
+    ? 'green'
+    : line.startsWith('-')
+      ? 'red'
+      : line.startsWith('@@')
+        ? 'cyan'
+        : undefined;
   return (
     <Text key={line} color={prefix}>
       {line}
@@ -38,7 +44,10 @@ function renderDiffLine(line: string): React.ReactElement {
 }
 
 function renderDiff(diff: string): React.ReactElement {
-  const lines = diff.split('\n').filter((l) => l.length > 0).slice(0, 20);
+  const lines = diff
+    .split('\n')
+    .filter((l) => l.length > 0)
+    .slice(0, 20);
   return (
     <Box flexDirection="column" paddingX={2}>
       {lines.map((l) => renderDiffLine(l))}
@@ -46,7 +55,12 @@ function renderDiff(diff: string): React.ReactElement {
   );
 }
 
-export function ConfirmPrompt({ toolName, input, suggestedPattern, onDecision }: ConfirmPromptProps): React.ReactElement {
+export function ConfirmPrompt({
+  toolName,
+  input,
+  suggestedPattern,
+  onDecision,
+}: ConfirmPromptProps): React.ReactElement {
   useInput((_, key) => {
     if (key.return) {
       onDecision('yes');
@@ -65,17 +79,23 @@ export function ConfirmPrompt({ toolName, input, suggestedPattern, onDecision }:
   const diff = typeof inp?.diff === 'string' ? inp.diff : '';
 
   return (
-    <Box flexDirection="column" borderStyle="single" borderTop={false} borderLeft={false} borderRight={false} borderBottom={false} paddingX={1}>
+    <Box
+      flexDirection="column"
+      borderStyle="single"
+      borderTop={false}
+      borderLeft={false}
+      borderRight={false}
+      borderBottom={false}
+      paddingX={1}
+    >
       <Box flexDirection="row">
         <Text bold color="yellow">
           ⚠ Confirm
         </Text>
-        <Text>  </Text>
+        <Text> </Text>
         <Text bold>{toolName}</Text>
       </Box>
-      {inputSummary ? (
-        <Text dimColor>{inputSummary}</Text>
-      ) : null}
+      {inputSummary ? <Text dimColor>{inputSummary}</Text> : null}
       {showDiff && diff ? (
         <Box flexDirection="column" marginY={1}>
           {renderDiff(diff)}
@@ -84,13 +104,21 @@ export function ConfirmPrompt({ toolName, input, suggestedPattern, onDecision }:
       <Text dimColor>─────────────────</Text>
       <Box flexDirection="row">
         <Text>
-          <Text bold color="green">[↵]</Text>
-          <Text dimColor> yes    </Text>
-          <Text bold color="red">[Esc]</Text>
-          <Text dimColor> no    </Text>
-          <Text bold color="cyan">[Ctrl+A]</Text>
-          <Text dimColor> always ({suggestedPattern})    </Text>
-          <Text bold color="red">[Ctrl+D]</Text>
+          <Text bold color="green">
+            [↵]
+          </Text>
+          <Text dimColor> yes </Text>
+          <Text bold color="red">
+            [Esc]
+          </Text>
+          <Text dimColor> no </Text>
+          <Text bold color="cyan">
+            [Ctrl+A]
+          </Text>
+          <Text dimColor> always ({suggestedPattern}) </Text>
+          <Text bold color="red">
+            [Ctrl+D]
+          </Text>
           <Text dimColor> deny</Text>
         </Text>
       </Box>

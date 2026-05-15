@@ -1,18 +1,18 @@
-import { useCallback, useEffect, useRef } from 'react';
-import { getWSClient, type WrongStackWebSocketClient } from '@/lib/ws-client';
+import { toast } from '@/components/Toaster';
+import { playCompletionChime } from '@/lib/chime';
+import { installFaviconVisibilityReset, setFaviconStatus } from '@/lib/favicon';
+import { ensureNotificationPermission, notifyIfHidden } from '@/lib/notify';
+import { type WrongStackWebSocketClient, getWSClient } from '@/lib/ws-client';
 import {
+  type SessionHistoryEntry,
   useChatStore,
-  useSessionStore,
-  useUIStore,
   useConfigStore,
   useHistoryStore,
-  type SessionHistoryEntry,
+  useSessionStore,
+  useUIStore,
 } from '@/stores';
-import { toast } from '@/components/Toaster';
-import { ensureNotificationPermission, notifyIfHidden } from '@/lib/notify';
-import { playCompletionChime } from '@/lib/chime';
-import { setFaviconStatus, installFaviconVisibilityReset } from '@/lib/favicon';
 import type { WSServerMessage } from '@/types';
+import { useCallback, useEffect, useRef } from 'react';
 
 /**
  * One-shot WebSocket handler installation.
@@ -79,7 +79,8 @@ function installHandlers(ws: WrongStackWebSocketClient): () => void {
     // Resume hydration: rebuild the chat from the on-disk transcript so the
     // user can pick up exactly where they left off. We translate each
     // Message into the simpler ChatMessage shape the UI store expects.
-    const replay = (payload as { replayMessages?: Array<{ role: string; content: unknown }> }).replayMessages;
+    const replay = (payload as { replayMessages?: Array<{ role: string; content: unknown }> })
+      .replayMessages;
     if (replay && replay.length > 0) {
       const chat = useChatStore.getState();
       for (const m of replay) {
@@ -233,9 +234,7 @@ function installHandlers(ws: WrongStackWebSocketClient): () => void {
     const payload = msg.payload as { text: string; messageId: string };
     let id = useChatStore.getState().currentAssistantMessageId;
     if (!id) {
-      id = useChatStore
-        .getState()
-        .addMessage({ role: 'assistant', content: '', streaming: true });
+      id = useChatStore.getState().addMessage({ role: 'assistant', content: '', streaming: true });
       useChatStore.getState().setCurrentAssistantMessage(id);
     }
     useChatStore.getState().appendToMessage(id, payload.text);
@@ -251,9 +250,7 @@ function installHandlers(ws: WrongStackWebSocketClient): () => void {
     // Guard against duplicate tool.started for the same backend id. Could
     // happen if the agent retries / re-emits, and we definitely don't want a
     // second bubble for the same tool_use.
-    const existing = useChatStore
-      .getState()
-      .messages.find((m) => m.toolUseId === payload.id);
+    const existing = useChatStore.getState().messages.find((m) => m.toolUseId === payload.id);
     if (existing) {
       useChatStore.getState().setCurrentToolId(existing.id);
       return;
@@ -316,12 +313,8 @@ function installHandlers(ws: WrongStackWebSocketClient): () => void {
         ? messages.find((m) => m.id === currentToolId)
         : undefined;
     if (owner) {
-      useChatStore
-        .getState()
-        .setToolResult(owner.id, payload.output ?? '', payload.ok);
-      useChatStore
-        .getState()
-        .updateMessage(owner.id, { toolDurationMs: payload.durationMs });
+      useChatStore.getState().setToolResult(owner.id, payload.output ?? '', payload.ok);
+      useChatStore.getState().updateMessage(owner.id, { toolDurationMs: payload.durationMs });
     }
     if (payload.id) {
       useChatStore.getState().updateExecution(payload.id, {
@@ -455,7 +448,9 @@ function installHandlers(ws: WrongStackWebSocketClient): () => void {
       //   • OS notification: only when the tab is actually hidden AND the
       //     user previously granted permission. Cheap if neither applies.
       if (typeof document !== 'undefined' && document.hidden) {
-        toast.success(`Run completed in ${payload.iterations} iteration${payload.iterations === 1 ? '' : 's'}`);
+        toast.success(
+          `Run completed in ${payload.iterations} iteration${payload.iterations === 1 ? '' : 's'}`,
+        );
         notifyIfHidden(
           'WrongStack run finished',
           `Completed in ${payload.iterations} iteration${payload.iterations === 1 ? '' : 's'}.`,
@@ -471,7 +466,11 @@ function installHandlers(ws: WrongStackWebSocketClient): () => void {
       // elsewhere. Synthesized via Web Audio, see lib/chime.ts. Off by
       // default; user opts in via Command Palette.
       if (useConfigStore.getState().soundOnComplete) {
-        try { playCompletionChime(); } catch { /* audio policy may block */ }
+        try {
+          playCompletionChime();
+        } catch {
+          /* audio policy may block */
+        }
       }
     }
     // Drain a queued follow-up if the user typed while we were running.
@@ -621,7 +620,12 @@ function installHandlers(ws: WrongStackWebSocketClient): () => void {
 
   on('todos.updated', (msg) => {
     const p = msg.payload as {
-      todos: Array<{ id: string; content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string }>;
+      todos: Array<{
+        id: string;
+        content: string;
+        status: 'pending' | 'in_progress' | 'completed';
+        activeForm?: string;
+      }>;
     };
     useSessionStore.getState().setTodos(p.todos ?? []);
   });
@@ -631,9 +635,9 @@ function installHandlers(ws: WrongStackWebSocketClient): () => void {
       modes: Array<{ id: string; name: string; description: string; isActive: boolean }>;
       activeId: string;
     };
-    useSessionStore.getState().setModes(
-      p.modes.map((m) => ({ id: m.id, name: m.name, description: m.description })),
-    );
+    useSessionStore
+      .getState()
+      .setModes(p.modes.map((m) => ({ id: m.id, name: m.name, description: m.description })));
     useSessionStore.getState().setEnv({ mode: p.activeId });
   });
 
@@ -686,7 +690,9 @@ export function useWebSocketBootstrap(): void {
 
     // installed.current guards against React StrictMode's double-mount in dev.
     if (installed.current) {
-      return () => { offStatus(); };
+      return () => {
+        offStatus();
+      };
     }
     installed.current = true;
     const off = installHandlers(ws);
@@ -735,13 +741,9 @@ export function useWebSocket() {
     (providerId: string) => client.listProviderModels(providerId),
     [client],
   );
-  const listSavedProviders = useCallback(
-    () => client.listSavedProviders(),
-    [client],
-  );
+  const listSavedProviders = useCallback(() => client.listSavedProviders(), [client]);
   const addKey = useCallback(
-    (providerId: string, label: string, apiKey: string) =>
-      client.addKey(providerId, label, apiKey),
+    (providerId: string, label: string, apiKey: string) => client.addKey(providerId, label, apiKey),
     [client],
   );
   const updateKey = useCallback(
@@ -754,8 +756,7 @@ export function useWebSocket() {
     [client],
   );
   const setActiveKey = useCallback(
-    (providerId: string, label: string) =>
-      client.setActiveKey(providerId, label),
+    (providerId: string, label: string) => client.setActiveKey(providerId, label),
     [client],
   );
   const addProvider = useCallback(

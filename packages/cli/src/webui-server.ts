@@ -1,18 +1,8 @@
-import type {
-  Agent,
-  EventBus,
-  SessionWriter,
-  ModelsRegistry,
-} from '@wrongstack/core';
-import { WebSocketServer, WebSocket } from 'ws';
 import * as fs from 'node:fs/promises';
-import {
-  encryptConfigSecrets,
-  decryptConfigSecrets,
-  type ProviderConfig,
-  type ProviderApiKey,
-  atomicWrite,
-} from '@wrongstack/core';
+import type { Agent, EventBus, ModelsRegistry, SessionWriter } from '@wrongstack/core';
+import { type ProviderConfig, atomicWrite } from '@wrongstack/core';
+import { WebSocket, WebSocketServer } from 'ws';
+import { maskedKey, normalizeKeys, nowIso, writeKeysBack } from './provider-config-utils.js';
 
 // Re-export types from webui for type checking
 // At runtime, the actual types are resolved via workspace resolution
@@ -66,7 +56,7 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
           type: 'iteration.started',
           payload: { index: e.index },
         });
-      })
+      }),
     );
 
     // provider.text_delta
@@ -76,7 +66,7 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
           type: 'provider.text_delta',
           payload: { text: e.text, messageId: 'current' },
         });
-      })
+      }),
     );
 
     // tool.started
@@ -91,7 +81,7 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
             messageId: `tool_${e.id}`,
           },
         });
-      })
+      }),
     );
 
     // tool.progress
@@ -105,7 +95,7 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
             event: e.event,
           },
         });
-      })
+      }),
     );
 
     // tool.executed
@@ -124,7 +114,7 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
             output: e.output,
           },
         });
-      })
+      }),
     );
 
     // provider.response
@@ -138,7 +128,7 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
             messageId: 'current',
           },
         });
-      })
+      }),
     );
 
     // error
@@ -151,7 +141,7 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
             message: e.err instanceof Error ? e.err.message : String(e.err),
           },
         });
-      })
+      }),
     );
   }
 
@@ -216,11 +206,15 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
   async function handleMessage(
     ws: WebSocket,
     client: ConnectedClient,
-    msg: WSClientMessage
+    msg: WSClientMessage,
   ): Promise<void> {
     switch (msg.type) {
       case 'user_message':
-        await handleUserMessage(ws, client, (msg as { payload: { content: string } }).payload.content);
+        await handleUserMessage(
+          ws,
+          client,
+          (msg as { payload: { content: string } }).payload.content,
+        );
         break;
 
       case 'abort':
@@ -240,7 +234,10 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
         break;
 
       case 'provider.models':
-        await handleProviderModels(ws, (msg as { payload: { providerId: string } }).payload.providerId);
+        await handleProviderModels(
+          ws,
+          (msg as { payload: { providerId: string } }).payload.providerId,
+        );
         break;
 
       case 'providers.saved':
@@ -267,7 +264,9 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
       }
 
       case 'provider.add': {
-        const m = msg as { payload: { id: string; family: string; baseUrl?: string; apiKey?: string } };
+        const m = msg as {
+          payload: { id: string; family: string; baseUrl?: string; apiKey?: string };
+        };
         await handleProviderAdd(ws, m.payload);
         break;
       }
@@ -283,7 +282,7 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
   async function handleUserMessage(
     ws: WebSocket,
     client: ConnectedClient,
-    content: string
+    content: string,
   ): Promise<void> {
     // Abort any existing run
     abortController?.abort();
@@ -428,12 +427,17 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
     }
   }
 
-  async function handleKeyUpsert(ws: WebSocket, providerId: string, label: string, apiKey: string): Promise<void> {
+  async function handleKeyUpsert(
+    ws: WebSocket,
+    providerId: string,
+    label: string,
+    apiKey: string,
+  ): Promise<void> {
     try {
       const providers = await loadSavedProviders();
       const existing = providers[providerId] ?? { type: providerId };
       const keys = normalizeKeys(existing);
-      
+
       // Check if label exists
       const existingIdx = keys.findIndex((k) => k.label === label);
       if (existingIdx >= 0) {
@@ -441,11 +445,11 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
       } else {
         keys.push({ label, apiKey, createdAt: nowIso() });
       }
-      
+
       writeKeysBack(existing, keys);
       if (!existing.activeKey) existing.activeKey = label;
       providers[providerId] = existing;
-      
+
       await saveProviders(providers);
       sendResult(ws, true, `Key "${label}" saved for ${providerId}`);
     } catch (err) {
@@ -478,7 +482,11 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
     }
   }
 
-  async function handleKeySetActive(ws: WebSocket, providerId: string, label: string): Promise<void> {
+  async function handleKeySetActive(
+    ws: WebSocket,
+    providerId: string,
+    label: string,
+  ): Promise<void> {
     try {
       const providers = await loadSavedProviders();
       const existing = providers[providerId];
@@ -496,7 +504,10 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
     }
   }
 
-  async function handleProviderAdd(ws: WebSocket, payload: { id: string; family: string; baseUrl?: string; apiKey?: string }): Promise<void> {
+  async function handleProviderAdd(
+    ws: WebSocket,
+    payload: { id: string; family: string; baseUrl?: string; apiKey?: string },
+  ): Promise<void> {
     try {
       const providers = await loadSavedProviders();
       if (providers[payload.id]) {
@@ -571,43 +582,6 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
     }
     parsed.providers = providers;
     await atomicWrite(opts.globalConfigPath, JSON.stringify(parsed, null, 2), { mode: 0o600 });
-  }
-
-  function normalizeKeys(cfg: ProviderConfig): ProviderApiKey[] {
-    if (Array.isArray(cfg.apiKeys) && cfg.apiKeys.length > 0) {
-      return cfg.apiKeys.map((k) => ({ ...k }));
-    }
-    if (typeof cfg.apiKey === 'string' && cfg.apiKey.length > 0) {
-      return [{ label: 'default', apiKey: cfg.apiKey, createdAt: '' }];
-    }
-    return [];
-  }
-
-  function writeKeysBack(cfg: ProviderConfig, keys: ProviderApiKey[]): void {
-    if (keys.length === 0) {
-      delete cfg.apiKeys;
-      delete cfg.apiKey;
-      delete cfg.activeKey;
-      return;
-    }
-    cfg.apiKeys = keys;
-    const active = keys.find((k) => k.label === cfg.activeKey) ?? keys[0]!;
-    cfg.apiKey = active.apiKey;
-    if (!cfg.activeKey || !keys.some((k) => k.label === cfg.activeKey)) {
-      cfg.activeKey = active.label;
-    }
-  }
-
-  function maskedKey(key: string): string {
-    if (!key) return '—';
-    if (key.length <= 8) return '•'.repeat(key.length);
-    const head = key.slice(0, 4);
-    const tail = key.slice(-4);
-    return `${head}…${tail}`;
-  }
-
-  function nowIso(): string {
-    return new Date().toISOString();
   }
 
   function sendResult(ws: WebSocket, success: boolean, message: string): void {

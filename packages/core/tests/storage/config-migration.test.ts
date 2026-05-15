@@ -3,7 +3,7 @@ import {
   runConfigMigrations,
   ConfigMigrationError,
   type ConfigMigration,
-} from '../../src/defaults/config-migration.js';
+} from '../../src/storage/config-migration.js';
 
 describe('runConfigMigrations (L2-D)', () => {
   it('returns input unchanged when already at target version', () => {

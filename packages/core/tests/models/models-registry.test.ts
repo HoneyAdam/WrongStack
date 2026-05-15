@@ -5,7 +5,7 @@ import * as os from 'node:os';
 import {
   DefaultModelsRegistry,
   classifyFamily,
-} from '../../src/defaults/models-registry.js';
+} from '../../src/models/models-registry.js';
 import type { ModelsDevPayload } from '../../src/types/models-registry.js';
 
 const SAMPLE: ModelsDevPayload = {

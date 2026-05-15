@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createContextManagerTool, contextManagerTool } from '../../src/defaults/context-manager.js';
+import { createContextManagerTool, contextManagerTool } from '../../src/infrastructure/context-manager.js';
 
 const makeCtx = (messages: any[] = []) => ({
   cwd: '/fake',

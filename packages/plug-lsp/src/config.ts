@@ -1,4 +1,4 @@
-import { TOKENS, type JSONSchema, type PluginAPI } from '@wrongstack/core';
+import { type JSONSchema, type PluginAPI, TOKENS } from '@wrongstack/core';
 import { PRESETS } from './presets.js';
 import type { PlugLSPConfig, ServerConfig, SeverityName } from './types.js';
 
@@ -60,9 +60,12 @@ export function mergeConfig(raw: Readonly<Record<string, unknown>>): PlugLSPConf
       DEFAULT_CONFIG.maxDiagnosticsPerFile,
     ),
     maxDiagnosticsTotal: positiveInt(raw.maxDiagnosticsTotal, DEFAULT_CONFIG.maxDiagnosticsTotal),
-    autoDiscover: typeof raw.autoDiscover === 'boolean' ? raw.autoDiscover : DEFAULT_CONFIG.autoDiscover,
+    autoDiscover:
+      typeof raw.autoDiscover === 'boolean' ? raw.autoDiscover : DEFAULT_CONFIG.autoDiscover,
     logServerOutput:
-      typeof raw.logServerOutput === 'boolean' ? raw.logServerOutput : DEFAULT_CONFIG.logServerOutput,
+      typeof raw.logServerOutput === 'boolean'
+        ? raw.logServerOutput
+        : DEFAULT_CONFIG.logServerOutput,
   };
 }
 

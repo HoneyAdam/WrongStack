@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { DefaultModeStore, loadProjectModes, loadUserModes } from '../../src/defaults/mode-store.js';
+import { DefaultModeStore, loadProjectModes, loadUserModes } from '../../src/models/mode-store.js';
 
 let tmpDir: string;
 

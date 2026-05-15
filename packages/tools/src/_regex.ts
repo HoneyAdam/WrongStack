@@ -40,10 +40,7 @@ export interface CompileFail {
   reason: string;
 }
 
-export function compileUserRegex(
-  pattern: string,
-  flags: string,
-): CompileResult | CompileFail {
+export function compileUserRegex(pattern: string, flags: string): CompileResult | CompileFail {
   if (typeof pattern !== 'string') {
     return { ok: false, reason: 'pattern must be a string' };
   }
@@ -57,7 +54,8 @@ export function compileUserRegex(
     if (rx.test(pattern)) {
       return {
         ok: false,
-        reason: 'pattern looks vulnerable to catastrophic backtracking — rewrite without nested quantifiers',
+        reason:
+          'pattern looks vulnerable to catastrophic backtracking — rewrite without nested quantifiers',
       };
     }
   }

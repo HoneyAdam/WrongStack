@@ -1,32 +1,33 @@
-import React, { useState } from 'react';
+import { summarizeToolInput } from '@/lib/tool-summary';
 import { cn } from '@/lib/utils';
+import { getWSClient } from '@/lib/ws-client';
 import type { ChatMessage } from '@/stores';
+import { useChatStore, useSessionStore, useUIStore } from '@/stores';
+import { useConfigStore } from '@/stores';
 import {
-  User,
   Bot,
-  Terminal,
+  Check,
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
-  CheckCircle2,
-  XCircle,
   Clock,
   Copy,
-  Check,
+  Download,
+  FileCode2,
   Pencil,
   Pin,
   PinOff,
   RotateCcw,
-  Download,
-  FileCode2,
+  Terminal,
+  User,
+  XCircle,
 } from 'lucide-react';
-import { useChatStore, useUIStore, useSessionStore } from '@/stores';
-import { getWSClient } from '@/lib/ws-client';
-import { useConfigStore } from '@/stores';
+import type React from 'react';
+import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { DiffView, diffFromToolInput } from './DiffView';
 import { ToolResult } from './ToolResult';
-import { summarizeToolInput } from '@/lib/tool-summary';
 
 /**
  * Tiny copy-to-clipboard helper used by the in-bubble copy buttons. Falls
@@ -67,7 +68,12 @@ async function copyToClipboard(text: string): Promise<boolean> {
  * stable across renders.
  */
 const markdownComponents = {
-  code({ inline, className, children, ...props }: {
+  code({
+    inline,
+    className,
+    children,
+    ...props
+  }: {
     inline?: boolean;
     className?: string;
     children?: React.ReactNode;
@@ -77,10 +83,7 @@ const markdownComponents = {
     if (inline || !match) {
       return (
         <code
-          className={cn(
-            'rounded bg-muted/60 px-1.5 py-0.5 text-[0.85em] font-mono',
-            className,
-          )}
+          className={cn('rounded bg-muted/60 px-1.5 py-0.5 text-[0.85em] font-mono', className)}
           {...props}
         >
           {children}
@@ -227,7 +230,8 @@ function ErrorBodyWithStack({ text }: { text: string }) {
         onClick={() => setOpen((v) => !v)}
         className="inline-flex items-center gap-1 text-xs text-destructive hover:text-destructive/80 font-medium"
       >
-        {open ? '▾' : '▸'} {open ? 'Hide' : 'Show'} stack trace ({frameCount} frame{frameCount === 1 ? '' : 's'})
+        {open ? '▾' : '▸'} {open ? 'Hide' : 'Show'} stack trace ({frameCount} frame
+        {frameCount === 1 ? '' : 's'})
       </button>
       {open && (
         <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-snug bg-destructive/5 border border-destructive/20 rounded p-2 max-h-80 overflow-auto">
@@ -280,7 +284,13 @@ function ToolInputView({ input }: { input: unknown }) {
           // Long string values get their own line so the row stays usable.
           const isLong = typeof v === 'string' && (display.length > 80 || display.includes('\n'));
           return (
-            <div key={k} className={cn('py-0.5', isLong ? 'flex flex-col gap-0.5' : 'flex items-baseline gap-2')}>
+            <div
+              key={k}
+              className={cn(
+                'py-0.5',
+                isLong ? 'flex flex-col gap-0.5' : 'flex items-baseline gap-2',
+              )}
+            >
               <span className="text-muted-foreground shrink-0">{k}:</span>
               <span
                 className={cn(
@@ -391,7 +401,10 @@ export function MessageBubble({ message, isFirst = false }: MessageBubbleProps) 
     if (idx === -1) return;
     let userIdx = -1;
     for (let i = idx - 1; i >= 0; i--) {
-      if (all[i]!.role === 'user') { userIdx = i; break; }
+      if (all[i]!.role === 'user') {
+        userIdx = i;
+        break;
+      }
     }
     if (userIdx === -1) return;
     const userMsg = all[userIdx]!;
@@ -453,8 +466,8 @@ export function MessageBubble({ message, isFirst = false }: MessageBubbleProps) 
           isUser
             ? 'bg-primary text-primary-foreground ring-primary/20'
             : isTool
-            ? 'bg-secondary text-secondary-foreground ring-secondary/20'
-            : 'bg-accent text-accent-foreground ring-accent/20'
+              ? 'bg-secondary text-secondary-foreground ring-secondary/20'
+              : 'bg-accent text-accent-foreground ring-accent/20',
         )}
       >
         {isUser ? (
@@ -467,22 +480,13 @@ export function MessageBubble({ message, isFirst = false }: MessageBubbleProps) 
       </div>
 
       {/* Content */}
-      <div
-        className={cn(
-          'flex flex-col gap-1.5 max-w-[85%]',
-          isUser && 'items-end'
-        )}
-      >
+      <div className={cn('flex flex-col gap-1.5 max-w-[85%]', isUser && 'items-end')}>
         {/* Role indicator for first message in a group */}
         {isFirst && (
           <span
             className={cn(
               'text-xs font-medium px-1',
-              isUser
-                ? 'text-primary'
-                : isTool
-                ? 'text-secondary'
-                : 'text-muted-foreground'
+              isUser ? 'text-primary' : isTool ? 'text-secondary' : 'text-muted-foreground',
             )}
           >
             {isUser ? 'You' : isTool ? 'Tool' : 'Assistant'}
@@ -497,7 +501,7 @@ export function MessageBubble({ message, isFirst = false }: MessageBubbleProps) 
             className={cn(
               'flex items-center gap-2 text-sm font-medium cursor-pointer select-none',
               'hover:bg-muted/50 rounded-lg px-2 py-1 -mx-2 transition-colors',
-              message.isError ? 'text-destructive' : 'text-foreground'
+              message.isError ? 'text-destructive' : 'text-foreground',
             )}
           >
             <span className="text-muted-foreground/50">
@@ -533,17 +537,20 @@ export function MessageBubble({ message, isFirst = false }: MessageBubbleProps) 
             isUser
               ? 'bg-primary text-primary-foreground rounded-br-md'
               : isTool
-              ? message.isError
-                ? 'bg-destructive/5 border border-destructive/20 text-destructive'
-                : 'bg-muted/80 text-foreground'
-              : 'bg-card border text-foreground',
-            message.isError && !isTool && 'border-destructive/20'
+                ? message.isError
+                  ? 'bg-destructive/5 border border-destructive/20 text-destructive'
+                  : 'bg-muted/80 text-foreground'
+                : 'bg-card border text-foreground',
+            message.isError && !isTool && 'border-destructive/20',
           )}
         >
           {isTool ? (
             (() => {
               const expanded = !!expandedTools[message.id];
-              const inputSummary = message.toolInput !== undefined ? summarizeToolInput(message.toolName, message.toolInput) : '';
+              const inputSummary =
+                message.toolInput !== undefined
+                  ? summarizeToolInput(message.toolName, message.toolInput)
+                  : '';
               const lines = message.toolResult ? message.toolResult.split('\n').length : 0;
               return (
                 <div className="space-y-1">
@@ -575,69 +582,75 @@ export function MessageBubble({ message, isFirst = false }: MessageBubbleProps) 
                       old_string/new_string pair (or just the new content
                       for write) is the whole point of the call. Falls
                       back to JSON for everything else. */}
-                  {expanded && message.toolInput !== undefined && (() => {
-                    const diffArgs = diffFromToolInput(message.toolName, message.toolInput);
-                    if (diffArgs) {
+                  {expanded &&
+                    message.toolInput !== undefined &&
+                    (() => {
+                      const diffArgs = diffFromToolInput(message.toolName, message.toolInput);
+                      if (diffArgs) {
+                        return (
+                          <DiffView
+                            oldText={diffArgs.oldText}
+                            newText={diffArgs.newText}
+                            caption={diffArgs.caption}
+                          />
+                        );
+                      }
                       return (
-                        <DiffView
-                          oldText={diffArgs.oldText}
-                          newText={diffArgs.newText}
-                          caption={diffArgs.caption}
-                        />
-                      );
-                    }
-                    return (
-                      <div className="p-3 bg-muted/50 rounded-lg overflow-x-auto">
-                        <div className="flex items-center gap-1 text-muted-foreground mb-2 text-xs">
-                          <Clock className="h-3 w-3" />
-                          <span>Input</span>
+                        <div className="p-3 bg-muted/50 rounded-lg overflow-x-auto">
+                          <div className="flex items-center gap-1 text-muted-foreground mb-2 text-xs">
+                            <Clock className="h-3 w-3" />
+                            <span>Input</span>
+                          </div>
+                          <ToolInputView input={message.toolInput} />
                         </div>
-                        <ToolInputView input={message.toolInput} />
-                      </div>
-                    );
-                  })()}
-                  {expanded && message.toolResult !== undefined && message.toolResult.length > 0 && (
-                    <div className="relative group/tool">
-                      <ToolResult
-                        toolName={message.toolName}
-                        result={message.toolResult}
-                        isError={message.isError}
-                      />
-                      <div className="absolute top-1.5 right-1.5 flex items-center gap-1 opacity-0 group-hover/tool:opacity-100 transition-opacity">
-                        <CopyButton
-                          text={message.toolResult}
-                          label=""
-                          className="bg-background/80 border rounded px-1.5 py-0.5"
+                      );
+                    })()}
+                  {expanded &&
+                    message.toolResult !== undefined &&
+                    message.toolResult.length > 0 && (
+                      <div className="relative group/tool">
+                        <ToolResult
+                          toolName={message.toolName}
+                          result={message.toolResult}
+                          isError={message.isError}
                         />
-                        {/* Download — only worth showing when the dump is
+                        <div className="absolute top-1.5 right-1.5 flex items-center gap-1 opacity-0 group-hover/tool:opacity-100 transition-opacity">
+                          <CopyButton
+                            text={message.toolResult}
+                            label=""
+                            className="bg-background/80 border rounded px-1.5 py-0.5"
+                          />
+                          {/* Download — only worth showing when the dump is
                             big enough to actually save (>5 lines).
                             Small grep hits are easier to just copy. */}
-                        {message.toolResult.split('\n').length > 5 && (
-                          <button
-                            type="button"
-                            onClick={(ev) => {
-                              ev.stopPropagation();
-                              const ext = fileExtensionFor(message.toolName);
-                              const base = (message.toolName ?? 'output')
-                                .replace(/[^a-z0-9_-]+/gi, '-')
-                                .toLowerCase();
-                              downloadTextFile(
-                                `${base}-${new Date().toISOString().replace(/[:.]/g, '-')}.${ext}`,
-                                message.toolResult ?? '',
-                              );
-                            }}
-                            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground bg-background/80 border rounded px-1.5 py-0.5"
-                            title="Download as file"
-                          >
-                            <Download className="h-3 w-3" />
-                          </button>
-                        )}
+                          {message.toolResult.split('\n').length > 5 && (
+                            <button
+                              type="button"
+                              onClick={(ev) => {
+                                ev.stopPropagation();
+                                const ext = fileExtensionFor(message.toolName);
+                                const base = (message.toolName ?? 'output')
+                                  .replace(/[^a-z0-9_-]+/gi, '-')
+                                  .toLowerCase();
+                                downloadTextFile(
+                                  `${base}-${new Date().toISOString().replace(/[:.]/g, '-')}.${ext}`,
+                                  message.toolResult ?? '',
+                                );
+                              }}
+                              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground bg-background/80 border rounded px-1.5 py-0.5"
+                              title="Download as file"
+                            >
+                              <Download className="h-3 w-3" />
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  )}
-                  {expanded && message.toolResult !== undefined && message.toolResult.length === 0 && (
-                    <span className="text-xs text-muted-foreground italic">(empty)</span>
-                  )}
+                    )}
+                  {expanded &&
+                    message.toolResult !== undefined &&
+                    message.toolResult.length === 0 && (
+                      <span className="text-xs text-muted-foreground italic">(empty)</span>
+                    )}
                   {/* Error case: keep the message inline even when collapsed,
                       since silently hiding a failure is worse than the noise. */}
                   {!expanded && message.isError && message.toolResult && (
@@ -647,7 +660,8 @@ export function MessageBubble({ message, isFirst = false }: MessageBubbleProps) 
                   )}
                   {/* "Show details" toggle — only when there's anything to reveal. */}
                   {((message.toolResult !== undefined && message.toolResult.length > 0) ||
-                    (message.toolInput !== undefined && Object.keys((message.toolInput as object) ?? {}).length > 0)) && (
+                    (message.toolInput !== undefined &&
+                      Object.keys((message.toolInput as object) ?? {}).length > 0)) && (
                     <button
                       type="button"
                       onClick={() => toggleTool(message.id)}
@@ -712,17 +726,12 @@ export function MessageBubble({ message, isFirst = false }: MessageBubbleProps) 
                 ) : message.role === 'assistant' && message.isError ? (
                   <ErrorBodyWithStack text={message.content} />
                 ) : (
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    components={markdownComponents}
-                  >
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
                     {message.content}
                   </ReactMarkdown>
                 )
               ) : message.streaming ? (
-                <span className="inline-block animate-pulse text-muted-foreground">
-                  Typing...
-                </span>
+                <span className="inline-block animate-pulse text-muted-foreground">Typing...</span>
               ) : (
                 <span className="text-muted-foreground italic">No content</span>
               )}
@@ -734,10 +743,7 @@ export function MessageBubble({ message, isFirst = false }: MessageBubbleProps) 
             stays clean by default. Tool bubbles get their own copy button
             on the output box, so we skip it here for them. */}
         <div
-          className={cn(
-            'flex items-center gap-2 px-1',
-            isUser ? 'flex-row-reverse' : 'flex-row',
-          )}
+          className={cn('flex items-center gap-2 px-1', isUser ? 'flex-row-reverse' : 'flex-row')}
         >
           <span className="text-xs text-muted-foreground/50">
             {new Date(message.timestamp).toLocaleTimeString([], {
@@ -761,11 +767,17 @@ export function MessageBubble({ message, isFirst = false }: MessageBubbleProps) 
                 `Iterations: ${message.runSummary.iterations}`,
                 `Tool calls: ${message.runSummary.tools}`,
                 `Elapsed: ${(message.runSummary.durationMs / 1000).toFixed(2)}s`,
-                message.runSummary.costDelta > 0 ? `Cost: $${message.runSummary.costDelta.toFixed(4)}` : '',
-              ].filter(Boolean).join('  ·  ')}
+                message.runSummary.costDelta > 0
+                  ? `Cost: $${message.runSummary.costDelta.toFixed(4)}`
+                  : '',
+              ]
+                .filter(Boolean)
+                .join('  ·  ')}
             >
               {message.runSummary.iterations} iter
-              {message.runSummary.tools > 0 ? ` · ${message.runSummary.tools} tool${message.runSummary.tools === 1 ? '' : 's'}` : ''}
+              {message.runSummary.tools > 0
+                ? ` · ${message.runSummary.tools} tool${message.runSummary.tools === 1 ? '' : 's'}`
+                : ''}
               {' · '}
               {message.runSummary.durationMs < 60_000
                 ? `${(message.runSummary.durationMs / 1000).toFixed(1)}s`
@@ -775,35 +787,38 @@ export function MessageBubble({ message, isFirst = false }: MessageBubbleProps) 
                 : ''}
             </span>
           )}
-          {message.usage && (message.usage.input > 0 || message.usage.output > 0) && (() => {
-            const u = message.usage;
-            const dollars =
-              (u.input * inputCost +
-                u.output * outputCost +
-                (u.cacheRead ?? 0) * cacheReadCost) /
-              1_000_000;
-            const haveCost = inputCost > 0 || outputCost > 0;
-            const dollarStr = dollars >= 0.01
-              ? `$${dollars.toFixed(4)}`
-              : dollars > 0
-                ? `$${dollars.toFixed(6).replace(/0+$/, '').replace(/\.$/, '')}`
-                : '';
-            return (
-              <span
-                className="text-[10px] text-muted-foreground/60 font-mono tabular-nums"
-                title={[
-                  `Input: ${u.input.toLocaleString()}`,
-                  `Output: ${u.output.toLocaleString()}`,
-                  u.cacheRead ? `Cache read: ${u.cacheRead.toLocaleString()}` : '',
-                  haveCost ? `Cost: ${dollarStr}` : '',
-                ].filter(Boolean).join('  ·  ')}
-              >
-                {u.input.toLocaleString()}→{u.output.toLocaleString()}
-                {u.cacheRead ? ` · ${u.cacheRead.toLocaleString()} ↺` : ''}
-                {haveCost && dollarStr ? ` · ${dollarStr}` : ''}
-              </span>
-            );
-          })()}
+          {message.usage &&
+            (message.usage.input > 0 || message.usage.output > 0) &&
+            (() => {
+              const u = message.usage;
+              const dollars =
+                (u.input * inputCost + u.output * outputCost + (u.cacheRead ?? 0) * cacheReadCost) /
+                1_000_000;
+              const haveCost = inputCost > 0 || outputCost > 0;
+              const dollarStr =
+                dollars >= 0.01
+                  ? `$${dollars.toFixed(4)}`
+                  : dollars > 0
+                    ? `$${dollars.toFixed(6).replace(/0+$/, '').replace(/\.$/, '')}`
+                    : '';
+              return (
+                <span
+                  className="text-[10px] text-muted-foreground/60 font-mono tabular-nums"
+                  title={[
+                    `Input: ${u.input.toLocaleString()}`,
+                    `Output: ${u.output.toLocaleString()}`,
+                    u.cacheRead ? `Cache read: ${u.cacheRead.toLocaleString()}` : '',
+                    haveCost ? `Cost: ${dollarStr}` : '',
+                  ]
+                    .filter(Boolean)
+                    .join('  ·  ')}
+                >
+                  {u.input.toLocaleString()}→{u.output.toLocaleString()}
+                  {u.cacheRead ? ` · ${u.cacheRead.toLocaleString()} ↺` : ''}
+                  {haveCost && dollarStr ? ` · ${dollarStr}` : ''}
+                </span>
+              );
+            })()}
           {!isTool && message.content && !message.streaming && (
             <CopyButton
               text={message.content}

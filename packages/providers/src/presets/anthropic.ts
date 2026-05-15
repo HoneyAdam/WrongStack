@@ -7,13 +7,13 @@
  * `parseAnthropicStream` in `../anthropic.ts`, just split into a stateful
  * `parseStreamEvent` call instead of an async generator loop.
  */
-import type { Message, Request, StreamEvent, StopReason, Usage } from '@wrongstack/core';
+import type { Message, Request, StopReason, StreamEvent, Usage } from '@wrongstack/core';
 import { ProviderError, safeParse } from '@wrongstack/core';
 import { parseToolInput } from '../_tool-input.js';
-import { toolsToAnthropic } from '../tool-format/to-anthropic.js';
-import { normalizeAnthropic } from '../stop-reason.js';
-import { defineWireFormat } from '../wire-format.js';
 import { capabilitiesForFamily } from '../family-capabilities.js';
+import { normalizeAnthropic } from '../stop-reason.js';
+import { toolsToAnthropic } from '../tool-format/to-anthropic.js';
+import { defineWireFormat } from '../wire-format.js';
 
 type BlockKind = 'text' | 'tool_use' | 'unknown';
 
@@ -157,13 +157,9 @@ export const anthropicWireFormat = defineWireFormat<AnthropicStreamState>({
         break;
       case 'error': {
         const err = ev['error'] as { message?: string; type?: string } | undefined;
-        throw new ProviderError(
-          err?.message ?? 'Anthropic stream error',
-          0,
-          false,
-          'anthropic',
-          { body: { type: err?.type, message: err?.message } },
-        );
+        throw new ProviderError(err?.message ?? 'Anthropic stream error', 0, false, 'anthropic', {
+          body: { type: err?.type, message: err?.message },
+        });
       }
     }
     return out;

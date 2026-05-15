@@ -3,7 +3,7 @@ import {
   InMemoryAgentBridge,
   InMemoryBridgeTransport,
   createMessage,
-} from '../../src/defaults/agent-bridge.js';
+} from '../../src/coordination/agent-bridge.js';
 import type { BridgeMessage } from '../../src/types/agent-bridge.js';
 
 /**

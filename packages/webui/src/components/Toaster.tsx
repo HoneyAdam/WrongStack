@@ -1,7 +1,7 @@
+import { cn } from '@/lib/utils';
+import { AlertTriangle, CheckCircle2, Info, X, XCircle } from 'lucide-react';
 import { useEffect } from 'react';
 import { create } from 'zustand';
-import { CheckCircle2, XCircle, AlertTriangle, Info, X } from 'lucide-react';
-import { cn } from '@/lib/utils';
 
 /**
  * Tiny toast store + portal. We resisted pulling in shadcn-ui's full
@@ -33,8 +33,7 @@ const useToastStore = create<ToastState>((set) => ({
     set((state) => ({ toasts: [...state.toasts, { ...t, id }] }));
     return id;
   },
-  dismiss: (id) =>
-    set((state) => ({ toasts: state.toasts.filter((x) => x.id !== id) })),
+  dismiss: (id) => set((state) => ({ toasts: state.toasts.filter((x) => x.id !== id) })),
 }));
 
 /** Imperative API. Pass plain strings or arrays of strings for multi-line. */

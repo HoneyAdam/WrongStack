@@ -19,8 +19,14 @@ if (typeof window !== 'undefined' && 'Notification' in window) {
   permissionState = 'unsupported';
 }
 
-export async function ensureNotificationPermission(): Promise<NotificationPermission | 'unsupported'> {
-  if (permissionState === 'unsupported' || permissionState === 'granted' || permissionState === 'denied') {
+export async function ensureNotificationPermission(): Promise<
+  NotificationPermission | 'unsupported'
+> {
+  if (
+    permissionState === 'unsupported' ||
+    permissionState === 'granted' ||
+    permissionState === 'denied'
+  ) {
     return permissionState;
   }
   try {

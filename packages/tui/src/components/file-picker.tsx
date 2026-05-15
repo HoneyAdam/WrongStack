@@ -1,5 +1,5 @@
-import type React from 'react';
 import { Box, Text } from 'ink';
+import type React from 'react';
 
 export interface FilePickerProps {
   query: string;
@@ -17,9 +17,7 @@ export function FilePicker({ query, matches, selected }: FilePickerProps): React
   }
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Text dimColor>
-        @{query || '…'} — ↑/↓ select, Enter attach, Esc cancel
-      </Text>
+      <Text dimColor>@{query || '…'} — ↑/↓ select, Enter attach, Esc cancel</Text>
       {matches.map((m, i) => (
         <Text key={m} color={i === selected ? 'cyan' : undefined} inverse={i === selected}>
           {i === selected ? '› ' : '  '}

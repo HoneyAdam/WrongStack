@@ -5,8 +5,14 @@ import { humanToLSP } from '../position.js';
 import { supportsCodeAction } from '../server/capabilities.js';
 import { LSPError, LSPErrorCode } from '../types.js';
 import { pathToUri } from '../utils/uri.js';
+import {
+  type ToolDeps,
+  readDocumentContent,
+  requireServer,
+  resolveInputPath,
+  stringifyToolError,
+} from './shared.js';
 import { applyWorkspaceEdit } from './workspace-edit.js';
-import { readDocumentContent, requireServer, resolveInputPath, stringifyToolError, type ToolDeps } from './shared.js';
 
 interface CodeActionsInput {
   path: string;
@@ -22,7 +28,8 @@ export function createCodeActionsTool(deps: ToolDeps): Tool<CodeActionsInput, st
   return {
     name: 'lsp_code_actions',
     description: 'List or apply LSP code actions.',
-    usageHint: 'Use to inspect quick fixes and refactors. This tool is confirm-gated because apply mode can mutate files.',
+    usageHint:
+      'Use to inspect quick fixes and refactors. This tool is confirm-gated because apply mode can mutate files.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -44,7 +51,10 @@ export function createCodeActionsTool(deps: ToolDeps): Tool<CodeActionsInput, st
         const file = resolveInputPath(input.path, ctx);
         const server = await requireServer(deps.registry, file, opts.signal);
         if (server.capabilities && !supportsCodeAction(server.capabilities)) {
-          throw new LSPError(LSPErrorCode.CapabilityMissing, `Server "${server.name}" does not support code actions`);
+          throw new LSPError(
+            LSPErrorCode.CapabilityMissing,
+            `Server "${server.name}" does not support code actions`,
+          );
         }
         const content = await readDocumentContent(file, deps.tracker);
         const start = humanToLSP(content, { line: input.line, character: input.character ?? 1 });
@@ -52,14 +62,18 @@ export function createCodeActionsTool(deps: ToolDeps): Tool<CodeActionsInput, st
           line: input.end_line ?? input.line,
           character: input.end_character ?? input.character ?? 1,
         });
-        const actions = await server.codeAction({
-          textDocument: { uri: pathToUri(file) },
-          range: { start, end },
-          context: {
-            diagnostics: server.getDiagnostics(pathToUri(file)),
-            only: input.kind_filter ? [input.kind_filter] : undefined,
+        const actions = await server.codeAction(
+          {
+            textDocument: { uri: pathToUri(file) },
+            range: { start, end },
+            context: {
+              diagnostics: server.getDiagnostics(pathToUri(file)),
+              only: input.kind_filter ? [input.kind_filter] : undefined,
+            },
           },
-        }, 10_000, opts.signal);
+          10_000,
+          opts.signal,
+        );
         if (input.apply === undefined) return formatActions(actions);
         const action = actions[input.apply];
         if (!action) return `No code action at index ${input.apply}.`;

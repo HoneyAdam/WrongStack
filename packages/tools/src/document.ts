@@ -93,7 +93,13 @@ export const documentTool: Tool<DocumentInput, DocumentOutput> = {
       try {
         const content = await fs.readFile(absPath, 'utf8');
         filesProcessed++;
-        const processed = processFile(content, absPath, style, input.overwrite ?? false, input.target ?? 'all');
+        const processed = processFile(
+          content,
+          absPath,
+          style,
+          input.overwrite ?? false,
+          input.target ?? 'all',
+        );
         results.push(...processed);
         itemsDocumented += processed.filter((r) => r.status === 'documented').length;
       } catch (e) {
@@ -153,25 +159,45 @@ function processFile(
   if (target === 'all' || target === 'function') {
     for (const m of content.matchAll(functionRegex)) {
       if (!m[1]) continue;
-      allMatches.push({ name: m[1], sig: m[2] ?? '', type: 'function', line: content.slice(0, m.index).split('\n').length });
+      allMatches.push({
+        name: m[1],
+        sig: m[2] ?? '',
+        type: 'function',
+        line: content.slice(0, m.index).split('\n').length,
+      });
     }
     for (const m of content.matchAll(arrowRegex)) {
       if (!m[1]) continue;
-      allMatches.push({ name: m[1], sig: m[2] ?? '', type: 'arrow', line: content.slice(0, m.index).split('\n').length });
+      allMatches.push({
+        name: m[1],
+        sig: m[2] ?? '',
+        type: 'arrow',
+        line: content.slice(0, m.index).split('\n').length,
+      });
     }
   }
 
   if (target === 'all' || target === 'class') {
     for (const m of content.matchAll(classRegex)) {
       if (!m[1]) continue;
-      allMatches.push({ name: m[1], sig: '', type: 'class', line: content.slice(0, m.index).split('\n').length });
+      allMatches.push({
+        name: m[1],
+        sig: '',
+        type: 'class',
+        line: content.slice(0, m.index).split('\n').length,
+      });
     }
   }
 
   if (target === 'all' || target === 'type') {
     for (const m of content.matchAll(typeRegex)) {
       if (!m[1]) continue;
-      allMatches.push({ name: m[1], sig: m[0] ?? '', type: 'type', line: content.slice(0, m.index).split('\n').length });
+      allMatches.push({
+        name: m[1],
+        sig: m[0] ?? '',
+        type: 'type',
+        line: content.slice(0, m.index).split('\n').length,
+      });
     }
   }
 

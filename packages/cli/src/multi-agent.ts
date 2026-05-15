@@ -6,27 +6,27 @@
 import { randomUUID } from 'node:crypto';
 import {
   Agent,
-  type Container,
-  Context,
   type Config,
   type ConfigStore,
+  type Container,
+  Context,
   DefaultMultiAgentCoordinator,
   Director,
-  EventBus,
-  makeAgentSubagentRunner,
-  makeDirectorSessionFactory,
   type DirectorSessionFactory,
+  EventBus,
   type MultiAgentCoordinator,
   type Provider,
   type ProviderRegistry,
   type SessionWriter,
   type SystemPromptBuilder,
+  TOKENS,
   type TaskResult,
+  type TokenCounter,
   type Tool,
   type ToolRegistry,
-  type TokenCounter,
-  TOKENS,
   createDefaultPipelines,
+  makeAgentSubagentRunner,
+  makeDirectorSessionFactory,
 } from '@wrongstack/core';
 import type { TextBlock } from '@wrongstack/core';
 import { makeProviderFromConfig } from '@wrongstack/providers';
@@ -106,7 +106,10 @@ export class MultiAgentHost {
   private readonly results: TaskResult[] = [];
   private readonly opts: MultiAgentHostOptions;
 
-  constructor(private readonly deps: MultiAgentDeps, opts: MultiAgentHostOptions = {}) {
+  constructor(
+    private readonly deps: MultiAgentDeps,
+    opts: MultiAgentHostOptions = {},
+  ) {
     this.opts = opts;
   }
 
@@ -130,10 +133,7 @@ export class MultiAgentHost {
     const config: Config = this.deps.configStore.get() as Config;
 
     // Build the per-subagent session factory when both director mode and
-    // a sessions root are configured. We do this *before* the agent
-    // factory so the closure can ask the factory for a writer per spawn
-    // without re-creating it each time. In legacy (non-director) mode we
-    // skip this and keep the parent-session-sharing path.
+    // a sessions root are configured.
     if (this.opts.directorMode && this.opts.sessionsRoot && !this.sessionFactory) {
       this.sessionFactory = makeDirectorSessionFactory({
         sessionsRoot: this.opts.sessionsRoot,
@@ -141,16 +141,25 @@ export class MultiAgentHost {
       });
     }
 
-    const factory = async (subCfg: { id?: string; name?: string; model?: string; provider?: string; tools?: string[] }) => {
+    const runner = this.buildSubagentRunner(config);
+    return this.buildCoordinator(runner);
+  }
+
+  /**
+   * Build the per-subagent runner: agent factory → runner. Extracted so
+   * ensureCoordinator stays focused on orchestration setup.
+   */
+  private buildSubagentRunner(config: Config): ReturnType<typeof makeAgentSubagentRunner> {
+    const factory = async (subCfg: {
+      id?: string;
+      name?: string;
+      model?: string;
+      provider?: string;
+      tools?: string[];
+    }) => {
       const events = new EventBus();
-      // Per-subagent provider: honor `subCfg.provider` when set so a
-      // single director run can mix providers (e.g. sonnet for editor,
-      // haiku for researcher, gpt-5 for auditor). Falls back to the
-      // leader provider for backwards compat — existing /spawn calls
-      // that don't set `provider` keep their pre-fleet behavior.
       const provider = await this.buildSubagentProvider(config, subCfg.provider);
 
-      // Fresh context per subagent — explicit isolation.
       const baseSystem: TextBlock[] = await this.deps.systemPromptBuilder.build({
         cwd: this.deps.cwd,
         projectRoot: this.deps.projectRoot,
@@ -159,12 +168,6 @@ export class MultiAgentHost {
         provider: subCfg.provider ?? config.provider,
       });
 
-      // In director mode with a session factory, each subagent gets its
-      // own JSONL transcript rooted under the director run directory —
-      // makes replay trivial because every subagent's tape is already
-      // separated. Outside director mode (or when no sessionsRoot is
-      // configured) we keep the legacy parent-session-sharing path so
-      // the simple coordinator flow is unaffected.
       let subSession: SessionWriter;
       if (this.sessionFactory) {
         const subagentName = subCfg.name ?? subCfg.id ?? `sub_${randomUUID().slice(0, 8)}`;
@@ -186,11 +189,6 @@ export class MultiAgentHost {
         systemPrompt: baseSystem,
         provider,
         session: subSession,
-        // Placeholder — Agent.run() overwrites ctx.signal with the live
-        // per-run signal (see core/agent.ts run()). Tools/middleware that
-        // read ctx.signal after construction will see the runtime signal,
-        // not this one. Kept as `new AbortController().signal` so the
-        // initial value is non-null/non-aborted.
         signal: new AbortController().signal,
         tokenCounter: this.deps.tokenCounter,
         cwd: this.deps.cwd,
@@ -211,8 +209,16 @@ export class MultiAgentHost {
       return { agent, events };
     };
 
-    const runner = makeAgentSubagentRunner({ factory });
+    return makeAgentSubagentRunner({ factory });
+  }
 
+  /**
+   * Build the coordinator (or Director wrapper) with task-completion
+   * drain wired into the host's result buffer.
+   */
+  private buildCoordinator(
+    runner: ReturnType<typeof makeAgentSubagentRunner>,
+  ): MultiAgentCoordinator {
     const coordinatorConfig = {
       coordinatorId: randomUUID(),
       doneCondition: { type: 'all_tasks_done' as const },
@@ -221,34 +227,24 @@ export class MultiAgentHost {
     };
 
     if (this.opts.directorMode) {
-      // Director owns its own coordinator internally. We hold a reference
-      // to both so the host's spawn/status/usage methods can keep working
-      // without branching on every call — coordinator is the source of
-      // truth for tasks; the director adds manifest writing + FleetBus
-      // observability on top.
       this.director = new Director({
         config: coordinatorConfig,
         runner,
         manifestPath: this.opts.manifestPath,
         sharedScratchpadPath: this.opts.sharedScratchpadPath,
       });
-      // Same task.completed drain pattern as the simple path. Using
-      // Director.on() keeps the public surface clean — we don't need to
-      // reach into the coordinator field.
       this.director.on('task.completed', ({ task, result }) => {
         this.results.push(result);
         this.pending.delete(task.id);
       });
-      // The host's coordinator field is the live coordinator the director
-      // built — assign() / stop() / stopAll() on it route to the same
-      // underlying machine the director observes.
-      this.coordinator = (this.director as unknown as { coordinator: MultiAgentCoordinator }).coordinator;
+      this.coordinator = (
+        this.director as unknown as { coordinator: MultiAgentCoordinator }
+      ).coordinator;
       return this.coordinator;
     }
 
     this.coordinator = new DefaultMultiAgentCoordinator(coordinatorConfig, { runner });
 
-    // Drain task.completed into our local result buffer for /agents
     (this.coordinator as unknown as { on: Function }).on(
       'task.completed',
       ({ task, result }: { task: { id: string }; result: TaskResult }) => {
@@ -268,13 +264,8 @@ export class MultiAgentHost {
    * not configured (so a typo doesn't crash the whole run — we just
    * use the leader and the calling code can decide to error later).
    */
-  private async buildSubagentProvider(
-    config: Config,
-    overrideId?: string,
-  ): Promise<Provider> {
-    const providerId = overrideId && config.providers?.[overrideId]
-      ? overrideId
-      : config.provider;
+  private async buildSubagentProvider(config: Config, overrideId?: string): Promise<Provider> {
+    const providerId = overrideId && config.providers?.[overrideId] ? overrideId : config.provider;
     const newCfg = config.providers?.[providerId] ?? {
       type: providerId,
       apiKey: config.apiKey,
@@ -392,9 +383,24 @@ export class MultiAgentHost {
     }>;
     totals: { tasks: number; iterations: number; toolCalls: number; durationMs: number };
   } {
-    const bySubagent = new Map<string, { tasks: number; iterations: number; toolCalls: number; durationMs: number; lastStatus: string }>();
+    const bySubagent = new Map<
+      string,
+      {
+        tasks: number;
+        iterations: number;
+        toolCalls: number;
+        durationMs: number;
+        lastStatus: string;
+      }
+    >();
     for (const r of this.results) {
-      const cur = bySubagent.get(r.subagentId) ?? { tasks: 0, iterations: 0, toolCalls: 0, durationMs: 0, lastStatus: 'unknown' };
+      const cur = bySubagent.get(r.subagentId) ?? {
+        tasks: 0,
+        iterations: 0,
+        toolCalls: 0,
+        durationMs: 0,
+        lastStatus: 'unknown',
+      };
       cur.tasks += 1;
       cur.iterations += r.iterations;
       cur.toolCalls += r.toolCalls;

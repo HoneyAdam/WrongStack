@@ -1,5 +1,5 @@
 import type { Location, LocationLink } from 'vscode-languageserver-protocol';
-import { uriToPath, displayPath } from '../utils/uri.js';
+import { displayPath, uriToPath } from '../utils/uri.js';
 
 export function formatLocations(
   locations: Array<Location | LocationLink> | null,

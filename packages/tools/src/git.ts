@@ -59,14 +59,24 @@ export const gitTool: Tool<GitInput, GitOutput> = {
       command: {
         type: 'string',
         enum: [
-          'status', 'log', 'diff', 'commit', 'branch', 'checkout',
-          'stash', 'push', 'pull', 'fetch', 'reset',
+          'status',
+          'log',
+          'diff',
+          'commit',
+          'branch',
+          'checkout',
+          'stash',
+          'push',
+          'pull',
+          'fetch',
+          'reset',
         ],
         description: 'Git subcommand',
       },
       files: {
         type: 'string',
-        description: 'File(s) for status/diff: single path, comma-separated list, or "**/*.ts" glob',
+        description:
+          'File(s) for status/diff: single path, comma-separated list, or "**/*.ts" glob',
       },
       message: { type: 'string', description: 'Commit message (required for commit)' },
       branch: { type: 'string', description: 'Branch name for checkout/branch' },
@@ -122,7 +132,9 @@ function findGitDir(cwd: string, projectRoot: string): string | null {
 function buildArgs(input: GitInput): string[] {
   const limit = input.limit ?? 20;
   const files = input.files
-    ? (Array.isArray(input.files) ? input.files : input.files.split(',')).map((s: string) => s.trim()).filter(Boolean)
+    ? (Array.isArray(input.files) ? input.files : input.files.split(','))
+        .map((s: string) => s.trim())
+        .filter(Boolean)
     : [];
 
   switch (input.command) {
@@ -138,11 +150,7 @@ function buildArgs(input: GitInput): string[] {
         ...(input.format === 'short' || !input.format ? [] : []),
       ];
     case 'diff':
-      return [
-        'diff',
-        '--no-color',
-        ...(files.length ? ['--', ...files] : []),
-      ];
+      return ['diff', '--no-color', ...(files.length ? ['--', ...files] : [])];
     case 'commit':
       return [
         'commit',
@@ -153,7 +161,11 @@ function buildArgs(input: GitInput): string[] {
     case 'branch':
       return input.branch ? ['branch', input.branch] : ['branch'];
     case 'checkout':
-      return ['checkout', ...(input.branch ? [input.branch] : []), ...(files.length ? ['--', ...files] : [])];
+      return [
+        'checkout',
+        ...(input.branch ? [input.branch] : []),
+        ...(files.length ? ['--', ...files] : []),
+      ];
     case 'stash':
       return input.message ? ['stash', 'push', '-m', input.message] : ['stash', 'push'];
     case 'push':

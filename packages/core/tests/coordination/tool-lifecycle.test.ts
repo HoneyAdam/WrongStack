@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { ToolExecutor } from '../../src/defaults/tool-executor.js';
+import { ToolExecutor } from '../../src/execution/tool-executor.js';
 import type { Tool, ToolStreamEvent, ToolProgressEvent } from '../../src/types/tool.js';
 import type { Context } from '../../src/core/context.js';
 import type { ToolUseBlock } from '../../src/types/blocks.js';

@@ -1,11 +1,11 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { Context, Logger } from '@wrongstack/core';
+import type { DocumentTracker } from '../document-tracker.js';
+import type { LSPRegistry } from '../registry.js';
+import type { LSPServer } from '../server/lsp-server.js';
 import type { PlugLSPConfig } from '../types.js';
 import { LSPError, LSPErrorCode } from '../types.js';
-import type { LSPRegistry } from '../registry.js';
-import type { DocumentTracker } from '../document-tracker.js';
-import type { LSPServer } from '../server/lsp-server.js';
 import { pathToUri } from '../utils/uri.js';
 
 export interface ToolDeps {
@@ -31,12 +31,18 @@ export async function requireServer(
   return server;
 }
 
-export async function readDocumentContent(filePath: string, tracker: DocumentTracker): Promise<string> {
+export async function readDocumentContent(
+  filePath: string,
+  tracker: DocumentTracker,
+): Promise<string> {
   const tracked = tracker.get(filePath);
-  return tracked?.text ?? await fs.readFile(filePath, 'utf8');
+  return tracked?.text ?? (await fs.readFile(filePath, 'utf8'));
 }
 
-export function textDocumentPosition(uriPath: string, position: { line: number; character: number }) {
+export function textDocumentPosition(
+  uriPath: string,
+  position: { line: number; character: number },
+) {
   return { textDocument: { uri: pathToUri(uriPath) }, position };
 }
 

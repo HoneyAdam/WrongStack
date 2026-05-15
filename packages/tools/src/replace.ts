@@ -1,17 +1,17 @@
+import { spawn } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { spawn } from 'node:child_process';
 import {
   atomicWrite,
-  detectNewlineStyle,
-  toStyle,
-  normalizeToLf,
   compileGlob,
+  detectNewlineStyle,
+  normalizeToLf,
+  toStyle,
   unifiedDiff,
 } from '@wrongstack/core';
-import type { Tool, Context } from '@wrongstack/core';
-import { isBinaryBuffer, safeResolve } from './_util.js';
+import type { Context, Tool } from '@wrongstack/core';
 import { compileUserRegex } from './_regex.js';
+import { isBinaryBuffer, safeResolve } from './_util.js';
 
 interface ReplaceInput {
   pattern: string;
@@ -50,7 +50,10 @@ export const replaceTool: Tool<ReplaceInput, ReplaceOutput> = {
         description: 'File(s) to target: single path, comma-separated list, or glob pattern',
       },
       glob: { type: 'string', description: 'Additional glob filter (e.g. "*.ts")' },
-      replace_all: { type: 'boolean', description: 'Replace all occurrences in each file (default: true)' },
+      replace_all: {
+        type: 'boolean',
+        description: 'Replace all occurrences in each file (default: true)',
+      },
       dry_run: { type: 'boolean', description: 'Preview changes without writing' },
     },
     required: ['pattern', 'replacement', 'files'],
@@ -138,9 +141,13 @@ export const replaceTool: Tool<ReplaceInput, ReplaceOutput> = {
         await atomicWrite(realPath, newContent, { mode: stat.mode & 0o777 });
       }
 
-      const diff = dryRun || matches.length > 0
-        ? unifiedDiff(content, toStyle(newContentLf, style), { fromFile: absPath, toFile: absPath })
-        : undefined;
+      const diff =
+        dryRun || matches.length > 0
+          ? unifiedDiff(content, toStyle(newContentLf, style), {
+              fromFile: absPath,
+              toFile: absPath,
+            })
+          : undefined;
 
       results.push({
         path: absPath,
@@ -170,7 +177,10 @@ async function resolveFiles(
     return await globFiles(normalized, base, extraGlob);
   }
 
-  const parts = normalized.split(',').map((s) => s.trim()).filter(Boolean);
+  const parts = normalized
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
   const resolved: string[] = [];
 
   for (const p of parts) {
@@ -184,7 +194,11 @@ async function resolveFiles(
   return resolved;
 }
 
-async function globFiles(pattern: string, base: string, extraGlob?: RegExp | null): Promise<string[]> {
+async function globFiles(
+  pattern: string,
+  base: string,
+  extraGlob?: RegExp | null,
+): Promise<string[]> {
   const { spawn } = await import('node:child_process');
   const results: string[] = [];
 
@@ -217,7 +231,9 @@ function spawnRgFind(pattern: string, base: string): { promise: Promise<string[]
   const args = ['--files', '--glob', pattern, base];
   const child = spawn('rg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
   let buf = '';
-  child.stdout?.on('data', (chunk: Buffer) => { buf += chunk.toString(); });
+  child.stdout?.on('data', (chunk: Buffer) => {
+    buf += chunk.toString();
+  });
   return {
     promise: new Promise((resolve, reject) => {
       child.on('error', reject);
@@ -228,7 +244,11 @@ function spawnRgFind(pattern: string, base: string): { promise: Promise<string[]
   };
 }
 
-async function globNative(pattern: string, base: string, extraGlob?: RegExp | null): Promise<string[]> {
+async function globNative(
+  pattern: string,
+  base: string,
+  extraGlob?: RegExp | null,
+): Promise<string[]> {
   const results: string[] = [];
   const globRe = compileGlob(pattern);
 

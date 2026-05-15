@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
-import { useSessionStore } from '@/stores';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';
+import { useSessionStore } from '@/stores';
 import { Check, ChevronDown } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 
 /**
  * Pill-shaped mode chip in the topbar. Click to drop a small picker with
@@ -42,9 +42,10 @@ export function ModePicker() {
     };
   }, [open]);
 
-  const items = modes.length > 0
-    ? modes
-    : [{ id: 'default', name: 'Default', description: 'Standard agent behaviour' }];
+  const items =
+    modes.length > 0
+      ? modes
+      : [{ id: 'default', name: 'Default', description: 'Standard agent behaviour' }];
 
   return (
     <div ref={rootRef} className="relative shrink-0">

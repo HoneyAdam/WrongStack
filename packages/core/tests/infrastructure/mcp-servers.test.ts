@@ -11,7 +11,7 @@ import {
   googleMapsServer,
   sentinelServer,
   allServers,
-} from '../../src/defaults/mcp-servers.js';
+} from '../../src/infrastructure/mcp-servers.js';
 import type { MCPServerConfig } from '../../src/types/config.js';
 
 /**

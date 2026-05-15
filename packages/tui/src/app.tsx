@@ -1,7 +1,5 @@
-import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
-import { Box, useApp } from 'ink';
+import * as path from 'node:path';
 import type {
   Agent,
   AttachmentStore,
@@ -12,17 +10,19 @@ import type {
   TokenCounter,
 } from '@wrongstack/core';
 import { InputBuilder } from '@wrongstack/core';
+import { Box, useApp } from 'ink';
+import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { readClipboardImage } from './clipboard.js';
+import { ConfirmPrompt } from './components/confirm-prompt.js';
+import { FilePicker } from './components/file-picker.js';
 import { History, type HistoryEntry } from './components/history.js';
 import { Input, type KeyEvent } from './components/input.js';
-import { StatusBar } from './components/status-bar.js';
-import { FilePicker } from './components/file-picker.js';
-import { SlashMenu } from './components/slash-menu.js';
 import { ModelPicker, type ProviderOption } from './components/model-picker.js';
-import { ConfirmPrompt } from './components/confirm-prompt.js';
+import { SlashMenu } from './components/slash-menu.js';
+import { StatusBar } from './components/status-bar.js';
 import { searchFiles } from './file-search.js';
-import { readClipboardImage } from './clipboard.js';
+import { type GitInfo, readGitInfo } from './git-info.js';
 import { createQueueSlashCommand } from './queue-slash.js';
-import { readGitInfo, type GitInfo } from './git-info.js';
 
 export interface QueueItem {
   id: number;
@@ -81,7 +81,9 @@ export interface AppProps {
   effectiveMaxContext?: number;
   onExit: (code: number) => void;
   /** Called when /clear is dispatched — the TUI should wipe its history entries (but keep the banner). */
-  onClearHistory?: (dispatch: React.Dispatch<{ type: 'clearHistory' } | { type: 'resetContextChip' }>) => void;
+  onClearHistory?: (
+    dispatch: React.Dispatch<{ type: 'clearHistory' } | { type: 'resetContextChip' }>,
+  ) => void;
 }
 
 type DraftEntry = HistoryEntry extends infer T
@@ -189,10 +191,7 @@ export function reducer(state: State, action: Action): State {
       // which forbids removals or reordering — old items live on in the
       // terminal's native scrollback. Memory growth is bounded by the
       // terminal's own scrollback limits in practice.
-      const appended = [
-        ...state.entries,
-        { ...action.entry, id: state.nextId } as HistoryEntry,
-      ];
+      const appended = [...state.entries, { ...action.entry, id: state.nextId } as HistoryEntry];
       return { ...state, entries: appended, nextId: state.nextId + 1 };
     }
     case 'setBuffer':
@@ -304,7 +303,8 @@ export function reducer(state: State, action: Action): State {
       // currently-visible stream.
       const t = state.toolStream;
       if (action.toolUseId !== undefined && action.toolUseId !== t.toolUseId) return state;
-      if (action.name !== undefined && action.toolUseId === undefined && action.name !== t.name) return state;
+      if (action.name !== undefined && action.toolUseId === undefined && action.name !== t.name)
+        return state;
       return { ...state, toolStream: null };
     }
     case 'enqueue': {
@@ -592,15 +592,12 @@ export function App({
   // than the provider family's 200k baseline). Fall back to the provider
   // baseline when the CLI couldn't resolve it (e.g. unknown model id).
   const maxContext = effectiveMaxContext ?? agent.ctx.provider.capabilities.maxContext;
-  const contextWindow = useMemo(
-    () => {
-      void state.contextChipVersion;
-      return lastInputTokens > 0 && maxContext > 0
-        ? { used: lastInputTokens, max: maxContext }
-        : undefined;
-    },
-    [lastInputTokens, maxContext, state.contextChipVersion],
-  );
+  const contextWindow = useMemo(() => {
+    void state.contextChipVersion;
+    return lastInputTokens > 0 && maxContext > 0
+      ? { used: lastInputTokens, max: maxContext }
+      : undefined;
+  }, [lastInputTokens, maxContext, state.contextChipVersion]);
 
   // Todo counts come from the agent's context, which is mutated by
   // the `todo` tool. Re-read on each render — array access is O(N) on
@@ -750,7 +747,10 @@ export function App({
     } catch (err) {
       dispatch({
         type: 'addEntry',
-        entry: { kind: 'error', text: `Attach failed: ${err instanceof Error ? err.message : String(err)}` },
+        entry: {
+          kind: 'error',
+          text: `Attach failed: ${err instanceof Error ? err.message : String(err)}`,
+        },
       });
       dispatch({ type: 'pickerClose' });
     }
@@ -1149,7 +1149,8 @@ export function App({
         dispatch({ type: 'setBuffer', buffer, cursor: target });
         return;
       }
-      if (state.cursor > 0) dispatch({ type: 'setBuffer', buffer: state.buffer, cursor: state.cursor - 1 });
+      if (state.cursor > 0)
+        dispatch({ type: 'setBuffer', buffer: state.buffer, cursor: state.cursor - 1 });
       return;
     }
     if (key.rightArrow) {
@@ -1162,7 +1163,8 @@ export function App({
         dispatch({ type: 'setBuffer', buffer, cursor: target });
         return;
       }
-      if (state.cursor < state.buffer.length) dispatch({ type: 'setBuffer', buffer: state.buffer, cursor: state.cursor + 1 });
+      if (state.cursor < state.buffer.length)
+        dispatch({ type: 'setBuffer', buffer: state.buffer, cursor: state.cursor + 1 });
       return;
     }
     // History scrolling is delegated to the terminal's native scrollback
@@ -1234,7 +1236,8 @@ export function App({
       return;
     }
 
-    const next = state.buffer.slice(0, state.cursor) + cleanInput + state.buffer.slice(state.cursor);
+    const next =
+      state.buffer.slice(0, state.cursor) + cleanInput + state.buffer.slice(state.cursor);
     dispatch({ type: 'setBuffer', buffer: next, cursor: state.cursor + cleanInput.length });
   };
 
@@ -1404,7 +1407,11 @@ export function App({
 
   return (
     <Box flexDirection="column">
-      <History entries={state.entries} streamingText={state.streamingText} toolStream={state.toolStream} />
+      <History
+        entries={state.entries}
+        streamingText={state.streamingText}
+        toolStream={state.toolStream}
+      />
       <Input
         value={state.buffer}
         cursor={state.cursor}

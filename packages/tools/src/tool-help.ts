@@ -22,8 +22,7 @@ interface ToolHelpOutput {
 
 export const toolHelpTool: Tool<ToolHelpInput, ToolHelpOutput> = {
   name: 'tool_help',
-  description:
-    'Get help and usage information for a specific tool or list all available tools.',
+  description: 'Get help and usage information for a specific tool or list all available tools.',
   usageHint:
     'Set `tool` for specific help. Omit to list all tools. `format`: short (one-liner), full (schema), markdown (formatted).',
   permission: 'auto',
@@ -65,14 +64,16 @@ export const toolHelpTool: Tool<ToolHelpInput, ToolHelpOutput> = {
       return {
         tool: tool.name,
         help: formatToolHelp(tool, format, includeExamples),
-        tools: [{
-          name: tool.name,
-          description: tool.description,
-          usageHint: tool.usageHint ?? '',
-          inputSchema: tool.inputSchema,
-          permission: tool.permission,
-          mutating: tool.mutating,
-        }],
+        tools: [
+          {
+            name: tool.name,
+            description: tool.description,
+            usageHint: tool.usageHint ?? '',
+            inputSchema: tool.inputSchema,
+            permission: tool.permission,
+            mutating: tool.mutating,
+          },
+        ],
         total: 1,
       };
     }
@@ -87,7 +88,8 @@ export const toolHelpTool: Tool<ToolHelpInput, ToolHelpOutput> = {
     }));
 
     return {
-      help: format === 'markdown' ? formatAllToolsMarkdown(allTools) : formatAllToolsShort(allTools),
+      help:
+        format === 'markdown' ? formatAllToolsMarkdown(allTools) : formatAllToolsShort(allTools),
       tools: allTools,
       total: allTools.length,
     };
@@ -137,12 +139,12 @@ function formatToolHelp(tool: Tool, format: string, includeExamples: boolean): s
 }
 
 function formatAllToolsShort(tools: { name: string; description: string }[]): string {
-  return tools
-    .map((t) => `  ${t.name.padEnd(16)} ${t.description}`)
-    .join('\n');
+  return tools.map((t) => `  ${t.name.padEnd(16)} ${t.description}`).join('\n');
 }
 
-function formatAllToolsMarkdown(tools: { name: string; description: string; usageHint: string }[]): string {
+function formatAllToolsMarkdown(
+  tools: { name: string; description: string; usageHint: string }[],
+): string {
   const lines: string[] = ['## Available Tools', ''];
   lines.push('| Tool | Description |');
   lines.push('|------|-------------|');

@@ -1,7 +1,7 @@
 import * as path from 'node:path';
 import type { Tool, ToolStreamEvent } from '@wrongstack/core';
-import { safeResolve } from './_util.js';
 import { spawnStream } from './_spawn-stream.js';
+import { safeResolve } from './_util.js';
 
 interface TestInput {
   files?: string | string[];
@@ -26,8 +26,7 @@ interface TestOutput {
 
 export const testTool: Tool<TestInput, TestOutput> = {
   name: 'test',
-  description:
-    'Run tests with vitest, jest, or mocha. Returns pass/fail counts and output.',
+  description: 'Run tests with vitest, jest, or mocha. Returns pass/fail counts and output.',
   usageHint:
     'Set `files` for specific tests. `watch` enables watch mode. `coverage` generates coverage report. `grep` filters by name.',
   permission: 'confirm',
@@ -123,7 +122,10 @@ function buildArgs(runner: string, input: TestInput): string[] {
   switch (runner) {
     case 'vitest':
       args.push('run', '--reporter=verbose');
-      if (input.watch) { args[1] = ''; args.push('watch'); }
+      if (input.watch) {
+        args[1] = '';
+        args.push('watch');
+      }
       if (input.coverage) args.push('--coverage');
       if (input.grep) args.push('--testNamePattern', input.grep);
       args.push('--testTimeout', String(timeout));

@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Specification, SpecRequirement } from '../../src/types/spec.js';
 import type { TaskNode, TaskGraph, TaskStore } from '../../src/types/task-graph.js';
-import { TaskGenerator, DefaultTaskStore } from '../../src/defaults/task-generator.js';
-import { TaskTracker } from '../../src/defaults/task-tracker.js';
+import { TaskGenerator, DefaultTaskStore } from '../../src/sdd/task-generator.js';
+import { TaskTracker } from '../../src/sdd/task-tracker.js';
 
 function makeRequirement(overrides: Partial<SpecRequirement> = {}): SpecRequirement {
   return {

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { EventBus } from '../../src/kernel/events.js';
-import { DefaultMultiAgentCoordinator } from '../../src/defaults/multi-agent-coordinator.js';
-import { makeAgentSubagentRunner } from '../../src/defaults/agent-subagent-runner.js';
+import { DefaultMultiAgentCoordinator } from '../../src/coordination/multi-agent-coordinator.js';
+import { makeAgentSubagentRunner } from '../../src/coordination/agent-subagent-runner.js';
 import type { Agent, RunResult } from '../../src/core/agent.js';
 import type { TaskResult } from '../../src/types/multi-agent.js';
 

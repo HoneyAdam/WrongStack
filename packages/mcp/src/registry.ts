@@ -1,5 +1,5 @@
-import type { EventBus, MCPServerConfig, ToolRegistry, Logger } from '@wrongstack/core';
-import { MCPClient, type ConnectionState } from './client.js';
+import type { EventBus, Logger, MCPServerConfig, ToolRegistry } from '@wrongstack/core';
+import { type ConnectionState, MCPClient } from './client.js';
 import { wrapMCPTool } from './wrap-tool.js';
 
 interface ServerSlot {
@@ -122,7 +122,11 @@ export class MCPRegistry {
     const slot = this.servers.get(name);
     if (!slot || !slot.client) return;
     for (const t of slot.toolNames) {
-      try { this.toolRegistry.unregister(t); } catch { /* ignore */ }
+      try {
+        this.toolRegistry.unregister(t);
+      } catch {
+        /* ignore */
+      }
     }
     slot.toolNames = [];
     const allowed = slot.cfg.allowedTools;
@@ -147,11 +151,19 @@ export class MCPRegistry {
     );
   };
 
-  private readonly onChildExit = (name: string, code: number | null, _signal: string | null): void => {
+  private readonly onChildExit = (
+    name: string,
+    code: number | null,
+    _signal: string | null,
+  ): void => {
     const slot = this.servers.get(name);
     if (!slot) return;
     for (const t of slot.toolNames) {
-      try { this.toolRegistry.unregister(t); } catch { /* ignore */ }
+      try {
+        this.toolRegistry.unregister(t);
+      } catch {
+        /* ignore */
+      }
     }
     slot.toolNames = [];
     slot.state = 'disconnected';
@@ -164,7 +176,11 @@ export class MCPRegistry {
     const slot = this.servers.get(name);
     if (!slot) return;
     for (const t of slot.toolNames) {
-      try { this.toolRegistry.unregister(t); } catch { /* ignore */ }
+      try {
+        this.toolRegistry.unregister(t);
+      } catch {
+        /* ignore */
+      }
     }
     slot.toolNames = [];
     slot.state = 'disconnected';
@@ -257,7 +273,9 @@ export class MCPRegistry {
           slot.client.removeExitListener(this.onChildExit);
           if (priorDisconnect) prior.removeDisconnectListener(priorDisconnect);
           prior.removeToolsChangedListener(this.onToolsChanged);
-          prior.close().catch(() => { /* best-effort */ });
+          prior.close().catch(() => {
+            /* best-effort */
+          });
         }
         slot.client = client;
         slot.onDisconnect = boundDisconnect;
@@ -271,9 +289,7 @@ export class MCPRegistry {
         // The cache is populated by client.listTools() on first connect.
         const mc = client as MCPClient;
         const candidateTools = mc.listTools();
-        const toWrap = candidateTools.length > 0
-          ? candidateTools
-          : mc.listTools(); // fallback — in practice both return the same list
+        const toWrap = candidateTools.length > 0 ? candidateTools : mc.listTools(); // fallback — in practice both return the same list
         const wrapped = toWrap
           .filter((t) => !allowed || allowed.includes(t.name))
           .map((t) => wrapMCPTool(slot.cfg.name, t, mc, slot.cfg.permission ?? 'confirm'));
@@ -296,10 +312,15 @@ export class MCPRegistry {
           client.removeExitListener(this.onChildExit);
           if (boundDisconnect) client.removeDisconnectListener(boundDisconnect);
           client.removeToolsChangedListener(this.onToolsChanged);
-          await client.close().catch(() => {/* ignore */});
+          await client.close().catch(() => {
+            /* ignore */
+          });
         }
         if (attempt >= MAX_ATTEMPTS) {
-          this.log.error(`MCP server "${slot.cfg.name}" connect exhausted after ${MAX_ATTEMPTS} attempts`, err);
+          this.log.error(
+            `MCP server "${slot.cfg.name}" connect exhausted after ${MAX_ATTEMPTS} attempts`,
+            err,
+          );
           slot.state = 'failed';
           slot.client = undefined;
           this.events.emit('mcp.server.disconnected', {

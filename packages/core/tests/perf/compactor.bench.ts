@@ -1,6 +1,6 @@
 import { bench, describe } from 'vitest';
-import { HybridCompactor } from '../../src/defaults/compactor.js';
-import { IntelligentCompactor } from '../../src/defaults/intelligent-compactor.js';
+import { HybridCompactor } from '../../src/execution/compactor.js';
+import { IntelligentCompactor } from '../../src/execution/intelligent-compactor.js';
 import type { Context } from '../../src/core/context.js';
 import type { Message } from '../../src/types/messages.js';
 

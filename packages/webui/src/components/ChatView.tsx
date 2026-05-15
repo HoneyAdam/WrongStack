@@ -1,35 +1,35 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { useChatStore, useSessionStore, useUIStore } from '@/stores';
-import { ScrollArea } from './ui/scroll-area';
-import { ChatInput } from './ChatInput';
-import { MessageBubble } from './MessageBubble';
-import { ToolGroup } from './ToolGroup';
-import { WelcomeScreen } from './WelcomeScreen';
-import { SearchOverlay } from './SearchOverlay';
-import { ModePicker } from './ModePicker';
-import { ConnectionChip } from './ConnectionChip';
-import { CostChip } from './CostChip';
-import type { ChatMessage } from '@/stores';
-import { Button } from './ui/button';
 import { cn } from '@/lib/utils';
+import { useChatStore, useSessionStore, useUIStore } from '@/stores';
+import type { ChatMessage } from '@/stores';
+import { useConfigStore } from '@/stores';
 import {
-  Wifi,
-  WifiOff,
-  Settings,
-  Cpu,
-  FolderOpen,
   Activity,
-  Bot,
   ArrowDown,
   ArrowUp,
-  Sun,
-  Moon,
-  Monitor,
+  Bot,
   Command,
+  Cpu,
+  FolderOpen,
+  Monitor,
+  Moon,
   PanelLeftOpen,
+  Settings,
+  Sun,
+  Wifi,
+  WifiOff,
   Zap,
 } from 'lucide-react';
-import { useConfigStore } from '@/stores';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+import { ChatInput } from './ChatInput';
+import { ConnectionChip } from './ConnectionChip';
+import { CostChip } from './CostChip';
+import { MessageBubble } from './MessageBubble';
+import { ModePicker } from './ModePicker';
+import { SearchOverlay } from './SearchOverlay';
+import { ToolGroup } from './ToolGroup';
+import { WelcomeScreen } from './WelcomeScreen';
+import { Button } from './ui/button';
+import { ScrollArea } from './ui/scroll-area';
 
 function fmtTok(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -46,15 +46,8 @@ export function ChatView() {
   const compactMode = useUIStore((s) => s.compactMode);
   const setTheme = useConfigStore((s) => s.setTheme);
   const theme = useConfigStore((s) => s.theme);
-  const {
-    totalTokens,
-    cost,
-    startTime,
-    lastInputTokens,
-    maxContext,
-    projectName,
-    iteration,
-  } = useSessionStore();
+  const { totalTokens, cost, startTime, lastInputTokens, maxContext, projectName, iteration } =
+    useSessionStore();
   const { wsConnected, wsStatus, provider, model } = useConfigStore();
   const { setCurrentView } = useUIStore();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -66,9 +59,11 @@ export function ChatView() {
       ? Math.min(100, Math.round((lastInputTokens / maxContext) * 100))
       : 0;
   const ctxTone =
-    ctxPct >= 85 ? 'bg-red-500/15 text-red-600 dark:text-red-400'
-    : ctxPct >= 70 ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
-    : 'bg-muted text-muted-foreground';
+    ctxPct >= 85
+      ? 'bg-red-500/15 text-red-600 dark:text-red-400'
+      : ctxPct >= 70
+        ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+        : 'bg-muted text-muted-foreground';
 
   // Auto-scroll with "user is reading older messages" lock. We watch the
   // Radix ScrollArea viewport's scroll position; if the user is within
@@ -178,8 +173,7 @@ export function ChatView() {
   const agentState = (() => {
     if (!isLoading) return 'idle' as const;
     const last = messages[messages.length - 1];
-    const isStreaming =
-      last?.role === 'assistant' && !!last.content && last.streaming;
+    const isStreaming = last?.role === 'assistant' && !!last.content && last.streaming;
     return isStreaming ? ('streaming' as const) : ('thinking' as const);
   })();
   const stateTone =
@@ -350,22 +344,29 @@ export function ChatView() {
                     <span>in</span>
                   </span>
                   <span className="flex items-center gap-1">
-                    <span className="font-medium text-foreground">{fmtTok(totalTokens.output)}</span>
+                    <span className="font-medium text-foreground">
+                      {fmtTok(totalTokens.output)}
+                    </span>
                     <span>out</span>
                   </span>
-                  {totalTokens.cacheRead && totalTokens.cacheRead > 0 && (() => {
-                    const denom = (totalTokens.cacheRead ?? 0) + totalTokens.input;
-                    const pct = denom > 0 ? Math.round(((totalTokens.cacheRead ?? 0) / denom) * 100) : 0;
-                    return (
-                      <span
-                        className="flex items-center gap-1"
-                        title={`Cache hit ratio: ${pct}%`}
-                      >
-                        <span className="font-medium text-foreground">{fmtTok(totalTokens.cacheRead)}</span>
-                        <span>cache ({pct}%)</span>
-                      </span>
-                    );
-                  })()}
+                  {totalTokens.cacheRead &&
+                    totalTokens.cacheRead > 0 &&
+                    (() => {
+                      const denom = (totalTokens.cacheRead ?? 0) + totalTokens.input;
+                      const pct =
+                        denom > 0 ? Math.round(((totalTokens.cacheRead ?? 0) / denom) * 100) : 0;
+                      return (
+                        <span
+                          className="flex items-center gap-1"
+                          title={`Cache hit ratio: ${pct}%`}
+                        >
+                          <span className="font-medium text-foreground">
+                            {fmtTok(totalTokens.cacheRead)}
+                          </span>
+                          <span>cache ({pct}%)</span>
+                        </span>
+                      );
+                    })()}
                   <CostChip />
                 </>
               )}
@@ -399,7 +400,9 @@ export function ChatView() {
             )}
           >
             <ArrowDown className="h-3.5 w-3.5" />
-            {unreadCount > 0 ? `${unreadCount} new message${unreadCount === 1 ? '' : 's'}` : 'Jump to latest'}
+            {unreadCount > 0
+              ? `${unreadCount} new message${unreadCount === 1 ? '' : 's'}`
+              : 'Jump to latest'}
           </button>
         )}
         {/* Back-to-top — only when the chat is genuinely long AND the user
@@ -422,205 +425,199 @@ export function ChatView() {
           </button>
         )}
         <ScrollArea className="h-full" ref={scrollRef}>
-        <div className={cn(
-          'mx-auto pb-8',
-          compactMode ? 'max-w-5xl p-3 space-y-3' : 'max-w-5xl p-4 space-y-6',
-        )}>
-          {messages.length === 0 && !isLoading && <WelcomeScreen />}
-          
-          {/* Group consecutive tool messages into one collapsible chip so a
+          <div
+            className={cn(
+              'mx-auto pb-8',
+              compactMode ? 'max-w-5xl p-3 space-y-3' : 'max-w-5xl p-4 space-y-6',
+            )}
+          >
+            {messages.length === 0 && !isLoading && <WelcomeScreen />}
+
+            {/* Group consecutive tool messages into one collapsible chip so a
               run of 8 parallel reads doesn't eat half the viewport. Non-tool
               messages render as before. The last group auto-opens while the
               agent is still running so the user can watch tools land in
               real time; older groups default to collapsed. */}
-          {(() => {
-            type Group =
-              | { kind: 'msg'; message: ChatMessage; isFirst: boolean }
-              | { kind: 'tools'; tools: ChatMessage[]; key: string };
-            const groups: Group[] = [];
-            for (let i = 0; i < messages.length; i++) {
-              const m = messages[i]!;
-              if (m.role === 'tool') {
-                const last = groups[groups.length - 1];
-                if (last && last.kind === 'tools') {
-                  last.tools.push(m);
+            {(() => {
+              type Group =
+                | { kind: 'msg'; message: ChatMessage; isFirst: boolean }
+                | { kind: 'tools'; tools: ChatMessage[]; key: string };
+              const groups: Group[] = [];
+              for (let i = 0; i < messages.length; i++) {
+                const m = messages[i]!;
+                if (m.role === 'tool') {
+                  const last = groups[groups.length - 1];
+                  if (last && last.kind === 'tools') {
+                    last.tools.push(m);
+                  } else {
+                    groups.push({ kind: 'tools', tools: [m], key: m.id });
+                  }
                 } else {
-                  groups.push({ kind: 'tools', tools: [m], key: m.id });
+                  const prev = messages[i - 1];
+                  groups.push({
+                    kind: 'msg',
+                    message: m,
+                    isFirst: !prev || prev.role !== m.role,
+                  });
                 }
-              } else {
-                const prev = messages[i - 1];
-                groups.push({
-                  kind: 'msg',
-                  message: m,
-                  isFirst: !prev || prev.role !== m.role,
+              }
+              const lastGroupIdx = groups.length - 1;
+              // Track which date (local YYYY-MM-DD) the previous group was
+              // stamped with, so we can emit a soft divider between days. This
+              // matters most after `session.resume` rehydrates a transcript
+              // that spans yesterday → today; without dividers the user can't
+              // tell where the gap is.
+              let prevDay: string | null = null;
+              const dayKey = (ts: number) => {
+                const d = new Date(ts);
+                return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+              };
+              const dayLabel = (ts: number) => {
+                const d = new Date(ts);
+                const today = new Date();
+                const yest = new Date(Date.now() - 86_400_000);
+                if (dayKey(ts) === dayKey(today.getTime())) return 'Today';
+                if (dayKey(ts) === dayKey(yest.getTime())) return 'Yesterday';
+                return d.toLocaleDateString(undefined, {
+                  weekday: 'short',
+                  month: 'short',
+                  day: 'numeric',
+                  year: d.getFullYear() === today.getFullYear() ? undefined : 'numeric',
                 });
+              };
+              const out: ReactNode[] = [];
+              for (let idx = 0; idx < groups.length; idx++) {
+                const g = groups[idx]!;
+                const ts = g.kind === 'msg' ? g.message.timestamp : g.tools[0]!.timestamp;
+                const day = dayKey(ts);
+                if (day !== prevDay) {
+                  out.push(
+                    <div
+                      key={`day-${day}-${idx}`}
+                      className="flex items-center gap-3 py-1 text-[11px] text-muted-foreground/70 uppercase tracking-wider font-medium"
+                    >
+                      <div className="flex-1 h-px bg-border/50" />
+                      <span>{dayLabel(ts)}</span>
+                      <div className="flex-1 h-px bg-border/50" />
+                    </div>,
+                  );
+                  prevDay = day;
+                }
+                if (g.kind === 'msg') {
+                  out.push(
+                    <MessageBubble key={g.message.id} message={g.message} isFirst={g.isFirst} />,
+                  );
+                } else {
+                  const isLatestRunning =
+                    idx === lastGroupIdx &&
+                    isLoading &&
+                    g.tools.some((t) => t.toolResult === undefined);
+                  out.push(<ToolGroup key={g.key} tools={g.tools} defaultOpen={isLatestRunning} />);
+                }
               }
-            }
-            const lastGroupIdx = groups.length - 1;
-            // Track which date (local YYYY-MM-DD) the previous group was
-            // stamped with, so we can emit a soft divider between days. This
-            // matters most after `session.resume` rehydrates a transcript
-            // that spans yesterday → today; without dividers the user can't
-            // tell where the gap is.
-            let prevDay: string | null = null;
-            const dayKey = (ts: number) => {
-              const d = new Date(ts);
-              return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-            };
-            const dayLabel = (ts: number) => {
-              const d = new Date(ts);
-              const today = new Date();
-              const yest = new Date(Date.now() - 86_400_000);
-              if (dayKey(ts) === dayKey(today.getTime())) return 'Today';
-              if (dayKey(ts) === dayKey(yest.getTime())) return 'Yesterday';
-              return d.toLocaleDateString(undefined, {
-                weekday: 'short', month: 'short', day: 'numeric',
-                year: d.getFullYear() === today.getFullYear() ? undefined : 'numeric',
-              });
-            };
-            const out: ReactNode[] = [];
-            for (let idx = 0; idx < groups.length; idx++) {
-              const g = groups[idx]!;
-              const ts = g.kind === 'msg' ? g.message.timestamp : g.tools[0]!.timestamp;
-              const day = dayKey(ts);
-              if (day !== prevDay) {
-                out.push(
-                  <div
-                    key={`day-${day}-${idx}`}
-                    className="flex items-center gap-3 py-1 text-[11px] text-muted-foreground/70 uppercase tracking-wider font-medium"
-                  >
-                    <div className="flex-1 h-px bg-border/50" />
-                    <span>{dayLabel(ts)}</span>
-                    <div className="flex-1 h-px bg-border/50" />
-                  </div>,
-                );
-                prevDay = day;
-              }
-              if (g.kind === 'msg') {
-                out.push(
-                  <MessageBubble
-                    key={g.message.id}
-                    message={g.message}
-                    isFirst={g.isFirst}
-                  />,
-                );
-              } else {
-                const isLatestRunning =
-                  idx === lastGroupIdx &&
-                  isLoading &&
-                  g.tools.some((t) => t.toolResult === undefined);
-                out.push(
-                  <ToolGroup
-                    key={g.key}
-                    tools={g.tools}
-                    defaultOpen={isLatestRunning}
-                  />,
-                );
-              }
-            }
-            return out;
-          })()}
-          
-          {/* Running status bubble — always present as the last message
+              return out;
+            })()}
+
+            {/* Running status bubble — always present as the last message
               while the agent is not idle. Picks a label based on what the
               agent is currently doing (composing reply / running tools /
               thinking between steps) and ticks a live elapsed timer so the
               user has visible proof of life even mid-iteration. */}
-          {isLoading && (() => {
-            const last = messages[messages.length - 1];
-            const runningTools = messages.filter(
-              (m) => m.role === 'tool' && m.toolResult === undefined,
-            );
-            let label = 'Thinking…';
-            if (runningTools.length > 0) {
-              const names = Array.from(
-                new Set(runningTools.map((t) => t.toolName).filter(Boolean) as string[]),
-              );
-              const preview = names.slice(0, 2).join(', ');
-              const more = names.length > 2 ? ` +${names.length - 2}` : '';
-              label =
-                runningTools.length === 1
-                  ? `Running ${preview || 'tool'}…`
-                  : `Running ${runningTools.length} tools (${preview}${more})…`;
-            } else if (last?.role === 'assistant' && last.content) {
-              label = 'Writing reply…';
-            } else if (last?.role === 'tool' && last.toolResult !== undefined) {
-              label = 'Thinking about the next step…';
-            }
-            const elapsedSec = runStartedAt
-              ? Math.max(0, Math.floor((nowTick - runStartedAt) / 1000))
-              : 0;
-            const elapsed =
-              elapsedSec < 60
-                ? `${elapsedSec}s`
-                : `${Math.floor(elapsedSec / 60)}m ${elapsedSec % 60}s`;
-            // Streaming speed: derive chars/s for the currently-streaming
-            // assistant bubble. Anchor on first sight of a streaming bubble;
-            // tear down once it's no longer streaming so the next turn
-            // starts from zero.
-            let speedLabel = '';
-            const streamingBubble =
-              last?.role === 'assistant' && last.streaming && last.content
-                ? last
-                : null;
-            if (streamingBubble) {
-              const anchor = streamAnchor.current;
-              if (!anchor || anchor.id !== streamingBubble.id) {
-                streamAnchor.current = {
-                  id: streamingBubble.id,
-                  at: Date.now(),
-                  len: streamingBubble.content.length,
-                };
-              } else {
-                const dt = Math.max(1, nowTick - anchor.at);
-                const dl = Math.max(0, streamingBubble.content.length - anchor.len);
-                // Only show after 0.5s of streaming so the first reading
-                // isn't wildly inflated by the latency-to-first-chunk.
-                if (dt > 500 && dl > 0) {
-                  const cps = (dl * 1000) / dt;
-                  speedLabel = cps >= 1000
-                    ? `${(cps / 1000).toFixed(1)}k ch/s`
-                    : `${Math.round(cps)} ch/s`;
+            {isLoading &&
+              (() => {
+                const last = messages[messages.length - 1];
+                const runningTools = messages.filter(
+                  (m) => m.role === 'tool' && m.toolResult === undefined,
+                );
+                let label = 'Thinking…';
+                if (runningTools.length > 0) {
+                  const names = Array.from(
+                    new Set(runningTools.map((t) => t.toolName).filter(Boolean) as string[]),
+                  );
+                  const preview = names.slice(0, 2).join(', ');
+                  const more = names.length > 2 ? ` +${names.length - 2}` : '';
+                  label =
+                    runningTools.length === 1
+                      ? `Running ${preview || 'tool'}…`
+                      : `Running ${runningTools.length} tools (${preview}${more})…`;
+                } else if (last?.role === 'assistant' && last.content) {
+                  label = 'Writing reply…';
+                } else if (last?.role === 'tool' && last.toolResult !== undefined) {
+                  label = 'Thinking about the next step…';
                 }
-              }
-            } else if (streamAnchor.current) {
-              streamAnchor.current = null;
-            }
-            return (
-              <div className="flex gap-3 animate-message">
-                <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-accent text-accent-foreground ring-2 ring-offset-2 ring-offset-background ring-accent/20">
-                  <Bot className="h-4 w-4" />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <div className="rounded-2xl px-4 py-3 bg-card border text-foreground">
-                    <div className="flex items-center gap-3 text-sm">
-                      <span className="flex gap-1">
-                        <span className="h-1.5 w-1.5 rounded-full bg-primary/70 animate-bounce [animation-delay:-0.3s]" />
-                        <span className="h-1.5 w-1.5 rounded-full bg-primary/70 animate-bounce [animation-delay:-0.15s]" />
-                        <span className="h-1.5 w-1.5 rounded-full bg-primary/70 animate-bounce" />
-                      </span>
-                      <span className="text-foreground/90">{label}</span>
-                      <span className="text-xs text-muted-foreground tabular-nums">
-                        {elapsed}
-                      </span>
-                      {iteration && (
-                        <span className="text-xs text-muted-foreground tabular-nums">
-                          · iter {iteration.index}
-                          {iteration.max > 0 ? `/${iteration.max}` : ''}
-                        </span>
-                      )}
-                      {speedLabel && (
-                        <span className="text-xs text-muted-foreground/80 tabular-nums">
-                          · {speedLabel}
-                        </span>
-                      )}
+                const elapsedSec = runStartedAt
+                  ? Math.max(0, Math.floor((nowTick - runStartedAt) / 1000))
+                  : 0;
+                const elapsed =
+                  elapsedSec < 60
+                    ? `${elapsedSec}s`
+                    : `${Math.floor(elapsedSec / 60)}m ${elapsedSec % 60}s`;
+                // Streaming speed: derive chars/s for the currently-streaming
+                // assistant bubble. Anchor on first sight of a streaming bubble;
+                // tear down once it's no longer streaming so the next turn
+                // starts from zero.
+                let speedLabel = '';
+                const streamingBubble =
+                  last?.role === 'assistant' && last.streaming && last.content ? last : null;
+                if (streamingBubble) {
+                  const anchor = streamAnchor.current;
+                  if (!anchor || anchor.id !== streamingBubble.id) {
+                    streamAnchor.current = {
+                      id: streamingBubble.id,
+                      at: Date.now(),
+                      len: streamingBubble.content.length,
+                    };
+                  } else {
+                    const dt = Math.max(1, nowTick - anchor.at);
+                    const dl = Math.max(0, streamingBubble.content.length - anchor.len);
+                    // Only show after 0.5s of streaming so the first reading
+                    // isn't wildly inflated by the latency-to-first-chunk.
+                    if (dt > 500 && dl > 0) {
+                      const cps = (dl * 1000) / dt;
+                      speedLabel =
+                        cps >= 1000
+                          ? `${(cps / 1000).toFixed(1)}k ch/s`
+                          : `${Math.round(cps)} ch/s`;
+                    }
+                  }
+                } else if (streamAnchor.current) {
+                  streamAnchor.current = null;
+                }
+                return (
+                  <div className="flex gap-3 animate-message">
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-accent text-accent-foreground ring-2 ring-offset-2 ring-offset-background ring-accent/20">
+                      <Bot className="h-4 w-4" />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <div className="rounded-2xl px-4 py-3 bg-card border text-foreground">
+                        <div className="flex items-center gap-3 text-sm">
+                          <span className="flex gap-1">
+                            <span className="h-1.5 w-1.5 rounded-full bg-primary/70 animate-bounce [animation-delay:-0.3s]" />
+                            <span className="h-1.5 w-1.5 rounded-full bg-primary/70 animate-bounce [animation-delay:-0.15s]" />
+                            <span className="h-1.5 w-1.5 rounded-full bg-primary/70 animate-bounce" />
+                          </span>
+                          <span className="text-foreground/90">{label}</span>
+                          <span className="text-xs text-muted-foreground tabular-nums">
+                            {elapsed}
+                          </span>
+                          {iteration && (
+                            <span className="text-xs text-muted-foreground tabular-nums">
+                              · iter {iteration.index}
+                              {iteration.max > 0 ? `/${iteration.max}` : ''}
+                            </span>
+                          )}
+                          {speedLabel && (
+                            <span className="text-xs text-muted-foreground/80 tabular-nums">
+                              · {speedLabel}
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </div>
-            );
-          })()}
-        </div>
+                );
+              })()}
+          </div>
         </ScrollArea>
       </div>
 

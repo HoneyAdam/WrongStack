@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
-import { DefaultAttachmentStore } from '../../src/defaults/attachment-store.js';
+import { DefaultAttachmentStore } from '../../src/storage/attachment-store.js';
 
 describe('DefaultAttachmentStore', () => {
   it('assigns sequential seqs per kind and stable ids', async () => {

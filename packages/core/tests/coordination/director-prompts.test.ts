@@ -5,8 +5,8 @@ import {
   rosterSummaryFromConfigs,
   DEFAULT_DIRECTOR_PREAMBLE,
   DEFAULT_SUBAGENT_BASELINE,
-} from '../../src/defaults/director-prompts.js';
-import { Director } from '../../src/defaults/director.js';
+} from '../../src/coordination/director-prompts.js';
+import { Director } from '../../src/coordination/director.js';
 import type { MultiAgentConfig, SubagentConfig } from '../../src/types/multi-agent.js';
 
 const baseConfig: MultiAgentConfig = {

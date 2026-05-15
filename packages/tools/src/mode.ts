@@ -1,4 +1,4 @@
-import type { Tool, ModeStore } from '@wrongstack/core';
+import type { ModeStore, Tool } from '@wrongstack/core';
 
 interface ModeInput {
   action: 'get' | 'list' | 'set' | 'clear';
@@ -46,12 +46,16 @@ export function createModeTool(modeStore: ModeStore): Tool<ModeInput, ModeOutput
             action: 'get',
             currentMode: mode?.id,
             success: true,
-            message: mode ? `Current mode: ${mode.name} — ${mode.description}` : 'No mode set (using default)',
+            message: mode
+              ? `Current mode: ${mode.name} — ${mode.description}`
+              : 'No mode set (using default)',
           };
         }
         case 'list': {
           const modes = await modeStore.listModes();
-          const lines = modes.map((m) => `  ${m.id.padEnd(20)} ${m.name} — ${m.description}`).join('\n');
+          const lines = modes
+            .map((m) => `  ${m.id.padEnd(20)} ${m.name} — ${m.description}`)
+            .join('\n');
           return {
             action: 'list',
             modes: modes.map((m) => ({ id: m.id, name: m.name, description: m.description })),
@@ -84,7 +88,11 @@ export function createModeTool(modeStore: ModeStore): Tool<ModeInput, ModeOutput
           };
         }
         default:
-          return { action: input.action, success: false, message: `Unknown action "${input.action}"` };
+          return {
+            action: input.action,
+            success: false,
+            message: `Unknown action "${input.action}"`,
+          };
       }
     },
   };

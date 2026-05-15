@@ -5,7 +5,7 @@ import type { Message } from '../../src/types/messages.js';
 import type { Provider } from '../../src/types/provider.js';
 import type { MessageSelector, SelectorResult } from '../../src/types/selector.js';
 import type { ContentBlock, TextBlock } from '../../src/types/blocks.js';
-import { SelectiveCompactor } from '../../src/defaults/selective-compactor.js';
+import { SelectiveCompactor } from '../../src/execution/selective-compactor.js';
 
 function makeTextBlock(text: string): TextBlock {
   return { type: 'text', text };

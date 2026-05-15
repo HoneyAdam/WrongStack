@@ -1,10 +1,4 @@
-import type {
-  Capabilities,
-  Provider,
-  Request,
-  Response,
-  StreamEvent,
-} from '@wrongstack/core';
+import type { Capabilities, Provider, Request, Response, StreamEvent } from '@wrongstack/core';
 import { ProviderError } from '@wrongstack/core';
 import { parseProviderHttpError } from './error-parse.js';
 
@@ -64,13 +58,10 @@ export abstract class WireAdapter implements Provider {
       })) as unknown as Response2;
     } catch (err) {
       if (opts.signal.aborted) throw err;
-      throw new ProviderError(
-        err instanceof Error ? err.message : String(err),
-        0,
-        true,
-        this.id,
-        { cause: err, body: { message: err instanceof Error ? err.message : String(err) } },
-      );
+      throw new ProviderError(err instanceof Error ? err.message : String(err), 0, true, this.id, {
+        cause: err,
+        body: { message: err instanceof Error ? err.message : String(err) },
+      });
     }
 
     if (!httpRes.ok) {

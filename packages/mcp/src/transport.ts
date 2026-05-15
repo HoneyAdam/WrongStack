@@ -1,6 +1,11 @@
 import type { ConnectionState, MCPTool, ToolCallResult } from './client.js';
 
-export type JsonRpcResult = { jsonrpc: string; id?: number; result?: unknown; error?: { code: number; message: string; data?: unknown } };
+export type JsonRpcResult = {
+  jsonrpc: string;
+  id?: number;
+  result?: unknown;
+  error?: { code: number; message: string; data?: unknown };
+};
 
 export interface HttpTransportOptions {
   name: string;
@@ -21,9 +26,13 @@ export interface HttpTransportOptions {
  */
 export class SSEReader {
   private buffer = '';
-  private listeners: Array<(event: { jsonrpc?: string; method?: string; params?: unknown; id?: number }) => void> = [];
+  private listeners: Array<
+    (event: { jsonrpc?: string; method?: string; params?: unknown; id?: number }) => void
+  > = [];
 
-  onMessage(cb: (data: { jsonrpc?: string; method?: string; params?: unknown; id?: number }) => void): () => void {
+  onMessage(
+    cb: (data: { jsonrpc?: string; method?: string; params?: unknown; id?: number }) => void,
+  ): () => void {
     this.listeners.push(cb);
     return () => {
       const idx = this.listeners.indexOf(cb);
@@ -45,7 +54,12 @@ export class SSEReader {
         const data = line.slice(5).trim();
         if (data) {
           try {
-            const parsed = JSON.parse(data) as { jsonrpc?: string; method?: string; params?: unknown; id?: number };
+            const parsed = JSON.parse(data) as {
+              jsonrpc?: string;
+              method?: string;
+              params?: unknown;
+              id?: number;
+            };
             this.dispatch(parsed);
           } catch {
             // ignore parse errors
@@ -55,9 +69,18 @@ export class SSEReader {
     }
   }
 
-  private dispatch(msg: { jsonrpc?: string; method?: string; params?: unknown; id?: number }): void {
+  private dispatch(msg: {
+    jsonrpc?: string;
+    method?: string;
+    params?: unknown;
+    id?: number;
+  }): void {
     for (const cb of this.listeners) {
-      try { cb(msg); } catch { /* ignore */ }
+      try {
+        cb(msg);
+      } catch {
+        /* ignore */
+      }
     }
   }
 
@@ -121,7 +144,9 @@ export class SSETransport {
 
   onToolsChanged(cb: (tools: MCPTool[]) => void): () => void {
     this.toolsChangedListeners.add(cb);
-    return () => { this.toolsChangedListeners.delete(cb); };
+    return () => {
+      this.toolsChangedListeners.delete(cb);
+    };
   }
 
   /** Refresh tool list when server sends notifications/tools/list_changed. */
@@ -129,12 +154,18 @@ export class SSETransport {
     try {
       const res = await this.httpPost('tools/list', {});
       if (!res.error) {
-        this.tools = ((res.result as { tools?: MCPTool[] } | undefined)?.tools ?? []);
+        this.tools = (res.result as { tools?: MCPTool[] } | undefined)?.tools ?? [];
         for (const cb of this.toolsChangedListeners) {
-          try { cb([...this.tools]); } catch { /* ignore */ }
+          try {
+            cb([...this.tools]);
+          } catch {
+            /* ignore */
+          }
         }
       }
-    } catch { /* ignore transient failures */ }
+    } catch {
+      /* ignore transient failures */
+    }
   }
 
   async connect(): Promise<void> {
@@ -235,7 +266,11 @@ export class SSETransport {
       if (this.state !== 'disconnected' && this.state !== 'failed') {
         this.state = 'disconnected';
         for (const cb of this.disconnectHandlers) {
-          try { cb(); } catch { /* ignore */ }
+          try {
+            cb();
+          } catch {
+            /* ignore */
+          }
         }
       }
     }
@@ -270,7 +305,8 @@ export class SSETransport {
       // HTML and that's not useful in an error message anyway.
       const body = await res.text();
       const cap = 1024;
-      const snippet = body.length > cap ? `${body.slice(0, cap)}… [${body.length} bytes total]` : body;
+      const snippet =
+        body.length > cap ? `${body.slice(0, cap)}… [${body.length} bytes total]` : body;
       throw new Error(`HTTP ${res.status}: ${snippet}`);
     }
 
@@ -309,8 +345,16 @@ export class SSETransport {
     if (this.state === 'disconnected') return;
     this.readerDone = true;
     this.readLoopAbort?.abort();
-    try { this.reader?.cancel(); } catch { /* ignore */ }
-    try { this.reader?.releaseLock(); } catch { /* ignore */ }
+    try {
+      this.reader?.cancel();
+    } catch {
+      /* ignore */
+    }
+    try {
+      this.reader?.releaseLock();
+    } catch {
+      /* ignore */
+    }
     this.abortController?.abort();
     this.disconnectHandlers = [];
     this.state = 'disconnected';
@@ -358,19 +402,27 @@ export class StreamableHTTPTransport {
 
   onToolsChanged(cb: (tools: MCPTool[]) => void): () => void {
     this.toolsChangedListeners.add(cb);
-    return () => { this.toolsChangedListeners.delete(cb); };
+    return () => {
+      this.toolsChangedListeners.delete(cb);
+    };
   }
 
   private async handleToolsListChanged(): Promise<void> {
     try {
       const res = await this.postRaw('tools/list', {});
       if (!res.error) {
-        this.tools = ((res.result as { tools?: MCPTool[] } | undefined)?.tools ?? []);
+        this.tools = (res.result as { tools?: MCPTool[] } | undefined)?.tools ?? [];
         for (const cb of this.toolsChangedListeners) {
-          try { cb([...this.tools]); } catch { /* ignore */ }
+          try {
+            cb([...this.tools]);
+          } catch {
+            /* ignore */
+          }
         }
       }
-    } catch { /* ignore transient failures */ }
+    } catch {
+      /* ignore transient failures */
+    }
   }
 
   async connect(): Promise<void> {
@@ -384,7 +436,7 @@ export class StreamableHTTPTransport {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Accept': 'application/json, text/event-stream',
+          Accept: 'application/json, text/event-stream',
           ...this.headers,
         },
         body: JSON.stringify({
@@ -412,7 +464,7 @@ export class StreamableHTTPTransport {
         if (isJsonRpcResult(parsed)) data = parsed;
       } else {
         const text = await initRes.text();
-        const lines = text.split('\n').filter(l => l.trim());
+        const lines = text.split('\n').filter((l) => l.trim());
         for (const line of lines) {
           try {
             const parsed = JSON.parse(line);
@@ -465,7 +517,7 @@ export class StreamableHTTPTransport {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'application/json, text/event-stream',
+        Accept: 'application/json, text/event-stream',
         ...(this.sessionId ? { 'x-mcp-session': this.sessionId } : {}),
         ...this.headers,
       },
@@ -478,7 +530,7 @@ export class StreamableHTTPTransport {
     }
 
     const text = await res.text();
-    const lines = text.split('\n').filter(l => l.trim());
+    const lines = text.split('\n').filter((l) => l.trim());
     for (const line of lines) {
       try {
         const parsed = JSON.parse(line);
@@ -508,7 +560,11 @@ export class StreamableHTTPTransport {
     this.state = 'disconnected';
     this.abortController?.abort();
     for (const cb of this.disconnectHandlers) {
-      try { cb(); } catch { /* ignore */ }
+      try {
+        cb();
+      } catch {
+        /* ignore */
+      }
     }
     this.disconnectHandlers = [];
   }

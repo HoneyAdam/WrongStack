@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { RecoveryLock } from '../../src/defaults/recovery-lock.js';
-import { DefaultSessionStore } from '../../src/defaults/session-store.js';
+import { RecoveryLock } from '../../src/storage/recovery-lock.js';
+import { DefaultSessionStore } from '../../src/storage/session-store.js';
 
 async function mktmp(): Promise<string> {
   return fsp.mkdtemp(path.join(os.tmpdir(), 'wstack-lock-'));

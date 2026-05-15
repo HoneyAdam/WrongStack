@@ -1,5 +1,5 @@
 import type { TextEdit, WorkspaceEdit } from 'vscode-languageserver-protocol';
-import { uriToPath, displayPath } from '../utils/uri.js';
+import { displayPath, uriToPath } from '../utils/uri.js';
 
 export function summarizeWorkspaceEdit(edit: WorkspaceEdit, cwd: string): string {
   const entries = editsByPath(edit);

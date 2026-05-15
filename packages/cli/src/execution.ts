@@ -1,0 +1,248 @@
+/**
+ * Execution phase — single-shot, TUI, REPL, and WebUI dispatch.
+ * Extracted from index.ts so the main() function focuses on
+ * boot + wiring; this file owns the three run modes and cleanup.
+ */
+import * as path from 'node:path';
+import type {
+  Agent,
+  AttachmentStore,
+  Config,
+  EventBus,
+  ModelsRegistry,
+  RecoveryLock,
+  SessionWriter,
+  SlashCommandRegistry,
+  TokenCounter,
+} from '@wrongstack/core';
+import { color } from '@wrongstack/core';
+import type { ProviderConfig, ResolvedProvider, WstackPaths } from '@wrongstack/core';
+import type { MCPRegistry } from '@wrongstack/mcp';
+import type { ReadlineInputReader } from './input-reader.js';
+import type { TerminalRenderer } from './renderer.js';
+import { runRepl } from './repl.js';
+import type { SessionStats } from './session-stats.js';
+import { fmtTok } from './utils.js';
+import { CLI_VERSION } from './version.js';
+
+export interface ExecutionDeps {
+  agent: Agent;
+  events: EventBus;
+  slashRegistry: SlashCommandRegistry;
+  attachments: AttachmentStore;
+  tokenCounter: TokenCounter;
+  config: Config;
+  renderer: TerminalRenderer;
+  reader: ReadlineInputReader;
+  session: SessionWriter;
+  mcpRegistry: MCPRegistry;
+  recoveryLock: RecoveryLock;
+  wpaths: WstackPaths;
+  modelsRegistry: ModelsRegistry;
+  projectRoot: string;
+  flags: Record<string, string | boolean>;
+  positional: string[];
+  effectiveMaxContext: number;
+  queueStore: import('@wrongstack/core').QueueStore;
+  context: import('@wrongstack/core').Context;
+  stats: SessionStats;
+  savedProviderCfg: ProviderConfig | undefined;
+  resolvedProvider: ResolvedProvider | undefined;
+  getPickableProviders: () => Promise<Array<{ id: string; family: string; models: string[] }>>;
+  switchProviderAndModel: (providerId: string, modelId: string) => string | null;
+}
+
+export async function execute(deps: ExecutionDeps): Promise<number> {
+  const {
+    agent,
+    events,
+    slashRegistry,
+    attachments,
+    tokenCounter,
+    config,
+    renderer,
+    reader,
+    session,
+    mcpRegistry,
+    recoveryLock,
+    wpaths,
+    modelsRegistry,
+    projectRoot,
+    flags,
+    positional,
+    effectiveMaxContext,
+    queueStore,
+    context,
+    stats,
+    savedProviderCfg,
+    resolvedProvider,
+    getPickableProviders,
+    switchProviderAndModel,
+  } = deps;
+
+  let code = 0;
+  try {
+    // --prompt flag takes precedence: treat it like a positional query
+    const promptFlag = typeof flags['prompt'] === 'string' ? flags['prompt'] : undefined;
+    if (promptFlag) {
+      positional.unshift(promptFlag);
+    }
+    if (positional.length > 0 || promptFlag) {
+      const query = positional.join(' ');
+      const ctrl = new AbortController();
+      const onSigint = () => ctrl.abort();
+      process.on('SIGINT', onSigint);
+      const startedAt = Date.now();
+      const before = tokenCounter.total();
+      const costBefore = tokenCounter.estimateCost().total;
+      let result: import('@wrongstack/core').RunResult;
+      try {
+        result = await agent.run(query, { signal: ctrl.signal });
+      } finally {
+        process.off('SIGINT', onSigint);
+      }
+      const after = tokenCounter.total();
+      const costAfter = tokenCounter.estimateCost().total;
+      const usage = {
+        input: after.input - before.input,
+        output: after.output - before.output,
+        iterations: result.iterations,
+        cost: costAfter - costBefore,
+        elapsedMs: Date.now() - startedAt,
+      };
+      if (flags['output-json']) {
+        const json = JSON.stringify({
+          status: result.status,
+          finalText: result.finalText ?? null,
+          error: result.error
+            ? {
+                code: result.error.code,
+                subsystem: result.error.subsystem,
+                severity: result.error.severity,
+                recoverable: result.error.recoverable,
+                message: result.error.message,
+                context: result.error.context ?? null,
+              }
+            : null,
+          usage,
+        });
+        process.stdout.write(json + '\n');
+      } else {
+        if (result.status === 'failed') {
+          code = 1;
+          const err = result.error;
+          if (err) {
+            const tag = err.recoverable ? ' (recoverable)' : '';
+            renderer.writeError(`Failed [${err.severity}]${tag}: ${err.describe()}`);
+          } else {
+            renderer.writeError('Failed.');
+          }
+        } else if (result.status === 'aborted') {
+          code = 130;
+          renderer.writeWarning('Aborted.');
+        } else if (result.status === 'max_iterations') {
+          code = 1;
+          renderer.writeWarning(`Hit max iterations (${result.iterations}).`);
+        }
+        if (result.finalText) renderer.write('\n' + result.finalText + '\n');
+        renderer.write(
+          '\n' +
+            color.dim(
+              `[in: ${fmtTok(usage.input)}  out: ${fmtTok(usage.output)}  iters: ${usage.iterations}  cost: ${usage.cost.toFixed(4)}  ${(usage.elapsedMs / 1000).toFixed(1)}s]`,
+            ) +
+            '\n',
+        );
+      }
+    } else if (flags.tui && !flags['no-tui']) {
+      const { runTui } = await import('@wrongstack/tui');
+      renderer.setSilent(true);
+      const banneredFamily = savedProviderCfg?.family ?? resolvedProvider?.family;
+      const banneredKey =
+        savedProviderCfg?.apiKey ??
+        config.apiKey ??
+        (resolvedProvider?.envVars ?? savedProviderCfg?.envVars ?? [])
+          .map((v) => process.env[v])
+          .find((v): v is string => !!v);
+      const banneredKeyTail =
+        banneredKey && banneredKey.length >= 3 ? banneredKey.slice(-3) : undefined;
+      try {
+        code = await runTui({
+          agent,
+          events,
+          slashRegistry,
+          attachments,
+          tokenCounter,
+          model: context.model,
+          banner: !flags['no-banner'],
+          queueStore,
+          yolo: !!config.yolo,
+          appVersion: CLI_VERSION,
+          provider: config.provider,
+          family: banneredFamily,
+          keyTail: banneredKeyTail,
+          getPickableProviders,
+          switchProviderAndModel,
+          effectiveMaxContext,
+          altScreen: flags['alt-screen'] === true,
+          onAfterExit: () => {
+            process.stdout.write(
+              color.dim(`Session saved: ${session.id} — resume with `) +
+                color.cyan(`wstack resume ${session.id}`) +
+                '\n',
+            );
+          },
+          onClearHistory: (dispatch) => {
+            dispatch({ type: 'clearHistory' });
+            dispatch({ type: 'resetContextChip' });
+          },
+        });
+      } finally {
+        renderer.setSilent(false);
+      }
+    } else if (flags.webui) {
+      const { runWebUI } = await import('./webui-server.js');
+      const webuiPromise = runWebUI({
+        agent,
+        events,
+        session,
+        port: Number.parseInt(String(flags.port ?? '3457'), 10),
+        modelsRegistry,
+        globalConfigPath: wpaths.globalConfig,
+      });
+      code = await runRepl({
+        agent,
+        renderer,
+        reader,
+        slashRegistry,
+        tokenCounter,
+        attachments,
+        effectiveMaxContext,
+        projectName: path.basename(projectRoot) || undefined,
+      });
+      await webuiPromise;
+    } else {
+      code = await runRepl({
+        agent,
+        renderer,
+        reader,
+        slashRegistry,
+        tokenCounter,
+        attachments,
+        effectiveMaxContext,
+        projectName: path.basename(projectRoot) || undefined,
+      });
+    }
+  } finally {
+    stats.render(renderer);
+    await mcpRegistry.stopAll();
+    await session.append({
+      type: 'session_end',
+      ts: new Date().toISOString(),
+      usage: tokenCounter.total(),
+    });
+    await session.close();
+    await recoveryLock.clear().catch(() => undefined);
+    await reader.close();
+  }
+  return code;
+}

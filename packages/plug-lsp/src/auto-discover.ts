@@ -1,5 +1,5 @@
-import type { ServerConfig } from './types.js';
 import { PRESETS } from './presets.js';
+import type { ServerConfig } from './types.js';
 import { resolveServerCommand } from './utils/command-resolver.js';
 
 export async function autoDiscoverServers(

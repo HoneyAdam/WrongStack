@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
 import { useWebSocket } from '@/hooks/useWebSocket';
+import { cn } from '@/lib/utils';
 import { getWSClient } from '@/lib/ws-client';
 import { useConfigStore } from '@/stores';
-import { cn } from '@/lib/utils';
 import { FileText, Folder } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 
 interface FilePickerProps {
   /** Whatever the user typed after the `@` trigger (case-preserved). */

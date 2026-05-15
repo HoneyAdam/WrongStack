@@ -8,7 +8,19 @@ const ALLOWED_COMMANDS: Record<string, string[]> = {
   npm: ['--version', 'init', 'install', 'test', 'run', 'list', 'pkg', 'doctor'],
   pnpm: ['--version', 'init', 'install', 'add', 'remove', 'exec', 'list', 'run', 'dlx'],
   npx: ['--version'],
-  git: ['--version', 'status', 'log', 'diff', 'branch', 'checkout', 'stash', 'add', 'commit', 'push', 'pull'],
+  git: [
+    '--version',
+    'status',
+    'log',
+    'diff',
+    'branch',
+    'checkout',
+    'stash',
+    'add',
+    'commit',
+    'push',
+    'pull',
+  ],
   ls: ['-la', '-l', '-a'],
   cat: [],
   head: ['-n'],
@@ -77,7 +89,16 @@ export const execTool: Tool<ExecInput, ExecOutput> = {
   },
   async execute(input, ctx, opts) {
     const cmd = input.command.trim();
-    if (!cmd) return { command: cmd, args: [], stdout: '', stderr: 'Empty command', exitCode: 1, truncated: false, allowed: false };
+    if (!cmd)
+      return {
+        command: cmd,
+        args: [],
+        stdout: '',
+        stderr: 'Empty command',
+        exitCode: 1,
+        truncated: false,
+        allowed: false,
+      };
 
     if (!(cmd in ALLOWED_COMMANDS)) {
       return {
@@ -96,9 +117,7 @@ export const execTool: Tool<ExecInput, ExecOutput> = {
 
     // Resolve cwd inside the project root. Model-supplied paths like '/etc'
     // would otherwise let allowlisted commands operate anywhere on disk.
-    const requestedCwd = input.cwd
-      ? path.resolve(ctx.projectRoot, input.cwd)
-      : ctx.cwd;
+    const requestedCwd = input.cwd ? path.resolve(ctx.projectRoot, input.cwd) : ctx.cwd;
     const rel = path.relative(ctx.projectRoot, requestedCwd);
     if (rel.startsWith('..') || path.isAbsolute(rel)) {
       return {

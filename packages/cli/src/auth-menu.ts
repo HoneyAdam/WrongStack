@@ -1,18 +1,24 @@
 import * as fs from 'node:fs/promises';
 import {
-  color,
-  atomicWrite,
-  encryptConfigSecrets,
-  decryptConfigSecrets,
-  type ProviderConfig,
-  type ProviderApiKey,
-  type SecretVault,
   type ModelsRegistry,
+  type ProviderConfig,
   type ResolvedProvider,
+  type SecretVault,
   type WireFamily,
+  atomicWrite,
+  color,
+  decryptConfigSecrets,
+  encryptConfigSecrets,
 } from '@wrongstack/core';
-import type { TerminalRenderer } from './renderer.js';
 import type { ReadlineInputReader } from './input-reader.js';
+import {
+  activeLabel,
+  maskedKey,
+  normalizeKeys,
+  nowIso,
+  writeKeysBack,
+} from './provider-config-utils.js';
+import type { TerminalRenderer } from './renderer.js';
 
 export interface AuthMenuDeps {
   renderer: TerminalRenderer;
@@ -37,7 +43,9 @@ export async function runAuthMenu(deps: AuthMenuDeps): Promise<number> {
     renderTopMenu(deps.renderer, providers);
 
     const ids = Object.keys(providers).sort();
-    const choice = (await deps.reader.readLine(`\n${color.amber('?')} Pick: `)).trim().toLowerCase();
+    const choice = (await deps.reader.readLine(`\n${color.amber('?')} Pick: `))
+      .trim()
+      .toLowerCase();
 
     if (!choice || choice === 'q' || choice === 'quit' || choice === 'exit') {
       deps.renderer.write(color.dim('Done.\n'));
@@ -72,7 +80,10 @@ export async function runAuthMenu(deps: AuthMenuDeps): Promise<number> {
   }
 }
 
-function renderTopMenu(renderer: TerminalRenderer, providers: Record<string, ProviderConfig>): void {
+function renderTopMenu(
+  renderer: TerminalRenderer,
+  providers: Record<string, ProviderConfig>,
+): void {
   renderer.write(`\n${color.bold('WrongStack')} ${color.dim('— API keys')}\n\n`);
   const ids = Object.keys(providers).sort();
   if (ids.length === 0) {
@@ -84,11 +95,12 @@ function renderTopMenu(renderer: TerminalRenderer, providers: Record<string, Pro
       const cfg = providers[id]!;
       const keys = normalizeKeys(cfg);
       const active = activeLabel(cfg, keys);
-      const summary = keys.length === 0
-        ? color.dim('(no keys)')
-        : keys.length === 1
-          ? maskedKey(keys[0]!.apiKey)
-          : `${color.dim(`${keys.length} keys`)} ${color.dim('active:')} ${color.bold(active ?? '?')} ${maskedKey(keys.find((k) => k.label === active)?.apiKey ?? keys[0]!.apiKey)}`;
+      const summary =
+        keys.length === 0
+          ? color.dim('(no keys)')
+          : keys.length === 1
+            ? maskedKey(keys[0]!.apiKey)
+            : `${color.dim(`${keys.length} keys`)} ${color.dim('active:')} ${color.bold(active ?? '?')} ${maskedKey(keys.find((k) => k.label === active)?.apiKey ?? keys[0]!.apiKey)}`;
       const fam = cfg.family ? color.dim(`[${cfg.family}]`) : '';
       const aliasHint = cfg.type && cfg.type !== id ? color.dim(`→ ${cfg.type}`) : '';
       renderer.write(
@@ -117,10 +129,14 @@ async function manageProvider(providerId: string, deps: AuthMenuDeps): Promise<v
     const keys = normalizeKeys(cfg);
     const active = activeLabel(cfg, keys);
 
-    deps.renderer.write(`\n${color.bold(providerId)} ${cfg.family ? color.dim(`[${cfg.family}]`) : color.amber('[no family]')}\n`);
+    deps.renderer.write(
+      `\n${color.bold(providerId)} ${cfg.family ? color.dim(`[${cfg.family}]`) : color.amber('[no family]')}\n`,
+    );
     deps.renderer.write(
       color.dim(`  type:    ${cfg.type ?? providerId}\n`) +
-        color.dim(`  family:  ${cfg.family ?? '(unset → resolved from models.dev when type matches)'}\n`) +
+        color.dim(
+          `  family:  ${cfg.family ?? '(unset → resolved from models.dev when type matches)'}\n`,
+        ) +
         color.dim(`  baseUrl: ${cfg.baseUrl ?? '(unset → catalog default)'}\n`),
     );
     if (cfg.envVars && cfg.envVars.length > 0) {
@@ -165,9 +181,13 @@ async function manageProvider(providerId: string, deps: AuthMenuDeps): Promise<v
       continue;
     }
     if (verb === 'x' || verb === 'remove') {
-      const confirm = (await deps.reader.readLine(
-        `  ${color.amber('?')} Remove provider "${providerId}" and ${keys.length} key(s)? ${color.dim('[y/N]')} `,
-      )).trim().toLowerCase();
+      const confirm = (
+        await deps.reader.readLine(
+          `  ${color.amber('?')} Remove provider "${providerId}" and ${keys.length} key(s)? ${color.dim('[y/N]')} `,
+        )
+      )
+        .trim()
+        .toLowerCase();
       if (confirm === 'y' || confirm === 'yes') {
         await mutateProviders(deps, (all) => {
           delete all[providerId];
@@ -202,9 +222,13 @@ async function manageProvider(providerId: string, deps: AuthMenuDeps): Promise<v
         continue;
       }
       const target = keys[arg - 1]!;
-      const confirm = (await deps.reader.readLine(
-        `  ${color.amber('?')} Delete key "${target.label}" (${maskedKey(target.apiKey)})? ${color.dim('[y/N]')} `,
-      )).trim().toLowerCase();
+      const confirm = (
+        await deps.reader.readLine(
+          `  ${color.amber('?')} Delete key "${target.label}" (${maskedKey(target.apiKey)})? ${color.dim('[y/N]')} `,
+        )
+      )
+        .trim()
+        .toLowerCase();
       if (confirm !== 'y' && confirm !== 'yes') continue;
       await mutateProviders(deps, (all) => {
         const p = all[providerId];
@@ -220,9 +244,11 @@ async function manageProvider(providerId: string, deps: AuthMenuDeps): Promise<v
     }
     if (verb === 'f' || verb === 'family') {
       const current = cfg.family ?? '';
-      const ans = (await deps.reader.readLine(
-        `  ${color.amber('?')} Family ${color.dim(`(anthropic | openai | openai-compatible | google, empty = unset, current: ${current || 'unset'})`)}: `,
-      )).trim() as WireFamily | '';
+      const ans = (
+        await deps.reader.readLine(
+          `  ${color.amber('?')} Family ${color.dim(`(anthropic | openai | openai-compatible | google, empty = unset, current: ${current || 'unset'})`)}: `,
+        )
+      ).trim() as WireFamily | '';
       if (ans !== '' && !['anthropic', 'openai', 'openai-compatible', 'google'].includes(ans)) {
         deps.renderer.writeError(`Invalid family: "${ans}"`);
         continue;
@@ -238,9 +264,11 @@ async function manageProvider(providerId: string, deps: AuthMenuDeps): Promise<v
     }
     if (verb === 'B' || verb === 'baseurl' || verb === 'base-url') {
       const current = cfg.baseUrl ?? '';
-      const ans = (await deps.reader.readLine(
-        `  ${color.amber('?')} Base URL ${color.dim(`(empty = unset, current: ${current || 'unset'})`)}: `,
-      )).trim();
+      const ans = (
+        await deps.reader.readLine(
+          `  ${color.amber('?')} Base URL ${color.dim(`(empty = unset, current: ${current || 'unset'})`)}: `,
+        )
+      ).trim();
       await mutateProviders(deps, (all) => {
         const p = all[providerId];
         if (!p) return;
@@ -252,11 +280,16 @@ async function manageProvider(providerId: string, deps: AuthMenuDeps): Promise<v
     }
     if (verb === 'm' || verb === 'models') {
       const current = (cfg.models ?? []).join(', ');
-      const ans = (await deps.reader.readLine(
-        `  ${color.amber('?')} Model ids ${color.dim(`(comma-separated, empty = catalog default, current: ${current || 'none'})`)}: `,
-      )).trim();
+      const ans = (
+        await deps.reader.readLine(
+          `  ${color.amber('?')} Model ids ${color.dim(`(comma-separated, empty = catalog default, current: ${current || 'none'})`)}: `,
+        )
+      ).trim();
       const list = ans
-        ? ans.split(',').map((s) => s.trim()).filter(Boolean)
+        ? ans
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
         : [];
       await mutateProviders(deps, (all) => {
         const p = all[providerId];
@@ -264,7 +297,9 @@ async function manageProvider(providerId: string, deps: AuthMenuDeps): Promise<v
         if (list.length === 0) delete p.models;
         else p.models = list;
       });
-      deps.renderer.write(`  ${color.green('✓')} models → ${list.length === 0 ? '(catalog default)' : list.join(', ')}\n`);
+      deps.renderer.write(
+        `  ${color.green('✓')} models → ${list.length === 0 ? '(catalog default)' : list.join(', ')}\n`,
+      );
       continue;
     }
     if (verb === 's' || verb === 'set' || verb === 'active') {
@@ -281,7 +316,9 @@ async function manageProvider(providerId: string, deps: AuthMenuDeps): Promise<v
         writeKeysBack(p, list);
         p.activeKey = target.label;
       });
-      deps.renderer.write(`  ${color.green('✓')} Active key for ${providerId} → ${color.bold(target.label)}.\n`);
+      deps.renderer.write(
+        `  ${color.green('✓')} Active key for ${providerId} → ${color.bold(target.label)}.\n`,
+      );
       continue;
     }
     deps.renderer.writeError(`Unknown action: "${raw}"`);
@@ -306,12 +343,14 @@ async function addForNewProvider(deps: AuthMenuDeps): Promise<void> {
     // Manual entry path
     const pid = (await deps.reader.readLine(`  ${color.amber('?')} Provider id: `)).trim();
     if (!pid) return;
-    const fam = (await deps.reader.readLine(
-      `  ${color.amber('?')} Family (anthropic/openai/openai-compatible/google): `,
-    )).trim() as WireFamily;
-    const baseUrl = (await deps.reader.readLine(
-      `  ${color.amber('?')} Base URL ${color.dim('(optional)')}: `,
-    )).trim();
+    const fam = (
+      await deps.reader.readLine(
+        `  ${color.amber('?')} Family (anthropic/openai/openai-compatible/google): `,
+      )
+    ).trim() as WireFamily;
+    const baseUrl = (
+      await deps.reader.readLine(`  ${color.amber('?')} Base URL ${color.dim('(optional)')}: `)
+    ).trim();
     await addKeyForProvider(pid, deps, {
       type: pid,
       family: fam || undefined,
@@ -326,11 +365,15 @@ async function addForNewProvider(deps: AuthMenuDeps): Promise<void> {
   // so types like "zai-coding-plan" get easy to miss.
   const saved = new Set(Object.keys(await loadProviders(deps)));
   deps.renderer.write(
-    color.dim(`  Catalog has ${catalog.length} providers. Filter by name to narrow, or "s" for unsaved-only.\n`),
+    color.dim(
+      `  Catalog has ${catalog.length} providers. Filter by name to narrow, or "s" for unsaved-only.\n`,
+    ),
   );
-  const filterRaw = (await deps.reader.readLine(
-    `  ${color.amber('?')} Filter ${color.dim('(substring of id/name, "s" for unsaved-only, empty = all)')}: `,
-  )).trim();
+  const filterRaw = (
+    await deps.reader.readLine(
+      `  ${color.amber('?')} Filter ${color.dim('(substring of id/name, "s" for unsaved-only, empty = all)')}: `,
+    )
+  ).trim();
   const filterLc = filterRaw.toLowerCase();
   const showUnsavedOnly = filterLc === 's' || filterLc === 'unsaved';
   const matches = (p: ResolvedProvider): boolean => {
@@ -381,9 +424,11 @@ async function addForNewProvider(deps: AuthMenuDeps): Promise<void> {
   }
   deps.renderer.write(`\n  ${color.dim('◉ already saved   ○ no key yet')}\n`);
 
-  const answer = (await deps.reader.readLine(
-    `\n${color.amber('?')} Pick (1-${ordered.length}) or type provider id: `,
-  )).trim();
+  const answer = (
+    await deps.reader.readLine(
+      `\n${color.amber('?')} Pick (1-${ordered.length}) or type provider id: `,
+    )
+  ).trim();
   if (!answer) return;
 
   let chosen: ResolvedProvider | undefined;
@@ -391,8 +436,9 @@ async function addForNewProvider(deps: AuthMenuDeps): Promise<void> {
   if (!Number.isNaN(num) && num >= 1 && num <= ordered.length) {
     chosen = ordered[num - 1];
   } else {
-    chosen = ordered.find((p) => p.id.toLowerCase() === answer.toLowerCase())
-      ?? catalog.find((p) => p.id.toLowerCase() === answer.toLowerCase());
+    chosen =
+      ordered.find((p) => p.id.toLowerCase() === answer.toLowerCase()) ??
+      catalog.find((p) => p.id.toLowerCase() === answer.toLowerCase());
   }
   if (!chosen) {
     deps.renderer.writeError(`No such provider: "${answer}"`);
@@ -408,20 +454,24 @@ async function addForNewProvider(deps: AuthMenuDeps): Promise<void> {
   deps.renderer.write(
     color.dim(`\n  Defaults from models.dev — press Enter to keep, or type a new value.\n`),
   );
-  const famRaw = (await deps.reader.readLine(
-    `  ${color.amber('?')} Family ${color.dim(`[${chosen.family}]`)}: `,
-  )).trim();
+  const famRaw = (
+    await deps.reader.readLine(`  ${color.amber('?')} Family ${color.dim(`[${chosen.family}]`)}: `)
+  ).trim();
   let family: WireFamily = chosen.family;
   if (famRaw) {
     if (!['anthropic', 'openai', 'openai-compatible', 'google'].includes(famRaw)) {
-      deps.renderer.writeError(`Invalid family: "${famRaw}" (must be anthropic | openai | openai-compatible | google).`);
+      deps.renderer.writeError(
+        `Invalid family: "${famRaw}" (must be anthropic | openai | openai-compatible | google).`,
+      );
       return;
     }
     family = famRaw as WireFamily;
   }
-  const baseRaw = (await deps.reader.readLine(
-    `  ${color.amber('?')} Base URL ${color.dim(`[${chosen.apiBase ?? 'unset'}]`)}: `,
-  )).trim();
+  const baseRaw = (
+    await deps.reader.readLine(
+      `  ${color.amber('?')} Base URL ${color.dim(`[${chosen.apiBase ?? 'unset'}]`)}: `,
+    )
+  ).trim();
   const baseUrl: string | undefined = baseRaw || chosen.apiBase;
 
   // Pick the storage alias (= map key under `providers`). Two reasons to
@@ -446,9 +496,11 @@ async function addForNewProvider(deps: AuthMenuDeps): Promise<void> {
     }
     suggestedAlias = candidate;
   }
-  const aliasRaw = (await deps.reader.readLine(
-    `  ${color.amber('?')} Save under alias ${color.dim(`[${suggestedAlias}]`)} ${color.dim('(used as `--provider <alias>`)')}: `,
-  )).trim();
+  const aliasRaw = (
+    await deps.reader.readLine(
+      `  ${color.amber('?')} Save under alias ${color.dim(`[${suggestedAlias}]`)} ${color.dim('(used as `--provider <alias>`)')}: `,
+    )
+  ).trim();
   const alias = aliasRaw || suggestedAlias;
 
   // Block clobbering an unrelated existing entry. Same alias is fine if
@@ -486,10 +538,14 @@ async function addForNewProvider(deps: AuthMenuDeps): Promise<void> {
  * via `makeProviderFromConfig` at boot without a catalog lookup.
  */
 async function addCustomProvider(deps: AuthMenuDeps): Promise<void> {
-  deps.renderer.write(`\n${color.bold('Custom provider')} ${color.dim('— for local models or proxies not in the models.dev catalog.')}\n`);
-  const type = (await deps.reader.readLine(
-    `  ${color.amber('?')} Provider id ${color.dim('(e.g. "local-llama", "my-proxy")')}: `,
-  )).trim();
+  deps.renderer.write(
+    `\n${color.bold('Custom provider')} ${color.dim('— for local models or proxies not in the models.dev catalog.')}\n`,
+  );
+  const type = (
+    await deps.reader.readLine(
+      `  ${color.amber('?')} Provider id ${color.dim('(e.g. "local-llama", "my-proxy")')}: `,
+    )
+  ).trim();
   if (!type) return;
 
   const existing = (await loadProviders(deps))[type];
@@ -498,31 +554,45 @@ async function addCustomProvider(deps: AuthMenuDeps): Promise<void> {
     return;
   }
 
-  const familyRaw = (await deps.reader.readLine(
-    `  ${color.amber('?')} Wire family ${color.dim('(anthropic | openai | openai-compatible | google)')}: `,
-  )).trim();
+  const familyRaw = (
+    await deps.reader.readLine(
+      `  ${color.amber('?')} Wire family ${color.dim('(anthropic | openai | openai-compatible | google)')}: `,
+    )
+  ).trim();
   if (!['anthropic', 'openai', 'openai-compatible', 'google'].includes(familyRaw)) {
     deps.renderer.writeError(`Invalid family: "${familyRaw}"`);
     return;
   }
   const family = familyRaw as WireFamily;
 
-  const baseUrl = (await deps.reader.readLine(
-    `  ${color.amber('?')} Base URL ${color.dim('(e.g. http://localhost:11434/v1, leave empty if not needed)')}: `,
-  )).trim();
+  const baseUrl = (
+    await deps.reader.readLine(
+      `  ${color.amber('?')} Base URL ${color.dim('(e.g. http://localhost:11434/v1, leave empty if not needed)')}: `,
+    )
+  ).trim();
 
-  const modelsRaw = (await deps.reader.readLine(
-    `  ${color.amber('?')} Model ids ${color.dim('(comma-separated, optional)')}: `,
-  )).trim();
+  const modelsRaw = (
+    await deps.reader.readLine(
+      `  ${color.amber('?')} Model ids ${color.dim('(comma-separated, optional)')}: `,
+    )
+  ).trim();
   const models = modelsRaw
-    ? modelsRaw.split(',').map((s) => s.trim()).filter(Boolean)
+    ? modelsRaw
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
     : undefined;
 
-  const envVarsRaw = (await deps.reader.readLine(
-    `  ${color.amber('?')} Env var names ${color.dim('(comma-separated, optional fallback for the key)')}: `,
-  )).trim();
+  const envVarsRaw = (
+    await deps.reader.readLine(
+      `  ${color.amber('?')} Env var names ${color.dim('(comma-separated, optional fallback for the key)')}: `,
+    )
+  ).trim();
   const envVars = envVarsRaw
-    ? envVarsRaw.split(',').map((s) => s.trim()).filter(Boolean)
+    ? envVarsRaw
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
     : undefined;
 
   await addKeyForProvider(type, deps, {
@@ -552,12 +622,16 @@ async function addKeyForProvider(
     defaultLabel = `key${n}`;
   }
 
-  const labelRaw = (await deps.reader.readLine(
-    `  ${color.amber('?')} Label for this key ${color.dim(`[${defaultLabel}]`)}: `,
-  )).trim();
+  const labelRaw = (
+    await deps.reader.readLine(
+      `  ${color.amber('?')} Label for this key ${color.dim(`[${defaultLabel}]`)}: `,
+    )
+  ).trim();
   const label = labelRaw || defaultLabel;
   if (usedLabels.has(label)) {
-    deps.renderer.writeError(`Label "${label}" already used for ${providerId}. Use update (u) instead.`);
+    deps.renderer.writeError(
+      `Label "${label}" already used for ${providerId}. Use update (u) instead.`,
+    );
     return;
   }
 
@@ -591,13 +665,16 @@ async function addKeyForProvider(
  * append a single key. Honors --label / --family / --base-url / --env
  * flags. If the label collides, we suffix with a counter.
  */
-export async function runAuthDirect(deps: AuthMenuDeps, opts: {
-  providerId: string;
-  label?: string;
-  family?: WireFamily;
-  baseUrl?: string;
-  envVars?: string[];
-}): Promise<number> {
+export async function runAuthDirect(
+  deps: AuthMenuDeps,
+  opts: {
+    providerId: string;
+    label?: string;
+    family?: WireFamily;
+    baseUrl?: string;
+    envVars?: string[];
+  },
+): Promise<number> {
   const { providerId } = opts;
   const providers = await loadProviders(deps);
   const existing = providers[providerId];
@@ -628,9 +705,7 @@ export async function runAuthDirect(deps: AuthMenuDeps, opts: {
     opts.envVars ??= knownEnv;
   }
 
-  const usedLabels = new Set(
-    existing ? normalizeKeys(existing).map((k) => k.label) : [],
-  );
+  const usedLabels = new Set(existing ? normalizeKeys(existing).map((k) => k.label) : []);
   let label = opts.label ?? 'default';
   if (usedLabels.has(label)) {
     let n = 2;
@@ -661,7 +736,11 @@ export async function runAuthDirect(deps: AuthMenuDeps, opts: {
 }
 
 async function readKeyInput(deps: AuthMenuDeps, intent: string): Promise<string | undefined> {
-  const key = (await deps.reader.readSecret(`  ${color.amber('?')} ${intent} ${color.dim('(hidden, paste OK)')}: `)).trim();
+  const key = (
+    await deps.reader.readSecret(
+      `  ${color.amber('?')} ${intent} ${color.dim('(hidden, paste OK)')}: `,
+    )
+  ).trim();
   if (!key) {
     deps.renderer.writeError('No key entered.');
     return undefined;
@@ -717,60 +796,9 @@ async function mutateProviders(
     parsed = {};
   }
   const decrypted = decryptConfigSecrets(parsed, deps.vault) as Record<string, unknown>;
-  const providers = ((decrypted.providers as Record<string, ProviderConfig>) ?? {});
+  const providers = (decrypted.providers as Record<string, ProviderConfig>) ?? {};
   mutator(providers);
   decrypted.providers = providers;
   const encrypted = encryptConfigSecrets(decrypted, deps.vault);
   await atomicWrite(deps.globalConfigPath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
-}
-
-/* --------------------------- Schema helpers --------------------------- */
-
-/**
- * Normalize to the canonical `apiKeys[]` form. Migrates the legacy
- * single-key field on the fly so the caller never has to think about
- * two shapes. Does NOT mutate the input.
- */
-function normalizeKeys(cfg: ProviderConfig): ProviderApiKey[] {
-  if (Array.isArray(cfg.apiKeys) && cfg.apiKeys.length > 0) {
-    return cfg.apiKeys.map((k) => ({ ...k }));
-  }
-  if (typeof cfg.apiKey === 'string' && cfg.apiKey.length > 0) {
-    return [{ label: 'default', apiKey: cfg.apiKey, createdAt: '' }];
-  }
-  return [];
-}
-
-function writeKeysBack(cfg: ProviderConfig, keys: ProviderApiKey[]): void {
-  if (keys.length === 0) {
-    delete cfg.apiKeys;
-    delete cfg.apiKey;
-    delete cfg.activeKey;
-    return;
-  }
-  cfg.apiKeys = keys;
-  // Keep legacy `apiKey` mirrored to the active entry so anything that
-  // bypasses the config loader still sees a usable key.
-  const active = keys.find((k) => k.label === cfg.activeKey) ?? keys[0]!;
-  cfg.apiKey = active.apiKey;
-  if (!cfg.activeKey || !keys.some((k) => k.label === cfg.activeKey)) {
-    cfg.activeKey = active.label;
-  }
-}
-
-function activeLabel(cfg: ProviderConfig, keys: ProviderApiKey[]): string | undefined {
-  if (cfg.activeKey && keys.some((k) => k.label === cfg.activeKey)) return cfg.activeKey;
-  return keys[0]?.label;
-}
-
-function maskedKey(key: string): string {
-  if (!key) return color.dim('—');
-  if (key.length <= 8) return color.dim('•'.repeat(key.length));
-  const head = key.slice(0, 4);
-  const tail = key.slice(-4);
-  return `${color.dim(head + '…')}${tail}`;
-}
-
-function nowIso(): string {
-  return new Date().toISOString();
 }

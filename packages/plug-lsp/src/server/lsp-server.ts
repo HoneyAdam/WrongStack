@@ -1,3 +1,4 @@
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { EventBus, Logger } from '@wrongstack/core';
 import type {
   CodeAction,
@@ -21,7 +22,6 @@ import type {
   WorkspaceEdit,
   WorkspaceSymbolParams,
 } from 'vscode-languageserver-protocol';
-import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { ServerConfig, ServerState } from '../types.js';
 import { LSPError, LSPErrorCode } from '../types.js';
 import { safeSpawn } from '../utils/safe-spawn.js';
@@ -63,7 +63,8 @@ export class LSPServer {
   }
 
   async start(signal: AbortSignal = new AbortController().signal): Promise<void> {
-    if (this.state === 'ready' || this.state === 'starting' || this.state === 'initializing') return;
+    if (this.state === 'ready' || this.state === 'starting' || this.state === 'initializing')
+      return;
     if (this.config.enabled === false) {
       this.state = 'disabled';
       return;
@@ -153,7 +154,9 @@ export class LSPServer {
     try {
       if (this.connection) {
         const ctrl = new AbortController();
-        await this.connection.sendRequest('shutdown', null, 3000, ctrl.signal).catch(() => undefined);
+        await this.connection
+          .sendRequest('shutdown', null, 3000, ctrl.signal)
+          .catch(() => undefined);
         this.connection.sendNotification('exit', null);
       }
     } finally {
@@ -166,11 +169,19 @@ export class LSPServer {
     }
   }
 
-  async definition(params: TextDocumentPositionParamsLike, timeoutMs: number, signal: AbortSignal): Promise<Location[] | LocationLink[] | null> {
+  async definition(
+    params: TextDocumentPositionParamsLike,
+    timeoutMs: number,
+    signal: AbortSignal,
+  ): Promise<Location[] | LocationLink[] | null> {
     return await this.request('textDocument/definition', params, timeoutMs, signal);
   }
 
-  async references(params: ReferenceParams, timeoutMs: number, signal: AbortSignal): Promise<Location[] | null> {
+  async references(
+    params: ReferenceParams,
+    timeoutMs: number,
+    signal: AbortSignal,
+  ): Promise<Location[] | null> {
     return await this.request('textDocument/references', params, timeoutMs, signal);
   }
 
@@ -178,31 +189,61 @@ export class LSPServer {
     return await this.request('textDocument/hover', params, timeoutMs, signal);
   }
 
-  async documentSymbol(params: DocumentSymbolParams, timeoutMs: number, signal: AbortSignal): Promise<DocumentSymbol[] | SymbolInformation[] | null> {
+  async documentSymbol(
+    params: DocumentSymbolParams,
+    timeoutMs: number,
+    signal: AbortSignal,
+  ): Promise<DocumentSymbol[] | SymbolInformation[] | null> {
     return await this.request('textDocument/documentSymbol', params, timeoutMs, signal);
   }
 
-  async workspaceSymbol(params: WorkspaceSymbolParams, timeoutMs: number, signal: AbortSignal): Promise<SymbolInformation[] | null> {
+  async workspaceSymbol(
+    params: WorkspaceSymbolParams,
+    timeoutMs: number,
+    signal: AbortSignal,
+  ): Promise<SymbolInformation[] | null> {
     return await this.request('workspace/symbol', params, timeoutMs, signal);
   }
 
-  async prepareRename(params: PrepareRenameParams, timeoutMs: number, signal: AbortSignal): Promise<{ range: unknown; placeholder?: string } | import('vscode-languageserver-protocol').Range | null> {
+  async prepareRename(
+    params: PrepareRenameParams,
+    timeoutMs: number,
+    signal: AbortSignal,
+  ): Promise<
+    { range: unknown; placeholder?: string } | import('vscode-languageserver-protocol').Range | null
+  > {
     return await this.request('textDocument/prepareRename', params, timeoutMs, signal);
   }
 
-  async rename(params: RenameParams, timeoutMs: number, signal: AbortSignal): Promise<WorkspaceEdit | null> {
+  async rename(
+    params: RenameParams,
+    timeoutMs: number,
+    signal: AbortSignal,
+  ): Promise<WorkspaceEdit | null> {
     return await this.request('textDocument/rename', params, timeoutMs, signal);
   }
 
-  async codeAction(params: CodeActionParams, timeoutMs: number, signal: AbortSignal): Promise<CodeAction[]> {
+  async codeAction(
+    params: CodeActionParams,
+    timeoutMs: number,
+    signal: AbortSignal,
+  ): Promise<CodeAction[]> {
     return (await this.request('textDocument/codeAction', params, timeoutMs, signal)) ?? [];
   }
 
-  async executeCommand(params: ExecuteCommandParams, timeoutMs: number, signal: AbortSignal): Promise<unknown> {
+  async executeCommand(
+    params: ExecuteCommandParams,
+    timeoutMs: number,
+    signal: AbortSignal,
+  ): Promise<unknown> {
     return await this.request('workspace/executeCommand', params, timeoutMs, signal);
   }
 
-  async pullDiagnostics(uri: string, timeoutMs: number, signal: AbortSignal): Promise<Diagnostic[]> {
+  async pullDiagnostics(
+    uri: string,
+    timeoutMs: number,
+    signal: AbortSignal,
+  ): Promise<Diagnostic[]> {
     const result = await this.request<{ items?: Diagnostic[] }>(
       'textDocument/diagnostic',
       { textDocument: { uri } },
@@ -237,7 +278,12 @@ export class LSPServer {
     return { uri: pathToUri(filePath) };
   }
 
-  private async request<T>(method: string, params: unknown, timeoutMs: number, signal: AbortSignal): Promise<T> {
+  private async request<T>(
+    method: string,
+    params: unknown,
+    timeoutMs: number,
+    signal: AbortSignal,
+  ): Promise<T> {
     if (this.state !== 'ready' || !this.connection) {
       throw new LSPError(LSPErrorCode.ServerNotReady, `Server "${this.name}" is not ready`);
     }
@@ -269,14 +315,18 @@ function startupFailure(child: ChildProcessWithoutNullStreams): {
   const promise = new Promise<never>((_, reject) => {
     const onError = (err: Error) => {
       cleanup();
-      reject(new LSPError(LSPErrorCode.ServerFailed, `LSP server failed to start: ${err.message}`, err));
+      reject(
+        new LSPError(LSPErrorCode.ServerFailed, `LSP server failed to start: ${err.message}`, err),
+      );
     };
     const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
       cleanup();
-      reject(new LSPError(
-        LSPErrorCode.ServerFailed,
-        `LSP server exited during startup code=${code ?? 'null'} signal=${signal ?? 'null'}`,
-      ));
+      reject(
+        new LSPError(
+          LSPErrorCode.ServerFailed,
+          `LSP server exited during startup code=${code ?? 'null'} signal=${signal ?? 'null'}`,
+        ),
+      );
     };
     cleanup = () => {
       child.off('error', onError);

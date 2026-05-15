@@ -13,8 +13,8 @@
  *   await server.cleanup();
  */
 import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
 import * as os from 'node:os';
+import * as path from 'node:path';
 import type { MCPTool } from '../client.js';
 
 export interface MockToolResponse {
@@ -45,7 +45,10 @@ export class MockMCPServer {
   }
 
   setResponse(params: unknown, response: MockToolResponse | string): void {
-    this.responses.set(JSON.stringify(params), typeof response === 'string' ? { content: response } : response);
+    this.responses.set(
+      JSON.stringify(params),
+      typeof response === 'string' ? { content: response } : response,
+    );
   }
 
   setTools(tools: MCPTool[]): void {
@@ -60,9 +63,7 @@ export class MockMCPServer {
   async writeScript(): Promise<string> {
     if (this.scriptPath) return this.scriptPath;
 
-    const responsesJson = JSON.stringify(
-      Object.fromEntries(this.responses.entries()),
-    );
+    const responsesJson = JSON.stringify(Object.fromEntries(this.responses.entries()));
     const toolsJson = JSON.stringify(this.tools);
 
     const script = /* js */ `
@@ -105,7 +106,10 @@ rl.createInterface({ input: process.stdin, terminal: false })
 `;
 
     const dir = os.tmpdir();
-    this.scriptPath = path.join(dir, `mock-mcp-server-${Date.now()}-${Math.random().toString(36).slice(2)}.js`);
+    this.scriptPath = path.join(
+      dir,
+      `mock-mcp-server-${Date.now()}-${Math.random().toString(36).slice(2)}.js`,
+    );
     await fs.writeFile(this.scriptPath, script, 'utf8');
     return this.scriptPath;
   }
@@ -113,7 +117,11 @@ rl.createInterface({ input: process.stdin, terminal: false })
   /** Delete the temp script. Call after test completes. */
   async cleanup(): Promise<void> {
     if (this.scriptPath) {
-      try { await fs.unlink(this.scriptPath); } catch { /* ignore */ }
+      try {
+        await fs.unlink(this.scriptPath);
+      } catch {
+        /* ignore */
+      }
       this.scriptPath = undefined;
     }
   }

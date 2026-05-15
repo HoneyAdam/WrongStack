@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import type { Tool } from '@wrongstack/core';
-import { safeResolve } from './_util.js';
 import { compileUserRegex } from './_regex.js';
+import { safeResolve } from './_util.js';
 
 interface LogsInput {
   service?: string;
@@ -122,8 +122,12 @@ async function dockerLogs(
     const MAX = 200_000;
 
     const child = spawn('docker', args, { cwd, signal, stdio: ['ignore', 'pipe', 'pipe'] });
-    child.stdout?.on('data', (c) => { if (stdout.length < MAX) stdout += c.toString(); });
-    child.stderr?.on('data', (c) => { if (stderr.length < MAX) stderr += c.toString(); });
+    child.stdout?.on('data', (c) => {
+      if (stdout.length < MAX) stdout += c.toString();
+    });
+    child.stderr?.on('data', (c) => {
+      if (stderr.length < MAX) stderr += c.toString();
+    });
     child.on('close', (code) => {
       const output = stdout + stderr;
       const entries = parseLogLines(output, filterRe);
@@ -135,13 +139,15 @@ async function dockerLogs(
         stream_mode: false,
       });
     });
-    child.on('error', (e) => resolve({
-      source: `docker:${service}`,
-      entries: [],
-      total: 0,
-      truncated: false,
-      stream_mode: false,
-    }));
+    child.on('error', (e) =>
+      resolve({
+        source: `docker:${service}`,
+        entries: [],
+        total: 0,
+        truncated: false,
+        stream_mode: false,
+      }),
+    );
   });
 }
 

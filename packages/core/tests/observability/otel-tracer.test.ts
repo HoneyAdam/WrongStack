@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { OTelTracer, NoopTracer } from '../../src/defaults/observability/index.js';
+import { OTelTracer, NoopTracer } from '../../src/observability/index.js';
 
 describe('OTelTracer adapter (L1-C)', () => {
   it('forwards startSpan name and attributes to upstream tracer', () => {

@@ -1,5 +1,5 @@
-import { spawn, type ChildProcess } from 'node:child_process';
-import { SSETransport, StreamableHTTPTransport, type HttpTransportOptions } from './transport.js';
+import { type ChildProcess, spawn } from 'node:child_process';
+import { type HttpTransportOptions, SSETransport, StreamableHTTPTransport } from './transport.js';
 
 export type Transport = 'stdio' | 'sse' | 'streamable-http';
 
@@ -97,7 +97,11 @@ export class MCPClient {
   }
 
   listTools(): MCPTool[] {
-    return this._tools.length > 0 ? [...this._tools] : this._toolsCache ? [...this._toolsCache] : [];
+    return this._tools.length > 0
+      ? [...this._tools]
+      : this._toolsCache
+        ? [...this._toolsCache]
+        : [];
   }
 
   /** Returns true if a prior notify() call was skipped due to backpressure. */
@@ -171,9 +175,15 @@ export class MCPClient {
       // Reject any in-flight JSON-RPC requests — without this, callers
       // (e.g. callTool during a tool invocation) await forever on a child
       // that has already gone away.
-      this.failPending(`MCP "${this.opts.name}" child exited (code=${code ?? 'null'} signal=${signal ?? 'null'})`);
+      this.failPending(
+        `MCP "${this.opts.name}" child exited (code=${code ?? 'null'} signal=${signal ?? 'null'})`,
+      );
       for (const listener of this.exitListeners) {
-        try { listener(this.opts.name, code, signal); } catch { /* ignore */ }
+        try {
+          listener(this.opts.name, code, signal);
+        } catch {
+          /* ignore */
+        }
       }
     });
     child.on('error', () => {
@@ -199,7 +209,10 @@ export class MCPClient {
       await this.notify('notifications/initialized', {});
     } catch (err) {
       console.warn(
-        '[MCP] notify("notifications/initialized") failed for "' + this.opts.name + '": ' + (err instanceof Error ? err.message : String(err)),
+        '[MCP] notify("notifications/initialized") failed for "' +
+          this.opts.name +
+          '": ' +
+          (err instanceof Error ? err.message : String(err)),
       );
     }
     const toolsRes = await this.request('tools/list', {});
@@ -229,7 +242,11 @@ export class MCPClient {
     this.sseTransport.onDisconnect(() => {
       this.state = 'disconnected';
       for (const cb of this.disconnectListeners) {
-        try { cb(); } catch { /* ignore */ }
+        try {
+          cb();
+        } catch {
+          /* ignore */
+        }
       }
     });
     this.sseTransport.onToolsChanged((tools) => {
@@ -240,7 +257,11 @@ export class MCPClient {
       // (since it falls back to the cache when `_tools` is empty).
       this._toolsCache = tools;
       for (const cb of this.toolsChangedListeners) {
-        try { cb(this.opts.name, tools); } catch { /* ignore */ }
+        try {
+          cb(this.opts.name, tools);
+        } catch {
+          /* ignore */
+        }
       }
     });
     try {
@@ -269,7 +290,11 @@ export class MCPClient {
     this.httpTransport.onDisconnect(() => {
       this.state = 'disconnected';
       for (const cb of this.disconnectListeners) {
-        try { cb(); } catch { /* ignore */ }
+        try {
+          cb();
+        } catch {
+          /* ignore */
+        }
       }
     });
     this.httpTransport.onToolsChanged((tools) => {
@@ -280,7 +305,11 @@ export class MCPClient {
       // stale data.
       this._toolsCache = tools;
       for (const cb of this.toolsChangedListeners) {
-        try { cb(this.opts.name, tools); } catch { /* ignore */ }
+        try {
+          cb(this.opts.name, tools);
+        } catch {
+          /* ignore */
+        }
       }
     });
     try {
@@ -387,7 +416,11 @@ export class MCPClient {
     if (this.pending.size === 0) return;
     const err = new Error(reason);
     for (const [, entry] of this.pending) {
-      try { entry.reject(err); } catch { /* ignore */ }
+      try {
+        entry.reject(err);
+      } catch {
+        /* ignore */
+      }
     }
     this.pending.clear();
   }
@@ -427,7 +460,9 @@ export class MCPClient {
         });
       }
     } catch (err) {
-      throw new Error(`[MCP] notify("${method}") failed: ${err instanceof Error ? err.message : String(err)}`);
+      throw new Error(
+        `[MCP] notify("${method}") failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 

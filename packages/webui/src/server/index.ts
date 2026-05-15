@@ -1,10 +1,10 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { WebSocketServer, WebSocket } from 'ws';
 import {
   Agent,
   AutoCompactionMiddleware,
+  type Config,
   Container,
   Context,
   DefaultConfigLoader,
@@ -12,6 +12,7 @@ import {
   DefaultErrorHandler,
   DefaultLogger,
   DefaultMemoryStore,
+  DefaultModeStore,
   DefaultModelsRegistry,
   DefaultPathResolver,
   DefaultPermissionPolicy,
@@ -20,29 +21,25 @@ import {
   DefaultSecretVault,
   DefaultSessionStore,
   DefaultSkillLoader,
-  DefaultModeStore,
   DefaultSystemPromptBuilder,
   DefaultTokenCounter,
   EventBus,
   HybridCompactor,
-  ProviderRegistry,
-  ToolRegistry,
-  TOKENS,
-  createDefaultPipelines,
-  atomicWrite,
-  migratePlaintextSecrets,
-  resolveWstackPaths,
-  type Config,
   type ProviderApiKey,
   type ProviderConfig,
+  ProviderRegistry,
+  TOKENS,
+  ToolRegistry,
   type WstackPaths,
+  atomicWrite,
+  createDefaultPipelines,
+  migratePlaintextSecrets,
+  resolveWstackPaths,
 } from '@wrongstack/core';
-import {
-  buildProviderFactoriesFromRegistry,
-  makeProviderFromConfig,
-} from '@wrongstack/providers';
+import { buildProviderFactoriesFromRegistry, makeProviderFromConfig } from '@wrongstack/providers';
+import { forgetTool, rememberTool } from '@wrongstack/tools';
 import { builtinTools } from '@wrongstack/tools/builtin';
-import { rememberTool, forgetTool } from '@wrongstack/tools';
+import { WebSocket, WebSocketServer } from 'ws';
 
 // Re-export types
 export type { WebUIOptions, BackendServices } from './types.js';
@@ -164,11 +161,15 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
   container.bind(TOKENS.RetryPolicy, () => new DefaultRetryPolicy());
   container.bind(TOKENS.ErrorHandler, () => new DefaultErrorHandler());
   container.bind(TOKENS.ModelsRegistry, () => modelsRegistry);
-  container.bind(TOKENS.PermissionPolicy, () => new DefaultPermissionPolicy({
-    trustFile: wpaths.projectTrust,
-    yolo: false,
-    promptDelegate: undefined,
-  }));
+  container.bind(
+    TOKENS.PermissionPolicy,
+    () =>
+      new DefaultPermissionPolicy({
+        trustFile: wpaths.projectTrust,
+        yolo: false,
+        promptDelegate: undefined,
+      }),
+  );
 
   // Provider registry
   const providerRegistry = new ProviderRegistry();
@@ -186,7 +187,7 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
   // Tool registry
   const toolRegistry = new ToolRegistry();
   for (const t of builtinTools) toolRegistry.register(t);
-  
+
   // Memory tools
   const memoryStore = new DefaultMemoryStore({ paths: wpaths });
   if (config.features.memory) {
@@ -359,7 +360,9 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
       // models.dev pricing is dollars per 1M tokens; some providers omit the
       // field for free/unmetered plans (e.g. minimax-coding-plan) — in that
       // case we report 0 and the cost chip just stays at $0.
-      const cost = (m as { cost?: { input?: number; output?: number; cache_read?: number } } | undefined)?.cost;
+      const cost = (
+        m as { cost?: { input?: number; output?: number; cache_read?: number } } | undefined
+      )?.cost;
       inputCost = cost?.input ?? 0;
       outputCost = cost?.output ?? 0;
       cacheReadCost = cost?.cache_read ?? 0;
@@ -394,9 +397,7 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
   // respect that choice exactly and don't add a second listener.
   const wssPrimary = new WebSocketServer({ port: wsPort, host: wsHost });
   const wssSecondary =
-    wsHost === '127.0.0.1'
-      ? new WebSocketServer({ port: wsPort, host: '::1' })
-      : null;
+    wsHost === '127.0.0.1' ? new WebSocketServer({ port: wsPort, host: '::1' }) : null;
   const clients = new Map<WebSocket, ConnectedClient>();
   let abortController: AbortController | null = null;
 
@@ -562,11 +563,15 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
     });
   }
 
-  async function handleMessage(ws: WebSocket, client: ConnectedClient, msg: WSClientMessage): Promise<void> {
+  async function handleMessage(
+    ws: WebSocket,
+    client: ConnectedClient,
+    msg: WSClientMessage,
+  ): Promise<void> {
     switch (msg.type) {
       case 'user_message': {
         const content = (msg as { payload: { content: string } }).payload.content;
-        
+
         // Abort any existing run
         abortController?.abort();
         abortController = new AbortController();
@@ -579,11 +584,13 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
               status: result.status,
               iterations: result.iterations,
               finalText: result.finalText,
-              error: result.error ? {
-                code: result.error.code,
-                message: result.error.message,
-                recoverable: result.error.recoverable,
-              } : undefined,
+              error: result.error
+                ? {
+                    code: result.error.code,
+                    message: result.error.message,
+                    recoverable: result.error.recoverable,
+                  }
+                : undefined,
             },
           });
         } catch (err) {
@@ -657,12 +664,13 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
         const estimate = (s: string): number => Math.ceil(s.length / 4);
         const stringifyContent = (c: unknown): string => {
           if (typeof c === 'string') return c;
-          try { return JSON.stringify(c); } catch { return String(c); }
+          try {
+            return JSON.stringify(c);
+          } catch {
+            return String(c);
+          }
         };
-        const sysTokens = context.systemPrompt.reduce(
-          (acc, b) => acc + estimate(b.text ?? ''),
-          0,
-        );
+        const sysTokens = context.systemPrompt.reduce((acc, b) => acc + estimate(b.text ?? ''), 0);
         // Tool schemas: each tool sends a JSON schema to the model on every
         // turn. With 20+ builtins these can be 10-20k by themselves.
         const tools = toolRegistry.list();
@@ -718,7 +726,11 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
             total,
             systemPrompt: sysTokens,
             tools: { total: toolTokens, count: tools.length, breakdown: toolBreakdown },
-            messages: { total: msgTokens, count: context.messages.length, breakdown: messageBreakdown },
+            messages: {
+              total: msgTokens,
+              count: context.messages.length,
+              breakdown: messageBreakdown,
+            },
           },
         });
         break;
@@ -764,9 +776,7 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
               apiBase: p.apiBase,
               envVars: p.envVars,
               modelCount: p.models.length,
-              hasApiKey:
-                savedIds.has(p.id) ||
-                p.envVars.some((v) => !!process.env[v]),
+              hasApiKey: savedIds.has(p.id) || p.envVars.some((v) => !!process.env[v]),
             })),
           },
         });
@@ -800,7 +810,9 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
       }
 
       case 'model.switch': {
-        const { provider: newProvider, model: newModel } = (msg as { payload: { provider: string; model: string } }).payload;
+        const { provider: newProvider, model: newModel } = (
+          msg as { payload: { provider: string; model: string } }
+        ).payload;
         try {
           // Update config
           config = patchConfig(config, { provider: newProvider, model: newModel });
@@ -848,25 +860,31 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
 
       case 'key.add':
       case 'key.update': {
-        const { providerId, label, apiKey } = (msg as { payload: { providerId: string; label: string; apiKey: string } }).payload;
+        const { providerId, label, apiKey } = (
+          msg as { payload: { providerId: string; label: string; apiKey: string } }
+        ).payload;
         await handleKeyUpsert(ws, providerId, label, apiKey);
         break;
       }
 
       case 'key.delete': {
-        const { providerId, label } = (msg as { payload: { providerId: string; label: string } }).payload;
+        const { providerId, label } = (msg as { payload: { providerId: string; label: string } })
+          .payload;
         await handleKeyDelete(ws, providerId, label);
         break;
       }
 
       case 'key.set_active': {
-        const { providerId, label } = (msg as { payload: { providerId: string; label: string } }).payload;
+        const { providerId, label } = (msg as { payload: { providerId: string; label: string } })
+          .payload;
         await handleKeySetActive(ws, providerId, label);
         break;
       }
 
       case 'provider.add': {
-        const p = (msg as { payload: { id: string; family: string; baseUrl?: string; apiKey?: string } }).payload;
+        const p = (
+          msg as { payload: { id: string; family: string; baseUrl?: string; apiKey?: string } }
+        ).payload;
         await handleProviderAdd(ws, p);
         break;
       }
@@ -960,7 +978,11 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
           const resumed = await sessionStore.resume(id);
           // Close prior writer best-effort; swallow errors so we don't block
           // the resume on a crashed file handle.
-          try { await session.close(); } catch { /* noop */ }
+          try {
+            await session.close();
+          } catch {
+            /* noop */
+          }
           session = resumed.writer;
           context.session = session;
           context.state.replaceMessages(resumed.data.messages);
@@ -999,7 +1021,8 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
         // name, description, and schema-derived param names so the user
         // can tell at a glance which tools the model can call right now.
         const list = toolRegistry.list().map((t) => {
-          const schema = (t as { inputSchema?: { properties?: Record<string, unknown> } }).inputSchema ?? {};
+          const schema =
+            (t as { inputSchema?: { properties?: Record<string, unknown> } }).inputSchema ?? {};
           const params = schema.properties ? Object.keys(schema.properties) : [];
           return {
             name: t.name,
@@ -1028,7 +1051,11 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
       }
 
       case 'memory.remember': {
-        const { text, scope } = (msg as { payload: { text: string; scope?: 'project-agents' | 'project-memory' | 'user-memory' } }).payload;
+        const { text, scope } = (
+          msg as {
+            payload: { text: string; scope?: 'project-agents' | 'project-memory' | 'user-memory' };
+          }
+        ).payload;
         try {
           await memoryStore.remember(text, scope ?? 'project-memory');
           sendResult(ws, true, 'Saved to memory');
@@ -1039,10 +1066,20 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
       }
 
       case 'memory.forget': {
-        const { text, scope } = (msg as { payload: { text: string; scope?: 'project-agents' | 'project-memory' | 'user-memory' } }).payload;
+        const { text, scope } = (
+          msg as {
+            payload: { text: string; scope?: 'project-agents' | 'project-memory' | 'user-memory' };
+          }
+        ).payload;
         try {
           const removed = await memoryStore.forget(text, scope ?? 'project-memory');
-          sendResult(ws, removed > 0, removed > 0 ? `Removed ${removed} entr${removed === 1 ? 'y' : 'ies'}` : 'No matching entries');
+          sendResult(
+            ws,
+            removed > 0,
+            removed > 0
+              ? `Removed ${removed} entr${removed === 1 ? 'y' : 'ies'}`
+              : 'No matching entries',
+          );
         } catch (err) {
           sendResult(ws, false, err instanceof Error ? err.message : String(err));
         }
@@ -1076,7 +1113,11 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
         } catch (err) {
           send(ws, {
             type: 'skills.list',
-            payload: { skills: [], enabled: true, error: err instanceof Error ? err.message : String(err) },
+            payload: {
+              skills: [],
+              enabled: true,
+              error: err instanceof Error ? err.message : String(err),
+            },
           });
         }
         break;
@@ -1144,8 +1185,19 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
         const query = (payload.query ?? '').toLowerCase();
         const limit = payload.limit ?? 50;
         const SKIP_DIRS = new Set([
-          '.git', 'node_modules', 'dist', 'build', '.next', '.turbo', '.cache',
-          'target', 'coverage', '.nyc_output', 'out', '.pnpm-store', '.parcel-cache',
+          '.git',
+          'node_modules',
+          'dist',
+          'build',
+          '.next',
+          '.turbo',
+          '.cache',
+          'target',
+          'coverage',
+          '.nyc_output',
+          'out',
+          '.pnpm-store',
+          '.parcel-cache',
         ]);
         const results: string[] = [];
         async function walk(dir: string, rel: string, depth: number): Promise<void> {
@@ -1161,7 +1213,8 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
             if (e.name.startsWith('.') && e.name !== '.wrongstack' && e.name !== '.env.example') {
               // hide dotfiles by default; pick a couple common ones the user
               // might want anyway
-              if (e.name !== '.gitignore' && e.name !== '.eslintrc' && e.name !== '.prettierrc') continue;
+              if (e.name !== '.gitignore' && e.name !== '.eslintrc' && e.name !== '.prettierrc')
+                continue;
             }
             const childRel = rel ? `${rel}/${e.name}` : e.name;
             if (e.isDirectory()) {
@@ -1219,7 +1272,11 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
         } catch (err) {
           send(ws, {
             type: 'modes.list',
-            payload: { modes: [], activeId: 'default', error: err instanceof Error ? err.message : String(err) },
+            payload: {
+              modes: [],
+              activeId: 'default',
+              error: err instanceof Error ? err.message : String(err),
+            },
           });
         }
         break;
@@ -1256,7 +1313,8 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
         const m = await modelsRegistry.getModel(config.provider, config.model).catch(() => null);
         const inputCost = (m as { cost?: { input?: number } } | null)?.cost?.input ?? 0;
         const outputCost = (m as { cost?: { output?: number } } | null)?.cost?.output ?? 0;
-        const cacheReadCost = (m as { cost?: { cache_read?: number } } | null)?.cost?.cache_read ?? 0;
+        const cacheReadCost =
+          (m as { cost?: { cache_read?: number } } | null)?.cost?.cache_read ?? 0;
         const cost =
           (usage.input * inputCost +
             usage.output * outputCost +
@@ -1341,7 +1399,12 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
     send(ws, { type: 'key.operation_result', payload: { success, message } });
   }
 
-  async function handleKeyUpsert(ws: WebSocket, providerId: string, label: string, apiKey: string): Promise<void> {
+  async function handleKeyUpsert(
+    ws: WebSocket,
+    providerId: string,
+    label: string,
+    apiKey: string,
+  ): Promise<void> {
     try {
       const providers = await loadSavedProviders();
       const existing: ProviderConfig = providers[providerId] ?? { type: providerId };
@@ -1386,7 +1449,11 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
     }
   }
 
-  async function handleKeySetActive(ws: WebSocket, providerId: string, label: string): Promise<void> {
+  async function handleKeySetActive(
+    ws: WebSocket,
+    providerId: string,
+    label: string,
+  ): Promise<void> {
     try {
       const providers = await loadSavedProviders();
       const existing = providers[providerId];
@@ -1404,7 +1471,10 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
     }
   }
 
-  async function handleProviderAdd(ws: WebSocket, payload: { id: string; family: string; baseUrl?: string; apiKey?: string }): Promise<void> {
+  async function handleProviderAdd(
+    ws: WebSocket,
+    payload: { id: string; family: string; baseUrl?: string; apiKey?: string },
+  ): Promise<void> {
     try {
       const providers = await loadSavedProviders();
       if (providers[payload.id]) {
@@ -1417,7 +1487,9 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
         baseUrl: payload.baseUrl,
       };
       if (payload.apiKey) {
-        newProv.apiKeys = [{ label: 'default', apiKey: payload.apiKey, createdAt: new Date().toISOString() }];
+        newProv.apiKeys = [
+          { label: 'default', apiKey: payload.apiKey, createdAt: new Date().toISOString() },
+        ];
         newProv.activeKey = 'default';
       }
       providers[payload.id] = newProv;
@@ -1447,7 +1519,11 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
   const shutdown = async () => {
     console.log('[WebUI] Shutting down...');
     try {
-      await session.append({ type: 'session_end', ts: new Date().toISOString(), usage: tokenCounter.total() });
+      await session.append({
+        type: 'session_end',
+        ts: new Date().toISOString(),
+        usage: tokenCounter.total(),
+      });
       await session.close();
     } catch (e) {
       console.warn('[WebUI] Error closing session:', e);

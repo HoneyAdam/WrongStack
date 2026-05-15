@@ -1,5 +1,5 @@
-import * as fs from 'node:fs/promises';
 import { writeFileSync } from 'node:fs';
+import * as fs from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import * as path from 'node:path';
 import {
@@ -11,26 +11,26 @@ import {
   DefaultAttachmentStore,
   DefaultConfigStore,
   DefaultErrorHandler,
+  DefaultHealthRegistry,
   DefaultLogger,
   DefaultMemoryStore,
+  DefaultModeStore,
   DefaultModelsRegistry,
+  DefaultPathResolver,
   DefaultPermissionPolicy,
   DefaultRetryPolicy,
   DefaultSecretScrubber,
   DefaultSessionStore,
   DefaultSkillLoader,
-  DefaultModeStore,
   DefaultSystemPromptBuilder,
   DefaultTokenCounter,
   EventBus,
+  FLEET_ROSTER,
+  type HealthRegistry,
   HybridCompactor,
   InMemoryMetricsSink,
-  DefaultHealthRegistry,
-  wireMetricsToEvents,
-  startMetricsServer,
   type MetricsServerHandle,
   type MetricsSink,
-  type HealthRegistry,
   type Plugin,
   ProviderRegistry,
   QueueStore,
@@ -43,7 +43,8 @@ import {
   createContextManagerTool,
   createDefaultPipelines,
   loadPlugins,
-  FLEET_ROSTER,
+  startMetricsServer,
+  wireMetricsToEvents,
 } from '@wrongstack/core';
 import { MCPRegistry } from '@wrongstack/mcp';
 import {
@@ -53,81 +54,17 @@ import {
 } from '@wrongstack/providers';
 import { forgetTool, rememberTool } from '@wrongstack/tools';
 import { builtinTools } from '@wrongstack/tools/builtin';
-import { ReadlineInputReader } from './input-reader.js';
-import { makePromptDelegate, makeConfirmAwaiter } from './permission-prompt.js';
-import { runPicker, saveToGlobalConfig } from './picker.js';
-import { runLaunchPrompts, runProjectCheck } from './pre-launch.js';
-import { TerminalRenderer } from './renderer.js';
-import { runRepl } from './repl.js';
+import { boot } from './boot.js';
+import { type ExecutionDeps, execute } from './execution.js';
+import type { ReadlineInputReader } from './input-reader.js';
+import { MultiAgentHost } from './multi-agent.js';
+import { makeConfirmAwaiter, makePromptDelegate } from './permission-prompt.js';
+import { buildPickableProviders } from './provider-helpers.js';
+import type { TerminalRenderer } from './renderer.js';
 import { SessionStats } from './session-stats.js';
 import { buildBuiltinSlashCommands } from './slash-commands/index.js';
 import { Spinner } from './spinner.js';
 import { fmtTok, patchConfig } from './utils.js';
-import { bootConfig } from './boot-config.js';
-import { MultiAgentHost } from './multi-agent.js';
-import { subcommands } from './subcommands/index.js';
-
-interface ParsedArgs {
-  flags: Record<string, string | boolean>;
-  positional: string[];
-}
-
-const BOOLEAN_FLAGS = new Set([
-  'yolo',
-  'verbose',
-  'trace',
-  'help',
-  'version',
-  'no-banner',
-  'no-features',
-  'tui',
-  'no-tui',
-  'no-recovery',
-  'recover',
-  'no-alt-screen',
-  'alt-screen',
-  'output-json',
-  'prompt',
-  'metrics',
-  'webui',
-]);
-
-function parseArgs(argv: string[]): ParsedArgs {
-  const flags: Record<string, string | boolean> = {};
-  const positional: string[] = [];
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (!a) continue;
-    if (a === '--') {
-      positional.push(...argv.slice(i + 1));
-      break;
-    }
-    if (a.startsWith('--')) {
-      const eq = a.indexOf('=');
-      if (eq !== -1) {
-        flags[a.slice(2, eq)] = a.slice(eq + 1);
-        continue;
-      }
-      const name = a.slice(2);
-      if (BOOLEAN_FLAGS.has(name)) {
-        flags[name] = true;
-        continue;
-      }
-      if (i + 1 < argv.length && !(argv[i + 1] ?? '').startsWith('-')) {
-        flags[name] = argv[++i] ?? '';
-      } else {
-        flags[name] = true;
-      }
-    } else if (a.startsWith('-') && a.length === 2) {
-      const short = a.slice(1);
-      const expand: Record<string, string> = { v: 'verbose' };
-      flags[expand[short] ?? short] = true;
-    } else {
-      positional.push(a);
-    }
-  }
-  return { flags, positional };
-}
 
 function resolveBundledSkillsDir(): string | undefined {
   try {
@@ -143,176 +80,24 @@ import { CLI_VERSION } from './version.js';
 export { CLI_VERSION };
 
 export async function main(argv: string[]): Promise<number> {
-  const { flags, positional } = parseArgs(argv);
-
-  // `wstack resume <id>` is sugar for `wstack --resume <id>`. Lift it
-  // before subcommand dispatch so resume falls through to the normal
-  // REPL flow with the session pre-loaded.
-  if (positional[0] === 'resume' && positional[1] && !subcommands['__noop_resume_marker']) {
-    flags['resume'] = positional[1];
-    positional.splice(0, 2);
-  }
-
-  // Resolve paths, create vault, migrate plaintext secrets, load config.
-  let boot;
-  try {
-    boot = await bootConfig(flags);
-  } catch (err) {
-    process.stderr.write(`Config error: ${err instanceof Error ? err.message : String(err)}\n`);
-    return 2;
-  }
-  const { paths, config: _config, vault } = boot;
-  let config = _config;
-  const { cwd, projectRoot, userHome, wpaths, pathResolver } = paths;
-
-  // Logger — operational log lives in user home
-  const logger = new DefaultLogger({
-    level: config.log.level,
-    file: wpaths.logFile,
-  });
-  const renderer = new TerminalRenderer();
-  const reader = new ReadlineInputReader({ historyFile: wpaths.historyFile });
-
-  // ModelsRegistry — source of truth for providers, models, pricing.
-  const modelsRegistry = new DefaultModelsRegistry({
-    cacheFile: wpaths.modelsCache,
-    ttlSeconds: 24 * 3600,
-  });
-
-  // Quick path: subcommand dispatch (no provider required for most)
-  const first = positional[0];
-  if (first && subcommands[first]) {
-    const sessionStore = new DefaultSessionStore({ dir: wpaths.projectSessions });
-    const skillLoader = new DefaultSkillLoader({
-      paths: wpaths,
-      bundledDir: resolveBundledSkillsDir(),
-    });
-    const toolRegistryForSubcmd = new ToolRegistry();
-    for (const t of builtinTools) toolRegistryForSubcmd.register(t);
-    const code = await subcommands[first]!(positional.slice(1), {
-      config,
-      renderer,
-      reader,
-      sessionStore,
-      skillLoader,
-      toolRegistry: toolRegistryForSubcmd,
-      modelsRegistry,
-      paths: wpaths,
-      vault,
-      cwd,
-      projectRoot,
-      userHome,
-    });
-    await reader.close();
-    return code;
-  }
-
-  // Determine the launch shape up front so the pre-launch prompts (project
-  // check + mode + yolo) only fire when this is actually an interactive
-  // session. Single-shot invocations (`wrongstack "do X"` / `--prompt`) and
-  // non-TTY pipes (CI) skip all the interactive sugar.
-  const isSingleShot = positional.length > 0 || typeof flags['prompt'] === 'string';
-  const isInteractiveTTY = !!process.stdin.isTTY && !isSingleShot;
-
-  // Project status banner + optional AGENTS.md scaffold. Returns false
-  // when the user bails out of an empty/scratch directory.
-  if (isInteractiveTTY) {
-    const cont = await runProjectCheck({ projectRoot, renderer, reader });
-    if (!cont) {
-      await reader.close();
-      return 0;
-    }
-  }
-
-  // Identity selection. We launch the interactive picker whenever the user
-  // didn't pin BOTH provider and model on the CLI (--provider AND --model).
-  // The picker pre-selects whatever the config has so Enter accepts the
-  // previous choice — switching models becomes "wstack ↵ ↵" most days.
-  //
-  // Non-TTY (pipes, CI) skips the picker: it falls back to whatever's in
-  // config and hard-errors if that's still empty.
-  const providerFlag = typeof flags['provider'] === 'string' ? flags['provider'] : undefined;
-  const modelFlag = typeof flags['model'] === 'string' ? flags['model'] : undefined;
-  const bothFlagsPinned = !!providerFlag && !!modelFlag;
-  if (!bothFlagsPinned) {
-    if (process.stdin.isTTY) {
-      const picked = await runPicker({
-        modelsRegistry,
-        renderer,
-        reader,
-        config,
-        defaultProvider: providerFlag ?? config.provider,
-        defaultModel: modelFlag ?? config.model,
-      });
-      if (!picked) {
-        // User bailed out and we have no fallback in config — error out.
-        if (!config.provider || !config.model) {
-          await reader.close();
-          return 2;
-        }
-        // Otherwise honor the cancel by keeping the config defaults.
-      } else {
-        // Persist as the new default so next launch pre-selects this pair.
-        // Read-before-replace so we can tell whether anything actually
-        // changed — re-saving the same pair every launch is just noise.
-        const prevProvider = config.provider;
-        const prevModel = config.model;
-
-        // The loader hands back a frozen Config. Rebuild a fresh object
-        // with the picked pair patched in (and re-freeze) instead of
-        // mutating in place — Object.freeze blocks runtime writes even
-        // when a TS cast hides it from the compiler.
-        config = patchConfig(config, { provider: picked.provider, model: picked.model });
-
-        if (picked.provider !== prevProvider || picked.model !== prevModel) {
-          const saved = await saveToGlobalConfig(
-            wpaths.globalConfig,
-            picked.provider,
-            picked.model,
-          );
-          if (saved) {
-            renderer.writeInfo(`Saved ${picked.provider}/${picked.model} as default.\n`);
-          }
-        }
-      }
-    } else if (!config.provider || !config.model) {
-      process.stderr.write(
-        'No provider or model configured. Run `wrongstack init` first, or pass ' +
-          '--provider <id> --model <id>.\n',
-      );
-      await reader.close();
-      return 2;
-    }
-    // Non-TTY with config present: fall through using config defaults.
-  }
-
-  // Interactive mode + YOLO prompts. Each prompt is skipped when the user
-  // already pinned the corresponding flag (--tui / --no-tui / --yolo) on
-  // the CLI; otherwise we ask. The chosen values are written back to
-  // `flags` and `config` so the rest of the boot sequence (permission
-  // policy, REPL-vs-TUI branch) reads them naturally.
-  if (isInteractiveTTY) {
-    let modePinned: 'tui' | 'repl' | undefined;
-    if (flags['no-tui']) modePinned = 'repl';
-    else if (flags['tui']) modePinned = 'tui';
-    const yoloPinned: boolean | undefined = flags['yolo'] === true ? true : undefined;
-
-    const choices = await runLaunchPrompts({ renderer, reader, modePinned, yoloPinned });
-
-    // Propagate mode → the REPL/TUI branch later reads flags.tui / flags['no-tui'].
-    if (choices.mode === 'tui') {
-      flags['tui'] = true;
-      flags['no-tui'] = false;
-    } else {
-      flags['tui'] = false;
-      flags['no-tui'] = true;
-    }
-    // Propagate yolo → permission policy reads config.yolo. Config is
-    // frozen so we rebuild (same pattern as the picker patch above).
-    if (choices.yolo !== config.yolo) {
-      config = patchConfig(config, { yolo: choices.yolo });
-    }
-  }
+  const ctx = await boot(argv);
+  if (typeof ctx === 'number') return ctx;
+  let {
+    config,
+    vault,
+    wpaths,
+    cwd,
+    projectRoot,
+    userHome,
+    flags,
+    positional,
+    modelsRegistry,
+    renderer,
+    reader,
+    logger,
+  } = ctx;
+  // PathResolver is created from the resolved projectRoot
+  const pathResolver = new DefaultPathResolver(cwd);
 
   // Resolve provider details from models.dev. An alias may not match a
   // catalog id directly, so we also try `cfg.type` (which points at the
@@ -510,7 +295,10 @@ export async function main(argv: string[]): Promise<number> {
       }
     };
     process.on('exit', dumpMetrics);
-    process.on('SIGINT', () => { dumpMetrics(); process.exit(130); });
+    process.on('SIGINT', () => {
+      dumpMetrics();
+      process.exit(130);
+    });
 
     // L3-C: optional Prometheus scrape endpoint. Bound to 127.0.0.1 by
     // default — operators who want network-visible metrics set
@@ -526,10 +314,16 @@ export async function main(argv: string[]): Promise<number> {
           // hit one endpoint per pod for both observability and liveness.
           healthRegistry,
         });
-        logger.info(`metrics endpoint listening on ${metricsServerHandle.url} (healthz on same port)`);
-        process.on('exit', () => { void metricsServerHandle?.close().catch(() => {}); });
+        logger.info(
+          `metrics endpoint listening on ${metricsServerHandle.url} (healthz on same port)`,
+        );
+        process.on('exit', () => {
+          void metricsServerHandle?.close().catch(() => {});
+        });
       } catch (err) {
-        logger.warn(`metrics endpoint failed to start: ${err instanceof Error ? err.message : String(err)}`);
+        logger.warn(
+          `metrics endpoint failed to start: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     }
   }
@@ -713,7 +507,10 @@ export async function main(argv: string[]): Promise<number> {
   events.on('error', (e) => {
     const err = e.err as unknown;
     const code =
-      err && typeof err === 'object' && 'code' in err && typeof (err as { code: unknown }).code === 'string'
+      err &&
+      typeof err === 'object' &&
+      'code' in err &&
+      typeof (err as { code: unknown }).code === 'string'
         ? (err as { code: string }).code
         : 'UNKNOWN';
     const message = e.err instanceof Error ? e.err.message : String(e.err);
@@ -744,7 +541,11 @@ export async function main(argv: string[]): Promise<number> {
   // the agent run. Core-owned middleware still rethrows so genuine bugs in
   // the framework surface loudly. Plugin owners are identified by the
   // `owner` field set by the slash-command/middleware registration helper.
-  const installBoundary = <T,>(p: { setErrorHandler: (h: (ev: { middleware: string; owner?: string; err: unknown }) => 'rethrow' | 'swallow') => unknown }) => {
+  const installBoundary = <T>(p: {
+    setErrorHandler: (
+      h: (ev: { middleware: string; owner?: string; err: unknown }) => 'rethrow' | 'swallow',
+    ) => unknown;
+  }) => {
     p.setErrorHandler((ev) => {
       const fromPlugin = !!ev.owner && ev.owner !== 'core';
       logger.error(
@@ -897,54 +698,6 @@ export async function main(argv: string[]): Promise<number> {
     }
   }
 
-  // Build the list of providers the user can actually switch to right
-  // now: only those whose config has a key (env var or stored
-  // `apiKey/apiKeys`). We inline the catalog's model list for each one
-  // so the picker can show a real selection in step 2 — falling back
-  // to `cfg.models` for custom/LM-Studio-style providers and to the
-  // catalog list (by `cfg.type` for aliases) otherwise.
-  const buildPickableProviders = async () => {
-    const overlay = config.providers ?? {};
-    let catalog: Awaited<ReturnType<typeof modelsRegistry.listProviders>> = [];
-    try {
-      catalog = await modelsRegistry.listProviders();
-    } catch {
-      // catalog unavailable — keyed-by-config-only path still works
-    }
-    const catalogById = new Map(catalog.map((p) => [p.id, p]));
-    const hasKey = (id: string): boolean => {
-      const entry = overlay[id];
-      const envHit = catalogById.get(id)?.envVars.some((v) => !!process.env[v]);
-      if (envHit) return true;
-      if (!entry) return false;
-      if (typeof entry.apiKey === 'string' && entry.apiKey.length > 0) return true;
-      if (Array.isArray(entry.apiKeys) && entry.apiKeys.some((k) => k?.apiKey)) return true;
-      return false;
-    };
-    const seen = new Set<string>();
-    const out: Array<{ id: string; family: string; models: string[] }> = [];
-    for (const [id, cfg] of Object.entries(overlay)) {
-      if (!hasKey(id)) continue;
-      seen.add(id);
-      const catalogType = cfg.type && cfg.type !== id ? cfg.type : id;
-      const inherited = catalogById.get(catalogType);
-      const family = cfg.family ?? inherited?.family ?? 'unsupported';
-      if (family === 'unsupported') continue;
-      const models =
-        cfg.models && cfg.models.length > 0
-          ? [...cfg.models]
-          : (inherited?.models ?? []).map((m) => m.id);
-      out.push({ id, family, models });
-    }
-    for (const p of catalog) {
-      if (seen.has(p.id)) continue;
-      if (p.family === 'unsupported') continue;
-      if (!hasKey(p.id)) continue;
-      out.push({ id: p.id, family: p.family, models: p.models.map((m) => m.id) });
-    }
-    return out;
-  };
-
   // Build provider+model switch as a single callback. The TUI picker
   // calls this after the user confirms a (provider, model) pair; we
   // construct a fresh Provider instance, swap it onto the live context,
@@ -993,30 +746,33 @@ export async function main(argv: string[]): Promise<number> {
   // but the scratchpad + transcripts always sit relative to the session.
   const fleetRoot = directorMode ? path.join(wpaths.projectSessions, session.id) : undefined;
   const manifestPath = directorMode
-    ? (typeof process.env['WRONGSTACK_FLEET_MANIFEST'] === 'string'
-        ? process.env['WRONGSTACK_FLEET_MANIFEST']
-        : path.join(fleetRoot!, 'fleet.json'))
+    ? typeof process.env['WRONGSTACK_FLEET_MANIFEST'] === 'string'
+      ? process.env['WRONGSTACK_FLEET_MANIFEST']
+      : path.join(fleetRoot!, 'fleet.json')
     : undefined;
   const sharedScratchpadPath = directorMode ? path.join(fleetRoot!, 'shared') : undefined;
   const subagentSessionsRoot = directorMode ? path.join(fleetRoot!, 'subagents') : undefined;
-  const multiAgentHost = new MultiAgentHost({
-    container,
-    toolRegistry,
-    providerRegistry,
-    configStore,
-    events,
-    systemPromptBuilder: promptBuilder,
-    session,
-    tokenCounter,
-    projectRoot,
-    cwd,
-  }, {
-    directorMode,
-    manifestPath,
-    sharedScratchpadPath,
-    sessionsRoot: subagentSessionsRoot,
-    directorRunId: session.id,
-  });
+  const multiAgentHost = new MultiAgentHost(
+    {
+      container,
+      toolRegistry,
+      providerRegistry,
+      configStore,
+      events,
+      systemPromptBuilder: promptBuilder,
+      session,
+      tokenCounter,
+      projectRoot,
+      cwd,
+    },
+    {
+      directorMode,
+      manifestPath,
+      sharedScratchpadPath,
+      sessionsRoot: subagentSessionsRoot,
+      directorRunId: session.id,
+    },
+  );
   if (directorMode) {
     // Eagerly build the director so its 8 LLM-callable orchestration
     // tools (`spawn_subagent`, `assign_task`, `await_tasks`,
@@ -1082,14 +838,18 @@ export async function main(argv: string[]): Promise<number> {
         if (s.pending.length > 0) {
           lines.push('', color.dim('  Pending'));
           for (const p of s.pending) {
-            lines.push(`    ${p.taskId.slice(0, 8)} → ${p.subagentId.slice(0, 8)} · ${p.description.slice(0, 60)}`);
+            lines.push(
+              `    ${p.taskId.slice(0, 8)} → ${p.subagentId.slice(0, 8)} · ${p.description.slice(0, 60)}`,
+            );
           }
         }
         if (s.completed.length > 0) {
           lines.push('', color.dim('  Completed'));
           for (const r of s.completed) {
             const mark = r.status === 'success' ? color.green('✓') : color.red('✗');
-            lines.push(`    ${mark} ${r.taskId.slice(0, 8)} → ${r.subagentId.slice(0, 8)} · ${r.iterations}it ${r.toolCalls}tc ${r.durationMs}ms`);
+            lines.push(
+              `    ${mark} ${r.taskId.slice(0, 8)} → ${r.subagentId.slice(0, 8)} · ${r.iterations}it ${r.toolCalls}tc ${r.durationMs}ms`,
+            );
           }
         }
         return lines.join('\n');
@@ -1151,13 +911,14 @@ export async function main(argv: string[]): Promise<number> {
     onDiag: () => {
       const u = tokenCounter.total();
       const cost = tokenCounter.estimateCost();
-      const errSection = errorRing.length === 0
-        ? []
-        : [
-            '',
-            `${color.bold('Recent errors')} (last ${errorRing.length}):`,
-            ...errorRing.map((e) => `  [${e.ts}] ${e.phase} ${e.code} — ${e.message}`),
-          ];
+      const errSection =
+        errorRing.length === 0
+          ? []
+          : [
+              '',
+              `${color.bold('Recent errors')} (last ${errorRing.length}):`,
+              ...errorRing.map((e) => `  [${e.ts}] ${e.phase} ${e.code} — ${e.message}`),
+            ];
       // Read current provider from the ConfigStore so /diag always shows
       // the live value, even if /model swapped it mid-session (L1-B).
       const liveCfg = configStore.get();
@@ -1176,203 +937,33 @@ export async function main(argv: string[]): Promise<number> {
   });
   for (const cmd of slashCmds) slashRegistry.register(cmd);
 
-  // Single-shot vs REPL
-  let code = 0;
-  try {
-    // --prompt flag takes precedence: treat it like a positional query
-    const promptFlag = typeof flags['prompt'] === 'string' ? flags['prompt'] : undefined;
-    if (promptFlag) {
-      positional.unshift(promptFlag);
-    }
-    if (positional.length > 0 || promptFlag) {
-      const query = positional.join(' ');
-      const ctrl = new AbortController();
-      const onSigint = () => ctrl.abort();
-      process.on('SIGINT', onSigint);
-      const startedAt = Date.now();
-      const before = tokenCounter.total();
-      const costBefore = tokenCounter.estimateCost().total;
-      let result: import('@wrongstack/core').RunResult;
-      try {
-        result = await agent.run(query, { signal: ctrl.signal });
-      } finally {
-        process.off('SIGINT', onSigint);
-      }
-      const after = tokenCounter.total();
-      const costAfter = tokenCounter.estimateCost().total;
-      const usage = {
-        input: after.input - before.input,
-        output: after.output - before.output,
-        iterations: result.iterations,
-        cost: costAfter - costBefore,
-        elapsedMs: Date.now() - startedAt,
-      };
-      if (flags['output-json']) {
-        const json = JSON.stringify({
-          status: result.status,
-          finalText: result.finalText ?? null,
-          error: result.error
-            ? {
-                code: result.error.code,
-                subsystem: result.error.subsystem,
-                severity: result.error.severity,
-                recoverable: result.error.recoverable,
-                message: result.error.message,
-                context: result.error.context ?? null,
-              }
-            : null,
-          usage,
-        });
-        process.stdout.write(json + '\n');
-      } else {
-        if (result.status === 'failed') {
-          code = 1;
-          const err = result.error;
-          if (err) {
-            const tag = err.recoverable ? ' (recoverable)' : '';
-            renderer.writeError(`Failed [${err.severity}]${tag}: ${err.describe()}`);
-          } else {
-            renderer.writeError('Failed.');
-          }
-        } else if (result.status === 'aborted') {
-          code = 130;
-          renderer.writeWarning('Aborted.');
-        } else if (result.status === 'max_iterations') {
-          code = 1;
-          renderer.writeWarning(`Hit max iterations (${result.iterations}).`);
-        }
-        if (result.finalText) renderer.write('\n' + result.finalText + '\n');
-        renderer.write(
-          '\n' +
-            color.dim(
-              `[in: ${fmtTok(usage.input)}  out: ${fmtTok(usage.output)}  iters: ${usage.iterations}  cost: ${usage.cost.toFixed(4)}  ${(usage.elapsedMs / 1000).toFixed(1)}s]`,
-            ) +
-            '\n',
-        );
-      }
-    } else if (flags.tui && !flags['no-tui']) {
-      // Lazy-load to avoid pulling React/Ink into the cold path for non-TUI usage.
-      const { runTui } = await import('@wrongstack/tui');
-      // Silence stdout writes from the renderer while Ink owns the
-      // terminal. The tool executor calls renderer.writeToolCall /
-      // writeToolResult on every tool execution; if those raw writes
-      // land in stdout alongside Ink's redraws, the cursor math
-      // breaks and the input + status bar end up duplicated in
-      // scrollback (and in alt-screen, smeared across the buffer).
-      // The TUI shows tool calls via the `tool.executed` event in
-      // its own <History> component, so the renderer has nothing
-      // useful to add here anyway.
-      renderer.setSilent(true);
-      // Resolve banner-only metadata: family (effective wire family the
-      // provider is configured to speak) + the last 3 chars of the active
-      // API key. Source order matches what `makeProvider` actually uses
-      // at runtime, so the visible tail matches the key the agent will
-      // send. Env-sourced keys are included so users using e.g.
-      // ANTHROPIC_API_KEY without storing a config key still see a tail.
-      const banneredFamily = savedProviderCfg?.family ?? resolvedProvider?.family;
-      const banneredKey =
-        savedProviderCfg?.apiKey ??
-        config.apiKey ??
-        (resolvedProvider?.envVars ?? savedProviderCfg?.envVars ?? [])
-          .map((v) => process.env[v])
-          .find((v): v is string => !!v);
-      const banneredKeyTail =
-        banneredKey && banneredKey.length >= 3 ? banneredKey.slice(-3) : undefined;
-      try {
-        code = await runTui({
-          agent,
-          events,
-          slashRegistry,
-          attachments,
-          tokenCounter,
-          model: context.model,
-          banner: !flags['no-banner'],
-          queueStore,
-          yolo: !!config.yolo,
-          appVersion: CLI_VERSION,
-          provider: config.provider,
-          family: banneredFamily,
-          keyTail: banneredKeyTail,
-          getPickableProviders: buildPickableProviders,
-          switchProviderAndModel,
-          effectiveMaxContext,
-          // Opt-in: alt-screen disables the terminal's native scrollback,
-          // so we default to false. `--no-alt-screen` is kept as a no-op
-          // for backward compatibility with old invocation scripts.
-          altScreen: flags['alt-screen'] === true,
-          // Alt-screen exit erases the TUI view. Print a one-line hint
-          // into the user's normal terminal so they know the session is
-          // preserved and can resume it. Skipped automatically when
-          // alt-screen is off — runTui only fires onAfterExit then.
-          onAfterExit: () => {
-            process.stdout.write(
-              color.dim(`Session saved: ${session.id} — resume with `) +
-                color.cyan(`wstack resume ${session.id}`) +
-                '\n',
-            );
-          },
-          onClearHistory: (dispatch) => {
-            // Signal the TUI to wipe its history entries and reset the context chip.
-            // This is fire-and-forget — the slash command has already reset
-            // agent.ctx + memory; the TUI just needs to stop showing the old
-            // conversation and stale context bar.
-            dispatch({ type: 'clearHistory' });
-            dispatch({ type: 'resetContextChip' });
-          },
-        });
-      } finally {
-        renderer.setSilent(false);
-      }
-    } else if (flags.webui) {
-      // Start WebUI WebSocket server alongside REPL
-      const { runWebUI } = await import('./webui-server.js');
-      // Start the WebSocket server in the background
-      const webuiPromise = runWebUI({
-        agent,
-        events,
-        session,
-        port: Number.parseInt(String(flags.port ?? '3457'), 10),
-        modelsRegistry,
-        globalConfigPath: wpaths.globalConfig,
-      });
-      // Also run REPL so user can interact in terminal
-      code = await runRepl({
-        agent,
-        renderer,
-        reader,
-        slashRegistry,
-        tokenCounter,
-        attachments,
-        effectiveMaxContext,
-        projectName: path.basename(projectRoot) || undefined,
-      });
-      // Wait for webui to complete (only on exit)
-      await webuiPromise;
-    } else {
-      code = await runRepl({
-        agent,
-        renderer,
-        reader,
-        slashRegistry,
-        tokenCounter,
-        attachments,
-        effectiveMaxContext,
-        projectName: path.basename(projectRoot) || undefined,
-      });
-    }
-  } finally {
-    stats.render(renderer);
-    await mcpRegistry.stopAll();
-    await session.append({
-      type: 'session_end',
-      ts: new Date().toISOString(),
-      usage: tokenCounter.total(),
-    });
-    await session.close();
-    await recoveryLock.clear().catch(() => undefined);
-    await reader.close();
-  }
-  return code;
+  // Dispatch to execution phase — single-shot, TUI, REPL, or WebUI.
+  return execute({
+    agent,
+    events,
+    slashRegistry,
+    attachments,
+    tokenCounter,
+    config,
+    renderer,
+    reader,
+    session,
+    mcpRegistry,
+    recoveryLock,
+    wpaths,
+    modelsRegistry,
+    projectRoot,
+    flags,
+    positional,
+    effectiveMaxContext,
+    queueStore,
+    context,
+    stats,
+    savedProviderCfg: savedProviderCfg as ExecutionDeps['savedProviderCfg'],
+    resolvedProvider: resolvedProvider ?? undefined,
+    getPickableProviders: () => buildPickableProviders(modelsRegistry, config),
+    switchProviderAndModel,
+  });
 }
 
 /**
@@ -1424,8 +1015,6 @@ async function promptRecovery(
   );
   return answer as 'resume' | 'delete' | 'skip';
 }
-
-
 
 const isMain =
   import.meta.url === `file://${process.argv[1]?.replace(/\\/g, '/')}` ||

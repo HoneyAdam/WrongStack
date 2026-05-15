@@ -25,8 +25,7 @@ interface BatchToolUseOutput {
 
 export const batchToolUseTool: Tool<BatchToolUseInput, BatchToolUseOutput> = {
   name: 'batch_tool_use',
-  description:
-    'Execute multiple tool calls in sequence or parallel. Returns all results.',
+  description: 'Execute multiple tool calls in sequence or parallel. Returns all results.',
   usageHint:
     'Set `calls` array with tool names and inputs. `stop_on_error` halts on first failure. `parallel` runs concurrently (default: true).',
   permission: 'confirm',

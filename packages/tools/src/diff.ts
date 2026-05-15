@@ -1,10 +1,10 @@
-import * as fs from 'node:fs/promises';
-import { statSync } from 'node:fs';
-import * as path from 'node:path';
 import { spawn } from 'node:child_process';
+import { statSync } from 'node:fs';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import type { Tool } from '@wrongstack/core';
-import { safeResolve } from './_util.js';
 import { unifiedDiff } from '@wrongstack/core';
+import { safeResolve } from './_util.js';
 
 interface DiffInput {
   path?: string;
@@ -104,14 +104,22 @@ function findGitDir(cwd: string): string | null {
   return null;
 }
 
-function runGit(args: string[], cwd: string, signal: AbortSignal): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+function runGit(
+  args: string[],
+  cwd: string,
+  signal: AbortSignal,
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve) => {
     let stdout = '';
     let stderr = '';
 
     const child = spawn('git', args, { cwd, signal, stdio: ['ignore', 'pipe', 'pipe'] });
-    child.stdout?.on('data', (c) => { stdout += c.toString(); });
-    child.stderr?.on('data', (c) => { stderr += c.toString(); });
+    child.stdout?.on('data', (c) => {
+      stdout += c.toString();
+    });
+    child.stderr?.on('data', (c) => {
+      stderr += c.toString();
+    });
     child.on('close', (code) => resolve({ stdout, stderr, exitCode: code ?? 0 }));
     child.on('error', (e) => resolve({ stdout: '', stderr: e.message, exitCode: 1 }));
   });
@@ -126,11 +134,18 @@ async function fileDiff(
   const context = input.context ?? 3;
 
   const files = input.files
-    ? (Array.isArray(input.files) ? input.files : input.files.split(',')).map((f) => f.trim()).filter(Boolean)
+    ? (Array.isArray(input.files) ? input.files : input.files.split(','))
+        .map((f) => f.trim())
+        .filter(Boolean)
     : [];
 
   if (files.length === 0) {
-    return { diff: 'No files specified', files: [], truncated: false, mode: input.mode ?? 'unified' };
+    return {
+      diff: 'No files specified',
+      files: [],
+      truncated: false,
+      mode: input.mode ?? 'unified',
+    };
   }
 
   const results: string[] = [];

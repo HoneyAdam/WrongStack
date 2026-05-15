@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { DefaultMultiAgentCoordinator } from '../../../core/src/defaults/multi-agent-coordinator.js';
+import { DefaultMultiAgentCoordinator } from '../../src/coordination/multi-agent-coordinator.js';
 
 describe('DefaultMultiAgentCoordinator', () => {
   const makeConfig = (overrides = {}) => ({

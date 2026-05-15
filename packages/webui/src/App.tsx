@@ -1,18 +1,18 @@
-import { useEffect } from 'react';
-import { ThemeProvider, useTheme } from './components/ThemeProvider';
-import { ChatView } from './components/ChatView';
-import { Sidebar } from './components/Sidebar';
-import { SettingsPanel } from './components/SettingsPanel';
-import { ConfirmDialog } from './components/ConfirmDialog';
-import { CommandPalette, downloadChatAsMarkdown } from './components/CommandPalette';
-import { ShortcutsOverlay } from './components/ShortcutsOverlay';
-import { QuickModelSwitcher } from './components/QuickModelSwitcher';
-import { ConnectionBanner } from './components/ConnectionBanner';
-import { Toaster } from './components/Toaster';
-import { useUIStore, useChatStore, useSessionStore } from '@/stores';
 import { useWebSocket } from '@/hooks/useWebSocket';
-import { cn } from '@/lib/utils';
 import { useWebSocketBootstrap } from '@/hooks/useWebSocket';
+import { cn } from '@/lib/utils';
+import { useChatStore, useSessionStore, useUIStore } from '@/stores';
+import { useEffect } from 'react';
+import { ChatView } from './components/ChatView';
+import { CommandPalette, downloadChatAsMarkdown } from './components/CommandPalette';
+import { ConfirmDialog } from './components/ConfirmDialog';
+import { ConnectionBanner } from './components/ConnectionBanner';
+import { QuickModelSwitcher } from './components/QuickModelSwitcher';
+import { SettingsPanel } from './components/SettingsPanel';
+import { ShortcutsOverlay } from './components/ShortcutsOverlay';
+import { Sidebar } from './components/Sidebar';
+import { ThemeProvider, useTheme } from './components/ThemeProvider';
+import { Toaster } from './components/Toaster';
 
 function AppInner() {
   const { theme } = useTheme();
@@ -24,9 +24,7 @@ function AppInner() {
   const sessionId = useSessionStore((s) => s.session?.id);
   // User-set local nickname for the current session — takes precedence
   // over the backend title in the tab strip and topbar.
-  const nickname = useUIStore((s) =>
-    sessionId ? s.sessionNicknames[sessionId] : undefined,
-  );
+  const nickname = useUIStore((s) => (sessionId ? s.sessionNicknames[sessionId] : undefined));
   const ws = useWebSocket();
 
   // Mobile-friendly: collapse the sidebar automatically below the md
@@ -72,7 +70,9 @@ function AppInner() {
     parts.push('WrongStack');
     const title = parts.filter(Boolean).join(' · ');
     document.title = title;
-    return () => { document.title = 'WrongStack'; };
+    return () => {
+      document.title = 'WrongStack';
+    };
   }, [isLoading, iteration, projectName, sessionTitle, nickname]);
 
   // Global keyboard shortcuts for the actions that don't have a dedicated
@@ -95,7 +95,7 @@ function AppInner() {
         setSearchOpen(true);
         return;
       }
-      if (mod && e.key.toLowerCase() === '/' ) {
+      if (mod && e.key.toLowerCase() === '/') {
         // Focus the chat textarea so the user can start typing without
         // hunting for it. Useful after closing palette/settings.
         e.preventDefault();
@@ -129,11 +129,11 @@ function AppInner() {
       // the textarea still inserts those letters. No modifier required —
       // this is the chat surface's primary input mode for keyboard users.
       if (!inField && !mod && !e.altKey) {
-        const bubbles = Array.from(
-          document.querySelectorAll<HTMLElement>('[data-message-id]'),
-        );
+        const bubbles = Array.from(document.querySelectorAll<HTMLElement>('[data-message-id]'));
         if (bubbles.length === 0) return;
-        const current = document.querySelector<HTMLElement>('[data-message-id][data-focused="true"]');
+        const current = document.querySelector<HTMLElement>(
+          '[data-message-id][data-focused="true"]',
+        );
         const idx = current ? bubbles.indexOf(current) : -1;
         const focusBubble = (target: HTMLElement) => {
           bubbles.forEach((b) => b.removeAttribute('data-focused'));
@@ -179,8 +179,8 @@ function AppInner() {
         // pairing with the j/k flow so power users can step + copy without
         // hunting for the in-bubble copy button.
         if (e.key === 'c' && current) {
-          const text = current.querySelector<HTMLElement>('.markdown-content')?.innerText
-            ?? current.innerText;
+          const text =
+            current.querySelector<HTMLElement>('.markdown-content')?.innerText ?? current.innerText;
           if (text) {
             void navigator.clipboard?.writeText(text).catch(() => {});
             e.preventDefault();

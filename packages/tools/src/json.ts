@@ -33,7 +33,10 @@ export const jsonTool: Tool<JsonInput, JsonOutput> = {
     properties: {
       file: { type: 'string', description: 'Path to JSON/JSON5/YAML file' },
       data: { type: 'string', description: 'JSON/JSON5/YAML string (alternative to file)' },
-      query: { type: 'string', description: 'JMESPath-like query (e.g. "a.b[0].c" or "a[*].name")' },
+      query: {
+        type: 'string',
+        description: 'JMESPath-like query (e.g. "a.b[0].c" or "a[*].name")',
+      },
       format: {
         type: 'string',
         enum: ['json', 'json5', 'yaml'],
@@ -79,7 +82,8 @@ export const jsonTool: Tool<JsonInput, JsonOutput> = {
         data: parsed,
         formatted: 'valid',
         type: Array.isArray(parsed) ? 'array' : typeof parsed,
-        keys: typeof parsed === 'object' && parsed !== null ? Object.keys(parsed as object) : undefined,
+        keys:
+          typeof parsed === 'object' && parsed !== null ? Object.keys(parsed as object) : undefined,
       };
     }
 
@@ -90,14 +94,18 @@ export const jsonTool: Tool<JsonInput, JsonOutput> = {
       data: parsed,
       formatted,
       type: Array.isArray(parsed) ? 'array' : typeof parsed,
-      keys: typeof parsed === 'object' && parsed !== null ? Object.keys(parsed as object) : undefined,
+      keys:
+        typeof parsed === 'object' && parsed !== null ? Object.keys(parsed as object) : undefined,
       query_result: queryResult,
     };
   },
 };
 
 function query(data: unknown, path: string): unknown {
-  const parts = path.replace(/\[(\d+)\]/g, '.$1').split('.').filter(Boolean);
+  const parts = path
+    .replace(/\[(\d+)\]/g, '.$1')
+    .split('.')
+    .filter(Boolean);
   let current: unknown = data;
 
   for (const part of parts) {

@@ -390,7 +390,10 @@ export type WSClientMessage =
   | { type: 'key.update'; payload: { providerId: string; label: string; apiKey: string } }
   | { type: 'key.delete'; payload: { providerId: string; label: string } }
   | { type: 'key.set_active'; payload: { providerId: string; label: string } }
-  | { type: 'provider.add'; payload: { id: string; family: string; baseUrl?: string; apiKey?: string } }
+  | {
+      type: 'provider.add';
+      payload: { id: string; family: string; baseUrl?: string; apiKey?: string };
+    }
   | { type: 'provider.remove'; payload: { providerId: string } }
   | { type: 'tools.list' }
   | { type: 'memory.list' }

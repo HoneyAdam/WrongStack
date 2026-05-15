@@ -8,7 +8,7 @@ import type {
 } from '@wrongstack/core';
 import type { ProviderError } from '@wrongstack/core';
 import { parseProviderHttpError } from './error-parse.js';
-import { parseSSE, type SSEMessage } from './sse.js';
+import { type SSEMessage, parseSSE } from './sse.js';
 import { WireAdapter } from './wire-adapter.js';
 
 /**
@@ -71,7 +71,10 @@ export class WireFormatProvider<S = Record<string, unknown>> extends WireAdapter
   override readonly capabilities: Capabilities;
   private readonly cfg: WireFormatConfig<S>;
 
-  constructor(cfg: WireFormatConfig<S>, opts: { apiKey: string; baseUrl?: string; fetchImpl?: typeof fetch }) {
+  constructor(
+    cfg: WireFormatConfig<S>,
+    opts: { apiKey: string; baseUrl?: string; fetchImpl?: typeof fetch },
+  ) {
     super(opts.apiKey, opts.baseUrl ?? cfg.defaultBaseUrl, opts.fetchImpl);
     this.id = cfg.id;
     this.capabilities = cfg.capabilities;

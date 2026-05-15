@@ -1,22 +1,12 @@
-import type {
-  Capabilities,
-  Request,
-  StreamEvent,
-  StopReason,
-  Usage,
-} from '@wrongstack/core';
+import type { Capabilities, Request, StopReason, StreamEvent, Usage } from '@wrongstack/core';
 import { type ProviderError, safeParse } from '@wrongstack/core';
-import { parseProviderHttpError } from './error-parse.js';
 import { parseToolInput } from './_tool-input.js';
-import {
-  messagesToOpenAI,
-  toolsToOpenAI,
-  type ConvertOptions,
-} from './tool-format/to-openai.js';
-import { normalizeOpenAI } from './stop-reason.js';
-import { parseSSE } from './sse.js';
-import { WireAdapter } from './wire-adapter.js';
+import { parseProviderHttpError } from './error-parse.js';
 import { capabilitiesForFamily } from './family-capabilities.js';
+import { parseSSE } from './sse.js';
+import { normalizeOpenAI } from './stop-reason.js';
+import { type ConvertOptions, messagesToOpenAI, toolsToOpenAI } from './tool-format/to-openai.js';
+import { WireAdapter } from './wire-adapter.js';
 
 export interface OpenAIProviderOptions {
   apiKey: string;
@@ -158,19 +148,21 @@ async function* parseOpenAIStream(
       yield { type: 'message_start', model };
     }
 
-    const choices = obj['choices'] as Array<{
-      delta?: {
-        content?: string | null;
-        reasoning_content?: string;
-        reasoning?: string;
-        tool_calls?: Array<{
-          index?: number;
-          id?: string;
-          function?: { name?: string; arguments?: string };
-        }>;
-      };
-      finish_reason?: string | null;
-    }> | undefined;
+    const choices = obj['choices'] as
+      | Array<{
+          delta?: {
+            content?: string | null;
+            reasoning_content?: string;
+            reasoning?: string;
+            tool_calls?: Array<{
+              index?: number;
+              id?: string;
+              function?: { name?: string; arguments?: string };
+            }>;
+          };
+          finish_reason?: string | null;
+        }>
+      | undefined;
     const choice = choices?.[0];
 
     // DeepSeek (and Moonshot/Kimi thinking mode) stream chain-of-thought
@@ -232,7 +224,11 @@ async function* parseOpenAIStream(
     }
 
     const u = obj['usage'] as
-      | { prompt_tokens?: number; completion_tokens?: number; prompt_tokens_details?: { cached_tokens?: number } }
+      | {
+          prompt_tokens?: number;
+          completion_tokens?: number;
+          prompt_tokens_details?: { cached_tokens?: number };
+        }
       | undefined;
     if (u) {
       usage = {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SpecParser } from '../../src/defaults/spec-parser.js';
+import { SpecParser } from '../../src/sdd/spec-parser.js';
 
 function makeSpec(overrides: Partial<import('../../src/types/spec.js').Specification> = {}): import('../../src/types/spec.js').Specification {
   return {

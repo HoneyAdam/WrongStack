@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { loadPlugins, unloadPlugins } from '../../src/plugin/loader.js';
 import type { Plugin, PluginAPI } from '../../src/types/plugin.js';
-import { DefaultLogger } from '../../src/defaults/logger.js';
+import { DefaultLogger } from '../../src/infrastructure/logger.js';
 
 const log = new DefaultLogger({ level: 'error' });
 

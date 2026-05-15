@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useUIStore, useChatStore } from '@/stores';
-import { Search, X, ArrowUp, ArrowDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useChatStore, useUIStore } from '@/stores';
+import { ArrowDown, ArrowUp, Search, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 /**
  * Ctrl+F overlay that searches the current chat transcript. Hits are
@@ -34,7 +34,9 @@ export function SearchOverlay() {
           return (
             (m.toolName ?? '').toLowerCase().includes(q) ||
             (m.toolResult ?? '').toLowerCase().includes(q) ||
-            JSON.stringify(m.toolInput ?? '').toLowerCase().includes(q)
+            JSON.stringify(m.toolInput ?? '')
+              .toLowerCase()
+              .includes(q)
           );
         }
         return m.content.toLowerCase().includes(q);
@@ -106,10 +108,7 @@ export function SearchOverlay() {
       highlights.delete('chat-search');
     }
     if (activeRanges.length > 0) {
-      highlights.set(
-        'chat-search-active',
-        new HighlightCtor(...activeRanges) as never,
-      );
+      highlights.set('chat-search-active', new HighlightCtor(...activeRanges) as never);
     } else {
       highlights.delete('chat-search-active');
     }

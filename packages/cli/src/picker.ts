@@ -1,26 +1,12 @@
 import type { Config, ModelsRegistry, ResolvedProvider } from '@wrongstack/core';
 import { color } from '@wrongstack/core';
-import type { TerminalRenderer } from './renderer.js';
 import type { ReadlineInputReader } from './input-reader.js';
+import { hasApiKey } from './provider-helpers.js';
+import type { TerminalRenderer } from './renderer.js';
 
 export interface PickerResult {
   provider: string;
   model: string;
-}
-
-/**
- * Does this provider have an API key available — either in the
- * environment (via one of its known env vars) or stored in config
- * (encrypted or plaintext)? Used to filter the picker to providers
- * the user can actually use right now.
- */
-function hasApiKey(provider: ResolvedProvider, config?: Config): boolean {
-  if (provider.envVars.some((v) => !!process.env[v])) return true;
-  const entry = config?.providers?.[provider.id];
-  if (!entry) return false;
-  if (typeof entry.apiKey === 'string' && entry.apiKey.length > 0) return true;
-  if (Array.isArray(entry.apiKeys) && entry.apiKeys.some((k) => k?.apiKey)) return true;
-  return false;
 }
 
 /**
@@ -42,14 +28,18 @@ export async function runPicker(deps: {
 }): Promise<PickerResult | undefined> {
   const { modelsRegistry, renderer, reader, config, defaultProvider, defaultModel } = deps;
 
-  renderer.write(`\n${color.bold(theme.primary('WrongStack') + color.dim(' — Provider & Model Selection'))}\n`);
+  renderer.write(
+    `\n${color.bold(theme.primary('WrongStack') + color.dim(' — Provider & Model Selection'))}\n`,
+  );
   renderer.write(color.dim('Loading provider catalog…\n'));
 
   let providers: ResolvedProvider[];
   try {
     providers = await modelsRegistry.listProviders();
   } catch {
-    renderer.writeError('Failed to load provider catalog. Pass --provider and --model to skip the picker.');
+    renderer.writeError(
+      'Failed to load provider catalog. Pass --provider and --model to skip the picker.',
+    );
     return undefined;
   }
 
@@ -107,7 +97,7 @@ export async function runPicker(deps: {
       models:
         cfg.models && cfg.models.length > 0
           ? cfg.models.map((m) => ({ id: m, name: m }))
-          : inherited?.models ?? [],
+          : (inherited?.models ?? []),
       npm: inherited?.npm,
     });
   }
@@ -155,11 +145,7 @@ export async function runPicker(deps: {
         (typeof entry?.apiKey === 'string' && entry.apiKey.length > 0) ||
         (Array.isArray(entry?.apiKeys) && entry!.apiKeys!.some((k) => k?.apiKey));
       // ● green = env key, ◉ cyan = stored in config, ○ dim = no key
-      const marker = envFound
-        ? color.green('●')
-        : configKey
-          ? color.cyan('◉')
-          : color.dim('○');
+      const marker = envFound ? color.green('●') : configKey ? color.cyan('◉') : color.dim('○');
       const isDefault = p.id === defaultProvider;
       if (isDefault) defaultIdx = idx;
       const idLabel = isDefault ? color.bold(p.id) : p.id;
@@ -177,9 +163,7 @@ export async function runPicker(deps: {
       `\n  ${color.yellow('⚠ No API keys detected.')} ${color.dim('Pick a provider, then run `wstack auth <provider>` to add one.')}\n`,
     );
   } else {
-    renderer.write(
-      `\n  ${color.dim('● = env key   ◉ = stored in config   ○ = no key')}\n`,
-    );
+    renderer.write(`\n  ${color.dim('● = env key   ◉ = stored in config   ○ = no key')}\n`);
   }
 
   // Provider prompt. Enter on an empty line accepts the default when one
@@ -189,7 +173,9 @@ export async function runPicker(deps: {
       ? ` ${color.dim(`[Enter = ${defaultProvider}]`)}`
       : '';
   const providerAnswer = (
-    await reader.readLine(`\n${color.amber('?')} Select provider (1-${ordered.length})${defaultHint}: `)
+    await reader.readLine(
+      `\n${color.amber('?')} Select provider (1-${ordered.length})${defaultHint}: `,
+    )
   ).trim();
 
   if (!providerAnswer) {
@@ -251,11 +237,10 @@ async function pickModel(
     for (let i = 0; i < page.length; i++) {
       const m = page[i]!;
       const num = offset + i + 1;
-      const ctx = m.limit?.context ? `${(m.limit.context / 1000).toFixed(0)}k`.padStart(6) : '     ?';
-      const cost =
-        m.cost?.input !== undefined
-          ? `$${m.cost.input}/$${m.cost.output ?? '?'}`
-          : '';
+      const ctx = m.limit?.context
+        ? `${(m.limit.context / 1000).toFixed(0)}k`.padStart(6)
+        : '     ?';
+      const cost = m.cost?.input !== undefined ? `$${m.cost.input}/$${m.cost.output ?? '?'}` : '';
       const caps: string[] = [];
       if (m.tool_call) caps.push('tools');
       if (m.reasoning) caps.push('reason');
@@ -283,9 +268,7 @@ async function pickModel(
 
   // All shown — final prompt. Enter accepts the default model when present.
   const defaultHint =
-    defaultIdxInModels >= 0 && defaultModel
-      ? ` ${color.dim(`[Enter = ${defaultModel}]`)}`
-      : '';
+    defaultIdxInModels >= 0 && defaultModel ? ` ${color.dim(`[Enter = ${defaultModel}]`)}` : '';
   const answer = (
     await reader.readLine(`\n${color.amber('?')} Select model (1-${models.length})${defaultHint}: `)
   ).trim();
@@ -304,7 +287,16 @@ async function pickModel(
 
 async function resolveModelSelection(
   answer: string,
-  models: import('@wrongstack/core').ModelsDevModel[],
+  models: {
+    id: string;
+    name: string;
+    release_date?: string;
+    limit?: { context?: number };
+    cost?: { input?: number; output?: number };
+    tool_call?: boolean;
+    reasoning?: boolean;
+    modalities?: { input?: string[] };
+  }[],
   provider: ResolvedProvider,
   _registry: ModelsRegistry,
   renderer: TerminalRenderer,
@@ -338,9 +330,7 @@ async function resolveModelSelection(
     modelId = answer;
   }
 
-  renderer.write(
-    `\n  ${color.green('✓')} ${color.bold(provider.id)} / ${color.bold(modelId)}\n\n`,
-  );
+  renderer.write(`\n  ${color.green('✓')} ${color.bold(provider.id)} / ${color.bold(modelId)}\n\n`);
 
   return { provider: provider.id, model: modelId };
 }

@@ -19,8 +19,7 @@ const TIMEOUT_MS = 15_000;
 
 export const searchTool: Tool<SearchInput, SearchOutput> = {
   name: 'search',
-  description:
-    'Search the web for information. Returns title, URL, and snippet for each result.',
+  description: 'Search the web for information. Returns title, URL, and snippet for each result.',
   usageHint:
     'Set `num_results` (1-50, default 10). Use `source` to pick engine: duckduckgo (default), google, bing.',
   permission: 'confirm',
@@ -58,7 +57,11 @@ export const searchTool: Tool<SearchInput, SearchOutput> = {
     const num = Math.max(1, Math.min(input.num_results ?? DEFAULT_NUM, MAX_RESULTS));
     const source = input.source ?? 'duckduckgo';
 
-    yield { type: 'log', text: `Querying ${source} for "${input.query}"…`, data: { source, query: input.query } };
+    yield {
+      type: 'log',
+      text: `Querying ${source} for "${input.query}"…`,
+      data: { source, query: input.query },
+    };
 
     let output: SearchOutput;
     switch (source) {
@@ -127,9 +130,7 @@ function parseDuckDuckGo(html: string, num: number): SearchOutput['results'] {
   );
 
   const snippetMatches = takeFrom(
-    [...html.matchAll(snippet2Regex)]
-      .filter((m) => m[1])
-      .map((m) => stripTags(m[1]!)),
+    [...html.matchAll(snippet2Regex)].filter((m) => m[1]).map((m) => stripTags(m[1]!)),
     num,
   );
 
@@ -202,11 +203,7 @@ function parseGoogleResults(html: string, num: number): SearchOutput['results'] 
   return results;
 }
 
-async function bingSearch(
-  query: string,
-  num: number,
-  signal: AbortSignal,
-): Promise<SearchOutput> {
+async function bingSearch(query: string, num: number, signal: AbortSignal): Promise<SearchOutput> {
   const encoded = encodeURIComponent(query);
   const url = `https://www.bing.com/search?q=${encoded}`;
 
@@ -280,12 +277,22 @@ async function fetchWithTimeout(
 function anySignal(...signals: AbortSignal[]): AbortSignal {
   const controller = new AbortController();
   for (const s of signals) {
-    if (s.aborted) { controller.abort(); break; }
+    if (s.aborted) {
+      controller.abort();
+      break;
+    }
     s.addEventListener('abort', () => controller.abort());
   }
   return controller.signal;
 }
 
 function stripTags(html: string): string {
-  return html.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim();
+  return html
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .trim();
 }

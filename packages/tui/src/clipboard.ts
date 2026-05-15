@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
+import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import * as fs from 'node:fs/promises';
 
 export interface ClipboardImage {
   base64: string;
@@ -92,12 +92,7 @@ async function readPngFile(p: string): Promise<ClipboardImage | null> {
       throw new Error(`Clipboard image exceeds ${MAX_IMAGE_BYTES / 1024 / 1024}MB limit`);
     }
     // Sanity check: PNG magic bytes.
-    if (
-      buf[0] !== 0x89 ||
-      buf[1] !== 0x50 ||
-      buf[2] !== 0x4e ||
-      buf[3] !== 0x47
-    ) {
+    if (buf[0] !== 0x89 || buf[1] !== 0x50 || buf[2] !== 0x4e || buf[3] !== 0x47) {
       await fs.unlink(p).catch(() => undefined);
       return null;
     }
@@ -113,7 +108,9 @@ function runCmd(cmd: string, args: string[]): Promise<string | null> {
   return new Promise((resolve) => {
     const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
-    child.stdout.on('data', (c) => { out += String(c); });
+    child.stdout.on('data', (c) => {
+      out += String(c);
+    });
     child.on('error', () => resolve(null));
     child.on('exit', (code) => resolve(code === 0 ? out : null));
   });

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { DefaultPermissionPolicy } from '../../src/defaults/permission-policy.js';
+import { DefaultPermissionPolicy } from '../../src/security/permission-policy.js';
 import type { Tool, Context } from '../../src/types/index.js';
 
 function tool(name: string, permission: 'auto' | 'confirm' | 'deny' = 'confirm'): Tool {

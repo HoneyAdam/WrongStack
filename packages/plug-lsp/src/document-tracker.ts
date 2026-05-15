@@ -3,10 +3,10 @@ import * as path from 'node:path';
 import type { EventBus, EventMap, Logger } from '@wrongstack/core';
 import type { TextDocumentItem } from 'vscode-languageserver-protocol';
 import { languageIdFor } from './language-detect.js';
-import type { TrackedDocument } from './types.js';
-import { pathToUri } from './utils/uri.js';
 import type { LSPRegistry } from './registry.js';
 import type { LSPServer } from './server/lsp-server.js';
+import type { TrackedDocument } from './types.js';
+import { pathToUri } from './utils/uri.js';
 
 export class DocumentTracker {
   private readonly docs = new Map<string, TrackedDocument>();
@@ -65,7 +65,7 @@ export class DocumentTracker {
     const absPath = this.resolve(filePath);
     const languageId = languageIdFor(absPath);
     if (!languageId) return;
-    const text = knownText ?? await fs.readFile(absPath, 'utf8');
+    const text = knownText ?? (await fs.readFile(absPath, 'utf8'));
     let doc = this.docs.get(absPath);
     /* v8 ignore next -- both create and existing paths are covered; branch accounting is source-map noisy. */
     if (!doc) {

@@ -1,9 +1,9 @@
 #!/usr/bin/env node
+import { spawn } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { spawn } from 'node:child_process';
-import { resolveServerCommand, commandExistsOnPath } from './utils/command-resolver.js';
+import { commandExistsOnPath, resolveServerCommand } from './utils/command-resolver.js';
 
 type PackageManager = 'pnpm' | 'npm' | 'yarn' | 'bun';
 
@@ -129,7 +129,14 @@ export async function runSetup(args: string[], deps: SetupDeps = DEFAULT_DEPS): 
   if (npmPackages.size > 0) {
     const pm = await detectPackageManager(opts.cwd);
     const { command, args } = installCommand(pm, Array.from(npmPackages));
-    await runOrPrint(command, args, opts.cwd, opts.dryRun, 'Installing npm-based LSP servers', deps);
+    await runOrPrint(
+      command,
+      args,
+      opts.cwd,
+      opts.dryRun,
+      'Installing npm-based LSP servers',
+      deps,
+    );
   }
 
   for (const installer of toolchainInstalls) {
@@ -141,13 +148,23 @@ export async function runSetup(args: string[], deps: SetupDeps = DEFAULT_DEPS): 
       deps.log(`Missing ${installer.label}: command "${installer.command}" is not on PATH.`);
       continue;
     }
-    await runOrPrint(installer.command, installer.args, opts.cwd, opts.dryRun, `Installing via ${installer.label}`, deps);
+    await runOrPrint(
+      installer.command,
+      installer.args,
+      opts.cwd,
+      opts.dryRun,
+      `Installing via ${installer.label}`,
+      deps,
+    );
   }
 
   deps.log('LSP setup finished.');
 }
 
-export function parseArgs(args: string[], deps: Pick<SetupDeps, 'cwd' | 'exit' | 'log'> = DEFAULT_DEPS): SetupOptions {
+export function parseArgs(
+  args: string[],
+  deps: Pick<SetupDeps, 'cwd' | 'exit' | 'log'> = DEFAULT_DEPS,
+): SetupOptions {
   let cwd = deps.cwd();
   let languages = DEFAULT_LANGUAGES;
   let dryRun = false;
@@ -179,12 +196,16 @@ export function parseArgs(args: string[], deps: Pick<SetupDeps, 'cwd' | 'exit' |
 
 export async function detectPackageManager(cwd: string): Promise<PackageManager> {
   if (await exists(path.join(cwd, 'pnpm-lock.yaml'))) return 'pnpm';
-  if (await exists(path.join(cwd, 'bun.lockb')) || await exists(path.join(cwd, 'bun.lock'))) return 'bun';
+  if ((await exists(path.join(cwd, 'bun.lockb'))) || (await exists(path.join(cwd, 'bun.lock'))))
+    return 'bun';
   if (await exists(path.join(cwd, 'yarn.lock'))) return 'yarn';
   return 'npm';
 }
 
-export function installCommand(pm: PackageManager, packages: string[]): { command: string; args: string[] } {
+export function installCommand(
+  pm: PackageManager,
+  packages: string[],
+): { command: string; args: string[] } {
   if (pm === 'pnpm') return { command: 'pnpm', args: ['add', '-D', ...packages] };
   if (pm === 'yarn') return { command: 'yarn', args: ['add', '-D', ...packages] };
   if (pm === 'bun') return { command: 'bun', args: ['add', '-d', ...packages] };
@@ -261,8 +282,8 @@ const isCliEntrypoint = process.argv[1]
 
 if (isCliEntrypoint) {
   runSetup(process.argv.slice(2)).catch((err) => {
-  console.error(err instanceof Error ? err.message : String(err));
-  process.exit(1);
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
   });
 }
 /* v8 ignore stop */

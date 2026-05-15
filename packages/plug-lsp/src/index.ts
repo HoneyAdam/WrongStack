@@ -1,10 +1,10 @@
 import type { Plugin } from '@wrongstack/core';
-import { PLUGIN_NAME, plugLspConfigSchema, readPlugLSPConfig } from './config.js';
 import { autoDiscoverServers } from './auto-discover.js';
+import { PLUGIN_NAME, plugLspConfigSchema, readPlugLSPConfig } from './config.js';
 import { DocumentTracker } from './document-tracker.js';
 import { LSPRegistry } from './registry.js';
-import { makeLSPTools } from './tools/index.js';
 import { registerSlashCommands } from './slash-commands/index.js';
+import { makeLSPTools } from './tools/index.js';
 
 export type {
   AutoStartMode,

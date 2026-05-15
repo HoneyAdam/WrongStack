@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { DefaultMultiAgentCoordinator } from '../../src/defaults/multi-agent-coordinator.js';
-import { BudgetExceededError } from '../../src/defaults/subagent-budget.js';
+import { DefaultMultiAgentCoordinator } from '../../src/coordination/multi-agent-coordinator.js';
+import { BudgetExceededError } from '../../src/coordination/subagent-budget.js';
 import type {
   SubagentRunner,
   TaskResult,

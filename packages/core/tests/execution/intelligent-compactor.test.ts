@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { IntelligentCompactor } from '../../src/defaults/intelligent-compactor.js';
+import { IntelligentCompactor } from '../../src/execution/intelligent-compactor.js';
 import type { Context } from '../../src/core/context.js';
 import type { Message } from '../../src/types/messages.js';
 import type { Provider } from '../../src/types/provider.js';

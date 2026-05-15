@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { HybridCompactor } from '../../src/defaults/compactor.js';
+import { HybridCompactor } from '../../src/execution/compactor.js';
 import type { Context } from '../../src/core/context.js';
 import type { Message } from '../../src/types/messages.js';
 

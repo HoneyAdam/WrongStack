@@ -4,11 +4,11 @@
  * of `thoughtSignature` and forced `tool_use` stop reason on functionCall
  * turns.
  */
-import type { Message, Request, StreamEvent, StopReason, Tool, Usage } from '@wrongstack/core';
+import type { Message, Request, StopReason, StreamEvent, Tool, Usage } from '@wrongstack/core';
 import { safeParse } from '@wrongstack/core';
+import { capabilitiesForFamily } from '../family-capabilities.js';
 import { normalizeGemini } from '../stop-reason.js';
 import { defineWireFormat } from '../wire-format.js';
-import { capabilitiesForFamily } from '../family-capabilities.js';
 
 interface GeminiPart {
   text?: string;
@@ -97,9 +97,10 @@ export const googleWireFormat = defineWireFormat<GoogleStreamState>({
         state.sawFunctionCall = true;
         const id = `${part.functionCall.name}_${Math.random().toString(36).slice(2, 10)}`;
         out.push({ type: 'tool_use_start', id, name: part.functionCall.name });
-        const providerMeta = typeof part.thoughtSignature === 'string'
-          ? { 'google.thoughtSignature': part.thoughtSignature }
-          : undefined;
+        const providerMeta =
+          typeof part.thoughtSignature === 'string'
+            ? { 'google.thoughtSignature': part.thoughtSignature }
+            : undefined;
         out.push({
           type: 'tool_use_stop',
           id,
@@ -143,20 +144,33 @@ function toolsToGemini(tools: Tool[]): Array<Record<string, unknown>> {
   return tools.map((t) => ({
     name: t.name,
     description: t.description,
-    parameters:
-      sanitizeSchemaForGemini(t.inputSchema as Record<string, unknown> | undefined) ?? {
-        type: 'object',
-        properties: {},
-      },
+    parameters: sanitizeSchemaForGemini(t.inputSchema as Record<string, unknown> | undefined) ?? {
+      type: 'object',
+      properties: {},
+    },
   }));
 }
 
 const GEMINI_ALLOWED_KEYS = new Set([
-  'type', 'format', 'description', 'nullable', 'enum',
-  'items', 'properties', 'required',
-  'anyOf', 'minLength', 'maxLength', 'pattern',
-  'minimum', 'maximum', 'minItems', 'maxItems',
-  'minProperties', 'maxProperties', 'propertyOrdering',
+  'type',
+  'format',
+  'description',
+  'nullable',
+  'enum',
+  'items',
+  'properties',
+  'required',
+  'anyOf',
+  'minLength',
+  'maxLength',
+  'pattern',
+  'minimum',
+  'maximum',
+  'minItems',
+  'maxItems',
+  'minProperties',
+  'maxProperties',
+  'propertyOrdering',
   'title',
 ]);
 
@@ -223,8 +237,7 @@ function messagesToGemini(messages: Message[]): GeminiContent[] {
     for (const b of blocks) {
       if (b.type === 'text' && b.text) textParts.push({ text: b.text });
       else if (b.type === 'tool_result') {
-        const responseText =
-          typeof b.content === 'string' ? b.content : JSON.stringify(b.content);
+        const responseText = typeof b.content === 'string' ? b.content : JSON.stringify(b.content);
         const fnName = b.name ?? b.tool_use_id;
         functionParts.push({
           functionResponse: {

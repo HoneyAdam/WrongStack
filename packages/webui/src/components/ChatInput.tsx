@@ -1,12 +1,12 @@
-import type React from 'react';
-import { useRef, useCallback, useState, useEffect } from 'react';
-import { Send, Square, Pencil } from 'lucide-react';
-import { Button } from './ui/button';
-import { cn } from '@/lib/utils';
-import { useChatStore, useUIStore, useSessionStore } from '@/stores';
 import { useWebSocket } from '@/hooks/useWebSocket';
+import { cn } from '@/lib/utils';
+import { useChatStore, useSessionStore, useUIStore } from '@/stores';
+import { Pencil, Send, Square } from 'lucide-react';
+import type React from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { downloadChatAsMarkdown } from './CommandPalette';
 import { FilePicker } from './FilePicker';
+import { Button } from './ui/button';
 
 /**
  * Slash command registry. Each entry knows its triggers (so /model and
@@ -32,19 +32,65 @@ interface SlashCommandDef {
 const SLASH_COMMANDS: SlashCommandDef[] = [
   { name: '/help', category: 'App', description: 'Show every slash command and what it does' },
   { name: '/export', category: 'Session', description: 'Download the current chat as markdown' },
-  { name: '/todos', category: 'Inspect', description: 'List current todos (try `/todos clear` to reset)' },
-  { name: '/clear', category: 'Session', description: 'Wipe current context (keeps session id, disk record stays)' },
-  { name: '/new', category: 'Session', description: 'Start a brand-new session (fresh on disk and in memory)' },
-  { name: '/compact', category: 'Session', description: 'Shrink context — elide ancient tool output' },
-  { name: '/debug', category: 'Inspect', aliases: ['/context'], description: 'Per-section context size breakdown' },
-  { name: '/tools', category: 'Inspect', description: 'List every registered tool the model can call' },
-  { name: '/memory', category: 'Inspect', description: 'Show all remembered notes (project + user scope)' },
+  {
+    name: '/todos',
+    category: 'Inspect',
+    description: 'List current todos (try `/todos clear` to reset)',
+  },
+  {
+    name: '/clear',
+    category: 'Session',
+    description: 'Wipe current context (keeps session id, disk record stays)',
+  },
+  {
+    name: '/new',
+    category: 'Session',
+    description: 'Start a brand-new session (fresh on disk and in memory)',
+  },
+  {
+    name: '/compact',
+    category: 'Session',
+    description: 'Shrink context — elide ancient tool output',
+  },
+  {
+    name: '/debug',
+    category: 'Inspect',
+    aliases: ['/context'],
+    description: 'Per-section context size breakdown',
+  },
+  {
+    name: '/tools',
+    category: 'Inspect',
+    description: 'List every registered tool the model can call',
+  },
+  {
+    name: '/memory',
+    category: 'Inspect',
+    description: 'Show all remembered notes (project + user scope)',
+  },
   { name: '/skill', category: 'Inspect', aliases: ['/skills'], description: 'List active skills' },
-  { name: '/diag', category: 'Inspect', description: 'Runtime diagnostics (provider, tools, features, mode, usage)' },
-  { name: '/stats', category: 'Inspect', description: 'Session stats: tokens, cache hit ratio, cost, elapsed' },
-  { name: '/save', category: 'Session', description: 'Force-flush the session (auto-saved already)' },
+  {
+    name: '/diag',
+    category: 'Inspect',
+    description: 'Runtime diagnostics (provider, tools, features, mode, usage)',
+  },
+  {
+    name: '/stats',
+    category: 'Inspect',
+    description: 'Session stats: tokens, cache hit ratio, cost, elapsed',
+  },
+  {
+    name: '/save',
+    category: 'Session',
+    description: 'Force-flush the session (auto-saved already)',
+  },
   { name: '/abort', category: 'Run', aliases: ['/stop'], description: 'Abort the current run' },
-  { name: '/settings', category: 'App', aliases: ['/model'], description: 'Open settings (provider/model/keys)' },
+  {
+    name: '/settings',
+    category: 'App',
+    aliases: ['/model'],
+    description: 'Open settings (provider/model/keys)',
+  },
 ];
 
 const SLASH_CATEGORY_ORDER: SlashCategory[] = ['Run', 'Session', 'Inspect', 'App'];
@@ -82,9 +128,7 @@ function matchSlash(query: string): SlashCommandDef[] {
   const q = query.toLowerCase();
   if (q === '/' || q === '') return SLASH_COMMANDS;
   return SLASH_COMMANDS.filter(
-    (c) =>
-      c.name.startsWith(q) ||
-      (c.aliases?.some((a) => a.startsWith(q)) ?? false),
+    (c) => c.name.startsWith(q) || (c.aliases?.some((a) => a.startsWith(q)) ?? false),
   );
 }
 
@@ -199,7 +243,8 @@ export function ChatInput() {
           if (list.length === 0) {
             addMessage({
               role: 'assistant',
-              content: '✅ **Todos** — _empty. Ask the agent to plan something and they\'ll show up here._',
+              content:
+                "✅ **Todos** — _empty. Ask the agent to plan something and they'll show up here._",
             });
             return true;
           }
@@ -210,8 +255,7 @@ export function ChatInput() {
           for (const t of list) {
             const mark =
               t.status === 'completed' ? '[x]' : t.status === 'in_progress' ? '[~]' : '[ ]';
-            const text =
-              t.status === 'in_progress' && t.activeForm ? t.activeForm : t.content;
+            const text = t.status === 'in_progress' && t.activeForm ? t.activeForm : t.content;
             lines.push(`- ${mark} ${text}`);
           }
           lines.push('', '_Use `/todos clear` to wipe the list._');
@@ -240,8 +284,7 @@ export function ChatInput() {
 
   // Suggest slash commands as the user types. Only when the buffer is
   // exactly a slash command head — `/foo bar` shouldn't open the popup.
-  const slashSuggestions =
-    input.startsWith('/') && !input.includes(' ') ? matchSlash(input) : [];
+  const slashSuggestions = input.startsWith('/') && !input.includes(' ') ? matchSlash(input) : [];
 
   // Reset the highlight when the visible list changes so ↑/↓ always starts
   // from the top of the new matches.
@@ -249,45 +292,58 @@ export function ChatInput() {
     if (slashIndex >= slashSuggestions.length) setSlashIndex(0);
   }, [slashSuggestions.length, slashIndex]);
 
-  const handleSubmit = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim()) return;
+  const handleSubmit = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!input.trim()) return;
 
-    const content = input.trim();
+      const content = input.trim();
 
-    if (content.startsWith('/') && runSlashCommand(content)) {
-      pushPrompt(content);
+      if (content.startsWith('/') && runSlashCommand(content)) {
+        pushPrompt(content);
+        setInput('');
+        setHistoryIdx(-1);
+        return;
+      }
+
       setInput('');
       setHistoryIdx(-1);
-      return;
-    }
+      pushPrompt(content);
 
-    setInput('');
-    setHistoryIdx(-1);
-    pushPrompt(content);
-
-    // If the agent is still running, queue the follow-up instead of
-    // dropping it. The run.result handler in useWebSocket drains the
-    // queue one message at a time. We also enable the textarea while
-    // running so this code path is reachable.
-    if (isLoading) {
-      enqueue(content);
-      return;
-    }
-
-    try {
-      if (client?.isConnected) {
-        addMessage({ role: 'user', content });
-        setLoading(true);
-        sendMessage(content);
-      } else {
-        console.error('WebSocket not connected');
+      // If the agent is still running, queue the follow-up instead of
+      // dropping it. The run.result handler in useWebSocket drains the
+      // queue one message at a time. We also enable the textarea while
+      // running so this code path is reachable.
+      if (isLoading) {
+        enqueue(content);
+        return;
       }
-    } catch (err) {
-      console.error('Failed to send:', err);
-      setLoading(false);
-    }
-  }, [input, isLoading, enqueue, client, sendMessage, setLoading, addMessage, runSlashCommand, pushPrompt]);
+
+      try {
+        if (client?.isConnected) {
+          addMessage({ role: 'user', content });
+          setLoading(true);
+          sendMessage(content);
+        } else {
+          console.error('WebSocket not connected');
+        }
+      } catch (err) {
+        console.error('Failed to send:', err);
+        setLoading(false);
+      }
+    },
+    [
+      input,
+      isLoading,
+      enqueue,
+      client,
+      sendMessage,
+      setLoading,
+      addMessage,
+      runSlashCommand,
+      pushPrompt,
+    ],
+  );
 
   const handleAbort = useCallback(() => {
     sendAbort();
@@ -382,9 +438,7 @@ export function ChatInput() {
       }
       if (e.key === 'ArrowUp') {
         e.preventDefault();
-        setSlashIndex(
-          (i) => (i - 1 + slashSuggestions.length) % slashSuggestions.length,
-        );
+        setSlashIndex((i) => (i - 1 + slashSuggestions.length) % slashSuggestions.length);
         return;
       }
       if (e.key === 'Tab') {
@@ -436,9 +490,10 @@ export function ChatInput() {
       {pasteHint && (
         <div className="rounded-md border border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-300 px-2.5 py-1.5 text-xs flex items-center justify-between gap-2 animate-message">
           <span>
-            Pasted <span className="font-mono tabular-nums">{pasteHint.chars.toLocaleString()}</span> chars
-            (<span className="font-mono tabular-nums">{pasteHint.lines}</span> lines) — fenced code blocks render best with{' '}
-            <span className="font-mono">```</span>.
+            Pasted{' '}
+            <span className="font-mono tabular-nums">{pasteHint.chars.toLocaleString()}</span> chars
+            (<span className="font-mono tabular-nums">{pasteHint.lines}</span> lines) — fenced code
+            blocks render best with <span className="font-mono">```</span>.
           </span>
           <button
             type="button"
@@ -488,300 +543,302 @@ export function ChatInput() {
         </div>
       )}
 
-    <form
-      onSubmit={handleSubmit}
-      onDragEnter={(e) => {
-        // Only react to drags carrying files — text/uri-list drags from
-        // other parts of the page shouldn't trip the overlay.
-        if (!e.dataTransfer || !Array.from(e.dataTransfer.types).includes('Files')) return;
-        e.preventDefault();
-        setDraggingOver(true);
-      }}
-      onDragOver={(e) => {
-        if (!e.dataTransfer || !Array.from(e.dataTransfer.types).includes('Files')) return;
-        // preventDefault on dragover is what makes the area a valid drop
-        // target — without it the browser navigates to the file instead.
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'copy';
-      }}
-      onDragLeave={(e) => {
-        // dragleave fires when crossing child boundaries too; only clear if
-        // the cursor genuinely left the form (relatedTarget outside or null).
-        if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
-        setDraggingOver(false);
-      }}
-      onDrop={(e) => {
-        if (!e.dataTransfer) return;
-        const files = Array.from(e.dataTransfer.files ?? []);
-        if (files.length === 0) {
+      <form
+        onSubmit={handleSubmit}
+        onDragEnter={(e) => {
+          // Only react to drags carrying files — text/uri-list drags from
+          // other parts of the page shouldn't trip the overlay.
+          if (!e.dataTransfer || !Array.from(e.dataTransfer.types).includes('Files')) return;
+          e.preventDefault();
+          setDraggingOver(true);
+        }}
+        onDragOver={(e) => {
+          if (!e.dataTransfer || !Array.from(e.dataTransfer.types).includes('Files')) return;
+          // preventDefault on dragover is what makes the area a valid drop
+          // target — without it the browser navigates to the file instead.
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+        }}
+        onDragLeave={(e) => {
+          // dragleave fires when crossing child boundaries too; only clear if
+          // the cursor genuinely left the form (relatedTarget outside or null).
+          if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
           setDraggingOver(false);
-          return;
-        }
-        e.preventDefault();
-        setDraggingOver(false);
-        // Insert `@<filename>` per dropped file at the current cursor, with
-        // spaces between them. Browsers strip the full path for security, so
-        // we use the basename only — the FilePicker (opened by setting
-        // atMention to the last inserted handle) will resolve it against
-        // the workspace tree.
-        const ta = textareaRef.current;
-        const insertPos = ta?.selectionStart ?? input.length;
-        const before = input.slice(0, insertPos);
-        const after = input.slice(insertPos);
-        const needsLeadingSpace = before.length > 0 && !/\s$/.test(before);
-        const lead = needsLeadingSpace ? ' ' : '';
-        const tokens = files.map((f) => `@${f.name}`);
-        const joined = tokens.join(' ');
-        // Trailing space only when there isn't already one — keeps the
-        // cursor neatly between insert and following text.
-        const needsTrailingSpace = after.length === 0 || !/^\s/.test(after);
-        const trail = needsTrailingSpace ? ' ' : '';
-        const insertion = `${lead}${joined}${trail}`;
-        const next = before + insertion + after;
-        setInput(next);
-        // Open the FilePicker against the LAST dropped basename so the user
-        // can replace the basename with the correctly-resolved workspace
-        // path. Position the @-mention start at the `@` of the last token.
-        const lastTokenStart =
-          before.length + lead.length + tokens.slice(0, -1).join(' ').length +
-          (tokens.length > 1 ? 1 : 0);
-        const lastBasename = files[files.length - 1]!.name;
-        requestAnimationFrame(() => {
-          if (ta) {
-            const cur = before.length + insertion.length - trail.length;
-            ta.focus();
-            ta.setSelectionRange(cur, cur);
-            ta.style.height = 'auto';
-            ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+        }}
+        onDrop={(e) => {
+          if (!e.dataTransfer) return;
+          const files = Array.from(e.dataTransfer.files ?? []);
+          if (files.length === 0) {
+            setDraggingOver(false);
+            return;
           }
-          setAtMention({ start: lastTokenStart, query: lastBasename });
-        });
-      }}
-      className={cn(
-        'flex items-end gap-2 relative rounded-lg transition-colors',
-        draggingOver && 'ring-2 ring-primary ring-offset-2 ring-offset-background bg-primary/5',
-      )}
-    >
-      {draggingOver && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none rounded-lg bg-primary/10 text-primary text-sm font-medium">
-          Drop file{`(s)`} to attach as @-mention
-        </div>
-      )}
-      <div className="relative flex-1">
-        {/* @-mention file picker — takes priority over the slash popup
-            since `@` and `/` can't both be active at the cursor. */}
-        {atMention && (
-          <FilePicker
-            query={atMention.query}
-            onClose={() => setAtMention(null)}
-            onPick={(p) => {
-              // Replace the partial `@query` with `@<path> `, then move
-              // the cursor after the inserted space so typing continues
-              // naturally.
-              const before = input.slice(0, atMention.start);
-              const after = input.slice(
-                atMention.start + 1 + atMention.query.length,
-              );
-              const inserted = `@${p} `;
-              const next = before + inserted + after;
-              setInput(next);
-              setAtMention(null);
-              requestAnimationFrame(() => {
-                const ta = textareaRef.current;
-                if (ta) {
-                  const pos = before.length + inserted.length;
-                  ta.focus();
-                  ta.setSelectionRange(pos, pos);
-                  ta.style.height = 'auto';
-                  ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
-                }
-              });
-            }}
-          />
-        )}
-
-        {/* Slash command popup — descriptions inline, ↑/↓ to select, Tab to
-            autocomplete, Enter to dispatch directly. Click also works. */}
-        {!atMention && slashSuggestions.length > 0 && (() => {
-          // Bucket the suggestions by category and preserve the global
-          // index across categories — the keyboard navigation (↑/↓) tracks
-          // a flat index, so each rendered row needs to map back to its
-          // position in the un-grouped `slashSuggestions` array.
-          const byCategory: Record<string, Array<{ cmd: SlashCommandDef; idx: number }>> = {};
-          slashSuggestions.forEach((cmd, idx) => {
-            (byCategory[cmd.category] ??= []).push({ cmd, idx });
+          e.preventDefault();
+          setDraggingOver(false);
+          // Insert `@<filename>` per dropped file at the current cursor, with
+          // spaces between them. Browsers strip the full path for security, so
+          // we use the basename only — the FilePicker (opened by setting
+          // atMention to the last inserted handle) will resolve it against
+          // the workspace tree.
+          const ta = textareaRef.current;
+          const insertPos = ta?.selectionStart ?? input.length;
+          const before = input.slice(0, insertPos);
+          const after = input.slice(insertPos);
+          const needsLeadingSpace = before.length > 0 && !/\s$/.test(before);
+          const lead = needsLeadingSpace ? ' ' : '';
+          const tokens = files.map((f) => `@${f.name}`);
+          const joined = tokens.join(' ');
+          // Trailing space only when there isn't already one — keeps the
+          // cursor neatly between insert and following text.
+          const needsTrailingSpace = after.length === 0 || !/^\s/.test(after);
+          const trail = needsTrailingSpace ? ' ' : '';
+          const insertion = `${lead}${joined}${trail}`;
+          const next = before + insertion + after;
+          setInput(next);
+          // Open the FilePicker against the LAST dropped basename so the user
+          // can replace the basename with the correctly-resolved workspace
+          // path. Position the @-mention start at the `@` of the last token.
+          const lastTokenStart =
+            before.length +
+            lead.length +
+            tokens.slice(0, -1).join(' ').length +
+            (tokens.length > 1 ? 1 : 0);
+          const lastBasename = files[files.length - 1]!.name;
+          requestAnimationFrame(() => {
+            if (ta) {
+              const cur = before.length + insertion.length - trail.length;
+              ta.focus();
+              ta.setSelectionRange(cur, cur);
+              ta.style.height = 'auto';
+              ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+            }
+            setAtMention({ start: lastTokenStart, query: lastBasename });
           });
-          const orderedCategories = SLASH_CATEGORY_ORDER.filter((c) => byCategory[c]?.length);
-          return (
-            <div className="absolute bottom-full left-0 right-0 mb-2 rounded-lg border bg-popover shadow-md p-1 text-sm max-h-72 overflow-auto">
-              <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-muted-foreground border-b mb-1">
-                ↑/↓ select · Tab complete · Enter dispatch · Esc dismiss
-              </div>
-              {orderedCategories.map((cat) => (
-                <div key={cat} className="mb-1">
-                  <div className="px-3 pt-1 pb-0.5 text-[10px] uppercase tracking-wider text-muted-foreground/70 font-semibold">
-                    {cat}
+        }}
+        className={cn(
+          'flex items-end gap-2 relative rounded-lg transition-colors',
+          draggingOver && 'ring-2 ring-primary ring-offset-2 ring-offset-background bg-primary/5',
+        )}
+      >
+        {draggingOver && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none rounded-lg bg-primary/10 text-primary text-sm font-medium">
+            Drop file{`(s)`} to attach as @-mention
+          </div>
+        )}
+        <div className="relative flex-1">
+          {/* @-mention file picker — takes priority over the slash popup
+            since `@` and `/` can't both be active at the cursor. */}
+          {atMention && (
+            <FilePicker
+              query={atMention.query}
+              onClose={() => setAtMention(null)}
+              onPick={(p) => {
+                // Replace the partial `@query` with `@<path> `, then move
+                // the cursor after the inserted space so typing continues
+                // naturally.
+                const before = input.slice(0, atMention.start);
+                const after = input.slice(atMention.start + 1 + atMention.query.length);
+                const inserted = `@${p} `;
+                const next = before + inserted + after;
+                setInput(next);
+                setAtMention(null);
+                requestAnimationFrame(() => {
+                  const ta = textareaRef.current;
+                  if (ta) {
+                    const pos = before.length + inserted.length;
+                    ta.focus();
+                    ta.setSelectionRange(pos, pos);
+                    ta.style.height = 'auto';
+                    ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+                  }
+                });
+              }}
+            />
+          )}
+
+          {/* Slash command popup — descriptions inline, ↑/↓ to select, Tab to
+            autocomplete, Enter to dispatch directly. Click also works. */}
+          {!atMention &&
+            slashSuggestions.length > 0 &&
+            (() => {
+              // Bucket the suggestions by category and preserve the global
+              // index across categories — the keyboard navigation (↑/↓) tracks
+              // a flat index, so each rendered row needs to map back to its
+              // position in the un-grouped `slashSuggestions` array.
+              const byCategory: Record<string, Array<{ cmd: SlashCommandDef; idx: number }>> = {};
+              slashSuggestions.forEach((cmd, idx) => {
+                (byCategory[cmd.category] ??= []).push({ cmd, idx });
+              });
+              const orderedCategories = SLASH_CATEGORY_ORDER.filter((c) => byCategory[c]?.length);
+              return (
+                <div className="absolute bottom-full left-0 right-0 mb-2 rounded-lg border bg-popover shadow-md p-1 text-sm max-h-72 overflow-auto">
+                  <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-muted-foreground border-b mb-1">
+                    ↑/↓ select · Tab complete · Enter dispatch · Esc dismiss
                   </div>
-                  {byCategory[cat]!.map(({ cmd, idx }) => (
-                    <button
-                      type="button"
-                      key={cmd.name}
-                      onClick={() => {
-                        setInput('');
-                        runSlashCommand(cmd.name);
-                      }}
-                      onMouseEnter={() => setSlashIndex(idx)}
-                      className={cn(
-                        'w-full text-left px-3 py-1.5 rounded transition-colors flex items-center gap-3',
-                        idx === slashIndex
-                          ? 'bg-accent text-accent-foreground'
-                          : 'hover:bg-accent/40',
-                      )}
-                    >
-                      <span className="font-mono shrink-0">{cmd.name}</span>
-                      {cmd.aliases?.length ? (
-                        <span className="text-xs text-muted-foreground/70 font-mono shrink-0">
-                          ({cmd.aliases.join(', ')})
-                        </span>
-                      ) : null}
-                      <span className="text-xs text-muted-foreground truncate">
-                        — {cmd.description}
-                      </span>
-                    </button>
+                  {orderedCategories.map((cat) => (
+                    <div key={cat} className="mb-1">
+                      <div className="px-3 pt-1 pb-0.5 text-[10px] uppercase tracking-wider text-muted-foreground/70 font-semibold">
+                        {cat}
+                      </div>
+                      {byCategory[cat]!.map(({ cmd, idx }) => (
+                        <button
+                          type="button"
+                          key={cmd.name}
+                          onClick={() => {
+                            setInput('');
+                            runSlashCommand(cmd.name);
+                          }}
+                          onMouseEnter={() => setSlashIndex(idx)}
+                          className={cn(
+                            'w-full text-left px-3 py-1.5 rounded transition-colors flex items-center gap-3',
+                            idx === slashIndex
+                              ? 'bg-accent text-accent-foreground'
+                              : 'hover:bg-accent/40',
+                          )}
+                        >
+                          <span className="font-mono shrink-0">{cmd.name}</span>
+                          {cmd.aliases?.length ? (
+                            <span className="text-xs text-muted-foreground/70 font-mono shrink-0">
+                              ({cmd.aliases.join(', ')})
+                            </span>
+                          ) : null}
+                          <span className="text-xs text-muted-foreground truncate">
+                            — {cmd.description}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
                   ))}
                 </div>
-              ))}
-            </div>
-          );
-        })()}
-        <textarea
-          ref={textareaRef}
-          value={input}
-          onChange={(e) => {
-            const v = e.target.value;
-            setInput(v);
-            adjustTextareaHeight();
-            // Manual typing drops us out of history mode so the next
-            // Enter sends the user's edits, not a stale history entry.
-            if (historyIdx >= 0) setHistoryIdx(-1);
-            // Detect / refresh @-mention based on cursor position.
-            const cur = e.target.selectionStart ?? v.length;
-            setAtMention(detectAtMention(v, cur));
-          }}
-          onSelect={(e) => {
-            const ta = e.currentTarget;
-            setAtMention(detectAtMention(ta.value, ta.selectionStart));
-          }}
-          onKeyDown={handleKeyDown}
-          onPaste={(e) => {
-            // Surface a tiny hint when the user drops a chunky payload —
-            // helps them realize they pasted the wrong thing (e.g. an
-            // entire file when they meant a snippet). 4-second TTL.
-            const text = e.clipboardData?.getData('text') ?? '';
-            if (text.length > 800) {
-              const lines = text.split('\n').length;
-              setPasteHint({ chars: text.length, lines });
-              setTimeout(() => setPasteHint(null), 4000);
+              );
+            })()}
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={(e) => {
+              const v = e.target.value;
+              setInput(v);
+              adjustTextareaHeight();
+              // Manual typing drops us out of history mode so the next
+              // Enter sends the user's edits, not a stale history entry.
+              if (historyIdx >= 0) setHistoryIdx(-1);
+              // Detect / refresh @-mention based on cursor position.
+              const cur = e.target.selectionStart ?? v.length;
+              setAtMention(detectAtMention(v, cur));
+            }}
+            onSelect={(e) => {
+              const ta = e.currentTarget;
+              setAtMention(detectAtMention(ta.value, ta.selectionStart));
+            }}
+            onKeyDown={handleKeyDown}
+            onPaste={(e) => {
+              // Surface a tiny hint when the user drops a chunky payload —
+              // helps them realize they pasted the wrong thing (e.g. an
+              // entire file when they meant a snippet). 4-second TTL.
+              const text = e.clipboardData?.getData('text') ?? '';
+              if (text.length > 800) {
+                const lines = text.split('\n').length;
+                setPasteHint({ chars: text.length, lines });
+                setTimeout(() => setPasteHint(null), 4000);
+              }
+            }}
+            placeholder={
+              !client?.isConnected
+                ? 'Connect to server first…'
+                : isLoading
+                  ? 'Agent is running — type to queue a follow-up…'
+                  : 'Message WrongStack… (type / for commands, @ for files)'
             }
-          }}
-          placeholder={
-            !client?.isConnected
-              ? 'Connect to server first…'
-              : isLoading
-                ? 'Agent is running — type to queue a follow-up…'
-                : 'Message WrongStack… (type / for commands, @ for files)'
-          }
-          className={cn(
-            'flex min-h-[44px] w-full resize-none rounded-lg border border-input bg-background px-4 py-3 pr-12',
-            'text-sm ring-offset-background placeholder:text-muted-foreground',
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-            'disabled:cursor-not-allowed disabled:opacity-50',
-            'scrollbar-thin'
+            className={cn(
+              'flex min-h-[44px] w-full resize-none rounded-lg border border-input bg-background px-4 py-3 pr-12',
+              'text-sm ring-offset-background placeholder:text-muted-foreground',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+              'disabled:cursor-not-allowed disabled:opacity-50',
+              'scrollbar-thin',
+            )}
+            rows={1}
+            disabled={!client?.isConnected}
+          />
+
+          {input.length > 0 &&
+            (() => {
+              // Hide the token estimate until the draft is non-trivial — small
+              // messages aren't worth a context warning, and the chip would
+              // otherwise just flicker as the user types each character.
+              const showTokens = input.length >= 400;
+              const estTokens = Math.ceil(input.length / 4);
+              // Project the next request's context usage: last sent + draft +
+              // small overhead. If that crosses 85% of the configured window,
+              // tint amber; past 100% turns red. Falls through to muted when
+              // we don't have the window size yet (e.g. before first request).
+              let tone = 'text-muted-foreground';
+              let title: string | undefined;
+              if (maxContext > 0 && showTokens) {
+                const projected = lastInputTokens + estTokens + 64;
+                const pct = (projected / maxContext) * 100;
+                if (pct >= 100) {
+                  tone = 'text-red-600 dark:text-red-400 font-medium';
+                  title = `Projected ${Math.round(pct)}% of ${maxContext.toLocaleString()} ctx — will likely error or compact.`;
+                } else if (pct >= 85) {
+                  tone = 'text-amber-600 dark:text-amber-400 font-medium';
+                  title = `Projected ${Math.round(pct)}% of ${maxContext.toLocaleString()} ctx — getting tight.`;
+                } else {
+                  title = `≈ ${estTokens.toLocaleString()} tokens · projected ${Math.round(pct)}% of ${maxContext.toLocaleString()} ctx.`;
+                }
+              } else if (showTokens) {
+                title = `≈ ${estTokens.toLocaleString()} tokens (4-char heuristic)`;
+              }
+              return (
+                <span
+                  className={cn('absolute bottom-1.5 right-12 text-xs tabular-nums', tone)}
+                  title={title}
+                >
+                  {input.length}
+                  {showTokens && (
+                    <span className="ml-1 opacity-70">
+                      · ≈{estTokens >= 1000 ? `${(estTokens / 1000).toFixed(1)}k` : estTokens}t
+                    </span>
+                  )}
+                </span>
+              );
+            })()}
+        </div>
+
+        <div className="flex gap-1">
+          {isLoading ? (
+            <>
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                onClick={handleStopAndEdit}
+                className="h-[44px] w-[44px] rounded-lg"
+                title="Stop run and edit the last prompt (reuse + rewrite)"
+              >
+                <Pencil className="h-4 w-4" />
+              </Button>
+              <Button
+                type="button"
+                size="icon"
+                variant="destructive"
+                onClick={handleAbort}
+                className="h-[44px] w-[44px] rounded-lg"
+                title="Abort the current run"
+              >
+                <Square className="h-4 w-4 fill-current" />
+              </Button>
+            </>
+          ) : (
+            <Button
+              type="submit"
+              size="icon"
+              disabled={!input.trim() || !client?.isConnected}
+              className="h-[44px] w-[44px] rounded-lg"
+            >
+              <Send className="h-4 w-4" />
+            </Button>
           )}
-          rows={1}
-          disabled={!client?.isConnected}
-        />
-
-        {input.length > 0 && (() => {
-          // Hide the token estimate until the draft is non-trivial — small
-          // messages aren't worth a context warning, and the chip would
-          // otherwise just flicker as the user types each character.
-          const showTokens = input.length >= 400;
-          const estTokens = Math.ceil(input.length / 4);
-          // Project the next request's context usage: last sent + draft +
-          // small overhead. If that crosses 85% of the configured window,
-          // tint amber; past 100% turns red. Falls through to muted when
-          // we don't have the window size yet (e.g. before first request).
-          let tone = 'text-muted-foreground';
-          let title: string | undefined;
-          if (maxContext > 0 && showTokens) {
-            const projected = lastInputTokens + estTokens + 64;
-            const pct = (projected / maxContext) * 100;
-            if (pct >= 100) {
-              tone = 'text-red-600 dark:text-red-400 font-medium';
-              title = `Projected ${Math.round(pct)}% of ${maxContext.toLocaleString()} ctx — will likely error or compact.`;
-            } else if (pct >= 85) {
-              tone = 'text-amber-600 dark:text-amber-400 font-medium';
-              title = `Projected ${Math.round(pct)}% of ${maxContext.toLocaleString()} ctx — getting tight.`;
-            } else {
-              title = `≈ ${estTokens.toLocaleString()} tokens · projected ${Math.round(pct)}% of ${maxContext.toLocaleString()} ctx.`;
-            }
-          } else if (showTokens) {
-            title = `≈ ${estTokens.toLocaleString()} tokens (4-char heuristic)`;
-          }
-          return (
-            <span
-              className={cn(
-                'absolute bottom-1.5 right-12 text-xs tabular-nums',
-                tone,
-              )}
-              title={title}
-            >
-              {input.length}
-              {showTokens && (
-                <span className="ml-1 opacity-70">· ≈{estTokens >= 1000 ? `${(estTokens / 1000).toFixed(1)}k` : estTokens}t</span>
-              )}
-            </span>
-          );
-        })()}
-      </div>
-
-      <div className="flex gap-1">
-        {isLoading ? (
-          <>
-            <Button
-              type="button"
-              size="icon"
-              variant="outline"
-              onClick={handleStopAndEdit}
-              className="h-[44px] w-[44px] rounded-lg"
-              title="Stop run and edit the last prompt (reuse + rewrite)"
-            >
-              <Pencil className="h-4 w-4" />
-            </Button>
-            <Button
-              type="button"
-              size="icon"
-              variant="destructive"
-              onClick={handleAbort}
-              className="h-[44px] w-[44px] rounded-lg"
-              title="Abort the current run"
-            >
-              <Square className="h-4 w-4 fill-current" />
-            </Button>
-          </>
-        ) : (
-          <Button
-            type="submit"
-            size="icon"
-            disabled={!input.trim() || !client?.isConnected}
-            className="h-[44px] w-[44px] rounded-lg"
-          >
-            <Send className="h-4 w-4" />
-          </Button>
-        )}
-      </div>
-    </form>
+        </div>
+      </form>
     </div>
   );
 }

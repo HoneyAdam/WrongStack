@@ -15,7 +15,12 @@ export const CLIENT_CAPABILITIES: InitializeParams['capabilities'] = {
     executeCommand: { dynamicRegistration: false },
   },
   textDocument: {
-    synchronization: { didSave: false, dynamicRegistration: false, willSave: false, willSaveWaitUntil: false },
+    synchronization: {
+      didSave: false,
+      dynamicRegistration: false,
+      willSave: false,
+      willSaveWaitUntil: false,
+    },
     diagnostic: { dynamicRegistration: false },
     definition: { linkSupport: true },
     references: {},
@@ -41,9 +46,22 @@ export async function initializeServer(
     rootUri,
     capabilities: CLIENT_CAPABILITIES,
     initializationOptions: serverCfg.initializationOptions,
-    workspaceFolders: [{ uri: rootUri, name: rootPath.split(/[\\/]/).pop() /* v8 ignore next */ ?? rootPath }],
+    workspaceFolders: [
+      {
+        uri: rootUri,
+        name:
+          rootPath
+            .split(/[\\/]/)
+            .pop() /* v8 ignore next */ ?? rootPath,
+      },
+    ],
   };
-  const result = await connection.sendRequest<InitializeResult>('initialize', params, timeoutMs, signal);
+  const result = await connection.sendRequest<InitializeResult>(
+    'initialize',
+    params,
+    timeoutMs,
+    signal,
+  );
   connection.sendNotification('initialized', {});
   return result.capabilities;
 }

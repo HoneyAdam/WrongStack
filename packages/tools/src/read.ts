@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises';
 import type { Tool } from '@wrongstack/core';
-import { safeResolve, isBinaryBuffer } from './_util.js';
+import { isBinaryBuffer, safeResolve } from './_util.js';
 
 interface ReadInput {
   path: string;

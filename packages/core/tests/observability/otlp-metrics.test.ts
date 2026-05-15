@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { InMemoryMetricsSink } from '../../src/defaults/observability/metrics.js';
+import { InMemoryMetricsSink } from '../../src/observability/metrics.js';
 import {
   buildOtlpMetricsRequest,
   startOtlpMetricsExporter,
-} from '../../src/defaults/observability/otlp-metrics.js';
+} from '../../src/observability/otlp-metrics.js';
 
 /**
  * V2-A: OTLP/JSON push adapter. We don't have a live OTLP receiver in CI,

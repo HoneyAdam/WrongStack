@@ -39,7 +39,9 @@ export function formatDiagnostics(
     files++;
     total += filtered.length;
     const lines = filtered.map((d) => formatDiagnostic(d));
-    sections.push(`${displayPath(file, opts.cwd)} (${filtered.length}):\n${lines.map((l) => `  ${l}`).join('\n')}`);
+    sections.push(
+      `${displayPath(file, opts.cwd)} (${filtered.length}):\n${lines.map((l) => `  ${l}`).join('\n')}`,
+    );
     if (total >= opts.maxTotal) break;
   }
   if (sections.length === 0) return 'No LSP diagnostics.';
@@ -55,7 +57,9 @@ function formatDiagnostic(d: Diagnostic): string {
 }
 
 function compareDiagnostics(a: Diagnostic, b: Diagnostic): number {
-  return (a.severity ?? 1) - (b.severity ?? 1)
-    || a.range.start.line - b.range.start.line
-    || a.range.start.character - b.range.start.character;
+  return (
+    (a.severity ?? 1) - (b.severity ?? 1) ||
+    a.range.start.line - b.range.start.line ||
+    a.range.start.character - b.range.start.character
+  );
 }

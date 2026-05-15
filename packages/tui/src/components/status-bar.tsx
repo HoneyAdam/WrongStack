@@ -1,6 +1,6 @@
-import type React from 'react';
-import { Box, Text } from 'ink';
 import type { TokenCounter } from '@wrongstack/core';
+import { Box, Text } from 'ink';
+import type React from 'react';
 import type { GitInfo } from '../git-info.js';
 
 export interface TodoCounts {
@@ -63,10 +63,8 @@ export function StatusBar({
   const usage = tokenCounter?.total();
   const cost = tokenCounter?.estimateCost();
   const cache = tokenCounter?.cacheStats();
-  const stateColor =
-    state === 'idle' ? 'cyan' : state === 'aborting' ? 'yellow' : 'green';
-  const stateLabel =
-    state === 'idle' ? 'idle' : state === 'aborting' ? 'aborting…' : 'thinking…';
+  const stateColor = state === 'idle' ? 'cyan' : state === 'aborting' ? 'yellow' : 'green';
+  const stateLabel = state === 'idle' ? 'idle' : state === 'aborting' ? 'aborting…' : 'thinking…';
 
   const hasSecondLine =
     yolo ||
@@ -176,7 +174,9 @@ export function StatusBar({
           {subagentCount > 0 ? (
             <>
               <Text dimColor>│</Text>
-              <Text color="blue">🌐 {subagentCount} agent{subagentCount === 1 ? '' : 's'}</Text>
+              <Text color="blue">
+                🌐 {subagentCount} agent{subagentCount === 1 ? '' : 's'}
+              </Text>
             </>
           ) : null}
         </Box>

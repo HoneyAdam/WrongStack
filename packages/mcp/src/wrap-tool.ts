@@ -1,4 +1,4 @@
-import type { Tool, Permission } from '@wrongstack/core';
+import type { Permission, Tool } from '@wrongstack/core';
 import type { MCPClient, MCPTool } from './client.js';
 
 /**

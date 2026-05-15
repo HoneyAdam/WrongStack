@@ -40,9 +40,7 @@ export function contentFromAnthropic(
     if (b.type === 'text' && typeof b.text === 'string') {
       out.push({ type: 'text', text: b.text });
     } else if (b.type === 'tool_use' && b.id && b.name) {
-      const input = isPlainObject(b.input)
-        ? (b.input as Record<string, unknown>)
-        : {};
+      const input = isPlainObject(b.input) ? (b.input as Record<string, unknown>) : {};
       out.push({ type: 'tool_use', id: b.id, name: b.name, input });
     } else if (b.type === 'tool_result' && b.tool_use_id) {
       out.push({
@@ -88,10 +86,7 @@ export function contentFromAnthropic(
  * they should call `contentFromAnthropic` directly on the raw Anthropic block
  * instead of going through a ToolResultBlock.
  */
-function normalizeToolResultContent(
-  raw: unknown,
-  opts: FromAnthropicOptions,
-): string {
+function normalizeToolResultContent(raw: unknown, opts: FromAnthropicOptions): string {
   if (typeof raw === 'string') return raw;
   if (Array.isArray(raw)) {
     // Flatten sub-block structure to a text representation.

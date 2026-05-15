@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { DefaultErrorHandler, ProviderError } from '../../src/index.js';
-import { buildRecoveryStrategies } from '../../src/defaults/error-handler.js';
+import { buildRecoveryStrategies } from '../../src/execution/error-handler.js';
 import type { Context } from '../../src/core/context.js';
 import type { Compactor } from '../../src/types/compactor.js';
 import type { ModelsRegistry } from '../../src/types/models-registry.js';

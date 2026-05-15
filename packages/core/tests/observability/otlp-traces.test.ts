@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import {
   buildOtlpTracesRequest,
   startOtlpTraceExporter,
-} from '../../src/defaults/observability/otlp-traces.js';
+} from '../../src/observability/otlp-traces.js';
 
 /**
  * V2-B: OTLP/JSON traces exporter. The tests exercise:

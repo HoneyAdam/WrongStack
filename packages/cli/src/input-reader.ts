@@ -1,7 +1,7 @@
-import * as readline from 'node:readline';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import * as readline from 'node:readline';
 import type { InputReader, PromptOption } from '@wrongstack/core';
 
 export interface ReadlineInputReaderOptions {

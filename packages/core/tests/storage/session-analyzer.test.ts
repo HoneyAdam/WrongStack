@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SessionAnalyzer } from '../../src/defaults/session-analyzer.js';
+import { SessionAnalyzer } from '../../src/storage/session-analyzer.js';
 
 describe('SessionAnalyzer', () => {
   const analyzer = new SessionAnalyzer();

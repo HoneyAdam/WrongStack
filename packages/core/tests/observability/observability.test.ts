@@ -5,7 +5,7 @@ import {
   NoopTracer,
   DefaultHealthRegistry,
   wireMetricsToEvents,
-} from '../../src/defaults/observability/index.js';
+} from '../../src/observability/index.js';
 import { EventBus } from '../../src/kernel/events.js';
 
 describe('InMemoryMetricsSink', () => {

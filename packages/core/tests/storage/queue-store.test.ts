@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { QueueStore } from '../../src/defaults/queue-store.js';
+import { QueueStore } from '../../src/storage/queue-store.js';
 
 async function mktmp(): Promise<string> {
   return fsp.mkdtemp(path.join(os.tmpdir(), 'wstack-queue-'));

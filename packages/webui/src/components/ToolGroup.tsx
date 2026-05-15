@@ -1,15 +1,8 @@
-import { useState } from 'react';
-import type { ChatMessage } from '@/stores';
-import { MessageBubble } from './MessageBubble';
 import { cn } from '@/lib/utils';
-import {
-  ChevronDown,
-  ChevronRight,
-  Terminal,
-  CheckCircle2,
-  XCircle,
-  Loader2,
-} from 'lucide-react';
+import type { ChatMessage } from '@/stores';
+import { CheckCircle2, ChevronDown, ChevronRight, Loader2, Terminal, XCircle } from 'lucide-react';
+import { useState } from 'react';
+import { MessageBubble } from './MessageBubble';
 
 interface ToolGroupProps {
   /** A run of consecutive tool messages (>=1). Rendered as one chip while
@@ -86,7 +79,8 @@ export function ToolGroup({ tools, defaultOpen = false }: ToolGroupProps) {
           )}
           {preview && (
             <span className="text-xs text-muted-foreground/80 font-mono truncate">
-              · {preview}{more}
+              · {preview}
+              {more}
             </span>
           )}
         </button>

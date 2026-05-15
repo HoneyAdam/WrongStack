@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { loadPlugins } from '../../src/plugin/loader.js';
 import type { Plugin, PluginAPI } from '../../src/types/plugin.js';
-import { DefaultLogger } from '../../src/defaults/logger.js';
+import { DefaultLogger } from '../../src/infrastructure/logger.js';
 import { validateAgainstSchema } from '../../src/utils/json-schema-validate.js';
 
 const fakeApi = {} as PluginAPI;

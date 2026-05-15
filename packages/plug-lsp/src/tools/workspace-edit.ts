@@ -2,8 +2,8 @@ import * as fs from 'node:fs/promises';
 import { atomicWrite } from '@wrongstack/core';
 import type { TextEdit, WorkspaceEdit } from 'vscode-languageserver-protocol';
 import type { DocumentTracker } from '../document-tracker.js';
-import { LSPError, LSPErrorCode } from '../types.js';
 import { editsByPath } from '../formatters/workspace-edit.js';
+import { LSPError, LSPErrorCode } from '../types.js';
 
 export interface ApplyWorkspaceEditResult {
   files: string[];
@@ -46,7 +46,9 @@ export async function applyWorkspaceEdit(
 
 export function applyTextEdits(original: string, edits: TextEdit[]): string {
   const lineStarts = buildLineStarts(original);
-  const sorted = [...edits].sort((a, b) => offsetOf(b.range.start, lineStarts) - offsetOf(a.range.start, lineStarts));
+  const sorted = [...edits].sort(
+    (a, b) => offsetOf(b.range.start, lineStarts) - offsetOf(a.range.start, lineStarts),
+  );
   let out = original;
   for (const edit of sorted) {
     const start = offsetOf(edit.range.start, lineStarts);

@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
-import { Wifi, WifiOff, Loader2, RotateCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getWSClient } from '@/lib/ws-client';
-import { useConfigStore } from '@/stores';
 import type { WsStatus } from '@/lib/ws-client';
+import { useConfigStore } from '@/stores';
+import { Loader2, RotateCcw, Wifi, WifiOff } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 interface Props {
   wsStatus: WsStatus;

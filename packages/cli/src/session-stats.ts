@@ -103,7 +103,9 @@ export class SessionStats {
       lines.push(`  Errors:        ${color.yellow(String(this.errors))}`);
     }
     lines.push('');
-    lines.push(`  Tokens:        in ${fmtTok(u.input)}   out ${fmtTok(u.output)}${u.cacheRead ? `   cacheR ${fmtTok(u.cacheRead)}` : ''}${u.cacheWrite ? `   cacheW ${fmtTok(u.cacheWrite)}` : ''}`);
+    lines.push(
+      `  Tokens:        in ${fmtTok(u.input)}   out ${fmtTok(u.output)}${u.cacheRead ? `   cacheR ${fmtTok(u.cacheRead)}` : ''}${u.cacheWrite ? `   cacheW ${fmtTok(u.cacheWrite)}` : ''}`,
+    );
     const cache = this.tokenCounter.cacheStats();
     if (cache.readTokens > 0 || cache.writeTokens > 0) {
       const pct = (cache.hitRatio * 100).toFixed(1);
@@ -112,7 +114,9 @@ export class SessionStats {
       );
     }
     if (cost.total > 0) {
-      lines.push(`  Cost:          $${cost.total.toFixed(4)}${color.dim(` (in $${cost.input.toFixed(4)} / out $${cost.output.toFixed(4)})`)}`);
+      lines.push(
+        `  Cost:          $${cost.total.toFixed(4)}${color.dim(` (in $${cost.input.toFixed(4)} / out $${cost.output.toFixed(4)})`)}`,
+      );
     } else {
       lines.push(`  Cost:          ${color.dim('$0 (no pricing on this plan)')}`);
     }
@@ -121,13 +125,15 @@ export class SessionStats {
       lines.push('');
       lines.push(`  ${color.bold('Tool calls')}`);
       const sorted = [...this.toolStats.entries()].sort(
-        (a, b) => (b[1].ok + b[1].fail) - (a[1].ok + a[1].fail),
+        (a, b) => b[1].ok + b[1].fail - (a[1].ok + a[1].fail),
       );
       for (const [name, s] of sorted) {
         const total = s.ok + s.fail;
         const failPart = s.fail > 0 ? color.yellow(` (${s.fail} failed)`) : '';
         const avgMs = total > 0 ? Math.round(s.totalMs / total) : 0;
-        lines.push(`    ${name.padEnd(12)} ${String(total).padStart(3)}×   ${color.dim(`avg ${avgMs}ms`)}${failPart}`);
+        lines.push(
+          `    ${name.padEnd(12)} ${String(total).padStart(3)}×   ${color.dim(`avg ${avgMs}ms`)}${failPart}`,
+        );
       }
     }
 
@@ -140,13 +146,19 @@ export class SessionStats {
       lines.push('');
       lines.push(`  ${color.bold('Files')}`);
       if (this.readPaths.size > 0)
-        lines.push(`    read:    ${this.readPaths.size}  ${color.dim(samplePaths(this.readPaths))}`);
+        lines.push(
+          `    read:    ${this.readPaths.size}  ${color.dim(samplePaths(this.readPaths))}`,
+        );
       if (this.editedPaths.size > 0)
-        lines.push(`    edited:  ${this.editedPaths.size}  ${color.dim(samplePaths(this.editedPaths))}`);
+        lines.push(
+          `    edited:  ${this.editedPaths.size}  ${color.dim(samplePaths(this.editedPaths))}`,
+        );
       if (this.writtenPaths.size > 0) {
         const bytes = this.bytesWritten;
         const byteStr = bytes > 1024 ? `${(bytes / 1024).toFixed(1)}KB` : `${bytes}B`;
-        lines.push(`    written: ${this.writtenPaths.size}  (${byteStr})  ${color.dim(samplePaths(this.writtenPaths))}`);
+        lines.push(
+          `    written: ${this.writtenPaths.size}  (${byteStr})  ${color.dim(samplePaths(this.writtenPaths))}`,
+        );
       }
     }
 

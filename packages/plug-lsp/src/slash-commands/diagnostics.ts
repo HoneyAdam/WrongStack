@@ -1,6 +1,6 @@
 import type { SlashCommand } from '@wrongstack/core';
-import type { LSPRegistry } from '../registry.js';
 import { formatDiagnostics } from '../formatters/diagnostics.js';
+import type { LSPRegistry } from '../registry.js';
 import { uriToPath } from '../utils/uri.js';
 
 export function diagnosticsCommand(registry: LSPRegistry): SlashCommand {

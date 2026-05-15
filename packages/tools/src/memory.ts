@@ -1,4 +1,4 @@
-import type { Tool, MemoryScope, MemoryStore } from '@wrongstack/core';
+import type { MemoryScope, MemoryStore, Tool } from '@wrongstack/core';
 
 interface RememberInput {
   text: string;

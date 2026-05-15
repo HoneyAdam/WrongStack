@@ -3,13 +3,13 @@
  * as `OpenAIProvider`; the per-message body is the loop body of
  * `parseOpenAIStream` split into a stateful step.
  */
-import type { Request, StreamEvent, StopReason, Usage } from '@wrongstack/core';
+import type { Request, StopReason, StreamEvent, Usage } from '@wrongstack/core';
 import { safeParse } from '@wrongstack/core';
 import { parseToolInput } from '../_tool-input.js';
-import { messagesToOpenAI, toolsToOpenAI } from '../tool-format/to-openai.js';
-import { normalizeOpenAI } from '../stop-reason.js';
-import { defineWireFormat } from '../wire-format.js';
 import { capabilitiesForFamily } from '../family-capabilities.js';
+import { normalizeOpenAI } from '../stop-reason.js';
+import { messagesToOpenAI, toolsToOpenAI } from '../tool-format/to-openai.js';
+import { defineWireFormat } from '../wire-format.js';
 
 interface OpenAIStreamState {
   model: string;
@@ -83,19 +83,21 @@ export const openaiWireFormat = defineWireFormat<OpenAIStreamState>({
       out.push({ type: 'message_start', model: state.model });
     }
 
-    const choices = obj['choices'] as Array<{
-      delta?: {
-        content?: string | null;
-        reasoning_content?: string;
-        reasoning?: string;
-        tool_calls?: Array<{
-          index?: number;
-          id?: string;
-          function?: { name?: string; arguments?: string };
-        }>;
-      };
-      finish_reason?: string | null;
-    }> | undefined;
+    const choices = obj['choices'] as
+      | Array<{
+          delta?: {
+            content?: string | null;
+            reasoning_content?: string;
+            reasoning?: string;
+            tool_calls?: Array<{
+              index?: number;
+              id?: string;
+              function?: { name?: string; arguments?: string };
+            }>;
+          };
+          finish_reason?: string | null;
+        }>
+      | undefined;
     const choice = choices?.[0];
 
     // DeepSeek (and Moonshot/Kimi thinking mode, OpenRouter `reasoning`)

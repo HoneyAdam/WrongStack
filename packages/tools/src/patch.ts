@@ -1,6 +1,6 @@
+import { spawn } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { spawn } from 'node:child_process';
 import type { Tool } from '@wrongstack/core';
 import { safeResolve } from './_util.js';
 
@@ -21,8 +21,7 @@ interface PatchOutput {
 
 export const patchTool: Tool<PatchInput, PatchOutput> = {
   name: 'patch',
-  description:
-    'Apply a unified diff patch to files. Writes .orig and .rej files on failure.',
+  description: 'Apply a unified diff patch to files. Writes .orig and .rej files on failure.',
   usageHint:
     'Set `patch` (the diff text). `directory` defaults to cwd. `strip` removes leading path components. `dry_run` previews.',
   permission: 'confirm',
@@ -72,16 +71,13 @@ export const patchTool: Tool<PatchInput, PatchOutput> = {
     // symlink-bait races on shared work trees.
     const tmpDir = await fs.mkdtemp(path.join(dir, '.wstack_patch_'));
     try {
-      await fs.chmod(tmpDir, 0o700).catch(() => { /* best-effort on Windows */ });
+      await fs.chmod(tmpDir, 0o700).catch(() => {
+        /* best-effort on Windows */
+      });
       const patchFile = path.join(tmpDir, 'in.diff');
       await fs.writeFile(patchFile, input.patch, { mode: 0o600 });
 
-      const args = [
-        `-p${strip}`,
-        '--merge',
-        ...(dryRun ? ['--dry-run'] : []),
-        '-i', patchFile,
-      ];
+      const args = [`-p${strip}`, '--merge', ...(dryRun ? ['--dry-run'] : []), '-i', patchFile];
 
       const result = await runPatch(args, dir, opts.signal);
 
@@ -133,7 +129,11 @@ function stripPathComponents(p: string, strip: number): string | undefined {
   return parts.slice(strip).join('/');
 }
 
-function runPatch(args: string[], cwd: string, signal: AbortSignal): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+function runPatch(
+  args: string[],
+  cwd: string,
+  signal: AbortSignal,
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
     let stdout = '';
     let stderr = '';
@@ -143,8 +143,12 @@ function runPatch(args: string[], cwd: string, signal: AbortSignal): Promise<{ e
     // localized GNU patch output (fr/de/es etc.).
     const env = { ...process.env, LANG: 'C', LC_ALL: 'C' };
     const child = spawn('patch', args, { cwd, signal, env, stdio: ['pipe', 'pipe', 'pipe'] });
-    child.stdout?.on('data', (c) => { stdout += c.toString(); });
-    child.stderr?.on('data', (c) => { stderr += c.toString(); });
+    child.stdout?.on('data', (c) => {
+      stdout += c.toString();
+    });
+    child.stderr?.on('data', (c) => {
+      stderr += c.toString();
+    });
     child.on('close', (code) => resolve({ exitCode: code ?? 1, stdout, stderr }));
     child.on('error', (e) => resolve({ exitCode: 1, stdout: '', stderr: e.message }));
   });

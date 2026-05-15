@@ -1,8 +1,8 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { color } from '@wrongstack/core';
-import type { TerminalRenderer } from './renderer.js';
 import type { ReadlineInputReader } from './input-reader.js';
+import type { TerminalRenderer } from './renderer.js';
 import { detectProjectFacts, renderAgentsTemplate } from './slash-commands/index.js';
 
 export type ProjectKind =
@@ -82,7 +82,9 @@ export async function runProjectCheck(opts: {
       await reader.readLine(
         `  ${color.amber('?')} Scaffold ${color.bold('AGENTS.md')} now? ${color.dim('[y/N]')} `,
       )
-    ).trim().toLowerCase();
+    )
+      .trim()
+      .toLowerCase();
     if (answer === 'y' || answer === 'yes') {
       try {
         const file = await scaffoldAgentsMd(projectRoot);
@@ -101,10 +103,10 @@ export async function runProjectCheck(opts: {
     `\n  ${color.dim('○')} ${color.dim(`No project manifest in ${projectRoot} — running in a scratch directory.`)}\n`,
   );
   const answer = (
-    await reader.readLine(
-      `  ${color.amber('?')} Continue anyway? ${color.dim('[Y/n]')} `,
-    )
-  ).trim().toLowerCase();
+    await reader.readLine(`  ${color.amber('?')} Continue anyway? ${color.dim('[Y/n]')} `)
+  )
+    .trim()
+    .toLowerCase();
   if (answer === 'n' || answer === 'no') {
     renderer.write(color.dim('  Cancelled.\n'));
     return false;
@@ -140,7 +142,9 @@ export async function runLaunchPrompts(opts: {
       await reader.readLine(
         `\n  ${color.amber('?')} Interactive mode: ${color.bold('T')}UI / ${color.bold('R')}EPL ${color.dim('[T/r]')} `,
       )
-    ).trim().toLowerCase();
+    )
+      .trim()
+      .toLowerCase();
     mode = answer === 'r' || answer === 'repl' ? 'repl' : 'tui';
   }
 
@@ -152,7 +156,9 @@ export async function runLaunchPrompts(opts: {
       await reader.readLine(
         `  ${color.amber('?')} YOLO mode ${color.dim('(auto-approve every tool call)')} ${color.dim('[y/N]')} `,
       )
-    ).trim().toLowerCase();
+    )
+      .trim()
+      .toLowerCase();
     yolo = answer === 'y' || answer === 'yes';
   }
 

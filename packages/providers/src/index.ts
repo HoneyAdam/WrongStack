@@ -1,16 +1,16 @@
 import type {
+  Logger,
   ModelsRegistry,
   Provider,
   ProviderConfig,
   ProviderFactory,
   ResolvedProvider,
   WireFamily,
-  Logger,
 } from '@wrongstack/core';
 import { AnthropicProvider } from './anthropic.js';
-import { OpenAIProvider } from './openai.js';
-import { OpenAICompatibleProvider } from './openai-compatible.js';
 import { GoogleProvider } from './google.js';
+import { OpenAICompatibleProvider } from './openai-compatible.js';
+import { OpenAIProvider } from './openai.js';
 import { WireAdapter } from './wire-adapter.js';
 
 export { AnthropicProvider, type AnthropicProviderOptions } from './anthropic.js';

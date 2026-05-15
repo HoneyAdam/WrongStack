@@ -2,18 +2,18 @@ import type {
   Capabilities,
   Message,
   Request,
-  StreamEvent,
   StopReason,
+  StreamEvent,
   Usage,
 } from '@wrongstack/core';
 import { ProviderError, safeParse } from '@wrongstack/core';
-import { parseProviderHttpError } from './error-parse.js';
 import { parseToolInput } from './_tool-input.js';
-import { toolsToAnthropic } from './tool-format/to-anthropic.js';
-import { normalizeAnthropic } from './stop-reason.js';
-import { parseSSE } from './sse.js';
-import { WireAdapter } from './wire-adapter.js';
+import { parseProviderHttpError } from './error-parse.js';
 import { capabilitiesForFamily } from './family-capabilities.js';
+import { parseSSE } from './sse.js';
+import { normalizeAnthropic } from './stop-reason.js';
+import { toolsToAnthropic } from './tool-format/to-anthropic.js';
+import { WireAdapter } from './wire-adapter.js';
 
 export interface AnthropicProviderOptions {
   apiKey: string;
@@ -109,7 +109,10 @@ async function* parseAnthropicStream(
   fallbackModel: string,
 ): AsyncIterable<StreamEvent> {
   type BlockKind = 'text' | 'tool_use' | 'thinking' | 'unknown';
-  const blocks = new Map<number, { kind: BlockKind; id?: string; name?: string; partial: string }>();
+  const blocks = new Map<
+    number,
+    { kind: BlockKind; id?: string; name?: string; partial: string }
+  >();
   let model = fallbackModel;
   let usage: Usage = { input: 0, output: 0 };
   let stopReason: StopReason = 'end_turn';
@@ -125,7 +128,14 @@ async function* parseAnthropicStream(
     switch (type) {
       case 'message_start': {
         const message = ev['message'] as
-          | { model?: string; usage?: { input_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } }
+          | {
+              model?: string;
+              usage?: {
+                input_tokens?: number;
+                cache_read_input_tokens?: number;
+                cache_creation_input_tokens?: number;
+              };
+            }
           | undefined;
         if (message?.model) model = message.model;
         usage = {
@@ -167,7 +177,14 @@ async function* parseAnthropicStream(
       case 'content_block_delta': {
         const index = Number(ev['index'] ?? 0);
         const delta = ev['delta'] as
-          | { type?: string; text?: string; partial_json?: string; thinking?: string; signature?: string; data?: string }
+          | {
+              type?: string;
+              text?: string;
+              partial_json?: string;
+              thinking?: string;
+              signature?: string;
+              data?: string;
+            }
           | undefined;
         const block = blocks.get(index);
         if (!block || !delta) break;
@@ -210,13 +227,9 @@ async function* parseAnthropicStream(
         break;
       case 'error': {
         const err = ev['error'] as { message?: string; type?: string } | undefined;
-        throw new ProviderError(
-          err?.message ?? 'Anthropic stream error',
-          0,
-          false,
-          'anthropic',
-          { body: { type: err?.type, message: err?.message } },
-        );
+        throw new ProviderError(err?.message ?? 'Anthropic stream error', 0, false, 'anthropic', {
+          body: { type: err?.type, message: err?.message },
+        });
       }
     }
   }

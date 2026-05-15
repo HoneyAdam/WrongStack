@@ -4,7 +4,13 @@ import { humanToLSP } from '../position.js';
 import { supportsReferences } from '../server/capabilities.js';
 import { LSPError, LSPErrorCode } from '../types.js';
 import { pathToUri } from '../utils/uri.js';
-import { readDocumentContent, requireServer, resolveInputPath, stringifyToolError, type ToolDeps } from './shared.js';
+import {
+  type ToolDeps,
+  readDocumentContent,
+  requireServer,
+  resolveInputPath,
+  stringifyToolError,
+} from './shared.js';
 
 interface ReferencesInput {
   path: string;
@@ -38,15 +44,22 @@ export function createReferencesTool(deps: ToolDeps): Tool<ReferencesInput, stri
         const file = resolveInputPath(input.path, ctx);
         const server = await requireServer(deps.registry, file, opts.signal);
         if (server.capabilities && !supportsReferences(server.capabilities)) {
-          throw new LSPError(LSPErrorCode.CapabilityMissing, `Server "${server.name}" does not support references`);
+          throw new LSPError(
+            LSPErrorCode.CapabilityMissing,
+            `Server "${server.name}" does not support references`,
+          );
         }
         const content = await readDocumentContent(file, deps.tracker);
         const position = humanToLSP(content, { line: input.line, character: input.character });
-        const locs = await server.references({
-          textDocument: { uri: pathToUri(file) },
-          position,
-          context: { includeDeclaration: input.include_declaration ?? true },
-        }, 10_000, opts.signal);
+        const locs = await server.references(
+          {
+            textDocument: { uri: pathToUri(file) },
+            position,
+            context: { includeDeclaration: input.include_declaration ?? true },
+          },
+          10_000,
+          opts.signal,
+        );
         return formatLocations(locs, ctx.cwd, input.limit ?? 100);
       } catch (err) {
         return stringifyToolError(err);

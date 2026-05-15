@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { DefaultSessionStore } from '../../src/defaults/session-store.js';
-import { DefaultSessionReader } from '../../src/defaults/session-reader.js';
+import { DefaultSessionStore } from '../../src/storage/session-store.js';
+import { DefaultSessionReader } from '../../src/storage/session-reader.js';
 
 async function mkdtemp(): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), 'wrongstack-sessions-'));

@@ -4,16 +4,16 @@ import type {
   Capabilities,
   Message,
   Request,
-  StreamEvent,
   StopReason,
+  StreamEvent,
   Tool,
   Usage,
 } from '@wrongstack/core';
 import { parseProviderHttpError } from './error-parse.js';
-import { normalizeGemini } from './stop-reason.js';
-import { parseSSE } from './sse.js';
-import { WireAdapter } from './wire-adapter.js';
 import { capabilitiesForFamily } from './family-capabilities.js';
+import { parseSSE } from './sse.js';
+import { normalizeGemini } from './stop-reason.js';
+import { WireAdapter } from './wire-adapter.js';
 
 /**
  * Google Gemini wire format (generativelanguage.googleapis.com).
@@ -129,8 +129,10 @@ function toolsToGemini(tools: Tool[]): Array<Record<string, unknown>> {
   return tools.map((t) => ({
     name: t.name,
     description: t.description,
-    parameters: sanitizeSchemaForGemini(t.inputSchema as Record<string, unknown> | undefined)
-      ?? { type: 'object', properties: {} },
+    parameters: sanitizeSchemaForGemini(t.inputSchema as Record<string, unknown> | undefined) ?? {
+      type: 'object',
+      properties: {},
+    },
   }));
 }
 
@@ -151,11 +153,25 @@ function toolsToGemini(tools: Tool[]): Array<Record<string, unknown>> {
  * — gets dropped silently.
  */
 const GEMINI_ALLOWED_KEYS = new Set([
-  'type', 'format', 'description', 'nullable', 'enum',
-  'items', 'properties', 'required',
-  'anyOf', 'minLength', 'maxLength', 'pattern',
-  'minimum', 'maximum', 'minItems', 'maxItems',
-  'minProperties', 'maxProperties', 'propertyOrdering',
+  'type',
+  'format',
+  'description',
+  'nullable',
+  'enum',
+  'items',
+  'properties',
+  'required',
+  'anyOf',
+  'minLength',
+  'maxLength',
+  'pattern',
+  'minimum',
+  'maximum',
+  'minItems',
+  'maxItems',
+  'minProperties',
+  'maxProperties',
+  'propertyOrdering',
   'title',
 ]);
 
@@ -201,7 +217,8 @@ function messagesToGemini(messages: Message[]): GeminiContent[] {
   const out: GeminiContent[] = [];
   for (const m of messages) {
     if (m.role === 'system') continue;
-    const blocks = typeof m.content === 'string' ? [{ type: 'text' as const, text: m.content }] : m.content;
+    const blocks =
+      typeof m.content === 'string' ? [{ type: 'text' as const, text: m.content }] : m.content;
     if (m.role === 'assistant') {
       const parts: GeminiPart[] = [];
       for (const b of blocks) {
@@ -228,8 +245,7 @@ function messagesToGemini(messages: Message[]): GeminiContent[] {
     for (const b of blocks) {
       if (b.type === 'text' && b.text) textParts.push({ text: b.text });
       else if (b.type === 'tool_result') {
-        const responseText =
-          typeof b.content === 'string' ? b.content : JSON.stringify(b.content);
+        const responseText = typeof b.content === 'string' ? b.content : JSON.stringify(b.content);
         // Prefer the canonical name field; fall back to tool_use_id for
         // blocks that were manually constructed (e.g. in tests).
         const fnName = b.name ?? b.tool_use_id;
@@ -315,9 +331,10 @@ async function* parseGoogleStream(
         // the next request. Without this the Gemini API rejects with 400
         // "Function call is missing a thought_signature in functionCall
         // parts" on thinking models.
-        const providerMeta = typeof part.thoughtSignature === 'string'
-          ? { 'google.thoughtSignature': part.thoughtSignature }
-          : undefined;
+        const providerMeta =
+          typeof part.thoughtSignature === 'string'
+            ? { 'google.thoughtSignature': part.thoughtSignature }
+            : undefined;
         yield {
           type: 'tool_use_stop',
           id,

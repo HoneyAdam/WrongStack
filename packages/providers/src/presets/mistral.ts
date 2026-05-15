@@ -7,11 +7,11 @@
  * For exotic providers the same pattern still applies — only the
  * `parseStreamEvent` body changes.
  */
-import type { Request, StreamEvent, StopReason } from '@wrongstack/core';
+import type { Request, StopReason, StreamEvent } from '@wrongstack/core';
 import { safeParse } from '@wrongstack/core';
 import { parseToolInput } from '../_tool-input.js';
-import { defineWireFormat } from '../wire-format.js';
 import { capabilitiesForFamily } from '../family-capabilities.js';
+import { defineWireFormat } from '../wire-format.js';
 
 interface MistralStreamState {
   model: string;
@@ -52,7 +52,11 @@ export const mistralWireFormat = defineWireFormat<MistralStreamState>({
       choices?: {
         delta?: {
           content?: string;
-          tool_calls?: { index: number; id?: string; function?: { name?: string; arguments?: string } }[];
+          tool_calls?: {
+            index: number;
+            id?: string;
+            function?: { name?: string; arguments?: string };
+          }[];
         };
         finish_reason?: string;
       }[];
@@ -115,9 +119,13 @@ export const mistralWireFormat = defineWireFormat<MistralStreamState>({
 
 function mapStopReason(reason: string): StopReason {
   switch (reason) {
-    case 'tool_calls': return 'tool_use';
-    case 'length': return 'max_tokens';
-    case 'stop': return 'stop_sequence';
-    default: return 'end_turn';
+    case 'tool_calls':
+      return 'tool_use';
+    case 'length':
+      return 'max_tokens';
+    case 'stop':
+      return 'stop_sequence';
+    default:
+      return 'end_turn';
   }
 }

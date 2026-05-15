@@ -1,5 +1,3 @@
-import React from 'react';
-import { render } from 'ink';
 import type {
   Agent,
   AttachmentStore,
@@ -8,6 +6,8 @@ import type {
   SlashCommandRegistry,
   TokenCounter,
 } from '@wrongstack/core';
+import { render } from 'ink';
+import React from 'react';
 import { App } from './app.js';
 
 export interface RunTuiOptions {
@@ -60,7 +60,9 @@ export interface RunTuiOptions {
    */
   onAfterExit?: () => void;
   /** Called from /clear so the TUI can wipe its history entries while agent.ctx + memory are cleared separately. */
-  onClearHistory?: (dispatch: React.Dispatch<{ type: 'clearHistory' } | { type: 'resetContextChip' }>) => void;
+  onClearHistory?: (
+    dispatch: React.Dispatch<{ type: 'clearHistory' } | { type: 'resetContextChip' }>,
+  ) => void;
 }
 
 // Bracketed paste mode wraps any pasted text with these markers, letting us
@@ -176,7 +178,9 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
           switchProviderAndModel: opts.switchProviderAndModel,
           effectiveMaxContext: opts.effectiveMaxContext,
           onExit,
-          onClearHistory: opts.onClearHistory ? (dispatch) => opts.onClearHistory!(dispatch) : undefined,
+          onClearHistory: opts.onClearHistory
+            ? (dispatch) => opts.onClearHistory!(dispatch)
+            : undefined,
         }),
         { exitOnCtrlC: false },
       );

@@ -3,7 +3,7 @@ import type { Agent } from '../../src/core/agent.js';
 import type { Context } from '../../src/core/context.js';
 import type { RunResult } from '../../src/core/agent.js';
 import type { DoneCondition } from '../../src/types/multi-agent.js';
-import { AutonomousRunner, DoneConditionChecker } from '../../src/defaults/autonomous-runner.js';
+import { AutonomousRunner, DoneConditionChecker } from '../../src/execution/autonomous-runner.js';
 import { EventBus } from '../../src/kernel/events.js';
 
 function mockAgent(overrides: Partial<Agent> = {}): Agent {

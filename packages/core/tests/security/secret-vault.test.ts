@@ -8,7 +8,7 @@ import {
   decryptConfigSecrets,
   encryptConfigSecrets,
   rewriteConfigEncrypted,
-} from '../../src/defaults/secret-vault.js';
+} from '../../src/security/secret-vault.js';
 
 async function makeVault() {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-vault-'));
@@ -148,7 +148,7 @@ describe('DefaultSecretVault', () => {
       ),
     );
     const { migrated } = await (
-      await import('../../src/defaults/secret-vault.js')
+      await import('../../src/security/secret-vault.js')
     ).migratePlaintextSecrets(cfgPath, vault);
     expect(migrated).toBe(3); // top-level apiKey + providers.a.apiKey + mcpServers.s.authToken
     const after = JSON.parse(await fs.readFile(cfgPath, 'utf8')) as {
@@ -178,7 +178,7 @@ describe('DefaultSecretVault', () => {
     );
     const before = await fs.readFile(cfgPath, 'utf8');
     const { migrated } = await (
-      await import('../../src/defaults/secret-vault.js')
+      await import('../../src/security/secret-vault.js')
     ).migratePlaintextSecrets(cfgPath, vault);
     expect(migrated).toBe(0);
     const after = await fs.readFile(cfgPath, 'utf8');
@@ -189,7 +189,7 @@ describe('DefaultSecretVault', () => {
   it('migratePlaintextSecrets ignores missing files', async () => {
     const { dir, vault } = await makeVault();
     const result = await (
-      await import('../../src/defaults/secret-vault.js')
+      await import('../../src/security/secret-vault.js')
     ).migratePlaintextSecrets(path.join(dir, 'nope.json'), vault);
     expect(result.migrated).toBe(0);
     await fs.rm(dir, { recursive: true, force: true });

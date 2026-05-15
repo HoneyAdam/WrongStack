@@ -24,18 +24,26 @@ const BUILT_IN_TEMPLATES: Record<string, { description: string; files: Record<st
   'npm-package': {
     description: 'Basic npm package with ESM',
     files: {
-      'package.json': JSON.stringify({
-        name: '{{name}}',
-        version: '0.1.1',
-        type: 'module',
-        main: './dist/index.js',
-        scripts: { build: 'tsc', test: 'vitest run' },
-        devDependencies: { typescript: '^5.0.0' },
-      }, null, 2),
-      'tsconfig.json': JSON.stringify({
-        compilerOptions: { target: 'ES2022', module: 'ESNext', strict: true },
-        include: ['src'],
-      }, null, 2),
+      'package.json': JSON.stringify(
+        {
+          name: '{{name}}',
+          version: '0.1.1',
+          type: 'module',
+          main: './dist/index.js',
+          scripts: { build: 'tsc', test: 'vitest run' },
+          devDependencies: { typescript: '^5.0.0' },
+        },
+        null,
+        2,
+      ),
+      'tsconfig.json': JSON.stringify(
+        {
+          compilerOptions: { target: 'ES2022', module: 'ESNext', strict: true },
+          include: ['src'],
+        },
+        null,
+        2,
+      ),
       'src/index.ts': `export function hello() {\n  return 'Hello from {{name}}';\n}\n`,
       'src/index.test.ts': `import { hello } from './index';\nimport { describe, it, expect } from 'vitest';\n\ndescribe('hello', () => {\n  it('returns greeting', () => {\n    expect(hello()).toBe('Hello from {{name}}');\n  });\n});\n`,
     },
@@ -43,13 +51,17 @@ const BUILT_IN_TEMPLATES: Record<string, { description: string; files: Record<st
   'cli-tool': {
     description: 'CLI tool with argparse',
     files: {
-      'package.json': JSON.stringify({
-        name: '{{name}}',
-        version: '0.1.1',
-        type: 'module',
-        bin: { '{{name}}': './src/index.js' },
-        scripts: { build: 'tsc', start: 'node dist/index.js' },
-      }, null, 2),
+      'package.json': JSON.stringify(
+        {
+          name: '{{name}}',
+          version: '0.1.1',
+          type: 'module',
+          bin: { '{{name}}': './src/index.js' },
+          scripts: { build: 'tsc', start: 'node dist/index.js' },
+        },
+        null,
+        2,
+      ),
       'src/index.ts': `#!/usr/bin/env node\n\nasync function main() {\n  console.log('Hello from {{name}}');\n}\n\nmain();\n`,
     },
   },
@@ -76,7 +88,8 @@ export const scaffoldTool: Tool<ScaffoldInput, ScaffoldOutput> = {
     properties: {
       template: {
         type: 'string',
-        description: 'Template name (npm-package, cli-tool, react-component) or path to template directory',
+        description:
+          'Template name (npm-package, cli-tool, react-component) or path to template directory',
       },
       name: {
         type: 'string',
@@ -153,7 +166,10 @@ async function handleBuiltIn(
 function substituteVars(content: string, name: string, vars: Record<string, string>): string {
   let result = content;
   result = result.replace(/\{\{name\}\}/g, name.toLowerCase().replace(/\s+/g, '-'));
-  result = result.replace(/\{\{Name\}\}/g, name.replace(/(?:^|[-_\s]+)([a-z])/g, (_, c) => c.toUpperCase()));
+  result = result.replace(
+    /\{\{Name\}\}/g,
+    name.replace(/(?:^|[-_\s]+)([a-z])/g, (_, c) => c.toUpperCase()),
+  );
   for (const [k, v] of Object.entries(vars)) {
     result = result.replace(new RegExp(`\\{\\{${k}\\}\\}`, 'g'), v);
   }

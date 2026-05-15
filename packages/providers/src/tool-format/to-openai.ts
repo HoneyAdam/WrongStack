@@ -1,11 +1,11 @@
 import type {
   ContentBlock,
   Message,
-  Tool,
   TextBlock,
   ThinkingBlock,
-  ToolUseBlock,
+  Tool,
   ToolResultBlock,
+  ToolUseBlock,
 } from '@wrongstack/core';
 
 export interface OpenAIToolSchema {
@@ -99,8 +99,7 @@ export function messagesToOpenAI(
         });
       }
       for (const r of toolResults) {
-        const content =
-          typeof r.content === 'string' ? r.content : JSON.stringify(r.content);
+        const content = typeof r.content === 'string' ? r.content : JSON.stringify(r.content);
         out.push({
           role: 'tool',
           tool_call_id: r.tool_use_id,
@@ -111,9 +110,7 @@ export function messagesToOpenAI(
       const blocks = normalizeContent(msg.content);
       const textBlocks = blocks.filter((b): b is TextBlock => b.type === 'text');
       const toolUses = blocks.filter((b): b is ToolUseBlock => b.type === 'tool_use');
-      const thinkingBlocks = blocks.filter(
-        (b): b is ThinkingBlock => b.type === 'thinking',
-      );
+      const thinkingBlocks = blocks.filter((b): b is ThinkingBlock => b.type === 'thinking');
       const text = textBlocks.map((b) => b.text).join('');
       const reasoning = thinkingBlocks
         .map((b) => b.thinking)
@@ -177,7 +174,7 @@ function blocksToContentArray(blocks: ContentBlock[]): OpenAIContent[] | string 
       if (b.type === 'image') {
         const url =
           b.source.type === 'url'
-            ? b.source.url ?? ''
+            ? (b.source.url ?? '')
             : `data:${b.source.media_type ?? 'image/png'};base64,${b.source.data ?? ''}`;
         return { type: 'image_url', image_url: { url } };
       }

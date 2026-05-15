@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DefaultSecretScrubber } from '../../src/defaults/secret-scrubber.js';
+import { DefaultSecretScrubber } from '../../src/security/secret-scrubber.js';
 
 const s = new DefaultSecretScrubber();
 

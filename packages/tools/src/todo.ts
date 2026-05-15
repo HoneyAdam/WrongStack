@@ -1,4 +1,4 @@
-import type { Tool, TodoItem } from '@wrongstack/core';
+import type { TodoItem, Tool } from '@wrongstack/core';
 
 interface TodoInput {
   todos: TodoItem[];
