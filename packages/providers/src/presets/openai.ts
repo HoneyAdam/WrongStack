@@ -17,6 +17,7 @@ interface OpenAIStreamState {
   stopReason: StopReason;
   started: boolean;
   textOpen: boolean;
+  thinkingOpen: boolean;
   toolByIndex: Map<number, { id: string; name: string; argBuf: string }>;
   finalEmitted: boolean;
 }
@@ -65,6 +66,7 @@ export const openaiWireFormat = defineWireFormat<OpenAIStreamState>({
     stopReason: 'end_turn',
     started: false,
     textOpen: false,
+    thinkingOpen: false,
     toolByIndex: new Map(),
     finalEmitted: false,
   }),
@@ -84,6 +86,8 @@ export const openaiWireFormat = defineWireFormat<OpenAIStreamState>({
     const choices = obj['choices'] as Array<{
       delta?: {
         content?: string | null;
+        reasoning_content?: string;
+        reasoning?: string;
         tool_calls?: Array<{
           index?: number;
           id?: string;
@@ -94,12 +98,38 @@ export const openaiWireFormat = defineWireFormat<OpenAIStreamState>({
     }> | undefined;
     const choice = choices?.[0];
 
+    // DeepSeek (and Moonshot/Kimi thinking mode, OpenRouter `reasoning`)
+    // streams chain-of-thought as `delta.reasoning_content` at the top of
+    // the delta. The full blob MUST be echoed back as message-level
+    // `reasoning_content` on the next request — otherwise DeepSeek 400s.
+    const reasoningDelta =
+      typeof choice?.delta?.reasoning_content === 'string'
+        ? choice.delta.reasoning_content
+        : typeof choice?.delta?.reasoning === 'string'
+          ? choice.delta.reasoning
+          : undefined;
+    if (reasoningDelta && reasoningDelta.length > 0) {
+      if (!state.thinkingOpen) {
+        state.thinkingOpen = true;
+        out.push({ type: 'thinking_start' });
+      }
+      out.push({ type: 'thinking_delta', text: reasoningDelta });
+    }
+
     if (choice?.delta?.content) {
+      if (state.thinkingOpen) {
+        state.thinkingOpen = false;
+        out.push({ type: 'thinking_stop' });
+      }
       if (!state.textOpen) state.textOpen = true;
       out.push({ type: 'text_delta', text: choice.delta.content });
     }
 
     if (choice?.delta?.tool_calls) {
+      if (state.thinkingOpen) {
+        state.thinkingOpen = false;
+        out.push({ type: 'thinking_stop' });
+      }
       for (const tc of choice.delta.tool_calls) {
         const idx = tc.index ?? 0;
         let entry = state.toolByIndex.get(idx);
@@ -145,6 +175,10 @@ export const openaiWireFormat = defineWireFormat<OpenAIStreamState>({
     if (state.finalEmitted) return [];
     state.finalEmitted = true;
     const out: StreamEvent[] = [];
+    if (state.thinkingOpen) {
+      state.thinkingOpen = false;
+      out.push({ type: 'thinking_stop' });
+    }
     for (const entry of state.toolByIndex.values()) {
       const input = parseToolInput(entry.argBuf);
       out.push({ type: 'tool_use_stop', id: entry.id, input });

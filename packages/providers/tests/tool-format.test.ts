@@ -319,13 +319,77 @@ describe('tool-format conversions', () => {
     const blocks = contentFromAnthropic(
       [
         { type: 'text', text: 'ok' },
-        { type: 'thinking' },
         { type: 'server_tool_use' },
       ],
       { onUnsupported: (t) => seen.push(t) },
     );
     expect(blocks).toHaveLength(1);
-    expect(seen).toEqual(['thinking', 'server_tool_use']);
+    expect(seen).toEqual(['server_tool_use']);
+  });
+
+  it('contentFromAnthropic preserves thinking blocks with signature for echo-back', () => {
+    // Anthropic extended-thinking blocks MUST round-trip on the next
+    // request, otherwise the API returns 400 "content[].thinking in the
+    // thinking mode must be passed back to the API".
+    const blocks = contentFromAnthropic([
+      { type: 'thinking', thinking: 'Let me think...', signature: 'sig-abc' },
+      { type: 'text', text: 'answer' },
+    ]);
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0]).toEqual({
+      type: 'thinking',
+      thinking: 'Let me think...',
+      signature: 'sig-abc',
+    });
+    expect(blocks[1]).toEqual({ type: 'text', text: 'answer' });
+  });
+
+  it('messagesToOpenAI hoists thinking blocks to message-level reasoning_content for DeepSeek', () => {
+    // DeepSeek 400s if the prior assistant's reasoning_content isn't
+    // echoed back on the assistant message. Vanilla OpenAI ignores the
+    // field, so emitting it is safe across the OpenAI-compatible
+    // ecosystem.
+    const messages: Message[] = [
+      { role: 'user', content: 'compute' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'consider...' },
+          { type: 'text', text: 'using tool' },
+          { type: 'tool_use', id: 'u1', name: 'calc', input: { x: 1 } },
+        ],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'u1', content: '42' }],
+      },
+    ];
+    const out = messagesToOpenAI(undefined, messages);
+    const assistant = out.find((m) => m.role === 'assistant')!;
+    expect(assistant.reasoning_content).toBe('consider...');
+    // The reasoning blob must live at message-level, NOT on individual
+    // tool_calls — DeepSeek rejects the latter shape.
+    expect(assistant.tool_calls?.[0]).not.toHaveProperty('reasoning_content');
+    expect(assistant.content).toBe('using tool');
+  });
+
+  it('messagesToOpenAI emits reasoning_content even when there are no tool calls', () => {
+    // Pure-text thinking turns also need the blob round-tripped — the
+    // earlier per-tool_call capture lost reasoning entirely for these.
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'reflecting...' },
+          { type: 'text', text: 'done' },
+        ],
+      },
+    ];
+    const out = messagesToOpenAI(undefined, messages);
+    const a = out.find((m) => m.role === 'assistant')!;
+    expect(a.reasoning_content).toBe('reflecting...');
+    expect(a.content).toBe('done');
+    expect(a.tool_calls).toBeUndefined();
   });
 
   it('contentFromOpenAI auto-recovers malformed args via sanitizer (no flag needed)', () => {

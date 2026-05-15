@@ -19,7 +19,7 @@ import type { Plugin, PluginAPI } from '../types/plugin.js';
 import type { Context, RunOptions } from './context.js';
 import type { ToolRegistry } from '../registry/tool-registry.js';
 import type { ProviderRegistry } from '../registry/provider-registry.js';
-import { ToolExecutor } from '../defaults/tool-executor.js';
+import { ToolExecutor } from '../execution/tool-executor.js';
 import { runProviderWithRetry } from './provider-runner.js';
 import { requestLimitExtension } from './iteration-limit.js';
 

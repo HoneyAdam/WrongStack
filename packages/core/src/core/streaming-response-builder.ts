@@ -1,7 +1,13 @@
 import type { Provider, Request, Response } from '../types/provider.js';
-import type { ContentBlock, ToolUseBlock } from '../types/blocks.js';
+import type { ContentBlock, ThinkingBlock, ToolUseBlock } from '../types/blocks.js';
 import type { EventBus } from '../kernel/events.js';
 import type { Context } from './context.js';
+
+interface ThinkingEntry {
+  textBuf: string;
+  signature?: string;
+  providerMeta?: Record<string, unknown>;
+}
 
 interface StreamingState {
   model: string;
@@ -10,7 +16,13 @@ interface StreamingState {
   textBuffers: string[];
   currentTextIndex: number;
   tools: Map<string, { name: string; partial: string; input?: unknown; providerMeta?: Record<string, unknown> }>;
-  blockOrder: Array<{ kind: 'text'; idx: number } | { kind: 'tool'; id: string }>;
+  thinking: ThinkingEntry[];
+  currentThinkingIndex: number;
+  blockOrder: Array<
+    | { kind: 'text'; idx: number }
+    | { kind: 'tool'; id: string }
+    | { kind: 'thinking'; idx: number }
+  >;
 }
 
 export function buildResponse(state: StreamingState): Response {
@@ -19,6 +31,19 @@ export function buildResponse(state: StreamingState): Response {
     if (b.kind === 'text') {
       const txt = state.textBuffers[b.idx] ?? '';
       if (txt) content.push({ type: 'text', text: txt });
+    } else if (b.kind === 'thinking') {
+      const t = state.thinking[b.idx];
+      // Skip blocks with no thinking text AND no signature — emitting an
+      // empty {type:'thinking', thinking:''} block makes Anthropic 400
+      // ("content[].thinking.thinking: cannot be empty").
+      if (!t) continue;
+      if (!t.textBuf && !t.signature) continue;
+      const block: ThinkingBlock = { type: 'thinking', thinking: t.textBuf };
+      if (t.signature) block.signature = t.signature;
+      if (t.providerMeta && Object.keys(t.providerMeta).length > 0) {
+        block.providerMeta = t.providerMeta;
+      }
+      content.push(block);
     } else {
       const tb = state.tools.get(b.id);
       if (tb) {
@@ -47,6 +72,8 @@ export function createStreamingState(model: string): StreamingState {
     textBuffers: [],
     currentTextIndex: -1,
     tools: new Map(),
+    thinking: [],
+    currentThinkingIndex: -1,
     blockOrder: [],
   };
 }
@@ -57,7 +84,7 @@ export function handleMessageStart(state: StreamingState, model: string): void {
 
 export function handleContentBlockStart(
   state: StreamingState,
-  ev: { kind?: string; id?: string; name?: string },
+  ev: { kind?: string; id?: string; name?: string; providerMeta?: Record<string, unknown> },
 ): void {
   const kind = ev.kind ?? 'text';
   if (kind === 'text') {
@@ -68,6 +95,14 @@ export function handleContentBlockStart(
     const id = ev.id ?? crypto.randomUUID();
     state.tools.set(id, { name: ev.name ?? 'unknown', partial: '' });
     state.blockOrder.push({ kind: 'tool', id });
+    state.currentTextIndex = -1;
+  } else if (kind === 'thinking') {
+    state.currentThinkingIndex = state.thinking.length;
+    state.thinking.push({
+      textBuf: '',
+      ...(ev.providerMeta ? { providerMeta: ev.providerMeta } : {}),
+    });
+    state.blockOrder.push({ kind: 'thinking', idx: state.currentThinkingIndex });
     state.currentTextIndex = -1;
   }
 }
@@ -123,6 +158,43 @@ export function handleToolUseStop(
   state.currentTextIndex = -1;
 }
 
+/**
+ * Open a fresh thinking block. Providers that don't pre-announce blocks
+ * (e.g. OpenAI/DeepSeek) can call this lazily on the first reasoning delta.
+ */
+export function handleThinkingStart(
+  state: StreamingState,
+  ev: { providerMeta?: Record<string, unknown> },
+): void {
+  state.currentThinkingIndex = state.thinking.length;
+  state.thinking.push({
+    textBuf: '',
+    ...(ev.providerMeta ? { providerMeta: ev.providerMeta } : {}),
+  });
+  state.blockOrder.push({ kind: 'thinking', idx: state.currentThinkingIndex });
+  state.currentTextIndex = -1;
+}
+
+export function handleThinkingDelta(state: StreamingState, text: string): void {
+  if (state.currentThinkingIndex === -1) {
+    handleThinkingStart(state, {});
+  }
+  const t = state.thinking[state.currentThinkingIndex];
+  if (t) t.textBuf += text;
+}
+
+export function handleThinkingSignature(state: StreamingState, signature: string): void {
+  if (state.currentThinkingIndex === -1) {
+    handleThinkingStart(state, {});
+  }
+  const t = state.thinking[state.currentThinkingIndex];
+  if (t) t.signature = signature;
+}
+
+export function handleThinkingStop(state: StreamingState): void {
+  state.currentThinkingIndex = -1;
+}
+
 export function handleMessageStop(
   state: StreamingState,
   ev: { stopReason?: Response['stopReason']; usage?: Response['usage'] },
@@ -170,6 +242,18 @@ export async function streamProviderToResponse(
         case 'tool_use_stop':
           handleToolUseStop(state, ev as Parameters<typeof handleToolUseStop>[1]);
           events.emit('provider.tool_use_stop', { ctx, id: ev.id });
+          break;
+        case 'thinking_start':
+          handleThinkingStart(state, ev as Parameters<typeof handleThinkingStart>[1]);
+          break;
+        case 'thinking_delta':
+          handleThinkingDelta(state, ev.text);
+          break;
+        case 'thinking_signature':
+          handleThinkingSignature(state, ev.signature);
+          break;
+        case 'thinking_stop':
+          handleThinkingStop(state);
           break;
         case 'message_stop':
           handleMessageStop(state, ev as Parameters<typeof handleMessageStop>[1]);

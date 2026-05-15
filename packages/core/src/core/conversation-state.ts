@@ -6,6 +6,12 @@ import type { TodoItem, Context } from './context.js';
  * mutate messages, todos, and meta through this API so subscribers see a
  * deterministic change stream. The underlying Context arrays are still
  * exposed for read compatibility and legacy tests.
+ *
+ * L1-A invariant: direct mutations of `ctx.messages` / `ctx.todos` bypass
+ * the observer layer. Prefer `ctx.state.appendMessage()` etc. to keep
+ * subscribers in sync. The compatibility arrays exist so existing code
+ * that reads `ctx.messages` directly still works — they are NOT safe for
+ * external writes.
  */
 export type StateChange =
   | { kind: 'message_appended'; message: Message }

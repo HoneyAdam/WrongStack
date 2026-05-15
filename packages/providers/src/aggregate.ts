@@ -25,8 +25,14 @@ export async function aggregateStream(
   let usage: Usage = { input: 0, output: 0 };
   const textBuffers: string[] = [];
   let currentTextIndex = -1;
-  const toolBuffers = new Map<string, { name: string; partial: string; input?: unknown }>();
-  const blockOrder: Array<{ kind: 'text'; idx: number } | { kind: 'tool'; id: string }> = [];
+  const toolBuffers = new Map<string, { name: string; partial: string; input?: unknown; providerMeta?: Record<string, unknown> }>();
+  const thinkingBuffers: Array<{ textBuf: string; signature?: string; providerMeta?: Record<string, unknown> }> = [];
+  let currentThinkingIndex = -1;
+  const blockOrder: Array<
+    | { kind: 'text'; idx: number }
+    | { kind: 'tool'; id: string }
+    | { kind: 'thinking'; idx: number }
+  > = [];
 
   for await (const ev of stream) {
     if (onEvent) onEvent(ev);
@@ -69,9 +75,44 @@ export async function aggregateStream(
             // Array / scalar — preserve via __raw so downstream sees an object.
             b.input = { __raw: ev.input };
           }
+          if (ev.providerMeta) b.providerMeta = ev.providerMeta;
         }
         // Tool just stopped — next text_delta should open a new text block.
         currentTextIndex = -1;
+        break;
+      }
+      case 'thinking_start': {
+        currentTextIndex = -1;
+        currentThinkingIndex = thinkingBuffers.length;
+        thinkingBuffers.push({
+          textBuf: '',
+          ...(ev.providerMeta ? { providerMeta: ev.providerMeta } : {}),
+        });
+        blockOrder.push({ kind: 'thinking', idx: currentThinkingIndex });
+        break;
+      }
+      case 'thinking_delta': {
+        if (currentThinkingIndex === -1) {
+          currentThinkingIndex = thinkingBuffers.length;
+          thinkingBuffers.push({ textBuf: '' });
+          blockOrder.push({ kind: 'thinking', idx: currentThinkingIndex });
+        }
+        const t = thinkingBuffers[currentThinkingIndex];
+        if (t) t.textBuf += ev.text;
+        break;
+      }
+      case 'thinking_signature': {
+        if (currentThinkingIndex === -1) {
+          currentThinkingIndex = thinkingBuffers.length;
+          thinkingBuffers.push({ textBuf: '' });
+          blockOrder.push({ kind: 'thinking', idx: currentThinkingIndex });
+        }
+        const t = thinkingBuffers[currentThinkingIndex];
+        if (t) t.signature = ev.signature;
+        break;
+      }
+      case 'thinking_stop': {
+        currentThinkingIndex = -1;
         break;
       }
       case 'message_stop':
@@ -86,10 +127,21 @@ export async function aggregateStream(
     if (b.kind === 'text') {
       const text = textBuffers[b.idx] ?? '';
       if (text) content.push({ type: 'text', text });
+    } else if (b.kind === 'thinking') {
+      const t = thinkingBuffers[b.idx];
+      // Drop completely empty thinking blocks — emitting one would make
+      // Anthropic 400 on the round-trip ("thinking: cannot be empty").
+      if (!t || (!t.textBuf && !t.signature)) continue;
+      const block: ContentBlock = { type: 'thinking', thinking: t.textBuf };
+      if (t.signature) (block as { signature?: string }).signature = t.signature;
+      if (t.providerMeta && Object.keys(t.providerMeta).length > 0) {
+        (block as { providerMeta?: Record<string, unknown> }).providerMeta = t.providerMeta;
+      }
+      content.push(block);
     } else {
       const tb = toolBuffers.get(b.id);
       if (tb) {
-        content.push({
+        const block: ContentBlock = {
           type: 'tool_use',
           id: b.id,
           name: tb.name,
@@ -97,7 +149,11 @@ export async function aggregateStream(
             tb.input && typeof tb.input === 'object' && !Array.isArray(tb.input)
               ? (tb.input as Record<string, unknown>)
               : {},
-        });
+        };
+        if (tb.providerMeta && Object.keys(tb.providerMeta).length > 0) {
+          (block as { providerMeta?: Record<string, unknown> }).providerMeta = tb.providerMeta;
+        }
+        content.push(block);
       }
     }
   }

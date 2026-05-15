@@ -176,3 +176,88 @@ describe('GoogleProvider.stream', () => {
     expect(res.content[0]).toMatchObject({ type: 'tool_use', name: 'echo', input: { text: 'hi' } });
   });
 });
+
+describe('thinking-mode round-trip', () => {
+  it('AnthropicProvider captures thinking + signature blocks for echo-back', async () => {
+    // Anthropic extended thinking emits a `thinking` content_block before
+    // the text/tool_use, with both `thinking_delta` chunks and a single
+    // `signature_delta`. Both must round-trip on the next request or the
+    // API returns 400 "content[].thinking in the thinking mode must be
+    // passed back to the API".
+    const sse = [
+      'event: message_start',
+      'data: {"type":"message_start","message":{"model":"claude-sonnet-test","usage":{"input_tokens":3}}}',
+      '',
+      'event: content_block_start',
+      'data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}',
+      '',
+      'event: content_block_delta',
+      'data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Let me think"}}',
+      '',
+      'event: content_block_delta',
+      'data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" carefully."}}',
+      '',
+      'event: content_block_delta',
+      'data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig-xyz"}}',
+      '',
+      'event: content_block_stop',
+      'data: {"type":"content_block_stop","index":0}',
+      '',
+      'event: content_block_start',
+      'data: {"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}',
+      '',
+      'event: content_block_delta',
+      'data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"42"}}',
+      '',
+      'event: content_block_stop',
+      'data: {"type":"content_block_stop","index":1}',
+      '',
+      'event: message_delta',
+      'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":2}}',
+      '',
+      'event: message_stop',
+      'data: {"type":"message_stop"}',
+      '',
+    ].join('\n');
+    const provider = new AnthropicProvider({ apiKey: 'k', fetchImpl: mockFetch(sseBody(sse)) });
+    const res = await provider.complete(
+      { model: 'm', messages: [{ role: 'user', content: 'compute' }], maxTokens: 100 },
+      { signal: new AbortController().signal },
+    );
+    expect(res.content).toHaveLength(2);
+    // Thinking block MUST come first — Anthropic rejects assistant
+    // messages where it doesn't precede other content.
+    expect(res.content[0]).toEqual({
+      type: 'thinking',
+      thinking: 'Let me think carefully.',
+      signature: 'sig-xyz',
+    });
+    expect(res.content[1]).toEqual({ type: 'text', text: '42' });
+  });
+
+  it('OpenAIProvider captures top-level delta.reasoning_content as ThinkingBlock', async () => {
+    // DeepSeek streams chain-of-thought via `delta.reasoning_content` at
+    // the TOP level of the delta — NOT inside tool_calls (the previous
+    // implementation looked in the wrong place and lost the blob).
+    const sse = [
+      'data: {"id":"x","choices":[{"index":0,"delta":{"reasoning_content":"working..."}}]}',
+      '',
+      'data: {"id":"x","choices":[{"index":0,"delta":{"reasoning_content":" almost there"}}]}',
+      '',
+      'data: {"id":"x","choices":[{"index":0,"delta":{"content":"42"}}]}',
+      '',
+      'data: {"id":"x","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2}}',
+      '',
+      'data: [DONE]',
+      '',
+    ].join('\n');
+    const provider = new OpenAIProvider({ apiKey: 'k', fetchImpl: mockFetch(sseBody(sse)) });
+    const res = await provider.complete(
+      { model: 'deepseek-reasoner', messages: [{ role: 'user', content: 'q' }], maxTokens: 100 },
+      { signal: new AbortController().signal },
+    );
+    expect(res.content).toHaveLength(2);
+    expect(res.content[0]).toEqual({ type: 'thinking', thinking: 'working... almost there' });
+    expect(res.content[1]).toEqual({ type: 'text', text: '42' });
+  });
+});

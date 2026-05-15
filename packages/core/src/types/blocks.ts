@@ -48,7 +48,35 @@ export interface ImageBlock {
   };
 }
 
-export type ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock | ImageBlock;
+/**
+ * Chain-of-thought / extended-thinking content emitted by the model.
+ *
+ * Both Anthropic extended thinking (`{type:'thinking', thinking, signature}`)
+ * and DeepSeek reasoning mode (top-level `reasoning_content` on the assistant
+ * message) require this content to be echoed back verbatim on the next
+ * request, otherwise the provider returns 400:
+ *   - Anthropic: "The `content[].thinking` in the thinking mode must be passed back"
+ *   - DeepSeek:  "The `reasoning_content` in the thinking mode must be passed back"
+ *
+ * `signature` is Anthropic-specific (an opaque integrity blob). DeepSeek
+ * doesn't issue a signature — the field is absent for that provider.
+ *
+ * Per Anthropic, thinking blocks MUST appear before any text/tool_use blocks
+ * in an assistant message. Stream builders preserve that order.
+ */
+export interface ThinkingBlock {
+  type: 'thinking';
+  thinking: string;
+  signature?: string;
+  providerMeta?: Record<string, unknown>;
+}
+
+export type ContentBlock =
+  | TextBlock
+  | ToolUseBlock
+  | ToolResultBlock
+  | ImageBlock
+  | ThinkingBlock;
 
 export function isTextBlock(b: ContentBlock): b is TextBlock {
   return b.type === 'text';
@@ -61,4 +89,7 @@ export function isToolResultBlock(b: ContentBlock): b is ToolResultBlock {
 }
 export function isImageBlock(b: ContentBlock): b is ImageBlock {
   return b.type === 'image';
+}
+export function isThinkingBlock(b: ContentBlock): b is ThinkingBlock {
+  return b.type === 'thinking';
 }

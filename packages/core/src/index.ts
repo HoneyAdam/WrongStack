@@ -42,3 +42,18 @@ export {
 } from './registry/slash-command-registry.js';
 export { DefaultPluginAPI, type PluginAPIInit } from './plugin/api.js';
 export { loadPlugins, unloadPlugins, KERNEL_API_VERSION, type LoadPluginsOptions } from './plugin/loader.js';
+
+// Explicit type re-exports needed because tsup DTS deduplication drops types
+// that are reachable through both types/ and defaults/ export chains.
+// Consumers (e.g. @wrongstack/providers) import these directly from '@wrongstack/core'.
+export type {
+  ModelsRegistry,
+  ResolvedProvider,
+  ResolvedModel,
+  WireFamily,
+  ModelsDevPayload,
+  ModelsDevProvider,
+} from './types/models-registry.js';
+export type { Logger, LogLevel } from './types/logger.js';
+export type { TokenCounter } from './types/token-counter.js';
+export type { SecretVault } from './types/secret-vault.js';

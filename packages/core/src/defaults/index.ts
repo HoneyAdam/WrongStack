@@ -1,42 +1,40 @@
-// Core utilities: logger, path-resolver, token-counter
+// =============================================================================
+// @wrongstack/core — defaults barrel (backward-compatible re-exports)
+//
+// All implementation now lives in top-level domain directories under src/.
+// This file re-exports for consumers that import from '@wrongstack/core/defaults'.
+// New code should import directly from '@wrongstack/core/<domain>'.
+// =============================================================================
+
+// ---- Infrastructure (was core/) ----
 export {
   DefaultLogger,
   type DefaultLoggerOptions,
-  DefaultPathResolver,
-  DefaultTokenCounter,
-} from './core/index.js';
+} from '../infrastructure/logger.js';
 
-// Storage: session, queue, attachment, memory
+// ---- Storage ----
 export {
   DefaultSessionStore,
   type SessionStoreOptions,
+} from '../storage/session-store.js';
+export {
   QueueStore,
   type PersistedQueueItem,
+} from '../storage/queue-store.js';
+export {
   DefaultAttachmentStore,
   type AttachmentStoreOptions,
+} from '../storage/attachment-store.js';
+export {
   DefaultMemoryStore,
   type MemoryStoreOptions,
-} from './storage/index.js';
-
-// Security: scrubber, vault, permission
+} from '../storage/memory-store.js';
+export { DefaultConfigStore } from '../storage/config-store.js';
 export {
-  DefaultSecretScrubber,
-  DefaultSecretVault,
-  type SecretVaultOptions,
-  decryptConfigSecrets,
-  encryptConfigSecrets,
-  rewriteConfigEncrypted,
-  migratePlaintextSecrets,
-  DefaultPermissionPolicy,
-  type PermissionPolicyOptions,
-} from './security/index.js';
-
-// Execution: retry, error, skill-loader, config-loader
-export { DefaultRetryPolicy } from './retry-policy.js';
-export { DefaultErrorHandler } from './error-handler.js';
-export { DefaultSkillLoader, type SkillLoaderOptions } from './skill-loader.js';
-export { DefaultConfigLoader, type ConfigLoaderOptions, type ConfigSource } from './config-loader.js';
-export { DefaultConfigStore } from './config-store.js';
+  DefaultConfigLoader,
+  type ConfigLoaderOptions,
+  type ConfigSource,
+} from '../storage/config-loader.js';
 export {
   runConfigMigrations,
   ConfigMigrationError,
@@ -44,58 +42,68 @@ export {
   type ConfigMigration,
   type MigrationContext,
   type MigrationResult,
-} from './config-migration.js';
-
-// Compactors: hybrid, intelligent, selective, llm-selector, auto-compaction
+} from '../storage/config-migration.js';
 export {
-  HybridCompactor,
-  type CompactorOptions,
-  IntelligentCompactor,
-  type IntelligentCompactorOptions,
-  SelectiveCompactor,
-  type SelectiveCompactorOptions,
-  LLMSelector,
-  type LLMSelectorOptions,
-  AutoCompactionMiddleware,
-} from './compactors/index.js';
+  RecoveryLock,
+  type RecoveryLockOptions,
+  type AbandonedSession,
+} from '../storage/recovery-lock.js';
+export { DefaultSessionReader } from '../storage/session-reader.js';
+export { SessionAnalyzer } from '../storage/session-analyzer.js';
 
-// Models & Modes: registry, mode-store
+// ---- Security ----
+export { DefaultSecretScrubber } from '../security/secret-scrubber.js';
 export {
-  DefaultModelsRegistry,
-  classifyFamily,
-  type DefaultModelsRegistryOptions,
-} from './models-registry.js';
+  DefaultSecretVault,
+  type SecretVaultOptions,
+  decryptConfigSecrets,
+  encryptConfigSecrets,
+  rewriteConfigEncrypted,
+  migratePlaintextSecrets,
+} from '../security/secret-vault.js';
 export {
-  DefaultModeStore,
-  loadProjectModes,
-  loadUserModes,
-  type ModeLoaderOptions,
-} from './mode-store.js';
+  DefaultPermissionPolicy,
+  type PermissionPolicyOptions,
+} from '../security/permission-policy.js';
 
-// Multi-agent: coordinator, agent-bridge, budget
+// ---- Execution ----
+export { DefaultRetryPolicy } from '../execution/retry-policy.js';
+export { DefaultErrorHandler } from '../execution/error-handler.js';
+export { DefaultSkillLoader, type SkillLoaderOptions } from '../execution/skill-loader.js';
+export { HybridCompactor, type CompactorOptions } from '../execution/compactor.js';
+export { IntelligentCompactor, type IntelligentCompactorOptions } from '../execution/intelligent-compactor.js';
+export { SelectiveCompactor, type SelectiveCompactorOptions } from '../execution/selective-compactor.js';
+export { AutoCompactionMiddleware } from '../execution/auto-compaction-middleware.js';
+export { ToolExecutor } from '../execution/tool-executor.js';
+export {
+  AutonomousRunner,
+  DoneConditionChecker,
+  type DoneCheckResult,
+  type AutonomousRunnerOptions,
+} from '../execution/autonomous-runner.js';
+
+// ---- Coordination (multi-agent) ----
+export {
+  Director,
+  DirectorBudgetError,
+} from '../coordination/director.js';
 export {
   DefaultMultiAgentCoordinator,
   type MultiAgentCoordinatorOptions,
-} from './multi-agent-coordinator.js';
+} from '../coordination/multi-agent-coordinator.js';
 export {
   SubagentBudget,
   BudgetExceededError,
   type BudgetKind,
   type BudgetLimits,
   type BudgetUsage,
-} from './subagent-budget.js';
+} from '../coordination/subagent-budget.js';
 export {
   makeAgentSubagentRunner,
   type AgentFactory,
   type AgentFactoryResult,
   type AgentRunnerOptions,
-} from './agent-subagent-runner.js';
-// Director orchestration — per-subagent provider/model/session +
-// fleet-wide observability + LLM-callable orchestration tools.
-export {
-  Director,
-  DirectorBudgetError,
-} from './director.js';
+} from '../coordination/agent-subagent-runner.js';
 export {
   FleetBus,
   FleetUsageAggregator,
@@ -103,12 +111,12 @@ export {
   type FleetHandler,
   type FleetUsage,
   type SubagentUsageSnapshot,
-} from './fleet-bus.js';
+} from '../coordination/fleet-bus.js';
 export {
   makeDirectorSessionFactory,
   type DirectorSessionFactory,
   type DirectorSessionFactoryOptions,
-} from './director-session.js';
+} from '../coordination/director-session.js';
 export {
   composeDirectorPrompt,
   composeSubagentPrompt,
@@ -117,41 +125,49 @@ export {
   DEFAULT_SUBAGENT_BASELINE,
   type DirectorPromptParts,
   type SubagentPromptParts,
-} from './director-prompts.js';
+} from '../coordination/director-prompts.js';
 export {
   InMemoryAgentBridge,
   InMemoryBridgeTransport,
   createMessage,
+} from '../coordination/agent-bridge.js';
+export {
   AUDIT_LOG_AGENT,
   BUG_HUNTER_AGENT,
   REFACTOR_PLANNER_AGENT,
   SECURITY_SCANNER_AGENT,
   FLEET_ROSTER,
   ALL_FLEET_AGENTS,
-} from './agents/index.js';
+} from '../coordination/fleet.js';
 
-// Autonomous runner
+// ---- Models ----
 export {
-  AutonomousRunner,
-  DoneConditionChecker,
-  type DoneCheckResult,
-  type AutonomousRunnerOptions,
-} from './autonomous-runner.js';
+  DefaultModelsRegistry,
+  classifyFamily,
+  type DefaultModelsRegistryOptions,
+} from '../models/models-registry.js';
+export {
+  DefaultModeStore,
+  loadProjectModes,
+  loadUserModes,
+  type ModeLoaderOptions,
+} from '../models/mode-store.js';
+export { LLMSelector, type LLMSelectorOptions } from '../models/llm-selector.js';
 
-// Spec-driven development: parser, task-generator, task-tracker, task-flow
-export { SpecParser } from './spec-parser.js';
+// ---- SDD ----
+export { SpecParser } from '../sdd/spec-parser.js';
 export {
   TaskGenerator,
   DefaultTaskStore,
   type TaskGeneratorOptions,
   type GeneratedTask,
-} from './task-generator.js';
+} from '../sdd/task-generator.js';
 export {
   TaskTracker,
   type TaskStore,
   type TaskTrackerOptions,
   type TaskTransition,
-} from './task-tracker.js';
+} from '../sdd/task-tracker.js';
 export {
   TaskFlow,
   SpecDrivenDev,
@@ -161,22 +177,9 @@ export {
   type TaskFlowEventMap,
   type TaskFlowEventName,
   type SpecDrivenDevOptions,
-} from './task-flow.js';
+} from '../sdd/task-flow.js';
 
-// Recovery & locking
-export {
-  RecoveryLock,
-  type RecoveryLockOptions,
-  type AbandonedSession,
-} from './recovery-lock.js';
-
-// Tool executor (runtime value only; types are in types/)
-export { ToolExecutor } from './tool-executor.js';
-
-// Session reader (L2-A): query/replay/search/export over SessionStore
-export { DefaultSessionReader } from './session-reader.js';
-
-// Observability: metrics, health, tracing (opt-in, noop by default)
+// ---- Observability ----
 export {
   InMemoryMetricsSink,
   NoopMetricsSink,
@@ -197,9 +200,9 @@ export {
   startOtlpTraceExporter,
   type OtlpTraceExporterOptions,
   type OtlpTraceExporterHandle,
-} from './observability/index.js';
+} from '../observability/index.js';
 
-// Context manager tool
+// ---- Context manager (tool) ----
 export {
   contextManagerTool,
   createContextManagerTool,
@@ -207,9 +210,9 @@ export {
   type ContextManagerResult,
   type ContextManagerAction,
   type ContextManagerToolOptions,
-} from './context-manager.js';
+} from '../infrastructure/context-manager.js';
 
-// MCP servers: built-in server presets (all disabled by default)
+// ---- MCP servers ----
 export {
   filesystemServer,
   githubServer,
@@ -222,4 +225,4 @@ export {
   googleMapsServer,
   sentinelServer,
   allServers,
-} from './mcp-servers.js';
+} from '../infrastructure/mcp-servers.js';

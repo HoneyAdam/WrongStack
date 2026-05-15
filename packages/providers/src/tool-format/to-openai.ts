@@ -3,6 +3,7 @@ import type {
   Message,
   Tool,
   TextBlock,
+  ThinkingBlock,
   ToolUseBlock,
   ToolResultBlock,
 } from '@wrongstack/core';
@@ -36,6 +37,16 @@ export interface OpenAIMessage {
   tool_calls?: OpenAIToolCall[];
   tool_call_id?: string;
   name?: string;
+  /**
+   * DeepSeek (and other OpenAI-compatible thinking-mode models) require the
+   * previous assistant's chain-of-thought to be echoed back on the next
+   * request as a top-level `reasoning_content` field on the assistant
+   * message — NOT inside individual tool_calls. Without it DeepSeek
+   * returns 400 "reasoning_content in the thinking mode must be passed
+   * back to the API". Vanilla OpenAI ignores this field, so emitting it
+   * unconditionally is safe.
+   */
+  reasoning_content?: string;
 }
 
 export interface OpenAIContent {
@@ -100,7 +111,14 @@ export function messagesToOpenAI(
       const blocks = normalizeContent(msg.content);
       const textBlocks = blocks.filter((b): b is TextBlock => b.type === 'text');
       const toolUses = blocks.filter((b): b is ToolUseBlock => b.type === 'tool_use');
+      const thinkingBlocks = blocks.filter(
+        (b): b is ThinkingBlock => b.type === 'thinking',
+      );
       const text = textBlocks.map((b) => b.text).join('');
+      const reasoning = thinkingBlocks
+        .map((b) => b.thinking)
+        .filter((t) => t && t.length > 0)
+        .join('');
       const toolCalls: OpenAIToolCall[] = toolUses.map((u) => ({
         id: u.id,
         type: 'function',
@@ -117,6 +135,13 @@ export function messagesToOpenAI(
         }
       } else {
         message.content = text;
+      }
+      // DeepSeek thinking mode requires the prior assistant's reasoning
+      // blob to round-trip on the next request. Vanilla OpenAI silently
+      // accepts and ignores the field, so emitting it unconditionally is
+      // safe across the OpenAI-compatible ecosystem.
+      if (reasoning.length > 0) {
+        message.reasoning_content = reasoning;
       }
       out.push(message);
     }

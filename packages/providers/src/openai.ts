@@ -143,6 +143,7 @@ async function* parseOpenAIStream(
   let stopReason: StopReason = 'end_turn';
   let started = false;
   let textOpen = false;
+  let thinkingOpen = false;
   const toolByIndex = new Map<number, { id: string; name: string; argBuf: string }>();
 
   for await (const msg of parseSSE(body)) {
@@ -160,6 +161,8 @@ async function* parseOpenAIStream(
     const choices = obj['choices'] as Array<{
       delta?: {
         content?: string | null;
+        reasoning_content?: string;
+        reasoning?: string;
         tool_calls?: Array<{
           index?: number;
           id?: string;
@@ -170,12 +173,40 @@ async function* parseOpenAIStream(
     }> | undefined;
     const choice = choices?.[0];
 
+    // DeepSeek (and Moonshot/Kimi thinking mode) stream chain-of-thought
+    // as `delta.reasoning_content` at the top of the delta. The full blob
+    // MUST be echoed back as message-level `reasoning_content` on the
+    // next request — otherwise DeepSeek 400s with "reasoning_content in
+    // the thinking mode must be passed back to the API".
+    // OpenRouter sometimes uses `delta.reasoning` for the same field.
+    const reasoningDelta =
+      typeof choice?.delta?.reasoning_content === 'string'
+        ? choice.delta.reasoning_content
+        : typeof choice?.delta?.reasoning === 'string'
+          ? choice.delta.reasoning
+          : undefined;
+    if (reasoningDelta && reasoningDelta.length > 0) {
+      if (!thinkingOpen) {
+        thinkingOpen = true;
+        yield { type: 'thinking_start' };
+      }
+      yield { type: 'thinking_delta', text: reasoningDelta };
+    }
+
     if (choice?.delta?.content) {
+      if (thinkingOpen) {
+        thinkingOpen = false;
+        yield { type: 'thinking_stop' };
+      }
       if (!textOpen) textOpen = true;
       yield { type: 'text_delta', text: choice.delta.content };
     }
 
     if (choice?.delta?.tool_calls) {
+      if (thinkingOpen) {
+        thinkingOpen = false;
+        yield { type: 'thinking_stop' };
+      }
       for (const tc of choice.delta.tool_calls) {
         const idx = tc.index ?? 0;
         let entry = toolByIndex.get(idx);
@@ -212,6 +243,9 @@ async function* parseOpenAIStream(
     }
   }
 
+  if (thinkingOpen) {
+    yield { type: 'thinking_stop' };
+  }
   for (const entry of toolByIndex.values()) {
     const input = parseToolInput(entry.argBuf);
     yield { type: 'tool_use_stop', id: entry.id, input };

@@ -108,7 +108,7 @@ async function* parseAnthropicStream(
   body: Response2Body,
   fallbackModel: string,
 ): AsyncIterable<StreamEvent> {
-  type BlockKind = 'text' | 'tool_use' | 'unknown';
+  type BlockKind = 'text' | 'tool_use' | 'thinking' | 'unknown';
   const blocks = new Map<number, { kind: BlockKind; id?: string; name?: string; partial: string }>();
   let model = fallbackModel;
   let usage: Usage = { input: 0, output: 0 };
@@ -150,6 +150,15 @@ async function* parseAnthropicStream(
           }
         } else if (cb?.type === 'text') {
           blocks.set(index, { kind: 'text', partial: '' });
+        } else if (cb?.type === 'thinking' || cb?.type === 'redacted_thinking') {
+          // Anthropic extended thinking. The model emits an opening
+          // `content_block_start` with type `thinking` (or
+          // `redacted_thinking` when content was hidden from us), then
+          // streams `thinking_delta` and a single `signature_delta`.
+          // Both the text AND the signature must round-trip to the next
+          // request — without the signature Anthropic returns 400.
+          blocks.set(index, { kind: 'thinking', partial: '' });
+          yield { type: 'thinking_start' };
         } else {
           blocks.set(index, { kind: 'unknown', partial: '' });
         }
@@ -157,7 +166,9 @@ async function* parseAnthropicStream(
       }
       case 'content_block_delta': {
         const index = Number(ev['index'] ?? 0);
-        const delta = ev['delta'] as { type?: string; text?: string; partial_json?: string } | undefined;
+        const delta = ev['delta'] as
+          | { type?: string; text?: string; partial_json?: string; thinking?: string; signature?: string; data?: string }
+          | undefined;
         const block = blocks.get(index);
         if (!block || !delta) break;
         if (delta.type === 'text_delta' && typeof delta.text === 'string') {
@@ -167,6 +178,10 @@ async function* parseAnthropicStream(
             block.partial += delta.partial_json;
             yield { type: 'tool_use_input_delta', id: block.id, partial: delta.partial_json };
           }
+        } else if (delta.type === 'thinking_delta' && typeof delta.thinking === 'string') {
+          yield { type: 'thinking_delta', text: delta.thinking };
+        } else if (delta.type === 'signature_delta' && typeof delta.signature === 'string') {
+          yield { type: 'thinking_signature', signature: delta.signature };
         }
         break;
       }
@@ -176,6 +191,8 @@ async function* parseAnthropicStream(
         if (block?.kind === 'tool_use' && block.id) {
           const input = parseToolInput(block.partial);
           yield { type: 'tool_use_stop', id: block.id, input };
+        } else if (block?.kind === 'thinking') {
+          yield { type: 'thinking_stop' };
         }
         break;
       }

@@ -9,6 +9,8 @@ interface AnthropicBlock {
   content?: unknown;
   tool_use_id?: string;
   is_error?: boolean;
+  thinking?: string;
+  signature?: string;
   source?: {
     type?: 'base64' | 'url';
     media_type?: string;
@@ -48,6 +50,15 @@ export function contentFromAnthropic(
         tool_use_id: b.tool_use_id,
         content: normalizeToolResultContent(b.content, opts),
         is_error: b.is_error,
+      });
+    } else if (b.type === 'thinking' && typeof b.thinking === 'string') {
+      // Anthropic extended-thinking block. Must round-trip on the next
+      // request — without it Anthropic returns 400 "content[].thinking
+      // in the thinking mode must be passed back to the API".
+      out.push({
+        type: 'thinking',
+        thinking: b.thinking,
+        ...(b.signature ? { signature: b.signature } : {}),
       });
     } else if (b.type === 'image' && b.source) {
       const src = b.source;

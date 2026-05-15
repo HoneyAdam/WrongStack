@@ -1,5 +1,5 @@
 import type { BridgeMessage, AgentBridge } from './agent-bridge.js';
-import type { SubagentBudget } from '../defaults/subagent-budget.js';
+import type { SubagentBudget } from '../coordination/subagent-budget.js';
 
 export interface SubagentConfig {
   id?: string;
