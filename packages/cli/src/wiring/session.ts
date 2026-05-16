@@ -1,0 +1,126 @@
+import * as path from 'node:path';
+import {
+  Context,
+  DefaultAttachmentStore,
+  QueueStore,
+  RecoveryLock,
+  type AbandonedSession,
+  type SessionStore,
+  type SessionWriter,
+  type WstackPaths,
+  attachTodosCheckpoint,
+  loadDirectorState,
+  loadPlan,
+  loadTodosCheckpoint,
+} from '@wrongstack/core';
+
+export interface SessionResult {
+  session: SessionWriter;
+  sessionRef: { current?: SessionWriter };
+  context: Context;
+  restoredMessages: import('@wrongstack/core').Message[];
+  attachments: DefaultAttachmentStore;
+  recoveryLock: RecoveryLock;
+  queueStore: QueueStore;
+  planPath: string;
+  detachTodosCheckpoint: () => void;
+}
+
+export async function setupSession(params: {
+  config: { model: string; provider: string };
+  wpaths: WstackPaths;
+  projectRoot: string;
+  cwd: string;
+  sessionStore: SessionStore;
+  systemPrompt: import('@wrongstack/core').TextBlock[];
+  provider: import('@wrongstack/core').Provider;
+  tokenCounter: import('@wrongstack/core').TokenCounter;
+  renderer: { writeInfo(msg: string): void; writeError(msg: string): void };
+  flags: Record<string, unknown>;
+  onRecovery: (
+    abandoned: AbandonedSession,
+    autoRecover: boolean,
+  ) => Promise<'resume' | 'delete' | 'skip'>;
+}): Promise<SessionResult> {
+  const { config, wpaths, projectRoot, cwd, sessionStore, systemPrompt, provider, tokenCounter, renderer, flags, onRecovery } = params;
+
+  let resumeId = typeof flags['resume'] === 'string' ? (flags['resume'] as string) : undefined;
+
+  const recoveryLock = new RecoveryLock({ dir: wpaths.projectSessions, sessionStore });
+  if (!resumeId && !flags['no-recovery']) {
+    const abandoned = await recoveryLock.checkAbandoned();
+    if (abandoned && abandoned.messageCount > 0) {
+      const choice = await onRecovery(abandoned, !!flags['recover']);
+      if (choice === 'resume') resumeId = abandoned.sessionId;
+      else if (choice === 'delete') { await sessionStore.delete(abandoned.sessionId).catch(() => undefined); await recoveryLock.clear(); }
+      else await recoveryLock.clear();
+    } else if (abandoned) {
+      await sessionStore.delete(abandoned.sessionId).catch(() => undefined);
+      await recoveryLock.clear();
+    }
+  }
+
+  let session: SessionWriter | undefined;
+  let restoredMessages: import('@wrongstack/core').Message[] = [];
+  if (resumeId) {
+    try {
+      const resumed = await sessionStore.resume(resumeId);
+      session = resumed.writer;
+      restoredMessages = resumed.data.messages;
+      renderer.writeInfo(`Resumed session ${resumed.data.metadata.id} — ${restoredMessages.length} messages, ${resumed.data.usage.input + resumed.data.usage.output} tokens used previously.`);
+    } catch (err) {
+      renderer.writeError(`Resume failed: ${err instanceof Error ? err.message : String(err)}`);
+      throw Object.assign(new Error('RESUME_FAILED'), { exitCode: 2 });
+    }
+  } else {
+    session = await sessionStore.create({ id: '', title: '', model: config.model, provider: config.provider });
+  }
+
+  const sessionRef: { current?: SessionWriter } = { current: session };
+  await recoveryLock.write(session!.id).catch(() => undefined);
+
+  const attachments = new DefaultAttachmentStore({ spoolDir: path.join(wpaths.projectSessions, session!.id, 'attachments') });
+  const queueStore = new QueueStore({ dir: path.join(wpaths.projectSessions, session!.id) });
+
+  const ctxSignal = new AbortController().signal;
+  const context = new Context({ systemPrompt, provider, session: session!, signal: ctxSignal, tokenCounter, cwd, projectRoot, model: config.model });
+  if (restoredMessages.length > 0) context.state.replaceMessages(restoredMessages);
+
+  const todosCheckpointPath = path.join(wpaths.projectSessions, `${session!.id}.todos.json`);
+  if (resumeId) {
+    try {
+      const restoredTodos = await loadTodosCheckpoint(todosCheckpointPath);
+      if (restoredTodos && restoredTodos.length > 0) {
+        context.state.replaceTodos(restoredTodos);
+        renderer.writeInfo(`Restored ${restoredTodos.length} todo${restoredTodos.length === 1 ? '' : 's'} from previous run.`);
+      }
+    } catch { /* best-effort */ }
+  }
+  const detachTodosCheckpoint = attachTodosCheckpoint(context.state, todosCheckpointPath, session!.id);
+
+  const planPath = path.join(wpaths.projectSessions, `${session!.id}.plan.json`);
+  context.state.setMeta('plan.path', planPath);
+
+  if (resumeId) {
+    try {
+      const fleetRoot = path.join(wpaths.projectSessions, session!.id);
+      const dirState = await loadDirectorState(path.join(fleetRoot, 'director-state.json'));
+      if (dirState) {
+        const tCounts: Record<string, number> = {};
+        for (const t of dirState.tasks) tCounts[t.status] = (tCounts[t.status] ?? 0) + 1;
+        const summary = Object.entries(tCounts).map(([k, v]) => `${v} ${k}`).join(', ');
+        renderer.writeInfo(`Prior fleet state: ${dirState.subagents.length} subagent${dirState.subagents.length === 1 ? '' : 's'}, tasks ${summary || '(none)'}.`);
+      }
+    } catch { /* ignore */ }
+    try {
+      const plan = await loadPlan(planPath);
+      if (plan && plan.items.length > 0) {
+        const open = plan.items.filter((p) => p.status !== 'done').length;
+        const done = plan.items.length - open;
+        renderer.writeInfo(`Plan: ${plan.items.length} item${plan.items.length === 1 ? '' : 's'} (${open} open, ${done} done). Use /plan to review.`);
+      }
+    } catch { /* ignore */ }
+  }
+
+  return { session: session!, sessionRef, context, restoredMessages, attachments, recoveryLock, queueStore, planPath, detachTodosCheckpoint };
+}
