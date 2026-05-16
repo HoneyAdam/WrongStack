@@ -30,6 +30,31 @@ function fmtCount(n: number): string {
   return String(n);
 }
 
+function fmtDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n}B`;
+  return `${(n / 1024).toFixed(1)}KB`;
+}
+
+function fmtRecentTool(tool: FleetEntry['recentTools'][number]): string {
+  const status = tool.ok === false ? 'fail' : 'ok';
+  const name = tool.name.length > 24 ? `${tool.name.slice(0, 23)}...` : tool.name;
+  const parts = [status, name];
+  if (typeof tool.durationMs === 'number') parts.push(fmtDuration(tool.durationMs));
+  if (typeof tool.outputBytes === 'number' && tool.outputBytes > 0) parts.push(fmtBytes(tool.outputBytes));
+  if (typeof tool.outputLines === 'number' && tool.outputLines > 0) parts.push(`${tool.outputLines}L`);
+  return parts.join(' ');
+}
+
+function fmtRecentMessage(message: FleetEntry['recentMessages'][number]): string {
+  const text = message.text.replace(/\s+/g, ' ');
+  return text.length > 80 ? `${text.slice(0, 79)}...` : text;
+}
+
 function fmtModel(provider?: string, model?: string): string {
   if (!provider && !model) return '';
   const p = provider ?? '';
@@ -95,6 +120,8 @@ export function FleetPanel({ entries, totalCost, roster }: FleetPanelProps): Rea
         const si = STATUS_ICON[entry.status];
         const modelTag = fmtModel(entry.provider, entry.model);
         const name = resolveName(entry, roster);
+        const recentTools = (entry.recentTools ?? []).slice(-2).map(fmtRecentTool).join(' | ');
+        const recentMessages = (entry.recentMessages ?? []).slice(-2).map(fmtRecentMessage);
 
         return (
           <Box key={entry.id} flexDirection="column">
@@ -120,6 +147,16 @@ export function FleetPanel({ entries, totalCost, roster }: FleetPanelProps): Rea
                 <Text dimColor> ({Math.max(0, Date.now() - entry.currentTool.startedAt)}ms)</Text>
               </Box>
             ) : null}
+            {recentTools ? (
+              <Box paddingLeft={2}>
+                <Text dimColor>tools: {recentTools}</Text>
+              </Box>
+            ) : null}
+            {recentMessages.map((message, index) => (
+              <Box key={`${entry.id}-msg-${index}-${message}`} paddingLeft={2}>
+                <Text dimColor>msg: {message}</Text>
+              </Box>
+            ))}
             {/* Streaming tail for running agents */}
             {entry.status === 'running' && entry.streamingText ? (
               <Box paddingLeft={2}>

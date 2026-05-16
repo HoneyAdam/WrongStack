@@ -62,6 +62,8 @@ export interface TelegramBotOptions {
   pollIntervalSec: number;
   allowedUsers: Set<string>;
   allowedChats: Set<string>;
+  /** Max messages to buffer for the agent to read. Default: 50. */
+  bufferSize: number;
   log: Logger;
   /** Called for each incoming message that passes allowlist checks. */
   onMessage(msg: TelegramIncomingMessage): void;
@@ -85,12 +87,17 @@ export class TelegramBot {
   private offset = 0;
   private _startedAt: number | null = null;
 
+  // Circular buffer for incoming messages
+  private readonly bufferMax: number;
+  private readonly buffer: TelegramIncomingMessage[] = [];
+
   constructor(opts: TelegramBotOptions) {
     this.token = opts.token;
     this.baseUrl = `https://api.telegram.org/bot${opts.token}`;
     this.pollIntervalMs = opts.pollIntervalSec * 1000;
     this.allowedUsers = opts.allowedUsers;
     this.allowedChats = opts.allowedChats;
+    this.bufferMax = opts.bufferSize;
     this.log = opts.log;
     this.onMessage = opts.onMessage;
   }
@@ -125,6 +132,38 @@ export class TelegramBot {
 
   get running(): boolean {
     return this.pollActive;
+  }
+
+  // ------------------------------------------------------------------
+  // Buffer — incoming messages the agent can read
+  // ------------------------------------------------------------------
+
+  /** Return buffered messages, newest first. Optionally filter by chat. */
+  getMessages(opts?: { chatId?: string | number; limit?: number }): TelegramIncomingMessage[] {
+    let msgs = [...this.buffer].reverse();
+    if (opts?.chatId) {
+      const cid = String(opts.chatId);
+      msgs = msgs.filter((m) => String(m.chatId) === cid);
+    }
+    const limit = opts?.limit ?? 20;
+    return msgs.slice(0, limit);
+  }
+
+  /** Drop messages older than the given message ID from the buffer. */
+  acknowledge(lastMessageId: number): number {
+    const before = this.buffer.length;
+    let i = this.buffer.length;
+    while (i-- > 0) {
+      if (this.buffer[i]!.messageId <= lastMessageId) {
+        this.buffer.splice(0, i + 1);
+        break;
+      }
+    }
+    return before - this.buffer.length;
+  }
+
+  get bufferCount(): number {
+    return this.buffer.length;
   }
 
   // ------------------------------------------------------------------
@@ -245,6 +284,10 @@ export class TelegramBot {
       text: msg.text,
       timestamp: msg.date * 1000,
     };
+
+    // Push to circular buffer
+    this.buffer.push(incoming);
+    while (this.buffer.length > this.bufferMax) this.buffer.shift();
 
     this.onMessage(incoming);
   }

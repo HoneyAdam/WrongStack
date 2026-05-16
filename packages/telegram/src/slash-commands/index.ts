@@ -93,16 +93,20 @@ Examples:
 // /tg chatid
 // ---------------------------------------------------------------------------
 
-export function tgChatIdCommand(): SlashCommand {
+export function tgChatIdCommand(defaultChatId?: string | number): SlashCommand {
+  const chatIdStr = defaultChatId ? String(defaultChatId) : null;
   return {
     name: 'chatid',
-    description: 'Show the default notifyChatId',
+    description: 'Show the configured default chat ID',
     help: `Usage: /tg chatid
 
-Shows the current default chat ID used for notifications
-and the ` + '`telegram_send`' + ` tool when no chat_id is specified.`,
+Shows the current default notifyChatId used for notifications
+and the \`telegram_send\` tool when no chat_id is specified.`,
     async run(_args, _ctx) {
-      return { message: `This command shows the configured notifyChatId. Ask the plugin to display it.` };
+      if (chatIdStr) {
+        return { message: `Configured notifyChatId: ${chatIdStr}` };
+      }
+      return { message: 'No notifyChatId configured. Set it in the plugin config or pass chat_id explicitly to telegram_send.' };
     },
   };
 }
@@ -119,7 +123,7 @@ export function registerSlashCommands(
   const cmds = [
     tgStatusCommand(bot, cfg),
     tgSendCommand(bot, cfg.notifyChatId),
-    tgChatIdCommand(),
+    tgChatIdCommand(cfg.notifyChatId),
   ];
   for (const cmd of cmds) api.slashCommands.register(cmd);
   return cmds.map((c) => c.name);

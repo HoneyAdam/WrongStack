@@ -61,6 +61,10 @@ export const grepTool: Tool<GrepInput, GrepOutput> = {
     const base = input.path ? safeResolve(input.path, ctx) : ctx.cwd;
     const mode = input.output_mode ?? 'content';
     const limit = Math.max(1, Math.min(input.limit ?? 200, 2000));
+    const validation = compileUserRegex(input.pattern, input.case_insensitive ? 'i' : '');
+    if (!validation.ok) {
+      throw new Error(`grep: ${validation.reason}`);
+    }
 
     const rgAvailable = await detectRg(opts.signal);
     if (rgAvailable) {
@@ -104,12 +108,16 @@ async function* runRgStream(
     args.push('-n');
     if (input.context_lines) args.push('-C', String(input.context_lines));
   }
+  for (const ignored of DEFAULT_IGNORE) {
+    args.push('--glob', `!${ignored}/**`, '--glob', `!**/${ignored}/**`);
+  }
   if (input.glob) args.push('--glob', input.glob);
   args.push('--', input.pattern, base);
 
   const matches: string[] = [];
   let buf = '';
   let totalLines = 0;
+  let totalCount = 0;
   let batchSinceFlush = 0;
   const FLUSH_AT = 16; // yield a partial_output every 16 matches
   // Cap on the in-progress line buffer. Without this, a single huge "line"
@@ -178,6 +186,7 @@ async function* runRgStream(
     for (const line of ready.split('\n')) {
       if (!line) continue;
       totalLines++;
+      if (mode === 'count') totalCount += parseRgCountLine(line);
       if (matches.length < limit) {
         matches.push(line);
         pendingBatch.push(line);
@@ -199,6 +208,7 @@ async function* runRgStream(
     for (const line of buf.split('\n')) {
       if (!line) continue;
       totalLines++;
+      if (mode === 'count') totalCount += parseRgCountLine(line);
       if (matches.length < limit) {
         matches.push(line);
         pendingBatch.push(line);
@@ -218,11 +228,18 @@ async function* runRgStream(
     type: 'final',
     output: {
       matches,
-      count: totalLines,
+      count: mode === 'count' ? totalCount : totalLines,
       truncated: totalLines > limit || bufOverflow,
       used: 'rg',
     },
   };
+}
+
+function parseRgCountLine(line: string): number {
+  const idx = line.lastIndexOf(':');
+  if (idx === -1) return 0;
+  const n = Number.parseInt(line.slice(idx + 1), 10);
+  return Number.isFinite(n) ? n : 0;
 }
 
 async function runNative(

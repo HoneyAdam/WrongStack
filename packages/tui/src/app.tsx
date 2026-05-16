@@ -19,7 +19,7 @@ import { ConfirmPrompt } from './components/confirm-prompt.js';
 import { FilePicker } from './components/file-picker.js';
 import { FleetPanel } from './components/fleet-panel.js';
 import { LiveActivityStrip } from './components/live-activity-strip.js';
-import { History, type HistoryEntry, formatToolArgs } from './components/history.js';
+import { History, type HistoryEntry } from './components/history.js';
 import { Input, type KeyEvent } from './components/input.js';
 import { ModelPicker, type ProviderOption } from './components/model-picker.js';
 import { SlashMenu } from './components/slash-menu.js';
@@ -44,6 +44,15 @@ export interface FleetEntry {
   streamingText: string;
   iterations: number;
   toolCalls: number;
+  recentTools: Array<{
+    name: string;
+    ok?: boolean;
+    durationMs?: number;
+    outputBytes?: number;
+    outputLines?: number;
+    at: number;
+  }>;
+  recentMessages: Array<{ text: string; at: number }>;
   cost: number;
   startedAt: number;
   lastEventAt: number;
@@ -232,10 +241,10 @@ type State = {
   /** Fleet-wide accumulated cost. */
   fleetCost: number;
   /**
-   * When true, subagent activity (tool calls + assistant messages) is
+   * When true, subagent text activity is
    * streamed into the main history with an `AGENT#N` prefix. Toggled
-   * with `/fleet stream on|off`. Default true so users see what their
-   * delegated agents are actually doing.
+   * with `/fleet stream on|off`. Tool calls stay in the live fleet
+   * surfaces so chat history remains readable during multi-agent runs.
    */
   streamFleet: boolean;
 };
@@ -299,7 +308,16 @@ type Action =
     }
   | { type: 'fleetStart'; id: string; taskId?: string }
   | { type: 'fleetDelta'; id: string; text: string }
-  | { type: 'fleetTool'; id: string }
+  | { type: 'fleetMessage'; id: string; text: string }
+  | {
+      type: 'fleetTool';
+      id: string;
+      name?: string;
+      ok?: boolean;
+      durationMs?: number;
+      outputBytes?: number;
+      outputLines?: number;
+    }
   /** tool.started: pin the current tool name for status display. */
   | { type: 'fleetToolStart'; id: string; name: string }
   /** tool.executed: clear the current tool (paired with fleetTool). */
@@ -584,7 +602,13 @@ export function reducer(state: State, action: Action): State {
     // --- Fleet ---
     case 'fleetSeed': {
       const seeded: Record<string, FleetEntry> = {};
-      for (const e of action.entries) seeded[e.id] = e;
+      for (const e of action.entries) {
+        seeded[e.id] = {
+          ...e,
+          recentTools: e.recentTools ?? [],
+          recentMessages: e.recentMessages ?? [],
+        };
+      }
       return { ...state, fleet: seeded, fleetCost: action.cost };
     }
     case 'fleetSpawn': {
@@ -598,6 +622,8 @@ export function reducer(state: State, action: Action): State {
         streamingText: '',
         iterations: 0,
         toolCalls: 0,
+        recentTools: [],
+        recentMessages: [],
         cost: 0,
         startedAt: Date.now(),
         lastEventAt: Date.now(),
@@ -660,14 +686,48 @@ export function reducer(state: State, action: Action): State {
         },
       };
     }
-    case 'fleetTool': {
+    case 'fleetMessage': {
       const cur = state.fleet[action.id];
-      if (!cur) return state;
+      const text = action.text.trim().replace(/\s+/g, ' ');
+      if (!cur || !text) return state;
+      const now = Date.now();
+      const recentMessages = [...(cur.recentMessages ?? []), { text, at: now }].slice(-2);
       return {
         ...state,
         fleet: {
           ...state.fleet,
-          [action.id]: { ...cur, toolCalls: cur.toolCalls + 1, lastEventAt: Date.now() },
+          [action.id]: { ...cur, recentMessages, lastEventAt: now },
+        },
+      };
+    }
+    case 'fleetTool': {
+      const cur = state.fleet[action.id];
+      if (!cur) return state;
+      const now = Date.now();
+      const recentTools =
+        action.name !== undefined
+          ? [
+              ...(cur.recentTools ?? []),
+              {
+                name: action.name,
+                ok: action.ok,
+                durationMs: action.durationMs,
+                outputBytes: action.outputBytes,
+                outputLines: action.outputLines,
+                at: now,
+              },
+            ].slice(-2)
+          : (cur.recentTools ?? []);
+      return {
+        ...state,
+        fleet: {
+          ...state.fleet,
+          [action.id]: {
+            ...cur,
+            toolCalls: cur.toolCalls + 1,
+            recentTools,
+            lastEventAt: now,
+          },
         },
       };
     }
@@ -696,6 +756,7 @@ export function reducer(state: State, action: Action): State {
             iterations: action.iterations,
             toolCalls: action.toolCalls,
             streamingText: '',
+            currentTool: undefined,
             lastEventAt: Date.now(),
           },
         },
@@ -1898,31 +1959,22 @@ export function App({
         },
       });
     });
-    // Always-on per-tool surface for the chat history. Director mode
-    // also gets a richer FleetBus path that includes arg formatting +
-    // currentTool live updates, but THIS bridge fires regardless of
-    // mode so plain `/spawn` no longer looks like a black box.
+    // Always-on per-tool state surface. Director mode also gets a
+    // FleetBus path, but this bridge fires regardless of mode so plain
+    // `/spawn` still updates the live strip/panel without flooding chat.
     const offTool = events.on('subagent.tool_executed', (e) => {
-      const lbl = labelFor(e.subagentId);
+      if (director) return;
       // Also bump the entry's currentTool/toolCalls so the status bar
       // 4th line + FleetPanel update in non-director mode.
-      dispatch({ type: 'fleetTool', id: e.subagentId });
-      dispatch({ type: 'fleetToolEnd', id: e.subagentId });
-      const bytesTag =
-        typeof e.outputBytes === 'number' && e.outputBytes > 0
-          ? ` · ${e.outputBytes < 1024 ? `${e.outputBytes}B` : `${(e.outputBytes / 1024).toFixed(1)}KB`}`
-          : '';
       dispatch({
-        type: 'addEntry',
-        entry: {
-          kind: 'subagent',
-          agentLabel: lbl.label,
-          agentColor: lbl.color,
-          icon: e.ok === false ? '✗' : '●',
-          text: e.name,
-          detail: `${e.durationMs}ms${bytesTag}`,
-        },
+        type: 'fleetTool',
+        id: e.subagentId,
+        name: e.name,
+        ok: e.ok,
+        durationMs: e.durationMs,
+        outputBytes: e.outputBytes,
       });
+      dispatch({ type: 'fleetToolEnd', id: e.subagentId });
     });
     return () => {
       offSpawned();
@@ -1930,7 +1982,7 @@ export function App({
       offCompleted();
       offTool();
     };
-  }, [events]);
+  }, [events, director]);
 
   // Install a dispatch-backed setter into the shared controller so the
   // `/fleet stream on|off` slash command can flip our reducer flag.
@@ -1974,18 +2026,22 @@ export function App({
     let streamFlushTimer: ReturnType<typeof setTimeout> | null = null;
     const flushStreamBufs = () => {
       for (const [id, text] of streamBuf) {
-        if (!text.trim()) continue;
+        const trimmed = text.trim();
+        if (!trimmed) continue;
         const lbl = labelFor(id);
-        dispatch({
-          type: 'addEntry',
-          entry: {
-            kind: 'subagent',
-            agentLabel: lbl.label,
-            agentColor: lbl.color,
-            icon: '💬',
-            text: text.trim(),
-          },
-        });
+        dispatch({ type: 'fleetMessage', id, text: trimmed });
+        if (streamFleetRef.current) {
+          dispatch({
+            type: 'addEntry',
+            entry: {
+              kind: 'subagent',
+              agentLabel: lbl.label,
+              agentColor: lbl.color,
+              icon: '💬',
+              text: trimmed,
+            },
+          });
+        }
       }
       streamBuf.clear();
       streamFlushTimer = null;
@@ -2067,10 +2123,9 @@ export function App({
             const cur = pending.get(e.subagentId) ?? '';
             pending.set(e.subagentId, cur + p.text);
             if (!flushTimer) flushTimer = setTimeout(doFlush, FLUSH_MS);
-            if (streamFleetRef.current) {
-              streamBuf.set(e.subagentId, (streamBuf.get(e.subagentId) ?? '') + p.text);
-              if (!streamFlushTimer) streamFlushTimer = setTimeout(flushStreamBufs, FLUSH_MS * 4);
-            }
+            streamBuf.set(e.subagentId, (streamBuf.get(e.subagentId) ?? '') + p.text);
+            if (streamFlushTimer) clearTimeout(streamFlushTimer);
+            streamFlushTimer = setTimeout(flushStreamBufs, FLUSH_MS * 4);
           }
           break;
         }
@@ -2082,35 +2137,23 @@ export function App({
           break;
         }
         case 'tool.executed': {
-          dispatch({ type: 'fleetTool', id: e.subagentId });
+          const p = e.payload as {
+            name?: string;
+            ok?: boolean;
+            durationMs?: number;
+            outputBytes?: number;
+            outputLines?: number;
+          };
+          dispatch({
+            type: 'fleetTool',
+            id: e.subagentId,
+            name: p?.name,
+            ok: p?.ok,
+            durationMs: p?.durationMs,
+            outputBytes: p?.outputBytes,
+            outputLines: p?.outputLines,
+          });
           dispatch({ type: 'fleetToolEnd', id: e.subagentId });
-          if (streamFleetRef.current) {
-            // Flush any pending assistant text so tool calls appear in
-            // order relative to the chat that produced them.
-            if (streamFlushTimer) {
-              clearTimeout(streamFlushTimer);
-              flushStreamBufs();
-            }
-            const p = e.payload as {
-              name?: string;
-              ok?: boolean;
-              durationMs?: number;
-              input?: unknown;
-            };
-            const args = p?.input ? formatToolArgs(p.name ?? '', p.input) : '';
-            const lbl = labelFor(e.subagentId);
-            dispatch({
-              type: 'addEntry',
-              entry: {
-                kind: 'subagent',
-                agentLabel: lbl.label,
-                agentColor: lbl.color,
-                icon: p?.ok === false ? '✗' : '●',
-                text: args ? `${p?.name ?? 'tool'} ${args}` : (p?.name ?? 'tool'),
-                detail: typeof p?.durationMs === 'number' ? `${p.durationMs}ms` : undefined,
-              },
-            });
-          }
           break;
         }
         case 'provider.response': {
@@ -2143,7 +2186,7 @@ export function App({
       // Drain any pending streaming text right before the completion
       // entry is committed by the EventBus listener so the order
       // "chat → done line" stays correct.
-      if (streamFleetRef.current && streamFlushTimer) {
+      if (streamFlushTimer) {
         clearTimeout(streamFlushTimer);
         flushStreamBufs();
       }

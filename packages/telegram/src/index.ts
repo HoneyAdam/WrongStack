@@ -5,6 +5,7 @@ import type { TelegramIncomingMessage } from './bot.js';
 import { truncateForTelegram, escapeHtml } from './bot.js';
 import { PLUGIN_NAME, readTelegramConfig, telegramConfigSchema } from './config.js';
 import { registerSlashCommands } from './slash-commands/index.js';
+import { makeTelegramReadTool } from './tools/telegram-read.js';
 import { makeTelegramSendTool } from './tools/telegram-send.js';
 
 // ---------------------------------------------------------------------------
@@ -13,7 +14,7 @@ import { makeTelegramSendTool } from './tools/telegram-send.js';
 
 let teardownState: {
   offs: Array<() => void>;
-  toolName: string;
+  toolNames: string[];
   commandNames: string[];
   bot: TelegramBot;
 } | null = null;
@@ -52,6 +53,7 @@ const plugin: Plugin = {
       pollIntervalSec: cfg.pollIntervalSec,
       allowedUsers: new Set((cfg.allowedUsers ?? []).map(String)),
       allowedChats: new Set((cfg.allowedChats ?? []).map(String)),
+      bufferSize: 50,
       log,
       onMessage(msg: TelegramIncomingMessage) {
         // Emit custom event so other plugins or the host can react.
@@ -64,20 +66,49 @@ const plugin: Plugin = {
       },
     });
 
-    // ---- Register tool ----
+    // ---- Register tools ----
     const sendTool = makeTelegramSendTool({
       bot,
       defaultChatId: cfg.notifyChatId,
       maxMessageLength: cfg.maxMessageLength,
       log,
     });
+    const readTool = makeTelegramReadTool({ bot });
     api.tools.register(sendTool);
-
-    // ---- Register slash commands ----
-    const commandNames = registerSlashCommands(api, bot, cfg);
+    api.tools.register(readTool);
 
     // ---- Event subscriptions ----
     const offs: Array<() => void> = [];
+
+    // System prompt contributor — inject unread Telegram messages
+    const unregisterPrompt = api.registerSystemPromptContributor(async () => {
+      const msgs = bot.getMessages({ limit: 5 });
+      if (msgs.length === 0) return [];
+
+      const blocks: Array<{ type: 'text'; text: string }> = [
+        {
+          type: 'text',
+          text: [
+            '## Telegram Inbox',
+            `You have ${bot.bufferCount} unread Telegram message(s).`,
+            'Read them with `telegram_read` and reply with `telegram_send`.',
+            '',
+            'Recent messages:',
+            ...msgs.map((m) => {
+              const who = m.userName ?? `user_${m.userId ?? 'unknown'}`;
+              const ts = new Date(m.timestamp).toLocaleTimeString();
+              return `- [${ts}] **${who}** (chat=${m.chatId}): ${m.text.slice(0, 200)}`;
+            }),
+            '',
+          ].join('\n'),
+        },
+      ];
+      return blocks;
+    });
+    offs.push(unregisterPrompt);
+
+    // Register slash commands
+    const commandNames = registerSlashCommands(api, bot, cfg);
 
     // Notify on session end
     if (cfg.notifyOnSessionEnd && cfg.notifyChatId) {
@@ -129,7 +160,7 @@ const plugin: Plugin = {
     // ---- Start polling ----
     bot.start();
 
-    teardownState = { offs, toolName: sendTool.name, commandNames, bot };
+    teardownState = { offs, toolNames: [sendTool.name, readTool.name], commandNames, bot };
 
     log.info('Telegram plugin ready');
   },
@@ -141,7 +172,7 @@ const plugin: Plugin = {
 
     state.bot.stop();
     for (const off of state.offs) off();
-    api.tools.unregister(state.toolName);
+    for (const name of state.toolNames) api.tools.unregister(name);
     for (const name of state.commandNames) {
       api.slashCommands.unregister(`${PLUGIN_NAME}:${name}`);
     }

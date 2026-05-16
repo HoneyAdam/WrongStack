@@ -8,14 +8,32 @@ function initial() {
     cursor: 0,
     placeholders: [],
     streamingText: '',
+    toolStream: null,
     status: 'idle' as const,
     interrupts: 0,
+    steeringPending: false,
+    steerSnapshot: null,
     hint: '',
     nextId: 1,
     picker: { open: false, query: '', matches: [], selected: 0 },
+    slashPicker: { open: false, query: '', matches: [], selected: 0 },
     runningTools: new Map<string, { name: string; startedAt: number }>(),
     queue: [],
     nextQueueId: 1,
+    inputHistory: [],
+    historyIndex: 0,
+    modelPicker: {
+      open: false,
+      step: 'provider' as const,
+      providerOptions: [],
+      modelOptions: [],
+      selected: 0,
+    },
+    confirm: null,
+    contextChipVersion: 0,
+    fleet: {},
+    fleetCost: 0,
+    streamFleet: true,
   };
 }
 
@@ -133,6 +151,51 @@ describe('TUI reducer', () => {
     s = reducer(s, { type: 'toolStarted', id: 't1', name: 'read' });
     s = reducer(s, { type: 'toolEnded', id: 'nope' });
     expect(s.runningTools.size).toBe(1);
+  });
+
+  it('fleetTool keeps only the last two compact tool summaries', () => {
+    let s = initial();
+    s = reducer(s, { type: 'fleetSpawn', id: 'agent-1', name: 'worker' });
+    s = reducer(s, {
+      type: 'fleetTool',
+      id: 'agent-1',
+      name: 'read',
+      ok: true,
+      durationMs: 12,
+      outputBytes: 399,
+      outputLines: 7,
+    });
+    s = reducer(s, {
+      type: 'fleetTool',
+      id: 'agent-1',
+      name: 'write',
+      ok: true,
+      durationMs: 20,
+    });
+    s = reducer(s, {
+      type: 'fleetTool',
+      id: 'agent-1',
+      name: 'test',
+      ok: false,
+      durationMs: 30,
+    });
+
+    expect(s.fleet['agent-1']?.toolCalls).toBe(3);
+    expect(s.fleet['agent-1']?.recentTools.map((tool) => tool.name)).toEqual(['write', 'test']);
+    expect(s.fleet['agent-1']?.recentTools[1]?.ok).toBe(false);
+  });
+
+  it('fleetMessage keeps only the last two compact text snippets', () => {
+    let s = initial();
+    s = reducer(s, { type: 'fleetSpawn', id: 'agent-1', name: 'worker' });
+    s = reducer(s, { type: 'fleetMessage', id: 'agent-1', text: ' first  message ' });
+    s = reducer(s, { type: 'fleetMessage', id: 'agent-1', text: 'second message' });
+    s = reducer(s, { type: 'fleetMessage', id: 'agent-1', text: 'third message' });
+
+    expect(s.fleet['agent-1']?.recentMessages.map((message) => message.text)).toEqual([
+      'second message',
+      'third message',
+    ]);
   });
 
   it('enqueue appends with sequential queue ids', () => {

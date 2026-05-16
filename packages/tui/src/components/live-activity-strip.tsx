@@ -22,6 +22,26 @@ function fmtElapsed(ms: number): string {
   return `${m}m${s.toString().padStart(2, '0')}s`;
 }
 
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n}B`;
+  return `${(n / 1024).toFixed(1)}KB`;
+}
+
+function fmtRecentTool(tool: FleetEntry['recentTools'][number]): string {
+  const status = tool.ok === false ? 'fail' : 'ok';
+  const name = tool.name.length > 18 ? `${tool.name.slice(0, 17)}...` : tool.name;
+  const parts = [status, name];
+  if (typeof tool.durationMs === 'number') parts.push(fmtElapsed(tool.durationMs));
+  if (typeof tool.outputBytes === 'number' && tool.outputBytes > 0) parts.push(fmtBytes(tool.outputBytes));
+  if (typeof tool.outputLines === 'number' && tool.outputLines > 0) parts.push(`${tool.outputLines}L`);
+  return parts.join(' ');
+}
+
+function fmtRecentMessage(message: FleetEntry['recentMessages'][number]): string {
+  const text = message.text.replace(/\s+/g, ' ');
+  return text.length > 48 ? `${text.slice(0, 47)}...` : text;
+}
+
 /**
  * Compact one-line-per-subagent strip that sits directly above the
  * input area. Shows only RUNNING subagents — completed/failed entries
@@ -62,6 +82,9 @@ export function LiveActivityStrip({
         const toolSeg = e.currentTool
           ? `→ ${e.currentTool.name} (${fmtElapsed(toolElapsed)})`
           : 'idle between tools';
+        const recentTools = (e.recentTools ?? []).slice(-2).map(fmtRecentTool).join(' | ');
+        const messageText =
+          e.streamingText.trim() || (e.recentMessages ?? []).slice(-1).map(fmtRecentMessage).join('');
         return (
           <Box key={e.id} flexDirection="row" gap={1}>
             <Text color="cyan">●</Text>
@@ -72,6 +95,18 @@ export function LiveActivityStrip({
             <Text dimColor>
               {e.iterations}it {e.toolCalls}tc · {fmtElapsed(taskElapsed)}
             </Text>
+            {recentTools ? (
+              <>
+                <Text dimColor>|</Text>
+                <Text dimColor>last: {recentTools}</Text>
+              </>
+            ) : null}
+            {messageText ? (
+              <>
+                <Text dimColor>|</Text>
+                <Text dimColor>msg: {fmtRecentMessage({ text: messageText, at: Date.now() })}</Text>
+              </>
+            ) : null}
           </Box>
         );
       })}
