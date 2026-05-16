@@ -64,10 +64,10 @@ export const replaceTool: Tool<ReplaceInput, ReplaceOutput> = {
     if (!input?.files) throw new Error('replace: files is required');
 
     const replaceAll = input.replace_all ?? true;
-    // L-8 (audit) fix: when replace_all is false we previously still used the
-    // 'g' flag, so both branches replaced every occurrence. Build flags from
-    // replaceAll for correct semantics.
-    const compiled = compileUserRegex(input.pattern, replaceAll ? 'g' : '');
+    // Always compile with 'g' so matchAll() works — matchAll throws
+    // TypeError on non-global regexes. The replaceAll flag controls
+    // how many matches we act on, not whether the regex is global.
+    const compiled = compileUserRegex(input.pattern, 'g');
     if (!compiled.ok) {
       throw new Error(`replace: ${compiled.reason}`);
     }
@@ -121,17 +121,25 @@ export const replaceTool: Tool<ReplaceInput, ReplaceOutput> = {
       const style = detectNewlineStyle(content);
       const contentLf = normalizeToLf(content);
       re.lastIndex = 0;
-      const matches = [...contentLf.matchAll(re)];
-      if (matches.length === 0) continue;
+      const allMatches = [...contentLf.matchAll(re)];
+      if (allMatches.length === 0) continue;
 
-      // The 'g' flag on `re` is set iff replaceAll, so a single replace()
-      // call covers both modes: with 'g' it replaces every match, without
-      // it replaces only the first. matchAll already returns the correct
-      // count for both modes — replaceAll=true → all matches, false → at
-      // most one — so totalReplacements is accurate either way.
-      const newContentLf = contentLf.replace(re, input.replacement);
+      // When replace_all is false, only act on the first match.
+      const matches = replaceAll ? allMatches : allMatches.slice(0, 1);
+      const count = matches.length;
+
+      // Rebuild: splice the replacement into each match position from
+      // right to left so earlier indices stay valid.
+      let newContentLf = contentLf;
+      for (let i = matches.length - 1; i >= 0; i--) {
+        const m = matches[i]!;
+        newContentLf =
+          newContentLf.slice(0, m.index) +
+          input.replacement +
+          newContentLf.slice(m.index! + m[0].length);
+      }
       re.lastIndex = 0;
-      totalReplacements += matches.length;
+      totalReplacements += count;
 
       if (!dryRun) {
         const newContent = toStyle(newContentLf, style);

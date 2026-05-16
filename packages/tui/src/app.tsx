@@ -274,7 +274,14 @@ type Action =
   | { type: 'resetContextChip' }
   // Fleet actions
   | { type: 'fleetSeed'; entries: FleetEntry[]; cost: number }
-  | { type: 'fleetSpawn'; id: string; name?: string; provider?: string; model?: string; transcriptPath?: string }
+  | {
+      type: 'fleetSpawn';
+      id: string;
+      name?: string;
+      provider?: string;
+      model?: string;
+      transcriptPath?: string;
+    }
   | { type: 'fleetStart'; id: string; taskId?: string }
   | { type: 'fleetDelta'; id: string; text: string }
   | { type: 'fleetTool'; id: string }
@@ -282,8 +289,21 @@ type Action =
   | { type: 'fleetToolStart'; id: string; name: string }
   /** tool.executed: clear the current tool (paired with fleetTool). */
   | { type: 'fleetToolEnd'; id: string }
-  | { type: 'fleetUsage'; id: string; input: number; output: number; cacheRead: number; cacheWrite: number }
-  | { type: 'fleetDone'; id: string; status: FleetEntry['status']; iterations: number; toolCalls: number }
+  | {
+      type: 'fleetUsage';
+      id: string;
+      input: number;
+      output: number;
+      cacheRead: number;
+      cacheWrite: number;
+    }
+  | {
+      type: 'fleetDone';
+      id: string;
+      status: FleetEntry['status'];
+      iterations: number;
+      toolCalls: number;
+    }
   | { type: 'fleetCost'; cost: number }
   | { type: 'setStreamFleet'; enabled: boolean };
 
@@ -603,7 +623,12 @@ export function reducer(state: State, action: Action): State {
         ...state,
         fleet: {
           ...state.fleet,
-          [action.id]: { ...cur, status: 'running' as const, streamingText: '', startedAt: Date.now() },
+          [action.id]: {
+            ...cur,
+            status: 'running' as const,
+            streamingText: '',
+            startedAt: Date.now(),
+          },
         },
       };
     }
@@ -698,10 +723,7 @@ export function buildSteeringPreamble(
   snapshot: State['steerSnapshot'],
   newDirection: string,
 ): string {
-  const lines: string[] = [
-    '[STEERING — I pressed Esc to interrupt you mid-task on purpose.',
-    '',
-  ];
+  const lines: string[] = ['[STEERING — I pressed Esc to interrupt you mid-task on purpose.', ''];
 
   // Section 1: what was running. Even an empty list is useful —
   // tells the model "you weren't doing much yet, no work to mourn".
@@ -732,7 +754,7 @@ export function buildSteeringPreamble(
   lines.push('- Abandon the prior plan entirely if the new direction makes it stale.');
   lines.push('- Re-spawn fresh subagents (with different roles or tasks) if needed.');
   lines.push('- Skip a polite "should I continue?" — just pivot.');
-  lines.push("- Ask me to clarify if the new direction is genuinely ambiguous.");
+  lines.push('- Ask me to clarify if the new direction is genuinely ambiguous.');
   lines.push('');
 
   // Section 3: the user's instruction, fenced so the model can't
@@ -793,15 +815,15 @@ export function buildGoalPreamble(goal: string): string {
     '- Retry failed tools with different inputs, alternative paths, fresh',
     '  subagents. Switch providers mid-run if one is rate-limited.',
     '- Re-plan freely when an approach hits a dead end. You are not obliged',
-    "  to stick with the first plan you proposed.",
+    '  to stick with the first plan you proposed.',
     '',
     'WHAT "DONE" MEANS — non-negotiable:',
     '- You can name a concrete artifact (a passing test, a written file at',
     '  a specific path, a fixed bug verified by re-running the failing case,',
     '  a clean grep that previously had matches).',
     '- You can tell the user HOW to verify it themselves in 10 seconds.',
-    "- You have NOT hedged. None of: \"looks like it should work\", \"I",
-    '  believe this fixes it\", "the changes appear correct".',
+    '- You have NOT hedged. None of: "looks like it should work", "I',
+    '  believe this fixes it", "the changes appear correct".',
     '',
     'WHAT IS NOT DONE — never report any of these as completion:',
     "- An error message you didn't recover from.",
@@ -809,7 +831,7 @@ export function buildGoalPreamble(goal: string): string {
     '  without questioning the search.',
     '- "Should I continue?" / "Want me to also...?" / "Let me know if you',
     '  want X." Those are hedges. The user already told you to finish the',
-    "  goal — just do it.",
+    '  goal — just do it.',
     '- Partial progress dressed up as success. Fixed 3 of 5 bugs = 60%',
     '  done, not done.',
     "- A subagent's failed/timeout/stopped TaskResult that you didn't",
@@ -825,14 +847,14 @@ export function buildGoalPreamble(goal: string): string {
     '- If a subagent returns useless output, respawn with a tighter prompt',
     '  or a different role. Do not accept "I could not determine…" as the',
     '  final answer.',
-    '- Use `ask_subagent` for one-shot questions when you don\'t need a',
+    "- Use `ask_subagent` for one-shot questions when you don't need a",
     '  full delegated task.',
     '',
     'REPORTING:',
     '- Stream short progress notes between major actions so the user can',
     '  monitor. Do not go silent for 50 tool calls then dump a wall of',
     '  text — but also do not narrate every tool call.',
-    "- Use the shared scratchpad (if available) to leave breadcrumbs",
+    '- Use the shared scratchpad (if available) to leave breadcrumbs',
     '  subagents can read.',
     '- Final response must include: (a) what was accomplished, (b) how',
     '  to verify, (c) any caveats (residual TODOs, things the user',
@@ -1012,8 +1034,7 @@ export function App({
   const [lastInputTokens, setLastInputTokens] = React.useState<number>(0);
   useEffect(() => {
     const off = events.on('provider.response', (e) => {
-      const total =
-        (e.usage.input ?? 0) + (e.usage.cacheRead ?? 0) + (e.usage.cacheWrite ?? 0);
+      const total = (e.usage.input ?? 0) + (e.usage.cacheRead ?? 0) + (e.usage.cacheWrite ?? 0);
       setLastInputTokens(total);
     });
     return () => {
@@ -1085,7 +1106,10 @@ export function App({
     if (existing) return existing;
     const n = m.size + 1;
     const suffix = name && name !== id ? ` ${name}` : '';
-    const v = { label: `AGENT#${n}${suffix}`, color: STREAM_COLORS[(n - 1) % STREAM_COLORS.length]! };
+    const v = {
+      label: `AGENT#${n}${suffix}`,
+      color: STREAM_COLORS[(n - 1) % STREAM_COLORS.length]!,
+    };
     m.set(id, v);
     return v;
   };
@@ -1188,10 +1212,7 @@ export function App({
   const prevEntriesCount = useRef(0);
   useEffect(() => {
     const anyOpenNow =
-      state.picker.open ||
-      state.slashPicker.open ||
-      state.modelPicker.open ||
-      !!state.confirm;
+      state.picker.open || state.slashPicker.open || state.modelPicker.open || !!state.confirm;
     const overlayClosed = prevAnyOverlayOpen.current && !anyOpenNow;
     const newEntryCommitted = state.entries.length > prevEntriesCount.current;
     prevAnyOverlayOpen.current = anyOpenNow;
@@ -1431,7 +1452,8 @@ export function App({
     const ALT_ON = '\x1b[?1049h';
     const cmd = {
       name: 'altscreen',
-      description: 'Toggle the alt-screen buffer. Default is OFF (native scroll); /altscreen on for full-screen mode.',
+      description:
+        'Toggle the alt-screen buffer. Default is OFF (native scroll); /altscreen on for full-screen mode.',
       async run(args: string) {
         const arg = args.trim().toLowerCase();
         if (arg === 'off') {
@@ -1480,8 +1502,7 @@ export function App({
   useEffect(() => {
     const cmd = {
       name: 'steer',
-      description:
-        'Interrupt the running agent (incl. fleet) and redirect: /steer <new direction>',
+      description: 'Interrupt the running agent (incl. fleet) and redirect: /steer <new direction>',
       help: [
         'Usage: /steer <new direction>',
         '',
@@ -1561,7 +1582,8 @@ export function App({
   useEffect(() => {
     const cmd = {
       name: 'goal',
-      description: 'Lock in a goal — no budgets, no hedging, no premature done. /goal <description>',
+      description:
+        'Lock in a goal — no budgets, no hedging, no premature done. /goal <description>',
       help: [
         'Usage: /goal <description>',
         '',
@@ -1990,14 +2012,21 @@ export function App({
       if (fresh) {
         seen.add(e.subagentId);
         const meta = d.getSubagentMeta(e.subagentId);
-        dispatch({ type: 'fleetSpawn', id: e.subagentId, name: meta?.name, provider: meta?.provider, model: meta?.model });
+        dispatch({
+          type: 'fleetSpawn',
+          id: e.subagentId,
+          name: meta?.name,
+          provider: meta?.provider,
+          model: meta?.model,
+        });
         // Always assign a label on first sighting so the status bar's
         // 4th line has stable AGENT#N names even when history streaming
         // is disabled. The history `spawned` entry below is gated on
         // streamFleet; label assignment itself is unconditional.
         const lbl = labelFor(e.subagentId, meta?.name);
         if (streamFleetRef.current) {
-          const where = meta?.provider && meta?.model ? `${meta.provider}/${meta.model}` : 'spawned';
+          const where =
+            meta?.provider && meta?.model ? `${meta.provider}/${meta.model}` : 'spawned';
           dispatch({
             type: 'addEntry',
             entry: {
@@ -2045,7 +2074,12 @@ export function App({
               clearTimeout(streamFlushTimer);
               flushStreamBufs();
             }
-            const p = e.payload as { name?: string; ok?: boolean; durationMs?: number; input?: unknown };
+            const p = e.payload as {
+              name?: string;
+              ok?: boolean;
+              durationMs?: number;
+              input?: unknown;
+            };
             const args = p?.input ? formatToolArgs(p.name ?? '', p.input) : '';
             const lbl = labelFor(e.subagentId);
             dispatch({
@@ -2163,10 +2197,7 @@ export function App({
             const t = setTimeout(resolve, 1500);
             t.unref?.();
           });
-          void Promise.race([
-            director.terminateAll().catch(() => undefined),
-            cap,
-          ]);
+          void Promise.race([director.terminateAll().catch(() => undefined), cap]);
         }
         const droppedCount = stateRef.current.queue.length;
         if (droppedCount > 0) {
@@ -2245,32 +2276,32 @@ export function App({
         inputGateRef.current = true;
         try {
           if (state.modelPicker.step === 'provider') {
-          const opt = state.modelPicker.providerOptions[state.modelPicker.selected];
-          if (!opt) return;
+            const opt = state.modelPicker.providerOptions[state.modelPicker.selected];
+            if (!opt) return;
+            dispatch({
+              type: 'modelPickerPickProvider',
+              providerId: opt.id,
+              models: opt.models,
+            });
+            return;
+          }
+          // step === 'model' → commit the switch
+          const providerId = state.modelPicker.pickedProviderId;
+          const modelId = state.modelPicker.modelOptions[state.modelPicker.selected];
+          if (!providerId || !modelId) return;
+          const err = switchProviderAndModel?.(providerId, modelId);
+          if (err) {
+            dispatch({ type: 'modelPickerHint', text: err });
+            return;
+          }
+          setLiveProvider(providerId);
+          setLiveModel(modelId);
           dispatch({
-            type: 'modelPickerPickProvider',
-            providerId: opt.id,
-            models: opt.models,
+            type: 'addEntry',
+            entry: { kind: 'info', text: `Switched to ${providerId} / ${modelId}.` },
           });
+          dispatch({ type: 'modelPickerClose' });
           return;
-        }
-        // step === 'model' → commit the switch
-        const providerId = state.modelPicker.pickedProviderId;
-        const modelId = state.modelPicker.modelOptions[state.modelPicker.selected];
-        if (!providerId || !modelId) return;
-        const err = switchProviderAndModel?.(providerId, modelId);
-        if (err) {
-          dispatch({ type: 'modelPickerHint', text: err });
-          return;
-        }
-        setLiveProvider(providerId);
-        setLiveModel(modelId);
-        dispatch({
-          type: 'addEntry',
-          entry: { kind: 'info', text: `Switched to ${providerId} / ${modelId}.` },
-        });
-        dispatch({ type: 'modelPickerClose' });
-        return;
         } finally {
           inputGateRef.current = false;
         }
@@ -2388,10 +2419,7 @@ export function App({
       // run *before* the steering message, which contradicts the UX.
       const droppedCount = state.queue.length;
       if (droppedCount > 0) dispatch({ type: 'queueClear' });
-      const droppedTag =
-        droppedCount > 0
-          ? ` · dropped ${droppedCount} queued`
-          : '';
+      const droppedTag = droppedCount > 0 ? ` · dropped ${droppedCount} queued` : '';
       const fleetTag =
         subagentsTerminated > 0
           ? ` · stopped ${subagentsTerminated} subagent${subagentsTerminated === 1 ? '' : 's'}`
@@ -2734,11 +2762,7 @@ export function App({
     // The user sees their original text + a visual ↯ marker when
     // steering, not the full preamble — keeps the chat readable while
     // the model still gets the explicit instruction.
-    const displayText = trimmed
-      ? steering
-        ? `↯ ${trimmed}`
-        : trimmed
-      : '(attachments only)';
+    const displayText = trimmed ? (steering ? `↯ ${trimmed}` : trimmed) : '(attachments only)';
     dispatch({ type: 'clearInput' });
 
     if (state.status !== 'idle') {
@@ -2834,11 +2858,7 @@ export function App({
         subagentCount={Object.keys(state.fleet).length}
       />
       {director ? (
-        <FleetPanel
-          entries={state.fleet}
-          totalCost={state.fleetCost}
-          roster={fleetRoster}
-        />
+        <FleetPanel entries={state.fleet} totalCost={state.fleetCost} roster={fleetRoster} />
       ) : null}
     </Box>
   );
