@@ -35,6 +35,7 @@ export {
   type DefaultSystemPromptBuilderOptions,
 } from './core/system-prompt-builder.js';
 export { ToolRegistry } from './registry/tool-registry.js';
+export type { ToolWrapper } from './registry/tool-registry.js';
 export { ProviderRegistry, type ProviderFactory } from './registry/provider-registry.js';
 export {
   SlashCommandRegistry,

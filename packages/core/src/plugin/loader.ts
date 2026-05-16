@@ -68,6 +68,25 @@ function normalizeDep(d: string | PluginDependency): PluginDependency {
   return typeof d === 'string' ? { name: d } : d;
 }
 
+/**
+ * Shallow-merge defaults with overrides. Override keys take precedence;
+ * defaults fill in where overrides are missing. Nested objects are
+ * NOT deep-merged — the override value replaces wholesale.
+ */
+function shallowMerge(
+  defaults: Record<string, unknown>,
+  overrides: unknown,
+): Record<string, unknown> {
+  if (overrides === undefined || overrides === null) return { ...defaults };
+  if (typeof overrides !== 'object') return { ...defaults };
+  const ov = overrides as Record<string, unknown>;
+  const out: Record<string, unknown> = { ...defaults };
+  for (const key of Object.keys(ov)) {
+    out[key] = ov[key];
+  }
+  return out;
+}
+
 function topoSort(plugins: Plugin[]): Plugin[] {
   const map = new Map<string, Plugin>();
   for (const p of plugins) map.set(p.name, p);
@@ -177,6 +196,15 @@ export async function loadPlugins(
       failed.push({ plugin, err });
       continue;
     }
+    // Merge defaultConfig (plugin defaults) with user-provided pluginOptions.
+    // User values take precedence over plugin defaults. The merged result
+    // is fed to configSchema validation and eventually to setup().
+    if (plugin.defaultConfig && opts.pluginOptions) {
+      const userOpts = opts.pluginOptions[plugin.name];
+      const merged = shallowMerge(plugin.defaultConfig, userOpts);
+      opts.pluginOptions[plugin.name] = merged;
+    }
+
     // configSchema validation — runs before setup() so a bad config never
     // reaches plugin code. The plugin's options are looked up by plugin name
     // in the host-supplied options bag.

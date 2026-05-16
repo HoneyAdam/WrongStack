@@ -4,6 +4,24 @@
 // All implementation now lives in top-level domain directories under src/.
 // This file re-exports for consumers that import from '@wrongstack/core/defaults'.
 // New code should import directly from '@wrongstack/core/<domain>'.
+//
+// Sections:
+//   Infrastructure   — Logger, TokenCounter, PathResolver, ContextManager, MCP servers
+//   Storage          — SessionStore, MemoryStore, ConfigStore/Loader, Plan, Todos,
+//                      RecoveryLock, SessionReader, DirectorState
+//   Security         — SecretScrubber, SecretVault, PermissionPolicy
+//   Execution        — RetryPolicy, ErrorHandler, SkillLoader, Compactors,
+//                      ToolExecutor, AutonomousRunner, ProviderRunner
+//   Coordination     — Director, Delegate, MultiAgentCoordinator, SubagentBudget,
+//                      FleetBus, AgentBridge, Fleet roster presets
+//   Models           — ModelsRegistry, ModeStore, LLMSelector
+//   SDD              — SpecParser, TaskGenerator, TaskTracker, TaskFlow
+//   Observability    — Metrics, Traces, Prometheus, OTLP, HealthRegistry
+// =============================================================================
+//
+// Usage (from '@wrongstack/core' or '@wrongstack/core/defaults'):
+//   import { DefaultSessionStore, DefaultLogger, HybridCompactor } from '@wrongstack/core';
+//   import { DefaultSecretVault, DefaultPermissionPolicy } from '@wrongstack/core/defaults';
 // =============================================================================
 
 // ---- Infrastructure (was core/) ----

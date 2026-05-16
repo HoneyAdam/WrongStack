@@ -397,6 +397,31 @@ describe('extractDiffPreview', () => {
     expect(out!.rows.some((r) => r.kind === 'add')).toBe(true);
     expect(out!.rows.some((r) => r.kind === 'del')).toBe(true);
   });
+
+  it('attaches old/new line numbers from the @@ hunk header', () => {
+    const diff = [
+      '@@ -10,3 +20,3 @@',
+      ' ctx-a',
+      '-removed',
+      '+added',
+      ' ctx-b',
+    ].join('\n');
+    const out = extractDiffPreview('patch', diff);
+    expect(out).toBeDefined();
+    const rows = out!.rows;
+    const ctxA = rows.find((r) => r.kind === 'ctx' && r.text.includes('ctx-a'))!;
+    const del = rows.find((r) => r.kind === 'del')!;
+    const add = rows.find((r) => r.kind === 'add')!;
+    const ctxB = rows.find((r) => r.kind === 'ctx' && r.text.includes('ctx-b'))!;
+    expect(ctxA.oldLine).toBe(10);
+    expect(ctxA.newLine).toBe(20);
+    // del advances only the old-file counter; add advances only the new one.
+    expect(del.oldLine).toBe(11);
+    expect(add.newLine).toBe(21);
+    // After one ctx + one del + one add, both counters should be at 12 / 22.
+    expect(ctxB.oldLine).toBe(12);
+    expect(ctxB.newLine).toBe(22);
+  });
 });
 
 describe('fmtDuration', () => {

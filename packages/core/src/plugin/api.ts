@@ -6,6 +6,7 @@ import type { SystemPromptContributor } from '../types/system-prompt-contributor
 import type { ProviderRegistry } from '../registry/provider-registry.js';
 import type { SlashCommandRegistry } from '../registry/slash-command-registry.js';
 import type { ToolRegistry } from '../registry/tool-registry.js';
+import type { ToolWrapper } from '../registry/tool-registry.js';
 import type { Config } from '../types/config.js';
 import type { Logger } from '../types/logger.js';
 import type {
@@ -14,6 +15,7 @@ import type {
   PluginPipelines,
   ProviderFactory,
   ProviderRegistryView,
+  SessionWriterView,
   SlashCommandRegistryView,
   ToolRegistryView,
 } from '../types/plugin.js';
@@ -38,6 +40,11 @@ export interface PluginAPIInit {
    * instances here to hook into agent lifecycle events.
    */
   extensions?: ExtensionRegistry;
+  /**
+   * The active session writer. Plugins append custom events here.
+   * When not provided, a noop writer is used.
+   */
+  sessionWriter?: SessionWriterView;
   config: Config;
   log: Logger;
 }
@@ -51,6 +58,7 @@ export class DefaultPluginAPI implements PluginAPI {
   readonly mcp: MCPRegistryView;
   readonly slashCommands: SlashCommandRegistryView;
   readonly extensions: ExtensionRegistry;
+  readonly session: SessionWriterView;
   readonly config: Config;
   readonly log: Logger;
   private readonly pluginCleanupFns: Array<() => void> = [];
@@ -62,6 +70,7 @@ export class DefaultPluginAPI implements PluginAPI {
     this.config = init.config;
     this.log = init.log.child({ plugin: owner });
     this.extensions = init.extensions ?? new ExtensionRegistry();
+    this.session = init.sessionWriter ?? noopSession;
 
     // Convert concrete pipelines to read-only views before passing to plugins.
     const pipelines = init.pipelines as unknown as Record<string, Pipeline<unknown>>;
@@ -75,6 +84,7 @@ export class DefaultPluginAPI implements PluginAPI {
     this.tools = {
       register: (t: Tool) => tr.register(t, owner),
       unregister: (name: string) => tr.unregister(name),
+      wrap: (name: string, wrapper: ToolWrapper) => tr.wrap(name, wrapper, owner),
       get: (name: string) => tr.get(name),
       list: () => tr.list(),
     };
@@ -103,6 +113,11 @@ export class DefaultPluginAPI implements PluginAPI {
     const off = this.events.once(event, handler);
     this.pluginCleanupFns.push(off);
     return off;
+  }
+
+  emitCustom(event: string, payload: unknown): void {
+    // biome-ignore lint/suspicious/noExplicitAny: custom events bypass the typed EventMap
+    (this.events as any).emit(event, payload);
   }
 
   /** Called by the plugin loader when uninstalling the plugin. */
@@ -140,5 +155,11 @@ const noopSlashCommands: SlashCommandRegistryView = {
   },
   list() {
     return [];
+  },
+};
+
+const noopSession: SessionWriterView = {
+  append: async () => {
+    /* noop */
   },
 };

@@ -1,6 +1,29 @@
 import { WrongStackError } from '../types/errors.js';
 import type { Tool } from '../types/tool.js';
 
+/**
+ * A function that wraps (decorates) an existing tool. Receives the
+ * original tool and returns a modified version — typically the same
+ * tool with a wrapped `execute` / `executeStream`, or with modified
+ * metadata (description, permission).
+ *
+ * Use `ToolRegistry.wrap()` to apply; the wrapper is called immediately
+ * and the result replaces the registered tool. Multiple wraps stack —
+ * each wrapper receives the output of the previous.
+ *
+ * @example
+ * ```ts
+ * registry.wrap('read', (original) => ({
+ *   ...original,
+ *   async execute(input, ctx, opts) {
+ *     console.log('read called');
+ *     return original.execute(input, ctx, opts);
+ *   }
+ * }));
+ * ```
+ */
+export type ToolWrapper = (tool: Tool) => Tool;
+
 export class ToolRegistry {
   private readonly tools = new Map<string, { tool: Tool; owner: string }>();
 
@@ -72,6 +95,31 @@ export class ToolRegistry {
       });
     }
     this.tools.set(name, { tool, owner });
+  }
+
+  /**
+   * Wrap (decorate) an existing tool. The wrapper receives the current
+   * tool and must return a new tool — typically the same tool with a
+   * wrapped `execute` or `executeStream`. Throws if the tool is not
+   * registered.
+   *
+   * Multiple wraps stack: each wrapper gets the output of the previous.
+   *
+   * @example
+   * registry.wrap('bash', (t) => ({ ...t, permission: 'confirm' }));
+   */
+  wrap(name: string, wrapper: ToolWrapper, owner = 'core'): void {
+    const entry = this.tools.get(name);
+    if (!entry) {
+      throw new WrongStackError({
+        message: `Tool "${name}" not registered; cannot wrap`,
+        code: 'REGISTRY_NOT_FOUND',
+        subsystem: 'container',
+        context: { tool: name },
+      });
+    }
+    const wrapped = wrapper(entry.tool);
+    this.tools.set(name, { tool: wrapped, owner: `${entry.owner}+${owner}` });
   }
 
   get(name: string): Tool | undefined {

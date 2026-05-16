@@ -12,10 +12,13 @@ import type { WireFamily } from './models-registry.js';
 import type { Provider, Request, Response } from './provider.js';
 import type { SlashCommand } from './slash-command.js';
 import type { JSONSchema, Tool } from './tool.js';
+import type { ToolWrapper } from '../registry/tool-registry.js';
 
 export interface ToolRegistryView {
   register(t: Tool): void;
   unregister(name: string): void;
+  /** Wrap (decorate) an existing tool. The wrapper gets the current tool and returns the decorated version. */
+  wrap(name: string, wrapper: ToolWrapper): void;
   get(name: string): Tool | undefined;
   list(): Tool[];
 }
@@ -46,6 +49,18 @@ export interface SlashCommandRegistryView {
   list(): SlashCommand[];
 }
 
+/**
+ * Read-only view of the session writer. Plugins can append custom events
+ * to the JSONL session log and read the transcript path.
+ *
+ * The `append` method accepts any JSON-serializable payload — custom
+ * event types are persisted verbatim next to the built-in events.
+ */
+export interface SessionWriterView {
+  readonly transcriptPath?: string;
+  append(event: Record<string, unknown> & { type: string; ts: string }): Promise<void>;
+}
+
 export interface PluginPipelines {
   request: ReadonlyPipeline<Request>;
   response: ReadonlyPipeline<Response>;
@@ -69,6 +84,8 @@ export interface PluginAPI {
   providers: ProviderRegistryView;
   mcp: MCPRegistryView;
   slashCommands: SlashCommandRegistryView;
+  /** Live session writer — plugins can append custom events here. */
+  session: SessionWriterView;
   /** Registry for agent lifecycle extensions — hooks like beforeRun, beforeIteration, onError, etc. */
   extensions: ExtensionRegistry;
   /**
@@ -85,6 +102,15 @@ export interface PluginAPI {
    * comes first.
    */
   onEvent<K extends EventName>(event: K, handler: Listener<K>): () => void;
+  /**
+   * Emit a custom event on the agent's EventBus. Use for inter-plugin
+   * communication or to surface plugin-specific state to the host.
+   *
+   * Custom events use a `pluginName:eventName` convention to avoid
+   * collisions with built-in events (e.g. `my-plugin:cache_hit`).
+   * The payload is passed through to all subscribers.
+   */
+  emitCustom(event: string, payload: unknown): void;
 }
 
 /**
@@ -152,6 +178,21 @@ export interface Plugin {
   /** Optional plugin dependencies — silently skipped if absent. */
   optionalDeps?: (string | PluginDependency)[];
   conflictsWith?: string[];
+  /**
+   * Default configuration values, deep-merged under the plugin's options
+   * key before `configSchema` validation. User-provided values take
+   * precedence over defaults — this is a fallback, not an override.
+   *
+   * @example
+   * defaultConfig: { ttl: 3600, maxSize: 100 }
+   */
+  defaultConfig?: Record<string, unknown>;
   setup(api: PluginAPI): void | Promise<void>;
   teardown?(api: PluginAPI): void | Promise<void>;
+  /**
+   * Optional health check. Called by the host (e.g. `/diag plugins` slash
+   * command or health endpoint) to surface plugin status. Return
+   * `{ ok: false, message: '...' }` when the plugin is degraded.
+   */
+  health?(): Promise<{ ok: boolean; message?: string }>;
 }

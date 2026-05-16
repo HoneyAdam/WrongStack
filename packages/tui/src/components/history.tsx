@@ -198,6 +198,18 @@ export function tailForDisplay(text: string, maxChars: number): string {
 }
 
 function DiffBlock({ rows, hidden }: { rows: DiffLineRow[]; hidden: number }): React.ReactElement {
+  // Width of the line-number gutter: pick the widest line number across all
+  // rows so the column stays aligned. Fall back to 1 when no row carries a
+  // line number (e.g. a diff with only a meta/hunk row).
+  let gutterWidth = 1;
+  for (const r of rows) {
+    const n = r.kind === 'del' ? r.oldLine : r.newLine;
+    if (typeof n === 'number') {
+      const w = String(n).length;
+      if (w > gutterWidth) gutterWidth = w;
+    }
+  }
+  const blank = ' '.repeat(gutterWidth);
   return (
     <Box flexDirection="column" marginLeft={4} marginTop={0}>
       {rows.map((row, i) => {
@@ -212,29 +224,37 @@ function DiffBlock({ rows, hidden }: { rows: DiffLineRow[]; hidden: number }): R
         if (row.kind === 'meta') {
           return (
             <Text key={key} dimColor>
-              {row.text}
+              {`${blank}  ${row.text}`}
             </Text>
           );
         }
+        const lnNumber = row.kind === 'del' ? row.oldLine : row.newLine;
+        const lnText =
+          typeof lnNumber === 'number' ? String(lnNumber).padStart(gutterWidth, ' ') : blank;
         if (row.kind === 'ctx') {
           return (
             <Text key={key} dimColor>
-              {row.text}
+              {`${lnText}  ${row.text}`}
             </Text>
           );
         }
-        // add / del — colored backgrounds for the diff feel.
-        const bg = row.kind === 'add' ? 'green' : 'red';
-        const fg = row.kind === 'add' ? 'black' : 'white';
+        // add / del — soft background block on the content only; line number
+        // stays dim outside the block so the eye anchors on the change, not
+        // a wall of colour. Bright variants render lighter than plain
+        // green/red on most terminals.
+        const bg = row.kind === 'add' ? 'greenBright' : 'redBright';
         return (
-          <Text key={key} backgroundColor={bg} color={fg}>
-            {row.text}
+          <Text key={key}>
+            <Text dimColor>{`${lnText}  `}</Text>
+            <Text backgroundColor={bg} color="black">
+              {row.text}
+            </Text>
           </Text>
         );
       })}
       {hidden > 0 ? (
         <Text dimColor italic>
-          {`  … ${hidden} more line${hidden === 1 ? '' : 's'}`}
+          {`${blank}  … ${hidden} more line${hidden === 1 ? '' : 's'}`}
         </Text>
       ) : null}
     </Box>
@@ -1164,6 +1184,8 @@ export type DiffLineKind = 'add' | 'del' | 'hunk' | 'ctx' | 'meta';
 export interface DiffLineRow {
   kind: DiffLineKind;
   text: string;
+  oldLine?: number;
+  newLine?: number;
 }
 
 const DIFF_MAX_LINES = 8;
@@ -1205,20 +1227,31 @@ export function extractDiffPreview(
 
 function parseUnifiedDiff(diff: string, maxLines: number): { rows: DiffLineRow[]; hidden: number } {
   const all: DiffLineRow[] = [];
+  // Counters advance as we walk through a hunk so each row can carry its
+  // line number in the source/target file. Reset whenever we see a new @@.
+  let oldLn = 0;
+  let newLn = 0;
   for (const raw of diff.split('\n')) {
     const line = raw.replace(/\r$/, '');
     if (line.startsWith('+++') || line.startsWith('---')) continue;
     if (line.startsWith('diff --git') || line.startsWith('index ')) continue;
     if (line.startsWith('@@')) {
+      const m = line.match(/^@@\s+-(\d+)(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s+@@/);
+      if (m) {
+        oldLn = Number.parseInt(m[1] ?? '0', 10) || 0;
+        newLn = Number.parseInt(m[2] ?? '0', 10) || 0;
+      }
       all.push({ kind: 'hunk', text: truncMid(line, 60) });
       continue;
     }
     if (line.startsWith('+')) {
-      all.push({ kind: 'add', text: truncMid(line, 100) });
+      all.push({ kind: 'add', text: truncMid(line, 100), newLine: newLn });
+      newLn++;
       continue;
     }
     if (line.startsWith('-')) {
-      all.push({ kind: 'del', text: truncMid(line, 100) });
+      all.push({ kind: 'del', text: truncMid(line, 100), oldLine: oldLn });
+      oldLn++;
       continue;
     }
     if (line.startsWith('\\ No newline')) {
@@ -1226,7 +1259,9 @@ function parseUnifiedDiff(diff: string, maxLines: number): { rows: DiffLineRow[]
       continue;
     }
     if (line.length === 0) continue;
-    all.push({ kind: 'ctx', text: truncMid(line, 100) });
+    all.push({ kind: 'ctx', text: truncMid(line, 100), oldLine: oldLn, newLine: newLn });
+    oldLn++;
+    newLn++;
   }
   if (all.length === 0) return { rows: [], hidden: 0 };
   if (all.length <= maxLines) return { rows: all, hidden: 0 };
