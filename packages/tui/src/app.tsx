@@ -1684,18 +1684,54 @@ export function App({
     };
   }, [director]);
 
-  // Handle SIGINT: first cancels current iteration, second exits.
+  // Handle SIGINT: first cancels current iteration + kills the fleet,
+  // second forces exit regardless of state (the old `status === 'idle'`
+  // gate left users stuck in 'aborting' forever when a delegate call
+  // wouldn't unwind — agent.run() doesn't return while subagents
+  // ignore the abort signal). Third press hard-kills via process.exit
+  // so a wedged Ink loop can't trap the user.
   useEffect(() => {
     const onSigint = () => {
-      if (state.interrupts >= 1 && state.status === 'idle') {
-        exit();
-        onExit(130);
+      // Second (or later) Ctrl+C — exit no matter what. Status may be
+      // 'aborting', 'running', or 'streaming'; the user has clearly
+      // decided they want out. Try Ink's graceful exit first, then
+      // hard-exit on a short timer in case the React tree is wedged.
+      if (state.interrupts >= 1) {
+        // Third press = hard kill, no waiting.
+        if (state.interrupts >= 2) {
+          process.exit(130);
+        }
+        try {
+          exit();
+          onExit(130);
+        } catch {
+          // ignore
+        }
+        // Safety net: if Ink's waitUntilExit doesn't resolve within
+        // 500ms (a stuck delegate await, an unhandled promise), force
+        // exit so the user actually gets their shell back.
+        setTimeout(() => {
+          try {
+            process.exit(130);
+          } catch {
+            // ignore
+          }
+        }, 500).unref?.();
+        dispatch({ type: 'interrupt' });
         return;
       }
       dispatch({ type: 'interrupt' });
       if (activeCtrlRef.current) {
         activeCtrlRef.current.abort();
         dispatch({ type: 'status', status: 'aborting' });
+        // Kill every running subagent on the first interrupt — without
+        // this the parent agent.run() stays parked in `await delegate
+        // → director.awaitTasks` forever and the "press again to exit"
+        // hint becomes a lie. terminateAll is fire-and-forget so a slow
+        // shutdown doesn't block the SIGINT handler.
+        if (director) {
+          void director.terminateAll().catch(() => undefined);
+        }
         const droppedCount = stateRef.current.queue.length;
         if (droppedCount > 0) {
           dispatch({ type: 'queueClear' });
@@ -1703,13 +1739,16 @@ export function App({
             type: 'addEntry',
             entry: {
               kind: 'warn',
-              text: `Iteration cancelled. Dropped ${droppedCount} queued message${droppedCount === 1 ? '' : 's'}. Press Ctrl+C again to exit.`,
+              text: `Iteration cancelled${director ? ' + fleet terminated' : ''}. Dropped ${droppedCount} queued message${droppedCount === 1 ? '' : 's'}. Press Ctrl+C again to exit.`,
             },
           });
         } else {
           dispatch({
             type: 'addEntry',
-            entry: { kind: 'warn', text: 'Iteration cancelled. Press Ctrl+C again to exit.' },
+            entry: {
+              kind: 'warn',
+              text: `Iteration cancelled${director ? ' + fleet terminated' : ''}. Press Ctrl+C again to exit.`,
+            },
           });
         }
       } else {
@@ -1723,7 +1762,7 @@ export function App({
     return () => {
       process.off('SIGINT', onSigint);
     };
-  }, [state.interrupts, state.status, exit, onExit]);
+  }, [state.interrupts, state.status, exit, onExit, director]);
 
   const handleKey = async (input: string, key: KeyEvent) => {
     // Note: we no longer block input while the agent is running. Enter
