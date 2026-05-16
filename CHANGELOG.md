@@ -98,6 +98,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Only the user can stop a /goal — Esc / `/steer` redirect, Ctrl+C /
   `/fleet kill` bail out.
 
+- **`--goal "<task>"` and `--ask "<text>"` boot flags.** Launch
+  directly into goal mode (or pre-populated single-turn) from the
+  shell, no need to type `/goal` after the TUI starts up. `--goal`
+  auto-enables `--tui` since the goal-mode steering surface lives
+  there. Pair with `--director` for one-line fleet kickoffs:
+  `wstack --director --goal "audit packages/core for races"`.
+
 - **`/steer <new direction>` and `Esc`-to-steer.** Mid-flight redirect
   primitives. Both abort the active iteration, terminate running
   subagents (1.5s cap), drop the queued messages, and send the new

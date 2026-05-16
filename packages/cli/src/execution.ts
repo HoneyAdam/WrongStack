@@ -104,6 +104,18 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
     if (promptFlag) {
       positional.unshift(promptFlag);
     }
+    // --goal / --ask boot directly into the TUI in goal/ask mode. The TUI is
+    // the only surface with the steering + fleet panel + Esc-redirect wiring
+    // that goal mode depends on, so if the user passed a goal but forgot
+    // --tui, we flip --tui on for them. Single-shot positional invocation
+    // still wins: `wstack --goal X "literal prompt"` runs the positional as
+    // a normal single-shot (positional is non-empty), which is consistent
+    // with --prompt's existing semantics.
+    const goalFlag = typeof flags['goal'] === 'string' ? flags['goal'] : undefined;
+    const askFlag = typeof flags['ask'] === 'string' ? flags['ask'] : undefined;
+    if ((goalFlag || askFlag) && positional.length === 0 && !promptFlag) {
+      flags.tui = true;
+    }
     if (positional.length > 0 || promptFlag) {
       const query = positional.join(' ');
       const ctrl = new AbortController();
@@ -220,6 +232,8 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
             dispatch({ type: 'resetContextChip' });
           },
           fleetStreamController,
+          initialGoal: goalFlag,
+          initialAsk: askFlag,
         });
       } finally {
         renderer.setSilent(false);

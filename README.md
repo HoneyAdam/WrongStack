@@ -381,6 +381,12 @@ wrongstack --webui
 --yolo               Auto-allow all tool calls (don't ask for confirmation)
 --director           Enable Director-based fleet orchestration (LLM-driven
                      subagent planning, spawning, roll-up)
+--goal "<task>"      Boot directly into goal mode — TUI auto-enables, the
+                     GOAL preamble is injected as the first turn, and the
+                     agent works until verifiably complete. Esc/`/steer` to
+                     redirect, Ctrl+C to bail. Pair with --director for fleet.
+--ask "<text>"       Submit one turn verbatim on TUI boot (no preamble).
+                     For scripted shell aliases that pre-populate a question.
 --alt-screen         TUI only: render into a separate screen buffer (no native
                      scrollback). Eliminates resize ghost artifacts at the cost
                      of losing terminal history after exit.

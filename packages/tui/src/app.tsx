@@ -119,6 +119,21 @@ export interface AppProps {
     dispatch: React.Dispatch<{ type: 'clearHistory' } | { type: 'resetContextChip' }>,
   ) => void;
 
+  /**
+   * Goal text passed from `--goal "..."` on the command line. When set,
+   * the App mounts, renders the banner, then automatically dispatches
+   * a synthetic `/goal <text>` so the user lands in goal mode without
+   * having to type the slash command. Mutually advisory with `initialSteer`
+   * — `initialGoal` wins if both are present.
+   */
+  initialGoal?: string;
+  /**
+   * Initial user message passed from `--ask "..."` on the command line.
+   * Submitted verbatim as the first turn (no preamble) so users can
+   * launch the TUI and pre-populate one turn from a shell alias / script.
+   */
+  initialAsk?: string;
+
   // --- Fleet ---
   /** Live director for fleet panel rendering. Null when director mode is off. */
   director: Director | null;
@@ -886,6 +901,8 @@ export function App({
   fleetRoster,
   onClearHistory,
   fleetStreamController,
+  initialGoal,
+  initialAsk,
 }: AppProps): React.ReactElement {
   const { exit } = useApp();
   // Reactive mirrors of agent.ctx.{model,provider.id} so the status bar
@@ -2780,6 +2797,50 @@ export function App({
     if (state.historyIndex > 0) dispatch({ type: 'historyPush', text: trimmed });
     await runBlocks(blocks);
   };
+
+  // ─── --goal / --ask boot inject ─────────────────────────────────────
+  // The CLI may pass `--goal "..."` or `--ask "..."` to pre-populate the
+  // very first turn. `initialGoal` wraps the text in the GOAL preamble so
+  // the model lands in autonomous goal mode; `initialAsk` submits the text
+  // verbatim (handy for scripted shell aliases). Both fire one-shot via a
+  // mount-time ref guard so a re-render can't double-submit. We wait a tick
+  // for the input builder to settle, then push directly into runBlocks —
+  // bypassing the slash registry / submit() path keeps the boot path
+  // self-contained even if user-installed slash commands haven't mounted
+  // their effects yet.
+  const bootInjectedRef = useRef(false);
+  useEffect(() => {
+    if (bootInjectedRef.current) return;
+    bootInjectedRef.current = true;
+    const goal = initialGoal?.trim();
+    const ask = initialAsk?.trim();
+    if (!goal && !ask) return;
+    void (async () => {
+      // Give the banner a frame to render first so the user sees the
+      // greeting before the first turn streams over the top of it.
+      await new Promise((r) => setTimeout(r, 50));
+      const b = builderRef.current;
+      if (!b) return;
+      if (goal) {
+        const shortGoal = goal.length > 80 ? `${goal.slice(0, 80)}…` : goal;
+        dispatch({
+          type: 'addEntry',
+          entry: {
+            kind: 'info',
+            text: `🎯 Goal locked: ${shortGoal}\n   Agent will work until verifiably complete. Esc / /steer to redirect, Ctrl+C to stop.`,
+          },
+        });
+        b.appendText(buildGoalPreamble(goal));
+      } else if (ask) {
+        dispatch({ type: 'addEntry', entry: { kind: 'user', text: ask } });
+        b.appendText(ask);
+      }
+      const blocks = await b.submit();
+      await runBlocks(blocks);
+    })();
+    // Empty deps: this is a strict one-shot mount effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const inputHint = useMemo(() => {
     if (state.status !== 'idle') return '';

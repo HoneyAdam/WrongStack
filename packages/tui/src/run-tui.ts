@@ -92,6 +92,23 @@ export interface RunTuiOptions {
     enabled: boolean;
     setEnabled: (enabled: boolean) => void;
   };
+
+  /**
+   * If set, the App boots straight into goal mode — the text is wrapped
+   * in the GOAL preamble and submitted as the first turn. Lets users
+   * launch directly from the shell:
+   *   wstack --tui --director --goal "audit packages/core for races"
+   * The chat shows a one-line "🎯 Goal locked: …" hint; the actual
+   * preamble is hidden from the visible history (same as `/goal`).
+   */
+  initialGoal?: string;
+  /**
+   * If set, submitted as the first turn verbatim (no preamble). Mainly
+   * for scripted shell aliases — `wstack --tui --ask "summarize foo.md"`
+   * — that want one turn pre-populated without the goal-mode framing.
+   * Ignored when `initialGoal` is also set.
+   */
+  initialAsk?: string;
 }
 
 // Bracketed paste mode wraps any pasted text with these markers, letting us
@@ -239,6 +256,8 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
             ? (dispatch) => opts.onClearHistory!(dispatch)
             : undefined,
           fleetStreamController: opts.fleetStreamController,
+          initialGoal: opts.initialGoal,
+          initialAsk: opts.initialAsk,
         }),
         { exitOnCtrlC: false },
       );
