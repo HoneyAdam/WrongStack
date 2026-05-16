@@ -24,5 +24,6 @@ export {
 } from '@wrongstack/core';
 export * from './pack.js';
 export * from './host.js';
+export * from './container.js';
 export * from './vision.js';
 export * from './clipboard.js';

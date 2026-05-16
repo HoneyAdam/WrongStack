@@ -54,6 +54,7 @@ import {
 } from '@wrongstack/core';
 import { MCPRegistry } from '@wrongstack/mcp';
 import { capabilitiesFor, makeProviderFromConfig } from '@wrongstack/providers';
+import { createDefaultContainer } from '@wrongstack/runtime';
 import { setupProvider } from './wiring/provider.js';
 import { setupSession } from './wiring/session.js';
 import { createAgent, setupCompaction, setupPipelines } from './wiring/pipeline.js';
