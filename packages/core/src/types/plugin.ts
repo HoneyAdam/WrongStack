@@ -4,6 +4,7 @@ import type { Container } from '../kernel/container.js';
 import type { EventBus, EventName, Listener } from '../kernel/events.js';
 import type { ReadonlyPipeline } from '../kernel/pipeline.js';
 import type { ExtensionRegistry } from '../extension/registry.js';
+import type { SystemPromptContributor } from './system-prompt-contributor.js';
 import type { TextBlock } from './blocks.js';
 import type { Config } from './config.js';
 import type { Logger } from './logger.js';
@@ -70,6 +71,12 @@ export interface PluginAPI {
   slashCommands: SlashCommandRegistryView;
   /** Registry for agent lifecycle extensions — hooks like beforeRun, beforeIteration, onError, etc. */
   extensions: ExtensionRegistry;
+  /**
+   * Register a system prompt contributor. Plugins call this to inject
+   * ephemeral TextBlocks into the system prompt on every build.
+   * Returns an unregister function.
+   */
+  registerSystemPromptContributor(c: SystemPromptContributor): () => void;
   config: Config;
   log: Logger;
   /**

@@ -8,6 +8,8 @@
 
 import { WrongStackError } from '../types/errors.js';
 import type { Logger } from '../types/logger.js';
+import type { TextBlock } from '../types/blocks.js';
+import type { SystemPromptContributor } from '../types/system-prompt-contributor.js';
 import type {
   AgentExtension,
   AfterIterationHook,
@@ -23,10 +25,53 @@ import type {
 
 export class ExtensionRegistry {
   private readonly extensions: AgentExtension[] = [];
+  private readonly promptContributors: SystemPromptContributor[] = [];
   private log: Logger | undefined;
 
   setLogger(log: Logger): void {
     this.log = log;
+  }
+
+  /**
+   * Register a system prompt contributor. Returns an unregister function.
+   * Contributors are called on every system prompt build in registration
+   * order. Their output blocks are inserted after the core environment
+   * block, before the mode and plan blocks.
+   */
+  registerSystemPromptContributor(c: SystemPromptContributor): () => void {
+    this.promptContributors.push(c);
+    return () => {
+      const idx = this.promptContributors.indexOf(c);
+      if (idx >= 0) this.promptContributors.splice(idx, 1);
+    };
+  }
+
+  /**
+   * Build all registered system prompt contributions.
+   * Failures are caught and logged — one bad contributor doesn't
+   * break the prompt assembly.
+   */
+  async buildSystemPromptContributions(
+    ctx: Parameters<SystemPromptContributor>[0],
+  ): Promise<TextBlock[]> {
+    const blocks: TextBlock[] = [];
+    for (const c of this.promptContributors) {
+      try {
+        const contributed = await c(ctx);
+        blocks.push(...contributed);
+      } catch (err) {
+        this.log?.error('SystemPromptContributor failed', err);
+      }
+    }
+    return blocks;
+  }
+
+  /**
+   * Returns the live array of contributors (readonly snapshot for
+   * passing to DefaultSystemPromptBuilder at build time).
+   */
+  listSystemPromptContributors(): readonly SystemPromptContributor[] {
+    return this.promptContributors;
   }
 
   /**
@@ -81,10 +126,11 @@ export class ExtensionRegistry {
   }
 
   /**
-   * Remove all registered extensions.
+   * Remove all registered extensions and contributors.
    */
   clear(): void {
     this.extensions.length = 0;
+    this.promptContributors.length = 0;
   }
 
   // ── Hook runners ─────────────────────────────────────────────────

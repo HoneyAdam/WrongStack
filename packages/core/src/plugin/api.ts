@@ -2,6 +2,7 @@ import type { Container } from '../kernel/container.js';
 import type { EventBus, EventName, Listener } from '../kernel/events.js';
 import type { Pipeline } from '../kernel/pipeline.js';
 import { ExtensionRegistry } from '../extension/registry.js';
+import type { SystemPromptContributor } from '../types/system-prompt-contributor.js';
 import type { ProviderRegistry } from '../registry/provider-registry.js';
 import type { SlashCommandRegistry } from '../registry/slash-command-registry.js';
 import type { ToolRegistry } from '../registry/tool-registry.js';
@@ -113,6 +114,10 @@ export class DefaultPluginAPI implements PluginAPI {
         /* best-effort */
       }
     }
+  }
+
+  registerSystemPromptContributor(c: SystemPromptContributor): () => void {
+    return this.extensions.registerSystemPromptContributor(c);
   }
 }
 

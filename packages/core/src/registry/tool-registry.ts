@@ -86,6 +86,25 @@ export class ToolRegistry {
     return Array.from(this.tools.values()).map((e) => e.tool);
   }
 
+  /**
+   * Group tools by their `category` field. Tools without a category
+   * are placed under the key `""` (empty string). Returns a Map of
+   * category → tools, sorted by registration order within each category.
+   */
+  listByCategory(): Map<string, Tool[]> {
+    const map = new Map<string, Tool[]>();
+    for (const { tool } of this.tools.values()) {
+      const cat = tool.category ?? '';
+      let group = map.get(cat);
+      if (!group) {
+        group = [];
+        map.set(cat, group);
+      }
+      group.push(tool);
+    }
+    return map;
+  }
+
   listWithOwner(): { tool: Tool; owner: string }[] {
     return Array.from(this.tools.values());
   }

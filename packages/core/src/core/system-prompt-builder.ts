@@ -6,6 +6,7 @@ import type { TextBlock } from '../types/blocks.js';
 import type { MemoryStore } from '../types/memory.js';
 import type { ModeStore } from '../types/mode.js';
 import type { SkillLoader } from '../types/skill.js';
+import type { SystemPromptContributor } from '../types/system-prompt-contributor.js';
 import type {
   BuildContext,
   ModelCapabilities,
@@ -70,6 +71,13 @@ export interface DefaultSystemPromptBuilderOptions {
    * created.
    */
   planPath?: string | (() => string | undefined);
+  /**
+   * System prompt contributors — called on every `build()` to inject
+   * additional TextBlocks. Use `ExtensionRegistry.listSystemPromptContributors()`
+   * or pass a plain array. Contributors are called in order; a throwing
+   * contributor is caught and logged without aborting the build.
+   */
+  contributors?: readonly SystemPromptContributor[];
 }
 
 export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
@@ -144,6 +152,19 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
       });
     }
 
+    // System prompt contributors — plugins inject ephemeral context here.
+    if (this.opts.contributors && this.opts.contributors.length > 0) {
+      for (const c of this.opts.contributors) {
+        try {
+          const contributed = await c(ctx);
+          blocks.push(...contributed);
+        } catch {
+          // Contributor errors are swallowed — a bad plugin shouldn't
+          // break the system prompt assembly.
+        }
+      }
+    }
+
     return blocks;
   }
 
@@ -188,10 +209,42 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
 
   private buildToolUsage(tools: Tool[]): string {
     if (tools.length === 0) return '## Tool usage\n\nNo tools registered.';
-    const lines = ['## Tool usage'];
+
+    // Group tools by category for a cleaner listing when categories are used.
+    const byCat = new Map<string, Tool[]>();
+    const uncategorized: Tool[] = [];
     for (const t of tools) {
-      const hint = t.usageHint ?? t.description;
-      lines.push(`\n### ${t.name}\n${hint.trim()}`);
+      if (t.category) {
+        let group = byCat.get(t.category);
+        if (!group) {
+          group = [];
+          byCat.set(t.category, group);
+        }
+        group.push(t);
+      } else {
+        uncategorized.push(t);
+      }
+    }
+
+    const lines = ['## Tool usage'];
+
+    // Categorized tools
+    for (const [cat, catTools] of byCat) {
+      lines.push(`\n### ${cat}`);
+      for (const t of catTools) {
+        const hint = t.usageHint ?? t.description;
+        const desc = hint.length > 80 ? `${hint.slice(0, 77)}...` : hint.trim();
+        lines.push(`- **${t.name}** — ${desc}`);
+      }
+    }
+
+    // Uncategorized tools
+    if (uncategorized.length > 0) {
+      if (byCat.size > 0) lines.push('');
+      for (const t of uncategorized) {
+        const hint = t.usageHint ?? t.description;
+        lines.push(`\n### ${t.name}\n${hint.trim()}`);
+      }
     }
 
     // Common tool chain patterns — teaches model how to compose tools effectively.

@@ -63,6 +63,25 @@ describe('atomicWrite', () => {
     expect(await fs.readFile(file, 'utf8')).toBe('héllo');
   });
 
+  it('survives a transient handle-lock on the destination (Windows)', async () => {
+    if (process.platform !== 'win32') return;
+    const file = path.join(dir, 'locked.txt');
+    await fs.writeFile(file, 'old');
+    // Open an exclusive handle on the destination; release it after ~80ms so
+    // the first rename attempt fails with EPERM and a retry can succeed.
+    const fh = await fs.open(file, 'r+');
+    const releaser = new Promise<void>((resolve) => {
+      setTimeout(async () => {
+        await fh.close();
+        resolve();
+      }, 80);
+    });
+    await Promise.all([atomicWrite(file, 'new'), releaser]);
+    expect(await fs.readFile(file, 'utf8')).toBe('new');
+    const entries = await fs.readdir(dir);
+    expect(entries.filter((e) => e.endsWith('.tmp'))).toEqual([]);
+  });
+
   it('rethrows the error and cleans up the tmp file when writeFile fails', async () => {
     const file = path.join(dir, 'failed.txt');
     // Pre-create the target as a directory — fs.rename onto an existing dir

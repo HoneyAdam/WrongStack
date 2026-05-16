@@ -50,6 +50,8 @@ export interface Tool<I = unknown, O = unknown> {
   name: string;
   description: string;
   usageHint?: string;
+  /** Optional category for grouping in help lists and system prompts. */
+  category?: string;
   inputSchema: JSONSchema;
   permission: Permission;
   mutating: boolean;
