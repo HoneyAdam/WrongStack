@@ -19,6 +19,7 @@ const DEFAULT_IGNORE = ['node_modules', '.git', 'dist', 'build', '.next', 'cover
 
 export const globTool: Tool<GlobInput, GlobOutput> = {
   name: 'glob',
+  category: 'Filesystem',
   description: 'Find files matching a glob pattern. Returns paths sorted by mtime (newest first).',
   usageHint:
     'Examples: `**/*.ts`, `src/**/*.test.ts`, `*.json`. Common dirs (node_modules, .git, dist) are ignored by default. Returns up to 1000 paths.',

@@ -21,6 +21,7 @@ interface TypecheckOutput {
 
 export const typecheckTool: Tool<TypecheckInput, TypecheckOutput> = {
   name: 'typecheck',
+  category: 'Code Quality',
   description:
     'Run TypeScript type checking with `tsc --noEmit`. Checks for type errors without compiling.',
   usageHint:

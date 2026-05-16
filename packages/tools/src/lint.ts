@@ -21,6 +21,7 @@ interface LintOutput {
 
 export const lintTool: Tool<LintInput, LintOutput> = {
   name: 'lint',
+  category: 'Code Quality',
   description:
     'Run a linter on files. Auto-detects biome, eslint, or tslint. Use `fix` to auto-fix issues.',
   usageHint:

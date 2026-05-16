@@ -30,6 +30,7 @@ interface LogsOutput {
 
 export const logsTool: Tool<LogsInput, LogsOutput> = {
   name: 'logs',
+  category: 'Logs',
   description:
     'Stream or fetch logs from a service or file. Supports Docker, systemd, or plain log files.',
   usageHint:

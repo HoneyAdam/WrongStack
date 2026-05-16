@@ -33,6 +33,7 @@ interface TreeOutput {
 
 export const treeTool: Tool<TreeInput, TreeOutput> = {
   name: 'tree',
+  category: 'Filesystem',
   description:
     'Display directory structure as an ASCII tree. Shows files and folders with indentation.',
   usageHint:

@@ -20,6 +20,7 @@ interface InstallOutput {
 
 export const installTool: Tool<InstallInput, InstallOutput> = {
   name: 'install',
+  category: 'Package Management',
   description: 'Install npm packages. Detects pnpm/npm/yarn and uses the right package manager.',
   usageHint:
     'Set `packages` to install. `save` as dependency type. `global` for global install. `dry_run` to preview.',

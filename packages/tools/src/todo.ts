@@ -11,6 +11,7 @@ interface TodoOutput {
 
 export const todoTool: Tool<TodoInput, TodoOutput> = {
   name: 'todo',
+  category: 'Session',
   description: 'Replace the current todo list with a new set of items.',
   usageHint:
     'Use for multi-step tasks. Replace the full list on each call. At most ONE task may be in_progress at a time. Items have id, content, status (pending|in_progress|completed), and optional activeForm.',

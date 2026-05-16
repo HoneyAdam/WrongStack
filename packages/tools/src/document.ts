@@ -41,6 +41,7 @@ const BLOCK_TEMPLATE = `/*
 
 export const documentTool: Tool<DocumentInput, DocumentOutput> = {
   name: 'document',
+  category: 'Project',
   description:
     'Generate or update documentation comments for functions, classes, and types. Supports JSDoc, TSDoc, and block comments.',
   usageHint:

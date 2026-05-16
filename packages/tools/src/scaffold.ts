@@ -76,6 +76,7 @@ const BUILT_IN_TEMPLATES: Record<string, { description: string; files: Record<st
 
 export const scaffoldTool: Tool<ScaffoldInput, ScaffoldOutput> = {
   name: 'scaffold',
+  category: 'Project',
   description:
     'Generate boilerplate code from built-in templates or paths. Creates package.json, source files, tests.',
   usageHint:

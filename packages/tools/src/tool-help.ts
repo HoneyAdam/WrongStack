@@ -22,6 +22,7 @@ interface ToolHelpOutput {
 
 export const toolHelpTool: Tool<ToolHelpInput, ToolHelpOutput> = {
   name: 'tool_help',
+  category: 'Meta',
   description: 'Get help and usage information for a specific tool or list all available tools.',
   usageHint:
     'Set `tool` for specific help. Omit to list all tools. `format`: short (one-liner), full (schema), markdown (formatted).',

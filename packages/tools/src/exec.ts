@@ -70,6 +70,7 @@ interface ExecOutput {
 
 export const execTool: Tool<ExecInput, ExecOutput> = {
   name: 'exec',
+  category: 'Shell',
   description:
     'Restricted shell that only runs pre-approved commands with constrained arguments. Safer alternative to `bash`.',
   usageHint:

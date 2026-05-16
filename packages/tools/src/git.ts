@@ -43,6 +43,7 @@ const MAX_OUTPUT = 100_000;
 
 export const gitTool: Tool<GitInput, GitOutput> = {
   name: 'git',
+  category: 'Git',
   description:
     'Run git commands. Wraps common operations: status, log, diff, commit, branch, checkout, stash, push, pull, fetch, reset.',
   usageHint:

@@ -22,6 +22,7 @@ interface PatchOutput {
 
 export const patchTool: Tool<PatchInput, PatchOutput> = {
   name: 'patch',
+  category: 'Filesystem',
   description: 'Apply a unified diff patch to files. Writes .orig and .rej files on failure.',
   usageHint:
     'Set `patch` (the diff text). `directory` defaults to cwd. `strip` removes leading path components. `dry_run` previews.',

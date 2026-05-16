@@ -17,6 +17,7 @@ interface WriteOutput {
 
 export const writeTool: Tool<WriteInput, WriteOutput> = {
   name: 'write',
+  category: 'Filesystem',
   description: 'Write or overwrite a file. For existing files, prefer `edit` over `write`.',
   usageHint:
     'Use `write` for new files or full replacements. For partial edits use `edit`. Existing files must have been `read` first in this session.',

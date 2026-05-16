@@ -26,6 +26,7 @@ interface TestOutput {
 
 export const testTool: Tool<TestInput, TestOutput> = {
   name: 'test',
+  category: 'Code Quality',
   description: 'Run tests with vitest, jest, or mocha. Returns pass/fail counts and output.',
   usageHint:
     'Set `files` for specific tests. `watch` enables watch mode. `coverage` generates coverage report. `grep` filters by name.',

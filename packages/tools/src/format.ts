@@ -19,6 +19,7 @@ interface FormatOutput {
 
 export const formatTool: Tool<FormatInput, FormatOutput> = {
   name: 'format',
+  category: 'Code Quality',
   description: 'Format files with biome or prettier. Use `check` to verify without modifying.',
   usageHint: 'Set `files` (glob or comma-separated). `check` only validates. `fixer` forces tool.',
   permission: 'confirm',

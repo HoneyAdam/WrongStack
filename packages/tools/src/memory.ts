@@ -23,6 +23,7 @@ interface ForgetOutput {
 export function rememberTool(memory: MemoryStore): Tool<RememberInput, RememberOutput> {
   return {
     name: 'remember',
+    category: 'Session',
     description: 'Persist a short note to project or user memory.',
     usageHint:
       'Use sparingly. Only for facts that should outlive the session (project conventions, user preferences). Transient state belongs in `todo`. Scope defaults to project-memory.',
@@ -49,6 +50,7 @@ export function rememberTool(memory: MemoryStore): Tool<RememberInput, RememberO
 export function forgetTool(memory: MemoryStore): Tool<ForgetInput, ForgetOutput> {
   return {
     name: 'forget',
+    category: 'Session',
     description: 'Remove memory entries matching a substring (case-insensitive).',
     usageHint: 'Removes ALL matching bullet lines in the given scope. Use a unique substring.',
     permission: 'confirm',

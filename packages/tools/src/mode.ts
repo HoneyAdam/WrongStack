@@ -16,6 +16,7 @@ interface ModeOutput {
 export function createModeTool(modeStore: ModeStore): Tool<ModeInput, ModeOutput> {
   return {
     name: 'mode',
+    category: 'Session',
     description:
       'Get, list, or switch the agent mode. Modes inject role-specific prompts into the system prompt.',
     usageHint:

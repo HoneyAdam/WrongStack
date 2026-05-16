@@ -1,6 +1,4 @@
-export {
-  ExtensionRegistry,
-} from './registry.js';
+export { ExtensionRegistry } from './registry.js';
 export type {
   AgentExtension,
   BeforeRunHook,

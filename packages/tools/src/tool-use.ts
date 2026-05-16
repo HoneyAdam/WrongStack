@@ -15,6 +15,7 @@ interface ToolUseOutput {
 
 export const toolUseTool: Tool<ToolUseInput, ToolUseOutput> = {
   name: 'tool_use',
+  category: 'Meta',
   description:
     'Execute a specific tool by name with given input. Useful when the agent knows exactly which tool to call.',
   usageHint:

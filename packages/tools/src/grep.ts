@@ -27,6 +27,7 @@ const DEFAULT_IGNORE = ['node_modules', '.git', 'dist', 'build', '.next', 'cover
 
 export const grepTool: Tool<GrepInput, GrepOutput> = {
   name: 'grep',
+  category: 'Search',
   description: 'Search file contents with a regex. Uses ripgrep when available.',
   usageHint:
     'Pattern is regex. Use `output_mode: "content"` for matched lines, `"files_with_matches"` for paths, `"count"` for tallies. `glob` filters files (e.g. `*.ts`).',

@@ -6,15 +6,15 @@
  * one bad extension can't take down the agent.
  */
 
+import type { TextBlock } from '../types/blocks.js';
 import { WrongStackError } from '../types/errors.js';
 import type { Logger } from '../types/logger.js';
-import type { TextBlock } from '../types/blocks.js';
 import type { SystemPromptContributor } from '../types/system-prompt-contributor.js';
 import type {
-  AgentExtension,
   AfterIterationHook,
   AfterRunHook,
   AfterToolExecutionHook,
+  AgentExtension,
   BeforeIterationHook,
   BeforeRunHook,
   BeforeToolExecutionHook,
@@ -183,11 +183,10 @@ export class ExtensionRegistry {
    * Run onError hooks in order. The first hook that returns a non-void
    * result wins; subsequent hooks are skipped.
    */
-  async runOnError(...args: Parameters<OnErrorHook>): Promise<
-    | { action: 'retry'; model?: string }
-    | { action: 'fail' }
-    | { action: 'continue' }
-    | void
+  async runOnError(
+    ...args: Parameters<OnErrorHook>
+  ): Promise<
+    { action: 'retry'; model?: string } | { action: 'fail' } | { action: 'continue' } | void
   > {
     for (const ext of this.extensions) {
       if (!ext.onError) continue;
@@ -244,9 +243,7 @@ export class ExtensionRegistry {
     return toolUses;
   }
 
-  async runAfterToolExecution(
-    ...args: Parameters<AfterToolExecutionHook>
-  ): Promise<void> {
+  async runAfterToolExecution(...args: Parameters<AfterToolExecutionHook>): Promise<void> {
     for (const ext of this.extensions) {
       if (!ext.afterToolExecution) continue;
       try {

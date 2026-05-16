@@ -16,6 +16,7 @@ export default defineConfig({
     'src/models/index.ts',
     'src/infrastructure/index.ts',
     'src/observability/index.ts',
+    'src/extension/index.ts',
   ],
   format: ['esm'],
   dts: true,

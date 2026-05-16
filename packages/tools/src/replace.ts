@@ -33,6 +33,7 @@ const DEFAULT_IGNORE = ['node_modules', '.git', 'dist', 'build', '.next', 'cover
 
 export const replaceTool: Tool<ReplaceInput, ReplaceOutput> = {
   name: 'replace',
+  category: 'Transform',
   description:
     'Batch replace a pattern across multiple files matched by glob. Returns diff for each modified file.',
   usageHint:

@@ -19,6 +19,7 @@ const MAX_BYTES = 5 * 1024 * 1024;
 
 export const readTool: Tool<ReadInput, ReadOutput> = {
   name: 'read',
+  category: 'Filesystem',
   description: 'Read the contents of a file. Lines are 1-indexed and prefixed with line numbers.',
   usageHint:
     'Read a file before editing it. Returns lines numbered like `   1→content`. Use `offset` and `limit` for large files (default reads up to 2000 lines).',

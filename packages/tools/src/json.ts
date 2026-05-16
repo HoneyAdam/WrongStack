@@ -21,6 +21,7 @@ interface JsonOutput {
 
 export const jsonTool: Tool<JsonInput, JsonOutput> = {
   name: 'json',
+  category: 'Data',
   description:
     'Parse, query, and validate JSON/JSON5/YAML. Use `query` with JMESPath-like paths to extract values.',
   usageHint:

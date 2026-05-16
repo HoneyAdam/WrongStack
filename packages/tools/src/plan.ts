@@ -47,6 +47,7 @@ interface PlanOutput {
 
 export const planTool: Tool<PlanInput, PlanOutput> = {
   name: 'plan',
+  category: 'Session',
   description:
     'Inspect or edit the strategic plan board for this session. Plans persist across resume (unlike todos). Use this to lay out the multi-step approach before diving in, then mark steps in_progress/done as the work proceeds.',
   usageHint:

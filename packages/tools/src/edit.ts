@@ -30,6 +30,7 @@ interface EditOutput {
 
 export const editTool: Tool<EditInput, EditOutput> = {
   name: 'edit',
+  category: 'Filesystem',
   description:
     'Make a surgical edit by replacing exact text. Fails if `old_string` is not unique unless `replace_all` is true.',
   usageHint:

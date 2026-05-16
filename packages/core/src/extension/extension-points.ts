@@ -12,8 +12,8 @@
 
 import type { RunResult, UserInputPayload } from '../core/agent.js';
 import type { Context, RunOptions } from '../core/context.js';
-import type { Request, Response } from '../types/provider.js';
 import type { ToolUseBlock } from '../types/blocks.js';
+import type { Request, Response } from '../types/provider.js';
 import type { ToolExecutionOutput } from '../types/tool-executor.js';
 
 // ── Core lifecycle hooks ────────────────────────────────────────────
@@ -22,17 +22,13 @@ import type { ToolExecutionOutput } from '../types/tool-executor.js';
  * Called before Agent.run() begins the main iteration loop.
  * Returns `false` or throws to prevent the run from starting.
  */
-export interface BeforeRunHook {
-  (ctx: Context, input: UserInputPayload): void | Promise<void>;
-}
+export type BeforeRunHook = (ctx: Context, input: UserInputPayload) => void | Promise<void>;
 
 /**
  * Called after Agent.run() completes (or fails/aborts).
  * Receives the final RunResult, always called regardless of outcome.
  */
-export interface AfterRunHook {
-  (ctx: Context, result: RunResult): void | Promise<void>;
-}
+export type AfterRunHook = (ctx: Context, result: RunResult) => void | Promise<void>;
 
 /**
  * Called right before each iteration of the agent loop.
@@ -40,17 +36,13 @@ export interface AfterRunHook {
  * Modifications to ctx (e.g. ctx.messages, ctx.model) take effect
  * for the upcoming iteration.
  */
-export interface BeforeIterationHook {
-  (ctx: Context, iterationIndex: number): void | Promise<void>;
-}
+export type BeforeIterationHook = (ctx: Context, iterationIndex: number) => void | Promise<void>;
 
 /**
  * Called after each iteration completes (tool results appended,
  * compaction done, but before the next loop iteration check).
  */
-export interface AfterIterationHook {
-  (ctx: Context, iterationIndex: number): void | Promise<void>;
-}
+export type AfterIterationHook = (ctx: Context, iterationIndex: number) => void | Promise<void>;
 
 /**
  * Called when the agent encounters an error during the provider call
@@ -62,24 +54,19 @@ export interface AfterIterationHook {
  * Return `{ action: 'fail' }` to propagate the error.
  * Return `{ action: 'continue' }` to skip and continue the loop.
  */
-export interface OnErrorHook {
-  (
-    ctx: Context,
-    err: unknown,
-    phase: 'provider' | 'tool' | 'agent',
-    iterationIndex: number,
-  ):
-    | { action: 'retry'; model?: string }
-    | { action: 'fail' }
-    | { action: 'continue' }
-    | void
-    | Promise<
-        | { action: 'retry'; model?: string }
-        | { action: 'fail' }
-        | { action: 'continue' }
-        | void
-      >;
-}
+export type OnErrorHook = (
+  ctx: Context,
+  err: unknown,
+  phase: 'provider' | 'tool' | 'agent',
+  iterationIndex: number,
+) =>
+  | { action: 'retry'; model?: string }
+  | { action: 'fail' }
+  | { action: 'continue' }
+  | void
+  | Promise<
+      { action: 'retry'; model?: string } | { action: 'fail' } | { action: 'continue' } | void
+    >;
 
 // ── Provider runner extension ───────────────────────────────────────
 
@@ -97,9 +84,11 @@ export type ProviderRunnerFn = (ctx: Context, request: Request) => Promise<Respo
  * The extension can call it, modify the request/response, add caching,
  * or bypass it entirely.
  */
-export interface ProviderRunnerWrapper {
-  (ctx: Context, request: Request, inner: ProviderRunnerFn): Promise<Response>;
-}
+export type ProviderRunnerWrapper = (
+  ctx: Context,
+  request: Request,
+  inner: ProviderRunnerFn,
+) => Promise<Response>;
 
 // ── Tool execution extension ────────────────────────────────────────
 
@@ -107,21 +96,20 @@ export interface ProviderRunnerWrapper {
  * Called before a batch of tools is executed. Can modify or reject
  * the tool list. Return the (possibly filtered/modified) tool uses.
  */
-export interface BeforeToolExecutionHook {
-  (ctx: Context, toolUses: ToolUseBlock[]): ToolUseBlock[] | Promise<ToolUseBlock[]>;
-}
+export type BeforeToolExecutionHook = (
+  ctx: Context,
+  toolUses: ToolUseBlock[],
+) => ToolUseBlock[] | Promise<ToolUseBlock[]>;
 
 /**
  * Called after a batch of tools has been executed and results
  * are available. The extension can inspect or transform results
  * before they're appended to context.
  */
-export interface AfterToolExecutionHook {
-  (
-    ctx: Context,
-    outputs: ToolExecutionOutput[],
-  ): void | Promise<void>;
-}
+export type AfterToolExecutionHook = (
+  ctx: Context,
+  outputs: ToolExecutionOutput[],
+) => void | Promise<void>;
 
 // ── Aggregate extension type ────────────────────────────────────────
 

@@ -214,6 +214,10 @@ export interface EventLogger {
 
 export class EventBus {
   private readonly listeners = new Map<EventName, Set<Listener<EventName>>>();
+  private readonly wildcards: Array<{
+    match: (event: string) => boolean;
+    fn: (event: string, payload: unknown) => void;
+  }> = [];
   private logger?: EventLogger;
 
   setLogger(logger: EventLogger): void {
@@ -245,26 +249,78 @@ export class EventBus {
     };
   }
 
+  /**
+   * Subscribe to all events whose name matches a glob-style prefix.
+   * `'tool.*'` matches `tool.started`, `tool.executed`, `tool.progress`, etc.
+   * `'*'` matches every event.
+   *
+   * The handler receives `(eventName, payload)` with the event name as a
+   * string and the payload as `unknown`. Use for logging, debugging, or
+   * metrics collection across a family of events.
+   *
+   * Returns an unsubscribe function.
+   */
+  onPattern(pattern: string, fn: (event: string, payload: unknown) => void): () => void {
+    const match = makePatternMatcher(pattern);
+    const entry = { match, fn };
+    this.wildcards.push(entry);
+    return () => {
+      const idx = this.wildcards.indexOf(entry);
+      if (idx >= 0) this.wildcards.splice(idx, 1);
+    };
+  }
+
+  /**
+   * Subscribe to all events whose name matches a RegExp.
+   * More flexible than `onPattern` — use when you need regex features
+   * (alternation, character classes, capture groups).
+   *
+   * Returns an unsubscribe function.
+   */
+  onRegex(regex: RegExp, fn: (event: string, payload: unknown) => void): () => void {
+    const entry = { match: (e: string) => regex.test(e), fn };
+    this.wildcards.push(entry);
+    return () => {
+      const idx = this.wildcards.indexOf(entry);
+      if (idx >= 0) this.wildcards.splice(idx, 1);
+    };
+  }
+
   emit<E extends EventName>(event: E, payload: EventMap[E]): void {
     const set = this.listeners.get(event);
-    if (!set) return;
-    for (const fn of set) {
-      try {
-        (fn as Listener<E>)(payload);
-      } catch (err) {
-        this.logger?.error(`EventBus listener for "${event}" threw`, err);
+    if (set) {
+      for (const fn of set) {
+        try {
+          (fn as Listener<E>)(payload);
+        } catch (err) {
+          this.logger?.error(`EventBus listener for "${event}" threw`, err);
+        }
+      }
+    }
+    // Wildcard listeners
+    if (this.wildcards.length > 0) {
+      const name = event as string;
+      for (const { match, fn } of this.wildcards) {
+        if (!match(name)) continue;
+        try {
+          fn(name, payload);
+        } catch (err) {
+          this.logger?.error(`EventBus wildcard listener for "${name}" threw`, err);
+        }
       }
     }
   }
 
   clear(): void {
     this.listeners.clear();
+    this.wildcards.length = 0;
   }
 
   /**
    * V2-D: introspection helper. Pass an `event` to count handlers for a
    * single key, or omit to get the total across every event. Used by the
    * leak-detection smoke test to flag handler accumulation across runs.
+   * Does NOT include wildcard listeners.
    */
   listenerCount(event?: EventName): number {
     if (event !== undefined) return this.listeners.get(event)?.size ?? 0;
@@ -272,4 +328,26 @@ export class EventBus {
     for (const set of this.listeners.values()) total += set.size;
     return total;
   }
+
+  /**
+   * Number of wildcard listeners currently registered.
+   */
+  wildcardCount(): number {
+    return this.wildcards.length;
+  }
+}
+
+/**
+ * Convert a glob-style pattern to a matcher function.
+ * Only supports `*` at the end of a prefix — `'tool.*'` becomes
+ * "starts with tool.". `'*'` matches everything.
+ */
+function makePatternMatcher(pattern: string): (event: string) => boolean {
+  if (pattern === '*') return () => true;
+  if (pattern.endsWith('.*')) {
+    const prefix = pattern.slice(0, -2);
+    return (e: string) => e.startsWith(`${prefix}.`);
+  }
+  // Exact match fallback
+  return (e: string) => e === pattern;
 }

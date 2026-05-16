@@ -60,13 +60,19 @@ The host loads this from one of:
 | `api.container` | DI container — bind/resolve `TOKENS.*` |
 | `api.pipelines` | All six core pipelines, plus any custom ones |
 | `api.events` | `EventBus` for subscribing or emitting |
-| `api.tools` | `register / unregister / get / list` tools |
+| `api.tools` | `register / registerAll / wrap / unregister / get / list` tools |
 | `api.providers` | Register provider factories |
 | `api.mcp` | Start / stop / restart MCP servers |
 | `api.slashCommands` | Register `/cmd` handlers |
 | `api.config` | The loaded `Config` (read-only snapshot) |
 | `api.log` | Scoped `Logger` — entries are tagged with `plugin=<name>` |
 | `api.onEvent(name, h)` | Auto-removed-on-teardown event listener |
+| `api.onPattern('tool.*', h)` | Wildcard event listener (all matching events) |
+| `api.emitCustom(event, payload)` | Emit a custom event on the EventBus |
+| `api.onConfigChange(h)` | Called when ConfigStore.update() fires |
+| `api.extensions` | Register lifecycle hooks (beforeRun, afterRun, onError, etc.) |
+| `api.session` | Append custom events to the JSONL session log |
+| `api.metrics` | Record scoped counters/histograms/gauges → Prometheus/OTLP |
 
 Use `onEvent` instead of `events.on(...)` when you want the listener to
 disappear with the plugin. Use raw `events.on` only when you need to
@@ -225,6 +231,182 @@ await api.mcp.start({
 
 The registry handles reconnect-with-backoff and tools/list_changed
 invalidation; you don't need to manage either yourself.
+
+### Agent lifecycle hooks
+
+Plugins can hook into every phase of the agent run via `api.extensions.register()`:
+
+```ts
+api.extensions.register({
+  name: 'my-plugin-hooks',
+  beforeRun: async (ctx, input) => { /* before iteration loop starts */ },
+  afterRun: async (ctx, result) => { /* after run finishes */ },
+  beforeIteration: async (ctx, idx) => { /* start of each iteration */ },
+  afterIteration: async (ctx, idx) => { /* end of each iteration */ },
+  onError: async (ctx, err, phase, idx) => {
+    return { action: 'retry' }; // or 'fail' | 'continue'
+  },
+  wrapProviderRunner: async (ctx, req, inner) => {
+    // wrap/replace the provider call
+    return inner(ctx, req);
+  },
+  beforeToolExecution: async (ctx, toolUses) => {
+    // filter or reorder tools before execution
+    return toolUses;
+  },
+  afterToolExecution: async (ctx, outputs) => { /* inspect results */ },
+});
+```
+
+Each hook is optional. Failures are caught and logged — one bad hook
+never crashes the agent.
+
+### Inject context into the system prompt
+
+```ts
+api.registerSystemPromptContributor(async (ctx) => [
+  { type: 'text', text: '## My Plugin Context\nCurrent state: ...' },
+]);
+```
+
+Contributors fire on every `build()` call, so the prompt stays current
+across turns. The host's `DefaultSystemPromptBuilder` must have
+`contributors` wired (the CLI does this automatically when plugins pass
+`api.extensions`).
+
+### Write custom session events
+
+Plugins can persist events to the JSONL session log:
+
+```ts
+await api.session.append({
+  type: 'my-plugin:cache_hit',
+  ts: new Date().toISOString(),
+  key: 'user-123',
+  latencyMs: 2.4,
+});
+```
+
+Custom events are serialized verbatim next to built-in events
+(`user_input`, `tool_result`, etc.). The `ts` field is required;
+everything else is free-form.
+
+### Record metrics (Prometheus / OTLP)
+
+```ts
+api.metrics.counter('cache_hits', 1, { tier: 'l1' });
+api.metrics.histogram('cache_latency_ms', 42.5);
+api.metrics.gauge('cache_size', 142);
+```
+
+Metric names are auto-prefixed with `plugin.<pluginName>.` so they
+don't collide across plugins. Values flow to the host's `MetricsSink`
+— `InMemoryMetricsSink` (CLI), Prometheus, or OTLP. A noop sink is
+used when metrics are disabled.
+
+### Subscribe to config changes
+
+```ts
+api.onConfigChange((next, prev) => {
+  this.ttl = next.plugins?.['my-plugin']?.ttl ?? 3600;
+});
+```
+
+Fires when `ConfigStore.update()` is called (e.g., via `/config` slash
+command). Use this instead of caching `api.config` values at `setup` time.
+
+### Decorate (wrap) existing tools
+
+```ts
+api.tools.wrap('bash', (original) => ({
+  ...original,
+  permission: 'confirm',          // tighter permission
+  async execute(input, ctx, opts) {
+    api.log.info('bash called with', input);
+    return original.execute(input, ctx, opts);
+  },
+}));
+```
+
+Multiple wraps stack — each wrapper receives the output of the previous.
+
+### Emit custom events
+
+```ts
+api.emitCustom('my-plugin:state_changed', { state: 'active' });
+```
+
+Custom events flow through the same `EventBus` as built-in events.
+Use `pluginName:eventName` convention to avoid collisions. Other
+plugins (and the host) can subscribe via `events.on` or `api.onEvent`.
+
+### Wildcard event subscriptions
+
+```ts
+api.onPattern('tool.*', (name, payload) => {
+  api.log.info(`Tool event: ${name}`, payload);
+});
+```
+
+Matches `tool.started`, `tool.executed`, `tool.progress`, etc.
+`'*'` matches every event. `onPattern` listeners are auto-removed on
+teardown.
+
+### Bulk tool registration
+
+```ts
+api.tools.registerAll([toolA, toolB, toolC], 'my-plugin');
+```
+
+Conflicts are silently skipped. Use `registerAllOrThrow` on the raw
+`ToolRegistry` if you need strict registration.
+
+### Tool categories
+
+```ts
+api.tools.register({
+  name: 'cache_stats',
+  category: 'Cache',         // ← groups tools in the system prompt
+  // ...
+});
+```
+
+Tools are listed by category in the system prompt:
+```
+### Cache
+- **cache_stats** — Show cache statistics
+- **cache_clear** — Clear the cache
+```
+
+### Plugin defaults and health
+
+```ts
+const plugin: Plugin = {
+  name: 'my-plugin',
+  defaultConfig: { ttl: 3600, maxEntries: 100 },  // merged before setup
+  configSchema: { /* validates merged config */ },
+  async health() {
+    return { ok: this.connected, message: 'Redis: connected' };
+  },
+  // ...
+};
+```
+
+`defaultConfig` is shallow-merged with user config before `configSchema`
+validation. `health()` is exposed via `/diag plugins` for diagnostics.
+
+### Capabilities enforcement (strict mode)
+
+Set `enforceCapabilities: true` in `loadPlugins` options to make the
+loader THROW (instead of logging a warning) when a plugin calls an API
+method not declared in its `capabilities`:
+
+```ts
+await loadPlugins(plugins, {
+  enforceCapabilities: true,  // strict mode — lying = load failure
+  // ...
+});
+```
 
 ---
 

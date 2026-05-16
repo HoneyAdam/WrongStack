@@ -789,6 +789,14 @@ export async function main(argv: string[]): Promise<number> {
             mcpRegistry,
             config,
             log: logger,
+            extensions: agent.extensions,
+            sessionWriter: {
+              transcriptPath: context.session.transcriptPath,
+              append: (e: Record<string, unknown> & { type: string; ts: string }) =>
+                context.session.append(e as Parameters<typeof context.session.append>[0]),
+            },
+            metricsSink,
+            configStore,
           }),
       });
     }

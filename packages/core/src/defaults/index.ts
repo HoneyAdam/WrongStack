@@ -1,9 +1,9 @@
 // =============================================================================
 // @wrongstack/core — defaults barrel (backward-compatible re-exports)
 //
-// All implementation now lives in top-level domain directories under src/.
-// This file re-exports for consumers that import from '@wrongstack/core/defaults'.
-// New code should import directly from '@wrongstack/core/<domain>'.
+// All implementation lives in top-level domain directories under src/.
+// This file re-exports for consumers that use the defaults entrypoint.
+// New code should import directly from the domain subpath.
 //
 // Sections:
 //   Infrastructure   — Logger, TokenCounter, PathResolver, ContextManager, MCP servers
@@ -19,9 +19,6 @@
 //   Observability    — Metrics, Traces, Prometheus, OTLP, HealthRegistry
 // =============================================================================
 //
-// Usage (from '@wrongstack/core' or '@wrongstack/core/defaults'):
-//   import { DefaultSessionStore, DefaultLogger, HybridCompactor } from '@wrongstack/core';
-//   import { DefaultSecretVault, DefaultPermissionPolicy } from '@wrongstack/core/defaults';
 // =============================================================================
 
 // ---- Infrastructure (was core/) ----

@@ -1,18 +1,18 @@
 import type { ToolCallPipelinePayload } from '../core/agent.js';
 import type { Context } from '../core/context.js';
+import type { ExtensionRegistry } from '../extension/registry.js';
 import type { Container } from '../kernel/container.js';
 import type { EventBus, EventName, Listener } from '../kernel/events.js';
 import type { ReadonlyPipeline } from '../kernel/pipeline.js';
-import type { ExtensionRegistry } from '../extension/registry.js';
-import type { SystemPromptContributor } from './system-prompt-contributor.js';
+import type { ToolWrapper } from '../registry/tool-registry.js';
 import type { TextBlock } from './blocks.js';
 import type { Config } from './config.js';
 import type { Logger } from './logger.js';
 import type { WireFamily } from './models-registry.js';
 import type { Provider, Request, Response } from './provider.js';
 import type { SlashCommand } from './slash-command.js';
+import type { SystemPromptContributor } from './system-prompt-contributor.js';
 import type { JSONSchema, Tool } from './tool.js';
-import type { ToolWrapper } from '../registry/tool-registry.js';
 
 export interface ToolRegistryView {
   register(t: Tool): void;
@@ -61,6 +61,18 @@ export interface SessionWriterView {
   append(event: Record<string, unknown> & { type: string; ts: string }): Promise<void>;
 }
 
+/**
+ * Metrics sink scoped to a plugin. The host auto-prefixes metric names
+ * with `plugin.<pluginName>.` so plugins don't need to namespace
+ * manually. Plugins call counter/histogram/gauge directly; the values
+ * flow to the host's MetricsSink (Prometheus, OTLP, or noop).
+ */
+export interface MetricsSinkView {
+  counter(name: string, value?: number, labels?: Record<string, string>): void;
+  histogram(name: string, value: number, labels?: Record<string, string>): void;
+  gauge(name: string, value: number, labels?: Record<string, string>): void;
+}
+
 export interface PluginPipelines {
   request: ReadonlyPipeline<Request>;
   response: ReadonlyPipeline<Response>;
@@ -86,6 +98,8 @@ export interface PluginAPI {
   slashCommands: SlashCommandRegistryView;
   /** Live session writer — plugins can append custom events here. */
   session: SessionWriterView;
+  /** Scoped metrics sink — counters/histograms/gauges auto-namespaced under `plugin.<name>.` */
+  metrics: MetricsSinkView;
   /** Registry for agent lifecycle extensions — hooks like beforeRun, beforeIteration, onError, etc. */
   extensions: ExtensionRegistry;
   /**
@@ -103,6 +117,12 @@ export interface PluginAPI {
    */
   onEvent<K extends EventName>(event: K, handler: Listener<K>): () => void;
   /**
+   * Subscribe to all events matching a glob-style pattern.
+   * `'tool.*'` matches all tool events. `'*'` matches everything.
+   * Returns an unsubscribe function.
+   */
+  onPattern(pattern: string, handler: (event: string, payload: unknown) => void): () => void;
+  /**
    * Emit a custom event on the agent's EventBus. Use for inter-plugin
    * communication or to surface plugin-specific state to the host.
    *
@@ -111,6 +131,13 @@ export interface PluginAPI {
    * The payload is passed through to all subscribers.
    */
   emitCustom(event: string, payload: unknown): void;
+  /**
+   * Register a callback that fires when the configuration changes at
+   * runtime (e.g. via `/config` slash command or programmatic update).
+   * The handler receives the new and previous config snapshots.
+   * Returns an unsubscribe function.
+   */
+  onConfigChange(handler: (next: Readonly<Config>, prev: Readonly<Config>) => void): () => void;
 }
 
 /**

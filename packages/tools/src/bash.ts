@@ -28,6 +28,7 @@ const STREAM_FLUSH_BYTES = 4 * 1024;
 
 export const bashTool: Tool<BashInput, BashOutput> = {
   name: 'bash',
+  category: 'Shell',
   description: 'Run a shell command. stdout and stderr are merged.',
   usageHint:
     'Runs via `bash -c` (or `cmd /c` on Windows). Cwd is the project root. Default timeout 30s. Output truncated from the middle if oversized. Use for git, npm, builds, tests.',

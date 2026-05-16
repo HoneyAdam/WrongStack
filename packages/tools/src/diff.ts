@@ -25,6 +25,7 @@ interface DiffOutput {
 
 export const diffTool: Tool<DiffInput, DiffOutput> = {
   name: 'diff',
+  category: 'Filesystem',
   description:
     'Show differences between files, commits, or branches. Supports staged vs working tree.',
   usageHint:

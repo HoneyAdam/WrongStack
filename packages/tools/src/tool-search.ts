@@ -21,6 +21,7 @@ interface ToolSearchOutput {
 
 export const toolSearchTool: Tool<ToolSearchInput, ToolSearchOutput> = {
   name: 'tool_search',
+  category: 'Meta',
   description:
     'Search available tools by name, description, tags, permission level, or mutating flag.',
   usageHint:

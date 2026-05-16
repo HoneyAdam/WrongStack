@@ -37,6 +37,13 @@ export interface LoadPluginsOptions {
    * `{ [name]: { options } }` or any flat record.
    */
   pluginOptions?: Record<string, unknown>;
+  /**
+   * When true, the loader throws a PluginError if a plugin calls an API
+   * method that contradicts its declared `capabilities` — instead of
+   * just logging a warning. Use in CI/strict deployments to enforce
+   * manifest honesty. Default: false (log-only, backward-compatible).
+   */
+  enforceCapabilities?: boolean;
 }
 
 function parseSemver(v: string): [number, number, number] {
@@ -230,7 +237,7 @@ export async function loadPlugins(
     try {
       const rawApi = opts.apiFactory(plugin);
       const api = plugin.capabilities
-        ? wrapApiForCapabilityCheck(plugin, rawApi, opts.log)
+        ? wrapApiForCapabilityCheck(plugin, rawApi, opts.log, opts.enforceCapabilities)
         : rawApi;
       await plugin.setup(api);
       loaded.push(plugin);
@@ -273,9 +280,9 @@ export async function unloadPlugins(
 
 /**
  * Wrap the PluginAPI so calls that contradict the plugin's declared
- * capabilities are logged. Doesn't block the call — plugin keeps working;
- * we just surface the lie so the host can flag it (or escalate to a hard
- * fail in a dev build via env var).
+ * capabilities are caught. By default violations are logged as warnings
+ * (backward-compatible). When `enforce` is true, violations throw a
+ * PluginError so the host can reject misbehaving plugins at setup time.
  */
 function wrapApiForCapabilityCheck(
   plugin: Plugin,
@@ -285,10 +292,19 @@ function wrapApiForCapabilityCheck(
     warn?(msg: string, ctx?: unknown): void;
     info?(msg: string, ctx?: unknown): void;
   },
+  enforce = false,
 ): PluginAPI {
   const caps = plugin.capabilities ?? {};
-  const warn = (subsystem: string, detail: string) => {
+  const violate = (subsystem: string, detail: string) => {
     const msg = `Plugin "${plugin.name}" used ${subsystem} without declaring capabilities.${subsystem} — ${detail}`;
+    if (enforce) {
+      throw new PluginError({
+        message: msg,
+        code: 'PLUGIN_LOAD_FAILED',
+        pluginName: plugin.name,
+        context: { subsystem, detail },
+      });
+    }
     if (typeof log.warn === 'function') log.warn(msg);
     else log.error(msg);
   };
@@ -301,7 +317,7 @@ function wrapApiForCapabilityCheck(
           get(target, prop, receiver) {
             if (prop === 'register') {
               return (t: unknown) => {
-                warn('tools', `register(${(t as { name?: string })?.name ?? '<unknown>'})`);
+                violate('tools', `register(${(t as { name?: string })?.name ?? '<unknown>'})`);
                 return (target.register as (x: unknown) => unknown)(t);
               };
             }
@@ -316,7 +332,7 @@ function wrapApiForCapabilityCheck(
           get(target, prop, receiver) {
             if (prop === 'register') {
               return (f: unknown) => {
-                warn('providers', `register(${(f as { type?: string })?.type ?? '<unknown>'})`);
+                violate('providers', `register(${(f as { type?: string })?.type ?? '<unknown>'})`);
                 return (target.register as (x: unknown) => unknown)(f);
               };
             }
@@ -331,7 +347,10 @@ function wrapApiForCapabilityCheck(
           get(target, prop, receiver) {
             if (prop === 'register') {
               return (c: unknown) => {
-                warn('slashCommands', `register(${(c as { name?: string })?.name ?? '<unknown>'})`);
+                violate(
+                  'slashCommands',
+                  `register(${(c as { name?: string })?.name ?? '<unknown>'})`,
+                );
                 return (target.register as (x: unknown) => unknown)(c);
               };
             }
@@ -346,7 +365,7 @@ function wrapApiForCapabilityCheck(
           get(target, prop, receiver) {
             if (prop === 'start') {
               return (cfg: unknown) => {
-                warn('mcp', `start(${(cfg as { name?: string })?.name ?? '<unknown>'})`);
+                violate('mcp', `start(${(cfg as { name?: string })?.name ?? '<unknown>'})`);
                 return (target.start as (x: unknown) => unknown)(cfg);
               };
             }

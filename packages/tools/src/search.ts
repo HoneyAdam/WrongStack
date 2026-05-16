@@ -19,6 +19,7 @@ const TIMEOUT_MS = 15_000;
 
 export const searchTool: Tool<SearchInput, SearchOutput> = {
   name: 'search',
+  category: 'Search',
   description: 'Search the web for information. Returns title, URL, and snippet for each result.',
   usageHint:
     'Set `num_results` (1-50, default 10). Use `source` to pick engine: duckduckgo (default), google, bing.',

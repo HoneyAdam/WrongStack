@@ -65,6 +65,7 @@ async function fetchWithRedirectLimit(
 
 export const fetchTool: Tool<FetchInput, FetchOutput> = {
   name: 'fetch',
+  category: 'Network',
   description: 'Fetch the contents of a URL. HTML is converted to markdown by default.',
   usageHint:
     'HTTPS only by default. Localhost and RFC1918 ranges blocked unless WRONGSTACK_FETCH_ALLOW_PRIVATE=1. Max 5 redirects, 20s timeout, 128KB cap.',
