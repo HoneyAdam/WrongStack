@@ -169,11 +169,23 @@ export class MultiAgentHost {
 
     // Phase 1: Build coordinator/Director WITHOUT a runner. The runner
     // needs FleetBus which only exists after the Director is created.
+    //
+    // Default budget intentionally generous (4 hours / 200 iter / 1000 tools)
+    // so a subagent doesn't get cut off mid-audit just because nobody
+    // remembered to override the budget. Per-call overrides ride in
+    // through `delegate({ timeoutMs, maxIterations, maxToolCalls })` or
+    // `spawn_subagent({ maxIterations, ... })`. If a worker truly hangs,
+    // the user can ctrl+C or `/fleet kill <id>` — that's a better
+    // failure mode than "fleet looked busy, finished nothing".
     const coordinatorConfig = {
       coordinatorId: randomUUID(),
       doneCondition: { type: 'all_tasks_done' as const },
       maxConcurrent: 2,
-      defaultBudget: { maxToolCalls: 20, maxIterations: 20, timeoutMs: 120_000 },
+      defaultBudget: {
+        maxToolCalls: 1000,
+        maxIterations: 200,
+        timeoutMs: 4 * 60 * 60 * 1000,
+      },
     };
 
     if (this.opts.directorMode) {

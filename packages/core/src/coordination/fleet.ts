@@ -38,9 +38,11 @@ Working rules:
 - If sessionPath is missing, ask the director to provide it
 - Report confidence level: high (>90% accuracy), medium, low`,
 
-  maxIterations: 50,
-  maxToolCalls: 200,
-  timeoutMs: 120_000,
+  // No hardcoded budgets — the orchestrator (delegate tool or
+  // spawn_subagent) decides per-task how much room a subagent gets.
+  // A monorepo audit needs hours; a single-file lint check needs
+  // seconds. Pinning a number here forces the orchestrator to fight
+  // the role's default instead of just asking for what it needs.
 };
 
 /**
@@ -87,9 +89,7 @@ Working rules:
 - If >30% of findings are false positives, note the confidence level
 - Ask director for clarification if paths are ambiguous`,
 
-  maxIterations: 80,
-  maxToolCalls: 300,
-  timeoutMs: 180_000,
+  // Budgets are set by the orchestrator per task — see fleet.ts header.
 };
 
 /**
@@ -136,9 +136,7 @@ Working rules:
 - Respect team constraints (reviewer availability, parallelization)
 - Never plan without analyzing the actual code first`,
 
-  maxIterations: 60,
-  maxToolCalls: 250,
-  timeoutMs: 150_000,
+  // Budgets are set by the orchestrator per task — see fleet.ts header.
 };
 
 /**
@@ -193,9 +191,7 @@ Working rules:
 - Verify regex-based secrets before flagging (false positive risk)
 - When in doubt, flag as medium rather than ignoring potential issues`,
 
-  maxIterations: 70,
-  maxToolCalls: 280,
-  timeoutMs: 160_000,
+  // Budgets are set by the orchestrator per task — see fleet.ts header.
 };
 
 /** All pre-built agents in a map for easy lookup by role. */

@@ -33,8 +33,11 @@ export interface CreateDelegateToolOptions {
   roster?: Record<string, SubagentConfig>;
   /**
    * Default await timeout in milliseconds. `delegate` blocks until the
-   * subagent's task resolves; without a cap, a hung worker would hang
-   * the host indefinitely. Default: 5 minutes.
+   * subagent's task resolves; without a cap, a stuck worker would hang
+   * the host indefinitely. Set generously (default: 4 hours) so the
+   * orchestrator can run multi-step refactors / monorepo audits
+   * without being killed for being slow — the orchestrator must
+   * decide per-call when a task needs to be cut short.
    */
   defaultTimeoutMs?: number;
   /**
@@ -67,7 +70,12 @@ export interface CreateDelegateToolOptions {
  * when it wants fan-out it controls itself.
  */
 export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
-  const defaultTimeoutMs = opts.defaultTimeoutMs ?? 300_000;
+  // 4 hours by default. The previous 5-minute default killed any
+  // non-trivial fan-out (monorepo audits, multi-file refactors) and
+  // forced the orchestrator to constantly pass an explicit timeoutMs.
+  // The right model here: the orchestrator should pick a tight value
+  // only when it knows the work is small; otherwise let it run.
+  const defaultTimeoutMs = opts.defaultTimeoutMs ?? 4 * 60 * 60 * 1000;
   const rosterIds = opts.roster ? Object.keys(opts.roster) : [];
 
   const inputSchema: JSONSchema = {
@@ -106,7 +114,17 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
       },
       timeoutMs: {
         type: 'number',
-        description: `Per-call timeout. Defaults to ${defaultTimeoutMs / 1000}s — long enough for non-trivial subtasks, short enough that a hang doesn't kill the host turn.`,
+        description: `Wall-clock budget for this delegate in milliseconds. No hard cap — set as high as the task realistically needs (a monorepo audit can take hours, a single-file lint takes seconds). Default ${Math.round(defaultTimeoutMs / 1000 / 60)} minutes.`,
+      },
+      maxIterations: {
+        type: 'number',
+        description:
+          'Maximum LLM iterations the subagent may take. Unset = use the role/coordinator default. Raise this for tasks with many tool-think-tool cycles (deep code analysis, multi-file refactors).',
+      },
+      maxToolCalls: {
+        type: 'number',
+        description:
+          'Maximum number of tool invocations the subagent may make. Unset = use the role/coordinator default. Raise this for tasks that touch many files (large grep + read + report).',
       },
     },
     required: ['task'],
@@ -115,9 +133,9 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
   return {
     name: 'delegate',
     description:
-      "Hand a discrete piece of work to a dedicated subagent and wait for its result. The subagent has its own context, its own LLM call, and a budget cap — use this when a task is self-contained, would otherwise blow up your context, or benefits from a specialized role (bug-hunter, security-scanner, refactor-planner, audit-log). Call multiple delegates in parallel through the provider's parallel-tool-call surface to fan work out across roles.",
+      "Hand a discrete piece of work to a dedicated subagent and wait for its result. The subagent has its own context, its own LLM call, and its own budget — use this when a task is self-contained, would otherwise blow up your context, or benefits from a specialized role (bug-hunter, security-scanner, refactor-planner, audit-log). YOU decide how big the budget is: pass `timeoutMs`, `maxIterations`, and `maxToolCalls` sized to the actual work. There is no hidden cap forcing a 3-minute / 80-iteration limit — if a monorepo audit needs 2 hours and 500 tool calls, ask for that. Call multiple delegates in parallel through the provider's parallel-tool-call surface to fan work out across roles.",
     usageHint:
-      "Set `task` to a complete instruction. Either pick `role` from the roster or pass `name` + `provider` + `model`. Returns the subagent's `TaskResult` — including the textual `result`, iteration count, tool count, and duration. Auto-promotes the host into director mode on first call.",
+      "Set `task` to a complete instruction. Either pick `role` from the roster or pass `name` + `provider` + `model`. For non-trivial work, also pass `timeoutMs` (the wall-clock budget you actually need), `maxIterations`, and `maxToolCalls` — defaults are intentionally generous (4 hours) but the right values depend on scope. Returns the subagent's `TaskResult` — including the textual `result`, iteration count, tool count, and duration. Auto-promotes the host into director mode on first call.",
     permission: 'auto',
     mutating: false,
     inputSchema,
@@ -130,6 +148,8 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
         model?: string;
         systemPromptOverride?: string;
         timeoutMs?: number;
+        maxIterations?: number;
+        maxToolCalls?: number;
       };
 
       if (typeof i.task !== 'string' || !i.task.trim()) {
@@ -179,6 +199,18 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
           model: i.model,
           systemPromptOverride: i.systemPromptOverride,
         };
+      }
+
+      // Caller-supplied iteration / tool-call budgets win over both the
+      // role default and the coordinator default. This is how the
+      // orchestrator dials a long-running audit up to "as much as it
+      // needs" without us having to second-guess the right number
+      // anywhere lower in the stack.
+      if (typeof i.maxIterations === 'number' && i.maxIterations > 0) {
+        cfg.maxIterations = i.maxIterations;
+      }
+      if (typeof i.maxToolCalls === 'number' && i.maxToolCalls > 0) {
+        cfg.maxToolCalls = i.maxToolCalls;
       }
 
       // Timeout coordination (Fix 2). The subagent's internal `timeoutMs`
