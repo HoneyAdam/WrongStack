@@ -179,6 +179,15 @@ export function CommandPalette() {
         run: () => ws.client?.compactContext?.(),
       },
       {
+        id: 'repair-context',
+        category: 'Session',
+        label: 'Repair context',
+        hint: 'Remove orphan tool protocol blocks',
+        icon: Wrench,
+        keywords: ['repair', 'context', 'tool_use', 'tool_result'],
+        run: () => ws.client?.repairContext?.(),
+      },
+      {
         id: 'export',
         category: 'Session',
         label: 'Export chat as markdown',

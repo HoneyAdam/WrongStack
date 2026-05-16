@@ -1,5 +1,6 @@
 import type {
   Context,
+  CompactReport,
   HealthRegistry,
   MemoryStore,
   MetricsSink,
@@ -19,11 +20,7 @@ export interface SlashCommandContext {
     compact(
       ctx: Context,
       opts?: { aggressive?: boolean },
-    ): Promise<{
-      before: number;
-      after: number;
-      reductions: Array<{ phase: string; saved: number }>;
-    }>;
+    ): Promise<CompactReport>;
   };
   sessionStore?: SessionStore;
   skillLoader?: SkillLoader;

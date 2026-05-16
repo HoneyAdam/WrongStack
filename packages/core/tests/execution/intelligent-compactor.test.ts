@@ -58,7 +58,10 @@ describe('IntelligentCompactor', () => {
     const messages: Message[] = [];
     for (let i = 0; i < 20; i++) {
       messages.push({ role: 'user', content: [{ type: 'text', text: `q${i}` }] });
-      messages.push({ role: 'assistant', content: 'ok' });
+      messages.push({
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: `r${i}`, name: 'read', input: {} }],
+      });
       messages.push({
         role: 'user',
         content: [{ type: 'tool_result', tool_use_id: `r${i}`, content: big }],

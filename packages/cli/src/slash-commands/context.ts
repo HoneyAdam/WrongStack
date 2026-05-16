@@ -2,6 +2,7 @@ import {
   color,
   formatContextWindowModeList,
   getContextWindowMode,
+  repairToolUseAdjacency,
   resolveContextWindowPolicy,
   type ContextWindowPolicy,
 } from '@wrongstack/core';
@@ -18,6 +19,7 @@ export function buildContextCommand(opts: SlashCommandContext): SlashCommand {
       'Usage:',
       '  /context           Show counts: messages, est. tokens, tool calls, todos, read files.',
       '  /context detail    As above, plus model, cwd, projectRoot, and the file list.',
+      '  /context repair    Repair orphan tool_use/tool_result blocks after manual compaction.',
       '  /context mode      List context-window modes.',
       '  /context mode <id> Switch context-window mode for this session.',
     ].join('\n'),
@@ -27,6 +29,25 @@ export function buildContextCommand(opts: SlashCommandContext): SlashCommand {
       if (trimmed === 'mode' || trimmed === 'modes') {
         const active = readPolicy(ctx)?.id ?? 'balanced';
         const msg = `${color.bold('Context Window Modes')}\n${formatContextWindowModeList(active)}`;
+        opts.renderer.write(`${msg}\n`);
+        return { message: msg };
+      }
+
+      if (trimmed === 'repair') {
+        const before = ctx.messages.length;
+        const repaired = repairToolUseAdjacency(ctx.messages);
+        if (repaired.report.changed) {
+          ctx.state.replaceMessages(repaired.messages);
+        }
+        const msg = repaired.report.changed
+          ? [
+              `${color.green('Context repaired')}`,
+              `  messages:     ${before} -> ${ctx.messages.length}`,
+              `  tool_use:     removed ${repaired.report.removedToolUses.length}`,
+              `  tool_result:  removed ${repaired.report.removedToolResults.length}`,
+              `  empty msgs:   removed ${repaired.report.removedMessages}`,
+            ].join('\n')
+          : 'Context repair: no orphan tool_use/tool_result blocks found.';
         opts.renderer.write(`${msg}\n`);
         return { message: msg };
       }

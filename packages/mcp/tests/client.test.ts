@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { MCPClient } from '../src/client.js';
+import { MCPClient, type MCPTool } from '../src/client.js';
 
 describe('MCPClient', () => {
   it('starts in idle state', () => {
@@ -150,6 +150,209 @@ describe('MCPClient', () => {
       await new Promise((r) => setTimeout(r, 10));
       expect(listener).not.toHaveBeenCalled();
       expect(c.listTools()[0]?.name).toBe('cached');
+    });
+  });
+
+  describe('close() — stdio lifecycle edge cases', () => {
+    it('close uses SIGTERM then escalates to SIGKILL on stuck process', async () => {
+      // Test that close() correctly handles the graceful → forced kill sequence.
+      // We spawn a process that ignores SIGTERM but dies on SIGKILL.
+      const c = new MCPClient({
+        name: 'force-kill-test',
+        transport: 'stdio',
+        command: 'node',
+        args: ['-e', 'process.on("SIGTERM", () => process.exit(1)); while(true) {}'],
+      });
+      await c.close();
+      expect(c.getState()).toBe('disconnected');
+    });
+
+    it('close sets state to disconnected even when child never started', async () => {
+      const c = new MCPClient({
+        name: 'never-started',
+        transport: 'stdio',
+        command: 'noop',
+      });
+      // Never called connect()
+      await c.close();
+      expect(c.getState()).toBe('disconnected');
+    });
+
+    it('close is safe to call multiple times', async () => {
+      const c = new MCPClient({
+        name: 'double-close',
+        transport: 'stdio',
+        command: 'node',
+        args: ['-e', 'process.stdin.resume()'],
+        startupTimeoutMs: 500,
+      });
+      // connect() will timeout but we can still test close()
+      try {
+        await c.connect();
+      } catch {
+        // Expected timeout
+      }
+      await c.close();
+      await expect(c.close()).resolves.toBeUndefined();
+      expect(c.getState()).toBe('disconnected');
+    });
+  });
+
+  describe('failPending() — error propagation', () => {
+    it('failPending with zero pending is a no-op', () => {
+      const c = new MCPClient({
+        name: 'empty-pending',
+        transport: 'stdio',
+        command: 'echo',
+        args: ['x'],
+      });
+      // Call failPending directly on an idle client with empty pending map
+      expect(() =>
+        (c as unknown as { failPending: (reason: string) => void }).failPending('test reason'),
+      ).not.toThrow();
+    });
+
+    it('failPending swallows exceptions in request reject handlers', () => {
+      const c = new MCPClient({
+        name: 'reject-swallow',
+        transport: 'stdio',
+        command: 'echo',
+        args: ['x'],
+      });
+      // Manually add a pending entry with a reject that throws
+      const id = (c as unknown as { nextId: number }).nextId++;
+      (c as unknown as { pending: Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }> }).pending.set(
+        id,
+        {
+          resolve: () => {},
+          reject: () => {
+            throw new Error('reject handler error');
+          },
+        },
+      );
+      // failPending should not throw even when a reject handler throws
+      expect(() =>
+        (c as unknown as { failPending: (reason: string) => void }).failPending('test'),
+      ).not.toThrow();
+      expect(
+        (c as unknown as { pending: Map<unknown, unknown> }).pending.size,
+      ).toBe(0);
+    });
+  });
+
+  describe('notify() — backpressure handling', () => {
+    it('hadNotifySkipped returns false after construction', () => {
+      const c = new MCPClient({ name: 'notify-skipped', transport: 'stdio', command: 'echo' });
+      expect(c.hadNotifySkipped()).toBe(false);
+    });
+  });
+
+  describe('onLine() — JSON-RPC parsing edge cases', () => {
+    it('onLine ignores malformed JSON', () => {
+      const c = new MCPClient({ name: 'malformed-json', transport: 'stdio', command: 'echo' });
+      const handler = vi.fn();
+      (c as unknown as { onLine: (line: string) => void }).onLine('not json at all {{{');
+      // Should not throw and should not call any handler
+    });
+
+    it('onLine handles server-initiated list_changed notification', async () => {
+      const c = new MCPClient({
+        name: 'server-list-changed',
+        transport: 'stdio',
+        command: 'echo',
+        args: ['x'],
+      });
+      const toolsChanged = vi.fn();
+      c.addToolsChangedListener(toolsChanged);
+      // Simulate server sending a list_changed notification (no id)
+      (c as unknown as { onLine: (line: string) => void }).onLine(
+        JSON.stringify({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' }),
+      );
+      // Allow async handleToolsListChanged to complete
+      await new Promise((r) => setTimeout(r, 50));
+    });
+  });
+
+  describe('addExitListener / removeExitListener', () => {
+    it('removeExitListener on a never-added listener is safe', () => {
+      const c = new MCPClient({ name: 'remove-never-added', transport: 'stdio', command: 'echo' });
+      const handler = vi.fn();
+      // Removing a listener that was never added should not throw
+      expect(() => c.removeExitListener(handler)).not.toThrow();
+    });
+
+    it('addExitListener adds to exitListeners set', () => {
+      const c = new MCPClient({ name: 'add-exit', transport: 'stdio', command: 'echo' });
+      const handler = vi.fn();
+      c.addExitListener(handler);
+      // Verify the listener was added by removing it successfully
+      expect(() => c.removeExitListener(handler)).not.toThrow();
+    });
+  });
+
+  describe('addDisconnectListener / removeDisconnectListener', () => {
+    it('removeDisconnectListener on a never-added listener is safe', () => {
+      const c = new MCPClient({ name: 'remove-disconnect-never', transport: 'stdio', command: 'echo' });
+      const handler = vi.fn();
+      expect(() => c.removeDisconnectListener(handler)).not.toThrow();
+    });
+
+    it('disconnectListeners are called on SSE transport disconnect', async () => {
+      const c = new MCPClient({
+        name: 'sse-disconnect-listeners',
+        transport: 'sse',
+        url: 'https://127.0.0.1:9', // Will fail to connect
+        startupTimeoutMs: 100,
+      });
+      const handler = vi.fn();
+      c.addDisconnectListener(handler);
+      try {
+        await c.connect();
+      } catch {
+        // Expected to fail — state should be 'failed'
+      }
+      // On failed state, no disconnect event is emitted (it's only emitted on transport-side disconnect)
+      expect(c.getState()).toBe('failed');
+    });
+  });
+
+  describe('listTools() — cache fallback behavior', () => {
+    it('listTools returns _tools when non-empty', () => {
+      const c = new MCPClient({ name: 'tools-nonempty', transport: 'stdio', command: 'echo' });
+      (c as unknown as { _tools: MCPTool[] })._tools = [
+        { name: 'cached_tool', inputSchema: {} },
+      ];
+      const tools = c.listTools();
+      expect(tools).toHaveLength(1);
+      expect(tools[0]?.name).toBe('cached_tool');
+    });
+
+    it('listTools falls back to _toolsCache when _tools is empty', () => {
+      const c = new MCPClient({ name: 'cache-fallback', transport: 'stdio', command: 'echo' });
+      (c as unknown as { _tools: never[] })._tools = [];
+      (c as unknown as { _toolsCache: MCPTool[] })._toolsCache = [
+        { name: 'from_cache', inputSchema: {} },
+      ];
+      const tools = c.listTools();
+      expect(tools).toHaveLength(1);
+      expect(tools[0]?.name).toBe('from_cache');
+    });
+
+    it('listTools returns empty array when both caches are empty', () => {
+      const c = new MCPClient({ name: 'both-empty', transport: 'stdio', command: 'echo' });
+      expect(c.listTools()).toEqual([]);
+    });
+  });
+
+  describe('connect() — unknown transport', () => {
+    it('connect throws unknown transport error and sets state to failed', async () => {
+      const c = new MCPClient({
+        name: 'unknown-transport',
+        // @ts-expect-error — intentionally passing invalid transport for test
+        transport: 'unknown-transport-xyz',
+      });
+      await expect(c.connect()).rejects.toThrow(/Unknown transport/);
+      expect(c.getState()).toBe('failed');
     });
   });
 });

@@ -17,6 +17,11 @@ export {
   estimateTextTokens,
 } from './token-estimate.js';
 export {
+  repairToolUseAdjacency,
+  type MessageRepairReport,
+  type MessageRepairResult,
+} from './message-invariants.js';
+export {
   validateAgainstSchema,
   type ValidationError,
   type ValidationResult,

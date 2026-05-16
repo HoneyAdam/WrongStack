@@ -9,6 +9,7 @@ import {
   estimateToolInputTokens,
   estimateToolResultTokens,
 } from '../utils/token-estimate.js';
+import { repairToolUseAdjacency } from '../utils/message-invariants.js';
 
 /**
  * Options for IntelligentCompactor.
@@ -108,8 +109,22 @@ export class IntelligentCompactor implements Compactor {
       if (saved2 > 0) reductions.push({ phase: 'elision', saved: saved2 });
     }
 
+    const repaired = repairToolUseAdjacency(ctx.messages);
+    if (repaired.report.changed) ctx.state.replaceMessages(repaired.messages);
+
     const afterTokens = this.estimateTokens(ctx.messages);
-    return { before: beforeTokens, after: afterTokens, reductions };
+    return {
+      before: beforeTokens,
+      after: afterTokens,
+      reductions,
+      repaired: repaired.report.changed
+        ? {
+            removedToolUses: repaired.report.removedToolUses,
+            removedToolResults: repaired.report.removedToolResults,
+            removedMessages: repaired.report.removedMessages,
+          }
+        : undefined,
+    };
   }
 
   private async summarizeAncientTurns(ctx: Context): Promise<number> {

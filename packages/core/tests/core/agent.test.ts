@@ -96,6 +96,45 @@ describe('Agent', () => {
     expect(provider.calls).toBe(1);
   });
 
+  it('repairs broken tool-call adjacency before provider requests', async () => {
+    const provider = new MockProvider([
+      { content: [{ type: 'text', text: 'recovered' }], stopReason: 'end_turn' },
+    ]);
+    const requestSnapshots: Request['messages'][] = [];
+    const complete = provider.complete.bind(provider);
+    provider.complete = async (req, opts) => {
+      requestSnapshots.push(JSON.parse(JSON.stringify(req.messages)));
+      return complete(req, opts);
+    };
+    const { agent, ctx, tmp } = await buildAgent(provider);
+    cleanupDirs.push(tmp);
+    ctx.state.replaceMessages([
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'dangling', name: 'read', input: {} }],
+      },
+      { role: 'assistant', content: 'still useful' },
+    ]);
+
+    const repairs: Array<{ removedToolUses: string[]; removedMessages: number }> = [];
+    (agent as unknown as { events: EventBus }).events.on('context.repaired', (e) => {
+      repairs.push({
+        removedToolUses: e.removedToolUses,
+        removedMessages: e.removedMessages,
+      });
+    });
+
+    const result = await agent.run('continue');
+
+    expect(result.status).toBe('done');
+    expect(repairs).toEqual([{ removedToolUses: ['dangling'], removedMessages: 1 }]);
+    expect(JSON.stringify(requestSnapshots[0])).not.toContain('tool_use');
+    expect(requestSnapshots[0]).toEqual([
+      { role: 'assistant', content: 'still useful' },
+      { role: 'user', content: [{ type: 'text', text: 'continue' }] },
+    ]);
+  });
+
   it('executes tool use and continues', async () => {
     const echo: Tool = {
       name: 'echo',

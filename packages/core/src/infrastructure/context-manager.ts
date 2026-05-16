@@ -2,6 +2,7 @@ import type { Context } from '../core/context.js';
 import type { Compactor } from '../types/compactor.js';
 import type { Message } from '../types/messages.js';
 import type { Tool } from '../types/tool.js';
+import { repairToolUseAdjacency } from '../utils/message-invariants.js';
 
 /**
  * Context introspection and management tool.
@@ -14,7 +15,13 @@ import type { Tool } from '../types/tool.js';
  */
 export const CONTEXT_MANAGER_TOOL_NAME = 'context_manager';
 
-export type ContextManagerAction = 'check' | 'summary' | 'prune' | 'add_note' | 'compact';
+export type ContextManagerAction =
+  | 'check'
+  | 'summary'
+  | 'prune'
+  | 'add_note'
+  | 'compact'
+  | 'repair';
 
 export interface ContextManagerInput {
   action: ContextManagerAction;
@@ -35,6 +42,11 @@ export interface ContextManagerResult {
   messageCount: number;
   summary?: string;
   notes?: string;
+  repaired?: {
+    removedToolUses: string[];
+    removedToolResults: string[];
+    removedMessages: number;
+  };
 }
 
 /**
@@ -79,13 +91,14 @@ export function createContextManagerTool(
       'Use "summary" to collapse a message range into a concise note (provide "text" for custom summary). ' +
       'Use "prune" to remove specific messages by index. ' +
       'Use "add_note" to inject a summary note. ' +
-      'Use "compact" to run aggressive compaction.',
+      'Use "compact" to run aggressive compaction. ' +
+      'Use "repair" to remove orphan tool_use/tool_result blocks after manual context surgery.',
     inputSchema: {
       type: 'object',
       properties: {
         action: {
           type: 'string',
-          enum: ['check', 'summary', 'prune', 'add_note', 'compact'],
+          enum: ['check', 'summary', 'prune', 'add_note', 'compact', 'repair'],
           description: 'The context operation to perform.',
         },
         from: {
@@ -120,12 +133,15 @@ export function createContextManagerTool(
       // layer so subscribers stay in sync. Fall back to direct splice for
       // tests and environments that haven't wired ConversationState.
       const applyMessages = (next: Message[]) => {
+        const repaired = repairToolUseAdjacency(next);
+        const finalMessages = repaired.messages;
         if (ctx.state) {
-          ctx.state.replaceMessages(next);
+          ctx.state.replaceMessages(finalMessages);
         } else {
           messages.length = 0;
-          messages.splice(0, 0, ...next);
+          messages.splice(0, 0, ...finalMessages);
         }
+        return repaired.report;
       };
 
       switch (input.action) {
@@ -144,6 +160,27 @@ export function createContextManagerTool(
           };
         }
 
+        case 'repair': {
+          const repair = applyMessages([...messages]);
+          const afterTokens = roughEstimate(ctx.messages);
+          return {
+            action: 'repair',
+            beforeTokens,
+            afterTokens,
+            messageCount: ctx.messages.length,
+            repaired: repair.changed
+              ? {
+                  removedToolUses: repair.removedToolUses,
+                  removedToolResults: repair.removedToolResults,
+                  removedMessages: repair.removedMessages,
+                }
+              : undefined,
+            notes: repair.changed
+              ? 'Context tool-call adjacency repaired.'
+              : 'Context tool-call adjacency already valid.',
+          };
+        }
+
         case 'compact': {
           if (!opts.compactor) {
             return {
@@ -154,11 +191,21 @@ export function createContextManagerTool(
             };
           }
           const report = await opts.compactor.compact(ctx);
+          const repair = applyMessages([...ctx.messages]);
+          const afterTokens = repair.changed ? roughEstimate(ctx.messages) : report.after;
+          const repaired = report.repaired ?? (repair.changed ? repair : undefined);
           return {
             action: 'compact',
             beforeTokens,
-            afterTokens: report.after,
-            messageCount: messages.length,
+            afterTokens,
+            messageCount: ctx.messages.length,
+            repaired: repaired
+              ? {
+                  removedToolUses: repaired.removedToolUses,
+                  removedToolResults: repaired.removedToolResults,
+                  removedMessages: repaired.removedMessages,
+                }
+              : undefined,
           };
         }
 
@@ -175,14 +222,21 @@ export function createContextManagerTool(
           }
           const copy = [...messages];
           const removed = copy.splice(from, to - from + 1);
-          applyMessages(copy);
-          const afterTokens = roughEstimate(copy);
+          const repair = applyMessages(copy);
+          const afterTokens = roughEstimate(ctx.messages);
           return {
             action: 'prune',
             beforeTokens,
             afterTokens,
-            messageCount: copy.length,
+            messageCount: ctx.messages.length,
             removedCount: removed.length,
+            repaired: repair.changed
+              ? {
+                  removedToolUses: repair.removedToolUses,
+                  removedToolResults: repair.removedToolResults,
+                  removedMessages: repair.removedMessages,
+                }
+              : undefined,
           };
         }
 
@@ -195,14 +249,21 @@ export function createContextManagerTool(
           };
           const copy = [...messages];
           copy.splice(afterIdx, 0, noteMsg);
-          applyMessages(copy);
-          const afterTokens = roughEstimate(copy);
+          const repair = applyMessages(copy);
+          const afterTokens = roughEstimate(ctx.messages);
           return {
             action: 'add_note',
             beforeTokens,
             afterTokens,
-            messageCount: copy.length,
+            messageCount: ctx.messages.length,
             summary: noteText,
+            repaired: repair.changed
+              ? {
+                  removedToolUses: repair.removedToolUses,
+                  removedToolResults: repair.removedToolResults,
+                  removedMessages: repair.removedMessages,
+                }
+              : undefined,
           };
         }
 
@@ -225,14 +286,21 @@ export function createContextManagerTool(
           };
           const copy = [...messages];
           copy.splice(from, to - from + 1, summaryMsg);
-          applyMessages(copy);
-          const afterTokens = roughEstimate(copy);
+          const repair = applyMessages(copy);
+          const afterTokens = roughEstimate(ctx.messages);
           return {
             action: 'summary',
             beforeTokens,
             afterTokens,
-            messageCount: copy.length,
+            messageCount: ctx.messages.length,
             summary: summaryText,
+            repaired: repair.changed
+              ? {
+                  removedToolUses: repair.removedToolUses,
+                  removedToolResults: repair.removedToolResults,
+                  removedMessages: repair.removedMessages,
+                }
+              : undefined,
           };
         }
 

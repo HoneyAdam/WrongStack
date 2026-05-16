@@ -71,4 +71,110 @@ describe('diffTool', () => {
     const result = await diffTool.execute({ files: 'file.txt', mode: 'stat' }, ctx, makeOpts());
     expect(result.mode).toBe('stat');
   });
+
+  // ─── new coverage tests ─────────────────────────────────────────────────────
+
+  it('fileDiff skips non-existent files in diff output', async () => {
+    const ctx = makeCtx();
+    const result = await diffTool.execute({ files: 'nonexistent.txt' }, ctx, makeOpts());
+    // files field preserves original input
+    expect(result.files).toContain('nonexistent.txt');
+    // but diff is empty since file doesn't exist
+    expect(result.diff).toBe('');
+  });
+
+  it('fileDiff skips directories in diff output', async () => {
+    await fs.mkdir(path.join(tmpDir, 'subdir'), { recursive: true });
+    const ctx = makeCtx();
+    const result = await diffTool.execute({ files: 'subdir' }, ctx, makeOpts());
+    // files field preserves original input
+    expect(result.files).toContain('subdir');
+    // but diff is empty since it's a directory
+    expect(result.diff).toBe('');
+  });
+
+  it('fileDiff handles comma-separated files list', async () => {
+    const filePath = path.join(tmpDir, 'a.txt');
+    await fs.writeFile(filePath, 'line1\nline2');
+    const ctx = makeCtx();
+    const result = await diffTool.execute({ files: 'a.txt,nonExistent.txt' }, ctx, makeOpts());
+    expect(result.files).toContain('a.txt');
+  });
+
+  it('fileDiff handles array of files', async () => {
+    const filePath = path.join(tmpDir, 'b.txt');
+    await fs.writeFile(filePath, 'content');
+    const ctx = makeCtx();
+    const result = await diffTool.execute({ files: ['b.txt'] }, ctx, makeOpts());
+    expect(result.files).toContain('b.txt');
+  });
+
+  it('fileDiff returns truncated false for small output', async () => {
+    const filePath = path.join(tmpDir, 'small.txt');
+    await fs.writeFile(filePath, 'short');
+    const ctx = makeCtx();
+    const result = await diffTool.execute({ files: 'small.txt' }, ctx, makeOpts());
+    expect(result.truncated).toBe(false);
+  });
+
+  it('gitDiff uses a and b args to build git diff command', async () => {
+    // Use a real git repo - the WrongStack repo itself
+    const gitCtx = { cwd: process.cwd(), tools: [], projectRoot: process.cwd() } as any;
+    const result = await diffTool.execute({ a: 'HEAD', b: 'HEAD~1' }, gitCtx, makeOpts());
+    // Just verify it doesn't throw and produces a result
+    expect(result).toHaveProperty('diff');
+    expect(result).toHaveProperty('mode', 'unified');
+  });
+
+  it('gitDiff truncates large output', async () => {
+    const gitCtx = { cwd: process.cwd(), tools: [], projectRoot: process.cwd() } as any;
+    // The diff field truncation happens when stdout > 100_000
+    const result = await diffTool.execute({ a: 'HEAD' }, gitCtx, makeOpts());
+    expect(typeof result.truncated).toBe('boolean');
+  });
+
+  it('gitDiff handles files as array', async () => {
+    const gitCtx = { cwd: process.cwd(), tools: [], projectRoot: process.cwd() } as any;
+    const result = await diffTool.execute({ files: ['README.md'] }, gitCtx, makeOpts());
+    expect(result).toHaveProperty('diff');
+  });
+
+  it('gitDiff handles comma-separated files', async () => {
+    const gitCtx = { cwd: process.cwd(), tools: [], projectRoot: process.cwd() } as any;
+    const result = await diffTool.execute({ files: 'README.md' }, gitCtx, makeOpts());
+    expect(result).toHaveProperty('diff');
+  });
+
+  it('findGitDir returns null when no git repo exists up the tree', async () => {
+    // Create a temp dir with no parent git repo
+    const isolatedDir = await fs.mkdtemp(path.join(os.tmpdir(), 'no-git-'));
+    try {
+      const ctx = { cwd: isolatedDir, tools: [], projectRoot: isolatedDir } as any;
+      const result = await diffTool.execute({ a: 'HEAD' }, ctx, makeOpts());
+      // Should return empty diff since no git repo
+      expect(result.diff).toBe('');
+      expect(result.files).toEqual([]);
+    } finally {
+      await fs.rm(isolatedDir, { recursive: true, force: true });
+    }
+  });
+
+  it('fileDiff produces unified diff format with context', async () => {
+    const filePath = path.join(tmpDir, 'context.txt');
+    const content = ['line0', 'line1', 'line2', 'line3', 'line4'].join('\n');
+    await fs.writeFile(filePath, content);
+    const ctx = makeCtx();
+    const result = await diffTool.execute({ files: 'context.txt', context: 2 }, ctx, makeOpts());
+    expect(result.diff).toContain('--- context.txt');
+    expect(result.diff).toContain('+++ context.txt');
+    expect(result.diff).toContain(' line0');
+  });
+
+  it('fileDiff uses mode from input', async () => {
+    const filePath = path.join(tmpDir, 'mode.txt');
+    await fs.writeFile(filePath, 'test');
+    const ctx = makeCtx();
+    const result = await diffTool.execute({ files: 'mode.txt', mode: 'unified' }, ctx, makeOpts());
+    expect(result.mode).toBe('unified');
+  });
 });

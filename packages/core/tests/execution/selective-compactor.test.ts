@@ -129,11 +129,11 @@ describe('SelectiveCompactor', () => {
         tool_use_id: 'tool_1',
         content: 'x'.repeat(500),
       };
-      // With preserveK=1, recent (user+assistant) pair at indices 2-3 is preserved.
-      // Tool result at index 0 is OLD, so should be elided.
+      // With preserveK=1, the last assistant turn is preserved.
+      // Tool result at index 1 is OLD, so should be elided.
       const messages = [
+        makeMessage('assistant', [{ type: 'tool_use', id: 'tool_1', name: 'read', input: {} }]),
         makeMessage('user', [toolResultBlock]),
-        makeMessage('assistant', [makeTextBlock('result')]),
         makeMessage('user', [makeTextBlock('recent query')]),
         makeMessage('assistant', [makeTextBlock('recent response')]),
       ];

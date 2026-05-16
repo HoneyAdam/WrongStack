@@ -14,6 +14,7 @@ import type {
   SessionWriter,
 } from '../types/session.js';
 import { ensureDir } from '../utils/atomic-write.js';
+import { repairToolUseAdjacency } from '../utils/message-invariants.js';
 
 export interface SessionStoreOptions {
   dir: string;
@@ -263,13 +264,22 @@ export class DefaultSessionStore implements SessionStore {
     if (openToolUses.size > 0) {
       this.events?.emit('session.damaged', {
         sessionId,
-        detail: `${openToolUses.size} tool_use blocks without matching results — replay truncated`,
+        detail: `${openToolUses.size} tool_use blocks without matching results - replay repaired`,
       });
-      // Return what we could replay instead of throwing — a damaged session
-      // should not block the entire session-listing or resume path.
-      return { messages, usage };
+      // Damaged sessions still load; the repair pass below removes orphan
+      // protocol blocks before the transcript can reach a provider.
     }
-    return { messages, usage };
+    const repaired = repairToolUseAdjacency(messages);
+    if (repaired.report.changed) {
+      this.events?.emit('session.damaged', {
+        sessionId,
+        detail:
+          `Repaired replay adjacency: removed ${repaired.report.removedToolUses.length} tool_use, ` +
+          `${repaired.report.removedToolResults.length} tool_result, ` +
+          `${repaired.report.removedMessages} empty messages`,
+      });
+    }
+    return { messages: repaired.messages, usage };
   }
 }
 

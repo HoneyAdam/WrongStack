@@ -107,4 +107,147 @@ describe('SlashCommandRegistry', () => {
     expect(entries.find((e) => e.owner === 'core')?.fullName).toBe('status');
     expect(entries.find((e) => e.owner === 'cloud')?.fullName).toBe('cloud:log');
   });
+
+  // ─── Additional coverage tests ─────────────────────────────────────
+
+  it('unregister returns false for unknown name', () => {
+    const r = new SlashCommandRegistry();
+    expect(r.unregister('nope')).toBe(false);
+  });
+
+  it('unregister removes command and its aliases', () => {
+    const r = new SlashCommandRegistry();
+    r.register({ name: 'cmd', aliases: ['c', 'close'], description: '', async run() {} }, 'plug');
+    expect(r.get('plug:cmd')).toBeDefined();
+    expect(r.get('plug:c')).toBeDefined();
+    expect(r.get('plug:close')).toBeDefined();
+
+    const removed = r.unregister('plug:cmd');
+
+    expect(removed).toBe(true);
+    expect(r.get('plug:cmd')).toBeUndefined();
+    expect(r.get('plug:c')).toBeUndefined();
+    expect(r.get('plug:close')).toBeUndefined();
+  });
+
+  it('unregister removes builtin without alias', () => {
+    const r = new SlashCommandRegistry();
+    r.register({ name: 'bye', description: '', async run() {} });
+    expect(r.unregister('bye')).toBe(true);
+    expect(r.get('bye')).toBeUndefined();
+  });
+
+  it('registerAll bulk-registers commands', () => {
+    const r = new SlashCommandRegistry();
+    r.registerAll([
+      { name: 'a', description: '', async run() {} },
+      { name: 'b', description: '', async run() {} },
+    ]);
+    expect(r.get('a')).toBeDefined();
+    expect(r.get('b')).toBeDefined();
+  });
+
+  it('list returns unique commands (deduped by aliases)', () => {
+    const r = new SlashCommandRegistry();
+    r.register({ name: 'cmd', aliases: ['c'], description: '', async run() {} }, 'plug');
+    r.register({ name: 'status', description: '', async run() {} });
+    const all = r.list();
+    expect(all.map((c) => c.name)).toEqual(['cmd', 'status']);
+  });
+
+  it('list returns empty when no commands registered', () => {
+    const r = new SlashCommandRegistry();
+    expect(r.list()).toEqual([]);
+  });
+
+  it('dispatch returns null for empty slash', async () => {
+    const r = new SlashCommandRegistry();
+    // "/" — line.slice(1) gives empty string; trimmed="" has no space/colons
+    // name will be "" and no entry found, returns unknown message
+    const res = await r.dispatch('/', {} as Context);
+    expect(res?.message).toMatch(/Unknown/);
+  });
+
+  it('dispatch passes config to run and returns its result', async () => {
+    const r = new SlashCommandRegistry();
+    r.register({
+      name: 'check',
+      description: '',
+      async run(args, ctx) {
+        return { exit: true, message: `args="${args}"` };
+      },
+    });
+    const res = await r.dispatch('/check foo', {} as Context);
+    expect(res).toEqual({ exit: true, message: 'args="foo"' });
+  });
+
+  it('dispatch returns empty object when run returns undefined', async () => {
+    const r = new SlashCommandRegistry();
+    r.register({ name: 'silent', description: '', async run() {} });
+    const res = await r.dispatch('/silent', {} as Context);
+    expect(res).toEqual({});
+  });
+
+  it('dispatch parses /owner:cmd args with space', async () => {
+    const r = new SlashCommandRegistry();
+    let receivedArgs = '';
+    r.register(
+      {
+        name: 'deploy',
+        description: '',
+        async run(args) {
+          receivedArgs = args;
+        },
+      },
+      'k8s',
+    );
+    await r.dispatch('/k8s:deploy staging --replicas=3', {} as Context);
+    expect(receivedArgs).toBe('staging --replicas=3');
+  });
+
+  it('dispatch falls back to builtin when plugin prefix does not match any owner', async () => {
+    const r = new SlashCommandRegistry();
+    let ran = false;
+    // Register a builtin called "other:cmd"
+    r.register({ name: 'other:cmd', description: '', async run() { ran = true; } }, 'core');
+    // Now dispatch /other:cmd — since 'other' owner exists and name matches,
+    // it should work
+    await r.dispatch('/other:cmd', {} as Context);
+    expect(ran).toBe(true);
+    expect(r.ownerOf('other:cmd')).toBe('core');
+  });
+
+  it('dispatch parses /owner:cmd without args', async () => {
+    const r = new SlashCommandRegistry();
+    let ran = false;
+    r.register({ name: 'test', description: '', async run() { ran = true; } }, 'myplug');
+    await r.dispatch('/myplug:test', {} as Context);
+    expect(ran).toBe(true);
+  });
+
+  it('dispatch over plugin with args and colon in command name that matches owner case', async () => {
+    const r = new SlashCommandRegistry();
+    let ran = false;
+    r.register({ name: 'start', description: '', async run() { ran = true; } }, 'svc');
+    await r.dispatch('/svc:start', {} as Context);
+    expect(ran).toBe(true);
+  });
+
+  it('builtin re-registration throws', () => {
+    const r = new SlashCommandRegistry();
+    r.register({ name: 'help', description: '', async run() {} }, 'core');
+    expect(() => r.register({ name: 'help', description: '', async run() {} }, 'core')).toThrow(
+      /Built-in slash command.*already registered/,
+    );
+  });
+
+  it('listWithOwner returns empty when no commands', () => {
+    const r = new SlashCommandRegistry();
+    expect(r.listWithOwner()).toEqual([]);
+  });
+
+  it('ownerOf returns undefined for unknown', () => {
+    const r = new SlashCommandRegistry();
+    expect(r.ownerOf('nope')).toBeUndefined();
+  });
 });

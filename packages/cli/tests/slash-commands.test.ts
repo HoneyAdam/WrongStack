@@ -263,6 +263,39 @@ describe('built-in slash commands', () => {
     expect(renderer.output).toContain('cwd:');
   });
 
+  it('/context repair fixes orphan tool_use/tool_result blocks', async () => {
+    const { registry, renderer } = makeRig();
+    const messages = [
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'u1', name: 'read', input: {} }],
+      },
+      { role: 'assistant', content: 'still here' },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'u1', content: 'late' }] },
+    ];
+    const ctx = {
+      messages,
+      todos: [],
+      systemPrompt: [],
+      readFiles: new Set(),
+      fileMtimes: new Map(),
+      meta: {},
+      state: {
+        replaceMessages(next: typeof messages) {
+          messages.length = 0;
+          messages.push(...next);
+        },
+      },
+    } as unknown as Context;
+
+    await registry.dispatch('/context repair', ctx);
+
+    expect(renderer.output).toContain('Context repaired');
+    expect(JSON.stringify(ctx.messages)).not.toContain('"tool_use"');
+    expect(JSON.stringify(ctx.messages)).not.toContain('"tool_result"');
+    expect(ctx.messages).toHaveLength(1);
+  });
+
   describe('L1-E /spawn and /agents', () => {
     it('/spawn without onSpawn reports multi-agent not enabled', async () => {
       const { registry } = makeRig();

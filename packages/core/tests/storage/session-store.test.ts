@@ -121,8 +121,8 @@ describe('DefaultSessionStore', () => {
     // Damaged sessions resolve with partial replay instead of throwing —
     // the undamaged portion is still useful for session listing / resume.
     const data = await store.load('broken');
-    expect(data.messages).toHaveLength(1);
-    // The orphan tool_use is preserved in the LLM response but no tool_result follows
+    expect(data.messages).toHaveLength(0);
+    expect(JSON.stringify(data.messages)).not.toContain('tool_use');
     expect(data.usage.input).toBe(1);
   });
 

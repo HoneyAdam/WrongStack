@@ -35,6 +35,25 @@ describe('createContextManagerTool', () => {
     expect(result.notes).toBeDefined();
   });
 
+  it('repair action fixes orphan protocol blocks without a provider call', async () => {
+    const tool = createContextManagerTool();
+    const ctx = makeCtx([
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'u1', name: 'read', input: {} }],
+      },
+      { role: 'assistant', content: 'next' },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'u1', content: 'late' }] },
+    ]);
+
+    const result = await tool.execute({ action: 'repair' }, ctx);
+
+    expect(result.action).toBe('repair');
+    expect(result.repaired?.removedToolUses).toEqual(['u1']);
+    expect(result.repaired?.removedToolResults).toEqual(['u1']);
+    expect(ctx.messages).toEqual([{ role: 'assistant', content: 'next' }]);
+  });
+
   it('prune removes messages in range', async () => {
     const tool = createContextManagerTool();
     const ctx = makeCtx([
@@ -108,6 +127,31 @@ describe('createContextManagerTool', () => {
     expect(ctx.messages[0].content).toContain('greeting');
   });
 
+  it('summary repairs tool_use/tool_result adjacency when range cuts an exchange', async () => {
+    const tool = createContextManagerTool();
+    const ctx = makeCtx([
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'u1', name: 'read', input: {} }],
+      },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'u1', content: 'ok' }] },
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'u2', name: 'grep', input: {} }],
+      },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'u2', content: 'late' }] },
+      { role: 'user', content: 'continue' },
+    ]);
+
+    const result = await tool.execute({ action: 'summary', from: 1, to: 2, text: 'middle' }, ctx);
+
+    expect(result.repaired?.removedToolUses).toEqual(['u1']);
+    expect(result.repaired?.removedToolResults).toEqual(['u2']);
+    expect(JSON.stringify(ctx.messages)).not.toContain('"tool_use"');
+    expect(JSON.stringify(ctx.messages)).not.toContain('"tool_result"');
+    expect(ctx.messages.at(-1)?.content).toBe('continue');
+  });
+
   it('summary rejects invalid range', async () => {
     const tool = createContextManagerTool();
     const ctx = makeCtx([{ role: 'user', content: 'a' }]);
@@ -140,6 +184,28 @@ describe('createContextManagerTool', () => {
     const result = await tool.execute({ action: 'compact' }, ctx);
     expect(result.action).toBe('compact');
     expect(result.afterTokens).toBeDefined();
+  });
+
+  it('compact repairs orphan protocol blocks produced by a compactor', async () => {
+    const tool = createContextManagerTool({
+      compactor: {
+        compact: async (ctx: any) => {
+          ctx.messages.splice(0, ctx.messages.length, {
+            role: 'assistant',
+            content: [{ type: 'tool_use', id: 'cut', name: 'read', input: {} }],
+          });
+          return { before: 1000, after: 100, reductions: [{ phase: 'summary', saved: 900 }] };
+        },
+      },
+    });
+    const ctx = makeCtx([{ role: 'user', content: 'before' }]);
+
+    const result = await tool.execute({ action: 'compact' }, ctx);
+
+    expect(result.action).toBe('compact');
+    expect(result.repaired?.removedToolUses).toEqual(['cut']);
+    expect(result.repaired?.removedMessages).toBe(1);
+    expect(ctx.messages).toEqual([]);
   });
 
   it('returns unknown action for unrecognized actions', async () => {

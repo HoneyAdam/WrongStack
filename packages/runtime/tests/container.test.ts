@@ -56,4 +56,47 @@ describe('createDefaultContainer', () => {
     });
     expect(c.has(TOKENS.SystemPromptBuilder)).toBe(true);
   });
+
+  it('does not bind SystemPromptBuilder when systemPrompt option is not provided', () => {
+    const c = createDefaultContainer({ config: mockConfig, wpaths: mockWpaths, logger: mockLogger, modelsRegistry: mockModels });
+    expect(c.has(TOKENS.SystemPromptBuilder)).toBe(false);
+  });
+
+  it('binds Compactor with default options when compactor not provided', () => {
+    const c = createDefaultContainer({ config: mockConfig, wpaths: mockWpaths, logger: mockLogger, modelsRegistry: mockModels });
+    const compactor = c.resolve(TOKENS.Compactor);
+    expect(compactor).toBeDefined();
+  });
+
+  it('passes custom compactor options', () => {
+    const c = createDefaultContainer({
+      config: mockConfig, wpaths: mockWpaths, logger: mockLogger, modelsRegistry: mockModels,
+      compactor: { preserveK: 50, eliseThreshold: 0.5 },
+    });
+    const compactor = c.resolve(TOKENS.Compactor);
+    expect(compactor).toBeDefined();
+  });
+
+  it('passes permission yolo option to DefaultPermissionPolicy', () => {
+    const c = createDefaultContainer({
+      config: mockConfig, wpaths: mockWpaths, logger: mockLogger, modelsRegistry: mockModels,
+      permission: { yolo: true },
+    });
+    expect(c.has(TOKENS.PermissionPolicy)).toBe(true);
+  });
+
+  it('passes bundledSkillsDir to DefaultSkillLoader', () => {
+    const c = createDefaultContainer({
+      config: mockConfig, wpaths: mockWpaths, logger: mockLogger, modelsRegistry: mockModels,
+      bundledSkillsDir: '/custom/skills',
+    });
+    const loader = c.resolve(TOKENS.SkillLoader);
+    expect(loader).toBeDefined();
+  });
+
+  it('creates ModeStore with correct directory', () => {
+    const c = createDefaultContainer({ config: mockConfig, wpaths: mockWpaths, logger: mockLogger, modelsRegistry: mockModels });
+    const modeStore = c.resolve(TOKENS.ModeStore);
+    expect(modeStore).toBeInstanceOf(Object);
+  });
 });

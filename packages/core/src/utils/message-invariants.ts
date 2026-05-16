@@ -1,0 +1,129 @@
+import type { ContentBlock, ToolResultBlock, ToolUseBlock } from '../types/blocks.js';
+import type { Message } from '../types/messages.js';
+
+export interface MessageRepairReport {
+  changed: boolean;
+  removedToolUses: string[];
+  removedToolResults: string[];
+  removedMessages: number;
+}
+
+export interface MessageRepairResult {
+  messages: Message[];
+  report: MessageRepairReport;
+}
+
+/**
+ * Repair provider-level tool-call adjacency invariants.
+ *
+ * Anthropic requires every assistant `tool_use` block to have a matching
+ * `tool_result` block in the immediately following user message. Manual
+ * context surgery (summary/prune) can cut through the middle of such an
+ * exchange. This function removes only the now-orphaned protocol blocks,
+ * preserving surrounding text/images/thinking blocks where possible.
+ */
+export function repairToolUseAdjacency(messages: Message[]): MessageRepairResult {
+  const removedToolUses: string[] = [];
+  const removedToolResults: string[] = [];
+  let removedMessages = 0;
+  let changed = false;
+  const out: Message[] = [];
+
+  for (let i = 0; i < messages.length; i++) {
+    const original = messages[i]!;
+    let msg = original;
+
+    if (hasToolUse(msg)) {
+      const nextIds = toolResultIds(messages[i + 1]);
+      const filtered = mapContent(msg, (blocks) => {
+        const next: ContentBlock[] = [];
+        for (const block of blocks) {
+          if (block.type === 'tool_use' && !nextIds.has(block.id)) {
+            removedToolUses.push(block.id);
+            changed = true;
+            continue;
+          }
+          next.push(block);
+        }
+        return next;
+      });
+      msg = filtered ?? msg;
+    }
+
+    if (hasToolResult(msg)) {
+      const allowed = toolUseIds(out[out.length - 1]);
+      const filtered = mapContent(msg, (blocks) => {
+        const next: ContentBlock[] = [];
+        for (const block of blocks) {
+          if (block.type === 'tool_result' && !allowed.has(block.tool_use_id)) {
+            removedToolResults.push(block.tool_use_id);
+            changed = true;
+            continue;
+          }
+          next.push(block);
+        }
+        return next;
+      });
+      msg = filtered ?? msg;
+    }
+
+    if (isEmptyMessage(msg)) {
+      removedMessages++;
+      changed = true;
+      continue;
+    }
+    out.push(msg);
+  }
+
+  return {
+    messages: changed ? out : messages,
+    report: { changed, removedToolUses, removedToolResults, removedMessages },
+  };
+}
+
+function hasToolUse(msg: Message | undefined): boolean {
+  return contentBlocks(msg).some((b): b is ToolUseBlock => b.type === 'tool_use');
+}
+
+function hasToolResult(msg: Message | undefined): boolean {
+  return contentBlocks(msg).some((b): b is ToolResultBlock => b.type === 'tool_result');
+}
+
+function toolUseIds(msg: Message | undefined): Set<string> {
+  const ids = new Set<string>();
+  if (!msg || msg.role !== 'assistant') return ids;
+  for (const block of contentBlocks(msg)) {
+    if (block.type === 'tool_use') ids.add(block.id);
+  }
+  return ids;
+}
+
+function toolResultIds(msg: Message | undefined): Set<string> {
+  const ids = new Set<string>();
+  if (!msg || msg.role !== 'user') return ids;
+  for (const block of contentBlocks(msg)) {
+    if (block.type === 'tool_result') ids.add(block.tool_use_id);
+  }
+  return ids;
+}
+
+function contentBlocks(msg: Message | undefined): ContentBlock[] {
+  return msg && Array.isArray(msg.content) ? msg.content : [];
+}
+
+function mapContent(
+  msg: Message,
+  fn: (blocks: ContentBlock[]) => ContentBlock[],
+): Message | null {
+  if (!Array.isArray(msg.content)) return msg;
+  const next = fn(msg.content);
+  if (next.length === msg.content.length && next.every((b, idx) => b === msg.content[idx])) {
+    return msg;
+  }
+  return { ...msg, content: next };
+}
+
+function isEmptyMessage(msg: Message): boolean {
+  if (typeof msg.content === 'string') return msg.content.trim().length === 0;
+  return msg.content.length === 0;
+}

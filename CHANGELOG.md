@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Context-window modes and repair controls.** Sessions can switch between
+  `balanced`, `frugal`, `deep`, and `archival` context policies. CLI users get
+  `/context mode` plus `/context repair`, WebUI clients get mode switching and
+  `context.repair`, and damaged tool-call adjacency is repaired before provider
+  requests.
 - **`@wrongstack/runtime` host composition package.** Runtime is now the
   migration target for concrete defaults and host assembly helpers, keeping
   `@wrongstack/core` focused on kernel contracts, registries, primitives, and

@@ -6,6 +6,7 @@ import type { CompactReport, Compactor } from '../types/compactor.js';
 import type { Message } from '../types/messages.js';
 import type { Provider, Request } from '../types/provider.js';
 import type { MessageSelector, SelectorResult } from '../types/selector.js';
+import { repairToolUseAdjacency } from '../utils/message-invariants.js';
 
 /**
  * Options for SelectiveCompactor — the most configurable compactor.
@@ -83,8 +84,9 @@ export class SelectiveCompactor implements Compactor {
       // Only do lightweight elision if below warn threshold
       const saved = this.eliseOldToolResults(ctx);
       if (saved > 0) reductions.push({ phase: 'elision', saved });
+      const repair = this.repairProtocolAdjacency(ctx);
       const afterTokens = this.estimateTokens(ctx.messages);
-      return { before: beforeTokens, after: afterTokens, reductions };
+      return { before: beforeTokens, after: afterTokens, reductions, repaired: repair };
     }
 
     // Phase 1: elision — always run first to get a baseline reduction
@@ -100,8 +102,21 @@ export class SelectiveCompactor implements Compactor {
       if (savedSelective > 0) reductions.push({ phase: 'selective', saved: savedSelective });
     }
 
+    const repair = this.repairProtocolAdjacency(ctx);
     const afterTokens = this.estimateTokens(ctx.messages);
-    return { before: beforeTokens, after: afterTokens, reductions };
+    return { before: beforeTokens, after: afterTokens, reductions, repaired: repair };
+  }
+
+  private repairProtocolAdjacency(ctx: Context): CompactReport['repaired'] {
+    const repaired = repairToolUseAdjacency(ctx.messages);
+    if (repaired.report.changed) ctx.state.replaceMessages(repaired.messages);
+    return repaired.report.changed
+      ? {
+          removedToolUses: repaired.report.removedToolUses,
+          removedToolResults: repaired.report.removedToolResults,
+          removedMessages: repaired.report.removedMessages,
+        }
+      : undefined;
   }
 
   /**

@@ -37,6 +37,7 @@ import {
   migratePlaintextSecrets,
   resolveWstackPaths,
   listContextWindowModes,
+  repairToolUseAdjacency,
   resolveContextWindowPolicy,
 } from '@wrongstack/core';
 import { buildProviderFactoriesFromRegistry, makeProviderFromConfig } from '@wrongstack/providers';
@@ -482,6 +483,17 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
       });
     });
 
+    events.on('context.repaired', (e) => {
+      broadcast({
+        type: 'context.repaired',
+        payload: {
+          removedToolUses: e.removedToolUses,
+          removedToolResults: e.removedToolResults,
+          removedMessages: e.removedMessages,
+        },
+      });
+    });
+
     events.on('error', (e) => {
       broadcast({
         type: 'error',
@@ -773,6 +785,7 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
               after: report.after,
               saved: Math.max(0, report.before - report.after),
               reductions: report.reductions,
+              repaired: report.repaired,
             },
           });
           sendResult(
@@ -783,6 +796,34 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
         } catch (err) {
           sendResult(ws, false, err instanceof Error ? err.message : String(err));
         }
+        break;
+      }
+
+      case 'context.repair': {
+        const beforeMessages = context.messages.length;
+        const repaired = repairToolUseAdjacency(context.messages);
+        if (repaired.report.changed) {
+          context.state.replaceMessages(repaired.messages);
+        }
+        const payload = {
+          removedToolUses: repaired.report.removedToolUses,
+          removedToolResults: repaired.report.removedToolResults,
+          removedMessages: repaired.report.removedMessages,
+          beforeMessages,
+          afterMessages: context.messages.length,
+        };
+        broadcast({ type: 'context.repaired', payload });
+        const removed =
+          payload.removedToolUses.length +
+          payload.removedToolResults.length +
+          payload.removedMessages;
+        sendResult(
+          ws,
+          true,
+          removed > 0
+            ? `Context repaired: removed ${removed} orphan protocol item(s)`
+            : 'Context repair found no orphan protocol blocks',
+        );
         break;
       }
 

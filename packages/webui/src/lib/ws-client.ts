@@ -341,6 +341,10 @@ export class WrongStackWebSocketClient {
     this.send({ type: 'context.compact', payload: { aggressive } });
   }
 
+  repairContext() {
+    this.send({ type: 'context.repair' });
+  }
+
   debugContext() {
     this.send({ type: 'context.debug' });
   }

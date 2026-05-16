@@ -72,8 +72,13 @@ describe('HybridCompactor', () => {
   it('honors context-window policy from ctx.meta', async () => {
     const big = 'x'.repeat(5000);
     const messages: Message[] = [
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'old', name: 'read', input: {} }] },
       { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'old', content: big }] },
       { role: 'assistant', content: 'old done' },
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'recent', name: 'read', input: {} }],
+      },
       { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'recent', content: big }] },
     ];
     const ctx = fakeContext(messages);
@@ -92,7 +97,43 @@ describe('HybridCompactor', () => {
     const c = new HybridCompactor({ preserveK: 20, eliseThreshold: 10000 });
     await c.compact(ctx);
 
-    expect(JSON.stringify(ctx.messages[0])).toContain('[elided:');
-    expect(JSON.stringify(ctx.messages[2])).toContain(big);
+    expect(JSON.stringify(ctx.messages[1])).toContain('[elided:');
+    expect(JSON.stringify(ctx.messages[4])).toContain(big);
+  });
+
+  it('repairs orphan protocol blocks after compaction', async () => {
+    const messages: Message[] = [
+      { role: 'user', content: `old ${'x'.repeat(500)}` },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'cut', name: 'read', input: {} }] },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'tail' },
+          { type: 'tool_result', tool_use_id: 'cut', content: 'late' },
+        ],
+      },
+      { role: 'assistant', content: 'done' },
+    ];
+    const ctx = fakeContext(messages);
+    const c = new HybridCompactor({ preserveK: 1 });
+
+    const report = await c.compact(ctx, { aggressive: true });
+
+    expect(report.repaired).toEqual({
+      removedToolUses: [],
+      removedToolResults: ['cut'],
+      removedMessages: 0,
+    });
+    expect(JSON.stringify(ctx.messages)).not.toContain('"tool_use"');
+    expect(ctx.messages).toEqual([
+      {
+        role: 'user',
+        content:
+          '[previous_session_summary: 2 earlier turns compacted. Todo state preserved in context.]',
+      },
+      { role: 'assistant', content: 'Continuing from compacted context.' },
+      { role: 'user', content: [{ type: 'text', text: 'tail' }] },
+      { role: 'assistant', content: 'done' },
+    ]);
   });
 });

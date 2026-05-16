@@ -210,6 +210,22 @@ export interface WSContextCompacted {
     after: number;
     saved: number;
     reductions: Array<{ phase: string; saved: number }>;
+    repaired?: {
+      removedToolUses: string[];
+      removedToolResults: string[];
+      removedMessages: number;
+    };
+  };
+}
+
+export interface WSContextRepaired {
+  type: 'context.repaired';
+  payload: {
+    removedToolUses: string[];
+    removedToolResults: string[];
+    removedMessages: number;
+    beforeMessages?: number;
+    afterMessages?: number;
   };
 }
 
@@ -416,6 +432,7 @@ export type WSClientMessage =
   | { type: 'session.new' }
   | { type: 'context.clear' }
   | { type: 'context.compact'; payload: { aggressive: boolean } }
+  | { type: 'context.repair' }
   | { type: 'context.debug' }
   | { type: 'context.modes.list' }
   | { type: 'context.mode.switch'; payload: { id: string } }
@@ -466,6 +483,7 @@ export type WSServerMessage =
   | WSToolConfirmNeeded
   | WSContextDebug
   | WSContextCompacted
+  | WSContextRepaired
   | WSContextModesList
   | WSContextModeChanged
   | WSToolsList

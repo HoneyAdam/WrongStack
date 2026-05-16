@@ -269,6 +269,14 @@ policy to choose preservation depth and tool-result elision thresholds.
 CLI users switch with `/context mode <id>`; WebUI clients can call
 `context.modes.list` and `context.mode.switch`.
 
+Manual context surgery is guarded by a provider-protocol repair pass.
+`repairToolUseAdjacency` removes orphan `tool_use` / `tool_result` blocks
+that can appear when summaries or prunes cut through a tool exchange. The
+repair runs after context-manager mutations, after WebUI compact/repair
+actions, when damaged sessions are replayed, and immediately before every
+provider request as the final safety net. CLI users can force it with
+`/context repair`; WebUI clients can send `context.repair`.
+
 ---
 
 ## Multi-agent

@@ -113,6 +113,13 @@ export interface EventMap {
     outputLines?: number;
   };
   'token.threshold': { used: number; limit: number };
+  'context.repaired': {
+    ctx: Context;
+    changed: boolean;
+    removedToolUses: string[];
+    removedToolResults: string[];
+    removedMessages: number;
+  };
   'compaction.fired': { before: number; after: number };
   /**
    * Fired when the auto-compaction middleware's compactor.compact() call

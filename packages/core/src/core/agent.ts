@@ -20,6 +20,7 @@ import type { Renderer } from '../types/renderer.js';
 import type { RetryPolicy } from '../types/retry-policy.js';
 import type { SecretScrubber } from '../types/secret-scrubber.js';
 import type { Tool } from '../types/tool.js';
+import { repairToolUseAdjacency } from '../utils/message-invariants.js';
 import type { Context, RunOptions } from './context.js';
 import { requestLimitExtension } from './iteration-limit.js';
 import { runProviderWithRetry } from './provider-runner.js';
@@ -458,6 +459,19 @@ export class Agent {
    * Build request and run through request pipeline.
    */
   private async buildAndRunRequestPipeline(opts: RunOptions): Promise<Request> {
+    const repaired = repairToolUseAdjacency(this.ctx.messages);
+    if (repaired.report.changed) {
+      this.ctx.state.replaceMessages(repaired.messages);
+      this.events.emit('context.repaired', {
+        ctx: this.ctx,
+        ...repaired.report,
+      });
+      this.logger.warn(
+        `Repaired context tool adjacency: removed ${repaired.report.removedToolUses.length} tool_use block(s), ` +
+          `${repaired.report.removedToolResults.length} tool_result block(s), ` +
+          `${repaired.report.removedMessages} empty message(s)`,
+      );
+    }
     const baseReq: Request = {
       model: opts.model ?? this.ctx.model,
       system: this.ctx.systemPrompt,

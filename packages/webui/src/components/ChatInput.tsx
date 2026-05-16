@@ -53,6 +53,11 @@ const SLASH_COMMANDS: SlashCommandDef[] = [
     description: 'Shrink context — elide ancient tool output',
   },
   {
+    name: '/repair',
+    category: 'Session',
+    description: 'Repair orphan tool_use/tool_result blocks in context',
+  },
+  {
     name: '/debug',
     category: 'Inspect',
     aliases: ['/context'],
@@ -206,6 +211,9 @@ export function ChatInput() {
         case '/compact':
         case '/compact!':
           client?.compactContext?.(cmd === '/compact!');
+          return true;
+        case '/repair':
+          client?.repairContext?.();
           return true;
         case '/debug':
         case '/context':

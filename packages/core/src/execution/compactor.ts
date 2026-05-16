@@ -8,6 +8,7 @@ import {
   estimateToolInputTokens,
   estimateToolResultTokens,
 } from '../utils/token-estimate.js';
+import { repairToolUseAdjacency } from '../utils/message-invariants.js';
 
 export interface CompactorOptions {
   preserveK?: number;
@@ -43,8 +44,24 @@ export class HybridCompactor implements Compactor {
       if (phase2Saved > 0) reductions.push({ phase: 'summary', saved: phase2Saved });
     }
 
+    const repaired = repairToolUseAdjacency(ctx.messages);
+    if (repaired.report.changed) {
+      ctx.state.replaceMessages(repaired.messages);
+    }
+
     const afterTokens = this.estimateMessages(ctx.messages);
-    return { before: beforeTokens, after: afterTokens, reductions };
+    return {
+      before: beforeTokens,
+      after: afterTokens,
+      reductions,
+      repaired: repaired.report.changed
+        ? {
+            removedToolUses: repaired.report.removedToolUses,
+            removedToolResults: repaired.report.removedToolResults,
+            removedMessages: repaired.report.removedMessages,
+          }
+        : undefined,
+    };
   }
 
   private eliseOldToolResults(

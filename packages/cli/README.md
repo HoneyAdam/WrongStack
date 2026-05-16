@@ -44,7 +44,7 @@ wstack mcp list               # show configured MCP servers
 /mode <id>           # activate a mode (debugger, code-reviewer, …)
 /memory              # show/edit project memory
 /skill [name]        # list skills / show a specific skill
-/context             # show token usage breakdown
+/context             # show token usage breakdown; /context mode, /context repair
 /sessions            # list past sessions
 /resume <id>         # resume a session
 /todos [show|add|done|clear]    # tactical task board (auto-checkpointed)

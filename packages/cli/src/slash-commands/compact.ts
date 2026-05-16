@@ -20,7 +20,13 @@ export function buildCompactCommand(opts: SlashCommandContext): SlashCommand {
       }
       const aggressive = args.trim() === 'aggressive';
       const report = await opts.compactor.compact(ctx, { aggressive });
-      const msg = `Compaction: ${report.before} → ${report.after} tokens (${report.reductions.map((r: { phase: string; saved: number }) => `${r.phase}: ${r.saved}`).join(', ')})`;
+      const reductions = report.reductions
+        .map((r: { phase: string; saved: number }) => `${r.phase}: ${r.saved}`)
+        .join(', ');
+      const repaired = report.repaired
+        ? `; repaired ${report.repaired.removedToolUses.length} tool_use, ${report.repaired.removedToolResults.length} tool_result, ${report.repaired.removedMessages} empty messages`
+        : '';
+      const msg = `Compaction: ${report.before} -> ${report.after} tokens (${reductions})${repaired}`;
       opts.renderer.writeInfo(msg);
       return { message: msg };
     },

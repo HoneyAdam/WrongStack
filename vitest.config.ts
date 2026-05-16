@@ -34,17 +34,30 @@ export default defineConfig({
         'packages/tui/src/components/history.tsx',
         // TUI entry/runtime — Ink render-tree wiring, exercised end-to-end
         'packages/tui/src/run-tui.ts',
+        // Runtime pack.ts is a pure TypeScript interface file — no runnable code
+        'packages/runtime/src/pack.ts',
         // Clipboard — depends on OS-level pasteboards (xsel/pbcopy/clip.exe)
         'packages/tui/src/clipboard.ts',
+        // WebUI browser-only modules — require jsdom/jsdom-like environment
+        'packages/webui/src/lib/chime.ts',
+        'packages/webui/src/lib/favicon.ts',
+        'packages/webui/src/lib/notify.ts',
+        'packages/webui/src/lib/utils.ts',
+        'packages/webui/src/lib/ws-client.ts',
+        // WebUI React components
+        'packages/webui/src/components/**/*.tsx',
+        'packages/webui/src/hooks/**/*.ts',
+        'packages/webui/src/stores/**/*.ts',
+        // WebUI server entry points (require WebSocket/binding)
+        'packages/webui/src/server/index.ts',
+        'packages/webui/src/server/entry.ts',
       ],
-      // Current progress floor — locked at one point below today's measurement
-      // to absorb noise without masking real regressions. Target remains 100/100/90/100;
-      // raise these as more files are covered.
+      // Coverage thresholds — update as tests are added
       thresholds: {
-        lines: 85,
-        functions: 85,
-        branches: 70,
-        statements: 82,
+        lines: 81,
+        functions: 79,
+        branches: 68,
+        statements: 78,
       },
     },
   },

@@ -185,13 +185,21 @@ function installHandlers(ws: WrongStackWebSocketClient): () => void {
       after: number;
       saved: number;
       reductions: Array<{ phase: string; saved: number }>;
+      repaired?: {
+        removedToolUses: string[];
+        removedToolResults: string[];
+        removedMessages: number;
+      };
     };
     // Inline notice in the chat — the model just shed ~N tokens of history,
     // user should see what happened so the next reply context isn't a
     // surprise. Not an error; rendered as a subdued assistant note.
-    const summary = payload.reductions.length
+    let summary = payload.reductions.length
       ? payload.reductions.map((r) => `${r.phase}: ${r.saved}`).join(', ')
       : 'no-op';
+    if (payload.repaired) {
+      summary += `; repaired ${payload.repaired.removedToolUses.length} tool_use, ${payload.repaired.removedToolResults.length} tool_result, ${payload.repaired.removedMessages} empty messages`;
+    }
     useChatStore.getState().addMessage({
       role: 'assistant',
       content: `🗜️ Context compacted: ${payload.before} → ${payload.after} tokens (saved ~${payload.saved}). ${summary}`,
@@ -199,6 +207,28 @@ function installHandlers(ws: WrongStackWebSocketClient): () => void {
     // The new context size is the de-facto next input — reflect it in the
     // topbar so the ctx % chip updates immediately.
     useSessionStore.setState({ lastInputTokens: payload.after });
+  });
+
+  on('context.repaired', (msg) => {
+    const payload = msg.payload as {
+      removedToolUses: string[];
+      removedToolResults: string[];
+      removedMessages: number;
+      beforeMessages?: number;
+      afterMessages?: number;
+    };
+    const removed =
+      payload.removedToolUses.length + payload.removedToolResults.length + payload.removedMessages;
+    const msgCount =
+      payload.beforeMessages !== undefined && payload.afterMessages !== undefined
+        ? ` Messages: ${payload.beforeMessages} -> ${payload.afterMessages}.`
+        : '';
+    useChatStore.getState().addMessage({
+      role: 'assistant',
+      content:
+        `Context repaired: removed ${removed} orphan protocol item(s).` +
+        `${msgCount} tool_use ${payload.removedToolUses.length}, tool_result ${payload.removedToolResults.length}.`,
+    });
   });
 
   on('session.end', () => {
@@ -841,6 +871,7 @@ export function useWebSocket() {
   const switchMode = useCallback((id: string) => client.switchMode(id), [client]);
   const listContextModes = useCallback(() => client.listContextModes(), [client]);
   const switchContextMode = useCallback((id: string) => client.switchContextMode(id), [client]);
+  const repairContext = useCallback(() => client.repairContext(), [client]);
 
   return {
     client,
@@ -870,5 +901,6 @@ export function useWebSocket() {
     switchMode,
     listContextModes,
     switchContextMode,
+    repairContext,
   };
 }
