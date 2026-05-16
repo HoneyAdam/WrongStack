@@ -5,7 +5,57 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] — 2026-05-16
+
+The "autonomous fleet" release. Six weeks of work focused on one
+question: can a Director and its subagents run for hours without the
+user babysitting them? The answer required a full pass over the
+coordination layer — every race condition fixed, every silent failure
+classified, every "what is the subagent doing right now?" question
+answered with a visible chip in the TUI.
+
+Headline changes:
+
+- **`/goal`** and **`/steer`** — true autonomous mode (preamble locks
+  the agent into a verifiable finish) and true mid-flight redirect
+  (Esc captures snapshot, terminates fleet, sends rich STEERING
+  context). The chat stays clean; the rich context goes to the model.
+- **Unlimited budgets by default** — the 20-tool / 20-iteration cap on
+  `/spawn` and the coordinator's `defaultBudget` are gone. The
+  orchestrator decides, the Agent's `autoExtendLimit` is the runaway
+  backstop. Pair with `--goal` for relentless one-line task launches.
+- **SubagentError envelope (14 kinds)** — `TaskResult.error` is no
+  longer an opaque string. Every failure is classified
+  (`provider_5xx`, `provider_rate_limit`, `tool_failed`,
+  `empty_response`, `aborted_by_parent`, …) with `retryable` +
+  `backoffMs` so the calling LLM can branch instead of substring-
+  matching error messages.
+- **Coordinator race fixes** — duplicate-id spawn rejected,
+  stop+assign race produces synthetic completion, `stopAll()` drains
+  the pending queue, error-state reset is synchronous, tool counter
+  pairs on `tool.executed`. Per-task `dispose` hook closes
+  per-subagent JSONL writers so the FD leak at ~1000 tasks is gone.
+- **Observability surface** — LiveActivityStrip above the input,
+  `currentTool` on FleetEntry, `transcriptPath` on `subagent.spawned`,
+  `provider.thinking_delta` forwarded to FleetBus, `/fleet log <id>`
+  for summary / raw transcript dumps, Director shutdown errors via
+  `process.emitWarning` instead of silent `.catch`.
+- **Session checkpoint system** — `<id>.todos.json`, `<id>.plan.json`,
+  and `<id>/director-state.json` sidecars turn `wstack resume <id>`
+  into real continuation instead of replay. `/fleet retry [taskId]`
+  resumes interrupted multi-agent runs.
+- **`/plan` + `planTool`** — strategic roadmap parallel to todos,
+  surfaced both as a slash command and an LLM-callable tool.
+- **WebUI polish** — collapsible tool input/output, diff view,
+  per-message cost attribution, concurrent-run lock, WS connect()
+  rejects on error instead of hanging.
+- **Test coverage 1981 / 195 files** — five new dedicated suites
+  cover every failure mode that previously fell through the cracks.
+
+No breaking changes. CLI flags, plugin API, system-prompt builder,
+and EventBus contract are all backwards compatible. `--goal` /
+`--ask` and `/goal` / `/steer` are additions; existing slash
+commands and CLI flags work unchanged.
 
 ### Added
 
@@ -323,6 +373,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the project working directory. Switched to `os.tmpdir()` + cleanup.
   Production code already routed all fleet artifacts under
   `~/.wrongstack/projects/<hash>/sessions/<id>/`.
+
+- **`replace` tool symlink hardening (round 2).** `safeResolve` could
+  pass a symlink whose target lived outside the project root. Added
+  `lstat` + `isSymbolicLink` checks and a `realpath` cross-validation
+  against the project root before the atomic write, plus a hard skip
+  for any file resolved outside the root. Complements the earlier
+  0.1.10 symlink/TOCTOU fix.
+
+- **WebUI ws-client connect() hangs on failure.** The connect promise
+  used to wait forever when the WebSocket emitted `onerror` / `onclose`
+  before `onopen`; UI callers blocked indefinitely with no surfaced
+  error. Promise now rejects on those paths so the UI can render the
+  failure.
+
+- **WebUI concurrent `agent.run` race.** `server/index.ts` had no
+  guard against a second message arriving while the first was still
+  streaming; the second `agent.run` would interleave with the first
+  and corrupt session state. Added a `runLock` guard that queues or
+  rejects (depending on config) concurrent runs.
+
+- **WebUI tool/message rendering.** `MessageBubble` now renders
+  collapsible tool input (shallow params as key/value table, nested
+  as expandable JSON) and tool output (with copy / download / error
+  stack toggle / raw markdown toggle). Per-message
+  iterations/tools/elapsed/$ footer; multi-tool turns grouped under
+  a single bubble.
 
 ## [0.1.10] — 2026-05-15
 
