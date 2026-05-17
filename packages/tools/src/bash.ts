@@ -86,12 +86,44 @@ export const bashTool: Tool<BashInput, BashOutput> = {
     });
 
     if (input.background) {
+      // Background mode: capture stdout/stderr with bounded buffers so a
+      // malicious command can't write unbounded output. Apply MAX_OUTPUT cap.
+      let buf = '';
+      let truncated = false;
+      const child = spawn(shell, args, {
+        cwd: ctx.projectRoot,
+        env,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        detached: true,
+        signal: opts.signal,
+      });
       const pid = child.pid;
+      child.stdout?.on('data', (chunk: Buffer) => {
+        if (!truncated) {
+          const remain = MAX_OUTPUT - buf.length;
+          if (remain > 0) {
+            buf += chunk.toString().slice(0, remain);
+          }
+          if (buf.length >= MAX_OUTPUT) truncated = true;
+        }
+      });
+      child.stderr?.on('data', (chunk: Buffer) => {
+        if (!truncated) {
+          const remain = MAX_OUTPUT - buf.length;
+          if (remain > 0) {
+            buf += chunk.toString().slice(0, remain);
+          }
+          if (buf.length >= MAX_OUTPUT) truncated = true;
+        }
+      });
+      child.on('close', () => {
+        /* async generator — nothing to yield after close in background mode */
+      });
       if (typeof pid === 'number') child.unref();
       yield {
         type: 'final',
         output: {
-          output: `[background] pid=${pid ?? 'unknown'}`,
+          output: truncated ? buf.slice(0, MAX_OUTPUT) + '…[truncated]' : buf,
           exit_code: null,
           timed_out: false,
           pid,
