@@ -55,6 +55,10 @@ describe('/init slash command', () => {
     await reg.dispatch('/init', mkCtx());
     const written = await fs.readFile(path.join(tmp, '.wrongstack', 'AGENTS.md'), 'utf8');
     expect(written).toContain('# AGENTS.md');
+    expect(written).toContain("loaded into WrongStack's system prompt");
+    expect(written).toContain('## Project brief');
+    expect(written).toContain('## How to work safely');
+    expect(written).toContain('## Verification checklist');
     expect(written).toContain('Build:');
     expect(r.buf).toContain('INFO: Wrote');
   });
@@ -82,11 +86,11 @@ describe('/init slash command', () => {
     expect(written).not.toBe('EXISTING');
   });
 
-  it('detects package.json scripts and pre-fills build/test/lint', async () => {
+  it('detects package.json scripts and pre-fills build/test/lint/run', async () => {
     await fs.writeFile(
       path.join(tmp, 'package.json'),
       JSON.stringify({
-        scripts: { build: 'tsc', test: 'vitest', lint: 'eslint .' },
+        scripts: { build: 'tsc', test: 'vitest', lint: 'eslint .', dev: 'vite' },
         packageManager: 'pnpm@9.0.0',
       }),
     );
@@ -97,11 +101,28 @@ describe('/init slash command', () => {
     expect(written).toContain('`pnpm run build`');
     expect(written).toContain('`pnpm test`');
     expect(written).toContain('`pnpm run lint`');
+    expect(written).toContain('`pnpm run dev`');
     expect(r.buf).toContain('Pre-filled');
     expect(r.buf).toContain('package.json scripts');
   });
 
-  it('detects Cargo.toml and Go module', async () => {
+  it('uses pnpm when package.json has no packageManager but pnpm-lock.yaml exists', async () => {
+    await fs.writeFile(
+      path.join(tmp, 'package.json'),
+      JSON.stringify({
+        scripts: { build: 'tsc', test: 'vitest' },
+      }),
+    );
+    await fs.writeFile(path.join(tmp, 'pnpm-lock.yaml'), 'lockfileVersion: 9.0\n');
+    const r = new FakeRenderer();
+    const reg = makeRegistry(r);
+    await reg.dispatch('/init', mkCtx());
+    const written = await fs.readFile(path.join(tmp, '.wrongstack', 'AGENTS.md'), 'utf8');
+    expect(written).toContain('`pnpm run build`');
+    expect(written).toContain('`pnpm test`');
+  });
+
+  it('detects Go module commands', async () => {
     await fs.writeFile(path.join(tmp, 'go.mod'), 'module example\ngo 1.21\n');
     const r = new FakeRenderer();
     const reg = makeRegistry(r);
@@ -109,5 +130,21 @@ describe('/init slash command', () => {
     const written = await fs.readFile(path.join(tmp, '.wrongstack', 'AGENTS.md'), 'utf8');
     expect(written).toContain('`go build ./...`');
     expect(written).toContain('`go test ./...`');
+    expect(written).toContain('`go run .`');
+  });
+
+  it('detects Makefile targets without inventing missing ones', async () => {
+    await fs.writeFile(
+      path.join(tmp, 'Makefile'),
+      ['build:', '\techo build', 'lint:', '\techo lint', 'run:', '\techo run', ''].join('\n'),
+    );
+    const r = new FakeRenderer();
+    const reg = makeRegistry(r);
+    await reg.dispatch('/init', mkCtx());
+    const written = await fs.readFile(path.join(tmp, '.wrongstack', 'AGENTS.md'), 'utf8');
+    expect(written).toContain('`make build`');
+    expect(written).toContain('- **Test:** _TODO_');
+    expect(written).toContain('`make lint`');
+    expect(written).toContain('`make run`');
   });
 });

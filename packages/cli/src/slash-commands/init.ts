@@ -7,7 +7,7 @@ import type { SlashCommandContext } from './index.js';
 export function buildInitCommand(opts: SlashCommandContext): SlashCommand {
   return {
     name: 'init',
-    description: 'Scaffold .wrongstack/AGENTS.md in the current project.',
+    description: 'Create .wrongstack/AGENTS.md project context for the system prompt.',
     async run(args, ctx) {
       const force = args.trim() === '--force';
       const dir = path.join(ctx.projectRoot, '.wrongstack');
@@ -27,14 +27,14 @@ export function buildInitCommand(opts: SlashCommandContext): SlashCommand {
       await fs.mkdir(dir, { recursive: true });
       await fs.writeFile(file, body, 'utf8');
       if (detected.hints.length > 0) {
-        const msg = `Wrote ${file}\nPre-filled: ${detected.hints.join(', ')}. Edit the file to add anything else worth remembering.`;
+        const msg = `Wrote ${file}\nPre-filled: ${detected.hints.join(', ')}. Edit the file with project context and instructions the system prompt should carry.`;
         opts.renderer.writeInfo(`Wrote ${file}`);
         opts.renderer.writeInfo(
-          `Pre-filled: ${detected.hints.join(', ')}. Edit the file to add anything else worth remembering.`,
+          `Pre-filled: ${detected.hints.join(', ')}. Edit the file with project context and instructions the system prompt should carry.`,
         );
         return { message: msg };
       }
-      const msg = `Wrote ${file}\nNo project type auto-detected. Edit the file to add build/test commands and conventions.`;
+      const msg = `Wrote ${file}\nNo project type auto-detected. Edit the file with project context and instructions the system prompt should carry.`;
       opts.renderer.writeInfo(`Wrote ${file}`);
       return { message: msg };
     },

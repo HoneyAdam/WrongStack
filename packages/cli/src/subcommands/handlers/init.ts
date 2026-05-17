@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { type Config, atomicWrite, color } from '@wrongstack/core';
+import { detectProjectFacts, renderAgentsTemplate } from '../../slash-commands/helpers.js';
 import type { SubcommandDeps, SubcommandHandler } from '../index.js';
 
 export const initCmd: SubcommandHandler = async (_args, deps) => {
@@ -66,10 +67,8 @@ export const initCmd: SubcommandHandler = async (_args, deps) => {
   try {
     await fs.access(agentsFile);
   } catch {
-    await atomicWrite(
-      agentsFile,
-      '# Project notes for WrongStack\n\nWrite project-specific conventions, build commands,\nand domain knowledge here. This file is committed to git.\n',
-    );
+    const detected = await detectProjectFacts(deps.projectRoot);
+    await atomicWrite(agentsFile, renderAgentsTemplate(detected));
   }
   deps.renderer.writeInfo(`Wrote ${deps.paths.globalConfig}`);
   deps.renderer.writeInfo(`Project state lives in ${deps.paths.projectDir}`);

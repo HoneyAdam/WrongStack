@@ -509,7 +509,7 @@ message. TUI users can also press `Alt+V`.
 
 | Command | Effect |
 |---|---|
-| `/init` | Scaffold `.wrongstack/AGENTS.md`; auto-detects build system (package.json / pyproject.toml / go.mod / Cargo.toml / Makefile) and pre-fills build/test/lint/run commands. |
+| `/init` | Create `.wrongstack/AGENTS.md`, the committed project brief loaded into the system prompt; auto-detects build system (package.json / pyproject.toml / go.mod / Cargo.toml / Makefile) and pre-fills build/test/lint/run commands. |
 | `/spawn [--provider --model --name --tools] <task>` | Launch a single subagent. No implicit budget cap — runs until done. |
 | `/director` | Promote the session to director mode at runtime (must be called before any subagent is spawned). |
 | `/fleet status\|usage\|kill\|manifest\|retry\|log\|stream on\|off\|help` | Inspect and control the subagent fleet. `log <id>` summarises a transcript; `log <id> raw` dumps it. |
