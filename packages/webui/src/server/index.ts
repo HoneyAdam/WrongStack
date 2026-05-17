@@ -1005,11 +1005,11 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
         break;
       }
 
-      case 'providers.saved': {
+      case 'providers.list': {
         try {
           const providers = await loadSavedProviders();
           send(ws, {
-            type: 'providers.saved',
+            type: 'providers.list',
             payload: {
               providers: Object.entries(providers).map(([id, cfg]) => ({
                 id,
@@ -1025,7 +1025,7 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
             },
           });
         } catch {
-          send(ws, { type: 'providers.saved', payload: { providers: [] } });
+          send(ws, { type: 'providers.list', payload: { providers: [] } });
         }
         break;
       }
