@@ -2988,7 +2988,7 @@ export function App({
         value={state.buffer}
         cursor={state.cursor}
         placeholders={state.placeholders}
-        disabled={state.status === 'aborting'}
+        disabled={state.status === 'aborting' || !!state.confirm}
         hint={inputHint}
         onKey={handleKey}
       />
@@ -3021,7 +3021,10 @@ export function App({
           toolName={state.confirm.toolName}
           input={state.confirm.input}
           suggestedPattern={state.confirm.suggestedPattern}
-          onDecision={state.confirm.resolve}
+          onDecision={(decision) => {
+            state.confirm!.resolve(decision);
+            dispatch({ type: 'confirmClose' });
+          }}
         />
       ) : null}
       <StatusBar
