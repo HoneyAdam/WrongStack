@@ -1,5 +1,5 @@
 import * as net from 'node:net';
-import type { ConnectionState, MCPTool, ToolCallResult } from './client.js';
+import type { ConnectionState, JsonRpcResponse, MCPTool, ToolCallResult } from './client.js';
 import { normalizeMCPTools } from './tool-schema.js';
 
 export type JsonRpcResult = {
@@ -465,6 +465,43 @@ export class SSETransport {
     };
   }
 
+  /** Generic JSON-RPC request — used by MCPClient.request() for SSE transports. */
+  async request(method: string, params: unknown, timeoutMs?: number): Promise<JsonRpcResponse> {
+    const id = this.nextId++;
+    const body = JSON.stringify({ jsonrpc: '2.0', id, method, params });
+
+    const timeoutSignal = createTimeoutSignal(this.abortController?.signal, timeoutMs ?? this.requestTimeout);
+    try {
+      const res = await fetch(this.url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...this.headers,
+        },
+        body,
+        signal: timeoutSignal.signal,
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      }
+
+      let data: unknown;
+      try {
+        data = await res.json();
+      } catch (err) {
+        throw new Error(
+          `Invalid JSON-RPC response: ${err instanceof Error ? err.message : 'parse failed'}`,
+          { cause: err },
+        );
+      }
+      const result = assertMatchingJsonRpcResult(data, id, method);
+      return { jsonrpc: '2.0', id, result: result.result, error: result.error };
+    } finally {
+      timeoutSignal.dispose();
+    }
+  }
+
   async close(): Promise<void> {
     // Idempotent — safe to call multiple times.
     if (this.state === 'disconnected') return;
@@ -669,6 +706,56 @@ export class StreamableHTTPTransport {
         } catch {}
         if (isJsonRpcResult(parsed)) {
           return assertMatchingJsonRpcResult(parsed, id, method);
+        }
+      }
+      throw new Error('Could not parse response as JSON-RPC');
+    } finally {
+      timeoutSignal.dispose();
+    }
+  }
+
+  /** Generic JSON-RPC request — used by MCPClient.request() for SSE/streamable-http transports. */
+  async request(method: string, params: unknown, timeoutMs?: number): Promise<JsonRpcResponse> {
+    const id = this.nextId++;
+    const body = JSON.stringify({ jsonrpc: '2.0', id, method, params });
+
+    const url = this.sessionId
+      ? `${this.url}${this.url.includes('?') ? '&' : '?'}session=${this.sessionId}`
+      : this.url;
+
+    const timeoutSignal = createTimeoutSignal(this.abortController?.signal, timeoutMs ?? this.requestTimeout);
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json, text/event-stream',
+          ...(this.sessionId ? { 'x-mcp-session': this.sessionId } : {}),
+          ...this.headers,
+        },
+        body,
+        signal: timeoutSignal.signal,
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      }
+
+      const text = await res.text();
+      const lines = text.split('\n').filter((l) => l.trim());
+      for (const line of lines) {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(line);
+        } catch {}
+        if (isJsonRpcResult(parsed)) {
+          // Convert JsonRpcResult to JsonRpcResponse
+          return {
+            jsonrpc: '2.0',
+            id,
+            result: parsed.result,
+            error: parsed.error,
+          };
         }
       }
       throw new Error('Could not parse response as JSON-RPC');

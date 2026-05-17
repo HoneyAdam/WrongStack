@@ -43,7 +43,7 @@ interface JsonRpcRequest {
   params?: unknown;
 }
 
-interface JsonRpcResponse {
+export interface JsonRpcResponse {
   jsonrpc: '2.0';
   id: number;
   result?: unknown;
@@ -403,6 +403,13 @@ export class MCPClient {
     params: unknown,
     timeoutMs = this.opts.requestTimeoutMs ?? 60_000,
   ): Promise<JsonRpcResponse> {
+    // For HTTP transports, delegate to the transport's request method.
+    // SSE and streamable-http both use postRaw which handles the full
+    // round-trip including timeout signal.
+    if (this.sseTransport) return this.sseTransport.request(method, params, timeoutMs);
+    if (this.httpTransport) return this.httpTransport.request(method, params, timeoutMs);
+
+    // stdio path
     const id = this.nextId++;
     const req: JsonRpcRequest = { jsonrpc: '2.0', id, method, params };
     return new Promise((resolve, reject) => {
