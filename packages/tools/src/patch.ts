@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { buildChildEnv } from '@wrongstack/core';
 import type { Tool } from '@wrongstack/core';
@@ -71,7 +72,7 @@ export const patchTool: Tool<PatchInput, PatchOutput> = {
     // Write the diff into a private 0700 temp directory rather than into
     // the user-controlled `dir` with a predictable timestamp name. Avoids
     // symlink-bait races on shared work trees.
-    const tmpDir = await fs.mkdtemp(path.join(dir, '.wstack_patch_'));
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), '.wstack_patch_'));
     try {
       await fs.chmod(tmpDir, 0o700).catch(() => {
         /* best-effort on Windows */

@@ -40,7 +40,14 @@ export const readTool: Tool<ReadInput, ReadOutput> = {
     if (!input?.path) throw new Error('read: path is required');
     const absPath = safeResolve(input.path, ctx);
 
-    const stat = await fs.stat(absPath);
+    let stat: Awaited<ReturnType<typeof fs.stat>>;
+    try {
+      stat = await fs.stat(absPath);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') throw new Error(`read: file not found "${input.path}"`);
+      throw new Error(`read: failed to stat "${input.path}": ${err instanceof Error ? err.message : String(err)}`);
+    }
     if (!stat.isFile()) throw new Error(`read: "${input.path}" is not a regular file`);
     if (stat.size > MAX_BYTES) {
       throw new Error(`read: file too large (${stat.size} bytes, limit ${MAX_BYTES})`);
