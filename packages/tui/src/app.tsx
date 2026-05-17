@@ -1856,7 +1856,6 @@ export function App({
       }
     });
     const offConfirmNeeded = events.on('tool.confirm_needed', (e) => {
-      console.log('[TUI] confirm_needed event received for:', e.tool.name, 'resolve type:', typeof e.resolve);
       dispatch({
         type: 'addEntry',
         entry: {
@@ -3027,7 +3026,6 @@ export function App({
           input={state.confirm.input}
           suggestedPattern={state.confirm.suggestedPattern}
           onDecision={(decision) => {
-            console.log('[TUI] onDecision called with:', decision, 'resolve:', typeof state.confirm?.resolve);
             state.confirm!.resolve(decision);
             dispatch({ type: 'confirmClose' });
           }}

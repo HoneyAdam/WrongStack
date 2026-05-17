@@ -69,8 +69,7 @@ export function ConfirmPrompt({
   }, []);
 
   useInput((input, key) => {
-    console.log('[ConfirmPrompt] useInput received: input=', JSON.stringify(input), 'key=', JSON.stringify(key));
-    // Ignore empty input and CRLF artifacts (Enter produces \r on Windows)
+    // Ignore empty input and CRLF/LF artifacts (Enter produces \r on Windows, \n on Unix)
     if (!input || input === '\r' || input === '\n') return;
     const ch = input.toLowerCase();
     if (ch === 'y') {

@@ -599,11 +599,8 @@ export class Agent {
     // Post-processing: pipeline, session, events
     const useById = new Map(selectedToolUses.map((u) => [u.id, u]));
     for (const { result, tool, durationMs } of outputs) {
-      // DEBUG: log all results to see if tool_confirm_pending is ever hit
-      console.log('[AGENT] tool result type:', result.type, tool?.name);
       // Handle pending confirm: block the agent loop and wait for TUI/WebUI resolution
       if (result.type === 'tool_confirm_pending') {
-        console.log('[AGENT] tool_confirm_pending confirmed for:', tool?.name);
         const decision = await this.waitForConfirm({
           tool: tool!,
           input: result.input,
