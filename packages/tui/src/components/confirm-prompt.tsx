@@ -69,10 +69,11 @@ export function ConfirmPrompt({
   }, []);
 
   useInput((input, key) => {
+    if (input.length === 0) return; // ignore special keys — only accept explicit chars
     const ch = input.toLowerCase();
-    if (ch === 'y' || key.return) {
+    if (ch === 'y') {
       onDecision('yes');
-    } else if (ch === 'n' || key.escape) {
+    } else if (ch === 'n') {
       onDecision('no');
     } else if (ch === 'a') {
       onDecision('always');
