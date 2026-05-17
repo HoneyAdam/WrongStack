@@ -2345,6 +2345,10 @@ export function App({
     // routes through the queue when busy (see submit()), but typing,
     // backspace, paste, and clipboard-image all stay live.
     if (state.status === 'aborting') return;
+    // Block all input while confirmation prompt is shown — the ConfirmPrompt
+    // component handles y/n/a/d/escape/enter itself and Input's disabled prop
+    // is not reliable when multiple useInput hooks are active.
+    if (state.confirm) return;
 
     // Re-entrancy guard: block stale-second events from \r\n terminals.
     if (inputGateRef.current) return;
