@@ -73,7 +73,7 @@ describe('Mistral preset', () => {
 
     const stop = events.find((e) => e.type === 'message_stop');
     expect(stop).toBeDefined();
-    expect((stop as { stopReason: string }).stopReason).toBe('stop_sequence');
+    expect((stop as { stopReason: string }).stopReason).toBe('end_turn');
     expect((stop as { usage: { input: number; output: number } }).usage).toEqual({
       input: 12,
       output: 3,
@@ -129,10 +129,53 @@ describe('Mistral preset', () => {
     expect((stop as { stopReason: string }).stopReason).toBe('tool_use');
   });
 
+  it('keeps tool-call arguments streamed before id/name metadata', async () => {
+    const events = await collectEvents(
+      sseBody([
+        JSON.stringify({
+          choices: [
+            {
+              delta: { tool_calls: [{ index: 0, function: { arguments: '{"q":' } }] },
+            },
+          ],
+        }),
+        JSON.stringify({
+          choices: [
+            {
+              delta: {
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: 'call_late',
+                    function: { name: 'search', arguments: '"hello"}' },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+        JSON.stringify({
+          choices: [{ delta: {}, finish_reason: 'tool_calls' }],
+          usage: { prompt_tokens: 2, completion_tokens: 1 },
+        }),
+        '[DONE]',
+      ]),
+    );
+
+    expect(events.find((e) => e.type === 'tool_use_start')).toEqual({
+      type: 'tool_use_start',
+      id: 'call_late',
+      name: 'search',
+    });
+    const toolStop = events.find((e) => e.type === 'tool_use_stop');
+    expect((toolStop as { input: unknown }).input).toEqual({ q: 'hello' });
+  });
+
   it('maps finish_reason values to canonical StopReason', async () => {
     const cases: Array<[string, string]> = [
-      ['stop', 'stop_sequence'],
+      ['stop', 'end_turn'],
       ['length', 'max_tokens'],
+      ['model_length', 'max_tokens'],
       ['tool_calls', 'tool_use'],
       ['other-unknown', 'end_turn'],
     ];

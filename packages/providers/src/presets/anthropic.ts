@@ -15,13 +15,14 @@ import { normalizeAnthropic } from '../stop-reason.js';
 import { toolsToAnthropic } from '../tool-format/to-anthropic.js';
 import { defineWireFormat } from '../wire-format.js';
 
-type BlockKind = 'text' | 'tool_use' | 'unknown';
+type BlockKind = 'text' | 'tool_use' | 'thinking' | 'unknown';
 
 interface AnthropicStreamState {
   model: string;
   usage: Usage;
   stopReason: StopReason;
   started: boolean;
+  stopped: boolean;
   blocks: Map<number, { kind: BlockKind; id?: string; name?: string; partial: string }>;
 }
 
@@ -65,6 +66,7 @@ export const anthropicWireFormat = defineWireFormat<AnthropicStreamState>({
     usage: { input: 0, output: 0 },
     stopReason: 'end_turn',
     started: false,
+    stopped: false,
     blocks: new Map(),
   }),
   parseStreamEvent: (msg, state): StreamEvent[] => {
@@ -110,6 +112,9 @@ export const anthropicWireFormat = defineWireFormat<AnthropicStreamState>({
           }
         } else if (cb?.type === 'text') {
           state.blocks.set(index, { kind: 'text', partial: '' });
+        } else if (cb?.type === 'thinking' || cb?.type === 'redacted_thinking') {
+          state.blocks.set(index, { kind: 'thinking', partial: '' });
+          out.push({ type: 'thinking_start' });
         } else {
           state.blocks.set(index, { kind: 'unknown', partial: '' });
         }
@@ -118,7 +123,13 @@ export const anthropicWireFormat = defineWireFormat<AnthropicStreamState>({
       case 'content_block_delta': {
         const index = Number(ev['index'] ?? 0);
         const delta = ev['delta'] as
-          | { type?: string; text?: string; partial_json?: string }
+          | {
+              type?: string;
+              text?: string;
+              partial_json?: string;
+              thinking?: string;
+              signature?: string;
+            }
           | undefined;
         const block = state.blocks.get(index);
         if (!block || !delta) break;
@@ -129,6 +140,10 @@ export const anthropicWireFormat = defineWireFormat<AnthropicStreamState>({
             block.partial += delta.partial_json;
             out.push({ type: 'tool_use_input_delta', id: block.id, partial: delta.partial_json });
           }
+        } else if (delta.type === 'thinking_delta' && typeof delta.thinking === 'string') {
+          out.push({ type: 'thinking_delta', text: delta.thinking });
+        } else if (delta.type === 'signature_delta' && typeof delta.signature === 'string') {
+          out.push({ type: 'thinking_signature', signature: delta.signature });
         }
         break;
       }
@@ -138,6 +153,8 @@ export const anthropicWireFormat = defineWireFormat<AnthropicStreamState>({
         if (block?.kind === 'tool_use' && block.id) {
           const input = parseToolInput(block.partial);
           out.push({ type: 'tool_use_stop', id: block.id, input });
+        } else if (block?.kind === 'thinking') {
+          out.push({ type: 'thinking_stop' });
         }
         break;
       }
@@ -153,6 +170,7 @@ export const anthropicWireFormat = defineWireFormat<AnthropicStreamState>({
         break;
       }
       case 'message_stop':
+        state.stopped = true;
         out.push({ type: 'message_stop', stopReason: state.stopReason, usage: state.usage });
         break;
       case 'error': {
@@ -167,7 +185,7 @@ export const anthropicWireFormat = defineWireFormat<AnthropicStreamState>({
   finalizeStream: (state): StreamEvent[] => {
     // If upstream closed without an explicit `message_stop` we synthesize
     // one so the consumer's stream-end logic still fires.
-    if (state.started) {
+    if (state.started && !state.stopped) {
       return [{ type: 'message_stop', stopReason: state.stopReason, usage: state.usage }];
     }
     return [];

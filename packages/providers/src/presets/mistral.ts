@@ -17,7 +17,10 @@ interface MistralStreamState {
   model: string;
   started: boolean;
   // OpenAI-style tool_call accumulators keyed by `index`
-  toolCalls: Map<number, { id?: string; name?: string; partial: string; emittedStart: boolean }>;
+  toolCalls: Map<
+    number,
+    { id?: string; name?: string; partial: string; emittedStart: boolean; emittedArgLength: number }
+  >;
 }
 
 export const mistralWireFormat = defineWireFormat<MistralStreamState>({
@@ -77,26 +80,39 @@ export const mistralWireFormat = defineWireFormat<MistralStreamState>({
     for (const tc of choice?.delta?.tool_calls ?? []) {
       let block = state.toolCalls.get(tc.index);
       if (!block) {
-        block = { id: tc.id, name: tc.function?.name, partial: '', emittedStart: false };
+        block = {
+          id: tc.id,
+          name: tc.function?.name,
+          partial: '',
+          emittedStart: false,
+          emittedArgLength: 0,
+        };
         state.toolCalls.set(tc.index, block);
       } else {
         if (tc.id && !block.id) block.id = tc.id;
         if (tc.function?.name && !block.name) block.name = tc.function.name;
       }
+      const arg = tc.function?.arguments;
+      if (arg) {
+        block.partial += arg;
+      }
       if (!block.emittedStart && block.id && block.name) {
         block.emittedStart = true;
         out.push({ type: 'tool_use_start', id: block.id, name: block.name });
       }
-      const arg = tc.function?.arguments;
-      if (arg && block.id) {
-        block.partial += arg;
-        out.push({ type: 'tool_use_input_delta', id: block.id, partial: arg });
+      if (block.emittedStart && block.id && block.emittedArgLength < block.partial.length) {
+        const partial = block.partial.slice(block.emittedArgLength);
+        block.emittedArgLength = block.partial.length;
+        out.push({ type: 'tool_use_input_delta', id: block.id, partial });
       }
     }
     if (choice?.finish_reason) {
       // Close out tool calls with parsed JSON
       for (const block of state.toolCalls.values()) {
-        if (block.id) {
+        if (block.id && block.name) {
+          if (!block.emittedStart) {
+            out.push({ type: 'tool_use_start', id: block.id, name: block.name });
+          }
           out.push({
             type: 'tool_use_stop',
             id: block.id,
@@ -122,9 +138,10 @@ function mapStopReason(reason: string): StopReason {
     case 'tool_calls':
       return 'tool_use';
     case 'length':
+    case 'model_length':
       return 'max_tokens';
     case 'stop':
-      return 'stop_sequence';
+      return 'end_turn';
     default:
       return 'end_turn';
   }

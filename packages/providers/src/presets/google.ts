@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 /**
  * Google Gemini provider as a declarative `WireFormatConfig`. Matches the
  * `GoogleProvider` class behavior — same canonical events, same handling
@@ -5,7 +6,6 @@
  * turns.
  */
 import type { Message, Request, StopReason, StreamEvent, Tool, Usage } from '@wrongstack/core';
-import { randomUUID } from 'node:crypto';
 import { safeParse } from '@wrongstack/core';
 import { capabilitiesForFamily } from '../family-capabilities.js';
 import { normalizeGemini } from '../stop-reason.js';

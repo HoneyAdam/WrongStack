@@ -134,7 +134,10 @@ async function* parseOpenAIStream(
   let started = false;
   let textOpen = false;
   let thinkingOpen = false;
-  const toolByIndex = new Map<number, { id: string; name: string; argBuf: string }>();
+  const toolByIndex = new Map<
+    number,
+    { id?: string; name?: string; argBuf: string; emittedStart: boolean; emittedArgLength: number }
+  >();
 
   for await (const msg of parseSSE(body)) {
     if (!msg.data || msg.data === '[DONE]') continue;
@@ -202,18 +205,34 @@ async function* parseOpenAIStream(
       for (const tc of choice.delta.tool_calls) {
         const idx = tc.index ?? 0;
         let entry = toolByIndex.get(idx);
-        if (!entry && tc.id && tc.function?.name) {
-          entry = { id: tc.id, name: tc.function.name, argBuf: '' };
+        if (!entry) {
+          entry = {
+            id: tc.id,
+            name: tc.function?.name,
+            argBuf: '',
+            emittedStart: false,
+            emittedArgLength: 0,
+          };
           toolByIndex.set(idx, entry);
+        } else {
+          if (tc.id && !entry.id) entry.id = tc.id;
+          if (tc.function?.name && !entry.name) entry.name = tc.function.name;
+        }
+        if (tc.function?.arguments) {
+          entry.argBuf += tc.function.arguments;
+        }
+        if (!entry.emittedStart && entry.id && entry.name) {
+          entry.emittedStart = true;
           textOpen = false;
           yield { type: 'tool_use_start', id: entry.id, name: entry.name };
         }
-        if (entry && tc.function?.arguments) {
-          entry.argBuf += tc.function.arguments;
+        if (entry.emittedStart && entry.id && entry.emittedArgLength < entry.argBuf.length) {
+          const partial = entry.argBuf.slice(entry.emittedArgLength);
+          entry.emittedArgLength = entry.argBuf.length;
           yield {
             type: 'tool_use_input_delta',
             id: entry.id,
-            partial: tc.function.arguments,
+            partial,
           };
         }
       }
@@ -251,6 +270,10 @@ async function* parseOpenAIStream(
     yield { type: 'thinking_stop' };
   }
   for (const entry of toolByIndex.values()) {
+    if (!entry.id || !entry.name) continue;
+    if (!entry.emittedStart) {
+      yield { type: 'tool_use_start', id: entry.id, name: entry.name };
+    }
     const input = parseToolInput(entry.argBuf);
     yield { type: 'tool_use_stop', id: entry.id, input };
   }

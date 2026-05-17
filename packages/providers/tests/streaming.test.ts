@@ -1,3 +1,4 @@
+import type { StreamEvent } from '@wrongstack/core';
 import { describe, expect, it } from 'vitest';
 import { AnthropicProvider } from '../src/anthropic.js';
 import { GoogleProvider } from '../src/google.js';
@@ -60,6 +61,29 @@ describe('AnthropicProvider.stream', () => {
       cacheWrite: undefined,
     });
     expect(res.model).toBe('claude-test');
+  });
+
+  it('emits exactly one message_stop when Anthropic sends an explicit stop event', async () => {
+    const sse = [
+      'event: message_start',
+      'data: {"type":"message_start","message":{"model":"claude-test","usage":{"input_tokens":1}}}',
+      '',
+      'event: message_delta',
+      'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}',
+      '',
+      'event: message_stop',
+      'data: {"type":"message_stop"}',
+      '',
+    ].join('\n');
+    const provider = new AnthropicProvider({ apiKey: 'k', fetchImpl: mockFetch(sseBody(sse)) });
+    const events: StreamEvent[] = [];
+    for await (const event of provider.stream(
+      { model: 'm', messages: [{ role: 'user', content: 'hi' }], maxTokens: 100 },
+      { signal: new AbortController().signal },
+    )) {
+      events.push(event);
+    }
+    expect(events.filter((e) => e.type === 'message_stop')).toHaveLength(1);
   });
 
   it('parses tool_use with partial JSON deltas', async () => {
@@ -139,6 +163,28 @@ describe('OpenAIProvider.stream', () => {
     );
     expect(res.content).toEqual([
       { type: 'tool_use', id: 'call_1', name: 'echo', input: { text: 'hi' } },
+    ]);
+    expect(res.stopReason).toBe('tool_use');
+  });
+
+  it('keeps tool_call argument fragments that arrive before id/name metadata', async () => {
+    const sse = [
+      'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"text\\":"}}]}}]}',
+      '',
+      'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_late","function":{"name":"echo","arguments":"\\"hi\\"}"}}]}}]}',
+      '',
+      'data: {"choices":[{"index":0,"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":7,"completion_tokens":4}}',
+      '',
+      'data: [DONE]',
+      '',
+    ].join('\n');
+    const provider = new OpenAIProvider({ apiKey: 'k', fetchImpl: mockFetch(sseBody(sse)) });
+    const res = await provider.complete(
+      { model: 'm', messages: [{ role: 'user', content: 'go' }], maxTokens: 100 },
+      { signal: new AbortController().signal },
+    );
+    expect(res.content).toEqual([
+      { type: 'tool_use', id: 'call_late', name: 'echo', input: { text: 'hi' } },
     ]);
     expect(res.stopReason).toBe('tool_use');
   });

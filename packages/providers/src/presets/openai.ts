@@ -18,7 +18,10 @@ interface OpenAIStreamState {
   started: boolean;
   textOpen: boolean;
   thinkingOpen: boolean;
-  toolByIndex: Map<number, { id: string; name: string; argBuf: string }>;
+  toolByIndex: Map<
+    number,
+    { id?: string; name?: string; argBuf: string; emittedStart: boolean; emittedArgLength: number }
+  >;
   finalEmitted: boolean;
 }
 
@@ -135,18 +138,34 @@ export const openaiWireFormat = defineWireFormat<OpenAIStreamState>({
       for (const tc of choice.delta.tool_calls) {
         const idx = tc.index ?? 0;
         let entry = state.toolByIndex.get(idx);
-        if (!entry && tc.id && tc.function?.name) {
-          entry = { id: tc.id, name: tc.function.name, argBuf: '' };
+        if (!entry) {
+          entry = {
+            id: tc.id,
+            name: tc.function?.name,
+            argBuf: '',
+            emittedStart: false,
+            emittedArgLength: 0,
+          };
           state.toolByIndex.set(idx, entry);
+        } else {
+          if (tc.id && !entry.id) entry.id = tc.id;
+          if (tc.function?.name && !entry.name) entry.name = tc.function.name;
+        }
+        if (tc.function?.arguments) {
+          entry.argBuf += tc.function.arguments;
+        }
+        if (!entry.emittedStart && entry.id && entry.name) {
+          entry.emittedStart = true;
           state.textOpen = false;
           out.push({ type: 'tool_use_start', id: entry.id, name: entry.name });
         }
-        if (entry && tc.function?.arguments) {
-          entry.argBuf += tc.function.arguments;
+        if (entry.emittedStart && entry.id && entry.emittedArgLength < entry.argBuf.length) {
+          const partial = entry.argBuf.slice(entry.emittedArgLength);
+          entry.emittedArgLength = entry.argBuf.length;
           out.push({
             type: 'tool_use_input_delta',
             id: entry.id,
-            partial: tc.function.arguments,
+            partial,
           });
         }
       }
@@ -187,6 +206,10 @@ export const openaiWireFormat = defineWireFormat<OpenAIStreamState>({
       out.push({ type: 'thinking_stop' });
     }
     for (const entry of state.toolByIndex.values()) {
+      if (!entry.id || !entry.name) continue;
+      if (!entry.emittedStart) {
+        out.push({ type: 'tool_use_start', id: entry.id, name: entry.name });
+      }
       const input = parseToolInput(entry.argBuf);
       out.push({ type: 'tool_use_stop', id: entry.id, input });
     }

@@ -117,6 +117,7 @@ async function* parseAnthropicStream(
   let usage: Usage = { input: 0, output: 0 };
   let stopReason: StopReason = 'end_turn';
   let started = false;
+  let stopped = false;
 
   for await (const msg of parseSSE(body)) {
     if (!msg.data || msg.data === '[DONE]') continue;
@@ -223,6 +224,7 @@ async function* parseAnthropicStream(
         break;
       }
       case 'message_stop':
+        stopped = true;
         yield { type: 'message_stop', stopReason, usage };
         break;
       case 'error': {
@@ -233,7 +235,7 @@ async function* parseAnthropicStream(
       }
     }
   }
-  if (started) {
+  if (started && !stopped) {
     yield { type: 'message_stop', stopReason, usage };
   }
 }

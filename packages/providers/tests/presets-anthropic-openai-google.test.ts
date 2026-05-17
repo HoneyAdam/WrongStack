@@ -206,7 +206,10 @@ describe('Anthropic preset - parseStreamEvent error handling', () => {
       anthropicWireFormat,
       sseBody([
         '',
-        JSON.stringify({ type: 'message_start', message: { model: 'c', usage: { input_tokens: 1 } } }),
+        JSON.stringify({
+          type: 'message_start',
+          message: { model: 'c', usage: { input_tokens: 1 } },
+        }),
         JSON.stringify({
           type: 'message_delta',
           delta: { stop_reason: 'end_turn' },
@@ -217,14 +220,17 @@ describe('Anthropic preset - parseStreamEvent error handling', () => {
       'c',
     );
     expect(events.some((e) => e.type === 'message_start')).toBe(true);
-    expect(events.some((e) => e.type === 'message_stop')).toBe(true);
+    expect(events.filter((e) => e.type === 'message_stop')).toHaveLength(1);
   });
 
   it('stops processing after [DONE] and synthesizes message_stop', async () => {
     const events = await collectFromPreset(
       anthropicWireFormat,
       sseBody([
-        JSON.stringify({ type: 'message_start', message: { model: 'c', usage: { input_tokens: 1 } } }),
+        JSON.stringify({
+          type: 'message_start',
+          message: { model: 'c', usage: { input_tokens: 1 } },
+        }),
         '[DONE]',
       ]),
       'c',
@@ -247,7 +253,7 @@ describe('Anthropic preset - parseStreamEvent content_block_start edge cases', (
         JSON.stringify({
           type: 'content_block_start',
           index: 0,
-          content_block: { type: 'thinking', id: 'x', name: 'y' },
+          content_block: { type: 'server_tool_use', id: 'x', name: 'y' },
         }),
         JSON.stringify({
           type: 'message_delta',
@@ -261,6 +267,46 @@ describe('Anthropic preset - parseStreamEvent content_block_start edge cases', (
     // Should not crash, block stored as 'unknown'
     expect(events.some((e) => e.type === 'message_start')).toBe(true);
     expect(events.some((e) => e.type === 'message_stop')).toBe(true);
+  });
+
+  it('preserves thinking blocks and signatures for round-trip parity', async () => {
+    const events = await collectFromPreset(
+      anthropicWireFormat,
+      sseBody([
+        JSON.stringify({
+          type: 'message_start',
+          message: { model: 'c', usage: { input_tokens: 1 } },
+        }),
+        JSON.stringify({
+          type: 'content_block_start',
+          index: 0,
+          content_block: { type: 'thinking', thinking: '' },
+        }),
+        JSON.stringify({
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'thinking_delta', thinking: 'working' },
+        }),
+        JSON.stringify({
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'signature_delta', signature: 'sig-1' },
+        }),
+        JSON.stringify({ type: 'content_block_stop', index: 0 }),
+        JSON.stringify({
+          type: 'message_delta',
+          delta: { stop_reason: 'end_turn' },
+          usage: { output_tokens: 1 },
+        }),
+        JSON.stringify({ type: 'message_stop' }),
+      ]),
+      'c',
+    );
+
+    expect(events.filter((e) => e.type === 'thinking_start')).toHaveLength(1);
+    expect(events).toContainEqual({ type: 'thinking_delta', text: 'working' });
+    expect(events).toContainEqual({ type: 'thinking_signature', signature: 'sig-1' });
+    expect(events.filter((e) => e.type === 'thinking_stop')).toHaveLength(1);
   });
 
   it('does not emit tool_use_start when content_block is text type', async () => {
@@ -405,6 +451,7 @@ describe('Anthropic preset - finalizeStream edge case', () => {
     );
     const stop = events.find((e) => e.type === 'message_stop');
     expect(stop).toBeDefined();
+    expect(events.filter((e) => e.type === 'message_stop')).toHaveLength(1);
     expect((stop as { usage: { input: number } }).usage.input).toBe(1);
   });
 });
@@ -418,7 +465,11 @@ describe('Anthropic preset - cache metadata', () => {
           type: 'message_start',
           message: {
             model: 'c',
-            usage: { input_tokens: 100, cache_read_input_tokens: 50, cache_creation_input_tokens: 200 },
+            usage: {
+              input_tokens: 100,
+              cache_read_input_tokens: 50,
+              cache_creation_input_tokens: 200,
+            },
           },
         }),
         JSON.stringify({
@@ -532,9 +583,14 @@ describe('OpenAI preset - reasoning / thinking delta', () => {
     const events = await collectFromPreset(
       openaiWireFormat,
       sseBody([
-        JSON.stringify({ model: 'deepseek-chat', choices: [{ delta: { reasoning_content: 'let me calculate' } }] }),
+        JSON.stringify({
+          model: 'deepseek-chat',
+          choices: [{ delta: { reasoning_content: 'let me calculate' } }],
+        }),
         JSON.stringify({ choices: [{ delta: { content: 'the answer is 42' } }] }),
-        JSON.stringify({ choices: [{ finish_reason: 'stop', usage: { prompt_tokens: 5, completion_tokens: 3 } }] }),
+        JSON.stringify({
+          choices: [{ finish_reason: 'stop', usage: { prompt_tokens: 5, completion_tokens: 3 } }],
+        }),
         '[DONE]',
       ]),
       'deepseek-chat',
@@ -556,7 +612,9 @@ describe('OpenAI preset - reasoning / thinking delta', () => {
       openaiWireFormat,
       sseBody([
         JSON.stringify({ model: 'moonshot', choices: [{ delta: { reasoning: 'thinking...' } }] }),
-        JSON.stringify({ choices: [{ finish_reason: 'stop', usage: { prompt_tokens: 1, completion_tokens: 1 } }] }),
+        JSON.stringify({
+          choices: [{ finish_reason: 'stop', usage: { prompt_tokens: 1, completion_tokens: 1 } }],
+        }),
         '[DONE]',
       ]),
       'moonshot',
@@ -568,21 +626,13 @@ describe('OpenAI preset - reasoning / thinking delta', () => {
 
 describe('OpenAI preset - parseStreamEvent edge cases', () => {
   it('returns empty array for [DONE] with no prior events', async () => {
-    const events = await collectFromPreset(
-      openaiWireFormat,
-      sseBody(['[DONE]']),
-      'gpt-4o',
-    );
+    const events = await collectFromPreset(openaiWireFormat, sseBody(['[DONE]']), 'gpt-4o');
     // finalizeStream will add message_stop when started=true but in this case nothing started
     expect(events.length).toBeGreaterThanOrEqual(0);
   });
 
   it('handles empty data string without throwing', async () => {
-    const events = await collectFromPreset(
-      openaiWireFormat,
-      sseBody(['']),
-      'gpt-4o',
-    );
+    const events = await collectFromPreset(openaiWireFormat, sseBody(['']), 'gpt-4o');
     expect(Array.isArray(events)).toBe(true);
   });
 
@@ -600,7 +650,9 @@ describe('OpenAI preset - parseStreamEvent edge cases', () => {
       openaiWireFormat,
       sseBody([
         JSON.stringify({ choices: [{ delta: { content: 'hi' } }] }),
-        JSON.stringify({ choices: [{ finish_reason: 'stop', usage: { prompt_tokens: 1, completion_tokens: 1 } }] }),
+        JSON.stringify({
+          choices: [{ finish_reason: 'stop', usage: { prompt_tokens: 1, completion_tokens: 1 } }],
+        }),
         '[DONE]',
       ]),
       'fallback-model',
@@ -647,13 +699,21 @@ describe('OpenAI preset - multiple tool calls', () => {
               delta: {
                 tool_calls: [
                   { index: 0, id: 'call_1', function: { name: 'lookup', arguments: '{"q":"a"}' } },
-                  { index: 1, id: 'call_2', function: { name: 'search', arguments: '{"term":"b"}' } },
+                  {
+                    index: 1,
+                    id: 'call_2',
+                    function: { name: 'search', arguments: '{"term":"b"}' },
+                  },
                 ],
               },
             },
           ],
         }),
-        JSON.stringify({ choices: [{ finish_reason: 'tool_calls', usage: { prompt_tokens: 1, completion_tokens: 1 } }] }),
+        JSON.stringify({
+          choices: [
+            { finish_reason: 'tool_calls', usage: { prompt_tokens: 1, completion_tokens: 1 } },
+          ],
+        }),
         '[DONE]',
       ]),
       'gpt-4o',
@@ -666,6 +726,42 @@ describe('OpenAI preset - multiple tool calls', () => {
     expect(inputs).toContainEqual({ q: 'a' });
     expect(inputs).toContainEqual({ term: 'b' });
   });
+
+  it('keeps argument fragments that arrive before tool_call id/name metadata', async () => {
+    const events = await collectFromPreset(
+      openaiWireFormat,
+      sseBody([
+        JSON.stringify({
+          choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '{"q":' } }] } }],
+        }),
+        JSON.stringify({
+          choices: [
+            {
+              delta: {
+                tool_calls: [
+                  { index: 0, id: 'call_late', function: { name: 'lookup', arguments: '"x"}' } },
+                ],
+              },
+            },
+          ],
+        }),
+        JSON.stringify({
+          choices: [{ finish_reason: 'tool_calls' }],
+          usage: { prompt_tokens: 1, completion_tokens: 1 },
+        }),
+        '[DONE]',
+      ]),
+      'gpt-4o',
+    );
+
+    expect(events.find((e) => e.type === 'tool_use_start')).toEqual({
+      type: 'tool_use_start',
+      id: 'call_late',
+      name: 'lookup',
+    });
+    const stop = events.find((e) => e.type === 'tool_use_stop');
+    expect((stop as { input: unknown }).input).toEqual({ q: 'x' });
+  });
 });
 
 describe('OpenAI preset - finalizeStream', () => {
@@ -673,7 +769,10 @@ describe('OpenAI preset - finalizeStream', () => {
     const events = await collectFromPreset(
       openaiWireFormat,
       sseBody([
-        JSON.stringify({ model: 'gpt-4o', choices: [{ delta: { reasoning_content: 'incomplete thoug' } }] }),
+        JSON.stringify({
+          model: 'gpt-4o',
+          choices: [{ delta: { reasoning_content: 'incomplete thoug' } }],
+        }),
         // No content to close thinking before finalize
         JSON.stringify({
           choices: [{ finish_reason: 'stop', usage: { prompt_tokens: 1, completion_tokens: 1 } }],
@@ -748,20 +847,22 @@ describe('OpenAI preset', () => {
 
 describe('Google preset - buildUrl', () => {
   it('encodes model name and uses streamGenerateContent SSE endpoint', () => {
-    const url = googleWireFormat.buildUrl(
-      'https://generativelanguage.googleapis.com/v1beta',
-      { model: 'gemini-2.0-flash', messages: [], maxTokens: 100 } as Parameters<typeof googleWireFormat.buildUrl>[1],
-    );
+    const url = googleWireFormat.buildUrl('https://generativelanguage.googleapis.com/v1beta', {
+      model: 'gemini-2.0-flash',
+      messages: [],
+      maxTokens: 100,
+    } as Parameters<typeof googleWireFormat.buildUrl>[1]);
     expect(url).toBe(
       'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse',
     );
   });
 
   it('encodes special characters in model name', () => {
-    const url = googleWireFormat.buildUrl(
-      'https://generativelanguage.googleapis.com/v1beta',
-      { model: 'models/gemini-pro', messages: [], maxTokens: 100 } as Parameters<typeof googleWireFormat.buildUrl>[1],
-    );
+    const url = googleWireFormat.buildUrl('https://generativelanguage.googleapis.com/v1beta', {
+      model: 'models/gemini-pro',
+      messages: [],
+      maxTokens: 100,
+    } as Parameters<typeof googleWireFormat.buildUrl>[1]);
     expect(url).toContain('models%2Fgemini-pro');
   });
 });
@@ -844,11 +945,7 @@ describe('Google preset - buildBody variants', () => {
 
 describe('Google preset - parseStreamEvent edge cases', () => {
   it('returns empty array for empty data string', async () => {
-    const events = await collectFromPreset(
-      googleWireFormat,
-      sseBody(['']),
-      'gemini',
-    );
+    const events = await collectFromPreset(googleWireFormat, sseBody(['']), 'gemini');
     expect(Array.isArray(events)).toBe(true);
   });
 
@@ -866,11 +963,7 @@ describe('Google preset - parseStreamEvent edge cases', () => {
   });
 
   it('returns empty array for malformed JSON', async () => {
-    const events = await collectFromPreset(
-      googleWireFormat,
-      sseBody(['not json{}']),
-      'gemini',
-    );
+    const events = await collectFromPreset(googleWireFormat, sseBody(['not json{}']), 'gemini');
     expect(Array.isArray(events)).toBe(true);
   });
 
@@ -880,7 +973,9 @@ describe('Google preset - parseStreamEvent edge cases', () => {
       sseBody([
         JSON.stringify({
           modelVersion: 'gemini-2.0-flash-exp',
-          candidates: [{ content: { role: 'model', parts: [{ text: 'hi' }] }, finishReason: 'STOP' }],
+          candidates: [
+            { content: { role: 'model', parts: [{ text: 'hi' }] }, finishReason: 'STOP' },
+          ],
           usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 },
         }),
       ]),
@@ -940,7 +1035,9 @@ describe('Google preset - parseStreamEvent edge cases', () => {
       sseBody([
         JSON.stringify({
           modelVersion: 'gemini',
-          candidates: [{ content: { role: 'model', parts: [{ text: 'hi' }] }, finishReason: 'STOP' }],
+          candidates: [
+            { content: { role: 'model', parts: [{ text: 'hi' }] }, finishReason: 'STOP' },
+          ],
           usageMetadata: {
             promptTokenCount: 100,
             candidatesTokenCount: 5,
@@ -951,7 +1048,9 @@ describe('Google preset - parseStreamEvent edge cases', () => {
       'gemini',
     );
     const stop = events.find((e) => e.type === 'message_stop');
-    expect((stop as { usage: { input: number; output: number; cacheRead: number } }).usage).toMatchObject({
+    expect(
+      (stop as { usage: { input: number; output: number; cacheRead: number } }).usage,
+    ).toMatchObject({
       input: 60, // 100 - 40
       output: 5,
       cacheRead: 40,
@@ -965,7 +1064,9 @@ describe('Google preset - parseStreamEvent edge cases', () => {
       sseBody([
         JSON.stringify({
           modelVersion: 'gemini',
-          candidates: [{ content: { role: 'model', parts: [{ text: 'hi' }] }, finishReason: 'STOP' }],
+          candidates: [
+            { content: { role: 'model', parts: [{ text: 'hi' }] }, finishReason: 'STOP' },
+          ],
           usageMetadata: {
             cachedContentTokenCount: 30,
           },
@@ -1037,7 +1138,7 @@ describe('Google preset - messagesToGemini coverage via buildBody', () => {
       maxTokens: 100,
       messages: [{ role: 'system', content: 'ignore this' }],
     } as Parameters<typeof googleWireFormat.buildBody>[0]);
-    expect((body.contents as unknown[])).toHaveLength(0);
+    expect(body.contents as unknown[]).toHaveLength(0);
   });
 
   it('converts assistant tool_use to functionCall part with thoughtSignature', () => {
@@ -1083,9 +1184,9 @@ describe('Google preset - messagesToGemini coverage via buildBody', () => {
     } as Parameters<typeof googleWireFormat.buildBody>[0]);
     const contents = body.contents as Array<{ role: string; parts: unknown[] }>;
     expect(contents[0].role).toBe('function');
-    expect((contents[0].parts[0] as { functionResponse?: { name: string } }).functionResponse?.name).toBe(
-      'lookup',
-    );
+    expect(
+      (contents[0].parts[0] as { functionResponse?: { name: string } }).functionResponse?.name,
+    ).toBe('lookup');
   });
 
   it('handles tool_result where name is absent (uses tool_use_id)', () => {
@@ -1106,9 +1207,9 @@ describe('Google preset - messagesToGemini coverage via buildBody', () => {
       ],
     } as Parameters<typeof googleWireFormat.buildBody>[0]);
     const contents = body.contents as Array<{ role: string; parts: unknown[] }>;
-    expect((contents[0].parts[0] as { functionResponse?: { name: string } }).functionResponse?.name).toBe(
-      'call_abc',
-    );
+    expect(
+      (contents[0].parts[0] as { functionResponse?: { name: string } }).functionResponse?.name,
+    ).toBe('call_abc');
   });
 
   it('handles image block with base64 source', () => {
@@ -1128,7 +1229,8 @@ describe('Google preset - messagesToGemini coverage via buildBody', () => {
       ],
     } as Parameters<typeof googleWireFormat.buildBody>[0]);
     const contents = body.contents as Array<{ role: string; parts: unknown[] }>;
-    const part = (contents[0].parts[0] as { inlineData?: { mimeType: string; data: string } }).inlineData;
+    const part = (contents[0].parts[0] as { inlineData?: { mimeType: string; data: string } })
+      .inlineData;
     expect(part?.mimeType).toBe('image/jpeg');
     expect(part?.data).toBe('abc123');
   });
@@ -1230,8 +1332,14 @@ describe('Google preset - sanitizeSchemaForGemini coverage via toolsToGemini', (
     } as Parameters<typeof googleWireFormat.buildBody>[0]);
     const decls = (body.tools as Array<{ functionDeclarations: Array<{ parameters: unknown }> }>)[0]
       .functionDeclarations;
-    expect((decls[0].parameters as Record<string, unknown>)).toEqual({ type: 'object', properties: {} });
-    expect((decls[1].parameters as Record<string, unknown>)).toEqual({ type: 'object', properties: {} });
+    expect(decls[0].parameters as Record<string, unknown>).toEqual({
+      type: 'object',
+      properties: {},
+    });
+    expect(decls[1].parameters as Record<string, unknown>).toEqual({
+      type: 'object',
+      properties: {},
+    });
   });
 });
 
