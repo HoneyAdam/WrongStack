@@ -30,6 +30,7 @@ const FILES = [
   'packages/cli/package.json',
   'packages/mcp/package.json',
   'packages/providers/package.json',
+  'packages/runtime/package.json',
   'packages/tui/package.json',
   'packages/tools/package.json',
   'packages/plug-lsp/package.json',
