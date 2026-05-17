@@ -2245,6 +2245,28 @@ export function App({
         return;
       }
       dispatch({ type: 'interrupt' });
+
+      // Pickers are safe to cancel outright — closing the overlay
+      // restores the previous state cleanly with no side-effects.
+      // Do this first so a single Ctrl+C from the model picker or
+      // slash picker exits gracefully instead of doing nothing.
+      if (state.modelPicker.open) {
+        dispatch({ type: 'modelPickerClose' });
+        dispatch({
+          type: 'addEntry',
+          entry: { kind: 'warn', text: 'Model picker cancelled.' },
+        });
+        return;
+      }
+      if (state.slashPicker.open) {
+        dispatch({ type: 'slashPickerClose' });
+        dispatch({
+          type: 'addEntry',
+          entry: { kind: 'warn', text: 'Cancelled.' },
+        });
+        return;
+      }
+
       if (activeCtrlRef.current) {
         activeCtrlRef.current.abort();
         dispatch({ type: 'status', status: 'aborting' });

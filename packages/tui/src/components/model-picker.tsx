@@ -42,7 +42,7 @@ export function ModelPicker({
         <Text color="cyan" bold>
           ━━ Switch model — Step 1/2: Pick provider ━━
         </Text>
-        <Text dimColor>↑/↓ navigate · Enter select · Esc cancel</Text>
+        <Text dimColor>↑/↓ navigate · Enter select · Esc cancel · Ctrl+C exit</Text>
         {providerOptions.length === 0 ? (
           <Text dimColor>(no providers with keys — add one via `wstack auth`)</Text>
         ) : (
@@ -67,7 +67,7 @@ export function ModelPicker({
       <Text color="cyan" bold>
         ━━ Switch model — Step 2/2: Pick model ({pickedProviderId}) ━━
       </Text>
-      <Text dimColor>↑/↓ navigate · Enter select · Esc back · Ctrl-C cancel</Text>
+      <Text dimColor>↑/↓ navigate · Enter select · Esc back · Ctrl+C exit</Text>
       {modelOptions.length === 0 ? (
         <Text dimColor>(no models known for this provider)</Text>
       ) : (
