@@ -36,12 +36,15 @@ export function requestLimitExtension(opts: RequestLimitExtensionOptions): Promi
   const { events, currentIterations, currentLimit, autoExtend, timeoutMs = 30_000 } = opts;
   return new Promise((resolve) => {
     let resolved = false;
-    const timer = setTimeout(() => {
+    // Shared flag so setImmediate knows when timer already resolved.
+    const timerFired = () => {
       if (!resolved) {
         resolved = true;
         resolve(0);
       }
-    }, timeoutMs);
+    };
+    const timer = setTimeout(timerFired, timeoutMs);
+    timer.unref(); // Don't keep event loop alive past timeout
     const deny = () => {
       if (!resolved) {
         resolved = true;
@@ -65,6 +68,8 @@ export function requestLimitExtension(opts: RequestLimitExtensionOptions): Promi
     if (autoExtend) {
       // Give listeners a tick to deny synchronously; otherwise auto-grant 100.
       setImmediate(() => {
+        // Only act if timer hasn't already fired — prevents a wasted microtask
+        // when the timeout resolved before this tick.
         if (!resolved) {
           resolved = true;
           clearTimeout(timer);

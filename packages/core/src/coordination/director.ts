@@ -384,8 +384,8 @@ export class Director {
     if (this.spawnCount >= this.maxSpawns) {
       throw new DirectorBudgetError('max_spawns', this.maxSpawns, this.spawnCount + 1);
     }
-    this.spawnCount += 1;
     const result = await this.coordinator.spawn(config);
+    this.spawnCount += 1;
     this.subagentMeta.set(result.subagentId, {
       provider: config.provider,
       model: config.model,

@@ -212,6 +212,23 @@ export class Agent {
     this.plugins.push({ plugin, api });
   }
 
+  /** Tear down all plugins in reverse order, calling their teardown hooks. */
+  async teardown(): Promise<void> {
+    const errors: unknown[] = [];
+    for (const { plugin, api } of this.plugins.toReversed()) {
+      if (typeof plugin.teardown !== 'function') continue;
+      try {
+        await plugin.teardown(api);
+      } catch (err) {
+        errors.push(err);
+      }
+    }
+    this.plugins.length = 0;
+    if (errors.length > 0) {
+      throw new Error(`Agent teardown failed: ${errors.map(String).join('; ')}`);
+    }
+  }
+
   async run(userInput: AgentInput, opts: RunOptions = {}): Promise<RunResult> {
     const controller = new RunController({ parentSignal: opts.signal });
     const signal = controller.signal;

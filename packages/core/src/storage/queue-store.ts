@@ -49,6 +49,7 @@ export class QueueStore {
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code === 'ENOENT') return [];
+      console.warn(`[QueueStore] failed to read queue file "${this.file}":`, err instanceof Error ? err.message : String(err));
       return [];
     }
     let parsed: unknown;

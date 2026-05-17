@@ -154,6 +154,13 @@ export class DirectorStateCheckpoint {
       this.timer = null;
     }
     await this.persist();
+    // If a rewrite was requested while we waited, persist() scheduled
+    // a follow-up write. Wait for it so shutdown doesn't return before
+    // the most recent state lands on disk.
+    if (this.rewriteRequested) {
+      this.rewriteRequested = false;
+      await this.persist();
+    }
   }
 
   private bumpUpdatedAt(): void {

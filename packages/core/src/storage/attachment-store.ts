@@ -101,6 +101,14 @@ export class DefaultAttachmentStore implements AttachmentStore {
   }
 
   async clear(): Promise<void> {
+    // Unlink any spooled files so we don't leak disk space.
+    if (this.spoolDir) {
+      const toDelete: string[] = [];
+      for (const att of this.items.values()) {
+        if (att.path) toDelete.push(att.path);
+      }
+      await Promise.all(toDelete.map((p) => fsp.unlink(p).catch(() => undefined)));
+    }
     this.items.clear();
     this.refs.length = 0;
     this.nextSeq = { text: 0, image: 0, file: 0 };

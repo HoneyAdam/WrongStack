@@ -90,11 +90,22 @@ export class InMemoryAgentBridge implements AgentBridge {
     this.inflightGuards.add(correlationId);
 
     return new Promise((resolve, reject) => {
+      // Declare timer first so we can reference it in the stopped-check below.
       const timer = setTimeout(() => {
         this.inflightGuards.delete(correlationId);
         this.pendingRequests.delete(correlationId);
         reject(new Error(`Request ${correlationId} timed out after ${timeout}ms`));
       }, timeout);
+
+      // Double-check stopped after setting up the pending entry, so stop()
+      // can't miss a request that was enqueued before it acquired the lock.
+      if (this.stopped) {
+        clearTimeout(timer);
+        this.inflightGuards.delete(correlationId);
+        this.pendingRequests.delete(correlationId);
+        reject(new Error('Bridge stopped'));
+        return;
+      }
 
       this.pendingRequests.set(correlationId, {
         resolve: resolve as (msg: BridgeMessage) => void,

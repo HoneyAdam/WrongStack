@@ -86,6 +86,7 @@ export async function runProviderWithRetry(opts: RunProviderOptions): Promise<Re
           if (settled) return;
           settled = true;
           clearTimeout(t);
+          // safe to call even though { once: true } auto-removes — idempotent
           signal.removeEventListener('abort', onAbort);
           resolve();
         }, delay);
