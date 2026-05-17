@@ -47,6 +47,44 @@ async function collectEvents(body: ReadableStream<Uint8Array>): Promise<StreamEv
 }
 
 describe('Mistral preset', () => {
+  it('builds an OpenAI-compatible request body from canonical messages and tools', () => {
+    const body = mistralWireFormat.buildBody({
+      model: 'mistral-large-latest',
+      maxTokens: 100,
+      messages: [{ role: 'user', content: 'hello' }],
+      system: [{ type: 'text', text: 'be concise', cache_control: { type: 'ephemeral' } }],
+      tools: [{ name: 'lookup', description: 'look up stuff', inputSchema: { type: 'object' } }],
+      toolChoice: { type: 'tool', name: 'lookup' },
+      temperature: 0.2,
+      topP: 0.9,
+      stopSequences: ['STOP'],
+    } as Parameters<typeof mistralWireFormat.buildBody>[0]);
+
+    expect(body).toMatchObject({
+      model: 'mistral-large-latest',
+      max_tokens: 100,
+      stream: true,
+      temperature: 0.2,
+      top_p: 0.9,
+      stop: ['STOP'],
+      tool_choice: { type: 'function', function: { name: 'lookup' } },
+    });
+    expect(body['messages']).toEqual([
+      { role: 'system', content: 'be concise' },
+      { role: 'user', content: 'hello' },
+    ]);
+    expect(body['tools']).toEqual([
+      {
+        type: 'function',
+        function: {
+          name: 'lookup',
+          description: 'look up stuff',
+          parameters: { type: 'object' },
+        },
+      },
+    ]);
+  });
+
   it('parses text-only completion', async () => {
     const events = await collectEvents(
       sseBody([

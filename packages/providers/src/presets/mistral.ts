@@ -11,6 +11,7 @@ import type { Request, StopReason, StreamEvent } from '@wrongstack/core';
 import { safeParse } from '@wrongstack/core';
 import { parseToolInput } from '../_tool-input.js';
 import { capabilitiesForFamily } from '../family-capabilities.js';
+import { messagesToOpenAI, toolsToOpenAI } from '../tool-format/to-openai.js';
 import { defineWireFormat } from '../wire-format.js';
 
 interface MistralStreamState {
@@ -33,16 +34,31 @@ export const mistralWireFormat = defineWireFormat<MistralStreamState>({
   defaultBaseUrl: 'https://api.mistral.ai/v1',
   buildUrl: (base) => `${base.replace(/\/+$/, '')}/chat/completions`,
   buildHeaders: (apiKey) => ({ authorization: `Bearer ${apiKey}` }),
-  buildBody: (req: Request) => ({
-    model: req.model,
-    messages: req.messages,
-    max_tokens: req.maxTokens,
-    temperature: req.temperature,
-    top_p: req.topP,
-    stop: req.stopSequences,
-    stream: true,
-    tools: req.tools,
-  }),
+  buildBody: (req: Request) => {
+    const body: Record<string, unknown> = {
+      model: req.model,
+      messages: messagesToOpenAI(stripCacheControl(req.system), req.messages, {}),
+      max_tokens: req.maxTokens,
+      stream: true,
+    };
+    if (req.tools && req.tools.length > 0) {
+      body['tools'] = toolsToOpenAI(req.tools);
+      if (req.toolChoice) {
+        if (typeof req.toolChoice === 'string') {
+          body['tool_choice'] = req.toolChoice === 'required' ? 'required' : req.toolChoice;
+        } else {
+          body['tool_choice'] = {
+            type: 'function',
+            function: { name: req.toolChoice.name },
+          };
+        }
+      }
+    }
+    if (req.temperature !== undefined) body['temperature'] = req.temperature;
+    if (req.topP !== undefined) body['top_p'] = req.topP;
+    if (req.stopSequences) body['stop'] = req.stopSequences;
+    return body;
+  },
   createStreamState: (fallbackModel) => ({
     model: fallbackModel,
     started: false,
@@ -145,4 +161,12 @@ function mapStopReason(reason: string): StopReason {
     default:
       return 'end_turn';
   }
+}
+
+function stripCacheControl(system: Request['system']): Request['system'] {
+  if (!system) return undefined;
+  return system.map((b) => {
+    const { cache_control: _cc, ...rest } = b;
+    return rest;
+  });
 }
