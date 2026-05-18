@@ -253,7 +253,6 @@ async function* parseOpenAIStream(
         }
       | undefined;
     if (u) {
-      console.error('[DEBUG parseOpenAIStream] usage received:', JSON.stringify(u));
       // Normalize to disjoint semantics: `input` is fresh-only (priced at
       // the full rate), `cacheRead` is the cached subset (priced at the
       // cache rate). OpenAI returns `prompt_tokens_details.cached_tokens`;

@@ -72,15 +72,6 @@ export async function setupCompaction(params: {
     config.context.effectiveMaxContext ??
     (resolvedCaps as { maxContext?: number } | undefined)?.maxContext ??
     provider.capabilities.maxContext;
-  console.error('[DEBUG] setupCompaction:', {
-    providerId: provider.id,
-    model: context.model,
-    resolvedCapsMaxContext: (resolvedCaps as { maxContext?: number } | undefined)?.maxContext,
-    providerCapMaxContext: provider.capabilities.maxContext,
-    configEffectiveMaxContext: config.context.effectiveMaxContext,
-    effectiveMaxContext,
-    resolvedCapsKeys: resolvedCaps ? Object.keys(resolvedCaps) : null,
-  });
   if (config.context.autoCompact !== false) {
     const autoCompactor = new AutoCompactionMiddleware(
       compactor,
