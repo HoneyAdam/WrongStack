@@ -40,6 +40,7 @@ import {
   repairToolUseAdjacency,
   resolveContextWindowPolicy,
 } from '@wrongstack/core';
+import { decryptConfigSecrets, encryptConfigSecrets } from '@wrongstack/core/security';
 import { buildProviderFactoriesFromRegistry, makeProviderFromConfig } from '@wrongstack/providers';
 import { builtinToolsPack, forgetTool, rememberTool } from '@wrongstack/tools';
 import { WebSocket, WebSocketServer } from 'ws';
@@ -1518,7 +1519,8 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
     try {
       const raw = await fs.readFile(globalConfigPath, 'utf8');
       const parsed = JSON.parse(raw) as { providers?: Record<string, ProviderConfig> };
-      return parsed.providers ?? {};
+      if (!parsed.providers) return {};
+      return decryptConfigSecrets(parsed.providers, vault);
     } catch {
       return {};
     }
@@ -1534,7 +1536,8 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
         parsed = {};
       }
       parsed['providers'] = providers;
-      await atomicWrite(globalConfigPath, JSON.stringify(parsed, null, 2), { mode: 0o600 });
+      const encrypted = encryptConfigSecrets(parsed, vault);
+      await atomicWrite(globalConfigPath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
     });
     await configWriteLock;
   }

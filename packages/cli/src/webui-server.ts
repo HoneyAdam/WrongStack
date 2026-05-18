@@ -5,6 +5,7 @@ import type { Agent, EventBus, ModelsRegistry, SessionWriter } from '@wrongstack
 import { type ProviderConfig, atomicWrite } from '@wrongstack/core';
 import {
   DefaultSecretVault,
+  decryptConfigSecrets,
   encryptConfigSecrets,
 } from '@wrongstack/core/security';
 import { WebSocket, WebSocketServer } from 'ws';
@@ -645,8 +646,11 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
     } catch {
       return {};
     }
-    // No vault decryption here — webui-server operates on pre-decrypted config
-    return parsed.providers ?? {};
+    if (!parsed.providers) return {};
+    // Decrypt encrypted secret-bearing fields so callers operate on plaintext.
+    const keyFile = path.join(path.dirname(opts.globalConfigPath), '.key');
+    const vault = new DefaultSecretVault({ keyFile });
+    return decryptConfigSecrets(parsed.providers, vault);
   }
 
   async function saveProviders(providers: Record<string, ProviderConfig>): Promise<void> {
