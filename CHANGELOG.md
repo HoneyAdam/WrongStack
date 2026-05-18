@@ -22,12 +22,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Troubleshooting guide.** `docs/troubleshooting.md` covers common issues
   (API key, rate limits, context overflow, MCP failures, permission prompts),
   `wstack diag` usage, exit codes, debug logging, and state reset commands.
+- **Examples directory.** `examples/` with 6 categories: basic usage, tool
+  usage, multi-provider, MCP integration, multi-agent, and real-world
+  workflows. 15+ working examples organized per LLM-native conventions.
 - **`/yolo` slash command.** Runtime toggle for YOLO mode: `/yolo on`, `/yolo
   off`, `/yolo toggle`, `/yolo` (status). Mutates the permission policy
   immediately without restart.
 - **Live YOLO state in TUI status bar.** The `⚠ YOLO` chip now reflects the
   current permission policy state after `/yolo` commands, not just the boot-time
   flag.
+- **GitHub Release workflow.** `.github/workflows/release.yml` automates
+  typecheck → build → test → npm publish → GitHub Release on tag push.
+  Runs on all 3 platforms (Ubuntu, macOS, Windows).
+- **Cross-platform CI.** CI matrix now runs on Ubuntu, macOS, and Windows.
+- **npm publish check script.** `scripts/publish-check.mjs` validates all
+  workspace packages before publishing: required fields, dist existence,
+  version consistency, git status.
+- **Release checklist.** `RELEASE.md` documents the full release process:
+  pre-release checks, version bump, commit/tag, CI verification, post-release.
 
 ### Changed
 
