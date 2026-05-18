@@ -13,8 +13,21 @@ Provider catalog comes from [models.dev](https://models.dev) — no hardcoded pr
 
 ## Install
 
+**Quick install** (macOS/Linux):
+```bash
+curl -fsSL https://wrongstack.com/install.sh | bash
+```
+
+**Windows** (PowerShell):
+```powershell
+irm https://wrongstack.com/install.ps1 | iex
+```
+
+**npm/pnpm:**
 ```bash
 npm install -g wrongstack
+# or
+pnpm install -g wrongstack
 ```
 
 This pulls in the full stack — `@wrongstack/core`, `@wrongstack/runtime`, `@wrongstack/providers`, `@wrongstack/tools`, `@wrongstack/mcp`, `@wrongstack/plug-lsp`, and `@wrongstack/tui`. The TUI is shipped but lazy-loaded behind `--tui`, so plain-REPL users pay no React/Ink import cost at startup. The web-based UI (`@wrongstack/webui`) is available as a separate binary (`webui`).

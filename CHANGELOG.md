@@ -45,6 +45,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   logical step and continues after each turn. In `suggest` mode, it shows
   next-step suggestions. TUI status bar shows an `∞ AUTO` or `∞ SUGGEST`
   chip when active.
+- **Install scripts.** `scripts/install.sh` (macOS/Linux) and
+  `scripts/install.ps1` (Windows) for one-liner installation via curl/irm.
+  Detects Node.js version, auto-selects pnpm/npm, verifies install.
 
 ### Changed
 
