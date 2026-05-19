@@ -79,6 +79,23 @@ describe('TUI reducer', () => {
     expect(s.picker.open).toBe(false);
   });
 
+  it('removeLastPlaceholder pops the last placeholder', () => {
+    let s = initial();
+    s = reducer(s, { type: 'addPlaceholder', ph: '[pasted #1] (3 lines)' });
+    s = reducer(s, { type: 'addPlaceholder', ph: '[pasted] (1 line)' });
+    expect(s.placeholders).toHaveLength(2);
+    s = reducer(s, { type: 'removeLastPlaceholder' });
+    expect(s.placeholders).toHaveLength(1);
+    expect(s.placeholders[0]).toBe('[pasted #1] (3 lines)');
+  });
+
+  it('removeLastPlaceholder on empty placeholders is a no-op', () => {
+    const s = initial();
+    const next = reducer(s, { type: 'removeLastPlaceholder' });
+    expect(next.placeholders).toEqual([]);
+    expect(next).toBe(s);
+  });
+
   it('streamDelta concatenates; streamReset clears', () => {
     let s = initial();
     s = reducer(s, { type: 'streamDelta', delta: 'Hel' });

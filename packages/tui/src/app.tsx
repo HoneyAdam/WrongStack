@@ -314,6 +314,7 @@ type Action =
   | { type: 'addEntry'; entry: DraftEntry }
   | { type: 'setBuffer'; buffer: string; cursor: number }
   | { type: 'addPlaceholder'; ph: string }
+  | { type: 'removeLastPlaceholder' }
   | { type: 'clearInput' }
   | { type: 'clearHistory' }
   | { type: 'streamDelta'; delta: string }
@@ -427,6 +428,9 @@ export function reducer(state: State, action: Action): State {
       return { ...state, buffer: action.buffer, cursor: action.cursor };
     case 'addPlaceholder':
       return { ...state, placeholders: [...state.placeholders, action.ph] };
+    case 'removeLastPlaceholder':
+      if (state.placeholders.length === 0) return state;
+      return { ...state, placeholders: state.placeholders.slice(0, -1) };
     case 'clearInput':
       return {
         ...state,
@@ -2808,7 +2812,7 @@ export function App({
           if (cursor === 0) return;
           const beforeCursor = buffer.slice(0, cursor);
           const lastWordStart = beforeCursor.lastIndexOf(' ') + 1;
-          const next = buffer.slice(0, lastWordStart) + buffer.slice(cursor);
+          const next = beforeCursor.slice(0, lastWordStart) + buffer.slice(cursor);
           setDraft(next, lastWordStart);
         } else {
           if (cursor >= buffer.length) return;
@@ -2820,6 +2824,20 @@ export function App({
         }
         return;
       }
+
+      // Block-level backspace: if cursor is at end and buffer ends with a
+      // placeholder pattern ([pasted #N] or [pasted]), delete the whole
+      // placeholder and remove it from the placeholders list.
+      if (key.backspace && cursor === buffer.length && state.placeholders.length > 0) {
+        const BLOCK_PH_RE = /\[pasted(?: #\d+)?\]$/;
+        if (BLOCK_PH_RE.test(buffer)) {
+          const newBuffer = buffer.replace(BLOCK_PH_RE, '').replace(/\s+$/, '');
+          dispatch({ type: 'removeLastPlaceholder' });
+          setDraft(newBuffer, newBuffer.length);
+          return;
+        }
+      }
+
       if (cursor === 0) return;
       const next = buffer.slice(0, cursor - 1) + buffer.slice(cursor);
       setDraft(next, cursor - 1);
@@ -2923,6 +2941,10 @@ export function App({
       if (ph) {
         const lineCount = cleanInput.split('\n').length;
         dispatch({ type: 'addPlaceholder', ph: `${ph} (${lineCount} lines)` });
+      } else if (cleanInput.includes('\n')) {
+        // Small paste with multiple lines — still show a placeholder.
+        const lineCount = cleanInput.split('\n').length;
+        dispatch({ type: 'addPlaceholder', ph: `[pasted] (${lineCount} lines)` });
       } else {
         const next = buffer.slice(0, cursor) + cleanInput + buffer.slice(cursor);
         setDraft(next, cursor + cleanInput.length);
