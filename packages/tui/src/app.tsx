@@ -2910,9 +2910,13 @@ export function App({
       bracketedPaste = true;
     }
 
-    // Paste detection: chunks larger than threshold or containing a newline
-    // are routed through InputBuilder instead of inserted character-by-char.
-    if (bracketedPaste || cleanInput.length > PASTE_THRESHOLD_CHARS || cleanInput.includes('\n')) {
+    // Paste detection: chunks larger than threshold or bracketed pastes
+    // are routed through InputBuilder. Plain multi-line pastes (no bracket
+    // sequence) are inserted as-is — without triggering the visual
+    // "[pasted #N N lines]" placeholder — so the input stays a clean
+    // single logical line while the content carries the newlines through
+    // to the agent.
+    if (bracketedPaste || cleanInput.length > PASTE_THRESHOLD_CHARS) {
       const builder = builderRef.current;
       if (!builder) return;
       const ph = await builder.appendPaste(cleanInput);
@@ -2923,6 +2927,15 @@ export function App({
         const next = buffer.slice(0, cursor) + cleanInput + buffer.slice(cursor);
         setDraft(next, cursor + cleanInput.length);
       }
+      return;
+    }
+
+    // Plain multi-line paste (no bracket sequence, below paste threshold).
+    // Strip newlines to spaces so the input row stays visually single-line.
+    if (cleanInput.includes('\n')) {
+      const normalized = cleanInput.replace(/\r?\n/g, ' ');
+      const next = buffer.slice(0, cursor) + normalized + buffer.slice(cursor);
+      setDraft(next, cursor + normalized.length);
       return;
     }
 
