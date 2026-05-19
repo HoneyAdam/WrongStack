@@ -1047,8 +1047,8 @@ export async function main(argv: string[]): Promise<number> {
       if (statusResult.stdout.trim().length > 0) {
         const lines = statusResult.stdout.split('\n').filter(Boolean);
         return {
-          abort: true,
-          message: `⚠ ${color.yellow(`${lines.length} uncommitted change${lines.length > 1 ? 's' : ''}`)} — type /commit to save before exit`,
+          abort: true, // signals there are uncommitted changes (used only for the message)
+          message: `⚠ ${color.yellow(`${lines.length} uncommitted change${lines.length > 1 ? 's' : ''}`)} — session ended without commit`,
         };
       }
     },

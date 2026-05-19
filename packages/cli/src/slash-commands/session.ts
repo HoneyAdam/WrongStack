@@ -47,7 +47,9 @@ export function buildExitCommand(opts: SlashCommandContext): SlashCommand {
       if (opts.onBeforeExit) {
         const result = await opts.onBeforeExit();
         if (result?.abort) {
-          return { message: result.message ?? 'Exit aborted.' };
+          // warn but allow exit anyway
+          opts.onExit?.();
+          return { message: result.message ?? '', exit: true };
         }
       }
       opts.onExit?.();
