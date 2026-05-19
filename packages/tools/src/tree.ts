@@ -11,6 +11,10 @@ const DEFAULT_IGNORE = [
   '.next',
   'coverage',
   '__pycache__',
+  '.wrongstack',
+  '.ssh',
+  '.gnupg',
+  '.aws',
 ];
 
 interface TreeInput {

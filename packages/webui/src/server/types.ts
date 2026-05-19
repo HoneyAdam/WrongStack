@@ -41,4 +41,5 @@ export interface BackendServices {
 export interface ConnectedClient {
   ws: WebSocket;
   sessionId: string | null;
+  connectedAt: number;
 }

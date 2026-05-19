@@ -22,7 +22,14 @@ const PATTERNS: Pattern[] = [
     type: 'stripe_key',
     regex: /(?<![A-Za-z0-9])sk_(?:live|test)_[A-Za-z0-9]{24,}(?![A-Za-z0-9])/g,
   },
-  { type: 'twilio_sid', regex: /(?<![A-Za-z0-9])AC[a-f0-9]{32}(?![A-Za-z0-9])/g },
+  {
+    type: 'twilio_sid', regex: /(?<![A-Za-z0-9])AC[a-f0-9]{32}(?![A-Za-z0-9])/g,
+  },
+  {
+    type: 'telegram_bot_token',
+    // Telegram tokens are of the form  bot<digits>:<alphanum>  in URL paths
+    regex: /\/bot\d+:[A-Za-z0-9_-]{20,}(?![A-Za-z0-9_-])/g,
+  },
   {
     type: 'jwt',
     // Anchored: look for literal "eyJ" which is unambiguous for JWT header

@@ -67,18 +67,17 @@ export const editTool: Tool<EditInput, EditOutput> = {
     if (!ctx.hasRead(absPath)) {
       throw new Error(`edit: file "${input.path}" was not read in this session. Read it first.`);
     }
-    // Stale-read detection. Tolerance accounts for filesystem mtime
-    // resolution: ext4/APFS report ms, but Windows FAT and some network
-    // filesystems quantize to 2 s. A too-tight tolerance triggers false
-    // "modified externally" failures when a tool writes and re-reads the
-    // same file in quick succession.
-    const lastReadMtime = ctx.lastReadMtime(absPath);
+    // Read BEFORE mtime check to eliminate TOCTOU window.
+    // The sequence must be: read content → check mtime → apply edit.
+    // If we check mtime first, a concurrent modification between the
+    // stat call and the read gives us stale content to search/replace.
+    const original = await fs.readFile(absPath, 'utf8');
+    const updated = await fs.stat(absPath);
     const mtimeTolerance = process.platform === 'win32' ? 2000 : 1;
-    if (lastReadMtime !== undefined && stat.mtimeMs > lastReadMtime + mtimeTolerance) {
+    const lastReadMtime = ctx.lastReadMtime(absPath);
+    if (lastReadMtime !== undefined && updated.mtimeMs > lastReadMtime + mtimeTolerance) {
       throw new Error(`edit: file "${input.path}" was modified externally. Re-read it first.`);
     }
-
-    const original = await fs.readFile(absPath, 'utf8');
     const style = detectNewlineStyle(original);
     const fileLf = normalizeToLf(original);
     const oldLf = normalizeToLf(input.old_string);
@@ -123,8 +122,7 @@ export const editTool: Tool<EditInput, EditOutput> = {
       : fileLf.replace(oldLf, newLf);
     const newFile = toStyle(newFileLf, style);
 
-    await atomicWrite(absPath, newFile, { mode: stat.mode & 0o777 });
-    const updated = await fs.stat(absPath);
+    await atomicWrite(absPath, newFile, { mode: updated.mode & 0o777 });
     ctx.recordRead(absPath, updated.mtimeMs);
 
     // Record for session rewind

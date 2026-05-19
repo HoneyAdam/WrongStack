@@ -13,6 +13,35 @@ export type WsStatus =
   | { state: 'closed'; error?: string }
   | { state: 'reconnecting'; attempt: number; nextRetryAt: number; lastError?: string };
 
+const WS_TOKEN_KEY = 'ws_token';
+
+/** Read wsToken from sessionStorage (survives page refresh, cleared on tab close). */
+function getStoredToken(): string | null {
+  try {
+    return sessionStorage.getItem(WS_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** Store wsToken in sessionStorage. */
+function setStoredToken(token: string): void {
+  try {
+    sessionStorage.setItem(WS_TOKEN_KEY, token);
+  } catch {
+    /* sessionStorage unavailable (private browsing quota, etc.) — degrade gracefully */
+  }
+}
+
+/** Clear wsToken from sessionStorage. */
+function clearStoredToken(): void {
+  try {
+    sessionStorage.removeItem(WS_TOKEN_KEY);
+  } catch {
+    /* best-effort */
+  }
+}
+
 export class WrongStackWebSocketClient {
   private ws: WebSocket | null = null;
   private url: string;
@@ -25,9 +54,6 @@ export class WrongStackWebSocketClient {
   private messageQueue: WSClientMessage[] = [];
   private pendingConfirms: Map<string, PendingConfirm> = new Map();
   private sessionId: string | null = null;
-  /** Auth token received from server in session.start payload.
-   *  Used for reconnection so the client doesn't need to know the token upfront. */
-  private wsToken: string | null = null;
   /** Stored last close reason / error message so the UI can show "what
    *  went wrong" while reconnecting instead of a generic spinner. */
   private lastErrorText: string | undefined;
@@ -69,11 +95,12 @@ export class WrongStackWebSocketClient {
       this.setStatus({ state: 'connecting' });
 
       try {
-        // Include auth token in URL if we have one (from session.start).
+        // Include auth token from sessionStorage if available (from session.start).
         // Initial connect to loopback is exempt, but reconnections should
         // carry the token for defense-in-depth.
-        const wsUrl = this.wsToken
-          ? `${this.url}${this.url.includes('?') ? '&' : '?'}token=${this.wsToken}`
+        const storedToken = getStoredToken();
+        const wsUrl = storedToken
+          ? `${this.url}${this.url.includes('?') ? '&' : '?'}token=${storedToken}`
           : this.url;
         this.ws = new WebSocket(wsUrl);
         this.ws.binaryType = 'arraybuffer';
@@ -222,7 +249,7 @@ export class WrongStackWebSocketClient {
       const payload = msg.payload as { sessionId: string; wsToken?: string };
       this.sessionId = payload.sessionId;
       if (payload.wsToken) {
-        this.wsToken = payload.wsToken;
+        setStoredToken(payload.wsToken);
       }
     }
 
@@ -454,6 +481,7 @@ export class WrongStackWebSocketClient {
     }
     this.ws?.close();
     this.ws = null;
+    clearStoredToken();
   }
 
   get isConnected(): boolean {

@@ -66,6 +66,7 @@ interface WSClientMessage {
 interface ConnectedClient {
   ws: WebSocket;
   sessionId: string | null;
+  connectedAt: number;
 }
 
 export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}): Promise<void> {
@@ -418,6 +419,25 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
         >[0])
       : null;
   const clients = new Map<WebSocket, ConnectedClient>();
+
+  // Per-connection message rate limiting: 60 messages per 60-second window.
+  // Exceeding clients are temporarily blocked to prevent flooding.
+  const RATE_LIMIT_MESSAGES = 60;
+  const RATE_LIMIT_WINDOW_MS = 60_000;
+  const rateLimits = new Map<WebSocket, { count: number; resetAt: number }>();
+
+  function checkRateLimit(ws: WebSocket): boolean {
+    const now = Date.now();
+    const limit = rateLimits.get(ws);
+    if (!limit || now > limit.resetAt) {
+      rateLimits.set(ws, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+      return true;
+    }
+    if (limit.count >= RATE_LIMIT_MESSAGES) return false;
+    limit.count++;
+    return true;
+  }
+
   /** Holds the AbortController for the currently in-flight agent.run().
    *  Non-null while the agent is running; guarded at the user_message
    *  handler to prevent concurrent runs that would corrupt shared state
@@ -567,7 +587,7 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
   }
 
   const handleConnection = (ws: WebSocket): void => {
-    const client: ConnectedClient = { ws, sessionId: session.id };
+    const client: ConnectedClient = { ws, sessionId: session.id, connectedAt: Date.now() };
     clients.set(ws, client);
     console.log('[WebUI] Client connected, total:', clients.size);
 
@@ -576,6 +596,16 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
     });
 
     ws.on('message', async (data) => {
+      if (!checkRateLimit(ws)) {
+        send(ws, {
+          type: 'error',
+          payload: {
+            phase: 'rate_limit',
+            message: 'Too many messages. Please wait before sending more.',
+          },
+        });
+        return;
+      }
       try {
         const msg = JSON.parse(data.toString()) as WSClientMessage;
         await handleMessage(ws, client, msg);
@@ -586,6 +616,7 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
 
     ws.on('close', () => {
       clients.delete(ws);
+      rateLimits.delete(ws);
       console.log('[WebUI] Client disconnected, total:', clients.size);
       // If the client disconnects while a permission prompt is pending,
       // resolve all pending confirms with 'no' so the agent loop doesn't

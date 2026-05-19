@@ -5,8 +5,8 @@ import { buildChildEnv } from './_env.js';
 
 const ALLOWED_COMMANDS: Record<string, string[]> = {
   node: ['--version', '-r', '--input-type=module'],
-  npm: ['--version', 'init', 'install', 'test', 'list', 'pkg', 'doctor'],
-  pnpm: ['--version', 'init', 'install', 'add', 'remove', 'list'],
+  npm: ['--version', 'list', 'pkg', 'doctor', 'view', 'outdated', 'audit'],
+  pnpm: ['--version', 'remove', 'list', 'view', 'outdated', 'audit'],
   npx: ['--version'],
   git: [
     '--version',
@@ -34,7 +34,7 @@ const ALLOWED_COMMANDS: Record<string, string[]> = {
   mv: [],
   rm: ['-rf'],
   touch: [],
-  bun: ['--version', 'add', 'init'],
+  bun: ['--version'],
   tsc: ['--version', '--noEmit', '--project'],
   vitest: ['--version', 'run', '--coverage'],
   biome: ['--version', 'lint', 'format', 'check'],
@@ -42,7 +42,7 @@ const ALLOWED_COMMANDS: Record<string, string[]> = {
   rustc: ['--version'],
   go: ['version', 'run', 'build', 'test'],
   python: ['--version'],
-  pip: ['--version', 'install', 'list'],
+  pip: ['--version', 'list'],
   docker: ['--version', 'ps', 'images'],
   kubectl: ['version', 'get', 'describe', 'logs'],
 };

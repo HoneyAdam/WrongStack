@@ -1,5 +1,27 @@
 import type { Config, ConfigStore } from '../types/config.js';
 
+/** Fields that must not be persisted because they came from environment variables. */
+const EPHEMERAL_FIELDS = new Set<keyof Config>([
+  'apiKey',
+  'baseUrl',
+] as const);
+
+/**
+ * Strip fields that originated from environment variables so they are never
+ * persisted back to disk. This prevents an env-sourced secret (e.g.
+ * WRONGSTACK_API_KEY) from being accidentally written to ~/.wrongstack/config.json.
+ */
+function stripEphemeralFields(cfg: Partial<Config>): Partial<Config> {
+  const env = (cfg as Partial<Config & { _envSource?: Set<string>}>)._envSource;
+  if (!env?.size) return cfg;
+  const out: Partial<Config> = { ...cfg };
+  for (const field of env) {
+    delete (out as Record<string, unknown>)[field];
+  }
+  delete (out as Record<string, unknown>)._envSource;
+  return out;
+}
+
 /**
  * Reference implementation of `ConfigStore`. Stores a single frozen Config
  * and notifies watchers synchronously on every update. Updates use a deep
@@ -32,11 +54,14 @@ export class DefaultConfigStore implements ConfigStore {
   }
 
   update(partial: Partial<Config>): Readonly<Config> {
+    // Strip env-sourced fields before persisting to prevent secrets leaking
+    // from in-memory env-derived config values into the on-disk config file.
+    const scrubbed = stripEphemeralFields(partial);
     // Shallow merge — top-level fields replace, nested objects do too unless
     // the caller passes a fully-formed sub-object. That matches the JSON
     // config user mental model (replace `tools.maxIterations` by passing
     // the whole `tools` block, or by patching `extensions.<name>`).
-    const next = deepFreeze(structuredClone({ ...this.current, ...partial })) as Readonly<Config>;
+    const next = deepFreeze(structuredClone({ ...this.current, ...scrubbed })) as Readonly<Config>;
 
     if (next.version !== 1) {
       throw new Error(`ConfigStore.update: version must remain 1, got ${String(next.version)}`);

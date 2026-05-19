@@ -272,7 +272,17 @@ async function globNative(
     for (const e of entries) {
       if (DEFAULT_IGNORE.includes(e.name)) continue;
       const full = path.join(dir, e.name);
-      if (e.isSymbolicLink()) continue;
+      // Dirent.isSymbolicLink() uses readdir's d_type, which may not detect
+      // directory symlinks on Windows (d_type = DT_UNKNOWN). Defensive stat
+      // call: skip any entry whose lstat shows a symlink — file or directory.
+      try {
+        const stat = await fs.lstat(full);
+        if (stat.isSymbolicLink()) continue;
+      } catch {
+        // lstat fails for very unusual entries (e.g. broken symlinks to deleted
+        // files on NFS); skip safely rather than surfacing an error.
+        continue;
+      }
       if (e.isDirectory()) {
         await walk(full);
       } else if (e.isFile()) {
