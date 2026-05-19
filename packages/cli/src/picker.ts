@@ -3,6 +3,60 @@ import { color } from '@wrongstack/core';
 import type { ReadlineInputReader } from './input-reader.js';
 import { hasApiKey } from './provider-helpers.js';
 import type { TerminalRenderer } from './renderer.js';
+import { backupCurrent, appendHistory } from './config-history.js';
+
+// Simple theme alias (avoids importing the full theme module just for one color)
+const theme = { primary: color.amber };
+
+/**
+ * Save provider + model to the global config file.
+ * Creates backups + history entries before writing.
+ * Returns true if saved successfully.
+ */
+export async function saveToGlobalConfig(
+  configPath: string,
+  provider: string,
+  model: string,
+  homeFn: () => string = () => process.env.HOME ?? require('node:os').homedir(),
+): Promise<boolean> {
+  try {
+    const { atomicWrite } = await import('@wrongstack/core');
+    const fs = await import('node:fs/promises');
+
+    let existing: Record<string, unknown> = {};
+    try {
+      const raw = await fs.readFile(configPath, 'utf8');
+      existing = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      // No existing config
+    }
+
+    const oldCfg = { ...existing };
+    existing.provider = provider;
+    existing.model = model;
+
+    // Backup before writing — pass homeFn so it backs up the right config
+    await backupCurrent(homeFn);
+
+    await atomicWrite(configPath, JSON.stringify(existing, null, 2));
+
+    // Record in history — best-effort (never blocks save)
+    try {
+      await appendHistory(
+        oldCfg,
+        existing,
+        `Provider/model changed: ${oldCfg.provider ?? '(none)'} → ${provider}, ${oldCfg.model ?? '(none)'} → ${model}`,
+        homeFn,
+      );
+    } catch {
+      // best-effort
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export interface PickerResult {
   provider: string;
@@ -336,36 +390,3 @@ async function resolveModelSelection(
 }
 
 // --- Helpers ---
-
-// Simple theme alias (avoids importing the full theme module just for one color)
-const theme = { primary: color.amber };
-
-/**
- * Save provider + model to the global config file.
- * Returns true if saved successfully.
- */
-export async function saveToGlobalConfig(
-  configPath: string,
-  provider: string,
-  model: string,
-): Promise<boolean> {
-  try {
-    const { atomicWrite } = await import('@wrongstack/core');
-    const fs = await import('node:fs/promises');
-
-    let existing: Record<string, unknown> = {};
-    try {
-      const raw = await fs.readFile(configPath, 'utf8');
-      existing = JSON.parse(raw) as Record<string, unknown>;
-    } catch {
-      // No existing config
-    }
-
-    existing.provider = provider;
-    existing.model = model;
-    await atomicWrite(configPath, JSON.stringify(existing, null, 2));
-    return true;
-  } catch {
-    return false;
-  }
-}

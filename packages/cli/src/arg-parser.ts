@@ -22,6 +22,7 @@ export const BOOLEAN_FLAGS = new Set([
   'prompt',
   'metrics',
   'webui',
+  'no-check',
 ]);
 
 // ------------------------------------------------------------------ main args

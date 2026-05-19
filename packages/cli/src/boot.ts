@@ -26,6 +26,7 @@ import { TerminalRenderer } from './renderer.js';
 import { subcommands } from './subcommands/index.js';
 import { patchConfig } from './utils.js';
 import { createDefaultContainer } from '@wrongstack/runtime';
+import { checkForUpdate, type UpdateInfo } from './update-check.js';
 
 export interface BootContext {
   config: Config;
@@ -40,6 +41,8 @@ export interface BootContext {
   renderer: TerminalRenderer;
   reader: ReadlineInputReader;
   logger: DefaultLogger;
+  /** Set by background update check — if outdated, index.ts shows notification */
+  updateInfo?: UpdateInfo;
 }
 
 function resolveBundledSkillsDir(): string | undefined {
@@ -86,6 +89,20 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
     cacheFile: wpaths.modelsCache,
     ttlSeconds: 24 * 3600,
   });
+
+  // Background update check — fires async, non-blocking.
+  // If --no-check flag is set or WRONGSTACK_NO_CHECK=1, skip it.
+  let updateInfo: UpdateInfo | undefined;
+  if (!flags['no-check'] && !process.env['WRONGSTACK_NO_CHECK']) {
+    // Fire-and-forget: boot doesn't wait, result attached to ctx for index.ts
+    checkForUpdate()
+      .then((info) => {
+        updateInfo = info;
+      })
+      .catch(() => {
+        // silent — never blocks boot
+      });
+  }
 
   // Quick path: subcommand dispatch
   const first = positional[0];
@@ -206,5 +223,6 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
     renderer,
     reader,
     logger,
+    updateInfo,
   };
 }

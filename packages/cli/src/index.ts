@@ -119,7 +119,29 @@ export async function main(argv: string[]): Promise<number> {
     renderer,
     reader,
     logger,
+    updateInfo,
   } = ctx;
+
+  // Show update notification if outdated.
+  // If boot's background check is still running (cache miss), fire a new
+  // quick check and wait up to 2s — notification is non-critical.
+  if (!updateInfo?.outdated) {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 2000);
+    try {
+      const { checkForUpdate } = await import('./update-check.js');
+      updateInfo = await checkForUpdate(ac.signal);
+    } catch {
+      // best-effort
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  if (updateInfo?.outdated) {
+    process.stderr.write(
+      `\n  \x1b[33m↑ Update available: v${updateInfo.current} → v${updateInfo.latest}\x1b[0m  Run \`wrongstack update\` to upgrade.\n\n`,
+    );
+  }
   // PathResolver is created from the resolved projectRoot
   const pathResolver = new DefaultPathResolver(cwd);
 

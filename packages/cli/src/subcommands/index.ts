@@ -28,6 +28,7 @@ export interface SubcommandDeps {
 }
 
 import { authCmd } from './handlers/auth.js';
+import { updateCmd } from './handlers/update.js';
 import { diagCmd, doctorCmd } from './handlers/diag-doctor.js';
 import { exportCmd } from './handlers/export.js';
 import { initCmd } from './handlers/init.js';
@@ -43,6 +44,7 @@ import { helpCmd, versionCmd } from './handlers/version-help.js';
 export const subcommands: Record<string, SubcommandHandler> = {
   init: initCmd,
   auth: authCmd,
+  update: updateCmd,
   sessions: sessionsCmd,
   config: configCmd,
   rewind: rewindCmd,
