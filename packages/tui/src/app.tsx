@@ -12,7 +12,7 @@ import type {
   SlashCommandRegistry,
   TokenCounter,
 } from '@wrongstack/core';
-import { DefaultSessionRewinder as RewindEngine, InputBuilder, formatTodosList } from '@wrongstack/core';
+import { InputBuilder, formatTodosList } from '@wrongstack/core';
 import { type VisionAdapters, routeImagesForModel } from '@wrongstack/runtime/vision';
 import { Box, useApp } from 'ink';
 import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
@@ -2212,8 +2212,8 @@ export function App({
     const offRewound = events.on('session.rewound', (_e) => {
       dispatch({ type: 'sessionRewound', toPromptIndex: 0 });
       dispatch({ type: 'clearHistory' });
-      if (props.onClearHistory) {
-        props.onClearHistory(dispatch);
+      if (onClearHistory) {
+        onClearHistory(dispatch);
       }
     });
     return () => {
