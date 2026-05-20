@@ -101,8 +101,17 @@ export function History({ entries, streamingText, toolStream }: HistoryProps): R
         )}
       </Static>
       {tail ? (
-        <Box>
-          <Text dimColor>{'> '}</Text>
+        <Box
+          flexDirection="column"
+          borderStyle="round"
+          borderColor="blue"
+          paddingX={2}
+          paddingY={0}
+          marginY={1}
+        >
+          <Box flexDirection="row" marginBottom={1}>
+            <Text bold color="blue"> ASISTANT (streaming...) </Text>
+          </Box>
           <Text>{tail}</Text>
         </Box>
       ) : null}
@@ -275,7 +284,21 @@ function Entry({
         </Text>
       );
     case 'assistant':
-      return <Text>{renderMarkdownTables(entry.text, termWidth)}</Text>;
+      return (
+        <Box
+          flexDirection="column"
+          borderStyle="round"
+          borderColor="blue"
+          paddingX={2}
+          paddingY={0}
+          marginY={1}
+        >
+          <Box flexDirection="row" marginBottom={1}>
+            <Text bold color="blue"> ASISTANT </Text>
+          </Box>
+          <Text>{renderMarkdownTables(entry.text, termWidth)}</Text>
+        </Box>
+      );
     case 'tool': {
       const argSummary = formatToolArgs(entry.name, entry.input);
       const outLines = formatToolOutput(
