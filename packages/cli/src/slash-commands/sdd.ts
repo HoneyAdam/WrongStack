@@ -209,14 +209,15 @@ export function getTaskListText(): string | null {
  * Returns true if a task was found and marked.
  */
 export function markTaskCompleted(taskTitle: string): boolean {
-  if (!sddState.getTaskTracker()) return false;
-  const nodes = sddState.getTaskTracker().getAllNodes({ status: ['pending', 'in_progress'] });
+  const tracker = sddState.getTaskTracker();
+  if (!tracker) return false;
+  const nodes = tracker.getAllNodes({ status: ['pending', 'in_progress'] });
   const match = nodes.find(n =>
     n.title.toLowerCase().includes(taskTitle.toLowerCase()) ||
     taskTitle.toLowerCase().includes(n.title.toLowerCase())
   );
   if (!match) return false;
-  sddState.getTaskTracker().updateNodeStatus(match.id, 'completed');
+  tracker.updateNodeStatus(match.id, 'completed');
   return true;
 }
 
@@ -231,8 +232,9 @@ export function markTaskCompleted(taskTitle: string): boolean {
  * - "Completed: <title>" / "Done: <title>"
  */
 export function autoDetectTaskCompletion(aiOutput: string): number {
-  if (!sddState.getTaskTracker()) return 0;
-  const pending = sddState.getTaskTracker().getAllNodes({ status: ['pending', 'in_progress'] });
+  const tracker = sddState.getTaskTracker();
+  if (!tracker) return 0;
+  const pending = tracker.getAllNodes({ status: ['pending', 'in_progress'] });
   if (pending.length === 0) return 0;
 
   let completed = 0;
@@ -249,7 +251,7 @@ export function autoDetectTaskCompletion(aiOutput: string): number {
       if (!Number.isNaN(num) && num >= 1 && num <= pending.length) {
         const node = pending[num - 1];
         if (node && node.status !== 'completed') {
-          sddState.getTaskTracker()!.updateNodeStatus(node.id, 'completed');
+          tracker.updateNodeStatus(node.id, 'completed');
           completed++;
         }
       } else {
@@ -258,7 +260,7 @@ export function autoDetectTaskCompletion(aiOutput: string): number {
           target.toLowerCase().includes(n.title.toLowerCase())
         );
         if (match && match.status !== 'completed') {
-          sddState.getTaskTracker()!.updateNodeStatus(match.id, 'completed');
+          tracker.updateNodeStatus(match.id, 'completed');
           completed++;
         }
       }
@@ -274,7 +276,7 @@ export function autoDetectTaskCompletion(aiOutput: string): number {
         title.toLowerCase().includes(n.title.toLowerCase())
       );
       if (match && match.status !== 'completed') {
-        sddState.getTaskTracker()!.updateNodeStatus(match.id, 'completed');
+        tracker.updateNodeStatus(match.id, 'completed');
         completed++;
       }
       continue;
@@ -287,7 +289,7 @@ export function autoDetectTaskCompletion(aiOutput: string): number {
       if (num >= 1 && num <= pending.length) {
         const node = pending[num - 1];
         if (node && node.status !== 'completed') {
-          sddState.getTaskTracker()!.updateNodeStatus(node.id, 'completed');
+          tracker.updateNodeStatus(node.id, 'completed');
           completed++;
         }
       }
@@ -303,7 +305,7 @@ export function autoDetectTaskCompletion(aiOutput: string): number {
         title.toLowerCase().includes(n.title.toLowerCase())
       );
       if (match && match.status !== 'completed') {
-        sddState.getTaskTracker()!.updateNodeStatus(match.id, 'completed');
+        tracker.updateNodeStatus(match.id, 'completed');
         completed++;
       }
     }
@@ -318,8 +320,9 @@ export function autoDetectTaskCompletion(aiOutput: string): number {
  * Returns true if a plan was saved.
  */
 export function trySaveImplementationPlan(aiOutput: string): boolean {
-  if (!sddState.getBuilder()) return false;
-  const session = sddState.getBuilder().getSession();
+  const builder = sddState.getBuilder();
+  if (!builder) return false;
+  const session = builder.getSession();
   if (session.phase !== 'implementation') return false;
 
   // Try to find the JSON array and extract text before it
@@ -327,14 +330,14 @@ export function trySaveImplementationPlan(aiOutput: string): boolean {
   if (jsonMatch?.index && jsonMatch.index > 0) {
     const plan = aiOutput.substring(0, jsonMatch.index).trim();
     if (plan.length > 50) { // Must be substantial
-      sddState.getBuilder().setImplementation(plan);
+      builder.setImplementation(plan);
       return true;
     }
   }
 
   // If no JSON found, save the whole output as the plan
   if (aiOutput.length > 100 && !aiOutput.includes('```json')) {
-    sddState.getBuilder().setImplementation(aiOutput.trim());
+    builder.setImplementation(aiOutput.trim());
     return true;
   }
 
@@ -443,9 +446,10 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
             maxQuestions: 10,
             sessionPath: path.join(projectRoot, '.wrongstack', 'sdd-session.json'),
           }));
-          sddState.getBuilder().startSession(title);
+          const builder = sddState.getBuilder()!;
+          builder.startSession(title);
 
-          const aiPrompt = sddState.getBuilder().getAIPrompt();
+          const aiPrompt = builder.getAIPrompt();
 
           return {
             message: [
@@ -467,17 +471,18 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
         case 'approve':
         case 'ok':
         case 'confirm': {
-          if (!sddState.getBuilder()) {
+          const builder = sddState.getBuilder();
+          if (!builder) {
             return {
               message: 'No active SDD session. Use /sdd new to start one.',
             };
           }
 
-          const phase = sddState.getBuilder().getSession().phase;
+          const phase = builder.getSession().phase;
 
           if (phase === 'questioning') {
             // AI hasn't generated spec yet — tell it to generate now
-            const sddCtx = sddState.getBuilder().getAIPrompt();
+            const sddCtx = builder.getAIPrompt();
             return {
               message: 'No spec generated yet. Generating now...',
               runText: `[SDD SESSION ACTIVE]\n${sddCtx}\n\n---\nUser message:\nGenerate the complete specification now based on the conversation so far.`,
@@ -485,17 +490,17 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
           }
 
           if (phase === 'spec_review') {
-            const spec = sddState.getBuilder().getSession().spec;
+            const spec = builder.getSession().spec;
             if (!spec) {
               return { message: 'No spec to approve.' };
             }
 
             // Save spec and move to implementation phase
-            await sddState.getBuilder().saveSpec();
+            await builder.saveSpec();
             versioning.recordVersion(spec, 'Initial spec approved');
-            sddState.getBuilder().approve(); // spec_review → implementation
+            builder.approve(); // spec_review → implementation
 
-            const implPrompt = sddState.getBuilder().getAIPrompt();
+            const implPrompt = builder.getAIPrompt();
             return {
               message: [
                 `✅ Spec "${spec.title}" approved and saved!`,
@@ -509,9 +514,9 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
           }
 
           if (phase === 'task_review') {
-            sddState.getBuilder().approve(); // task_review → executing
+            builder.approve(); // task_review → executing
 
-            const execPrompt = sddState.getBuilder().getAIPrompt();
+            const execPrompt = builder.getAIPrompt();
             return {
               message: '✅ Tasks approved! The AI will now execute them one by one.',
               runText: `[SDD SESSION ACTIVE]\n${execPrompt}\n\n---\nUser message:\nStart executing the tasks one by one.`,
@@ -527,20 +532,21 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
 
         case 'execute':
         case 'run': {
-          if (!sddState.getBuilder()) {
+          const runBuilder = sddState.getBuilder();
+          if (!runBuilder) {
             return {
               message: 'No active SDD session. Use /sdd new to start one.',
             };
           }
 
-          const session = sddState.getBuilder().getSession();
+          const session = runBuilder.getSession();
           if (session.phase !== 'executing' && session.phase !== 'task_review') {
             return {
               message: `Cannot execute in phase "${session.phase}". Use /sdd approve first.`,
             };
           }
 
-          const execPrompt = sddState.getBuilder().getAIPrompt();
+          const execPrompt = runBuilder.getAIPrompt();
           return {
             message: '⚡ Starting task execution. The AI will execute tasks one by one.',
             runText: `[SDD SESSION ACTIVE]\n${execPrompt}\n\n---\nUser message:\nStart executing the tasks one by one.`,
@@ -549,14 +555,15 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
 
         case 'plan':
         case 'impl': {
-          if (!sddState.getBuilder()) {
+          const planBuilder = sddState.getBuilder();
+          if (!planBuilder) {
             return { message: 'No active SDD session. Use /sdd new to start one.' };
           }
 
-          const session = sddState.getBuilder().getSession();
-          if (!session.implementation) {
+          const planSession = planBuilder.getSession();
+          if (!planSession.implementation) {
             return {
-              message: session.phase === 'implementation'
+              message: planSession.phase === 'implementation'
                 ? 'No implementation plan yet. The AI will generate it after /sdd approve.'
                 : 'No implementation plan in this session.',
             };
@@ -566,26 +573,27 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
             message: [
               '═══ Implementation Plan ═══',
               '',
-              session.implementation,
+              planSession.implementation,
             ].join('\n'),
           };
         }
 
         case 'spec': {
-          if (!sddState.getBuilder()) {
+          const specBuilder = sddState.getBuilder();
+          if (!specBuilder) {
             return { message: 'No active SDD session. Use /sdd new to start one.' };
           }
 
-          const session = sddState.getBuilder().getSession();
-          if (!session.spec) {
+          const specSession = specBuilder.getSession();
+          if (!specSession.spec) {
             return {
-              message: session.phase === 'questioning'
+              message: specSession.phase === 'questioning'
                 ? 'No spec generated yet. Keep answering the AI\'s questions.'
                 : 'No spec in this session.',
             };
           }
 
-          const spec = session.spec;
+          const spec = specSession.spec;
           const lines = [
             `═══ Current Spec ═══`,
             '',
@@ -610,16 +618,17 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
 
         case 'tasks':
         case 'task': {
-          if (!sddState.getTaskTracker()) {
+          const taskTracker = sddState.getTaskTracker();
+          if (!taskTracker) {
             return { message: 'No tasks generated yet. Use /sdd new to start.' };
           }
 
-          const nodes = sddState.getTaskTracker().getAllNodes();
+          const nodes = taskTracker.getAllNodes();
           if (nodes.length === 0) {
             return { message: 'No tasks in the current graph.' };
           }
 
-          const progress = sddState.getTaskTracker().getProgress();
+          const progress = taskTracker.getProgress();
           const lines = [
             `═══ Task List (${progress.completed}/${progress.total} done) ═══`,
             '',
@@ -639,7 +648,8 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
 
         case 'done':
         case 'complete': {
-          if (!sddState.getTaskTracker()) {
+          const doneTracker = sddState.getTaskTracker();
+          if (!doneTracker) {
             return { message: 'No tasks to complete.' };
           }
 
@@ -648,14 +658,14 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
           }
 
           // Try to match by number first
-          const nodes = sddState.getTaskTracker().getAllNodes({ status: ['pending', 'in_progress'] });
+          const nodes = doneTracker.getAllNodes({ status: ['pending', 'in_progress'] });
           const num = Number(restJoined);
           let matched = false;
 
           if (!Number.isNaN(num) && num >= 1 && num <= nodes.length) {
             const node = nodes[num - 1];
             if (node) {
-              sddState.getTaskTracker().updateNodeStatus(node.id, 'completed');
+              doneTracker.updateNodeStatus(node.id, 'completed');
               matched = true;
             }
           }
@@ -667,7 +677,7 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
               restJoined.toLowerCase().includes(n.title.toLowerCase())
             );
             if (match) {
-              sddState.getTaskTracker().updateNodeStatus(match.id, 'completed');
+              doneTracker.updateNodeStatus(match.id, 'completed');
               matched = true;
             }
           }
@@ -676,7 +686,7 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
             return { message: `No pending task matching "${restJoined}".` };
           }
 
-          const remaining = sddState.getTaskTracker().getProgress();
+          const remaining = doneTracker.getProgress();
           return {
             message: `✅ Task completed! ${remaining.completed}/${remaining.total} done (${remaining.percentComplete}%)`,
           };
@@ -685,11 +695,12 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
         // ── Session Management ─────────────────────────────────────────────
 
         case 'status': {
-          if (!sddState.getBuilder()) {
+          const statusBuilder = sddState.getBuilder();
+          if (!statusBuilder) {
             return { message: 'No active SDD session.' };
           }
 
-          const session = sddState.getBuilder().getSession();
+          const session = statusBuilder.getSession();
           const phaseEmoji: Record<AISpecPhase, string> = {
             questioning: '❓',
             spec_review: '📋',
@@ -741,9 +752,10 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
             // No file on disk
           }
 
-          if (sddState.getBuilder()) {
-            const title = sddState.getBuilder().getSession().title;
-            await sddState.getBuilder().deleteSession();
+          const cancelBuilder = sddState.getBuilder();
+          if (cancelBuilder) {
+            const title = cancelBuilder.getSession().title;
+            await cancelBuilder.deleteSession();
             sddState.setBuilder(null);
             sddState.clearTaskState();
             return { message: `SDD session for "${title}" cancelled.` };
@@ -771,18 +783,19 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
             maxQuestions: 10,
             sessionPath,
           }));
-          const loaded = await sddState.getBuilder().loadSession();
+          const resumeBuilder = sddState.getBuilder()!;
+          const loaded = await resumeBuilder.loadSession();
           if (!loaded) {
             sddState.setBuilder(null);
             return { message: 'No saved SDD session found. Use /sdd new to start one.' };
           }
 
-          const session = sddState.getBuilder().getSession();
+          const session = resumeBuilder.getSession();
 
           // Restore task graph if it exists
           let taskCount = 0;
           let completedCount = 0;
-          const taskGraphId = sddState.getBuilder().getTaskGraphId();
+          const taskGraphId = resumeBuilder.getTaskGraphId();
           if (taskGraphId) {
             try {
               const store = new DefaultTaskStore();
@@ -801,7 +814,7 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
             }
           }
 
-          const resumePrompt = sddState.getBuilder().getAIPrompt();
+          const resumePrompt = resumeBuilder.getAIPrompt();
           return {
             message: [
               `╔═══ SDD Session Resumed ═══╗`,
