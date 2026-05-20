@@ -73,3 +73,7 @@ export type {
 export {
   NULL_FLEET_BUS,
 } from './null-fleet-bus.js';
+export {
+  FleetManager,
+  type FleetManagerOptions,
+} from './fleet-manager.js';

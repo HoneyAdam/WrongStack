@@ -23,6 +23,7 @@ import {
   rosterSummaryFromConfigs,
 } from './director-prompts.js';
 import { FleetBus, type FleetUsage, FleetUsageAggregator } from './fleet-bus.js';
+import { FleetManager } from './fleet-manager.js';
 import { InMemoryBridgeTransport } from './in-memory-transport.js';
 import { DefaultMultiAgentCoordinator } from './multi-agent-coordinator.js';
 import { makeAskTool, makeAssignTool, makeAwaitTasksTool, makeFleetHealthTool, makeFleetSessionTool, makeFleetStatusTool, makeFleetUsageTool, makeRollUpTool, makeSpawnTool, makeTerminateTool } from './director-tools.js';
@@ -132,8 +133,11 @@ export interface DirectorOptions {
    * that would push the fleet's total cost above this limit. The cap
    * is checked BEFORE the spawn is recorded — a refused spawn must not
    * leak partial state into the manifest or fleet bus. Let in-flight
-   * tasks complete; refuse new spawns only. When `maxCostUsd` is absent
-   * or Infinity, no cost cap applies.
+   * tasks complete; refuse new spawns only. When omitted or Infinity,
+   * no cost cap applies.
+   *
+   * Distinct from SubagentBudget.maxCostUsd (per-subagent spend) — this
+   * field caps the *entire fleet* total.
    */
   directorBudget?: {
     /**
@@ -172,6 +176,17 @@ export interface DirectorOptions {
    * JSONLs. Defaults to the director's own `id` when omitted.
    */
   directorRunId?: string;
+  /**
+   * Pre-built fleet manager. When provided the Director delegates all
+   * fleet-level policy (spawn budgets, manifest assembly, checkpointing)
+   * to this instance and takes ownership of the coordinator + bridge
+   * layer only. This enables unit-testing fleet policy in isolation
+   * and swapping implementations without changing the Director surface.
+   *
+   * When omitted the Director creates its own fleet infrastructure
+   * (same behavior as before this field was added).
+   */
+  fleetManager?: FleetManager;
 }
 
 /**
@@ -222,8 +237,22 @@ export class Director implements ICoordinator {
   /** Alias for the ICoordinator contract. `id` is retained for backward compatibility. */
   get coordinatorId(): string { return this.id; }
   readonly id: string;
+  /**
+   * The fleet event bus. Backed by `fleetManager?.fleet` when a FleetManager
+   * is injected; otherwise own FleetBus instance (preserves existing behavior).
+   */
   readonly fleet: FleetBus;
+  /**
+   * Usage rollup. Backed by `fleetManager?.usage` when a FleetManager is
+   * injected; otherwise own FleetUsageAggregator.
+   */
   readonly usage: FleetUsageAggregator;
+  /**
+   * Optional fleet-level policy container. When provided the Director
+   * delegates spawn budgeting, manifest entries, and checkpointing to it
+   * instead of managing those internally. All other behavior is unchanged.
+   */
+  private readonly fleetManager?: FleetManager;
   /**
    * Director-side bridge endpoint. Subagents are wired to the same
    * in-memory transport so the director can `ask()` them synchronously
@@ -293,8 +322,8 @@ export class Director implements ICoordinator {
   /** Debounce timer for periodic manifest writes. */
   private manifestTimer: NodeJS.Timeout | null = null;
   private readonly manifestDebounceMs: number;
-  /** Fleet-wide cost cap. Infinity means no cap. */
-  private readonly maxCostUsd: number;
+  /** Fleet-wide cost cap (entire fleet total, distinct from SubagentBudget limits). Infinity means no cap. */
+  private readonly maxFleetCostUsd: number;
   /** Max auto-extensions per subagent per budget kind before denying. */
   private readonly maxBudgetExtensions: number;
   /** Sessions root for direct subagent JSONL reads (fleet_session tool). */
@@ -328,7 +357,7 @@ export class Director implements ICoordinator {
     this.spawnDepth = opts.spawnDepth ?? 0;
     this.sessionWriter = opts.sessionWriter ?? null;
     this.manifestDebounceMs = opts.manifestDebounceMs ?? 2000;
-    this.maxCostUsd = opts.directorBudget?.maxCostUsd ?? Number.POSITIVE_INFINITY;
+    this.maxFleetCostUsd = opts.directorBudget?.maxCostUsd ?? Number.POSITIVE_INFINITY;
     this.maxBudgetExtensions = opts.maxBudgetExtensions ?? 2;
     this.sessionsRoot = opts.sessionsRoot;
     this.directorRunId = opts.directorRunId ?? this.id;
@@ -341,6 +370,7 @@ export class Director implements ICoordinator {
           directorBudget: opts.directorBudget,
         }, opts.checkpointDebounceMs ?? 250)
       : null;
+    this.fleetManager = opts.fleetManager;
     if (this.sharedScratchpadPath) {
       // Create the directory eagerly so subagents that try to write
       // there on first iteration don't trip on ENOENT. Fire-and-forget;
@@ -352,12 +382,19 @@ export class Director implements ICoordinator {
       { agentId: this.id, coordinatorId: this.id },
       this.transport,
     );
-    this.fleet = new FleetBus();
-    this.usage = new FleetUsageAggregator(
-      this.fleet,
-      (id) => this.priceLookups.get(id),
-      (id) => this.subagentMeta.get(id),
-    );
+    // Delegate to FleetManager when injected; otherwise create own instances
+    // (preserves existing behavior for callers that don't pass fleetManager).
+    if (this.fleetManager) {
+      this.fleet = this.fleetManager.fleet;
+      this.usage = this.fleetManager.usage;
+    } else {
+      this.fleet = new FleetBus();
+      this.usage = new FleetUsageAggregator(
+        this.fleet,
+        (id) => this.priceLookups.get(id),
+        (id) => this.subagentMeta.get(id),
+      );
+    }
     this.coordinator = new DefaultMultiAgentCoordinator(
       { ...opts.config, coordinatorId: this.id },
       { runner: opts.runner },
@@ -515,29 +552,40 @@ export class Director implements ICoordinator {
   ): Promise<string> {
     // Enforce safety caps BEFORE touching the coordinator — a refused
     // spawn must not leak partial state into the manifest or fleet bus.
-    if (this.spawnDepth >= this.maxSpawnDepth) {
-      throw new FleetSpawnBudgetError('max_spawn_depth', this.maxSpawnDepth, this.spawnDepth);
-    }
-    if (this.spawnCount >= this.maxSpawns) {
-      throw new FleetSpawnBudgetError('max_spawns', this.maxSpawns, this.spawnCount + 1);
-    }
-    // Fleet-wide cost cap: refuse spawn if current total already meets/exceeds
-    // the cap. In-flight tasks are left to complete; we only block new spawns.
-    // A subagent's own budget cost is tracked as it runs — this cap is the
-    // director's ceiling on total fleet spend across all workers.
-    if (this.maxCostUsd < Number.POSITIVE_INFINITY) {
-      const totalCost = this.usage.snapshot().total?.cost ?? 0;
-      if (totalCost >= this.maxCostUsd) {
-        throw new FleetCostCapError(this.maxCostUsd, totalCost);
+    // Delegate to FleetManager when available; use inline checks otherwise.
+    if (this.fleetManager) {
+      const rejection = this.fleetManager.canSpawn(config);
+      if (rejection) {
+        if (rejection.kind === 'max_spawn_depth') throw new FleetSpawnBudgetError('max_spawn_depth', rejection.limit, rejection.observed);
+        if (rejection.kind === 'max_spawns') throw new FleetSpawnBudgetError('max_spawns', rejection.limit, rejection.observed);
+        if (rejection.kind === 'max_cost_usd') throw new FleetCostCapError(rejection.limit, rejection.observed);
+      }
+    } else {
+      if (this.spawnDepth >= this.maxSpawnDepth) {
+        throw new FleetSpawnBudgetError('max_spawn_depth', this.maxSpawnDepth, this.spawnDepth);
+      }
+      if (this.spawnCount >= this.maxSpawns) {
+        throw new FleetSpawnBudgetError('max_spawns', this.maxSpawns, this.spawnCount + 1);
+      }
+      if (this.maxFleetCostUsd < Number.POSITIVE_INFINITY) {
+        const totalCost = this.usage.snapshot().total?.cost ?? 0;
+        if (totalCost >= this.maxFleetCostUsd) {
+          throw new FleetCostCapError(this.maxFleetCostUsd, totalCost);
+        }
       }
     }
     const result = await this.coordinator.spawn(config);
-    this.spawnCount += 1;
-    this.subagentMeta.set(result.subagentId, {
-      provider: config.provider,
-      model: config.model,
-    });
-    if (priceLookup) this.priceLookups.set(result.subagentId, priceLookup);
+    // Record with FleetManager when available; otherwise manage inline.
+    if (this.fleetManager) {
+      this.fleetManager.recordSpawn(result.subagentId, config, priceLookup);
+    } else {
+      this.spawnCount += 1;
+      this.subagentMeta.set(result.subagentId, {
+        provider: config.provider,
+        model: config.model,
+      });
+      if (priceLookup) this.priceLookups.set(result.subagentId, priceLookup);
+    }
     // Auto-wire a bridge per spawn — same transport as the director, so
     // `director.ask(subagentId, …)` and the subagent's own `bridge.send()`
     // round-trip without the caller having to plumb anything. Runners
@@ -549,37 +597,36 @@ export class Director implements ICoordinator {
     );
     this.coordinator.setSubagentBridge(result.subagentId, subagentBridge);
     this.subagentBridges.set(result.subagentId, subagentBridge);
-    // Record for manifest. Task ids attach as they're assigned via
-    // `assign()` below.
-    this.manifestEntries.set(result.subagentId, {
-      subagentId: result.subagentId,
-      name: config.name,
-      role: config.role,
-      provider: config.provider,
-      model: config.model,
-      taskIds: [],
-    });
-    // Live state checkpoint + session event so crash recovery and the
-    // resume banner both see this spawn even before any task is assigned.
-    const spawnedAt = new Date().toISOString();
-    this.stateCheckpoint?.recordSpawn(
-      {
-        id: result.subagentId,
+    // Record manifest entry only when not using FleetManager (it manages its own).
+    if (!this.fleetManager) {
+      this.manifestEntries.set(result.subagentId, {
+        subagentId: result.subagentId,
         name: config.name,
         role: config.role,
         provider: config.provider,
         model: config.model,
-        spawnedAt,
-      },
-      this.spawnCount,
-    );
-    void this.appendSessionEvent({
-      type: 'agent_spawned',
-      ts: spawnedAt,
-      agentId: result.subagentId,
-      role: config.role ?? config.name,
-    });
-    this.scheduleManifest();
+        taskIds: [],
+      });
+      const spawnedAt = new Date().toISOString();
+      this.stateCheckpoint?.recordSpawn(
+        {
+          id: result.subagentId,
+          name: config.name,
+          role: config.role,
+          provider: config.provider,
+          model: config.model,
+          spawnedAt,
+        },
+        this.spawnCount,
+      );
+      void this.appendSessionEvent({
+        type: 'agent_spawned',
+        ts: spawnedAt,
+        agentId: result.subagentId,
+        role: config.role ?? config.name,
+      });
+      this.scheduleManifest();
+    }
     return result.subagentId;
   }
 
@@ -764,8 +811,13 @@ export class Director implements ICoordinator {
   async assign(task: TaskSpec): Promise<string> {
     const taskWithId: TaskSpec = task.id ? task : { ...task, id: randomUUID() };
     if (task.subagentId) {
-      const entry = this.manifestEntries.get(task.subagentId);
-      if (entry) entry.taskIds.push(taskWithId.id);
+      // Update manifest entry — delegate to FleetManager when available.
+      if (this.fleetManager) {
+        this.fleetManager.addTaskToSubagent(task.subagentId, taskWithId.id);
+      } else {
+        const entry = this.manifestEntries.get(task.subagentId);
+        if (entry) entry.taskIds.push(taskWithId.id);
+      }
     }
     await this.coordinator.assign(taskWithId);
     // Snapshot task metadata for completion-event titles + state checkpoint
