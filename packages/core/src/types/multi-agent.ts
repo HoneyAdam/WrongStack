@@ -141,11 +141,19 @@ export interface TaskSpec {
 }
 
 export interface DoneCondition {
-  type: 'iterations' | 'tool_calls' | 'output_match' | 'custom' | 'all_tasks_done';
+  type: 'iterations' | 'tool_calls' | 'output_match' | 'custom' | 'all_tasks_done' | 'directive';
   maxIterations?: number;
   maxToolCalls?: number;
   pattern?: string;
   predicate?: string;
+  /**
+   * For `directive` type — stop when model emits [done] and keep going
+   * on [continue]/[next step]/[proceed] WITHOUT returning to the outer runner.
+   * When false (default), the runner behaves normally (one agent.run per loop).
+   * When true, the runner passes `autonomousContinue: true` to the agent and
+   * re-runs internally when the model signals continue.
+   */
+  autonomous?: boolean;
 }
 
 export interface MultiAgentConfig {

@@ -61,6 +61,19 @@ export class DoneConditionChecker {
         }
         break;
 
+      case 'directive':
+        // Model-driven: the agent manages its own continuation via [continue]/[done].
+        // The done condition is never satisfied by the checker — the agent returns
+        // `status: 'done'` when the model emits [done] or naturally finishes.
+        // The runner's outer loop uses maxIterations/maxToolCalls as hard caps.
+        if (this.condition.maxIterations && state.iterations >= this.condition.maxIterations) {
+          return { done: true, reason: `max iterations (${this.condition.maxIterations}) reached`, ...state };
+        }
+        if (this.condition.maxToolCalls && state.toolCalls >= this.condition.maxToolCalls) {
+          return { done: true, reason: `max tool calls (${this.condition.maxToolCalls}) reached`, ...state };
+        }
+        break;
+
       case 'custom':
         // Reserved for future extension
         break;
@@ -77,6 +90,13 @@ export interface AutonomousRunnerOptions {
   iterationTimeoutMs?: number;
   onIteration?: (state: { iteration: number; toolCalls: number }) => void;
   onDone?: (result: AutonomousResult) => void;
+  /**
+   * When true and `doneCondition.type === 'directive'`, the runner
+   * runs the agent with `autonomousContinue: true` so the agent loop
+   * handles its own [continue]/[done] markers internally (no outer
+   * re-invocation needed). The runner still provides iteration/timeouts.
+   */
+  enableAutonomousContinue?: boolean;
 }
 
 export class AutonomousRunner {
@@ -103,10 +123,24 @@ export class AutonomousRunner {
     const offToolExecuted = this.opts.agent.events?.on?.('tool.executed', () => {
       this.toolCalls++;
     });
+    // When autonomous continue is enabled, also count internal agent-loop
+    // iterations. Each iteration.started within a single agent.run() call
+    // counts toward the runner's maxIterations cap. We listen to the event
+    // through the agent's EventBus.
+    const offIterationCompleted = this.opts.agent.events?.on?.('iteration.completed', () => {
+      // Only count if we're in autonomous continue mode (agent loop
+      // handles multiple iterations internally before returning).
+      if (this.opts.enableAutonomousContinue && this.opts.doneCondition.type === 'directive') {
+        // Each internal iteration completed — bump the outer iteration counter.
+        // This ensures maxIterations on the runner actually limits total work.
+        this.iterations++;
+      }
+    });
     try {
       return await this.runLoop();
     } finally {
       offToolExecuted?.();
+      offIterationCompleted?.();
     }
   }
 
@@ -135,13 +169,26 @@ export class AutonomousRunner {
       const timeout = setTimeout(() => ctrl.abort(), this.opts.iterationTimeoutMs ?? 30_000);
 
       try {
+        // In directive mode with autonomous continue, pass it through so the
+        // agent loop handles its own [continue]/[done] markers internally.
+        // The runner provides iteration caps and timeouts; the agent handles
+        // the continuation decision within each agent.run() call.
+        const isDirectiveMode =
+          this.opts.doneCondition.type === 'directive' &&
+          this.opts.enableAutonomousContinue;
+
         const result = await this.opts.agent.run('', {
           signal: ctrl.signal,
-          maxIterations: 1,
+          maxIterations: isDirectiveMode ? (this.opts.doneCondition.maxIterations ?? 100) : 1,
           executionStrategy: 'sequential',
+          autonomousContinue: isDirectiveMode ? true : undefined,
         });
 
-        this.iterations++;
+        // Only increment iterations if we're NOT counting via iteration.completed
+        // (i.e., not in autonomous continue directive mode). In that mode,
+        // the offIterationCompleted listener in run() bumps this counter
+        // per internal iteration so the runner's maxIterations cap is respected.
+        if (!isDirectiveMode) this.iterations++;
         // Only access finalText when the run actually succeeded. Failed/aborted
         // runs may have undefined finalText — accessing it unconditionally would
         // produce garbage output for the done-condition matchers.

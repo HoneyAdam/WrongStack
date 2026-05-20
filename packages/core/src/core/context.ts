@@ -19,6 +19,13 @@ export interface RunOptions {
   model?: string;
   executionStrategy?: 'parallel' | 'sequential' | 'smart';
   maxIterations?: number;
+  /**
+   * Enable autonomous continue for this specific run. When true, the agent
+   * loop re-runs on `[continue]`/`[next step]`/`[proceed]` markers or
+   * `continue_to_next_iteration()` tool calls instead of returning.
+   * Overrides `AgentInit.autonomousContinue` for this call only.
+   */
+  autonomousContinue?: boolean;
 }
 
 export interface ContextInit {
