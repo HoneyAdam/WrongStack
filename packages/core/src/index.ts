@@ -18,6 +18,11 @@ export {
   createDefaultPipelines,
   DEFAULT_MAX_ITERATIONS,
 } from './core/agent.js';
+export {
+  parseContinueDirective,
+  type ContinueDirective,
+  makeContinueToNextIterationTool,
+} from './core/continue-to-next-iteration.js';
 export { Context, type ContextInit, type RunOptions, type TodoItem } from './core/context.js';
 export { extractRunEnv, type RunEnv } from './core/run-env.js';
 export {

@@ -21,6 +21,7 @@ import type { RetryPolicy } from '../types/retry-policy.js';
 import type { SecretScrubber } from '../types/secret-scrubber.js';
 import type { Tool } from '../types/tool.js';
 import { repairToolUseAdjacency } from '../utils/message-invariants.js';
+import { consumeAutonomousContinue, parseContinueDirective, type ContinueDirective } from './continue-to-next-iteration.js';
 import type { Context, RunOptions } from './context.js';
 import { requestLimitExtension } from './iteration-limit.js';
 import { runProviderWithRetry } from './provider-runner.js';
@@ -59,6 +60,19 @@ export interface AgentInit {
    * emit `iteration.limit_reached` and wait for a listener to grant/deny.
    */
   autoExtendLimit?: boolean;
+  /**
+   * When true, the agent supports autonomous continuation — the model
+   * can signal "keep going" either via the `continue_to_next_iteration()`
+   * tool or by placing a `[continue]` / `[next step]` / `[proceed]` /
+   * `[done]` marker on its own line in the final text output. The agent
+   * loop re-runs without returning to the caller when `continue` is
+   * signalled, or exits with `status: 'done'` when `stop` is signalled.
+   *
+   * The text-marker parser runs in `processResponse()` before the
+   * loop-exit check so markers in the final text block are honoured
+   * even when no tool was called.
+   */
+  autonomousContinue?: boolean;
   /**
    * Optional confirm handler. When set, the executor calls it synchronously
    * when a tool needs user confirmation (CLI path). When omitted, the
@@ -152,6 +166,8 @@ export class Agent {
   private readonly plugins: { plugin: Plugin; api: PluginAPI }[] = [];
   private readonly toolExecutor: ToolExecutor;
   private readonly autoExtendLimit: boolean;
+  /** Enables autonomous continue: model can signal `[continue]` or call continue_to_next_iteration() to re-run. */
+  private readonly autonomousContinue: boolean;
   private readonly tracer: Tracer | undefined;
   readonly extensions: ExtensionRegistry;
 
@@ -167,6 +183,7 @@ export class Agent {
     this.executionStrategy = init.executionStrategy ?? 'smart';
     this.perIterationOutputCapBytes = init.perIterationOutputCapBytes ?? 100_000;
     this.autoExtendLimit = init.autoExtendLimit ?? true;
+    this.autonomousContinue = init.autonomousContinue ?? false;
     this.tracer = init.tracer;
     this.extensions = init.extensions ?? new ExtensionRegistry();
     this.extensions.setLogger(this.container.resolve(TOKENS.Logger));
@@ -362,6 +379,14 @@ export class Agent {
         return { status: 'aborted', iterations };
       }
 
+      // Clear any stale autonomous continue flag from a prior iteration.
+      // This prevents a stale flag (e.g. from a tool call that set it but
+      // then the run crashed before the flag was consumed) from causing
+      // a spurious continuation on the next agent.run() call.
+      if (this.autonomousContinue) {
+        consumeAutonomousContinue(this.ctx);
+      }
+
       const limitCheck = await this.checkIterationLimit(
         i,
         effectiveLimit,
@@ -449,17 +474,51 @@ export class Agent {
 
       const toolUses = res.content.filter(isToolUseBlock);
       if (toolUses.length === 0) {
+        // No tool calls — check autonomous continue text marker before exiting.
+        // The model can signal [continue] to re-run even without a tool call.
         this.events.emit('iteration.completed', { ctx: this.ctx, index: i });
+        if (this.autonomousContinue && responseResult.directive === 'continue') {
+          await this.compactContextIfNeeded();
+          await this.extensions.runAfterIteration(this.ctx, i);
+          continue;
+        }
+        if (this.autonomousContinue && responseResult.directive === 'stop') {
+          return { status: 'done', iterations, finalText };
+        }
         return { status: 'done', iterations, finalText };
       }
 
       await this.executeTools(toolUses);
+
+      // Autonomous continue via tool flag: if the model called
+      // `continue_to_next_iteration()` the flag is set; consume it and
+      // re-run the loop immediately without returning to the caller.
+      // This allows fully autonomous operation where the model keeps
+      // working across multiple turns without the outer runner having
+      // to re-invoke Agent.run().
+      if (this.autonomousContinue && consumeAutonomousContinue(this.ctx)) {
+        this.events.emit('iteration.completed', { ctx: this.ctx, index: i });
+        await this.compactContextIfNeeded();
+        await this.extensions.runAfterIteration(this.ctx, i);
+        continue;
+      }
+
       this.events.emit('iteration.completed', { ctx: this.ctx, index: i });
 
       await this.compactContextIfNeeded();
 
       // Extension: afterIteration
       await this.extensions.runAfterIteration(this.ctx, i);
+
+      // Autonomous continue via text marker: if `processResponse` detected
+      // a `[continue]` / `[next step]` marker, re-run the loop without
+      // returning to the caller. `[done]` causes an immediate exit with 'done'.
+      if (this.autonomousContinue && responseResult.directive === 'continue') {
+        continue;
+      }
+      if (this.autonomousContinue && responseResult.directive === 'stop') {
+        return { status: 'done', iterations, finalText };
+      }
     }
   }
 
@@ -526,7 +585,7 @@ export class Agent {
   private async processResponse(
     raw: Response,
     req: Request,
-  ): Promise<{ finalText: string; aborted: boolean; done: boolean }> {
+  ): Promise<{ finalText: string; aborted: boolean; done: boolean; directive?: ContinueDirective }> {
     // Run response middleware and adopt any transform it returns so later code
     // sees the processed value (currently no middleware is registered, but the
     // pattern matches `assistantOutput` below).
@@ -576,7 +635,17 @@ export class Agent {
       }
     }
 
-    return { finalText, aborted: false, done: false };
+    // Autonomous continuation: check for text markers when enabled.
+    // The parser matches `[continue]`, `[next step]`, `[proceed]` on their
+    // own lines (re-runs the loop) or `[done]` (exits with 'done').
+    // This runs before the loop-exit check so markers in the final text
+    // block are honoured even when no tool was called.
+    let directive: ContinueDirective = 'none';
+    if (this.autonomousContinue && finalText) {
+      directive = parseContinueDirective(finalText);
+    }
+
+    return { finalText, aborted: false, done: false, directive };
   }
 
   /**
