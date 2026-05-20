@@ -41,6 +41,7 @@ import {
   repairToolUseAdjacency,
   resolveContextWindowPolicy,
 } from '@wrongstack/core';
+import { ToolExecutor } from '@wrongstack/core/execution';
 import { decryptConfigSecrets, encryptConfigSecrets } from '@wrongstack/core/security';
 import { buildProviderFactoriesFromRegistry, makeProviderFromConfig } from '@wrongstack/providers';
 import { builtinToolsPack, forgetTool, rememberTool } from '@wrongstack/tools';
@@ -278,6 +279,21 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
   }
 
   // Agent
+  const secretScrubber = container.resolve(TOKENS.SecretScrubber);
+  const renderer = container.has(TOKENS.Renderer)
+    ? container.resolve(TOKENS.Renderer)
+    : undefined;
+  const toolExecutor = new ToolExecutor(toolRegistry, {
+    permissionPolicy: container.resolve(TOKENS.PermissionPolicy),
+    secretScrubber,
+    renderer,
+    events,
+    confirmAwaiter: undefined,
+    iterationTimeoutMs: config.tools?.iterationTimeoutMs ?? 120000,
+    perIterationOutputCapBytes: config.tools?.perIterationOutputCapBytes ?? 50000,
+    tracer: undefined,
+  });
+
   const agent = new Agent({
     container,
     tools: toolRegistry,
@@ -290,6 +306,7 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
     executionStrategy: config.tools?.defaultExecutionStrategy ?? 'sequential',
     perIterationOutputCapBytes: config.tools?.perIterationOutputCapBytes ?? 50000,
     confirmAwaiter: undefined,
+    toolExecutor,
   });
   console.log('[WebUI] Agent initialized');
 

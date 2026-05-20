@@ -85,3 +85,42 @@ export interface ToolConfirmPendingResult {
 }
 
 export type ToolExecutorStrategy = 'parallel' | 'sequential' | 'smart';
+
+/**
+ * Minimal contract for tool execution.
+ *
+ * Defined here (in `types/`) so `core/` does not need to import the
+ * concrete `ToolExecutor` class from `execution/`. Callers that create
+ * the executor (e.g. CLI wiring) implement this interface.
+ *
+ * Only the methods actually called by `Agent` are included — keeping the
+ * interface narrow prevents unnecessary coupling.
+ */
+export interface ToolExecutorLike {
+  /**
+   * Execute a batch of tool uses. The strategy controls whether tools run
+   * sequentially, in parallel, or smart (parallel non-mutating + sequential mutating).
+   */
+  executeBatch(
+    toolUses: import('./blocks.js').ToolUseBlock[],
+    ctx: import('../core/context.js').Context,
+    strategy: ToolExecutorStrategy,
+  ): Promise<ToolBatchResult>;
+
+  /**
+   * Clear the interactive confirm awaiter so the executor returns
+   * `ToolConfirmPendingResult` instead of blocking.
+   */
+  clearConfirmAwaiter(): void;
+
+  /**
+   * Execute a single tool with timeout and output capping.
+   * Used by the agent when it needs to run one tool at a time.
+   */
+  executeTool(
+    tool: Tool,
+    use: ToolUseBlock,
+    ctx: import('../core/context.js').Context,
+    budget: number,
+  ): Promise<ToolResultBlock>;
+}

@@ -32,6 +32,7 @@ import {
   makeDirectorSessionFactory,
   NULL_FLEET_BUS,
 } from '@wrongstack/core';
+import { ToolExecutor } from '@wrongstack/core/execution';
 import type { TextBlock } from '@wrongstack/core';
 import { makeProviderFromConfig } from '@wrongstack/providers';
 
@@ -46,6 +47,8 @@ export interface MultiAgentDeps {
   tokenCounter: TokenCounter;
   projectRoot: string;
   cwd: string;
+  secretScrubber: import('@wrongstack/core').SecretScrubber;
+  renderer?: import('@wrongstack/core').Renderer;
 }
 
 /**
@@ -321,6 +324,17 @@ export class MultiAgentHost {
         tools: this.filterTools(subCfg.tools),
       });
 
+      const toolExecutor = new ToolExecutor(this.subagentToolRegistry(subCfg.tools), {
+        permissionPolicy: new AutoApprovePermissionPolicy(),
+        secretScrubber: this.deps.secretScrubber,
+        renderer: this.deps.renderer,
+        events,
+        confirmAwaiter: undefined,
+        iterationTimeoutMs: config.tools?.iterationTimeoutMs ?? 120_000,
+        perIterationOutputCapBytes: config.tools?.perIterationOutputCapBytes ?? 100_000,
+        tracer: undefined,
+      });
+
       const agent = new Agent({
         container: this.deps.container,
         tools: this.subagentToolRegistry(subCfg.tools),
@@ -333,6 +347,7 @@ export class MultiAgentHost {
         // (except tool-level hard denies); the user already authorized
         // the work when they invoked the leader.
         permissionPolicy: new AutoApprovePermissionPolicy(),
+        toolExecutor,
       });
 
       // Close the per-subagent JSONL writer when the task ends. Without

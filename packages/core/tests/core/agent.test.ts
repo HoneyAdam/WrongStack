@@ -6,6 +6,7 @@ import { Agent, createDefaultPipelines } from '../../src/core/agent.js';
 import { Context } from '../../src/core/context.js';
 import { DefaultErrorHandler } from '../../src/execution/error-handler.js';
 import { DefaultRetryPolicy } from '../../src/execution/retry-policy.js';
+import { ToolExecutor } from '../../src/execution/tool-executor.js';
 import { DefaultLogger } from '../../src/infrastructure/logger.js';
 import { DefaultTokenCounter } from '../../src/infrastructure/token-counter.js';
 import { Container } from '../../src/kernel/container.js';
@@ -63,6 +64,17 @@ async function buildAgent(provider: MockProvider, extraTools: Tool[] = []) {
     model: 'test-model',
   });
 
+  const secretScrubber = container.resolve(TOKENS.SecretScrubber);
+  const toolExecutor = new ToolExecutor(tools, {
+    permissionPolicy: container.resolve(TOKENS.PermissionPolicy),
+    secretScrubber,
+    events,
+    confirmAwaiter: undefined,
+    iterationTimeoutMs: 300_000,
+    perIterationOutputCapBytes: 100_000,
+    tracer: undefined,
+  });
+
   const agent = new Agent({
     container,
     tools,
@@ -71,6 +83,7 @@ async function buildAgent(provider: MockProvider, extraTools: Tool[] = []) {
     pipelines,
     context: ctx,
     maxIterations: 10,
+    toolExecutor,
   });
   return { agent, ctx, tools, tmp, sessionStore };
 }

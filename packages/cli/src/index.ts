@@ -586,6 +586,7 @@ export async function main(argv: string[]): Promise<number> {
       tokenCounter,
       projectRoot,
       cwd,
+      secretScrubber: container.resolve(TOKENS.SecretScrubber),
     },
     {
       directorMode,

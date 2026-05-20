@@ -8,10 +8,12 @@ import {
   type ModelsRegistry,
   type Provider,
   type ProviderRegistry,
+  TOKENS,
   type ToolRegistry,
   createDefaultPipelines,
   estimateRequestTokens,
 } from '@wrongstack/core';
+import { ToolExecutor } from '@wrongstack/core/execution';
 import { capabilitiesFor } from '@wrongstack/providers';
 
 type CompactionDriver = ConstructorParameters<typeof AutoCompactionMiddleware>[0];
@@ -109,7 +111,25 @@ export function createAgent(params: {
     };
   };
   confirmAwaiter: import('@wrongstack/core').AgentInit['confirmAwaiter'];
+  permissionPolicy?: import('@wrongstack/core').PermissionPolicy;
+  tracer?: import('@wrongstack/core').Tracer | undefined;
 }): Agent {
+  const secretScrubber = params.container.resolve(TOKENS.SecretScrubber);
+  const renderer = params.container.has(TOKENS.Renderer)
+    ? params.container.resolve(TOKENS.Renderer)
+    : undefined;
+  const logger = params.container.resolve(TOKENS.Logger);
+  const toolExecutor = new ToolExecutor(params.tools, {
+    permissionPolicy: params.permissionPolicy ?? params.container.resolve(TOKENS.PermissionPolicy),
+    secretScrubber,
+    renderer,
+    events: params.events,
+    confirmAwaiter: params.confirmAwaiter,
+    iterationTimeoutMs: params.config.tools.iterationTimeoutMs,
+    perIterationOutputCapBytes: params.config.tools.perIterationOutputCapBytes,
+    tracer: params.tracer,
+  });
+
   return new Agent({
     container: params.container,
     tools: params.tools,
@@ -122,5 +142,7 @@ export function createAgent(params: {
     executionStrategy: params.config.tools.defaultExecutionStrategy,
     perIterationOutputCapBytes: params.config.tools.perIterationOutputCapBytes,
     confirmAwaiter: params.confirmAwaiter,
+    toolExecutor,
+    tracer: params.tracer,
   });
 }

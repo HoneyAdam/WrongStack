@@ -1,5 +1,4 @@
 import { ExtensionRegistry } from '../extension/registry.js';
-import { ToolExecutor } from '../execution/tool-executor.js';
 import type { Container } from '../kernel/container.js';
 import type { EventBus } from '../kernel/events.js';
 import { Pipeline } from '../kernel/pipeline.js';
@@ -20,6 +19,7 @@ import type { Renderer } from '../types/renderer.js';
 import type { RetryPolicy } from '../types/retry-policy.js';
 import type { SecretScrubber } from '../types/secret-scrubber.js';
 import type { Tool } from '../types/tool.js';
+import type { ToolExecutorLike } from '../types/tool-executor.js';
 import { repairToolUseAdjacency } from '../utils/message-invariants.js';
 import { consumeAutonomousContinue, parseContinueDirective, type ContinueDirective } from './continue-to-next-iteration.js';
 import type { Context, RunOptions } from './context.js';
@@ -102,6 +102,11 @@ export interface AgentInit {
    * no overhead, zero breakage.
    */
   extensions?: ExtensionRegistry | undefined;
+  /**
+   * Mandatory tool executor. Callers (e.g. CLI wiring) inject a pre-built
+   * instance so `core/` does not need a runtime import of `execution/`.
+   */
+  toolExecutor: ToolExecutorLike;
 }
 
 export interface AgentPipelines {
@@ -164,7 +169,7 @@ export class Agent {
   private readonly executionStrategy: 'parallel' | 'sequential' | 'smart';
   private readonly perIterationOutputCapBytes: number;
   private readonly plugins: { plugin: Plugin; api: PluginAPI }[] = [];
-  private readonly toolExecutor: ToolExecutor;
+  private readonly toolExecutor: ToolExecutorLike;
   private readonly autoExtendLimit: boolean;
   /** Enables autonomous continue: model can signal `[continue]` or call continue_to_next_iteration() to re-run. */
   private readonly autonomousContinue: boolean;
@@ -187,16 +192,7 @@ export class Agent {
     this.tracer = init.tracer;
     this.extensions = init.extensions ?? new ExtensionRegistry();
     this.extensions.setLogger(this.container.resolve(TOKENS.Logger));
-    this.toolExecutor = new ToolExecutor(this.tools, {
-      permissionPolicy: init.permissionPolicy ?? this.permission,
-      secretScrubber: this.scrubber,
-      renderer: this.renderer,
-      events: this.events,
-      confirmAwaiter: init.confirmAwaiter,
-      iterationTimeoutMs: this.iterationTimeoutMs,
-      perIterationOutputCapBytes: this.perIterationOutputCapBytes,
-      tracer: this.tracer,
-    });
+    this.toolExecutor = init.toolExecutor;
   }
 
   private get logger(): Logger {
