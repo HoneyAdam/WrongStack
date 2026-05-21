@@ -48,25 +48,22 @@ const PATTERNS: Pattern[] = [
   { type: 'redis_uri', regex: /redis:\/\/[^\s"'`]+/g },
   {
     type: 'bearer_token',
-    // Bounded at 512 chars to prevent catastrophic backtracking on adversarial input.
-    // Negative lookahead is a simple single-char check — no backtracking risk.
-    regex: /(?<![A-Za-z0-9_.~+/-])Bearer\s+[A-Za-z0-9._~+/-]{20,512}=*(?![A-Za-z0-9_.~+/-])/g,
+    // Anchored with alternation instead of negative lookahead — avoids V8
+    // backtracking risk on adversarial input. Bounded at 512 chars.
+    regex: /(?:^|[^A-Za-z0-9_.~+/-])Bearer\s+[A-Za-z0-9._~+/-]{20,512}=*(?:$|[^A-Za-z0-9_.~+/-])/g,
   },
   {
     type: 'high_entropy_env',
-    // Value bounded at 512 chars; negative lookahead simplified to avoid
-    // nested quantifier backtracking on adversarial input.
-    regex:
-      /\b([A-Z_]{4,}(?:KEY|TOKEN|SECRET|PASSWORD|PWD))\s*[:=]\s*['"]?([A-Za-z0-9_/+=-]{20,512})['"]?/g,
+    // Anchored with alternation instead of lookbehind to avoid backtracking.
+    // Value bounded at 512 chars.
+    regex: /(?:^|\s)([A-Z_]{4,}(?:KEY|TOKEN|SECRET|PASSWORD|PWD))\s*[:=]\s*['"]?([A-Za-z0-9_/+=-]{20,512})['"]?(?:\s|$)/g,
   },
 ];
 
 /**
- * Per-chunk cap. The `high_entropy_env` and `bearer_token` patterns use
- * negative lookahead/lookbehind which are theoretically backtracking-prone
- * on adversarial input. Real scrub() inputs (LLM responses, tool outputs)
- * are typically much smaller, but defense-in-depth: split very long inputs
- * into smaller chunks and scrub each independently.
+ * Per-chunk cap. Splits long inputs into 64 KB chunks to keep scrub() memory
+ * bounded. Real scrub() inputs (LLM responses, tool outputs) are typically
+ * much smaller; this cap handles edge cases without impacting normal usage.
  */
 const SCRUB_CHUNK_BYTES = 64 * 1024;
 

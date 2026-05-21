@@ -197,9 +197,12 @@ async function assertNotPrivate(hostname: string): Promise<void> {
       throw new Error(`fetch: blocked private/loopback address "${host}"`);
     }
   } else {
-    // Hostname — resolve and check every record. Best-effort against DNS
-    // rebinding; the actual fetch() does its own lookup. Strong protection
-    // would require pinning the resolved IP via a custom undici Agent.
+    // Hostname — resolve and check every record. This is best-effort against
+    // DNS rebinding; Node's fetch() does its own DNS resolution afterward,
+    // so a rebinding attack between lookup and fetch is theoretically possible.
+    // Each redirect target is re-checked before following. For non-hostile
+    // single-tenant contexts this is an acceptable risk. A stricter fix would
+    // require pinning the resolved IP via a custom undici Agent.
     try {
       const records = await dns.lookup(host, { all: true });
       for (const r of records) {

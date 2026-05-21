@@ -21,13 +21,20 @@
  * line size before matching).
  */
 
-const MAX_PATTERN_LEN = 512;
+const MAX_PATTERN_LEN = 256;
 
 // Heuristics for catastrophic-backtracking constructs. Not exhaustive; bias
 // toward false-positives in tools that accept LLM-generated input.
 const DANGEROUS_PATTERNS: ReadonlyArray<RegExp> = [
-  /(\([^)]*[+*][^)]*\))[+*]/, // (a+)+, (.*)+, etc — nested quantifier on a group with internal quantifier
-  /(\(\?:[^)]*[+*][^)]*\))[+*]/, // same, with non-capturing group
+  // (a+)+, (.*)+, etc — nested quantifier on a group with internal quantifier
+  /(\([^)]*[+*][^)]*\))[+*]/,
+  /(\(\?:[^)]*[+*][^)]*\))[+*]/,
+  // Adjacent quantifiers: a++ a*+
+  /[+*]{2,}/,
+  // Quantifier on alternation with length 2+
+  /\([^|)]+\|[^)]+\)[+*][+*]/,
+  // Greedy quantifier inside lookahead/lookbehind — (?!.*a+)
+  /[\(\[][^)\]]*[+*][^)\]]*[\)\]][^)]*\?\??/,
 ];
 
 export interface CompileResult {

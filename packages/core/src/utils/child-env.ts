@@ -104,6 +104,13 @@ export function buildChildEnv(optsOrSessionId?: BuildChildEnvOptions | string): 
   const passthrough = process.env['WRONGSTACK_CHILD_ENV_PASSTHROUGH'] === '1'
     || process.env['WRONGSTACK_BASH_ENV_PASSTHROUGH'] === '1' // legacy alias
   ;
+  if (passthrough && !process.env['CI']) {
+    console.warn(
+      '[WrongStack] WARNING: WRONGSTACK_*_ENV_PASSTHROUGH=1 is active —\n' +
+      '  all parent env vars (including API keys) forwarded to child processes.\n' +
+      '  Do not use on shared or multi-tenant systems.'
+    );
+  }
   const out: NodeJS.ProcessEnv = {};
 
   for (const [k, v] of Object.entries(process.env)) {
