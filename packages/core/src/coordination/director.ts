@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
+import { atomicWrite } from '../utils/atomic-write.js';
 import { DirectorStateCheckpoint, type DirectorStateSnapshot } from '../storage/director-state.js';
 import type { BridgeMessage } from '../types/agent-bridge.js';
 import type {
@@ -373,9 +374,14 @@ export class Director implements ICoordinator {
     this.fleetManager = opts.fleetManager;
     if (this.sharedScratchpadPath) {
       // Create the directory eagerly so subagents that try to write
-      // there on first iteration don't trip on ENOENT. Fire-and-forget;
-      // any failure surfaces later when an agent actually writes.
-      void fsp.mkdir(this.sharedScratchpadPath, { recursive: true }).catch(() => undefined);
+      // there on first iteration don't trip on ENOENT. Fire-and-forget,
+      // but surface failures via process.emitWarning — the downstream
+      // ENOENT a subagent hits is opaque without this signal.
+      void fsp
+        .mkdir(this.sharedScratchpadPath, { recursive: true })
+        .catch((err) =>
+          this.logShutdownError('shared_scratchpad_mkdir', err),
+        );
     }
     this.transport = new InMemoryBridgeTransport();
     this.bridge = new InMemoryAgentBridge(
@@ -533,7 +539,9 @@ export class Director implements ICoordinator {
     if (this.manifestTimer) return;
     this.manifestTimer = setTimeout(() => {
       this.manifestTimer = null;
-      void this.writeManifest().catch(() => undefined);
+      void this.writeManifest().catch((err) =>
+        this.logShutdownError('manifest_write_debounced', err),
+      );
     }, this.manifestDebounceMs);
   }
 
@@ -743,7 +751,7 @@ export class Director implements ICoordinator {
       usage: this.usage.snapshot(),
     };
     await fsp.mkdir(path.dirname(this.manifestPath), { recursive: true });
-    await fsp.writeFile(this.manifestPath, JSON.stringify(manifest, null, 2), { mode: 0o600 });
+    await atomicWrite(this.manifestPath, JSON.stringify(manifest, null, 2), { mode: 0o600 });
     return this.manifestPath;
   }
 

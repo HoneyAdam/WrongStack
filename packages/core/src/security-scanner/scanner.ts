@@ -168,11 +168,17 @@ export class SecurityScanner {
       if (!this.matchesCategory(pattern)) continue;
 
       for (const regex of pattern.patterns) {
-        regex.lastIndex = 0; // Reset regex state
-
         for (let lineNum = 0; lineNum < lines.length; lineNum++) {
           const line = lines[lineNum];
           if (!line) continue;
+
+          // Reset INSIDE the line loop: pattern.patterns are declared with
+          // the /g flag (see skill-generator.ts), and `.test()` on a /g regex
+          // advances `lastIndex` between calls. A match on line N leaves
+          // `lastIndex` past the end of line N+1's string, silently skipping
+          // every subsequent match — turning the scanner into a one-finding-
+          // per-file tool. Reset here so each line gets a fresh search.
+          regex.lastIndex = 0;
 
           if (regex.test(line)) {
             // Check false positive markers

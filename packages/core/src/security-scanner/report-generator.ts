@@ -1,5 +1,6 @@
-import { readFile, writeFile, readdir, stat } from 'node:fs/promises';
+import { readFile, readdir, stat } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
+import { atomicWrite } from '../utils/atomic-write.js';
 import type { ScanResult, Finding } from './scanner.js';
 
 export interface ReportOptions {
@@ -44,7 +45,7 @@ export class ReportGenerator {
         content = this.generateMarkdown(scanResult);
     }
 
-    await writeFile(filepath, content, 'utf-8');
+    await atomicWrite(filepath, content);
     return filepath;
   }
 

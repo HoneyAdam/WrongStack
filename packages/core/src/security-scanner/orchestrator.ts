@@ -10,8 +10,9 @@ import type { Provider, Request } from '../types/provider.js';
 import { ProviderError } from '../types/provider.js';
 import type { RetryPolicy } from '../types/retry-policy.js';
 import type { ErrorHandler } from '../types/error-handler.js';
-import { readFile, readdir, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, readdir, mkdir } from 'node:fs/promises';
 import { join, relative } from 'node:path';
+import { atomicWrite } from '../utils/atomic-write.js';
 import { sanitizeJsonString } from '../utils/safe-json.js';
 
 // Shared network error pattern — mirrors DefaultRetryPolicy.NETWORK_ERR_RE
@@ -530,7 +531,7 @@ Be specific about the vulnerabilities found and how to fix them.`;
     const filename = `security-report-${timestamp}.${format}`;
     const filepath = join(outputDir, filename);
 
-    await writeFile(filepath, content, 'utf-8');
+    await atomicWrite(filepath, content);
     return filepath;
   }
 

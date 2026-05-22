@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { Tool } from '@wrongstack/core';
+import { atomicWrite } from '@wrongstack/core';
 import { safeResolve } from './_util.js';
 
 interface ScaffoldInput {
@@ -155,7 +156,9 @@ async function handleBuiltIn(
 
     if (!dryRun) {
       await fs.mkdir(path.dirname(fullPath), { recursive: true });
-      await fs.writeFile(fullPath, substituteVars(content, name, vars), 'utf8');
+      // atomicWrite: scaffolded files land in the user's tracked tree.
+      // A torn write here would commit a corrupt file to their repo.
+      await atomicWrite(fullPath, substituteVars(content, name, vars));
     }
     files.push(resolvedPath);
     filesCreated++;

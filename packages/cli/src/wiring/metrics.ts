@@ -74,11 +74,14 @@ export function setupMetrics(params: MetricsWiringDeps): MetricsWiringResult {
       // best-effort
     }
   };
+  // Dump on natural exit. We deliberately do NOT register a SIGINT
+  // handler that calls process.exit() — doing so would preempt the
+  // REPL's "press Ctrl+C twice to exit" semantics and turn a soft
+  // abort (cancel current iteration) into a hard kill of the process.
+  // Other SIGINT handlers (repl.ts, execution.ts, tui/app.tsx) own
+  // the exit lifecycle; when they ultimately call process.exit the
+  // 'exit' event fires and dumpMetrics runs.
   process.on('exit', dumpMetrics);
-  process.on('SIGINT', () => {
-    dumpMetrics();
-    process.exit(130);
-  });
 
   if (metricsPort !== undefined && Number.isFinite(metricsPort)) {
     try {

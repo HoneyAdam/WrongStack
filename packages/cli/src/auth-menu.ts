@@ -169,9 +169,10 @@ async function manageProvider(providerId: string, deps: AuthMenuDeps): Promise<v
     deps.renderer.write(`    ${color.bold('m')}        Edit visible model list\n`);
     deps.renderer.write(`    ${color.bold('x')}        Remove this provider entirely\n`);
     deps.renderer.write(`    ${color.bold('b')}        Back\n`);
+    deps.renderer.write(`    ${color.bold('q')}        Quit\n`);
 
     const raw = (await deps.reader.readLine(`\n${color.amber('?')} ${providerId} > `)).trim();
-    if (!raw || raw === 'b' || raw === 'back') return;
+    if (!raw || raw === 'b' || raw === 'back' || raw === 'q' || raw === 'quit') return;
 
     const [verb, argRaw] = raw.split(/\s+/, 2);
     const arg = argRaw ? Number.parseInt(argRaw, 10) : Number.NaN;
@@ -183,11 +184,12 @@ async function manageProvider(providerId: string, deps: AuthMenuDeps): Promise<v
     if (verb === 'x' || verb === 'remove') {
       const confirm = (
         await deps.reader.readLine(
-          `  ${color.amber('?')} Remove provider "${providerId}" and ${keys.length} key(s)? ${color.dim('[y/N]')} `,
+          `  ${color.amber('?')} Remove provider "${providerId}" and ${keys.length} key(s)? ${color.dim('[y/N/q]')} `,
         )
       )
         .trim()
         .toLowerCase();
+      if (confirm === 'q') continue;
       if (confirm === 'y' || confirm === 'yes') {
         await mutateProviders(deps, (all) => {
           delete all[providerId];
@@ -224,11 +226,12 @@ async function manageProvider(providerId: string, deps: AuthMenuDeps): Promise<v
       const target = keys[arg - 1]!;
       const confirm = (
         await deps.reader.readLine(
-          `  ${color.amber('?')} Delete key "${target.label}" (${maskedKey(target.apiKey)})? ${color.dim('[y/N]')} `,
+          `  ${color.amber('?')} Delete key "${target.label}" (${maskedKey(target.apiKey)})? ${color.dim('[y/N/q]')} `,
         )
       )
         .trim()
         .toLowerCase();
+      if (confirm === 'q') continue;
       if (confirm !== 'y' && confirm !== 'yes') continue;
       await mutateProviders(deps, (all) => {
         const p = all[providerId];
@@ -341,8 +344,8 @@ async function addForNewProvider(deps: AuthMenuDeps): Promise<void> {
 
   if (catalog.length === 0) {
     // Manual entry path
-    const pid = (await deps.reader.readLine(`  ${color.amber('?')} Provider id: `)).trim();
-    if (!pid) return;
+    const pid = (await deps.reader.readLine(`  ${color.amber('?')} Provider id ${color.dim('[q to quit]')}: `)).trim();
+    if (!pid || pid === 'q') return;
     const fam = (
       await deps.reader.readLine(
         `  ${color.amber('?')} Family (anthropic/openai/openai-compatible/google): `,
@@ -371,9 +374,10 @@ async function addForNewProvider(deps: AuthMenuDeps): Promise<void> {
   );
   const filterRaw = (
     await deps.reader.readLine(
-      `  ${color.amber('?')} Filter ${color.dim('(substring of id/name, "s" for unsaved-only, empty = all)')}: `,
+      `  ${color.amber('?')} Filter ${color.dim('(substring, "s" for unsaved-only, q to quit)')}: `,
     )
   ).trim();
+  if (filterRaw === 'q') return;
   const filterLc = filterRaw.toLowerCase();
   const showUnsavedOnly = filterLc === 's' || filterLc === 'unsaved';
   const matches = (p: ResolvedProvider): boolean => {
@@ -426,10 +430,10 @@ async function addForNewProvider(deps: AuthMenuDeps): Promise<void> {
 
   const answer = (
     await deps.reader.readLine(
-      `\n${color.amber('?')} Pick (1-${ordered.length}) or type provider id: `,
+      `\n${color.amber('?')} Pick (1-${ordered.length}) or type provider id ${color.dim('[q to quit]')}: `,
     )
   ).trim();
-  if (!answer) return;
+  if (!answer || answer === 'q') return;
 
   let chosen: ResolvedProvider | undefined;
   const num = Number.parseInt(answer, 10);
@@ -455,8 +459,9 @@ async function addForNewProvider(deps: AuthMenuDeps): Promise<void> {
     color.dim(`\n  Defaults from models.dev — press Enter to keep, or type a new value.\n`),
   );
   const famRaw = (
-    await deps.reader.readLine(`  ${color.amber('?')} Family ${color.dim(`[${chosen.family}]`)}: `)
+    await deps.reader.readLine(`  ${color.amber('?')} Family ${color.dim(`[${chosen.family}]`)} ${color.dim('(q to quit)')}: `)
   ).trim();
+  if (famRaw === 'q') return;
   let family: WireFamily = chosen.family;
   if (famRaw) {
     if (!['anthropic', 'openai', 'openai-compatible', 'google'].includes(famRaw)) {
@@ -469,9 +474,10 @@ async function addForNewProvider(deps: AuthMenuDeps): Promise<void> {
   }
   const baseRaw = (
     await deps.reader.readLine(
-      `  ${color.amber('?')} Base URL ${color.dim(`[${chosen.apiBase ?? 'unset'}]`)}: `,
+      `  ${color.amber('?')} Base URL ${color.dim(`[${chosen.apiBase ?? 'unset'}]`)} ${color.dim('(q to quit)')}: `,
     )
   ).trim();
+  if (baseRaw === 'q') return;
   const baseUrl: string | undefined = baseRaw || chosen.apiBase;
 
   // Pick the storage alias (= map key under `providers`). Two reasons to
@@ -543,10 +549,10 @@ async function addCustomProvider(deps: AuthMenuDeps): Promise<void> {
   );
   const type = (
     await deps.reader.readLine(
-      `  ${color.amber('?')} Provider id ${color.dim('(e.g. "local-llama", "my-proxy")')}: `,
+      `  ${color.amber('?')} Provider id ${color.dim('(e.g. "local-llama", "my-proxy", q to quit)')}: `,
     )
   ).trim();
-  if (!type) return;
+  if (!type || type === 'q') return;
 
   const existing = (await loadProviders(deps))[type];
   if (existing) {
@@ -556,9 +562,10 @@ async function addCustomProvider(deps: AuthMenuDeps): Promise<void> {
 
   const familyRaw = (
     await deps.reader.readLine(
-      `  ${color.amber('?')} Wire family ${color.dim('(anthropic | openai | openai-compatible | google)')}: `,
+      `  ${color.amber('?')} Wire family ${color.dim('(anthropic | openai | openai-compatible | google)')} ${color.dim('(q to quit)')}: `,
     )
   ).trim();
+  if (familyRaw === 'q') return;
   if (!['anthropic', 'openai', 'openai-compatible', 'google'].includes(familyRaw)) {
     deps.renderer.writeError(`Invalid family: "${familyRaw}"`);
     return;
@@ -760,13 +767,24 @@ async function loadProviders(deps: AuthMenuDeps): Promise<Record<string, Provide
   let raw: string;
   try {
     raw = await fs.readFile(deps.globalConfigPath, 'utf8');
-  } catch {
+  } catch (err) {
+    // ENOENT is normal on first run; anything else (EACCES, EIO) is worth surfacing.
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      deps.renderer.writeWarning(
+        `Could not read ${deps.globalConfigPath}: ${(err as Error).message}. Treating as empty.`,
+      );
+    }
     return {};
   }
   let parsed: { providers?: Record<string, ProviderConfig> } = {};
   try {
     parsed = JSON.parse(raw) as { providers?: Record<string, ProviderConfig> };
-  } catch {
+  } catch (err) {
+    // Corrupt config: surface loudly. We still return {} so the menu remains
+    // usable, but mutateProviders() will refuse to overwrite (see below).
+    deps.renderer.writeWarning(
+      `Config at ${deps.globalConfigPath} is not valid JSON: ${(err as Error).message}`,
+    );
     return {};
   }
   const decrypted = decryptConfigSecrets(parsed, deps.vault);
@@ -784,15 +802,33 @@ async function mutateProviders(
   mutator: (providers: Record<string, ProviderConfig>) => void,
 ): Promise<void> {
   let raw: string;
+  let fileExists = true;
   try {
     raw = await fs.readFile(deps.globalConfigPath, 'utf8');
-  } catch {
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      // Something other than missing file — refuse to overwrite blindly.
+      throw new Error(
+        `Refusing to mutate ${deps.globalConfigPath}: ${(err as Error).message}`,
+        { cause: err },
+      );
+    }
+    fileExists = false;
     raw = '{}';
   }
   let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(raw) as Record<string, unknown>;
-  } catch {
+  } catch (err) {
+    // Refuse to clobber a corrupt-but-existing config — the user may still
+    // have salvageable keys in it. Bail with a clear error.
+    if (fileExists) {
+      throw new Error(
+        `Refusing to overwrite corrupt config at ${deps.globalConfigPath} ` +
+          `(${(err as Error).message}). Fix or move the file aside before retrying.`,
+        { cause: err },
+      );
+    }
     parsed = {};
   }
   const decrypted = decryptConfigSecrets(parsed, deps.vault) as Record<string, unknown>;

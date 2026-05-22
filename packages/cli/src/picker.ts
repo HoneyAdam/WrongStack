@@ -228,9 +228,14 @@ export async function runPicker(deps: {
       : '';
   const providerAnswer = (
     await reader.readLine(
-      `\n${color.amber('?')} Select provider (1-${ordered.length})${defaultHint}: `,
+      `\n${color.amber('?')} Select provider (1-${ordered.length})${defaultHint} ${color.dim('[q to quit]')}: `,
     )
   ).trim();
+
+  if (providerAnswer.toLowerCase() === 'q') {
+    renderer.write(color.dim('Cancelled.\n'));
+    return undefined;
+  }
 
   if (!providerAnswer) {
     if (defaultIdx !== undefined) {
@@ -312,9 +317,13 @@ async function pickModel(
     if (offset < models.length) {
       const more = (
         await reader.readLine(
-          `\n${color.amber('?')} Showing ${Math.min(offset, models.length)}/${models.length} — Enter number or ${color.dim('Enter')} for more: `,
+          `\n${color.amber('?')} Showing ${Math.min(offset, models.length)}/${models.length} — Enter number, ${color.dim('Enter')} for more, or ${color.dim('q')} to quit: `,
         )
       ).trim();
+      if (more.toLowerCase() === 'q') {
+        renderer.write(color.dim('Cancelled.\n'));
+        return undefined;
+      }
       if (!more) continue; // show next page
       return resolveModelSelection(more, models, provider, registry, renderer, reader);
     }
@@ -324,8 +333,12 @@ async function pickModel(
   const defaultHint =
     defaultIdxInModels >= 0 && defaultModel ? ` ${color.dim(`[Enter = ${defaultModel}]`)}` : '';
   const answer = (
-    await reader.readLine(`\n${color.amber('?')} Select model (1-${models.length})${defaultHint}: `)
+    await reader.readLine(`\n${color.amber('?')} Select model (1-${models.length})${defaultHint} ${color.dim('[q to quit]')}: `)
   ).trim();
+  if (answer.toLowerCase() === 'q') {
+    renderer.write(color.dim('Cancelled.\n'));
+    return undefined;
+  }
   if (!answer) {
     if (defaultIdxInModels >= 0 && defaultModel) {
       renderer.write(

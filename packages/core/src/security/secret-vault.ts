@@ -4,6 +4,7 @@ import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import type { SecretVault } from '../types/secret-vault.js';
 import { ENCRYPTED_PREFIX } from '../types/secret-vault.js';
+import { atomicWrite } from '../utils/atomic-write.js';
 
 export interface SecretVaultOptions {
   /** Absolute path to the key file. Created with mode 0o600 if missing. */
@@ -182,7 +183,8 @@ export async function rewriteConfigEncrypted(
   const merged = deepMerge(current, patch ?? {});
   const encrypted = encryptConfigSecrets(merged, vault);
   await fsp.mkdir(path.dirname(configPath), { recursive: true });
-  await fsp.writeFile(configPath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
+  // atomicWrite: torn write here would erase every saved encrypted API key.
+  await atomicWrite(configPath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
   try {
     await fsp.chmod(configPath, 0o600);
   } catch {
@@ -217,7 +219,8 @@ export async function migratePlaintextSecrets(
   const counter = { n: 0 };
   const migrated = walkCount(parsed, vault, counter);
   if (counter.n === 0) return { migrated: 0, file: configPath };
-  await fsp.writeFile(configPath, JSON.stringify(migrated, null, 2), { mode: 0o600 });
+  // atomicWrite: runs on every boot for legacy users — torn write = wipe.
+  await atomicWrite(configPath, JSON.stringify(migrated, null, 2), { mode: 0o600 });
   try {
     await fsp.chmod(configPath, 0o600);
   } catch {

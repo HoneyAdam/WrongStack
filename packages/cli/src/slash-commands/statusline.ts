@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import type { SlashCommand } from '@wrongstack/core';
+import { atomicWrite, type SlashCommand } from '@wrongstack/core';
 
 const CONFIG_ENV = 'WRONGSTACK_STATUSLINE_CONFIG';
 const DEFAULT_PATH = '~/.wrongstack/statusline.json';
@@ -42,7 +42,9 @@ export async function loadStatuslineConfig(): Promise<StatuslineConfig> {
 export async function saveStatuslineConfig(cfg: StatuslineConfig): Promise<void> {
   const p = resolveConfigPath();
   await fs.mkdir(path.dirname(p), { recursive: true });
-  await fs.writeFile(p, JSON.stringify(cfg, null, 2), { encoding: 'utf8' });
+  // atomicWrite: torn write would leave statusline.json malformed and the
+  // next load would silently fall back to DEFAULTS, losing user preferences.
+  await atomicWrite(p, JSON.stringify(cfg, null, 2));
 }
 
 export interface StatuslineCommandDeps {

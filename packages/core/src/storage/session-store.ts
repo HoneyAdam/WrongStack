@@ -13,7 +13,7 @@ import type {
   SessionSummary,
   SessionWriter,
 } from '../types/session.js';
-import { ensureDir } from '../utils/atomic-write.js';
+import { atomicWrite, ensureDir } from '../utils/atomic-write.js';
 import { repairToolUseAdjacency } from '../utils/message-invariants.js';
 
 export interface SessionStoreOptions {
@@ -69,19 +69,27 @@ export class DefaultSessionStore implements SessionStore {
         { cause: err },
       );
     }
-    const writer = new FileSessionWriter(
-      id,
-      handle,
-      new Date().toISOString(),
-      {
+    // Mirror create(): if writer construction throws, the handle would
+    // leak. Constructor is non-throwing today but the asymmetry would
+    // become a real handle leak the moment validation lands here.
+    try {
+      const writer = new FileSessionWriter(
         id,
-        model: data.metadata.model,
-        provider: data.metadata.provider,
-      },
-      this.events,
-      { resumed: true, dir: this.dir, filePath: file },
-    );
-    return { writer, data };
+        handle,
+        new Date().toISOString(),
+        {
+          id,
+          model: data.metadata.model,
+          provider: data.metadata.provider,
+        },
+        this.events,
+        { resumed: true, dir: this.dir, filePath: file },
+      );
+      return { writer, data };
+    } catch (err) {
+      await handle.close().catch(() => {});
+      throw err;
+    }
   }
 
   async load(id: string): Promise<SessionData> {
@@ -146,8 +154,7 @@ export class DefaultSessionStore implements SessionStore {
       const full = path.join(this.dir, `${id}.jsonl`);
       const stat = await fsp.stat(full);
       const summary = await this.summarize(id, stat.mtime.toISOString());
-      await fsp
-        .writeFile(manifest, JSON.stringify(summary), { mode: 0o600 })
+      await atomicWrite(manifest, JSON.stringify(summary), { mode: 0o600 })
         .catch((err) => {
           // Best-effort manifest write — list() falls back to full parse
           // on next invocation, so surface the error for diagnostics but
@@ -415,7 +422,7 @@ class FileSessionWriter implements SessionWriter {
     this.closed = true;
     if (this.manifestFile) {
       try {
-        await fsp.writeFile(this.manifestFile, JSON.stringify(this.summary), { mode: 0o600 });
+        await atomicWrite(this.manifestFile, JSON.stringify(this.summary), { mode: 0o600 });
       } catch {
         // manifest write is best-effort; list() falls back to full load.
       }
@@ -512,6 +519,11 @@ class FileSessionWriter implements SessionWriter {
     }
 
     const truncated = kept.join('\n');
+    // NOTE: cannot use atomicWrite() here. The writer holds an append-mode
+    // FileHandle on this.filePath (see resume/create), and on Windows
+    // `rename(tmp, target)` fails with EPERM when `target` has an open
+    // handle. truncateToCheckpoint is only invoked from an explicit /rewind,
+    // so the small crash window is acceptable.
     await fsp.writeFile(this.filePath, truncated + '\n', 'utf8');
 
     await this.append({

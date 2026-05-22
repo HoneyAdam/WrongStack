@@ -91,14 +91,29 @@ export class LSPRegistry {
   }
 
   async stop(name: string): Promise<void> {
+    // Cancel any pending auto-reconnect so the server doesn't come back
+    // up moments after a user-requested stop.
+    this.cancelReconnect(name);
     await this.getOrThrow(name).shutdown();
   }
 
   async restart(name: string): Promise<void> {
     const server = this.getOrThrow(name);
+    // Cancel pending auto-reconnect AND clear the strike counter — a
+    // manual restart should not count against the 3-attempt limit.
+    this.cancelReconnect(name);
+    this.reconnectAttempts.delete(name);
     await server.shutdown();
     await server.start();
     await this.tracker.reopenForServer(server);
+  }
+
+  private cancelReconnect(name: string): void {
+    const timer = this.reconnectTimers.get(name);
+    if (timer) {
+      clearTimeout(timer);
+      this.reconnectTimers.delete(name);
+    }
   }
 
   private rebuildServers(): void {

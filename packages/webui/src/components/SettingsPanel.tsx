@@ -141,8 +141,8 @@ export function SettingsPanel() {
         const payload = msg.payload as { success: boolean; message: string };
         setOperationStatus(payload);
         setTimeout(() => setOperationStatus(null), 3000);
-        // Refresh saved providers after operation
-        listSavedProviders?.();
+        // Refresh saved providers after operation using stable client ref.
+        wsClient.listSavedProviders();
       }
     };
 
@@ -160,8 +160,8 @@ export function SettingsPanel() {
 
     setIsLoadingCatalog(true);
     setIsLoadingSaved(true);
-    listProviders?.();
-    listSavedProviders?.();
+    wsClient.listProviders();
+    wsClient.listSavedProviders();
 
     return () => {
       off1?.();
@@ -169,7 +169,7 @@ export function SettingsPanel() {
       off3?.();
       off4?.();
     };
-  }, [wsConnected, wsClient, listProviders, listSavedProviders]);
+  }, [wsConnected, wsClient]);
 
   // Selecting a provider just loads its model list and stages the pick locally.
   // The actual backend switch fires when the user picks a model — that's the
@@ -192,10 +192,12 @@ export function SettingsPanel() {
       // will rebuild the provider instance, persist the choice to the config
       // file, and broadcast a fresh session.start — useWebSocket's session.start
       // handler then re-syncs our config store so the chip stays in sync.
-      ws.switchModel?.(provider, modelId);
-      setOperationStatus({ success: true, message: `Switching to ${provider} / ${modelId}…` });
+      // Read current provider from store to avoid stale closure on provider switch.
+      const currentProvider = useConfigStore.getState().provider;
+      ws.switchModel?.(currentProvider, modelId);
+      setOperationStatus({ success: true, message: `Switching to ${currentProvider} / ${modelId}…` });
     },
-    [setModel, ws, provider],
+    [setModel, ws],
   );
 
   const handleAddKey = useCallback(

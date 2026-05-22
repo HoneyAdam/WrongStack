@@ -1,6 +1,7 @@
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { atomicWrite } from '../utils/atomic-write.js';
 import type { SubagentConfig } from '../types/multi-agent.js';
 import type { SessionWriter } from '../types/session.js';
 import { DirectorStateCheckpoint } from '../storage/director-state.js';
@@ -209,7 +210,7 @@ export class FleetManager implements IFleetManager {
       usage: this.usage.snapshot(),
     };
     await fsp.mkdir(path.dirname(this.manifestPath), { recursive: true });
-    await fsp.writeFile(this.manifestPath, JSON.stringify(manifest, null, 2), { mode: 0o600 });
+    await atomicWrite(this.manifestPath, JSON.stringify(manifest, null, 2), { mode: 0o600 });
     return this.manifestPath;
   }
 
@@ -231,7 +232,17 @@ export class FleetManager implements IFleetManager {
     if (this.manifestTimer) return;
     this.manifestTimer = setTimeout(() => {
       this.manifestTimer = null;
-      void this.writeManifest().catch(() => undefined);
+      void this.writeManifest().catch((err) => {
+        // Surface via process.emitWarning so a persistent manifest-write
+        // failure doesn't get silently swallowed (e.g. ENOSPC on the
+        // sessions dir would otherwise leave fleet state un-persisted with
+        // no signal until shutdown).
+        const detail = err instanceof Error ? err.message : String(err);
+        process.emitWarning(
+          `FleetManager manifest write failed: ${detail}`,
+          'FleetManagerWarning',
+        );
+      });
     }, this.manifestDebounceMs);
   }
 

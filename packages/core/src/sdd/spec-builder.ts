@@ -284,8 +284,11 @@ export class AISpecBuilder {
     try {
       const fsp = await import('node:fs/promises');
       const path = await import('node:path');
+      const { atomicWrite } = await import('../utils/atomic-write.js');
       await fsp.mkdir(path.dirname(this.sessionPath), { recursive: true });
-      await fsp.writeFile(this.sessionPath, JSON.stringify(this.session, null, 2), 'utf8');
+      // atomicWrite: torn save would corrupt the SDD session JSON and the
+      // next load would silently fall back to a fresh session.
+      await atomicWrite(this.sessionPath, JSON.stringify(this.session, null, 2));
     } catch {
       // Best-effort persistence — don't crash if save fails
     }
@@ -320,9 +323,17 @@ export class AISpecBuilder {
     }
   }
 
-  /** Auto-save helper — calls saveSession() but never throws. */
+  /** Auto-save helper — calls saveSession() but never throws.
+   *  Failures are surfaced via process.emitWarning so a persistent
+   *  ENOSPC / EACCES doesn't silently strand session edits in memory. */
   private autoSave(): void {
-    this.saveSession().catch(() => {});
+    this.saveSession().catch((err) => {
+      const detail = err instanceof Error ? err.message : String(err);
+      process.emitWarning(
+        `SpecBuilder autoSave failed: ${detail}`,
+        'SpecBuilderWarning',
+      );
+    });
   }
 
   // ── Session Lifecycle ─────────────────────────────────────────────────────

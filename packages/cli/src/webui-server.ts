@@ -691,15 +691,32 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
   async function saveProviders(providers: Record<string, ProviderConfig>): Promise<void> {
     if (!opts.globalConfigPath) return;
     let raw: string;
+    let fileExists = true;
     try {
       raw = await fs.readFile(opts.globalConfigPath, 'utf8');
-    } catch {
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        // Permissions / IO error — refuse to overwrite blindly.
+        throw new Error(
+          `Refusing to mutate ${opts.globalConfigPath}: ${(err as Error).message}`,
+          { cause: err },
+        );
+      }
+      fileExists = false;
       raw = '{}';
     }
     let parsed: Record<string, unknown>;
     try {
       parsed = JSON.parse(raw) as Record<string, unknown>;
-    } catch {
+    } catch (err) {
+      // Refuse to clobber a corrupt-but-existing config (mirrors auth-menu.ts).
+      if (fileExists) {
+        throw new Error(
+          `Refusing to overwrite corrupt config at ${opts.globalConfigPath} ` +
+            `(${(err as Error).message}). Fix or move the file aside before retrying.`,
+          { cause: err },
+        );
+      }
       parsed = {};
     }
     parsed.providers = providers;

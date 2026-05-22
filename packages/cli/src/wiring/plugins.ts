@@ -83,7 +83,3 @@ function buildPluginOptions(config: Config): Record<string, Record<string, unkno
   }
   return options;
 }
-
-function patchConfig(base: Config, patch: Partial<Config>): Config {
-  return { ...base, ...patch };
-}

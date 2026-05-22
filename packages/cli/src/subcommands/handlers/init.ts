@@ -32,7 +32,12 @@ export const initCmd: SubcommandHandler = async (_args, deps) => {
       `Detected API keys for: ${detected.map((p: { name: string }) => p.name).join(', ')}\n`,
     );
   const defaultId = ranked[0]?.id ?? 'anthropic';
-  const providerId = (await deps.reader.readLine(`Provider [${defaultId}]: `)).trim() || defaultId;
+  const providerAnswer = (await deps.reader.readLine(`Provider [${defaultId}]: `)).trim();
+  if (providerAnswer === 'q') {
+    deps.renderer.write(color.dim('Cancelled.\n'));
+    return 0;
+  }
+  const providerId = providerAnswer || defaultId;
   const provider = await deps.modelsRegistry.getProvider(providerId);
   if (!provider) {
     deps.renderer.writeError(`Provider "${providerId}" not found in models.dev catalog.`);
@@ -46,7 +51,12 @@ export const initCmd: SubcommandHandler = async (_args, deps) => {
   }
   const suggestedModel = (await deps.modelsRegistry.suggestModel(providerId)) ?? '';
   const modelHint = suggestedModel ? ` [${suggestedModel}]` : '';
-  const modelId = (await deps.reader.readLine(`Model${modelHint}: `)).trim() || suggestedModel;
+  const modelAnswer = (await deps.reader.readLine(`Model${modelHint}: `)).trim();
+  if (modelAnswer === 'q') {
+    deps.renderer.write(color.dim('Cancelled.\n'));
+    return 0;
+  }
+  const modelId = modelAnswer || suggestedModel;
   if (!modelId) {
     deps.renderer.writeError('No model selected. Aborting.');
     return 1;

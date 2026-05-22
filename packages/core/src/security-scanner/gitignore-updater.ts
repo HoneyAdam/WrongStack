@@ -1,4 +1,5 @@
-import { readFile, writeFile, stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
+import { atomicWrite } from '../utils/atomic-write.js';
 
 export interface GitignoreUpdaterOptions {
   gitignorePath: string;
@@ -37,13 +38,15 @@ export class GitignoreUpdater {
 
       if (added.length > 0) {
         const newContent = [...lines].filter(Boolean).join('\n') + '\n';
-        await writeFile(this.options.gitignorePath, newContent, 'utf-8');
+        // atomicWrite: .gitignore is a user-tracked source file — a torn
+        // write here would commit a corrupt file to the user's repo.
+        await atomicWrite(this.options.gitignorePath, newContent);
       }
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
         // .gitignore doesn't exist, create it
         const content = this.options.entries.join('\n') + '\n';
-        await writeFile(this.options.gitignorePath, content, 'utf-8');
+        await atomicWrite(this.options.gitignorePath, content);
         added.push(...this.options.entries);
       } else {
         errors.push(`Failed to update .gitignore: ${err}`);

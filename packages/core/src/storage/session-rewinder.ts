@@ -2,6 +2,7 @@ import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import type { CheckpointInfo, RewindResult, RewindResultExtended, SessionRewinder } from '../types/session-rewinder.js';
 import type { SessionEvent, FileSnapshot } from '../types/session.js';
+import { atomicWrite } from '../utils/atomic-write.js';
 
 export interface SessionRewinderOptions {
   sessionsDir: string;
@@ -179,7 +180,8 @@ async function revertSnapshots(
         if (file.action === 'deleted') {
           // File was deleted — restore it from before
           if (file.before !== null) {
-            await fsp.writeFile(file.path, file.before, { mode: 0o644 });
+            // atomicWrite: torn restore would leave the user with a frankenstein file.
+            await atomicWrite(file.path, file.before, { mode: 0o644 });
             revertedFiles.push(file.path);
           }
         } else if (file.action === 'created') {
@@ -189,7 +191,8 @@ async function revertSnapshots(
         } else if (file.action === 'modified') {
           // File was modified — restore before content
           if (file.before !== null) {
-            await fsp.writeFile(file.path, file.before, { mode: 0o644 });
+            // atomicWrite: torn restore would leave the user with a frankenstein file.
+            await atomicWrite(file.path, file.before, { mode: 0o644 });
             revertedFiles.push(file.path);
           }
         }

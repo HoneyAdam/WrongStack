@@ -66,6 +66,48 @@ describe('SecurityScanner', () => {
       await fs.rm(tmpDir, { recursive: true, force: true });
     });
 
+    it('detects every match across multiple lines (regression: /g flag lastIndex bug)', async () => {
+      // Regression test for a bug where `.test()` on a /g-flagged regex
+      // advances `lastIndex` between calls, causing the scanner to silently
+      // miss every match after the first per file.
+      // See: audit C6 / fix.md P11.
+      const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-scanner-regression-'));
+      const testFile = path.join(tmpDir, 'multi.ts');
+      // Three matches across three lines. The first match was always detected;
+      // matches on subsequent lines were silently skipped before the fix.
+      await fs.writeFile(
+        testFile,
+        [
+          'const apiKey1 = "abcdefghij1234567890";',
+          'const apiKey2 = "klmnopqrst0987654321";',
+          'const apiKey3 = "uvwxyzabcdef13579246";',
+        ].join('\n') + '\n',
+      );
+
+      const patterns: SecurityPattern[] = [
+        {
+          id: 'multi-match-secret',
+          name: 'Multi-Match Secret',
+          severity: 'critical',
+          description: 'Should match each line independently',
+          patterns: [/(?:api[_-]?key\d+)[^\w]*[=:]\s*["']([a-zA-Z0-9]{20,})["']/gi],
+          fileExtensions: ['.ts'],
+          falsePositiveMarkers: [],
+          remediation: 'Use env vars',
+        },
+      ];
+
+      const skill = createMockSkill(patterns);
+      const techStack = createMockTechStack();
+      const result = await scanner.scan(tmpDir, skill, techStack);
+
+      const matches = result.findings.filter((f) => f.patternId === 'multi-match-secret');
+      expect(matches).toHaveLength(3);
+      expect(matches.map((m) => m.line).sort()).toEqual([1, 2, 3]);
+
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    });
+
     it('respects excludePaths option', async () => {
       const scannerWithExcludes = new SecurityScanner({
         excludePaths: ['node_modules', 'dist'],

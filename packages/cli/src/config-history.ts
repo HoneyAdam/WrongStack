@@ -158,7 +158,9 @@ async function readIndex(homeFn: HomeDirFn = defaultHomeDir): Promise<HistoryInd
 
 async function writeIndex(idx: HistoryIndex, homeFn: HomeDirFn = defaultHomeDir): Promise<void> {
   await ensureHistoryDir(homeFn);
-  await fs.writeFile(historyIndexPath(homeFn), JSON.stringify(idx, null, 2), 'utf8');
+  // atomicWrite: torn write here would wipe the entire config-history
+  // index, hiding the user's prior backups behind a "no history" UI.
+  await atomicWrite(historyIndexPath(homeFn), JSON.stringify(idx, null, 2));
 }
 
 /**

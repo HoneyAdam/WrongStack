@@ -289,9 +289,9 @@ export const useChatStore = create<ChatState>()(
 
       enqueue: (text) => set((state) => ({ queue: [...state.queue, text] })),
       dequeue: () => {
-        const q = get().queue;
-        if (q.length === 0) return null;
-        const [next, ...rest] = q;
+        const { queue } = get();
+        if (queue.length === 0) return null;
+        const [next, ...rest] = queue;
         set({ queue: rest });
         return next!;
       },

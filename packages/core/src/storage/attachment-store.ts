@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
+import { atomicWrite } from '../utils/atomic-write.js';
 import type {
   AddAttachmentInput,
   Attachment,
@@ -49,7 +50,11 @@ export class DefaultAttachmentStore implements AttachmentStore {
     if (this.spoolDir && bytes >= this.spoolThreshold) {
       await fsp.mkdir(this.spoolDir, { recursive: true });
       spooledPath = path.join(this.spoolDir, `${id}.bin`);
-      await fsp.writeFile(spooledPath, input.data, input.kind === 'image' ? 'base64' : 'utf8');
+      // atomicWrite: torn spool would silently corrupt the attachment;
+      // the user would see garbled output the next time it's expanded.
+      await atomicWrite(spooledPath, input.data, {
+        encoding: input.kind === 'image' ? 'base64' : 'utf8',
+      });
       data = undefined;
     }
     const att: Attachment = {

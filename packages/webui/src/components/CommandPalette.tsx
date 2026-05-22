@@ -443,8 +443,6 @@ function renderGroupedList(
  */
 export function downloadChatAsMarkdown(): void {
   const messages = useChatStore.getState().messages;
-  const session = useChatStore.getState();
-  void session;
   const lines: string[] = [];
   const now = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
   lines.push(`# WrongStack chat export`);
@@ -539,7 +537,7 @@ export function downloadChatAsHtml(): void {
     return `
       <section class="bubble ${cls}">
         <header><span class="icon">${icon}</span><strong>${role}</strong></header>
-        <pre class="content">${escape(m.content)}</pre>
+        <pre class="content">${escapeHtml(m.content)}</pre>
       </section>`;
   });
 

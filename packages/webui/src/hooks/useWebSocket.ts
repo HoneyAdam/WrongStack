@@ -341,24 +341,20 @@ function installHandlers(ws: WrongStackWebSocketClient): () => void {
   });
 
   on('tool.progress', (msg) => {
-    // Live progress feed for an in-flight tool. We route each event onto
-    // the tool bubble matched by backend tool_use id (set by tool.started).
-    // Skip pure 'metric' events with no text — they're useful to logs but
-    // would clutter the chat with empty rows.
     const payload = msg.payload as {
       id: string;
       name: string;
-      eventType: 'log' | 'warning' | 'metric' | 'file_changed' | 'partial_output';
-      text?: string;
+      event: {
+        type: 'log' | 'warning' | 'metric' | 'file_changed' | 'partial_output';
+        text?: string;
+      };
     };
-    const text = (payload.text ?? '').trim();
+    const text = (payload.event?.text ?? '').trim();
     if (!text) return;
     const messages = useChatStore.getState().messages;
     const owner = messages.find((m) => m.toolUseId === payload.id);
     if (!owner) return;
-    // Prefix warnings so they're visually distinct; everything else flows in
-    // as-is. partial_output (bash stdout etc.) is the common case.
-    const prefix = payload.eventType === 'warning' ? '⚠ ' : '';
+    const prefix = payload.event?.type === 'warning' ? '⚠ ' : '';
     useChatStore.getState().appendToolProgress(owner.id, prefix + text);
   });
 
@@ -379,6 +375,8 @@ function installHandlers(ws: WrongStackWebSocketClient): () => void {
       : currentToolId
         ? messages.find((m) => m.id === currentToolId)
         : undefined;
+    // Guard against duplicate tool.executed (backend delivery retry).
+    if (owner?.toolResult !== undefined) return;
     if (owner) {
       useChatStore.getState().setToolResult(owner.id, payload.output ?? '', payload.ok);
       useChatStore.getState().updateMessage(owner.id, { toolDurationMs: payload.durationMs });
@@ -814,7 +812,8 @@ export function useWebSocketBootstrap(): void {
       console.error('[WS] Connection failed:', err);
     });
 
-    // installed.current guards against React StrictMode's double-mount in dev.
+    // installed.current guards against React StrictMode's double-mount in dev
+    // and any other re-render that would re-run the effect. Only install once.
     if (installed.current) {
       return () => {
         offStatus();
@@ -825,7 +824,7 @@ export function useWebSocketBootstrap(): void {
     return () => {
       off();
       offStatus();
-      installed.current = false;
+      // installed.current stays true — this is a one-shot bootstrap.
     };
   }, [autoConnect, wsUrl, setWsStatus]);
 }

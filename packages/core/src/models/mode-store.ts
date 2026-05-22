@@ -1,5 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { atomicWrite } from '../utils/atomic-write.js';
 import type { Mode, ModeConfig, ModeManifest, ModeStore } from '../types/mode.js';
 import { DEFAULT_MODES } from '../types/mode.js';
 
@@ -70,10 +71,11 @@ export class DefaultModeStore implements ModeStore {
     try {
       await fs.mkdir(this.configDir, { recursive: true });
       const configPath = path.join(this.configDir, 'mode.json');
-      await fs.writeFile(
+      // atomicWrite: torn write would leave mode.json malformed and the
+      // next load would silently reset to "default".
+      await atomicWrite(
         configPath,
         JSON.stringify({ activeMode: this.activeModeId }, null, 2),
-        'utf8',
       );
     } catch {
       // ignore save errors

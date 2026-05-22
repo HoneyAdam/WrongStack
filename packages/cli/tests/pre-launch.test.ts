@@ -213,4 +213,35 @@ describe('runLaunchPrompts', () => {
     expect(result.yolo).toBe(true);
     expect(reader.readLine).toHaveBeenCalledTimes(1);
   });
+
+  it("'q' on mode prompt exits with code 0", async () => {
+    const exitMock = vi.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('EXIT');
+    });
+    const renderer = makeRenderer();
+    const reader = makeReader(['q']);
+    try {
+      await runLaunchPrompts({ renderer, reader });
+    } catch (e) {
+      // expected — process.exit throws to stop execution
+      expect((e as Error).message).toBe('EXIT');
+    }
+    expect(exitMock).toHaveBeenCalledWith(0);
+    exitMock.mockRestore();
+  });
+
+  it("'q' on yolo prompt exits with code 0", async () => {
+    const exitMock = vi.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('EXIT');
+    });
+    const renderer = makeRenderer();
+    const reader = makeReader(['', 'q']);
+    try {
+      await runLaunchPrompts({ renderer, reader });
+    } catch (e) {
+      expect((e as Error).message).toBe('EXIT');
+    }
+    expect(exitMock).toHaveBeenCalledWith(0);
+    exitMock.mockRestore();
+  });
 });

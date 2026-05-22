@@ -80,11 +80,15 @@ export async function runProjectCheck(opts: {
     );
     const answer = (
       await reader.readLine(
-        `  ${color.amber('?')} Scaffold ${color.bold('AGENTS.md')} now? ${color.dim('[y/N]')} `,
+        `  ${color.amber('?')} Scaffold ${color.bold('AGENTS.md')} now? ${color.dim('[y/N/q]')} `,
       )
     )
       .trim()
       .toLowerCase();
+    if (answer === 'q') {
+      renderer.write(color.dim('  Cancelled.\n'));
+      return false;
+    }
     if (answer === 'y' || answer === 'yes') {
       try {
         const file = await scaffoldAgentsMd(projectRoot);
@@ -114,11 +118,15 @@ export async function runProjectCheck(opts: {
     );
     const answer = (
       await reader.readLine(
-        `  ${color.amber('?')} No git repo found. ${color.bold('Initialize git?')} ${color.dim('[y/N]')} `,
+        `  ${color.amber('?')} No git repo found. ${color.bold('Initialize git?')} ${color.dim('[y/N/q]')} `,
       )
     )
       .trim()
       .toLowerCase();
+    if (answer === 'q') {
+      renderer.write(color.dim('  Cancelled.\n'));
+      return false;
+    }
     if (answer === 'y' || answer === 'yes') {
       try {
         const { spawn } = await import('node:child_process');
@@ -138,11 +146,11 @@ export async function runProjectCheck(opts: {
   }
 
   const answer = (
-    await reader.readLine(`  ${color.amber('?')} Continue anyway? ${color.dim('[Y/n]')} `)
+    await reader.readLine(`  ${color.amber('?')} Continue anyway? ${color.dim('[Y/n/q]')} `)
   )
     .trim()
     .toLowerCase();
-  if (answer === 'n' || answer === 'no') {
+  if (answer === 'q' || answer === 'n' || answer === 'no') {
     renderer.write(color.dim('  Cancelled.\n'));
     return false;
   }
@@ -175,11 +183,15 @@ export async function runLaunchPrompts(opts: {
   } else {
     const answer = (
       await reader.readLine(
-        `\n  ${color.amber('?')} Interactive mode: ${color.bold('T')}UI / ${color.bold('R')}EPL ${color.dim('[T/r]')} `,
+        `\n  ${color.amber('?')} Interactive mode: ${color.bold('T')}UI / ${color.bold('R')}EPL ${color.dim('[T/r/q]')} `,
       )
     )
       .trim()
       .toLowerCase();
+    if (answer === 'q') {
+      renderer.write(color.dim('  Goodbye!\n'));
+      process.exit(0);
+    }
     mode = answer === 'r' || answer === 'repl' ? 'repl' : 'tui';
   }
 
@@ -189,11 +201,15 @@ export async function runLaunchPrompts(opts: {
   } else {
     const answer = (
       await reader.readLine(
-        `  ${color.amber('?')} YOLO mode ${color.dim('(auto-approve every tool call)')} ${color.dim('[Y/n]')} `,
+        `  ${color.amber('?')} YOLO mode ${color.dim('(auto-approve every tool call)')} ${color.dim('[Y/n/q]')} `,
       )
     )
       .trim()
       .toLowerCase();
+    if (answer === 'q') {
+      renderer.write(color.dim('  Goodbye!\n'));
+      process.exit(0);
+    }
     yolo = answer !== 'n' && answer !== 'no';
   }
 

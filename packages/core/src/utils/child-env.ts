@@ -146,8 +146,12 @@ export function buildChildEnv(optsOrSessionId?: BuildChildEnvOptions | string): 
     }
   }
 
-  // Merge explicit extras after filtering (these are intentionally passed,
-  // e.g. MCP server-specific tokens the user accepted in config).
+  // Merge explicit extras AFTER filtering. Callers MUST treat `opts.extra`
+  // as a small, user-authored allowlist (e.g. MCP server tokens, LSP env
+  // overrides from config). Do NOT pass `process.env` or any object derived
+  // from it — that would defeat the parent-env scrub above. The secret
+  // filter is intentionally skipped here so legitimate secret-bearing
+  // tokens the user explicitly configured can still reach the child.
   if (opts.extra) {
     Object.assign(out, opts.extra);
   }

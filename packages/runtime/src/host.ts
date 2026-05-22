@@ -124,8 +124,18 @@ export async function applyWrongStackPacks(
     }
     return applied;
   } catch (err) {
+    // Roll back already-mounted packs. Surface teardown failures via
+    // process.emitWarning so they don't mask the original error but
+    // remain visible — a silent teardown failure can leave state
+    // half-initialized in ways that make the next run fail mysteriously.
     for (const mounted of applied.reverse()) {
-      await mounted.teardown().catch(() => undefined);
+      await mounted.teardown().catch((teardownErr) => {
+        const detail = teardownErr instanceof Error ? teardownErr.message : String(teardownErr);
+        process.emitWarning(
+          `Pack teardown during error rollback failed: ${detail}`,
+          'PackRollbackWarning',
+        );
+      });
     }
     throw err;
   }

@@ -384,61 +384,62 @@ export function ChatInput() {
     }
   }, [sendAbort, setLoading]);
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // Terminal-style prompt history: ↑ pulls the previous user prompt,
-    // ↓ steps forward. Only active when both popups are closed AND the
-    // input is empty OR already showing a history entry. We keep the cursor
-    // ergonomic — once the user starts editing, we drop out of history mode.
-    if (slashSuggestions.length === 0 && !atMention && promptHistory.length > 0) {
-      if (e.key === 'ArrowUp') {
-        const ta = e.currentTarget;
-        // Only steal ↑ if we're on the first line (so multi-line editing
-        // can still navigate within the textarea naturally).
-        const beforeCursor = ta.value.slice(0, ta.selectionStart);
-        if (historyIdx >= 0 || beforeCursor.indexOf('\n') === -1) {
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      // Terminal-style prompt history: ↑ pulls the previous user prompt,
+      // ↓ steps forward. Only active when both popups are closed AND the
+      // input is empty OR already showing a history entry. We keep the cursor
+      // ergonomic — once the user starts editing, we drop out of history mode.
+      if (slashSuggestions.length === 0 && !atMention && promptHistory.length > 0) {
+        if (e.key === 'ArrowUp') {
+          const ta = e.currentTarget;
+          // Only steal ↑ if we're on the first line (so multi-line editing
+          // can still navigate within the textarea naturally).
+          const beforeCursor = ta.value.slice(0, ta.selectionStart);
+          if (historyIdx >= 0 || beforeCursor.indexOf('\n') === -1) {
+            e.preventDefault();
+            const next = Math.min(promptHistory.length - 1, historyIdx + 1);
+            setHistoryIdx(next);
+            const text = promptHistory[next] ?? '';
+            setInput(text);
+            requestAnimationFrame(() => {
+              const el = textareaRef.current;
+              if (el) {
+                el.style.height = 'auto';
+                el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+                el.setSelectionRange(text.length, text.length);
+              }
+            });
+            return;
+          }
+        }
+        if (e.key === 'ArrowDown' && historyIdx >= 0) {
           e.preventDefault();
-          const next = Math.min(promptHistory.length - 1, historyIdx + 1);
-          setHistoryIdx(next);
-          const text = promptHistory[next] ?? '';
-          setInput(text);
-          requestAnimationFrame(() => {
-            const el = textareaRef.current;
-            if (el) {
-              el.style.height = 'auto';
-              el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
-              el.setSelectionRange(text.length, text.length);
-            }
-          });
+          const next = historyIdx - 1;
+          if (next < 0) {
+            setHistoryIdx(-1);
+            setInput('');
+          } else {
+            setHistoryIdx(next);
+            const text = promptHistory[next] ?? '';
+            setInput(text);
+            requestAnimationFrame(() => {
+              const el = textareaRef.current;
+              if (el) {
+                el.style.height = 'auto';
+                el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+                el.setSelectionRange(text.length, text.length);
+              }
+            });
+          }
           return;
         }
       }
-      if (e.key === 'ArrowDown' && historyIdx >= 0) {
-        e.preventDefault();
-        const next = historyIdx - 1;
-        if (next < 0) {
-          setHistoryIdx(-1);
-          setInput('');
-        } else {
-          setHistoryIdx(next);
-          const text = promptHistory[next] ?? '';
-          setInput(text);
-          requestAnimationFrame(() => {
-            const el = textareaRef.current;
-            if (el) {
-              el.style.height = 'auto';
-              el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
-              el.setSelectionRange(text.length, text.length);
-            }
-          });
-        }
-        return;
-      }
-    }
 
-    // Slash popup keyboard navigation: ↑/↓ to select, Tab/Enter to commit,
-    // Esc to dismiss. Matches the TUI's slash menu UX one-for-one so users
-    // moving between surfaces don't have to relearn anything.
-    if (slashSuggestions.length > 0) {
+      // Slash popup keyboard navigation: ↑/↓ to select, Tab/Enter to commit,
+      // Esc to dismiss. Matches the TUI's slash menu UX one-for-one so users
+      // moving between surfaces don't have to relearn anything.
+      if (slashSuggestions.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         setSlashIndex((i) => (i + 1) % slashSuggestions.length);
@@ -480,7 +481,9 @@ export function ChatInput() {
       e.preventDefault();
       handleSubmit(e);
     }
-  };
+    },
+    [slashSuggestions, atMention, promptHistory, historyIdx, setInput, setHistoryIdx, setSlashIndex, slashIndex, input, handleSubmit],
+  );
 
   const adjustTextareaHeight = () => {
     const textarea = textareaRef.current;

@@ -1,5 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { atomicWrite } from '../utils/atomic-write.js';
 
 export interface InstalledSkillEntry {
   name: string;
@@ -48,7 +49,7 @@ export class SkillManifestStore {
   async write(data: ManifestData): Promise<void> {
     const dir = path.dirname(this.manifestPath);
     await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(this.manifestPath, JSON.stringify(data, null, 2) + '\n', 'utf8');
+    await atomicWrite(this.manifestPath, JSON.stringify(data, null, 2) + '\n');
     this.cache = data;
   }
 
