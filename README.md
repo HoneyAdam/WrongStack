@@ -23,6 +23,44 @@ This pulls in the full stack — `@wrongstack/core`, `@wrongstack/runtime`, `@wr
 
 After install, `wrongstack` is on your `PATH`. (`wstack` works too — it's an alias.)
 
+### What's new in 0.6.0
+
+**Eternal autonomy — `/autonomy eternal` + persistent `/goal`.** A new
+"run until done" mode for long-horizon work. Set the mission with
+`/goal <text>` (persists to `.wrongstack/goal.json`), turn the engine
+on with `/autonomy eternal` (or launch with `--eternal`), and the
+agent drives sense → decide → execute → reflect cycles until you stop
+it. Manual stop only — Esc / Ctrl+C / `/autonomy stop`. The hybrid
+decide pipeline considers pending todos, then the dirty git tree,
+then asks the LLM to brainstorm — so the loop produces useful work
+even when no explicit task is queued.
+
+`/goal` is now unified:
+
+- `/goal` — show status and the iteration journal
+- `/goal <text>` (or `/goal set <text>`) — persist the mission and
+  inject the full-autonomy lock-in preamble into the next turn
+- `/goal clear` — stops the engine on the next cycle
+- `/goal journal [N]` — recent FIFO journal (default 25, cap 500)
+
+The TUI status bar shows a red `ETERNAL` chip when the engine is
+running. The WebUI receives a live `eternal.iteration` WS broadcast
+per cycle, so dashboards can render loop progress without polling.
+
+**`/goal` mount-time crash fix.** Resolves
+`Built-in slash command "goal" is already registered` that surfaced
+when the TUI's preamble-only `/goal` collided with the new builtin —
+the TUI registration is removed and `buildGoalPreamble` is exported
+from `@wrongstack/tui` so the CLI handles both behaviors.
+
+**+272 additive tests** (now 3091 passing across the workspace),
+covering previously untested modules — circuit breaker, process
+registry, observability event bridge, health registry, config-secrets
+walker, regex-guard ReDoS protection, todos formatter, JSON schema
+validator, slash-command helpers, provider capability table, and the
+`/yolo`, `/mode`, `/compact`, `/goal`, `/autonomy`, `/commit` LLM
+glue. No source changes — pure coverage uplift.
+
 ### What's new in 0.5.7
 
 **Single spawn path via Director + FleetManager.** The old dual-mode

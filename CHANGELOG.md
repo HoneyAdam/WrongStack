@@ -5,6 +5,73 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-05-22
+
+### Added
+
+- **Eternal autonomy — `/autonomy eternal` + persistent `/goal`.**
+  A new "run until done" mode for long-horizon work. Set a mission
+  with `/goal <text>` (persists to `<projectRoot>/.wrongstack/goal.json`),
+  flip the engine on with `/autonomy eternal` (or launch with the new
+  `--eternal` flag), and the agent drives sense→decide→execute→reflect
+  loops until you stop it. Manual stop only — no auto-pause, no
+  hidden token cap.
+  - `EternalAutonomyEngine` class in `@wrongstack/core` (re-exported
+    from the package root) owns the state machine (`idle → running →
+    stopped` with crash recovery), per-iteration token/cost telemetry,
+    periodic context compaction (cadence + aggressive threshold), and
+    the hybrid decide pipeline (pending todos → dirty git → LLM
+    brainstorm).
+  - `/goal` is unified: `/goal` shows status, `/goal <text>` (or
+    `/goal set <text>`) persists the mission AND injects the
+    full-autonomy preamble into the next turn (replaces the TUI's
+    former preamble-only `/goal`), `/goal clear` stops the engine on
+    the next cycle, `/goal journal [N]` shows the FIFO ring buffer of
+    iteration entries (500 max).
+  - `/autonomy` gains `eternal` and `stop` modes; status detail
+    surfaces the engine state in both REPL and TUI.
+  - TUI status bar shows a red `ETERNAL` chip when the engine is
+    running.
+  - WebUI receives an `eternal.iteration` WS broadcast for each
+    iteration, so dashboards can render the live loop without
+    polling.
+  - CLI banner explains how to start/stop on launch with `--eternal`.
+
+- **`/goal` and `/autonomy eternal` cooperate by design.** The engine
+  short-circuits to `stopRequested` when the goal file is deleted, so
+  `/goal clear` is a clean off switch. Goal replacement preserves the
+  journal across sets — useful as an audit trail.
+
+### Fixed
+
+- **`/goal` no longer crashes the TUI on mount.** The TUI's
+  pre-existing preamble registration was colliding with the new CLI
+  builtin (`Built-in slash command "goal" is already registered`).
+  The TUI registration is removed; the CLI builtin now handles both
+  preamble lock-in and persistence. `buildGoalPreamble` is exported
+  from `@wrongstack/tui` index for the CLI to consume.
+
+### Tests
+
+- **+272 unit tests** (3091 total, up from ~2820) covering previously
+  untested isolated modules — purely additive, no source changes:
+  - `core/utils/regex-guard`, `core/utils/todos-format`,
+    `core/utils/json-schema-validate`
+  - `core/security/config-secrets` (encrypt/decrypt walker with
+    `isSecretField` pattern matching)
+  - `core/observability/event-bridge` (wireMetricsToEvents),
+    `core/observability/health` (DefaultHealthRegistry)
+  - `core/storage/goal-store` + `core/execution/eternal-autonomy`
+  - `tools/circuit-breaker` (full state machine with fake timers),
+    `tools/process-registry` (singleton, kill routing), `tools/_util`
+  - `providers/family-capabilities` (per-family defaults + overrides)
+  - `cli/provider-config-utils`, `cli/subcommands/handlers/redactKeys`
+  - `cli/slash-commands/helpers` (`detectProjectFacts` across
+    pnpm/yarn/npm/go/rust/python/Makefile),
+    `cli/slash-commands/commit-llm`, `cli/slash-commands/yolo`,
+    `cli/slash-commands/mode`, `cli/slash-commands/compact`,
+    `cli/slash-commands/goal`, `cli/slash-commands/autonomy`
+
 ## [0.5.7] - 2026-05-20
 
 ### Added
