@@ -7,40 +7,41 @@ WrongStack's REPL supports ~30 built-in slash commands. Each is a first-class ci
 | Command | File | What it does |
 |---|---|---|
 | `/help` | `help.ts` | List all commands; show detailed help for a named command |
-| `/init` | `init.ts` | Create/update `.wrongstack/AGENTS.md` project context |
-| `/clear` | `clear.ts` | Wipe session state: messages, todos, read-files, memory, terminal |
+| `/init` | `init.ts` | Create or update `.wrongstack/AGENTS.md` with auto-detected project facts |
+| `/clear` | `clear.ts` | Wipe session state: messages, todos, read-files, file-mtimes, meta, memory, terminal |
 | `/compact` | `compact.ts` | Run the context-window compactor (normal or aggressive) |
-| `/context` | `context.ts` | Show context window stats; repair orphan tool_use/result blocks; switch context mode |
-| `/ctx` | `context.ts` | Alias for `/context` |
-| `/diag` | `diag-stats.ts` | Runtime diagnostics: provider, tokens, tools, MCP |
-| `/stats` | `diag-stats.ts` | Session summary: tokens, requests, tools, files, cost |
-| `/memory` | `memory.ts` | Inspect/edit persistent memory: show, remember, forget, clear |
-| `/todos` | `todos.ts` | Session todo list: show, add, done, clear |
-| `/plan` | `plan.ts` | Strategic plan board (session-persistent): show, add, start, done, remove, promote, derive, template, clear |
-| `/mode` | `mode.ts` | Switch or view the active mode (default, brief, teach, refactorer, etc.) |
-| `/yolo` | `yolo.ts` | Toggle or query YOLO (auto-approve) mode |
+| `/context` | `context.ts` | Context window summary; repair orphan blocks; switch context mode; `/ctx` alias |
+| `/diag` | `diag-stats.ts` | Runtime diagnostics: provider, tokens, tools, MCP server state |
+| `/stats` | `diag-stats.ts` | Session report: tokens, requests, tool calls, files read, estimated cost |
+| `/memory` | `memory.ts` | Persistent memory: show, remember, forget, clear |
+| `/todos` | `todos.ts` | Session todo list: show, add, done (by id/index/fuzzy match), clear |
+| `/plan` | `plan.ts` | Strategic plan board (session-persistent `.plan.json`): show, add, start, done, remove, promote, derive, template, clear |
+| `/mode` | `mode.ts` | Switch or view session mode (default, brief, teach, refactorer, …) |
+| `/yolo` | `yolo.ts` | Toggle or query YOLO (auto-approve all tool calls) |
 | `/autonomy` | `autonomy.ts` | Set autonomy level: off, suggest, auto, eternal |
-| `/goal` | `goal.ts` | Set/show/clear the autonomous mission used by `/autonomy eternal` |
-| `/save` | `session.ts` | Flush current session to disk (force session_end event) |
-| `/resume` | `session.ts` | List recent sessions (aliases: `/load`, `/sessions`) |
-| `/exit` | `session.ts` | Exit the REPL (aliases: `/quit`, `/q`) |
-| `/tools` | `tools.ts` | List all registered tools with owner, mutability, and permission level |
-| `/skill` | `skill.ts` | List available skills or show a skill's full body |
-| `/skill-gen` | `skill-generator.ts` | LLM-assisted skill creation wizard |
+| `/goal` | `goal.ts` | Set/show/clear persistent autonomous mission (`.wrongstack/goal.json`) |
+| `/save` | `session.ts` | Force-flush session to disk (append `session_end` event) |
+| `/resume` | `session.ts` | List recent sessions; `/load`, `/sessions` aliases |
+| `/exit` | `session.ts` | Exit REPL; `/quit`, `/q` aliases |
+| `/tools` | `tools.ts` | List all registered tools: name, owner package, mut/ro, permission |
+| `/skill` | `skill.ts` | List all skills or show a skill's full body |
+| `/skill-gen` | `skill-generator.ts` | LLM-guided skill authoring wizard |
 | `/skill-install` | `skill-install.ts` | Install a skill from URL or registry |
 | `/skill-update` | `skill-update.ts` | Update installed skills |
-| `/skill-uninstall` | `skill-uninstall.ts` | Remove an installed skill |
-| `/plugin` | `plugin.ts` | Manage plugins: list, install, uninstall, configure |
-| `/spawn` | `spawn-agents.ts` | Spawn an isolated subagent for a specific task |
+| `/skill-uninstall` | `skill-uninstall.ts` | Remove a user-global skill |
+| `/plugin` | `plugin.ts` | Manage plugins: list, official, install, enable, disable, remove |
+| `/spawn` | `spawn-agents.ts` | Spawn an isolated subagent for a task |
 | `/agents` | `spawn-agents.ts` | Show status of all spawned subagents |
-| `/director` | `spawn-agents.ts` | Promote session to director mode (fleet orchestration) |
-| `/fleet` | `fleet.ts` | Inspect/control the subagent fleet: status, usage, kill, manifest, retry, log, stream |
-| `/sdd` | `sdd.ts` | AI-driven Spec-Driven Development workflow |
-| `/commit` | `commit.ts` | Stage files, generate LLM commit message, commit |
-| `/gitcheck` | `commit.ts` | Show staged/unstaged changes |
-| `/push` | `commit.ts` | Git push (with optional force) |
-| `/security` | `security.ts` | Security scanning: scan, audit, report |
-| `/statusline` | `statusline.ts` | Toggle TUI status bar items |
+| `/director` | `spawn-agents.ts` | Promote to director mode (fleet orchestration) |
+| `/fleet` | `fleet.ts` | Fleet control: status, usage, kill, manifest, retry, log, stream |
+| `/sdd` | `sdd.ts` | AI-driven spec-driven development workflow |
+| `/commit` | `commit.ts` | Stage all + generate LLM commit message + commit; `--dry-run` / `--no-llm` flags |
+| `/gitcheck` | `commit.ts` | Silent change check for system-prompt injection |
+| `/push` | `commit.ts` | Git push to all remotes; `--force` / `--dry-run` flags |
+| `/security` | `security.ts` | Security scan/audit/report; `--depth`, `--format` flags |
+| `/metrics` | `metrics.ts` | Prometheus metrics snapshot (requires `--metrics` flag at startup) |
+| `/health` | `health.ts` | Run health checks (requires `--metrics` flag at startup) |
+| `/statusline` | `statusline.ts` | Toggle TUI status bar items at runtime |
 
 ## Dispatch flow
 

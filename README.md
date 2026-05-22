@@ -902,6 +902,7 @@ plug in — see [`docs/architecture.md`](docs/architecture.md).
 | Doc | What it covers |
 |---|---|
 | [`docs/architecture.md`](docs/architecture.md) | Package layout, the kernel primitives (Container/Pipeline/EventBus/RunController), the agent lifecycle, the L1-A reactive split |
+| [`docs/slash/`](docs/slash/) | Full reference for every built-in slash command |
 | [`docs/director-architecture.md`](docs/director-architecture.md) | Director orchestration: FleetBus, prompt layering, safety caps, per-subagent JSONL, shared scratchpad |
 | [`docs/plugin-author-guide.md`](docs/plugin-author-guide.md) | Building a plugin end-to-end: capabilities, dependencies, configSchema, teardown contract, testing |
 | [`docs/plugin-management.md`](docs/plugin-management.md) | User-facing plugin workflows: list/add/remove/enable/disable and config layout |
