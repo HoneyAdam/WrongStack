@@ -25,366 +25,35 @@ After install, `wrongstack` is on your `PATH`. (`wstack` works too — it's an a
 
 ### What's new in 0.6.0
 
-**Eternal autonomy — `/autonomy eternal` + persistent `/goal`.** A new
-"run until done" mode for long-horizon work. Set the mission with
-`/goal <text>` (persists to `.wrongstack/goal.json`), turn the engine
-on with `/autonomy eternal` (or launch with `--eternal`), and the
-agent drives sense → decide → execute → reflect cycles until you stop
-it. Manual stop only — Esc / Ctrl+C / `/autonomy stop`. The hybrid
-decide pipeline considers pending todos, then the dirty git tree,
-then asks the LLM to brainstorm — so the loop produces useful work
-even when no explicit task is queued.
-
-`/goal` is now unified:
-
-- `/goal` — show status and the iteration journal
-- `/goal <text>` (or `/goal set <text>`) — persist the mission and
-  inject the full-autonomy lock-in preamble into the next turn
-- `/goal clear` — stops the engine on the next cycle
-- `/goal journal [N]` — recent FIFO journal (default 25, cap 500)
-
-The TUI status bar shows a red `ETERNAL` chip when the engine is
-running. The WebUI receives a live `eternal.iteration` WS broadcast
-per cycle, so dashboards can render loop progress without polling.
-
-**`/goal` mount-time crash fix.** Resolves
-`Built-in slash command "goal" is already registered` that surfaced
-when the TUI's preamble-only `/goal` collided with the new builtin —
-the TUI registration is removed and `buildGoalPreamble` is exported
-from `@wrongstack/tui` so the CLI handles both behaviors.
-
-**+272 additive tests** (now 3091 passing across the workspace),
-covering previously untested modules — circuit breaker, process
-registry, observability event bridge, health registry, config-secrets
-walker, regex-guard ReDoS protection, todos formatter, JSON schema
-validator, slash-command helpers, provider capability table, and the
-`/yolo`, `/mode`, `/compact`, `/goal`, `/autonomy`, `/commit` LLM
-glue. No source changes — pure coverage uplift.
-
-### What's new in 0.5.7
-
-**Single spawn path via Director + FleetManager.** The old dual-mode
-spawn logic (directorMode vs plain coordinator) collapsed into one
-path. Every `/spawn` and `delegate` now goes through `Director` with
-spawn budgeting, manifest writing, and pending-task tracking owned by
-the extracted `FleetManager`. Host-side state duplication is gone,
-`MultiAgentHost.manifest()` is immediate (no debounce wait), and
-`promoteToDirector()` is idempotent.
-
-**Autonomous continue — model-driven self-iteration.** Agents can now
-end a turn with `[continue]` / `[next step]` / `[proceed]` / `[done]`
-markers (each on its own line) to drive their own iteration loop,
-without an outer harness re-invoking them. Pair with the new
-`doneCondition: { type: 'directive', autonomous: true }` for fleets
-that decide when they're done from inside the loop. Off by default —
-opt in via `AgentInit.autonomousContinue` or
-`AutonomousRunner.enableAutonomousContinue`.
-
-**Exec tool circuit breaker + process registry.** The `exec` tool now
-participates in the same circuit-breaker / process-registry surface
-that `bash` uses: failures and timeouts trip the breaker, every spawn
-is tracked by PID, and the TUI status bar shows the live process
-count and breaker state. New slash commands:
-- `/ps` — list active processes and breaker status.
-- `/kill [pid] [force|reset]` — terminate a process, force the
-  breaker open, or reset it after a known-bad run.
-
-**Todos architecture documentation.** Added a long-form
-`docs/todos_architecture.md` covering the data model, state layer,
-persistence, tool integration, and how todos relate to plans.
-Companion `wrongstack sessions fleet [runId]` command lists manifest,
-checkpoint, and per-subagent transcripts for any past fleet run.
-
-### What's new in 0.5.4
-
-**TUI multi-line paste normalization.** Plain clipboard pastes with
-newlines (no bracketed-paste sequence) are now normalized to spaces
-instead of triggering the verbose `[pasted #N N lines]` placeholder.
-Newlines still reach the agent — they just no longer visually pollute
-the input row. Bracketed pastes continue to use InputBuilder as before.
-
-### What's new in 0.4.x — autonomy, modes, and YOLO runtime toggle
-
-This release adds a self-driving agent mode, a runtime-toggleable YOLO
-flag, and a mode system — all while keeping full backwards compatibility.
-
-**Autonomy mode.** `/autonomy on|off|suggest|toggle` gives the agent
-self-driving capability. In `auto` mode it picks the next logical step
-and continues after each turn. In `suggest` mode it shows next-step
-suggestions without executing. The TUI status bar shows an `∞ AUTO` or
-`∞ SUGGEST` chip when active.
-
-**`/yolo` runtime toggle.** Flip YOLO mode on or off without restarting:
-`/yolo on`, `/yolo off`, `/yolo toggle`, `/yolo` (status). The TUI
-status bar `⚠ YOLO` chip now reflects the live permission policy state.
-
-**Mode system.** Eight built-in agent modes — `default`, `code-reviewer`,
-`code-auditor`, `architect`, `debugger`, `tester`, `devops`, `refactorer`
-— inject role-specific system prompts. Switch at runtime with the new
-`/mode` command or the provider/model picker. Modes are stored in
-`~/.wrongstack/modes/` and can be extended with custom prompts.
-
-**YOLO prompt defaults to Y.** The interactive "YOLO mode?" prompt at
-boot now defaults to enabled (press Enter = YOLO on). Previously
-defaulted to off.
-
-**TUI lint fixes.** Removed unused `exit`/`onExit` dependencies from
-the SIGINT `useEffect` (`useExhaustiveDependencies`), and auto-fixed
-type-only React imports across 7 component files (`useImportType`).
-
-**WebUI provider switch fix.** Removed duplicate `providers.list`
-case handler that was unreachable dead code.
-
-### What's new in 0.4.1
-
-**TUI context bar fix for OpenAI-compatible providers.** The ctx bar was
-reading `usage.input` which OpenAI-compatible providers don't populate
-(they use `usage.prompt_tokens` instead). Now reads
-`tokenCounter.total().input` directly, updated by `tokenCounter.account()`
-on every model call regardless of provider shape.
-
-### What's new in 0.3.4
-
-**Official Telegram plugin release.** `@wrongstack/telegram` joins the
-lockstep release train. Install via `wstack plugin install telegram` /
-`/plugin install telegram`. Registers `telegram_read`, `telegram_send`,
-and `/telegram:*` slash commands after restart.
-
-### What's new in 0.3.2
-
-This patch release tightens the package architecture, improves context-window
-control, adds image routing, and quiets the multi-agent TUI.
-
-**Context-window modes and repair.** Sessions can switch between `balanced`,
-`frugal`, `deep`, and `archival` context policies. CLI users get `/context mode`
-and `/context repair`; WebUI clients get mode switching plus `context.repair`.
-Damaged tool-call adjacency is repaired before provider requests.
-
-**Core stays core.** `@wrongstack/runtime` is the new home for concrete runtime
-defaults and host composition helpers. `@wrongstack/core` keeps the kernel,
-agent contracts, registries, plugin API, and lifecycle primitives.
-
-**Extension packs.** `@wrongstack/tools/pack` exports `builtinToolsPack`, and
-CLI/WebUI now register built-ins through that pack shape. This is the migration
-path for CLI, TUI, WebUI, Telegram, tools, providers, and future integrations
-to behave like extension packages around the core.
-
-**Quieter multi-agent UI.** Subagent tool calls no longer spam chat as separate
-`[AGENT#N]` entries. The TUI keeps the last two tool calls and last two text
-snippets per agent in `LiveActivityStrip` / `FleetPanel`; the main chat keeps
-agent text and lifecycle summaries.
-
-**`grep` correctness.** The `rg` backend now validates regex syntax up front,
-honors default ignored directories consistently, and reports real total match
-counts in `output_mode: "count"`.
-
-**Image routing.** TUI `Alt+V` and CLI `/image` attach clipboard PNGs as real
-image blocks. Vision-capable models receive them natively; text-only models can
-fall back to safe read-only MCP/tool adapters that describe the image. If no
-route exists, WrongStack tells you to switch to a vision model or enable an
-image-understanding adapter instead of silently dropping the image.
-
-**Release gate cleanup.** `pnpm test` is green again at 2059 passing tests
-across 203 files, with 1 skipped. Todo checkpoint writes now drain during
-detach/shutdown, CLI compaction resolves model capabilities through the active
-provider id, director tools live in a single module, and WebUI builds without
-the previous chime import/chunk-size warnings.
-
-### What's new in 0.2.0 — the autonomous fleet release
-
-Six weeks. One question: can a Director run for hours without the user
-babysitting it? Answering it took a full pass over the coordination
-layer — every race fixed, every silent failure classified, every "what
-is the subagent doing right now?" question answered with a visible chip.
-No breaking changes; CLI flags, plugin API, and EventBus contract are
-backwards compatible.
-
-**`/goal <description>` — locked-in autonomous mode.** Hands the agent
-a task it MUST drive to a verifiable finish. The slash command prepends
-a four-section preamble to the next turn — AUTHORITY (unlimited fan-out,
-any provider/model, retry-until-it-works), DONE (concrete artifact +
-10-second verification recipe + no hedges), NOT DONE (explicit
-anti-patterns: unhandled errors, "should I continue?" hedges, partial
-progress dressed up as success), and PERSISTENCE (three-angle rule
-for blockers). Only the user can stop it — Esc / `/steer` redirect,
-Ctrl+C / `/fleet kill` bail out.
-
-**`--goal` and `--ask` boot flags.** Launch goal mode directly from the
-shell — no need to type `/goal` after startup. `--goal` auto-enables
-`--tui` since goal mode depends on the steering surface. One-line fleet
-kickoff: `wstack --director --goal "audit packages/core for races"`.
-
-**`/steer <text>` and **`Esc`** — mid-flight redirect.** Aborts the
-active iteration, terminates running subagents (1.5s cap), drops
-queued messages, then sends the new direction with a STEERING preamble
-that tells the model exactly what was in flight (which tools, which
-subagents, last partial output) and grants explicit authority to
-abandon the prior plan. The chat just shows `↯ <text>` — the rich
-context goes to the model, not the human view.
-
-**Unlimited budgets by default.** The prior 20-tool / 20-iteration
-hardcap on `/spawn` adhoc subagents and the 1000-tool / 200-iter /
-4-hour `defaultBudget` are gone — the orchestrator (`delegate` /
-`spawn_subagent`) is the budget owner now, and the Agent's iteration
-loop auto-extends every 100 iters forever (`autoExtendLimit: true`).
-`maxConcurrent` raised 2→8, `maxSpawnDepth` 2→5 so recursive
-delegation actually works. Subagents only die from real causes:
-parent abort, per-tool 300s timeout, orchestrator-set explicit
-budget, or a classified provider error.
-
-**Live activity strip + compact fleet panel.** Compact one-line-
-per-subagent strip sits directly above the input area showing
-`● bug-hunter · → bash (12.3s) · 5it 12tc · 1m23s`. The TUI keeps the
-last two tool calls and text snippets per worker in the live surfaces,
-so tool telemetry stays visible without filling chat history.
-
-**SubagentError envelope (14 kinds).** `provider_5xx`,
-`provider_rate_limit`, `provider_auth`, `context_overflow`,
-`tool_failed`, `tool_threw`, `budget_iterations`, `budget_tool_calls`,
-`budget_tokens`, `budget_cost`, `budget_timeout`, `aborted_by_parent`,
-`empty_response`, `bridge_failed`, `unknown` — each carries
-`retryable`, optional `backoffMs`, and the original `cause`. The
-delegate tool exposes `errorKind` / `retryable` / `backoffMs` so the
-LLM can branch on classification instead of substring-matching error
-messages. Chat shows `[kind]` chip beside every failed task.
-
-**Coordinator race fixes** — `spawn()` rejects duplicate ids,
-`stop()`+`assign()` race produces synthetic `aborted_by_parent` instead
-of orphan tasks, `stopAll()` drains the pending queue, error-state
-reset is synchronous (no more `queueMicrotask` race), tool counter
-pairs on `tool.executed` (not `tool.started`), per-task `dispose` hook
-closes per-subagent JSONL writers deterministically.
-
-**`tool.progress` heartbeat budget check.** Long-running tools that
-emit progress (`bash` chunks, `fetch` byte progress, `spawn-stream`
-stdout) now bust wall-clock budgets mid-tool. A `bash sleep 3600` no
-longer parks past its deadline waiting for the coordinator's hard
-Promise.race — the budget trips on the next heartbeat and aborts
-cooperatively.
-
-**Observability surface.** `currentTool` (set on `tool.started`,
-cleared on `tool.executed`) — FleetPanel renders `→ bash (250ms)`
-under each running subagent. `transcriptPath` on `subagent.spawned`
-events — the per-subagent JSONL path is visible in FleetPanel, no
-more `find ~/.wrongstack/sessions -name '*.jsonl'`. `provider.thinking
-_delta` forwarded onto the FleetBus. Director shutdown errors funnel
-through `process.emitWarning('DirectorShutdownWarning')` instead of
-`.catch(() => undefined)` silent swallows.
-
-**`/fleet log <id>`** — actual summary or raw transcript dump for any
-on-disk subagent JSONL. Lists available transcripts when called
-without an id, prints a compact event mix + first user message + last
-LLM response by default, appends `raw` to dump the full JSONL.
-
-**Session checkpoint system** — three new sidecar files turn `wstack
-resume <id>` into "kaldığım yerden devam" instead of just message
-replay: `<id>.todos.json` (ctx.todos mirror, 150ms debounced atomic
-write), `<id>.plan.json` (strategic roadmap maintained via the new
-`/plan` slash command), and `<id>/director-state.json` (live director
-task graph, written incrementally on every spawn/assign/complete).
-**`/fleet retry [taskId|all]`** finds tasks left mid-flight when the
-previous process died, respawns the matching subagent, and re-assigns
-— for crash recovery without re-running the whole session.
-
-**`/plan` slash command + `planTool`** — strategic roadmap parallel to
-todos. Six actions (`show|add|start|done|remove|clear`), items have
-`open` / `in_progress` / `done` status. The plan is mirrored to disk
-and surfaces a `📋 ⌛N ☐N ✓N` chip in the TUI status bar plus an
-"Active plan" block in the system prompt every turn — anchoring the
-LLM to the strategic intent across long autonomous runs.
-
-**`delegate` tool — autonomous multi-agent activation.** A new
-always-on built-in that bundles spawn + assign + await into one call.
-Registered in every CLI session regardless of `--director` mode: the
-first call auto-promotes to director mode under the hood, so the LLM
-no longer needs the user to "enable multi-agent" upfront. Accepts a
-roster role (`bug-hunter`, `security-scanner`, `refactor-planner`,
-`audit-log`) or an explicit `name`/`provider`/`model`. The system
-prompt builder detects this tool and injects a "Delegation" guide
-teaching the model when to delegate vs stay in-process.
-
-**WebUI polish** — collapsible tool input/output, expandable nested
-JSON, copy/download/error-stack toggles, per-message
-iterations/tools/elapsed/$ footer, multi-tool turns grouped under one
-bubble. Concurrent-run lock prevents two streaming `agent.run` calls
-from corrupting session state. WebSocket `connect()` now rejects on
-`onerror`/`onclose` before `onopen` instead of hanging the UI forever.
-
-**Test coverage: 2059 tests** across 203 files. Five new dedicated
-suites pin the regression duvarı: error classification (T1/T2/T7),
-abort-during-tool (T3), partial JSONL read (T6), coordinator races
-(T4/T5/M4/M5/T8), cost-bucket disjointness (M2). The plan-mode
-preamble has its own 9-test suite for `/steer` and `/goal`.
-
-### What's new in 0.1.10
-
-Additive update — no breaking changes.
-
-**Extended thinking / reasoning stream** — `thinking_delta` events flow
-end-to-end from provider SSE through the agent loop to the TUI/WebUI.
-OpenAI `reasoning_content`, Anthropic thinking blocks, and Google
-thoughts all normalize to the same `StreamEvent` schema.
-
-**`@wrongstack/core` subpath exports** — `execution/`, `coordination/`,
-`infrastructure/`, `storage/`, `security/`, `models/`, `sdd/`, and
-`observability/` are now independent entrypoints. Deep-import what you
-need; deep-imports tree-shake cleanly.
-
-**Tool output size chips** — `tool.executed` events now carry
-`outputBytes`, `outputTokens`, and `outputLines` so the TUI can render
-inline size chips (`1.2 KB · ~340t · 45 lines`) beside each tool result.
-
-**Child-process env hardening** — `buildChildEnv()` is now the single
-canonical implementation in `@wrongstack/core`; the `patch` tool was
-the last holdout still spreading `process.env`. `WRONGSTACK_CHILD_ENV_PASSTHROUGH=1`
-(defaults off) opts back to the old behaviour.
-
-**4 security fixes + WebUI guards** — MCP SSE reader 256 KB buffer cap,
-`replace` symlink traversal prevention, WebUI overlapping-run guard,
-WebUI broadcast error handling, and memory-store consolidation backup.
-
-### What's new in 0.1.9
-
-No breaking changes — additive on both the public API and the plugin contract.
-
-**Director orchestration** — LLM-driven multi-agent fleet: one Director
-plans, spawns, assigns, asks, and rolls up a fleet of subagents, each
-with its own provider, model, context, session, and budget. Opt-in via
-`--director`.
-
-- **8 LLM-callable fleet tools** on the leader's tool belt:
-  `spawn_subagent`, `assign_task`, `await_tasks`, `ask_subagent`,
-  `roll_up`, `terminate_subagent`, `fleet_status`, `fleet_usage`.
-  A pre-built 4-agent roster ships: Audit Log, Bug Hunter, Refactor
-  Planner, Security Scanner.
-- **`/fleet` slash command hub** (status, usage, kill, manifest) +
-  `/spawn` flag parser (`--provider`, `--model`, `--name`, `--tools`).
-- **FleetBus** fans in per-subagent EventBus events; **FleetUsageAggregator**
-  rolls up token/cost; **per-subagent JSONL transcripts** for independent
-  replay; **shared fleet scratchpad** for filesystem-mediated coordination.
-- **Safety caps**: `maxSpawns` (lifetime limit), `maxSpawnDepth` (nesting
-  bound), `DirectorBudgetError` for graceful leader replanning.
-- **Audit triage closed**: `AutonomousRunner` tool-call counting fix,
-  MCP `_toolsCache` sync, `tool_use` confirm-permission unwrap,
-  `scaffold` sync→async I/O migration. See [CHANGELOG.md](CHANGELOG.md).
-
-### What's new in 0.1.7
-
-**`@wrongstack/webui` first npm release** — standalone `webui` binary with
-React 19 + Radix + Tailwind frontend, `ws`-backed Node backend reusing
-the CLI's boot path. Vim-style `j`/`k` bubble nav, CSS Custom Highlights
-API search, inline error stack-trace expander, token-estimate chip,
-drag-and-drop file attach, pretty tool-input renderer, Preferences panel.
-
-### What's new in 0.1.6
-
-Forensic-audit security pass: **7 CRITICAL, 16 HIGH, 20 MEDIUM, 9 LOW**
-findings closed. See [`SECURITY.md`](SECURITY.md). Headline: **`bash`
-tool now sanitizes its child process env** — no more API key leakage
-into LLM-generated commands. `WRONGSTACK_BASH_ENV_PASSTHROUGH=1`
-opts back to the old behaviour.
+**Eternal autonomy — `/autonomy eternal` + persistent `/goal`.** Set a
+mission with `/goal <text>` (persists to `.wrongstack/goal.json`),
+turn the engine on with `/autonomy eternal` (or launch with
+`--eternal`), and the agent drives sense → decide → execute → reflect
+cycles until you stop it (Esc / Ctrl+C / `/autonomy stop`). The
+hybrid decide pipeline walks pending todos → dirty git → LLM
+brainstorm, so the loop produces useful work even when no task is
+queued. TUI shows a red `ETERNAL` chip; the WebUI receives a live
+`eternal.iteration` WS broadcast per cycle.
+
+**Unified `/goal`.** `/goal` shows status + journal,
+`/goal <text>` (or `/goal set <text>`) persists *and* injects the
+full-autonomy lock-in preamble into the next turn, `/goal clear`
+stops the engine, `/goal journal [N]` prints the FIFO ring (default
+25, cap 500). The TUI's preamble-only `/goal` is removed; the CLI
+builtin now handles both behaviors — fixes a `goal is already
+registered` crash on TUI mount.
+
+**+272 additive tests** (3091 passing total) covering previously
+untested isolated modules — circuit breaker, process registry,
+observability event bridge, health registry, config-secrets walker,
+regex-guard ReDoS protection, JSON schema validator, and the
+`/yolo` / `/mode` / `/compact` / `/goal` / `/autonomy` / `/commit`
+glue. No source changes; pure coverage uplift.
+
+For earlier release notes, see [CHANGELOG.md](CHANGELOG.md).
 
 ## Quick start
+
 
 ```bash
 # First run — interactive setup wizard (picks provider + model, saves to config)
@@ -644,11 +313,11 @@ message. TUI users can also press `Alt+V`.
 | `/fleet status\|usage\|kill\|manifest\|retry\|log\|stream on\|off\|help` | Inspect and control the subagent fleet. `log <id>` summarises a transcript; `log <id> raw` dumps it. |
 | `/agents` | Print the current fleet roster (running, idle, completed) with kind chips for failures. |
 | `/steer <new direction>` | Mid-flight redirect. Aborts the active iteration, terminates running subagents, drops the queue, sends the new direction with a STEERING preamble (context + authority) prepended. Same effect as pressing **Esc** then typing. |
-| `/goal <description>` | Lock in a goal the agent must drive to a verifiable finish — full autonomy preamble, anti-hedge constraints, three-angle persistence. Only Esc / `/steer` / Ctrl+C / `/fleet kill` can stop it. |
+| `/goal <description>` | Lock in a goal the agent must drive to a verifiable finish — persists to `.wrongstack/goal.json` and injects the full-autonomy preamble into the next turn. Subcommands: `/goal` (status + journal), `/goal clear` (stop engine), `/goal journal [N]` (recent FIFO entries). Pairs with `/autonomy eternal` for indefinite runs. Only Esc / `/steer` / Ctrl+C / `/fleet kill` can stop it. |
 | `/queue` | Show, clear, or delete entries from the in-flight message queue. |
 | `/altscreen on\|off` | Toggle the terminal alt-screen buffer. Default OFF (native scroll); `on` for full-screen mode. |
 | `/plan` | View / append to the per-session plan JSON file. Six actions: `show|add|start|done|remove|clear`. Items have `open` / `in_progress` / `done` status. Mirrored to disk; surfaces `📋 ⌛N ☐N ✓N` chip in TUI status bar. |
-| `/autonomy on\|off\|suggest\|toggle` | Self-driving agent mode. `on` picks the next logical step and continues after each turn; `suggest` shows next-step suggestions without executing. TUI shows `∞ AUTO` or `∞ SUGGEST` chip. |
+| `/autonomy on\|off\|suggest\|eternal\|stop\|toggle` | Self-driving agent mode. `on` picks the next logical step and continues after each turn; `suggest` shows next-step suggestions without executing; `eternal` runs the sense → decide → execute → reflect loop indefinitely against the persistent `/goal` (use `stop` to halt). TUI shows `∞ AUTO` / `∞ SUGGEST` / `ETERNAL` chip. |
 | `/yolo on\|off\|toggle` | Flip YOLO mode (auto-approve all tool calls) on or off without restarting. `/yolo` alone shows current status. TUI shows `⚠ YOLO` chip. |
 | `/mode` | Switch agent persona mode. Eight built-in modes: `default`, `code-reviewer`, `code-auditor`, `architect`, `debugger`, `tester`, `devops`, `refactorer`. Modes inject role-specific system prompts; stored in `~/.wrongstack/modes/` and can be extended with custom prompts. |
 | `/model` | Two-step provider → model picker. Switch at runtime without restart. |
@@ -1266,7 +935,7 @@ See [`examples/`](examples/) for 6 categories of working examples:
 
 ## Status
 
-- **2616 tests passing** across 230 test files (~19 s, 2 skipped)
+- **3091 tests passing** across 259 test files (~20 s, 4 skipped)
 - Coverage thresholds enforced in `vitest.config.ts`: ≥85 % lines / ≥85 % functions / ≥70 % branches / ≥82 % statements
 - All workspace packages build clean with TypeScript strict + `noUncheckedIndexedAccess`
 - Node 22+ only, ESM-only, no CommonJS bundles
