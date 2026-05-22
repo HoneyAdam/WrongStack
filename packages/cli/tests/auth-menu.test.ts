@@ -447,4 +447,44 @@ describe('runAuthMenu', () => {
     await runAuthMenu(deps);
     expect(deps.renderer.writeError).toHaveBeenCalledWith(expect.stringMatching(/Invalid family/));
   });
+
+  it('refuses to clobber a config file with non-ENOENT read error', async () => {
+    // Point globalConfigPath at a directory — reading it returns EISDIR,
+    // which is not ENOENT. The mutator throws to refuse overwriting.
+    const tmpDir = await mkTempDir();
+    const dirAsConfig = path.join(tmpDir, 'cfg-as-dir');
+    await fs.mkdir(dirAsConfig);
+    const vault = new DefaultSecretVault({ keyFile: path.join(tmpDir, '.key') });
+    const deps: AuthMenuDeps = {
+      renderer: makeRenderer(),
+      reader: makeReader([], ['sk-secret']),
+      modelsRegistry: makeModelsRegistry({
+        myprov: { id: 'myprov', name: 'My', family: 'openai', envVars: [], models: [] } as ResolvedProvider,
+      }),
+      vault,
+      globalConfigPath: dirAsConfig,
+    };
+    await expect(runAuthDirect(deps, { providerId: 'myprov' })).rejects.toThrow(
+      /Refusing to mutate/,
+    );
+  });
+
+  it('refuses to overwrite a corrupt config file (non-empty but invalid JSON)', async () => {
+    const tmpDir = await mkTempDir();
+    const configPath = path.join(tmpDir, 'config.json');
+    await fs.writeFile(configPath, 'this is not json {{{', { mode: 0o600 });
+    const vault = new DefaultSecretVault({ keyFile: path.join(tmpDir, '.key') });
+    const deps: AuthMenuDeps = {
+      renderer: makeRenderer(),
+      reader: makeReader([], ['sk-secret']),
+      modelsRegistry: makeModelsRegistry({
+        myprov: { id: 'myprov', name: 'My', family: 'openai', envVars: [], models: [] } as ResolvedProvider,
+      }),
+      vault,
+      globalConfigPath: configPath,
+    };
+    await expect(runAuthDirect(deps, { providerId: 'myprov' })).rejects.toThrow(
+      /Refusing to overwrite corrupt config/,
+    );
+  });
 });

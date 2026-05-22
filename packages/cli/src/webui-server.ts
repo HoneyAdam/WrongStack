@@ -62,7 +62,7 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
 
   const wss = new WebSocketServer({ port, host: '127.0.0.1', maxPayload: 1 * 1024 * 1024 });
 
-  console.log(`[WebUI] WebSocket server starting on ws://localhost:${port}`);
+  console.log(`[WebUI] WebSocket server starting on ws://127.0.0.1:${port}`);
 
   // Subscribe to events once
   const eventUnsubscribers: Array<() => void> = [];
@@ -208,7 +208,7 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
 
   return new Promise<void>((resolve) => {
     wss.on('listening', () => {
-      console.log(`[WebUI] WebSocket server running on ws://localhost:${port}`);
+      console.log(`[WebUI] WebSocket server running on ws://127.0.0.1:${port}`);
       setupEvents();
     });
 

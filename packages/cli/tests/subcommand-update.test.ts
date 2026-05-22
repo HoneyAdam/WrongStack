@@ -1,0 +1,167 @@
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { EventEmitter } from 'node:events';
+
+const updateMocks = vi.hoisted(() => ({
+  checkForUpdate: vi.fn(),
+  spawn: vi.fn(),
+}));
+
+vi.mock('../src/update-check.js', () => ({
+  checkForUpdate: updateMocks.checkForUpdate,
+}));
+
+vi.mock('node:child_process', async (orig) => {
+  const actual = (await orig()) as Record<string, unknown>;
+  return {
+    ...actual,
+    spawn: (...args: unknown[]) => updateMocks.spawn(...args),
+  };
+});
+
+import { updateCmd } from '../src/subcommands/handlers/update.js';
+
+let writes: string[];
+let deps: Parameters<typeof updateCmd>[1];
+
+beforeEach(() => {
+  writes = [];
+  updateMocks.checkForUpdate.mockReset();
+  updateMocks.spawn.mockReset();
+  deps = {
+    cwd: '/tmp',
+    renderer: {
+      write: (s: string) => {
+        writes.push(s);
+      },
+    },
+  } as never;
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+function makeFakeChild(exitCode: number | null, errOnSpawn?: Error, stderrChunks: string[] = []) {
+  const ee = new EventEmitter() as EventEmitter & {
+    stderr: EventEmitter | null;
+    stdout: EventEmitter | null;
+  };
+  ee.stderr = new EventEmitter();
+  ee.stdout = new EventEmitter();
+  setImmediate(() => {
+    if (errOnSpawn) {
+      ee.emit('error', errOnSpawn);
+      return;
+    }
+    for (const c of stderrChunks) ee.stderr?.emit('data', Buffer.from(c));
+    ee.emit('close', exitCode);
+  });
+  return ee;
+}
+
+describe('updateCmd subcommand', () => {
+  it('--check-only on outdated prints "Update available"', async () => {
+    updateMocks.checkForUpdate.mockResolvedValue({
+      outdated: true,
+      current: '1.0.0',
+      latest: '1.2.3',
+    });
+    const code = await updateCmd(['--check-only'], deps);
+    expect(code).toBe(0);
+    expect(writes.join('')).toContain('Update available: v1.0.0 → v1.2.3');
+    expect(updateMocks.spawn).not.toHaveBeenCalled();
+  });
+
+  it('--check-only on up-to-date prints latest message', async () => {
+    updateMocks.checkForUpdate.mockResolvedValue({
+      outdated: false,
+      current: '2.0.0',
+      latest: '2.0.0',
+    });
+    const code = await updateCmd(['--check-only'], deps);
+    expect(code).toBe(0);
+    expect(writes.join('')).toContain('You are on the latest version: v2.0.0');
+  });
+
+  it('-c is an alias for --check-only', async () => {
+    updateMocks.checkForUpdate.mockResolvedValue({
+      outdated: false,
+      current: '1.0.0',
+      latest: '1.0.0',
+    });
+    await updateCmd(['-c'], deps);
+    expect(writes.join('')).toContain('You are on the latest version');
+    expect(updateMocks.spawn).not.toHaveBeenCalled();
+  });
+
+  it('when already latest, returns 0 without spawning npm', async () => {
+    updateMocks.checkForUpdate.mockResolvedValue({
+      outdated: false,
+      current: '1.0.0',
+      latest: '1.0.0',
+    });
+    const code = await updateCmd([], deps);
+    expect(code).toBe(0);
+    expect(writes.join('')).toContain('already on the latest version');
+    expect(updateMocks.spawn).not.toHaveBeenCalled();
+  });
+
+  it('runs npm install -g wrongstack@latest and reports success', async () => {
+    updateMocks.checkForUpdate.mockResolvedValue({
+      outdated: true,
+      current: '1.0.0',
+      latest: '1.2.3',
+    });
+    updateMocks.spawn.mockReturnValue(makeFakeChild(0));
+    const code = await updateCmd([], deps);
+    expect(code).toBe(0);
+    expect(updateMocks.spawn).toHaveBeenCalledWith(
+      'npm',
+      ['install', '-g', 'wrongstack@latest'],
+      expect.objectContaining({ cwd: '/tmp', stdio: 'pipe' }),
+    );
+    const out = writes.join('');
+    expect(out).toContain('Updating wrongstack from v1.0.0 to v1.2.3');
+    expect(out).toContain('Updated to v1.2.3');
+  });
+
+  it('reports failure when npm exits non-zero', async () => {
+    updateMocks.checkForUpdate.mockResolvedValue({
+      outdated: true,
+      current: '1.0.0',
+      latest: '1.2.3',
+    });
+    updateMocks.spawn.mockReturnValue(makeFakeChild(2, undefined, ['npm err\n']));
+    const code = await updateCmd([], deps);
+    expect(code).toBe(2);
+    expect(writes.join('')).toContain('Update failed with exit code 2');
+  });
+
+  it('handles ENOENT (npm not installed)', async () => {
+    updateMocks.checkForUpdate.mockResolvedValue({
+      outdated: true,
+      current: '1.0.0',
+      latest: '1.2.3',
+    });
+    updateMocks.spawn.mockImplementation(() => {
+      throw new Error('spawn npm ENOENT');
+    });
+    const code = await updateCmd([], deps);
+    expect(code).toBe(1);
+    expect(writes.join('')).toContain('npm not found in PATH');
+  });
+
+  it('reports generic error string when spawn throws non-ENOENT', async () => {
+    updateMocks.checkForUpdate.mockResolvedValue({
+      outdated: true,
+      current: '1.0.0',
+      latest: '1.2.3',
+    });
+    updateMocks.spawn.mockImplementation(() => {
+      throw 'boom';
+    });
+    const code = await updateCmd([], deps);
+    expect(code).toBe(1);
+    expect(writes.join('')).toContain('Update failed: boom');
+  });
+});

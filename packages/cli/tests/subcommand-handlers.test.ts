@@ -1,0 +1,176 @@
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+
+// ── auth handler ────────────────────────────────────────────────────────────
+const runAuthMenu = vi.fn().mockResolvedValue(0);
+const runAuthDirect = vi.fn().mockResolvedValue(0);
+vi.mock('../src/auth-menu.js', () => ({
+  runAuthMenu: (...a: unknown[]) => runAuthMenu(...a),
+  runAuthDirect: (...a: unknown[]) => runAuthDirect(...a),
+}));
+
+// ── history handler — mock the underlying store calls ──────────────────────
+const listHistory = vi.fn();
+const getHistoryEntry = vi.fn();
+const restoreFromHistory = vi.fn();
+const restoreLast = vi.fn();
+vi.mock('../src/config-history.js', () => ({
+  listHistory: (...a: unknown[]) => listHistory(...a),
+  getHistoryEntry: (...a: unknown[]) => getHistoryEntry(...a),
+  restoreFromHistory: (...a: unknown[]) => restoreFromHistory(...a),
+  restoreLast: (...a: unknown[]) => restoreLast(...a),
+}));
+
+import { authCmd } from '../src/subcommands/handlers/auth.js';
+import { historyCmd, restoreCmd } from '../src/subcommands/handlers/config-history.js';
+
+function fakeDeps() {
+  return {
+    renderer: { write: vi.fn() },
+    reader: {} as never,
+    modelsRegistry: {} as never,
+    vault: {} as never,
+    paths: { globalConfig: '/tmp/cfg.json' } as never,
+  } as never;
+}
+
+beforeEach(() => {
+  runAuthMenu.mockClear();
+  runAuthDirect.mockClear();
+  listHistory.mockReset();
+  getHistoryEntry.mockReset();
+  restoreFromHistory.mockReset();
+  restoreLast.mockReset();
+});
+
+describe('authCmd', () => {
+  it('invokes the menu when no positional args', async () => {
+    await authCmd([], fakeDeps());
+    expect(runAuthMenu).toHaveBeenCalledTimes(1);
+    expect(runAuthDirect).not.toHaveBeenCalled();
+  });
+
+  it('routes direct flow with positional providerId and flags', async () => {
+    await authCmd(
+      ['anthropic', '--label', 'work', '--family', 'anthropic', '--base-url', 'https://x'],
+      fakeDeps(),
+    );
+    expect(runAuthDirect).toHaveBeenCalledTimes(1);
+    const [, opts] = runAuthDirect.mock.calls[0]!;
+    expect(opts.providerId).toBe('anthropic');
+    expect(opts.label).toBe('work');
+    expect(opts.family).toBe('anthropic');
+    expect(opts.baseUrl).toBe('https://x');
+  });
+});
+
+describe('historyCmd', () => {
+  it('shows missing-entry message when --id not found', async () => {
+    getHistoryEntry.mockResolvedValue(null);
+    const deps = fakeDeps();
+    const code = await historyCmd(['--id', 'abc'], deps);
+    expect(code).toBe(1);
+    expect(deps.renderer.write).toHaveBeenCalledWith(
+      expect.stringContaining("'abc' not found"),
+    );
+  });
+
+  it('prints entry details when --id resolves', async () => {
+    getHistoryEntry.mockResolvedValue({
+      id: 'x1',
+      timestamp: 0,
+      description: 'changed model',
+      diffSummary: '~ provider',
+      snapshotMasked: { provider: 'a' },
+    });
+    const deps = fakeDeps();
+    const code = await historyCmd(['--id', 'x1'], deps);
+    expect(code).toBe(0);
+    const calls = (deps.renderer.write as ReturnType<typeof vi.fn>).mock.calls
+      .map((c) => c[0])
+      .join('');
+    expect(calls).toContain('ID:       x1');
+    expect(calls).toContain('changed model');
+  });
+
+  it('prints "no history" when list empty', async () => {
+    listHistory.mockResolvedValue([]);
+    const deps = fakeDeps();
+    const code = await historyCmd([], deps);
+    expect(code).toBe(0);
+    expect(deps.renderer.write).toHaveBeenCalledWith(expect.stringContaining('No config history'));
+  });
+
+  it('prints a numbered list when entries exist (truncates long descriptions)', async () => {
+    listHistory.mockResolvedValue([
+      { id: 'a', timestamp: 1700000000000, description: 'short', diffSummary: '' },
+      { id: 'b', timestamp: 1700000100000, description: 'x'.repeat(100), diffSummary: '' },
+    ]);
+    const deps = fakeDeps();
+    await historyCmd([], deps);
+    const all = (deps.renderer.write as ReturnType<typeof vi.fn>).mock.calls
+      .map((c) => c[0])
+      .join('');
+    expect(all).toContain('[1] a');
+    expect(all).toContain('[2] b');
+    // Truncated long line ends with ellipsis
+    expect(all).toContain('…');
+  });
+});
+
+describe('restoreCmd', () => {
+  it('--latest happy path returns 0 and writes confirmation', async () => {
+    restoreLast.mockResolvedValue({ ok: true });
+    const deps = fakeDeps();
+    const code = await restoreCmd(['--latest'], deps);
+    expect(code).toBe(0);
+    expect(deps.renderer.write).toHaveBeenCalledWith(
+      expect.stringContaining('config.json.last'),
+    );
+  });
+
+  it('--latest failure surfaces error and exits 1', async () => {
+    restoreLast.mockResolvedValue({ ok: false, error: 'no backup' });
+    const deps = fakeDeps();
+    const code = await restoreCmd(['-l'], deps);
+    expect(code).toBe(1);
+    expect(deps.renderer.write).toHaveBeenCalledWith(expect.stringContaining('no backup'));
+  });
+
+  it('missing id prints usage and exits 1', async () => {
+    const deps = fakeDeps();
+    const code = await restoreCmd([], deps);
+    expect(code).toBe(1);
+    expect(deps.renderer.write).toHaveBeenCalledWith(expect.stringContaining('Usage:'));
+  });
+
+  it('positional id calls restoreFromHistory', async () => {
+    restoreFromHistory.mockResolvedValue({ ok: true });
+    const deps = fakeDeps();
+    const code = await restoreCmd(['abc-123'], deps);
+    expect(restoreFromHistory).toHaveBeenCalledWith('abc-123');
+    expect(code).toBe(0);
+  });
+
+  it('--id flag form works too', async () => {
+    restoreFromHistory.mockResolvedValue({ ok: true });
+    const deps = fakeDeps();
+    const code = await restoreCmd(['--id', 'flag-id'], deps);
+    expect(restoreFromHistory).toHaveBeenCalledWith('flag-id');
+    expect(code).toBe(0);
+  });
+
+  it('--id=value (combined) form works', async () => {
+    restoreFromHistory.mockResolvedValue({ ok: true });
+    const deps = fakeDeps();
+    await restoreCmd(['--id=combined'], deps);
+    expect(restoreFromHistory).toHaveBeenCalledWith('combined');
+  });
+
+  it('restore failure exits 1 and prints error', async () => {
+    restoreFromHistory.mockResolvedValue({ ok: false, error: 'corrupt' });
+    const deps = fakeDeps();
+    const code = await restoreCmd(['abc'], deps);
+    expect(code).toBe(1);
+    expect(deps.renderer.write).toHaveBeenCalledWith(expect.stringContaining('corrupt'));
+  });
+});

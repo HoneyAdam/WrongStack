@@ -95,6 +95,21 @@ export class MCPRegistry {
     }));
   }
 
+  /**
+   * Catalog of every server ever registered with this registry — includes
+   * servers that are stopped, failed, or not yet started.
+   * Useful for the `mcp_control` tool to show all known servers without
+   * triggering connections.
+   */
+  describe(): { name: string; state: ConnectionState; toolCount: number; enabled: boolean }[] {
+    return Array.from(this.servers.values()).map((s) => ({
+      name: s.cfg.name,
+      state: s.state,
+      toolCount: s.toolNames.length,
+      enabled: s.cfg.enabled !== false,
+    }));
+  }
+
   async stopAll(): Promise<void> {
     for (const name of Array.from(this.servers.keys())) {
       await this.stop(name);

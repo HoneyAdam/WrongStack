@@ -188,4 +188,166 @@ describe('DefaultConfigLoader', () => {
     const cfg = await l.load();
     expect(Object.isFrozen(cfg)).toBe(true);
   });
+
+  // ── multi-key apiKeys[] resolution ─────────────────────────────────────────
+
+  it('mirrors the first apiKeys[] entry into apiKey when none is set', async () => {
+    const { loader: l, paths } = loader();
+    await fs.mkdir(path.dirname(paths.globalConfig), { recursive: true });
+    await fs.writeFile(
+      paths.globalConfig,
+      JSON.stringify({
+        providers: {
+          openai: {
+            type: 'openai',
+            apiKeys: [
+              { label: 'prod', apiKey: 'sk-prod' },
+              { label: 'dev', apiKey: 'sk-dev' },
+            ],
+          },
+        },
+      }),
+    );
+    const cfg = await l.load();
+    const provCfg = (cfg.providers as Record<string, { apiKey?: string }>).openai;
+    expect(provCfg.apiKey).toBe('sk-prod');
+  });
+
+  it('honors activeKey label when resolving apiKeys[]', async () => {
+    const { loader: l, paths } = loader();
+    await fs.mkdir(path.dirname(paths.globalConfig), { recursive: true });
+    await fs.writeFile(
+      paths.globalConfig,
+      JSON.stringify({
+        providers: {
+          openai: {
+            type: 'openai',
+            activeKey: 'dev',
+            apiKeys: [
+              { label: 'prod', apiKey: 'sk-prod' },
+              { label: 'dev', apiKey: 'sk-dev' },
+            ],
+          },
+        },
+      }),
+    );
+    const cfg = await l.load();
+    const provCfg = (cfg.providers as Record<string, { apiKey?: string }>).openai;
+    expect(provCfg.apiKey).toBe('sk-dev');
+  });
+
+  it('falls back to first entry when activeKey label does not match', async () => {
+    const { loader: l, paths } = loader();
+    await fs.mkdir(path.dirname(paths.globalConfig), { recursive: true });
+    await fs.writeFile(
+      paths.globalConfig,
+      JSON.stringify({
+        providers: {
+          openai: {
+            type: 'openai',
+            activeKey: 'missing',
+            apiKeys: [
+              { label: 'prod', apiKey: 'sk-prod' },
+              { label: 'dev', apiKey: 'sk-dev' },
+            ],
+          },
+        },
+      }),
+    );
+    const cfg = await l.load();
+    const provCfg = (cfg.providers as Record<string, { apiKey?: string }>).openai;
+    expect(provCfg.apiKey).toBe('sk-prod');
+  });
+
+  it('preserves an explicit apiKey instead of mirroring from apiKeys[]', async () => {
+    const { loader: l, paths } = loader();
+    await fs.mkdir(path.dirname(paths.globalConfig), { recursive: true });
+    await fs.writeFile(
+      paths.globalConfig,
+      JSON.stringify({
+        providers: {
+          openai: {
+            type: 'openai',
+            apiKey: 'sk-explicit',
+            apiKeys: [{ label: 'prod', apiKey: 'sk-prod' }],
+          },
+        },
+      }),
+    );
+    const cfg = await l.load();
+    const provCfg = (cfg.providers as Record<string, { apiKey?: string }>).openai;
+    expect(provCfg.apiKey).toBe('sk-explicit');
+  });
+
+  it('ignores malformed apiKeys[] entries (missing label or apiKey)', async () => {
+    const { loader: l, paths } = loader();
+    await fs.mkdir(path.dirname(paths.globalConfig), { recursive: true });
+    await fs.writeFile(
+      paths.globalConfig,
+      JSON.stringify({
+        providers: {
+          openai: {
+            type: 'openai',
+            apiKeys: [
+              null,
+              { label: 'no-key' },
+              { apiKey: 'no-label' },
+              { label: 'good', apiKey: 'sk-good' },
+            ],
+          },
+        },
+      }),
+    );
+    const cfg = await l.load();
+    const provCfg = (cfg.providers as Record<string, { apiKey?: string }>).openai;
+    expect(provCfg.apiKey).toBe('sk-good');
+  });
+
+  it('leaves apiKey undefined when apiKeys[] is empty or all malformed', async () => {
+    const { loader: l, paths } = loader();
+    await fs.mkdir(path.dirname(paths.globalConfig), { recursive: true });
+    await fs.writeFile(
+      paths.globalConfig,
+      JSON.stringify({
+        providers: {
+          openai: { type: 'openai', apiKeys: [null, { label: 1 }] },
+        },
+      }),
+    );
+    const cfg = await l.load();
+    const provCfg = (cfg.providers as Record<string, { apiKey?: string }>).openai;
+    expect(provCfg.apiKey).toBeUndefined();
+  });
+
+  // ── validation errors ────────────────────────────────────────────────────
+
+  it('throws when context thresholds are non-numeric', async () => {
+    const { loader: l, paths } = loader();
+    await fs.mkdir(path.dirname(paths.globalConfig), { recursive: true });
+    await fs.writeFile(
+      paths.globalConfig,
+      JSON.stringify({ context: { warnThreshold: 'oops', softThreshold: 0.7, hardThreshold: 0.9 } }),
+    );
+    await expect(l.load()).rejects.toThrow(/context\.warnThreshold/);
+  });
+
+  it('throws when context thresholds are out of order', async () => {
+    const { loader: l, paths } = loader();
+    await fs.mkdir(path.dirname(paths.globalConfig), { recursive: true });
+    await fs.writeFile(
+      paths.globalConfig,
+      JSON.stringify({ context: { warnThreshold: 0.9, softThreshold: 0.7, hardThreshold: 0.8 } }),
+    );
+    await expect(l.load()).rejects.toThrow(/warn < soft < hard/);
+  });
+
+  it('throws when context.mode is an unknown id', async () => {
+    const { loader: l, paths } = loader();
+    await fs.mkdir(path.dirname(paths.globalConfig), { recursive: true });
+    await fs.writeFile(
+      paths.globalConfig,
+      JSON.stringify({ context: { mode: 'lightning-fast' } }),
+    );
+    await expect(l.load()).rejects.toThrow(/context\.mode must be one of/);
+  });
 });

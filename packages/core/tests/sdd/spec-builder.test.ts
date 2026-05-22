@@ -308,4 +308,169 @@ describe('AISpecBuilder', () => {
     expect(builder.getPhase()).toBe('done');
     expect(builder.getAIPrompt()).toContain('completed');
   });
+
+  // ── JSON extraction edge cases (extractJSON / tryParseSpecFromOutput / extractJSONArray)
+
+  it('tryParseSpecFromOutput returns null when no JSON is present', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    expect(builder.tryParseSpecFromOutput('just some text, no JSON')).toBeNull();
+  });
+
+  it('tryParseSpecFromOutput returns null when JSON is malformed schema-wise', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    // Valid JSON but missing required fields → parseSpecFromJSON throws,
+    // tryParseSpecFromOutput catches and returns null.
+    expect(builder.tryParseSpecFromOutput('{"foo":"bar"}')).toBeNull();
+  });
+
+  it('extractJSONArray returns the array from a ```json fenced code block', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    const text = 'some intro\n```json\n[{"title":"a"},{"title":"b"}]\n```\noutro';
+    const got = builder.extractJSONArray(text);
+    expect(got).not.toBeNull();
+    expect(JSON.parse(got!)).toEqual([{ title: 'a' }, { title: 'b' }]);
+  });
+
+  it('extractJSONArray falls back to a raw [..] pattern when no code block exists', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    const text = 'here are the tasks: [{"title":"x"}] and some more text';
+    const got = builder.extractJSONArray(text);
+    expect(JSON.parse(got!)).toEqual([{ title: 'x' }]);
+  });
+
+  it('extractJSONArray returns null when the bare [..] is not valid JSON', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    expect(builder.extractJSONArray('[not, json, here]')).toBeNull();
+  });
+
+  it('extractJSONArray returns null when the fenced block does not start with [', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    const text = '```json\n{"not": "an-array"}\n```';
+    // Code block exists but content is {} — function falls through to the raw
+    // [...] pattern (which doesn't match) and returns null.
+    expect(builder.extractJSONArray(text)).toBeNull();
+  });
+
+  it('extractJSONArray returns null when input has no array at all', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    expect(builder.extractJSONArray('plain text only')).toBeNull();
+  });
+
+  // ── parseSpecFromJSON edge cases ──────────────────────────────────────────
+
+  it('parseSpecFromJSON throws on invalid JSON', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    expect(() => builder.parseSpecFromJSON('not-json{')).toThrow(/Invalid JSON/);
+  });
+
+  it('parseSpecFromJSON throws when payload is not an object', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    expect(() => builder.parseSpecFromJSON('"string"')).toThrow(/must be an object/);
+    expect(() => builder.parseSpecFromJSON('null')).toThrow(/must be an object/);
+    expect(() => builder.parseSpecFromJSON('42')).toThrow(/must be an object/);
+  });
+
+  it('parseSpecFromJSON throws when overview is missing', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    expect(() => builder.parseSpecFromJSON('{"title":"x"}')).toThrow(/must have an overview/);
+  });
+
+  it('parseSpecFromJSON normalizes unknown section types to "overview"', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    const spec = builder.parseSpecFromJSON(
+      JSON.stringify({
+        title: 'T',
+        overview: 'O',
+        sections: [
+          { type: 'fancy-type', title: 'A', content: 'a' },
+          { type: 'requirements', title: 'B', content: 'b', level: 2 },
+        ],
+      }),
+    );
+    expect(spec.sections[0].type).toBe('overview');
+    expect(spec.sections[1].type).toBe('requirements');
+    expect(spec.sections[1].level).toBe(2);
+  });
+
+  it('parseSpecFromJSON filters out non-object sections + requirements', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    const spec = builder.parseSpecFromJSON(
+      JSON.stringify({
+        overview: 'ok',
+        sections: [null, 1, 'string', { title: 'real' }],
+        requirements: [null, 'x', { description: 'real-req' }],
+      }),
+    );
+    expect(spec.sections).toHaveLength(1);
+    expect(spec.requirements).toHaveLength(1);
+    expect(spec.requirements[0].description).toBe('real-req');
+  });
+
+  it('parseSpecFromJSON normalizes invalid type/priority to defaults', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    const spec = builder.parseSpecFromJSON(
+      JSON.stringify({
+        overview: 'ok',
+        requirements: [{ description: 'r', type: 'invalid', priority: 'extreme' }],
+      }),
+    );
+    expect(spec.requirements[0].type).toBe('functional');
+    expect(spec.requirements[0].priority).toBe('medium');
+  });
+
+  it('parseSpecFromJSON uses session.title when payload omits title', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    builder.startSession('Session Title');
+    const spec = builder.parseSpecFromJSON(JSON.stringify({ overview: 'ok' }));
+    expect(spec.title).toBe('Session Title');
+  });
+
+  // ── extractJSON variants ───────────────────────────────────────────────────
+
+  it('extractJSON pulls JSON from a ```json fenced block', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    expect(builder.extractJSON('```json\n{"a":1}\n```')).toBe('{"a":1}');
+  });
+
+  it('extractJSON falls back to a generic ``` block when it starts with { or [', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    expect(builder.extractJSON('```\n{"a":2}\n```')).toBe('{"a":2}');
+    // [ also accepted
+    expect(builder.extractJSON('```\n[1,2,3]\n```')).toBe('[1,2,3]');
+  });
+
+  it('extractJSON ignores generic ``` block whose content is not JSON-like', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    // Falls through to raw JSON pattern — which also doesn't match → null
+    expect(builder.extractJSON('```\nplain prose\n```')).toBeNull();
+  });
+
+  it('extractJSON finds raw JSON object embedded in prose', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    expect(builder.extractJSON('Here it is: {"a":3} and more')).toBe('{"a":3}');
+  });
+
+  it('extractJSON returns null when raw JSON match is unparseable', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    expect(builder.extractJSON('text {not-json} more')).toBeNull();
+  });
+
+  // ── saveSpec ──────────────────────────────────────────────────────────────
+
+  it('saveSpec throws when no spec is set on the session', async () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    builder.startSession('x');
+    await expect(builder.saveSpec()).rejects.toThrow(/No spec to save/);
+  });
+
+  it('saveSpec delegates to store.save when a spec is present', async () => {
+    const store = mockStore();
+    const builder = new AISpecBuilder({ store });
+    builder.startSession('y');
+    builder.setSpec(
+      builder.parseSpecFromJSON(JSON.stringify({ title: 'T', overview: 'O' })),
+    );
+    await builder.saveSpec();
+    expect(store.save).toHaveBeenCalledOnce();
+  });
 });

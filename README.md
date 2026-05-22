@@ -173,34 +173,23 @@ wrongstack --tui --yolo "add unit tests for src/auth.ts"
 
 **Plain REPL** (default): readline-based, multiline heredoc, slash commands, streaming text. Works everywhere a terminal works.
 
-**TUI** (`--tui`): Ink + React frontend in `@wrongstack/tui`, lazy-loaded — non-TUI users pay no React/Ink import cost. Features wired:
+**TUI** (`--tui`): Ink + React frontend, lazy-loaded. Key features:
 
-- Multi-line paste collapsed to `[pasted #1] (123 lines)` via bracketed paste mode (`\x1b[?2004h`) plus a chunk-size heuristic fallback
-- `@<query>` opens a fuzzy file-picker over the project root, arrow keys to navigate, Enter attaches as `[file #N]`
-- `Alt+V` or `/image` reads an image from the clipboard (PowerShell on Windows, `osascript` on macOS, `wl-paste`/`xclip` on Linux), attaches as `[image #N]`
-- Image input is routed before the run: native vision models receive the image directly; text-only models can use a registered vision adapter/MCP tool; otherwise the run fails with a clear unsupported-image message.
-- **Live status bar**: model · token in/out · cache hit % · cost · run state · `running: <tool> Ns (+N)` while tools execute · 4th line showing top-4 active subagents
-- **LiveActivityStrip** above the input: one line per running subagent showing the tool currently in flight, elapsed timer, iteration + tool-call counters, plus the last two compact tool/message summaries. Tool telemetry stays here and in FleetPanel instead of flooding chat history.
-- **Esc-to-steer**: mid-flight redirect that aborts the run, terminates the fleet (1.5s cap), and prepends a STEERING preamble (snapshot of in-flight tools, terminated subagents, last partial output + explicit authority grant) to the next user message
-- **`/goal <description>`** locks in a relentless autonomous mode — no implicit budget cap, anti-hedge constraints, three-angle persistence
-- Streaming text rendered live from the provider's SSE stream
-- Signal-safe cleanup: `SIGINT`/`SIGTERM`/`SIGHUP`/`exit` all disable bracketed paste mode on the way out
-- Non-TTY guard: refuses to start with exit code 2 when stdin or stdout is piped
-- `Home`/`End` keys jump to start/end of the input buffer (parsed from raw stdin CSI sequences since Ink 5.x doesn't surface them)
-- Re-entrancy guard on `Enter`: blocks stale second events from terminals that emit `\r\n` as two separate stdin frames, preventing double-submit
-- Resize ghost mitigation: `\x1b[J` erase-below-cursor on every resize event prevents leftover live-region lines from persisting in non-alt-screen mode; for heavy resize / split-pane workflows, `--alt-screen` eliminates the issue entirely
+- Multi-line paste collapse, `@<query>` fuzzy file picker, clipboard image paste (`Alt+V`)
+- Live status bar: model · tokens · cache hit · cost · `running: <tool>` while tools execute
+- **LiveActivityStrip**: tool in flight + elapsed timer per running subagent
+- **Esc-to-steer**: aborts run, terminates fleet, prepends STEERING preamble to your next message
+- **`/goal <description>`**: locks in full-autonomy mode — no implicit budget cap
+- Signal-safe cleanup, non-TTY guard, re-entrancy guard on Enter, resize ghost mitigation
 
-**Web UI** (`@wrongstack/webui`): React + Radix + Tailwind frontend with a Node `ws` backend that reuses the same `bootConfig()` / vault / agent assembly the CLI uses. Standalone `webui` binary serves the static bundle on port `3456` and the WebSocket on `3457`. The CLI can also opt in with `wrongstack --webui`. Both paths bind to `127.0.0.1` by default — set `WS_HOST=0.0.0.0` for LAN access. Highlights:
+**Web UI** (`@wrongstack/webui`): React + Radix + Tailwind frontend with a Node `ws` backend. Standalone `webui` binary serves on `3456/3457`; CLI can opt in with `wrongstack --webui`. Highlights:
 
-- Topbar status bar mirroring the TUI: ctx% · token in/out · cache hit · cost (click for per-turn breakdown) · live elapsed · iteration counter · streaming chars/sec
-- Per-message footer: token usage `42,103→1,287 · $0.0234`, `Pin` / `Edit & resend` / `Retry` / view-raw-markdown, plus a run summary `3 iter · 4 tools · 2.1s · $0.0234` attached to the last assistant bubble of each turn
-- Tool bubbles: collapsed one-line summary by default, live `tool.progress` stream while running, side-by-side line-numbered gutter when the output exceeds 25 lines, "Download as file" + Copy on hover
-- Sidebar: live TODO snapshot, Pinned panel (scroll-to-bubble), History with search + Today/Yesterday/This week/Earlier grouping + star-to-favourite, drag-to-resize handle
-- Welcome screen: no-providers CTA, "Pick back up" recent sessions, recent prompts as one-click refills, four prompt cards by intent (Explore / Build / Debug / Refactor)
-- Overlays: `Ctrl+K` command palette, `Ctrl+M` quick model switcher (saved providers + lazy-loaded models), `Ctrl+F` chat search, `?` shortcuts cheat-sheet, `Ctrl+Shift+D` compact density toggle
-- Smart-paste hint when dropping > 800 chars, message queue while a run is in-flight (drained one-at-a-time on `run.result`), connection-lost banner with live retry countdown, dynamic favicon badge + optional completion chime when the tab is hidden
-- Slash commands grouped by category (Run / Session / Inspect / App) with `↑↓ Tab Enter` keyboard nav and aliases
-- Day-separator dividers when transcripts span midnight; tab title carries `{iter} · {session-title} · {project} · WrongStack`
+- Topbar status bar: ctx% · tokens · cache hit · cost · elapsed · iteration
+- Per-message footer: token usage, Pin / Edit & resend / Retry
+- Tool bubbles: live `tool.progress` stream, collapsible gutter, Download/Copy on hover
+- Sidebar: live TODO snapshot, Pinned panel, History with grouping + search
+- Overlays: `Ctrl+K` command palette, `Ctrl+M` model switcher, `Ctrl+F` chat search, `?` shortcuts
+- Slash commands with keyboard nav, day-separator dividers, dynamic tab title
 
 ```bash
 # Standalone (recommended for the full experience)
@@ -404,75 +393,14 @@ All four supported families implement **real streaming** end-to-end: provider `s
 
 ### Vision MCP adapters
 
-Text-only models can still work with images when an MCP server exposes a safe,
-read-only image-understanding tool. For example, Z.AI's Vision MCP server
-publishes tools such as `image_analysis`, `extract_text_from_screenshot`,
-`diagnose_error_screenshot`, and `understand_technical_diagram`.
-
-The easiest path is a built-in preset:
+Text-only models work with images via MCP server adapters (e.g. `image_analysis`, `understand_image`):
 
 ```bash
 wstack mcp add zai-vision --enable
 wstack mcp add minimax-vision --enable
 ```
 
-```jsonc
-{
-  "features": { "mcp": true },
-  "mcpServers": {
-    "zai-mcp-server": {
-      "name": "zai-mcp-server",
-      "transport": "stdio",
-      "command": "npx",
-      "args": ["-y", "@z_ai/mcp-server@latest"],
-      "env": {
-        "Z_AI_API_KEY": "enc:v1:<iv>:<tag>:<ciphertext>",
-        "Z_AI_MODE": "ZAI"
-      },
-      "permission": "auto",
-      "allowedTools": [
-        "image_analysis",
-        "extract_text_from_screenshot",
-        "diagnose_error_screenshot",
-        "understand_technical_diagram",
-        "analyze_data_visualization",
-        "ui_diff_check"
-      ]
-    }
-  }
-}
-```
-
-When the active model lacks native vision, WrongStack writes pasted clipboard
-images to a temporary local file if the MCP tool expects `path` /
-`image_path` / `image_url` / `file_path`, invokes the adapter, replaces the
-image with the returned text description, and removes the temp file after the
-call.
-
-MiniMax's MCP server fits the same adapter shape. Its `understand_image` tool
-accepts a `prompt` plus `image_url`, and `image_url` may be either an HTTP URL
-or a local file path.
-
-```jsonc
-{
-  "features": { "mcp": true },
-  "mcpServers": {
-    "MiniMax": {
-      "name": "MiniMax",
-      "transport": "stdio",
-      "command": "uvx",
-      "args": ["minimax-coding-plan-mcp", "-y"],
-      "env": {
-        "MINIMAX_API_KEY": "enc:v1:<iv>:<tag>:<ciphertext>",
-        "MINIMAX_MCP_BASE_PATH": "./.wrongstack/minimax-output",
-        "MINIMAX_API_HOST": "https://api.minimax.io",
-        "MINIMAX_API_RESOURCE_MODE": "url"
-      },
-      "permission": "auto",
-      "allowedTools": ["understand_image"]
-    }
-  }
-}
+When the active model lacks native vision, WrongStack writes clipboard images to a temp file, invokes the adapter, replaces the image with the returned text, then removes the temp file.
 ```
 
 ### Project-level (`<project>/.wrongstack/AGENTS.md`)
@@ -680,23 +608,19 @@ out.
 
 | Cause | Surfaced as | Retryable? |
 |---|---|---|
-| Per-tool timeout (300s default) | `kind: 'budget_timeout'` | true |
-| Wall-clock budget (only if orchestrator set `timeoutMs`) | `kind: 'budget_timeout'` | true |
-| Tool-call cap (only if orchestrator set `maxToolCalls`) | `kind: 'budget_tool_calls'` | false |
-| Iteration cap (only if orchestrator set `maxIterations`) | `kind: 'budget_iterations'` | false |
-| Provider 429 | `kind: 'provider_rate_limit'`, `backoffMs: 5000` | true |
-| Provider 5xx | `kind: 'provider_5xx'`, `backoffMs: 3000` | true |
-| Provider 401/403 | `kind: 'provider_auth'` | false |
-| Tool returned `ok:false` and agent didn't recover | `kind: 'tool_failed'` | false |
-| LLM ended with no text and no tool calls | `kind: 'empty_response'` | false |
-| Parent abort (Esc / Ctrl+C / `/fleet kill`) | `kind: 'aborted_by_parent'` | false |
-| Bridge transport error | `kind: 'bridge_failed'` | false |
-| Context length exceeded | `kind: 'context_overflow'` | false |
+| Per-tool timeout | `kind: 'budget_timeout'` | ✓ |
+| Wall-clock budget | `kind: 'budget_timeout'` | ✓ |
+| Tool-call cap | `kind: 'budget_tool_calls'` | — |
+| Iteration cap | `kind: 'budget_iterations'` | — |
+| Provider 429 | `kind: 'provider_rate_limit'` | ✓ |
+| Provider 5xx | `kind: 'provider_5xx'` | ✓ |
+| Provider 401/403 | `kind: 'provider_auth'` | — |
+| Tool `ok:false` | `kind: 'tool_failed'` | — |
+| Empty response | `kind: 'empty_response'` | — |
+| Parent abort | `kind: 'aborted_by_parent'` | — |
+| Context overflow | `kind: 'context_overflow'` | — |
 
-Every failure includes the `cause` (original error name + message + stack)
-so diagnostics survive even when `kind === 'unknown'`. The delegate tool
-output exposes `errorKind` / `retryable` / `backoffMs` as top-level
-fields so the calling LLM can branch on classification.
+Every failure includes `cause` (error name + message + stack). The delegate tool exposes `errorKind` / `retryable` / `backoffMs` so the calling LLM can branch on classification.
 
 See [`docs/director-architecture.md`](docs/director-architecture.md) for
 the full design — FleetBus, prompt layering, safety caps, per-subagent
@@ -737,18 +661,7 @@ The CLI auto-migrates any plaintext keys it finds in `config.json` on every boot
 
 ## Observability events
 
-The `EventBus` carries **28 typed events**:
-
-- **Session**: `session.started`, `session.ended`, `session.damaged`
-- **Iteration**: `iteration.started`, `iteration.completed`, `iteration.limit_reached`
-- **Provider**: `provider.response`, `provider.text_delta`, `provider.thinking_delta`, `provider.tool_use_start`, `provider.tool_use_stop`, `provider.retry`, `provider.error`
-- **Tool**: `tool.started`, `tool.progress`, `tool.confirm_needed`, `tool.executed` (closes the gap between "model decided to call a tool" and "tool finished"; carries `outputBytes` / `outputTokens` / `outputLines` for inline size chips)
-- **Token / compaction**: `token.threshold`, `token.cost_estimate_unavailable`, `compaction.fired`, `compaction.failed`
-- **Subagent lifecycle**: `subagent.spawned` (carries `transcriptPath` to the JSONL on disk), `subagent.task_started`, `subagent.task_completed` (carries the full `SubagentError` envelope on failure), `subagent.tool_executed` (always-on per-tool bridge so the TUI can update compact live agent surfaces regardless of director mode)
-- **MCP**: `mcp.server.connected`, `mcp.server.reconnected`, `mcp.server.disconnected`
-- **Error**: `error`
-
-Subscribe with `events.on(name, fn)` or `events.once(name, fn)`; listeners that throw are caught and logged, never re-thrown.
+The `EventBus` carries **28 typed events** across Session, Iteration, Provider, Tool, Token/compaction, Subagent lifecycle, MCP, and Error categories. Subscribe with `events.on(name, fn)` or `events.once(name, fn)`; listeners that throw are caught and logged, never re-thrown.
 
 ## Filesystem layout
 

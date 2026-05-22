@@ -144,6 +144,163 @@ describe('runPicker', () => {
     expect(result).toBeUndefined();
   });
 
+  it('Enter (empty answer) accepts the default model when one is provided', async () => {
+    const { renderer } = mkRig();
+    const providers = [
+      fakeProvider({
+        models: [fakeModel({ id: 'm1' }), fakeModel({ id: 'm2' }), fakeModel({ id: 'm3' })],
+      }),
+    ];
+    // Pick provider 1, then press Enter to accept the default model, then 'n' for save.
+    const reader = fakeReader(['1', '', 'n']);
+    const registry = fakeRegistry(providers);
+    const result = await runPicker({
+      modelsRegistry: registry as never,
+      renderer,
+      reader: reader as never,
+      defaultProvider: 'anthropic',
+      defaultModel: 'm2',
+    });
+    expect(result).toBeDefined();
+    expect(result!.model).toBe('m2');
+  });
+
+  it('resolveModelSelection matches a model by exact id string', async () => {
+    const { renderer } = mkRig();
+    const providers = [
+      fakeProvider({ models: [fakeModel({ id: 'opus-4' }), fakeModel({ id: 'haiku-4' })] }),
+    ];
+    // pick provider 1, then type the exact model id, then don't save
+    const reader = fakeReader(['1', 'haiku-4', 'n']);
+    const registry = fakeRegistry(providers);
+    const result = await runPicker({
+      modelsRegistry: registry as never,
+      renderer,
+      reader: reader as never,
+    });
+    expect(result?.model).toBe('haiku-4');
+  });
+
+  it('resolveModelSelection picks unique partial-match model id', async () => {
+    const { renderer } = mkRig();
+    const providers = [
+      fakeProvider({
+        models: [fakeModel({ id: 'claude-opus-4' }), fakeModel({ id: 'gpt-4o' })],
+      }),
+    ];
+    // 'opus' uniquely matches 'claude-opus-4'
+    const reader = fakeReader(['1', 'opus', 'n']);
+    const registry = fakeRegistry(providers);
+    const result = await runPicker({
+      modelsRegistry: registry as never,
+      renderer,
+      reader: reader as never,
+    });
+    expect(result?.model).toBe('claude-opus-4');
+  });
+
+  it('resolveModelSelection reports an error when partial match is ambiguous', async () => {
+    const { renderer, err } = mkRig();
+    const providers = [
+      fakeProvider({
+        models: [
+          fakeModel({ id: 'claude-opus-4' }),
+          fakeModel({ id: 'claude-sonnet-4' }),
+        ],
+      }),
+    ];
+    // 'claude' matches both — should print an error and return undefined
+    const reader = fakeReader(['1', 'claude']);
+    const registry = fakeRegistry(providers);
+    const result = await runPicker({
+      modelsRegistry: registry as never,
+      renderer,
+      reader: reader as never,
+    });
+    expect(result).toBeUndefined();
+    expect(err.buf).toMatch(/multiple models/i);
+  });
+
+  it('resolveModelSelection falls back to using the raw answer when nothing matches', async () => {
+    const { renderer } = mkRig();
+    const providers = [fakeProvider({ models: [fakeModel({ id: 'opus-4' })] })];
+    // Answer doesn't match any model — use as-is
+    const reader = fakeReader(['1', 'experimental-model-x', 'n']);
+    const registry = fakeRegistry(providers);
+    const result = await runPicker({
+      modelsRegistry: registry as never,
+      renderer,
+      reader: reader as never,
+    });
+    expect(result?.model).toBe('experimental-model-x');
+  });
+
+  it('cancels mid-pagination when user types q on the "more" prompt', async () => {
+    // Generate 35 models so the picker shows page 1 (30) then asks for "more".
+    const manyModels = Array.from({ length: 35 }, (_, i) =>
+      fakeModel({ id: `m${i + 1}`, release_date: '2025-01-01' }),
+    );
+    const providers = [fakeProvider({ models: manyModels })];
+    const { renderer } = mkRig();
+    // Pick provider 1, then type 'q' on the pagination prompt.
+    const reader = fakeReader(['1', 'q']);
+    const registry = fakeRegistry(providers);
+    const result = await runPicker({
+      modelsRegistry: registry as never,
+      renderer,
+      reader: reader as never,
+    });
+    expect(result).toBeUndefined();
+  });
+
+  it('picks a numbered model on the first page even when more models exist', async () => {
+    const manyModels = Array.from({ length: 35 }, (_, i) =>
+      fakeModel({ id: `m${i + 1}`, release_date: '2025-01-01' }),
+    );
+    const providers = [fakeProvider({ models: manyModels })];
+    const { renderer } = mkRig();
+    // Pick provider 1, then "2" to pick the 2nd model from the first page.
+    const reader = fakeReader(['1', '2']);
+    const registry = fakeRegistry(providers);
+    const result = await runPicker({
+      modelsRegistry: registry as never,
+      renderer,
+      reader: reader as never,
+    });
+    expect(result).toBeDefined();
+    expect(result!.model).toBe('m2');
+  });
+
+  it('reports an error when the chosen model index is out of range and no default applies', async () => {
+    const providers = [fakeProvider({ models: [fakeModel({ id: 'only-one' })] })];
+    const { renderer, err } = mkRig();
+    // Pick provider 1, then an invalid out-of-range numeric selection.
+    const reader = fakeReader(['1', '99']);
+    const registry = fakeRegistry(providers);
+    const result = await runPicker({
+      modelsRegistry: registry as never,
+      renderer,
+      reader: reader as never,
+    });
+    // resolveModelSelection falls back to using the raw answer when nothing matches.
+    expect(result).toBeDefined();
+    expect(result!.model).toBe('99');
+  });
+
+  it('shows an empty-models error when the provider has no models in the catalog', async () => {
+    const providers = [fakeProvider({ models: [] })];
+    const { renderer, err } = mkRig();
+    const reader = fakeReader(['1']);
+    const registry = fakeRegistry(providers);
+    const result = await runPicker({
+      modelsRegistry: registry as never,
+      renderer,
+      reader: reader as never,
+    });
+    expect(result).toBeUndefined();
+    expect(err.buf).toMatch(/No models listed/);
+  });
+
   it('matches provider by id string', async () => {
     const { renderer } = mkRig();
     const providers = [

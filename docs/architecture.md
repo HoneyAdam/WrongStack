@@ -321,7 +321,7 @@ NDJSON). `MCPRegistry` manages a fleet of clients with:
 - Exponential backoff + jitter on reconnect (capped at 5 cycles, then
   transitions to `failed` and surfaces in `/diag`)
 - Tool-list cache that invalidates on `notifications/tools/list_changed`
-- Tool namespace prefix: `mcp__<serverName>__<toolName>`
+- Tool namespace prefix: `mcp__<serverName>__`
 
 Built-in presets in [`mcp-servers.ts`](../packages/core/src/defaults/mcp-servers.ts):
 filesystem, github, context7, brave-search, block, everart, slack, aws,

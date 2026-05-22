@@ -1,0 +1,253 @@
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { EventEmitter } from 'node:events';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import * as os from 'node:os';
+
+const spawnMock = vi.hoisted(() => ({ spawn: vi.fn() }));
+
+vi.mock('node:child_process', async (orig) => {
+  const actual = (await orig()) as Record<string, unknown>;
+  return {
+    ...actual,
+    spawn: (...args: unknown[]) => spawnMock.spawn(...args),
+  };
+});
+
+import { readClipboardImage } from '../src/clipboard.js';
+
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+class FakeChild extends EventEmitter {
+  stdout = new EventEmitter();
+  stderr = new EventEmitter();
+}
+
+let tmpDir: string;
+let realPlatform: NodeJS.Platform;
+
+beforeEach(async () => {
+  tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'clip-test-'));
+  spawnMock.spawn.mockReset();
+  realPlatform = process.platform;
+});
+
+afterEach(async () => {
+  Object.defineProperty(process, 'platform', { value: realPlatform });
+  await fs.rm(tmpDir, { recursive: true, force: true });
+});
+
+function setPlatform(p: NodeJS.Platform): void {
+  Object.defineProperty(process, 'platform', { value: p });
+}
+
+// Helper to schedule a fake child that writes a file then exits cleanly.
+function mkChildSavingFile(
+  finalPath: () => string,
+  content: Buffer | string,
+  exitCode = 0,
+  stdoutText = '',
+): FakeChild {
+  const c = new FakeChild();
+  setImmediate(async () => {
+    if (stdoutText) c.stdout.emit('data', Buffer.from(stdoutText));
+    if (content) await fs.writeFile(finalPath(), content).catch(() => undefined);
+    c.emit('exit', exitCode);
+  });
+  return c;
+}
+
+function mkChildEmittingStdout(text: string, exitCode = 0): FakeChild {
+  const c = new FakeChild();
+  setImmediate(() => {
+    c.stdout.emit('data', Buffer.from(text));
+    c.emit('exit', exitCode);
+  });
+  return c;
+}
+
+function mkErrorChild(): FakeChild {
+  const c = new FakeChild();
+  setImmediate(() => c.emit('error', new Error('spawn failed')));
+  return c;
+}
+
+describe('readClipboardImage', () => {
+  it('returns null on unsupported platforms', async () => {
+    setPlatform('freebsd');
+    const result = await readClipboardImage();
+    expect(result).toBeNull();
+    expect(spawnMock.spawn).not.toHaveBeenCalled();
+  });
+
+  // ── win32 ───────────────────────────────────────────────────────────────
+
+  describe('windows', () => {
+    beforeEach(() => setPlatform('win32'));
+
+    it('returns null when powershell reports NO_IMAGE', async () => {
+      spawnMock.spawn.mockReturnValue(mkChildEmittingStdout('NO_IMAGE'));
+      expect(await readClipboardImage()).toBeNull();
+    });
+
+    it('returns null when powershell exits with no OK marker', async () => {
+      spawnMock.spawn.mockReturnValue(mkChildEmittingStdout('something else'));
+      expect(await readClipboardImage()).toBeNull();
+    });
+
+    it('reads the saved PNG file when powershell prints OK', async () => {
+      const png = Buffer.concat([PNG_MAGIC, Buffer.from('payload')]);
+      spawnMock.spawn.mockImplementation((_cmd: string, args: string[]) => {
+        // Extract the tmp path from the inline PS script
+        const psCmd = (args[args.length - 1] as string) || '';
+        const match = psCmd.match(/\$img\.Save\('([^']+)'/);
+        const filePath = match ? match[1].replace(/\\\\/g, '\\') : '';
+        return mkChildSavingFile(() => filePath, png, 0, 'OK');
+      });
+      const result = await readClipboardImage();
+      expect(result).not.toBeNull();
+      expect(result?.mediaType).toBe('image/png');
+      expect(result?.bytes).toBe(png.length);
+      // base64-decoded back to original bytes
+      expect(Buffer.from(result!.base64, 'base64')).toEqual(png);
+    });
+
+    it('returns null when the saved file is missing PNG magic bytes', async () => {
+      spawnMock.spawn.mockImplementation((_cmd: string, args: string[]) => {
+        const psCmd = (args[args.length - 1] as string) || '';
+        const match = psCmd.match(/\$img\.Save\('([^']+)'/);
+        const filePath = match ? match[1].replace(/\\\\/g, '\\') : '';
+        return mkChildSavingFile(() => filePath, Buffer.from('not-a-png'), 0, 'OK');
+      });
+      expect(await readClipboardImage()).toBeNull();
+    });
+
+    it('returns null when child spawn emits an error', async () => {
+      spawnMock.spawn.mockReturnValue(mkErrorChild());
+      expect(await readClipboardImage()).toBeNull();
+    });
+
+    it('returns null when child exits non-zero', async () => {
+      spawnMock.spawn.mockReturnValue(mkChildEmittingStdout('', 1));
+      expect(await readClipboardImage()).toBeNull();
+    });
+  });
+
+  // ── darwin ──────────────────────────────────────────────────────────────
+
+  describe('darwin', () => {
+    beforeEach(() => setPlatform('darwin'));
+
+    it('returns null when osascript signals NO_IMAGE', async () => {
+      spawnMock.spawn.mockReturnValue(mkChildEmittingStdout('NO_IMAGE'));
+      expect(await readClipboardImage()).toBeNull();
+    });
+
+    it('returns null when osascript output is missing the OK marker', async () => {
+      spawnMock.spawn.mockReturnValue(mkChildEmittingStdout('some weird output'));
+      expect(await readClipboardImage()).toBeNull();
+    });
+
+    it('reads the saved PNG file when osascript prints OK', async () => {
+      const png = Buffer.concat([PNG_MAGIC, Buffer.from('darwin')]);
+      spawnMock.spawn.mockImplementation((_cmd: string, args: string[]) => {
+        const script = args[1] as string;
+        const m = script.match(/POSIX file "([^"]+)"/);
+        const filePath = m ? m[1] : '';
+        return mkChildSavingFile(() => filePath, png, 0, 'OK');
+      });
+      const result = await readClipboardImage();
+      expect(result).not.toBeNull();
+      expect(result?.bytes).toBe(png.length);
+    });
+  });
+
+  // ── linux ───────────────────────────────────────────────────────────────
+
+  describe('linux', () => {
+    beforeEach(() => setPlatform('linux'));
+
+    it('returns null when neither wl-paste nor xclip succeeds', async () => {
+      // Use mockImplementation so a fresh child is returned per call —
+      // mockReturnValue would re-use one EventEmitter and the second
+      // listener attach would miss the already-emitted events.
+      spawnMock.spawn.mockImplementation(() => mkChildEmittingStdout('', 1));
+      expect(await readClipboardImage()).toBeNull();
+      // Both wl-paste and xclip attempted
+      expect(spawnMock.spawn).toHaveBeenCalledTimes(2);
+    });
+
+    it('reads PNG output piped through wl-paste', async () => {
+      const png = Buffer.concat([PNG_MAGIC, Buffer.from('linux')]);
+      spawnMock.spawn.mockImplementation((cmd: string) => {
+        const child = new FakeChild();
+        setImmediate(() => {
+          if (cmd === 'wl-paste') {
+            child.stdout.emit('data', png);
+            child.emit('exit', 0);
+          } else {
+            child.emit('exit', 1);
+          }
+        });
+        return child;
+      });
+      const result = await readClipboardImage();
+      expect(result).not.toBeNull();
+      expect(result?.bytes).toBe(png.length);
+    });
+
+    it('falls back to xclip when wl-paste fails', async () => {
+      const png = Buffer.concat([PNG_MAGIC, Buffer.from('xclip')]);
+      let calls = 0;
+      spawnMock.spawn.mockImplementation((cmd: string) => {
+        calls++;
+        const child = new FakeChild();
+        setImmediate(() => {
+          if (cmd === 'xclip') {
+            child.stdout.emit('data', png);
+            child.emit('exit', 0);
+          } else {
+            child.emit('exit', 1);
+          }
+        });
+        return child;
+      });
+      const result = await readClipboardImage();
+      expect(result?.bytes).toBe(png.length);
+      expect(calls).toBe(2);
+    });
+
+    it('returns null when child errors during exec', async () => {
+      spawnMock.spawn.mockImplementation(() => mkErrorChild());
+      expect(await readClipboardImage()).toBeNull();
+    });
+  });
+
+  // ── readPngFile edge cases ──────────────────────────────────────────────
+
+  describe('readPngFile edge cases', () => {
+    beforeEach(() => setPlatform('win32'));
+
+    it('throws when saved image exceeds the 10MB cap', async () => {
+      // 11 MB buffer with PNG magic — exceeds the MAX_IMAGE_BYTES limit
+      const big = Buffer.concat([PNG_MAGIC, Buffer.alloc(11 * 1024 * 1024)]);
+      spawnMock.spawn.mockImplementation((_cmd: string, args: string[]) => {
+        const psCmd = (args[args.length - 1] as string) || '';
+        const match = psCmd.match(/\$img\.Save\('([^']+)'/);
+        const filePath = match ? match[1].replace(/\\\\/g, '\\') : '';
+        return mkChildSavingFile(() => filePath, big, 0, 'OK');
+      });
+      await expect(readClipboardImage()).rejects.toThrow(/exceeds.*MB limit/);
+    });
+
+    it('returns null when the saved file is empty', async () => {
+      spawnMock.spawn.mockImplementation((_cmd: string, args: string[]) => {
+        const psCmd = (args[args.length - 1] as string) || '';
+        const match = psCmd.match(/\$img\.Save\('([^']+)'/);
+        const filePath = match ? match[1].replace(/\\\\/g, '\\') : '';
+        return mkChildSavingFile(() => filePath, Buffer.alloc(0), 0, 'OK');
+      });
+      expect(await readClipboardImage()).toBeNull();
+    });
+  });
+});

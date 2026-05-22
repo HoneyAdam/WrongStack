@@ -16,7 +16,7 @@ WrongStack exposes top-level subcommands via `wstack <subcommand>` (aliased to `
 | `wstack skills` | `tools-skills.ts` | List all available skills |
 | `wstack providers` | `providers-models.ts` | List configured providers |
 | `wstack models` | `providers-models.ts` | List available models for a provider |
-| `wstack mcp` | `mcp.ts` | MCP server lifecycle: start, stop, list, install |
+| `wstack mcp` | `mcp.ts` | List/add/remove MCP servers (config only; no runtime control) |
 | `wstack plugin` | `plugin-usage.ts` | Manage plugins (install, remove, enable, disable) |
 | `wstack plugins` | `plugin-usage.ts` | Alias for `wstack plugin` |
 | `wstack diag` | `diag-doctor.ts` | Full diagnostic dump |

@@ -197,4 +197,19 @@ describe('/goal slash command', () => {
     const onDisk = await loadGoal(goalFilePath(tmp));
     expect(onDisk?.goal).toBe('explode');
   });
+
+  it('/goal journal reports "Journal is empty" when goal has no entries yet', async () => {
+    // Seed a goal with no journal entries.
+    const seed = emptyGoal('fresh goal');
+    await saveGoal(goalFilePath(tmp), seed);
+    const { registry } = rig(tmp);
+    const result = await registry.dispatch('/goal journal', fakeCtx);
+    expect(result?.message).toMatch(/empty/i);
+  });
+
+  it('/goal journal without a saved goal reports "No goal set"', async () => {
+    const { registry } = rig(tmp);
+    const result = await registry.dispatch('/goal journal', fakeCtx);
+    expect(result?.message).toMatch(/no goal set/i);
+  });
 });

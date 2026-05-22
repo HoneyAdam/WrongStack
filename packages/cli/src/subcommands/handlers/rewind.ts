@@ -29,6 +29,23 @@ function parseRewindFlags(args: string[]): RewindFlags {
   return flags;
 }
 
+/**
+ * Find the session-id positional, skipping over flag values (`--last 2`
+ * must NOT pick up "2" as the session id). Mirrors the flag-consumption
+ * shape of parseRewindFlags so the two stay in sync.
+ */
+function findSessionId(args: string[]): string | undefined {
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (a === '--last' || a === '--to') {
+      i++; // skip the next token (the flag's value)
+      continue;
+    }
+    if (!a.startsWith('--')) return a;
+  }
+  return undefined;
+}
+
 export const rewindCmd: SubcommandHandler = async (args, deps) => {
   const flags = parseRewindFlags(args);
 
@@ -38,8 +55,8 @@ export const rewindCmd: SubcommandHandler = async (args, deps) => {
 
   const rewind = new DefaultSessionRewinder(sessionsDir);
 
-  // Get session ID — either from --to argument or latest session
-  let sessionId = args.find((a) => !a.startsWith('--'));
+  // Get session ID — explicit positional wins; fall back to latest session.
+  let sessionId = findSessionId(args);
   if (!sessionId) {
     if (!deps.sessionStore) {
       deps.renderer.writeError('No session store available.');

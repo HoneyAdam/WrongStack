@@ -86,4 +86,35 @@ describe('SubagentBudget', () => {
     }
     expect(b.usage().iterations).toBe(1000);
   });
+
+  it('isNearLimit returns false when nothing is configured', () => {
+    const b = new SubagentBudget({});
+    expect(b.isNearLimit()).toBe(false);
+  });
+
+  it('isNearLimit flips true at ≥90% of any iteration budget', () => {
+    const b = new SubagentBudget({ maxIterations: 10 });
+    for (let i = 0; i < 8; i++) b.recordIteration();
+    expect(b.isNearLimit()).toBe(false);
+    b.recordIteration(); // 9/10 = 90% — should flip
+    expect(b.isNearLimit()).toBe(true);
+  });
+
+  it('isNearLimit flips true at ≥90% of tool-call budget', () => {
+    const b = new SubagentBudget({ maxToolCalls: 10 });
+    for (let i = 0; i < 9; i++) b.recordToolCall();
+    expect(b.isNearLimit()).toBe(true);
+  });
+
+  it('isNearLimit flips true at ≥90% of token budget (input + output combined)', () => {
+    const b = new SubagentBudget({ maxTokens: 1000 });
+    b.recordUsage({ input: 500, output: 400 }, 0); // 900 = 90%
+    expect(b.isNearLimit()).toBe(true);
+  });
+
+  it('isNearLimit flips true at ≥90% of cost budget', () => {
+    const b = new SubagentBudget({ maxCostUsd: 1 });
+    b.recordUsage({ input: 1, output: 1 }, 0.9);
+    expect(b.isNearLimit()).toBe(true);
+  });
 });

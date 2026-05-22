@@ -49,6 +49,29 @@ describe('createDefaultContainer', () => {
     expect(c.has(TOKENS.Compactor)).toBe(true);
   });
 
+  it('resolves every default-bound token (exercises each factory)', () => {
+    const c = createDefaultContainer({
+      config: mockConfig,
+      wpaths: mockWpaths,
+      logger: mockLogger,
+      modelsRegistry: mockModels,
+    });
+    // Touching each .resolve() runs the bound factory — this is how we get
+    // function-level coverage on the factory bodies in container.ts.
+    expect(c.resolve(TOKENS.Logger)).toBe(mockLogger);
+    expect(c.resolve(TOKENS.SecretScrubber)).toBeDefined();
+    expect(c.resolve(TOKENS.RetryPolicy)).toBeDefined();
+    expect(c.resolve(TOKENS.ErrorHandler)).toBeDefined();
+    expect(c.resolve(TOKENS.ModelsRegistry)).toBe(mockModels);
+    expect(c.resolve(TOKENS.TokenCounter)).toBeDefined();
+    expect(c.resolve(TOKENS.ModeStore)).toBeDefined();
+    expect(c.resolve(TOKENS.SessionStore)).toBeDefined();
+    expect(c.resolve(TOKENS.MemoryStore)).toBeDefined();
+    expect(c.resolve(TOKENS.SkillLoader)).toBeDefined();
+    expect(c.resolve(TOKENS.PermissionPolicy)).toBeDefined();
+    expect(c.resolve(TOKENS.Compactor)).toBeDefined();
+  });
+
   it('binds SystemPromptBuilder when systemPrompt option is provided', () => {
     const c = createDefaultContainer({
       config: mockConfig, wpaths: mockWpaths, logger: mockLogger, modelsRegistry: mockModels,

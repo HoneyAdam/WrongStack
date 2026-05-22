@@ -117,4 +117,38 @@ describe('DefaultMemoryStore', () => {
     expect(content).toContain('gamma');
     expect(content).toContain('delta');
   });
+
+  it('forget by entry id removes exactly the matching line', async () => {
+    await store.remember('first');
+    await store.remember('second');
+    const content = await store.read('project-memory');
+    // Each line is "- [ts] mem_<digits>_<rand> content"
+    const idMatch = content.match(/mem_\d+_\w+/g);
+    expect(idMatch).not.toBeNull();
+    const firstId = idMatch![0]!;
+    const removed = await store.forget(firstId);
+    expect(removed).toBe(1);
+    const after = await store.read('project-memory');
+    expect(after).not.toContain(firstId);
+    expect(after).toContain('second');
+  });
+
+  it('clear() with a scope wipes only that scope', async () => {
+    await store.remember('keep-me');
+    await store.clear('project-memory');
+    const content = await store.read('project-memory');
+    // Cleared file should be empty (writing '' via atomicWrite leaves no content)
+    expect(content.trim()).toBe('');
+  });
+
+  it('clear() without a scope wipes every memory scope', async () => {
+    await store.remember('proj');
+    // Write to all scopes
+    await store.remember('agents', 'project-agents');
+    await store.remember('user', 'user-memory');
+    await store.clear();
+    expect((await store.read('project-memory')).trim()).toBe('');
+    expect((await store.read('project-agents')).trim()).toBe('');
+    expect((await store.read('user-memory')).trim()).toBe('');
+  });
 });

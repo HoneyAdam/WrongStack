@@ -163,4 +163,96 @@ describe('/autonomy slash command', () => {
     expect(result?.message).toMatch(/Unknown argument/);
     expect(getMode()).toBe('off');
   });
+
+  it('accepts "suggest" / "suggestions" aliases', async () => {
+    const { registry, getMode } = rig(tmp);
+    await registry.dispatch('/autonomy suggest', fakeCtx);
+    expect(getMode()).toBe('suggest');
+    await registry.dispatch('/autonomy off', fakeCtx);
+    await registry.dispatch('/autonomy suggestions', fakeCtx);
+    expect(getMode()).toBe('suggest');
+  });
+
+  it('accepts "on" / "enable" / "true" / "auto" all mapping to auto', async () => {
+    const { registry, getMode } = rig(tmp);
+    for (const arg of ['on', 'enable', 'true', 'auto']) {
+      await registry.dispatch('/autonomy off', fakeCtx);
+      await registry.dispatch(`/autonomy ${arg}`, fakeCtx);
+      expect(getMode()).toBe('auto');
+    }
+  });
+
+  it('accepts "false" / "disable" aliases for off', async () => {
+    const { registry, getMode } = rig(tmp);
+    await registry.dispatch('/autonomy on', fakeCtx);
+    await registry.dispatch('/autonomy disable', fakeCtx);
+    expect(getMode()).toBe('off');
+    await registry.dispatch('/autonomy on', fakeCtx);
+    await registry.dispatch('/autonomy false', fakeCtx);
+    expect(getMode()).toBe('off');
+  });
+
+  it('accepts "forever" / "infinite" / "sittinsene" aliases for eternal', async () => {
+    await saveGoal(goalFilePath(tmp), emptyGoal('mission'));
+    for (const arg of ['forever', 'infinite', 'sittinsene']) {
+      const { registry, getMode } = rig(tmp);
+      await registry.dispatch(`/autonomy ${arg}`, fakeCtx);
+      expect(getMode()).toBe('eternal');
+    }
+  });
+
+  it('reports an error when onEternalStart callback is missing', async () => {
+    await saveGoal(goalFilePath(tmp), emptyGoal('mission'));
+    // Build a rig but strip the onEternalStart hook
+    const reg = rig(tmp);
+    (reg.ctx as { onEternalStart?: unknown }).onEternalStart = undefined;
+    const result = await reg.registry.dispatch('/autonomy eternal', fakeCtx);
+    expect(result?.message).toMatch(/controller is not wired/i);
+  });
+
+  it('reports unavailable when onAutonomy callback is missing entirely', async () => {
+    const reg = rig(tmp);
+    (reg.ctx as { onAutonomy?: unknown }).onAutonomy = undefined;
+    const result = await reg.registry.dispatch('/autonomy', fakeCtx);
+    expect(result?.message).toMatch(/not available/i);
+  });
+
+  it('show-mode renders goal, engine state, spend, and failure pulse when goal has telemetry and failures', async () => {
+    // Seed a goal with spending and several failures so the show-mode path
+    // exercises summarizeUsage + the "Recent failures" branch.
+    let seed = emptyGoal('mission with spend');
+    seed = appendJournal(seed, {
+      source: 'todo',
+      task: 'paid iter',
+      status: 'success',
+      tokens: { input: 100, output: 50 },
+      costUsd: 0.01,
+    });
+    for (let i = 0; i < 3; i++) {
+      seed = appendJournal(seed, { source: 'todo', task: `flaky-${i}`, status: 'failure' });
+    }
+    await saveGoal(goalFilePath(tmp), seed);
+    const { registry } = rig(tmp);
+    const result = await registry.dispatch('/autonomy', fakeCtx);
+    expect(result?.message).toMatch(/Goal:/);
+    expect(result?.message).toMatch(/Engine state:/);
+    expect(result?.message).toContain('$0.0100');
+    expect(result?.message).toMatch(/Recent failures:/);
+  });
+
+  it('show-mode truncates a very long goal description with an ellipsis', async () => {
+    const longText = 'X'.repeat(120);
+    const seed = emptyGoal(longText);
+    await saveGoal(goalFilePath(tmp), seed);
+    const { registry } = rig(tmp);
+    const result = await registry.dispatch('/autonomy', fakeCtx);
+    expect(result?.message).toMatch(/…/);
+  });
+
+  it('/autonomy stop without onEternalStop wired warns the user', async () => {
+    const reg = rig(tmp);
+    (reg.ctx as { onEternalStop?: unknown }).onEternalStop = undefined;
+    const result = await reg.registry.dispatch('/autonomy stop', fakeCtx);
+    expect(result?.message).toMatch(/no eternal-mode controller wired/i);
+  });
 });

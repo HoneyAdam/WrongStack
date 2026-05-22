@@ -156,8 +156,8 @@ describe('slash-commands/helpers — renderAgentsTemplate', () => {
 
   it('renders TODO placeholder when a command is missing', () => {
     const out = renderAgentsTemplate({ hints: [] });
-    expect(out).toContain('**Build:** _TODO_');
-    expect(out).toContain('**Test:** _TODO_');
+    expect(out).toContain('| Build | _TODO_ |');
+    expect(out).toContain('| Test | _TODO_ |');
   });
 
   it('renders backticks around supplied commands', () => {
@@ -168,10 +168,10 @@ describe('slash-commands/helpers — renderAgentsTemplate', () => {
       lint: 'pnpm run lint',
       run: 'pnpm run dev',
     });
-    expect(out).toContain('**Build:** `pnpm run build`');
-    expect(out).toContain('**Test:** `pnpm test`');
-    expect(out).toContain('**Lint:** `pnpm run lint`');
-    expect(out).toContain('**Run locally:** `pnpm run dev`');
+    expect(out).toContain('| Build | `pnpm run build` |');
+    expect(out).toContain('| Test | `pnpm test` |');
+    expect(out).toContain('| Lint | `pnpm run lint` |');
+    expect(out).toContain('| Run locally | `pnpm run dev` |');
   });
 });
 

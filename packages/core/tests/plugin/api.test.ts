@@ -120,4 +120,215 @@ describe('DefaultPluginAPI', () => {
     expect(api.mcp.list()).toEqual([{ name: 'srv', state: 'connected', toolCount: 1 }]);
     expect(mcpList).toHaveBeenCalled();
   });
+
+  // ── events / lifecycle ─────────────────────────────────────────────────────
+
+  it('onEvent attaches listener and returns an off function that unsubscribes', () => {
+    const { api } = mkApi();
+    const handler = vi.fn();
+    const off = api.onEvent('tool.before' as never, handler);
+    (api.events as never as { emit: (e: string, p: unknown) => void }).emit('tool.before', { x: 1 });
+    expect(handler).toHaveBeenCalledTimes(1);
+    off();
+    (api.events as never as { emit: (e: string, p: unknown) => void }).emit('tool.before', { x: 2 });
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it('onPattern matches by wildcard and returns an off function', () => {
+    const { api } = mkApi();
+    const handler = vi.fn();
+    const off = api.onPattern('tool.*', handler);
+    (api.events as never as { emit: (e: string, p: unknown) => void }).emit('tool.after', { ok: true });
+    expect(handler).toHaveBeenCalled();
+    off();
+  });
+
+  it('emitCustom dispatches a custom (non-typed) event through the bus', () => {
+    const { api } = mkApi();
+    const handler = vi.fn();
+    api.onPattern('custom.*', handler);
+    api.emitCustom('custom.frobulate', { value: 42 });
+    expect(handler).toHaveBeenCalledWith('custom.frobulate', { value: 42 });
+  });
+
+  it('drainCleanup invokes every collected off function once', () => {
+    const { api } = mkApi();
+    const a = vi.fn();
+    const b = vi.fn();
+    api.onEvent('tool.before' as never, a);
+    api.onEvent('tool.after' as never, b);
+    api.drainCleanup();
+    // subsequent emits should not fire the original handlers because cleanup removed them
+    (api.events as never as { emit: (e: string, p: unknown) => void }).emit('tool.before', {});
+    (api.events as never as { emit: (e: string, p: unknown) => void }).emit('tool.after', {});
+    expect(a).not.toHaveBeenCalled();
+    expect(b).not.toHaveBeenCalled();
+  });
+
+  it('drainCleanup swallows errors thrown by cleanup functions', () => {
+    const { api } = mkApi();
+    // Inject a throwing cleanup via onEvent + monkey-patched off — use the cleanup
+    // path directly by registering an extension that simulates one.
+    // Easier: register two real listeners; replace the queued off function with a thrower.
+    const fns = (api as unknown as { pluginCleanupFns: Array<() => void> }).pluginCleanupFns;
+    fns.push(() => {
+      throw new Error('boom');
+    });
+    fns.push(vi.fn());
+    expect(() => api.drainCleanup()).not.toThrow();
+    expect(fns.length).toBe(0);
+  });
+
+  // ── config / system prompt ─────────────────────────────────────────────────
+
+  it('onConfigChange returns a noop when no configStore is provided', () => {
+    const { api } = mkApi();
+    const off = api.onConfigChange(() => {});
+    expect(typeof off).toBe('function');
+    expect(() => off()).not.toThrow();
+  });
+
+  it('onConfigChange forwards to configStore.watch when provided', () => {
+    const watch = vi.fn().mockReturnValue(() => 'detached');
+    const log = new DefaultLogger({ level: 'error' });
+    const api = new DefaultPluginAPI({
+      ownerName: 'p',
+      container: new Container(),
+      events: new EventBus(),
+      pipelines: {} as never,
+      toolRegistry: new ToolRegistry(),
+      providerRegistry: new ProviderRegistry(),
+      config: baseConfig,
+      log,
+      configStore: { watch },
+    });
+    const handler = vi.fn();
+    api.onConfigChange(handler);
+    expect(watch).toHaveBeenCalledWith(handler);
+  });
+
+  it('registerSystemPromptContributor delegates to the extension registry', () => {
+    const { api } = mkApi();
+    const contributor = { id: 'p:hello', contribute: () => 'hi' };
+    const off = api.registerSystemPromptContributor(contributor as never);
+    expect(typeof off).toBe('function');
+    const contributors = api.extensions.listSystemPromptContributors();
+    expect(contributors.some((c) => c.id === 'p:hello')).toBe(true);
+    off();
+    expect(api.extensions.listSystemPromptContributors().some((c) => c.id === 'p:hello')).toBe(false);
+  });
+
+  // ── slash commands ─────────────────────────────────────────────────────────
+
+  it('slashCommands view delegates register/unregister/get/list to the host registry', async () => {
+    const { SlashCommandRegistry } = await import('../../src/index.js');
+    const scr = new SlashCommandRegistry();
+    const log = new DefaultLogger({ level: 'error' });
+    const api = new DefaultPluginAPI({
+      ownerName: 'p',
+      container: new Container(),
+      events: new EventBus(),
+      pipelines: {} as never,
+      toolRegistry: new ToolRegistry(),
+      providerRegistry: new ProviderRegistry(),
+      config: baseConfig,
+      log,
+      slashCommandRegistry: scr,
+    });
+    const cmd = { name: 'plugcmd', description: 'd', run: async () => ({}) };
+    api.slashCommands.register(cmd);
+    // Plugin-registered commands are namespaced as `<owner>:<name>`
+    expect(api.slashCommands.get('p:plugcmd')?.name).toBe('plugcmd');
+    expect(api.slashCommands.list().map((c) => c.name)).toContain('plugcmd');
+    expect(api.slashCommands.unregister('p:plugcmd')).toBe(true);
+    expect(api.slashCommands.get('p:plugcmd')).toBeUndefined();
+  });
+
+  it('slashCommands falls back to noop view when no host registry is provided', () => {
+    const { api } = mkApi();
+    expect(() => api.slashCommands.register({ name: 'x', description: '', run: async () => ({}) })).not.toThrow();
+    expect(api.slashCommands.unregister('x')).toBe(false);
+    expect(api.slashCommands.get('x')).toBeUndefined();
+    expect(api.slashCommands.list()).toEqual([]);
+  });
+
+  // ── metrics scoping ────────────────────────────────────────────────────────
+
+  it('scopedMetrics prefixes every metric name with `plugin.<name>.`', () => {
+    const sink = { counter: vi.fn(), histogram: vi.fn(), gauge: vi.fn() };
+    const log = new DefaultLogger({ level: 'error' });
+    const api = new DefaultPluginAPI({
+      ownerName: 'cool-plugin',
+      container: new Container(),
+      events: new EventBus(),
+      pipelines: {} as never,
+      toolRegistry: new ToolRegistry(),
+      providerRegistry: new ProviderRegistry(),
+      config: baseConfig,
+      log,
+      metricsSink: sink,
+    });
+    api.metrics.counter('hits', 1, { a: 'b' });
+    api.metrics.histogram('latency', 50);
+    api.metrics.gauge('queue_depth', 3);
+    expect(sink.counter).toHaveBeenCalledWith('plugin.cool-plugin.hits', 1, { a: 'b' });
+    expect(sink.histogram).toHaveBeenCalledWith('plugin.cool-plugin.latency', 50, undefined);
+    expect(sink.gauge).toHaveBeenCalledWith('plugin.cool-plugin.queue_depth', 3, undefined);
+  });
+
+  it('metrics falls back to a noop sink when none provided', () => {
+    const { api } = mkApi();
+    expect(() => {
+      api.metrics.counter('x', 1);
+      api.metrics.histogram('x', 1);
+      api.metrics.gauge('x', 1);
+    }).not.toThrow();
+  });
+
+  // ── session writer ─────────────────────────────────────────────────────────
+
+  it('session uses provided writer when given', async () => {
+    const append = vi.fn().mockResolvedValue(undefined);
+    const log = new DefaultLogger({ level: 'error' });
+    const api = new DefaultPluginAPI({
+      ownerName: 'p',
+      container: new Container(),
+      events: new EventBus(),
+      pipelines: {} as never,
+      toolRegistry: new ToolRegistry(),
+      providerRegistry: new ProviderRegistry(),
+      config: baseConfig,
+      log,
+      sessionWriter: { append },
+    });
+    await api.session.append({ type: 'event' } as never);
+    expect(append).toHaveBeenCalled();
+  });
+
+  it('session falls back to a noop writer otherwise', async () => {
+    const { api } = mkApi();
+    await expect(api.session.append({ type: 'event' } as never)).resolves.toBeUndefined();
+  });
+
+  // ── pipelines ──────────────────────────────────────────────────────────────
+
+  it('exposes pipelines as readonly views (asReadonly is called for each)', async () => {
+    const { Pipeline } = await import('../../src/index.js');
+    const pipeline = new Pipeline<{ msg: string }>('test');
+    const log = new DefaultLogger({ level: 'error' });
+    const api = new DefaultPluginAPI({
+      ownerName: 'p',
+      container: new Container(),
+      events: new EventBus(),
+      pipelines: { test: pipeline } as never,
+      toolRegistry: new ToolRegistry(),
+      providerRegistry: new ProviderRegistry(),
+      config: baseConfig,
+      log,
+    });
+    const ro = (api.pipelines as Record<string, unknown>)['test'];
+    expect(ro).toBeDefined();
+    // ReadonlyPipeline lacks `.use()` — invoking it would throw if attempted
+    expect((ro as { use?: unknown }).use).toBeUndefined();
+  });
 });

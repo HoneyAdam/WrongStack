@@ -38,12 +38,14 @@ import {
   type SystemPromptBuilder,
   TOKENS,
   ToolRegistry,
+  allServers,
   attachTodosCheckpoint,
   color,
   createContextManagerTool,
   EternalAutonomyEngine,
   createDefaultPipelines,
   createDelegateTool,
+  createMcpControlTool,
   loadDirectorState,
   loadPlan,
   loadPlugins,
@@ -59,6 +61,7 @@ import type { ReadlineInputReader } from './input-reader.js';
 import { MultiAgentHost } from './multi-agent.js';
 import { makeConfirmAwaiter, makePromptDelegate } from './permission-prompt.js';
 import { runPluginManagementCommand } from './plugin-management.js';
+import { runMcpManagementCommand, parseMcpArgs } from './slash-commands/mcp-utils.js';
 import { buildPickableProviders } from './provider-helpers.js';
 import type { TerminalRenderer } from './renderer.js';
 import { SessionStats } from './session-stats.js';
@@ -512,6 +515,17 @@ export async function main(argv: string[]): Promise<number> {
     }),
   );
 
+  // `mcp_control` — LLM-driven MCP server lifecycle.
+  // The model uses this to autonomously enable/disable MCP servers
+  // without requiring a slash command or manual intervention.
+  toolRegistry.register(
+    createMcpControlTool({
+      getConfig: () => configStore.get(),
+      configPath: wpaths.globalConfig,
+      registry: mcpRegistry,
+    }),
+  );
+
   if (directorMode) {
     // Eagerly build the director so its 8 LLM-callable orchestration
     // tools (`spawn_subagent`, `assign_task`, `await_tasks`,
@@ -959,6 +973,21 @@ export async function main(argv: string[]): Promise<number> {
         return `${result.message}\nRestart WrongStack to load or unload plugin code in this session.`;
       }
       return result.message;
+    },
+    onMcp: async (args) => {
+      const parsed = parseMcpArgs(args);
+      if (!parsed) {
+        return [
+          'Usage: /mcp [list|add <name>|remove <name>|enable <name>|disable <name>|restart <name>]',
+          'Run `/mcp` without args to see available servers.',
+        ].join('\n');
+      }
+      return runMcpManagementCommand(parsed, {
+        config,
+        configPath: wpaths.globalConfig,
+        mcpRegistry,
+        allServerPresets: allServers(),
+      });
     },
     onYolo: (setTo?: boolean) => {
       const policy = container.resolve(TOKENS.PermissionPolicy) as DefaultPermissionPolicy;

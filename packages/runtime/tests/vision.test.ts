@@ -177,6 +177,215 @@ describe('vision routing', () => {
     ).resolves.toBe('zai saw a screenshot');
   });
 
+  it('routes a base64 image through a `base64` schema property', async () => {
+    const registry = new ToolRegistry();
+    let receivedBase64 = '';
+    const tool: Tool<Record<string, unknown>, string> = {
+      name: 'mcp__vision__describe_b64',
+      description: 'Analyze an image (base64 input).',
+      inputSchema: {
+        type: 'object',
+        properties: { base64: { type: 'string' }, prompt: { type: 'string' } },
+      },
+      permission: 'auto',
+      mutating: false,
+      async execute(input) {
+        receivedBase64 = String(input.base64);
+        return 'b64-described';
+      },
+    };
+    registry.register(tool);
+    const adapters = createToolVisionAdapters(registry);
+    await expect(
+      adapters[0]!.describe({ image, ctx, signal: new AbortController().signal }),
+    ).resolves.toBe('b64-described');
+    expect(receivedBase64).toBe('AAAA');
+  });
+
+  it('routes a base64 image through a `data` schema property', async () => {
+    const registry = new ToolRegistry();
+    let received = '';
+    const tool: Tool<Record<string, unknown>, string> = {
+      name: 'mcp__vision__analyse_data',
+      description: 'Analyze an image (data input).',
+      inputSchema: {
+        type: 'object',
+        properties: { data: { type: 'string' }, mediaType: { type: 'string' } },
+      },
+      permission: 'auto',
+      mutating: false,
+      async execute(input) {
+        received = String(input.data);
+        expect(input.mediaType).toBe('image/png');
+        return 'data-described';
+      },
+    };
+    registry.register(tool);
+    const adapters = createToolVisionAdapters(registry);
+    await expect(
+      adapters[0]!.describe({ image, ctx, signal: new AbortController().signal }),
+    ).resolves.toBe('data-described');
+    expect(received).toBe('AAAA');
+  });
+
+  it('routes a URL image through a `url` schema property', async () => {
+    const registry = new ToolRegistry();
+    const urlImage = {
+      type: 'image' as const,
+      source: { type: 'url' as const, url: 'https://example.com/a.png', media_type: 'image/png' },
+    };
+    let receivedUrl = '';
+    const tool: Tool<Record<string, unknown>, string> = {
+      name: 'mcp__vision__analyse_url',
+      description: 'Analyze an image (url input).',
+      inputSchema: {
+        type: 'object',
+        properties: { url: { type: 'string' } },
+      },
+      permission: 'auto',
+      mutating: false,
+      async execute(input) {
+        receivedUrl = String(input.url);
+        return 'url-described';
+      },
+    };
+    registry.register(tool);
+    const adapters = createToolVisionAdapters(registry);
+    await expect(
+      adapters[0]!.describe({ image: urlImage, ctx, signal: new AbortController().signal }),
+    ).resolves.toBe('url-described');
+    expect(receivedUrl).toBe('https://example.com/a.png');
+  });
+
+  it('routes a URL image through `imageUrl` (camelCase variant)', async () => {
+    const registry = new ToolRegistry();
+    const urlImage = {
+      type: 'image' as const,
+      source: { type: 'url' as const, url: 'https://example.com/img.png', media_type: 'image/png' },
+    };
+    let receivedUrl = '';
+    const tool: Tool<Record<string, unknown>, string> = {
+      name: 'mcp__vision__analyse_imageurl',
+      description: 'Analyze an image (imageUrl input).',
+      inputSchema: {
+        type: 'object',
+        properties: { imageUrl: { type: 'string' } },
+      },
+      permission: 'auto',
+      mutating: false,
+      async execute(input) {
+        receivedUrl = String(input.imageUrl);
+        return 'imageUrl-described';
+      },
+    };
+    registry.register(tool);
+    const adapters = createToolVisionAdapters(registry);
+    await expect(
+      adapters[0]!.describe({ image: urlImage, ctx, signal: new AbortController().signal }),
+    ).resolves.toBe('imageUrl-described');
+    expect(receivedUrl).toBe('https://example.com/img.png');
+  });
+
+  it('passes mediaType / mimeType / media_type when the tool schema declares them', async () => {
+    const registry = new ToolRegistry();
+    let captured: Record<string, unknown> = {};
+    const tool: Tool<Record<string, unknown>, string> = {
+      name: 'mcp__vision__media_type',
+      description: 'Analyze an image with media type metadata.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          image: { type: 'object' },
+          mediaType: { type: 'string' },
+          mimeType: { type: 'string' },
+          media_type: { type: 'string' },
+        },
+      },
+      permission: 'auto',
+      mutating: false,
+      async execute(input) {
+        captured = input;
+        return 'mt';
+      },
+    };
+    registry.register(tool);
+    const adapters = createToolVisionAdapters(registry);
+    await adapters[0]!.describe({ image, ctx, signal: new AbortController().signal });
+    expect(captured.mediaType).toBe('image/png');
+    expect(captured.mimeType).toBe('image/png');
+    expect(captured.media_type).toBe('image/png');
+  });
+
+  it('passes the prompt under `query` and `instruction` aliases', async () => {
+    const registry = new ToolRegistry();
+    const captured: Record<string, unknown> = {};
+    const tool: Tool<Record<string, unknown>, string> = {
+      name: 'mcp__vision__describe_query',
+      description: 'Analyze an image (query-aliased prompt).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          image: { type: 'object' },
+          query: { type: 'string' },
+          instruction: { type: 'string' },
+        },
+      },
+      permission: 'auto',
+      mutating: false,
+      async execute(input) {
+        captured.query = input.query;
+        captured.instruction = input.instruction;
+        return 'aliased';
+      },
+    };
+    registry.register(tool);
+    const adapters = createToolVisionAdapters(registry);
+    await adapters[0]!.describe({ image, ctx, prompt: 'OCR the image', signal: new AbortController().signal });
+    expect(captured.query).toBe('OCR the image');
+    expect(captured.instruction).toBe('OCR the image');
+  });
+
+  it('handles tool results returned as an array of {text} blocks', async () => {
+    const registry = new ToolRegistry();
+    const tool: Tool<Record<string, unknown>, unknown> = {
+      name: 'mcp__vision__describe_arr',
+      description: 'Analyze an image and return blocks.',
+      inputSchema: { type: 'object', properties: { image: { type: 'object' } } },
+      permission: 'auto',
+      mutating: false,
+      async execute() {
+        return [
+          { text: 'line1' },
+          'line2',
+          { other: 'ignored' },
+        ] as never;
+      },
+    };
+    registry.register(tool);
+    const adapters = createToolVisionAdapters(registry);
+    const out = await adapters[0]!.describe({ image, ctx, signal: new AbortController().signal });
+    expect(out).toContain('line1');
+    expect(out).toContain('line2');
+  });
+
+  it('handles tool results returned as a {text: ...} object', async () => {
+    const registry = new ToolRegistry();
+    const tool: Tool<Record<string, unknown>, unknown> = {
+      name: 'mcp__vision__describe_obj',
+      description: 'Analyze image, returns object with text.',
+      inputSchema: { type: 'object', properties: { image: { type: 'object' } } },
+      permission: 'auto',
+      mutating: false,
+      async execute() {
+        return { text: 'object-text' } as never;
+      },
+    };
+    registry.register(tool);
+    const adapters = createToolVisionAdapters(registry);
+    const out = await adapters[0]!.describe({ image, ctx, signal: new AbortController().signal });
+    expect(out).toBe('object-text');
+  });
+
   it('supports MiniMax-style understand_image tools that accept image_url paths', async () => {
     const registry = new ToolRegistry();
     const tool: Tool<Record<string, unknown>, string> = {
@@ -205,5 +414,77 @@ describe('vision routing', () => {
     await expect(
       adapters[0]!.describe({ image, ctx, signal: new AbortController().signal }),
     ).resolves.toBe('minimax saw the UI');
+  });
+
+  it('routes a URL image through `image_url` (snake_case variant)', async () => {
+    const registry = new ToolRegistry();
+    const urlImage = {
+      type: 'image' as const,
+      source: { type: 'url' as const, url: 'https://example.com/snake.png', media_type: 'image/png' },
+    };
+    let received = '';
+    const tool: Tool<Record<string, unknown>, string> = {
+      name: 'mcp__vision__url_snake',
+      description: 'Analyze an image (image_url input).',
+      inputSchema: {
+        type: 'object',
+        properties: { image_url: { type: 'string' } },
+      },
+      permission: 'auto',
+      mutating: false,
+      async execute(input) {
+        received = String(input.image_url);
+        return 'snake-described';
+      },
+    };
+    registry.register(tool);
+    const adapters = createToolVisionAdapters(registry);
+    await expect(
+      adapters[0]!.describe({ image: urlImage, ctx, signal: new AbortController().signal }),
+    ).resolves.toBe('snake-described');
+    expect(received).toBe('https://example.com/snake.png');
+  });
+
+  it('rejects schema that has no recognized image input property', async () => {
+    // A tool whose schema lacks every recognized image property —
+    // buildToolPayload returns null, describe() throws.
+    const registry = new ToolRegistry();
+    const tool: Tool<Record<string, unknown>, string> = {
+      name: 'mcp__vision__describe_no_input',
+      description: 'Analyze an image with no input slot.',
+      inputSchema: {
+        type: 'object',
+        // No image / base64 / data / url / image_url / imageUrl / image_path
+        properties: { only_prompt: { type: 'string' } },
+      },
+      permission: 'auto',
+      mutating: false,
+      async execute() {
+        return 'should-never-be-called';
+      },
+    };
+    registry.register(tool);
+    const adapters = createToolVisionAdapters(registry);
+    // No adapter is even built since schema is unsupported.
+    expect(adapters).toHaveLength(0);
+  });
+
+  it('stringifies a non-string non-array non-text tool result via JSON.stringify', async () => {
+    const registry = new ToolRegistry();
+    const tool: Tool<Record<string, unknown>, unknown> = {
+      name: 'mcp__vision__describe_json',
+      description: 'Analyze image, returns arbitrary object.',
+      inputSchema: { type: 'object', properties: { image: { type: 'object' } } },
+      permission: 'auto',
+      mutating: false,
+      async execute() {
+        // Object without a `text` property — should fall through to JSON.stringify
+        return { score: 42, label: 'cat' } as never;
+      },
+    };
+    registry.register(tool);
+    const adapters = createToolVisionAdapters(registry);
+    const out = await adapters[0]!.describe({ image, ctx, signal: new AbortController().signal });
+    expect(out).toBe(JSON.stringify({ score: 42, label: 'cat' }));
   });
 });

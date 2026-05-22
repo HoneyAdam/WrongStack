@@ -144,4 +144,51 @@ describe('runtime host composition', () => {
     await expect(applyWrongStackPacks(host, [first, second])).rejects.toThrow('no PluginAPI');
     expect(host.extensions.list()).toEqual([]);
   });
+
+  it('emits a warning when a pack teardown fails during rollback', async () => {
+    const host = hostParts();
+    const warnings: string[] = [];
+    const originalEmit = process.emitWarning;
+    // process.emitWarning has multiple overload signatures — capture as any.
+    process.emitWarning = ((msg: string) => warnings.push(String(msg))) as typeof process.emitWarning;
+    try {
+      const flaky: WrongStackPack = {
+        name: 'flaky',
+        extensions: [{ name: 'flaky-ext' }],
+        async teardown() {
+          throw new Error('teardown-explode');
+        },
+      };
+      const breaker: WrongStackPack = {
+        name: 'breaker',
+        setup() {
+          throw new Error('setup-fail');
+        },
+      };
+      const api = {} as never;
+      await expect(applyWrongStackPacks(host, [flaky, breaker], { api })).rejects.toThrow();
+      expect(warnings.some((w) => w.includes('teardown-explode'))).toBe(true);
+    } finally {
+      process.emitWarning = originalEmit;
+    }
+  });
+
+  it('invokes pack.teardown(api) when teardown is defined and api is provided', async () => {
+    const host = hostParts();
+    let teardownCalledWith: unknown = undefined;
+    const api = { token: 'api-instance' } as never;
+    const pack: WrongStackPack = {
+      name: 'with-teardown',
+      async setup(received) {
+        // setup is required when teardown is present
+        expect(received).toBe(api);
+      },
+      async teardown(received) {
+        teardownCalledWith = received;
+      },
+    };
+    const applied = await applyWrongStackPack(host, pack, { api });
+    await applied.teardown();
+    expect(teardownCalledWith).toBe(api);
+  });
 });

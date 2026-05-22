@@ -1,0 +1,140 @@
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { setupPlugins } from '../src/wiring/plugins.js';
+import type { Config, Logger } from '@wrongstack/core';
+
+// loadPlugins is the one external function we care about — capture its
+// invocations to confirm setupPlugins wires options & API factory correctly.
+const loadPluginsMock = vi.fn().mockResolvedValue(undefined);
+vi.mock('@wrongstack/core', async (orig) => {
+  const actual = (await orig()) as Record<string, unknown>;
+  return { ...actual, loadPlugins: (...args: unknown[]) => loadPluginsMock(...args) };
+});
+
+vi.mock('@wrongstack/mcp', () => ({ MCPRegistry: class {} }));
+vi.mock('../src/plugin-api-factory.js', () => ({
+  default: vi.fn(() => ({ kind: 'fake-api' })),
+}));
+
+// A virtual ESM module that setupPlugins can dynamically import.
+vi.mock('virtual:test-plugin', () => ({
+  default: { name: 'virtual:test-plugin', register: vi.fn() },
+}), { virtual: true } as never);
+
+vi.mock('virtual:broken-plugin', () => {
+  throw new Error('boom');
+}, { virtual: true } as never);
+
+function fakeLogger(): Logger {
+  return { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), child: vi.fn(), setLevel: vi.fn() } as unknown as Logger;
+}
+
+function baseDeps(overrides: Partial<Config> = {}) {
+  return {
+    config: {
+      version: 1,
+      provider: 'a',
+      model: 'm',
+      features: { mcp: true, plugins: true, memory: true, modelsRegistry: true, skills: true },
+      ...overrides,
+    } as Config,
+    container: { resolve: vi.fn(), has: vi.fn() } as never,
+    events: {} as never,
+    pipelines: {} as never,
+    toolRegistry: {} as never,
+    providerRegistry: {} as never,
+    slashCommandRegistry: {} as never,
+    mcpRegistry: {} as never,
+    log: fakeLogger(),
+    agent: {},
+    sessionWriter: { transcriptPath: '/tmp/x.jsonl', append: vi.fn() } as never,
+    configStore: {} as never,
+  };
+}
+
+beforeEach(() => {
+  loadPluginsMock.mockClear();
+});
+
+describe('setupPlugins', () => {
+  it('returns early when plugins feature disabled', async () => {
+    const deps = baseDeps({
+      features: { mcp: true, plugins: false, memory: true, modelsRegistry: true, skills: true },
+      plugins: ['virtual:test-plugin'] as never,
+    });
+    await setupPlugins(deps);
+    expect(loadPluginsMock).not.toHaveBeenCalled();
+  });
+
+  it('returns early when no plugins list', async () => {
+    await setupPlugins(baseDeps());
+    expect(loadPluginsMock).not.toHaveBeenCalled();
+  });
+
+  it('returns early when plugins list is empty', async () => {
+    await setupPlugins(baseDeps({ plugins: [] as never }));
+    expect(loadPluginsMock).not.toHaveBeenCalled();
+  });
+
+  it('skips object plugins explicitly disabled', async () => {
+    const deps = baseDeps({
+      plugins: [{ name: 'virtual:test-plugin', enabled: false }] as never,
+    });
+    await setupPlugins(deps);
+    expect(loadPluginsMock).not.toHaveBeenCalled();
+  });
+
+  it('warns and continues when a plugin import fails', async () => {
+    const deps = baseDeps({ plugins: ['virtual:broken-plugin'] as never });
+    await setupPlugins(deps);
+    expect(deps.log.warn).toHaveBeenCalledWith(
+      expect.stringContaining('virtual:broken-plugin'),
+      expect.any(Error),
+    );
+    expect(loadPluginsMock).not.toHaveBeenCalled();
+  });
+
+  it('loads string-form plugin and forwards to loadPlugins', async () => {
+    const deps = baseDeps({ plugins: ['virtual:test-plugin'] as never });
+    await setupPlugins(deps);
+    expect(loadPluginsMock).toHaveBeenCalledTimes(1);
+    const [plugins, opts] = loadPluginsMock.mock.calls[0]!;
+    expect(plugins).toHaveLength(1);
+    expect(opts.log).toBe(deps.log);
+    expect(typeof opts.apiFactory).toBe('function');
+  });
+
+  it('loads object-form plugin and merges options from plugin + extensions', async () => {
+    const deps = baseDeps({
+      plugins: [
+        { name: 'virtual:test-plugin', options: { foo: 1, bar: 'a' } },
+      ] as never,
+      extensions: { 'virtual:test-plugin': { bar: 'override', baz: true } } as never,
+    });
+    await setupPlugins(deps);
+    const [, opts] = loadPluginsMock.mock.calls[0]!;
+    // config.extensions wins on key collisions; new keys are merged in.
+    expect(opts.pluginOptions['virtual:test-plugin']).toEqual({
+      foo: 1,
+      bar: 'override',
+      baz: true,
+    });
+  });
+
+  it('apiFactory injects sessionWriter wrapper that delegates append', async () => {
+    const deps = baseDeps({ plugins: ['virtual:test-plugin'] as never });
+    await setupPlugins(deps);
+    const [, opts] = loadPluginsMock.mock.calls[0]!;
+    const apiCfgCapture = vi.fn();
+    const apiFactoryMod = (await import('../src/plugin-api-factory.js')) as unknown as {
+      default: ReturnType<typeof vi.fn>;
+    };
+    apiFactoryMod.default.mockImplementation((_name, cfg: { sessionWriter: { append: (e: unknown) => void; transcriptPath: string } }) => {
+      apiCfgCapture(cfg);
+      cfg.sessionWriter.append({ type: 't', ts: 'now', data: 'x' });
+      return {};
+    });
+    opts.apiFactory({ name: 'virtual:test-plugin' });
+    expect(apiCfgCapture).toHaveBeenCalled();
+    expect(deps.sessionWriter.append).toHaveBeenCalledWith({ type: 't', ts: 'now', data: 'x' });
+  });
+});

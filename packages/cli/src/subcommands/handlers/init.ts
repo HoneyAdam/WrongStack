@@ -82,8 +82,8 @@ export const initCmd: SubcommandHandler = async (_args, deps) => {
   await atomicWrite(deps.paths.globalConfig, JSON.stringify(encrypted, null, 2));
   await fs.mkdir(path.join(deps.projectRoot, '.wrongstack'), { recursive: true });
   const agentsFile = path.join(deps.projectRoot, '.wrongstack', 'AGENTS.md');
-  const detected = await detectProjectFacts(deps.projectRoot);
-  await atomicWrite(agentsFile, renderAgentsTemplate(detected));
+  const projectFacts = await detectProjectFacts(deps.projectRoot);
+  await atomicWrite(agentsFile, renderAgentsTemplate(projectFacts));
   deps.renderer.writeInfo(`Wrote ${deps.paths.globalConfig}`);
   deps.renderer.writeInfo(`Project state lives in ${deps.paths.projectDir}`);
   deps.renderer.writeInfo('Try: wstack "<task>"  or  wstack');

@@ -2,7 +2,10 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { DefaultPermissionPolicy } from '../../src/security/permission-policy.js';
+import {
+  AutoApprovePermissionPolicy,
+  DefaultPermissionPolicy,
+} from '../../src/security/permission-policy.js';
 import type { Context, Tool } from '../../src/types/index.js';
 
 function tool(name: string, permission: 'auto' | 'confirm' | 'deny' = 'confirm', riskTier?: 'safe' | 'standard' | 'destructive'): Tool {
@@ -164,5 +167,66 @@ describe('DefaultPermissionPolicy', () => {
       expect(d.source).toBe('yolo_destructive');
       expect(d.riskTier).toBe('destructive');
     });
+  });
+
+  it('setYolo / getYolo toggle YOLO at runtime', async () => {
+    const p = new DefaultPermissionPolicy({ trustFile });
+    expect(p.getYolo()).toBe(false);
+    p.setYolo(true);
+    expect(p.getYolo()).toBe(true);
+    p.setYolo(false);
+    expect(p.getYolo()).toBe(false);
+  });
+
+  it('wildcard trust-file entries match tool names via glob', async () => {
+    // A wildcard like "edit*" should match both "edit" and "edit_lines".
+    await fs.writeFile(trustFile, JSON.stringify({ 'edit*': { allow: ['src/**'] } }));
+    const p = new DefaultPermissionPolicy({ trustFile });
+    const d1 = await p.evaluate(tool('edit'), { path: 'src/a.ts' }, {} as Context);
+    expect(d1.permission).toBe('auto');
+    const d2 = await p.evaluate(tool('edit_lines'), { path: 'src/b.ts' }, {} as Context);
+    expect(d2.permission).toBe('auto');
+  });
+});
+
+describe('AutoApprovePermissionPolicy', () => {
+  it('auto-approves non-deny tools without prompting', async () => {
+    const p = new AutoApprovePermissionPolicy();
+    const auto = await p.evaluate({
+      name: 'read',
+      description: '',
+      inputSchema: { type: 'object' },
+      permission: 'confirm',
+      mutating: false,
+      async execute() { return 'x'; },
+    } as Tool);
+    expect(auto.permission).toBe('auto');
+    expect(auto.source).toBe('yolo');
+  });
+
+  it('respects tool-default deny', async () => {
+    const p = new AutoApprovePermissionPolicy();
+    const denied = await p.evaluate({
+      name: 'danger',
+      description: '',
+      inputSchema: { type: 'object' },
+      permission: 'deny',
+      mutating: true,
+      async execute() { return 'x'; },
+    } as Tool);
+    expect(denied.permission).toBe('deny');
+    expect(denied.source).toBe('default');
+  });
+
+  it('trust / deny / denyOnce / allowOnce / reload are all no-ops', async () => {
+    const p = new AutoApprovePermissionPolicy();
+    // These should resolve / return without throwing
+    await p.trust();
+    await p.deny();
+    p.denyOnce();
+    p.allowOnce();
+    await p.reload();
+    // No state change observable — the policy is stateless
+    expect(true).toBe(true);
   });
 });

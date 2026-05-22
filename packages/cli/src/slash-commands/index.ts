@@ -113,6 +113,8 @@ export interface SlashCommandContext {
    */
   statuslineHiddenItems?: Array<'todos' | 'plan' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost'>;
   setStatuslineHiddenItems?: (items: Array<'todos' | 'plan' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost'>) => void;
+  /** Manage MCP servers: add, remove, enable, disable, restart. */
+  onMcp?: (args: string) => Promise<string>;
 }
 
 // Re-export helpers for external consumers (pre-launch.ts)
@@ -132,6 +134,7 @@ import { buildFleetCommand } from './fleet.js';
 import { buildHealthCommand } from './health.js';
 import { buildHelpCommand } from './help.js';
 import { buildInitCommand } from './init.js';
+import { buildMcpSlashCommand } from './mcp.js';
 import { buildMemoryCommand } from './memory.js';
 import { buildMetricsCommand } from './metrics.js';
 import { buildPlanCommand } from './plan.js';
@@ -169,6 +172,7 @@ export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashComma
     buildSkillUpdateCommand(opts),
     buildSkillUninstallCommand(opts),
     buildPluginCommand(opts),
+    buildMcpSlashCommand(opts),
     buildDiagCommand(opts),
     buildStatsCommand(opts),
     buildSpawnCommand(opts),

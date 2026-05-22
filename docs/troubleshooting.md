@@ -113,6 +113,16 @@ wrongstack mcp                    # list servers and their states
 - Package not installed: `npx -y @modelcontextprotocol/server-filesystem`
 - Startup timeout too short: increase `startupTimeoutMs` in `mcpServers` config
 - Port conflict (sse transport)
+- Self-signed HTTPS server: add `tls: { rejectUnauthorized: false }` to the server config
+
+**If the slot is `failed`** (reconnect budget exhausted after 5 cycles):
+```bash
+wrongstack mcp                    # check state
+/mcp restart <name>               # manual reconnect from REPL
+```
+
+MCP tool names use the `mcp__<serverName>__<toolName>` namespace — calls to
+`mcp__github__createIssue` route to the `github` server's `createIssue` tool.
 
 ### "Permission denied"
 

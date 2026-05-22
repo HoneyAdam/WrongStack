@@ -218,6 +218,8 @@ Controls compaction behavior, token thresholds, and context window modes.
 | `permission` | `string` | `"confirm"` | Default permission for MCP tools: `auto`, `confirm`, `deny`. |
 | `startupTimeoutMs` | `number` | `10000` | Timeout for initial connection. |
 | `requestTimeoutMs` | `number` | `60000` | Timeout for individual tool calls. |
+| `tls.ca` | `string` | — | Path to CA certificate file (HTTPS transports). |
+| `tls.rejectUnauthorized` | `boolean` | `true` | Verify server certificate (set `false` for self-signed). |
 
 ### Built-in presets
 

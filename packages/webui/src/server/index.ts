@@ -1,4 +1,5 @@
 import * as fs from 'node:fs/promises';
+import * as http from 'node:http';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
@@ -88,7 +89,19 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
   // and key.add/key.update handlers that both read-modify-write globalConfigPath.
   let configWriteLock: Promise<void> = Promise.resolve();
 
-  console.log('[WebUI] Config loaded:', config.provider, '/', config.model);
+  console.log('[WebUI] Config loaded:', config.provider ?? '(none)', '/', config.model ?? '(none)');
+
+  // If no active provider is set but there are saved providers, pick the first one.
+  // This handles configs written in older formats or by external tools.
+  if (!config.provider && config.providers && Object.keys(config.providers).length > 0) {
+    const firstKey = Object.keys(config.providers)[0]!;
+    config = patchConfig(config, { provider: firstKey });
+    console.log('[WebUI] No active provider — auto-selected:', firstKey);
+  }
+
+  // If still no provider, the frontend will show a no-provider welcome screen.
+  // We still start the HTTP/WS servers so the user can configure via the UI.
+  const needsProvider = !config.provider || !config.model;
 
   // ModelsRegistry
   const modelsRegistry = new DefaultModelsRegistry({
@@ -186,23 +199,50 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
     model: config.model,
   });
 
-  // Build provider
-  const providerConfig = config.providers?.[config.provider] ?? {
-    type: config.provider,
-    apiKey: config.apiKey,
-    baseUrl: config.baseUrl,
-  };
+  // Build provider (only if provider is configured)
   let provider: ReturnType<ProviderRegistry['create']>;
-  try {
-    const cfgWithType = { ...providerConfig, type: config.provider };
-    if (config.features.modelsRegistry && providerRegistry.has(config.provider)) {
-      provider = providerRegistry.create(cfgWithType);
-    } else {
-      provider = makeProviderFromConfig(config.provider, cfgWithType);
+  if (!needsProvider) {
+    const providerConfig = config.providers?.[config.provider] ?? {
+      type: config.provider,
+      apiKey: config.apiKey,
+      baseUrl: config.baseUrl,
+    };
+    try {
+      const cfgWithType = { ...providerConfig, type: config.provider };
+      if (config.features.modelsRegistry && providerRegistry.has(config.provider)) {
+        provider = providerRegistry.create(cfgWithType);
+      } else {
+        provider = makeProviderFromConfig(config.provider, cfgWithType);
+      }
+    } catch (err) {
+      console.error('[WebUI] Failed to create provider:', err);
+      throw err;
     }
-  } catch (err) {
-    console.error('[WebUI] Failed to create provider:', err);
-    throw err;
+  } else {
+    // No provider is actively selected, but saved providers exist.
+    // Re-read the config to find one with a usable encrypted API key
+    // and create a real provider from it (the vault is already initialized).
+    const savedProviders = config.providers ?? {};
+    const firstKey = Object.keys(savedProviders)[0];
+    if (firstKey) {
+      const firstProvider = savedProviders[firstKey]!;
+      try {
+        provider = makeProviderFromConfig(firstKey, {
+          ...firstProvider,
+          type: firstKey,
+          family: firstProvider.family,
+          apiKey: firstProvider.apiKey,
+        });
+        console.log('[WebUI] Using saved provider:', firstKey);
+      } catch (err) {
+        console.error('[WebUI] Could not create provider stub:', err);
+        throw err;
+      }
+    } else {
+      throw new Error(
+        'No provider configured. Run `wrongstack init` first, or configure via the WebUI.',
+      );
+    }
   }
 
   // Context
@@ -1801,6 +1841,68 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
     }
   }
 
+  // HTTP server for the React frontend (port 3456)
+  const httpPort = Number.parseInt(process.env['PORT'] ?? '3456', 10);
+  const DIST_DIR = path.resolve(import.meta.dirname, '../../dist');
+
+  const mimeTypes: Record<string, string> = {
+    '.html': 'text/html',
+    '.js': 'application/javascript',
+    '.css': 'text/css',
+    '.json': 'application/json',
+    '.svg': 'image/svg+xml',
+    '.png': 'image/png',
+    '.ico': 'image/x-icon',
+  };
+
+  const httpServer = http.createServer(async (req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', `http://127.0.0.1:${httpPort}`);
+      let filePath: string;
+
+      if (url.pathname === '/' || url.pathname === '') {
+        filePath = path.join(DIST_DIR, 'index.html');
+      } else if (url.pathname.startsWith('/assets/')) {
+        filePath = path.join(DIST_DIR, url.pathname);
+      } else if (url.pathname.startsWith('/')) {
+        filePath = path.join(DIST_DIR, url.pathname);
+      } else {
+        filePath = path.join(DIST_DIR, 'index.html');
+      }
+
+      const ext = path.extname(filePath);
+      const contentType = mimeTypes[ext] ?? 'application/octet-stream';
+      res.setHeader('Content-Type', contentType);
+
+      if (ext === '.html') {
+        res.setHeader('Cache-Control', 'no-cache');
+      }
+
+      const fileContent = await fs.readFile(filePath);
+      res.writeHead(200);
+      res.end(fileContent);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        // Try index.html for SPA routing
+        try {
+          const fileContent = await fs.readFile(path.join(DIST_DIR, 'index.html'));
+          res.writeHead(200, { 'Content-Type': 'text/html' });
+          res.end(fileContent);
+        } catch {
+          res.writeHead(404);
+          res.end('Not found');
+        }
+      } else {
+        res.writeHead(500);
+        res.end('Server error');
+      }
+    }
+  });
+
+  httpServer.listen(httpPort, wsHost, () => {
+    console.log(`[WebUI] HTTP server running on http://${wsHost}:${httpPort}`);
+  });
+
   // Graceful shutdown
   const shutdown = async () => {
     console.log('[WebUI] Shutting down...');
@@ -1815,6 +1917,7 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
       console.warn('[WebUI] Error closing session:', e);
     }
     for (const [ws] of clients) ws.close();
+    httpServer.close();
     wssPrimary.close();
     wssSecondary?.close();
     process.exit(0);

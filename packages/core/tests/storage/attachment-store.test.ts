@@ -81,4 +81,67 @@ describe('DefaultAttachmentStore', () => {
     expect((blocks[0] as { text: string }).text).toContain(big);
     await fs.rm(dir, { recursive: true, force: true });
   });
+
+  it('clear() resets state and unlinks spooled files on disk', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-att-clear-'));
+    const store = new DefaultAttachmentStore({ spoolDir: dir, spoolThresholdBytes: 8 });
+    // Two large entries get spooled to disk
+    const ref1 = await store.add({ kind: 'text', data: 'a'.repeat(64) });
+    const ref2 = await store.add({ kind: 'text', data: 'b'.repeat(64) });
+    const att1 = await store.get(ref1.id);
+    const att2 = await store.get(ref2.id);
+    expect(att1?.path).toBeDefined();
+    expect(att2?.path).toBeDefined();
+    // Both files exist before clear
+    await expect(fs.stat(att1!.path!)).resolves.toBeDefined();
+    // Clear unlinks them
+    await store.clear();
+    await expect(fs.stat(att1!.path!)).rejects.toThrow();
+    await expect(fs.stat(att2!.path!)).rejects.toThrow();
+    expect(store.list()).toEqual([]);
+    expect(await store.get(ref1.id)).toBeUndefined();
+    // Sequence resets — next add starts at seq 1 again
+    const ref3 = await store.add({ kind: 'text', data: 'c' });
+    expect(ref3.seq).toBe(1);
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it('clear() handles non-spooled in-memory entries', async () => {
+    const store = new DefaultAttachmentStore();
+    await store.add({ kind: 'text', data: 'small' });
+    await store.add({ kind: 'image', data: 'AAAA' });
+    expect(store.list()).toHaveLength(2);
+    await store.clear();
+    expect(store.list()).toEqual([]);
+  });
+
+  it('expands a `file` placeholder into a file-wrapped text block', async () => {
+    const store = new DefaultAttachmentStore();
+    const ref = await store.add({
+      kind: 'file',
+      data: 'export const x = 1;',
+      meta: { filename: 'a.ts' },
+    });
+    expect(ref.kind).toBe('file');
+    const blocks = await store.expand('see [file #1] please');
+    // Adjacent text blocks merge — expect a single text block containing
+    // the surrounding prose plus the <file>...</file> wrapping.
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]?.type).toBe('text');
+    const text = (blocks[0] as { text: string }).text;
+    expect(text).toContain('<file path="a.ts">');
+    expect(text).toContain('export const x = 1;');
+    expect(text).toContain('</file>');
+  });
+
+  it('expands a `pasted` placeholder when filename meta is absent', async () => {
+    const store = new DefaultAttachmentStore();
+    await store.add({ kind: 'text', data: 'just pasted text' });
+    const blocks = await store.expand('[pasted #1]');
+    expect(blocks).toHaveLength(1);
+    const text = (blocks[0] as { text: string }).text;
+    expect(text).toContain('<pasted>');
+    expect(text).toContain('just pasted text');
+    expect(text).toContain('</pasted>');
+  });
 });
