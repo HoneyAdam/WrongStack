@@ -72,10 +72,10 @@ wrongstack --tui --yolo
 # Use a specific provider and model (skip the picker entirely)
 wrongstack --provider openai --model gpt-4.1
 wrongstack --provider groq --model llama-3.3-70b-versatile
-wrongstack --provider zai-coding-plan --model glm-5.1
+wrongstack --provider zai-coding-plan --model glm-4.6
 
 # Combine everything: TUI + yolo + custom provider/model
-wrongstack --tui --yolo --provider zai-coding-plan --model glm-5.1
+wrongstack --tui --yolo --provider zai-coding-plan --model glm-4.6
 
 # Director fleet orchestration (LLM-driven multi-agent)
 wrongstack --director "audit src/ for security issues"
@@ -110,7 +110,7 @@ Model [claude-opus-4-7]:
 **3. CLI flags** — skip all interactivity:
 
 ```bash
-wrongstack --provider zai-coding-plan --model glm-5.1
+wrongstack --provider zai-coding-plan --model glm-4.6
 ```
 
 All three approaches read from `models.dev/api.json`. API keys land in the config encrypted with a key file the CLI generates the first time it needs to encrypt anything.
@@ -148,8 +148,8 @@ wrongstack --tui --yolo --provider groq --model llama-3.3-70b-versatile
 
 # Any provider from the models.dev catalog (~110 providers)
 wrongstack --provider deepseek --model deepseek-chat
-wrongstack --provider openrouter --model anthropic/claude-opus-4
-wrongstack --provider zai-coding-plan --model glm-5.1
+wrongstack --provider openrouter --model anthropic/claude-opus-4-7
+wrongstack --provider zai-coding-plan --model glm-4.6
 
 # Or set them permanently in config
 wrongstack config
@@ -626,7 +626,7 @@ wrongstack --director "audit src/ for security issues"
             ▼              ▼              ▼              ▼
        Subagent A     Subagent B     Subagent C     Subagent D
        (anthropic)    (openai)       (groq)         (zai)
-       opus-4-7       gpt-4.1        llama-70b      glm-5.1
+       opus-4-7       gpt-4.1        llama-70b      glm-4.6
             │              │              │              │
             └──────────────┴──────┬───────┴──────────────┘
                                   ▼
