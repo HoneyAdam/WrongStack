@@ -85,6 +85,15 @@ export interface SlashCommandContext {
   /** Toggle or query autonomy mode. Pass undefined to query, AutonomyMode to set. */
   onAutonomy?: (setTo?: import('./autonomy.js').AutonomyMode) => import('./autonomy.js').AutonomyMode;
   /**
+   * Start the eternal-autonomy engine. Called after `/autonomy eternal`
+   * confirms a goal exists and YOLO has been forced on. The REPL drives
+   * iterations from its main loop — this hook only flips the flag and
+   * primes the engine; the actual iteration scheduling lives in the REPL.
+   */
+  onEternalStart?: () => void;
+  /** Stop the eternal-autonomy engine (mid-iteration abort + flag flip). */
+  onEternalStop?: () => void;
+  /**
    * Absolute path to the per-session plan JSON file. Read+written by the
    * `/plan` slash command. Optional — when omitted, `/plan` short-circuits
    * with a "not configured" message instead of crashing.
@@ -134,6 +143,7 @@ import { buildTodosCommand } from './todos.js';
 import { buildToolsCommand } from './tools.js';
 import { buildYoloCommand } from './yolo.js';
 import { buildAutonomyCommand } from './autonomy.js';
+import { buildGoalCommand } from './goal.js';
 import { buildModeCommand } from './mode.js';
 import { buildSddCommand } from './sdd.js';
 import { buildSkillGeneratorCommand } from './skill-generator.js';
@@ -175,6 +185,7 @@ export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashComma
     buildLoadCommand(opts),
     buildYoloCommand(opts),
     buildAutonomyCommand(opts),
+    buildGoalCommand(opts),
     buildModeCommand(opts),
     buildExitCommand(opts),
     buildCommitCommand(opts),

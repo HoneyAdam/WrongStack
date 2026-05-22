@@ -137,6 +137,11 @@ export {
   type DoneCheckResult,
   type AutonomousRunnerOptions,
 } from '../execution/autonomous-runner.js';
+export {
+  EternalAutonomyEngine,
+  type EternalAutonomyOptions,
+  type EternalEngineState,
+} from '../execution/eternal-autonomy.js';
 
 // ---- Coordination (multi-agent) ----
 export {

@@ -128,7 +128,22 @@ export interface AppProps {
    */
   getYolo?: () => boolean;
   /** Query the live autonomy mode. */
-  getAutonomy?: () => 'off' | 'suggest' | 'auto';
+  getAutonomy?: () => 'off' | 'suggest' | 'auto' | 'eternal';
+  /**
+   * Access the eternal-autonomy engine. When autonomy mode goes to
+   * 'eternal' the TUI drives `runOneIteration()` from a post-slash hook
+   * so the engine and TUI never race for the shared Context.
+   */
+  getEternalEngine?: () => import('@wrongstack/core').EternalAutonomyEngine | null;
+  /**
+   * Subscribe to live per-iteration events from the eternal engine. The
+   * TUI installs this on mount to render each iteration as a timeline
+   * entry the moment it lands — strictly more responsive than reading
+   * goal.json after the fact.
+   */
+  subscribeEternalIteration?: (
+    fn: (entry: import('@wrongstack/core').JournalEntry) => void,
+  ) => () => void;
   /**
    * SDD session context getter. When an SDD session is active, returns
    * the AI prompt context to inject into user messages so the model
@@ -1088,6 +1103,8 @@ export function App({
   yolo = false,
   getYolo,
   getAutonomy,
+  getEternalEngine,
+  subscribeEternalIteration,
   getSDDContext,
   onSDDOutput,
   appVersion,
@@ -1116,7 +1133,7 @@ export function App({
   const [liveModel, setLiveModel] = useState<string>(model);
   const [liveProvider, setLiveProvider] = useState<string>(provider ?? 'agent');
   const [yoloLive, setYoloLive] = useState<boolean>(yolo);
-  const [autonomyLive, setAutonomyLive] = useState<'off' | 'suggest' | 'auto'>(getAutonomy?.() ?? 'off');
+  const [autonomyLive, setAutonomyLive] = useState<'off' | 'suggest' | 'auto' | 'eternal'>(getAutonomy?.() ?? 'off');
   const [hiddenItems, setHiddenItems] = useState(statuslineHiddenItems);
 
   // Sync when parent re-loads from config file (e.g., after /statusline reset)
@@ -3136,6 +3153,73 @@ export function App({
   const runBlocksRef = useRef(runBlocks);
   runBlocksRef.current = runBlocks;
 
+  /**
+   * Eternal-mode driver. Loops `engine.runOneIteration()` until autonomy
+   * flips away from 'eternal' or the engine reports stopped state. Each
+   * iteration appends an info entry summarizing what happened so the TUI
+   * timeline shows the engine's activity. Runs as a single sequential
+   * consumer of `agent.run` — no race with user submissions because user
+   * input is gated by `state.status` (a running iteration keeps status
+   * at 'running' until the agent.run inside the engine returns).
+   */
+  const runEternalLoop = async (): Promise<void> => {
+    const engine = getEternalEngine?.();
+    if (!engine) return;
+    // Avoid double-driving if the loop is already running. Status will
+    // bounce idle↔running per iteration; the autonomy flag is the source
+    // of truth for "should we keep going".
+    if (eternalLoopRunningRef.current) return;
+    eternalLoopRunningRef.current = true;
+    try {
+      while (true) {
+        // Re-check the live state every iteration — /autonomy stop, SIGINT,
+        // or /goal clear could have flipped it during the prior iteration.
+        const liveMode = getAutonomy?.() ?? 'off';
+        if (liveMode !== 'eternal') break;
+        if (engine.currentState === 'stopped') break;
+        dispatch({ type: 'status', status: 'running' });
+        try {
+          // Per-iteration entries land via the subscribeEternalIteration
+          // useEffect below — we don't need to log here. Only surface
+          // *errors* the engine catches but doesn't journal.
+          await engine.runOneIteration();
+        } catch (err) {
+          dispatch({
+            type: 'addEntry',
+            entry: { kind: 'error', text: `[eternal] ${err instanceof Error ? err.message : String(err)}` },
+          });
+        }
+        dispatch({ type: 'status', status: 'idle' });
+        // Yield so a slash command submitted between iterations (e.g.
+        // /autonomy stop) actually lands before we kick the next one.
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    } finally {
+      eternalLoopRunningRef.current = false;
+    }
+  };
+  const eternalLoopRunningRef = useRef(false);
+  const runEternalLoopRef = useRef(runEternalLoop);
+  runEternalLoopRef.current = runEternalLoop;
+
+  // Subscribe to live per-iteration events from the eternal engine. The
+  // engine's loop drive (runEternalLoop above) emits "iteration completed"
+  // info entries, but those are coarse — this subscription surfaces the
+  // *actual* journal entry per iteration with source, status, and cost.
+  // Without it the TUI timeline only shows one-line summaries; with it the
+  // user sees `#42 ✓ [todo] refactor parser ($0.0034)`.
+  useEffect(() => {
+    if (!subscribeEternalIteration) return;
+    const unsub = subscribeEternalIteration((entry) => {
+      const mark = entry.status === 'success' ? '✓' : entry.status === 'failure' ? '✗' : entry.status === 'aborted' ? '⊘' : '·';
+      const cost = typeof entry.costUsd === 'number' ? ` ($${entry.costUsd.toFixed(4)})` : '';
+      const note = entry.note ? ` — ${entry.note.slice(0, 80)}` : '';
+      const text = `#${entry.iteration} ${mark} [${entry.source}] ${entry.task}${cost}${note}`;
+      dispatch({ type: 'addEntry', entry: { kind: 'info', text } });
+    });
+    return unsub;
+  }, [subscribeEternalIteration]);
+
   const submit = async (overrideRaw?: string) => {
     const raw = overrideRaw ?? draftRef.current.buffer;
     const trimmed = raw.trim();
@@ -3179,6 +3263,14 @@ export function App({
         if (getAutonomy) {
           const currentAutonomy = getAutonomy();
           if (currentAutonomy !== autonomyLive) setAutonomyLive(currentAutonomy);
+          // When /autonomy eternal lands, kick off the engine-driven loop.
+          // Fire-and-forget — the loop runs until autonomy flips away from
+          // 'eternal' or the engine's currentState goes !== 'running'.
+          // Without this, the slash command would set the flag but the
+          // TUI would just sit at the prompt waiting for user input.
+          if (currentAutonomy === 'eternal' && getEternalEngine) {
+            void runEternalLoopRef.current();
+          }
         }
         if (res?.exit) {
           exit();

@@ -41,6 +41,7 @@ import {
   attachTodosCheckpoint,
   color,
   createContextManagerTool,
+  EternalAutonomyEngine,
   createDefaultPipelines,
   createDelegateTool,
   loadDirectorState,
@@ -425,6 +426,23 @@ export async function main(argv: string[]): Promise<number> {
   let director: Director | null = null;
   // Autonomy mode: 'off' (default), 'suggest' (show next steps), 'auto' (self-driving)
   let autonomyMode: import('./slash-commands/autonomy.js').AutonomyMode = 'off';
+  // Eternal-autonomy engine instance — lazy, created when /autonomy eternal is invoked.
+  // Lives at function scope so /autonomy stop and SIGINT handlers can reach it.
+  let eternalEngine: import('@wrongstack/core').EternalAutonomyEngine | null = null;
+  // Listeners installed by the TUI / REPL to receive per-iteration events
+  // from the engine. We support a list (not a single callback) so both
+  // surfaces can subscribe without overwriting each other — TUI installs
+  // one on mount, but the underlying engine is owned at CLI scope.
+  const eternalListeners = new Set<(entry: import('@wrongstack/core').JournalEntry) => void>();
+  const broadcastEternalIteration = (entry: import('@wrongstack/core').JournalEntry): void => {
+    for (const fn of eternalListeners) {
+      try {
+        fn(entry);
+      } catch {
+        // listener failures must never break the engine — swallow
+      }
+    }
+  };
   // Convention: director artifacts all live under the same fleet root —
   //   <projectSessions>/<sessionId>/
   //     ├─ fleet.json              (manifest)
@@ -958,6 +976,34 @@ export async function main(argv: string[]): Promise<number> {
       }
       return autonomyMode;
     },
+    onEternalStart: () => {
+      // Lazy-instantiate so the engine doesn't exist (and doesn't hold
+      // references to the agent) until the user opts in. Re-uses an
+      // existing instance if the user stops then restarts within the
+      // same session — state lives on disk anyway.
+      if (!eternalEngine) {
+        eternalEngine = new EternalAutonomyEngine({
+          agent,
+          projectRoot,
+          // Wire the same compactor the manual /compact command uses so
+          // multi-day eternal loops don't overflow the provider's context.
+          // effectiveMaxContext is set up earlier with a model-specific
+          // value; pass it through so aggressive-mode compact triggers
+          // before the next iteration would actually overflow.
+          compactor: container.resolve(TOKENS.Compactor) as import('@wrongstack/core').Compactor,
+          maxContextTokens: effectiveMaxContext > 0 ? effectiveMaxContext : undefined,
+          onIteration: broadcastEternalIteration,
+        });
+      }
+      // Persist engineState='running' so a crash mid-loop leaves a
+      // forensic breadcrumb in goal.json. Fire-and-forget — the user
+      // is on the next line waiting to see "ETERNAL launching", not
+      // for a disk write.
+      void eternalEngine.prime();
+    },
+    onEternalStop: () => {
+      eternalEngine?.stop();
+    },
     onExit: () => {
       void mcpRegistry.stopAll();
     },
@@ -1030,6 +1076,44 @@ export async function main(argv: string[]): Promise<number> {
   });
   for (const cmd of slashCmds) slashRegistry.register(cmd);
 
+  // ── --eternal "<mission>" flag: one-shot launch into eternal autonomy. ──
+  // Writes the mission as the goal (overwriting any prior goal), forces
+  // YOLO on (consistent with /autonomy eternal), instantiates + primes the
+  // engine, and flips autonomyMode='eternal' so the REPL's main loop drives
+  // the engine instead of reading user input. The user can still /autonomy
+  // stop or Ctrl+C to exit the loop normally.
+  const eternalFlag = typeof flags['eternal'] === 'string' ? (flags['eternal'] as string).trim() : '';
+  if (eternalFlag.length > 0) {
+    const { saveGoal, emptyGoal, goalFilePath, loadGoal } = await import('@wrongstack/core');
+    const goalPath = goalFilePath(projectRoot);
+    const prior = await loadGoal(goalPath);
+    // Preserve journal across flag-driven re-launches so the user can run
+    // `wstack --eternal "<x>"`, ctrl-c, then `wstack --eternal "<y>"` and
+    // still see the prior iteration history under /goal journal.
+    const next = prior
+      ? { ...prior, goal: eternalFlag, setAt: new Date().toISOString(), lastActivityAt: new Date().toISOString() }
+      : emptyGoal(eternalFlag);
+    await saveGoal(goalPath, next);
+    // Force YOLO on for destructive ops, matching the /autonomy eternal path.
+    const policy = container.resolve(TOKENS.PermissionPolicy) as DefaultPermissionPolicy;
+    policy.setYolo(true);
+    config = patchConfig(config, { yolo: true });
+    eternalEngine = new EternalAutonomyEngine({
+      agent,
+      projectRoot,
+      compactor: container.resolve(TOKENS.Compactor) as import('@wrongstack/core').Compactor,
+      maxContextTokens: effectiveMaxContext > 0 ? effectiveMaxContext : undefined,
+      onIteration: broadcastEternalIteration,
+    });
+    await eternalEngine.prime();
+    autonomyMode = 'eternal';
+    renderer.write(
+      color.red('Eternal mode launching from --eternal flag.') +
+        color.dim(` Goal: ${eternalFlag.slice(0, 80)}${eternalFlag.length > 80 ? '…' : ''}`) +
+        '\n',
+    );
+  }
+
   // Dispatch to execution phase — single-shot, TUI, REPL, or WebUI.
   const savedProviderCfg = config.providers?.[config.provider];
   return execute({
@@ -1068,6 +1152,11 @@ export async function main(argv: string[]): Promise<number> {
       return policy.getYolo();
     },
     getAutonomy: () => autonomyMode,
+    getEternalEngine: () => eternalEngine,
+    subscribeEternalIteration: (fn) => {
+      eternalListeners.add(fn);
+      return () => eternalListeners.delete(fn);
+    },
     skillLoader: config.features.skills ? skillLoader : undefined,
   });
 }

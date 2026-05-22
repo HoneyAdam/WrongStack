@@ -1,5 +1,5 @@
-import type { Agent, AttachmentStore, SlashCommandRegistry, TokenCounter } from '@wrongstack/core';
-import { InputBuilder, color } from '@wrongstack/core';
+import type { Agent, AttachmentStore, GoalFile, SlashCommandRegistry, TokenCounter } from '@wrongstack/core';
+import { InputBuilder, color, goalFilePath, loadGoal } from '@wrongstack/core';
 import {
   readClipboardImage,
   routeImagesForModel,
@@ -23,10 +23,19 @@ export interface ReplOptions {
   visionAdapters?: VisionAdapters;
   /** Autonomy mode state getter. */
   getAutonomy?: () => import('./slash-commands/autonomy.js').AutonomyMode;
+  /**
+   * Access the eternal-autonomy engine. When autonomy mode is 'eternal'
+   * the REPL skips reading user input and instead drives engine
+   * iterations from this loop — so the engine and the REPL never compete
+   * for the shared Context. Returns null until /autonomy eternal primes it.
+   */
+  getEternalEngine?: () => import('@wrongstack/core').EternalAutonomyEngine | null;
   /** Model-specific max context window (tokens). Used for the context bar in turn summaries. */
   effectiveMaxContext?: number;
   /** Project / folder name shown in the banner. Usually `path.basename(projectRoot)`. */
   projectName?: string;
+  /** Absolute project root — used to locate .wrongstack/goal.json for the goal banner. */
+  projectRoot?: string;
   /** Resolve current model vision support. Falls back to provider capability when omitted. */
   supportsVision?: () => boolean | Promise<boolean>;
   /** Skill loader for the skill generator wizard. */
@@ -35,6 +44,9 @@ export interface ReplOptions {
 
 export async function runRepl(opts: ReplOptions): Promise<number> {
   if (opts.banner !== false) printBanner(opts.renderer, opts.projectName);
+  // Surface active goal + crash-recovery hint right under the banner so the
+  // user doesn't have to run /goal status to remember what's in flight.
+  await renderGoalBanner(opts);
 
   // Per-iteration abort controller — assigned each loop so a Ctrl+C that
   // cancels turn N doesn't leak into turn N+1. `activeCtrl` is updated
@@ -46,6 +58,15 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
     if (interrupts >= 2) {
       opts.renderer.writeWarning('Exiting.');
       process.exit(130);
+    }
+    // In eternal mode, the first Ctrl+C should stop the engine — aborting
+    // the in-flight agent.run and flipping autonomy back to 'off' so the
+    // outer for-loop returns to reading user input on the next tick.
+    const engine = opts.getEternalEngine?.();
+    if (engine && opts.getAutonomy?.() === 'eternal') {
+      engine.stop();
+      opts.renderer.writeWarning('Eternal mode stop requested. Press Ctrl+C again to exit.');
+      return;
     }
     if (activeCtrl) {
       activeCtrl.abort();
@@ -63,6 +84,53 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
   // and the final `off` left the listener installed across REPL restarts.
   try {
     for (;;) {
+      // ── Eternal autonomy: drive the engine instead of reading input. ──
+      // While autonomy mode is 'eternal' we own the REPL turn — the engine
+      // generates its own directive and runs `agent.run` for us. Stop is
+      // signaled by the engine flipping to 'stopped' (via /autonomy stop or
+      // SIGINT). On exit from this branch the for-loop continues normally
+      // and the next iteration reads user input again.
+      if (opts.getAutonomy?.() === 'eternal') {
+        const engine = opts.getEternalEngine?.();
+        if (!engine) {
+          opts.renderer.writeWarning('Eternal mode set but no engine wired — falling back to off.');
+          // Best-effort: nothing more to do here; the engine controller
+          // was supposed to be primed by /autonomy eternal.
+        } else {
+          // Snapshot iteration counter before/after so the log line tells
+          // the user where they are in the goal lifetime — useful when
+          // the loop runs for hours and the journal scrolls off screen.
+          const beforeGoal = await loadGoalSafe(opts);
+          const beforeIter = beforeGoal?.iterations ?? 0;
+          opts.renderer.write(
+            color.dim(`\n  ↳ [eternal #${beforeIter + 1}] running iteration…\n`),
+          );
+          interrupts = 0;
+          try {
+            const ok = await engine.runOneIteration();
+            const afterGoal = await loadGoalSafe(opts);
+            const last = afterGoal?.journal[afterGoal.journal.length - 1];
+            if (!ok && !last) {
+              opts.renderer.write(color.dim('  ↳ [eternal] iteration produced no progress.\n'));
+            } else if (last) {
+              const mark = last.status === 'success' ? color.green('✓') : last.status === 'failure' ? color.red('✗') : color.amber('⊘');
+              const tail = last.note ? color.dim(` — ${last.note.slice(0, 80)}`) : '';
+              opts.renderer.write(
+                `  ${mark} ${color.dim(`#${last.iteration}`)} ${color.dim(`[${last.source}]`)} ${last.task}${tail}\n`,
+              );
+            }
+          } catch (err) {
+            opts.renderer.writeError(
+              `[eternal] ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+          // Yield to the event loop so a SIGINT delivered during this
+          // iteration can be processed before the next one fires.
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          continue;
+        }
+      }
+
       let raw: string;
       try {
         raw = await readPossiblyMultiline(opts);
@@ -75,6 +143,12 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
         continue;
       }
       interrupts = 0;
+
+      // Plain `q` quits immediately without needing a slash.
+      if (trimmed === 'q') {
+        opts.renderer.write(color.dim('  Goodbye!\n'));
+        break;
+      }
 
       if (trimmed === '/image' || trimmed === '/paste-image' || raw === '\x1bv') {
         await pasteClipboardImage(builder, opts);
@@ -379,6 +453,69 @@ async function pasteClipboardImage(builder: InputBuilder, opts: ReplOptions): Pr
 }
 
 /**
+ * Read the persisted goal file safely. Returns null on any error so the
+ * REPL never crashes because /goal infrastructure is missing.
+ */
+async function loadGoalSafe(opts: ReplOptions): Promise<GoalFile | null> {
+  if (!opts.projectRoot) return null;
+  try {
+    return await loadGoal(goalFilePath(opts.projectRoot));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Print a one-line status banner about the active goal — only when a
+ * goal file exists. If the previous session left the engine in 'running'
+ * state, prompt the user (y/N) to resume eternal mode directly so they
+ * don't have to retype the slash command. Default is N (safe path) — a
+ * stray Enter after an unexpected crash shouldn't auto-burn tokens.
+ */
+async function renderGoalBanner(opts: ReplOptions): Promise<void> {
+  const goal = await loadGoalSafe(opts);
+  if (!goal) return;
+  const summary = goal.goal.length > 80 ? `${goal.goal.slice(0, 77)}…` : goal.goal;
+  opts.renderer.write(
+    color.dim('Goal: ') + color.bold(summary) + color.dim(`  (iter ${goal.iterations})`) + '\n',
+  );
+  if (goal.engineState === 'running') {
+    opts.renderer.write(
+      color.amber('  ↺ Eternal engine was running when last session ended.') + '\n',
+    );
+    // Try an interactive y/N prompt. If reader is unavailable or throws
+    // (non-TTY, redirected stdin, etc.) fall back to the static hint.
+    try {
+      const answer = (await opts.reader.readLine(color.dim('  Resume eternal mode? [y/N] ')))
+        .trim()
+        .toLowerCase();
+      if (answer === 'y' || answer === 'yes') {
+        // Dispatch /autonomy eternal as if the user typed it. Routes
+        // through the normal slash path so YOLO force-on, prime(), banner
+        // semantics all kick in consistently.
+        try {
+          await opts.slashRegistry.dispatch('/autonomy eternal', opts.agent.ctx);
+        } catch (err) {
+          opts.renderer.writeError(
+            `Auto-resume failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      } else {
+        opts.renderer.write(
+          color.dim('  Not resuming. Use `/autonomy eternal` later to continue.') + '\n',
+        );
+      }
+    } catch {
+      // Non-interactive path: just hint.
+      opts.renderer.write(
+        color.dim('  Use `/autonomy eternal` to resume.') + '\n',
+      );
+    }
+  }
+  opts.renderer.write('\n');
+}
+
+/**
  * Read a line, but support two multiline patterns:
  *   1. Trailing `\` → continue on the next line (shell-style line continuation).
  *   2. A line that is exactly `"""` → start a heredoc; keep reading until
@@ -441,6 +578,6 @@ function printBanner(renderer: TerminalRenderer, projectName?: string): void {
   if (projectName && projectName.length > 0) {
     lines.push(color.dim('Project: ') + theme.bold(projectName));
   }
-  lines.push(color.dim('Type /help for commands, /exit to quit.'), '');
+  lines.push(color.dim('Type /help for commands, /exit or q to quit.'), '');
   renderer.write(`${lines.join('\n')}\n`);
 }

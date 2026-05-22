@@ -10,6 +10,11 @@ export {
   type DoneCheckResult,
   type AutonomousRunnerOptions,
 } from './autonomous-runner.js';
+export {
+  EternalAutonomyEngine,
+  type EternalAutonomyOptions,
+  type EternalEngineState,
+} from './eternal-autonomy.js';
 export { DefaultRetryPolicy } from './retry-policy.js';
 export { DefaultErrorHandler } from './error-handler.js';
 export { DefaultSkillLoader, type SkillLoaderOptions } from './skill-loader.js';

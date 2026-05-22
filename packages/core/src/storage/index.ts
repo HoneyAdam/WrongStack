@@ -73,3 +73,15 @@ export {
   type DirectorTaskState,
   type DirectorSubagentState,
 } from './director-state.js';
+export {
+  loadGoal,
+  saveGoal,
+  emptyGoal,
+  appendJournal,
+  formatGoal,
+  goalFilePath,
+  summarizeUsage,
+  MAX_JOURNAL_ENTRIES,
+  type GoalFile,
+  type JournalEntry,
+} from './goal-store.js';

@@ -74,6 +74,20 @@ export interface ExecutionDeps {
   getYolo?: () => boolean;
   /** Query the live autonomy mode. */
   getAutonomy?: () => import('./slash-commands/autonomy.js').AutonomyMode;
+  /**
+   * Access the (possibly null) eternal-autonomy engine. The REPL drives
+   * `runOneIteration()` from its main loop when autonomy is 'eternal'.
+   */
+  getEternalEngine?: () => import('@wrongstack/core').EternalAutonomyEngine | null;
+  /**
+   * Subscribe to live per-iteration events from the eternal engine.
+   * Returns an unsubscribe function. The TUI uses this to render each
+   * iteration as a live event entry instead of polling goal.json after
+   * the fact. REPL doesn't need it (drives iterations sequentially).
+   */
+  subscribeEternalIteration?: (
+    fn: (entry: import('@wrongstack/core').JournalEntry) => void,
+  ) => () => void;
   /** Skill loader for the skill generator wizard. */
   skillLoader?: import('@wrongstack/core').SkillLoader;
 }
@@ -112,6 +126,8 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
     setStatuslineHiddenItems,
     getYolo,
     getAutonomy,
+    getEternalEngine,
+    subscribeEternalIteration,
     skillLoader,
   } = deps;
 
@@ -244,6 +260,9 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
           queueStore,
           yolo: !!config.yolo,
           getYolo,
+          getAutonomy,
+          getEternalEngine,
+          subscribeEternalIteration,
           appVersion: CLI_VERSION,
           provider: config.provider,
           family: banneredFamily,
@@ -330,7 +349,9 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
           attachments,
           effectiveMaxContext,
           projectName: path.basename(projectRoot) || undefined,
+          projectRoot,
           getAutonomy,
+          getEternalEngine,
           skillLoader,
         });
       } finally {

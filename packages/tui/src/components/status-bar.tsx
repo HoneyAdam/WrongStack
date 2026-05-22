@@ -101,8 +101,8 @@ export interface StatusBarProps {
    * `agent.ctx.projectRoot`.
    */
   projectName?: string;
-  /** Autonomy mode chip: 'off' | 'suggest' | 'auto'. */
-  autonomy?: 'off' | 'suggest' | 'auto';
+  /** Autonomy mode chip: 'off' | 'suggest' | 'auto' | 'eternal'. */
+  autonomy?: 'off' | 'suggest' | 'auto' | 'eternal';
   /** Number of tracked bash/exec processes from the process registry. */
   processCount?: number;
   /** Items to hide from the status bar. */
@@ -239,7 +239,12 @@ export function StatusBar({
           {autonomy && autonomy !== 'off' ? (
             <>
               {yolo ? <Text dimColor>│</Text> : null}
-              <Text color={autonomy === 'auto' ? 'yellow' : 'cyan'} bold>
+              <Text
+                color={
+                  autonomy === 'eternal' ? 'red' : autonomy === 'auto' ? 'yellow' : 'cyan'
+                }
+                bold
+              >
                 ∞ {autonomy.toUpperCase()}
               </Text>
             </>

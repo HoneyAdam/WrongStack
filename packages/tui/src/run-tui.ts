@@ -32,7 +32,21 @@ export interface RunTuiOptions {
   /** Query live YOLO state from the permission policy. */
   getYolo?: () => boolean;
   /** Query the live autonomy mode. */
-  getAutonomy?: () => 'off' | 'suggest' | 'auto';
+  getAutonomy?: () => 'off' | 'suggest' | 'auto' | 'eternal';
+  /**
+   * Access the eternal-autonomy engine. When autonomy mode flips to
+   * 'eternal' the TUI drives `runOneIteration()` from the post-slash hook
+   * so the engine and TUI never race for the shared Context.
+   */
+  getEternalEngine?: () => import('@wrongstack/core').EternalAutonomyEngine | null;
+  /**
+   * Subscribe to live per-iteration events from the eternal engine.
+   * Returns an unsubscribe function. TUI uses this to render each
+   * iteration as a live timeline entry as it lands.
+   */
+  subscribeEternalIteration?: (
+    fn: (entry: import('@wrongstack/core').JournalEntry) => void,
+  ) => () => void;
   /** Renders in the startup banner. Read from the CLI's package.json. */
   appVersion?: string;
   /** Provider id for the startup banner ("openai", "anthropic", ...). */
@@ -284,6 +298,8 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
           yolo: opts.yolo,
           getYolo: opts.getYolo,
           getAutonomy: opts.getAutonomy,
+          getEternalEngine: opts.getEternalEngine,
+          subscribeEternalIteration: opts.subscribeEternalIteration,
           appVersion: opts.appVersion,
           provider: opts.provider,
           family: opts.family,

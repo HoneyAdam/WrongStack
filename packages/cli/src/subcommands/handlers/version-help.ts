@@ -16,6 +16,7 @@ export const helpCmd: SubcommandHandler = async (_args, deps) => {
     '',
     '  wstack                       Start REPL',
     '  wstack "<task>"              Run task and exit',
+    '  wstack --eternal "<mission>" Launch eternal-autonomy loop against a goal — Ctrl+C to stop',
     '  wstack resume [<id>]         Resume a session',
     '  wstack sessions              List recent sessions',
     '  wstack init                  Pick provider + model from models.dev',
