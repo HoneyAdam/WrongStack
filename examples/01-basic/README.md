@@ -1,10 +1,10 @@
 # 01 — Basic Usage
 
-Simple examples to get started with WrongStack.
+Getting started with WrongStack.
 
 ## Single-shot
 
-Run a one-line task and exit:
+Run one task and exit:
 
 ```bash
 wrongstack "explain what this project does"
@@ -14,13 +14,11 @@ wrongstack "what Node.js version does this project require?"
 
 ## Interactive REPL
 
-Start an interactive session:
-
 ```bash
 wrongstack
 ```
 
-Then type naturally:
+Then type freely:
 
 ```
 > What framework is this project using?
@@ -30,25 +28,27 @@ Then type naturally:
 
 ## TUI mode
 
-Rich terminal UI with live status bar, streaming text, and image paste:
+Rich terminal UI with live status bar, streaming text, paste collapse,
+and image-from-clipboard:
 
 ```bash
 wrongstack --tui
 ```
 
+Use `Alt+V` (or `/image`) inside the TUI to attach the current
+clipboard PNG to the next message.
+
 ## Session resume
 
-Continue where you left off:
-
 ```bash
-# List recent sessions
+# List recent sessions for this project
 wrongstack sessions
 
-# Resume the most recent
-wrongstack resume
+# Resume a specific session (pass the id from the list above)
+wrongstack --resume <session-id>
 
-# Resume a specific session
-wrongstack resume abc123
+# Or the short sugar form — same effect
+wrongstack resume <session-id>
 ```
 
 ## YOLO mode
@@ -59,10 +59,22 @@ Skip all permission prompts for fast iteration:
 wrongstack --tui --yolo "add JSDoc comments to all exported functions in src/"
 ```
 
-Toggle at runtime:
+Toggle at runtime from inside the REPL or TUI:
 
 ```
-/yolo off    # re-enable prompts
-/yolo on     # disable prompts again
-/yolo        # check current state
+/yolo            # show current status
+/yolo on         # auto-approve every tool call
+/yolo off        # re-enable permission prompts
+/yolo toggle     # flip
+```
+
+## First-run setup
+
+If you haven't configured a provider yet:
+
+```bash
+wrongstack init                      # interactive wizard
+wrongstack auth anthropic            # add an encrypted API key for one provider
+wrongstack providers                 # list every provider in the models.dev catalog
+wrongstack models anthropic          # list models for a specific provider
 ```

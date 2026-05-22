@@ -1,110 +1,116 @@
 # 06 — Real-World Workflows
 
-Practical workflows for daily development.
+Practical recipes for daily development. Every command below has been
+verified against the current CLI surface.
 
 ## Refactor a module
 
 ```bash
-wrongstack "refactor src/auth.ts to use async/await instead of callbacks. Keep the same API surface."
+wrongstack "refactor src/auth.ts to use async/await instead of callbacks. Keep the public API the same."
 ```
 
-The agent will:
-1. Read the file
-2. Understand the current pattern
-3. Propose changes
-4. Apply edits (with confirmation, or auto in YOLO mode)
-5. Run tests to verify
+The agent will: read the file → understand the pattern → propose
+changes → apply edits (auto-approve in `--yolo`) → run tests to verify.
 
 ## Debug a failing test
 
 ```bash
-wrongstack "the test 'should handle timeout' is failing in src/timeout.test.ts. Find and fix the root cause."
+wrongstack "the test 'should handle timeout' in src/timeout.test.ts is failing. Find and fix the root cause."
 ```
 
-## Code review
+## Code review with a persona mode
 
 ```bash
-wrongstack "review the changes in the last commit. Focus on security and error handling."
+wrongstack
 ```
 
-Or switch to a specialized mode:
+```
+/mode code-reviewer
+review src/api.ts for security and error-handling issues
+```
 
-```
-/use code-reviewer
-> review src/api.ts
-```
+The other built-in personas: `default`, `code-auditor`, `architect`,
+`debugger`, `tester`, `devops`, `refactorer`. List them with `/mode`.
 
 ## Add tests to uncovered code
 
 ```bash
-wrongstack "add unit tests for the parseArgs function. Cover edge cases: empty input, unknown flags, mixed positional and flags."
+wrongstack "add unit tests for parseArgs in arg-parser.ts. Cover empty input, unknown flags, mixed positional and flags."
 ```
 
-## Security audit
+## Security audit (single-shot)
 
 ```bash
-wrongstack "scan this project for hardcoded secrets, SQL injection vectors, and path traversal vulnerabilities."
+wrongstack "scan packages/ for hardcoded secrets, SQL-injection vectors, and path traversal. Group findings by severity."
 ```
 
-Or with the security-scanner skill:
-
-```
-/spawn --role security-scanner "full security audit of packages/"
-```
-
-## Dependency update
+For a multi-agent fan-out, launch the director:
 
 ```bash
-wrongstack "check for outdated packages, assess breaking change risk, and update safe ones."
+wrongstack --director "full security audit across packages/. Use subagents for each package; roll up to a single severity-sorted report."
+```
+
+## Dependency hygiene
+
+```bash
+wrongstack "check for outdated packages, assess the breaking-change risk for each, and update the safe ones."
+wrongstack "run npm audit and walk me through fixing the high-severity advisories."
 ```
 
 ## Generate documentation
 
 ```bash
-wrongstack "add JSDoc comments to all exported functions in packages/core/src/kernel/"
+wrongstack "add JSDoc comments to every exported function in packages/core/src/kernel/"
 ```
 
-## Conventional commit
+## Stage + commit conventionally
 
 ```bash
-wrongstack "stage all changes and create a conventional commit message"
+wrongstack "stage all changes and create a conventional-commit message."
 ```
 
-## Migration guide
+Or use the dedicated slash command (drafts the message via the
+configured LLM, then asks for confirmation):
 
-```bash
-wrongstack "this project migrated from Express to Fastify. Write a migration guide covering the key changes."
+```
+/commit
 ```
 
-## Performance profiling
+## Migration plan
 
 ```bash
-wrongstack "identify the slowest functions in src/ and suggest optimizations. Focus on hot paths."
+wrongstack "this project migrated from Express to Fastify. Write a one-page migration guide covering the key concept differences."
 ```
 
-## CI/CD setup
+## Performance audit
 
 ```bash
-wrongstack "create a GitHub Actions workflow that runs lint, typecheck, and tests on PRs. Include a release workflow for npm publish."
+wrongstack "identify the slowest functions under src/ and suggest optimizations. Focus on hot paths."
 ```
 
-## Monorepo maintenance
+## CI/CD scaffolding
 
 ```bash
-wrongstack "check that all workspace packages have consistent versions and that cross-package dependencies are up to date."
+wrongstack "create a GitHub Actions workflow that runs lint + typecheck + tests on PRs and a release workflow on tags."
 ```
 
-## Combine with flags
+## Monorepo housekeeping
 
 ```bash
-# Fast iteration: TUI + YOLO + specific provider
+wrongstack "verify every workspace package has a consistent version. Flag any cross-package dependency that doesn't use workspace:*."
+```
+
+## Combine flags for long-running work
+
+```bash
+# Fast iteration: TUI + YOLO + cheap-fast provider
 wrongstack --tui --yolo --provider groq --model llama-3.3-70b-versatile \
-  "add error boundaries to all React components in src/"
+  "add error boundaries to every React component under packages/webui/src/components"
 
-# Director + goal for large autonomous tasks
-wrongstack --director --goal "migrate all tests from Jest to Vitest"
+# Director + eternal — runs indefinitely against the goal
+wrongstack --director --eternal "migrate the test suite from Jest to Vitest one package at a time, verifying tests pass before moving on"
 
-# Offline mode
+# Offline-only run (no MCP, no plugins, no models.dev fetch, no skills)
 wrongstack --no-features --provider anthropic --model claude-opus-4-7 \
-  "explain the kernel architecture"
+  "explain the kernel architecture using only what's in packages/core/src/"
 ```
