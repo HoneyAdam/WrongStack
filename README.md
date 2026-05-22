@@ -70,12 +70,12 @@ wrongstack --tui
 wrongstack --tui --yolo
 
 # Use a specific provider and model (skip the picker entirely)
-wrongstack --provider openai --model gpt-4.1
+wrongstack --provider openai --model gpt-5.5
 wrongstack --provider groq --model llama-3.3-70b-versatile
-wrongstack --provider zai-coding-plan --model glm-4.6
+wrongstack --provider zai-coding-plan --model glm-5.1
 
 # Combine everything: TUI + yolo + custom provider/model
-wrongstack --tui --yolo --provider zai-coding-plan --model glm-4.6
+wrongstack --tui --yolo --provider zai-coding-plan --model glm-5.1
 
 # Director fleet orchestration (LLM-driven multi-agent)
 wrongstack --director "audit src/ for security issues"
@@ -110,7 +110,7 @@ Model [claude-opus-4-7]:
 **3. CLI flags** — skip all interactivity:
 
 ```bash
-wrongstack --provider zai-coding-plan --model glm-4.6
+wrongstack --provider zai-coding-plan --model glm-5.1
 ```
 
 All three approaches read from `models.dev/api.json`. API keys land in the config encrypted with a key file the CLI generates the first time it needs to encrypt anything.
@@ -141,15 +141,15 @@ wrongstack resume <id>                              # same, sugar form
 
 ```bash
 # Use OpenAI for this session only
-wrongstack --provider openai --model gpt-4.1
+wrongstack --provider openai --model gpt-5.5
 
 # Groq for fast iteration
 wrongstack --tui --yolo --provider groq --model llama-3.3-70b-versatile
 
 # Any provider from the models.dev catalog (~110 providers)
-wrongstack --provider deepseek --model deepseek-chat
+wrongstack --provider deepseek --model deepseek-v4-pro
 wrongstack --provider openrouter --model anthropic/claude-opus-4-7
-wrongstack --provider zai-coding-plan --model glm-4.6
+wrongstack --provider zai-coding-plan --model glm-5.1
 
 # Or set them permanently in config
 wrongstack config
@@ -569,7 +569,7 @@ wrongstack --director "audit src/ for security issues"
 /fleet manifest        # full fleet snapshot
 
 # Spawn custom subagents
-/spawn --provider groq --model llama-3.3-70b --name reviewer --tools read,grep,edit
+/spawn --provider groq --model llama-3.3-70b-versatile --name reviewer --tools read,grep,edit
 ```
 
 #### Architecture
@@ -626,7 +626,7 @@ wrongstack --director "audit src/ for security issues"
             ▼              ▼              ▼              ▼
        Subagent A     Subagent B     Subagent C     Subagent D
        (anthropic)    (openai)       (groq)         (zai)
-       opus-4-7       gpt-4.1        llama-70b      glm-4.6
+       opus-4-7       gpt-5.5        llama-70b      glm-5.1
             │              │              │              │
             └──────────────┴──────┬───────┴──────────────┘
                                   ▼
