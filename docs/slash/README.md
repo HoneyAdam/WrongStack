@@ -54,37 +54,81 @@ REPL input "/<command> <args>"
 
 `runText` is a special field: when a slash command returns it, the REPL injects that text into the next agent turn — used by `/goal`, `/sdd`, `/autonomy` to steer the AI conversation without the user typing.
 
-## Context wiring
+## SlashCommandContext wiring
 
-`SlashCommandContext` is assembled in `packages/cli/src/index.ts` and passed to every `buildXxxCommand(opts)`. Key fields:
+`SlashCommandContext` is assembled in `packages/cli/src/index.ts` and passed to every `buildXxxCommand(opts)`. All fields are optional unless noted.
 
 ```typescript
 interface SlashCommandContext {
-  registry          // SlashCommandRegistry — list commands, dispatch
-  toolRegistry      // ToolRegistry — list tools
-  context           // Context — live agent state (messages, todos, meta, etc.)
-  cwd / projectRoot // string — filesystem scope
-  renderer          // Renderer — terminal output
-  memoryStore       // MemoryStore — persistent memory
-  sessionStore      // SessionStore — session listing/resume
-  skillLoader       // SkillLoader — skill listing/reading
-  modeStore         // ModeStore — mode switching
-  compactor         // { compact() } — context window compaction
-  tokenCounter      // TokenCounter — usage accounting
-  llmProvider       // Provider — active provider (available pre-agent)
-  llmModel          // string — active model id
-  onSpawn           // (task, opts) → spawn subagent
-  onAgents          // () → subagent status
-  onDirector        // () → promote to director mode
-  onFleet           // (action, target) → fleet control
-  onFleetRetry       // (taskId?) → retry interrupted tasks
-  onFleetLog        // (id, mode) → inspect subagent transcripts
-  onYolo            // (setTo?) → toggle YOLO
-  onAutonomy        // (setTo?) → set autonomy mode
-  onEternalStart    // () → start eternal loop
-  onEternalStop     // () → stop eternal loop
-  onPlugin          // (args) → plugin management
-  planPath          // string — session plan file path
+  // Core registries
+  registry: SlashCommandRegistry;       // ✅ required — list/dispatch commands
+  toolRegistry: ToolRegistry;           // ✅ required — list tools
+
+  // Agent state
+  context?: Context;                    // Live agent state (messages, todos, meta)
+  cwd: string;                          // ✅ required — working directory
+  projectRoot: string;                  // ✅ required — resolved project root
+
+  // Infrastructure
+  renderer: Renderer;                    // ✅ required — terminal output
+  tokenCounter: TokenCounter;           // ✅ required — usage accounting
+
+  // Storage
+  memoryStore?: MemoryStore;             // show/remember/forget/clear
+  sessionStore?: SessionStore;           // session listing and resume
+  skillLoader?: SkillLoader;             // skill listing and reading
+
+  // Compaction
+  compactor?: { compact(ctx: Context, opts?: { aggressive?: boolean }): Promise<CompactReport> };
+
+  // Observability
+  metricsSink?: MetricsSink;             // behind --metrics flag
+  healthRegistry?: HealthRegistry;       // behind --metrics flag
+
+  // Mode store
+  modeStore?: ModeStore;                // session mode switching
+
+  // REPL lifecycle
+  onExit?: () => void;
+  onBeforeExit?: () => Promise<{ abort?: boolean; message?: string } | void>;
+  onClear?: () => void;
+
+  // Diagnostics
+  onDiag?: () => string;                 // runtime diagnostic snapshot
+  onStats?: () => string | null;         // session summary
+
+  // Git / commit
+  generateCommitMessage?: (diff: string) => Promise<string>;
+
+  // Multi-agent
+  onSpawn?: (task: string, opts?: { provider?, model?, tools?: string[], name?: string }) => Promise<string>;
+  onAgents?: () => string;
+  onFleet?: (action: 'status'|'usage'|'kill'|'manifest', target?: string) => Promise<string>;
+  onFleetRetry?: (taskId?: string) => Promise<string>;
+  onFleetLog?: (id: string | undefined, mode: 'summary'|'raw') => Promise<string>;
+  onDirector?: () => Promise<string | null>;
+  fleetStreamController?: { enabled: boolean; setEnabled: (v: boolean) => void };
+
+  // Plugin management
+  onPlugin?: (args: string) => Promise<string>;
+
+  // YOLO + autonomy
+  onYolo?: (setTo?: boolean) => boolean;
+  onAutonomy?: (setTo?: AutonomyMode) => AutonomyMode;
+  onEternalStart?: () => void;
+  onEternalStop?: () => void;
+
+  // Persistent session plan
+  planPath?: string;                     // path to <session-id>.plan.json
+
+  // Pre-agent LLM access
+  llmProvider?: Provider;                // active before first run
+  llmModel?: string;
+
+  // Status bar (TUI)
+  statuslineConfig?: { get: () => Promise<StatuslineConfig>; set: (cfg: StatuslineConfig) => Promise<void> };
+  statuslineHiddenItems?: StatuslineItem[];
+  setStatuslineHiddenItems?: (items: StatuslineItem[]) => void;
 }
 ```
 
@@ -93,5 +137,5 @@ interface SlashCommandContext {
 1. Create `packages/cli/src/slash-commands/<name>.ts`
 2. Export `buildXxxCommand(opts: SlashCommandContext): SlashCommand`
 3. Import and add to `buildBuiltinSlashCommands()` in `index.ts`
-4. Add tests under `packages/cli/tests/slash-<name>.test.ts`
-5. Add docs under `docs/slash/<name>.md`
+4. Add tests: `packages/cli/tests/slash-<name>.test.ts`
+5. Add docs: `docs/slash/<name>.md`

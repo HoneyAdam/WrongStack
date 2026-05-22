@@ -1,6 +1,6 @@
 # WrongStack Architecture
 
-This document is a repository-level architecture map for WrongStack as scanned on 2026-05-18. It is written for maintainers, plugin authors, and contributors who need to understand how the monorepo fits together before changing runtime behavior.
+This document is a repository-level architecture map for WrongStack as scanned on 2026-05-22. It is written for maintainers, plugin authors, and contributors who need to understand how the monorepo fits together before changing runtime behavior.
 
 WrongStack is a TypeScript/Node.js agent platform. The user-facing product is a terminal AI coding agent, but the implementation is deliberately split into reusable packages: a small core runtime, provider adapters, built-in tools, MCP integration, terminal and browser UIs, and an optional multi-agent director layer.
 
@@ -56,6 +56,7 @@ packages/
   plug-lsp/         Language Server Protocol plugin with LSP-backed tools and commands.
   runtime/          Default runtime implementations and host-level composition helpers.
   telegram/         Telegram bridge plugin: send messages, receive prompts, get notified.
+  skills/           Skill subpackages published as separate npm packages (git-flow, test-runner, etc.).
 
 docs/
   architecture.md           Lower-level architecture notes.
@@ -74,10 +75,10 @@ The scan found the following package sizes:
 
 | Package | Source files | Test files | Primary responsibility |
 |---|---:|---:|---|
-| `@wrongstack/core` | 147 | 97 | Agent runtime, DI, storage, security, multi-agent coordination, observability. |
+| `@wrongstack/core` | ~155 | ~100 | Agent runtime, DI, storage, security, security-scanner, multi-agent coordination, observability. |
 | `@wrongstack/cli` | 59 | 15 | CLI boot, runtime assembly, REPL, slash commands, plugin management, WebUI launcher. |
 | `@wrongstack/tools` | 40 | 40 | Built-in tools and meta-tools. |
-| `@wrongstack/webui` | 49 | 8 | Browser UI and standalone WebSocket backend. |
+| `@wrongstack/webui` | 49 | ~10 | Browser UI and standalone WebSocket backend. |
 | `@wrongstack/plug-lsp` | 41 | 15 | LSP runtime, tools, slash commands, server lifecycle. |
 | `@wrongstack/providers` | 24 | 18 | Provider adapters, streaming parsers, tool wire conversions. |
 | `@wrongstack/tui` | 17 | 17 | Ink terminal UI components and state rendering. |
@@ -144,21 +145,22 @@ flowchart BT
 ```text
 packages/core/src/
   kernel/          Container, tokens, pipeline, event bus, run controller.
-  core/            Agent, Context, ConversationState, prompt/request building, streaming response, provider runner.
-  execution/       ToolExecutor, retry, error recovery, compaction, skills, autonomous runner.
-  storage/         Sessions, config, memory, queue, plans, todos, recovery, attachments, config migration.
+  core/            Agent, Context, ConversationState, prompt/request building, streaming response, provider runner, input builder, run env.
+  execution/       ToolExecutor, retry, error recovery, compaction, skills, autonomous runner, auto-compaction middleware, intelligent/selective compaction.
+  storage/         Sessions, config, memory, queue, plans, todos, recovery, attachments, config migration, goals, session rewind.
   security/        Permission policy, secret vault, secret scrubber, config secrets.
+  security-scanner/ Security scanner: orchestrator, detector, scanner, gitignore updater, report generator, skill generator.
   registry/        Tool, provider, and slash command registries.
   plugin/          Plugin API and loader.
-  extension/       Agent lifecycle extension registry.
-  coordination/    Multi-agent coordinator, Director, FleetBus, delegate tool, bridge, budgets, transport.
+  extension/       Agent lifecycle extension registry and extension points (BeforeRun, AfterRun, BeforeIteration, AfterIteration, OnError, wrapProviderRunner, beforeToolExecution, afterToolExecution).
+  coordination/    Multi-agent coordinator, Director, FleetBus, FleetManager, delegate tool, bridge, budgets, transport.
   models/          models.dev registry, model selection, modes.
-  observability/   Metrics, traces, health, Prometheus, OTLP.
-  sdd/             Spec-driven development parser, task generation, task flow.
+  observability/   Metrics, traces, health, Prometheus, OTLP, event bridge.
+  sdd/             Spec-driven development: parser, task generator, task flow, task tracker, graph store, visualizer, spec store, spec builder, spec versioning, spec templates, auto-executor, critical path.
   infrastructure/  Logger, token counter, path resolver, context manager, MCP presets.
   types/           Public type contracts.
   defaults/        Backward-compatible re-export barrel for all default implementations.
-  utils/           Paths, JSON, glob, diff, color, atomic write, serializers, regex guard, token estimate.
+  utils/           Paths, JSON, glob, diff, color, atomic write, serializers, regex guard, token estimate, json-schema validation, message invariants, newline normalization, todos format.
 ```
 
 ### Core Area Sizes
@@ -166,19 +168,20 @@ packages/core/src/
 | Area | Files | Notes |
 |---|---:|---|
 | `types` | 38 | Public contracts. Keep these stable and additive when possible. |
-| `coordination` | 15 | Multi-agent orchestration, director, bridge, fleet, budgets, transport. |
-| `storage` | 14 | JSONL sessions, config, memory, checkpoints, recovery. |
-| `utils` | 15 | Shared helpers used across runtime code. |
-| `execution` | 11 | Tool execution, retry, compaction, skill loading. |
-| `observability` | 9 | Metrics/traces/health integrations. |
-| `core` | 9 | The agent loop and live run state. |
-| `kernel` | 6 | Low-level primitives. |
+| `coordination` | 19 | Multi-agent orchestration, director, bridge, fleet, fleet-manager, budgets, transport, in-memory transport. |
+| `storage` | 16 | JSONL sessions, config, memory, checkpoints, recovery, goal store, queue store, session rewind. |
+| `utils` | 16 | Shared helpers: paths, JSON, glob, diff, color, atomic write, serializers, regex guard, token estimate, json-schema validation, message invariants, newline normalization, todos format. |
+| `execution` | 12 | Tool execution, retry, compaction (intelligent/selective/auto), skill loading, autonomous runner, error handler, auto-compaction middleware. |
+| `observability` | 9 | Metrics/traces/health integrations, event bridge. |
+| `core` | 10 | Agent loop, context, conversation state, input builder, run env, streaming response, provider runner, iteration limit, continue-to-next-iteration. |
+| `kernel` | 6 | Low-level primitives: container, pipeline, events, run controller, tokens. |
 | `infrastructure` | 6 | Logger, token counter, path resolver, context manager, MCP presets. |
-| `sdd` | 5 | Spec-driven development workflow. |
+| `sdd` | 13 | Parser, generator, flow, tracker, graph store, visualizer, spec store, builder, versioning, templates, auto-executor, critical path. |
 | `security` | 5 | Vault, scrubber, permission policy, config secrets. |
+| `security-scanner` | 8 | Orchestrator, detector, scanner, gitignore updater, report generator, skill generator, types. |
 | `models` | 4 | Model registry, selector, modes. |
-| `registry` | 3 | Runtime registries. |
-| `extension` | 3 | Agent lifecycle hooks. |
+| `registry` | 3 | Tool, provider, slash-command registries. |
+| `extension` | 3 | Extension registry, extension points, index. |
 | `plugin` | 2 | Plugin API and loader. |
 | `defaults` | 1 | Backward-compatible re-export barrel. |
 
@@ -261,7 +264,7 @@ The CLI uses these events for spinner output, streaming text, provider retries, 
 
 `RunController` owns per-run abort and teardown behavior. `Agent.run` creates one controller per call, chains the parent signal, sets `ctx.signal`, registers context abort hooks, and disposes it in `finally`.
 
-This prevents long-lived tools, streams, MCP clients, and child processes from leaking across agent runs.
+This prevents long-lived tools, streams, MCP clients, and child processes from leaking across agent runs. It also registers iteration-limiting via `ExtensionRegistry.requestLimitExtension` and autonomous-continuation signaling.
 
 ## The Live Runtime Objects
 
@@ -542,6 +545,9 @@ Project lifecycle:
 
 Agent control:
   todo, plan, tool-search, tool-use, batch-tool-use, tool-help, memory, mode
+
+Meta / resilience:
+  circuit-breaker, process-registry
 ```
 
 The default exported `builtinTools` intentionally lives in `packages/tools/src/builtin.ts` so consumers that only need a subset can import individual tools without pulling in the whole catalog.
@@ -663,11 +669,13 @@ flowchart TD
   BeforeTool --> Tools[ToolExecutor]
   Tools --> AfterTool[afterToolExecution]
   Tools --> AfterIteration[afterIteration]
-  Runner -. provider errors .-> OnError[onError]
+  Runner -. provider errors .-> OnError[onError: retry/fail/continue]
   Loop --> AfterRun[afterRun]
 ```
 
 Hook failures are logged independently so one extension does not collapse the whole run.
+
+The `OnErrorHook` can return `{ action: 'retry', model?: string }`, `{ action: 'fail' }`, `{ action: 'continue' }`, or `void` — enabling extensions to drive recovery strategies for provider, tool, or agent-level errors.
 
 ## MCP Integration
 
@@ -705,6 +713,27 @@ mcp__<serverName>__<toolName>
 
 This prevents collisions with built-in tools and gives the permission policy a namespace to match.
 
+### Built-in MCP Server Presets
+
+`packages/core/src/infrastructure/mcp-servers.ts` exports factory functions for popular MCP servers. All servers are disabled by default and must be explicitly enabled in config:
+
+| Server | Description | Auth required |
+|---|---|---|
+| `filesystemServer` | Local filesystem read/write/navigate (read-heavy). | — |
+| `githubServer` | GitHub API — issues, PRs, repos, search, file ops. | `GITHUB_PERSONAL_ACCESS_TOKEN` |
+| `context7Server` | Codebase-aware documentation via context7.ai. | — |
+| `braveSearchServer` | Web search. | `BRAVE_SEARCH_API_KEY` |
+| `blockServer` | Postgres database access via SQL. | — |
+| `everArtServer` | AI image generation. | `EVERART_API_KEY` |
+| `slackServer` | Slack messaging and channels. | `SLACK_BOT_TOKEN` + team/user token |
+| `awsServer` | AWS — EC2, S3, Lambda, IAM, CloudFormation, costs. | AWS credentials |
+| `googleMapsServer` | Google Maps directions, geocoding, places. | `GOOGLE_MAPS_API_KEY` |
+| `sentinelServer` | Security vulnerability scanning (sentinel-labs). | — |
+| `zaiVisionServer` | Image analysis fallback for text-only models. | `Z_AI_API_KEY` |
+| `miniMaxVisionServer` | MiniMax image understanding via `understand_image`. | `MINIMAX_API_KEY` + `uvx` |
+
+To enable any server, set `mcpServers: { serverName: { enabled: true } }` in config. Use `allServers()` to get the full set for `wstack mcp add --all`.
+
 ## Multi-Agent and Director Architecture
 
 WrongStack has two levels of multi-agent support:
@@ -729,6 +758,10 @@ packages/core/src/coordination/
   director-tools.ts
   fleet-bus.ts
   fleet.ts
+  fleet-manager.ts
+  ifleet-manager.ts
+  icoordinator.ts
+  null-fleet-bus.ts
   delegate-tool.ts
 ```
 
@@ -1022,12 +1055,13 @@ react-modern
 refactor-planner
 sdd
 security-scanner
+skill-creator
 typescript-strict
 ```
 
 `DefaultSkillLoader` can load bundled, user-global, and project-local skills. `DefaultSystemPromptBuilder` includes skill entries in the environment block when the skills feature is enabled.
 
-Modes are handled by `DefaultModeStore`; the active mode contributes a prompt layer and can be switched by CLI/TUI/WebUI surfaces.
+Modes are handled by `DefaultModeStore` (modes: `default`, `brief`, `teach`); the active mode contributes a prompt layer and can be switched by CLI/TUI/WebUI surfaces.
 
 ## Spec-Driven Development Area
 
@@ -1036,9 +1070,16 @@ The `sdd` area provides:
 | Component | Purpose |
 |---|---|
 | `SpecParser` | Parse structured specs. |
+| `SpecBuilder` | Build specs programmatically. |
+| `SpecVersioning` | Version-aware spec migration. |
+| `SpecTemplates` | Reusable spec templates. |
 | `TaskGenerator` | Turn specs into generated tasks. |
 | `TaskTracker` | Track task transitions. |
 | `TaskFlow` / `SpecDrivenDev` | Coordinate spec-driven workflows. |
+| `TaskGraphStore` | Persist task dependency graph. |
+| `TaskVisualizer` | Render task graphs visually. |
+| `AutoExecutor` | Auto-execute spec-driven task flows. |
+| `CriticalPath` | Compute and track critical path through tasks. |
 
 This area is independent of the normal agent loop but can be surfaced through tools, slash commands, or specialized modes/skills.
 
@@ -1219,17 +1260,18 @@ If you are new to the codebase, read in this order:
 2. `packages/core/src/core/context.ts`
 3. `packages/core/src/kernel/{container,pipeline,events,tokens}.ts`
 4. `packages/core/src/execution/tool-executor.ts`
-5. `packages/cli/src/boot.ts`
-6. `packages/cli/src/pre-launch.ts`
-7. `packages/cli/src/index.ts`
-8. `packages/cli/src/execution.ts`
-9. `packages/cli/src/wiring/{session,provider,pipeline}.ts`
-10. `packages/tools/src/builtin.ts`
-11. `packages/providers/src/index.ts`
-12. `packages/core/src/plugin/{api,loader}.ts`
-13. `packages/core/src/extension/registry.ts`
-14. `packages/cli/src/multi-agent.ts`
-15. `packages/cli/src/plugin-management.ts`
-16. `packages/core/src/coordination/director.ts`
+5. `packages/core/src/extension/extension-points.ts`
+6. `packages/core/src/extension/registry.ts`
+7. `packages/cli/src/boot.ts`
+8. `packages/cli/src/pre-launch.ts`
+9. `packages/cli/src/index.ts`
+10. `packages/cli/src/execution.ts`
+11. `packages/cli/src/wiring/{session,provider,pipeline}.ts`
+12. `packages/tools/src/builtin.ts`
+13. `packages/providers/src/index.ts`
+14. `packages/core/src/plugin/{api,loader}.ts`
+15. `packages/cli/src/multi-agent.ts`
+16. `packages/cli/src/plugin-management.ts`
+17. `packages/core/src/coordination/director.ts`
 
-That path gives you the runtime loop first, then the boot assembly (including project detection and wiring), then the plugin management, extension, and multi-agent layers.
+That path gives you the runtime loop first, then the extension system, then the boot assembly (including project detection and wiring), then the plugin management and multi-agent layers.
