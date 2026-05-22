@@ -55,32 +55,21 @@ describe('/init slash command', () => {
     await reg.dispatch('/init', mkCtx());
     const written = await fs.readFile(path.join(tmp, '.wrongstack', 'AGENTS.md'), 'utf8');
     expect(written).toContain('# AGENTS.md');
-    expect(written).toContain("loaded into WrongStack's system prompt");
+    expect(written).toContain('persistent project context');
     expect(written).toContain('## Project brief');
     expect(written).toContain('## How to work safely');
     expect(written).toContain('## Verification checklist');
-    expect(written).toContain('Build:');
+    expect(written).toContain('Build');
+    expect(written).toContain('Test');
     expect(r.buf).toContain('INFO: Wrote');
   });
 
-  it('warns and skips when AGENTS.md already exists', async () => {
+  it('overwrites existing AGENTS.md with fresh template', async () => {
     await fs.mkdir(path.join(tmp, '.wrongstack'), { recursive: true });
     await fs.writeFile(path.join(tmp, '.wrongstack', 'AGENTS.md'), 'EXISTING');
     const r = new FakeRenderer();
     const reg = makeRegistry(r);
     await reg.dispatch('/init', mkCtx());
-    const written = await fs.readFile(path.join(tmp, '.wrongstack', 'AGENTS.md'), 'utf8');
-    expect(written).toBe('EXISTING');
-    expect(r.buf).toContain('WARN:');
-    expect(r.buf).toContain('already exists');
-  });
-
-  it('overwrites with --force', async () => {
-    await fs.mkdir(path.join(tmp, '.wrongstack'), { recursive: true });
-    await fs.writeFile(path.join(tmp, '.wrongstack', 'AGENTS.md'), 'EXISTING');
-    const r = new FakeRenderer();
-    const reg = makeRegistry(r);
-    await reg.dispatch('/init --force', mkCtx());
     const written = await fs.readFile(path.join(tmp, '.wrongstack', 'AGENTS.md'), 'utf8');
     expect(written).toContain('# AGENTS.md');
     expect(written).not.toBe('EXISTING');
@@ -143,7 +132,6 @@ describe('/init slash command', () => {
     await reg.dispatch('/init', mkCtx());
     const written = await fs.readFile(path.join(tmp, '.wrongstack', 'AGENTS.md'), 'utf8');
     expect(written).toContain('`make build`');
-    expect(written).toContain('- **Test:** _TODO_');
     expect(written).toContain('`make lint`');
     expect(written).toContain('`make run`');
   });

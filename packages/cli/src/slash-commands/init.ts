@@ -7,21 +7,10 @@ import type { SlashCommandContext } from './index.js';
 export function buildInitCommand(opts: SlashCommandContext): SlashCommand {
   return {
     name: 'init',
-    description: 'Create .wrongstack/AGENTS.md project context for the system prompt.',
-    async run(args, ctx) {
-      const force = args.trim() === '--force';
+    description: 'Create or update .wrongstack/AGENTS.md project context for the system prompt.',
+    async run(_args, ctx) {
       const dir = path.join(ctx.projectRoot, '.wrongstack');
       const file = path.join(dir, 'AGENTS.md');
-      try {
-        await fs.access(file);
-        if (!force) {
-          const msg = `AGENTS.md already exists at ${file}. Use "/init --force" to overwrite.`;
-          opts.renderer.writeWarning(msg);
-          return { message: msg };
-        }
-      } catch {
-        /* proceed */
-      }
       const detected = await detectProjectFacts(ctx.projectRoot);
       const body = renderAgentsTemplate(detected);
       await fs.mkdir(dir, { recursive: true });
