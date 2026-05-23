@@ -325,7 +325,8 @@ describe('DefaultSessionStore', () => {
     const evt = JSON.parse(lines[0]!);
     expect(evt.type).toBe('session_start');
     expect(evt.id).toBe('cs1');
-    expect(evt.model).toBe('m');
+    expect(evt.model).toBe('unknown'); // model is reset since history is wiped
+    expect(evt.provider).toBe('unknown');
   });
 
   it('clearHistory() removes the summary manifest', async () => {
@@ -377,3 +378,4 @@ describe('DefaultSessionStore', () => {
     // Should not throw — the guard handles the undefined path gracefully
     await expect(w.clearSession()).resolves.not.toThrow();
   });
+});

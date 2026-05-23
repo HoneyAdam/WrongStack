@@ -205,6 +205,14 @@ export interface MultiAgentCoordinator {
   stop(subagentId: string): Promise<void>;
   stopAll(): Promise<void>;
   getStatus(): CoordinatorStatus;
+  /**
+   * Wait for one or more tasks to complete and return their results.
+   * If a task is already done when called, returns immediately.
+   * Resolves to an array in the same order as `taskIds`.
+   */
+  awaitTasks(taskIds: string[]): Promise<TaskResult[]>;
+  /** Snapshot of completed task results. */
+  results(): readonly TaskResult[];
 }
 
 /**

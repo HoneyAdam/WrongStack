@@ -32,13 +32,19 @@ export interface RunTuiOptions {
   /** Query live YOLO state from the permission policy. */
   getYolo?: () => boolean;
   /** Query the live autonomy mode. */
-  getAutonomy?: () => 'off' | 'suggest' | 'auto' | 'eternal';
+  getAutonomy?: () => 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel';
   /**
    * Access the eternal-autonomy engine. When autonomy mode flips to
    * 'eternal' the TUI drives `runOneIteration()` from the post-slash hook
    * so the engine and TUI never race for the shared Context.
    */
   getEternalEngine?: () => import('@wrongstack/core').EternalAutonomyEngine | null;
+  /**
+   * Access the parallel-eternal engine. When autonomy mode flips to
+   * 'eternal-parallel' the TUI drives `runOneIteration()` from the post-slash
+   * hook so the engine and TUI never race for the shared Context.
+   */
+  getParallelEngine?: () => import('@wrongstack/core').ParallelEternalEngine | null;
   /**
    * Subscribe to live per-iteration events from the eternal engine.
    * Returns an unsubscribe function. TUI uses this to render each
@@ -299,6 +305,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
           getYolo: opts.getYolo,
           getAutonomy: opts.getAutonomy,
           getEternalEngine: opts.getEternalEngine,
+          getParallelEngine: opts.getParallelEngine,
           subscribeEternalIteration: opts.subscribeEternalIteration,
           appVersion: opts.appVersion,
           provider: opts.provider,

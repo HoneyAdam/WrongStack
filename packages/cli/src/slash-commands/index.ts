@@ -50,9 +50,29 @@ export interface SlashCommandContext {
   ) => Promise<string>;
   onAgents?: (subagentId?: string) => string;
   onFleet?: (
-    action: 'status' | 'usage' | 'kill' | 'manifest' | 'concurrency',
+    action: 'status' | 'usage' | 'kill' | 'manifest' | 'concurrency' | 'retry' | 'log',
     target?: string,
   ) => Promise<string>;
+  /**
+   * Get live coordinator status for /fleet. Returns null when no fleet is active.
+   */
+  onFleetStatus?: () => import('@wrongstack/core').CoordinatorStatus | null;
+  /**
+   * Get fleet usage summary for /fleet usage.
+   */
+  onFleetUsage?: () => import('@wrongstack/core').FleetUsage | null;
+  /**
+   * Kill all running subagents. Returns count of killed subagents.
+   */
+  onFleetKill?: () => number;
+  /**
+   * Terminate a specific subagent by id. Returns true if terminated.
+   */
+  onFleetTerminate?: (subagentId: string) => boolean;
+  /**
+   * Spawn a subagent of a given role. Returns the new subagent id.
+   */
+  onFleetSpawn?: (role: string) => Promise<string>;
   /**
    * Toggle subagent activity streaming into the leader's history. The
    * TUI installs the actual setter on mount via a shared controller;
@@ -88,13 +108,22 @@ export interface SlashCommandContext {
   /** Toggle or query autonomy mode. Pass undefined to query, AutonomyMode to set. */
   onAutonomy?: (setTo?: import('./autonomy.js').AutonomyMode) => import('./autonomy.js').AutonomyMode;
   /**
-   * Start the eternal-autonomy engine. Called after `/autonomy eternal`
-   * confirms a goal exists and YOLO has been forced on. The REPL drives
-   * iterations from its main loop — this hook only flips the flag and
-   * primes the engine; the actual iteration scheduling lives in the REPL.
+   * Access the (possibly null) eternal-autonomy engine. The REPL drives
+   * `runOneIteration()` from its main loop when autonomy is 'eternal'.
    */
-  onEternalStart?: () => void;
-  /** Stop the eternal-autonomy engine (mid-iteration abort + flag flip). */
+  getEternalEngine?: () => import('@wrongstack/core').EternalAutonomyEngine | null;
+  /**
+   * Access the (possibly null) parallel-eternal engine. The REPL drives
+   * `runOneIteration()` from its main loop when autonomy is 'eternal-parallel'.
+   */
+  getParallelEngine?: () => import('@wrongstack/core').ParallelEternalEngine | null;
+  /**
+   * Start the eternal/parallel autonomy engine. Called after `/autonomy eternal`
+   * or `/autonomy parallel` confirms a goal exists and YOLO has been forced on.
+   * Pass the mode so the REPL knows which engine to construct and drive.
+   */
+  onEternalStart?: (mode?: import('./autonomy.js').AutonomyMode) => void;
+  /** Stop the eternal/parallel autonomy engine (mid-iteration abort + flag flip). */
   onEternalStop?: () => void;
   /**
    * Absolute path to the per-session plan JSON file. Read+written by the
@@ -118,6 +147,12 @@ export interface SlashCommandContext {
   setStatuslineHiddenItems?: (items: Array<'todos' | 'plan' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost'>) => void;
   /** Manage MCP servers: add, remove, enable, disable, restart. */
   onMcp?: (args: string) => Promise<string>;
+  /**
+   * Fix a reported error or bug. Pass the error message or problem description.
+   * Returns a structured diagnosis + fix plan, and sets up the next agent turn
+   * with the appropriate skill (bug-hunter, typescript-strict, security-scanner).
+   */
+  onFix?: (errorText: string) => Promise<{ message?: string; runText?: string }>;
 }
 
 // Re-export helpers for external consumers (pre-launch.ts)
@@ -155,6 +190,7 @@ import { buildSddCommand } from './sdd.js';
 import { buildSkillGeneratorCommand } from './skill-generator.js';
 import { buildSecurityCommand } from './security.js';
 import { buildStatuslineCommand } from './statusline.js';
+import { buildFixCommand } from './fix.js';
 import {
   buildSkillInstallCommand,
   buildSkillUpdateCommand,
@@ -199,6 +235,7 @@ export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashComma
     buildGitcheckCommand(opts),
     buildPushCommand(opts),
     buildSecurityCommand(opts),
+    buildFixCommand(opts),
     buildStatuslineCommand({
       cwd: opts.cwd,
       hiddenItems: opts.statuslineHiddenItems ?? [],

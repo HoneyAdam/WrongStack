@@ -143,6 +143,11 @@ export {
   type EternalEngineState,
 } from '../execution/eternal-autonomy.js';
 export {
+  ParallelEternalEngine,
+  type ParallelEternalOptions,
+  type ParallelEngineState,
+} from '../execution/parallel-eternal-engine.js';
+export {
   makeAutonomyPromptContributor,
   type AutonomyPromptContributorOptions,
 } from '../execution/autonomy-prompt-contributor.js';

@@ -23,6 +23,38 @@ This pulls in the full stack — `@wrongstack/core`, `@wrongstack/runtime`, `@wr
 
 After install, `wrongstack` is on your `PATH`. (`wstack` works too — it's an alias.)
 
+### What's new in 0.6.5
+
+**`/autonomy parallel` — parallel subagent fan-out mode.** The
+autonomy engine now has two modes: `eternal` (single-leader loop) and
+`parallel` (leader drives, N subagents execute tasks simultaneously).
+`parallel` mode uses the new `ParallelEternalEngine` which implements
+sense → decide → fan-out → aggregate → loop. Each tick decomposes the
+goal into up to 4 parallel tasks (configurable, max 16), spawns that
+many subagents via `DefaultMultiAgentCoordinator`, awaits all results,
+and writes a journal entry. `[GOAL_COMPLETE]` in any subagent's output
+stops the engine cleanly. The `/autonomy` command now handles both
+`eternal` and `parallel`; `/fleet journal` prints recent entries.
+
+**TUI parallel status chip.** The TUI status bar shows a `⟳ PARALLEL`
+chip in amber when the parallel engine is running, updating every
+tick with the live iteration count.
+
+**`/fleet` extended.** Gains `spawn <role> [count]` to spawn N
+subagents of a role, `terminate <subagentId>` to stop one, and `kill`
+to stop all. Status output surfaces subagent current task, elapsed
+time, and per-slot status during parallel mode.
+
+**`maxConcurrent: 8`** in `DefaultMultiAgentCoordinator` (raised from
+2) to support the higher fan-out density parallel mode requires.
+
+**Session store safety.** `append` now catches circular JSON and writes
+an error marker instead of crashing; `truncateFromStart` prunes the
+oldest 20 % when the JSONL exceeds 50 MB rather than attempting a
+precise trim.
+
+For earlier release notes, see [CHANGELOG.md](CHANGELOG.md).
+
 ### What's new in 0.6.4
 
 **Official plugin collection — `@wrongstack/plugins`.** Ten ready-to-use

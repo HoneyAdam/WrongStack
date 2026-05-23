@@ -5,6 +5,129 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.5] - 2026-05-23
+
+### Added
+
+- **`/autonomy parallel` — parallel subagent fan-out mode.** The
+  engine now has two modes: `eternal` (single-leader loop) and
+  `parallel` (leader drives, N subagents execute tasks simultaneously).
+  `parallel` mode uses the new `ParallelEternalEngine` class which
+  implements a sense → decide → fan-out → aggregate → loop cycle.
+  Each tick decomposes the active goal into up to `parallelSlots` tasks
+  (default 4, max 16), spawns that many subagents via the
+  `DefaultMultiAgentCoordinator`, awaits all results, and writes a
+  journal entry before the next tick. `[GOAL_COMPLETE]` in any
+  subagent's output stops the engine cleanly. The `/autonomy`
+  slash command gains the `parallel` subcommand; `status`
+  output now shows which engine is running.
+
+- **`ParallelEternalEngine` in `@wrongstack/core`.** Full
+  implementation in `execution/parallel-eternal-engine.ts` with:
+  - Three-task decomposition pipeline: pending todos → dirty git
+    files → LLM brainstorm for remaining slots
+  - Subagent lifecycle via `DefaultMultiAgentCoordinator` +
+    `AgentSubagentRunner`; each slot gets its own `spawn` → `assign`
+    → `awaitTasks` cycle with a 5-minute timeout (configurable)
+  - `fanOut()` returns aggregated results, `goalComplete` flag,
+    and concatenated `partialOutput` for journal logging
+  - Compaction cadence via the injected `Compactor` (every 25
+    iterations by default), with journal appends on every tick
+  - State machine: `idle → running → stopped`; `stopRequested`
+    short-circuits the loop; crash recovery via `persistState`
+  - Exported from `@wrongstack/core/execution` subpath
+
+- **`/fleet journal` subcommand.** Prints recent journal entries
+  from `goal.json` during `/autonomy parallel` runs — shows
+  iteration count, status chip, task summary, and notes for the
+  last N entries (default 10).
+
+- **Parallel status chip in TUI.** When `/autonomy parallel` is
+  running, the TUI status bar shows a `⟳ PARALLEL` chip in amber,
+  updating every tick to reflect the live iteration count.
+
+- **`maxConcurrent: 8` raised from `2` in `DefaultMultiAgentCoordinator`.**
+  Supports the higher fan-out density required by parallel mode;
+  the `all_tasks_done` done condition already gates on all tasks
+  completing before the next dispatch cycle.
+
+### Changed
+
+- **`/autonomy` slash command unified.** `autonomy.ts` now handles
+  all subcommands (`on`, `off`, `suggest`, `eternal`, `parallel`,
+  `stop`, `status`, `toggle`) in one place. `parallel` starts the
+  `ParallelEternalEngine` and prints the slot configuration; `eternal`
+  starts the existing single-leader engine. `status` shows current
+  engine type and iteration count for both modes.
+
+- **`/fleet` command extended.** Now accepts `spawn <role> [count]`
+  to spawn N subagents of a given role (default 1), `terminate
+  <subagentId>` to stop a specific subagent, and `kill` to stop all
+  running subagents. Status output surfaces subagent current task,
+  elapsed time, and per-slot status during parallel mode.
+
+- **`/autonomy` status output improved.** Shows engine type
+  (`single` / `parallel`), iteration count, slot count (parallel),
+  and consecutive failure count. Error accumulation now surfaces
+  in the status block so operators can see degradation without
+  digging into logs.
+
+- **`EternalAutonomyEngine` re-exported from `@wrongstack/core/execution`.**
+  Both engines are accessible via their respective subpath exports:
+  `import { EternalAutonomyEngine } from '@wrongstack/core/execution'`
+  (the existing one) and
+  `import { ParallelEternalEngine } from '@wrongstack/core/execution'`
+  (the new one).
+
+### Fixed
+
+- **Session store `append` no longer crashes on circular JSON.** A
+  circular reference in the event payload previously threw from
+  `JSON.stringify` inside the append chain, crashing the entire
+  session writer. `safeStringify` now catches those errors and
+  falls back to writing a `{ type: 'session.error', ... }` marker
+  instead of propagating the exception.
+- **`session-store` truncate guard added.** When the combined JSONL
+  file exceeds 50 MB, `truncateFromStart` now prunes the oldest 20 %
+  of events atomically rather than attempting to trim exactly to
+  `maxBytes` (which could leave the file empty or corrupt on
+  tight boundaries).
+
+### Tests
+
+- **`parallel-eternal-engine.test.ts` — full suite for
+  `ParallelEternalEngine`.** Tests for `currentState` transitions
+  (`idle → running → stopped`), `stop()` propagation, `runOneIteration()`
+  decomposes goal into tasks, `fanOut()` spawn/assign/await all slots,
+  `goalComplete` detection from subagent output, journal append on
+  success/failure/complete, compaction cadence trigger, and the
+  crash-recovery persistState path. Uses fake timers for sleeps.
+
+- **`session-store-trunc.test.ts` — JSONL truncation behavior.** Tests
+  for the 50 MB cap and 20 % pruning strategy, ensure the file is
+  readable after truncation, verify events near the boundary are
+  preserved while older ones are removed, and confirm atomic write
+  semantics (no partial writes on crash).
+
+- **`cron.test.ts` — `AgentExtension` single-object API.** Verifies
+  that `beforeIteration` / `afterIteration` hooks fire in the correct
+  order around the agent loop, and that throwing in a hook does not
+  prevent subsequent hooks from running.
+
+- **`json-path-pure.test.ts` — JSONPath query engine.** Full coverage
+  for path resolution, bracket notation, wildcard selects, recursive
+  descent (`..`), function expressions (`count()`, `length`, `min`,
+  `max`), and mutation commands (`set`, `delete`, `push`).
+
+### Changed — versions
+
+- **All workspace packages bumped 0.6.4 → 0.6.5**: `wrongstack`,
+  `@wrongstack/cli`, `@wrongstack/core`, `@wrongstack/mcp`,
+  `@wrongstack/plug-lsp`, `@wrongstack/providers`,
+  `@wrongstack/runtime`, `@wrongstack/skills`,
+  `@wrongstack/telegram`, `@wrongstack/tools`, `@wrongstack/tui`,
+  `@wrongstack/webui`. `@wrongstack/plugins` remains at `0.1.0`.
+
 ## [0.6.4] - 2026-05-23
 
 ### Added

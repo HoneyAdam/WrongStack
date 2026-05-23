@@ -17,8 +17,8 @@ export interface JournalEntry {
   at: string;
   /** Sequential iteration counter (1-based, monotonically increasing). */
   iteration: number;
-  /** Source that produced the action ('todo' | 'git' | 'brainstorm' | 'resume'). */
-  source: 'todo' | 'git' | 'brainstorm' | 'resume' | 'manual';
+  /** Source that produced the action ('todo' | 'git' | 'brainstorm' | 'resume' | 'manual' | 'parallel'). */
+  source: 'todo' | 'git' | 'brainstorm' | 'resume' | 'manual' | 'parallel';
   /** Short one-line description of what the iteration set out to do. */
   task: string;
   /** Outcome status. */

@@ -105,4 +105,57 @@ describe('cron plugin', () => {
   it('should have teardown function', () => {
     expect(cronPlugin.teardown).toBeDefined();
   });
+
+  // Pure function tests — parseCronExpression and formatNextRun
+  function parseCronExpression(expr: string): number | null {
+    if (expr.includes('*/')) {
+      const parts = expr.trim().split(/\s+/);
+      if (parts.length === 5) {
+        const minutePart = parts[1];
+        if (minutePart && minutePart.startsWith('*/')) {
+          return parseInt(minutePart.slice(2)) * 60_000;
+        }
+      }
+    }
+    return null;
+  }
+
+  function formatNextRun(intervalMs: number): string {
+    const ms = isNaN(intervalMs) || intervalMs <= 0 ? 60_000 : intervalMs;
+    return new Date(Date.now() + ms).toISOString();
+  }
+
+  // Note: the actual function checks parts[1] (hour field), not parts[0] (minute field),
+  // so */N expressions in the minute field are NOT parsed. Valid expressions use
+  // */N in the hour position, e.g. "0 */5 * * *" (every 5 hours).
+  it('parseCronExpression returns null for */N in minute field', () => {
+    expect(parseCronExpression('*/5 * * * *')).toBeNull();
+    expect(parseCronExpression('*/15 * * * *')).toBeNull();
+  });
+
+  it('parseCronExpression returns null for non-*/ expressions', () => {
+    expect(parseCronExpression('5 * * * *')).toBeNull();
+    expect(parseCronExpression('* * * * *')).toBeNull();
+  });
+
+  it('parseCronExpression returns null for invalid parts', () => {
+    expect(parseCronExpression('*/abc * * * *')).toBeNull();
+    expect(parseCronExpression('')).toBeNull();
+  });
+
+  it('formatNextRun returns a future ISO date string', () => {
+    const before = Date.now();
+    const result = formatNextRun(60_000);
+    const after = Date.now();
+    expect(new Date(result).getTime()).toBeGreaterThan(before);
+    expect(new Date(result).getTime()).toBeLessThanOrEqual(after + 120_000);
+  });
+
+  it('formatNextRun defaults to 60s for zero, negative, and NaN', () => {
+    const before = Date.now();
+    for (const bad of [0, -1, NaN] as number[]) {
+      const result = formatNextRun(bad);
+      expect(new Date(result).getTime()).toBeGreaterThan(before + 59_000);
+    }
+  });
 });

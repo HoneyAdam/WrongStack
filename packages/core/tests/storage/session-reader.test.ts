@@ -385,4 +385,33 @@ describe('DefaultSessionReader (L2-A)', () => {
     expect(meta.provider).toBe('openai');
     expect(meta.model).toBe('gpt-4');
   });
+
+  it('search filters by sessionId when provided', async () => {
+    await seedSession(dir, 'sess-a', {
+      model: 'gpt-4', provider: 'openai',
+      startedAt: '2026-01-01T00:00:00.000Z', title: 'project alpha',
+    });
+    await seedSession(dir, 'sess-b', {
+      model: 'gpt-4', provider: 'openai',
+      startedAt: '2026-01-02T00:00:00.000Z', title: 'project beta',
+    });
+
+    // Search all sessions for "alpha"
+    const allHits = await reader.search({ query: 'alpha' });
+    expect(allHits.some((h) => h.sessionId === 'sess-a')).toBe(true);
+
+    // Search only sess-a for "beta" — beta is in sess-b, so filtered result should be empty
+    const filteredHits = await reader.search({ query: 'beta' }, 'sess-a');
+    expect(filteredHits.every((h) => h.sessionId === 'sess-a')).toBe(true);
+    expect(filteredHits.some((h) => h.sessionId === 'sess-b')).toBe(false);
+  });
+
+  it('search returns empty when sessionId does not exist', async () => {
+    await seedSession(dir, 'sess-a', {
+      model: 'gpt-4', provider: 'openai',
+      startedAt: '2026-01-01T00:00:00.000Z', title: 'hello world',
+    });
+    const hits = await reader.search({ query: 'world' }, 'nonexistent');
+    expect(hits).toEqual([]);
+  });
 });

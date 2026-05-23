@@ -44,6 +44,7 @@ import {
   color,
   createContextManagerTool,
   EternalAutonomyEngine,
+  ParallelEternalEngine,
   createDefaultPipelines,
   createDelegateTool,
   createMcpControlTool,
@@ -471,6 +472,8 @@ export async function main(argv: string[]): Promise<number> {
   // Eternal-autonomy engine instance — lazy, created when /autonomy eternal is invoked.
   // Lives at function scope so /autonomy stop and SIGINT handlers can reach it.
   let eternalEngine: import('@wrongstack/core').EternalAutonomyEngine | null = null;
+  // Parallel-eternal engine instance — lazy, created when /autonomy parallel is invoked.
+  let parallelEngine: import('@wrongstack/core').ParallelEternalEngine | null = null;
   // Listeners installed by the TUI / REPL to receive per-iteration events
   // from the engine. We support a list (not a single callback) so both
   // surfaces can subscribe without overwriting each other — TUI installs
@@ -802,6 +805,40 @@ export async function main(argv: string[]): Promise<number> {
       }
       return `Unknown fleet action: ${action}`;
     },
+    onFleetStatus: () => {
+      if (!director) return null;
+      return director.status();
+    },
+    onFleetUsage: () => {
+      if (!director) return null;
+      return director.snapshot();
+    },
+    onFleetKill: () => {
+      if (!director) return 0;
+      const s = director.status();
+      // Kill all running subagents
+      let killed = 0;
+      for (const sa of s.subagents) {
+        if (sa.status === 'running' || sa.status === 'idle') {
+          try { director.terminate(sa.id); killed++; } catch { /* best-effort */ }
+        }
+      }
+      return killed;
+    },
+    onFleetTerminate: (subagentId) => {
+      if (!director) return false;
+      try { director.terminate(subagentId); return true; } catch { return false; }
+    },
+    onFleetSpawn: async (role) => {
+      if (!director) throw new Error('No director active — start with --director or use /autonomy parallel.');
+      const cfg = FLEET_ROSTER[role] ?? {
+        id: `manual-${Date.now()}`,
+        name: role,
+        maxIterations: 50,
+        maxToolCalls: 200,
+      };
+      return director.spawn(cfg);
+    },
     onFleetLog: async (subagentId, mode) => {
       // Per-subagent JSONLs live under <fleetRoot>/subagents/<runId>/<subagentId>.jsonl
       // and the runId is namespace-stable (session id by default), so we
@@ -1100,33 +1137,39 @@ export async function main(argv: string[]): Promise<number> {
       }
       return autonomyMode;
     },
-    onEternalStart: () => {
+    onEternalStart: (mode?: import('./slash-commands/autonomy.js').AutonomyMode) => {
       // Lazy-instantiate so the engine doesn't exist (and doesn't hold
       // references to the agent) until the user opts in. Re-uses an
       // existing instance if the user stops then restarts within the
       // same session — state lives on disk anyway.
-      if (!eternalEngine) {
-        eternalEngine = new EternalAutonomyEngine({
-          agent,
-          projectRoot,
-          // Wire the same compactor the manual /compact command uses so
-          // multi-day eternal loops don't overflow the provider's context.
-          // effectiveMaxContext is set up earlier with a model-specific
-          // value; pass it through so aggressive-mode compact triggers
-          // before the next iteration would actually overflow.
-          compactor: container.resolve(TOKENS.Compactor) as import('@wrongstack/core').Compactor,
-          maxContextTokens: effectiveMaxContext > 0 ? effectiveMaxContext : undefined,
-          onIteration: broadcastEternalIteration,
-        });
+      const effectiveMode = mode ?? 'eternal';
+      if (effectiveMode === 'eternal-parallel') {
+        if (!parallelEngine) {
+          parallelEngine = new ParallelEternalEngine({
+            agent,
+            projectRoot,
+            compactor: container.resolve(TOKENS.Compactor) as import('@wrongstack/core').Compactor,
+            maxContextTokens: effectiveMaxContext > 0 ? effectiveMaxContext : undefined,
+            onIteration: broadcastEternalIteration,
+          });
+        }
+        void parallelEngine.prime?.();
+      } else {
+        if (!eternalEngine) {
+          eternalEngine = new EternalAutonomyEngine({
+            agent,
+            projectRoot,
+            compactor: container.resolve(TOKENS.Compactor) as import('@wrongstack/core').Compactor,
+            maxContextTokens: effectiveMaxContext > 0 ? effectiveMaxContext : undefined,
+            onIteration: broadcastEternalIteration,
+          });
+        }
+        void eternalEngine.prime();
       }
-      // Persist engineState='running' so a crash mid-loop leaves a
-      // forensic breadcrumb in goal.json. Fire-and-forget — the user
-      // is on the next line waiting to see "ETERNAL launching", not
-      // for a disk write.
-      void eternalEngine.prime();
     },
     onEternalStop: () => {
       eternalEngine?.stop();
+      parallelEngine?.stop();
     },
     onExit: () => {
       void mcpRegistry.stopAll();
@@ -1277,7 +1320,15 @@ export async function main(argv: string[]): Promise<number> {
       return policy.getYolo();
     },
     getAutonomy: () => autonomyMode,
+    onAutonomy: (setTo?) => {
+      if (setTo !== undefined) {
+        autonomyMode = setTo;
+        return setTo;
+      }
+      return autonomyMode;
+    },
     getEternalEngine: () => eternalEngine,
+    getParallelEngine: () => parallelEngine,
     subscribeEternalIteration: (fn) => {
       eternalListeners.add(fn);
       return () => eternalListeners.delete(fn);

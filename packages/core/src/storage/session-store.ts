@@ -570,9 +570,11 @@ class FileSessionWriter implements SessionWriter {
 }
 
 function userInputTitle(content: string | ContentBlock[]): string {
-  const text = content
-    .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
-    .map((b) => b.text)
-    .join(' ');
+  const text = typeof content === 'string'
+    ? content
+    : content
+        .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+        .map((b) => b.text)
+        .join(' ');
   return (text || '(non-text input)').slice(0, 60);
 }

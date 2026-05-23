@@ -11,7 +11,10 @@
 | `/fleet` | Show fleet status (alias for `/fleet status`) |
 | `/fleet status` | Pending + completed task table per subagent |
 | `/fleet usage` | Per-subagent iterations, tool calls, duration, cost rollup |
-| `/fleet kill <id>` | Terminate a running subagent |
+| `/fleet kill` | Terminate all running subagents |
+| `/fleet terminate <id>` | Terminate a specific running subagent |
+| `/fleet spawn <role> [n]` | Spawn N subagents of a given role (default 1) |
+| `/fleet journal` | Show recent journal entries from /goal journal |
 | `/fleet manifest` | Print the director `fleet.json` manifest |
 | `/fleet concurrency` | Show the current concurrent-subagent ceiling |
 | `/fleet concurrency N` | Set the concurrent ceiling to N (≥ 1) |

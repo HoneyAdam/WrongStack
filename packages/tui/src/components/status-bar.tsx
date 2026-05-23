@@ -101,8 +101,8 @@ export interface StatusBarProps {
    * `agent.ctx.projectRoot`.
    */
   projectName?: string;
-  /** Autonomy mode chip: 'off' | 'suggest' | 'auto' | 'eternal'. */
-  autonomy?: 'off' | 'suggest' | 'auto' | 'eternal';
+  /** Autonomy mode chip: 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel'. */
+  autonomy?: 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel';
   /** Number of tracked bash/exec processes from the process registry. */
   processCount?: number;
   /** Items to hide from the status bar. */

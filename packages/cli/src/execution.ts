@@ -74,11 +74,18 @@ export interface ExecutionDeps {
   getYolo?: () => boolean;
   /** Query the live autonomy mode. */
   getAutonomy?: () => import('./slash-commands/autonomy.js').AutonomyMode;
+  /** Set autonomy mode (used by SIGINT handler to flip back to 'off'). */
+  onAutonomy?: (mode: import('./slash-commands/autonomy.js').AutonomyMode) => void;
   /**
    * Access the (possibly null) eternal-autonomy engine. The REPL drives
    * `runOneIteration()` from its main loop when autonomy is 'eternal'.
    */
   getEternalEngine?: () => import('@wrongstack/core').EternalAutonomyEngine | null;
+  /**
+   * Access the (possibly null) parallel-eternal engine. The REPL drives
+   * `runOneIteration()` from its main loop when autonomy is 'eternal-parallel'.
+   */
+  getParallelEngine?: () => import('@wrongstack/core').ParallelEternalEngine | null;
   /**
    * Subscribe to live per-iteration events from the eternal engine.
    * Returns an unsubscribe function. The TUI uses this to render each
@@ -126,7 +133,9 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
     setStatuslineHiddenItems,
     getYolo,
     getAutonomy,
+    onAutonomy,
     getEternalEngine,
+    getParallelEngine,
     subscribeEternalIteration,
     skillLoader,
   } = deps;
@@ -352,7 +361,9 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
           projectName: path.basename(projectRoot) || undefined,
           projectRoot,
           getAutonomy,
+          onAutonomy,
           getEternalEngine,
+          getParallelEngine,
           skillLoader,
         });
       } finally {
@@ -373,6 +384,9 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
         effectiveMaxContext,
         projectName: path.basename(projectRoot) || undefined,
         getAutonomy,
+        onAutonomy,
+        getEternalEngine,
+        getParallelEngine,
         skillLoader,
       });
     }

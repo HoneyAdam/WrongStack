@@ -128,13 +128,19 @@ export interface AppProps {
    */
   getYolo?: () => boolean;
   /** Query the live autonomy mode. */
-  getAutonomy?: () => 'off' | 'suggest' | 'auto' | 'eternal';
+  getAutonomy?: () => 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel';
   /**
    * Access the eternal-autonomy engine. When autonomy mode goes to
    * 'eternal' the TUI drives `runOneIteration()` from a post-slash hook
    * so the engine and TUI never race for the shared Context.
    */
   getEternalEngine?: () => import('@wrongstack/core').EternalAutonomyEngine | null;
+  /**
+   * Access the parallel-eternal engine. When autonomy mode goes to
+   * 'eternal-parallel' the TUI drives `runOneIteration()` from a post-slash
+   * hook so the engine and TUI never race for the shared Context.
+   */
+  getParallelEngine?: () => import('@wrongstack/core').ParallelEternalEngine | null;
   /**
    * Subscribe to live per-iteration events from the eternal engine. The
    * TUI installs this on mount to render each iteration as a timeline
@@ -1016,6 +1022,7 @@ export function App({
   getYolo,
   getAutonomy,
   getEternalEngine,
+  getParallelEngine,
   subscribeEternalIteration,
   getSDDContext,
   onSDDOutput,
@@ -1045,7 +1052,7 @@ export function App({
   const [liveModel, setLiveModel] = useState<string>(model);
   const [liveProvider, setLiveProvider] = useState<string>(provider ?? 'agent');
   const [yoloLive, setYoloLive] = useState<boolean>(yolo);
-  const [autonomyLive, setAutonomyLive] = useState<'off' | 'suggest' | 'auto' | 'eternal'>(getAutonomy?.() ?? 'off');
+  const [autonomyLive, setAutonomyLive] = useState<'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel'>(getAutonomy?.() ?? 'off');
   const [hiddenItems, setHiddenItems] = useState(statuslineHiddenItems);
 
   // Sync when parent re-loads from config file (e.g., after /statusline reset)
@@ -2983,6 +2990,24 @@ export function App({
       return;
     }
 
+    // Delete key and Ctrl+D → delete character at cursor (forward delete).
+    // Ctrl+D also doubles as "EOF" in some shells — here it's just convenient
+    // forward-delete when the user isn't at the terminal's physical Delete key.
+    if (key.delete || (key.ctrl && input === 'd')) {
+      if (cursor >= buffer.length) return;
+      const next = buffer.slice(0, cursor) + buffer.slice(cursor + 1);
+      setDraft(next, cursor);
+      return;
+    }
+
+    // Ctrl+K → kill: delete from cursor to end of line.
+    if (key.ctrl && input === 'k') {
+      if (cursor >= buffer.length) return;
+      const next = buffer.slice(0, cursor);
+      setDraft(next, cursor);
+      return;
+    }
+
     // Alt+V → read image from clipboard and attach as [image #N].
     if (key.meta && input === 'v') {
       await pasteClipboardImage();
@@ -3214,6 +3239,41 @@ export function App({
   const runEternalLoopRef = useRef(runEternalLoop);
   runEternalLoopRef.current = runEternalLoop;
 
+  /** Parallel-eternal driver — fan-out loop for the ParallelEternalEngine. */
+  const runParallelLoop = async (): Promise<void> => {
+    const engine = getParallelEngine?.();
+    if (!engine) return;
+    if (parallelLoopRunningRef.current) return;
+    parallelLoopRunningRef.current = true;
+    try {
+      while (true) {
+        const liveMode = getAutonomy?.() ?? 'off';
+        if (liveMode !== 'eternal-parallel') break;
+        if (engine.currentState === 'stopped') break;
+        dispatch({ type: 'status', status: 'running' });
+        try {
+          await engine.runOneIteration();
+        } catch (err) {
+          dispatch({
+            type: 'addEntry',
+            entry: { kind: 'error', text: `[parallel] ${err instanceof Error ? err.message : String(err)}` },
+          });
+        }
+        dispatch({ type: 'status', status: 'idle' });
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    } finally {
+      parallelLoopRunningRef.current = false;
+      if (getAutonomy) {
+        const finalMode = getAutonomy();
+        if (finalMode !== autonomyLive) setAutonomyLive(finalMode);
+      }
+    }
+  };
+  const parallelLoopRunningRef = useRef(false);
+  const runParallelLoopRef = useRef(runParallelLoop);
+  runParallelLoopRef.current = runParallelLoop;
+
   // Subscribe to live per-iteration events from the eternal engine. The
   // engine's loop drive (runEternalLoop above) emits "iteration completed"
   // info entries, but those are coarse — this subscription surfaces the
@@ -3282,6 +3342,9 @@ export function App({
           // TUI would just sit at the prompt waiting for user input.
           if (currentAutonomy === 'eternal' && getEternalEngine) {
             void runEternalLoopRef.current();
+          }
+          if (currentAutonomy === 'eternal-parallel' && getParallelEngine) {
+            void runParallelLoopRef.current();
           }
         }
         if (res?.exit) {

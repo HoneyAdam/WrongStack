@@ -206,6 +206,37 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
   }
 
   /**
+   * Wait for one or more tasks to complete and return their results.
+   * If a task is already done when called, returns immediately.
+   * Resolves to an array in the same order as `taskIds`.
+   */
+  async awaitTasks(taskIds: string[]): Promise<TaskResult[]> {
+    return Promise.all(
+      taskIds.map((id) => {
+        const cached = this.completedResults.find((r) => r.taskId === id);
+        if (cached) return cached;
+        // Fallback: poll until the task completes (up to timeoutMs).
+        // The coordinator fires 'task.completed' on every result, so
+        // we use a promise-based waiter tied to that event.
+        return new Promise<TaskResult>((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            this.off('task.completed', handler);
+            reject(new Error(`awaitTasks timed out waiting for task "${id}"`));
+          }, this.config.timeoutMs ?? 300_000);
+          const handler = ({ result }: { task: TaskSpec; result: TaskResult }) => {
+            if (result.taskId === id) {
+              clearTimeout(timeout);
+              this.off('task.completed', handler);
+              resolve(result);
+            }
+          };
+          this.on('task.completed', handler);
+        });
+      }),
+    );
+  }
+
+  /**
    * Manual completion — for callers that drive subagents without a runner
    * (e.g. external orchestrators). When a runner is configured the coordinator
    * calls this itself.

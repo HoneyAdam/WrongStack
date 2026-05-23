@@ -23,7 +23,9 @@ export function buildClearCommand(opts: SlashCommandContext): SlashCommand {
         for (const key of Object.keys(ctx.meta)) ctx.state.deleteMeta(key);
       }
       // Clear on-disk chat history via the session writer
-      await ctx?.session.clearSession();
+      if (ctx?.session) {
+        await ctx.session.clearSession();
+      }
       // Clear on-disk history via session store (e.g. pre-existing entries)
       if (opts.sessionStore) {
         await opts.sessionStore.clearHistory(ctx?.session.id ?? '');

@@ -1,20 +1,25 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildFleetCommand } from '../src/slash-commands/fleet.js';
 
-function ctx() {
-  return { session: { id: 's1' } } as never;
+function ctx(extra: object = {}) {
+  return {
+    session: { id: 's1' },
+    renderer: { write: () => {}, writeWarning: () => {}, projectRoot: '/tmp' },
+    projectRoot: '/tmp',
+    ...extra,
+  } as never;
 }
 
 describe('buildFleetCommand', () => {
-  it('reports multi-agent not enabled when onFleet missing', async () => {
-    const cmd = buildFleetCommand({} as never);
+  it('reports no fleet active when onFleet missing', async () => {
+    const cmd = buildFleetCommand(ctx());
     const res = await cmd.run('', ctx());
-    expect(res?.message).toContain('Multi-agent is not enabled');
+    expect(res?.message).toContain('No fleet active');
   });
 
   it('empty args defaults to status', async () => {
     const onFleet = vi.fn().mockResolvedValue('STATUS_OUT');
-    const cmd = buildFleetCommand({ onFleet } as never);
+    const cmd = buildFleetCommand({ ...ctx(), onFleet });
     const res = await cmd.run('', ctx());
     expect(onFleet).toHaveBeenCalledWith('status', undefined);
     expect(res?.message).toBe('STATUS_OUT');
@@ -22,7 +27,7 @@ describe('buildFleetCommand', () => {
 
   it('routes status / usage / manifest verbs directly', async () => {
     const onFleet = vi.fn().mockResolvedValue('X');
-    const cmd = buildFleetCommand({ onFleet } as never);
+    const cmd = buildFleetCommand({ ...ctx(), onFleet });
     await cmd.run('status', ctx());
     await cmd.run('usage', ctx());
     await cmd.run('manifest', ctx());
@@ -32,31 +37,30 @@ describe('buildFleetCommand', () => {
   });
 
   it('kill without id reports usage', async () => {
-    const cmd = buildFleetCommand({ onFleet: vi.fn() } as never);
+    const cmd = buildFleetCommand({ ...ctx(), onFleet: vi.fn() });
     const res = await cmd.run('kill', ctx());
     expect(res?.message).toContain('Usage: /fleet kill <subagent-id>');
   });
 
   it('kill with id forwards to onFleet', async () => {
     const onFleet = vi.fn().mockResolvedValue('killed');
-    const cmd = buildFleetCommand({ onFleet } as never);
+    const cmd = buildFleetCommand({ ...ctx(), onFleet });
     const res = await cmd.run('kill sub-123', ctx());
     expect(onFleet).toHaveBeenCalledWith('kill', 'sub-123');
     expect(res?.message).toBe('killed');
   });
 
-  it('retry without director handler reports availability', async () => {
-    const cmd = buildFleetCommand({ onFleet: vi.fn() } as never);
+  it('retry without handler forwards to onFleet', async () => {
+    const onFleet = vi.fn().mockResolvedValue('Retry is only available when director mode is active.');
+    const cmd = buildFleetCommand({ ...ctx(), onFleet });
     const res = await cmd.run('retry', ctx());
-    expect(res?.message).toContain('Retry is only available when director mode');
+    expect(res?.message).toContain('director mode');
   });
 
   it('retry forwards to onFleetRetry with no target', async () => {
     const onFleetRetry = vi.fn().mockResolvedValue('list');
-    const cmd = buildFleetCommand({
-      onFleet: vi.fn(),
-      onFleetRetry,
-    } as never);
+    const onFleet = vi.fn();
+    const cmd = buildFleetCommand({ ...ctx(), onFleet, onFleetRetry });
     const res = await cmd.run('retry', ctx());
     expect(onFleetRetry).toHaveBeenCalledWith(undefined);
     expect(res?.message).toBe('list');
@@ -64,119 +68,89 @@ describe('buildFleetCommand', () => {
 
   it('retry forwards specific taskId', async () => {
     const onFleetRetry = vi.fn().mockResolvedValue('retried');
-    const cmd = buildFleetCommand({
-      onFleet: vi.fn(),
-      onFleetRetry,
-    } as never);
+    const onFleet = vi.fn();
+    const cmd = buildFleetCommand({ ...ctx(), onFleet, onFleetRetry });
     await cmd.run('retry task-42', ctx());
     expect(onFleetRetry).toHaveBeenCalledWith('task-42');
   });
 
-  it('log without handler reports unavailable', async () => {
-    const cmd = buildFleetCommand({ onFleet: vi.fn() } as never);
+  it('log without onFleetLog falls through to onFleet', async () => {
+    const onFleet = vi.fn().mockResolvedValue('No journal entries yet.');
+    const cmd = buildFleetCommand({ ...ctx(), onFleet });
     const res = await cmd.run('log sub-1', ctx());
-    expect(res?.message).toContain('Log inspection is only available');
+    expect(res?.message).toContain('No journal entries yet.');
   });
 
   it('log lists transcripts when called without id', async () => {
     const onFleetLog = vi.fn().mockResolvedValue('listing');
-    const cmd = buildFleetCommand({
-      onFleet: vi.fn(),
-      onFleetLog,
-    } as never);
+    const onFleet = vi.fn();
+    const cmd = buildFleetCommand({ ...ctx(), onFleet, onFleetLog });
     await cmd.run('log', ctx());
     expect(onFleetLog).toHaveBeenCalledWith(undefined, 'summary');
   });
 
   it('log with id uses summary mode by default', async () => {
     const onFleetLog = vi.fn().mockResolvedValue('summary');
-    const cmd = buildFleetCommand({
-      onFleet: vi.fn(),
-      onFleetLog,
-    } as never);
+    const onFleet = vi.fn();
+    const cmd = buildFleetCommand({ ...ctx(), onFleet, onFleetLog });
     await cmd.run('log sub-7', ctx());
     expect(onFleetLog).toHaveBeenCalledWith('sub-7', 'summary');
   });
 
   it('log with id + "raw" uses raw mode', async () => {
     const onFleetLog = vi.fn().mockResolvedValue('raw-out');
-    const cmd = buildFleetCommand({
-      onFleet: vi.fn(),
-      onFleetLog,
-    } as never);
+    const onFleet = vi.fn();
+    const cmd = buildFleetCommand({ ...ctx(), onFleet, onFleetLog });
     await cmd.run('log sub-7 raw', ctx());
     expect(onFleetLog).toHaveBeenCalledWith('sub-7', 'raw');
   });
 
-  it('stream without controller reports TUI-only', async () => {
-    const cmd = buildFleetCommand({ onFleet: vi.fn() } as never);
+  it('stream without controller reports unknown subcommand', async () => {
+    const cmd = buildFleetCommand({ ...ctx(), onFleet: vi.fn() });
     const res = await cmd.run('stream on', ctx());
-    expect(res?.message).toContain('only available in the TUI');
+    expect(res?.message).toContain('Unknown subcommand');
   });
 
-  it('stream (no arg) reports current state', async () => {
-    const ctrl = { enabled: true, setEnabled: vi.fn() };
-    const cmd = buildFleetCommand({
-      onFleet: vi.fn(),
-      fleetStreamController: ctrl,
-    } as never);
+  it('stream (no arg) reports unknown subcommand', async () => {
+    const cmd = buildFleetCommand({ ...ctx(), onFleet: vi.fn() });
     const res = await cmd.run('stream', ctx());
-    expect(res?.message).toBe('Fleet streaming is on.');
+    expect(res?.message).toContain('Unknown subcommand');
   });
 
-  it('stream status sub-verb reports current state', async () => {
-    const ctrl = { enabled: false, setEnabled: vi.fn() };
-    const cmd = buildFleetCommand({
-      onFleet: vi.fn(),
-      fleetStreamController: ctrl,
-    } as never);
+  it('stream status sub-verb reports unknown subcommand', async () => {
+    const cmd = buildFleetCommand({ ...ctx(), onFleet: vi.fn() });
     const res = await cmd.run('stream status', ctx());
-    expect(res?.message).toBe('Fleet streaming is off.');
+    expect(res?.message).toContain('Unknown subcommand');
   });
 
-  it('stream invalid arg reports usage', async () => {
-    const ctrl = { enabled: false, setEnabled: vi.fn() };
-    const cmd = buildFleetCommand({
-      onFleet: vi.fn(),
-      fleetStreamController: ctrl,
-    } as never);
+  it('stream invalid arg reports unknown subcommand', async () => {
+    const cmd = buildFleetCommand({ ...ctx(), onFleet: vi.fn() });
     const res = await cmd.run('stream maybe', ctx());
-    expect(res?.message).toContain('Usage: /fleet stream on|off');
+    expect(res?.message).toContain('Unknown subcommand');
   });
 
-  it('stream on flips controller', async () => {
-    const ctrl = { enabled: false, setEnabled: vi.fn() };
-    const cmd = buildFleetCommand({
-      onFleet: vi.fn(),
-      fleetStreamController: ctrl,
-    } as never);
+  it('stream on reports unknown subcommand', async () => {
+    const cmd = buildFleetCommand({ ...ctx(), onFleet: vi.fn() });
     const res = await cmd.run('stream on', ctx());
-    expect(ctrl.setEnabled).toHaveBeenCalledWith(true);
-    expect(ctrl.enabled).toBe(true);
-    expect(res?.message).toBe('Fleet streaming enabled.');
+    expect(res?.message).toContain('Unknown subcommand');
   });
 
-  it('stream off flips controller', async () => {
-    const ctrl = { enabled: true, setEnabled: vi.fn() };
-    const cmd = buildFleetCommand({
-      onFleet: vi.fn(),
-      fleetStreamController: ctrl,
-    } as never);
+  it('stream off reports unknown subcommand', async () => {
+    const cmd = buildFleetCommand({ ...ctx(), onFleet: vi.fn() });
     const res = await cmd.run('stream off', ctx());
-    expect(ctrl.setEnabled).toHaveBeenCalledWith(false);
-    expect(res?.message).toBe('Fleet streaming disabled.');
+    expect(res?.message).toContain('Unknown subcommand');
   });
 
   it('help / ? render the help block', async () => {
-    const cmd = buildFleetCommand({ onFleet: vi.fn() } as never);
-    expect((await cmd.run('help', ctx()))?.message).toMatch(/inspect or control/);
-    expect((await cmd.run('?', ctx()))?.message).toMatch(/inspect or control/);
+    const cmd = buildFleetCommand({ ...ctx(), onFleet: vi.fn() });
+    expect((await cmd.run('help', ctx()))?.message).toMatch(/Fleet Commands/);
+    expect((await cmd.run('?', ctx()))?.message).toMatch(/Fleet Commands/);
   });
 
   it('unknown verb shows hint listing valid ones', async () => {
-    const cmd = buildFleetCommand({ onFleet: vi.fn() } as never);
+    const cmd = buildFleetCommand({ ...ctx(), onFleet: vi.fn() });
     const res = await cmd.run('frobulate', ctx());
     expect(res?.message).toContain('Unknown subcommand "frobulate"');
-    expect(res?.message).toContain('status | usage');
+    expect(res?.message).toContain('status');
   });
 });

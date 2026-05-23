@@ -3,7 +3,7 @@ import { goalFilePath, loadGoal, summarizeUsage } from '@wrongstack/core';
 import type { SlashCommand } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
 
-export type AutonomyMode = 'off' | 'suggest' | 'auto' | 'eternal';
+export type AutonomyMode = 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel';
 
 export function buildAutonomyCommand(opts: SlashCommandContext): SlashCommand {
   return {
@@ -16,8 +16,9 @@ export function buildAutonomyCommand(opts: SlashCommandContext): SlashCommand {
       '  /autonomy suggest    Show next-step suggestions after each turn',
       '  /autonomy on         Auto-continue — agent picks next step and proceeds',
       '  /autonomy eternal    Sittin-sene mode — runs forever against /goal',
+      '  /autonomy parallel   Parallel mode — 4-8 agents per tick, fan-out parallelism',
       '  /autonomy stop       Stop eternal mode (no-op for other modes)',
-      '  /autonomy toggle     Cycle: off → suggest → auto → eternal → off',
+      '  /autonomy toggle     Cycle: off → suggest → auto → eternal → parallel → off',
       '',
       'Modes:',
       '  off      — Normal interactive mode. Agent stops and waits.',
@@ -26,8 +27,11 @@ export function buildAutonomyCommand(opts: SlashCommandContext): SlashCommand {
       '             Runs indefinitely until you press Esc or Ctrl+C.',
       '  eternal  — Goal-driven sense/decide/execute/reflect loop. Requires /goal.',
       '             Force-enables YOLO. Runs until /autonomy stop or Ctrl+C twice.',
+      '  parallel — Fan-out 4–8 subagents per tick. Each tick decomposes the goal,',
+      '             spawns N agents, awaits results, aggregates. Requires /goal.',
+      '             Force-enables YOLO. Runs until /autonomy stop or Ctrl+C twice.',
       '',
-      'In auto/eternal modes the agent works autonomously. Press Esc to redirect,',
+      'In auto/eternal/parallel modes the agent works autonomously. Press Esc to redirect,',
       'Ctrl+C to stop the active iteration. /autonomy stop ends the eternal loop.',
     ].join('\n'),
     async run(args) {
@@ -47,11 +51,9 @@ export function buildAutonomyCommand(opts: SlashCommandContext): SlashCommand {
           suggest: `${color.cyan('SUGGEST')} ${color.dim('(shows next-step suggestions)')}`,
           auto: `${color.yellow('AUTO')} ${color.dim('(self-driving — Esc to redirect, Ctrl+C to stop)')}`,
           eternal: `${color.red('ETERNAL')} ${color.dim('(sittin-sene — goal-driven, YOLO, until /autonomy stop)')}`,
+          'eternal-parallel': `${color.magenta('PARALLEL')} ${color.dim('(4-8 subagents per tick — fan-out, until /autonomy stop)')}`,
         };
-        const lines: string[] = [`Autonomy mode: ${labels[current]}`];
-        // Surface engine + goal context when relevant — when current mode
-        // is eternal, or when a goal exists (so the user sees the state
-        // even after a /autonomy stop without re-typing /goal status).
+        const lines: string[] = [`Autonomy mode: ${labels[current] ?? current}`];
         try {
           const goal = await loadGoal(goalFilePath(opts.projectRoot));
           if (goal) {
@@ -65,7 +67,6 @@ export function buildAutonomyCommand(opts: SlashCommandContext): SlashCommand {
                 ),
               );
             }
-            // Recent failure pulse — useful to see if the loop is stuck.
             const recent = goal.journal.slice(-10);
             const failed = recent.filter((e) => e.status === 'failure').length;
             if (failed > 0) {
@@ -87,14 +88,11 @@ export function buildAutonomyCommand(opts: SlashCommandContext): SlashCommand {
           opts.renderer.writeWarning(msg);
           return { message: msg };
         }
+        // Stop both engines if they're running
+        opts.getEternalEngine?.()?.stop();
+        opts.getParallelEngine?.()?.stop();
         opts.onEternalStop();
         opts.onAutonomy('off');
-        // Read the goal post-stop to compute a "what did this loop spend"
-        // summary. The engine's last in-flight iteration may still write
-        // one more journal entry after this returns, but the user wants
-        // an immediate readout — better a slightly stale summary than no
-        // summary. Failures here are non-fatal; the stop signal already
-        // landed regardless of whether the summary renders.
         let summaryLine = '';
         try {
           const goal = await loadGoal(goalFilePath(opts.projectRoot));
@@ -111,9 +109,9 @@ export function buildAutonomyCommand(opts: SlashCommandContext): SlashCommand {
             }
           }
         } catch {
-          // best-effort summary; suppress
+          // best-effort
         }
-        const msg = `${color.amber('Eternal mode stop requested.')} The current iteration will finish, then the loop exits.${summaryLine}`;
+        const msg = `${color.amber('Eternal/parallel mode stop requested.')} The current iteration will finish, then the loop exits.${summaryLine}`;
         opts.renderer.write(msg);
         return { message: msg };
       }
@@ -128,29 +126,26 @@ export function buildAutonomyCommand(opts: SlashCommandContext): SlashCommand {
         newMode = 'suggest';
       } else if (arg === 'eternal' || arg === 'forever' || arg === 'infinite' || arg === 'sittinsene') {
         newMode = 'eternal';
+      } else if (arg === 'parallel' || arg === 'eternal-parallel' || arg === 'fanout') {
+        newMode = 'eternal-parallel';
       } else if (arg === 'toggle' || arg === 'cycle') {
         const current = opts.onAutonomy() ?? 'off';
         const cycle: AutonomyMode[] = ['off', 'suggest', 'auto', 'eternal'];
         newMode = cycle[(cycle.indexOf(current) + 1) % cycle.length] ?? 'off';
       } else {
-        const msg = `Unknown argument: ${arg}. Use /autonomy on, off, suggest, eternal, stop, or toggle.`;
+        const msg = `Unknown argument: ${arg}. Use /autonomy on, off, suggest, eternal, parallel, stop, or toggle.`;
         opts.renderer.writeWarning(msg);
         return { message: msg };
       }
 
-      // Eternal mode requires a goal — fail loudly before flipping the switch.
-      if (newMode === 'eternal') {
+      // Both eternal and parallel modes require a goal.
+      if (newMode === 'eternal' || newMode === 'eternal-parallel') {
         const goal = await loadGoal(goalFilePath(opts.projectRoot));
         if (!goal) {
-          const msg = `${color.red('Eternal mode requires a goal.')} Run \`/goal set <mission>\` first.`;
+          const msg = `${color.red('Eternal/parallel mode requires a goal.')} Run \`/goal set <mission>\` first.`;
           opts.renderer.writeWarning(msg);
           return { message: msg };
         }
-        // If a goal was already being worked on (has iterations > 0) and the
-        // engine wasn't explicitly stopped, it means there's a stale goal from
-        // a previous session. Starting eternal mode now would silently pick up
-        // the old mission. Force the user to `/goal clear` first so they
-        // consciously set a fresh goal.
         const isStale = goal.iterations > 0 || goal.engineState === 'running';
         if (isStale) {
           const msg =
@@ -165,23 +160,22 @@ export function buildAutonomyCommand(opts: SlashCommandContext): SlashCommand {
           opts.renderer.writeWarning(msg);
           return { message: msg };
         }
-        // Force YOLO on for destructive ops (push, delete, etc.) — user opted into "sittin sene".
         if (opts.onYolo) opts.onYolo(true);
         opts.onAutonomy(newMode);
-        opts.onEternalStart();
+        opts.onEternalStart(newMode);
+        const modeLabel = newMode === 'eternal-parallel'
+          ? `${color.magenta('PARALLEL')} mode`
+          : `${color.red('ETERNAL')} mode`;
         const msg =
-          `${color.red('Autonomy mode: ETERNAL')} — engine launching against goal: ${color.bold(goal.goal)}\n` +
+          `Autonomy mode: ${modeLabel} — engine launching against goal: ${color.bold(goal.goal)}\n` +
           `${color.dim('YOLO forced ON. Use /autonomy stop to end. Journal at /goal journal.')}`;
         opts.renderer.write(msg);
         return { message: msg };
       }
 
-      // Leaving eternal mode (or switching modes) should stop a running engine.
-      // Cast through AutonomyMode — circular type resolution between this file
-      // and ./index.js (which references AutonomyMode) can mask the 'eternal'
-      // arm during typecheck. The runtime value is always correct.
+      // Stop any running eternal/parallel engine when switching modes.
       const previous = opts.onAutonomy() as AutonomyMode;
-      if (previous === 'eternal' && opts.onEternalStop) {
+      if ((previous === 'eternal' || previous === 'eternal-parallel') && opts.onEternalStop) {
         opts.onEternalStop();
       }
 
@@ -191,6 +185,7 @@ export function buildAutonomyCommand(opts: SlashCommandContext): SlashCommand {
         suggest: `${color.cyan('SUGGEST')} — shows next-step suggestions after each turn`,
         auto: `${color.yellow('AUTO')} — self-driving, agent continues automatically`,
         eternal: `${color.red('ETERNAL')} — goal-driven sittin-sene loop`,
+        'eternal-parallel': `${color.magenta('PARALLEL')} — fan-out 4-8 subagents per tick`,
       };
       const msg = `Autonomy mode: ${labels[newMode]}`;
       opts.renderer.write(msg);

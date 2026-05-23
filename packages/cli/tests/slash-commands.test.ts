@@ -558,7 +558,7 @@ describe('built-in slash commands', () => {
     it('/fleet without onFleet reports multi-agent not enabled', async () => {
       const { registry } = makeFleetRig(undefined);
       const r = await registry.dispatch('/fleet', fakeCtx);
-      expect(r?.message).toContain('not enabled');
+      expect(r?.message).toContain('No fleet active');
     });
 
     it('/fleet defaults to status when no subcommand given', async () => {

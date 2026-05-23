@@ -23,6 +23,8 @@ export interface ReplOptions {
   visionAdapters?: VisionAdapters;
   /** Autonomy mode state getter. */
   getAutonomy?: () => import('./slash-commands/autonomy.js').AutonomyMode;
+  /** Set autonomy mode (used by SIGINT handler to flip back to 'off'). */
+  onAutonomy?: (mode: import('./slash-commands/autonomy.js').AutonomyMode) => void;
   /**
    * Access the eternal-autonomy engine. When autonomy mode is 'eternal'
    * the REPL skips reading user input and instead drives engine
@@ -30,6 +32,12 @@ export interface ReplOptions {
    * for the shared Context. Returns null until /autonomy eternal primes it.
    */
   getEternalEngine?: () => import('@wrongstack/core').EternalAutonomyEngine | null;
+  /**
+   * Access the parallel-eternal engine. When autonomy mode is 'eternal-parallel'
+   * the REPL drives this engine instead of reading user input.
+   * Returns null until /autonomy parallel primes it.
+   */
+  getParallelEngine?: () => import('@wrongstack/core').ParallelEternalEngine | null;
   /** Model-specific max context window (tokens). Used for the context bar in turn summaries. */
   effectiveMaxContext?: number;
   /** Project / folder name shown in the banner. Usually `path.basename(projectRoot)`. */
@@ -59,13 +67,17 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
       opts.renderer.writeWarning('Exiting.');
       process.exit(130);
     }
-    // In eternal mode, the first Ctrl+C should stop the engine — aborting
-    // the in-flight agent.run and flipping autonomy back to 'off' so the
-    // outer for-loop returns to reading user input on the next tick.
-    const engine = opts.getEternalEngine?.();
-    if (engine && opts.getAutonomy?.() === 'eternal') {
-      engine.stop();
-      opts.renderer.writeWarning('Eternal mode stop requested. Press Ctrl+C again to exit.');
+    // In eternal or parallel mode, the first Ctrl+C should stop the engine —
+    // aborting the in-flight agent.run and flipping autonomy back to 'off'
+    // so the outer for-loop returns to reading user input on the next tick.
+    if (
+      opts.getAutonomy?.() === 'eternal' || opts.getAutonomy?.() === 'eternal-parallel'
+    ) {
+      opts.getEternalEngine?.()?.stop();
+      opts.getParallelEngine?.()?.stop();
+      opts.onAutonomy?.('off');
+      opts.renderer.writeWarning('Engine stop requested. Press Ctrl+C again to exit.');
+      interrupts = 0;
       return;
     }
     if (activeCtrl) {
@@ -126,6 +138,36 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
           }
           // Yield to the event loop so a SIGINT delivered during this
           // iteration can be processed before the next one fires.
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          continue;
+        }
+      } else if (opts.getAutonomy?.() === 'eternal-parallel') {
+        const engine = opts.getParallelEngine?.();
+        if (!engine) {
+          opts.renderer.writeWarning('Parallel mode set but no engine wired — falling back to off.');
+        } else {
+          const beforeGoal = await loadGoalSafe(opts);
+          const beforeIter = beforeGoal?.iterations ?? 0;
+          opts.renderer.write(
+            color.magenta(`\n  ↳ [parallel #${beforeIter + 1}] launching fan-out…\n`),
+          );
+          interrupts = 0;
+          try {
+            const ok = await engine.runOneIteration();
+            const afterGoal = await loadGoalSafe(opts);
+            const last = afterGoal?.journal[afterGoal.journal.length - 1];
+            if (last) {
+              const mark = last.status === 'success' ? color.green('✓') : last.status === 'failure' ? color.red('✗') : color.amber('⊘');
+              const tail = last.note ? color.dim(` — ${last.note.slice(0, 80)}`) : '';
+              opts.renderer.write(
+                `  ${mark} ${color.dim(`#${last.iteration}`)} ${color.dim(`[${last.source}]`)} ${last.task}${tail}\n`,
+              );
+            }
+          } catch (err) {
+            opts.renderer.writeError(
+              `[parallel] ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
           await new Promise((resolve) => setTimeout(resolve, 250));
           continue;
         }

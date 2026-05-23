@@ -1,0 +1,423 @@
+import { randomUUID } from 'node:crypto';
+import type { Agent } from '../core/agent.js';
+import type { Context } from '../core/context.js';
+import type { AgentFactory } from '../coordination/agent-subagent-runner.js';
+import { makeAgentSubagentRunner } from '../coordination/agent-subagent-runner.js';
+import type { SubagentConfig, TaskResult } from '../types/multi-agent.js';
+import type { JournalEntry, GoalFile } from '../storage/goal-store.js';
+import { loadGoal, saveGoal, appendJournal, goalFilePath } from '../storage/goal-store.js';
+import type { Compactor } from '../types/compactor.js';
+import { DefaultMultiAgentCoordinator } from '../coordination/multi-agent-coordinator.js';
+import type { MultiAgentConfig } from '../types/multi-agent.js';
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export type ParallelEngineState = 'idle' | 'running' | 'stopped';
+
+export interface ParallelEternalOptions {
+  /** The coordinating agent — NOT a subagent. Owns container/tools/providers. */
+  agent: Agent;
+  /** Project root (used for goal.json path). */
+  projectRoot: string;
+  /**
+   * Number of parallel subagent slots per tick.
+   * Default: 4. Range 1–16; values >8 are for high-throughput machines.
+   */
+  parallelSlots?: number;
+  /** Per-subagent default timeout in ms. Default: 300_000 (5 min). */
+  iterationTimeoutMs?: number;
+  onIteration?: (entry: JournalEntry) => void;
+  onError?: (err: Error, iteration: number) => void;
+  gitStatusReader?: () => Promise<string>;
+  now?: () => Date;
+  compactor?: Compactor;
+  compactEveryNIterations?: number;
+  aggressiveCompactRatio?: number;
+  maxContextTokens?: number;
+  /** Override the default agent factory (uses main agent if not provided). */
+  subagentFactory?: AgentFactory;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const GOAL_COMPLETE_MARKER = /^\s*\[goal[_\s-]?complete\]\s*$/im;
+
+// ---------------------------------------------------------------------------
+// ParallelEternalEngine
+// ---------------------------------------------------------------------------
+
+/**
+ * Sense → Decide → Fan-out (4–8 parallel agents) → Aggregate → Loop.
+ *
+ * Each tick:
+ *   1. Sense    — load goal, todos, git status
+ *   2. Decide   — decompose goal into N parallel sub-tasks
+ *   3. Fan-out  — spawn N subagents simultaneously, await all
+ *   4. Aggregate — write journal, update todos, check [GOAL_COMPLETE]
+ *   5. Loop     — continue until stop() or mission complete
+ *
+ * Uses DefaultMultiAgentCoordinator + AgentSubagentRunner for subagent lifecycle.
+ */
+export class ParallelEternalEngine {
+  private state: ParallelEngineState = 'idle';
+  private stopRequested = false;
+  private iterationsSinceCompact = 0;
+  private iterations = 0;
+  private consecutiveFailures = 0;
+  private readonly goalPath: string;
+  private readonly slots: number;
+  private readonly timeoutMs: number;
+  private coordinator: DefaultMultiAgentCoordinator | null = null;
+  private agentFactory: AgentFactory;
+
+  constructor(private readonly opts: ParallelEternalOptions) {
+    this.goalPath = goalFilePath(opts.projectRoot);
+    this.slots = Math.min(16, Math.max(1, opts.parallelSlots ?? 4));
+    this.timeoutMs = opts.iterationTimeoutMs ?? 300_000;
+    this.agentFactory = opts.subagentFactory ?? (async (config: SubagentConfig) => ({
+      agent: this.opts.agent,
+      events: this.opts.agent.events,
+    }));
+  }
+
+  get currentState(): ParallelEngineState {
+    return this.state;
+  }
+
+  stop(): void {
+    this.stopRequested = true;
+    void this.persistState('stopped').catch(() => {});
+    this.state = 'stopped';
+  }
+
+  async prime(): Promise<void> {
+    this.stopRequested = false;
+    this.state = 'running';
+    await this.persistState('running');
+  }
+
+  async run(): Promise<void> {
+    this.state = 'running';
+    await this.persistState('running');
+
+    const config: MultiAgentConfig = {
+      coordinatorId: `parallel-${randomUUID().slice(0, 8)}`,
+      maxConcurrent: this.slots,
+      doneCondition: { type: 'all_tasks_done' },
+    };
+    this.coordinator = new DefaultMultiAgentCoordinator(config);
+    const runner = makeAgentSubagentRunner({ factory: this.agentFactory });
+    this.coordinator.setRunner?.(runner);
+
+    try {
+      while (!this.stopRequested) {
+        try {
+          await this.runOneIteration();
+        } catch (err) {
+          this.consecutiveFailures++;
+          this.opts.onError?.(err instanceof Error ? err : new Error(String(err)), this.consecutiveFailures);
+          await this.appendFailure('engine error', err instanceof Error ? err.message : String(err));
+        }
+        if (this.stopRequested) break;
+        await sleep(2000);
+      }
+    } finally {
+      this.state = 'stopped';
+      await this.persistState('stopped').catch(() => {});
+    }
+  }
+
+  /**
+   * Execute one tick: decompose → fan-out → aggregate → compact.
+   * Called by the REPL in its main loop (REPL drives, engine is stateless per tick).
+   */
+  async runOneIteration(): Promise<boolean> {
+    this.iterations++;
+
+    const goal = await loadGoal(this.goalPath);
+    if (!goal) { this.stopRequested = true; return false; }
+    if (goal.goalState !== 'active') { this.stopRequested = true; return false; }
+
+    // Build coordinator on first tick.
+    if (!this.coordinator) {
+      const config: MultiAgentConfig = {
+        coordinatorId: `parallel-${randomUUID().slice(0, 8)}`,
+        maxConcurrent: this.slots,
+        doneCondition: { type: 'all_tasks_done' },
+      };
+      this.coordinator = new DefaultMultiAgentCoordinator(config);
+      const runner = makeAgentSubagentRunner({ factory: this.agentFactory });
+      this.coordinator.setRunner?.(runner);
+    }
+
+    const tasks = await this.decomposeGoal(goal);
+    if (!tasks || tasks.length === 0) {
+      await sleep(5000);
+      return false;
+    }
+
+    const fanOut = await this.fanOut(goal, tasks);
+    this.iterationsSinceCompact++;
+
+    const successCount = fanOut.results.filter(r => r.status === 'success').length;
+    const status: JournalEntry['status'] = fanOut.goalComplete ? 'success' : fanOut.allSuccessful ? 'success' : 'failure';
+    const note = [
+      `${successCount}/${fanOut.results.length} subagents succeeded`,
+      fanOut.goalComplete ? '[GOAL_COMPLETE]' : '',
+      fanOut.partialOutput ? `Output: ${fanOut.partialOutput.slice(0, 120)}` : '',
+    ].filter(Boolean).join(' | ');
+
+    await this.appendIterationEntry({
+      source: 'parallel',
+      task: `parallel:${tasks.length} slots — ${tasks.slice(0, 3).join(', ')}${tasks.length > 3 ? '...' : ''}`,
+      status,
+      note,
+    });
+
+    if (fanOut.goalComplete) {
+      this.stopRequested = true;
+      return true;
+    }
+
+    await this.maybeCompact();
+    return fanOut.allSuccessful;
+  }
+
+  // -------------------------------------------------------------------------
+  // Fan-out
+  // -------------------------------------------------------------------------
+
+  private async fanOut(goal: GoalFile, tasks: string[]): Promise<{
+    results: TaskResult[];
+    allSuccessful: boolean;
+    goalComplete: boolean;
+    partialOutput: string;
+  }> {
+    const coordinator = this.coordinator!;
+    const slotCount = Math.min(this.slots, tasks.length);
+
+    const recentJournal = goal.journal.slice(-5)
+      .map(e => `  #${e.iteration} [${e.status}] ${e.task}${e.note ? ` — ${e.note.slice(0, 80)}` : ''}`)
+      .join('\n');
+
+    const directivePreamble = [
+      '═══ ETERNAL AUTONOMY — parallel task slot ═══',
+      '',
+      `Mission: ${goal.goal}`,
+      `Total parallel slots: ${slotCount}`,
+      '',
+      recentJournal ? `Recent journal (last 5):\n${recentJournal}` : 'No prior iterations.',
+      '',
+      '── EXECUTION PROTOCOL ──',
+      '• Execute the assigned task end-to-end using multiple tool calls.',
+      '• Emit `[done]` on its own line when the task is complete.',
+      '• Do not ask for confirmation — YOLO is active.',
+      '• If the overall Mission is accomplished, emit `[GOAL_COMPLETE]` followed by a verification recipe.',
+      '• Keep output concise — summarize findings, do not transcribe files.',
+    ].join('\n');
+
+    const taskIds: string[] = [];
+    const subagentIds: string[] = [];
+
+    const spawnPromises: Array<Promise<void>> = [];
+    for (let i = 0; i < slotCount; i++) {
+      const task = tasks[i]!;
+      const subagentId = `parallel-${this.iterations}-${i}`;
+      const taskId = randomUUID();
+      const spec = {
+        id: taskId,
+        description: `${directivePreamble}\n\n── SLOT ${i + 1}/${slotCount} ──\nTask: ${task}\n`,
+        subagentId,
+      };
+
+      spawnPromises.push((async () => {
+        try {
+          await coordinator.spawn({
+            id: subagentId,
+            name: `slot-${subagentId.slice(-6)}`,
+            maxIterations: 50,
+            maxToolCalls: 200,
+            timeoutMs: this.timeoutMs,
+          });
+          subagentIds.push(subagentId);
+          taskIds.push(taskId);
+          await coordinator.assign(spec);
+        } catch {
+          // non-fatal: individual spawn failure doesn't block other slots
+        }
+      })());
+    }
+    await Promise.all(spawnPromises);
+
+    if (taskIds.length === 0) {
+      return { results: [], allSuccessful: false, goalComplete: false, partialOutput: '' };
+    }
+
+    let results: TaskResult[] = [];
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), this.timeoutMs + 60000);
+      try {
+        results = await coordinator.awaitTasks(taskIds);
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch {
+      results = coordinator.results().slice(-taskIds.length);
+    }
+
+    const allSuccessful = results.length > 0 && results.every(r => r.status === 'success');
+    const goalComplete = results.some(r =>
+      r.status === 'success' && typeof r.result === 'string' && GOAL_COMPLETE_MARKER.test(r.result)
+    );
+    const partialOutput = results
+      .map(r => (typeof r.result === 'string' ? r.result : ''))
+      .filter(Boolean)
+      .join('\n\n');
+
+    return { results, allSuccessful, goalComplete, partialOutput };
+  }
+
+  // -------------------------------------------------------------------------
+  // Goal decomposition
+  // -------------------------------------------------------------------------
+
+  private async decomposeGoal(goal: GoalFile): Promise<string[] | null> {
+    // Strategy 1: pending todos as sub-tasks
+    const todos = this.opts.agent.ctx?.todos;
+    const tasks: string[] = [];
+    if (Array.isArray(todos)) {
+      const pending = todos.filter((t) => t.status === 'pending').slice(0, this.slots);
+      for (const t of pending) {
+        tasks.push(`[todo] ${t.content}`);
+      }
+    }
+
+    // Strategy 2: git dirty files
+    if (tasks.length < this.slots) {
+      try {
+        const gitStatus = await (this.opts.gitStatusReader?.() ?? this.readGitStatus());
+        const dirty = gitStatus.trim();
+        if (dirty) {
+          const lines = dirty.split('\n').slice(0, this.slots - tasks.length);
+          for (const line of lines) {
+            const file = line.replace(/^[ MADRUC?]{2}\s*/, '').trim();
+            if (file) tasks.push(`[git] inspect and fix: ${file}`);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // Strategy 3: leader-brainstormed sub-tasks for remaining slots
+    if (tasks.length < this.slots) {
+      const remaining = this.slots - tasks.length;
+      const brainstormed = await this.brainstormSubtasks(goal, remaining);
+      tasks.push(...brainstormed);
+    }
+
+    return tasks.length > 0 ? tasks.slice(0, this.slots) : null;
+  }
+
+  private async readGitStatus(): Promise<string> {
+    const { execFile } = await import('node:child_process');
+    const { promisify } = await import('node:util');
+    const execFileP = promisify(execFile);
+    const { stdout } = await execFileP('git', ['status', '--porcelain'], {
+      cwd: this.opts.projectRoot,
+      timeout: 5_000,
+    });
+    return stdout;
+  }
+
+  private async brainstormSubtasks(goal: GoalFile, count: number): Promise<string[]> {
+    const lastFew = goal.journal.slice(-5).map((e) => `  - [${e.status}] ${e.task}`).join('\n');
+    const directive = [
+      `Decompose this goal into exactly ${count} independent sub-tasks for parallel execution.`,
+      '',
+      `Goal: ${goal.goal}`,
+      '',
+      lastFew ? `Recent:\n${lastFew}` : 'No prior iterations.',
+      '',
+      `Output exactly ${count} tasks, one per line, under 120 chars each.`,
+      'Format: TASK-1 | TASK-2 | ... (pipe-separated, no numbering, no preamble).',
+      'Each task must be independently actionable with no shared dependencies.',
+    ].join('\n');
+
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 60_000);
+      try {
+        const result = await this.opts.agent.run([{ type: 'text' as const, text: directive }], {
+          signal: ctrl.signal,
+          maxIterations: 1,
+        });
+        if (result.status !== 'done') return [];
+        const text = (result.finalText ?? '').trim();
+        if (!text) return [];
+        const tasks = text.split('|').map(t => t.trim()).filter(t => t.length > 10 && t.length < 240);
+        return tasks.slice(0, count);
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch {
+      return [];
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Compaction
+  // -------------------------------------------------------------------------
+
+  private async maybeCompact(): Promise<void> {
+    const compactor = this.opts.compactor;
+    if (!compactor) return;
+    const ctx = this.opts.agent.ctx;
+    if (!ctx) return;
+
+    const shouldRun = this.iterationsSinceCompact >= (this.opts.compactEveryNIterations ?? 25);
+    if (!shouldRun) return;
+
+    const report = await compactor.compact(ctx, { aggressive: false });
+    this.iterationsSinceCompact = 0;
+    await this.appendIterationEntry({
+      source: 'manual',
+      task: 'compaction (cadence)',
+      status: 'success',
+      note: `saved ~${report.before - report.after} tokens`,
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Helpers
+  // -------------------------------------------------------------------------
+
+  private async appendIterationEntry(entry: Omit<JournalEntry, 'iteration' | 'at'>): Promise<void> {
+    const current = await loadGoal(this.goalPath);
+    if (!current) return;
+    const updated = appendJournal(current, entry);
+    await saveGoal(this.goalPath, updated);
+    const entryWithMeta: JournalEntry = {
+      at: (this.opts.now?.() ?? new Date()).toISOString(),
+      iteration: updated.iterations,
+      ...entry,
+    };
+    this.opts.onIteration?.(entryWithMeta);
+  }
+
+  private async appendFailure(task: string, note: string): Promise<void> {
+    await this.appendIterationEntry({ source: 'manual', task, status: 'failure', note });
+  }
+
+  private async persistState(state: GoalFile['engineState']): Promise<void> {
+    const current = await loadGoal(this.goalPath);
+    if (!current) return;
+    if (current.engineState === state) return;
+    await saveGoal(this.goalPath, { ...current, engineState: state });
+  }
+}
