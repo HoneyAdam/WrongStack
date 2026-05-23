@@ -1,5 +1,6 @@
 import { color } from '@wrongstack/core';
 import {
+  buildGoalPreamble,
   emptyGoal,
   formatGoal,
   goalFilePath,
@@ -7,7 +8,6 @@ import {
   saveGoal,
 } from '@wrongstack/core';
 import type { SlashCommand } from '@wrongstack/core';
-import { buildGoalPreamble } from '@wrongstack/tui';
 import type { SlashCommandContext } from './index.js';
 
 const KNOWN_VERBS = new Set([

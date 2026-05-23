@@ -334,6 +334,12 @@ export class Agent {
     let effectiveLimit = opts.maxIterations ?? this.maxIterations;
     const hasHardLimit = effectiveLimit > 0 && Number.isFinite(effectiveLimit);
     let recoveryRetries = 0;
+    // Per-run autonomous continue. Documented on RunOptions but historically
+    // ignored — the loop only read `this.autonomousContinue`. Now an explicit
+    // `opts.autonomousContinue` overrides the instance default so the same
+    // Agent can flip into autonomous mode for a single eternal-engine
+    // iteration without a constructor rebuild.
+    const autonomousContinue = opts.autonomousContinue ?? this.autonomousContinue;
 
     // Build the base provider runner: resolve from DI if bound, otherwise
     // use the built-in runProviderWithRetry (backward compat — consumers
@@ -379,7 +385,7 @@ export class Agent {
       // This prevents a stale flag (e.g. from a tool call that set it but
       // then the run crashed before the flag was consumed) from causing
       // a spurious continuation on the next agent.run() call.
-      if (this.autonomousContinue) {
+      if (autonomousContinue) {
         consumeAutonomousContinue(this.ctx);
       }
 
@@ -473,12 +479,12 @@ export class Agent {
         // No tool calls — check autonomous continue text marker before exiting.
         // The model can signal [continue] to re-run even without a tool call.
         this.events.emit('iteration.completed', { ctx: this.ctx, index: i });
-        if (this.autonomousContinue && responseResult.directive === 'continue') {
+        if (autonomousContinue && responseResult.directive === 'continue') {
           await this.compactContextIfNeeded();
           await this.extensions.runAfterIteration(this.ctx, i);
           continue;
         }
-        if (this.autonomousContinue && responseResult.directive === 'stop') {
+        if (autonomousContinue && responseResult.directive === 'stop') {
           return { status: 'done', iterations, finalText };
         }
         return { status: 'done', iterations, finalText };
@@ -492,7 +498,7 @@ export class Agent {
       // This allows fully autonomous operation where the model keeps
       // working across multiple turns without the outer runner having
       // to re-invoke Agent.run().
-      if (this.autonomousContinue && consumeAutonomousContinue(this.ctx)) {
+      if (autonomousContinue && consumeAutonomousContinue(this.ctx)) {
         this.events.emit('iteration.completed', { ctx: this.ctx, index: i });
         await this.compactContextIfNeeded();
         await this.extensions.runAfterIteration(this.ctx, i);
@@ -509,10 +515,10 @@ export class Agent {
       // Autonomous continue via text marker: if `processResponse` detected
       // a `[continue]` / `[next step]` marker, re-run the loop without
       // returning to the caller. `[done]` causes an immediate exit with 'done'.
-      if (this.autonomousContinue && responseResult.directive === 'continue') {
+      if (autonomousContinue && responseResult.directive === 'continue') {
         continue;
       }
-      if (this.autonomousContinue && responseResult.directive === 'stop') {
+      if (autonomousContinue && responseResult.directive === 'stop') {
         return { status: 'done', iterations, finalText };
       }
     }
@@ -631,13 +637,14 @@ export class Agent {
       }
     }
 
-    // Autonomous continuation: check for text markers when enabled.
-    // The parser matches `[continue]`, `[next step]`, `[proceed]` on their
-    // own lines (re-runs the loop) or `[done]` (exits with 'done').
-    // This runs before the loop-exit check so markers in the final text
-    // block are honoured even when no tool was called.
+    // Autonomous continuation: check for text markers unconditionally.
+    // The parser is cheap (single regex pass) and the caller (`runInner`)
+    // decides whether to honour the directive based on the per-run
+    // `autonomousContinue` flag — keeping the parse here means a per-call
+    // `opts.autonomousContinue: true` works even when the Agent instance
+    // was constructed with the default `false`.
     let directive: ContinueDirective = 'none';
-    if (this.autonomousContinue && finalText) {
+    if (finalText) {
       directive = parseContinueDirective(finalText);
     }
 

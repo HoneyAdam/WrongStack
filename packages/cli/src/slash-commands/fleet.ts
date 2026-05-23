@@ -5,7 +5,7 @@ export function buildFleetCommand(opts: SlashCommandContext): SlashCommand {
   return {
     name: 'fleet',
     description:
-      'Inspect or control the subagent fleet: /fleet [status|usage|kill <id>|manifest|retry [taskId]|log <id>|stream on|off|help]',
+      'Inspect or control the subagent fleet: /fleet [status|usage|kill <id>|manifest|concurrency [N]|retry [taskId]|log <id>|stream on|off|help]',
     help: [
       'Usage:',
       '  /fleet                  Show fleet status (alias for /fleet status).',
@@ -13,6 +13,8 @@ export function buildFleetCommand(opts: SlashCommandContext): SlashCommand {
       '  /fleet usage            Per-subagent runtime cost.',
       '  /fleet kill <id>        Terminate a running subagent.',
       '  /fleet manifest         Print the director manifest.',
+      '  /fleet concurrency      Show the current concurrent-subagent ceiling.',
+      '  /fleet concurrency N    Set the ceiling to N (>= 1). Lowering does not preempt running tasks.',
       '  /fleet retry            List interrupted tasks from the last run.',
       '  /fleet retry <taskId>   Re-spawn the matching subagent and re-assign the task.',
       '  /fleet retry all        Re-assign every interrupted task at once.',
@@ -37,6 +39,9 @@ export function buildFleetCommand(opts: SlashCommandContext): SlashCommand {
         case 'kill': {
           if (!target) return { message: 'Usage: /fleet kill <subagent-id>' };
           return { message: await opts.onFleet('kill', target) };
+        }
+        case 'concurrency': {
+          return { message: await opts.onFleet('concurrency', target) };
         }
         case 'retry': {
           if (!opts.onFleetRetry) {

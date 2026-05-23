@@ -127,6 +127,14 @@ export interface MultiAgentHostOptions {
    */
   maxBudgetExtensions?: number;
   /**
+   * Maximum number of subagent tasks that may run concurrently. Extra
+   * tasks queue in the coordinator's pending list and dispatch as slots
+   * free. Default: 4. Raising this lets more work proceed in parallel
+   * at the cost of provider rate-limit pressure (each subagent makes
+   * its own API calls).
+   */
+  maxConcurrent?: number;
+  /**
    * Debounce window for state-checkpoint writes in milliseconds.
    * Default: 250. Only meaningful in director mode.
    */
@@ -221,7 +229,7 @@ export class MultiAgentHost {
     const coordinatorConfig = {
       coordinatorId: randomUUID(),
       doneCondition: { type: 'all_tasks_done' as const },
-      maxConcurrent: 8,
+      maxConcurrent: this.opts.maxConcurrent ?? 4,
     };
 
     const defaultScratchpad: string | undefined =
@@ -718,6 +726,39 @@ export class MultiAgentHost {
   async stopAll(): Promise<void> {
     if (this.director) {
       await this.getCoordinator().stopAll();
+    }
+  }
+
+  /**
+   * Current effective concurrent-subagent ceiling. Reads the live
+   * coordinator config when the director is built; otherwise falls back
+   * to the constructor option (or the default of 4 that buildDirector
+   * will apply on first /spawn).
+   */
+  getMaxConcurrent(): number {
+    if (this.director) {
+      return this.getCoordinator().config.maxConcurrent ?? 4;
+    }
+    return this.opts.maxConcurrent ?? 4;
+  }
+
+  /**
+   * Change the concurrent-subagent ceiling at runtime. Updates the
+   * constructor option (so lazy-built director picks it up) and, if the
+   * coordinator already exists, mutates its live config + triggers a
+   * dispatch pass so newly-allowed slots fill immediately.
+   *
+   * Throws on non-positive values; the caller is expected to validate
+   * user input first.
+   */
+  setMaxConcurrent(n: number): void {
+    if (!Number.isFinite(n) || n < 1) {
+      throw new Error(`maxConcurrent must be a finite integer >= 1, got ${n}`);
+    }
+    const v = Math.floor(n);
+    this.opts.maxConcurrent = v;
+    if (this.director) {
+      this.getCoordinator().setMaxConcurrent(v);
     }
   }
 }

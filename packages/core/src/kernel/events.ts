@@ -135,11 +135,23 @@ export interface EventMap {
    * runner/budget classes.
    */
   'budget.threshold_reached': {
-    kind: 'iterations' | 'tool_calls' | 'tokens' | 'cost';
+    kind: 'iterations' | 'tool_calls' | 'tokens' | 'cost' | 'timeout';
     used: number;
     limit: number;
-    /** Call to grant more of the same budget type. */
-    extend: (extra: Partial<{ maxIterations: number; maxToolCalls: number; maxTokens: number; maxCostUsd: number }>) => void;
+    /**
+     * Call to grant more of the same budget type. `timeoutMs` extends the
+     * wall-clock budget; the coordinator's watchdog observes the patched
+     * limit and re-arms its timer for the new remainder.
+     */
+    extend: (
+      extra: Partial<{
+        maxIterations: number;
+        maxToolCalls: number;
+        maxTokens: number;
+        maxCostUsd: number;
+        timeoutMs: number;
+      }>,
+    ) => void;
     /** Call to deny the extension — subagent will stop. */
     deny: () => void;
     /** Auto-resolves to deny after timeout. */

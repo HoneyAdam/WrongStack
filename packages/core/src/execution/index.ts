@@ -15,6 +15,11 @@ export {
   type EternalAutonomyOptions,
   type EternalEngineState,
 } from './eternal-autonomy.js';
+export {
+  makeAutonomyPromptContributor,
+  type AutonomyPromptContributorOptions,
+} from './autonomy-prompt-contributor.js';
+export { buildGoalPreamble } from './goal-preamble.js';
 export { DefaultRetryPolicy } from './retry-policy.js';
 export { DefaultErrorHandler } from './error-handler.js';
 export { DefaultSkillLoader, type SkillLoaderOptions } from './skill-loader.js';

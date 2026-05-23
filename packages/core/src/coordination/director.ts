@@ -480,7 +480,7 @@ export class Director implements ICoordinator {
     const extendCounts = new Map<string, number>();
     this.fleet.filter('budget.threshold_reached', (e) => {
       const payload = e.payload as {
-        kind: 'iterations' | 'tool_calls' | 'tokens' | 'cost';
+        kind: 'iterations' | 'tool_calls' | 'tokens' | 'cost' | 'timeout';
         used: number;
         limit: number;
         timeoutMs: number;
@@ -497,10 +497,12 @@ export class Director implements ICoordinator {
         return;
       }
       // Auto-extend: grant 50% more of the triggering limit type,
-      // up to a reasonable cap. If no listener responds within
-      // timeoutMs, the event's own timer fires and denies.
+      // up to a reasonable cap. Resolved on the next tick so listeners
+      // can override (e.g. a deny-listener for cost overrun). Timeout
+      // case extends the wall-clock budget — the runner picks up the
+      // new `limits.timeoutMs` and re-arms its watchdog timer.
       extendCounts.set(guardKey, prior + 1);
-      setTimeout(() => {
+      setImmediate(() => {
         const extra: Record<string, unknown> = {};
         switch (payload.kind) {
           case 'iterations':
@@ -515,9 +517,15 @@ export class Director implements ICoordinator {
           case 'cost':
             extra.maxCostUsd = Math.min(payload.limit * 1.5, 10);
             break;
+          case 'timeout':
+            // Cap at 1 h so a runaway task can't extend itself
+            // indefinitely; combined with `maxBudgetExtensions` this
+            // bounds the worst case to (limit * 1.5^N) clamped.
+            extra.timeoutMs = Math.min(Math.ceil(payload.limit * 1.5), 60 * 60_000);
+            break;
         }
         payload.extend(extra);
-      }, Math.min(payload.timeoutMs, 30_000));
+      });
     });
   }
 

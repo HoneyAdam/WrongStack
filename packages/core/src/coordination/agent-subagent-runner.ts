@@ -92,6 +92,14 @@ export function makeAgentSubagentRunner(opts: AgentRunnerOptions): SubagentRunne
     // Inject the EventBus into the budget so it can emit budget.threshold_reached
     // events when a soft limit is hit and the handler wants to ask the coordinator.
     ctx.budget._events = events;
+    // Wire the threshold-negotiation handler. Without this the soft-limit
+    // path is dead code: every budget overrun becomes a hard
+    // BudgetExceededError and the subagent dies on its first 120-iteration
+    // tick instead of asking the Director for headroom. The Director's
+    // FleetBus listener (director.ts) auto-grants +50% up to a per-kind
+    // ceiling and per-subagent extension count — wiring this is the
+    // missing link that activates that flow.
+    ctx.budget.onThreshold = ({ requestDecision }) => requestDecision();
     let budgetError: BudgetExceededError | null = null;
 
     /**

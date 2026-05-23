@@ -78,6 +78,20 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
     this.runner = runner;
   }
 
+  /**
+   * Change the in-flight dispatch ceiling at runtime. Lowering does NOT
+   * preempt running tasks — already-dispatched subagents finish their
+   * current task; only future dispatches respect the new cap. Raising
+   * immediately tries to fill the freed slots from the pending queue.
+   */
+  setMaxConcurrent(n: number): void {
+    if (!Number.isFinite(n) || n < 1) {
+      throw new Error(`maxConcurrent must be a finite integer >= 1, got ${n}`);
+    }
+    this.config.maxConcurrent = Math.floor(n);
+    this.tryDispatchNext();
+  }
+
   async spawn(subagent: SubagentConfig): Promise<SpawnResult> {
     const id = subagent.id || randomUUID();
     // Duplicate-id guard. Previously a second spawn({id}) with the
@@ -446,16 +460,88 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
     ctx: SubagentRunContext,
     budget: SubagentBudget,
   ) {
-    const timeoutMs = budget.limits.timeoutMs;
-    if (timeoutMs === undefined) return runner(task, ctx);
+    const initialTimeoutMs = budget.limits.timeoutMs;
+    if (initialTimeoutMs === undefined) return runner(task, ctx);
 
+    // Re-armable watchdog. When the wall-clock fires, give the budget a
+    // chance to negotiate an extension (via the same onThreshold path the
+    // other limit kinds use). The Director's auto-extend listener handles
+    // `kind: 'timeout'` and patches `budget.limits.timeoutMs`; we observe
+    // that patch on the next tick and re-arm the timer for the remaining
+    // window. If onThreshold is unset or negotiation returns 'stop',
+    // reject as before with `elapsed` (not `Date.now()`) so the error
+    // message reads sensibly.
+    const start = Date.now();
     let timer: ReturnType<typeof setTimeout> | null = null;
+
     const timeoutPromise = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
-        // Abort the subagent's signal so cooperative runners can clean up.
-        this.subagents.get(ctx.subagentId)?.abortController.abort();
-        reject(new BudgetExceededError('timeout', timeoutMs, Date.now()));
-      }, timeoutMs);
+      const armFor = (ms: number) => {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(async () => {
+          const elapsed = Date.now() - start;
+          const limit = budget.limits.timeoutMs ?? initialTimeoutMs;
+          // Without an onThreshold handler the original behaviour stands:
+          // abort the signal and hard-reject. This preserves the contract
+          // for direct SubagentBudget consumers that don't wire negotiation.
+          if (!budget.onThreshold) {
+            this.subagents.get(ctx.subagentId)?.abortController.abort();
+            reject(new BudgetExceededError('timeout', limit, elapsed));
+            return;
+          }
+          // With a handler, ask for an extension. The budget's
+          // requestDecision returns 'stop' on no response (decision
+          // fallback timer inside SubagentBudget), so this never hangs.
+          try {
+            const result = budget.onThreshold({
+              kind: 'timeout',
+              used: elapsed,
+              limit,
+              requestDecision: () =>
+                new Promise((resolveDecision) => {
+                  budget._events?.emit('budget.threshold_reached', {
+                    kind: 'timeout',
+                    used: elapsed,
+                    limit,
+                    timeoutMs: 30_000,
+                    extend: (extra) => resolveDecision({ extend: extra }),
+                    deny: () => resolveDecision('stop'),
+                  });
+                }),
+            });
+            const decision =
+              typeof result === 'string' ? result : await result;
+            if (decision === 'continue') {
+              armFor(Math.max(1_000, limit));
+              return;
+            }
+            if (decision === 'throw' || decision === 'stop') {
+              this.subagents.get(ctx.subagentId)?.abortController.abort();
+              reject(new BudgetExceededError('timeout', limit, elapsed));
+              return;
+            }
+            // 'extend' — patch budget and re-arm for the new remainder.
+            if (decision.extend.timeoutMs !== undefined) {
+              (budget.limits as Record<string, unknown>).timeoutMs =
+                decision.extend.timeoutMs;
+              const newLimit = decision.extend.timeoutMs;
+              const remaining = Math.max(1_000, newLimit - elapsed);
+              armFor(remaining);
+              return;
+            }
+            // No timeoutMs in extend — fall through to reject.
+            this.subagents.get(ctx.subagentId)?.abortController.abort();
+            reject(new BudgetExceededError('timeout', limit, elapsed));
+          } catch (err) {
+            this.subagents.get(ctx.subagentId)?.abortController.abort();
+            reject(
+              err instanceof BudgetExceededError
+                ? err
+                : new BudgetExceededError('timeout', limit, elapsed),
+            );
+          }
+        }, ms);
+      };
+      armFor(initialTimeoutMs);
     });
 
     try {

@@ -142,6 +142,11 @@ export {
   type EternalAutonomyOptions,
   type EternalEngineState,
 } from '../execution/eternal-autonomy.js';
+export {
+  makeAutonomyPromptContributor,
+  type AutonomyPromptContributorOptions,
+} from '../execution/autonomy-prompt-contributor.js';
+export { buildGoalPreamble } from '../execution/goal-preamble.js';
 
 // ---- Coordination (multi-agent) ----
 export {

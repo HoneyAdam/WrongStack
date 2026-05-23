@@ -25,6 +25,7 @@ import {
   DefaultSessionStore,
   DefaultSkillLoader,
   DefaultSystemPromptBuilder,
+  makeAutonomyPromptContributor,
   DefaultTokenCounter,
   type Director,
   EventBus,
@@ -182,6 +183,15 @@ export async function main(argv: string[]): Promise<number> {
   const memoryStore = container.resolve(TOKENS.MemoryStore);
   const skillLoader = container.resolve(TOKENS.SkillLoader);
   const sessionRef: { current?: import('@wrongstack/core').SessionWriter } = {};
+  // Forward declaration: the autonomy mode state lives later in this
+  // function but the SystemPromptBuilder needs a reference to it NOW so
+  // the autonomy contributor can read the current mode at build time.
+  // Mutated by `onAutonomy` / `onEternalStart` below — the contributor
+  // reads it on every system-prompt build (per turn).
+  const autonomyModeRef: {
+    current: import('./slash-commands/autonomy.js').AutonomyMode;
+  } = { current: 'off' };
+  const goalPathForPrompt = path.join(projectRoot, '.wrongstack', 'goal.json');
   container.bind(TOKENS.SystemPromptBuilder, () =>
     new DefaultSystemPromptBuilder({
       memoryStore,
@@ -194,6 +204,16 @@ export async function main(argv: string[]): Promise<number> {
         sessionRef.current
           ? path.join(wpaths.projectSessions, `${sessionRef.current.id}.plan.json`)
           : undefined,
+      contributors: [
+        // Injects the ETERNAL AUTONOMY block when the user has activated
+        // `/autonomy eternal`. Without this, the per-iteration directive
+        // is the only place the model sees the rules — compaction can
+        // drop it and the model forgets it's in autonomy mode.
+        makeAutonomyPromptContributor({
+          goalPath: goalPathForPrompt,
+          enabled: () => autonomyModeRef.current === 'eternal',
+        }),
+      ],
     }),
   );
 
@@ -426,6 +446,24 @@ export async function main(argv: string[]): Promise<number> {
   // path defaults to `<projectSessions>/<sessionId>/fleet.json`; users can
   // override via `WRONGSTACK_FLEET_MANIFEST` if they want a fixed path.
   const directorMode = flags['director'] === true || typeof flags['resume'] === 'string';
+  // Concurrent subagent ceiling. Order: CLI flag → env var → default (4).
+  // Caps how many delegated tasks the coordinator dispatches at once;
+  // extra tasks queue. Keeps the leader from spawning enough parallel
+  // subagents to trip provider rate limits.
+  const maxConcurrentFromFlag =
+    typeof flags['max-concurrent'] === 'string'
+      ? Number.parseInt(flags['max-concurrent'], 10)
+      : undefined;
+  const maxConcurrentFromEnv =
+    typeof process.env['WRONGSTACK_MAX_CONCURRENT'] === 'string'
+      ? Number.parseInt(process.env['WRONGSTACK_MAX_CONCURRENT'], 10)
+      : undefined;
+  const maxConcurrent =
+    Number.isFinite(maxConcurrentFromFlag) && (maxConcurrentFromFlag as number) > 0
+      ? (maxConcurrentFromFlag as number)
+      : Number.isFinite(maxConcurrentFromEnv) && (maxConcurrentFromEnv as number) > 0
+        ? (maxConcurrentFromEnv as number)
+        : undefined;
   let director: Director | null = null;
   // Autonomy mode: 'off' (default), 'suggest' (show next steps), 'auto' (self-driving)
   let autonomyMode: import('./slash-commands/autonomy.js').AutonomyMode = 'off';
@@ -493,6 +531,7 @@ export async function main(argv: string[]): Promise<number> {
       fleetRoot: fleetRootForPromotion,
       stateCheckpointPath,
       sessionWriter: session,
+      maxConcurrent,
     },
   );
   // ALWAYS register the `delegate` tool, even in non-director mode. It
@@ -707,6 +746,22 @@ export async function main(argv: string[]): Promise<number> {
           return 'Director is active but no subagents have been spawned — nothing to record yet.';
         }
         return `Manifest written → ${p}`;
+      }
+      if (action === 'concurrency') {
+        const current = multiAgentHost.getMaxConcurrent();
+        if (!target) {
+          return `Concurrent-subagent ceiling: ${current}`;
+        }
+        const n = Number.parseInt(target, 10);
+        if (!Number.isFinite(n) || n < 1) {
+          return `Invalid value "${target}". Concurrency must be an integer >= 1.`;
+        }
+        try {
+          multiAgentHost.setMaxConcurrent(n);
+        } catch (err) {
+          return err instanceof Error ? err.message : String(err);
+        }
+        return `Concurrent-subagent ceiling: ${current} → ${n}`;
       }
       return `Unknown fleet action: ${action}`;
     },
@@ -1001,6 +1056,9 @@ export async function main(argv: string[]): Promise<number> {
     onAutonomy: (setTo?) => {
       if (setTo !== undefined) {
         autonomyMode = setTo;
+        // Mirror into the early ref so the system-prompt contributor
+        // (constructed at line ~185) sees the current mode at build time.
+        autonomyModeRef.current = setTo;
         return setTo;
       }
       return autonomyMode;
@@ -1136,6 +1194,7 @@ export async function main(argv: string[]): Promise<number> {
     });
     await eternalEngine.prime();
     autonomyMode = 'eternal';
+    autonomyModeRef.current = 'eternal';
     renderer.write(
       color.red('Eternal mode launching from --eternal flag.') +
         color.dim(` Goal: ${eternalFlag.slice(0, 80)}${eternalFlag.length > 80 ? '…' : ''}`) +

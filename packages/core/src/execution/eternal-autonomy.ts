@@ -38,6 +38,13 @@ export interface EternalAutonomyOptions {
    */
   iterationTimeoutMs?: number;
   /**
+   * Maximum number of internal agent.run iterations the engine grants per
+   * eternal-loop tick. The engine sets `autonomousContinue: true` so the
+   * agent can run multi-step tasks end-to-end within one tick instead of
+   * bouncing back to the engine after every single tool call. Default 50.
+   */
+  iterationMaxAgentSteps?: number;
+  /**
    * Minimum sleep between iterations. Defaults to 1 s — enough for
    * SIGINT handlers to fire mid-loop without pegging a core when the
    * provider is being rate-limited.
@@ -48,6 +55,22 @@ export interface EternalAutonomyOptions {
    * brainstorm cycle. Default 3. Acts as a soft-recovery, not a stop.
    */
   failureBudget?: number;
+  /**
+   * Per-todo failed-attempt ceiling. When the engine picks the same todo
+   * and the iteration fails this many times in total, the todo is taken
+   * out of rotation (engine prefers other sources) until it changes
+   * status. Default 3. Prevents the loop from spinning forever on one
+   * stuck task.
+   */
+  todoMaxAttempts?: number;
+  /**
+   * Consecutive brainstorm-DONE responses required to consider the goal
+   * complete and stop the engine. When the LLM's brainstorm step keeps
+   * answering `DONE`, the engine treats that as "no more work" and, after
+   * this many in a row, marks the goal as completed instead of sleeping
+   * forever. Default 3.
+   */
+  brainstormDoneStopThreshold?: number;
   /** Side-channel notifications (logging, UI updates). */
   onIteration?: (entry: JournalEntry) => void;
   onError?: (err: Error, iteration: number) => void;
@@ -83,6 +106,20 @@ export interface EternalAutonomyOptions {
    * checks (iteration cadence still applies).
    */
   maxContextTokens?: number;
+  /**
+   * Base delay (ms) for the first transient-error backoff. Subsequent
+   * transient failures double this, capped at `transientBackoffMaxMs`.
+   * Default 2_000.
+   *
+   * "Transient" means the underlying error is recoverable per
+   * `WrongStackError.recoverable` (ProviderError sets this for 429/529/5xx
+   * /network errors). Permanent errors (auth/invalid request) skip the
+   * backoff and count toward `failureBudget` like before — backing off
+   * on a permanent failure is wasted time.
+   */
+  transientBackoffBaseMs?: number;
+  /** Ceiling for the exponential backoff. Default 60_000 (60 s). */
+  transientBackoffMaxMs?: number;
 }
 
 export type EternalEngineState = 'idle' | 'running' | 'stopped';
@@ -91,12 +128,40 @@ interface DecidedAction {
   source: JournalEntry['source'];
   task: string;
   directive: string;
+  /** Set when source === 'todo' so the engine can attribute failures. */
+  todoId?: string;
 }
+
+/**
+ * Sentinel returned by `brainstormTask` when the LLM declares the goal
+ * fully accomplished. Distinct from `null` (which means "brainstorm
+ * failed / no actionable task right now") so the engine can count
+ * consecutive DONE answers toward a real stop.
+ */
+const BRAINSTORM_DONE = Symbol('brainstorm-done');
+
+/**
+ * Free-text marker the model can emit (on its own line) to declare the
+ * overall mission accomplished. Detected in the successful iteration's
+ * `finalText`. When present, the engine flips `goalState='completed'`
+ * and stops — the model has explicitly claimed completion AND the
+ * iteration succeeded, which together is the most reliable stop signal
+ * we can get without a separate verifier round-trip.
+ */
+const GOAL_COMPLETE_MARKER = /^\s*\[goal[_\s-]?complete\]\s*$/im;
 
 export class EternalAutonomyEngine {
   private state: EternalEngineState = 'idle';
   private stopRequested = false;
   private consecutiveFailures = 0;
+  private consecutiveBrainstormDone = 0;
+  /**
+   * Count of consecutive transient (recoverable) provider failures. Drives
+   * the exponential backoff between iterations. Reset on the first
+   * successful iteration so a single bad afternoon doesn't permanently
+   * slow the loop down.
+   */
+  private consecutiveTransientRetries = 0;
   private currentCtrl: AbortController | null = null;
   private iterationsSinceCompact = 0;
   private readonly goalPath: string;
@@ -185,10 +250,26 @@ export class EternalAutonomyEngine {
       return false;
     }
 
+    // Mission-level lifecycle gate. Once the goal is `completed` or
+    // `abandoned`, the engine refuses further iterations — protects
+    // against accidentally re-entering `/autonomy eternal` after the
+    // work is verifiably done and burning API quota.
+    const missionState = goal.goalState ?? 'active';
+    if (missionState !== 'active') {
+      this.stopRequested = true;
+      return false;
+    }
+
     const action = await this.decide(goal);
     if (!action) {
-      // No work surfaced from any source. Sleep longer and retry.
-      await sleep(5_000);
+      // No work surfaced from any source. Skip the cool-down sleep when
+      // `decide()` itself decided the mission is over (consecutive-DONE
+      // brainstorm streak hits the threshold) — `stopRequested` is set
+      // by `markGoalCompleted` in that path and the outer loop should
+      // exit immediately, not after 5 s.
+      if (!this.stopRequested) {
+        await sleep(5_000);
+      }
       return false;
     }
 
@@ -200,6 +281,14 @@ export class EternalAutonomyEngine {
     );
     let status: JournalEntry['status'] = 'success';
     let note: string | undefined;
+    let finalText = '';
+    // Captured from `result.error?.recoverable` when the agent.run returns
+    // a recoverable WrongStackError (ProviderError sets this for 429/529
+    // /5xx/network). Drives the engine's exponential backoff so a
+    // transient rate-limit storm doesn't burn the failure budget in
+    // seconds. Permanent errors leave this false and trip the normal
+    // consecutiveFailures path.
+    let isTransientFailure = false;
 
     // Snapshot usage before so the iteration delta can be journaled.
     // Token counter is optional in mock/test contexts — guard accordingly.
@@ -210,7 +299,21 @@ export class EternalAutonomyEngine {
     try {
       const result = await this.opts.agent.run(
         [{ type: 'text' as const, text: action.directive }],
-        { signal: ctrl.signal },
+        {
+          signal: ctrl.signal,
+          // Enable per-call autonomous continuation so the agent can chain
+          // multiple internal tool/response cycles end-to-end on one
+          // directive instead of returning to the engine after a single
+          // round-trip. The model uses `[continue]` / `[done]` markers
+          // (or the `continue_to_next_iteration` tool) to control the
+          // inner loop. Without this flag the engine produced shallow
+          // iterations and almost never let a real task finish.
+          autonomousContinue: true,
+          // Cap the inner loop so a runaway agent.run can't burn through
+          // the iteration timeout — the engine's own outer loop is the
+          // long-running thing, each tick should be bounded.
+          maxIterations: this.opts.iterationMaxAgentSteps ?? 50,
+        },
       );
 
       if (result.status === 'aborted') {
@@ -219,21 +322,41 @@ export class EternalAutonomyEngine {
       } else if (result.status === 'failed') {
         status = 'failure';
         note = result.error?.describe?.() ?? 'agent run failed';
+        isTransientFailure = result.error?.recoverable === true;
       } else if (result.status === 'max_iterations') {
         status = 'failure';
         note = `max iterations (${result.iterations})`;
       } else {
         status = 'success';
-        const tail = (result.finalText ?? '').slice(0, 240).replace(/\s+/g, ' ').trim();
+        finalText = result.finalText ?? '';
+        const tail = finalText.slice(0, 240).replace(/\s+/g, ' ').trim();
         if (tail) note = tail;
       }
     } catch (err) {
       const isAbort = err instanceof Error && (err.name === 'AbortError' || err.message.includes('abort'));
       status = isAbort ? 'aborted' : 'failure';
       note = err instanceof Error ? err.message : String(err);
+      // Surface .recoverable on the thrown WrongStackError too — provider
+      // errors that escape the agent's catch (rare; usually wrapped into
+      // result.error) still classify correctly.
+      if (
+        !isAbort &&
+        typeof (err as { recoverable?: unknown })?.recoverable === 'boolean'
+      ) {
+        isTransientFailure = (err as { recoverable: boolean }).recoverable;
+      }
     } finally {
       clearTimeout(timer);
       this.currentCtrl = null;
+    }
+
+    // Per-todo attempt accounting. On failure of a todo-sourced action,
+    // bump the persistent counter so `decide()` can rotate past it once
+    // it crosses the configured ceiling. Successful runs leave the
+    // counter untouched — the LLM is responsible for flipping the todo
+    // status to `completed` via the todos tool (directive teaches this).
+    if (action.source === 'todo' && action.todoId && status !== 'success') {
+      await this.bumpTodoAttempt(action.todoId);
     }
 
     // Capture per-iteration usage delta. Cost is always non-negative;
@@ -285,6 +408,21 @@ export class EternalAutonomyEngine {
     });
 
     if (status === 'failure') {
+      if (isTransientFailure) {
+        // Recoverable error (rate limit, 5xx, network). Don't drag the
+        // failure budget down — those are reserved for real "this task
+        // is broken" signals. Apply exponential backoff before the next
+        // tick so we stop hammering the provider.
+        this.consecutiveTransientRetries++;
+        const delay = this.computeTransientBackoffMs();
+        if (delay > 0) {
+          await this.sleepInterruptible(delay);
+        }
+        return false;
+      }
+      // Permanent failure (auth/invalid-request/missing-tool/etc.) or
+      // an unclassified failure. These count toward the brainstorm-
+      // forcing budget so a broken task gets retired.
       this.consecutiveFailures++;
       return false;
     }
@@ -294,6 +432,24 @@ export class EternalAutonomyEngine {
       // Timeout, not stop — count as failure.
       this.consecutiveFailures++;
       return false;
+    }
+
+    // Successful iteration — reset the transient backoff streak so a
+    // single 429 followed by a recovery doesn't keep the loop in slow
+    // mode forever.
+    this.consecutiveTransientRetries = 0;
+
+    // Goal-complete detection. The model emits `[GOAL_COMPLETE]` on its
+    // own line in `finalText` when the overall mission is verifiably done.
+    // Combined with a successful iteration this is a strong stop signal:
+    // the LLM explicitly claimed completion AND the run did not fail. We
+    // mark the goal `completed`, journal it, and stop. No separate
+    // verifier round-trip — keeps cost down; if the model lies, the user
+    // notices and can re-arm with `/goal set`.
+    if (GOAL_COMPLETE_MARKER.test(finalText)) {
+      await this.markGoalCompleted(action, finalText);
+      this.stopRequested = true;
+      return true;
     }
     // Compaction runs only on successful iterations — there's no point
     // compacting after a failed/aborted iteration that didn't add much to
@@ -372,11 +528,12 @@ export class EternalAutonomyEngine {
     const forceBrainstorm = this.consecutiveFailures >= (this.opts.failureBudget ?? 3);
 
     if (!forceBrainstorm) {
-      const todo = this.pickPendingTodo();
+      const todo = this.pickPendingTodo(goal);
       if (todo) {
         return {
           source: 'todo',
           task: todo.content,
+          todoId: todo.id,
           directive: this.buildDirective(goal, 'todo', todo.content),
         };
       }
@@ -392,7 +549,24 @@ export class EternalAutonomyEngine {
     }
 
     const brainstormed = await this.brainstormTask(goal);
+    if (brainstormed === BRAINSTORM_DONE) {
+      // Model says there's nothing to do. Count consecutive DONEs — if
+      // we hit the threshold, treat the mission as finished and stop
+      // instead of sleeping forever on null actions.
+      this.consecutiveBrainstormDone++;
+      const threshold = this.opts.brainstormDoneStopThreshold ?? 3;
+      if (this.consecutiveBrainstormDone >= threshold) {
+        await this.markGoalCompleted(
+          { source: 'brainstorm', task: 'no further work', directive: '' },
+          `brainstorm returned DONE ${this.consecutiveBrainstormDone}x in a row`,
+        );
+        this.stopRequested = true;
+      }
+      return null;
+    }
     if (!brainstormed) return null;
+    // Got a real task — reset the DONE streak.
+    this.consecutiveBrainstormDone = 0;
     return {
       source: 'brainstorm',
       task: brainstormed,
@@ -400,10 +574,22 @@ export class EternalAutonomyEngine {
     };
   }
 
-  private pickPendingTodo(): TodoItem | null {
+  private pickPendingTodo(goal: GoalFile): TodoItem | null {
     const todos = this.opts.agent.ctx.todos;
     if (!Array.isArray(todos)) return null;
-    return todos.find((t) => t.status === 'pending') ?? null;
+    const attempts = goal.todoAttempts ?? {};
+    const ceiling = this.opts.todoMaxAttempts ?? 3;
+    // First-pending strategy with a stuck-task escape hatch: if the
+    // first pending todo has already failed `ceiling` times, fall
+    // through to later pending todos. Returns null when every pending
+    // todo is stuck — the caller will fall through to git/brainstorm.
+    for (const t of todos) {
+      if (t.status !== 'pending') continue;
+      const used = attempts[t.id] ?? 0;
+      if (used >= ceiling) continue;
+      return t;
+    }
+    return null;
   }
 
   private async pickGitTask(): Promise<string | null> {
@@ -429,7 +615,7 @@ export class EternalAutonomyEngine {
     return stdout;
   }
 
-  private async brainstormTask(goal: GoalFile): Promise<string | null> {
+  private async brainstormTask(goal: GoalFile): Promise<string | null | typeof BRAINSTORM_DONE> {
     const lastFew = goal.journal
       .slice(-5)
       .map((e) => `  - [${e.status}] ${e.task}`)
@@ -446,7 +632,10 @@ export class EternalAutonomyEngine {
       '- One sentence, imperative form, under 200 chars.',
       '- No preamble, no explanation, no markdown — just the task line.',
       '- If recent iterations show repeated failures on the same target, pivot.',
-      '- If the goal appears fully accomplished, output exactly: DONE',
+      '- If the goal appears fully accomplished AND you can name a concrete',
+      '  artifact / test / output that proves it, output exactly: DONE',
+      '- Be conservative with DONE: if the recent journal contains failures',
+      '  or aborted entries, the goal is almost certainly NOT done.',
     ].join('\n');
 
     try {
@@ -459,10 +648,15 @@ export class EternalAutonomyEngine {
         );
         if (result.status !== 'done') return null;
         const text = (result.finalText ?? '').trim();
-        if (!text || text === 'DONE') return null;
+        if (!text) return null;
+        // Distinct sentinel for DONE so the caller can count consecutive
+        // DONE answers toward a real stop. The old `return null` path
+        // conflated "no work" with "engine failure" and looped forever.
+        if (/^DONE\.?$/i.test(text)) return BRAINSTORM_DONE;
         // Take the first non-empty line and clip to 240 chars.
         const firstLine = text.split('\n').find((l) => l.trim().length > 0)?.trim();
         if (!firstLine) return null;
+        if (/^DONE\.?$/i.test(firstLine)) return BRAINSTORM_DONE;
         return firstLine.slice(0, 240);
       } finally {
         clearTimeout(timer);
@@ -473,18 +667,85 @@ export class EternalAutonomyEngine {
   }
 
   private buildDirective(goal: GoalFile, source: JournalEntry['source'], task: string): string {
+    const recentJournal = goal.journal
+      .slice(-5)
+      .map((e) => `  #${e.iteration} [${e.status}] ${e.task}${e.note ? ` — ${e.note.slice(0, 80)}` : ''}`)
+      .join('\n');
     return [
-      '[ETERNAL AUTONOMY — iteration directive]',
+      '═══ ETERNAL AUTONOMY — iteration directive ═══',
       '',
-      `Goal: ${goal.goal}`,
+      `Mission: ${goal.goal}`,
+      `Iteration: #${goal.iterations + 1}`,
       `Source: ${source}`,
       `Task: ${task}`,
       '',
-      'Execute this task end-to-end using the tools available to you. Make the',
-      'changes, run tests if relevant, and commit / push as appropriate. Do not',
-      'ask for confirmation — YOLO mode is active. When the task is done, stop;',
-      'the loop will pick the next action.',
+      recentJournal ? `Recent journal (last 5):\n${recentJournal}` : 'No prior iterations.',
+      '',
+      '── EXECUTION PROTOCOL ──',
+      'You are inside a long-running autonomous loop. Each iteration you',
+      'execute ONE concrete task that advances the Mission. No user is',
+      'available to clarify — make defensible decisions and move forward.',
+      '',
+      '1. EXECUTE END-TO-END',
+      '   • Use multiple tool calls freely. Emit `[continue]` on its own line',
+      '     to chain to the next internal step without returning.',
+      '   • When this iteration\'s Task is finished (real artifact / passing',
+      '     test / applied diff / clean output), emit `[done]` on its own line.',
+      '   • Do not stop on the first obstacle — try at least 3 distinct',
+      '     approaches before giving up. YOLO is active; no confirmations.',
+      '',
+      '2. UPDATE TODO STATE (when Source is `todo`)',
+      '   • Mark this todo `in_progress` via the todos tool before tool work.',
+      '   • Mark it `completed` on success, with a one-line outcome note.',
+      '   • If you cannot make progress after 2 distinct attempts, mark it',
+      '     `cancelled` with the obstacle. The loop will skip it next time.',
+      '',
+      '3. MISSION-COMPLETE PROTOCOL',
+      '   • If — and ONLY if — the OVERALL Mission (not just this Task) is',
+      '     verifiably accomplished, emit on its own line:',
+      '         [GOAL_COMPLETE]',
+      '     followed by a one-paragraph verification recipe (artifact path,',
+      '     test command, or 10-second reproduction). This halts the loop.',
+      '   • NEVER emit [GOAL_COMPLETE] on optimism, partial progress, or',
+      '     "looks fine". Required: a concrete artifact that proves it AND',
+      '     no recent journal failures contradicting completion.',
+      '   • If unsure, emit `[done]` instead and let the next iteration',
+      '     decide. The loop is patient; false completion is not.',
+      '',
+      '4. NO INTERACTIVITY',
+      '   • Do not ask questions, do not request confirmation, do not propose',
+      '     options. Pick the best path and execute. The user is asleep.',
     ].join('\n');
+  }
+
+  /**
+   * Exponential backoff for transient provider errors. `2^N * base`
+   * capped at `transientBackoffMaxMs`. Zero base disables backoff.
+   * Public-private to keep `runOneIteration` readable; the value is
+   * recomputed each call from the current retry count, so callers
+   * don't have to track state.
+   */
+  private computeTransientBackoffMs(): number {
+    const base = this.opts.transientBackoffBaseMs ?? 2_000;
+    const cap = this.opts.transientBackoffMaxMs ?? 60_000;
+    if (base <= 0) return 0;
+    const exponent = Math.max(0, this.consecutiveTransientRetries - 1);
+    return Math.min(cap, base * Math.pow(2, exponent));
+  }
+
+  /**
+   * Sleep that wakes early if `stopRequested` flips. Polls every 250 ms
+   * so SIGINT / `/autonomy stop` can land in the middle of a long
+   * backoff instead of waiting up to a minute for the timer.
+   */
+  private async sleepInterruptible(totalMs: number): Promise<void> {
+    const step = 250;
+    let remaining = totalMs;
+    while (remaining > 0 && !this.stopRequested) {
+      const chunk = Math.min(step, remaining);
+      await sleep(chunk);
+      remaining -= chunk;
+    }
   }
 
   private async appendIterationEntry(entry: Omit<JournalEntry, 'iteration' | 'at'>): Promise<void> {
@@ -495,6 +756,44 @@ export class EternalAutonomyEngine {
     }
     const updated = appendJournal(current, entry);
     await saveGoal(this.goalPath, updated);
+  }
+
+  /**
+   * Persistent per-todo failure counter. Skipped silently when the goal
+   * file has been removed (graceful clear). Each non-success iteration
+   * against a todo source bumps the counter by 1; `pickPendingTodo` reads
+   * the counter to rotate past stuck todos once they cross `todoMaxAttempts`.
+   */
+  private async bumpTodoAttempt(todoId: string): Promise<void> {
+    const current = await loadGoal(this.goalPath);
+    if (!current) return;
+    const attempts = { ...(current.todoAttempts ?? {}) };
+    attempts[todoId] = (attempts[todoId] ?? 0) + 1;
+    await saveGoal(this.goalPath, { ...current, todoAttempts: attempts });
+  }
+
+  /**
+   * Flip the mission to `completed` and journal it. Called from two
+   * paths: (a) `[GOAL_COMPLETE]` marker in a successful iteration's
+   * finalText, (b) `brainstorm` returning DONE consecutively past the
+   * configured threshold. Idempotent — re-entry is a no-op once the
+   * goal is already `completed`.
+   */
+  private async markGoalCompleted(
+    action: { source: JournalEntry['source']; task: string; directive: string },
+    note: string,
+  ): Promise<void> {
+    const current = await loadGoal(this.goalPath);
+    if (!current) return;
+    if (current.goalState === 'completed') return;
+    const withFlag: GoalFile = { ...current, goalState: 'completed' };
+    const withEntry = appendJournal(withFlag, {
+      source: action.source,
+      task: `MISSION COMPLETE — ${action.task}`.slice(0, 240),
+      status: 'success',
+      note: note.slice(0, 240),
+    });
+    await saveGoal(this.goalPath, withEntry);
   }
 
   private async appendFailure(task: string, note: string): Promise<void> {

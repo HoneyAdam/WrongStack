@@ -49,7 +49,10 @@ export interface SlashCommandContext {
     opts?: { provider?: string; model?: string; tools?: string[]; name?: string },
   ) => Promise<string>;
   onAgents?: () => string;
-  onFleet?: (action: 'status' | 'usage' | 'kill' | 'manifest', target?: string) => Promise<string>;
+  onFleet?: (
+    action: 'status' | 'usage' | 'kill' | 'manifest' | 'concurrency',
+    target?: string,
+  ) => Promise<string>;
   /**
    * Toggle subagent activity streaming into the leader's history. The
    * TUI installs the actual setter on mount via a shared controller;

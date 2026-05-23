@@ -43,6 +43,26 @@ export interface GoalFile {
   iterations: number;
   /** Engine lifecycle state — 'running' means another process owns this goal. */
   engineState: 'idle' | 'running' | 'stopped';
+  /**
+   * Mission-level lifecycle. `active` is the default; `completed` is set
+   * when the engine detects `[GOAL_COMPLETE]` in a successful iteration's
+   * final text AND a verification pass agrees; `abandoned` is set by the
+   * user (e.g. `/goal abandon`) or when the engine exceeds a configured
+   * failure ceiling. Once not `active`, the engine refuses to run further
+   * iterations against this goal — protects against accidental restarts
+   * burning through API quota after the work is done.
+   *
+   * Optional for backward compatibility — pre-existing `goal.json` files
+   * without this field load as `active`.
+   */
+  goalState?: 'active' | 'completed' | 'abandoned';
+  /**
+   * Per-todo attempt counter. Keyed by TodoItem id. Used by the engine
+   * to skip a todo that has failed N times rather than spinning on it
+   * forever. Persisted so attempt counts survive restarts (`/autonomy
+   * stop` + resume should not reset progress against a stuck task).
+   */
+  todoAttempts?: Record<string, number>;
   /** Bounded ring buffer of recent iterations (newest last). */
   journal: JournalEntry[];
 }
@@ -89,6 +109,8 @@ export function emptyGoal(goal: string): GoalFile {
     lastActivityAt: now,
     iterations: 0,
     engineState: 'idle',
+    goalState: 'active',
+    todoAttempts: {},
     journal: [],
   };
 }
@@ -147,6 +169,7 @@ export function formatGoal(goal: GoalFile, journalLimit = 10): string {
   lines.push(`Set: ${goal.setAt}`);
   lines.push(`Last activity: ${goal.lastActivityAt}`);
   lines.push(`Iterations: ${goal.iterations}`);
+  lines.push(`Mission: ${goal.goalState ?? 'active'}`);
   lines.push(`Engine: ${goal.engineState}`);
   const usage = summarizeUsage(goal);
   if (usage.iterationsWithUsage > 0) {

@@ -105,6 +105,26 @@ export class SubagentBudget {
   private startTime: number | null = null;
   private _onThreshold: BudgetThresholdHandler | undefined;
   /**
+   * Tracks which budget kinds currently have an extension request
+   * in flight. While a kind is here, further `checkLimit` calls for the
+   * same kind are no-ops — without this dedup, every `recordIteration`
+   * after the limit is reached spawns a fresh decision Promise (until
+   * the first one lands and patches limits), flooding the FleetBus
+   * with redundant threshold events. Cleared in `checkLimitAsync`'s
+   * `finally`.
+   */
+  private readonly pendingExtensions: Set<BudgetKind> = new Set();
+  /**
+   * Hard cap on how long `checkLimitAsync` waits for the coordinator to
+   * respond before defaulting to 'stop'. Without this fallback an absent
+   * or hung listener (Director not built / event filter detached mid-run)
+   * leaves the budget over-limit and never enforces anything, since
+   * `checkLimit` returns synchronously via `void this.checkLimitAsync`.
+   * Hardcoded for now — most fleets set their own per-task timeout that
+   * dwarfs this anyway. 30 s matches the existing event-emit timeoutMs.
+   */
+  private static readonly DECISION_TIMEOUT_MS = 30_000;
+  /**
    * Injected by the runner when wiring the budget to its EventBus.
    * Used by `checkLimitAsync` to emit `budget.threshold_reached` events.
    */
@@ -152,62 +172,127 @@ export class SubagentBudget {
     if (kind === 'timeout' || !this._onThreshold) {
       throw new BudgetExceededError(kind, limit, used);
     }
-    // Handler configured → kick off async decision flow without blocking.
-    void this.checkLimitAsync(kind, used, limit);
+    // No EventBus or no listener for the threshold event → there's no
+    // coordinator to ask. Fall back to the hard-stop contract so callers
+    // that only set `onThreshold` but never wire a Director (or whose
+    // FleetBus relay is detached) still get budget enforcement. Without
+    // this guard the BudgetThresholdSignal path would await a decision
+    // that nobody resolves, the agent would race past it synchronously,
+    // and the run would "succeed" past its budget.
+    const bus = this._events;
+    if (!bus || bus.listenerCount('budget.threshold_reached') === 0) {
+      throw new BudgetExceededError(kind, limit, used);
+    }
+    // Already negotiating an extension for this kind — the first signal
+    // is in flight; the runner is awaiting its decision and will either
+    // patch limits (we continue) or abort the run (we unwind). Don't
+    // throw a fresh signal — it would queue duplicate decisions and spam
+    // the FleetBus.
+    if (this.pendingExtensions.has(kind)) return;
+    this.pendingExtensions.add(kind);
+    // Throw `BudgetThresholdSignal` carrying the decision Promise. The
+    // runner's catch handler awaits the promise: `stop` triggers an
+    // abort so the run actually unwinds; `extend` leaves the (already
+    // patched) limits in place and the agent continues. The previous
+    // `void this.checkLimitAsync(...)` pattern silently produced an
+    // unhandled rejection on stop and let the agent run past budget.
+    const decision = this.negotiateExtension(kind, used, limit);
+    throw new BudgetThresholdSignal(kind, limit, used, decision);
   }
 
   /**
-   * Async threshold negotiation with the coordinator. Fire-and-forget —
-   * any error thrown here becomes an unhandled rejection in the test environment
-   * because the runner's catch only handles the synchronous throw from `checkLimit`.
+   * Drive the threshold handler to a decision. Resolves with `'stop'`
+   * (signal the runner to abort) or `{ extend: ... }` (limits already
+   * patched in-place; the runner should not abort). Always releases the
+   * `pendingExtensions` slot in `finally`.
+   *
+   * The 'continue' return from a sync handler is treated as
+   * `{ extend: {} }` — keep going without patching, next overrun will
+   * fire a fresh signal.
    */
-  private async checkLimitAsync(kind: BudgetKind, used: number, limit: number): Promise<void> {
-    const result = this._onThreshold!({
-      kind,
-      used,
-      limit,
-      // Inject a requestDecision helper the handler can call to emit the
-      // budget.threshold_reached event and wait for the coordinator's verdict.
-      // The runner wires this by injecting its EventBus into ctx.budget._events.
-      requestDecision: (): Promise<BudgetThresholdDecision> => {
-        return new Promise<BudgetThresholdDecision>((resolve) => {
-          this._events?.emit('budget.threshold_reached', {
-            kind: kind as 'iterations' | 'tool_calls' | 'tokens' | 'cost',
-            used,
-            limit,
-            timeoutMs: 30_000,
-            extend: (extra: Partial<BudgetLimits>) => resolve({ extend: extra }),
-            deny: () => resolve('stop'),
+  private async negotiateExtension(
+    kind: BudgetKind,
+    used: number,
+    limit: number,
+  ): Promise<BudgetThresholdDecision> {
+    try {
+      const result = this._onThreshold!({
+        kind,
+        used,
+        limit,
+        // Inject a requestDecision helper the handler can call to emit the
+        // budget.threshold_reached event and wait for the coordinator's verdict.
+        // A hard fallback timer guarantees the promise eventually resolves
+        // even if no listener responds — without it, an absent/detached
+        // Director would leave the budget permanently in "asking" state.
+        requestDecision: (): Promise<BudgetThresholdDecision> => {
+          // No EventBus wired OR no listener registered → there's nobody
+          // to grant an extension. Fall straight through to 'stop' so the
+          // runner aborts immediately. Without this short-circuit the run
+          // would idle for the 30s fallback before failing — long enough
+          // for a scripted agent (and our budget-enforcement tests) to
+          // happily finish past its budget.
+          const bus = this._events;
+          if (!bus || bus.listenerCount('budget.threshold_reached') === 0) {
+            return Promise.resolve('stop');
+          }
+          return new Promise<BudgetThresholdDecision>((resolve) => {
+            let resolved = false;
+            const respond = (d: BudgetThresholdDecision) => {
+              if (resolved) return;
+              resolved = true;
+              resolve(d);
+            };
+            const fallback = setTimeout(
+              () => respond('stop'),
+              SubagentBudget.DECISION_TIMEOUT_MS,
+            );
+            bus.emit('budget.threshold_reached', {
+              kind: kind as 'iterations' | 'tool_calls' | 'tokens' | 'cost' | 'timeout',
+              used,
+              limit,
+              timeoutMs: SubagentBudget.DECISION_TIMEOUT_MS,
+              extend: (extra: Partial<BudgetLimits>) => {
+                clearTimeout(fallback);
+                respond({ extend: extra });
+              },
+              deny: () => {
+                clearTimeout(fallback);
+                respond('stop');
+              },
+            });
           });
-        });
-      },
-    });
+        },
+      });
 
-    if (result === 'throw') {
-      throw new BudgetExceededError(kind, limit, used);
-    }
-    if (result === 'continue') {
-      // Allow one more unit — don't bump the counter yet, next call will re-check
-      return;
-    }
-    // Async path: coordinator decision via requestDecision()
-    const decision = await result;
-    if (decision === 'stop') {
-      throw new BudgetExceededError(kind, limit, used);
-    }
-    // 'extend' — bump the limit and continue
-    const ext = decision.extend;
-    if (ext.maxIterations !== undefined) {
-      (this.limits as Record<string, unknown>).maxIterations = ext.maxIterations;
-    }
-    if (ext.maxToolCalls !== undefined) {
-      (this.limits as Record<string, unknown>).maxToolCalls = ext.maxToolCalls;
-    }
-    if (ext.maxTokens !== undefined) {
-      (this.limits as Record<string, unknown>).maxTokens = ext.maxTokens;
-    }
-    if (ext.maxCostUsd !== undefined) {
-      (this.limits as Record<string, unknown>).maxCostUsd = ext.maxCostUsd;
+      if (result === 'throw') return 'stop';
+      if (result === 'continue') return { extend: {} };
+
+      const decision = await result;
+      if (decision === 'stop') return 'stop';
+
+      // 'extend' — patch the in-place limits BEFORE resolving so the
+      // runner's continue path sees the new ceiling. The frozen-object
+      // cast mirrors the original implementation.
+      const ext = decision.extend;
+      if (ext.maxIterations !== undefined) {
+        (this.limits as Record<string, unknown>).maxIterations = ext.maxIterations;
+      }
+      if (ext.maxToolCalls !== undefined) {
+        (this.limits as Record<string, unknown>).maxToolCalls = ext.maxToolCalls;
+      }
+      if (ext.maxTokens !== undefined) {
+        (this.limits as Record<string, unknown>).maxTokens = ext.maxTokens;
+      }
+      if (ext.maxCostUsd !== undefined) {
+        (this.limits as Record<string, unknown>).maxCostUsd = ext.maxCostUsd;
+      }
+      if (ext.timeoutMs !== undefined) {
+        (this.limits as Record<string, unknown>).timeoutMs = ext.timeoutMs;
+      }
+      return decision;
+    } finally {
+      this.pendingExtensions.delete(kind);
     }
   }
 

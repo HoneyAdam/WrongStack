@@ -377,4 +377,263 @@ describe('EternalAutonomyEngine', () => {
     const sources = after?.journal.map((e) => e.source) ?? [];
     expect(sources).toContain('brainstorm');
   });
+
+  it('stops the engine and flips goalState when finalText contains [GOAL_COMPLETE]', async () => {
+    const agent = makeMockAgent({
+      todos: [{ id: 't1', content: 'last step', status: 'pending' }],
+      runImpl: async () => ({
+        status: 'done',
+        iterations: 1,
+        finalText: 'Wrapped everything up.\n[GOAL_COMPLETE]\nVerified via `pnpm test` (all green).',
+      }),
+    });
+    const engine = new EternalAutonomyEngine({
+      agent,
+      projectRoot,
+      gitStatusReader: async () => '',
+    });
+
+    const ok = await engine.runOneIteration();
+    expect(ok).toBe(true);
+
+    const after = await loadGoal(goalPath);
+    expect(after?.goalState).toBe('completed');
+    // A "MISSION COMPLETE — ..." journal entry should be present.
+    const completeEntry = after?.journal.find((e) => e.task.startsWith('MISSION COMPLETE'));
+    expect(completeEntry).toBeDefined();
+    expect(completeEntry?.status).toBe('success');
+    expect(engine.currentState).not.toBe('running');
+  });
+
+  it('refuses to run further iterations once goalState is completed', async () => {
+    // Pre-load a completed goal.
+    const goal = emptyGoal('done already');
+    goal.goalState = 'completed';
+    await saveGoal(goalPath, goal);
+
+    const agent = makeMockAgent({
+      todos: [{ id: 't1', content: 'should be ignored', status: 'pending' }],
+    });
+    const engine = new EternalAutonomyEngine({
+      agent,
+      projectRoot,
+      gitStatusReader: async () => '',
+    });
+
+    const ok = await engine.runOneIteration();
+    expect(ok).toBe(false);
+    // Critical: the agent must NOT have been invoked.
+    expect((agent.run as any).mock.calls.length).toBe(0);
+  });
+
+  it('marks goal completed after threshold consecutive brainstorm DONE responses', async () => {
+    let brainstormCount = 0;
+    const agent = makeMockAgent({
+      todos: [], // no todos
+      runImpl: async () => {
+        brainstormCount++;
+        return { status: 'done', iterations: 1, finalText: 'DONE' };
+      },
+    });
+    // Threshold 1 so the very first DONE flips state — keeps the test
+    // off the engine's `await sleep(5_000)` null-action cool-down path.
+    // The state-machine behaviour is the same at threshold N; threshold
+    // 1 just lets us assert it in a single iteration.
+    const engine = new EternalAutonomyEngine({
+      agent,
+      projectRoot,
+      gitStatusReader: async () => '',
+      brainstormDoneStopThreshold: 1,
+    });
+
+    await engine.runOneIteration();
+
+    expect(brainstormCount).toBe(1);
+    const after = await loadGoal(goalPath);
+    expect(after?.goalState).toBe('completed');
+  });
+
+  it('rotates past a stuck todo after todoMaxAttempts failures', async () => {
+    const todos = [
+      { id: 'stuck', content: 'cannot do', status: 'pending' as const },
+      { id: 'ok', content: 'do this instead', status: 'pending' as const },
+    ];
+    const agent = makeMockAgent({
+      todos,
+      runImpl: async (input: unknown) => {
+        const text = Array.isArray(input) && input[0] && 'text' in input[0] ? (input[0] as any).text : '';
+        if (text.includes('cannot do')) {
+          return {
+            status: 'failed',
+            iterations: 1,
+            error: { describe: () => 'permanent failure' } as any,
+          } as any;
+        }
+        return { status: 'done', iterations: 1, finalText: 'ok' };
+      },
+    });
+    const engine = new EternalAutonomyEngine({
+      agent,
+      projectRoot,
+      gitStatusReader: async () => '',
+      todoMaxAttempts: 2,
+      // Disable force-brainstorm by setting the budget high — we want
+      // the test to surface the per-todo rotation behaviour, not the
+      // global consecutive-failure escape.
+      failureBudget: 99,
+    });
+
+    // 2 failures on the stuck todo → attempts counter saturates at 2.
+    await engine.runOneIteration();
+    await engine.runOneIteration();
+    // Next pick must skip 'stuck' and target 'ok'.
+    await engine.runOneIteration();
+
+    const after = await loadGoal(goalPath);
+    expect(after?.todoAttempts?.['stuck']).toBe(2);
+    const sources = after?.journal.map((e) => `${e.source}:${e.task}`) ?? [];
+    expect(sources[2]).toBe('todo:do this instead');
+  });
+
+  it('applies exponential backoff on transient (recoverable) failures', async () => {
+    // Stub provider error: agent.run returns failed + recoverable=true.
+    // The engine should treat it as transient — sleep before returning,
+    // NOT bump consecutiveFailures. Without this, a rate-limit storm
+    // burns the failure budget in seconds.
+    let runCount = 0;
+    const agent = makeMockAgent({
+      todos: [{ id: 't1', content: 'do work', status: 'pending' }],
+      runImpl: async () => {
+        runCount++;
+        return {
+          status: 'failed',
+          iterations: 1,
+          error: {
+            recoverable: true,
+            describe: () => 'provider rate limited (429)',
+          } as any,
+        } as any;
+      },
+    });
+    const engine = new EternalAutonomyEngine({
+      agent,
+      projectRoot,
+      gitStatusReader: async () => '',
+      // Tiny backoff so the test finishes within the default budget.
+      transientBackoffBaseMs: 50,
+      transientBackoffMaxMs: 200,
+      // High failure budget so brainstorm doesn't fire — we want to
+      // verify consecutiveFailures is NOT bumped by transients.
+      failureBudget: 99,
+    });
+
+    const t0 = Date.now();
+    await engine.runOneIteration(); // transient #1 → ~50 ms
+    await engine.runOneIteration(); // transient #2 → ~100 ms
+    await engine.runOneIteration(); // transient #3 → ~200 ms (capped)
+    const elapsed = Date.now() - t0;
+    expect(elapsed).toBeGreaterThanOrEqual(300);
+    expect(runCount).toBe(3);
+    // Journal still records the failures — backoff doesn't hide them.
+    const after = await loadGoal(goalPath);
+    expect(after?.journal.filter((e) => e.status === 'failure').length).toBe(3);
+  });
+
+  it('does NOT back off on permanent (non-recoverable) failures', async () => {
+    const agent = makeMockAgent({
+      todos: [{ id: 't1', content: 'work', status: 'pending' }],
+      runImpl: async () => ({
+        status: 'failed',
+        iterations: 1,
+        error: {
+          recoverable: false,
+          describe: () => 'auth error (401)',
+        } as any,
+      } as any),
+    });
+    const engine = new EternalAutonomyEngine({
+      agent,
+      projectRoot,
+      gitStatusReader: async () => '',
+      transientBackoffBaseMs: 5_000, // huge — would dominate if applied
+      failureBudget: 99,
+    });
+
+    const t0 = Date.now();
+    await engine.runOneIteration();
+    const elapsed = Date.now() - t0;
+    // No backoff for permanent → should be fast (well under 1 s).
+    expect(elapsed).toBeLessThan(1_000);
+  });
+
+  it('resets the transient backoff streak on a successful iteration', async () => {
+    let runCount = 0;
+    const agent = makeMockAgent({
+      todos: [{ id: 't1', content: 'work', status: 'pending' }],
+      runImpl: async () => {
+        runCount++;
+        if (runCount <= 2) {
+          return {
+            status: 'failed',
+            iterations: 1,
+            error: { recoverable: true, describe: () => 'transient' } as any,
+          } as any;
+        }
+        return { status: 'done', iterations: 1, finalText: 'ok' };
+      },
+    });
+    const engine = new EternalAutonomyEngine({
+      agent,
+      projectRoot,
+      gitStatusReader: async () => '',
+      transientBackoffBaseMs: 50,
+      transientBackoffMaxMs: 1000,
+      failureBudget: 99,
+    });
+
+    // Two transients (50ms, 100ms) then a success → resets streak.
+    await engine.runOneIteration();
+    await engine.runOneIteration();
+    await engine.runOneIteration(); // success, streak resets
+
+    // Now another transient: should take ~50ms (base), NOT ~200ms.
+    // Swap in an always-failing agent without rebuilding the engine.
+    (engine as any).opts.agent = makeMockAgent({
+      todos: [{ id: 't2', content: 'work', status: 'pending' }],
+      runImpl: async () => ({
+        status: 'failed',
+        iterations: 1,
+        error: { recoverable: true, describe: () => 'transient again' } as any,
+      } as any),
+    });
+    const t0 = Date.now();
+    await engine.runOneIteration();
+    const elapsed = Date.now() - t0;
+    expect(elapsed).toBeLessThan(150);
+  });
+
+  it('passes autonomousContinue:true and a maxIterations cap to agent.run', async () => {
+    const runCalls: Array<{ args: unknown; opts: any }> = [];
+    const agent = makeMockAgent({
+      todos: [{ id: 't1', content: 'work', status: 'pending' }],
+      runImpl: async () => ({ status: 'done', iterations: 1, finalText: 'ok' }),
+    });
+    // Override run to capture opts (the helper's vi.fn already records but we want named access).
+    (agent.run as any) = vi.fn(async (input: unknown, opts: any) => {
+      runCalls.push({ args: input, opts });
+      return { status: 'done', iterations: 1, finalText: 'ok' };
+    });
+
+    const engine = new EternalAutonomyEngine({
+      agent,
+      projectRoot,
+      gitStatusReader: async () => '',
+      iterationMaxAgentSteps: 25,
+    });
+
+    await engine.runOneIteration();
+    expect(runCalls.length).toBe(1);
+    expect(runCalls[0]!.opts.autonomousContinue).toBe(true);
+    expect(runCalls[0]!.opts.maxIterations).toBe(25);
+  });
 });
