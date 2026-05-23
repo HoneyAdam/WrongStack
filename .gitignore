@@ -26,3 +26,13 @@ coverage/**
 bench-results.json
 security-reports/
 security-reports/*
+
+
+.wrongstack/
+CLAUDE.md
+AGENTS.md
+.github/copilot-instructions.md
+.windsurfrules
+.cursorrules
+.claude/
+.editorconfig
