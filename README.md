@@ -23,6 +23,21 @@ This pulls in the full stack — `@wrongstack/core`, `@wrongstack/runtime`, `@wr
 
 After install, `wrongstack` is on your `PATH`. (`wstack` works too — it's an alias.)
 
+### What's new in 0.6.1
+
+**Reliability + correctness pass.** Tool cleanup contract hardened
+in `ToolExecutor`: when a tool threw mid-execution AND the combined
+signal was aborted, the `finally` path could call `cleanup()` twice
+and overwrite the real error with the abort reason — the original
+throw is now preserved. The `provider.tool_use_stop` event carries
+the tool `name` (was id-only), so subscribers no longer have to
+maintain their own in-flight tool map. Type safety in `/mcp`
+mutations fixed (`Record<string, MCPServerConfig>` annotations on
+`runRemove` / `runEnable` / `runDisable`). Latent `require()` in
+`outdated.ts` replaced with a static ESM import. Fragile tests
+skipped with TODO markers naming the missing fixtures; one git test
+now uses real `git init` instead of a hand-built `.git/HEAD`.
+
 ### What's new in 0.6.0
 
 **Eternal autonomy — `/autonomy eternal` + persistent `/goal`.** Set a

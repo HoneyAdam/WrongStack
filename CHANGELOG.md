@@ -5,6 +5,82 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-05-23
+
+### Fixed
+
+- **Tool cleanup contract hardened in `ToolExecutor`.** When a tool
+  threw mid-execution AND the combined signal was aborted (timeout or
+  parent cancel), the `finally` block could call `cleanup()` a second
+  time and overwrite the original error with the abort reason —
+  masking the real failure. The executor now tracks `caught` /
+  `cleanupCalled` flags so cleanup runs exactly once, and the
+  in-flight throw is never replaced from `finally`. Aborted tools
+  that completed successfully still get cleanup + an abort throw
+  surfaced to the caller, as before.
+- **MCP config mutations are now type-safe.** `runRemove` / `runEnable`
+  / `runDisable` in `slash-commands/mcp-utils.ts` were spreading
+  `full.mcpServers` (typed as `unknown` after the JSON parse) into an
+  untyped object literal, which silently widened the result. Each
+  site now annotates the local `mcpServers` as
+  `Record<string, MCPServerConfig>` and casts the source through the
+  same shape so writes back to `config.json` preserve the closed
+  type.
+- **`outdated` tool now imports `fs/promises` statically.** The
+  manager detection helper called `require('node:fs/promises')` from
+  an ESM-only package — a latent bug that would have thrown at
+  runtime the moment a project triggered the `outdated` path. Hoisted
+  to a top-of-file `import` so the module resolves correctly under
+  pure ESM.
+
+### Changed
+
+- **`provider.tool_use_stop` event carries the tool name.** The
+  event's payload was `{ ctx, id }`; subscribers had to look up the
+  name via the in-flight tool map themselves. Now ships
+  `{ ctx, id, name }` directly. `streaming-response-builder` resolves
+  the name from `state.tools` before calling `handleToolUseStop`
+  (which clears the entry), falling back to `'unknown'` if the id
+  never registered. Type added to the `EventMap` in `kernel/events.ts`.
+
+### Tests
+
+- **`packages/tools/tests/git.test.ts` — `findGitDir` test uses real
+  `git init`.** The previous setup hand-built `.git/HEAD` +
+  `refs/heads/`, which passed `findGitDir`'s existence check but made
+  `git status` reject the directory as "not a valid repository"
+  (exit 128) — the assertion path was therefore exercising the error
+  branch, not the success branch. Replaced with a real `spawnSync('git',
+  ['init', '-q', base])` setup; the test self-skips if `git` is
+  unavailable in the test environment.
+- **Several stale tests skipped with `TODO` markers.** Three
+  `slash-sdd` tests targeted the full `SlashCommandContext` mock
+  (which the minimal `fakeCtx` doesn't provide); five
+  `autoDetectTaskCompletion` positive-case tests required a
+  populated `sddState.getTaskTracker()` to exercise anything past the
+  early-return; three `subagent-budget` tests asserted against the
+  pre-refactor sync handler API (`'continue'` / `'stop'` / `{ extend }`
+  return values), which is now driven through the
+  `budget.threshold_reached` EventBus handshake. All marked with
+  inline TODO comments naming the missing setup, and end-to-end
+  coverage of each path lives in the integration suites.
+- **Async-test correctness sweep.** Several tests that called
+  `await import(...)` from a synchronous `it(...)` body were
+  converted to `async` (e.g. `BudgetThresholdSignal constructor sets
+  all fields`, `plan-store › attachPlanCheckpoint returns a noop`)
+  and the `timeout kind without _onThreshold` test now waits 60 ms
+  before calling `checkTimeout()` so the elapsed deadline check
+  actually fires.
+
+### Changed — versions
+
+- **All workspace packages bumped 0.6.0 → 0.6.1**: `wrongstack`,
+  `@wrongstack/cli`, `@wrongstack/core`, `@wrongstack/mcp`,
+  `@wrongstack/plug-lsp`, `@wrongstack/providers`,
+  `@wrongstack/runtime`, `@wrongstack/skills`,
+  `@wrongstack/telegram`, `@wrongstack/tools`, `@wrongstack/tui`,
+  `@wrongstack/webui`.
+
 ## [0.6.0] - 2026-05-22
 
 ### Added
