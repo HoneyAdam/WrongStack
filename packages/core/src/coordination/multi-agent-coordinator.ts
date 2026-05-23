@@ -515,8 +515,13 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
               return;
             }
             if (decision === 'throw' || decision === 'stop') {
-              this.subagents.get(ctx.subagentId)?.abortController.abort();
-              reject(new BudgetExceededError('timeout', limit, elapsed));
+              // Timeout denied — re-arm for the same limit so we ask again
+              // on the next tick. This makes timeout a pure warning event:
+              // the subagent keeps running, the user sees "⚡ timeout —
+              // extending" in chat history, and work continues until the
+              // subagent naturally finishes or the user stops it. No task
+              // is hard-killed solely because its wall-clock ran out.
+              armFor(Math.max(1_000, limit));
               return;
             }
             // 'extend' — patch budget and re-arm for the new remainder.

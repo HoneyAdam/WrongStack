@@ -173,6 +173,20 @@ export class DefaultSessionStore implements SessionStore {
     await fsp.unlink(path.join(this.dir, `${id}.summary.json`)).catch(() => undefined);
   }
 
+  async clearHistory(id: string): Promise<void> {
+    const file = path.join(this.dir, `${id}.jsonl`);
+    const meta = path.join(this.dir, `${id}.summary.json`);
+    const record = `${JSON.stringify({
+      type: 'session_start',
+      ts: new Date().toISOString(),
+      id,
+      model: 'unknown',
+      provider: 'unknown',
+    })}\n`;
+    await fsp.writeFile(file, record, 'utf8');
+    await fsp.unlink(meta).catch(() => undefined);
+  }
+
   private async summarize(id: string, mtime: string): Promise<SessionSummary> {
     try {
       const data = await this.load(id);
@@ -541,10 +555,21 @@ class FileSessionWriter implements SessionWriter {
 
     return removedCount;
   }
+
+  async clearSession(): Promise<void> {
+    if (!this.filePath) return;
+    const record = `${JSON.stringify({
+      type: 'session_start',
+      ts: new Date().toISOString(),
+      id: this.id,
+      model: this.meta.model ?? 'unknown',
+      provider: this.meta.provider ?? 'unknown',
+    })}\n`;
+    await fsp.writeFile(this.filePath, record, 'utf8');
+  }
 }
 
 function userInputTitle(content: string | ContentBlock[]): string {
-  if (typeof content === 'string') return content.slice(0, 60);
   const text = content
     .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
     .map((b) => b.text)

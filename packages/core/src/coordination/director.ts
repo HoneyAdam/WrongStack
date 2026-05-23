@@ -359,7 +359,7 @@ export class Director implements ICoordinator {
     this.sessionWriter = opts.sessionWriter ?? null;
     this.manifestDebounceMs = opts.manifestDebounceMs ?? 2000;
     this.maxFleetCostUsd = opts.directorBudget?.maxCostUsd ?? Number.POSITIVE_INFINITY;
-    this.maxBudgetExtensions = opts.maxBudgetExtensions ?? 2;
+    this.maxBudgetExtensions = opts.maxBudgetExtensions ?? 5;
     this.sessionsRoot = opts.sessionsRoot;
     this.directorRunId = opts.directorRunId ?? this.id;
     this.stateCheckpoint = opts.stateCheckpointPath
@@ -496,32 +496,33 @@ export class Director implements ICoordinator {
         extendCounts.delete(guardKey);
         return;
       }
-      // Auto-extend: grant 50% more of the triggering limit type,
-      // up to a reasonable cap. Resolved on the next tick so listeners
-      // can override (e.g. a deny-listener for cost overrun). Timeout
-      // case extends the wall-clock budget — the runner picks up the
-      // new `limits.timeoutMs` and re-arms its watchdog timer.
+      // Auto-extend: grant 2× the triggering limit type, up to a
+      // generous cap so genuinely large tasks get room to finish.
+      // Resolved on the next tick so listeners can override (e.g. a
+      // deny-listener for cost overrun). Timeout case extends the
+      // wall-clock budget — the runner picks up the new `limits.timeoutMs`
+      // and re-arms its watchdog timer.
       extendCounts.set(guardKey, prior + 1);
       setImmediate(() => {
         const extra: Record<string, unknown> = {};
         switch (payload.kind) {
           case 'iterations':
-            extra.maxIterations = Math.min(payload.used + 50, 500);
+            extra.maxIterations = Math.min(payload.used + 100, 800);
             break;
           case 'tool_calls':
-            extra.maxToolCalls = Math.min(Math.ceil(payload.limit * 1.5), 1000);
+            extra.maxToolCalls = Math.min(Math.ceil(payload.limit * 2), 1500);
             break;
           case 'tokens':
-            extra.maxTokens = Math.min(Math.ceil(payload.limit * 1.5), 500_000);
+            extra.maxTokens = Math.min(Math.ceil(payload.limit * 2), 800_000);
             break;
           case 'cost':
-            extra.maxCostUsd = Math.min(payload.limit * 1.5, 10);
+            extra.maxCostUsd = Math.min(payload.limit * 2, 25);
             break;
           case 'timeout':
-            // Cap at 1 h so a runaway task can't extend itself
+            // Cap at 2 h so a runaway task can't extend itself
             // indefinitely; combined with `maxBudgetExtensions` this
-            // bounds the worst case to (limit * 1.5^N) clamped.
-            extra.timeoutMs = Math.min(Math.ceil(payload.limit * 1.5), 60 * 60_000);
+            // bounds the worst case to (limit * 2^N) clamped.
+            extra.timeoutMs = Math.min(Math.ceil(payload.limit * 2), 2 * 60 * 60_000);
             break;
         }
         payload.extend(extra);

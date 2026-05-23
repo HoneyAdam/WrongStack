@@ -94,6 +94,12 @@ export interface SessionStore {
   resume(id: string): Promise<ResumedSession>;
   list(limit?: number): Promise<SessionSummary[]>;
   delete(id: string): Promise<void>;
+  /**
+   * Rewrite the session JSONL file to contain only a fresh session_start
+   * event, effectively clearing all conversation history for that session.
+   * Called by /clear to wipe persistent chat history.
+   */
+  clearHistory(id: string): Promise<void>;
 }
 
 export interface SessionWriter {
@@ -130,4 +136,9 @@ export interface SessionWriter {
    * Returns the number of events removed.
    */
   truncateToCheckpoint(promptIndex: number): Promise<number>;
+  /**
+   * Clear the session transcript file, resetting the on-disk history.
+   * Called by /clear to wipe chat history from persistent storage.
+   */
+  clearSession(): Promise<void>;
 }

@@ -2111,9 +2111,12 @@ export function App({
     // Budget pressure: subagent hit a soft limit and the coordinator
     // is auto-extending. Surface as a fleet warning so the user can see
     // "⚡ agent#bug-hunter hitting tool_calls limit (350/400) — extending".
+    // Timeout-specific: never says "extending" since timeout is a pure
+    // warning — the subagent just keeps running until it finishes.
     const offBudgetWarning = events.on('subagent.budget_warning', (e) => {
       const lbl = labelFor(e.subagentId);
       dispatch({ type: 'fleetBudgetWarning', id: e.subagentId, kind: e.kind, used: e.used, limit: e.limit });
+      const timeoutSuffix = e.kind === 'timeout' ? ' (subagent continues running)' : ' — extending';
       dispatch({
         type: 'addEntry',
         entry: {
@@ -2121,17 +2124,34 @@ export function App({
           agentLabel: lbl.label,
           agentColor: lbl.color,
           icon: '⚡',
-          text: `hitting ${e.kind} limit (${e.used}/${e.limit}) — extending`,
+          text: `hitting ${e.kind} limit (${e.used}/${e.limit})${timeoutSuffix}`,
         },
       });
     });
-    // Always-on per-tool state surface. Director mode also gets a
-    // FleetBus path, but this bridge fires regardless of mode so plain
-    // `/spawn` still updates the live strip/panel without flooding chat.
+    // Periodic progress snapshot so the user can see what each subagent
+    // is doing in the main chat history without opening the FleetPanel.
+    // Format: "AGENT#2 💬 L25 · 47 tools · $0.023 · doing bash..."
+    const offIterationSummary = events.on('subagent.iteration_summary', (e) => {
+      const lbl = labelFor(e.subagentId);
+      const costStr = e.costUsd > 0 ? ` · ${e.costUsd.toFixed(3)}` : '';
+      const toolStr = e.currentTool ? ` · doing ${e.currentTool}` : '';
+      const partial = e.partialText ? ` · "${e.partialText.slice(0, 60)}${e.partialText.length > 60 ? '…' : ''}"` : '';
+      dispatch({
+        type: 'addEntry',
+        entry: {
+          kind: 'subagent',
+          agentLabel: lbl.label,
+          agentColor: lbl.color,
+          icon: '💬',
+          text: `L${e.iteration} · ${e.toolCalls} tools${costStr}${toolStr}${partial}`,
+        },
+      });
+    });
+    // Always-on per-tool state surface. Now fires in both director and
+    // non-director modes, so the leader's chat history shows subagent
+    // tool calls regardless of mode. Director mode also gets FleetBus
+    // path for richer FleetPanel streaming.
     const offTool = events.on('subagent.tool_executed', (e) => {
-      if (director) return;
-      // Also bump the entry's currentTool/toolCalls so the status bar
-      // 4th line + FleetPanel update in non-director mode.
       dispatch({
         type: 'fleetTool',
         id: e.subagentId,
@@ -2147,6 +2167,7 @@ export function App({
       offStarted();
       offCompleted();
       offBudgetWarning();
+      offIterationSummary();
       offTool();
     };
   }, [events, director]);

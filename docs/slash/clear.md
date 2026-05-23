@@ -14,6 +14,7 @@ Wipes all session state — messages, todos, read-file tracking, file mtimes, an
 | `ctx.fileMtimes` | `ctx.fileMtimes.clear()` |
 | `ctx.meta` | deletes every key via `ctx.state.deleteMeta()` |
 | Memory store | `await opts.memoryStore?.clear()` |
+| Chat history on disk | `ctx.session.clearSession()` + `sessionStore.clearHistory(id)` |
 | Terminal | `opts.onClear?.()` + `opts.renderer.clear()` |
 
 ## What does NOT get wiped
@@ -21,7 +22,6 @@ Wipes all session state — messages, todos, read-file tracking, file mtimes, an
 - `~/.wrongstack/memory.md` (user-global memory) — only the session-scoped memory store is cleared
 - `~/.wrongstack/config.json`
 - `.wrongstack/AGENTS.md`
-- Session history on disk (only the in-memory/REPL state is cleared)
 - Git state, plugin config, provider credentials
 
 ## Code reference

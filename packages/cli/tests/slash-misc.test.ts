@@ -15,6 +15,10 @@ function fakeCtx() {
     readFiles: { clear: vi.fn() },
     fileMtimes: { clear: vi.fn() },
     meta: { plan: 'x', other: 'y' },
+    session: {
+      id: 'test-session-id',
+      clearSession: vi.fn().mockResolvedValue(undefined),
+    },
   } as never;
   return ctx;
 }
@@ -22,11 +26,12 @@ function fakeCtx() {
 // ── /clear ───────────────────────────────────────────────────────────────────
 
 describe('buildClearCommand', () => {
-  it('wipes context state, memory store, and calls onClear', async () => {
+  it('wipes context state, memory store, session history, and calls onClear', async () => {
     const renderer = { write: vi.fn(), writeInfo: vi.fn(), clear: vi.fn() };
     const memoryStore = { clear: vi.fn().mockResolvedValue(undefined) };
     const onClear = vi.fn();
-    const cmd = buildClearCommand({ renderer, memoryStore, onClear } as never);
+    const sessionStore = { clearHistory: vi.fn().mockResolvedValue(undefined) };
+    const cmd = buildClearCommand({ renderer, memoryStore, onClear, sessionStore } as never);
     const ctx = fakeCtx();
     const res = await cmd.run('', ctx);
     expect(ctx.state.replaceMessages).toHaveBeenCalledWith([]);
@@ -35,6 +40,8 @@ describe('buildClearCommand', () => {
     expect(ctx.fileMtimes.clear).toHaveBeenCalled();
     expect(ctx.state.deleteMeta).toHaveBeenCalledWith('plan');
     expect(ctx.state.deleteMeta).toHaveBeenCalledWith('other');
+    expect(ctx.session.clearSession).toHaveBeenCalled();
+    expect(sessionStore.clearHistory).toHaveBeenCalledWith('test-session-id');
     expect(memoryStore.clear).toHaveBeenCalled();
     expect(onClear).toHaveBeenCalled();
     expect(renderer.clear).toHaveBeenCalled();

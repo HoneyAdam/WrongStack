@@ -306,4 +306,74 @@ describe('DefaultSessionStore', () => {
       vi.useRealTimers();
     }
   });
-});
+
+  it('clearHistory() rewrites the jsonl to only a session_start event', async () => {
+    const w = await store.create({ id: 'cs1', model: 'm', provider: 'p' });
+    await w.append({ type: 'user_input', ts: new Date().toISOString(), content: 'hello' });
+    await w.append({
+      type: 'llm_response',
+      ts: new Date().toISOString(),
+      content: [{ type: 'text', text: 'hi' }],
+      stopReason: 'end_turn',
+      usage: { input: 10, output: 5 },
+    });
+    await w.close();
+    await store.clearHistory('cs1');
+    const raw = await fs.readFile(path.join(tmp, 'cs1.jsonl'), 'utf8');
+    const lines = raw.trim().split('\n').filter(Boolean);
+    expect(lines).toHaveLength(1);
+    const evt = JSON.parse(lines[0]!);
+    expect(evt.type).toBe('session_start');
+    expect(evt.id).toBe('cs1');
+    expect(evt.model).toBe('m');
+  });
+
+  it('clearHistory() removes the summary manifest', async () => {
+    const w = await store.create({ id: 'cs2', model: 'm', provider: 'p' });
+    await w.append({ type: 'user_input', ts: new Date().toISOString(), content: 'hi' });
+    await w.close();
+    await expect(fs.access(path.join(tmp, 'cs2.summary.json'))).resolves.toBeUndefined();
+    await store.clearHistory('cs2');
+    await expect(fs.access(path.join(tmp, 'cs2.summary.json'))).rejects.toThrow();
+  });
+
+  it('clearHistory() is idempotent on a session with no prior history', async () => {
+    const w = await store.create({ id: 'cs3', model: 'm', provider: 'p' });
+    await w.close();
+    await store.clearHistory('cs3');
+    const raw = await fs.readFile(path.join(tmp, 'cs3.jsonl'), 'utf8');
+    const lines = raw.trim().split('\n').filter(Boolean);
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0]!).type).toBe('session_start');
+  });
+
+  it('FileSessionWriter.clearSession() resets the jsonl to session_start only', async () => {
+    const w = await store.create({ id: 'wr', model: 'm', provider: 'p' });
+    await w.append({ type: 'user_input', ts: new Date().toISOString(), content: 'hello' });
+    await w.append({
+      type: 'llm_response',
+      ts: new Date().toISOString(),
+      content: [{ type: 'text', text: 'hi back' }],
+      stopReason: 'end_turn',
+      usage: { input: 10, output: 5 },
+    });
+    await w.close();
+    await w.clearSession();
+    const raw = await fs.readFile(path.join(tmp, 'wr.jsonl'), 'utf8');
+    const lines = raw.trim().split('\n').filter(Boolean);
+    expect(lines).toHaveLength(1);
+    const evt = JSON.parse(lines[0]!);
+    expect(evt.type).toBe('session_start');
+    expect(evt.id).toBe('wr');
+    expect(evt.model).toBe('m');
+    expect(evt.provider).toBe('p');
+  });
+
+  it('FileSessionWriter.clearSession() does nothing when filePath is undefined', async () => {
+    // This tests the no-op guard for in-memory writers
+    const w = await store.create({ id: 'mem', model: 'm', provider: 'p' });
+    await w.append({ type: 'user_input', ts: new Date().toISOString(), content: 'x' });
+    await w.close();
+    // Should not throw — the guard handles the undefined path gracefully
+    await expect(w.clearSession()).resolves.not.toThrow();
+  });

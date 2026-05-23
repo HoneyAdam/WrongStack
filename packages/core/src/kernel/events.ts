@@ -252,6 +252,22 @@ export interface EventMap {
     input?: unknown;
     outputBytes?: number;
   };
+  /**
+   * Periodic progress snapshot emitted by the subagent runner every ~25
+   * iterations so the user can track what a subagent is doing without
+   * looking at the FleetPanel. The leader's TUI surfaces this as a
+   * chat history entry: "AGENT#2 💬 L25 · 47 tools · $0.023 · doing grep..."
+   * Fired on a best-effort basis — slow subagents may skip emissions if
+   * the 25-iteration window passes while the agent is between tool calls.
+   */
+  'subagent.iteration_summary': {
+    subagentId: string;
+    iteration: number;
+    toolCalls: number;
+    costUsd: number;
+    currentTool?: string;
+    partialText?: string;
+  };
   'subagent.task_completed': {
     subagentId: string;
     taskId: string;

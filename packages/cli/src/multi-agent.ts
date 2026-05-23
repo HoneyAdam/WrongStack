@@ -395,8 +395,16 @@ export class MultiAgentHost {
         });
       });
 
+      const offSummaryBridge = events.on('subagent.iteration_summary', (e) => {
+        hostEvents.emit('subagent.iteration_summary', {
+          ...e,
+          subagentId: subCfg.id ?? subCfg.name ?? 'subagent',
+        });
+      });
+
       const dispose = async () => {
         offToolBridge();
+        offSummaryBridge();
         try {
           await subSession.close?.();
         } catch {

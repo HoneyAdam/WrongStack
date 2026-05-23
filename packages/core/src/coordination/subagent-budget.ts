@@ -169,7 +169,7 @@ export class SubagentBudget {
    */
   private checkLimit(kind: BudgetKind, used: number, limit: number): void {
     // No threshold handler → hard stop, throw synchronously.
-    if (kind === 'timeout' || !this._onThreshold) {
+    if (!this._onThreshold) {
       throw new BudgetExceededError(kind, limit, used);
     }
     // No EventBus or no listener for the threshold event → there's no
@@ -325,14 +325,22 @@ export class SubagentBudget {
   }
 
   /**
-   * Throws if the wall-clock budget is exhausted. Call this from the iteration
-   * loop so a hung tool can't keep a subagent running past its deadline.
+   * Wall-clock budget check. Unlike other limits, timeout is treated as a
+   * warning-only event — it NEVER hard-stops the subagent. When the
+   * elapsed time exceeds timeoutMs, emits `budget.threshold_reached` with
+   * kind='timeout' so the Director can decide whether to extend or warn.
+   * Call this from the iteration loop so a hung tool gets a chance to
+   * negotiate more time before the coordinator's Promise.race kills it.
    */
   checkTimeout(): void {
     if (this.startTime === null || this.limits.timeoutMs === undefined) return;
     const elapsed = Date.now() - this.startTime;
     if (elapsed > this.limits.timeoutMs) {
-      throw new BudgetExceededError('timeout', this.limits.timeoutMs, elapsed);
+      // Route through the same negotiation path as all other soft limits.
+      // BudgetThresholdSignal → onBudgetError in the runner → coordinator
+      // decision → extend or warn. Never throw a hard BudgetExceededError
+      // for timeout.
+      void this.checkLimit('timeout', elapsed, this.limits.timeoutMs);
     }
   }
 

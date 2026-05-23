@@ -142,6 +142,7 @@ export async function main(argv: string[]): Promise<number> {
     config, wpaths, logger, modelsRegistry,
     permission: {
       yolo: config.yolo,
+      forceAllYolo: flags['force-all-yolo'] === true,
       promptDelegate: makePromptDelegate(reader) as unknown as ContainerPromptDelegate,
     },
     compactor: { preserveK: config.context.preserveK, eliseThreshold: config.context.eliseThreshold },

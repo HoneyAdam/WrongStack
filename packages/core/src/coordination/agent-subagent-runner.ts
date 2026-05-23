@@ -9,7 +9,6 @@ import type {
 } from '../types/multi-agent.js';
 import {
   BudgetExceededError,
-  BudgetThresholdDecision,
   BudgetThresholdSignal,
 } from './subagent-budget.js';
 import type { FleetBus } from './fleet-bus.js';
@@ -100,7 +99,7 @@ export function makeAgentSubagentRunner(opts: AgentRunnerOptions): SubagentRunne
     // ceiling and per-subagent extension count — wiring this is the
     // missing link that activates that flow.
     ctx.budget.onThreshold = ({ requestDecision }) => requestDecision();
-    let budgetError: BudgetExceededError | null = null;
+    let budgetError: Error | null = null;
 
     /**
      * Common error handler for all budget-triggered events. Distinguishes:
@@ -187,9 +186,24 @@ export function makeAgentSubagentRunner(opts: AgentRunnerOptions): SubagentRunne
       events.on('iteration.started', () => {
         try {
           ctx.budget.recordIteration();
-          ctx.budget.checkTimeout();
         } catch (e) {
           void onBudgetError(e);
+        }
+        // Emit a periodic progress snapshot every SUMMARY_INTERVAL
+        // iterations so the leader can surface "AGENT#2 ● L25 · 47 tools"
+        // in the main chat history without needing the FleetPanel open.
+        const u = ctx.budget.usage();
+        const since = u.iterations - lastSummaryAtIteration;
+        if (since >= SUMMARY_INTERVAL) {
+          lastSummaryAtIteration = u.iterations;
+          events.emit('subagent.iteration_summary', {
+            subagentId: ctx.subagentId,
+            iteration: u.iterations,
+            toolCalls: u.toolCalls,
+            costUsd: u.costUsd,
+            currentTool: currentToolName,
+            partialText: streamingTextAcc.trim() || undefined,
+          });
         }
       }),
       // D3: cooperative timeout enforcement DURING a long tool call.
@@ -211,6 +225,22 @@ export function makeAgentSubagentRunner(opts: AgentRunnerOptions): SubagentRunne
         } catch (e) {
           void onBudgetError(e);
         }
+      }),
+    );
+
+    // Track current tool name + streaming text for the periodic summary.
+    let currentToolName: string | undefined;
+    let streamingTextAcc = '';
+    let lastSummaryAtIteration = 0;
+    const SUMMARY_INTERVAL = 25;
+
+    unsub.push(
+      events.on('tool.started', (e) => {
+        currentToolName = e.name;
+      }),
+      events.on('provider.text_delta', (e) => {
+        // Accumulate last ~200 chars for the partial text snapshot.
+        streamingTextAcc = (streamingTextAcc + e.text).slice(-200);
       }),
     );
 
@@ -241,7 +271,28 @@ export function makeAgentSubagentRunner(opts: AgentRunnerOptions): SubagentRunne
     // A budget violation is the signal — surface it so the coordinator can
     // tag the task with the right failure kind ('failed' for budget; the
     // coordinator separately recognises 'timeout' from BudgetExceededError).
-    if (budgetError) throw budgetError;
+    if (budgetError) {
+      // BudgetThresholdSignal: the soft limit was hit but the coordinator
+      // hasn't resolved the extension decision yet. If the decision was
+      // 'extend', the coordinator patched limits and the agent finished
+      // normally — no error to surface. If 'stop', budgetError becomes
+      // a BudgetExceededError thrown below.
+      // instanceof check on Error subtypes requires 'any' intersection
+      // on the union — use a property guard instead.
+      if ('decision' in budgetError) {
+        const decision = await (budgetError as BudgetThresholdSignal).decision;
+        if (decision === 'stop') {
+          budgetError = new BudgetExceededError(
+            (budgetError as BudgetThresholdSignal).kind,
+            (budgetError as BudgetThresholdSignal).limit,
+            (budgetError as BudgetThresholdSignal).used,
+          );
+        } else {
+          budgetError = null;
+        }
+      }
+      if (budgetError) throw budgetError;
+    }
 
     if (result.status === 'failed') {
       throw result.error instanceof Error

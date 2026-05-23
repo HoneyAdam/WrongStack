@@ -205,11 +205,14 @@ export const FLEET_ROSTER: Record<string, SubagentConfig> = {
 // ---------------------------------------------------------------------------
 // Default per-role budgets.
 // These are the budgets subagents get when the orchestrator doesn't pass
-// explicit overrides. They reflect realistic scope expectations for each role:
-//   audit-log:     moderate scan of session logs, ~5 min, 80 iterations
-//   bug-hunter:    targeted file scan, ~10 min, 120 iterations
-//   refactor-planner: architecture analysis, ~8 min, 100 iterations
-//   security-scanner: config + source scan, ~10 min, 120 iterations
+// explicit overrides. Raised from earlier conservative values — a subagent
+// that exhausts its budget mid-scan is an unpleasant experience, and the
+// cost of a slightly larger ceiling is negligible compared to a failed run
+// that needs to be re-run from scratch.
+//   audit-log:     moderate scan of session logs, ~8 min, 150 iterations
+//   bug-hunter:    targeted file scan, ~15 min, 200 iterations
+//   refactor-planner: architecture analysis, ~12 min, 180 iterations
+//   security-scanner: config + source scan, ~15 min, 200 iterations
 // ---------------------------------------------------------------------------
 export interface FleetRosterBudget {
   timeoutMs?: number;
@@ -220,10 +223,10 @@ export interface FleetRosterBudget {
 }
 
 export const FLEET_ROSTER_BUDGETS: Record<string, FleetRosterBudget> = {
-  'audit-log': { timeoutMs: 5 * 60 * 1000, maxIterations: 80, maxToolCalls: 300 },
-  'bug-hunter': { timeoutMs: 10 * 60 * 1000, maxIterations: 120, maxToolCalls: 400 },
-  'refactor-planner': { timeoutMs: 8 * 60 * 1000, maxIterations: 100, maxToolCalls: 350 },
-  'security-scanner': { timeoutMs: 10 * 60 * 1000, maxIterations: 120, maxToolCalls: 400 },
+  'audit-log': { timeoutMs: 8 * 60 * 1000, maxIterations: 150, maxToolCalls: 500 },
+  'bug-hunter': { timeoutMs: 15 * 60 * 1000, maxIterations: 200, maxToolCalls: 600 },
+  'refactor-planner': { timeoutMs: 12 * 60 * 1000, maxIterations: 180, maxToolCalls: 550 },
+  'security-scanner': { timeoutMs: 15 * 60 * 1000, maxIterations: 200, maxToolCalls: 600 },
 };
 
 /**
