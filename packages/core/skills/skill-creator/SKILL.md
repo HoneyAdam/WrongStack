@@ -1,17 +1,16 @@
 ---
 name: skill-creator
 description: |
-  Use this skill when the user wants to create a new AI skill.
-  Covers skill format, file structure, naming conventions,
-  and the interactive creation workflow.
-version: 1.0.0
+  Use this skill when the user wants to create a new AI skill in WrongStack.
+  Triggers: user says "create a skill", "new skill", "add a skill", "skill definition".
+version: 1.1.0
 ---
 
-# Skill Creator
+# Skill Creator — WrongStack
 
-Guide the user through creating a new AI skill. You are the wizard — ask questions, validate answers, write the file.
+Guide the user through creating a new skill. You are the wizard — ask questions, validate answers, write the file.
 
-## Skill Format
+## Skill format
 
 Every skill is a Markdown file with YAML frontmatter:
 
@@ -19,8 +18,8 @@ Every skill is a Markdown file with YAML frontmatter:
 ---
 name: my-skill-name
 description: |
-  First sentence is the trigger — when should this skill activate?
-  Rest describes what the skill covers.
+  Use this skill when <trigger situation>.
+  Triggers: user says "keyword", "another keyword".
 version: 1.0.0
 ---
 
@@ -35,10 +34,14 @@ What this skill does.
 
 ## Patterns
 ### Do
-```code example```
+\`\`\`ts
+// good example
+\`\`\`
 
 ### Don't
-```anti-pattern example```
+\`\`\`ts
+// bad example
+\`\`\`
 
 ## Workflow
 1. Step one
@@ -51,23 +54,42 @@ Skills live in directories under these paths (priority order):
 
 1. **Project**: `<project>/.wrongstack/skills/<name>/SKILL.md`
 2. **User global**: `~/.wrongstack/skills/<name>/SKILL.md`
-3. **Bundled**: `packages/core/skills/<name>/SKILL.md` (read-only)
+3. **Bundled**: `packages/core/skills/<name>/SKILL.md` (read-only, for core team)
 
-For user-created skills, always use path 1 (project level).
+For user-created skills: always use path 1 (project level).
 
 ## Naming Rules
 
-- kebab-case: `my-skill`, `docker-deploy`, `api-testing`
+- **kebab-case**: `my-skill`, `docker-deploy`, `api-testing`
 - Lowercase letters, numbers, hyphens only
 - No spaces, no underscores, no uppercase
 - Directory name = skill name
 
-## Description Rules
+## The Trigger — the most important part
 
-- First sentence = trigger condition. This is when the skill activates.
-  - Good: "Use this skill when deploying Docker containers."
-  - Bad: "This skill is about Docker."
-- Be specific about scope — what technologies, what situations
+The **first sentence** of the `description` is the trigger. This is the **only** thing the skill loader matches on.
+
+```
+# ✅ Good — specific trigger that can be matched
+Use this skill when deploying Docker containers to a production cluster.
+
+# ❌ Bad — vague, can't be matched
+This skill is about Docker deployment.
+
+# ✅ Good — pattern-matchable
+Use this skill when writing or reviewing React 19+ code.
+
+# ❌ Bad — too broad
+This skill is about code.
+```
+
+After the trigger sentence, add `Triggers: user says "X", "Y", "Z".` so agents know when to delegate.
+
+## Description rules
+
+- First sentence = trigger condition
+- Second sentence = what it covers
+- Triggers list = specific keywords or phrases
 - Multi-line descriptions use YAML block scalar (`|`)
 
 ## Content Guidelines
@@ -76,16 +98,14 @@ For user-created skills, always use path 1 (project level).
 - **Patterns**: actual code examples, not pseudocode
 - **Anti-patterns**: show what NOT to do with real code
 - **Workflows**: step-by-step, actionable, not theoretical
-- Keep it focused — one skill = one concern
+- **Skills in scope**: list related skills at the bottom for delegation
 
 ## Creation Workflow
 
-When the user wants to create a skill:
-
 1. **Ask the name** — suggest kebab-case, validate format
-2. **Ask the description** — guide them to write a good trigger sentence
-3. **Ask what to cover** — rules, patterns, workflows they want in the body
-4. **Generate the SKILL.md** — write the file to `.wrongstack/skills/<name>/SKILL.md`
+2. **Ask the trigger** — "What situation should activate this skill?"
+3. **Ask the coverage** — what rules, patterns, workflows?
+4. **Generate the SKILL.md** — write to `.wrongstack/skills/<name>/SKILL.md`
 5. **Confirm** — show the path, remind them to use `/skill` to list skills
 
 ## Validation Checklist
@@ -96,3 +116,16 @@ Before writing the file, verify:
 - [ ] Description has a clear trigger sentence
 - [ ] Content is actionable (rules, patterns, not just prose)
 - [ ] File will be placed in `.wrongstack/skills/`
+
+## Existing skills (don't collide)
+
+```
+audit-log, bug-hunter, git-flow, multi-agent, node-modern,
+prompt-engineering, react-modern, refactor-planner, sdd,
+security-scanner, skill-creator, typescript-strict
+```
+
+## Skills in scope
+
+- `prompt-engineering` — for crafting the skill description and prompt text
+- `git-flow` — for committing the new skill file

@@ -1,87 +1,111 @@
 ---
 name: bug-hunter
 description: |
-  Systematic bug and code smell detection. Covers static analysis patterns,
-  anti-pattern recognition, error-prone construct detection, and severity ranking.
-  Use before refactoring or as a standalone health check.
-version: 1.0.0
+  Use this skill when scanning source code for bugs, anti-patterns, code smells,
+  or quality issues in a WrongStack project. Triggers: user says "bug", "bug hunt",
+  "scan for issues", "find problems", "anti-pattern", "code smell", "static analysis".
+version: 1.1.0
 ---
 
-# Bug Hunter Agent
+# Bug Hunter — WrongStack
 
-Scans source code for bugs, anti-patterns, and code smells using pattern matching
-and heuristics. Outputs a prioritized hit list with file:line references.
-
-## Capabilities
-
-- Detect common bug patterns (uncaught errors, resource leaks, race conditions)
-- Identify anti-patterns (callback hell, God objects, circular deps)
-- Find TypeScript-specific issues (unsafe any, missing null checks)
-- Flag security-sensitive constructs (eval, innerHTML, hardcoded secrets)
-- Rank findings by severity: critical > high > medium > low
+Scans code for bugs and code smells. Outputs a prioritized hit list with file:line references.
 
 ## Workflow
 
-1. **Scope** — Accept file/dir globs or explicit paths
-2. **Scan** — Run grep/read across target files
-3. **Classify** — Categorize findings by type and severity
-4. **Rank** — Sort by severity, then frequency
-5. **Report** — Markdown output with fix suggestions
-
-## Input
-
-```json
-{
-  "task": "scan | hunt | check",
-  "paths": ["src/**/*.ts", "lib/*.js"],
-  "focus": "bugs | patterns | security | all",
-  "severityThreshold": "medium"
-}
+```
+1. Scope:  Accept file/dir globs or explicit paths
+2. Scan:   grep/read across target files
+3. Classify: Categorize by type and severity
+4. Rank:   Sort: critical > high > medium > low
+5. Report: Markdown with fix suggestions
 ```
 
-## Output Format
+## Severity levels
+
+| Level | Meaning | Action |
+|-------|---------|--------|
+| **Critical** | Security breach, data loss, crash | Fix immediately |
+| **High** | Logic bug, race condition, memory leak | Fix before release |
+| **Medium** | Error handling gap, type unsafety | Fix soon |
+| **Low** | Style, minor code smell | Consider fixing |
+
+## Bug patterns to find
+
+```
+| Pattern | Regex hint | Severity |
+|---------|------------|----------|
+| Uncaught promise | /\.then\([^]*\.catch/ but missing catch | high |
+| Event listener leak | `on(` without `off/removeListener` | high |
+| Hardcoded secret | `[A-Za-z0-9/+=]{40}` in config or code | critical |
+| unsafe any | `: any\b` or `as any` | medium |
+| innerHTML assignment | `innerHTML\s*=` | high |
+| Missing await | `await` not used on async call | high |
+| Unhandled rejection | `process.on('unhandledRejection'` | medium |
+| SQL concatenation | `"SELECT * FROM " + table` | critical |
+| Shell injection | `exec(\`cmd ${input}\`)` | critical |
+```
+
+## Real examples
+
+```typescript
+// ❌ CRITICAL — hardcoded API key
+const apiKey = "sk-abc123xyz789...";
+
+// ❌ HIGH — innerHTML XSS
+element.innerHTML = userInput;
+
+// ❌ HIGH — unhandled promise (then without catch)
+fetchData().then(processData);
+
+// ❌ HIGH — shell injection
+exec(`echo ${userInput}`);
+
+// ❌ HIGH — unsafe any
+const data: any = response.json();
+
+// ✅ FIXED — use textContent
+element.textContent = userInput;
+
+// ✅ FIXED — parameterized query
+db.query("SELECT * FROM users WHERE id = $1", [userId]);
+```
+
+## Anti-patterns
+
+- **Don't scan `node_modules`** — waste of time, false positives
+- **Don't report without file:line** — useless for fixing
+- **Don't ignore false positive rate** — if >30% of findings are noise, note it
+- **Don't report style issues as bugs** — those are lint findings
+- **Don't flag deprecated without severity** — some deprecations are fine
+
+## Output format
 
 ```
 ## Bug Hunt Report — <scope>
 
 ### Critical (must fix)
-1. **[RACE]** `src/auth.ts:47` — setTimeout without clearTimeout in loop
-2. **[SECRET]** `lib/config.ts:12` — hardcoded API key detected
+1. [SHELL-INJ] `tools/shell.ts:42` — template literal in exec()
+   `exec(\`echo ${userInput}\`)` → use execFile with args array
+2. [SECRET] `lib/config.ts:8` — API key hardcoded
 
-### High (should fix)
-3. **[MEMORY]** `tools/pool.ts:89` — event listener never removed
-4. **[TYPE]** `core/agent.ts:103` — unsafe `any` cast loses type safety
+### High
+3. [MEMORY] `tools/pool.ts:89` — event listener never removed
+4. [TYPE] `core/agent.ts:103` — unsafe `any` cast
 
-### Medium
-...
-
-### Low (consider)
-...
-
-## Summary
+### Summary
 | Severity | Count |
 |----------|-------|
-| Critical | 2     |
-| High     | 4     |
-| Medium   | 7     |
-| Low      | 3     |
+| Critical | 2 |
+| High     | 4 |
+| Medium   | 7 |
+| Low      | 3 |
 
 Total: 16 findings in 12 files
 ```
 
-## Bug Pattern Reference
+## Skills in scope
 
-| Pattern | Regex Hint | Severity |
-|---------|------------|----------|
-| Uncaught promise | `\.then\(` without `catch` | high |
-| Event leak | `on\(` without `off`/`removeListener` | high |
-| Hardcoded secret | `[a-zA-Z0-9/_-]{20,}` in config | critical |
-| unsafe any | `: any\b` or `<any>` | medium |
-| innerHTML | `innerHTML\s*=` | high |
-| TODO without FIXME | `TODO(?!.*FIXME)` | low |
-
-## Anti-patterns
-
-- Don't scan node_modules — waste of time and false positives
-- Don't report without file:line — useless for fixing
-- Don't ignore false positive rates — if >30% of findings are noise, lower confidence
+- `security-scanner` — for hardcoded secrets and injection vectors
+- `refactor-planner` — for fixing findings across multiple files
+- `typescript-strict` — for type-safety related findings

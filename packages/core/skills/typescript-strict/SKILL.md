@@ -1,20 +1,26 @@
 ---
 name: typescript-strict
 description: |
-  Use this skill when writing or reviewing TypeScript code with strict mode.
-  Covers strict null checks, exhaustive switch, branded types, discriminated
-  unions, and noUncheckedIndexedAccess pitfalls.
-version: 1.0.0
+  Use this skill when writing or reviewing TypeScript code with strict mode
+  in WrongStack. Triggers: user mentions "TypeScript", "strict", "type error",
+  "type safety", "narrowing", "branded type", "discriminated union", "noUncheckedIndexedAccess".
+version: 1.1.0
 ---
 
-# TypeScript strict mode
+# TypeScript Strict Mode — WrongStack
 
-## Core rules
+## Non-negotiable rules
 
-- `strict: true` is non-negotiable. So is `noUncheckedIndexedAccess: true`.
-- Never silence type errors with `as any`. Use `as unknown as T` only at trust boundaries with a comment explaining why.
-- Prefer discriminated unions over enums.
-- Use `readonly` aggressively on properties and arrays.
+```json
+{
+  "strict": true,
+  "noUncheckedIndexedAccess": true,
+  "noImplicitReturns": true,
+  "exactOptionalPropertyTypes": true
+}
+```
+
+Never silence errors with `as any`. Use `as unknown as T` only at trust boundaries with a comment.
 
 ## Common patterns
 
@@ -28,6 +34,7 @@ function assertNever(x: never): never {
 switch (block.type) {
   case 'text': return renderText(block);
   case 'tool_use': return renderToolUse(block);
+  case 'error': return renderError(block);
   default: return assertNever(block);
 }
 ```
@@ -36,15 +43,100 @@ switch (block.type) {
 
 ```ts
 type UserId = string & { readonly __brand: 'UserId' };
-const toUserId = (s: string): UserId => s as UserId;
+type SessionId = string & { readonly __brand: 'SessionId' };
+
+function toUserId(s: string): UserId {
+  return s as UserId;
+}
+
+// now TypeScript won't let you accidentally pass SessionId where UserId is expected
+```
+
+### Discriminated unions
+
+```ts
+type Result =
+  | { status: 'success'; data: User }
+  | { status: 'error'; error: Error }
+  | { status: 'loading' };
+
+// ✅ TypeScript knows which fields exist in each branch
+function handle(result: Result) {
+  if (result.status === 'success') {
+    console.log(result.data.name); // data exists here
+  } else if (result.status === 'error') {
+    console.log(result.error.message); // error exists here
+  }
+}
 ```
 
 ### noUncheckedIndexedAccess
 
-After enabling this, `arr[i]` is `T | undefined`. Don't disable it — handle the undefined explicitly.
+After enabling `noUncheckedIndexedAccess: true`, array/object access returns `T | undefined`:
+
+```ts
+const items = ['a', 'b', 'c'];
+const first: string | undefined = items[0]; // ✅ correct
+const last = items[items.length - 1]; // string | undefined
+
+// ✅ Always handle the undefined case
+if (items[0] !== undefined) {
+  console.log(items[0].toUpperCase());
+}
+
+// ✅ Or use a guard helper
+const first = items.at(0);
+if (first) console.log(first.toUpperCase());
+```
 
 ## Anti-patterns
 
-- `!` non-null assertion in production code (use a narrow check)
-- Returning `Promise<any>` from a public API
-- `Function` or `Object` types — always be specific
+| Anti-pattern | Why bad | Fix |
+|---|---|---|
+| `!` non-null assertion | Silences the type checker | Use a narrow check |
+| `Promise<any>` return type | Loses type safety | Use `Promise<unknown>` or generic |
+| `Function` or `Object` types | Too broad | Be specific |
+| `as any` for shortcuts | Defeats type safety | `as unknown as T` at boundaries |
+| Optional chaining chain | `a?.b?.c?.d` when `a` might be undefined | Verify with if/guard first |
+| Missing return types on exports | Hides errors | Always annotate public APIs |
+
+## Useful utility types
+
+```ts
+// Make properties optional
+type Partial<T> = { [P in keyof T]?: T[P] };
+
+// Make properties required
+type Required<T> = { [P in keyof T]-?: T[P] };
+
+// Pick specific properties
+type UserPreview = Pick<User, 'id' | 'name'>;
+
+// Omit specific properties
+type UserWithoutPassword = Omit<User, 'password'>;
+
+// Readonly arrays
+function processItems(items: readonly string[]): void { ... }
+```
+
+## Strict null checking
+
+```ts
+// ✅ Good — explicit handling
+const name: string | null = getName();
+if (name !== null) {
+  console.log(name.toUpperCase());
+}
+
+// ✅ Optional chaining + nullish coalescing
+const len: number = str?.length ?? 0;
+
+// ❌ Bad — assumes not null
+console.log(name!.toUpperCase());
+```
+
+## Skills in scope
+
+- `node-modern` — for TypeScript + ESM patterns
+- `react-modern` — for React + TypeScript patterns
+- `bug-hunter` — for type-related bugs like unsafe casts

@@ -1,69 +1,50 @@
 ---
 name: sdd
 description: |
-  Specification-driven development workflow. Covers spec parsing,
-  task graph generation from requirements, dependency tracking,
-  interactive spec building, persistence, visualization, critical
-  path analysis, spec versioning, and auto-execution.
-version: 2.0.0
+  Use this skill when starting a non-trivial implementation, bug fix, or refactor
+  in WrongStack. Triggers: user says "/sdd", "spec", "specification", "task graph",
+  "SDD", "acceptance criteria", or starts a new feature.
+version: 2.1.0
 ---
 
-# Spec-Driven Development
+# Spec-Driven Development — WrongStack
 
-Guide the agent through specification-first development workflow.
+Every non-trivial change starts with a spec. The spec is the source of truth.
 
-## Core Principle
-
-Every non-trivial change starts with a spec. The spec is the source of truth. Tasks are derived from specs, not the other way around.
-
-## Workflow
-
-```
-Spec → Analysis → Task Graph → Visualization → Execution → Done
-  ↑                    ↓
-  └── Versioning ──────┘ (incremental updates)
-```
-
-### When to use
+## When to use
 
 - New feature implementation
 - Bug fix with complexity
 - Refactoring with scope
 - Any task requiring more than 1 hour
 
-## Slash Command: /sdd
-
-The `/sdd` command provides the full SDD workflow through the REPL/TUI:
+## The SDD workflow
 
 ```
-/sdd new [title]         — Interactive spec builder (question-driven)
-/sdd from <template>     — Create from template (feature|bugfix|refactor|infra|integration|cli-command)
-/sdd list                — List saved specs
-/sdd show <id>           — Show spec details + completeness analysis
-/sdd analyze <id>        — Deep spec analysis (gaps, risks, suggestions)
-/sdd tasks <id>          — Generate task graph from spec
-/sdd graph <id>          — ASCII visualization of task graph
-/sdd status <id>         — Compact task list grouped by status
-/sdd critical <id>       — Critical path analysis with bottlenecks
-/sdd execute <id>        — Auto-execute tasks (dependency-aware)
-/sdd templates           — List available spec templates
-/sdd version <id>        — Show spec version history
+1. /sdd new [title]          → Build spec from questions
+2. /sdd tasks <id>           → Generate task graph from spec
+3. /sdd graph <id>           → Visualize dependencies
+4. /sdd critical <id>        → Find bottlenecks
+5. /sdd execute <id>         → Run tasks (or execute manually)
 ```
 
-### Full workflow example
+## /sdd command reference
 
-```
-1. /sdd new Auth System
-2. Answer questions (title, overview, requirements, acceptance criteria)
-3. /sdd tasks <id>           → generates task graph
-4. /sdd graph <id>           → visualize dependencies
-5. /sdd critical <id>        → find bottlenecks
-6. /sdd execute <id>         → run tasks autonomously
-```
+| Command | What it does |
+|---------|--------------|
+| `/sdd new [title]` | Interactive spec builder |
+| `/sdd from <template>` | Create from template (feature, bugfix, refactor, infra, cli-command) |
+| `/sdd list` | List saved specs |
+| `/sdd show <id>` | Show spec + completeness |
+| `/sdd tasks <id>` | Generate task graph |
+| `/sdd graph <id>` | ASCII visualization |
+| `/sdd status <id>` | Task list by status |
+| `/sdd critical <id>` | Critical path + bottlenecks |
+| `/sdd execute <id>` | Auto-execute tasks |
+| `/sdd approve <id>` | Approve pending tasks |
+| `/sdd version <id>` | Version history |
 
-## Spec Templates
-
-Built-in templates for common scenarios:
+## Spec templates
 
 | Template | Best for |
 |---|---|
@@ -74,53 +55,27 @@ Built-in templates for common scenarios:
 | `integration` | External service integration |
 | `cli-command` | New CLI commands/slash commands |
 
-## Spec sections
+## Spec structure
 
-A good spec includes:
-
+A complete spec has:
 1. **Overview** — What problem does this solve?
-2. **Requirements** — Functional and non-functional requirements with priorities
-3. **Architecture** — High-level design if needed
-4. **API Design** — If applicable
-5. **Data Model** — If applicable
-6. **Security** — Auth, permissions, data handling
-7. **Acceptance Criteria** — How do we know it's done?
+2. **Requirements** — `[priority] description` format
+3. **Architecture** — High-level design (if needed)
+4. **API Design** — Endpoints, inputs, outputs (if applicable)
+5. **Acceptance Criteria** — How do we know it's done?
 
 ### Requirement format
 
 ```
-[functional] User can authenticate with OAuth2
-[security] Rate limiting: 100 req/min per user
-[performance] Response time < 200ms p95
+[critical] Users can authenticate with OAuth2
+[high] Rate limiting: 100 req/min per user  
+[medium] Response time < 200ms p95
+[low] Support dark mode
 ```
 
-Priority markers: `[critical]`, `[high]`, `[medium]`, `[low]`
+## Task graph generation
 
-## Persistence
-
-Specs and task graphs are persisted under `.wrongstack/`:
-
-```
-.wrongstack/
-  specs/
-    _index.json           — Spec index for fast listing
-    <uuid>.json           — Individual spec files
-  task-graphs/
-    _index.json           — Task graph index
-    <uuid>.json           — Individual graph files (Map-aware JSON)
-```
-
-## Task generation
-
-Tasks are derived from requirements:
-
-- Each requirement → one or more tasks
-- Requirements with acceptance criteria → separate test tasks
-- Critical requirements → tasks marked critical
-- Blocked requirements → blocked tasks
-
-## Task states
-
+Each requirement generates one or more tasks. Tasks have states:
 ```
 pending → in_progress → review → completed
               ↓
@@ -129,37 +84,24 @@ pending → in_progress → review → completed
            failed
 ```
 
-## Critical Path Analysis
+## Critical path
 
-The critical path identifies:
-
-- **Bottleneck tasks** that block the most downstream work
-- **Parallel groups** of tasks that can execute concurrently
+The critical path finds:
+- **Bottleneck tasks** blocking the most downstream work
+- **Parallel groups** that can run concurrently
 - **Ready tasks** that can start immediately
 - **Execution order** respecting all dependencies
 
-## Spec Versioning
+## Anti-patterns
 
-When requirements change:
+- **Writing code before the spec** — you'll rewrite it anyway
+- **Spec that's too vague** — "improve auth" is not a spec, "Users authenticate via OAuth2 with PKCE" is
+- **Tasks with no dependencies** — everything is a dependency of something
+- **Spec without acceptance criteria** — how do you know when it's done?
+- **Skipping /sdd for urgent tasks** — the spec is what makes "urgent" possible
 
-- Added requirements → new tasks generated
-- Removed requirements → tasks removed
-- Modified requirements → tasks updated (description, priority, dependencies)
-- Version history tracked for audit trail
+## Skills in scope
 
-## Auto-Execution
-
-The auto-executor runs tasks with:
-
-- Dependency-aware ordering (blocked tasks wait)
-- Automatic retry on transient failures (configurable max retries)
-- Deadlock detection (all remaining blocked by failed tasks)
-- Progress tracking and event emission
-
-## Done conditions
-
-A feature is done when:
-1. All critical and high priority tasks completed
-2. Tests written and passing
-3. Documentation updated
-4. No blocked tasks remaining
+- `refactor-planner` — when the spec reveals a multi-file refactor
+- `bug-hunter` — when a bugfix spec needs a root cause analysis section
+- `multi-agent` — for executing parallel task groups
