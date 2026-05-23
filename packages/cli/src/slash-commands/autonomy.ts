@@ -146,6 +146,20 @@ export function buildAutonomyCommand(opts: SlashCommandContext): SlashCommand {
           opts.renderer.writeWarning(msg);
           return { message: msg };
         }
+        // If a goal was already being worked on (has iterations > 0) and the
+        // engine wasn't explicitly stopped, it means there's a stale goal from
+        // a previous session. Starting eternal mode now would silently pick up
+        // the old mission. Force the user to `/goal clear` first so they
+        // consciously set a fresh goal.
+        const isStale = goal.iterations > 0 || goal.engineState === 'running';
+        if (isStale) {
+          const msg =
+            `${color.amber('Stale goal detected.')} Previous mission has ${goal.iterations} iterations ` +
+            `(engineState: ${goal.engineState}). Clear it first: ${color.bold('/goal clear')}, ` +
+            `then set a new one: ${color.bold('/goal set <mission>')}.`;
+          opts.renderer.writeWarning(msg);
+          return { message: msg };
+        }
         if (!opts.onEternalStart) {
           const msg = 'Eternal mode controller is not wired in this session.';
           opts.renderer.writeWarning(msg);

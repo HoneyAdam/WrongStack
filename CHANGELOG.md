@@ -5,6 +5,81 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.4] - 2026-05-23
+
+### Added
+
+- **New `@wrongstack/plugins` workspace package — the official plugin
+  collection.** Ten ready-to-use plugins shipped under a single
+  package with per-plugin subpath exports
+  (`@wrongstack/plugins/<name>`):
+  - `auto-doc` — generates JSDoc/TSDoc comments for source files
+    (`auto_doc`, `auto_doc_preview` tools)
+  - `git-autocommit` — stages files and writes conventional-commit
+    messages (`git_autocommit`, `git_stage`, `git_status_summary`)
+  - `shell-check` — runs ShellCheck against shell scripts
+    (`shellcheck_run`, `shellcheck_scan`)
+  - `cost-tracker` — listens to `provider.response` events and tracks
+    token usage / estimated cost per model
+    (`cost_summary`, `cost_reset`, `cost_export`)
+  - `file-watcher` — watches paths and emits `file-watcher:changed`
+    events (`watch_start`, `watch_stop`, `watch_list`)
+  - `web-search` — cached DuckDuckGo search + URL fetcher
+    (`web_search`, `web_fetch`)
+  - `json-path` — JSONPath-style queries and mutations
+  - `cron` — schedules recurring actions via `beforeIteration` /
+    `afterIteration` extension hooks (`cron_schedule`, `cron_list`,
+    `cron_cancel`)
+  - `template-engine` — `{{var}}` / `{{#if}}` / `{{#each}}` expansion
+    with a system-prompt contributor that announces the tools
+  - `semver-bump` — conventional-commit-driven version bumps and
+    changelog generation
+  Package version starts at `0.1.0`; the rest of the workspace is on
+  `0.6.4`.
+
+### Fixed
+
+- **Plugin scaffolds now build clean under strict TS.** Multiple
+  type errors in the scaffolded plugins blocked `pnpm run build` and
+  `pnpm run typecheck`. Resolved across the package:
+  - Added the missing `@wrongstack/core` workspace dependency to
+    `packages/plugins/package.json` (every plugin imports
+    `type { Plugin }` from it).
+  - `cost-tracker` no longer tries to mutate the read-only
+    `api.pipelines.response` with a non-existent `.use()` method —
+    it now subscribes to `provider.response` via `api.onEvent` and
+    reads `Usage.input` / `Usage.output` for token accounting.
+  - `cron` corrected its extension registration: `BeforeIterationHook`
+    and `AfterIterationHook` are function types, not objects with a
+    `handle` method, and `api.extensions.register` takes a single
+    `AgentExtension` (the invalid `capabilities.extensions` array
+    was removed).
+  - `template-engine`'s `SystemPromptContributor` registration now
+    passes a function (the actual type) instead of an object.
+  - `file-watcher` dropped the non-existent
+    `WatchFileCallback` import from `node:fs`.
+  - `git-autocommit` imports `existsSync`, fixes `detectBumpType`'s
+    parameter shape, and uses `type` (not `eventType`) on
+    `api.session.append` payloads.
+  - Plugin `execute(input)` callbacks now explicitly type `input`
+    as `Record<string, unknown>`; `noUncheckedIndexedAccess` /
+    `strict` violations across `shell-check`, `web-search`,
+    `semver-bump`, `cron`, and `template-engine` cleaned up with
+    `??` / `??=` and proper key narrowing.
+  - `packages/plugins/tsconfig.json` aligned with the other packages
+    (`include: ["src/**/*"]`, tests excluded) so `tsc --noEmit`
+    doesn't trip on `rootDir` / test-file mismatch.
+
+### Changed — versions
+
+- **All workspace packages bumped 0.6.3 → 0.6.4**: `wrongstack`,
+  `@wrongstack/cli`, `@wrongstack/core`, `@wrongstack/mcp`,
+  `@wrongstack/plug-lsp`, `@wrongstack/providers`,
+  `@wrongstack/runtime`, `@wrongstack/skills`,
+  `@wrongstack/telegram`, `@wrongstack/tools`, `@wrongstack/tui`,
+  `@wrongstack/webui`. The new `@wrongstack/plugins` package debuts
+  at `0.1.0`.
+
 ## [0.6.3] - 2026-05-23
 
 ### Added

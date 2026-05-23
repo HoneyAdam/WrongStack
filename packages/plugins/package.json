@@ -1,0 +1,73 @@
+{
+  "name": "@wrongstack/plugins",
+  "version": "0.1.0",
+  "description": "Official WrongStack plugin collection — auto-doc, git-autocommit, shell-check, cost-tracker, file-watcher, web-search, json-path, cron, template-engine, semver-bump",
+  "license": "MIT",
+  "author": "ECOSTACK TECHNOLOGY OÜ",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./auto-doc": {
+      "types": "./dist/auto-doc/index.d.ts",
+      "import": "./dist/auto-doc/index.js"
+    },
+    "./git-autocommit": {
+      "types": "./dist/git-autocommit/index.d.ts",
+      "import": "./dist/git-autocommit/index.js"
+    },
+    "./shell-check": {
+      "types": "./dist/shell-check/index.d.ts",
+      "import": "./dist/shell-check/index.js"
+    },
+    "./cost-tracker": {
+      "types": "./dist/cost-tracker/index.d.ts",
+      "import": "./dist/cost-tracker/index.js"
+    },
+    "./file-watcher": {
+      "types": "./dist/file-watcher/index.d.ts",
+      "import": "./dist/file-watcher/index.js"
+    },
+    "./web-search": {
+      "types": "./dist/web-search/index.d.ts",
+      "import": "./dist/web-search/index.js"
+    },
+    "./json-path": {
+      "types": "./dist/json-path/index.d.ts",
+      "import": "./dist/json-path/index.js"
+    },
+    "./cron": {
+      "types": "./dist/cron/index.d.ts",
+      "import": "./dist/cron/index.js"
+    },
+    "./template-engine": {
+      "types": "./dist/template-engine/index.d.ts",
+      "import": "./dist/template-engine/index.js"
+    },
+    "./semver-bump": {
+      "types": "./dist/semver-bump/index.d.ts",
+      "import": "./dist/semver-bump/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.19",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^3.0.0"
+  },
+  "dependencies": {
+    "@wrongstack/core": "workspace:*"
+  }
+}

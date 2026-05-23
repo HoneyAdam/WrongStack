@@ -23,6 +23,34 @@ This pulls in the full stack — `@wrongstack/core`, `@wrongstack/runtime`, `@wr
 
 After install, `wrongstack` is on your `PATH`. (`wstack` works too — it's an alias.)
 
+### What's new in 0.6.4
+
+**Official plugin collection — `@wrongstack/plugins`.** Ten ready-to-use
+plugins ship in a single new workspace package, each available via a
+subpath export (`@wrongstack/plugins/<name>`):
+
+- `auto-doc` — generate JSDoc / TSDoc comments for source files
+- `git-autocommit` — stage and commit with conventional-commit messages
+- `shell-check` — wrap ShellCheck over a file list or a directory scan
+- `cost-tracker` — listen to `provider.response` events and report
+  per-model token usage and estimated cost
+- `file-watcher` — watch paths and emit `file-watcher:changed` events
+- `web-search` — cached DuckDuckGo search + a URL→markdown fetcher
+- `json-path` — JSONPath-style queries and mutations
+- `cron` — schedule recurring actions via `beforeIteration` /
+  `afterIteration` extension hooks
+- `template-engine` — `{{var}}` / `{{#if}}` / `{{#each}}` expansion,
+  with a system-prompt contributor that advertises the tools
+- `semver-bump` — conventional-commit-driven version bumps and
+  changelog generation
+
+Build hygiene: every plugin now type-checks under `strict` +
+`noUncheckedIndexedAccess`, uses the real plugin API
+(`api.onEvent('provider.response', …)` instead of mutating the
+read-only response pipeline, `AgentExtension` for `beforeIteration` /
+`afterIteration`, `SystemPromptContributor` as a function), and ships
+proper `Record<string, unknown>` typings on every tool `execute`.
+
 ### What's new in 0.6.1
 
 **Reliability + correctness pass.** Tool cleanup contract hardened

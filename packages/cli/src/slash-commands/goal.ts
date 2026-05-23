@@ -6,6 +6,7 @@ import {
   goalFilePath,
   loadGoal,
   saveGoal,
+  type GoalFile,
 } from '@wrongstack/core';
 import type { SlashCommand } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
@@ -99,10 +100,12 @@ export function buildGoalCommand(opts: SlashCommandContext): SlashCommand {
             opts.renderer.write(msg);
             return { message: msg };
           }
-          // Soft-clear: mark engine stopped so any running engine exits next cycle,
-          // and write a sentinel goal that the engine treats as "no work".
-          // We *delete* the file rather than zero it out so loadGoal() returns null
-          // and the engine's runOneIteration() short-circuits to stopRequested.
+          // Mark abandoned first and persist — if the engine is mid-iteration
+          // it will see this state on its next runOneIteration() check and stop.
+          // Only then unlink the file so loadGoal() returns null and the
+          // engine exits immediately rather than waiting for the next cycle.
+          const abandoned: GoalFile = { ...existing, goalState: 'abandoned' };
+          await saveGoal(goalPath, abandoned);
           const { unlink } = await import('node:fs/promises');
           try {
             await unlink(goalPath);
@@ -110,7 +113,7 @@ export function buildGoalCommand(opts: SlashCommandContext): SlashCommand {
             // best-effort
           }
           if (opts.onEternalStop) opts.onEternalStop();
-          const msg = `${color.amber('Goal cleared.')} Eternal mode will stop on next cycle.`;
+          const msg = `${color.amber('Goal cleared.')} Previous goal marked abandoned; eternal mode will stop.`;
           opts.renderer.write(msg);
           return { message: msg };
         }

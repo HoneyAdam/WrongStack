@@ -3178,6 +3178,15 @@ export function App({
       }
     } finally {
       eternalLoopRunningRef.current = false;
+      // Sync the displayed autonomy state with reality. The loop only exits
+      // when getAutonomy() !== 'eternal' or engine.currentState === 'stopped',
+      // both of which mean the mode is effectively off/idle. Refreshing here
+      // stops the status bar from oscillating between "● thinking…" and
+      // "● idle" forever after the goal is done.
+      if (getAutonomy) {
+        const finalMode = getAutonomy();
+        if (finalMode !== autonomyLive) setAutonomyLive(finalMode);
+      }
     }
   };
   const eternalLoopRunningRef = useRef(false);

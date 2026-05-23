@@ -1,0 +1,65 @@
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import webSearchPlugin from '../src/web-search';
+
+const mockApi = {
+  tools: {
+    register: vi.fn()
+  },
+  config: { extensions: {} },
+  log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  metrics: { counter: vi.fn(), histogram: vi.fn(), gauge: vi.fn() },
+};
+
+describe('web-search plugin', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    try {
+      webSearchPlugin.teardown?.(mockApi as any);
+    } catch {
+      // ignore
+    }
+  });
+
+  it('exports a default Plugin object', () => {
+    expect(webSearchPlugin).toBeDefined();
+    expect(typeof webSearchPlugin).toBe('object');
+  });
+
+  it('plugin has correct name', () => {
+    expect(webSearchPlugin.name).toBe('web-search');
+  });
+
+  it('plugin has correct apiVersion', () => {
+    expect(webSearchPlugin.apiVersion).toMatch(/^\^?0\.1/);
+  });
+
+  it('registers web_search tool', () => {
+    webSearchPlugin.setup(mockApi as any);
+    const toolNames = mockApi.tools.register.mock.calls.map(([t]: any[]) => t.name);
+    expect(toolNames).toContain('web_search');
+  });
+
+  it('registers web_fetch tool', () => {
+    webSearchPlugin.setup(mockApi as any);
+    const toolNames = mockApi.tools.register.mock.calls.map(([t]: any[]) => t.name);
+    expect(toolNames).toContain('web_fetch');
+  });
+
+  it('web_search tool has correct schema', () => {
+    webSearchPlugin.setup(mockApi as any);
+    const tool = mockApi.tools.register.mock.calls.find(
+      ([t]: any[]) => t.name === 'web_search'
+    )?.[0];
+
+    expect(tool).toBeDefined();
+    expect(tool?.name).toBe('web_search');
+    expect(tool?.permission).toBe('auto');
+    expect(tool?.mutating).toBe(false);
+    const schema = tool?.inputSchema as { required: string[]; properties: Record<string, unknown> };
+    expect(schema.required).toContain('query');
+    expect(schema.properties['query']).toBeDefined();
+  });
+});

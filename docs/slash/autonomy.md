@@ -20,7 +20,7 @@ Controls how much autonomy the agent has between turns. This drives `DefaultMode
 /autonomy off        → stop all autonomous modes
 /autonomy suggest   → enable suggestion mode
 /autonomy auto      → enable self-driving mode
-/autonomy eternal   → enable eternal loop (requires /goal set first)
+/autonomy eternal   → enable eternal loop (requires /goal set first; fails if stale goal exists — run /goal clear first)
 /autonomy stop      → stop eternal loop gracefully
 /autonomy toggle    → cycle through: off → suggest → auto → eternal → off
 ```
@@ -28,6 +28,7 @@ Controls how much autonomy the agent has between turns. This drives `DefaultMode
 ## Eternal mode
 
 - Requires a goal file at `<projectRoot>/.wrongstack/goal.json` (set via `/goal`)
+- **Stale goal guard**: If the existing goal has `iterations > 0` or `engineState === 'running'`, `/autonomy eternal` refuses to start and tells the user to run `/goal clear` first. This prevents accidentally resuming an old mission from a previous session.
 - Forces YOLO on (`opts.onYolo(true)`)
 - Starts the `eternal-autonomy` engine via `opts.onEternalStart()`
 - Writes a journal to `goal.json` on each iteration: task, status (success/failure/aborted), source, note

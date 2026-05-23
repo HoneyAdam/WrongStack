@@ -9,10 +9,12 @@ Sets, inspects, or clears the long-running mission used by `/autonomy eternal`. 
 `goal.json`:
 ```json
 {
+  "version": 1,
   "goal": "string",
   "setAt": "ISO timestamp",
   "lastActivityAt": "ISO timestamp",
   "engineState": "idle | running | stopped",
+  "goalState": "active | completed | abandoned",
   "iterations": 0,
   "journal": [
     {
@@ -26,6 +28,20 @@ Sets, inspects, or clears the long-running mission used by `/autonomy eternal`. 
 }
 ```
 
+### `goalState` lifecycle
+
+| Value | Meaning |
+|-------|---------|
+| `active` (default) | Goal is live; engine will run iterations against it |
+| `completed` | Engine detected `[GOAL_COMPLETE]` + verification passed; engine refuses to restart |
+| `abandoned` | User ran `/goal clear`; engine stops on next iteration check |
+
+Once `goalState` is not `active`, the engine refuses to run further iterations — this protects against accidental restarts burning API quota after work is done.
+
+### Stale goal guard
+
+`/autonomy eternal` refuses to start if the existing goal has `iterations > 0` or `engineState === 'running'`. The user must `/goal clear` first to consciously start a fresh mission.
+
 ## Usage
 
 | Usage | Effect |
@@ -34,7 +50,7 @@ Sets, inspects, or clears the long-running mission used by `/autonomy eternal`. 
 | `/goal show` | Same as above |
 | `/goal status` | Same as above |
 | `/goal set <text>` | Set or replace the goal |
-| `/goal clear` | Delete goal.json and stop eternal loop if running |
+| `/goal clear` | Mark goal abandoned, delete goal.json, and stop eternal loop immediately |
 | `/goal journal [N]` | Show last N journal entries (default 25) |
 | `/goal <any text without verb>` | Treated as `/goal set <text>` |
 
