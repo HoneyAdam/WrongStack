@@ -95,6 +95,16 @@ export const gitTool: Tool<GitInput, GitOutput> = {
   async execute(input, ctx, opts) {
     if (!input?.command) throw new Error('git: command is required');
 
+    if (input.command === 'commit' && !input.message) {
+      return {
+        command: 'commit',
+        stdout: '',
+        stderr: 'git commit requires a message (-m flag)',
+        exitCode: 1,
+        truncated: false,
+      };
+    }
+
     // Bound the search at projectRoot so a non-git project doesn't drift
     // into a parent repo (e.g. ~/repos/.git) and operate on the wrong tree.
     const gitDir = findGitDir(ctx.cwd, ctx.projectRoot);
