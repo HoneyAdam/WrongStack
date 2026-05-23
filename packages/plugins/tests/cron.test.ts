@@ -51,10 +51,14 @@ describe('cron plugin', () => {
     expect(registeredTools).toContain('cron_cancel');
   });
 
-  it('should register beforeIteration extension', () => {
+  it('should register an extension with beforeIteration and afterIteration hooks', () => {
     cronPlugin.setup(mockApi as any);
-    const extensions = mockApi.extensions.register.mock.calls.map(([name]: any[]) => name);
-    expect(extensions).toContain('beforeIteration');
+    expect(mockApi.extensions.register).toHaveBeenCalledTimes(1);
+    const ext = mockApi.extensions.register.mock.calls[0]?.[0];
+    expect(ext).toBeDefined();
+    expect(ext.owner).toBe('cron');
+    expect(typeof ext.beforeIteration).toBe('function');
+    expect(typeof ext.afterIteration).toBe('function');
   });
 
   it('should subscribe to cron:tick events', () => {
