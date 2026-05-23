@@ -5,7 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.6.2] - 2026-05-23
+## [0.6.3] - 2026-05-23
+
+### Added
+
+- **Launch-time feature hints.** After the provider / model / mode /
+  YOLO prompts resolve and right before the REPL or TUI starts, the
+  CLI now prints a one-screen reference of ~22 things WrongStack does,
+  grouped into 5 buckets: Autonomy (`/goal`, `/autonomy eternal`,
+  `--eternal`), Multi-agent / fleet (`--director`, `/director`,
+  `/spawn`, `/fleet status|usage|kill|log|manifest`), Steering (`Esc`,
+  `/steer`, `Ctrl+C × 1/2/3`), Modes & context (`/mode`, `/model`,
+  `/yolo`, `/context mode`, `/compact`, `/plan`), and Daily ops
+  (`@<query>` / `Alt+V` / `/image`, `/mcp`, `/plugin`, `/skill`,
+  `/init`, `/commit`, `/diag`, `/usage`, `wstack resume`). New
+  `packages/cli/src/launch-hints.ts` owns the curated pool and the
+  renderer; the block is suppressed by `--no-hints` or
+  `WRONGSTACK_NO_HINTS=1` (anything other than `0` / `false`). Only
+  fires when the boot already ran the interactive launch prompts —
+  headless / non-TTY runs are unaffected. `--no-hints` and `--hints`
+  registered as boolean flags in `arg-parser.ts`.
 
 ### Fixed
 
@@ -18,12 +37,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed — versions
 
-- **All workspace packages bumped 0.6.1 → 0.6.2**: `wrongstack`,
+- **All workspace packages bumped 0.6.1 → 0.6.3**: `wrongstack`,
   `@wrongstack/cli`, `@wrongstack/core`, `@wrongstack/mcp`,
   `@wrongstack/plug-lsp`, `@wrongstack/providers`,
   `@wrongstack/runtime`, `@wrongstack/skills`,
   `@wrongstack/telegram`, `@wrongstack/tools`, `@wrongstack/tui`,
-  `@wrongstack/webui`.
+  `@wrongstack/webui`. (0.6.2 was an internal label that never
+  shipped.)
 
 ## [0.6.1] - 2026-05-23
 
