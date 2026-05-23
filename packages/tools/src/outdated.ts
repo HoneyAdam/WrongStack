@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { stat } from 'node:fs/promises';
 import { buildChildEnv } from '@wrongstack/core';
 import type { Tool } from '@wrongstack/core';
 import { safeResolve } from './_util.js';
@@ -68,7 +69,6 @@ export const outdatedTool: Tool<OutdatedInput, OutdatedOutput> = {
 };
 
 async function detectManager(cwd: string): Promise<string> {
-  const { stat } = require('node:fs/promises');
   try {
     await stat(`${cwd}/pnpm-lock.yaml`);
     return 'pnpm';

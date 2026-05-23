@@ -28,7 +28,7 @@ export interface EventMap {
   'provider.text_delta': { ctx: Context; text: string };
   'provider.thinking_delta': { ctx: Context; text: string };
   'provider.tool_use_start': { ctx: Context; id: string; name: string };
-  'provider.tool_use_stop': { ctx: Context; id: string };
+  'provider.tool_use_stop': { ctx: Context; id: string; name: string };
   /**
    * Fired before each retry of a failed provider call. `attempt` is 1-based
    * (the first retry is attempt 1, etc.). `description` is the human-readable

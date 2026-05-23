@@ -245,10 +245,12 @@ export async function streamProviderToResponse(
         case 'tool_use_input_delta':
           handleToolUseInputDelta(state, ev as Parameters<typeof handleToolUseInputDelta>[1]);
           break;
-        case 'tool_use_stop':
+        case 'tool_use_stop': {
+          const stoppedName = state.tools.get(ev.id)?.name ?? 'unknown';
           handleToolUseStop(state, ev as Parameters<typeof handleToolUseStop>[1]);
-          events.emit('provider.tool_use_stop', { ctx, id: ev.id });
+          events.emit('provider.tool_use_stop', { ctx, id: ev.id, name: stoppedName });
           break;
+        }
         case 'thinking_start':
           handleThinkingStart(state, ev as Parameters<typeof handleThinkingStart>[1]);
           break;

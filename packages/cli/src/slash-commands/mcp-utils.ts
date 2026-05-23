@@ -155,7 +155,7 @@ async function runRemove(
   if (!configured[name]) return `Server "${name}" is not in config.`;
   await mcpRegistry.stop(name).catch(() => {/* ignore */});
   const full = await readConfig(configPath);
-  const mcpServers = { ...(full.mcpServers ?? {}) };
+  const mcpServers: Record<string, MCPServerConfig> = { ...((full.mcpServers as Record<string, MCPServerConfig> | undefined) ?? {}) };
   delete mcpServers[name];
   full.mcpServers = mcpServers;
   await writeConfig(configPath, full);
@@ -181,7 +181,7 @@ async function runEnable(
     }
   }
   const full = await readConfig(configPath);
-  const mcpServers = { ...(full.mcpServers ?? {}) };
+  const mcpServers: Record<string, MCPServerConfig> = { ...((full.mcpServers as Record<string, MCPServerConfig> | undefined) ?? {}) };
   mcpServers[name] = { ...mcpServers[name]!, enabled: true };
   full.mcpServers = mcpServers;
   await writeConfig(configPath, full);
@@ -203,7 +203,7 @@ async function runDisable(
   if (!cfg) return `Server "${name}" is not in config.`;
   await mcpRegistry.stop(name).catch(() => {/* ignore */});
   const full = await readConfig(configPath);
-  const mcpServers = { ...(full.mcpServers ?? {}) };
+  const mcpServers: Record<string, MCPServerConfig> = { ...((full.mcpServers as Record<string, MCPServerConfig> | undefined) ?? {}) };
   mcpServers[name] = { ...mcpServers[name]!, enabled: false };
   full.mcpServers = mcpServers;
   await writeConfig(configPath, full);

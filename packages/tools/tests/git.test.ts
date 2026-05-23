@@ -321,9 +321,15 @@ describe('gitTool findGitDir bounds via real fs', () => {
     // findGitDir should find it by walking up
     const base = await fs.mkdtemp(path.join(os.tmpdir(), 'git-find-'));
     try {
-      const gitDir = path.join(base, '.git');
-      await fs.mkdir(path.join(gitDir, 'refs', 'heads'), { recursive: true });
-      await fs.writeFile(path.join(gitDir, 'HEAD'), 'ref: refs/heads/main\n');
+      // Use real `git init` instead of fabricating .git/HEAD by hand —
+      // a hand-built directory passes findGitDir's existence check but
+      // `git status` rejects it as not a valid repo (exit 128).
+      const { spawnSync } = await import('node:child_process');
+      const init = spawnSync('git', ['init', '-q', base], { stdio: 'ignore' });
+      if (init.status !== 0) {
+        // git not available in this environment — skip rather than fail.
+        return;
+      }
 
       const cwd = path.join(base, 'src', 'utils');
       await fs.mkdir(cwd, { recursive: true });

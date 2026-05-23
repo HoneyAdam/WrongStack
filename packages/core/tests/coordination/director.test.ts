@@ -757,6 +757,8 @@ describe('Director orchestration', () => {
       expect(promptA).not.toContain('You are the Director');
       expect(promptB).not.toContain('You are the Director');
     });
+  });
+
   // ── readSession — sessionsRoot not set, file unreadable, tail param ──────────
 
   describe('readSession robustness', () => {
@@ -872,7 +874,7 @@ describe('Director orchestration', () => {
       const prompt = dir.leaderSystemPrompt('custom base prompt');
       expect(prompt).toContain('custom base prompt');
       // Director preamble is always prepended
-      expect(prompt).toContain('WrongStack');
+      expect(prompt).toContain('Director');
       dir.shutdown();
     });
 

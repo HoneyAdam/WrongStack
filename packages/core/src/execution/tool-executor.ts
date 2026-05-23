@@ -232,6 +232,8 @@ export class ToolExecutor {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(new Error('tool timeout')), timeoutMs);
     const combined = AbortSignal.any([parentSignal, ctrl.signal]);
+    let cleanupCalled = false;
+    let caught = false;
     try {
       // Streaming variant takes precedence — yields progress events, then
       // a final 'final' event with the typed output. Tools that don't
@@ -241,8 +243,10 @@ export class ToolExecutor {
       }
       return await tool.execute(input, ctx, { signal: combined });
     } catch (err) {
+      caught = true;
       if (combined.aborted && typeof tool.cleanup === 'function') {
         // Best-effort cleanup; never let it mask the original error.
+        cleanupCalled = true;
         try {
           await tool.cleanup(input, ctx);
         } catch {
@@ -255,8 +259,11 @@ export class ToolExecutor {
       // If the tool completed successfully (no error thrown) but the combined
       // signal was aborted (e.g. timeout), the catch block above never fired.
       // Call cleanup here and then throw so the caller sees the abort.
-      if (combined.aborted) {
-        if (typeof tool.cleanup === 'function') {
+      // When `caught` is true, we already have an in-flight throw — don't
+      // override it from `finally` (that would replace the original error
+      // with the abort reason and mask the actual failure).
+      if (combined.aborted && !caught) {
+        if (!cleanupCalled && typeof tool.cleanup === 'function') {
           try {
             await tool.cleanup(input, ctx);
           } catch {
