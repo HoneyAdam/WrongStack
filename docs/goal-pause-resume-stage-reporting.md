@@ -113,11 +113,11 @@ Mevcut status bar'a (veya autonomy chip yanına) ek:
 
 | File | Change |
 |------|--------|
-| `packages/core/src/storage/goal-store.ts` | Add `paused` to `GoalState` type |
+| `packages/core/src/storage/goal-store.ts` | Add `paused` to `GoalState` type; update `formatGoal` output |
 | `packages/core/src/execution/eternal-autonomy.ts` | Add `onStage` callback; call it at each phase transition |
-| `packages/cli/src/slash-commands/goal.ts` | Add `pause` and `resume` verbs; update `status` output |
-| `packages/tui/src/app.tsx` | Add `eternalStage` state; wire `onStage` from engine; render in status area |
-| `packages/tui/src/components/eternal-stage.tsx` (new) | Stage indicator component |
+| `packages/cli/src/slash-commands/goal.ts` | Add `pause` and `resume` verbs |
+| `packages/tui/src/app.tsx` | Add `eternalStage` state; wire `onStage` from engine; render in status bar |
+| `packages/tui/src/components/status-bar.tsx` | Add `eternalStage` prop; add `EternalStageChip` component |
 
 ## Backward Compatibility
 
