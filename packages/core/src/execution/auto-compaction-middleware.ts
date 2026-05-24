@@ -3,7 +3,7 @@ import type { EventBus } from '../kernel/events.js';
 import type { MiddlewareHandler } from '../kernel/pipeline.js';
 import type { Compactor } from '../types/compactor.js';
 import type { ContextWindowAggressiveOn, ContextWindowPolicy } from '../types/context-window.js';
-import { AgentError } from '../types/errors.js';
+import { AgentError, ERROR_CODES } from '../types/errors.js';
 
 export type CompactionFailureMode = 'throw' | 'throw_on_hard' | 'continue';
 
@@ -134,7 +134,7 @@ export class AutoCompactionMiddleware {
       if (fatal) {
         throw new AgentError({
           message: `Auto-compaction failed at ${pressure.level} threshold`,
-          code: 'AGENT_CONTEXT_OVERFLOW',
+          code: ERROR_CODES.AGENT_CONTEXT_OVERFLOW,
           recoverable: true,
           context: {
             level: pressure.level,

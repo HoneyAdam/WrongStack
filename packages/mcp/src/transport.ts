@@ -2,6 +2,7 @@ import type { Dispatcher } from 'undici';
 import * as https from 'node:https';
 import * as net from 'node:net';
 import type { ConnectionState, JsonRpcResponse, MCPTool, ToolCallResult } from './client.js';
+import { MCP_CONSTANTS } from './constants.js';
 import { normalizeMCPTools } from './tool-schema.js';
 
 export type JsonRpcResult = {
@@ -356,9 +357,9 @@ export class SSETransport {
       this.readSSEBody(reader, textDecoder, sseReader);
 
       const initRes = await this.httpPost('initialize', {
-        protocolVersion: '2024-11-05',
+        protocolVersion: MCP_CONSTANTS.PROTOCOL_VERSION,
         capabilities: { tools: {} },
-        clientInfo: { name: 'wrongstack', version: '0.1.10' },
+        clientInfo: MCP_CONSTANTS.CLIENT_INFO,
       });
 
       if (initRes.error) {
@@ -450,7 +451,7 @@ export class SSETransport {
         // Cap the body — a misbehaving server could return megabytes of
         // HTML and that's not useful in an error message anyway.
         const body = await res.text();
-        const cap = 1024;
+        const cap = MCP_CONSTANTS.REQUEST_LOG_CAP;
         const snippet =
           body.length > cap ? `${body.slice(0, cap)}… [${body.length} bytes total]` : body;
         throw new Error(`HTTP ${res.status}: ${snippet}`);
@@ -637,9 +638,9 @@ export class StreamableHTTPTransport {
           id: this.nextId++,
           method: 'initialize',
           params: {
-            protocolVersion: '2024-11-05',
+            protocolVersion: MCP_CONSTANTS.PROTOCOL_VERSION,
             capabilities: { tools: {} },
-            clientInfo: { name: 'wrongstack', version: '0.1.10' },
+            clientInfo: MCP_CONSTANTS.CLIENT_INFO,
           },
         }),
         signal,

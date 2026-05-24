@@ -1,4 +1,5 @@
 import type { EventBus, Logger, MCPServerConfig, ToolRegistry } from '@wrongstack/core';
+import { MCP_CONSTANTS } from './constants.js';
 import { type ConnectionState, MCPClient } from './client.js';
 import { wrapMCPTool } from './wrap-tool.js';
 
@@ -209,9 +210,9 @@ export class MCPRegistry {
    * times). Caps total reconnect storm at ~5 cycles, then the slot
    * needs an explicit `restart()` to re-engage.
    */
-  private static readonly MAX_RECONNECT_CYCLES = 5;
+  private static readonly MAX_RECONNECT_CYCLES = MCP_CONSTANTS.RECONNECT.MAX_CYCLES;
   /** Base delay between cycles, in ms. Real delay adds jitter. */
-  private static readonly BASE_RECONNECT_DELAY_MS = 1000;
+  private static readonly BASE_RECONNECT_DELAY_MS = MCP_CONSTANTS.RECONNECT.BASE_DELAY_MS;
   /** Hard ceiling on the inter-cycle delay so the user doesn't wait minutes. */
   private static readonly MAX_RECONNECT_DELAY_MS = 30_000;
 
@@ -236,7 +237,7 @@ export class MCPRegistry {
       MCPRegistry.BASE_RECONNECT_DELAY_MS * 2 ** slot.reconnectCycles,
       MCPRegistry.MAX_RECONNECT_DELAY_MS,
     );
-    const jitter = base * 0.2 * (Math.random() * 2 - 1);
+    const jitter = base * MCP_CONSTANTS.RECONNECT.JITTER_FACTOR * (Math.random() * 2 - 1);
     const delay = Math.max(100, Math.round(base + jitter));
     setTimeout(() => this.attemptReconnect(slot), delay);
   }
@@ -248,7 +249,7 @@ export class MCPRegistry {
   }
 
   private async attemptConnect(slot: ServerSlot): Promise<void> {
-    const MAX_ATTEMPTS = 3;
+    const MAX_ATTEMPTS = MCP_CONSTANTS.RECONNECT.MAX_ATTEMPTS;
     let attempt = 0;
     while (attempt < MAX_ATTEMPTS) {
       attempt++;

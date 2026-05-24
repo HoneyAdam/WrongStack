@@ -9,6 +9,7 @@ import type { Config, ConfigLoader } from '../types/config.js';
 import type { SecretVault } from '../types/secret-vault.js';
 import { safeParse } from '../utils/safe-json.js';
 import type { WstackPaths } from '../utils/wstack-paths.js';
+import { DEFAULT_TOOLS_CONFIG, DEFAULT_CONTEXT_CONFIG } from '../execution/compactor.js';
 
 /**
  * Defaults express *behavior*, not identity. Provider and model are NOT
@@ -25,16 +26,16 @@ const BEHAVIOR_DEFAULTS: Omit<Config, 'provider' | 'model'> = {
     softThreshold: 0.75,
     hardThreshold: 0.9,
     autoCompact: true,
-    preserveK: 10,
-    eliseThreshold: 2000,
+    preserveK: DEFAULT_CONTEXT_CONFIG.preserveK,
+    eliseThreshold: DEFAULT_CONTEXT_CONFIG.eliseThreshold,
   },
   tools: {
-    defaultExecutionStrategy: 'smart',
-    maxIterations: 100,
-    iterationTimeoutMs: 300_000,
-    sessionTimeoutMs: 1_800_000,
-    perIterationOutputCapBytes: 100_000,
-    autoExtendLimit: true,
+    defaultExecutionStrategy: DEFAULT_TOOLS_CONFIG.defaultExecutionStrategy,
+    maxIterations: DEFAULT_TOOLS_CONFIG.maxIterations,
+    iterationTimeoutMs: DEFAULT_TOOLS_CONFIG.iterationTimeoutMs,
+    sessionTimeoutMs: DEFAULT_TOOLS_CONFIG.sessionTimeoutMs,
+    perIterationOutputCapBytes: DEFAULT_TOOLS_CONFIG.perIterationOutputCapBytes,
+    autoExtendLimit: DEFAULT_TOOLS_CONFIG.autoExtendLimit,
   },
   log: { level: 'info' },
   features: {

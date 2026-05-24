@@ -1,3 +1,4 @@
+import { LSP_CONSTANTS } from '../constants.js';
 import type { Tool } from '@wrongstack/core';
 import { formatHover } from '../formatters/hover.js';
 import { humanToLSP } from '../position.js';
@@ -34,7 +35,7 @@ export function createHoverTool(deps: ToolDeps): Tool<HoverInput, string> {
     },
     permission: 'auto',
     mutating: false,
-    timeoutMs: 5000,
+    timeoutMs: LSP_CONSTANTS.TOOL_TIMEOUT_MS,
     async execute(input, ctx, opts) {
       try {
         const file = resolveInputPath(input.path, ctx);
@@ -50,7 +51,7 @@ export function createHoverTool(deps: ToolDeps): Tool<HoverInput, string> {
         return formatHover(
           await server.hover(
             { textDocument: { uri: pathToUri(file) }, position },
-            5000,
+            LSP_CONSTANTS.TOOL_TIMEOUT_MS,
             opts.signal,
           ),
         );

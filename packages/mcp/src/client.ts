@@ -1,5 +1,6 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import { buildChildEnv } from '@wrongstack/core';
+import { MCP_CONSTANTS } from './constants.js';
 import { normalizeMCPTools } from './tool-schema.js';
 import { type HttpTransportOptions, SSETransport, StreamableHTTPTransport } from './transport.js';
 
@@ -196,9 +197,9 @@ export class MCPClient {
     const initialize = await this.request(
       'initialize',
       {
-        protocolVersion: '2024-11-05',
+        protocolVersion: MCP_CONSTANTS.PROTOCOL_VERSION,
         capabilities: { tools: {} },
-        clientInfo: { name: 'wrongstack', version: '0.1.10' },
+        clientInfo: MCP_CONSTANTS.CLIENT_INFO,
       },
       this.opts.startupTimeoutMs ?? 10_000,
     );

@@ -1,3 +1,4 @@
+import { LSP_CONSTANTS } from '../constants.js';
 import type { Tool } from '@wrongstack/core';
 import { formatDiagnostics } from '../formatters/diagnostics.js';
 import { supportsPullDiagnostics } from '../server/capabilities.js';
@@ -21,7 +22,7 @@ export function createDiagnosticsTool(deps: ToolDeps): Tool<DiagnosticsInput, st
     },
     permission: 'auto',
     mutating: false,
-    timeoutMs: 5000,
+    timeoutMs: LSP_CONSTANTS.TOOL_TIMEOUT_MS,
     maxOutputBytes: 65_536,
     async execute(input, ctx, opts) {
       try {
@@ -32,7 +33,7 @@ export function createDiagnosticsTool(deps: ToolDeps): Tool<DiagnosticsInput, st
           const uri = pathToUri(file);
           const diagnostics =
             server.capabilities && supportsPullDiagnostics(server.capabilities)
-              ? await server.pullDiagnostics(uri, 5000, opts.signal)
+              ? await server.pullDiagnostics(uri, LSP_CONSTANTS.TOOL_TIMEOUT_MS, opts.signal)
               : server.getDiagnostics(uri);
           byFile.set(file, diagnostics);
         } else {

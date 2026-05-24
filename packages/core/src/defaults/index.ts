@@ -120,7 +120,12 @@ export { DefaultRetryPolicy } from '../execution/retry-policy.js';
 export { DefaultErrorHandler } from '../execution/error-handler.js';
 export { DefaultSkillLoader, type SkillLoaderOptions } from '../execution/skill-loader.js';
 export { DefaultProviderRunner } from '../execution/provider-runner-impl.js';
-export { HybridCompactor, type CompactorOptions } from '../execution/compactor.js';
+export {
+  HybridCompactor,
+  type CompactorOptions,
+  DEFAULT_TOOLS_CONFIG,
+  DEFAULT_CONTEXT_CONFIG,
+} from '../execution/compactor.js';
 export {
   IntelligentCompactor,
   type IntelligentCompactorOptions,

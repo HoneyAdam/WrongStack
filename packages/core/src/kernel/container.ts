@@ -1,4 +1,4 @@
-import { WrongStackError } from '../types/errors.js';
+import { WrongStackError, ERROR_CODES } from '../types/errors.js';
 
 /**
  * Container — dependency injection with explicit bind / override / decorate.
@@ -33,7 +33,7 @@ export class Container {
     if (this.entries.has(token)) {
       throw new WrongStackError({
         message: `Container: token "${token.description ?? 'unknown'}" already bound`,
-        code: 'CONTAINER_TOKEN_ALREADY_BOUND',
+        code: ERROR_CODES.CONTAINER_TOKEN_ALREADY_BOUND,
         subsystem: 'container',
         context: { token: token.description },
       });
@@ -51,7 +51,7 @@ export class Container {
     if (!existing) {
       throw new WrongStackError({
         message: `Container: cannot override "${token.description ?? 'unknown'}" — not bound`,
-        code: 'CONTAINER_TOKEN_NOT_BOUND',
+        code: ERROR_CODES.CONTAINER_TOKEN_NOT_BOUND,
         subsystem: 'container',
         context: { token: token.description },
       });
@@ -69,7 +69,7 @@ export class Container {
     if (!existing) {
       throw new WrongStackError({
         message: `Container: cannot decorate "${token.description ?? 'unknown'}" — not bound`,
-        code: 'CONTAINER_TOKEN_NOT_BOUND',
+        code: ERROR_CODES.CONTAINER_TOKEN_NOT_BOUND,
         subsystem: 'container',
         context: { token: token.description },
       });
@@ -84,7 +84,7 @@ export class Container {
     if (!entry) {
       throw new WrongStackError({
         message: `Container: token "${token.description ?? 'unknown'}" not bound`,
-        code: 'CONTAINER_TOKEN_NOT_BOUND',
+        code: ERROR_CODES.CONTAINER_TOKEN_NOT_BOUND,
         subsystem: 'container',
         context: { token: token.description },
       });

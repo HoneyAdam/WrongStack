@@ -1,3 +1,4 @@
+import { LSP_CONSTANTS } from '../constants.js';
 import type { Tool } from '@wrongstack/core';
 import type { SymbolInformation } from 'vscode-languageserver-protocol';
 import { formatDocumentSymbols, formatWorkspaceSymbols } from '../formatters/symbols.js';
@@ -27,7 +28,7 @@ export function createSymbolsTool(deps: ToolDeps): Tool<SymbolsInput, string> {
     },
     permission: 'auto',
     mutating: false,
-    timeoutMs: 5000,
+    timeoutMs: LSP_CONSTANTS.TOOL_TIMEOUT_MS,
     async execute(input, ctx, opts) {
       try {
         if (input.path) {
@@ -41,7 +42,7 @@ export function createSymbolsTool(deps: ToolDeps): Tool<SymbolsInput, string> {
           }
           const symbols = await server.documentSymbol(
             { textDocument: { uri: pathToUri(file) } },
-            5000,
+            LSP_CONSTANTS.TOOL_TIMEOUT_MS,
             opts.signal,
           );
           return formatDocumentSymbols(file, symbols, ctx.cwd);
@@ -51,7 +52,7 @@ export function createSymbolsTool(deps: ToolDeps): Tool<SymbolsInput, string> {
         for (const server of deps.registry.list()) {
           if (server.state !== 'ready') continue;
           if (server.capabilities && !supportsWorkspaceSymbol(server.capabilities)) continue;
-          const result = await server.workspaceSymbol({ query }, 5000, opts.signal);
+          const result = await server.workspaceSymbol({ query }, LSP_CONSTANTS.TOOL_TIMEOUT_MS, opts.signal);
           if (result) merged.push(...result);
         }
         return formatWorkspaceSymbols(merged, query, ctx.cwd, input.limit ?? 100);

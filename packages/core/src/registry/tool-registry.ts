@@ -1,4 +1,4 @@
-import { WrongStackError } from '../types/errors.js';
+import { WrongStackError, ERROR_CODES } from '../types/errors.js';
 import type { Tool } from '../types/tool.js';
 
 /**
@@ -31,7 +31,7 @@ export class ToolRegistry {
     if (this.tools.has(tool.name)) {
       throw new WrongStackError({
         message: `Tool "${tool.name}" already registered`,
-        code: 'REGISTRY_DUPLICATE',
+        code: ERROR_CODES.REGISTRY_DUPLICATE,
         subsystem: 'container',
         context: { tool: tool.name },
       });
@@ -89,7 +89,7 @@ export class ToolRegistry {
     if (!this.tools.has(name)) {
       throw new WrongStackError({
         message: `Tool "${name}" not registered; cannot override`,
-        code: 'REGISTRY_NOT_FOUND',
+        code: ERROR_CODES.REGISTRY_NOT_FOUND,
         subsystem: 'container',
         context: { tool: name },
       });
@@ -113,7 +113,7 @@ export class ToolRegistry {
     if (!entry) {
       throw new WrongStackError({
         message: `Tool "${name}" not registered; cannot wrap`,
-        code: 'REGISTRY_NOT_FOUND',
+        code: ERROR_CODES.REGISTRY_NOT_FOUND,
         subsystem: 'container',
         context: { tool: name },
       });

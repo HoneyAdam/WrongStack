@@ -11,6 +11,7 @@ import {
   resolveInputPath,
   stringifyToolError,
 } from './shared.js';
+import { LSP_CONSTANTS } from '../constants.js';
 
 interface PositionInput {
   path: string;
@@ -35,7 +36,7 @@ export function createDefinitionTool(deps: ToolDeps): Tool<PositionInput, string
     },
     permission: 'auto',
     mutating: false,
-    timeoutMs: 5000,
+    timeoutMs: LSP_CONSTANTS.TOOL_TIMEOUT_MS,
     async execute(input, ctx, opts) {
       try {
         const file = resolveInputPath(input.path, ctx);
@@ -50,7 +51,7 @@ export function createDefinitionTool(deps: ToolDeps): Tool<PositionInput, string
         const position = humanToLSP(content, { line: input.line, character: input.character });
         const locs = await server.definition(
           { textDocument: { uri: pathToUri(file) }, position },
-          5000,
+          LSP_CONSTANTS.TOOL_TIMEOUT_MS,
           opts.signal,
         );
         return formatLocations(locs, ctx.cwd);

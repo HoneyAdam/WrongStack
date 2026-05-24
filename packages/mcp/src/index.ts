@@ -8,6 +8,7 @@ export {
 } from './client.js';
 export { wrapMCPTool } from './wrap-tool.js';
 export { MCPRegistry, type MCPRegistryOptions } from './registry.js';
+export { MCP_CONSTANTS } from './constants.js';
 export {
   SSETransport,
   StreamableHTTPTransport,

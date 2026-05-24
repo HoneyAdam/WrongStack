@@ -7,7 +7,7 @@
  */
 
 import type { TextBlock } from '../types/blocks.js';
-import { WrongStackError } from '../types/errors.js';
+import { WrongStackError, ERROR_CODES } from '../types/errors.js';
 import type { Logger } from '../types/logger.js';
 import type { SystemPromptContributor } from '../types/system-prompt-contributor.js';
 import type {
@@ -85,7 +85,7 @@ export class ExtensionRegistry {
     if (this.extensions.some((e) => e.name === ext.name)) {
       throw new WrongStackError({
         message: `Extension "${ext.name}" already registered`,
-        code: 'REGISTRY_DUPLICATE',
+        code: ERROR_CODES.REGISTRY_DUPLICATE,
         subsystem: 'container',
         context: { extension: ext.name },
       });

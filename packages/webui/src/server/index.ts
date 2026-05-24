@@ -37,6 +37,7 @@ import {
   atomicWrite,
   createDefaultPipelines,
   DEFAULT_CONTEXT_WINDOW_MODE_ID,
+  DEFAULT_TOOLS_CONFIG,
   migratePlaintextSecrets,
   resolveWstackPaths,
   listContextWindowModes,
@@ -321,8 +322,8 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
     renderer,
     events,
     confirmAwaiter: undefined,
-    iterationTimeoutMs: config.tools?.iterationTimeoutMs ?? 120000,
-    perIterationOutputCapBytes: config.tools?.perIterationOutputCapBytes ?? 50000,
+    iterationTimeoutMs: config.tools?.iterationTimeoutMs ?? DEFAULT_TOOLS_CONFIG.iterationTimeoutMs,
+    perIterationOutputCapBytes: config.tools?.perIterationOutputCapBytes ?? DEFAULT_TOOLS_CONFIG.perIterationOutputCapBytes,
     tracer: undefined,
   });
 
@@ -333,10 +334,10 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
     events,
     pipelines,
     context,
-    maxIterations: config.tools?.maxIterations ?? 100,
-    iterationTimeoutMs: config.tools?.iterationTimeoutMs ?? 120000,
-    executionStrategy: config.tools?.defaultExecutionStrategy ?? 'sequential',
-    perIterationOutputCapBytes: config.tools?.perIterationOutputCapBytes ?? 50000,
+    maxIterations: config.tools?.maxIterations ?? DEFAULT_TOOLS_CONFIG.maxIterations,
+    iterationTimeoutMs: config.tools?.iterationTimeoutMs ?? DEFAULT_TOOLS_CONFIG.iterationTimeoutMs,
+    executionStrategy: config.tools?.defaultExecutionStrategy ?? DEFAULT_TOOLS_CONFIG.defaultExecutionStrategy,
+    perIterationOutputCapBytes: config.tools?.perIterationOutputCapBytes ?? DEFAULT_TOOLS_CONFIG.perIterationOutputCapBytes,
     confirmAwaiter: undefined,
     toolExecutor,
   });

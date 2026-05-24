@@ -1,4 +1,4 @@
-import { PluginError } from '../types/errors.js';
+import { PluginError, ERROR_CODES } from '../types/errors.js';
 import type { Logger } from '../types/logger.js';
 import type { Plugin, PluginAPI, PluginDependency } from '../types/plugin.js';
 import { validateAgainstSchema } from '../utils/json-schema-validate.js';
@@ -111,7 +111,7 @@ function topoSort(plugins: Plugin[]): Plugin[] {
     if (visiting.has(p.name)) {
       throw new PluginError({
         message: `Plugin dependency cycle: ${[...stack, p.name].join(' -> ')}`,
-        code: 'PLUGIN_LOAD_FAILED',
+        code: ERROR_CODES.PLUGIN_LOAD_FAILED,
         pluginName: p.name,
       });
     }
@@ -122,7 +122,7 @@ function topoSort(plugins: Plugin[]): Plugin[] {
       if (!d) {
         throw new PluginError({
           message: `Plugin "${p.name}" depends on missing plugin "${dep.name}"`,
-          code: 'PLUGIN_MISSING_DEPENDENCY',
+          code: ERROR_CODES.PLUGIN_MISSING_DEPENDENCY,
           pluginName: p.name,
           context: { dependency: dep.name },
         });
@@ -133,7 +133,7 @@ function topoSort(plugins: Plugin[]): Plugin[] {
       if (dep.version && d.version && !satisfies(dep.version, d.version)) {
         throw new PluginError({
           message: `Plugin "${p.name}" requires "${dep.name}@${dep.version}", found ${d.version}`,
-          code: 'PLUGIN_LOAD_FAILED',
+          code: ERROR_CODES.PLUGIN_LOAD_FAILED,
           pluginName: p.name,
           context: { dependency: dep.name, required: dep.version, found: d.version },
         });
@@ -148,7 +148,7 @@ function topoSort(plugins: Plugin[]): Plugin[] {
         if (dep.version && d.version && !satisfies(dep.version, d.version)) {
           throw new PluginError({
             message: `Plugin "${p.name}" optional dep "${dep.name}@${dep.version}" found ${d.version}`,
-            code: 'PLUGIN_LOAD_FAILED',
+            code: ERROR_CODES.PLUGIN_LOAD_FAILED,
             pluginName: p.name,
             context: { dependency: dep.name, required: dep.version, found: d.version },
           });
@@ -180,7 +180,7 @@ export async function loadPlugins(
       if (names.has(c)) {
         throw new PluginError({
           message: `Plugin "${p.name}" conflicts with loaded plugin "${c}"`,
-          code: 'PLUGIN_LOAD_FAILED',
+          code: ERROR_CODES.PLUGIN_LOAD_FAILED,
           pluginName: p.name,
           context: { conflictsWith: c },
         });
@@ -200,7 +200,7 @@ export async function loadPlugins(
     if (!satisfies(plugin.apiVersion, kernelVersion)) {
       const err = new PluginError({
         message: `Plugin "${plugin.name}" requires apiVersion ${plugin.apiVersion}; kernel is ${kernelVersion}`,
-        code: 'PLUGIN_API_MISMATCH',
+        code: ERROR_CODES.PLUGIN_API_MISMATCH,
         pluginName: plugin.name,
         context: { required: plugin.apiVersion, kernel: kernelVersion },
       });
@@ -229,7 +229,7 @@ export async function loadPlugins(
           const detail = firstErr ? `${firstErr.path}: ${firstErr.message}` : 'config invalid';
           const err = new PluginError({
             message: `Plugin "${plugin.name}" config invalid — ${detail}`,
-            code: 'PLUGIN_LOAD_FAILED',
+            code: ERROR_CODES.PLUGIN_LOAD_FAILED,
             pluginName: plugin.name,
             context: { errors: result.errors },
           });
@@ -316,7 +316,7 @@ function wrapApiForCapabilityCheck(
     if (enforce) {
       throw new PluginError({
         message: msg,
-        code: 'PLUGIN_LOAD_FAILED',
+        code: ERROR_CODES.PLUGIN_LOAD_FAILED,
         pluginName: plugin.name,
         context: { subsystem, detail },
       });
