@@ -215,10 +215,14 @@ export const bashTool: Tool<BashInput, BashOutput> = {
               }
             } catch {
               /* ignore */
+            } finally {
+              // Only unref after the callback fires; prevents a stray SIGKILL
+              // from firing ~2s after a process that exited cleanly before the
+              // timeout's SIGTERM was even sent.
+              killTimer.unref?.();
             }
           }, 2000);
           timers.push(killTimer);
-          killTimer.unref?.();
         } catch {
           /* ignore */
         }

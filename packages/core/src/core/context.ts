@@ -91,11 +91,9 @@ export class Context implements RunEnv {
   }
 
   /**
-   * Register a teardown hook tied to the current run's abort signal. The
-   * hook fires when the run aborts or ends normally — Agent.run wires this
-   * through a RunController. Hooks registered before a run starts are stored
-   * and fired when the next run ends; there is no "immediate fire" when no
-   * run is active.
+   * Register a teardown hook tied to the current run's abort signal.
+   * Hooks registered before a run starts are stored and fired when the
+   * next run ends; there is no immediate fire when no run is active.
    *
    * **Scope:** these hooks fire on the **whole agent run's** abort, not on
    * an individual tool call. For per-tool teardown of resources owned by

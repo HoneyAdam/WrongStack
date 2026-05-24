@@ -246,9 +246,10 @@ function messagesToGemini(messages: Message[]): GeminiContent[] {
       if (b.type === 'text' && b.text) textParts.push({ text: b.text });
       else if (b.type === 'tool_result') {
         const responseText = typeof b.content === 'string' ? b.content : JSON.stringify(b.content);
-        // Prefer the canonical name field; fall back to tool_use_id for
-        // blocks that were manually constructed (e.g. in tests).
-        const fnName = b.name ?? b.tool_use_id;
+        // Prefer tool_use_id for blocks that were manually constructed
+        // (e.g. in tests); fall back to 'unknown' to prevent serialization
+        // of `undefined` as the function name.
+        const fnName = b.tool_use_id ?? 'unknown';
         functionParts.push({
           functionResponse: {
             name: fnName,

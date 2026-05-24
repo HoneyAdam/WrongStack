@@ -87,6 +87,8 @@ export async function runProviderWithRetry(opts: RunProviderOptions): Promise<Re
           settled = true;
           clearTimeout(t);
           // safe to call even though { once: true } auto-removes — idempotent
+          // (the once option removes the listener after the first trigger, so
+          // calling removeEventListener here is a no-op but kept for explicitness)
           signal.removeEventListener('abort', onAbort);
           resolve();
         }, delay);

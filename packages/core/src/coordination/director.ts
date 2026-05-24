@@ -591,7 +591,14 @@ export class Director implements ICoordinator {
         }
       }
     }
-    const result = await this.coordinator.spawn(config);
+    let result: { subagentId: string };
+    try {
+      result = await this.coordinator.spawn(config);
+    } catch (err) {
+      // If spawn fails, do NOT consume a spawnCount slot — the counter
+      // only advances for successful spawns.
+      throw err;
+    }
     // Record with FleetManager when available; otherwise manage inline.
     if (this.fleetManager) {
       this.fleetManager.recordSpawn(result.subagentId, config, priceLookup);

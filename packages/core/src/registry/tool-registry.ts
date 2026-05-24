@@ -160,4 +160,14 @@ export class ToolRegistry {
   clear(): void {
     this.tools.clear();
   }
+
+  /**
+   * Return a new ToolRegistry with the same registered tools and owners.
+   * Useful for creating filtered copies in multi-agent scenarios.
+   */
+  clone(): ToolRegistry {
+    const copy = new ToolRegistry();
+    copy.registerAll(this.listWithOwner().map(({ tool, owner }) => tool), owner);
+    return copy;
+  }
 }

@@ -61,11 +61,13 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
   // before each agent.run so the SIGINT handler can target it.
   let activeCtrl: AbortController | undefined;
   let interrupts = 0;
+  let exiting = false;
   const onSigint = () => {
     interrupts++;
     if (interrupts >= 2) {
       opts.renderer.writeWarning('Exiting.');
-      process.exit(130);
+      exiting = true;
+      return;
     }
     // In eternal or parallel mode, the first Ctrl+C should stop the engine —
     // aborting the in-flight agent.run and flipping autonomy back to 'off'
@@ -96,6 +98,7 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
   // and the final `off` left the listener installed across REPL restarts.
   try {
     for (;;) {
+      if (exiting) break;
       // ── Eternal autonomy: drive the engine instead of reading input. ──
       // While autonomy mode is 'eternal' we own the REPL turn — the engine
       // generates its own directive and runs `agent.run` for us. Stop is

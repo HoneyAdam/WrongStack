@@ -277,7 +277,14 @@ export async function unloadPlugins(
     try {
       // Use the same API instance the plugin received during setup,
       // so its accumulated cleanup functions are properly drained.
-      const api = pluginApiMap.get(plugin) ?? opts.apiFactory(plugin);
+      // The plugin MUST be in pluginApiMap since it was registered there
+      // during loadPlugins — if it is missing, that is a programming error.
+      const api = pluginApiMap.get(plugin);
+      if (!api) {
+        throw new Error(
+          `Plugin "${plugin.name}" API not found in pluginApiMap — was setup() called?`,
+        );
+      }
       await plugin.teardown(api);
       pluginApiMap.delete(plugin);
       opts.log.info(`Plugin "${plugin.name}" torn down`);

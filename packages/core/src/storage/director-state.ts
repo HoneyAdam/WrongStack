@@ -263,9 +263,9 @@ export class DirectorStateCheckpoint {
     }
     await this.persist();
     // If a rewrite was requested while we waited, persist() scheduled
-    // a follow-up write. Wait for it so shutdown doesn't return before
-    // the most recent state lands on disk.
-    if (this.rewriteRequested) {
+    // a follow-up write. Loop until no more rewrites are requested so
+    // shutdown doesn't return before the most recent state lands on disk.
+    while (this.rewriteRequested) {
       this.rewriteRequested = false;
       await this.persist();
     }

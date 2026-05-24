@@ -99,10 +99,11 @@ export class InMemoryAgentBridge implements AgentBridge {
 
       // Double-check stopped after setting up the pending entry, so stop()
       // can't miss a request that was enqueued before it acquired the lock.
-      if (this.stopped) {
+      // Reject if stop() was called after the initial check and cleared
+      // the guard — this prevents a request from being enqueued after
+      // stop() has already released the lock on pendingRequests.
+      if (!this.inflightGuards.has(correlationId)) {
         clearTimeout(timer);
-        this.inflightGuards.delete(correlationId);
-        this.pendingRequests.delete(correlationId);
         reject(new Error('Bridge stopped'));
         return;
       }
