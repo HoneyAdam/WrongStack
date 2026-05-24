@@ -46,6 +46,7 @@ describe('truncateToCheckpoint edge cases', () => {
     // We can't directly test this since filePath is set on create, but we can
     // verify the behavior through the public API
     const w = await store.create({ id: 'nop', model: 'm', provider: 'p' });
+    await w.append({ type: 'user_input', ts: new Date().toISOString(), content: 'x' });
     await w.close();
     // The resumed writer should have a valid filePath; testing via direct call
     const result = await w.truncateToCheckpoint(0);
