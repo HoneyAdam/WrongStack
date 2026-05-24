@@ -25,6 +25,7 @@ import { FleetPanel } from './components/fleet-panel.js';
 import { History, type HistoryEntry } from './components/history.js';
 import { Input, type KeyEvent } from './components/input.js';
 import { LiveActivityStrip } from './components/live-activity-strip.js';
+import { AutonomyPicker, AUTONOMY_OPTIONS, type AutonomyOption } from './components/autonomy-picker.js';
 import { ModelPicker, type ProviderOption } from './components/model-picker.js';
 import { SlashMenu } from './components/slash-menu.js';
 import { StatusBar } from './components/status-bar.js';
@@ -151,6 +152,36 @@ export interface AppProps {
     fn: (entry: import('@wrongstack/core').JournalEntry) => void,
   ) => () => void;
   /**
+   * Subscribe to per-iteration stage transitions from the eternal engine.
+   * Drives `state.eternalStage` used by the status bar to show the
+   * engine's current location (decide → execute → reflect → sleep/paused).
+   */
+  subscribeEternalStage?: (
+    fn: (stage: {
+      phase: 'idle';
+    } | {
+      phase: 'decide';
+      reason: string;
+    } | {
+      phase: 'execute';
+      task: string;
+    } | {
+      phase: 'reflect';
+      status: 'success' | 'failure' | 'aborted' | 'skipped';
+      note?: string;
+    } | {
+      phase: 'sleep';
+      ms: number;
+    } | {
+      phase: 'paused';
+    } | {
+      phase: 'stopped';
+    } | {
+      phase: 'error';
+      message: string;
+    }) => void,
+  ) => () => void;
+  /**
    * SDD session context getter. When an SDD session is active, returns
    * the AI prompt context to inject into user messages so the model
    * knows it's in a spec-building conversation.
@@ -183,6 +214,11 @@ export interface AppProps {
    * actual Provider construction + Context mutation.
    */
   switchProviderAndModel?: (providerId: string, modelId: string) => string | null;
+  /**
+   * Apply an autonomy mode after the picker confirms. Returns
+   * an error string on failure; null on success.
+   */
+  switchAutonomy?: (mode: 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel') => string | null;
   /**
    * Real max-context token budget for the *active model*, resolved by the
    * CLI via the ModelsRegistry. The provider object only knows its family
@@ -305,6 +341,13 @@ type State = {
     pickedProviderId?: string;
     hint?: string;
   };
+  /** Single-step autonomy mode picker — opened by `/autonomy`. */
+  autonomyPicker: {
+    open: boolean;
+    options: AutonomyOption[];
+    selected: number;
+    hint?: string;
+  };
   /** Pending tool confirmations — queue to handle multiple tools requesting confirmation. */
   confirmQueue: {
     toolUseId: string;
@@ -340,6 +383,30 @@ type State = {
     ts: string;
     fileCount: number;
   }>; selected: number } | null;
+  /** Live iteration-stage of the eternal engine (decide/execute/reflect/sleep/paused/stopped). */
+  eternalStage: {
+    phase: 'idle';
+  } | {
+    phase: 'decide';
+    reason: string;
+  } | {
+    phase: 'execute';
+    task: string;
+  } | {
+    phase: 'reflect';
+    status: 'success' | 'failure' | 'aborted' | 'skipped';
+    note?: string;
+  } | {
+    phase: 'sleep';
+    ms: number;
+  } | {
+    phase: 'paused';
+  } | {
+    phase: 'stopped';
+  } | {
+    phase: 'error';
+    message: string;
+  } | null;
 };
 
 type Action =
@@ -384,6 +451,10 @@ type Action =
   | { type: 'modelPickerPickProvider'; providerId: string; models: string[] }
   | { type: 'modelPickerBack' }
   | { type: 'modelPickerHint'; text?: string }
+  | { type: 'autonomyPickerOpen'; options: AutonomyOption[] }
+  | { type: 'autonomyPickerClose' }
+  | { type: 'autonomyPickerMove'; delta: number }
+  | { type: 'autonomyPickerHint'; text?: string }
   | { type: 'historyPush'; text: string }
   | { type: 'historyUp' }
   | { type: 'historyDown' }
@@ -444,7 +515,30 @@ type Action =
   | { type: 'rewindOverlayOpen' }
   | { type: 'rewindOverlayClose' }
   | { type: 'rewindOverlayMove'; delta: number }
-  | { type: 'sessionRewound'; toPromptIndex: number };
+  | { type: 'sessionRewound'; toPromptIndex: number }
+  | { type: 'eternalStage'; stage: {
+    phase: 'idle';
+  } | {
+    phase: 'decide';
+    reason: string;
+  } | {
+    phase: 'execute';
+    task: string;
+  } | {
+    phase: 'reflect';
+    status: 'success' | 'failure' | 'aborted' | 'skipped';
+    note?: string;
+  } | {
+    phase: 'sleep';
+    ms: number;
+  } | {
+    phase: 'paused';
+  } | {
+    phase: 'stopped';
+  } | {
+    phase: 'error';
+    message: string;
+  } | null };
 
 export function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -703,6 +797,30 @@ export function reducer(state: State, action: Action): State {
         ...state,
         modelPicker: { ...state.modelPicker, hint: action.text },
       };
+    case 'autonomyPickerOpen':
+      return {
+        ...state,
+        autonomyPicker: { open: true, options: action.options, selected: 0, hint: undefined },
+      };
+    case 'autonomyPickerClose':
+      return {
+        ...state,
+        autonomyPicker: { open: false, options: [], selected: 0 },
+      };
+    case 'autonomyPickerMove': {
+      const n = state.autonomyPicker.options.length;
+      if (n === 0) return state;
+      const next = (state.autonomyPicker.selected + action.delta + n) % n;
+      return {
+        ...state,
+        autonomyPicker: { ...state.autonomyPicker, selected: next },
+      };
+    }
+    case 'autonomyPickerHint':
+      return {
+        ...state,
+        autonomyPicker: { ...state.autonomyPicker, hint: action.text },
+      };
     case 'confirmOpen':
       return { ...state, confirmQueue: [...state.confirmQueue, action.info] };
     case 'confirmClose':
@@ -923,6 +1041,9 @@ export function reducer(state: State, action: Action): State {
         rewindOverlay: null,
       };
     }
+    case 'eternalStage': {
+      return { ...state, eternalStage: action.stage };
+    }
   }
 }
 
@@ -1024,6 +1145,7 @@ export function App({
   getEternalEngine,
   getParallelEngine,
   subscribeEternalIteration,
+  subscribeEternalStage,
   getSDDContext,
   onSDDOutput,
   appVersion,
@@ -1032,6 +1154,7 @@ export function App({
   keyTail,
   getPickableProviders,
   switchProviderAndModel,
+  switchAutonomy,
   effectiveMaxContext,
   onExit,
   director,
@@ -1105,6 +1228,7 @@ export function App({
       modelOptions: [],
       selected: 0,
     },
+    autonomyPicker: { open: false, options: [], selected: 0 },
     confirmQueue: [],
     contextChipVersion: 0,
     fleet: {},
@@ -1112,6 +1236,7 @@ export function App({
     streamFleet: true,
     checkpoints: [],
     rewindOverlay: null,
+    eternalStage: null,
   });
 
   const builderRef = useRef<InputBuilder | null>(null);
@@ -1861,6 +1986,26 @@ export function App({
       slashRegistry.unregister('model');
     };
   }, [slashRegistry, getPickableProviders, switchProviderAndModel]);
+
+  // Register the TUI-only `/autonomy` command — opens a single-step picker.
+  // When the user types `/autonomy` with no arg, the picker appears.
+  // If they type `/autonomy off` etc. with an arg, the CLI builtin handles it.
+  useEffect(() => {
+    if (!switchAutonomy) return;
+    const cmd = {
+      name: 'autonomy',
+      aliases: ['auto'],
+      description: 'Pick an autonomy mode interactively (picker).',
+      async run() {
+        dispatch({ type: 'autonomyPickerOpen', options: AUTONOMY_OPTIONS });
+        return { message: undefined };
+      },
+    };
+    slashRegistry.register(cmd);
+    return () => {
+      slashRegistry.unregister('autonomy');
+    };
+  }, [slashRegistry, switchAutonomy]);
 
   // Subscribe to provider streaming events.
   useEffect(() => {
@@ -2730,6 +2875,34 @@ export function App({
       return;
     }
 
+    // Autonomy picker takes absolute precedence while open.
+    if (state.autonomyPicker.open) {
+      if (key.escape) {
+        dispatch({ type: 'autonomyPickerClose' });
+        return;
+      }
+      if (key.upArrow) {
+        dispatch({ type: 'autonomyPickerMove', delta: -1 });
+        return;
+      }
+      if (key.downArrow) {
+        dispatch({ type: 'autonomyPickerMove', delta: 1 });
+        return;
+      }
+      if (isEnter) {
+        const opt = state.autonomyPicker.options[state.autonomyPicker.selected];
+        if (!opt) return;
+        const err = switchAutonomy?.(opt.mode);
+        if (err) {
+          dispatch({ type: 'autonomyPickerHint', text: err });
+          return;
+        }
+        dispatch({ type: 'autonomyPickerClose' });
+        return;
+      }
+      return;
+    }
+
     if (state.slashPicker.open) {
       if (key.escape) {
         dispatch({ type: 'slashPickerClose' });
@@ -3292,6 +3465,17 @@ export function App({
     return unsub;
   }, [subscribeEternalIteration]);
 
+  // Subscribe to live stage-transition events from the eternal engine.
+  // Drives `state.eternalStage` used by the status bar to show the
+  // engine's current location (decide → execute → reflect → sleep/paused).
+  useEffect(() => {
+    if (!subscribeEternalStage) return;
+    const unsub = subscribeEternalStage((stage) => {
+      dispatch({ type: 'eternalStage', stage });
+    });
+    return unsub;
+  }, [subscribeEternalStage]);
+
   const submit = async (overrideRaw?: string) => {
     const raw = overrideRaw ?? draftRef.current.buffer;
     const trimmed = raw.trim();
@@ -3526,6 +3710,13 @@ export function App({
           selected={state.modelPicker.selected}
           pickedProviderId={state.modelPicker.pickedProviderId}
           hint={state.modelPicker.hint}
+        />
+      ) : null}
+      {state.autonomyPicker.open ? (
+        <AutonomyPicker
+          options={state.autonomyPicker.options}
+          selected={state.autonomyPicker.selected}
+          hint={state.autonomyPicker.hint}
         />
       ) : null}
       {state.rewindOverlay ? (

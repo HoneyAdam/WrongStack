@@ -53,6 +53,36 @@ export interface RunTuiOptions {
   subscribeEternalIteration?: (
     fn: (entry: import('@wrongstack/core').JournalEntry) => void,
   ) => () => void;
+  /**
+   * Subscribe to per-iteration stage transitions from the eternal engine.
+   * TUI uses this to render live status (decide → execute → reflect →
+   * sleep/paused/stopped) in the status bar.
+   */
+  subscribeEternalStage?: (
+    fn: (stage: {
+      phase: 'idle';
+    } | {
+      phase: 'decide';
+      reason: string;
+    } | {
+      phase: 'execute';
+      task: string;
+    } | {
+      phase: 'reflect';
+      status: 'success' | 'failure' | 'aborted' | 'skipped';
+      note?: string;
+    } | {
+      phase: 'sleep';
+      ms: number;
+    } | {
+      phase: 'paused';
+    } | {
+      phase: 'stopped';
+    } | {
+      phase: 'error';
+      message: string;
+    }) => void,
+  ) => () => void;
   /** Renders in the startup banner. Read from the CLI's package.json. */
   appVersion?: string;
   /** Provider id for the startup banner ("openai", "anthropic", ...). */
@@ -65,6 +95,8 @@ export interface RunTuiOptions {
   getPickableProviders?: () => Promise<import('./components/model-picker.js').ProviderOption[]>;
   /** Apply a (provider, model) pair after the picker confirms. Returns an error string on failure. */
   switchProviderAndModel?: (providerId: string, modelId: string) => string | null;
+  /** Apply an autonomy mode after the picker confirms. Returns an error string on failure. */
+  switchAutonomy?: (mode: 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel') => string | null;
   /**
    * Model-specific maxContext (tokens), resolved by the CLI via the
    * ModelsRegistry. When omitted, the TUI falls back to the provider
@@ -307,12 +339,14 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
           getEternalEngine: opts.getEternalEngine,
           getParallelEngine: opts.getParallelEngine,
           subscribeEternalIteration: opts.subscribeEternalIteration,
+          subscribeEternalStage: opts.subscribeEternalStage,
           appVersion: opts.appVersion,
           provider: opts.provider,
           family: opts.family,
           keyTail: opts.keyTail,
           getPickableProviders: opts.getPickableProviders,
           switchProviderAndModel: opts.switchProviderAndModel,
+          switchAutonomy: opts.switchAutonomy,
           effectiveMaxContext: opts.effectiveMaxContext,
           onExit,
           director: opts.director ?? null,

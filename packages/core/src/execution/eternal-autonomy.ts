@@ -75,6 +75,13 @@ export interface EternalAutonomyOptions {
   onIteration?: (entry: JournalEntry) => void;
   onError?: (err: Error, iteration: number) => void;
   /**
+   * Per-iteration phase notifications for live UI updates (TUI status bar,
+   * etc.). Fires at each major stage transition: idle → decide → execute →
+   * reflect → (sleep | paused | stopped). Fire-and-forget — the engine
+   * does not await the callback.
+   */
+  onStage?: (stage: IterationStage) => void;
+  /**
    * Optional injected git status reader — production code uses git, tests
    * stub this out so they don't shell out.
    */
@@ -123,6 +130,20 @@ export interface EternalAutonomyOptions {
 }
 
 export type EternalEngineState = 'idle' | 'running' | 'stopped';
+
+/**
+ * Per-iteration phase emitted via `onStage` so UIs can render the
+ * engine's live location in the sense-decide-execute-reflect loop.
+ */
+export type IterationStage =
+  | { phase: 'idle' }
+  | { phase: 'decide'; reason: string }
+  | { phase: 'execute'; task: string }
+  | { phase: 'reflect'; status: 'success' | 'failure' | 'aborted' | 'skipped'; note?: string }
+  | { phase: 'sleep'; ms: number }
+  | { phase: 'paused' }
+  | { phase: 'stopped' }
+  | { phase: 'error'; message: string };
 
 interface DecidedAction {
   source: JournalEntry['source'];
@@ -242,36 +263,40 @@ export class EternalAutonomyEngine {
    * `agent.run()` avoids race conditions on the shared Context.
    */
   async runOneIteration(): Promise<boolean> {
+    // Emit stage transitions so UIs can render the engine's live location.
+    const emit = (stage: IterationStage) => {
+      this.opts.onStage?.(stage);
+    };
+
     const goal = await loadGoal(this.goalPath);
     if (!goal) {
-      // Goal file disappeared — treat as a graceful stop. The user may
-      // have run `/goal clear` mid-loop.
+      // Goal file disappeared — treat as a graceful stop.
+      emit({ phase: 'stopped' });
       this.stopRequested = true;
       return false;
     }
 
-    // Mission-level lifecycle gate. Once the goal is `completed` or
-    // `abandoned`, the engine refuses further iterations — protects
-    // against accidentally re-entering `/autonomy eternal` after the
-    // work is verifiably done and burning API quota.
+    // Mission-level lifecycle gate.
     const missionState = goal.goalState ?? 'active';
     if (missionState !== 'active') {
+      emit({ phase: missionState === 'paused' ? 'paused' : 'stopped' });
       this.stopRequested = true;
       return false;
     }
 
+    emit({ phase: 'decide', reason: 'picking next task' });
     const action = await this.decide(goal);
     if (!action) {
-      // No work surfaced from any source. Skip the cool-down sleep when
-      // `decide()` itself decided the mission is over (consecutive-DONE
-      // brainstorm streak hits the threshold) — `stopRequested` is set
-      // by `markGoalCompleted` in that path and the outer loop should
-      // exit immediately, not after 5 s.
       if (!this.stopRequested) {
+        emit({ phase: 'sleep', ms: 5_000 });
         await sleep(5_000);
+      } else {
+        emit({ phase: 'stopped' });
       }
       return false;
     }
+
+    emit({ phase: 'execute', task: action.task });
 
     const ctrl = new AbortController();
     this.currentCtrl = ctrl;
@@ -384,6 +409,9 @@ export class EternalAutonomyEngine {
       tokens,
       costUsd,
     });
+
+    emit({ phase: 'reflect', status, note });
+
     // Re-read the goal so we can emit the real iteration counter rather
     // than the previous placeholder. If the goal was unlinked mid-flight
     // (graceful stop via /goal clear) the iteration index is still
@@ -407,37 +435,32 @@ export class EternalAutonomyEngine {
       costUsd,
     });
 
+    // Transient failure — sleep with interruptible backoff before retry.
     if (status === 'failure') {
       if (isTransientFailure) {
-        // Recoverable error (rate limit, 5xx, network). Don't drag the
-        // failure budget down — those are reserved for real "this task
-        // is broken" signals. Apply exponential backoff before the next
-        // tick so we stop hammering the provider.
         this.consecutiveTransientRetries++;
         const delay = this.computeTransientBackoffMs();
         if (delay > 0) {
+          emit({ phase: 'sleep', ms: delay });
           await this.sleepInterruptible(delay);
         }
         return false;
       }
-      // Permanent failure (auth/invalid-request/missing-tool/etc.) or
-      // an unclassified failure. These count toward the brainstorm-
-      // forcing budget so a broken task gets retired.
-      this.consecutiveFailures++;
-      return false;
-    }
-    if (status === 'aborted') {
-      // External stop or timeout — propagate. Don't count as failure.
-      if (this.stopRequested) return false;
-      // Timeout, not stop — count as failure.
       this.consecutiveFailures++;
       return false;
     }
 
-    // Successful iteration — reset the transient backoff streak so a
-    // single 429 followed by a recovery doesn't keep the loop in slow
-    // mode forever.
+    if (status === 'aborted') {
+      if (this.stopRequested) return false;
+      this.consecutiveFailures++;
+      return false;
+    }
+
+    // Successful iteration
     this.consecutiveTransientRetries = 0;
+    const cycleGapMs = this.opts.cycleGapMs ?? 1000;
+    emit({ phase: 'sleep', ms: cycleGapMs });
+    await sleep(cycleGapMs);
 
     // Goal-complete detection. The model emits `[GOAL_COMPLETE]` on its
     // own line in `finalText` when the overall mission is verifiably done.

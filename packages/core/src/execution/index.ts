@@ -14,6 +14,7 @@ export {
   EternalAutonomyEngine,
   type EternalAutonomyOptions,
   type EternalEngineState,
+  type IterationStage,
 } from './eternal-autonomy.js';
 export {
   ParallelEternalEngine,

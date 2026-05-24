@@ -96,6 +96,33 @@ type ContainerPromptDelegate = (
   suggestedPattern: string,
 ) => Promise<'yes' | 'no' | 'always' | 'deny'>;
 
+/** Set of listeners for journal-entry events from the eternal engine. */
+const eternalListeners = new Set<(entry: import('@wrongstack/core').JournalEntry) => void>();
+/** Set of listeners for stage-transition events from the eternal engine. */
+const stageListeners = new Set<(stage: {
+  phase: 'idle';
+} | {
+  phase: 'decide';
+  reason: string;
+} | {
+  phase: 'execute';
+  task: string;
+} | {
+  phase: 'reflect';
+  status: 'success' | 'failure' | 'aborted' | 'skipped';
+  note?: string;
+} | {
+  phase: 'sleep';
+  ms: number;
+} | {
+  phase: 'paused';
+} | {
+  phase: 'stopped';
+} | {
+  phase: 'error';
+  message: string;
+}) => void>();
+
 export async function main(argv: string[]): Promise<number> {
   const ctx = await boot(argv);
   if (typeof ctx === 'number') return ctx;
@@ -1332,6 +1359,10 @@ export async function main(argv: string[]): Promise<number> {
     subscribeEternalIteration: (fn) => {
       eternalListeners.add(fn);
       return () => eternalListeners.delete(fn);
+    },
+    subscribeEternalStage: (fn) => {
+      stageListeners.add(fn);
+      return () => stageListeners.delete(fn);
     },
     skillLoader: config.features.skills ? skillLoader : undefined,
   });

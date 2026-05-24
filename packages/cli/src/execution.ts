@@ -95,6 +95,36 @@ export interface ExecutionDeps {
   subscribeEternalIteration?: (
     fn: (entry: import('@wrongstack/core').JournalEntry) => void,
   ) => () => void;
+  /**
+   * Subscribe to per-iteration stage transitions from the eternal engine.
+   * Returns an unsubscribe function. TUI uses this to render live status
+   * (decide → execute → reflect → sleep/paused/stopped) in the status bar.
+   */
+  subscribeEternalStage?: (
+    fn: (stage: {
+      phase: 'idle';
+    } | {
+      phase: 'decide';
+      reason: string;
+    } | {
+      phase: 'execute';
+      task: string;
+    } | {
+      phase: 'reflect';
+      status: 'success' | 'failure' | 'aborted' | 'skipped';
+      note?: string;
+    } | {
+      phase: 'sleep';
+      ms: number;
+    } | {
+      phase: 'paused';
+    } | {
+      phase: 'stopped';
+    } | {
+      phase: 'error';
+      message: string;
+    }) => void,
+  ) => () => void;
   /** Skill loader for the skill generator wizard. */
   skillLoader?: import('@wrongstack/core').SkillLoader;
 }
@@ -137,6 +167,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
     getEternalEngine,
     getParallelEngine,
     subscribeEternalIteration,
+    subscribeEternalStage,
     skillLoader,
   } = deps;
 
@@ -272,12 +303,17 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
           getAutonomy,
           getEternalEngine,
           subscribeEternalIteration,
+          subscribeEternalStage,
           appVersion: CLI_VERSION,
           provider: config.provider,
           family: banneredFamily,
           keyTail: banneredKeyTail,
           getPickableProviders,
           switchProviderAndModel,
+          switchAutonomy: (mode) => {
+            onAutonomy?.(mode);
+            return null;
+          },
           effectiveMaxContext,
           // Default OFF so the terminal's native scrollback works for chat
           // history out of the box (mouse wheel / Shift+PgUp). Users who hit

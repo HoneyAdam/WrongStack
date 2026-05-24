@@ -55,7 +55,7 @@ export interface GoalFile {
    * Optional for backward compatibility — pre-existing `goal.json` files
    * without this field load as `active`.
    */
-  goalState?: 'active' | 'completed' | 'abandoned';
+  goalState?: 'active' | 'paused' | 'completed' | 'abandoned';
   /**
    * Per-todo attempt counter. Keyed by TodoItem id. Used by the engine
    * to skip a todo that has failed N times rather than spinning on it

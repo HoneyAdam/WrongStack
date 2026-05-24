@@ -21,6 +21,8 @@ const KNOWN_VERBS = new Set([
   'reset',
   'journal',
   'log',
+  'pause',
+  'resume',
 ]);
 
 export function buildGoalCommand(opts: SlashCommandContext): SlashCommand {
@@ -33,6 +35,8 @@ export function buildGoalCommand(opts: SlashCommandContext): SlashCommand {
       '  /goal                     Show current goal + recent journal',
       '  /goal set <text>          Set a new goal (overwrites previous)',
       '  /goal clear               Clear the goal (stops eternal mode if running)',
+      '  /goal pause               Pause at end of current iteration (no-op if already paused)',
+      '  /goal resume              Resume a paused goal (no-op if not paused)',
       '  /goal status              Same as /goal (alias)',
       '  /goal journal [N]         Show last N journal entries (default 25)',
       '',
@@ -140,6 +144,44 @@ export function buildGoalCommand(opts: SlashCommandContext): SlashCommand {
           });
           const header = `Journal (last ${tail.length} of ${current.journal.length}):`;
           const msg = `${header}\n${lines.join('\n')}`;
+          opts.renderer.write(msg);
+          return { message: msg };
+        }
+
+        case 'pause': {
+          const current = await loadGoal(goalPath);
+          if (!current) {
+            const msg = 'No goal set — nothing to pause.';
+            opts.renderer.writeWarning(msg);
+            return { message: msg };
+          }
+          if (current.goalState === 'paused') {
+            const msg = `${color.dim('Already paused.')} Use /goal resume to continue.`;
+            opts.renderer.write(msg);
+            return { message: msg };
+          }
+          const paused: GoalFile = { ...current, goalState: 'paused' };
+          await saveGoal(goalPath, paused);
+          const msg = `${color.cyan('Goal paused.')} Current iteration will finish, then the loop stops. Use /goal resume to continue.`;
+          opts.renderer.write(msg);
+          return { message: msg };
+        }
+
+        case 'resume': {
+          const current = await loadGoal(goalPath);
+          if (!current) {
+            const msg = 'No goal set — cannot resume.';
+            opts.renderer.writeWarning(msg);
+            return { message: msg };
+          }
+          if (current.goalState !== 'paused') {
+            const msg = `${color.dim('Not paused.')} Use /goal set <text> to create or update a goal first.`;
+            opts.renderer.writeWarning(msg);
+            return { message: msg };
+          }
+          const resumed: GoalFile = { ...current, goalState: 'active' };
+          await saveGoal(goalPath, resumed);
+          const msg = `${color.green('Goal resumed.')} Loop will continue from the next iteration.`;
           opts.renderer.write(msg);
           return { message: msg };
         }

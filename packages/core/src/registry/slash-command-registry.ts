@@ -34,12 +34,10 @@ export class SlashCommandRegistry {
     }
 
     if (this.cmds.has(fullName)) {
-      // Same owner re-registering: plugins legitimately do this for hot
-      // reload / dev iteration. Built-ins are added once at startup, so
-      // a second core register signals a programming bug — throw loudly.
-      if (!isPlugin) {
-        throw new Error(`Built-in slash command "${fullName}" is already registered.`);
-      }
+      // Same owner re-registering: silently ignore. Plugins do this for hot
+      // reload / dev iteration. Built-ins can also be registered twice (e.g.
+      // React Strict Mode double-mounts in development). No-op is safe.
+      if (!isPlugin) return;
       this.cmds.set(fullName, { cmd, owner });
       for (const a of cmd.aliases ?? []) {
         this.cmds.set(`${owner}:${a}`, { cmd, owner });
