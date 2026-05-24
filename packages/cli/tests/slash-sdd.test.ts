@@ -27,6 +27,8 @@ beforeEach(async () => {
 
 afterEach(async () => {
   process.chdir(prevCwd);
+  // Defer the rm so the OS can fully release the cwd handle on Windows.
+  await new Promise((r) => setImmediate(r));
   await fs.rm(tmp, { recursive: true, force: true });
 });
 
