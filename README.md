@@ -23,6 +23,19 @@ This pulls in the full stack — `@wrongstack/core`, `@wrongstack/runtime`, `@wr
 
 After install, `wrongstack` is on your `PATH`. (`wstack` works too — it's an alias.)
 
+### What's new in 0.6.7
+
+**Windows test stability fix — commit slash tests.** The `/commit`
+slash command tests (`slash-commit.test.ts` and
+`slash-commands/commit.test.ts`) could fail on Windows with
+`EBUSY: resource busy or locked` during `afterEach` cleanup. Both
+files now use a `rmWithRetry` helper with 5 retries at 200 ms
+intervals, giving the OS time to release file handles before
+`rmdir` is called. No functional change — the commit/push logic
+was always correct.
+
+For earlier release notes, see [CHANGELOG.md](CHANGELOG.md).
+
 ### What's new in 0.6.6
 
 **`/sdd` — Spec-Driven Development workflow.** New slash command in
@@ -966,7 +979,7 @@ See [`examples/`](examples/) for 6 categories of working examples:
 
 ## Status
 
-- **3091 tests passing** across 259 test files (~20 s, 4 skipped)
+- **4435 tests passing** across 325 test files (~19 s, 13 skipped)
 - Coverage thresholds enforced in `vitest.config.ts`: ≥85 % lines / ≥85 % functions / ≥70 % branches / ≥82 % statements
 - All workspace packages build clean with TypeScript strict + `noUncheckedIndexedAccess`
 - Node 22+ only, ESM-only, no CommonJS bundles

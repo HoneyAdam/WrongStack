@@ -353,7 +353,7 @@ export class Agent {
     const onSubagentDone = ({ summary, ok }: { summary: string; ok: boolean }) => {
       delegateSummaries.push({ summary, ok });
     };
-    this.events.on('subagent.done', onSubagentDone);
+    const offSubagentDone = this.events.on('subagent.done', onSubagentDone);
 
     // Build the base provider runner: resolve from DI if bound, otherwise
     // use the built-in runProviderWithRetry (backward compat — consumers
@@ -389,154 +389,158 @@ export class Agent {
     // Build composed provider runner (extensions wrap the base runner)
     const customRunner = this.extensions.wrapProviderRunner(baseRunner);
 
-    for (let i = 0; ; i++) {
-      iterations = i + 1;
-      if (controller.signal.aborted) {
-        return { status: 'aborted', iterations };
-      }
-
-      // Clear any stale autonomous continue flag from a prior iteration.
-      // This prevents a stale flag (e.g. from a tool call that set it but
-      // then the run crashed before the flag was consumed) from causing
-      // a spurious continuation on the next agent.run() call.
-      if (autonomousContinue) {
-        consumeAutonomousContinue(this.ctx);
-      }
-
-      const limitCheck = await this.checkIterationLimit(
-        i,
-        effectiveLimit,
-        hasHardLimit,
-        iterations,
-        delegateSummaries,
-      );
-      effectiveLimit = limitCheck.limit;
-      if (limitCheck.exit) {
-        return { ...limitCheck.exit, finalText };
-      }
-
-      // Extension: beforeIteration
-      await this.extensions.runBeforeIteration(this.ctx, i);
-
-      this.events.emit('iteration.started', { ctx: this.ctx, index: i });
-
-      const req = await this.buildAndRunRequestPipeline(opts);
-
-      let res: Response;
-      try {
-        res = await customRunner(this.ctx, req);
-        recoveryRetries = 0;
-      } catch (err) {
+    try {
+      for (let i = 0; ; i++) {
+        iterations = i + 1;
         if (controller.signal.aborted) {
-          this.events.emit('error', { err: toError(err), phase: 'provider' });
-          return { status: 'aborted', iterations, error: toWrongStackError(err, 'AGENT_ABORTED') };
+          return { status: 'aborted', iterations };
         }
 
-        // Extension: onError — extensions get first crack at recovery
-        const extDecision = await this.extensions.runOnError(this.ctx, err, 'provider', i);
-        if (extDecision) {
-          if (extDecision.action === 'fail') {
+        // Clear any stale autonomous continue flag from a prior iteration.
+        // This prevents a stale flag (e.g. from a tool call that set it but
+        // then the run crashed before the flag was consumed) from causing
+        // a spurious continuation on the next agent.run() call.
+        if (autonomousContinue) {
+          consumeAutonomousContinue(this.ctx);
+        }
+
+        const limitCheck = await this.checkIterationLimit(
+          i,
+          effectiveLimit,
+          hasHardLimit,
+          iterations,
+          delegateSummaries,
+        );
+        effectiveLimit = limitCheck.limit;
+        if (limitCheck.exit) {
+          return { ...limitCheck.exit, finalText };
+        }
+
+        // Extension: beforeIteration
+        await this.extensions.runBeforeIteration(this.ctx, i);
+
+        this.events.emit('iteration.started', { ctx: this.ctx, index: i });
+
+        const req = await this.buildAndRunRequestPipeline(opts);
+
+        let res: Response;
+        try {
+          res = await customRunner(this.ctx, req);
+          recoveryRetries = 0;
+        } catch (err) {
+          if (controller.signal.aborted) {
             this.events.emit('error', { err: toError(err), phase: 'provider' });
-            return { status: 'failed', iterations, error: toWrongStackError(err), delegateSummaries };
+            return { status: 'aborted', iterations, error: toWrongStackError(err, 'AGENT_ABORTED') };
           }
-          if (extDecision.action === 'continue') {
-            // Extension says skip this turn — go to next iteration
-            await this.extensions.runAfterIteration(this.ctx, i);
-            continue;
-          }
-          if (extDecision.action === 'retry') {
-            recoveryRetries++;
-            if (recoveryRetries > 2) {
+
+          // Extension: onError — extensions get first crack at recovery
+          const extDecision = await this.extensions.runOnError(this.ctx, err, 'provider', i);
+          if (extDecision) {
+            if (extDecision.action === 'fail') {
               this.events.emit('error', { err: toError(err), phase: 'provider' });
               return { status: 'failed', iterations, error: toWrongStackError(err), delegateSummaries };
             }
-            if (extDecision.model) this.ctx.model = extDecision.model;
-            this.logger.info('Extension requested retry; retrying turn');
+            if (extDecision.action === 'continue') {
+              // Extension says skip this turn — go to next iteration
+              await this.extensions.runAfterIteration(this.ctx, i);
+              continue;
+            }
+            if (extDecision.action === 'retry') {
+              recoveryRetries++;
+              if (recoveryRetries > 2) {
+                this.events.emit('error', { err: toError(err), phase: 'provider' });
+                return { status: 'failed', iterations, error: toWrongStackError(err), delegateSummaries };
+              }
+              if (extDecision.model) this.ctx.model = extDecision.model;
+              this.logger.info('Extension requested retry; retrying turn');
+              continue;
+            }
+          }
+
+          const recovered = await this.errorHandler.recover(err, this.ctx);
+          if (!recovered || recovered.action === 'fail') {
+            this.events.emit('error', { err: toError(err), phase: 'provider' });
+            return {
+              status: 'failed',
+              iterations,
+              error: toWrongStackError(recovered?.error ?? err),
+              delegateSummaries,
+            };
+          }
+          if (recovered.action === 'retry') {
+            recoveryRetries++;
+            if (recoveryRetries > 2) {
+              this.events.emit('error', { err: toError(err), phase: 'provider' });
+              return { status: 'failed', iterations, error: toWrongStackError(err) };
+            }
+            if (recovered.model) this.ctx.model = recovered.model;
+            this.logger.info(`Recovered provider error via ${recovered.reason}; retrying turn`);
             continue;
           }
+          recoveryRetries = 0;
+          res = recovered.response;
         }
 
-        const recovered = await this.errorHandler.recover(err, this.ctx);
-        if (!recovered || recovered.action === 'fail') {
-          this.events.emit('error', { err: toError(err), phase: 'provider' });
-          return {
-            status: 'failed',
-            iterations,
-            error: toWrongStackError(recovered?.error ?? err),
-            delegateSummaries,
-          };
+        const responseResult = await this.processResponse(res, req);
+        if (responseResult.aborted) {
+          return { status: 'aborted', iterations, finalText: responseResult.finalText, delegateSummaries };
         }
-        if (recovered.action === 'retry') {
-          recoveryRetries++;
-          if (recoveryRetries > 2) {
-            this.events.emit('error', { err: toError(err), phase: 'provider' });
-            return { status: 'failed', iterations, error: toWrongStackError(err) };
+        if (responseResult.done) {
+          return { status: 'done', iterations, finalText: responseResult.finalText, delegateSummaries };
+        }
+
+        finalText = responseResult.finalText;
+
+        const toolUses = res.content.filter(isToolUseBlock);
+        if (toolUses.length === 0) {
+          // No tool calls — check autonomous continue text marker before exiting.
+          // The model can signal [continue] to re-run even without a tool call.
+          this.events.emit('iteration.completed', { ctx: this.ctx, index: i });
+          if (autonomousContinue && responseResult.directive === 'continue') {
+            await this.compactContextIfNeeded();
+            await this.extensions.runAfterIteration(this.ctx, i);
+            continue;
           }
-          if (recovered.model) this.ctx.model = recovered.model;
-          this.logger.info(`Recovered provider error via ${recovered.reason}; retrying turn`);
-          continue;
+          if (autonomousContinue && responseResult.directive === 'stop') {
+            return { status: 'done', iterations, finalText, delegateSummaries };
+          }
+          return { status: 'done', iterations, finalText, delegateSummaries };
         }
-        recoveryRetries = 0;
-        res = recovered.response;
-      }
 
-      const responseResult = await this.processResponse(res, req);
-      if (responseResult.aborted) {
-        return { status: 'aborted', iterations, finalText: responseResult.finalText, delegateSummaries };
-      }
-      if (responseResult.done) {
-        return { status: 'done', iterations, finalText: responseResult.finalText, delegateSummaries };
-      }
+        await this.executeTools(toolUses);
 
-      finalText = responseResult.finalText;
-
-      const toolUses = res.content.filter(isToolUseBlock);
-      if (toolUses.length === 0) {
-        // No tool calls — check autonomous continue text marker before exiting.
-        // The model can signal [continue] to re-run even without a tool call.
-        this.events.emit('iteration.completed', { ctx: this.ctx, index: i });
-        if (autonomousContinue && responseResult.directive === 'continue') {
+        // Autonomous continue via tool flag: if the model called
+        // `continue_to_next_iteration()` the flag is set; consume it and
+        // re-run the loop immediately without returning to the caller.
+        // This allows fully autonomous operation where the model keeps
+        // working across multiple turns without the outer runner having
+        // to re-invoke Agent.run().
+        if (autonomousContinue && consumeAutonomousContinue(this.ctx)) {
+          this.events.emit('iteration.completed', { ctx: this.ctx, index: i });
           await this.compactContextIfNeeded();
           await this.extensions.runAfterIteration(this.ctx, i);
+          continue;
+        }
+
+        this.events.emit('iteration.completed', { ctx: this.ctx, index: i });
+
+        await this.compactContextIfNeeded();
+
+        // Extension: afterIteration
+        await this.extensions.runAfterIteration(this.ctx, i);
+
+        // Autonomous continue via text marker: if `processResponse` detected
+        // a `[continue]` / `[next step]` marker, re-run the loop without
+        // returning to the caller. `[done]` causes an immediate exit with 'done'.
+        if (autonomousContinue && responseResult.directive === 'continue') {
           continue;
         }
         if (autonomousContinue && responseResult.directive === 'stop') {
           return { status: 'done', iterations, finalText, delegateSummaries };
         }
-        return { status: 'done', iterations, finalText, delegateSummaries };
       }
-
-      await this.executeTools(toolUses);
-
-      // Autonomous continue via tool flag: if the model called
-      // `continue_to_next_iteration()` the flag is set; consume it and
-      // re-run the loop immediately without returning to the caller.
-      // This allows fully autonomous operation where the model keeps
-      // working across multiple turns without the outer runner having
-      // to re-invoke Agent.run().
-      if (autonomousContinue && consumeAutonomousContinue(this.ctx)) {
-        this.events.emit('iteration.completed', { ctx: this.ctx, index: i });
-        await this.compactContextIfNeeded();
-        await this.extensions.runAfterIteration(this.ctx, i);
-        continue;
-      }
-
-      this.events.emit('iteration.completed', { ctx: this.ctx, index: i });
-
-      await this.compactContextIfNeeded();
-
-      // Extension: afterIteration
-      await this.extensions.runAfterIteration(this.ctx, i);
-
-      // Autonomous continue via text marker: if `processResponse` detected
-      // a `[continue]` / `[next step]` marker, re-run the loop without
-      // returning to the caller. `[done]` causes an immediate exit with 'done'.
-      if (autonomousContinue && responseResult.directive === 'continue') {
-        continue;
-      }
-      if (autonomousContinue && responseResult.directive === 'stop') {
-        return { status: 'done', iterations, finalText, delegateSummaries };
-      }
+    } finally {
+      offSubagentDone();
     }
   }
 

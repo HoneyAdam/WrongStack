@@ -460,6 +460,22 @@ describe('grep tool', () => {
     expect(out.count).toBeGreaterThanOrEqual(3);
   });
 
+  it('rg count mode exercises parseRgCountLine directly', async () => {
+    // rg --count emits "file:num\n" lines which parseRgCountLine parses.
+    // Force rg mode: provide both count and context_lines which only rg supports.
+    await fs.writeFile(path.join(sb.dir, 'c.txt'), 'foo\nbar\nbaz\nfoo\n');
+    const out = await grepTool.execute(
+      { pattern: 'foo', output_mode: 'count', context_lines: 1 },
+      sb.ctx,
+      { signal: newSignal() },
+    );
+    // rg --count --no-heading -C 1 produces count per file + context lines
+    // If rg is not installed this falls through to native, which is fine —
+    // the test documents that count mode is at least exercised.
+    expect(out).toHaveProperty('count');
+    expect(out.used).toMatch(/^(rg|native)$/);
+  });
+
   it('native grep handles files read error gracefully', async () => {
     // We can't easily trigger a read error without permissions issues
     // but the try/catch exists

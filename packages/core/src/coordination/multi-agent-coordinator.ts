@@ -404,21 +404,29 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
     this.emit('task.assigned', { task, subagentId });
 
     // Budget combines coordinator defaults with per-subagent and per-task overrides.
-    // Precedence: task > subagent > roster default > coordinator default.
+    // Precedence: task > subagent (raw, no roster fills) > coordinator default > roster default.
+    // We intentionally call applyRosterBudget LATE — only as a final fallback after
+    // the coordinator's defaultBudget has had a chance to apply. This prevents
+    // GENERIC_SUBAGENT_BUDGET (5000 iter) from shadowing the coordinator's explicit default.
+    const rawMaxIterations = subagent.config.maxIterations;
+    const rawMaxToolCalls = subagent.config.maxToolCalls;
+    const rawMaxTokens = subagent.config.maxTokens;
+    const rawMaxCostUsd = subagent.config.maxCostUsd;
+    const rawTimeoutMs = subagent.config.timeoutMs;
     const configWithRosterDefaults = applyRosterBudget(subagent.config);
     const budget = new SubagentBudget({
       maxIterations:
-        configWithRosterDefaults.maxIterations ?? this.config.defaultBudget?.maxIterations,
+        rawMaxIterations ?? this.config.defaultBudget?.maxIterations ?? configWithRosterDefaults.maxIterations,
       maxToolCalls:
-        task.maxToolCalls ??
-        configWithRosterDefaults.maxToolCalls ??
-        this.config.defaultBudget?.maxToolCalls,
+        rawMaxToolCalls ??
+        this.config.defaultBudget?.maxToolCalls ??
+        configWithRosterDefaults.maxToolCalls,
       maxTokens:
-        configWithRosterDefaults.maxTokens ?? this.config.defaultBudget?.maxTokens,
+        rawMaxTokens ?? this.config.defaultBudget?.maxTokens ?? configWithRosterDefaults.maxTokens,
       maxCostUsd:
-        configWithRosterDefaults.maxCostUsd ?? this.config.defaultBudget?.maxCostUsd,
+        rawMaxCostUsd ?? this.config.defaultBudget?.maxCostUsd ?? configWithRosterDefaults.maxCostUsd,
       timeoutMs:
-        task.timeoutMs ?? configWithRosterDefaults.timeoutMs ?? this.config.defaultBudget?.timeoutMs,
+        rawTimeoutMs ?? this.config.defaultBudget?.timeoutMs ?? configWithRosterDefaults.timeoutMs,
     });
     subagent.activeBudget = budget;
 

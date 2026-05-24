@@ -54,4 +54,24 @@ describe('read tool', () => {
       readTool.execute({ path: '../../etc/passwd' }, sb.ctx, { signal: newSignal() }),
     ).rejects.toThrow();
   });
+
+  it('rejects file that does not exist', async () => {
+    await expect(
+      readTool.execute({ path: 'nonexistent.txt' }, sb.ctx, { signal: newSignal() }),
+    ).rejects.toThrow(/not found/);
+  });
+
+  it('returns empty text with truncated=true when limit=0', async () => {
+    const file = path.join(sb.dir, 'd.txt');
+    await fs.writeFile(file, 'first\nsecond\nthird\n');
+    const out = await readTool.execute({ path: 'd.txt', limit: 0 }, sb.ctx, {
+      signal: newSignal(),
+    });
+    expect(out.text).toBe('');
+    expect(out.truncated).toBe(true);
+    expect(out.total_lines).toBeGreaterThan(0);
+    // ctx.recordRead should still be called
+    const abs = path.normalize(path.resolve(sb.dir, 'd.txt'));
+    expect(sb.ctx.hasRead(abs)).toBe(true);
+  });
 });

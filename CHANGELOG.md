@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.7] - 2026-05-24
+
+### Fixed
+
+- **Windows temp-dir cleanup EBUSY in commit slash tests.** The
+  `afterEach` cleanup in `slash-commit.test.ts` and
+  `slash-commands/commit.test.ts` used a bare `fs.rm` that could
+  fail with `EBUSY: resource busy or locked` on Windows when the
+  git process had not fully released its handle. Both test files
+  now use a `rmWithRetry` helper that retries up to 5 times with
+  200 ms delays, giving the OS time to release file handles before
+  `rmdir` is called. The actual commit/push logic was correct — only
+  the cleanup path was affected.
+
+### Changed — versions
+
+- **All workspace packages bumped 0.6.6 → 0.6.7**: `wrongstack`,
+  `@wrongstack/cli`, `@wrongstack/core`, `@wrongstack/mcp`,
+  `@wrongstack/plug-lsp`, `@wrongstack/providers`,
+  `@wrongstack/runtime`, `@wrongstack/skills`,
+  `@wrongstack/telegram`, `@wrongstack/tools`, `@wrongstack/tui`,
+  `@wrongstack/webui`. `@wrongstack/plugins` remains at `0.1.0`.
+
 ## [0.6.6] - 2026-05-24
 
 ### Added

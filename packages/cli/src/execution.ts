@@ -260,6 +260,9 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
           renderer.writeWarning(`Hit max iterations (${result.iterations}).`);
         }
         if (result.finalText) renderer.write('\n' + result.finalText + '\n');
+        // Surface any delegate subagent completion banners.
+        const r = result as { delegateSummaries?: Array<{ summary: string; ok: boolean }>; messages?: Array<unknown> };
+        renderer.writeDelegateSummaries(r);
         renderer.write(
           '\n' +
             color.dim(

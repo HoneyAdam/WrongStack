@@ -13,12 +13,25 @@ const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, '');
 
 let tmp: string;
 
+async function rmWithRetry(dir: string): Promise<void> {
+  for (let i = 0; i < 5; i++) {
+    try {
+      await fs.rm(dir, { recursive: true, force: true });
+      return;
+    } catch (err: unknown) {
+      if (i === 4) throw err;
+      // EBUSY on Windows: give the OS a moment to release file handles
+      await new Promise((r) => setTimeout(r, 200));
+    }
+  }
+}
+
 beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'commit-slash-'));
 });
 
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await rmWithRetry(tmp);
 });
 
 function initGitRepo(): void {

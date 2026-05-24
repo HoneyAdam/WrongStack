@@ -10,12 +10,25 @@ import { color } from '@wrongstack/core';
 describe('Git commit helper functions', () => {
   let tmp: string;
 
+  async function rmWithRetry(dir: string): Promise<void> {
+    for (let i = 0; i < 5; i++) {
+      try {
+        await fs.rm(dir, { recursive: true, force: true });
+        return;
+      } catch (err: unknown) {
+        if (i === 4) throw err;
+        // EBUSY on Windows: give the OS a moment to release file handles
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    }
+  }
+
   beforeEach(async () => {
     tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-commit-'));
   });
 
   afterEach(async () => {
-    await fs.rm(tmp, { recursive: true, force: true });
+    await rmWithRetry(tmp);
   });
 
   async function runGit(args: string[]): Promise<{ stdout: string; stderr: string; code: number }> {
@@ -109,28 +122,29 @@ describe('Git commit helper functions', () => {
     });
 
     it('pushes to remote', async () => {
-      // Create a bare remote
       const remoteTmp = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-remote-'));
-      await runGit(['init', '--bare', remoteTmp]);
+      try {
+        await runGit(['init', '--bare', remoteTmp]);
 
-      await initGitRepo();
-      await fs.writeFile(path.join(tmp, 'test.txt'), 'hello', 'utf8');
-      await runGit(['add', '.']);
-      await runGit(['commit', '-m', 'test: initial']);
+        await initGitRepo();
+        await fs.writeFile(path.join(tmp, 'test.txt'), 'hello', 'utf8');
+        await runGit(['add', '.']);
+        await runGit(['commit', '-m', 'test: initial']);
 
-      // Determine branch name
-      const branchResult = await runGit(['branch', '--show-current']);
-      const branch = branchResult.stdout.trim() || 'main';
+        // Determine branch name
+        const branchResult = await runGit(['branch', '--show-current']);
+        const branch = branchResult.stdout.trim() || 'main';
 
-      // Add remote
-      const remoteResult = await runGit(['remote', 'add', 'origin', remoteTmp]);
-      expect(remoteResult.code).toBe(0);
+        // Add remote
+        const remoteResult = await runGit(['remote', 'add', 'origin', remoteTmp]);
+        expect(remoteResult.code).toBe(0);
 
-      // Push
-      const pushResult = await runGit(['push', '-u', 'origin', branch]);
-      expect(pushResult.code).toBe(0);
-
-      await fs.rm(remoteTmp, { recursive: true, force: true });
+        // Push
+        const pushResult = await runGit(['push', '-u', 'origin', branch]);
+        expect(pushResult.code).toBe(0);
+      } finally {
+        await rmWithRetry(remoteTmp);
+      }
     });
   });
 });
