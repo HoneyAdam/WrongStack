@@ -378,7 +378,8 @@ describe('EternalAutonomyEngine', () => {
     expect(sources).toContain('brainstorm');
   });
 
-  it('stops the engine and flips goalState when finalText contains [GOAL_COMPLETE]', async () => {
+  it('stops the engine and clears the goal when finalText contains [GOAL_COMPLETE]', async () => {
+    let onEternalStopCalled = false;
     const agent = makeMockAgent({
       todos: [{ id: 't1', content: 'last step', status: 'pending' }],
       runImpl: async () => ({
@@ -391,17 +392,15 @@ describe('EternalAutonomyEngine', () => {
       agent,
       projectRoot,
       gitStatusReader: async () => '',
+      onEternalStop: () => { onEternalStopCalled = true; },
     });
 
     const ok = await engine.runOneIteration();
     expect(ok).toBe(true);
-
+    // The goal file should be deleted and onEternalStop fired so REPL exits eternal mode.
     const after = await loadGoal(goalPath);
-    expect(after?.goalState).toBe('completed');
-    // A "MISSION COMPLETE — ..." journal entry should be present.
-    const completeEntry = after?.journal.find((e) => e.task.startsWith('MISSION COMPLETE'));
-    expect(completeEntry).toBeDefined();
-    expect(completeEntry?.status).toBe('success');
+    expect(after).toBeNull(); // goal cleared / file removed
+    expect(onEternalStopCalled).toBe(true);
     expect(engine.currentState).not.toBe('running');
   });
 

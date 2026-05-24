@@ -169,7 +169,14 @@ const BRAINSTORM_DONE = Symbol('brainstorm-done');
  * iteration succeeded, which together is the most reliable stop signal
  * we can get without a separate verifier round-trip.
  */
-const GOAL_COMPLETE_MARKER = /^\s*\[goal[_\s-]?complete\]\s*$/im;
+const GOAL_COMPLETE_MARKER = /^\s*\[goal[_\s-]*complete\]\s*$/im;
+
+/**
+ * Free-text marker for the `/goal clear` command equivalent — when the
+ * model emits this, the engine treats it as a manual goal clear (not just
+ * completion) so the goal file is removed and onEternalStop fires.
+ */
+const GOAL_CLEAR_MARKER = /^\s*\[\/?goal\s*clear\]\s*$/im;
 
 export class EternalAutonomyEngine {
   private state: EternalEngineState = 'idle';
@@ -470,7 +477,18 @@ export class EternalAutonomyEngine {
     // verifier round-trip — keeps cost down; if the model lies, the user
     // notices and can re-arm with `/goal set`.
     if (GOAL_COMPLETE_MARKER.test(finalText)) {
-      await this.markGoalCompleted(action, finalText);
+      // Treat GOAL_COMPLETE as a full goal clear: remove the goal file and
+      // fire onEternalStop so the REPL exits eternal mode. Stronger than
+      // just marking completed — the REPL needs both to happen.
+      await this.clearGoalManually(finalText);
+      this.stopRequested = true;
+      return true;
+    }
+    // Goal-clear detection — model emits `[goal clear]` equivalent to
+    // `/goal clear`. Treat as a manual stop: remove the goal file and fire
+    // onEternalStop so the REPL knows to return to normal mode.
+    if (GOAL_CLEAR_MARKER.test(finalText)) {
+      await this.clearGoalManually(finalText);
       this.stopRequested = true;
       return true;
     }
@@ -817,6 +835,32 @@ export class EternalAutonomyEngine {
       note: note.slice(0, 240),
     });
     await saveGoal(this.goalPath, withEntry);
+  }
+
+  /**
+   * Manually clear the goal — equivalent to `/goal clear` typed by the user.
+   * Sets goalState to `abandoned`, removes the goal file, and fires
+   * `onEternalStop` so the REPL returns to normal mode.
+   */
+  private async clearGoalManually(note: string): Promise<void> {
+    const current = await loadGoal(this.goalPath);
+    if (current) {
+      const abandoned: GoalFile = { ...current, goalState: 'abandoned' };
+      await saveGoal(this.goalPath, abandoned);
+    }
+    try {
+      const { unlink } = await import('node:fs/promises');
+      await unlink(this.goalPath);
+    } catch {
+      // best-effort — file may already be gone
+    }
+    this.opts.onEternalStop?.();
+    void this.appendIterationEntry({
+      source: 'manual',
+      task: 'goal cleared',
+      status: 'success',
+      note: note.slice(0, 240),
+    });
   }
 
   private async appendFailure(task: string, note: string): Promise<void> {
