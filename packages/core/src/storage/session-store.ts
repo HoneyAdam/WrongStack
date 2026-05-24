@@ -58,8 +58,16 @@ export class DefaultSessionStore implements SessionStore {
   }
 
   async resume(id: string): Promise<ResumedSession> {
-    const data = await this.load(id);
     const file = path.join(this.dir, `${id}.jsonl`);
+    try {
+      await fsp.access(file, fsp.constants.R_OK);
+    } catch {
+      throw new Error(
+        `Session "${id}" not found — the session file does not exist or was deleted.`,
+        { cause: new Error('ENOENT') },
+      );
+    }
+    const data = await this.load(id);
     let handle: fsp.FileHandle;
     try {
       handle = await fsp.open(file, 'a', 0o600);
