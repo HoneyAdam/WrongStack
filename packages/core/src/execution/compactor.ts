@@ -20,24 +20,11 @@ export interface CompactorOptions {
  * Default tools config values shared across CLI and WebUI.
  * Import this instead of hardcoding to avoid cross-surface inconsistencies.
  * These mirror the values in BEHAVIOR_DEFAULTS (config-loader.ts).
+ *
+ * @deprecated Import from '../types/default-config.js' instead.
+ *             This re-export exists for backward compatibility.
  */
-export const DEFAULT_TOOLS_CONFIG = Object.freeze({
-  defaultExecutionStrategy: 'smart',
-  maxIterations: 100,
-  iterationTimeoutMs: 300_000,
-  sessionTimeoutMs: 1_800_000,
-  perIterationOutputCapBytes: 100_000,
-  autoExtendLimit: true,
-});
-
-/**
- * Default context config values shared across CLI and WebUI.
- * Mirrors BEHAVIOR_DEFAULTS.context in config-loader.ts.
- */
-export const DEFAULT_CONTEXT_CONFIG = Object.freeze({
-  preserveK: 10,
-  eliseThreshold: 2000,
-});
+export { DEFAULT_TOOLS_CONFIG, DEFAULT_CONTEXT_CONFIG } from '../types/default-config.js';
 
 export class HybridCompactor implements Compactor {
   private readonly preserveK: number;

@@ -9,6 +9,7 @@ export * from './permission.js';
 export * from './session.js';
 export * from './session-rewinder.js';
 export * from './attachment.js';
+export * from './default-config.js';
 export * from '../security/secret-vault.js';
 export * from '../infrastructure/logger.js';
 export * from '../infrastructure/token-counter.js';

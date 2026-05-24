@@ -9,7 +9,7 @@ import type { Config, ConfigLoader } from '../types/config.js';
 import type { SecretVault } from '../types/secret-vault.js';
 import { safeParse } from '../utils/safe-json.js';
 import type { WstackPaths } from '../utils/wstack-paths.js';
-import { DEFAULT_TOOLS_CONFIG, DEFAULT_CONTEXT_CONFIG } from '../execution/compactor.js';
+import { DEFAULT_TOOLS_CONFIG, DEFAULT_CONTEXT_CONFIG } from '../types/default-config.js';
 
 /**
  * Defaults express *behavior*, not identity. Provider and model are NOT
