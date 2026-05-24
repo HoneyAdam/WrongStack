@@ -41,6 +41,13 @@ export interface RunResult {
   error?: WrongStackError;
   finalText?: string;
   iterations: number;
+  /**
+   * Subagent delegate summaries collected during the run. Populated by the
+   * `delegate` tool — each entry is the `summary` + `ok` fields returned
+   * when a subagent finishes. Callers (e.g. TUI/CLI renderer) use this to
+   * surface flashy completion banners in the terminal.
+   */
+  delegateSummaries?: Array<{ summary: string; ok: boolean }>;
 }
 
 export interface AgentInit {
@@ -331,6 +338,7 @@ export class Agent {
 
     let finalText = '';
     let iterations = 0;
+    const delegateSummaries: Array<{ summary: string; ok: boolean }> = [];
     let effectiveLimit = opts.maxIterations ?? this.maxIterations;
     const hasHardLimit = effectiveLimit > 0 && Number.isFinite(effectiveLimit);
     let recoveryRetries = 0;
@@ -340,6 +348,12 @@ export class Agent {
     // Agent can flip into autonomous mode for a single eternal-engine
     // iteration without a constructor rebuild.
     const autonomousContinue = opts.autonomousContinue ?? this.autonomousContinue;
+
+    // Collect subagent done summaries for RunResult.delegateSummaries.
+    const onSubagentDone = ({ summary, ok }: { summary: string; ok: boolean }) => {
+      delegateSummaries.push({ summary, ok });
+    };
+    this.events.on('subagent.done', onSubagentDone);
 
     // Build the base provider runner: resolve from DI if bound, otherwise
     // use the built-in runProviderWithRetry (backward compat — consumers
@@ -394,6 +408,7 @@ export class Agent {
         effectiveLimit,
         hasHardLimit,
         iterations,
+        delegateSummaries,
       );
       effectiveLimit = limitCheck.limit;
       if (limitCheck.exit) {
@@ -422,7 +437,7 @@ export class Agent {
         if (extDecision) {
           if (extDecision.action === 'fail') {
             this.events.emit('error', { err: toError(err), phase: 'provider' });
-            return { status: 'failed', iterations, error: toWrongStackError(err) };
+            return { status: 'failed', iterations, error: toWrongStackError(err), delegateSummaries };
           }
           if (extDecision.action === 'continue') {
             // Extension says skip this turn — go to next iteration
@@ -433,7 +448,7 @@ export class Agent {
             recoveryRetries++;
             if (recoveryRetries > 2) {
               this.events.emit('error', { err: toError(err), phase: 'provider' });
-              return { status: 'failed', iterations, error: toWrongStackError(err) };
+              return { status: 'failed', iterations, error: toWrongStackError(err), delegateSummaries };
             }
             if (extDecision.model) this.ctx.model = extDecision.model;
             this.logger.info('Extension requested retry; retrying turn');
@@ -448,6 +463,7 @@ export class Agent {
             status: 'failed',
             iterations,
             error: toWrongStackError(recovered?.error ?? err),
+            delegateSummaries,
           };
         }
         if (recovered.action === 'retry') {
@@ -466,10 +482,10 @@ export class Agent {
 
       const responseResult = await this.processResponse(res, req);
       if (responseResult.aborted) {
-        return { status: 'aborted', iterations, finalText: responseResult.finalText };
+        return { status: 'aborted', iterations, finalText: responseResult.finalText, delegateSummaries };
       }
       if (responseResult.done) {
-        return { status: 'done', iterations, finalText: responseResult.finalText };
+        return { status: 'done', iterations, finalText: responseResult.finalText, delegateSummaries };
       }
 
       finalText = responseResult.finalText;
@@ -485,9 +501,9 @@ export class Agent {
           continue;
         }
         if (autonomousContinue && responseResult.directive === 'stop') {
-          return { status: 'done', iterations, finalText };
+          return { status: 'done', iterations, finalText, delegateSummaries };
         }
-        return { status: 'done', iterations, finalText };
+        return { status: 'done', iterations, finalText, delegateSummaries };
       }
 
       await this.executeTools(toolUses);
@@ -519,7 +535,7 @@ export class Agent {
         continue;
       }
       if (autonomousContinue && responseResult.directive === 'stop') {
-        return { status: 'done', iterations, finalText };
+        return { status: 'done', iterations, finalText, delegateSummaries };
       }
     }
   }
@@ -535,6 +551,7 @@ export class Agent {
     limit: number,
     hasHardLimit: boolean,
     currentIterations: number,
+    delegateSummaries: Array<{ summary: string; ok: boolean }>,
   ): Promise<{ limit: number; exit?: RunResult }> {
     if (hasHardLimit && iterationIndex >= limit) {
       const extendBy = await requestLimitExtension({
@@ -548,7 +565,7 @@ export class Agent {
         this.logger.info(`Iteration limit extended by ${extendBy} (new limit: ${newLimit})`);
         return { limit: newLimit };
       }
-      return { limit, exit: { status: 'max_iterations', iterations: currentIterations } };
+      return { limit, exit: { status: 'max_iterations', iterations: currentIterations, delegateSummaries } };
     }
     return { limit };
   }

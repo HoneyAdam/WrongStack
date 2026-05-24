@@ -291,6 +291,12 @@ export interface EventMap {
       cause?: { name: string; message: string; stack?: string };
     };
   };
+  /**
+   * Fired by the delegate tool when a subagent finishes. The agent's run
+   * loop listens for this to collect `delegateSummaries` for the RunResult,
+   * so the CLI/TUI can render flashy completion banners.
+   */
+  'subagent.done': { summary: string; ok: boolean };
   'mcp.server.connected': { name: string; toolCount: number };
   'mcp.server.reconnected': { name: string; toolCount: number };
   'mcp.server.disconnected': { name: string; reason: string };

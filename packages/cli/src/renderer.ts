@@ -149,6 +149,93 @@ export class TerminalRenderer implements Renderer {
     this.out.write('\x1b[2J\x1b[H');
     this.lineStart = true;
   }
+
+  /**
+   * Write a flashy agent completion banner for delegate tool results.
+   * Renders a box like:
+   * ┌─────────────────────────────────────┐
+   * │  ✓ [role] done in 4m 32s           │
+   * │    127 iterations · 341 tools        │
+   * │    Found 14 bugs across 6 files...   │
+   * └─────────────────────────────────────┘
+   */
+  writeAgentSummary(summary: string, ok: boolean): void {
+    if (this.silent) return;
+    if (!this.lineStart) this.out.write('\n');
+
+    const lines = summary.split('\n');
+    const icon = ok ? theme.success('✓') : theme.error('✘');
+    const firstLine = `${icon} ${lines[0] ?? summary}`;
+    const body = lines.slice(1);
+
+    // Compute width: min 44, max terminal width (fallback 80).
+    const maxWidth = Math.min(process.stdout.columns ?? 80, 120);
+    const contentWidth = Math.max(
+      firstLine.length,
+      body.reduce((a, l) => Math.max(a, l.length), 0),
+    );
+    const boxWidth = Math.min(Math.max(contentWidth + 4, 44), maxWidth);
+
+    const thick = '━'.repeat(boxWidth - 2);
+    const thin  = '─'.repeat(boxWidth - 2);
+
+    this.out.write(`\n ${theme.primary('┌')}${thick}${theme.primary('┐')}\n`);
+
+    const centre = (s: string) => {
+      const inner = ` ${s} `;
+      const padLen = Math.max(0, boxWidth - 2 - s.length);
+      const left  = Math.floor(padLen / 2);
+      const right = padLen - left;
+      return `${' '.repeat(left)}${inner}${' '.repeat(right)}`;
+    };
+
+    this.out.write(` ${theme.primary('│')}${centre(firstLine)}${theme.primary('│')}\n`);
+
+    for (const l of body) {
+      this.out.write(
+        ` ${theme.primary('│')} ${l}${' '.repeat(Math.max(0, boxWidth - 3 - l.length))}${theme.primary('│')}\n`,
+      );
+    }
+
+    this.out.write(` ${theme.primary('└')}${thin}${theme.primary('┘')}\n`);
+    this.lineStart = true;
+  }
+
+  /**
+   * Render subagent completion banners from a RunResult.
+   * Uses `delegateSummaries` when available (populated by delegate tool),
+   * otherwise falls back to scanning message history.
+   */
+  writeDelegateSummaries(result: { delegateSummaries?: Array<{ summary: string; ok: boolean }>; messages?: Array<unknown> }): void {
+    if (this.silent) return;
+    // Prefer the structured field from delegate tool.
+    if (result.delegateSummaries) {
+      for (const { summary, ok } of result.delegateSummaries) {
+        this.writeAgentSummary(summary, ok);
+      }
+      return;
+    }
+    // Fallback: scan message history for delegate tool_result blocks.
+    if (!result.messages) return;
+    for (const msg of result.messages) {
+      const m = msg as { content?: Array<unknown> };
+      if (!Array.isArray(m.content)) continue;
+      for (const block of m.content) {
+        const b = block as { type?: string; name?: string; content?: unknown };
+        if (b.type !== 'tool_result' || b.name !== 'delegate') continue;
+        let obj: unknown;
+        try {
+          obj = typeof b.content === 'string' ? JSON.parse(b.content) : b.content;
+        } catch {
+          continue;
+        }
+        const o = obj as { summary?: string; ok?: boolean };
+        if (o.summary) {
+          this.writeAgentSummary(o.summary, o.ok ?? true);
+        }
+      }
+    }
+  }
 }
 
 function renderMarkdown(s: string): string {

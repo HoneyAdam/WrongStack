@@ -110,7 +110,7 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
       // hasParentBridge() — the type now reflects this.
       parentBridge: null,
       doneCondition: this.config.doneCondition,
-      maxConcurrent: this.config.maxConcurrent ?? 4,
+      maxConcurrent: this.config.maxConcurrent ?? 16,
     };
 
     this.subagents.set(id, {
@@ -285,7 +285,7 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
   }
 
   private canDispatch(): boolean {
-    const max = this.config.maxConcurrent ?? 4;
+    const max = this.config.maxConcurrent ?? 16;
     return this.inFlight < max && this.pendingTasks.length > 0;
   }
 
@@ -533,7 +533,7 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
                     kind: 'timeout',
                     used: elapsed,
                     limit,
-                    timeoutMs: 30_000,
+                    timeoutMs: 60_000,
                     extend: (extra) => resolveDecision({ extend: extra }),
                     deny: () => resolveDecision('stop'),
                   });

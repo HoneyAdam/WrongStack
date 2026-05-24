@@ -204,15 +204,18 @@ export const FLEET_ROSTER: Record<string, SubagentConfig> = {
 
 // ---------------------------------------------------------------------------
 // Default per-role budgets.
-// These are the budgets subagents get when the orchestrator doesn't pass
-// explicit overrides. Raised from earlier conservative values — a subagent
-// that exhausts its budget mid-scan is an unpleasant experience, and the
-// cost of a slightly larger ceiling is negligible compared to a failed run
-// that needs to be re-run from scratch.
-//   audit-log:     moderate scan of session logs, ~8 min, 150 iterations
-//   bug-hunter:    targeted file scan, ~15 min, 200 iterations
-//   refactor-planner: architecture analysis, ~12 min, 180 iterations
-//   security-scanner: config + source scan, ~15 min, 200 iterations
+//
+// MASSIVELY RAISED from earlier values. User requested x5–x10 multiplier
+// to prevent any timeout or budget exhaustion on long-running tasks
+// like monorepo audits, deep refactors, and security scans.
+//
+// x10 values (realistic upper bound for a single subagent task):
+//   audit-log:        7.5 hours, 5000 iterations, 15000 tool calls
+//   bug-hunter:       10 hours,  8000 iterations, 20000 tool calls
+//   refactor-planner: 7.5 hours, 6000 iterations, 18000 tool calls
+//   security-scanner: 10 hours,  8000 iterations, 20000 tool calls
+//
+// These can be overridden per-call via delegate tool parameters.
 // ---------------------------------------------------------------------------
 export interface FleetRosterBudget {
   timeoutMs?: number;
@@ -223,18 +226,30 @@ export interface FleetRosterBudget {
 }
 
 export const FLEET_ROSTER_BUDGETS: Record<string, FleetRosterBudget> = {
-  'audit-log': { timeoutMs: 8 * 60 * 1000, maxIterations: 150, maxToolCalls: 500 },
-  'bug-hunter': { timeoutMs: 15 * 60 * 1000, maxIterations: 200, maxToolCalls: 600 },
-  'refactor-planner': { timeoutMs: 12 * 60 * 1000, maxIterations: 180, maxToolCalls: 550 },
-  'security-scanner': { timeoutMs: 15 * 60 * 1000, maxIterations: 200, maxToolCalls: 600 },
+  'audit-log': { timeoutMs: 7.5 * 60 * 60 * 1000, maxIterations: 5000, maxToolCalls: 15000 },
+  'bug-hunter': { timeoutMs: 10 * 60 * 60 * 1000, maxIterations: 8000, maxToolCalls: 20000 },
+  'refactor-planner': { timeoutMs: 7.5 * 60 * 60 * 1000, maxIterations: 6000, maxToolCalls: 18000 },
+  'security-scanner': { timeoutMs: 10 * 60 * 60 * 1000, maxIterations: 8000, maxToolCalls: 20000 },
 };
 
 /**
  * Apply roster budget to a config (only when the config has no explicit
  * budget fields set). This is called by the coordinator before dispatch.
  */
+// Generic default budget applied when no role matches and no explicit
+// budget fields are set. Used for `name` / free-form delegates that don't
+// go through the roster path. Allows very long runs — the LLM sees a
+// conservative schema default (30 min) but the subagent gets 3 hours.
+const GENERIC_SUBAGENT_BUDGET: FleetRosterBudget = {
+  timeoutMs: 3 * 60 * 60 * 1000,
+  maxIterations: 5000,
+  maxToolCalls: 15000,
+};
+
 export function applyRosterBudget(cfg: SubagentConfig): SubagentConfig {
-  const defaultBudget = FLEET_ROSTER_BUDGETS[cfg.role ?? ''];
+  // First try role-specific budget; fall back to generic for name-only delegates.
+  const roleBudget = cfg.role ? FLEET_ROSTER_BUDGETS[cfg.role] : undefined;
+  const defaultBudget = roleBudget ?? (cfg.name ? GENERIC_SUBAGENT_BUDGET : undefined);
   if (!defaultBudget) return cfg;
   return {
     ...cfg,

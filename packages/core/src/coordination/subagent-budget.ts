@@ -120,10 +120,10 @@ export class SubagentBudget {
    * or hung listener (Director not built / event filter detached mid-run)
    * leaves the budget over-limit and never enforces anything, since
    * `checkLimit` returns synchronously via `void this.checkLimitAsync`.
-   * Hardcoded for now — most fleets set their own per-task timeout that
-   * dwarfs this anyway. 30 s matches the existing event-emit timeoutMs.
+   * Raised from 30s to 60s to give subagents more headroom before
+   * the threshold negotiation times out and triggers a hard stop.
    */
-  private static readonly DECISION_TIMEOUT_MS = 30_000;
+  private static readonly DECISION_TIMEOUT_MS = 60_000;
   /**
    * Injected by the runner when wiring the budget to its EventBus.
    * Used by `checkLimitAsync` to emit `budget.threshold_reached` events.

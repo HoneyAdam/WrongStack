@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import type { SubagentConfig, TaskResult } from '../types/multi-agent.js';
 import type { JSONSchema, Tool } from '../types/tool.js';
 import type { Director } from './director.js';
+import { applyRosterBudget, FLEET_ROSTER_BUDGETS } from './fleet.js';
 
 /**
  * Opaque host interface so this factory doesn't have to depend on the
@@ -66,7 +67,8 @@ export interface CreateDelegateToolOptions {
    * Buffer subtracted from the caller's `timeoutMs` before passing it
    * to the subagent. Gives the host a window to detect a subagent that
    * has gone silent and surface a partial result rather than a generic
-   * timeout. Default: 30_000 ms.
+   * timeout. Default: 60_000 ms (raised from 30s to give subagents
+   * more headroom before the host kills them).
    */
   subagentTimeoutBufferMs?: number;
 }
@@ -85,12 +87,12 @@ export interface CreateDelegateToolOptions {
  * when it wants fan-out it controls itself.
  */
 export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
-  // 4 hours by default. The previous 5-minute default killed any
-  // non-trivial fan-out (monorepo audits, multi-file refactors) and
-  // forced the orchestrator to constantly pass an explicit timeoutMs.
-  // The right model here: the orchestrator should pick a tight value
-  // only when it knows the work is small; otherwise let it run.
-  const defaultTimeoutMs = opts.defaultTimeoutMs ?? 4 * 60 * 60 * 1000;
+  // Conservative default for the LLM's mental model.
+  // The actual subagent budgets come from FLEET_ROSTER_BUDGETS (x10 higher)
+  // and are applied in instantiateRosterConfig. This value only appears
+  // in the schema to guide the LLM's delegation decisions — it does NOT
+  // override the roster budget unless the caller explicitly passes it.
+  const defaultTimeoutMs = opts.defaultTimeoutMs ?? 30 * 60 * 1000;
   const rosterIds = opts.roster ? Object.keys(opts.roster) : [];
 
   const inputSchema: JSONSchema = {
@@ -112,7 +114,7 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
       name: {
         type: 'string',
         description:
-          'Display name for the subagent when not using a roster role. Required when `role` is omitted.',
+          'Display name for free-form subagents (not using a roster role). The subagent gets a large default budget (3h, 5000 iter, 15000 tool calls). Required when `role` is omitted.',
       },
       provider: {
         type: 'string',
@@ -148,9 +150,9 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
   return {
     name: 'delegate',
     description:
-      "Hand a discrete piece of work to a dedicated subagent and wait for its result. The subagent has its own context, its own LLM call, and its own budget — use this when a task is self-contained, would otherwise blow up your context, or benefits from a specialized role (bug-hunter, security-scanner, refactor-planner, audit-log). YOU decide how big the budget is: pass `timeoutMs`, `maxIterations`, and `maxToolCalls` sized to the actual work. There is no hidden cap forcing a 3-minute / 80-iteration limit — if a monorepo audit needs 2 hours and 500 tool calls, ask for that. Call multiple delegates in parallel through the provider's parallel-tool-call surface to fan work out across roles.",
+      "Hand a discrete piece of work to a dedicated subagent and wait for its result. The subagent has its own context, its own LLM call, and its own budget — use this when a task is self-contained, would otherwise blow up your context, or benefits from a specialized role (bug-hunter, security-scanner, refactor-planner, audit-log). For free-form coding tasks (not tied to a pre-defined role), pass `name` + `task` — the subagent runs as a general-purpose coding agent with a large default budget. YOU decide how big the budget is: pass `timeoutMs`, `maxIterations`, and `maxToolCalls` sized to the actual work. There is no hidden cap forcing a 3-minute / 80-iteration limit — if a monorepo audit needs 2 hours and 500 tool calls, ask for that. Call multiple delegates in parallel through the provider's parallel-tool-call surface to fan work out across roles.",
     usageHint:
-      "Set `task` to a complete instruction. Either pick `role` from the roster or pass `name` + `provider` + `model`. For non-trivial work, also pass `timeoutMs` (the wall-clock budget you actually need), `maxIterations`, and `maxToolCalls` — defaults are intentionally generous (4 hours) but the right values depend on scope. Returns the subagent's `TaskResult` — including the textual `result`, iteration count, tool count, and duration. Auto-promotes the host into director mode on first call.",
+      "Set `task` to a complete instruction. Either pick `role` from the roster (audit-log, bug-hunter, refactor-planner, security-scanner) or pass `name` to run a free-form coding agent. For non-trivial work, also pass `timeoutMs`, `maxIterations`, and `maxToolCalls`. Returns the subagent's `TaskResult` — including the textual `result`, iteration count, tool count, and duration. Auto-promotes the host into director mode on first call.",
     permission: 'auto',
     mutating: false,
     inputSchema,
@@ -214,6 +216,9 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
               model: i.model,
               systemPromptOverride: i.systemPromptOverride,
             };
+            // Apply generic budget so free-form subagents get the x10
+            // budget even without a roster role.
+            cfg = applyRosterBudget({ ...cfg, name: i.name });
           }
 
           if (typeof i.maxIterations === 'number' && i.maxIterations > 0) {
@@ -223,7 +228,7 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
             cfg.maxToolCalls = i.maxToolCalls;
           }
 
-          const SUBAGENT_TIMEOUT_BUFFER_MS = opts.subagentTimeoutBufferMs ?? 30_000;
+          const SUBAGENT_TIMEOUT_BUFFER_MS = opts.subagentTimeoutBufferMs ?? 60_000;
           const desiredSubTimeout = Math.max(30_000, timeoutMs - SUBAGENT_TIMEOUT_BUFFER_MS);
           if (!cfg.timeoutMs || cfg.timeoutMs > desiredSubTimeout) {
             cfg.timeoutMs = desiredSubTimeout;
@@ -272,6 +277,11 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
           const errorKind = result.error?.kind;
           const retryable = result.error?.retryable;
           const backoffMs = result.error?.backoffMs;
+
+          // Build a short summary for the chat history so the user sees
+          // what the subagent accomplished without digging into the full result.
+          const summary = buildDelegateSummary(i.role, result);
+
           return {
             ok: result.status === 'success',
             status: result.status,
@@ -290,6 +300,9 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
             ...(hintForKind(errorKind, retryable, backoffMs, partial)
               ? { hint: hintForKind(errorKind, retryable, backoffMs, partial) }
               : {}),
+            // Summary is included so callers (TUI, CLI renderer) can surface
+            // it as a chat history line — the LLM also sees it for continuity.
+            summary,
           };
         } catch (err) {
           return {
@@ -303,10 +316,15 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
 }
 
 function instantiateRosterConfig(role: string, base: SubagentConfig): SubagentConfig {
+  // Apply the x10 roster budget so subagents get far more running time
+  // and iterations than the LLM is told about in the schema.
+  // The LLM sees a conservative 30-min default; the subagent actually
+  // gets 7.5–10 hours depending on role.
+  const withBudget = applyRosterBudget({ ...base, role });
   return {
-    ...base,
-    // Roster entries are templates. Give each spawn a fresh id so
-    // parallel or repeated delegates can use the same role safely.
+    ...withBudget,
+    // Give each spawn a fresh id so parallel or repeated delegates
+    // can use the same role safely.
     id: `${role}-${randomUUID().slice(0, 8)}`,
   };
 }
@@ -378,6 +396,34 @@ export function hintForKind(
         ? 'Failure classified as retryable. Try again with the same input.'
         : undefined;
   }
+}
+
+/**
+ * Compact summary of what a subagent did — shown in chat history so
+ * the user immediately sees the outcome without parsing the full result.
+ */
+function buildDelegateSummary(
+  role: string | undefined,
+  result: TaskResult,
+): string {
+  const roleLabel = role ?? 'subagent';
+  const ms = result.durationMs;
+  const duration = ms < 60_000
+    ? `${Math.round(ms / 1000)}s`
+    : ms < 3_600_000
+      ? `${Math.round(ms / 60_000)}m`
+      : `${(ms / 3_600_000).toFixed(1)}h`;
+
+  if (result.status === 'success') {
+    const preview = typeof result.result === 'string'
+      ? result.result.trim().slice(0, 120).replace(/\n+/g, ' ')
+      : null;
+    const tail = preview ? ` — ${preview}` : '';
+    return `[${roleLabel}] done in ${duration} (${result.iterations} iter, ${result.toolCalls} tools)${tail}`;
+  }
+
+  const errLabel = result.error?.kind ?? result.status;
+  return `[${roleLabel}] ${result.status} after ${duration} (${result.iterations} iter, ${result.toolCalls} tools) — ${errLabel}`;
 }
 
 /**
