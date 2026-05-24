@@ -71,6 +71,13 @@ export interface ICoordinator {
   terminateAll(): Promise<void>;
 
   /**
+   * Stop a subagent and remove it from the coordinator. Releases all
+   * associated resources (AbortController, budget state). The subagent
+   * entry is deleted so the id can be reused in a future spawn.
+   */
+  remove(subagentId: string): Promise<void>;
+
+  /**
    * Live coordinator status — subagent list, pending task count,
    * completed task count, iteration totals.
    */

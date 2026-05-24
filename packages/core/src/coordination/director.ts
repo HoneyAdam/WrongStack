@@ -899,6 +899,10 @@ export class Director implements ICoordinator {
     await this.coordinator.stopAll();
   }
 
+  async remove(subagentId: string): Promise<void> {
+    await this.coordinator.remove(subagentId);
+  }
+
   status(): CoordinatorStatus {
     return this.coordinator.getStatus();
   }

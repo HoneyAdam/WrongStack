@@ -204,6 +204,11 @@ export interface MultiAgentCoordinator {
   delegate(to: string, msg: BridgeMessage): Promise<void>;
   stop(subagentId: string): Promise<void>;
   stopAll(): Promise<void>;
+  /**
+   * Stop a subagent and remove it from the coordinator. Releases all
+   * associated resources. The subagent id can be reused in a future spawn.
+   */
+  remove(subagentId: string): Promise<void>;
   getStatus(): CoordinatorStatus;
   /**
    * Wait for one or more tasks to complete and return their results.
