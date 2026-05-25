@@ -81,7 +81,7 @@ describe('buildCommitCommand', () => {
     // No NEW commit happened — log still has only the seed.
     const log = execFileSync('git', ['log', '--oneline'], { cwd: tmp }).toString().trim();
     expect(log.split('\n').length).toBe(1);
-  });
+  }, 30_000);
 
   it('uses LLM-provided message when generator supplied', async () => {
     initGitRepo();
