@@ -483,22 +483,22 @@ export class MCPClient {
         this._drainPending = true;
         await new Promise<void>((resolve, reject) => {
           const timeout = setTimeout(() => {
-            this.child?.stdin?.removeListener('drain', onDrain);
-            this.child?.stdin?.removeListener('error', onError);
+            this.child?.stdin?.removeListener?.('drain', onDrain);
+            this.child?.stdin?.removeListener?.('error', onError);
             this._drainPending = false;
             reject(new Error(`MCP notify("${method}") drain timeout`));
           }, 500);
           const onDrain = () => {
             clearTimeout(timeout);
-            this.child?.stdin?.removeListener('drain', onDrain);
-            this.child?.stdin?.removeListener('error', onError);
+            this.child?.stdin?.removeListener?.('drain', onDrain);
+            this.child?.stdin?.removeListener?.('error', onError);
             this._drainPending = false;
             resolve();
           };
           const onError = (err: Error) => {
             clearTimeout(timeout);
-            this.child?.stdin?.removeListener('drain', onDrain);
-            this.child?.stdin?.removeListener('error', onError);
+            this.child?.stdin?.removeListener?.('drain', onDrain);
+            this.child?.stdin?.removeListener?.('error', onError);
             this._drainPending = false;
             reject(err);
           };
