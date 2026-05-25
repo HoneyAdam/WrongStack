@@ -8,7 +8,7 @@ for (const line of lines) {
   // Parse lines like: "  agent.ts         |   61.73 |    58.13 |   68.75 |   62.83 |"
   const match = line.match(/^\s*(\S+\.(?:ts|tsx|mjs|cjs)?)\s*\|\s*(\S+)/);
   if (match) {
-    const pct = parseFloat(match[2]);
+    const pct = Number.parseFloat(match[2]);
     if (pct < 80) {
       lowCoverage.push({ file: match[1], pct });
     }

@@ -50,7 +50,7 @@ function getPackageJson(cwd?: string): { version: string } | null {
 function parseVersion(v: string): [number, number, number] {
   const m = v.match(/^v?(\d+)\.(\d+)\.(\d+)/);
   if (!m) return [0, 0, 0];
-  return [parseInt(m[1]!), parseInt(m[2]!), parseInt(m[3]!)];
+  return [Number.parseInt(m[1]!), Number.parseInt(m[2]!), Number.parseInt(m[3]!)];
 }
 
 function bumpVersion(version: string, part: BumpType): string {
@@ -339,7 +339,7 @@ const plugin: Plugin = {
 
           if (latestTag) {
             const countOutput = runGit(['rev-list', '--count', `${latestTag}..HEAD`], cwd);
-            commitsSinceTag = parseInt(countOutput) || 0;
+            commitsSinceTag = Number.parseInt(countOutput) || 0;
           }
         } catch {
           latestTag = null;

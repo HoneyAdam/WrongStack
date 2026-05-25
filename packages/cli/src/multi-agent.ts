@@ -12,7 +12,7 @@ import {
   type ConfigStore,
   type Container,
   Context,
-  DefaultMultiAgentCoordinator,
+  type DefaultMultiAgentCoordinator,
   Director,
   type DirectorSessionFactory,
   EventBus,

@@ -1,22 +1,22 @@
-import {
+import type {
   SlashCommandRegistry,
-  type ToolRegistry,
-  type SessionStore,
-  type SkillLoader,
-  type TokenCounter,
-  type Renderer,
-  type MemoryStore,
-  type Context,
-  type ModeStore,
-  type MetricsSink,
-  type HealthRegistry,
-  type Provider,
+  ToolRegistry,
+  SessionStore,
+  SkillLoader,
+  TokenCounter,
+  Renderer,
+  MemoryStore,
+  Context,
+  ModeStore,
+  MetricsSink,
+  HealthRegistry,
+  Provider,
 } from '@wrongstack/core';
 import type { CompactReport } from '@wrongstack/core';
 import { buildBuiltinSlashCommands } from '../slash-commands/index.js';
 import type { StatuslineConfig } from '../slash-commands/statusline.js';
 import { loadStatuslineConfig, saveStatuslineConfig } from '../slash-commands/statusline.js';
-import { MultiAgentHost } from '../multi-agent.js';
+import type { MultiAgentHost } from '../multi-agent.js';
 
 export interface SlashCommandsDeps {
   slashRegistry: SlashCommandRegistry;

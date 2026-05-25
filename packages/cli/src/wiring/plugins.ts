@@ -1,6 +1,6 @@
-import { type AgentPipelines, type Config, type Container, type EventBus, type Logger, type ProviderRegistry, type SlashCommandRegistry, type ToolRegistry, type SessionWriter, type ConfigStore, type ExtensionRegistry, type MetricsSinkView } from '@wrongstack/core';
+import type { AgentPipelines, Config, Container, EventBus, Logger, ProviderRegistry, SlashCommandRegistry, ToolRegistry, SessionWriter, ConfigStore, ExtensionRegistry, MetricsSinkView } from '@wrongstack/core';
 import { loadPlugins, type Plugin } from '@wrongstack/core';
-import { MCPRegistry } from '@wrongstack/mcp';
+import type { MCPRegistry } from '@wrongstack/mcp';
 import createApi from '../plugin-api-factory.js';
 import { patchConfig } from '../utils.js';
 

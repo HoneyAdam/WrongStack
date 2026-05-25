@@ -1,5 +1,5 @@
 import { color, dispatchAgent, AGENTS_BY_PHASE } from '@wrongstack/core';
-import { type SlashCommand, type CoordinatorStatus, type FleetUsage, type AgentPhase } from '@wrongstack/core';
+import type { SlashCommand, CoordinatorStatus, FleetUsage, AgentPhase } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
 
 const PHASE_ORDER: { phase: AgentPhase; label: string }[] = [
@@ -234,7 +234,7 @@ export function buildFleetCommand(opts: SlashCommandContext): SlashCommand {
       // ── /fleet spawn <role> [count] ──────────────────────────────────────
       if (cmd === 'spawn' || cmd === 'add') {
         const role = subargs[0] ?? 'worker';
-        const count = Math.min(16, Math.max(1, parseInt(subargs[1] ?? '1', 10) || 1));
+        const count = Math.min(16, Math.max(1, Number.parseInt(subargs[1] ?? '1', 10) || 1));
         if (!opts.onFleetSpawn) {
           const msg = `${color.amber('⚠ /fleet spawn is not wired in this session.')}`;
           opts.renderer.writeWarning(msg);

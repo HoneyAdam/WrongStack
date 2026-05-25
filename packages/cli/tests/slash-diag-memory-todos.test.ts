@@ -57,7 +57,7 @@ describe('buildStatsCommand', () => {
 
 // ── /memory ──────────────────────────────────────────────────────────────────
 
-function makeMemStore(initial: string = '') {
+function makeMemStore(initial = '') {
   const state = { text: initial };
   return {
     readAll: vi.fn(async () => state.text),

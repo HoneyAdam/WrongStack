@@ -93,7 +93,7 @@ export const rewindCmd: SubcommandHandler = async (args, deps) => {
       deps.renderer.write('Rewinding to session start...\n');
       result = await rewind.rewindToStart(sessionId);
     } else if (flags.last) {
-      const n = parseInt(flags.last, 10);
+      const n = Number.parseInt(flags.last, 10);
       if (isNaN(n) || n < 1) {
         deps.renderer.writeError('--last requires a positive number');
         return 1;
@@ -101,7 +101,7 @@ export const rewindCmd: SubcommandHandler = async (args, deps) => {
       deps.renderer.write(`Rewinding last ${n} prompt(s)...\n`);
       result = await rewind.rewindLastN(sessionId, n);
     } else if (flags.to) {
-      const idx = parseInt(flags.to, 10);
+      const idx = Number.parseInt(flags.to, 10);
       if (isNaN(idx) || idx < 0) {
         deps.renderer.writeError('--to requires a non-negative number');
         return 1;

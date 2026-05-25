@@ -32,7 +32,7 @@ describe('createConfigWriteLock', () => {
     const { prev: first, release: releaseFirst } = lock.acquire();
     const { prev: second, release: releaseSecond } = lock.acquire();
 
-    let order: string[] = [];
+    const order: string[] = [];
     first.then(() => order.push('first'));
     second.then(() => order.push('second'));
     releaseFirst();

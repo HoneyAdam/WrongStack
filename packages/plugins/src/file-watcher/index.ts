@@ -52,7 +52,7 @@ const plugin: Plugin = {
 
   setup(api) {
     const watches = new Map<string, WatchHandle>();
-    let debounceMs = (api.config.extensions?.['file-watcher'] as Record<string, unknown>)?.['debounceMs'] as number ?? 500;
+    const debounceMs = (api.config.extensions?.['file-watcher'] as Record<string, unknown>)?.['debounceMs'] as number ?? 500;
 
     // Debounce helper
     const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();

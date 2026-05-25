@@ -203,7 +203,7 @@ async function handleReport(reportId: string): Promise<{ message?: string }> {
     }
 
     // Show specific report
-    const index = parseInt(reportId, 10) - 1;
+    const index = Number.parseInt(reportId, 10) - 1;
     if (!isNaN(index) && reports[index]) {
       const { readFile } = await import('node:fs/promises');
       const content = await readFile(join(reportsDir, reports[index]), 'utf-8');

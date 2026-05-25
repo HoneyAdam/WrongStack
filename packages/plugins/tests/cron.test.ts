@@ -113,7 +113,7 @@ describe('cron plugin', () => {
       if (parts.length === 5) {
         const minutePart = parts[1];
         if (minutePart && minutePart.startsWith('*/')) {
-          return parseInt(minutePart.slice(2)) * 60_000;
+          return Number.parseInt(minutePart.slice(2)) * 60_000;
         }
       }
     }
@@ -153,7 +153,7 @@ describe('cron plugin', () => {
 
   it('formatNextRun defaults to 60s for zero, negative, and NaN', () => {
     const before = Date.now();
-    for (const bad of [0, -1, NaN] as number[]) {
+    for (const bad of [0, -1, Number.NaN] as number[]) {
       const result = formatNextRun(bad);
       expect(new Date(result).getTime()).toBeGreaterThan(before + 59_000);
     }

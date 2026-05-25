@@ -48,7 +48,7 @@ function isNewer(a: string, b: string): boolean {
     v
       .replace(/^v/i, '')
       .split('.')
-      .map((p) => parseInt(p, 10) || 0);
+      .map((p) => Number.parseInt(p, 10) || 0);
   const [ap, bp] = [parse(a), parse(b)];
   for (let i = 0; i < Math.max(ap.length, bp.length); i++) {
     const ai = ap[i] ?? 0;

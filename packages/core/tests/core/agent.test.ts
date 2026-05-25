@@ -391,7 +391,7 @@ describe('Agent', () => {
 });
 
 describe('Agent — sizeSignals coverage', () => {
-  let cleanupDirs: string[] = [];
+  const cleanupDirs: string[] = [];
   afterEach(async () => {
     for (const d of cleanupDirs) await fs.rm(d, { recursive: true, force: true });
   });
@@ -486,7 +486,7 @@ describe('Agent — sizeSignals coverage', () => {
 });
 
 describe('Agent — streaming provider tool_use events', () => {
-  let cleanupDirs: string[] = [];
+  const cleanupDirs: string[] = [];
   afterEach(async () => {
     for (const d of cleanupDirs) await fs.rm(d, { recursive: true, force: true });
   });
@@ -526,7 +526,7 @@ describe('Agent — streaming provider tool_use events', () => {
 });
 
 describe('Agent — iteration limit extension denial', () => {
-  let cleanupDirs: string[] = [];
+  const cleanupDirs: string[] = [];
   afterEach(async () => {
     for (const d of cleanupDirs) await fs.rm(d, { recursive: true, force: true });
   });

@@ -15,7 +15,7 @@ import type {
 import type { SessionWriter } from '../types/session.js';
 import type { JSONSchema, Tool } from '../types/tool.js';
 import { InMemoryAgentBridge } from './agent-bridge.js';
-import { ICoordinator } from './icoordinator.js';
+import type { ICoordinator } from './icoordinator.js';
 import {
   DEFAULT_DIRECTOR_PREAMBLE,
   DEFAULT_SUBAGENT_BASELINE,
@@ -24,7 +24,7 @@ import {
   rosterSummaryFromConfigs,
 } from './director-prompts.js';
 import { FleetBus, type FleetUsage, FleetUsageAggregator } from './fleet-bus.js';
-import { FleetManager } from './fleet-manager.js';
+import type { FleetManager } from './fleet-manager.js';
 import { InMemoryBridgeTransport } from './in-memory-transport.js';
 import { DefaultMultiAgentCoordinator } from './multi-agent-coordinator.js';
 import { makeAskTool, makeAssignTool, makeAwaitTasksTool, makeFleetHealthTool, makeFleetSessionTool, makeFleetStatusTool, makeFleetUsageTool, makeRollUpTool, makeSpawnTool, makeTerminateTool } from './director-tools.js';

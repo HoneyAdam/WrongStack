@@ -14,7 +14,7 @@ import type { ChildProcess } from 'node:child_process';
 import * as os from 'node:os';
 import { CircuitBreaker, type CircuitBreakerSnapshot, type CircuitBreakerConfig } from './circuit-breaker.js';
 
-export { type CircuitBreakerSnapshot, type CircuitBreakerConfig } from './circuit-breaker.js';
+export type { CircuitBreakerSnapshot, CircuitBreakerConfig } from './circuit-breaker.js';
 
 export interface TrackedProcess {
   pid: number;

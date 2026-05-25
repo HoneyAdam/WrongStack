@@ -34,7 +34,7 @@ function parseCronExpression(expr: string): number | null {
     if (parts.length === 5) {
       const minutePart = parts[1];
       if (minutePart && minutePart.startsWith('*/')) {
-        return parseInt(minutePart.slice(2)) * 60_000;
+        return Number.parseInt(minutePart.slice(2)) * 60_000;
       }
     }
   }

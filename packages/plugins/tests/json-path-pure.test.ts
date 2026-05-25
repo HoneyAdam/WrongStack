@@ -24,7 +24,7 @@ function jmespathSearch(data: unknown, query: string): unknown {
 
   const arrMatch = query.match(/^\[(\d+)\](?:\.(.+))?$/);
   if (arrMatch) {
-    const idx = parseInt(arrMatch[1]!, 10);
+    const idx = Number.parseInt(arrMatch[1]!, 10);
     const rest = arrMatch[2];
     const arr = data as unknown[];
     const val = arr?.[idx];

@@ -1,8 +1,8 @@
 import {
-  DefaultModelsRegistry,
+  type DefaultModelsRegistry,
   DefaultSkillLoader,
   DefaultSystemPromptBuilder,
-  DefaultMemoryStore,
+  type DefaultMemoryStore,
   DefaultModeStore,
   createContextManagerTool,
   type Config,
