@@ -2,8 +2,10 @@ import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ParallelEternalEngine } from '../../src/execution/parallel-eternal-engine.js';
+import { DefaultMultiAgentCoordinator } from '../../src/coordination/multi-agent-coordinator.js';
 import type { Agent } from '../../src/core/agent.js';
 import type { GoalFile, JournalEntry } from '../../src/storage/goal-store.js';
+import type { SubagentConfig } from '../../src/types/multi-agent.js';
 
 // ---------------------------------------------------------------------------
 // Mock helpers
@@ -273,6 +275,93 @@ describe('ParallelEternalEngine', () => {
       setTimeout(() => engine.stop(), 20);
       await engine.run();
       expect(engine.currentState).toBe('stopped');
+      await rm(tmpDir, { recursive: true });
+    });
+  });
+
+  describe('dispatch routing', () => {
+    // Seed a single pending todo so decomposeGoal (Strategy 1) yields one known
+    // task string and exactly one slot — no git/brainstorm interference.
+    function seedTodo(agent: Agent, content: string): void {
+      (agent.ctx as unknown as { todos: Array<{ status: string; content: string }> }).todos = [
+        { status: 'pending', content },
+      ];
+    }
+
+    it('routes a security task to security-reviewer, injects the persona, and does not call the classifier when confident', async () => {
+      const { writeFile, rm } = await import('node:fs/promises');
+      const agent = makeMockAgent();
+      seedTodo(agent, 'scan this code for sql injection vulnerabilities');
+      await writeFile(goalPath, JSON.stringify(makeGoal()), 'utf-8');
+
+      const spawnSpy = vi.spyOn(DefaultMultiAgentCoordinator.prototype, 'spawn');
+      const assignSpy = vi.spyOn(DefaultMultiAgentCoordinator.prototype, 'assign');
+      const classifier = vi.fn(async () => ({ role: 'executor' }));
+
+      const engine = new ParallelEternalEngine({
+        agent,
+        projectRoot: tmpDir,
+        parallelSlots: 1,
+        dispatchClassifier: classifier,
+      });
+      await engine.runOneIteration();
+
+      const cfg = spawnSpy.mock.calls[0]![0] as SubagentConfig;
+      expect(cfg.role).toBe('security-reviewer');
+      // Spawn carries the role's tool allowlist + persona prompt (forward-compatible).
+      expect(Array.isArray(cfg.tools)).toBe(true);
+      const spec = assignSpy.mock.calls[0]![0] as { description: string };
+      expect(spec.description).toContain('Acting agent:');
+      expect(spec.description.toLowerCase()).toContain('security');
+      // Confident heuristic → the LLM fallback is never consulted.
+      expect(classifier).not.toHaveBeenCalled();
+
+      spawnSpy.mockRestore();
+      assignSpy.mockRestore();
+      await rm(tmpDir, { recursive: true });
+    });
+
+    it('falls back to the executor generalist for a no-signal task', async () => {
+      const { writeFile, rm } = await import('node:fs/promises');
+      const agent = makeMockAgent();
+      seedTodo(agent, 'zzzzz qqqqq wwwww');
+      await writeFile(goalPath, JSON.stringify(makeGoal()), 'utf-8');
+
+      const spawnSpy = vi.spyOn(DefaultMultiAgentCoordinator.prototype, 'spawn');
+      const engine = new ParallelEternalEngine({ agent, projectRoot: tmpDir, parallelSlots: 1 });
+      await engine.runOneIteration();
+
+      const cfg = spawnSpy.mock.calls[0]![0] as SubagentConfig;
+      expect(cfg.role).toBe('executor');
+
+      spawnSpy.mockRestore();
+      await rm(tmpDir, { recursive: true });
+    });
+
+    it('preserves the legacy generic spawn (no role) when dispatch is disabled', async () => {
+      const { writeFile, rm } = await import('node:fs/promises');
+      const agent = makeMockAgent();
+      seedTodo(agent, 'scan this code for sql injection vulnerabilities');
+      await writeFile(goalPath, JSON.stringify(makeGoal()), 'utf-8');
+
+      const spawnSpy = vi.spyOn(DefaultMultiAgentCoordinator.prototype, 'spawn');
+      const assignSpy = vi.spyOn(DefaultMultiAgentCoordinator.prototype, 'assign');
+      const engine = new ParallelEternalEngine({
+        agent,
+        projectRoot: tmpDir,
+        parallelSlots: 1,
+        dispatch: false,
+      });
+      await engine.runOneIteration();
+
+      const cfg = spawnSpy.mock.calls[0]![0] as SubagentConfig;
+      expect(cfg.role).toBeUndefined();
+      expect(cfg.name).toMatch(/^slot-/);
+      const spec = assignSpy.mock.calls[0]![0] as { description: string };
+      expect(spec.description).not.toContain('Acting agent:');
+
+      spawnSpy.mockRestore();
+      assignSpy.mockRestore();
       await rm(tmpDir, { recursive: true });
     });
   });

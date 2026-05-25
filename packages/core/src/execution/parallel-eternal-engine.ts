@@ -3,6 +3,8 @@ import type { Agent } from '../core/agent.js';
 import type { Context } from '../core/context.js';
 import type { AgentFactory } from '../coordination/agent-subagent-runner.js';
 import { makeAgentSubagentRunner } from '../coordination/agent-subagent-runner.js';
+import { dispatchAgent } from '../coordination/dispatcher.js';
+import type { DispatchClassifier, DispatchResult } from '../coordination/dispatcher.js';
 import type { SubagentConfig, TaskResult } from '../types/multi-agent.js';
 import type { JournalEntry, GoalFile } from '../storage/goal-store.js';
 import { loadGoal, saveGoal, appendJournal, goalFilePath } from '../storage/goal-store.js';
@@ -38,6 +40,20 @@ export interface ParallelEternalOptions {
   maxContextTokens?: number;
   /** Override the default agent factory (uses main agent if not provided). */
   subagentFactory?: AgentFactory;
+  /**
+   * Route each decomposed slot task to the best-fit catalog agent via the
+   * smart dispatcher (heuristic keyword scoring). When enabled (default), each
+   * slot spawns in-role — the role's budget tier applies and a persona line is
+   * injected into the task — instead of as a faceless generic worker. Set
+   * false to keep the legacy generic spawn.
+   */
+  dispatch?: boolean;
+  /**
+   * Optional LLM fallback for ambiguous tasks. Passed straight to
+   * `dispatchAgent`; when omitted, routing is pure heuristic (instant, no
+   * provider call — preferred for a continuously-ticking autonomous loop).
+   */
+  dispatchClassifier?: DispatchClassifier;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -73,11 +89,15 @@ export class ParallelEternalEngine {
   private readonly timeoutMs: number;
   private coordinator: DefaultMultiAgentCoordinator | null = null;
   private agentFactory: AgentFactory;
+  private readonly dispatchEnabled: boolean;
+  private readonly dispatchClassifier?: DispatchClassifier;
 
   constructor(private readonly opts: ParallelEternalOptions) {
     this.goalPath = goalFilePath(opts.projectRoot);
     this.slots = Math.min(16, Math.max(1, opts.parallelSlots ?? 4));
     this.timeoutMs = opts.iterationTimeoutMs ?? 300_000;
+    this.dispatchEnabled = opts.dispatch !== false;
+    this.dispatchClassifier = opts.dispatchClassifier;
     this.agentFactory = opts.subagentFactory ?? (async (config: SubagentConfig) => ({
       agent: this.opts.agent,
       events: this.opts.agent.events,
@@ -178,9 +198,17 @@ export class ParallelEternalEngine {
       fanOut.partialOutput ? `Output: ${fanOut.partialOutput.slice(0, 120)}` : '',
     ].filter(Boolean).join(' | ');
 
+    // Surface routing in the journal: "role→task-snippet" per slot so /goal
+    // journal shows which agent handled what.
+    const routeSummary = fanOut.routes.length > 0
+      ? fanOut.routes
+          .slice(0, 3)
+          .map((r) => `${r.role}→${r.task.slice(0, 28)}`)
+          .join(', ')
+      : tasks.slice(0, 3).join(', ');
     await this.appendIterationEntry({
       source: 'parallel',
-      task: `parallel:${tasks.length} slots — ${tasks.slice(0, 3).join(', ')}${tasks.length > 3 ? '...' : ''}`,
+      task: `parallel:${tasks.length} slots — ${routeSummary}${tasks.length > 3 ? '...' : ''}`,
       status,
       note,
     });
@@ -203,9 +231,21 @@ export class ParallelEternalEngine {
     allSuccessful: boolean;
     goalComplete: boolean;
     partialOutput: string;
+    routes: Array<{ slot: number; task: string; role: string; method: string }>;
   }> {
     const coordinator = this.coordinator!;
     const slotCount = Math.min(this.slots, tasks.length);
+
+    // Route each slot task to the best-fit catalog agent. Heuristic by default
+    // (instant, no provider call); an injected classifier enables LLM fallback.
+    // A dispatch failure for one slot is non-fatal — that slot stays generic.
+    const routes: (DispatchResult | null)[] = this.dispatchEnabled
+      ? await Promise.all(
+          tasks.slice(0, slotCount).map((t) =>
+            dispatchAgent(t, { classifier: this.dispatchClassifier }).catch(() => null),
+          ),
+        )
+      : [];
 
     const recentJournal = goal.journal.slice(-5)
       .map(e => `  #${e.iteration} [${e.status}] ${e.task}${e.note ? ` — ${e.note.slice(0, 80)}` : ''}`)
@@ -229,27 +269,57 @@ export class ParallelEternalEngine {
 
     const taskIds: string[] = [];
     const subagentIds: string[] = [];
+    const routeInfo: Array<{ slot: number; task: string; role: string; method: string }> = [];
 
     const spawnPromises: Array<Promise<void>> = [];
     for (let i = 0; i < slotCount; i++) {
       const task = tasks[i]!;
+      const route = routes[i] ?? null;
       const subagentId = `parallel-${this.iterations}-${i}`;
       const taskId = randomUUID();
+
+      // Persona injection — works even with the default factory (which reuses
+      // the shared main agent and ignores config.prompt/tools), so the agent
+      // adopts the routed role's stance for this slot.
+      const personaLine = route
+        ? `Acting agent: ${route.definition.config.name} — ${route.definition.capability.summary}\n`
+        : '';
       const spec = {
         id: taskId,
-        description: `${directivePreamble}\n\n── SLOT ${i + 1}/${slotCount} ──\nTask: ${task}\n`,
+        description: `${directivePreamble}\n\n── SLOT ${i + 1}/${slotCount} ──\n${personaLine}Task: ${task}\n`,
         subagentId,
       };
 
+      routeInfo.push({
+        slot: i,
+        task,
+        role: route?.role ?? 'generic',
+        method: route?.method ?? 'none',
+      });
+
       spawnPromises.push((async () => {
         try {
-          await coordinator.spawn({
-            id: subagentId,
-            name: `slot-${subagentId.slice(-6)}`,
-            // Let the coordinator apply its default budget (from roster or generic).
-            // Hardcoding low limits here defeats the x10 budget improvement.
-            timeoutMs: this.timeoutMs,
-          });
+          // Spawn in-role when routed: `role` lets applyRosterBudget resolve the
+          // role's budget tier; name/tools/systemPromptOverride specialize the
+          // worker if a real per-role factory is wired (forward-compatible).
+          await coordinator.spawn(
+            route
+              ? {
+                  id: subagentId,
+                  name: route.definition.config.name,
+                  role: route.role,
+                  tools: route.definition.config.tools,
+                  systemPromptOverride: route.definition.config.prompt,
+                  timeoutMs: this.timeoutMs,
+                }
+              : {
+                  id: subagentId,
+                  name: `slot-${subagentId.slice(-6)}`,
+                  // Let the coordinator apply its default budget (roster or generic).
+                  // Hardcoding low limits here defeats the x10 budget improvement.
+                  timeoutMs: this.timeoutMs,
+                },
+          );
           subagentIds.push(subagentId);
           taskIds.push(taskId);
           await coordinator.assign(spec);
@@ -261,7 +331,7 @@ export class ParallelEternalEngine {
     await Promise.all(spawnPromises);
 
     if (taskIds.length === 0) {
-      return { results: [], allSuccessful: false, goalComplete: false, partialOutput: '' };
+      return { results: [], allSuccessful: false, goalComplete: false, partialOutput: '', routes: routeInfo };
     }
 
     let results: TaskResult[] = [];
@@ -289,7 +359,7 @@ export class ParallelEternalEngine {
       .filter(Boolean)
       .join('\n\n');
 
-    return { results, allSuccessful, goalComplete, partialOutput };
+    return { results, allSuccessful, goalComplete, partialOutput, routes: routeInfo };
   }
 
   // -------------------------------------------------------------------------
