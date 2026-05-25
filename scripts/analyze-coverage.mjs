@@ -16,9 +16,9 @@ for (const line of lines) {
 }
 
 console.log('Files below 80% statement coverage:');
-lowCoverage.sort((a, b) => a.pct - b.pct).forEach(({ file, pct }) => {
+for (const { file, pct } of lowCoverage.sort((a, b) => a.pct - b.pct)) {
   console.log(`  ${pct.toFixed(2)}%  ${file}`);
-});
+}
 console.log(`\nTotal: ${lowCoverage.length} files`);
 
 // Files at exactly 0%

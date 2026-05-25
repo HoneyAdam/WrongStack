@@ -1583,12 +1583,12 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
             if (analysis.bottlenecks.length > 0) {
               lines.push('');
               lines.push(`  🚫 Bottlenecks (blocking most downstream):`);
-              analysis.bottlenecks.forEach((bt) => {
+              for (const bt of analysis.bottlenecks) {
                 const node = graph.nodes.get(bt.taskId);
                 if (node) {
                   lines.push(`    • ${node.title} (blocks ${bt.blockedCount} task(s))`);
                 }
-              });
+              }
             }
 
             if (analysis.parallelGroups.length > 0) {
@@ -1603,12 +1603,12 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
             if (analysis.readyTasks.length > 0) {
               lines.push('');
               lines.push(`  ✅ Ready to start now:`);
-              analysis.readyTasks.forEach((taskId) => {
+              for (const taskId of analysis.readyTasks) {
                 const node = graph.nodes.get(taskId);
                 if (node) {
                   lines.push(`    • ${node.title}`);
                 }
-              });
+              }
             }
 
             lines.push(`╰${'─'.repeat(55)}╯`);
