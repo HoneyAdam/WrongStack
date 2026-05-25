@@ -1,4 +1,4 @@
-import { readFileSync } from 'fs';
+import { readFileSync } from 'node:fs';
 const content = readFileSync('coverage_output.txt', 'utf8');
 const lines = content.split('\n');
 

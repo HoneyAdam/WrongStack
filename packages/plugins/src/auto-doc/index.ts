@@ -74,7 +74,7 @@ function parseSource(content: string): ParsedEntity[] {
     if (m) { entities.push({ kind: 'type', name: m[1]!, startLine: i + 1 }); continue; }
 
     m = line.match(reInterface);
-    if (m) { entities.push({ kind: 'interface', name: m[1]!, startLine: i + 1 }); continue; }
+    if (m) { entities.push({ kind: 'interface', name: m[1]!, startLine: i + 1 }); }
   }
 
   return entities;

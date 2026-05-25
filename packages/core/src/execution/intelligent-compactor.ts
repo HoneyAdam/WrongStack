@@ -148,7 +148,8 @@ export class IntelligentCompactor implements Compactor {
       // LLM summarizer is unavailable (network outage, model down, etc.).
       const toolNames = new Set<string>();
       const filePaths = new Set<string>();
-      let userTurns = 0, assistantTurns = 0;
+      let userTurns = 0;
+      let assistantTurns = 0;
       for (const m of toSummarize) {
         if (m.role === 'user') userTurns++;
         else if (m.role === 'assistant') {

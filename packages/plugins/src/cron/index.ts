@@ -33,7 +33,7 @@ function parseCronExpression(expr: string): number | null {
     const parts = expr.trim().split(/\s+/);
     if (parts.length === 5) {
       const minutePart = parts[1];
-      if (minutePart && minutePart.startsWith('*/')) {
+      if (minutePart?.startsWith('*/')) {
         return Number.parseInt(minutePart.slice(2)) * 60_000;
       }
     }
@@ -42,7 +42,7 @@ function parseCronExpression(expr: string): number | null {
 }
 
 function formatNextRun(intervalMs: number): string {
-  const ms = isNaN(intervalMs) || intervalMs <= 0 ? 60_000 : intervalMs;
+  const ms = Number.isNaN(intervalMs) || intervalMs <= 0 ? 60_000 : intervalMs;
   return new Date(Date.now() + ms).toISOString();
 }
 
@@ -190,7 +190,7 @@ const plugin: Plugin = {
         if (!name || typeof name !== 'string' || name.trim() === '') {
           return { ok: false, error: 'name is required and must be a non-empty string' };
         }
-        if (isNaN(intervalMs)) {
+        if (Number.isNaN(intervalMs)) {
           return { ok: false, error: 'intervalMs must be a number >= 1000' };
         }
 

@@ -291,7 +291,6 @@ describe('core internal layer rules', () => {
         violations.push(
           `layer '${myLayer}' imports runtime value from '${targetDir}/' (higher layer) — general upward-import violation`,
         );
-        continue;
       }
     }
 
@@ -509,7 +508,9 @@ describe('core bidirectional coupling', () => {
 
     // DFS with three colours: white=unvisited, gray=in-current-path, black=done.
     // Any gray→gray edge during DFS signals a cycle.
-    const WHITE = 0, GRAY = 1, BLACK = 2;
+    const WHITE = 0;
+    const GRAY = 1;
+    const BLACK = 2;
     const colour = new Map<LayerName, number>();
     for (const node of adj.keys()) colour.set(node, WHITE);
 

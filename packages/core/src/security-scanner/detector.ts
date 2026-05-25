@@ -269,7 +269,7 @@ export class TechStackDetector {
     // Check workspace indicator files
     for (const stack of stacks) {
       const indicators = MONOREPO_INDICATORS[stack.packageManager];
-      if (indicators && indicators.some((ind) => files.includes(ind) || dirs.includes(ind))) {
+      if (indicators?.some((ind) => files.includes(ind) || dirs.includes(ind))) {
         return true;
       }
     }

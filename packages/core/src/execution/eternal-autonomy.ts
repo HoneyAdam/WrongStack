@@ -774,7 +774,7 @@ export class EternalAutonomyEngine {
     const cap = this.opts.transientBackoffMaxMs ?? 60_000;
     if (base <= 0) return 0;
     const exponent = Math.max(0, this.consecutiveTransientRetries - 1);
-    return Math.min(cap, base * Math.pow(2, exponent));
+    return Math.min(cap, base * 2 ** exponent);
   }
 
   /**

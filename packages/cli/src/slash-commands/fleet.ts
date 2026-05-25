@@ -224,11 +224,10 @@ export function buildFleetCommand(opts: SlashCommandContext): SlashCommand {
           const msg = `${color.green('✓ Terminated')} subagent ${color.bold(targetId)}.`;
           opts.renderer.write(msg);
           return { message: msg };
-        } else {
+        }
           const msg = `${color.red('✗ Failed')} to terminate ${color.bold(targetId)}. Subagent may already be stopped.`;
           opts.renderer.writeWarning(msg);
           return { message: msg };
-        }
       }
 
       // ── /fleet spawn <role> [count] ──────────────────────────────────────

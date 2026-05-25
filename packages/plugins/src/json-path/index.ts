@@ -75,8 +75,8 @@ function jmespathSearch(data: unknown, query: string): unknown {
     const filtered = arr.filter((item) => {
       const itemVal = (item as Record<string, unknown>)[field];
       switch (op) {
-        case '==': return itemVal == cmpVal;
-        case '!=': return itemVal != cmpVal;
+        case '==': return itemVal === cmpVal;
+        case '!=': return itemVal !== cmpVal;
         case '>': return Number(itemVal) > Number(cmpVal);
         case '<': return Number(itemVal) < Number(cmpVal);
         case '>=': return Number(itemVal) >= Number(cmpVal);

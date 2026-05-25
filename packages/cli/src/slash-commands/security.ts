@@ -205,7 +205,7 @@ async function handleReport(reportId: string): Promise<{ message?: string }> {
     }
 
     const index = Number.parseInt(reportId, 10) - 1;
-    if (!isNaN(index) && reports[index]) {
+    if (!Number.isNaN(index) && reports[index]) {
       const content = await readFile(join(reportsDir, reports[index]), 'utf-8');
       return { message: `# Security Report\n\n${content}` };
     }

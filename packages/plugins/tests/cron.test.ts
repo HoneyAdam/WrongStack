@@ -112,7 +112,7 @@ describe('cron plugin', () => {
       const parts = expr.trim().split(/\s+/);
       if (parts.length === 5) {
         const minutePart = parts[1];
-        if (minutePart && minutePart.startsWith('*/')) {
+        if (minutePart?.startsWith('*/')) {
           return Number.parseInt(minutePart.slice(2)) * 60_000;
         }
       }
@@ -121,7 +121,7 @@ describe('cron plugin', () => {
   }
 
   function formatNextRun(intervalMs: number): string {
-    const ms = isNaN(intervalMs) || intervalMs <= 0 ? 60_000 : intervalMs;
+    const ms = Number.isNaN(intervalMs) || intervalMs <= 0 ? 60_000 : intervalMs;
     return new Date(Date.now() + ms).toISOString();
   }
 

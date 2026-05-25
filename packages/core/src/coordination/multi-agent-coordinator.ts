@@ -201,7 +201,9 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
     pending: number;
     completed: number;
   } {
-    let running = 0, idle = 0, stopped = 0;
+    let running = 0;
+    let idle = 0;
+    let stopped = 0;
     for (const [, entry] of this.subagents) {
       if (entry.status === 'running') running++;
       else if (entry.status === 'idle') idle++;
