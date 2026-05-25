@@ -5,6 +5,133 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-05-25
+
+### Added
+
+- **SDD UX enhancements — task lifecycle, progress tracking, phase
+  context, REPL live updates.** The Spec-Driven Development workflow
+  now surfaces live task progress in the REPL, phase context in the
+  agent loop, and improved lifecycle tracking for tasks generated
+  from specs. Built on `SpecParser`, `TaskTracker`, `TaskGenerator`,
+  and `TaskFlow` from `@wrongstack/core/sdd`.
+
+- **`coordinator.remove()` — remove subagent entries from coordinator.**
+  Previously `stop()` terminated a subagent but left its entry in the
+  `subagents` Map, causing memory growth and blocking id reuse. Now
+  `ICoordinator`, `MultiAgentCoordinator`, and `Director` all expose
+  `remove(subagentId)` which calls `stop()` then deletes the entry.
+  Subagent ids can now be reused in future spawns.
+
+- **`/goal pause` and `/goal resume`.** Two new subcommands for the
+  goal system:
+  - `/goal pause` — sets `goalState: 'paused'` in `goal.json`. The
+    eternal engine sees this on its next iteration start (via
+    `goalState !== 'active'` guard) and exits gracefully after the
+    current iteration finishes — no AbortController kill, no work
+    torn mid-task.
+  - `/goal resume` — flips `goalState` back to `'active'`. The engine
+    resumes on the next `/autonomy eternal` invocation or immediately
+    if already running.
+
+- **`IterationStage` pipeline + TUI stage chip.** `EternalAutonomyEngine`
+  now calls an `onStage` callback at each phase transition
+  (`decide → execute → reflect → sleep`). The CLI wires a
+  `stageListeners` Set and exposes `subscribeEternalStage` to the
+  TUI, which dispatches into `state.eternalStage` for live rendering.
+  The TUI status bar shows the current phase label (e.g. `⟳ DECIDE`,
+  `⚡ EXECUTE`, `◎ REFLECT`) updating every tick.
+
+- **`GoalFile.goalState` field.** `goal-store.ts` now models the
+  goal lifecycle with three states: `'active' | 'paused' | 'done'`.
+  All existing goal files continue working — missing `goalState`
+  defaults to `'active'` for backwards compatibility.
+
+- **`[GOAL_COMPLETE]` marker support in eternal engine.** Subagent
+  output containing `[GOAL_COMPLETE]` now clears the goal file and
+  fires `onEternalStop` so the REPL exits cleanly. Also supports
+  `[goal clear]` as an alternative marker.
+
+### Changed
+
+- **Delegate tool budgets raised x10.** `FLEET_ROSTER_BUDGETS` raised
+  from 8–15 min to 7.5–10 hours, and a new `GENERIC_SUBAGENT_BUDGET`
+  (3h, 5000 iter, 15000 tools) added for free-form `name`-only
+  delegates. `subagentTimeoutBufferMs` and `DECISION_TIMEOUT_MS`
+  raised from 30s to 60s. `maxConcurrent` in
+  `DefaultMultiAgentCoordinator` raised from 4 to 8.
+
+- **Error codes centralized to `ERROR_CODES` const object.** All raw
+  string error codes migrated to `ERROR_CODES` constants with an
+  auto-derived `ErrorCode` type. Patterns like `NETWORK_ERR_RE` are
+  now centralized in `execution/regex-patterns.ts` and imported
+  consistently across `DefaultRetryPolicy`, `DefaultErrorHandler`,
+  and `SecurityScannerOrchestrator`.
+
+- **`SlashCommandRegistry` double-register guard relaxed.** Built-in
+  slash commands that re-register (e.g. TUI + CLI both mounting the
+  same command) now silently no-op instead of throwing. This
+  protects against React Strict Mode double-mounts in development
+  and plugin hot-reload scenarios without needing TUI-specific
+  cleanup workarounds. Third-party commands using the same bare
+  name from different owners still throw to prevent accidental
+  shadowing.
+
+- **REPL exit grace period extended.** `process.exit` grace period
+  increased from 200ms to 500ms to better accommodate undici TLS
+  shutdown, log flushes, and plugin teardown on Windows (where
+  GC-collected handles close asynchronously).
+
+### Fixed
+
+- **12 latent bugs across core, MCP, CLI, tools, and providers:**
+  - `agent-bridge`: TOCTOU double-check now uses `inflightGuards`
+    instead of `stopped`
+  - `director`: spawn wrapped in try/catch so `spawnCount` only
+    increments on success
+  - `plugin/loader`: API instance presence enforced in
+    `pluginApiMap` during unload
+  - `tool-registry`: `clone()` method added for safe subagent
+    registry copies
+  - `director-state`: `flush()` loops until no more
+    `rewriteRequested` to prevent data loss
+  - `mcp/client`: TOCTOU race eliminated in `close()` exit handling
+  - `mcp/client`: notify drain timer leak fixed (removeListener in
+    complement handler)
+  - `cli/repl`: `process.exit(130)` replaced with `break` to
+    preserve finally cleanup
+  - `bash`: unref killTimer only in finally block, not upfront
+  - `providers/google`: undefined fnName no longer serializes as
+    `'undefined'` for tool_results
+
+- **Execution/storage bidirectional coupling cycle resolved.**
+  `DEFAULT_TOOLS_CONFIG` and `DEFAULT_CONTEXT_CONFIG` moved from
+  `execution/compactor.ts` to `types/default-config.ts` (shared
+  boundary layer), re-exported from compactor for backward
+  compatibility. Package boundaries test now passes with 0
+  violations.
+
+- **Session store `resume()` gives clearer ENOENT error.** Now
+  checks `fsp.access()` before `load()` and throws a user-friendly
+  "Session not found" message when the file is missing or deleted.
+
+- **`SlashCommandRegistry` same-owner re-registration was mischaracterized
+  as an error.** The test now splits into two cases: same-owner →
+  silent no-op, different owner with same bare name → throws to
+  prevent shadowing.
+
+### Tests
+
+- **`slash-commit.test.ts` and `slash-commands/commit.test.ts` —
+  Windows EBUSY fix with `rmWithRetry`.** Cleanup now retries up
+  to 5 times with 200ms delays, giving the OS time to release file
+  handles before `rmdir` is called.
+
+- **Session writer appends event before close.** `truncateToCheckpoint`
+  edge case now correctly ensures the session writer appends its
+  marker event before closing, so journal entries are preserved on
+  truncate.
+
 ## [0.6.7] - 2026-05-24
 
 ### Fixed

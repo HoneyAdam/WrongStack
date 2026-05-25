@@ -271,9 +271,13 @@ Flips off MCP, plugins, memory tools, models.dev fetch, and skill discovery. Wha
 
 ---
 
-## What's new in 0.6.7
+## What's new in 0.7.0
 
-**Windows test stability fix — commit slash tests.** The `/commit` slash command tests could fail on Windows with `EBUSY: resource busy or locked` during `afterEach` cleanup. Both files now use a `rmWithRetry` helper with 5 retries at 200 ms intervals, giving the OS time to release file handles before `rmdir` is called. No functional change — the commit/push logic was always correct.
+**SDD UX enhancements — task lifecycle, progress tracking, phase context, REPL live updates.** The Spec-Driven Development workflow now surfaces live task progress in the REPL, phase context in the agent loop, and improved lifecycle tracking. `[GOAL_COMPLETE]` marker support added to the eternal engine for clean exits.
+
+**12 latent bugs fixed** across core, MCP, CLI, tools, and providers — including agent-bridge TOCTOU, director spawn counting, MCP client race conditions, and the Google provider undefined fnName serialization.
+
+**Delegate tool budgets raised x10** (from 8–15 min to 7.5–10 hours), `coordinator.remove()` added to properly clean up subagent entries, and error codes centralized to `ERROR_CODES` const object.
 
 For earlier release notes, see [CHANGELOG.md](CHANGELOG.md).
 
