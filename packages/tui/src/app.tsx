@@ -2118,9 +2118,11 @@ export function App({
     const offDelta = events.on('provider.text_delta', (e) => {
       // Strip any bracketed-paste DCS sequences that some providers echo
       // into the stream. They are invisible in a real terminal but appear as
-      // junk text if Ink's raw rendering catches them.
+      // junk text if Ink's raw rendering catches them. The ESC byte is
+      // matched optionally — a stripped/split ESC would otherwise leave a
+      // bare `[200~` in the rendered text (same failure as the input path).
       // biome-ignore lint/suspicious/noControlCharactersInRegex: bracketed paste escape sequences are intentional
-      const text = e.text.replace(/\x1b\[200~|\x1b\[201~/g, '');
+      const text = e.text.replace(/\x1b?\[200~|\x1b?\[201~/g, '');
       streamingTextRef.current += text;
       pendingDeltaRef.current += text;
       if (!flushTimerRef.current) flushTimerRef.current = setTimeout(flush, FLUSH_MS);
@@ -3317,9 +3319,14 @@ export function App({
     // The wrapped payload is always treated as a paste regardless of size.
     let bracketedPaste = false;
     let cleanInput = input;
-    if (input.includes('\x1b[200~') || input.includes('\x1b[201~')) {
+    // The ESC byte (\x1b) of a bracketed-paste marker is sometimes consumed
+    // by Ink's keypress parser before it reaches us, leaving a bare `[200~`
+    // / `[201~` in the input string. Match the ESC optionally so we strip
+    // both forms — otherwise the bare marker leaks into the buffer.
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: bracketed paste escape sequences are intentional
+    if (/\x1b?\[20[01]~/.test(input)) {
       // biome-ignore lint/suspicious/noControlCharactersInRegex: bracketed paste escape sequences are intentional
-      cleanInput = input.replace(/\x1b\[200~/g, '').replace(/\x1b\[201~/g, '');
+      cleanInput = input.replace(/\x1b?\[200~/g, '').replace(/\x1b?\[201~/g, '');
       bracketedPaste = true;
     }
 

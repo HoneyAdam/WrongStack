@@ -56,6 +56,20 @@ export class ToolExecutor {
         return { result, tool, durationMs: Date.now() - start };
       }
 
+      // Provider boundary: the model's tool arguments arrive as a raw JSON
+      // string accumulated over streamed deltas. When that string is not a
+      // valid JSON object (truncated, scalar, or mangled by a proxy/local
+      // model), the parsers wrap it under a sentinel key instead of silently
+      // producing `{}`. Executing the tool with such input yields a cryptic
+      // "<field> is required" error that the model can't act on. Detect the
+      // sentinel here and feed back an actionable message so the model
+      // resends well-formed arguments.
+      if (hasMalformedArguments(use.input)) {
+        const result = this.malformedInputResult(use);
+        budget = this.decrementBudget(result, budget);
+        return { result, tool, durationMs: Date.now() - start };
+      }
+
       const decision = await this.opts.permissionPolicy.evaluate(tool, use.input, ctx);
 
       if (decision.permission === 'deny') {
@@ -318,6 +332,18 @@ export class ToolExecutor {
     };
   }
 
+  private malformedInputResult(use: ToolUseBlock): ToolResultBlock {
+    return {
+      type: 'tool_result',
+      tool_use_id: use.id,
+      content:
+        `Tool "${use.name}" received arguments that were not a valid JSON object, so they ` +
+        `could not be parsed. Re-issue the call with the arguments encoded as a single ` +
+        `well-formed JSON object matching the tool's input schema.`,
+      is_error: true,
+    };
+  }
+
   private deniedResult(use: ToolUseBlock, reason?: string): ToolResultBlock {
     return {
       type: 'tool_result',
@@ -371,4 +397,22 @@ export class ToolExecutor {
     }
     return undefined;
   }
+}
+
+/**
+ * Sentinel keys the provider adapters use to wrap tool arguments that could
+ * not be parsed into a proper JSON object. `parseToolInput` (Anthropic /
+ * shared) uses `__raw`, `contentFromOpenAI` uses `__raw_arguments`, and the
+ * streaming response builder's `safeJsonOrRaw` uses `_raw`. Keep this list in
+ * sync if a new adapter introduces another marker.
+ */
+const MALFORMED_ARG_MARKERS = ['__raw', '__raw_arguments', '_raw'] as const;
+
+function hasMalformedArguments(input: unknown): boolean {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return false;
+  const obj = input as Record<string, unknown>;
+  // The sentinel is the *only* key when wrapping occurred — a real tool call
+  // that legitimately uses a key named e.g. `_raw` will carry other keys too.
+  const keys = Object.keys(obj);
+  return keys.length === 1 && MALFORMED_ARG_MARKERS.includes(keys[0] as never);
 }

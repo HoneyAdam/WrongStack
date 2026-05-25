@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { ContentBlock, ToolUseBlock } from '@wrongstack/core';
 import { sanitizeJsonString } from '@wrongstack/core';
 import type { OpenAIToolCall } from './to-openai.js';
@@ -42,10 +43,14 @@ export function contentFromOpenAI(
   }
   for (const tc of choice.message.tool_calls ?? []) {
     const raw = tc.function.arguments ?? '{}';
-    const input = parseToolArguments(raw, tc.function.name, tc.id, opts);
+    // Some OpenAI-compatible servers omit `id` on tool calls. An empty id
+    // breaks tool_result correlation downstream, so synthesize a stable one
+    // — matching the streaming path and the Google adapter.
+    const id = tc.id || `call_${randomUUID()}`;
+    const input = parseToolArguments(raw, tc.function.name, id, opts);
     const block: ToolUseBlock = {
       type: 'tool_use',
-      id: tc.id,
+      id,
       name: tc.function.name,
       input,
     };

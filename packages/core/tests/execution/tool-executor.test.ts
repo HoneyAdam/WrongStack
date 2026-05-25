@@ -106,6 +106,42 @@ describe('ToolExecutor', () => {
     });
   });
 
+  describe('executeBatch — malformed arguments', () => {
+    it.each([['__raw'], ['__raw_arguments'], ['_raw']])(
+      'returns an actionable error when input is wrapped under %s and never executes the tool',
+      async (marker) => {
+        const tool = makeTool({ name: 'edit', execute: vi.fn() });
+        const executor = makeExecutor([tool]);
+        const result = await executor.executeBatch(
+          [makeUse('edit', { [marker]: 'path=a.ts old=foo' })],
+          makeCtx(),
+          'sequential',
+        );
+        const output = result.outputs[0]!;
+        expect((output.result as ToolResultBlock).is_error).toBe(true);
+        expect((output.result as ToolResultBlock).content).toContain('not a valid JSON object');
+        expect(tool.execute).not.toHaveBeenCalled();
+        expect(policy.evaluate).not.toHaveBeenCalled();
+      },
+    );
+
+    it('still executes when a sentinel-looking key is one of several real keys', async () => {
+      const tool = makeTool({
+        name: 'edit',
+        execute: vi.fn().mockResolvedValue({ ok: true }),
+      });
+      const executor = makeExecutor([tool]);
+      const result = await executor.executeBatch(
+        [makeUse('edit', { path: 'a.ts', _raw: 'legit' })],
+        makeCtx(),
+        'sequential',
+      );
+      const output = result.outputs[0]!;
+      expect((output.result as ToolResultBlock).is_error).toBe(false);
+      expect(tool.execute).toHaveBeenCalled();
+    });
+  });
+
   describe('executeBatch — permission deny', () => {
     it('returns denied result when policy rejects', async () => {
       policy.evaluate.mockResolvedValue(denyDecision('forbidden'));

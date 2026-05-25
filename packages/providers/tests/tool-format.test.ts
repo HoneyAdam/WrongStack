@@ -69,6 +69,27 @@ describe('tool-format conversions', () => {
     });
   });
 
+  it('contentFromOpenAI synthesizes an id when the tool_call omits one', () => {
+    const content = contentFromOpenAI({
+      message: {
+        role: 'assistant',
+        content: null,
+        tool_calls: [
+          {
+            type: 'function',
+            function: { name: 'read', arguments: '{"path":"a.ts"}' },
+          } as never,
+        ],
+      },
+      finish_reason: 'tool_calls',
+    });
+    const block = content[0] as { type: string; id: string; name: string; input: unknown };
+    expect(block.type).toBe('tool_use');
+    expect(block.name).toBe('read');
+    expect(block.input).toEqual({ path: 'a.ts' });
+    expect(block.id).toMatch(/^call_/);
+  });
+
   it('contentFromOpenAI handles malformed args with jsonArgumentsBuggy', () => {
     const content = contentFromOpenAI(
       {

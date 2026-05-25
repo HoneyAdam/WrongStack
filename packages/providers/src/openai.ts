@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { Capabilities, Request, StopReason, StreamEvent, Usage } from '@wrongstack/core';
 import { type ProviderError, safeParse } from '@wrongstack/core';
 import { parseToolInput } from './_tool-input.js';
@@ -277,7 +278,14 @@ async function* parseOpenAIStream(
     yield { type: 'thinking_stop' };
   }
   for (const entry of toolByIndex.values()) {
-    if (!entry.id || !entry.name) continue;
+    // A tool call with no name is unusable — there's nothing to dispatch to.
+    if (!entry.name) continue;
+    // Some OpenAI-compatible servers (proxies, local runtimes) omit the
+    // `id` field on streamed tool calls entirely. Dropping the call here
+    // would silently swallow the model's action; synthesize a stable id so
+    // it still dispatches and correlates with its tool_result. Mirrors the
+    // Google adapter, which always assigns an id.
+    if (!entry.id) entry.id = `call_${randomUUID()}`;
     if (!entry.emittedStart) {
       yield { type: 'tool_use_start', id: entry.id, name: entry.name };
     }

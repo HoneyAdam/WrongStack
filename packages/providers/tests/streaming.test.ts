@@ -205,6 +205,32 @@ describe('OpenAIProvider.stream', () => {
     ]);
     expect(res.stopReason).toBe('tool_use');
   });
+
+  it('synthesizes an id for streamed tool_calls that never carry one', async () => {
+    // Some OpenAI-compatible servers emit tool calls with a name + arguments
+    // but no `id`. The call must still dispatch (with a synthesized id)
+    // rather than being silently dropped.
+    const sse = [
+      'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"name":"echo","arguments":"{\\"text\\":\\"hi\\"}"}}]}}]}',
+      '',
+      'data: {"choices":[{"index":0,"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":7,"completion_tokens":4}}',
+      '',
+      'data: [DONE]',
+      '',
+    ].join('\n');
+    const provider = new OpenAIProvider({ apiKey: 'k', fetchImpl: mockFetch(sseBody(sse)) });
+    const res = await provider.complete(
+      { model: 'm', messages: [{ role: 'user', content: 'go' }], maxTokens: 100 },
+      { signal: new AbortController().signal },
+    );
+    expect(res.content).toHaveLength(1);
+    const block = res.content[0] as { type: string; id: string; name: string; input: unknown };
+    expect(block.type).toBe('tool_use');
+    expect(block.name).toBe('echo');
+    expect(block.input).toEqual({ text: 'hi' });
+    expect(block.id).toMatch(/^call_/);
+    expect(res.stopReason).toBe('tool_use');
+  });
 });
 
 describe('GoogleProvider.stream', () => {
