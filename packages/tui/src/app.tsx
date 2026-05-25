@@ -373,6 +373,8 @@ type State = {
   fleet: Record<string, FleetEntry>;
   /** Fleet-wide accumulated cost. */
   fleetCost: number;
+  /** Fleet-wide token totals from the usage aggregator, for the monitor gauge. */
+  fleetTokens: { input: number; output: number };
   /**
    * When true, subagent text activity is
    * streamed into the main history with an `AGENT#N` prefix. Toggled
@@ -524,7 +526,7 @@ type Action =
       used: number;
       limit: number;
     }
-  | { type: 'fleetCost'; cost: number }
+  | { type: 'fleetCost'; cost: number; input?: number; output?: number }
   | { type: 'setStreamFleet'; enabled: boolean }
   | { type: 'toggleMonitor' }
   | { type: 'checkpointReceived'; cp: State['checkpoints'][0] }
@@ -1025,7 +1027,14 @@ export function reducer(state: State, action: Action): State {
       };
     }
     case 'fleetCost': {
-      return { ...state, fleetCost: action.cost };
+      return {
+        ...state,
+        fleetCost: action.cost,
+        fleetTokens:
+          action.input !== undefined || action.output !== undefined
+            ? { input: action.input ?? state.fleetTokens.input, output: action.output ?? state.fleetTokens.output }
+            : state.fleetTokens,
+      };
     }
     case 'setStreamFleet': {
       return { ...state, streamFleet: action.enabled };
@@ -1282,6 +1291,7 @@ export function App({
     contextChipVersion: 0,
     fleet: {},
     fleetCost: 0,
+    fleetTokens: { input: 0, output: 0 },
     streamFleet: true,
     monitorOpen: false,
     checkpoints: [],
@@ -2522,7 +2532,7 @@ export function App({
       labelFor(s.id, meta?.name ?? s.name);
     }
     // Also seed cost from the usage aggregator.
-    dispatch({ type: 'fleetCost', cost: d.snapshot().total.cost });
+    dispatch({ type: 'fleetCost', cost: d.snapshot().total.cost, input: d.snapshot().total.input, output: d.snapshot().total.output });
 
     // Discover new subagents on first FleetBus event for an unknown id.
     const seen = new Set(Object.keys(status.subagents));
@@ -2658,7 +2668,7 @@ export function App({
           // Surface live cost from the aggregator (already computed with
           // per-model pricing). The fleetUsage reducer case is a stub that
           // preserves cost; fleetCost carries the real value.
-          dispatch({ type: 'fleetCost', cost: d.snapshot().total.cost });
+          dispatch({ type: 'fleetCost', cost: d.snapshot().total.cost, input: d.snapshot().total.input, output: d.snapshot().total.output });
           break;
         }
         case 'session.ended':
@@ -2709,7 +2719,7 @@ export function App({
         iterations: payload.result.iterations,
         toolCalls: payload.result.toolCalls,
       });
-      dispatch({ type: 'fleetCost', cost: d.snapshot().total.cost });
+      dispatch({ type: 'fleetCost', cost: d.snapshot().total.cost, input: d.snapshot().total.input, output: d.snapshot().total.output });
       // Drain any pending streaming text right before the completion
       // entry is committed by the EventBus listener so the order
       // "chat → done line" stays correct.
@@ -3835,7 +3845,12 @@ export function App({
         goalSummary={state.goalSummary}
       />
       {state.monitorOpen ? (
-        <FleetMonitor entries={state.fleet} totalCost={state.fleetCost} nowTick={nowTick} />
+        <FleetMonitor
+          entries={state.fleet}
+          totalCost={state.fleetCost}
+          totalTokens={state.fleetTokens}
+          nowTick={nowTick}
+        />
       ) : director ? (
         <FleetPanel entries={state.fleet} totalCost={state.fleetCost} roster={fleetRoster} />
       ) : null}
