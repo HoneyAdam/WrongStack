@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DefaultMultiAgentCoordinator } from '../../src/coordination/multi-agent-coordinator.js';
 import { BudgetExceededError } from '../../src/coordination/subagent-budget.js';
+import { EventBus } from '../../src/kernel/events.js';
 import type { SubagentRunner, TaskResult } from '../../src/types/multi-agent.js';
 
 const makeConfig = (overrides: Record<string, unknown> = {}) => ({
@@ -136,6 +137,54 @@ describe('DefaultMultiAgentCoordinator with runner', () => {
     const [result] = await donePromise;
 
     expect(result.status).toBe('timeout');
+  });
+
+  it('never-die: a wired onThreshold negotiates a timeout extension and the task finishes (status=success)', async () => {
+    // The production runner (makeAgentSubagentRunner) wires budget._events to
+    // the subagent's EventBus and onThreshold to requestDecision(). The
+    // FleetBus wildcard then forwards budget.threshold_reached to the director,
+    // which grants an extension. Here we stand in for that chain with a
+    // wildcard listener that always extends — proving the coordinator's
+    // executeWithTimeout watchdog re-arms instead of hard-killing on timeout.
+    const extends_: number[] = [];
+    const runner: SubagentRunner = async (_task, ctx) => {
+      const bus = new EventBus();
+      bus.onPattern('*', (type, payload) => {
+        if (type === 'budget.threshold_reached') {
+          const p = payload as {
+            limit: number;
+            extend: (e: { timeoutMs: number }) => void;
+          };
+          extends_.push(p.limit);
+          p.extend({ timeoutMs: 999_999 });
+        }
+      });
+      ctx.budget._events = bus;
+      ctx.budget.onThreshold = ({ requestDecision }) => requestDecision();
+
+      // Cooperative work that outlives the initial 20ms timeout window but
+      // finishes on its own once the extension keeps it alive.
+      await new Promise<void>((resolve, reject) => {
+        const t = setTimeout(() => resolve(), 80);
+        ctx.signal.addEventListener('abort', () => {
+          clearTimeout(t);
+          reject(new Error('aborted'));
+        });
+      });
+      return { result: 'finished', iterations: 1, toolCalls: 0 };
+    };
+    const coord = new DefaultMultiAgentCoordinator(makeConfig(), { runner });
+
+    await coord.spawn({ id: 'a1', name: 'A1', timeoutMs: 20 });
+    const donePromise = waitForDone(coord);
+    await coord.assign({ id: 't1', description: 'long but progressing' });
+    const [result] = await donePromise;
+
+    // The watchdog fired (the listener saw at least one threshold) but the
+    // task was NOT killed — it negotiated headroom and completed.
+    expect(extends_.length).toBeGreaterThan(0);
+    expect(result.status).toBe('success');
+    expect(result.result).toBe('finished');
   });
 
   it('respects maxConcurrent — extra tasks queue until a slot frees', async () => {
