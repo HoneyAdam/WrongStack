@@ -152,15 +152,15 @@ async function dockerLogs(
         stream_mode: false,
       });
     });
-    child.on('error', (e) =>
+    child.on('error', (e) => {
       resolve({
         source: `docker:${service}`,
         entries: [],
         total: 0,
         truncated: false,
         stream_mode: false,
-      }),
-    );
+      });
+    });
   });
 }
 

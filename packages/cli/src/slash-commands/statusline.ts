@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { atomicWrite, type SlashCommand } from '@wrongstack/core';
+import { atomicWrite, FsError, ERROR_CODES, type SlashCommand } from '@wrongstack/core';
 
 const CONFIG_ENV = 'WRONGSTACK_STATUSLINE_CONFIG';
 const DEFAULT_PATH = '~/.wrongstack/statusline.json';
@@ -41,10 +41,19 @@ export async function loadStatuslineConfig(): Promise<StatuslineConfig> {
 
 export async function saveStatuslineConfig(cfg: StatuslineConfig): Promise<void> {
   const p = resolveConfigPath();
-  await fs.mkdir(path.dirname(p), { recursive: true });
-  // atomicWrite: torn write would leave statusline.json malformed and the
-  // next load would silently fall back to DEFAULTS, losing user preferences.
-  await atomicWrite(p, JSON.stringify(cfg, null, 2));
+  try {
+    await fs.mkdir(path.dirname(p), { recursive: true });
+    // atomicWrite: torn write would leave statusline.json malformed and the
+    // next load would silently fall back to DEFAULTS, losing user preferences.
+    await atomicWrite(p, JSON.stringify(cfg, null, 2));
+  } catch (err) {
+    throw new FsError({
+      message: err instanceof Error ? err.message : String(err),
+      code: err instanceof Error && err.message.includes('mkdir') ? ERROR_CODES.FS_MKDIR_FAILED : ERROR_CODES.FS_ATOMIC_WRITE_FAILED,
+      path: p,
+      cause: err,
+    });
+  }
 }
 
 export interface StatuslineCommandDeps {

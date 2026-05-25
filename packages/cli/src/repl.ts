@@ -151,14 +151,33 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
         } else {
           const beforeGoal = await loadGoalSafe(opts);
           const beforeIter = beforeGoal?.iterations ?? 0;
+
+          // Show subagent stats before launching
+          const coord = engine.getCoordinator();
+          if (coord) {
+            const stats = coord.getStats();
+            opts.renderer.write(
+              color.dim(`  ┌─ Fleet: ${stats.running} running, ${stats.idle} idle, ${stats.pending} pending, ${stats.completed} done`) + '\n',
+            );
+          }
+
           opts.renderer.write(
-            color.magenta(`\n  ↳ [parallel #${beforeIter + 1}] launching fan-out…\n`),
+            color.magenta(`  ↳ [parallel #${beforeIter + 1}] launching fan-out…\n`),
           );
           interrupts = 0;
           try {
             const ok = await engine.runOneIteration();
             const afterGoal = await loadGoalSafe(opts);
             const last = afterGoal?.journal[afterGoal.journal.length - 1];
+
+            // Show results with subagent stats
+            if (coord) {
+              const stats = coord.getStats();
+              opts.renderer.write(
+                color.dim(`  └─ Fleet: ${stats.running} running, ${stats.idle} idle, ${stats.completed} done\n`),
+              );
+            }
+
             if (last) {
               const mark = last.status === 'success' ? color.green('✓') : last.status === 'failure' ? color.red('✗') : color.amber('⊘');
               const tail = last.note ? color.dim(` — ${last.note.slice(0, 80)}`) : '';
@@ -551,10 +570,32 @@ async function loadGoalSafe(opts: ReplOptions): Promise<GoalFile | null> {
 async function renderGoalBanner(opts: ReplOptions): Promise<void> {
   const goal = await loadGoalSafe(opts);
   if (!goal) return;
+
   const summary = goal.goal.length > 80 ? `${goal.goal.slice(0, 77)}…` : goal.goal;
+
+  // Color based on goalState
+  const stateColor = goal.goalState === 'active' ? color.green
+    : goal.goalState === 'paused' ? color.amber
+    : goal.goalState === 'completed' ? color.green
+    : goal.goalState === 'abandoned' ? color.dim
+    : color.dim;
+
   opts.renderer.write(
-    color.dim('Goal: ') + color.bold(summary) + color.dim(`  (iter ${goal.iterations})`) + '\n',
+    color.dim('Goal: ') + stateColor(summary) + color.dim(` [${goal.goalState}]  (iter ${goal.iterations})`) + '\n',
   );
+
+  // Show journal summary if there are recent entries
+  if (goal.journal.length > 0) {
+    const lastEntry = goal.journal[goal.journal.length - 1]!;
+    const statusIcon = lastEntry.status === 'success' ? '✓'
+      : lastEntry.status === 'failure' ? '✗'
+      : lastEntry.status === 'aborted' ? '⊘'
+      : lastEntry.status === 'skipped' ? '⊝' : '·';
+    opts.renderer.write(
+      color.dim(`  Last: ${statusIcon} ${lastEntry.task} (${lastEntry.status})`) + '\n',
+    );
+  }
+
   if (goal.engineState === 'running') {
     opts.renderer.write(
       color.amber('  ↺ Eternal engine was running when last session ended.') + '\n',
@@ -587,6 +628,19 @@ async function renderGoalBanner(opts: ReplOptions): Promise<void> {
         color.dim('  Use `/autonomy eternal` to resume.') + '\n',
       );
     }
+  } else if (goal.goalState === 'paused') {
+    // Paused goal - prompt to resume
+    opts.renderer.write(
+      color.amber('  ⏸ Goal is paused. Use `/goal resume` to continue.') + '\n',
+    );
+  } else if (goal.goalState === 'completed') {
+    opts.renderer.write(
+      color.green('  ✓ Goal completed! Use `/goal clear` to set a new goal.') + '\n',
+    );
+  } else if (goal.goalState === 'abandoned') {
+    opts.renderer.write(
+      color.dim('  Use `/goal clear` to set a new goal.') + '\n',
+    );
   }
   opts.renderer.write('\n');
 }

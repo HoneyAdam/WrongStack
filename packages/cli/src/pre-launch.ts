@@ -132,6 +132,7 @@ export async function runProjectCheck(opts: {
         const { spawn } = await import('node:child_process');
         await new Promise<void>((resolve, reject) => {
           const child = spawn('git', ['init'], { cwd: projectRoot });
+          child.on('error', reject);
           child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`git init failed with ${code}`))));
         });
         renderer.write(`  ${color.green('✓')} Git repository initialized\n`);

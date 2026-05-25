@@ -106,15 +106,15 @@ function runOutdated(
       const result = parseOutdatedOutput(stdout, code ?? 0);
       resolve(result);
     });
-    child.on('error', (e) =>
+    child.on('error', (e) => {
       resolve({
         exit_code: 1,
         packages: [],
         total: 0,
         output: e.message,
         truncated: false,
-      }),
-    );
+      });
+    });
   });
 }
 

@@ -189,6 +189,35 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
     this.subagents.delete(subagentId);
   }
 
+  /**
+   * Get current coordinator stats for monitoring/debugging.
+   */
+  getStats(): {
+    total: number;
+    running: number;
+    idle: number;
+    stopped: number;
+    inFlight: number;
+    pending: number;
+    completed: number;
+  } {
+    let running = 0, idle = 0, stopped = 0;
+    for (const [, entry] of this.subagents) {
+      if (entry.status === 'running') running++;
+      else if (entry.status === 'idle') idle++;
+      else stopped++;
+    }
+    return {
+      total: this.subagents.size,
+      running,
+      idle,
+      stopped,
+      inFlight: this.inFlight,
+      pending: this.pendingTasks.length,
+      completed: this.completedResults.length,
+    };
+  }
+
   getStatus(): CoordinatorStatus {
     return {
       coordinatorId: this.coordinatorId,

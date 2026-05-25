@@ -227,6 +227,8 @@ export interface AppProps {
    * provided and falls back to the provider baseline otherwise.
    */
   effectiveMaxContext?: number;
+  /** Absolute project root for goal.json loading. */
+  projectRoot?: string;
   onExit: (code: number) => void;
   /** Called when /clear is dispatched — the TUI should wipe its history entries (but keep the banner). */
   onClearHistory?: (
@@ -279,6 +281,14 @@ type DraftEntry = HistoryEntry extends infer T
     ? Omit<T, 'id'>
     : never
   : never;
+
+type GoalSummary = {
+  goal: string;
+  goalState: 'active' | 'paused' | 'completed' | 'abandoned';
+  iterations: number;
+  lastTask?: string;
+  lastStatus?: string;
+} | null;
 
 type State = {
   entries: HistoryEntry[];
@@ -407,6 +417,8 @@ type State = {
     phase: 'error';
     message: string;
   } | null;
+  /** Loaded from .wrongstack/goal.json on mount for startup banner. */
+  goalSummary: GoalSummary;
 };
 
 type Action =
@@ -538,7 +550,8 @@ type Action =
   } | {
     phase: 'error';
     message: string;
-  } | null };
+  }}
+  | { type: 'goalSummary'; summary: GoalSummary };
 
 export function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -1044,6 +1057,9 @@ export function reducer(state: State, action: Action): State {
     case 'eternalStage': {
       return { ...state, eternalStage: action.stage };
     }
+    case 'goalSummary': {
+      return { ...state, goalSummary: action.summary };
+    }
   }
 }
 
@@ -1188,6 +1204,32 @@ export function App({
     setStatuslineHiddenItems(hiddenItems);
   }, [setStatuslineHiddenItems]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const projectRoot = agent.ctx.projectRoot;
+
+  // Load goal.json on mount to show startup banner with goal state
+  useEffect(() => {
+    if (!projectRoot) return;
+    const goalPath = path.join(projectRoot, '.wrongstack', 'goal.json');
+    fs.readFile(goalPath, 'utf8').then((raw) => {
+      const goal = JSON.parse(raw);
+      if (goal?.goal && typeof goal.iterations === 'number') {
+        const lastEntry = goal.journal?.[goal.journal.length - 1];
+        dispatch({
+          type: 'goalSummary',
+          summary: {
+            goal: goal.goal,
+            goalState: goal.goalState ?? 'active',
+            iterations: goal.iterations,
+            lastTask: lastEntry?.task,
+            lastStatus: lastEntry?.status,
+          },
+        });
+      }
+    }).catch(() => {
+      // No goal file yet — that's fine
+    });
+  }, [projectRoot]);
+
   const [state, dispatch] = useReducer(reducer, {
     entries: banner
       ? [
@@ -1237,6 +1279,7 @@ export function App({
     checkpoints: [],
     rewindOverlay: null,
     eternalStage: null,
+    goalSummary: null,
   });
 
   const builderRef = useRef<InputBuilder | null>(null);
@@ -1260,7 +1303,6 @@ export function App({
   // milliseconds needed to debounce a terminal-side `\r\n` double-event
   // and then auto-releases — leaving the input live for the user.
   const lastEnterAtRef = useRef(0);
-  const projectRoot = agent.ctx.projectRoot;
   // The status-bar chip surfaces the basename so multiple WrongStack
   // windows running against different repos are immediately distinguishable.
   // Empty / root fallback to undefined so the chip just hides itself.
@@ -3765,6 +3807,7 @@ export function App({
         processCount={getProcessRegistry().activeCount}
         hiddenItems={hiddenItems}
         eternalStage={state.eternalStage}
+        goalSummary={state.goalSummary}
       />
       {director ? (
         <FleetPanel entries={state.fleet} totalCost={state.fleetCost} roster={fleetRoster} />

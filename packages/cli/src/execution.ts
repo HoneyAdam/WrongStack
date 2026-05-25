@@ -342,6 +342,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
           setStatuslineHiddenItems,
           initialGoal: goalFlag,
           initialAsk: askFlag,
+          projectRoot,
           getSDDContext: () => {
             const { getActiveSDDContext } = require('./slash-commands/sdd.js');
             return getActiveSDDContext();

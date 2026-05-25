@@ -88,6 +88,13 @@ export class ParallelEternalEngine {
     return this.state;
   }
 
+  /**
+   * Get the underlying coordinator for stats/monitoring.
+   */
+  getCoordinator(): DefaultMultiAgentCoordinator | null {
+    return this.coordinator;
+  }
+
   stop(): void {
     this.stopRequested = true;
     void this.persistState('stopped').catch(() => {});
@@ -239,8 +246,8 @@ export class ParallelEternalEngine {
           await coordinator.spawn({
             id: subagentId,
             name: `slot-${subagentId.slice(-6)}`,
-            maxIterations: 50,
-            maxToolCalls: 200,
+            // Let the coordinator apply its default budget (from roster or generic).
+            // Hardcoding low limits here defeats the x10 budget improvement.
             timeoutMs: this.timeoutMs,
           });
           subagentIds.push(subagentId);
@@ -259,8 +266,11 @@ export class ParallelEternalEngine {
 
     let results: TaskResult[] = [];
     try {
+      // Wait up to 2 hours for subagents to complete. This should cover
+      // most subagent tasks since the roster budgets go up to 10 hours.
+      // The outer eternal loop manages actual iteration limits.
       const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), this.timeoutMs + 60000);
+      const timer = setTimeout(() => ctrl.abort(), Math.max(this.timeoutMs * 2, 7200_000));
       try {
         results = await coordinator.awaitTasks(taskIds);
       } finally {

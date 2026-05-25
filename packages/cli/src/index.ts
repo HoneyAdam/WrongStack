@@ -1206,10 +1206,11 @@ export async function main(argv: string[]): Promise<number> {
       const { spawn } = await import('node:child_process');
       const cwd = projectRoot;
 
-      const statusResult = await new Promise<{ stdout: string; code: number }>((resolve) => {
+      const statusResult = await new Promise<{ stdout: string; code: number }>((resolve, reject) => {
         const child = spawn('git', ['status', '--porcelain'], { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
         let stdout = '';
         child.stdout?.on('data', (d) => (stdout += d));
+        child.on('error', reject);
         child.on('close', (code) => resolve({ stdout, code: code ?? 0 }));
       });
 

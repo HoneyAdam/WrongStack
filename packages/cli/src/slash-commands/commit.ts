@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { color } from '@wrongstack/core';
+import { color, WrongStackError, ERROR_CODES } from '@wrongstack/core';
 import type { SlashCommand } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
 
@@ -9,17 +9,37 @@ export { generateCommitMessageWithLLM } from './commit-llm.js';
  * Run git commands.
  */
 async function runGit(args: string[], cwd: string): Promise<{ stdout: string; stderr: string; code: number }> {
-  return new Promise((resolve) => {
-    const child = spawn('git', args, {
-      cwd,
-      stdio: ['ignore', 'pipe', 'pipe'],
+  try {
+    return await new Promise((resolve, reject) => {
+      const child = spawn('git', args, {
+        cwd,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let stdout = '';
+      let stderr = '';
+      child.stdout?.on('data', (d) => (stdout += d));
+      child.stderr?.on('data', (d) => (stderr += d));
+      child.on('error', (err) => {
+        reject(new WrongStackError({
+          message: `Failed to run git: ${err.message}`,
+          code: ERROR_CODES.TOOL_EXECUTION_FAILED,
+          subsystem: 'tool',
+          context: { command: 'git', args, cwd },
+          cause: err,
+        }));
+      });
+      child.on('close', (code) => resolve({ stdout, stderr, code: code ?? 0 }));
     });
-    let stdout = '';
-    let stderr = '';
-    child.stdout?.on('data', (d) => (stdout += d));
-    child.stderr?.on('data', (d) => (stderr += d));
-    child.on('close', (code) => resolve({ stdout, stderr, code: code ?? 0 }));
-  });
+  } catch (err) {
+    if (err instanceof WrongStackError) throw err;
+    throw new WrongStackError({
+      message: err instanceof Error ? err.message : String(err),
+      code: ERROR_CODES.TOOL_EXECUTION_FAILED,
+      subsystem: 'tool',
+      context: { command: 'git', args, cwd },
+      cause: err,
+    });
+  }
 }
 
 // ── LLM-powered commit message generation ──────────────────────────

@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import os from 'node:os';
-import { atomicWrite } from '@wrongstack/core';
+import { atomicWrite, FsError, ERROR_CODES } from '@wrongstack/core';
 
 // ── Protected files/directories ────────────────────────────────────
 // These are NEVER touched by any operation in this module.
@@ -144,7 +144,16 @@ function entryId(ts: string): string {
 }
 
 async function ensureHistoryDir(homeFn: HomeDirFn = defaultHomeDir): Promise<void> {
-  await fs.mkdir(historyDir(homeFn), { recursive: true });
+  try {
+    await fs.mkdir(historyDir(homeFn), { recursive: true });
+  } catch (err) {
+    throw new FsError({
+      message: err instanceof Error ? err.message : String(err),
+      code: ERROR_CODES.FS_MKDIR_FAILED,
+      path: historyDir(homeFn),
+      cause: err,
+    });
+  }
 }
 
 async function readIndex(homeFn: HomeDirFn = defaultHomeDir): Promise<HistoryIndex> {
@@ -160,7 +169,16 @@ async function writeIndex(idx: HistoryIndex, homeFn: HomeDirFn = defaultHomeDir)
   await ensureHistoryDir(homeFn);
   // atomicWrite: torn write here would wipe the entire config-history
   // index, hiding the user's prior backups behind a "no history" UI.
-  await atomicWrite(historyIndexPath(homeFn), JSON.stringify(idx, null, 2));
+  try {
+    await atomicWrite(historyIndexPath(homeFn), JSON.stringify(idx, null, 2));
+  } catch (err) {
+    throw new FsError({
+      message: err instanceof Error ? err.message : String(err),
+      code: ERROR_CODES.FS_ATOMIC_WRITE_FAILED,
+      path: historyIndexPath(homeFn),
+      cause: err,
+    });
+  }
 }
 
 /**
@@ -239,11 +257,20 @@ export async function appendHistory(
     diffSummary: diffSummary(oldCfg, newCfg),
   };
 
-  await fs.writeFile(
-    path.join(historyDir(homeFn), `${id}.json`),
-    JSON.stringify(entry, null, 2),
-    'utf8',
-  );
+  try {
+    await fs.writeFile(
+      path.join(historyDir(homeFn), `${id}.json`),
+      JSON.stringify(entry, null, 2),
+      'utf8',
+    );
+  } catch (err) {
+    throw new FsError({
+      message: err instanceof Error ? err.message : String(err),
+      code: ERROR_CODES.FS_WRITE_FAILED,
+      path: path.join(historyDir(homeFn), `${id}.json`),
+      cause: err,
+    });
+  }
 
   const idx = await readIndex(homeFn);
   idx.entries.unshift({ id, timestamp, description });

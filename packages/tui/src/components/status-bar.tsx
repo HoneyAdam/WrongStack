@@ -135,6 +135,14 @@ export interface StatusBarProps {
     phase: 'error';
     message: string;
   } | null;
+  /** Active goal summary for startup banner display. */
+  goalSummary?: {
+    goal: string;
+    goalState: 'active' | 'paused' | 'completed' | 'abandoned';
+    iterations: number;
+    lastTask?: string;
+    lastStatus?: string;
+  } | null;
 }
 
 /**
@@ -164,6 +172,7 @@ export function StatusBar({
   processCount,
   hiddenItems,
   eternalStage,
+  goalSummary,
 }: StatusBarProps): React.ReactElement {
   const hiddenSet = new Set(hiddenItems);
   const usage = tokenCounter?.total();
@@ -180,7 +189,8 @@ export function StatusBar({
     (autonomy && autonomy !== 'off') ||
     elapsedMs !== undefined ||
     (git !== null && git !== undefined) ||
-    (projectName !== undefined && projectName.length > 0);
+    (projectName !== undefined && projectName.length > 0) ||
+    (goalSummary !== null && goalSummary !== undefined);
 
   // Line 3 is *active work* — the dynamic chips that mutate as the
   // agent / subagents make progress. Hidden when nothing is in flight
@@ -294,6 +304,14 @@ export function StatusBar({
             <>
               {yolo || elapsedMs !== undefined ? <Text dimColor>│</Text> : null}
               <Text color="blue">📁 {projectName}</Text>
+            </>
+          ) : null}
+          {goalSummary ? (
+            <>
+              {yolo || elapsedMs !== undefined || projectName ? <Text dimColor>│</Text> : null}
+              <Text color={goalSummary.goalState === 'active' ? 'green' : goalSummary.goalState === 'paused' ? 'yellow' : goalSummary.goalState === 'completed' ? 'green' : 'dim'}>
+                🎯 {goalSummary.goal.length > 40 ? `${goalSummary.goal.slice(0, 37)}…` : goalSummary.goal} [{goalSummary.goalState}] (iter {goalSummary.iterations})
+              </Text>
             </>
           ) : null}
           {git ? (

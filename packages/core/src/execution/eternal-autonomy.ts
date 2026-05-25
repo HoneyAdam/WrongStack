@@ -41,7 +41,8 @@ export interface EternalAutonomyOptions {
    * Maximum number of internal agent.run iterations the engine grants per
    * eternal-loop tick. The engine sets `autonomousContinue: true` so the
    * agent can run multi-step tasks end-to-end within one tick instead of
-   * bouncing back to the engine after every single tool call. Default 50.
+   * bouncing back to the engine after every single tool call. Default 500.
+   * Previous 50 was far too low — agents hit the limit and restart constantly.
    */
   iterationMaxAgentSteps?: number;
   /**
@@ -346,7 +347,7 @@ export class EternalAutonomyEngine {
           // Cap the inner loop so a runaway agent.run can't burn through
           // the iteration timeout — the engine's own outer loop is the
           // long-running thing, each tick should be bounded.
-          maxIterations: this.opts.iterationMaxAgentSteps ?? 50,
+          maxIterations: this.opts.iterationMaxAgentSteps ?? 500,
         },
       );
 

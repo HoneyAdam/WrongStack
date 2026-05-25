@@ -1,6 +1,7 @@
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import { atomicWrite } from '../utils/atomic-write.js';
+import { FsError, ERROR_CODES } from '../types/errors.js';
 
 /**
  * Long-running autonomous mission. A goal survives across sessions and
@@ -97,7 +98,16 @@ export async function loadGoal(filePath: string): Promise<GoalFile | null> {
 }
 
 export async function saveGoal(filePath: string, goal: GoalFile): Promise<void> {
-  await atomicWrite(filePath, JSON.stringify(goal, null, 2), { mode: 0o600 });
+  try {
+    await atomicWrite(filePath, JSON.stringify(goal, null, 2), { mode: 0o600 });
+  } catch (err) {
+    throw new FsError({
+      message: err instanceof Error ? err.message : String(err),
+      code: ERROR_CODES.FS_ATOMIC_WRITE_FAILED,
+      path: filePath,
+      cause: err,
+    });
+  }
 }
 
 export function emptyGoal(goal: string): GoalFile {

@@ -105,8 +105,9 @@ export interface RunTuiOptions {
    * context chip uses this for its progress denominator.
    */
   effectiveMaxContext?: number;
-  /**
-   * Render into the terminal's alternate screen buffer (like vim/less/htop).
+  /** Absolute project root for goal.json loading. */
+  projectRoot?: string;
+  /** Render into the terminal's alternate screen buffer (like vim/less/htop).
    * Default: false — native scrollback stays live so chat history is
    * scrollable via mouse wheel / Shift+PgUp, which matches the user's
    * "this is a chat app, let me scroll the chat" intuition. Pass true
@@ -362,6 +363,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
           getSDDContext: opts.getSDDContext,
           onSDDOutput: opts.onSDDOutput,
           sessionsDir: opts.sessionsDir,
+          projectRoot: opts.projectRoot,
         }),
         { exitOnCtrlC: false },
       );

@@ -58,6 +58,12 @@ export const ERROR_CODES = {
   CONTAINER_TOKEN_NOT_BOUND: 'CONTAINER_TOKEN_NOT_BOUND',
   REGISTRY_DUPLICATE: 'REGISTRY_DUPLICATE',
   REGISTRY_NOT_FOUND: 'REGISTRY_NOT_FOUND',
+  // File system
+  FS_READ_FAILED: 'FS_READ_FAILED',
+  FS_WRITE_FAILED: 'FS_WRITE_FAILED',
+  FS_MKDIR_FAILED: 'FS_MKDIR_FAILED',
+  FS_DELETE_FAILED: 'FS_DELETE_FAILED',
+  FS_ATOMIC_WRITE_FAILED: 'FS_ATOMIC_WRITE_FAILED',
   // General
   UNKNOWN: 'UNKNOWN',
 } as const;
@@ -77,6 +83,7 @@ export type ErrorSubsystem =
   | 'agent'
   | 'session'
   | 'container'
+  | 'fs'
   | 'general';
 export type ErrorSeverity = 'fatal' | 'error' | 'warning';
 
@@ -291,6 +298,36 @@ export class SessionError extends WrongStackError {
   }
 }
 
+/**
+ * File system operation errors.
+ */
+export class FsError extends WrongStackError {
+  readonly path?: string;
+
+  constructor(opts: {
+    message: string;
+    code: Extract<
+      ErrorCode,
+      'FS_READ_FAILED' | 'FS_WRITE_FAILED' | 'FS_MKDIR_FAILED' | 'FS_DELETE_FAILED' | 'FS_ATOMIC_WRITE_FAILED'
+    >;
+    path?: string;
+    context?: Record<string, unknown>;
+    cause?: unknown;
+  }) {
+    super({
+      message: opts.message,
+      code: opts.code,
+      subsystem: 'fs',
+      severity: 'error',
+      recoverable: opts.code !== ERROR_CODES.FS_READ_FAILED,
+      context: { path: opts.path, ...opts.context },
+      cause: opts.cause,
+    });
+    this.name = 'FsError';
+    this.path = opts.path;
+  }
+}
+
 // ── Type guards ──────────────────────────────────────────────────────
 
 export function isWrongStackError(err: unknown): err is WrongStackError {
@@ -315,4 +352,8 @@ export function isSessionError(err: unknown): err is SessionError {
 
 export function isAgentError(err: unknown): err is AgentError {
   return err instanceof AgentError;
+}
+
+export function isFsError(err: unknown): err is FsError {
+  return err instanceof FsError;
 }

@@ -29,13 +29,14 @@ export const updateCmd: SubcommandHandler = async (args, deps) => {
 
   // npm install -g wrongstack@latest
   try {
-    const result = await new Promise<{ code: number }>((resolve) => {
+    const result = await new Promise<{ code: number }>((resolve, reject) => {
       const child = spawn('npm', ['install', '-g', 'wrongstack@latest'], {
         cwd,
         stdio: 'pipe',
       });
       let stderr = '';
       child.stderr?.on('data', (d) => { stderr += d; });
+      child.on('error', reject);
       child.on('close', (code) => resolve({ code: code ?? 0 }));
     });
 
