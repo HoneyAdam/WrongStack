@@ -2,7 +2,7 @@ import type { Plugin } from '@wrongstack/core';
 import type { Logger } from '@wrongstack/core';
 import { TelegramBot } from './bot.js';
 import type { TelegramIncomingMessage } from './bot.js';
-import { truncateForTelegram, escapeHtml } from './bot.js';
+import { truncateForTelegram } from './bot.js';
 import { PLUGIN_NAME, readTelegramConfig, telegramConfigSchema } from './config.js';
 import { registerSlashCommands } from './slash-commands/index.js';
 import { makeTelegramReadTool } from './tools/telegram-read.js';
@@ -118,9 +118,9 @@ const plugin: Plugin = {
           const outputTokens = event.usage.output ?? 0;
           const totalTokens = inputTokens + outputTokens;
           const msg = [
-            '✅ <b>Session ended</b>',
+            `✅ Session ended`,
             '',
-            `Session: <code>${event.id.slice(0, 8)}</code>`,
+            `Session: ${event.id.slice(0, 8)}`,
             `Input:  ${inputTokens} tokens`,
             `Output: ${outputTokens} tokens`,
             `Total:  ${totalTokens} tokens`,
@@ -141,13 +141,13 @@ const plugin: Plugin = {
           const sec = (event.durationMs / 1000).toFixed(1);
           const status = event.ok ? '✅' : '❌';
           const preview = event.output
-            ? truncateForTelegram(escapeHtml(event.output), 500)
+            ? truncateForTelegram(event.output, 500)
             : '(no output)';
 
           const msg = [
-            `${status} <b>${escapeHtml(event.name)}</b> completed in ${sec}s`,
+            `${status} ${event.name} completed in ${sec}s`,
             '',
-            `<pre>${preview}</pre>`,
+            preview,
           ].join('\n');
 
           void bot.sendMessage(cfg.notifyChatId!, msg).catch((err) => {

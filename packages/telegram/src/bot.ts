@@ -184,7 +184,6 @@ export class TelegramBot {
     const body = JSON.stringify({
       chat_id: String(chatId),
       text,
-      parse_mode: 'HTML',
       disable_web_page_preview: true,
     });
 

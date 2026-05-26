@@ -1,12 +1,12 @@
 import type { Tool } from '@wrongstack/core';
 import type { Logger } from '@wrongstack/core';
 import type { TelegramBot } from '../bot.js';
-import { escapeHtml, truncateForTelegram } from '../bot.js';
+import { truncateForTelegram } from '../bot.js';
 
 interface TelegramSendInput {
   /** Chat or user ID to send the message to. Falls back to config.notifyChatId when omitted. */
   chat_id?: string | number;
-  /** Message text. Supports Telegram HTML parse mode. */
+  /** Message text. */
   message: string;
 }
 
@@ -19,7 +19,7 @@ export function makeTelegramSendTool(opts: {
   return {
     name: 'telegram_send',
     description:
-      'Send a message via Telegram to a specified chat. Use this to notify users, report results, or communicate through Telegram. The message supports HTML formatting (bold, italic, code, links).',
+      'Send a message via Telegram to a specified chat. Use this to notify users, report results, or communicate through Telegram.',
     usageHint: 'telegram_send(chat_id: "123456789", message: "Task completed ✓")',
     category: 'Telegram',
     inputSchema: {
@@ -32,7 +32,7 @@ export function makeTelegramSendTool(opts: {
         message: {
           type: 'string',
           description:
-            'Message text (supports HTML: <b>bold</b>, <i>italic</i>, <code>mono</code>, <a href="...">links</a>).',
+            'Message text.',
         },
       },
       required: ['message'],
@@ -48,9 +48,8 @@ export function makeTelegramSendTool(opts: {
         );
       }
 
-      // Format: wrap the message in a code block if it looks like raw output
-      const safeMsg = escapeHtml(input.message);
-      const truncated = truncateForTelegram(safeMsg, opts.maxMessageLength);
+      // Truncate message to fit Telegram's 4096 char limit
+      const truncated = truncateForTelegram(input.message, opts.maxMessageLength);
 
       opts.log.info(`telegram_send → chat_id=${chatId} (${truncated.length} chars)`);
 

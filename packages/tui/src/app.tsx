@@ -1013,13 +1013,9 @@ export function reducer(state: State, action: Action): State {
     case 'fleetUsage': {
       const cur = state.fleet[action.id];
       if (!cur) return state;
-      // Compute cost delta from raw token counts using a simplified pricing
-      // model. The actual per-model pricing is applied by FleetUsageAggregator;
-      // here we approximate as a live display hint.
-      const cost = cur.cost;
       return {
         ...state,
-        fleet: { ...state.fleet, [action.id]: { ...cur, cost, lastEventAt: Date.now() } },
+        fleet: { ...state.fleet, [action.id]: { ...cur, lastEventAt: Date.now() } },
       };
     }
     case 'fleetDone': {
@@ -2804,8 +2800,7 @@ export function App({
         }
         case 'provider.response': {
           // Surface live cost from the aggregator (already computed with
-          // per-model pricing). The fleetUsage reducer case is a stub that
-          // preserves cost; fleetCost carries the real value.
+          // per-model pricing).
           dispatch({ type: 'fleetCost', cost: d.snapshot().total.cost, input: d.snapshot().total.input, output: d.snapshot().total.output });
           break;
         }

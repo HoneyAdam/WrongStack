@@ -300,6 +300,18 @@ export function ChatInput() {
     if (slashIndex >= slashSuggestions.length) setSlashIndex(0);
   }, [slashSuggestions.length, slashIndex]);
 
+  /** Direct textarea DOM clear — bypasses useState so the UI updates
+   *  even when React batches the state update. */
+  const _clearTextarea = useCallback(() => {
+    const ta = textareaRef.current;
+    if (ta) {
+      ta.value = '';
+      ta.style.height = 'auto';
+      ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+      if (!isLoading) { ta.focus(); }
+    }
+  }, [isLoading]);
+
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
@@ -311,12 +323,15 @@ export function ChatInput() {
         pushPrompt(content);
         setInput('');
         setHistoryIdx(-1);
+        _clearTextarea();
         return;
       }
 
       setInput('');
       setHistoryIdx(-1);
+      _clearTextarea();
       pushPrompt(content);
+      _clearTextarea(); // ensure textarea is cleared even if batching delays state
 
       // If the agent is still running, queue the follow-up instead of
       // dropping it. The run.result handler in useWebSocket drains the
@@ -350,6 +365,7 @@ export function ChatInput() {
       addMessage,
       runSlashCommand,
       pushPrompt,
+      _clearTextarea,
     ],
   );
 
