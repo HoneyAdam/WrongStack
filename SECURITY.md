@@ -167,6 +167,15 @@ when permission prompts are approved out of habit.
   attacker can probably craft a pattern that slips through both checks;
   catastrophic backtracking still hangs only one worker, not the whole
   process.
+- **Session soft-deny state is in-memory only.** The permission policy
+  tracks per-session soft-denies (`sessionDenied` / `sessionAllowed` maps)
+  to let a user approve or deny once and have that decision apply for the
+  retry loop within the same session. This state is intentionally not
+  persisted — it is discarded on clean exit and on process crash. If the
+  agent restarts mid-session (crash, `wrongstack restart`, leader
+  election), the user may be re-prompted for decisions they already made.
+  This is a deliberate UX trade-off to avoid polluting the persisted
+  trust file with transient session decisions.
 - **Tool output is trusted on the way back.** A malicious file in the
   repo, or a tampered MCP response, can carry prompt-injection content
   that the next LLM turn might act on. The user is the last line of
