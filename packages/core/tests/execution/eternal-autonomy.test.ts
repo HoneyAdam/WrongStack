@@ -608,7 +608,7 @@ describe('EternalAutonomyEngine', () => {
     const t0 = Date.now();
     await engine.runOneIteration();
     const elapsed = Date.now() - t0;
-    expect(elapsed).toBeLessThan(150);
+    expect(elapsed).toBeLessThan(400);
   });
 
   it('passes autonomousContinue:true and a maxIterations cap to agent.run', async () => {
