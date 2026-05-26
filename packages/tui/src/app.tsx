@@ -2546,6 +2546,10 @@ export function App({
     if (fleetStreamController) fleetStreamController.enabled = state.streamFleet;
   }, [state.streamFleet, fleetStreamController]);
 
+  // Track double-Esc for input buffer clearing.
+  const lastEscAtRef = useRef(0);
+  const ESC_DOUBLE_PRESS_MS = 1000;
+
   // --- FleetBus → TUI dispatch bridge ---
   // Subscribes to every event on the director's FleetBus and dispatches
   // fleet state actions. Text deltas are throttled (FLUSH_MS) to avoid
@@ -3014,6 +3018,20 @@ export function App({
 
     // Re-entrancy guard: block stale-second events from \r\n terminals.
     if (inputGateRef.current) return;
+
+    // ── Double-Esc clears input buffer ────────────────────────────────
+    // When the user presses Esc twice within ESC_DOUBLE_PRESS_MS ms while
+    // the buffer is non-empty, clear it. This mirrors the behaviour of bash's
+    // Ctrl+C double-press clearing the line, adapted for Esc (no Ctrl needed).
+    if (key.escape) {
+      const now = Date.now();
+      if (state.buffer.length > 0 && now - lastEscAtRef.current < ESC_DOUBLE_PRESS_MS) {
+        dispatch({ type: 'clearInput' });
+        lastEscAtRef.current = 0;
+        return;
+      }
+      lastEscAtRef.current = now;
+    }
 
     // ── Bracketed-paste accumulation ──────────────────────────────────
     // Must run before the Enter/key handling below: a paste split across
