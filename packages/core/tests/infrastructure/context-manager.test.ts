@@ -13,6 +13,7 @@ const makeCtx = (messages: any[] = []) =>
     hasRead: () => false,
     lastReadMtime: () => undefined,
     recordRead: () => {},
+    clearFileTracking: () => {},
     todos: [],
     messages,
   }) as any;
