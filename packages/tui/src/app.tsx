@@ -1351,6 +1351,11 @@ export function App({
   const pasteFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const activeCtrlRef = useRef<AbortController | null>(null);
+  // Set once we've asked Ink to unmount on a Ctrl+C exit. A synchronous ref
+  // (not React state) because consecutive SIGINTs can fire faster than a
+  // re-render — without it, `stateRef.current.interrupts` reads stale and a
+  // wedged unmount could never escalate to a hard exit.
+  const exitRequestedRef = useRef(false);
   // Prevent re-entrant handleKey: some terminals emit \r\n as two separate
   // stdin events for Enter. While the first event is being processed (submit
   // or picker accept), the second arrives with stale state and would trigger
@@ -2804,12 +2809,14 @@ export function App({
     };
   }, [director]);
 
-  // Handle SIGINT: first cancels current iteration + kills the fleet,
-  // second forces exit regardless of state (the old `status === 'idle'`
-  // gate left users stuck in 'aborting' forever when a delegate call
-  // wouldn't unwind — agent.run() doesn't return while subagents
-  // ignore the abort signal). Third press hard-kills via process.exit
-  // so a wedged Ink loop can't trap the user.
+  // Handle SIGINT as a three-stage escalation:
+  //   1st press — stop work and stay at the prompt: cancel the foreground
+  //     run + kill the fleet, OR (in autonomy / background-only mode) halt
+  //     the engines + terminate the fleet. Pickers cancel instead.
+  //   2nd press — exit: graceful Ink unmount (restores the terminal) with a
+  //     hard-exit fallback timer in case the React tree is wedged.
+  //   3rd press — immediate process.exit, so a wedged Ink loop can't trap
+  //     the user.
   useEffect(() => {
     const onSigint = () => {
       const current = stateRef.current;
@@ -2818,18 +2825,27 @@ export function App({
       // decided they want out. Try Ink's graceful exit first, then
       // hard-exit on a short timer in case the React tree is wedged.
       if (current.interrupts >= 1) {
-        // Second (or later) Ctrl+C — force-kill all processes and exit.
-        // This is the "you really mean it" exit path.
+        // Second (or later) Ctrl+C — the user wants out. Force-kill tracked
+        // processes regardless of state.
         getProcessRegistry().killAll({ force: true });
-        if (current.interrupts >= 2) {
+        // If we already asked Ink to unmount and the user pressed again, the
+        // React tree is wedged — hard-exit immediately.
+        if (exitRequestedRef.current) {
           process.exit(130);
         }
-        try {
-          process.exit(130);
-        } catch {
-          // ignore
-        }
+        exitRequestedRef.current = true;
         dispatch({ type: 'interrupt' });
+        // Terminate any lingering fleet so subagents don't outlive the TUI.
+        if (director) void director.terminateAll().catch(() => undefined);
+        // Graceful Ink unmount first: it restores the terminal (raw mode off,
+        // cursor shown, alt-screen dismantled) and routes the 130 exit code
+        // through run-tui's settle(). A bare process.exit() here would skip
+        // that and can leave the terminal in raw mode — the "exit feels
+        // broken" symptom. Fall back to a hard exit if Ink never unmounts.
+        onExit(130);
+        exit();
+        const hardExit = setTimeout(() => process.exit(130), 400);
+        hardExit.unref?.();
         return;
       }
       dispatch({ type: 'interrupt' });
@@ -2959,7 +2975,7 @@ export function App({
     return () => {
       process.off('SIGINT', onSigint);
     };
-  }, [director, getEternalEngine, getParallelEngine, switchAutonomy]);
+  }, [director, getEternalEngine, getParallelEngine, switchAutonomy, onExit, exit]);
 
   // Finalize a fully-assembled paste payload. A collapse-worthy paste (long
   // or many-lined) or any multi-line paste becomes a `[pasted #N] (N lines)`
