@@ -468,9 +468,15 @@ describe('codebase-search tool', () => {
 
   it('includes a snippet in results', async () => {
     await fs.writeFile(path.join(tmpDir, 'E.ts'), 'function complexOperation(): Promise<void> { return Promise.resolve(); }');
-    await codebaseIndexTool.execute({}, ctx, { signal: newSignal() });
+    const indexResult = await codebaseIndexTool.execute({}, ctx, { signal: newSignal() });
+    expect(indexResult.errors, indexResult.errors.join('\n')).toHaveLength(0);
+    expect(indexResult.symbolsIndexed).toBeGreaterThan(0);
 
     const result = await codebaseSearchTool.execute({ query: 'complex' }, ctx, { signal: newSignal() });
+    expect(result.results.length).toBeGreaterThan(0);
+    expect(result.results[0]).toBeDefined();
+    expect(result.query).toBe('complex');
+    expect(result.total).toBeGreaterThan(0);
     expect(result.results[0].snippet).toBeTruthy();
     expect(result.results[0].snippet.length).toBeGreaterThan(0);
   });

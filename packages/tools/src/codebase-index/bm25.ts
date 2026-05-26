@@ -16,11 +16,9 @@ interface Bm25Doc {
 
 /** Tokenise a string into lowercase word tokens. */
 export function tokenise(text: string): string[] {
-  const sanitised = text.replace(/[^a-zA-Z0-9$'_]/g, ' ');
-  return sanitised
-    .toLowerCase()
-    .split(' ')
-    .filter(Boolean);
+  // Preserve all Unicode letters + digits + $ + '. Split on everything else.
+  const sanitised = text.replace(/[^\p{L}\p{N}$'_]/gu, ' ').replace(/_/g, ' ');
+  return sanitised.toLowerCase().split(' ').filter(Boolean);
 }
 
 export interface IndexableDoc {
