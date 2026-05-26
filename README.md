@@ -273,9 +273,9 @@ Flips off MCP, plugins, memory tools, models.dev fetch, and skill discovery. Wha
 
 ---
 
-## What's new in 0.7.2
+## What's new in 0.7.3
 
-Minor version bump — all workspace packages updated to `0.7.2`. No functional changes in this release.
+Minor version bump — all workspace packages updated to `0.7.3`. No functional changes in this release.
 
 For earlier release notes, see [CHANGELOG.md](CHANGELOG.md).
 

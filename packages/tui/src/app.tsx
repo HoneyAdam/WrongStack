@@ -305,6 +305,8 @@ type State = {
   buffer: string;
   cursor: number;
   placeholders: string[];
+  /** Parallel array to `placeholders` — stores the actual pasted content for history rendering. */
+  placeholderContents: string[];
   streamingText: string;
   /**
    * Live tail of the currently streaming tool's stdout/progress text. Mirrors
@@ -440,9 +442,10 @@ type State = {
 type Action =
   | { type: 'addEntry'; entry: DraftEntry }
   | { type: 'setBuffer'; buffer: string; cursor: number }
-  | { type: 'addPlaceholder'; ph: string }
+  | { type: 'addPlaceholder'; ph: string; content?: string }
   | { type: 'removeLastPlaceholder' }
   | { type: 'clearInput' }
+  | { type: 'clearPlaceholdersOnly' }
   | { type: 'clearHistory' }
   | { type: 'streamDelta'; delta: string }
   | { type: 'streamReset' }
@@ -589,20 +592,31 @@ export function reducer(state: State, action: Action): State {
     case 'setBuffer':
       return { ...state, buffer: action.buffer, cursor: action.cursor };
     case 'addPlaceholder':
-      return { ...state, placeholders: [...state.placeholders, action.ph] };
+      return {
+        ...state,
+        placeholders: [...state.placeholders, action.ph],
+        placeholderContents: [...state.placeholderContents, action.content ?? ''],
+      };
     case 'removeLastPlaceholder':
       if (state.placeholders.length === 0) return state;
-      return { ...state, placeholders: state.placeholders.slice(0, -1) };
+      return {
+        ...state,
+        placeholders: state.placeholders.slice(0, -1),
+        placeholderContents: state.placeholderContents.slice(0, -1),
+      };
     case 'clearInput':
       return {
         ...state,
         buffer: '',
         cursor: 0,
         placeholders: [],
+        placeholderContents: [],
         historyIndex: 0,
         picker: { open: false, query: '', matches: [], selected: 0 },
         slashPicker: { open: false, query: '', matches: [], selected: 0 },
       };
+    case 'clearPlaceholdersOnly':
+      return { ...state, placeholders: [], placeholderContents: [] };
     case 'clearHistory': {
       const last = state.entries[state.entries.length - 1];
       return {
@@ -1302,6 +1316,7 @@ export function App({
     buffer: '',
     cursor: 0,
     placeholders: [],
+    placeholderContents: [],
     streamingText: '',
     toolStream: null,
     status: 'idle' as const,
@@ -1428,6 +1443,11 @@ export function App({
   const clearDraft = (): void => {
     draftRef.current = { buffer: '', cursor: 0 };
     dispatch({ type: 'clearInput' });
+  };
+
+  const clearPlaceholdersOnly = (): void => {
+    draftRef.current = { buffer: '', cursor: 0 };
+    dispatch({ type: 'clearPlaceholdersOnly' });
   };
 
   // Session-elapsed clock. Mount time is fixed; we re-render once per
@@ -2122,6 +2142,28 @@ export function App({
       slashRegistry.unregister('model');
     };
   }, [slashRegistry, getPickableProviders, switchProviderAndModel]);
+
+  // TUI-only `/agents monitor` command — toggles the agents monitor overlay.
+  // The CLI builtin `/agents` handles all other sub-commands; we intercept only
+  // "monitor" so the TUI can open/close it without touching the fleet panel used
+  // by the director/eternal loop.
+  useEffect(() => {
+    const cmd = {
+      name: 'agents',
+      description: 'Open or close the agents monitor overlay.',
+      async run(args: string) {
+        if (args.trim().toLowerCase() === 'monitor') {
+          dispatch({ type: 'toggleAgentsMonitor' });
+          return { message: 'Agents monitor toggled.' };
+        }
+        return { message: 'Usage: /agents monitor' };
+      },
+    };
+    slashRegistry.register(cmd);
+    return () => {
+      slashRegistry.unregister('agents');
+    };
+  }, [slashRegistry]);
 
   // Register the TUI-only `/autonomy` command — opens a single-step picker.
   // When the user types `/autonomy` with no arg, the picker appears.
@@ -3003,6 +3045,14 @@ export function App({
     };
   }, [director, getEternalEngine, getParallelEngine, switchAutonomy, onExit, exit]);
 
+  /** Truncate pasted content for history preview: first `lines` lines + "..." line if truncated. */
+  const truncatePastePreview = (text: string, lines: number): string => {
+    const all = text.split('\n');
+    if (all.length <= lines) return text;
+    const head = all.slice(0, lines).join('\n');
+    return `${head}\n... (${all.length - lines} more lines)`;
+  };
+
   // Finalize a fully-assembled paste payload. A collapse-worthy paste (long
   // or many-lined) or any multi-line paste becomes a `[pasted #N] (N lines)`
   // pill above the input — the content lives in the InputBuilder and is
@@ -3016,7 +3066,13 @@ export function App({
     if (builder.wouldCollapse(full) || full.includes('\n')) {
       const lineCount = full.split('\n').length;
       const ph = await builder.appendPaste(full);
-      dispatch({ type: 'addPlaceholder', ph: `${ph ?? '[pasted]'} (${lineCount} lines)` });
+      // Truncate long pastes for preview — first 6 lines + "..." indicator.
+      const preview = truncatePastePreview(full, 6);
+      dispatch({
+        type: 'addPlaceholder',
+        ph: `${ph ?? '[pasted]'} (${lineCount} lines)`,
+        content: preview,
+      });
       return;
     }
     const { buffer, cursor } = draftRef.current;
@@ -3884,21 +3940,31 @@ export function App({
     // steering, not the full preamble — keeps the chat readable while
     // the model still gets the explicit instruction.
     const displayText = trimmed ? (steering ? `↯ ${trimmed}` : trimmed) : '(attachments only)';
+    // Build history preview from placeholders + their actual content.
+    // Each placeholder becomes a label line; if content was stored, show a preview.
+    const pasteParts: string[] = [];
+    for (let i = 0; i < state.placeholders.length; i++) {
+      const label = state.placeholders[i]!;
+      const content = state.placeholderContents[i] ?? '';
+      pasteParts.push(label);
+      if (content) pasteParts.push(`  ${content.split('\n').slice(0, 6).join('\n  ')}`);
+    }
+    const pasteContent = pasteParts.length > 0 ? pasteParts.join('\n') : undefined;
     pushSubmittedHistory();
-    clearDraft();
+    clearPlaceholdersOnly();
     const blocks = await builder.submit();
 
     if (state.status !== 'idle') {
       // Agent is busy — queue this message for the drainer to pick up.
       dispatch({
         type: 'addEntry',
-        entry: { kind: 'user', text: displayText, queued: true },
+        entry: { kind: 'user', text: displayText, queued: true, pasteContent },
       });
       dispatch({ type: 'enqueue', item: { displayText, blocks } });
       return;
     }
 
-    dispatch({ type: 'addEntry', entry: { kind: 'user', text: displayText } });
+    dispatch({ type: 'addEntry', entry: { kind: 'user', text: displayText, pasteContent } });
     await runBlocks(blocks);
   };
 

@@ -7,6 +7,7 @@ function initial() {
     buffer: '',
     cursor: 0,
     placeholders: [],
+    placeholderContents: [],
     streamingText: '',
     toolStream: null,
     status: 'idle' as const,

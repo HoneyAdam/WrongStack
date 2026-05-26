@@ -336,6 +336,12 @@ export class Agent {
       content: inputPayload.content,
     });
 
+    // Write checkpoint after user input is recorded — this marks the rewind
+    // point for this turn. promptIndex is 0-based (Nth user message).
+    const promptIndex = this.ctx.messages.filter((m) => m.role === 'user').length - 1;
+    const preview = inputPayload.text.slice(0, 80) + (inputPayload.text.length > 80 ? '…' : '');
+    await this.ctx.session.writeCheckpoint(promptIndex, preview);
+
     let finalText = '';
     let iterations = 0;
     const delegateSummaries: Array<{ summary: string; ok: boolean }> = [];

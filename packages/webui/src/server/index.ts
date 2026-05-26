@@ -50,7 +50,7 @@ import { buildProviderFactoriesFromRegistry, makeProviderFromConfig } from '@wro
 import { builtinToolsPack, forgetTool, rememberTool } from '@wrongstack/tools';
 import { WebSocket, WebSocketServer } from 'ws';
 import { randomBytes } from 'node:crypto';
-import { createDefaultContainer } from '@wrongstack/runtime';
+import { createDefaultContainer } from '../../../runtime/src/container.js';
 import { bootConfig, patchConfig, type BootResult } from './boot.js';
 
 // Re-export types

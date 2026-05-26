@@ -289,7 +289,9 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
       // the input deadlocked. After this call, tool.confirm_needed events
       // fire instead, which the TUI's ConfirmPrompt component handles.
       agent.disableInteractiveConfirmation();
-      const { runTui } = await import('@wrongstack/tui');
+      const { runTui } = await import('@wrongstack/tui') as {
+        runTui: (opts: import('@wrongstack/tui').RunTuiOptions) => Promise<number>;
+      };
       renderer.setSilent(true);
       const banneredFamily = savedProviderCfg?.family ?? resolvedProvider?.family;
       const banneredKey =
@@ -324,7 +326,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
           keyTail: banneredKeyTail,
           getPickableProviders,
           switchProviderAndModel,
-          switchAutonomy: (mode) => {
+          switchAutonomy: (mode: 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel') => {
             onAutonomy?.(mode);
             return null;
           },
@@ -344,7 +346,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
                 '\n',
             );
           },
-          onClearHistory: (dispatch) => {
+          onClearHistory: (dispatch: (action: { type: 'clearHistory' } | { type: 'resetContextChip' }) => void) => {
             dispatch({ type: 'clearHistory' });
             dispatch({ type: 'resetContextChip' });
           },

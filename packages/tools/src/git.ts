@@ -15,7 +15,8 @@ type GitSubcommand =
   | 'push'
   | 'pull'
   | 'fetch'
-  | 'reset';
+  | 'reset'
+  | 'worktree';
 
 interface GitInput {
   command: GitSubcommand;
@@ -29,6 +30,14 @@ interface GitInput {
   format?: 'short' | 'oneline' | 'stat' | 'graph';
   /** limit for `log` */
   limit?: number;
+  /** worktree action: list, add, remove, prune */
+  worktreeAction?: 'list' | 'add' | 'remove' | 'prune';
+  /** path for worktree add/remove (e.g. "../wt-feature-xyz") */
+  worktreePath?: string;
+  /** create new branch when adding worktree */
+  newBranch?: boolean;
+  /** force operation (e.g. worktree remove --force) */
+  force?: boolean;
 }
 
 interface GitOutput {
@@ -46,7 +55,7 @@ export const gitTool: Tool<GitInput, GitOutput> = {
   name: 'git',
   category: 'Git',
   description:
-    'Run git commands. Wraps common operations: status, log, diff, commit, branch, checkout, stash, push, pull, fetch, reset.',
+    'Run git commands. Wraps common operations: status, log, diff, commit, branch, checkout, stash, push, pull, fetch, reset, worktree.',
   usageHint:
     'Prefer built-in subcommands over raw args. `command` is required. `message` for commits. `branch` for checkout/branch. `files` for status/diff. `format` for log.',
   permission: 'confirm',
@@ -72,6 +81,7 @@ export const gitTool: Tool<GitInput, GitOutput> = {
           'pull',
           'fetch',
           'reset',
+          'worktree',
         ],
         description: 'Git subcommand',
       },
@@ -89,6 +99,23 @@ export const gitTool: Tool<GitInput, GitOutput> = {
       },
       limit: { type: 'integer', description: 'Limit for log (default: 20)' },
       dry_run: { type: 'boolean', description: 'For commit: show what would be committed' },
+      worktreeAction: {
+        type: 'string',
+        enum: ['list', 'add', 'remove', 'prune'],
+        description: 'Worktree action: list, add, remove, prune',
+      },
+      worktreePath: {
+        type: 'string',
+        description: 'Path for worktree add/remove (e.g. "../wt-feature-xyz")',
+      },
+      newBranch: {
+        type: 'boolean',
+        description: 'Create new branch when adding worktree',
+      },
+      force: {
+        type: 'boolean',
+        description: 'Force operation (e.g. worktree remove --force)',
+      },
     },
     required: ['command'],
   },
@@ -191,6 +218,30 @@ function buildArgs(input: GitInput): string[] {
       return ['fetch', ...(input.branch ? [input.branch] : ['--all'])];
     case 'reset':
       return ['reset'];
+    case 'worktree':
+      switch (input.worktreeAction) {
+        case 'list':
+          return ['worktree', 'list'];
+        case 'add':
+          return [
+            'worktree',
+            'add',
+            ...(input.newBranch ? ['-b'] : []),
+            ...(input.branch ? [input.branch] : []),
+            input.worktreePath ?? '',
+          ].filter(Boolean);
+        case 'remove':
+          return [
+            'worktree',
+            'remove',
+            ...(input.force ? ['--force'] : []),
+            input.worktreePath ?? '',
+          ].filter(Boolean);
+        case 'prune':
+          return ['worktree', 'prune'];
+        default:
+          return ['worktree', 'list'];
+      }
     default:
       return [input.command];
   }

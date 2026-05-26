@@ -5,7 +5,7 @@ import { renderMarkdownTables } from '../markdown-table.js';
 import { ConfirmPrompt } from './confirm-prompt.js';
 
 export type HistoryEntry =
-  | { id: number; kind: 'user'; text: string; queued?: boolean }
+  | { id: number; kind: 'user'; text: string; queued?: boolean; pasteContent?: string }
   | { id: number; kind: 'assistant'; text: string }
   | {
       id: number;
@@ -272,9 +272,18 @@ function Entry({
     case 'user':
       return (
         <Text>
-          <Text color={entry.queued ? 'yellow' : 'cyan'}>{entry.queued ? '⌛' : '›'}</Text>{' '}
-          <Text dimColor={entry.queued ?? false}>{entry.text}</Text>
+          <Text bold color="yellow">{'USER: '}</Text>
+          <Text color="white">{entry.text}</Text>
           {entry.queued ? <Text dimColor>{' (queued)'}</Text> : null}
+          {entry.pasteContent ? (
+            <>
+              {entry.text ? '\n' : null}
+              <Text dimColor>
+                {'  ↳ '}
+                {entry.pasteContent}
+              </Text>
+            </>
+          ) : null}
         </Text>
       );
     case 'assistant':

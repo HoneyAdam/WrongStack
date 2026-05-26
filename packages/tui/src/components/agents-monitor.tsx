@@ -1,7 +1,8 @@
 import { Box, Text } from 'ink';
 import type React from 'react';
 import type { FleetEntry } from '../app.js';
-import { bucketActivity, renderProgress, sparkline } from './fleet-monitor.js';
+import { fmtElapsed, renderProgress } from './status-bar.js';
+import { bucketActivity, sparkline } from './fleet-monitor.js';
 
 export interface AgentsMonitorProps {
   entries: Record<string, FleetEntry>;
@@ -21,16 +22,6 @@ const STATUS: Record<FleetEntry['status'], { icon: string; color: string }> = {
   timeout: { icon: '⏱', color: 'yellow' },
   stopped: { icon: '⊘', color: 'gray' },
 };
-
-function fmtElapsed(ms: number): string {
-  const s = Math.floor(ms / 1000);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  if (m < 60) return `${m}m${r}s`;
-  const h = Math.floor(m / 60);
-  return `${h}h${m % 60}m`;
-}
 
 function fmtTokens(n: number): string {
   if (n < 1000) return String(n);
