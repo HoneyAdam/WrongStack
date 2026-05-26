@@ -93,8 +93,8 @@ async function runACPServer(deps: SubcommandDeps): Promise<number> {
 function listACPAgents(deps: SubcommandDeps): number {
   deps.renderer.write('Available ACP agents:\n\n');
   for (const a of ACP_AGENTS) {
-    const id = a.id ?? a.role;
-    const name = a.name ?? a.role;
+    const id = (a.id ?? a.role) as string;
+    const name = a.name ?? a.role ?? '';
     const desc = a.prompt?.slice(0, 50) ?? '';
     deps.renderer.write(`  ${id.padEnd(16)} ${name.padEnd(20)} ${desc}…\n`);
   }
