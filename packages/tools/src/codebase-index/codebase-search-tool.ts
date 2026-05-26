@@ -12,10 +12,9 @@
  * Returns: [{ name, kind, lang, file, line, signature, snippet, score }, ...]
  */
 
-import * as path from 'node:path';
 import type { Tool } from '@wrongstack/core';
 import { IndexStore } from './writer.js';
-import { buildBm25Index, tokenise } from './bm25.js';
+import { buildBm25Index, buildIndexableText, tokenise } from './bm25.js';
 import type { SearchResult, SymbolKind, SymbolLang } from './schema.js';
 
 export const codebaseSearchTool: Tool<CodebaseSearchInput, CodebaseSearchOutput> = {
@@ -73,7 +72,12 @@ export const codebaseSearchTool: Tool<CodebaseSearchInput, CodebaseSearchOutput>
       }
 
       // 2. Build BM25 index over candidates
-      const indexable = candidates.map((c) => ({ id: c.id, text: c.snippet || c.name + ' ' + c.signature }));
+      // Use buildIndexableText to split camelCase names so queries like
+      // "complex" match "complexOperation" (split → "complex Operation")
+      const indexable = candidates.map((c) => ({
+        id: c.id,
+        text: buildIndexableText(c.name, c.signature, c.docComment),
+      }));
       const bm25 = buildBm25Index(indexable);
 
       // 3. Score and rank

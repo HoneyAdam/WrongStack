@@ -26,6 +26,30 @@ export interface IndexableDoc {
   text: string;
 }
 
+/**
+ * Split a camelCase/SnakeCase identifier into its constituent words.
+ * e.g. "complexOperation" → "complex Operation"
+ *      "foo_bar_baz"       → "foo bar baz"
+ * This allows a query for "complex" to match "complexOperation"
+ * via the shared "complex" token.
+ */
+function splitName(name: string): string {
+  return name
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[_\-]+/g, ' ')
+    .trim();
+}
+
+/**
+ * Build indexable text for BM25 from a symbol's fields.
+ * The name is split into camelCase/SnakeCase words so that queries
+ * like "complex" match "complexOperation". The verbatim name is
+ * also included for exact-match queries.
+ */
+export function buildIndexableText(name: string, signature: string, docComment: string): string {
+  return [splitName(name), name, signature, docComment].filter(Boolean).join(' ');
+}
+
 export function buildBm25Index(docs: IndexableDoc[]): Bm25Index {
   const documents: Bm25Doc[] = docs.map((d) => {
     const tokens = tokenise(d.text);
@@ -75,7 +99,7 @@ export class Bm25Index {
       for (const qTerm of qTokens) {
         let tf = 0;
         for (const t of doc.tokens) {
-          if (t === qTerm) tf++;
+     if (t === qTerm) tf++;
         }
         if (tf === 0) continue;
 
