@@ -2,6 +2,7 @@ import type { Tool } from '@wrongstack/core';
 import { auditTool } from './audit.js';
 import { bashTool } from './bash.js';
 import { batchToolUseTool } from './batch-tool-use.js';
+import { codebaseIndexTool, codebaseSearchTool, codebaseStatsTool } from './codebase-index/index.js';
 import { diffTool } from './diff.js';
 import { documentTool } from './document.js';
 import { editTool } from './edit.js';
@@ -63,4 +64,7 @@ export const builtinTools: Tool[] = [
   toolUseTool,
   batchToolUseTool,
   toolHelpTool,
+  codebaseIndexTool,
+  codebaseSearchTool,
+  codebaseStatsTool,
 ];

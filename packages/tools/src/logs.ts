@@ -249,7 +249,7 @@ function parseLine(line: string): LogEntry | null {
     };
   }
 
-  const levelRe = /(?:ERROR|WARN|INFO|DEBUG|TRACE)\s+(.*)/i;
+  const levelRe = /(ERROR|WARN|INFO|DEBUG|TRACE)\s+(.*)/i;
   const levelMatch = levelRe.exec(line);
 
   if (levelMatch) {

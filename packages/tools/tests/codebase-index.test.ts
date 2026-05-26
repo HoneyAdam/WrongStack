@@ -1,0 +1,477 @@
+/**
+ * Tests for the codebase-index package:
+ *   bm25.ts      — ranking correctness
+ *   ts-parser   — symbol extraction
+ *   writer.ts   — SQLite storage
+ *   tools       — end-to-end integration
+ */
+
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import type { Context } from '@wrongstack/core';
+import { buildBm25Index, tokenise } from '../src/codebase-index/bm25.js';
+import { parseSymbols, detectLang } from '../src/codebase-index/ts-parser.js';
+import { IndexStore } from '../src/codebase-index/writer.js';
+import { codebaseIndexTool } from '../src/codebase-index/codebase-index-tool.js';
+import { codebaseSearchTool } from '../src/codebase-index/codebase-search-tool.js';
+import { codebaseStatsTool } from '../src/codebase-index/codebase-stats-tool.js';
+
+// ─── Fixtures ──────────────────────────────────────────────────────────────────
+
+function mkCtx(root: string): Context {
+  const messages: Context['messages'] = [];
+  const todos: Context['todos'] = [];
+  return {
+    cwd: root,
+    projectRoot: root,
+    readFiles: new Set<string>(),
+    fileMtimes: new Map<string, number>(),
+    hasRead(p: string) { return this.readFiles.has(p); },
+    lastReadMtime(p: string) { return this.fileMtimes.get(p); },
+    recordRead(p: string, m: number) { this.readFiles.add(p); this.fileMtimes.set(p, m); },
+    todos,
+    session: {
+      id: 'test',
+      append: async () => {},
+      close: async () => {},
+      recordFileChange: () => {},
+    },
+    messages,
+  } as unknown as Context;
+}
+
+function newSignal(): AbortSignal {
+  return new AbortController().signal;
+}
+
+// ─── BM25 Tests ────────────────────────────────────────────────────────────────
+
+describe('BM25', () => {
+  describe('tokenise', () => {
+    it('splits on non-word characters and lowercases', () => {
+      expect(tokenise('Hello World-Foo bar_baz')).toEqual(['hello', 'world', 'foo', 'bar', 'baz']);
+    });
+
+    it('handles empty and whitespace-only strings', () => {
+      expect(tokenise('')).toEqual([]);
+      expect(tokenise('   ')).toEqual([]);
+    });
+
+    it('handles unicode letters', () => {
+      const tokens = tokenise('café résumé');
+      expect(tokens).toContain('café');
+      expect(tokens).toContain('résumé');
+    });
+  });
+
+  describe('buildBm25Index', () => {
+    it('returns an empty index for empty docs', () => {
+      const idx = buildBm25Index([]);
+      expect(idx.score('hello')).toEqual([]);
+    });
+
+    it('ranks a matching doc higher than a non-matching doc', () => {
+      const docs = [
+        { id: 1, text: 'function parseJson(input: string): object' },
+        { id: 2, text: 'class TreeNode' },
+      ];
+      const idx = buildBm25Index(docs);
+      const results = idx.score('function');
+      expect(results.length).toBeGreaterThan(0);
+      const top = results.sort((a, b) => b.score - a.score)[0];
+      expect(top.id).toBe(1);
+    });
+
+    it('handles multi-term queries', () => {
+      const docs = [
+        { id: 1, text: 'async function fetchUserData(id: string): Promise<User>' },
+        { id: 2, text: 'function saveUser(data: User): void' },
+      ];
+      const idx = buildBm25Index(docs);
+      const results = idx.score('function fetch');
+      expect(results.some(r => r.id === 1)).toBe(true);
+    });
+
+    it('applies IDF — rare terms score higher than common ones', () => {
+      const docs = [
+        { id: 1, text: 'blorbix widget frobble' },
+        { id: 2, text: 'blorbix blorbix blorbix' },
+      ];
+      const idx = buildBm25Index(docs);
+      const results = idx.score('frobble');
+      expect(results[0]?.id).toBe(1);
+    });
+
+    it('extractSnippet returns a window around the match', () => {
+      const docs = [{ id: 1, text: 'The authentication handler validates JWT tokens and creates sessions' }];
+      const idx = buildBm25Index(docs);
+      const snippet = idx.extractSnippet(1, ['jwt']);
+      expect(snippet.toLowerCase()).toContain('jwt');
+    });
+
+    it('score accepts a filter function', () => {
+      const docs = [
+        { id: 1, text: 'function parseJson' },
+        { id: 2, text: 'function parseXml' },
+      ];
+      const idx = buildBm25Index(docs);
+      const results = idx.score('function', (id) => id === 2);
+      expect(results.length).toBe(1);
+      expect(results[0].id).toBe(2);
+    });
+  });
+});
+
+// ─── TypeScript Parser Tests ────────────────────────────────────────────────────
+
+describe('ts-parser', () => {
+  describe('detectLang', () => {
+    it('maps extensions correctly', () => {
+      expect(detectLang('foo.ts')).toBe('ts');
+      expect(detectLang('foo.tsx')).toBe('tsx');
+      expect(detectLang('foo.js')).toBe('js');
+      expect(detectLang('foo.jsx')).toBe('jsx');
+      expect(detectLang('foo.json')).toBe(null);
+      expect(detectLang('foo')).toBe(null);
+    });
+  });
+
+  describe('parseSymbols', () => {
+    it('extracts class declarations', () => {
+      const result = parseSymbols({
+        file: '/test/Test.ts',
+        content: 'class UserService { }',
+        lang: 'ts',
+      });
+      expect(result.symbols.length).toBeGreaterThanOrEqual(1);
+      expect(result.symbols.find(s => s.kind === 'class')?.name).toBe('UserService');
+    });
+
+    it('extracts function declarations', () => {
+      const result = parseSymbols({
+        file: '/test/utils.ts',
+        content: 'function greet(name: string): string { return `Hello ${name}`; }',
+        lang: 'ts',
+      });
+      expect(result.symbols.some(s => s.kind === 'function' && s.name === 'greet')).toBe(true);
+    });
+
+    it('extracts interface declarations', () => {
+      const result = parseSymbols({
+        file: '/test/types.ts',
+        content: 'interface User { id: string; name: string; }',
+        lang: 'ts',
+      });
+      expect(result.symbols.some(s => s.kind === 'interface' && s.name === 'User')).toBe(true);
+    });
+
+    it('extracts type aliases', () => {
+      const result = parseSymbols({
+        file: '/test/types.ts',
+        content: 'type Maybe<T> = T | null;',
+        lang: 'ts',
+      });
+      expect(result.symbols.some(s => s.kind === 'type' && s.name === 'Maybe')).toBe(true);
+    });
+
+    it('extracts const declarations', () => {
+      const result = parseSymbols({
+        file: '/test/constants.ts',
+        content: 'const MAX_RETRIES = 5;',
+        lang: 'ts',
+      });
+      expect(result.symbols.some(s => s.name === 'MAX_RETRIES')).toBe(true);
+    });
+
+    it('extracts method declarations inside classes', () => {
+      const result = parseSymbols({
+        file: '/test/Service.ts',
+        content: 'class Service { async fetchAll(): Promise<void> { } }',
+        lang: 'ts',
+      });
+      expect(result.symbols.some(s => s.kind === 'method' && s.name === 'fetchAll')).toBe(true);
+    });
+
+    it('extracts enum declarations', () => {
+      const result = parseSymbols({
+        file: '/test/enums.ts',
+        content: 'enum Color { Red, Green, Blue }',
+        lang: 'ts',
+      });
+      expect(result.symbols.some(s => s.kind === 'enum' && s.name === 'Color')).toBe(true);
+    });
+
+    it('includes line numbers (1-based)', () => {
+      const result = parseSymbols({
+        file: '/test/test.ts',
+        content: 'class Foo { }\nclass Bar { }',
+        lang: 'ts',
+      });
+      const barSymbol = result.symbols.find(s => s.name === 'Bar');
+      expect(barSymbol?.line).toBe(2);
+    });
+
+    it('handles invalid source gracefully', () => {
+      const result = parseSymbols({ file: '/test/bad.ts', content: '', lang: 'ts' });
+      expect(result.symbols).toEqual([]);
+    });
+  });
+});
+
+// ─── IndexStore Tests ──────────────────────────────────────────────────────────
+
+describe('IndexStore', () => {
+  let store: IndexStore;
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-idx-'));
+    store = new IndexStore(tmpDir);
+  });
+
+  afterEach(async () => {
+    store.close();
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('starts empty', () => {
+    const stats = store.getStats();
+    expect(stats.totalSymbols).toBe(0);
+    expect(stats.totalFiles).toBe(0);
+  });
+
+  it('inserts symbols and returns the next id', () => {
+    const next = store.insertSymbols([
+      { id: 0, lang: 'ts', kind: 'class', name: 'Foo', file: '/p/Foo.ts', line: 1, col: 0, signature: 'class Foo', docComment: '', scope: '', text: 'class Foo' },
+      { id: 0, lang: 'ts', kind: 'function', name: 'bar', file: '/p/foo.ts', line: 2, col: 0, signature: 'function bar()', docComment: '', scope: '', text: 'function bar()' },
+    ], 1);
+    expect(next).toBe(3); // 1 + 2 symbols
+  });
+
+  it('persists data across store reopens', () => {
+    store.insertSymbols([
+      { id: 0, lang: 'ts', kind: 'class', name: 'Persisted', file: '/p/P.ts', line: 1, col: 0, signature: 'class Persisted', docComment: '', scope: '', text: 'class Persisted' },
+    ], 1);
+    store.close();
+    const store2 = new IndexStore(tmpDir);
+    const stats = store2.getStats();
+    expect(stats.totalSymbols).toBe(1);
+    store2.close();
+  });
+
+  it('deletes symbols for a file', () => {
+    store.insertSymbols([
+      { id: 0, lang: 'ts', kind: 'class', name: 'A', file: '/p/A.ts', line: 1, col: 0, signature: 'class A', docComment: '', scope: '', text: 'class A' },
+      { id: 0, lang: 'ts', kind: 'class', name: 'B', file: '/p/B.ts', line: 1, col: 0, signature: 'class B', docComment: '', scope: '', text: 'class B' },
+    ], 1);
+    store.deleteSymbolsForFile('/p/A.ts');
+    const stats = store.getStats();
+    expect(stats.totalSymbols).toBe(1);
+    const remaining = store.search('');
+    expect(remaining.every(s => s.file !== '/p/A.ts')).toBe(true);
+  });
+
+  it('upsertFile and getFileMeta work', () => {
+    store.upsertFile({ file: '/p/test.ts', lang: 'ts', mtimeMs: 1000, symbolCount: 5, lastIndexed: 2000 });
+    const meta = store.getFileMeta('/p/test.ts');
+    expect(meta?.symbolCount).toBe(5);
+    expect(meta?.lang).toBe('ts');
+  });
+
+  it('search returns matches filtered by kind', () => {
+    store.insertSymbols([
+      { id: 0, lang: 'ts', kind: 'class', name: 'Foo', file: '/p/Foo.ts', line: 1, col: 0, signature: 'class Foo', docComment: '', scope: '', text: 'Foo class Foo' },
+    ], 1);
+    const results = store.search('foo', { kind: 'class' });
+    expect(results.length).toBe(1);
+  });
+
+  it('search returns matches filtered by lang', () => {
+    store.insertSymbols([
+      { id: 0, lang: 'ts', kind: 'class', name: 'TsClass', file: '/p/a.ts', line: 1, col: 0, signature: 'class TsClass', docComment: '', scope: '', text: 'TsClass class TsClass' },
+      { id: 0, lang: 'go', kind: 'class', name: 'GoClass', file: '/p/b.go', line: 1, col: 0, signature: 'type GoClass struct', docComment: '', scope: '', text: 'GoClass type GoClass' },
+    ], 1);
+    const results = store.search('class', { lang: 'go' });
+    expect(results.length).toBe(1);
+    expect(results[0].name).toBe('GoClass');
+  });
+
+  it('clearAll removes everything', () => {
+    store.insertSymbols([
+      { id: 0, lang: 'ts', kind: 'class', name: 'X', file: '/p/X.ts', line: 1, col: 0, signature: 'class X', docComment: '', scope: '', text: 'class X' },
+    ], 1);
+    store.clearAll();
+    expect(store.getStats().totalSymbols).toBe(0);
+  });
+
+  it('setLastIndexed and getStats reflect it', () => {
+    const ts = 1_700_000_000_000;
+    store.setLastIndexed(ts);
+    const stats = store.getStats();
+    expect(stats.lastIndexed).toBe(ts);
+  });
+
+  it('sizeBytes returns non-zero after inserts', () => {
+    store.insertSymbols([
+      { id: 0, lang: 'ts', kind: 'class', name: 'X', file: '/p/X.ts', line: 1, col: 0, signature: 'class X', docComment: '', scope: '', text: 'class X' },
+    ], 1);
+    expect(store.getStats().sizeBytes).toBeGreaterThan(0);
+  });
+});
+
+// ─── Tool Integration Tests ────────────────────────────────────────────────────
+
+describe('codebase-index tool', () => {
+  let tmpDir: string;
+  let ctx: Context;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-cbi-'));
+    ctx = mkCtx(tmpDir);
+  });
+
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('indexes a TypeScript file and returns stats', async () => {
+    await fs.writeFile(path.join(tmpDir, 'Foo.ts'), 'class Foo { }\nfunction bar(): void { }');
+
+    const result = await codebaseIndexTool.execute({}, ctx, { signal: newSignal() });
+
+    expect(result.filesIndexed).toBeGreaterThanOrEqual(1);
+    expect(result.symbolsIndexed).toBeGreaterThanOrEqual(2);
+    expect(result.errors).toHaveLength(0);
+    expect(result.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('force reindex clears old data', async () => {
+    await fs.writeFile(path.join(tmpDir, 'A.ts'), 'class A { }');
+    const first = await codebaseIndexTool.execute({}, ctx, { signal: newSignal() });
+    expect(first.symbolsIndexed).toBeGreaterThanOrEqual(1);
+
+    const second = await codebaseIndexTool.execute({ force: true }, ctx, { signal: newSignal() });
+    expect(second.errors).toHaveLength(0);
+  });
+
+  it('incremental reindex skips unchanged files', async () => {
+    const filePath = path.join(tmpDir, 'B.ts');
+    await fs.writeFile(filePath, 'class B { }');
+
+    const first = await codebaseIndexTool.execute({}, ctx, { signal: newSignal() });
+    const firstSymCount = first.symbolsIndexed;
+
+    // Same file, no changes — should be fast and skip indexing
+    const second = await codebaseIndexTool.execute({}, ctx, { signal: newSignal() });
+    expect(second.durationMs).toBeLessThan(first.durationMs + 100);
+    // symbols should be the same count
+    expect(second.symbolsIndexed).toBe(firstSymCount);
+  });
+});
+
+describe('codebase-stats tool', () => {
+  let tmpDir: string;
+  let ctx: Context;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-cbs-'));
+    ctx = mkCtx(tmpDir);
+  });
+
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('returns zero stats when no index exists', async () => {
+    const stats = await codebaseStatsTool.execute({}, ctx, { signal: newSignal() });
+    expect(stats.totalSymbols).toBe(0);
+    expect(stats.version).toBe(1);
+  });
+
+  it('reflects indexed symbols', async () => {
+    await fs.writeFile(path.join(tmpDir, 'C.ts'), 'class C { }');
+    await codebaseIndexTool.execute({}, ctx, { signal: newSignal() });
+
+    const stats = await codebaseStatsTool.execute({}, ctx, { signal: newSignal() });
+    expect(stats.totalSymbols).toBeGreaterThanOrEqual(1);
+    expect(stats.totalFiles).toBeGreaterThanOrEqual(1);
+    expect(stats.byLang).toHaveProperty('ts');
+  });
+});
+
+describe('codebase-search tool', () => {
+  let tmpDir: string;
+  let ctx: Context;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-cbsea-'));
+    ctx = mkCtx(tmpDir);
+  });
+
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('finds a class by name', async () => {
+    await fs.writeFile(path.join(tmpDir, 'UserService.ts'), 'class UserService { }');
+    await codebaseIndexTool.execute({}, ctx, { signal: newSignal() });
+
+    const result = await codebaseSearchTool.execute({ query: 'UserService' }, ctx, { signal: newSignal() });
+
+    expect(result.results.length).toBeGreaterThanOrEqual(1);
+    expect(result.results[0].name).toBe('UserService');
+    expect(result.results[0].kind).toBe('class');
+    expect(result.results[0].score).toBeGreaterThan(0);
+  });
+
+  it('finds functions by signature keyword', async () => {
+    await fs.writeFile(path.join(tmpDir, 'math.ts'), 'function add(a: number, b: number): number { return a + b; }');
+    await codebaseIndexTool.execute({}, ctx, { signal: newSignal() });
+
+    const result = await codebaseSearchTool.execute({ query: 'number' }, ctx, { signal: newSignal() });
+
+    expect(result.results.length).toBeGreaterThanOrEqual(1);
+    expect(result.total).toBeGreaterThanOrEqual(1);
+  });
+
+  it('filters by kind', async () => {
+    await fs.writeFile(path.join(tmpDir, 'mixed.ts'), 'class Foo { }\nfunction bar(): void { }');
+    await codebaseIndexTool.execute({}, ctx, { signal: newSignal() });
+
+    const result = await codebaseSearchTool.execute({ query: 'class function', kind: 'function' }, ctx, { signal: newSignal() });
+
+    for (const r of result.results) {
+      expect(r.kind).toBe('function');
+    }
+  });
+
+  it('returns empty results for an unknown query', async () => {
+    await fs.writeFile(path.join(tmpDir, 'D.ts'), 'class D { }');
+    await codebaseIndexTool.execute({}, ctx, { signal: newSignal() });
+
+    const result = await codebaseSearchTool.execute({ query: 'zzznomatchzzz' }, ctx, { signal: newSignal() });
+    expect(result.results).toHaveLength(0);
+    expect(result.total).toBe(0);
+  });
+
+  it('respects limit parameter', async () => {
+    for (let i = 0; i < 20; i++) {
+      await fs.writeFile(path.join(tmpDir, `File${i}.ts`), `class Class${i} { }`);
+    }
+    await codebaseIndexTool.execute({}, ctx, { signal: newSignal() });
+
+    const result = await codebaseSearchTool.execute({ query: 'class', limit: 5 }, ctx, { signal: newSignal() });
+    expect(result.results.length).toBeLessThanOrEqual(5);
+  });
+
+  it('includes a snippet in results', async () => {
+    await fs.writeFile(path.join(tmpDir, 'E.ts'), 'function complexOperation(): Promise<void> { return Promise.resolve(); }');
+    await codebaseIndexTool.execute({}, ctx, { signal: newSignal() });
+
+    const result = await codebaseSearchTool.execute({ query: 'complex' }, ctx, { signal: newSignal() });
+    expect(result.results[0].snippet).toBeTruthy();
+    expect(result.results[0].snippet.length).toBeGreaterThan(0);
+  });
+});
