@@ -11,9 +11,9 @@
  */
 import type {SubcommandDeps, SubcommandHandler} from '../index.js';
 import {WrongStackACPServer} from '@wrongstack/acp/agent';
-import {ACP_AGENTS, ACP_AGENT_COMMANDS, makeACPSubagentRunnerWithStop} from '@wrongstack/acp';
+import {ACP_AGENT_COMMANDS, makeACPSubagentRunnerWithStop} from '@wrongstack/acp';
 import type {SubagentRunContext} from '@wrongstack/core';
-import {SubagentBudget} from '@wrongstack/core/coordination';
+import {ACP_AGENTS, SubagentBudget} from '@wrongstack/core/coordination';
 
 export const acpCmd: SubcommandHandler = async (args, deps) => {
   const sub = args[0];
