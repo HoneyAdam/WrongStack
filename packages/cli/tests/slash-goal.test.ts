@@ -11,6 +11,7 @@ import {
   emptyGoal,
   goalFilePath,
   loadGoal,
+  resolveWstackPaths,
   saveGoal,
 } from '@wrongstack/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -54,6 +55,7 @@ function rig(projectRoot: string) {
     renderer: renderer as unknown as SlashCommandContext['renderer'],
     cwd: projectRoot,
     projectRoot,
+    paths: resolveWstackPaths({ projectRoot }),
   };
   const goalCmd = buildGoalCommand(ctx as SlashCommandContext);
   registry.register(goalCmd);

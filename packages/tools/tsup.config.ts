@@ -54,9 +54,12 @@ export default defineConfig({
   splitting: false,
   treeshake: true,
   target: 'es2023',
-  // @wrongstack/core is a workspace dependency.
-  // node:sqlite (Node.js built-in, experimental in Node 22.5+) must be
-  // external so esbuild does NOT rewrite `node:sqlite` → `sqlite`.
-  // There is no `sqlite` npm package — Node resolves `node:sqlite` natively.
+  // tsup strips the `node:` protocol by default (removeNodeProtocol: true),
+  // which rewrites `node:sqlite` → `sqlite`. There is no `sqlite` npm package
+  // (Node resolves `node:sqlite` natively, experimental since 22.5), so the
+  // rewrite makes dist unloadable. Keep the protocol intact.
+  removeNodeProtocol: false,
+  // @wrongstack/core is a workspace dependency; node:sqlite stays external
+  // so esbuild does not try to inline a built-in module.
   external: ['@wrongstack/core', 'node:sqlite'],
 });

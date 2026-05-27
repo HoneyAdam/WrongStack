@@ -2,6 +2,7 @@ import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { resolveWstackPaths } from '@wrongstack/core';
 import {
   buildSddCommand,
   getActiveSDDContext,
@@ -53,7 +54,10 @@ function fakeCtx() {
 }
 
 function build() {
-  return buildSddCommand({ context: fakeCtx() } as never);
+  return buildSddCommand({
+    context: fakeCtx(),
+    paths: resolveWstackPaths({ projectRoot: tmp }),
+  } as never);
 }
 
 async function cancelAny() {

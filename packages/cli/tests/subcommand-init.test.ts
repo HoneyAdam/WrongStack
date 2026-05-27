@@ -107,6 +107,7 @@ function mkDeps(over: Record<string, unknown> = {}) {
     paths: {
       globalConfig: path.join(globalRoot, 'config.json'),
       globalRoot,
+      secretsKey: path.join(globalRoot, '.key'),
       projectDir: path.join(projectRoot, '.wrongstack'),
     },
     projectRoot,
