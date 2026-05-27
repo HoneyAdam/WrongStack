@@ -12,7 +12,7 @@ export default defineConfig({
   splitting: false,
   sourcemap: true,
   dts: true,
-  external: ['react', 'react-dom'],
+  external: ['react', 'react-dom', '@wrongstack/core', '@wrongstack/providers', '@wrongstack/runtime', '@wrongstack/tools'],
   esbuildOptions: (options) => {
     options.conditions = ['module', 'jsnext:main', 'jsnext'];
     options.mainFields = ['module', 'jsnext:main', 'main'];

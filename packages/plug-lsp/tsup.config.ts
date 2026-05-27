@@ -9,5 +9,5 @@ export default defineConfig({
   splitting: false,
   treeshake: true,
   target: 'es2023',
-  external: ['@wrongstack/core'],
+  external: ['@wrongstack/core', '@wrongstack/tools'],
 });
