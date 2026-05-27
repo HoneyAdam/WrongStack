@@ -59,7 +59,15 @@ export default defineConfig({
   // (Node resolves `node:sqlite` natively, experimental since 22.5), so the
   // rewrite makes dist unloadable. Keep the protocol intact.
   removeNodeProtocol: false,
-  // @wrongstack/core is a workspace dependency; node:sqlite stays external
-  // so esbuild does not try to inline a built-in module.
-  external: ['@wrongstack/core', 'node:sqlite'],
+  external: [
+    // Workspace dependency — resolved from node_modules at runtime.
+    '@wrongstack/core',
+    // Node built-in (codebase-index storage). Must not be inlined.
+    'node:sqlite',
+    // The TypeScript compiler API (used only by codebase-index/ts-parser).
+    // Bundling it inlines ~9 MB of CJS that relies on `require`, `__filename`,
+    // and `__dirname` — none of which exist in an ESM bundle, so the dist
+    // crashes on load. Keep it external and ship it as a runtime dependency.
+    'typescript',
+  ],
 });

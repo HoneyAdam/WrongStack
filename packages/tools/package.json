@@ -178,12 +178,12 @@
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
   },
   "dependencies": {
-    "@wrongstack/core": "workspace:*"
+    "@wrongstack/core": "workspace:*",
+    "typescript": "^5.9.3"
   },
   "devDependencies": {
     "@types/node": "^22.19.19",
-    "tsup": "^8.5.1",
-    "typescript": "^5.9.3"
+    "tsup": "^8.5.1"
   },
   "publishConfig": {
     "access": "public"
