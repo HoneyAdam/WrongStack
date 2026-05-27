@@ -87,6 +87,16 @@ describe('DefaultSecretVault', () => {
     await fs.rm(dir, { recursive: true, force: true });
   });
 
+  it('throws when key file has wrong size instead of silently overwriting', async () => {
+    const { dir, keyFile, vault: _vault } = await makeVault();
+    // Write a key that is the wrong size (16 bytes instead of 32).
+    fsSync.writeFileSync(keyFile, Buffer.alloc(16));
+    const vault = new DefaultSecretVault({ keyFile });
+    expect(() => vault.encrypt('anything')).toThrow(/is 16 bytes/);
+    expect(() => vault.encrypt('anything')).toThrow(/expected 32/);
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
   it('encryptConfigSecrets covers refreshToken / sessionKey / password / private_key (suffix matching)', async () => {
     const { dir, vault } = await makeVault();
     const enc = encryptConfigSecrets(

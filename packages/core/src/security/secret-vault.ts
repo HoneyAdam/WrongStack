@@ -69,7 +69,14 @@ export class DefaultSecretVault implements SecretVault {
     try {
       const buf = fs.readFileSync(this.keyFile);
       if (buf.length !== KEY_BYTES) {
-        throw new Error(`SecretVault: key file ${this.keyFile} has wrong size`);
+        // A wrong-size key is not ENOENT — the file is corrupted or was
+        // tampered with. Throwing instead of falling through to create a
+        // new key protects all secrets encrypted under this key; the user
+        // can remove the file manually to generate a fresh key.
+        throw new Error(
+          `SecretVault: key file ${this.keyFile} is ${buf.length} bytes ` +
+          `(expected ${KEY_BYTES}). Remove it manually to generate a new key.`,
+        );
       }
       this.key = buf;
       return this.key;
@@ -89,7 +96,14 @@ export class DefaultSecretVault implements SecretVault {
       // Another process won the race — re-read what they wrote.
       const buf = fs.readFileSync(this.keyFile);
       if (buf.length !== KEY_BYTES) {
-        throw new Error(`SecretVault: key file ${this.keyFile} has wrong size`);
+        // A wrong-size key is not ENOENT — the file is corrupted or was
+        // tampered with. Throwing instead of falling through to create a
+        // new key protects all secrets encrypted under this key; the user
+        // can remove the file manually to generate a fresh key.
+        throw new Error(
+          `SecretVault: key file ${this.keyFile} is ${buf.length} bytes ` +
+          `(expected ${KEY_BYTES}). Remove it manually to generate a new key.`,
+        );
       }
       this.key = buf;
       return this.key;

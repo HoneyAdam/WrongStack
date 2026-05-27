@@ -76,8 +76,7 @@ export const initCmd: SubcommandHandler = async (_args, deps) => {
   const config: Partial<Config> = { version: 1, provider: providerId, model: modelId };
   if (apiKey) config.apiKey = apiKey;
   // Encrypt secret fields before writing to disk.
-  const keyFile = path.join(path.dirname(deps.paths.globalConfig), '.key');
-  const vault = new DefaultSecretVault({ keyFile });
+  const vault = new DefaultSecretVault({ keyFile: deps.paths.secretsKey });
   const encrypted = encryptConfigSecrets(config, vault);
   await atomicWrite(deps.paths.globalConfig, JSON.stringify(encrypted, null, 2));
   await fs.mkdir(path.join(deps.projectRoot, '.wrongstack'), { recursive: true });
