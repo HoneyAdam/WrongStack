@@ -1,9 +1,4 @@
-/**
- * Re-export from the bare specifier used by the bundled code.
- * `writer.ts` imports from 'node-sqlite-shim' so esbuild does NOT
- * apply its `node:*` → bare-specifier rewrite. This file stays
- * external (not bundled) and the `node:` protocol is preserved at
- * runtime via the re-export.
- */
-export { DatabaseSync } from 'node:sqlite';
-export { StatementSync, Session, constants, backup } from 'node:sqlite';
+// Re-export from node:sqlite so the bundled code (which imports from 'node-sqlite-shim'
+// to avoid esbuild rewriting node:sqlite → sqlite) can use the shim at runtime.
+export type { DatabaseSync, StatementSync, Session } from 'node:sqlite';
+export { constants, backup } from 'node:sqlite';

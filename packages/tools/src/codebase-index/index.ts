@@ -16,6 +16,19 @@ export { codebaseIndexTool } from './codebase-index-tool.js';
 export { codebaseSearchTool } from './codebase-search-tool.js';
 export { codebaseStatsTool } from './codebase-stats-tool.js';
 
+// Re-export shared internal helpers so external consumers (e.g. plug-lsp)
+// can use them without importing from implementation detail files.
+export { IndexStore } from './writer.js';
+export {
+  tokenise,
+  buildIndexableText,
+  buildBm25Index,
+} from './bm25.js';
+export {
+  internalKindToLspKind,
+  lspKindToInternalKind,
+} from './lsp-kind.js';
+
 // Re-export shared types
 export type {
   Symbol,

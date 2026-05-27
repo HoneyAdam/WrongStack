@@ -34,6 +34,7 @@
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
   },
   "dependencies": {
+    "@wrongstack/tools": "workspace:*",
     "vscode-languageserver-protocol": "^3.17.5"
   },
   "peerDependencies": {
