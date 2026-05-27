@@ -5,9 +5,10 @@
  * Database file: {projectRoot}/.codebase-index/index.db
  */
 
+import { createRequire } from 'node:module';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync } from 'node:sqlite';
 import type { FileMeta, IndexStats, Ref, SearchResult, Symbol, SymbolKind, SymbolLang } from './schema.js';
 import { SCHEMA_VERSION } from './schema.js';
 import { lspKindToInternalKind } from './lsp-kind.js';
@@ -15,13 +16,55 @@ import { lspKindToInternalKind } from './lsp-kind.js';
 const INDEX_DIR = '.codebase-index';
 const DB_FILE = 'index.db';
 
+let warningSilenced = false;
+/**
+ * Swallow the one-time `ExperimentalWarning: SQLite ...` Node prints the first
+ * time `node:sqlite` loads. Patched only once, and only filters that specific
+ * warning — every other warning passes through untouched.
+ */
+function silenceSqliteExperimentalWarning(): void {
+  if (warningSilenced) return;
+  warningSilenced = true;
+  const original = process.emitWarning.bind(process);
+  process.emitWarning = ((warning: unknown, ...rest: unknown[]): void => {
+    const msg = typeof warning === 'string' ? warning : ((warning as Error)?.message ?? '');
+    const name = typeof warning === 'string' ? String(rest[0] ?? '') : ((warning as Error)?.name ?? '');
+    if (/sqlite/i.test(msg) && /experimental/i.test(`${name} ${msg}`)) return;
+    (original as (w: unknown, ...r: unknown[]) => void)(warning, ...rest);
+  }) as typeof process.emitWarning;
+}
+
+let DatabaseSyncCtor: typeof DatabaseSync | undefined;
+/**
+ * Load `node:sqlite`'s `DatabaseSync` lazily. Keeping this off the module's
+ * top-level import means the codebase-index tools can be registered at CLI boot
+ * without eagerly loading SQLite — so a runtime that lacks `node:sqlite` (it is
+ * experimental, available since Node 22.5) only fails if the index is actually
+ * used, with a clear message instead of a crash on import.
+ */
+function loadDatabaseSync(): typeof DatabaseSync {
+  if (DatabaseSyncCtor) return DatabaseSyncCtor;
+  silenceSqliteExperimentalWarning();
+  try {
+    const req = createRequire(import.meta.url);
+    DatabaseSyncCtor = (req('node:sqlite') as typeof import('node:sqlite')).DatabaseSync;
+  } catch (err) {
+    throw new Error(
+      "The codebase index needs Node's built-in SQLite (node:sqlite), available since Node 22.5. " +
+        `This runtime doesn't provide it: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  return DatabaseSyncCtor;
+}
+
 export class IndexStore {
   private db: DatabaseSync;
 
   constructor(private projectRoot: string) {
     const dir = path.join(projectRoot, INDEX_DIR);
     fs.mkdirSync(dir, { recursive: true });
-    this.db = new DatabaseSync(path.join(dir, DB_FILE));
+    const Database = loadDatabaseSync();
+    this.db = new Database(path.join(dir, DB_FILE));
     this.initSchema();
   }
 
