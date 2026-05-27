@@ -9,7 +9,7 @@ import { createRequire } from 'node:module';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import type { FileMeta, IndexStats, Ref, SearchResult, Symbol, SymbolKind, SymbolLang } from './schema.js';
+import type { FileMeta, IndexStats, Ref, SearchResult, Symbol as IndexSymbol, SymbolKind, SymbolLang } from './schema.js';
 import { SCHEMA_VERSION } from './schema.js';
 import { lspKindToInternalKind } from './lsp-kind.js';
 
@@ -126,7 +126,7 @@ export class IndexStore {
 
   // ─── Symbol CRUD ─────────────────────────────────────────────────────────────
 
-  insertSymbols(symbols: Symbol[], nextId: number): number {
+  insertSymbols(symbols: IndexSymbol[], nextId: number): number {
     const stmt = this.db.prepare(
       `INSERT INTO symbols(id, lang, kind, name, file, line, col, signature, doc_comment, scope, text, file_fk)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,

@@ -10,7 +10,7 @@
 import { execSync } from 'node:child_process';
 import * as path from 'node:path';
 import { mkdirSync, writeFileSync, unlinkSync } from 'node:fs';
-import type { FileSymbols, Symbol, SymbolLang } from './schema.js';
+import type { FileSymbols, Symbol as IndexSymbol, SymbolLang } from './schema.js';
 import { detectLang } from './ts-parser.js';
 
 // ─── Public API ─────────────────────────────────────────────────────────────
@@ -280,10 +280,10 @@ function syncGoParse(filePath: string, _content: string, lang: SymbolLang): File
 		}
 
 		const raw = JSON.parse(stdout.trim()) as Array<{ name: string; kind: string; line: number; col: number; signature: string; scope: string }>;
-		const symbols: Symbol[] = raw.map((s) => ({
+		const symbols: IndexSymbol[] = raw.map((s) => ({
 			id: 0,
 			lang,
-			kind: s.kind as Symbol['kind'],
+			kind: s.kind as IndexSymbol['kind'],
 			name: s.name,
 			file: filePath,
 			line: s.line,

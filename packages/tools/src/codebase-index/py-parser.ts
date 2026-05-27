@@ -8,7 +8,7 @@
  */
 
 import { execSync } from 'node:child_process';
-import type { FileSymbols, Symbol, SymbolLang } from './schema.js';
+import type { FileSymbols, Symbol as IndexSymbol, SymbolLang } from './schema.js';
 import { detectLang } from './ts-parser.js';
 
 // ─── Public API ─────────────────────────────────────────────────────────────
@@ -254,10 +254,10 @@ function syncPyParse(filePath: string, lang: SymbolLang): FileSymbols {
 			signature: string;
 			scope: string;
 		}>;
-		const symbols: Symbol[] = raw.map((s) => ({
+		const symbols: IndexSymbol[] = raw.map((s) => ({
 			id: 0,
 			lang,
-			kind: s.kind as Symbol['kind'],
+			kind: s.kind as IndexSymbol['kind'],
 			name: s.name,
 			file: filePath,
 			line: s.line,

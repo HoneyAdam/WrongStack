@@ -8,8 +8,8 @@
  * Start message: clients look for the `[wstack-acp]` marker on stdout before
  * treating subsequent lines as protocol messages.
  */
-import {buildChildEnv} from '@wrongstack/core';
-import {ACPMessage} from '../types/acp-messages.js';
+import { buildChildEnv } from '@wrongstack/core';
+import type { ACPMessage } from '../types/acp-messages.js';
 
 export interface AgentServerTransport {
   send(msg: ACPMessage): Promise<void>;
@@ -122,8 +122,8 @@ export class StdioTransport implements AgentServerTransport {
 // ClientTransport — spawns a child ACP agent process (DIR-1)
 // ---------------------------------------------------------------------------
 
-import {spawn} from 'node:child_process';
-import {EventEmitter} from 'node:events';
+import { spawn } from 'node:child_process';
+import type { EventEmitter } from 'node:events';
 
 export interface ClientTransportOptions {
   command: string;
@@ -162,12 +162,14 @@ export class ClientTransport {
     if (this.child) return;
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
-        reject(new Error(`ACP child process failed to start within ${this.opts.handshakeTimeoutMs}ms`));
+        reject(
+          new Error(`ACP child process failed to start within ${this.opts.handshakeTimeoutMs}ms`),
+        );
       }, this.opts.handshakeTimeoutMs);
 
       try {
         this.child = spawn(this.opts.command, this.opts.args ?? [], {
-          env: {...buildChildEnv(), ...this.opts.env},
+          env: { ...buildChildEnv(), ...this.opts.env },
           cwd: this.opts.cwd,
           stdio: ['pipe', 'pipe', 'pipe'],
         }) as unknown as ACPChildProcess;

@@ -14,7 +14,7 @@ import * as path from 'node:path';
 import type { Dirent, Stats } from 'node:fs';
 import type { Context } from '@wrongstack/core';
 import { compileGlob } from '@wrongstack/core';
-import type { FileMeta, IndexResult, Symbol } from './schema.js';
+import type { FileMeta, IndexResult, Symbol as IndexSymbol } from './schema.js';
 import { IndexStore } from './writer.js';
 import { parseSymbols as parseTs, detectLang } from './ts-parser.js';
 import { parseSymbols as parseGo } from './go-parser.js';
@@ -203,7 +203,7 @@ export async function runIndexer(
     }
 
     const nextId = store.getStats().totalSymbols + 1;
-    const symbolsWithIds: Symbol[] = parsed.symbols.map((s, i) => ({ ...s, id: nextId + i }));
+    const symbolsWithIds: IndexSymbol[] = parsed.symbols.map((s, i) => ({ ...s, id: nextId + i }));
     store.insertSymbols(symbolsWithIds, nextId);
     const count = symbolsWithIds.length;
     symbolsIndexed += count;

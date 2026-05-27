@@ -12,11 +12,15 @@
  */
 
 import * as path from 'node:path';
-import type { FileSymbols, Symbol, SymbolLang } from './schema.js';
+import type { FileSymbols, Symbol as IndexSymbol, SymbolLang } from './schema.js';
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
-export function parseSymbols(opts: { file: string; content: string; lang: SymbolLang }): FileSymbols {
+export function parseSymbols(opts: {
+  file: string;
+  content: string;
+  lang: SymbolLang;
+}): FileSymbols {
   const { file, content, lang } = opts;
 
   try {
@@ -32,7 +36,7 @@ export { detectLang } from './ts-parser.js';
 
 interface JsonPattern {
   regex: RegExp;
-  kind: Symbol['kind'];
+  kind: IndexSymbol['kind'];
 }
 
 const JSON_PATTERNS: JsonPattern[] = [
@@ -46,12 +50,13 @@ const JSON_PATTERNS: JsonPattern[] = [
  */
 function regexParse(opts: { file: string; content: string; lang: SymbolLang }): FileSymbols {
   const { file, content, lang } = opts;
-  const symbols: Symbol[] = [];
+  const symbols: IndexSymbol[] = [];
   const basename = path.basename(file).toLowerCase();
 
   const isPackageJson = basename === 'package.json';
   const isTsconfig = basename === 'tsconfig.json' || basename === 'tsconfig.build.json';
-  const isJsonSchema = content.includes('$schema') || content.includes('$id') || content.includes('$ref');
+  const isJsonSchema =
+    content.includes('$schema') || content.includes('$id') || content.includes('$ref');
   const isOpenApi = content.includes('openapi') || content.includes('swagger');
 
   const lines = content.split('\n');
@@ -63,7 +68,8 @@ function regexParse(opts: { file: string; content: string; lang: SymbolLang }): 
   }
 
   function lineFromOffset(offset: number): number {
-    let lo = 0, hi = lineOffsets.length - 1;
+    let lo = 0;
+    let hi = lineOffsets.length - 1;
     while (lo < hi) {
       const mid = (lo + hi + 1) >>> 1;
       if (lineOffsets[mid]! <= offset) lo = mid;
@@ -77,32 +83,43 @@ function regexParse(opts: { file: string; content: string; lang: SymbolLang }): 
   if (rootMatch) {
     const offset = rootMatch.index!;
     const line = lineFromOffset(offset);
-    symbols.push(makeSymbol({
-      name: path.basename(file),
-      kind: 'object',
-      line,
-      col: 0,
-      signature: `"${path.basename(file)}" = { ... }`,
-      file,
-      lang,
-    }));
+    symbols.push(
+      makeSymbol({
+        name: path.basename(file),
+        kind: 'object',
+        line,
+        col: 0,
+        signature: `"${path.basename(file)}" = { ... }`,
+        file,
+        lang,
+      }),
+    );
   }
 
   // Extract top-level keys
   const topLevelKeyRegex = /^\s*"([^"]+)"\s*:/gm;
-  let match: RegExpExecArray | null;
-  while ((match = topLevelKeyRegex.exec(content)) !== null) {
+  for (
+    let match = topLevelKeyRegex.exec(content);
+    match !== null;
+    match = topLevelKeyRegex.exec(content)
+  ) {
     const key = match[1]!;
     const offset = match.index!;
     const line = lineFromOffset(offset);
     const col = offset - (lineOffsets[line - 1] ?? 0);
 
-    let kind: Symbol['kind'] = 'property';
+    let kind: IndexSymbol['kind'] = 'property';
     let signature = `"${key}": ..."`;
 
     // Special casing for known file types
     if (isPackageJson) {
-      if (key === 'scripts' || key === 'dependencies' || key === 'devDependencies' || key === 'peerDependencies' || key === 'optionalDependencies') {
+      if (
+        key === 'scripts' ||
+        key === 'dependencies' ||
+        key === 'devDependencies' ||
+        key === 'peerDependencies' ||
+        key === 'optionalDependencies'
+      ) {
         kind = 'const';
         signature = `"${key}": { ... }`;
       }
@@ -124,15 +141,17 @@ function regexParse(opts: { file: string; content: string; lang: SymbolLang }): 
       }
     }
 
-    symbols.push(makeSymbol({
-      name: key,
-      kind,
-      line,
-      col,
-      signature,
-      file,
-      lang,
-    }));
+    symbols.push(
+      makeSymbol({
+        name: key,
+        kind,
+        line,
+        col,
+        signature,
+        file,
+        lang,
+      }),
+    );
 
     // For package.json, also extract individual scripts as 'function'
     if (isPackageJson && key === 'scripts') {
@@ -147,20 +166,21 @@ function regexParse(opts: { file: string; content: string; lang: SymbolLang }): 
 
   // Extract JSON Schema $defs or definitions
   const defsRegex = /"\$defs"\s*:|"\$defs"\s*:/g;
-  let defsMatch: RegExpExecArray | null;
-  while ((defsMatch = defsRegex.exec(content)) !== null) {
+  const defsMatch = defsRegex.exec(content);
+  if (defsMatch !== null) {
     const offset = defsMatch.index!;
     const line = lineFromOffset(offset);
-    symbols.push(makeSymbol({
-      name: '$defs',
-      kind: 'property',
-      line,
-      col: offset - (lineOffsets[line - 1] ?? 0),
-      signature: '"$defs": { ... }',
-      file,
-      lang,
-    }));
-    break; // Only one $defs per file
+    symbols.push(
+      makeSymbol({
+        name: '$defs',
+        kind: 'property',
+        line,
+        col: offset - (lineOffsets[line - 1] ?? 0),
+        signature: '"$defs": { ... }',
+        file,
+        lang,
+      }),
+    );
   }
 
   // Extract definitions (OpenAPI components, JSON Schema definitions)
@@ -172,19 +192,21 @@ function regexParse(opts: { file: string; content: string; lang: SymbolLang }): 
   ];
   for (const pat of defsPatterns) {
     pat.lastIndex = 0;
-    while ((match = pat.exec(content)) !== null) {
+    for (let match = pat.exec(content); match !== null; match = pat.exec(content)) {
       const offset = match.index!;
       const line = lineFromOffset(offset);
       const key = match[0]!.match(/"([^"]+)"/)?.[1] ?? match[0]!;
-      symbols.push(makeSymbol({
-        name: key,
-        kind: 'property',
-        line,
-        col: offset - (lineOffsets[line - 1] ?? 0),
-        signature: `"${key}": { ... }`,
-        file,
-        lang,
-      }));
+      symbols.push(
+        makeSymbol({
+          name: key,
+          kind: 'property',
+          line,
+          col: offset - (lineOffsets[line - 1] ?? 0),
+          signature: `"${key}": { ... }`,
+          file,
+          lang,
+        }),
+      );
     }
   }
 
@@ -193,7 +215,7 @@ function regexParse(opts: { file: string; content: string; lang: SymbolLang }): 
 
 function extractPackageScripts(
   content: string,
-  symbols: Symbol[],
+  symbols: IndexSymbol[],
   file: string,
   lang: SymbolLang,
   lineOffsets: number[],
@@ -201,34 +223,42 @@ function extractPackageScripts(
 ): void {
   // Find the "scripts": { ... } block and extract each script key
   const scriptsBlockRegex = /"scripts"\s*:\s*\{([^}]+)\}/g;
-  let match: RegExpExecArray | null;
-  while ((match = scriptsBlockRegex.exec(content)) !== null) {
+  for (
+    let match = scriptsBlockRegex.exec(content);
+    match !== null;
+    match = scriptsBlockRegex.exec(content)
+  ) {
     const blockContent = match[0]!;
     const blockOffset = match.index!;
 
     // Extract each "key" inside the block (simple approach)
     const scriptKeyRegex = /"(\w[\w-]*)"\s*:/g;
-    let scriptMatch: RegExpExecArray | null;
-    while ((scriptMatch = scriptKeyRegex.exec(blockContent)) !== null) {
+    for (
+      let scriptMatch = scriptKeyRegex.exec(blockContent);
+      scriptMatch !== null;
+      scriptMatch = scriptKeyRegex.exec(blockContent)
+    ) {
       const key = scriptMatch[1]!;
       const keyOffset = blockOffset + scriptMatch.index!;
       const line = lineFromOffset(keyOffset);
-      symbols.push(makeSymbol({
-        name: key,
-        kind: 'function',
-        line,
-        col: keyOffset - (lineOffsets[line - 1] ?? 0),
-        signature: `"${key}": "..."`,
-        file,
-        lang,
-      }));
+      symbols.push(
+        makeSymbol({
+          name: key,
+          kind: 'function',
+          line,
+          col: keyOffset - (lineOffsets[line - 1] ?? 0),
+          signature: `"${key}": "..."`,
+          file,
+          lang,
+        }),
+      );
     }
   }
 }
 
 function extractCompilerOptions(
   content: string,
-  symbols: Symbol[],
+  symbols: IndexSymbol[],
   file: string,
   lang: SymbolLang,
   lineOffsets: number[],
@@ -237,41 +267,49 @@ function extractCompilerOptions(
 ): void {
   // Find the "compilerOptions": { ... } block
   const optsBlockRegex = /"compilerOptions"\s*:\s*\{([^}]+)\}/g;
-  let match: RegExpExecArray | null;
-  while ((match = optsBlockRegex.exec(content)) !== null) {
+  for (
+    let match = optsBlockRegex.exec(content);
+    match !== null;
+    match = optsBlockRegex.exec(content)
+  ) {
     const blockContent = match[0]!;
     const blockOffset = match.index!;
 
     // Extract nested key inside compilerOptions (up to depth 1)
     const optKeyRegex = /"(\w[\w]*)"\s*:/g;
-    let optMatch: RegExpExecArray | null;
-    while ((optMatch = optKeyRegex.exec(blockContent)) !== null) {
+    for (
+      let optMatch = optKeyRegex.exec(blockContent);
+      optMatch !== null;
+      optMatch = optKeyRegex.exec(blockContent)
+    ) {
       const key = optMatch[1]!;
       const keyOffset = blockOffset + optMatch.index!;
       const line = lineFromOffset(keyOffset);
       if (line <= parentLine) continue; // Skip top-level (already captured)
-      symbols.push(makeSymbol({
-        name: key,
-        kind: 'property',
-        line,
-        col: keyOffset - (lineOffsets[line - 1] ?? 0),
-        signature: `"${key}": ...`,
-        file,
-        lang,
-      }));
+      symbols.push(
+        makeSymbol({
+          name: key,
+          kind: 'property',
+          line,
+          col: keyOffset - (lineOffsets[line - 1] ?? 0),
+          signature: `"${key}": ...`,
+          file,
+          lang,
+        }),
+      );
     }
   }
 }
 
 function makeSymbol(opts: {
   name: string;
-  kind: Symbol['kind'];
+  kind: IndexSymbol['kind'];
   line: number;
   col: number;
   signature: string;
   file: string;
   lang: SymbolLang;
-}): Symbol {
+}): IndexSymbol {
   return {
     id: 0,
     lang: opts.lang,

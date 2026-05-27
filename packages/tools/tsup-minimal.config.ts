@@ -1,6 +1,6 @@
-import * as fs from 'fs';
-import { defineConfig } from 'tsup';
+import * as fs from 'node:fs';
 import type { Plugin } from 'esbuild';
+import { defineConfig } from 'tsup';
 
 function keepNodeProtocol(): Plugin {
   return {

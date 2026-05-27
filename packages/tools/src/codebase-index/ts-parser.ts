@@ -12,7 +12,7 @@
  */
 
 import * as ts from 'typescript';
-import type { CallType, FileSymbols, Ref, Symbol, SymbolKind, SymbolLang } from './schema.js';
+import type { CallType, FileSymbols, Ref, Symbol as IndexSymbol, SymbolKind, SymbolLang } from './schema.js';
 
 // Map TypeScript SyntaxKind → our SymbolKind taxonomy
 const KIND_MAP: Partial<Record<ts.SyntaxKind, SymbolKind>> = {
@@ -149,7 +149,7 @@ export function parseSymbols(opts: ParseOptions): FileSymbols {
     return { file, lang, symbols: [], mtimeMs: Date.now() };
   }
 
-  const symbols: Symbol[] = [];
+  const symbols: IndexSymbol[] = [];
 
   function visit(node: ts.Node): void {
     const kind = kindOf(node);

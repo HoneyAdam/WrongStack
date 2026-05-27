@@ -9,11 +9,15 @@
 
 import { execSync, spawnSync } from 'node:child_process';
 import * as path from 'node:path';
-import type { FileSymbols, Symbol, SymbolLang } from './schema.js';
+import type { FileSymbols, Symbol as IndexSymbol, SymbolLang } from './schema.js';
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
-export function parseSymbols(opts: { file: string; content: string; lang: SymbolLang }): FileSymbols {
+export function parseSymbols(opts: {
+  file: string;
+  content: string;
+  lang: SymbolLang;
+}): FileSymbols {
   const { file, content, lang } = opts;
 
   // Try native parser first, fall back to regex
@@ -36,7 +40,11 @@ function checkNativeParser(): boolean {
     // Check if our syn-parser crate is available
     const toolsDir = path.join(process.cwd(), 'tools');
     try {
-      execSync('cargo metadata --no-deps --format-version 1 --manifest-path ' + path.join(toolsDir, 'Cargo.toml'), { stdio: 'pipe' });
+      execSync(
+        'cargo metadata --no-deps --format-version 1 --manifest-path ' +
+          path.join(toolsDir, 'Cargo.toml'),
+        { stdio: 'pipe' },
+      );
       return true;
     } catch {
       return false;
@@ -56,15 +64,19 @@ function tryNativeParse(file: string, content: string): FileSymbols | null {
     const { writeFileSync } = require('node:fs');
     writeFileSync(tmpFile, content, 'utf8');
 
-    const result = spawnSync('cargo', ['run', '--manifest-path', path.join(toolsDir, 'Cargo.toml')], {
-      cwd: process.cwd(),
-      encoding: 'utf8',
-      timeout: 15000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const result = spawnSync(
+      'cargo',
+      ['run', '--manifest-path', path.join(toolsDir, 'Cargo.toml')],
+      {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+        timeout: 15000,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      },
+    );
 
     if (result.status === 0 && result.stdout) {
-      const symbols: Symbol[] = JSON.parse(result.stdout);
+      const symbols: IndexSymbol[] = JSON.parse(result.stdout);
       return {
         file,
         lang: 'rs',
@@ -82,7 +94,7 @@ function tryNativeParse(file: string, content: string): FileSymbols | null {
 
 interface RustPattern {
   regex: RegExp;
-  kind: Symbol['kind'];
+  kind: IndexSymbol['kind'];
 }
 
 const RS_PATTERNS: RustPattern[] = [
@@ -99,7 +111,7 @@ const RS_PATTERNS: RustPattern[] = [
 
 function regexParse(opts: { file: string; content: string; lang: SymbolLang }): FileSymbols {
   const { file, content, lang } = opts;
-  const symbols: Symbol[] = [];
+  const symbols: IndexSymbol[] = [];
   const lines = content.split('\n');
 
   // Build line offset map
@@ -109,7 +121,8 @@ function regexParse(opts: { file: string; content: string; lang: SymbolLang }): 
   }
 
   function lineFromOffset(offset: number): number {
-    let lo = 0, hi = lineOffsets.length - 1;
+    let lo = 0;
+    let hi = lineOffsets.length - 1;
     while (lo < hi) {
       const mid = (lo + hi + 1) >>> 1;
       if (lineOffsets[mid]! <= offset) lo = mid;
@@ -125,8 +138,11 @@ function regexParse(opts: { file: string; content: string; lang: SymbolLang }): 
 
   for (const pattern of RS_PATTERNS) {
     pattern.regex.lastIndex = 0;
-    let match: RegExpExecArray | null;
-    while ((match = pattern.regex.exec(content)) !== null) {
+    for (
+      let match = pattern.regex.exec(content);
+      match !== null;
+      match = pattern.regex.exec(content)
+    ) {
       const name = match[1]!;
       const offset = match.index!;
       const line = lineFromOffset(offset);

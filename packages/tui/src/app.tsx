@@ -1275,7 +1275,6 @@ export function App({
   // Push local changes back to the parent controller so /statusline sees them
   useEffect(() => {
     setStatuslineHiddenItems(hiddenItems);
-    // biome-ignore lint/correctness/useExhaustiveDependencies: hiddenItems intentionally omitted to avoid infinite loop
   }, [setStatuslineHiddenItems, hiddenItems]);
 
   const projectRoot = agent.ctx.projectRoot;

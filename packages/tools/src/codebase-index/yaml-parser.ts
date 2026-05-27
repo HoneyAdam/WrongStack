@@ -15,11 +15,15 @@
  */
 
 import * as path from 'node:path';
-import type { FileSymbols, Symbol, SymbolLang } from './schema.js';
+import type { FileSymbols, Symbol as IndexSymbol, SymbolLang } from './schema.js';
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
-export function parseSymbols(opts: { file: string; content: string; lang: SymbolLang }): FileSymbols {
+export function parseSymbols(opts: {
+  file: string;
+  content: string;
+  lang: SymbolLang;
+}): FileSymbols {
   const { file, content, lang } = opts;
 
   try {
@@ -35,7 +39,7 @@ export { detectLang } from './ts-parser.js';
 
 function regexParse(opts: { file: string; content: string; lang: SymbolLang }): FileSymbols {
   const { file, content, lang } = opts;
-  const symbols: Symbol[] = [];
+  const symbols: IndexSymbol[] = [];
 
   const lines = content.split('\n');
 
@@ -46,7 +50,8 @@ function regexParse(opts: { file: string; content: string; lang: SymbolLang }): 
   }
 
   function lineFromOffset(offset: number): number {
-    let lo = 0, hi = lineOffsets.length - 1;
+    let lo = 0;
+    let hi = lineOffsets.length - 1;
     while (lo < hi) {
       const mid = (lo + hi + 1) >>> 1;
       if (lineOffsets[mid]! <= offset) lo = mid;
@@ -58,46 +63,49 @@ function regexParse(opts: { file: string; content: string; lang: SymbolLang }): 
   // ── 1. Anchors and aliases ─────────────────────────────────────────────────
   // &anchor_name
   const anchorRegex = /&(\w[\w-]*)/g;
-  let match: RegExpExecArray | null;
-  while ((match = anchorRegex.exec(content)) !== null) {
+  for (let match = anchorRegex.exec(content); match !== null; match = anchorRegex.exec(content)) {
     const name = match[1]!;
     const offset = match.index!;
     const line = lineFromOffset(offset);
     const col = offset - (lineOffsets[line - 1] ?? 0);
-    symbols.push(makeSymbol({
-      name,
-      kind: 'const',
-      line,
-      col,
-      signature: `&${name}`,
-      file,
-      lang,
-    }));
+    symbols.push(
+      makeSymbol({
+        name,
+        kind: 'const',
+        line,
+        col,
+        signature: `&${name}`,
+        file,
+        lang,
+      }),
+    );
   }
 
   // *alias_name
   const aliasRegex = /\*(\w[\w-]*)/g;
-  while ((match = aliasRegex.exec(content)) !== null) {
+  for (let match = aliasRegex.exec(content); match !== null; match = aliasRegex.exec(content)) {
     const name = match[1]!;
     const offset = match.index!;
     const line = lineFromOffset(offset);
     const col = offset - (lineOffsets[line - 1] ?? 0);
-    symbols.push(makeSymbol({
-      name,
-      kind: 'const',
-      line,
-      col,
-      signature: `*${name}`,
-      file,
-      lang,
-    }));
+    symbols.push(
+      makeSymbol({
+        name,
+        kind: 'const',
+        line,
+        col,
+        signature: `*${name}`,
+        file,
+        lang,
+      }),
+    );
   }
 
   // ── 2. Top-level and nested key: value pairs ───────────────────────────────
   // Matches `key: value` (but not block scalars or document markers)
   // Uses negative lookbehind and context to avoid false positives
   const kvRegex = /^(\s*)([^:#\s][^:#\s]*)\s*:/gm;
-  while ((match = kvRegex.exec(content)) !== null) {
+  for (let match = kvRegex.exec(content); match !== null; match = kvRegex.exec(content)) {
     const indent = match[1]!.length;
     const key = match[2]!;
     const offset = match.index!;
@@ -113,7 +121,7 @@ function regexParse(opts: { file: string; content: string; lang: SymbolLang }): 
     if (indent > 12) continue;
 
     const value = extractValue(content, match.index!);
-    const kind: Symbol['kind'] = isScalar(value) ? 'literal' : 'property';
+    const kind: IndexSymbol['kind'] = isScalar(value) ? 'literal' : 'property';
     const signature = `${key}: ${truncate(value, 60)}`;
 
     symbols.push(makeSymbol({ name: key, kind, line, col, signature, file, lang }));
@@ -122,40 +130,44 @@ function regexParse(opts: { file: string; content: string; lang: SymbolLang }): 
   // ── 3. List item keys ──────────────────────────────────────────────────────
   // `- key: value` (list item that is a keyed object)
   const listItemRegex = /^-(\s+)([^:#\s][^:#\s]*)\s*:/gm;
-  while ((match = listItemRegex.exec(content)) !== null) {
+  for (let match = listItemRegex.exec(content); match !== null; match = listItemRegex.exec(content)) {
     const key = match[2]!;
     const offset = match.index!;
     const line = lineFromOffset(offset);
     const col = offset - (lineOffsets[line - 1] ?? 0);
     const value = extractValue(content, offset + match[0]!.length);
-    const kind: Symbol['kind'] = isScalar(value) ? 'literal' : 'property';
-    symbols.push(makeSymbol({
-      name: key,
-      kind,
-      line,
-      col,
-      signature: `- ${key}: ${truncate(value, 60)}`,
-      file,
-      lang,
-    }));
+    const kind: IndexSymbol['kind'] = isScalar(value) ? 'literal' : 'property';
+    symbols.push(
+      makeSymbol({
+        name: key,
+        kind,
+        line,
+        col,
+        signature: `- ${key}: ${truncate(value, 60)}`,
+        file,
+        lang,
+      }),
+    );
   }
 
   // ── 4. Block scalar keys (key: | or key: >) ────────────────────────────────
   const blockScalarRegex = /^(\s*)([^:#\s][^:#\s]*)\s*:\s*[|>](\s|$)/gm;
-  while ((match = blockScalarRegex.exec(content)) !== null) {
+  for (let match = blockScalarRegex.exec(content); match !== null; match = blockScalarRegex.exec(content)) {
     const key = match[2]!;
     const offset = match.index!;
     const line = lineFromOffset(offset);
     const col = offset - (lineOffsets[line - 1] ?? 0);
-    symbols.push(makeSymbol({
-      name: key,
-      kind: 'property',
-      line,
-      col,
-      signature: `${key}: | ...`,
-      file,
-      lang,
-    }));
+    symbols.push(
+      makeSymbol({
+        name: key,
+        kind: 'property',
+        line,
+        col,
+        signature: `${key}: | ...`,
+        file,
+        lang,
+      }),
+    );
   }
 
   return { file, lang, symbols, mtimeMs: Date.now() };
@@ -186,13 +198,13 @@ function truncate(s: string, max: number): string {
 
 function makeSymbol(opts: {
   name: string;
-  kind: Symbol['kind'];
+  kind: IndexSymbol['kind'];
   line: number;
   col: number;
   signature: string;
   file: string;
   lang: SymbolLang;
-}): Symbol {
+}): IndexSymbol {
   return {
     id: 0,
     lang: opts.lang,

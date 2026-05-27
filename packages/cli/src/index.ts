@@ -124,6 +124,10 @@ const stageListeners = new Set<(stage: {
   message: string;
 }) => void>();
 
+type SddParallelRunGlobal = typeof globalThis & {
+  __sddParallelRun?: import('@wrongstack/core').SddParallelRun;
+};
+
 export async function main(argv: string[]): Promise<number> {
   const ctx = await boot(argv);
   if (typeof ctx === 'number') return ctx;
@@ -1324,11 +1328,9 @@ export async function main(argv: string[]): Promise<number> {
           renderer.write(`  ░ wave ${p.wave + 1} · ${p.completed}/${p.total} tasks · ${p.percent}% done\n`);
         },
       });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (globalThis as any).__sddParallelRun = run;
+      (globalThis as SddParallelRunGlobal).__sddParallelRun = run;
       const result = await run.run();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      delete (globalThis as any).__sddParallelRun;
+      (globalThis as SddParallelRunGlobal).__sddParallelRun = undefined;
       const lines = [
         `SDD parallel run complete:`,
         `  ${result.totalWaves} waves · ${result.totalCompleted} done · ${result.totalFailed} failed`,
@@ -1339,8 +1341,7 @@ export async function main(argv: string[]): Promise<number> {
       return lines.join('\n');
     },
     onSddParallelStop: () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const run = (globalThis as any).__sddParallelRun as import('@wrongstack/core').SddParallelRun | undefined;
+      const run = (globalThis as SddParallelRunGlobal).__sddParallelRun;
       run?.stop();
     },
   });

@@ -498,7 +498,7 @@ export function ChatInput() {
       handleSubmit(e);
     }
     },
-    [slashSuggestions, atMention, promptHistory, historyIdx, runSlashCommand, handleSubmit],
+    [slashSuggestions, slashIndex, atMention, promptHistory, historyIdx, input, runSlashCommand, handleSubmit],
   );
 
   const adjustTextareaHeight = () => {
