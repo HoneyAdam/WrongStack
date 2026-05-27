@@ -35,7 +35,7 @@ export function buildPlanCommand(opts: SlashCommandContext): SlashCommand {
     async run(args) {
       // Primary path: per-project plan under ~/.wrongstack/projects/<hash>/plan.json
       // Fallback: per-session plan path if provided (backwards compat)
-      const planPath = opts.paths.projectPlan ?? opts.planPath;
+      const planPath = opts.paths?.projectPlan ?? opts.planPath;
       if (!planPath) return { message: 'Plan storage is not configured for this session.' };
       const ctx = opts.context;
       const sessionId = ctx?.session.id ?? 'unknown';

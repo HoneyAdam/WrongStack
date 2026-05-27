@@ -2,7 +2,7 @@
 
 > Built on the wrong stack. Shipped anyway.
 
-A CLI AI coding agent that runs in your terminal. It reads your code, edits files, runs commands, and reasons through bugs — while you stay in control of every permission. It drives autonomous goal loops, parallel subagent fan-out, and multi-agent Director orchestration; guides Spec-Driven Development cycles; and ships with 33 built-in tools, 12 bundled skills, 10 official plugins, and ~110 providers from models.dev — all with AES-256-GCM encrypted secrets and per-tool permission policies.
+A CLI AI coding agent that runs in your terminal. It reads your code, edits files, runs commands, and reasons through bugs — while you stay in control of every permission. It drives autonomous goal loops, parallel subagent fan-out, and multi-agent Director orchestration; guides Spec-Driven Development cycles; and ships with 36 built-in tools, 12 bundled skills, 10 official plugins, and ~110 providers from models.dev — all with AES-256-GCM encrypted secrets and per-tool permission policies.
 
 Provider catalog comes from [models.dev](https://models.dev) — no hardcoded provider lists, no hardcoded pricing, no hardcoded model names. API keys are encrypted at rest with a per-machine key. Every developer-level config lives under `~/.wrongstack/`; the only thing you'd ever commit to a repo is `.wrongstack/AGENTS.md`.
 
@@ -59,7 +59,7 @@ WS_HOST=0.0.0.0 webui          # expose on the LAN
 wrongstack --webui
 ```
 
-### 33 built-in tools
+### 36 built-in tools
 
 All tools are registered out of the box — no plugin required.
 
@@ -94,6 +94,9 @@ All tools are registered out of the box — no plugin required.
 | `git` | Common git operations |
 | `context_manager` | Inspect / trim / compact the in-flight context window |
 | `remember` / `forget` | Persist notes across sessions (project- or user-scoped, gated by `features.memory`) |
+| `codebase-index` | Build / update the SQLite symbol index (incremental; multi-language) |
+| `codebase-search` | BM25-ranked search over indexed symbol names, signatures, and doc comments |
+| `codebase-stats` | Summary of the current symbol index |
 
 ### Autonomy engine
 
@@ -107,7 +110,7 @@ Both engines persist state to `goal.json`. Both can be paused and resumed withou
 
 ### Goal system
 
-`/goal <text>` persists to `.wrongstack/goal.json` and injects a full-autonomy preamble into the next turn:
+`/goal <text>` persists to `~/.wrongstack/projects/<hash>/goal.json` and injects a full-autonomy preamble into the next turn:
 
 ```
 [GOAL — LOCKED IN. You will work on this until it is verifiably done.
@@ -269,13 +272,24 @@ Four-layer observability:
 
 ### `--no-features` minimal kernel
 
-Flips off MCP, plugins, memory tools, models.dev fetch, and skill discovery. What's left: kernel (`Container` + `Pipeline` + `EventBus` + `RunController`, 505 lines) + agent (525 lines) + 33 tools + permission policy + curated system prompt. The minimal-viable WrongStack runs offline with no network calls at startup. Provider family must be declared explicitly in config when using this mode.
+Flips off MCP, plugins, memory tools, models.dev fetch, and skill discovery. What's left: kernel (`Container` + `Pipeline` + `EventBus` + `RunController`, 505 lines) + agent (525 lines) + 36 tools + permission policy + curated system prompt. The minimal-viable WrongStack runs offline with no network calls at startup. Provider family must be declared explicitly in config when using this mode.
 
 ---
 
-## What's new in 0.7.3
+## What's new in 0.7.6
 
-Minor version bump — all workspace packages updated to `0.7.3`. No functional changes in this release.
+- **`codebase-index` — SQLite-backed code symbol search.** Three new builtin
+  tools (`codebase-index`, `codebase-search`, `codebase-stats`) build an
+  incremental, multi-language symbol index (TS/JS, Go, Python, Rust, JSON,
+  YAML) with BM25-ranked search and cross-reference tracking. Storage is
+  Node's built-in `node:sqlite` — no native addon, no extra dependency.
+- **Per-project state moved to `~/.wrongstack/projects/<hash>/`.** Goal,
+  sessions, specs, task-graphs, plan, and memory now live under a per-machine
+  hashed project directory; the only repo-committed file is
+  `.wrongstack/AGENTS.md`.
+- **Vault key protected from silent loss.** A corrupt or wrong-size `.key`
+  file now raises an error instead of being overwritten with a fresh key
+  (which would have destroyed all encrypted secrets).
 
 For earlier release notes, see [CHANGELOG.md](CHANGELOG.md).
 
@@ -360,7 +374,7 @@ wrongstack --provider openrouter --model anthropic/claude-opus-4-7
 | `/fleet status\|usage\|kill\|manifest\|retry\|log\|stream on\|off\|journal\|spawn\|terminate` | Inspect and control the subagent fleet. `log <id>` summarises; `log <id> raw` dumps full JSONL |
 | `/agents` | Print fleet roster (running, idle, completed) with kind chips for failures |
 | `/steer <text>` | Mid-flight redirect — aborts iteration, terminates fleet, drops queue, prepends STEERING preamble. Same as **Esc** then typing |
-| `/goal <text>` | Lock in a goal — persists to `.wrongstack/goal.json` and injects full-autonomy preamble. Subcommands: `/goal` (status + journal), `/goal clear` (stop engine), `/goal pause` (pause at end of iteration), `/goal resume` (resume), `/goal journal [N]` |
+| `/goal <text>` | Lock in a goal — persists to `~/.wrongstack/projects/<hash>/goal.json` and injects full-autonomy preamble. Subcommands: `/goal` (status + journal), `/goal clear` (stop engine), `/goal pause` (pause at end of iteration), `/goal resume` (resume), `/goal journal [N]` |
 | `/queue` | Show, clear, or delete entries from the in-flight message queue |
 | `/altscreen on\|off` | Toggle terminal alt-screen buffer. Default OFF (native scroll); `on` for full-screen mode |
 | `/plan show\|add\|start\|done\|remove\|clear` | Per-session plan JSON. Mirrored to disk; surfaces `📋 ⌛N ☐N ✓N` chip in TUI status bar |
@@ -459,7 +473,7 @@ Commit this file to share project conventions with the agent across all develope
 
 **2. Zero non-overridable behavior.** 16 services bound through `Container` (Logger, TokenCounter, SessionStore, MemoryStore, PermissionPolicy, Compactor, PathResolver, ConfigLoader, Renderer, InputReader, ErrorHandler, RetryPolicy, SkillLoader, SystemPromptBuilder, SecretScrubber, ModelsRegistry). 6 pipelines as middleware chains. Tools, providers, MCP servers, and slash commands all live in registries.
 
-**3. Standalone sufficiency.** Works with 33 built-in tools, 4 wire-family transports, permission policy, and a curated system prompt — no plugins required.
+**3. Standalone sufficiency.** Works with 36 built-in tools, 4 wire-family transports, permission policy, and a curated system prompt — no plugins required.
 
 **4. Layered, not monolithic.** `--no-features` flips off MCP, plugins, memory tools, models.dev fetch, and skill discovery. The minimal-viable WrongStack runs offline with no network calls at startup.
 
@@ -470,7 +484,7 @@ Commit this file to share project conventions with the agent across all develope
 | `@wrongstack/core` | Kernel, agent, types, registries, plugin contract |
 | `@wrongstack/runtime` | Default runtime implementations, host composition helpers, extension pack contracts |
 | `@wrongstack/providers` | Anthropic/OpenAI/OpenAI-compatible/Google wire adapters + SSE |
-| `@wrongstack/tools` | 33 built-in tools |
+| `@wrongstack/tools` | 36 built-in tools (incl. SQLite codebase index) |
 | `@wrongstack/mcp` | MCP server registry + reconnection logic |
 | `@wrongstack/cli` | REPL, subcommands, slash commands, terminal renderer |
 | `@wrongstack/tui` | Ink-based TUI (lazy-loaded behind `--tui`) |
@@ -498,7 +512,7 @@ For the full walk-through — including the L1-A reactive `ConversationState`, h
 
 ## Status
 
-- **4435 tests passing** across 325 test files (~19 s, 13 skipped)
+- **4627 tests passing** across 335 test files (~20 s, 13 skipped)
 - Coverage thresholds: ≥85 % lines / ≥85 % functions / ≥70 % branches / ≥82 % statements
 - All workspace packages build clean with TypeScript strict + `noUncheckedIndexedAccess`
 - Node 22+ only, ESM-only, no CommonJS bundles

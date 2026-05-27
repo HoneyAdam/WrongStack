@@ -7,9 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.6] - 2026-05-27
+
+> Consolidates everything since 0.7.3. The intermediate `0.7.4` and `0.7.5`
+> version bumps shipped without their own changelog sections; their changes
+> are folded into this entry.
+
 ### Added
 
-- **`/agents monitor|on|off`** — agents monitor overlay now has a slash-command interface in addition to `Ctrl+Shift+M`:
+- **`codebase-index` — SQLite-backed code symbol search.** Three new
+  always-on builtin tools ship the full indexer chain:
+  - `codebase-index` — build or update the project symbol index.
+    Incremental by default (only re-indexes changed files); `force: true`
+    wipes and rebuilds, `langs` limits the pass to specific languages.
+  - `codebase-search` — search indexed symbols by name, signature, or doc
+    comment, ranked with BM25. Filters by symbol kind, language, LSP
+    `SymbolKind`, and path substring.
+  - `codebase-stats` — summary of the current index.
+
+  Multi-language: TypeScript/JavaScript plus Go (`.go`), Python (`.py`),
+  Rust (`.rs`), JSON (`.json`), and YAML (`.yaml`/`.yml`), each with a
+  dedicated parser (`go-parser.ts`, `py-parser.ts`, `rs-parser.ts`,
+  `json-parser.ts`, `yaml-parser.ts`). Cross-reference extraction tracks
+  `fromId → toId` relationships per symbol. Storage is `node:sqlite`
+  (Node's built-in module, experimental since 22.5) — no native addon and
+  no extra npm dependency.
+
+- **`/agents monitor|on|off`** — the agents monitor overlay now has a
+  slash-command interface in addition to `Ctrl+Shift+M`:
   - `/agents monitor` — open the overlay
   - `/agents on` — open the overlay
   - `/agents off` — close the overlay
@@ -17,28 +42,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   Uses the same shared-controller pattern as `/fleet stream` — safe to call before TUI mount.
 
-- **`codebase-index` multi-language support.** The codebase indexer now parses and
-  indexes symbols from Go (`.go`), Python (`.py`), Rust (`.rs`), JSON (`.json`),
-  and YAML (`.yaml`/`.yml`) in addition to TypeScript/JavaScript. Each language
-  family has a dedicated parser (`go-parser.ts`, `py-parser.ts`, `rs-parser.ts`,
-  `json-parser.ts`, `yaml-parser.ts`). Cross-reference extraction tracks
-  `fromId → toId` relationships per symbol.
-
-- **`codebase-index` tool chain.** Full `codebase-index` package now ships:
-  - New `tsup.config.ts` entry point for `src/codebase-index/index.ts`
-  - `node:sqlite` marked as `external` in tsup (built-in module, not an npm package)
-  - Cross-reference table with `deleteRefsForFile` / `insertRefs` in SQLite writer
-
 - **SDD parallel execution hooks.** New SDD modules exported from
   `@wrongstack/core`: `SddTaskDecomposer` and `SddParallelRun` for wave-based
   task batching.
 
 ### Changed
 
+- **Per-project state migrated to `~/.wrongstack/projects/<hash>/`.** All
+  per-project state — `goal.json`, sessions, `specs/`, `task-graphs/`,
+  `sdd-session.json`, `plan.json`, `memory.md`, `trust.json`, `meta.json` —
+  now lives under a per-machine directory keyed by
+  `sha256(absoluteProjectRoot).slice(0,12)`, instead of a `.wrongstack/`
+  folder inside the repo. The only thing committed to a repo is
+  `.wrongstack/AGENTS.md` (and optional `.wrongstack/skills/`). `WstackPaths`
+  is the single source of truth; slash commands resolve every path through
+  the `paths` field on `SlashCommandContext` rather than constructing paths
+  inline.
+
 - **`codebase-index` incremental indexing** now deletes stale cross-references
   (`deleteRefsForFile`) when a file changes, before re-parsing and re-inserting
   symbols. Previously only symbol rows were cleaned; cross-ref rows were left
   behind, causing orphaned reference data.
+
+### Fixed
+
+- **Vault key no longer silently destroyed on corruption (security).**
+  `DefaultSecretVault.loadOrCreateKey()` caught all read errors and fell
+  through to generating a fresh key — including the wrong-size case, so a
+  truncated or corrupted `.key` file would silently wipe access to every
+  encrypted secret. The size check now stays inside the `try` block and any
+  non-ENOENT error (wrong size, permission denied, …) re-throws instead of
+  regenerating. `init` also reuses the canonical `WstackPaths.secretsKey`
+  path instead of re-deriving `.key` from the config dirname, so a
+  pre-existing vault key is no longer duplicated.
+
+- **`codebase-index` unloadable in published builds (`node:sqlite`).**
+  tsup's default `removeNodeProtocol: true` rewrote
+  `import { DatabaseSync } from 'node:sqlite'` to bare `'sqlite'` in `dist`
+  — a package that does not exist — so the tools bundle threw
+  `Cannot find package 'sqlite'` at runtime. Disabled `removeNodeProtocol`
+  for the tools build so the `node:` protocol survives, and added the
+  missing workspace externals.
+
+- **`plug-lsp` codebase-search import resolution.** The LSP plugin now
+  resolves `@wrongstack/tools/codebase-index` correctly so its
+  `codebase-lsp-search` tool loads.
+
+- **BM25 search tokenisation.** camelCase identifiers are now split so a
+  query for `complex` matches `complexOperation`, and the tokeniser uses a
+  Unicode-aware regex.
+
+### Tests
+
+- Aligned goal-store, eternal-autonomy, and slash-command (`sdd` / `goal` /
+  `init`) tests with the new `~/.wrongstack/projects/<hash>/` layout and the
+  `paths` field on `SlashCommandContext`.
+- ACP `buildChildEnv` env-sanitization test is now OS-aware — it checks
+  `USERPROFILE` on Windows and `HOME` on POSIX (Windows often leaves `HOME`
+  unset).
+- `plug-lsp` plugin-entry test updated for the 8th registered tool
+  (`codebase-lsp-search`).
 
 ### Housekeeping
 
@@ -51,6 +114,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `.ts` / `.json` / `.txt` variants with both `_` and `-` separators,
   so subpackage `.mjs`/`.cjs` files in `scripts/` and `packages/*` are
   no longer affected.
+
+### Changed — versions
+
+- **All workspace packages bumped 0.7.3 → 0.7.6**: `wrongstack`,
+  `@wrongstack/cli`, `@wrongstack/core`, `@wrongstack/mcp`,
+  `@wrongstack/plug-lsp`, `@wrongstack/providers`, `@wrongstack/runtime`,
+  `@wrongstack/skills`, `@wrongstack/telegram`, `@wrongstack/tools`,
+  `@wrongstack/tui`, `@wrongstack/webui`. `@wrongstack/plugins` remains at
+  `0.1.0`; the new `@wrongstack/acp` package is at `0.0.1`.
 
 ## [0.7.3] - 2026-05-26
 

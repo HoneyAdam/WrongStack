@@ -25,9 +25,12 @@ describe('ACP stdio transport env sanitization', () => {
     expect(childEnv['ANTHROPIC_API_KEY']).toBeUndefined();
     expect(childEnv['OPENAI_API_KEY']).toBeUndefined();
 
-    // System vars SHOULD be forwarded
+    // System vars SHOULD be forwarded. The home-directory variable is
+    // platform-specific: POSIX uses HOME, Windows uses USERPROFILE (HOME is
+    // often unset there).
     expect(childEnv['PATH']).toBeDefined();
-    expect(childEnv['HOME']).toBeDefined();
+    const homeVar = process.platform === 'win32' ? 'USERPROFILE' : 'HOME';
+    expect(childEnv[homeVar]).toBeDefined();
   });
 
   it('buildChildEnv preserves non-secret env vars', async () => {
