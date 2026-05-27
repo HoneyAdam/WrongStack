@@ -93,6 +93,10 @@ function validateTransportUrl(rawUrl: string): void {
  * says we should never let a malicious stream pin memory.
  */
 const SSE_READER_MAX_BUFFER = 256 * 1024;
+/** Max data lines buffered per event before flush. Prevents a malicious
+ *  server from accumulating unbounded data: lines without a blank-line
+ *  delimiter would grow this array indefinitely. */
+const SSE_READER_MAX_DATA_LINES = 1024;
 
 export class SSEReader {
   private buffer = '';
@@ -144,6 +148,11 @@ export class SSEReader {
       // The current transport only cares about JSON-RPC payloads in data
       // fields. Event names are accepted for spec compatibility.
     } else if (field === 'data') {
+      if (this.dataLines.length >= SSE_READER_MAX_DATA_LINES) {
+        throw new Error(
+          `SSE: exceeded ${SSE_READER_MAX_DATA_LINES} data lines per event — upstream is not sending blank-line delimiters`,
+        );
+      }
       this.dataLines.push(value);
     }
   }

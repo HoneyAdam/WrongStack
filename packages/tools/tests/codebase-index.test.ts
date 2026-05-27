@@ -17,6 +17,7 @@ import { IndexStore } from '../src/codebase-index/writer.js';
 import { codebaseIndexTool } from '../src/codebase-index/codebase-index-tool.js';
 import { codebaseSearchTool } from '../src/codebase-index/codebase-search-tool.js';
 import { codebaseStatsTool } from '../src/codebase-index/codebase-stats-tool.js';
+import { lspKindToInternalKind, internalKindToLspKind, isLspKind, LSPSymbolKind } from '../src/codebase-index/lsp-kind.js';
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -133,7 +134,12 @@ describe('ts-parser', () => {
       expect(detectLang('foo.tsx')).toBe('tsx');
       expect(detectLang('foo.js')).toBe('js');
       expect(detectLang('foo.jsx')).toBe('jsx');
-      expect(detectLang('foo.json')).toBe(null);
+      expect(detectLang('foo.go')).toBe('go');
+      expect(detectLang('foo.py')).toBe('py');
+      expect(detectLang('foo.rs')).toBe('rs');
+      expect(detectLang('foo.json')).toBe('json');
+      expect(detectLang('foo.yaml')).toBe('yaml');
+      expect(detectLang('foo.yml')).toBe('yaml');
       expect(detectLang('foo')).toBe(null);
     });
   });
@@ -479,5 +485,217 @@ describe('codebase-search tool', () => {
     expect(result.total).toBeGreaterThan(0);
     expect(result.results[0].snippet).toBeTruthy();
     expect(result.results[0].snippet.length).toBeGreaterThan(0);
+  });
+});
+
+// ─── LSP Kind Mapping Tests ─────────────────────────────────────────────────────
+
+describe('lspKindToInternalKind', () => {
+  it('maps LSP Class (5) to class', () => {
+    expect(lspKindToInternalKind(LSPSymbolKind.Class)).toBe('class');
+  });
+
+  it('maps LSP Function (12) to function', () => {
+    expect(lspKindToInternalKind(LSPSymbolKind.Function)).toBe('function');
+  });
+
+  it('maps LSP Interface (11) to interface', () => {
+    expect(lspKindToInternalKind(LSPSymbolKind.Interface)).toBe('interface');
+  });
+
+  it('maps LSP Enum (10) to enum', () => {
+    expect(lspKindToInternalKind(LSPSymbolKind.Enum)).toBe('enum');
+  });
+
+  it('maps LSP Method (6) to method', () => {
+    expect(lspKindToInternalKind(LSPSymbolKind.Method)).toBe('method');
+  });
+
+  it('maps LSP Property (7) to property', () => {
+    expect(lspKindToInternalKind(LSPSymbolKind.Property)).toBe('property');
+  });
+
+  it('maps LSP Field (8) to property', () => {
+    expect(lspKindToInternalKind(LSPSymbolKind.Field)).toBe('property');
+  });
+
+  it('maps LSP Variable (13) to var', () => {
+    expect(lspKindToInternalKind(LSPSymbolKind.Variable)).toBe('var');
+  });
+
+  it('maps LSP Constant (14) to const', () => {
+    expect(lspKindToInternalKind(LSPSymbolKind.Constant)).toBe('const');
+  });
+
+  it('maps LSP Namespace (3) to namespace', () => {
+    expect(lspKindToInternalKind(LSPSymbolKind.Namespace)).toBe('namespace');
+  });
+
+  it('maps LSP TypeParameter (26) to type', () => {
+    expect(lspKindToInternalKind(LSPSymbolKind.TypeParameter)).toBe('type');
+  });
+
+  it('maps LSP Constructor (9) to class', () => {
+    expect(lspKindToInternalKind(LSPSymbolKind.Constructor)).toBe('class');
+  });
+
+  it('maps LSP EnumMember (22) to enum', () => {
+    expect(lspKindToInternalKind(LSPSymbolKind.EnumMember)).toBe('enum');
+  });
+
+  it('returns null for unmapped LSP kinds (String, Number, etc.)', () => {
+    expect(lspKindToInternalKind(LSPSymbolKind.String)).toBeNull();
+    expect(lspKindToInternalKind(LSPSymbolKind.Number)).toBeNull();
+    expect(lspKindToInternalKind(LSPSymbolKind.Boolean)).toBeNull();
+    expect(lspKindToInternalKind(LSPSymbolKind.Array)).toBeNull();
+    expect(lspKindToInternalKind(LSPSymbolKind.Object)).toBeNull();
+    expect(lspKindToInternalKind(LSPSymbolKind.Null)).toBeNull();
+    expect(lspKindToInternalKind(LSPSymbolKind.Struct)).toBeNull();
+    expect(lspKindToInternalKind(LSPSymbolKind.Event)).toBeNull();
+    expect(lspKindToInternalKind(LSPSymbolKind.Operator)).toBeNull();
+  });
+
+  it('returns null for invalid numbers', () => {
+    expect(lspKindToInternalKind(0)).toBeNull();
+    expect(lspKindToInternalKind(-1)).toBeNull();
+    expect(lspKindToInternalKind(27)).toBeNull();
+    expect(lspKindToInternalKind(100)).toBeNull();
+  });
+});
+
+describe('internalKindToLspKind', () => {
+  it('reverses class to Class (5)', () => {
+    expect(internalKindToLspKind('class')).toBe(LSPSymbolKind.Class);
+  });
+
+  it('reverses function to Function (12)', () => {
+    expect(internalKindToLspKind('function')).toBe(LSPSymbolKind.Function);
+  });
+
+  it('reverses interface to Interface (11)', () => {
+    expect(internalKindToLspKind('interface')).toBe(LSPSymbolKind.Interface);
+  });
+
+  it('reverses enum to Enum (10)', () => {
+    expect(internalKindToLspKind('enum')).toBe(LSPSymbolKind.Enum);
+  });
+
+  it('reverses method to Method (6)', () => {
+    expect(internalKindToLspKind('method')).toBe(LSPSymbolKind.Method);
+  });
+
+  it('reverses property to Property (7)', () => {
+    expect(internalKindToLspKind('property')).toBe(LSPSymbolKind.Property);
+  });
+
+  it('reverses var to Variable (13)', () => {
+    expect(internalKindToLspKind('var')).toBe(LSPSymbolKind.Variable);
+  });
+
+  it('reverses const to Constant (14)', () => {
+    expect(internalKindToLspKind('const')).toBe(LSPSymbolKind.Constant);
+  });
+
+  it('reverses let to Variable (13)', () => {
+    expect(internalKindToLspKind('let')).toBe(LSPSymbolKind.Variable);
+  });
+
+  it('reverses namespace to Namespace (3)', () => {
+    expect(internalKindToLspKind('namespace')).toBe(LSPSymbolKind.Namespace);
+  });
+
+  it('reverses type to TypeParameter (26)', () => {
+    expect(internalKindToLspKind('type')).toBe(LSPSymbolKind.TypeParameter);
+  });
+
+  it('returns null for unmapped internal kinds', () => {
+    expect(internalKindToLspKind('parameter')).toBeNull();
+  });
+});
+
+describe('isLspKind', () => {
+  it('returns true for valid LSP kind numbers 1–26', () => {
+    for (let k = 1; k <= 26; k++) {
+      expect(isLspKind(k)).toBe(true);
+    }
+  });
+
+  it('returns false for numbers outside 1–26', () => {
+    expect(isLspKind(0)).toBe(false);
+    expect(isLspKind(-1)).toBe(false);
+    expect(isLspKind(27)).toBe(false);
+    expect(isLspKind(100)).toBe(false);
+  });
+
+  it('returns false for non-integers', () => {
+    expect(isLspKind(5.5)).toBe(false);
+    expect(isLspKind(NaN)).toBe(false);
+    expect(isLspKind(Infinity)).toBe(false);
+  });
+});
+
+describe('search with lspKind filter', () => {
+  let store: IndexStore;
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-lsp-'));
+    store = new IndexStore(tmpDir);
+  });
+
+  afterEach(async () => {
+    store.close();
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('filters by LSP kind number (class → 5)', () => {
+    store.insertSymbols([
+      { id: 0, lang: 'ts', kind: 'class', name: 'FooClass', file: '/p/Foo.ts', line: 1, col: 0, signature: 'class FooClass', docComment: '', scope: '', text: 'FooClass class' },
+      { id: 0, lang: 'ts', kind: 'function', name: 'barFn', file: '/p/bar.ts', line: 1, col: 0, signature: 'function barFn()', docComment: '', scope: '', text: 'barFn function' },
+    ], 1);
+    const results = store.search('', { lspKind: LSPSymbolKind.Class });
+    expect(results.length).toBe(1);
+    expect(results[0].name).toBe('FooClass');
+    expect(results[0].kind).toBe('class');
+    expect(results[0].lspKind).toBe(LSPSymbolKind.Class);
+  });
+
+  it('filters by LSP kind number (function → 12)', () => {
+    store.insertSymbols([
+      { id: 0, lang: 'ts', kind: 'class', name: 'FooClass', file: '/p/Foo.ts', line: 1, col: 0, signature: 'class FooClass', docComment: '', scope: '', text: 'FooClass class' },
+      { id: 0, lang: 'ts', kind: 'function', name: 'barFn', file: '/p/bar.ts', line: 1, col: 0, signature: 'function barFn()', docComment: '', scope: '', text: 'barFn function' },
+    ], 1);
+    const results = store.search('', { lspKind: LSPSymbolKind.Function });
+    expect(results.length).toBe(1);
+    expect(results[0].name).toBe('barFn');
+    expect(results[0].kind).toBe('function');
+    expect(results[0].lspKind).toBe(LSPSymbolKind.Function);
+  });
+
+  it('filters by LSP kind number (enum → 10)', () => {
+    store.insertSymbols([
+      { id: 0, lang: 'ts', kind: 'enum', name: 'Status', file: '/p/enums.ts', line: 1, col: 0, signature: 'enum Status', docComment: '', scope: '', text: 'Status enum' },
+    ], 1);
+    const results = store.search('', { lspKind: LSPSymbolKind.Enum });
+    expect(results.length).toBe(1);
+    expect(results[0].name).toBe('Status');
+    expect(results[0].kind).toBe('enum');
+  });
+
+  it('returns empty array when LSP kind has no internal mapping', () => {
+    store.insertSymbols([
+      { id: 0, lang: 'ts', kind: 'class', name: 'FooClass', file: '/p/Foo.ts', line: 1, col: 0, signature: 'class FooClass', docComment: '', scope: '', text: 'FooClass class' },
+    ], 1);
+    // String (15) has no internal mapping
+    const results = store.search('', { lspKind: LSPSymbolKind.String });
+    expect(results.length).toBe(0);
+  });
+
+  it('lspKind is undefined in result when no lspKind filter was applied', () => {
+    store.insertSymbols([
+      { id: 0, lang: 'ts', kind: 'class', name: 'FooClass', file: '/p/Foo.ts', line: 1, col: 0, signature: 'class FooClass', docComment: '', scope: '', text: 'FooClass class' },
+    ], 1);
+    const results = store.search('', { kind: 'class' });
+    expect(results[0].lspKind).toBeUndefined();
   });
 });

@@ -12,7 +12,7 @@
  */
 
 import * as ts from 'typescript';
-import type { FileSymbols, Symbol, SymbolKind, SymbolLang } from './schema.js';
+import type { CallType, FileSymbols, Ref, Symbol, SymbolKind, SymbolLang } from './schema.js';
 
 // Map TypeScript SyntaxKind → our SymbolKind taxonomy
 const KIND_MAP: Partial<Record<ts.SyntaxKind, SymbolKind>> = {
@@ -54,6 +54,12 @@ function extToLang(ext: string): SymbolLang | null {
     case '.tsx':  return 'tsx';
     case '.js':   return 'js';
     case '.jsx':  return 'jsx';
+    case '.go':   return 'go';
+    case '.py':   return 'py';
+    case '.rs':   return 'rs';
+    case '.json': return 'json';
+    case '.yaml': return 'yaml';
+    case '.yml':  return 'yaml';
     default:      return null;
   }
 }
@@ -179,7 +185,75 @@ export function parseSymbols(opts: ParseOptions): FileSymbols {
 
   visit(sourceFile);
 
-  return { file, lang, symbols, mtimeMs: Date.now() };
+  // Second pass: collect cross-references (call/type/inherit refs)
+  const refs = extractRefs(sourceFile);
+
+  return { file, lang, symbols, refs, mtimeMs: Date.now() };
+}
+
+// ─── Reference extraction ──────────────────────────────────────────────────────
+
+/** Collect call/type/inherit references from a source file. */
+function extractRefs(sourceFile: ts.SourceFile): Ref[] {
+  const refs: Ref[] = [];
+
+  function visit(node: ts.Node): void {
+    const pos = node.getStart(sourceFile);
+    const { line } = sourceFile.getLineAndCharacterOfPosition(pos);
+    const lineNum = line + 1;
+
+    if (ts.isCallExpression(node)) {
+      const expr = node.expression;
+      if (ts.isIdentifier(expr)) {
+        refs.push({ fromId: 0, toName: expr.text, callType: 'call', line: lineNum });
+      }
+    } else if (ts.isPropertyAccessExpression(node)) {
+      if (ts.isIdentifier(node.expression)) {
+        refs.push({ fromId: 0, toName: node.expression.text, callType: 'call', line: lineNum });
+      }
+    } else if (ts.isTypeReferenceNode(node)) {
+      const name = getTypeName(node.typeName);
+      if (name) refs.push({ fromId: 0, toName: name, callType: 'type_ref', line: lineNum });
+    } else if (ts.isHeritageClause(node)) {
+      for (const t of node.types) {
+        const name = getTypeName(t.expression as ts.EntityName);
+        if (name) refs.push({ fromId: 0, toName: name, callType: node.token === ts.SyntaxKind.ExtendsKeyword ? 'inherit' : 'implement', line: lineNum });
+      }
+    } else if (ts.isImportDeclaration(node)) {
+      const moduleName = getModuleName(node);
+      if (moduleName) refs.push({ fromId: 0, toName: moduleName, callType: 'import', line: lineNum });
+    }
+
+    ts.forEachChild(node, visit);
+  }
+
+  visit(sourceFile);
+  return deduplicateRefs(refs);
+}
+
+/** Extract the name string from a type name node (simple or qualified). */
+function getTypeName(name: ts.EntityName): string {
+  if (ts.isIdentifier(name)) return name.text;
+  if (ts.isQualifiedName(name)) return `${getTypeName(name.left)}.${name.right.text}`;
+  return '';
+}
+
+/** Get the module path string from an import declaration. */
+function getModuleName(node: ts.ImportDeclaration): string {
+  const moduleSpecifier = node.moduleSpecifier;
+  if (ts.isStringLiteral(moduleSpecifier)) return moduleSpecifier.text;
+  return '';
+}
+
+/** Remove duplicate refs (same toName, callType, line). fromId is always 0 at this stage. */
+function deduplicateRefs(refs: Ref[]): Ref[] {
+  const seen = new Set<string>();
+  return refs.filter((r) => {
+    const key = `${r.toName}:${r.callType}:${r.line}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 /** Detect SymbolLang from a file path extension. */

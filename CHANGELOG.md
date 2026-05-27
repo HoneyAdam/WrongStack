@@ -17,6 +17,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   Uses the same shared-controller pattern as `/fleet stream` — safe to call before TUI mount.
 
+- **`codebase-index` multi-language support.** The codebase indexer now parses and
+  indexes symbols from Go (`.go`), Python (`.py`), Rust (`.rs`), JSON (`.json`),
+  and YAML (`.yaml`/`.yml`) in addition to TypeScript/JavaScript. Each language
+  family has a dedicated parser (`go-parser.ts`, `py-parser.ts`, `rs-parser.ts`,
+  `json-parser.ts`, `yaml-parser.ts`). Cross-reference extraction tracks
+  `fromId → toId` relationships per symbol.
+
+- **`codebase-index` tool chain.** Full `codebase-index` package now ships:
+  - New `tsup.config.ts` entry point for `src/codebase-index/index.ts`
+  - `node:sqlite` marked as `external` in tsup (built-in module, not an npm package)
+  - Cross-reference table with `deleteRefsForFile` / `insertRefs` in SQLite writer
+
+- **SDD parallel execution hooks.** New SDD modules exported from
+  `@wrongstack/core`: `SddTaskDecomposer` and `SddParallelRun` for wave-based
+  task batching.
+
+### Changed
+
+- **`codebase-index` incremental indexing** now deletes stale cross-references
+  (`deleteRefsForFile`) when a file changes, before re-parsing and re-inserting
+  symbols. Previously only symbol rows were cleaned; cross-ref rows were left
+  behind, causing orphaned reference data.
+
+### Housekeeping
+
+- **Repo-root scratch cleanup + `.gitignore` hardening.** Removed 28
+  ad-hoc debug / probe scripts and captured test output files from the
+  repo root (`check_*`, `debug_*`, `trace_*`, `find_*`, `parse_*`,
+  `sdd_*`, `test_*` / `test-*`, `vitest_*.txt`, `vt*.txt`, etc.).
+  Replaced the overly broad blanket `*.mjs` rule with a single
+  root-anchored block of patterns covering `.cjs` / `.mjs` / `.js` /
+  `.ts` / `.json` / `.txt` variants with both `_` and `-` separators,
+  so subpackage `.mjs`/`.cjs` files in `scripts/` and `packages/*` are
+  no longer affected.
+
 ## [0.7.3] - 2026-05-26
 
 ### Changed — versions

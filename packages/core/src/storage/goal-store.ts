@@ -1,5 +1,7 @@
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
+import { createHash } from 'node:crypto';
+import * as os from 'node:os';
 import { atomicWrite } from '../utils/atomic-write.js';
 import { FsError, ERROR_CODES } from '../types/errors.js';
 
@@ -8,7 +10,7 @@ import { FsError, ERROR_CODES } from '../types/errors.js';
  * drives the EternalAutonomyEngine — every iteration of the engine
  * consults the goal to choose what to do next.
  *
- * Storage: `<projectRoot>/.wrongstack/goal.json`. Persistent and
+ * Storage: `~/.wrongstack/projects/<hash>/goal.json`. Persistent and
  * project-scoped on purpose: the goal belongs to the codebase, not the
  * REPL session.
  */
@@ -74,9 +76,13 @@ export const MAX_JOURNAL_ENTRIES = 500;
 /**
  * Resolve the goal file path for a given project root.
  * Exposed so the engine and CLI use one canonical path.
+ * Uses `~/.wrongstack/projects/<hash>/goal.json` .<hash>/`.
  */
 export function goalFilePath(projectRoot: string): string {
-  return path.join(projectRoot, '.wrongstack', 'goal.json');
+  // Now resolves to ~/.wrongstack/projects/<hash>/goal.json for consistency
+  // with WstackPaths.projectGoal.
+  const hash = createHash('sha256').update(path.resolve(projectRoot)).digest('hex').slice(0, 12);
+  return path.join(os.homedir(), '.wrongstack', 'projects', hash, 'goal.json');
 }
 
 export async function loadGoal(filePath: string): Promise<GoalFile | null> {

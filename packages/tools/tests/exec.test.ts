@@ -102,6 +102,34 @@ describe('execTool', () => {
     // "outside project root" rejection.
     expect(result.stderr).not.toMatch(/outside project root/);
   });
+
+  it('blocks rm with absolute path /etc', async () => {
+    const ctx = makeCtx();
+    const result = await execTool.execute({ command: 'rm', args: ['-rf', '/etc'] }, ctx, makeOpts());
+    expect(result.allowed).toBe(false);
+    expect(result.stderr).toContain('Blocked argument');
+  });
+
+  it('blocks rm with ~', async () => {
+    const ctx = makeCtx();
+    const result = await execTool.execute({ command: 'rm', args: ['-rf', '~'] }, ctx, makeOpts());
+    expect(result.allowed).toBe(false);
+    expect(result.stderr).toContain('Blocked argument');
+  });
+
+  it('blocks rm with . (current dir)', async () => {
+    const ctx = makeCtx();
+    const result = await execTool.execute({ command: 'rm', args: ['-rf', '.'] }, ctx, makeOpts());
+    expect(result.allowed).toBe(false);
+    expect(result.stderr).toContain('Blocked argument');
+  });
+
+  it('blocks rm with .. (parent dir)', async () => {
+    const ctx = makeCtx();
+    const result = await execTool.execute({ command: 'rm', args: ['-rf', '..'] }, ctx, makeOpts());
+    expect(result.allowed).toBe(false);
+    expect(result.stderr).toContain('Blocked argument');
+  });
 });
 
 // ─── Coverage: runCommand timer callback and buffer write paths ───────────────

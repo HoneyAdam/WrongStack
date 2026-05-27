@@ -6,6 +6,7 @@
  * - web_fetch: Fetch a URL and return content as markdown
  */
 import type { Plugin } from '@wrongstack/core';
+import { isIPv4, isIPv6 } from 'node:net';
 
 const API_VERSION = '^0.1.10';
 
@@ -64,7 +65,38 @@ async function duckduckgoSearch(query: string, numResults: number): Promise<Sear
   return results;
 }
 
+/**
+ * Lightweight SSRF guard — blocks localhost and private IP targets.
+ * Mirrors the main fetch tool's assertNotPrivate() but without DNS
+ * resolution (the plugin's web_fetch is a convenience wrapper, not
+ * the primary fetch tool).
+ */
+function assertSafeUrl(rawUrl: string): void {
+  const u = new URL(rawUrl);
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+    throw new Error(`Unsupported protocol: ${u.protocol}`);
+  }
+  const host = u.hostname.startsWith('[') && u.hostname.endsWith(']')
+    ? u.hostname.slice(1, -1)
+    : u.hostname;
+  if (host === 'localhost' || host.endsWith('.localhost') || host === '0.0.0.0') {
+    throw new Error('Blocked localhost target');
+  }
+  if (isIPv4(host)) {
+    const parts = host.split('.').map(Number);
+    const [a, b] = parts as [number, number, number, number];
+    if (a === 0 || a === 10 || a === 127 ||
+        (a === 169 && b === 254) ||
+        (a === 172 && b >= 16 && b <= 31) ||
+        (a === 192 && b === 168) ||
+        a >= 224) {
+      throw new Error(`Blocked private/loopback address: ${host}`);
+    }
+  }
+}
+
 async function fetchUrl(url: string, format: 'markdown' | 'text'): Promise<string> {
+  assertSafeUrl(url);
   const resp = await fetch(url, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (compatible; WrongStack/1.0; +https://wrongstack.com)',

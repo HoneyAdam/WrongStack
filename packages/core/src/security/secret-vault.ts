@@ -185,11 +185,7 @@ export async function rewriteConfigEncrypted(
   await fsp.mkdir(path.dirname(configPath), { recursive: true });
   // atomicWrite: torn write here would erase every saved encrypted API key.
   await atomicWrite(configPath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
-  try {
-    await fsp.chmod(configPath, 0o600);
-  } catch {
-    // best-effort on Windows
-  }
+  await restrictFilePermissions(configPath);
 }
 
 /**
@@ -221,12 +217,35 @@ export async function migratePlaintextSecrets(
   if (counter.n === 0) return { migrated: 0, file: configPath };
   // atomicWrite: runs on every boot for legacy users — torn write = wipe.
   await atomicWrite(configPath, JSON.stringify(migrated, null, 2), { mode: 0o600 });
-  try {
-    await fsp.chmod(configPath, 0o600);
-  } catch {
-    // best-effort on Windows
-  }
+  await restrictFilePermissions(configPath);
   return { migrated: counter.n, file: configPath };
+}
+
+/**
+ * Restrict a file to owner-only access. On POSIX this is chmod 0o600.
+ * On Windows, chmod is a no-op — we use icacls to remove inherited
+ * permissions and grant only the current user. Failures are logged
+ * but not thrown so callers are not blocked on unsupported platforms.
+ */
+async function restrictFilePermissions(filePath: string): Promise<void> {
+  if (process.platform === 'win32') {
+    try {
+      const { execFile } = await import('node:child_process');
+      const { promisify } = await import('node:util');
+      const execFileAsync = promisify(execFile);
+      // Remove inherited ACEs, grant full control only to current user.
+      await execFileAsync('icacls', [filePath, '/inheritance:r', '/grant:r', `${process.env.USERNAME}:(F)`]);
+    } catch {
+      // Best-effort: icacls may not be available in all environments.
+      console.warn(`[secret-vault] Could not restrict permissions on ${filePath} — config file may be readable by other users on this system.`);
+    }
+  } else {
+    try {
+      await fsp.chmod(filePath, 0o600);
+    } catch {
+      // Best-effort
+    }
+  }
 }
 
 function walkCount<T>(node: T, vault: SecretVault, counter: { n: number }): T {

@@ -77,4 +77,56 @@ describe('template-engine plugin', () => {
     expect(tool.permission).toBe('auto');
     expect(tool.mutating).toBe(false);
   });
+
+  describe('template_expand outputPath validation', () => {
+    it('rejects absolute outputPath', async () => {
+      templateEnginePlugin.setup(mockApi as any);
+      const tool = mockApi.tools.register.mock.calls.find(
+        ([t]: any[]) => t.name === 'template_expand'
+      )?.[0];
+      const result = await tool.execute({
+        template: 'hello {{name}}',
+        variables: { name: 'world' },
+        outputPath: '/etc/passwd',
+      });
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain('relative path');
+    });
+
+    it('rejects outputPath with .. traversal', async () => {
+      templateEnginePlugin.setup(mockApi as any);
+      const tool = mockApi.tools.register.mock.calls.find(
+        ([t]: any[]) => t.name === 'template_expand'
+      )?.[0];
+      const result = await tool.execute({
+        template: 'hello {{name}}',
+        variables: { name: 'world' },
+        outputPath: '../../../etc/passwd',
+      });
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain('relative path');
+    });
+
+    it('accepts relative outputPath (no path validation error)', async () => {
+      templateEnginePlugin.setup(mockApi as any);
+      const tool = mockApi.tools.register.mock.calls.find(
+        ([t]: any[]) => t.name === 'template_expand'
+      )?.[0];
+      // Use a temp file in cwd. The important thing is that the path
+      // validation does NOT reject it (no "relative path" error).
+      const tmpFile = `.test-output-${Date.now()}.txt`;
+      try {
+        const result = await tool.execute({
+          template: 'hello {{name}}',
+          variables: { name: 'world' },
+          outputPath: tmpFile,
+        });
+        expect(result.ok).toBe(true);
+        expect(result.message).toContain('Wrote');
+      } finally {
+        const fs = await import('node:fs/promises');
+        await fs.unlink(tmpFile).catch(() => {});
+      }
+    });
+  });
 });

@@ -1,5 +1,6 @@
 import type { Tool } from '@wrongstack/core';
 import { createCodeActionsTool } from './code-actions.js';
+import { createCodebaseLspSearchTool } from './codebase-lsp-search.js';
 import { createDefinitionTool } from './definition.js';
 import { createDiagnosticsTool } from './diagnostics.js';
 import { createHoverTool } from './hover.js';
@@ -15,6 +16,7 @@ export function makeLSPTools(deps: ToolDeps): Tool[] {
     createReferencesTool(deps),
     createHoverTool(deps),
     createSymbolsTool(deps),
+    createCodebaseLspSearchTool(deps),
     createRenameTool(deps),
     createCodeActionsTool(deps),
   ];

@@ -12,11 +12,14 @@ import type {
   SlashCommandRegistry,
   TokenCounter,
   ToolRegistry,
+  WstackPaths,
 } from '@wrongstack/core';
 
 export interface SlashCommandContext {
   registry: SlashCommandRegistry;
   toolRegistry: ToolRegistry;
+  /** Resolved path helpers — use instead of constructing paths inline. */
+  paths: WstackPaths;
   compactor?: {
     compact(ctx: Context, opts?: { aggressive?: boolean }): Promise<CompactReport>;
   };
@@ -170,6 +173,13 @@ export interface SlashCommandContext {
    * with the appropriate skill (bug-hunter, typescript-strict, security-scanner).
    */
   onFix?: (errorText: string) => Promise<{ message?: string; runText?: string }>;
+  /**
+   * Start an SDD parallel fan-out run. Requires an active SDD session with
+   * an approved spec and generated task graph.
+   */
+  onSddParallelRun?: (opts?: { parallelSlots?: number }) => Promise<string>;
+  /** Stop the currently running SDD parallel fan-out. */
+  onSddParallelStop?: () => void;
 }
 
 // Re-export helpers for external consumers (pre-launch.ts)

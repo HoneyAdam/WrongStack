@@ -3,7 +3,6 @@ import {
   buildGoalPreamble,
   emptyGoal,
   formatGoal,
-  goalFilePath,
   loadGoal,
   saveGoal,
   type GoalFile,
@@ -43,7 +42,7 @@ export function buildGoalCommand(opts: SlashCommandContext): SlashCommand {
       'Stage flow: decide → execute → reflect → sleep | paused | stopped',
       'Pausing stops after current iteration completes. Resume continues from next iteration.',
       '',
-      'Goals live in <projectRoot>/.wrongstack/goal.json and persist across sessions.',
+      'Goals live in ~/.wrongstack/projects/<hash>/goal.json and persist across sessions.',
       'A goal is the prerequisite for /autonomy eternal — the engine consults it on',
       'every iteration to decide what to do next.',
     ].join('\n'),
@@ -52,7 +51,7 @@ export function buildGoalCommand(opts: SlashCommandContext): SlashCommand {
       const [verbRaw, ...rest] = trimmed.split(/\s+/);
       const verb = (verbRaw ?? '').toLowerCase();
       const restJoined = rest.join(' ').trim();
-      const goalPath = goalFilePath(opts.projectRoot);
+      const goalPath = opts.paths.projectGoal;
 
       // If the first token isn't a known verb, treat the entire args
       // string as the goal text — `/goal rewrite the auth module` should

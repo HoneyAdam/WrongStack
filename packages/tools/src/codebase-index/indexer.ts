@@ -2,7 +2,7 @@
  * Main indexing orchestrator.
  *
  * Given a project root and a list of files:
- * 1. Parse each file with the appropriate parser (TS for now)
+ * 1. Parse each file with the appropriate parser (TS, Go, Python, Rust, JSON, YAML)
  * 2. Delete old symbols for changed/deleted files
  * 3. Insert new symbols
  * 4. Update file metadata
@@ -16,7 +16,12 @@ import type { Context } from '@wrongstack/core';
 import { compileGlob } from '@wrongstack/core';
 import type { FileMeta, IndexResult, Symbol } from './schema.js';
 import { IndexStore } from './writer.js';
-import { parseSymbols, detectLang } from './ts-parser.js';
+import { parseSymbols as parseTs, detectLang } from './ts-parser.js';
+import { parseSymbols as parseGo } from './go-parser.js';
+import { parseSymbols as parsePy } from './py-parser.js';
+import { parseSymbols as parseRs } from './rs-parser.js';
+import { parseSymbols as parseJson } from './json-parser.js';
+import { parseSymbols as parseYaml } from './yaml-parser.js';
 
 const DEFAULT_IGNORE = [
   'node_modules', '.git', 'dist', 'build', '.next', 'coverage',
@@ -38,7 +43,18 @@ async function findSourceFiles(
   const results: string[] = [];
   const ignoreSet = new Set([...DEFAULT_IGNORE, ...ignore]);
   // compileGlob does not support brace expansion — use one pattern per extension
-  const globs = ['**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx'].map(compileGlob);
+  const globs = [
+    { ext: '.ts',   pat: compileGlob('**/*.ts') },
+    { ext: '.tsx',  pat: compileGlob('**/*.tsx') },
+    { ext: '.js',   pat: compileGlob('**/*.js') },
+    { ext: '.jsx',  pat: compileGlob('**/*.jsx') },
+    { ext: '.go',   pat: compileGlob('**/*.go') },
+    { ext: '.py',   pat: compileGlob('**/*.py') },
+    { ext: '.rs',   pat: compileGlob('**/*.rs') },
+    { ext: '.json', pat: compileGlob('**/*.json') },
+    { ext: '.yaml', pat: compileGlob('**/*.yaml') },
+    { ext: '.yml',  pat: compileGlob('**/*.yml') },
+  ];
 
   const walk = async (dir: string): Promise<void> => {
     let entries: Dirent[];
@@ -56,13 +72,11 @@ async function findSourceFiles(
         // Normalize to forward-slash relative path for pattern matching
         const rel = path.relative(projectRoot, full).replace(/\\/g, '/');
         const ext = path.extname(e.name);
-        if (
-          ext === '.ts' ? globs[0]!.test(rel) || globs[0]!.test(e.name) :
-          ext === '.tsx' ? globs[1]!.test(rel) || globs[1]!.test(e.name) :
-          ext === '.js' ? globs[2]!.test(rel) || globs[2]!.test(e.name) :
-          ext === '.jsx' ? globs[3]!.test(rel) || globs[3]!.test(e.name) : false
-        ) {
-          results.push(full);
+        for (const { ext: extName, pat } of globs) {
+          if (ext === extName && (pat.test(rel) || pat.test(e.name))) {
+            results.push(full);
+            break;
+          }
         }
       }
     }
@@ -70,6 +84,33 @@ async function findSourceFiles(
 
   await walk(projectRoot);
   return results;
+}
+
+/** Dispatch to the correct parser based on language. */
+async function parseFile(
+  file: string,
+  content: string,
+  lang: string,
+): Promise<ReturnType<typeof parseTs>> {
+  switch (lang) {
+    case 'ts':
+    case 'tsx':
+    case 'js':
+    case 'jsx':
+      return parseTs({ file, content, lang: lang as 'ts' | 'tsx' | 'js' | 'jsx' });
+    case 'go':
+      return parseGo({ file, content, lang: 'go' });
+    case 'py':
+      return parsePy({ file, content, lang: 'py' });
+    case 'rs':
+      return parseRs({ file, content, lang: 'rs' });
+    case 'json':
+      return parseJson({ file, content, lang: 'json' });
+    case 'yaml':
+      return parseYaml({ file, content, lang: 'yaml' });
+    default:
+      return { file, lang: lang as 'ts' | 'tsx' | 'js' | 'jsx', symbols: [], mtimeMs: Date.now() };
+  }
 }
 
 /** Run a full or incremental index and return statistics. */
@@ -131,6 +172,7 @@ export async function runIndexer(
     }
 
     store.deleteSymbolsForFile(file);
+    store.deleteRefsForFile(file);
 
     let content: string;
     try {
@@ -140,9 +182,9 @@ export async function runIndexer(
       continue;
     }
 
-    let parsed: ReturnType<typeof parseSymbols>;
+    let parsed: ReturnType<typeof parseTs>;
     try {
-      parsed = parseSymbols({ file, content, lang });
+      parsed = await parseFile(file, content, lang);
     } catch (e) {
       errors.push(`parse error: ${file}: ${e instanceof Error ? e.message : String(e)}`);
       continue;
@@ -162,10 +204,22 @@ export async function runIndexer(
 
     const nextId = store.getStats().totalSymbols + 1;
     const symbolsWithIds: Symbol[] = parsed.symbols.map((s, i) => ({ ...s, id: nextId + i }));
-    const inserted = store.insertSymbols(symbolsWithIds, nextId);
-    const count = inserted - nextId;
+    store.insertSymbols(symbolsWithIds, nextId);
+    const count = symbolsWithIds.length;
     symbolsIndexed += count;
     langStats[lang] = (langStats[lang] ?? 0) + count;
+
+    // Insert cross-references for each symbol
+    if (parsed.refs && parsed.refs.length > 0) {
+      for (let i = 0; i < symbolsWithIds.length; i++) {
+        const sym = symbolsWithIds[i]!;
+        const symRefs = parsed.refs.filter((r) => r.line === sym.line);
+        if (symRefs.length > 0) {
+          const refsWithFromId = symRefs.map((r) => ({ ...r, fromId: sym.id }));
+          store.insertRefs(sym.id, refsWithFromId);
+        }
+      }
+    }
 
     store.upsertFile({
       file,

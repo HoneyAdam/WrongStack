@@ -221,7 +221,7 @@ export async function main(argv: string[]): Promise<number> {
   const autonomyModeRef: {
     current: import('./slash-commands/autonomy.js').AutonomyMode;
   } = { current: 'off' };
-  const goalPathForPrompt = path.join(projectRoot, '.wrongstack', 'goal.json');
+  const goalPathForPrompt = wpaths.projectGoal;
   container.bind(TOKENS.SystemPromptBuilder, () =>
     new DefaultSystemPromptBuilder({
       memoryStore,
@@ -668,6 +668,7 @@ export async function main(argv: string[]): Promise<number> {
   const slashCmds = buildBuiltinSlashCommands({
     registry: slashRegistry,
     toolRegistry,
+    paths: wpaths,
     compactor: container.resolve(TOKENS.Compactor),
     sessionStore,
     skillLoader,
@@ -1291,6 +1292,57 @@ export async function main(argv: string[]): Promise<number> {
       context.provider as CommitLLMProvider,
       context.model,
     ),
+    onSddParallelRun: async (opts) => {
+      const { SddParallelRun } = await import('@wrongstack/core');
+      const sdd = await import('./slash-commands/sdd.js');
+      const tracker = sdd.getTaskTracker();
+      const builder = sdd.getActiveBuilder();
+      if (!tracker || !builder) {
+        return 'No active SDD session with tasks. Use /sdd new to start one.';
+      }
+      const session = builder.getSession();
+      if (session.phase !== 'executing' && session.phase !== 'task_review') {
+        return `Cannot run parallel in phase "${session.phase}". Use /sdd approve first.`;
+      }
+      const graphId = sdd.getTaskGraphId();
+      const graphStore = new (await import('@wrongstack/core')).TaskGraphStore({
+        baseDir: wpaths.projectTaskGraphs,
+      });
+      const graph = graphId ? await graphStore.load(graphId) : null;
+      if (!graph) {
+        return 'No task graph found for the current SDD session.';
+      }
+      const subagentFactory = multiAgentHost.makeSubagentFactory(config);
+      const run = new SddParallelRun({
+        tracker,
+        graph,
+        agent,
+        projectRoot,
+        parallelSlots: opts?.parallelSlots,
+        subagentFactory,
+        onProgress: (p: import('@wrongstack/core').SddProgress) => {
+          renderer.write(`  ░ wave ${p.wave + 1} · ${p.completed}/${p.total} tasks · ${p.percent}% done\n`);
+        },
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (globalThis as any).__sddParallelRun = run;
+      const result = await run.run();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      delete (globalThis as any).__sddParallelRun;
+      const lines = [
+        `SDD parallel run complete:`,
+        `  ${result.totalWaves} waves · ${result.totalCompleted} done · ${result.totalFailed} failed`,
+        `  ${(result.totalDurationMs / 1000).toFixed(1)}s total`,
+      ];
+      if (result.deadlocked) lines.push(color.red('  ⚠ deadlock — tasks blocked by failed tasks.'));
+      if (result.stopRequested) lines.push(color.yellow('  ⚡ stopped by user.'));
+      return lines.join('\n');
+    },
+    onSddParallelStop: () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const run = (globalThis as any).__sddParallelRun as import('@wrongstack/core').SddParallelRun | undefined;
+      run?.stop();
+    },
   });
   for (const cmd of slashCmds) slashRegistry.register(cmd);
 

@@ -163,6 +163,10 @@
     "./circuit-breaker": {
       "types": "./dist/circuit-breaker.d.ts",
       "import": "./dist/circuit-breaker.js"
+    },
+    "./codebase-index/index": {
+      "types": "./dist/codebase-index/index.d.ts",
+      "import": "./dist/codebase-index/index.js"
     }
   },
   "files": [

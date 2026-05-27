@@ -99,7 +99,7 @@ export class Bm25Index {
       for (const qTerm of qTokens) {
         let tf = 0;
         for (const t of doc.tokens) {
-     if (t === qTerm) tf++;
+          if (t === qTerm) tf++;
         }
         if (tf === 0) continue;
 

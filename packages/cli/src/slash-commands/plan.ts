@@ -27,13 +27,15 @@ import type { SlashCommandContext } from './index.js';
  * every mutation, read on session resume so a banner can surface
  * "you have N open plan items".
  */
-export function buildPlanCommand(opts: SlashCommandContext & { planPath?: string }): SlashCommand {
+export function buildPlanCommand(opts: SlashCommandContext): SlashCommand {
   return {
     name: 'plan',
     description:
       'Strategic plan board: /plan [show|add <title>|start <id|#>|done <id|#>|remove <id|#>|promote <id|#> [subtask ...]|derive <id|#>|template [list|use <name>]|clear]',
     async run(args) {
-      const planPath = opts.planPath;
+      // Primary path: per-project plan under ~/.wrongstack/projects/<hash>/plan.json
+      // Fallback: per-session plan path if provided (backwards compat)
+      const planPath = opts.paths.projectPlan ?? opts.planPath;
       if (!planPath) return { message: 'Plan storage is not configured for this session.' };
       const ctx = opts.context;
       const sessionId = ctx?.session.id ?? 'unknown';

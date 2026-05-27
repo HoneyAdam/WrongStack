@@ -42,6 +42,10 @@ export const codebaseSearchTool: Tool<CodebaseSearchInput, CodebaseSearchOutput>
         type: 'string',
         description: 'Filter by language: ts, tsx, js, jsx',
       },
+      lspKind: {
+        type: 'integer',
+        description: 'Filter by LSP SymbolKind number (e.g. 5=Class, 12=Function, 11=Interface, 10=Enum)',
+      },
       file: {
         type: 'string',
         description: 'Filter to files matching this path substring',
@@ -65,6 +69,7 @@ export const codebaseSearchTool: Tool<CodebaseSearchInput, CodebaseSearchOutput>
         kind: input.kind as SymbolKind | undefined,
         lang: input.lang as SymbolLang | undefined,
         file: input.file,
+        lspKind: input.lspKind,
       });
 
       if (candidates.length === 0) {
@@ -118,6 +123,7 @@ interface CodebaseSearchInput {
   lang?: string;
   file?: string;
   limit?: number;
+  lspKind?: number;
 }
 
 interface CodebaseSearchOutput {

@@ -11,6 +11,7 @@ import type {
   MetricsSink,
   HealthRegistry,
   Provider,
+  WstackPaths,
 } from '@wrongstack/core';
 import type { CompactReport } from '@wrongstack/core';
 import { buildBuiltinSlashCommands } from '../slash-commands/index.js';
@@ -21,6 +22,7 @@ import type { MultiAgentHost } from '../multi-agent.js';
 export interface SlashCommandsDeps {
   slashRegistry: SlashCommandRegistry;
   toolRegistry: ToolRegistry;
+  paths: WstackPaths;
   sessionStore: SessionStore;
   skillLoader: SkillLoader | undefined;
   tokenCounter: TokenCounter;
@@ -51,7 +53,7 @@ export interface StatuslineConfigDeps {
 }
 
 export async function setupSlashCommands(params: SlashCommandsDeps): Promise<void> {
-  const { slashRegistry, toolRegistry, sessionStore, skillLoader, tokenCounter, renderer,
+  const { slashRegistry, toolRegistry, paths, sessionStore, skillLoader, tokenCounter, renderer,
     memoryStore, context, cwd, projectRoot, metricsSink, healthRegistry,
     planPath, modeStore, provider, model, multiAgentHost, fleetStreamController,
     agentsMonitorController, compactor } = params;
@@ -77,6 +79,7 @@ export async function setupSlashCommands(params: SlashCommandsDeps): Promise<voi
   const commands = buildBuiltinSlashCommands({
     registry: slashRegistry,
     toolRegistry,
+    paths,
     compactor,
     sessionStore,
     skillLoader,

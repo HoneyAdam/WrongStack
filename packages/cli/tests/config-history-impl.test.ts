@@ -108,6 +108,21 @@ describe('appendHistory + listHistory + getHistoryEntry', () => {
     expect(entry?.snapshotMasked.provider).toBe('a');
   });
 
+  it('masks authToken, password, bearer, refreshToken via isSecretField', async () => {
+    const id = await appendHistory(
+      {},
+      { authToken: 'tok123', password: 'p4ss', bearer: 'b123', refreshToken: 'r123', port: 8080 },
+      'add auth fields',
+      homeFn,
+    );
+    const entry = await getHistoryEntry(id, homeFn);
+    expect(entry?.snapshotMasked.authToken).toBe('[REDACTED]');
+    expect(entry?.snapshotMasked.password).toBe('[REDACTED]');
+    expect(entry?.snapshotMasked.bearer).toBe('[REDACTED]');
+    expect(entry?.snapshotMasked.refreshToken).toBe('[REDACTED]');
+    expect(entry?.snapshotMasked.port).toBe(8080);
+  });
+
   it('recursively masks nested secrets inside nested objects', async () => {
     const id = await appendHistory(
       {},

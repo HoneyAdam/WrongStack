@@ -8,6 +8,7 @@
  * Start message: clients look for the `[wstack-acp]` marker on stdout before
  * treating subsequent lines as protocol messages.
  */
+import {buildChildEnv} from '@wrongstack/core';
 import {ACPMessage} from '../types/acp-messages.js';
 
 export interface AgentServerTransport {
@@ -166,7 +167,7 @@ export class ClientTransport {
 
       try {
         this.child = spawn(this.opts.command, this.opts.args ?? [], {
-          env: {...process.env, ...this.opts.env},
+          env: {...buildChildEnv(), ...this.opts.env},
           cwd: this.opts.cwd,
           stdio: ['pipe', 'pipe', 'pipe'],
         }) as unknown as ACPChildProcess;

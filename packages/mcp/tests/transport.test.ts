@@ -79,6 +79,16 @@ describe('SSEReader', () => {
     r.feed('}\n\n');
     expect(cb).not.toHaveBeenCalled();
   });
+
+  it('throws when data lines exceed SSE_READER_MAX_DATA_LINES', () => {
+    const r = new SSEReader();
+    // Feed 1024 data lines without a blank-line delimiter — should throw
+    // before flushing to prevent memory exhaustion from malicious servers.
+    const manyLines = 'data: x\n'.repeat(1024);
+    expect(() => r.feed(manyLines + 'data: overflow\n')).toThrow(
+      /exceeded 1024 data lines/,
+    );
+  });
 });
 
 describe('SSETransport — connection failure modes', () => {

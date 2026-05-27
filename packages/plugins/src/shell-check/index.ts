@@ -6,7 +6,7 @@
  * - shellcheck_scan: Scan directory for shell script issues
  */
 import type { Plugin } from '@wrongstack/core';
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -55,7 +55,9 @@ function runShellCheck(
 
   let raw: string;
   try {
-    raw = execSync(`shellcheck ${args.join(' ')}`, {
+    // Use execFileSync to avoid shell injection — filenames could contain
+    // shell metacharacters like `; rm -rf /` if the LLM is tricked.
+    raw = execFileSync('shellcheck', args, {
       encoding: 'utf-8',
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],

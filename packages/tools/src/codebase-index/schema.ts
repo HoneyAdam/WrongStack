@@ -16,7 +16,16 @@ export type SymbolKind =
   | 'let'
   | 'property'
   | 'parameter'
-  | 'namespace';
+  | 'namespace'
+  | 'object'   // JSON root object
+  | 'literal' // scalar value in JSON/YAML
+  | 'schema'  // JSON Schema $ref/$schema entry
+  // Rust-specific
+  | 'struct'
+  | 'trait'
+  | 'impl'
+  | 'static'
+  | 'mod';
 
 /** A single indexed code symbol. */
 export interface Symbol {
@@ -33,11 +42,12 @@ export interface Symbol {
   text: string;       // concatenated searchable text: name + signature + docComment
 }
 
-/** Extracted symbols for one file. */
+/** Extracted symbols and cross-references for one file. */
 export interface FileSymbols {
   file: string;
   lang: SymbolLang;
   symbols: Symbol[];
+  refs?: Ref[];   // cross-references extracted from this file (optional for back-compat)
   mtimeMs: number;
 }
 
@@ -75,6 +85,8 @@ export interface SearchResult {
   docComment: string;
   score: number;
   snippet: string;
+  /** Original LSP SymbolKind number if the result was filtered by an LSP kind. */
+  lspKind?: number;
 }
 
 /** Result of a full reindex. */
@@ -84,6 +96,21 @@ export interface IndexResult {
   langStats: Record<SymbolLang, number>;
   durationMs: number;
   errors: string[];
+}
+
+// ─── Cross-reference types ───────────────────────────────────────────────────
+
+/** What kind of reference this is. */
+export type CallType = 'call' | 'type_ref' | 'inherit' | 'implement' | 'import';
+
+/** A cross-reference between two symbols (who references whom). */
+export interface Ref {
+  id?: number;
+  fromId: number;     // symbol that makes the reference
+  toName: string;      // resolved name of the referenced symbol
+  toId?: number;       // resolved target symbol id (filled after index resolution)
+  callType: CallType;  // kind of reference
+  line: number;        // source line where the reference occurs
 }
 
 // ─── Schema version ───────────────────────────────────────────────────────────

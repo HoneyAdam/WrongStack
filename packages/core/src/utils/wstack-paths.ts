@@ -55,6 +55,16 @@ export interface WstackPaths {
   inProjectSkills: string;
   /** Stable hash for the project root. */
   projectHash: string;
+  /** ~/.wrongstack/projects/<hash>/goal.json — goal persistence */
+  projectGoal: string;
+  /** ~/.wrongstack/projects/<hash>/specs — SDD spec files */
+  projectSpecs: string;
+  /** ~/.wrongstack/projects/<hash>/task-graphs — SDD task graphs */
+  projectTaskGraphs: string;
+  /** ~/.wrongstack/projects/<hash>/sdd-session.json — SDD session state */
+  projectSddSession: string;
+  /** ~/.wrongstack/projects/<hash>/plan.json — plan persistence */
+  projectPlan: string;
 }
 
 export function projectHash(absRoot: string): string {
@@ -93,5 +103,10 @@ export function resolveWstackPaths(opts: WstackPathOptions): WstackPaths {
     inProjectAgentsFile: path.join(opts.projectRoot, '.wrongstack', 'AGENTS.md'),
     inProjectSkills: path.join(opts.projectRoot, '.wrongstack', 'skills'),
     projectHash: hash,
+    projectGoal: path.join(projectDir, 'goal.json'),
+    projectSpecs: path.join(projectDir, 'specs'),
+    projectTaskGraphs: path.join(projectDir, 'task-graphs'),
+    projectSddSession: path.join(projectDir, 'sdd-session.json'),
+    projectPlan: path.join(projectDir, 'plan.json'),
   };
 }

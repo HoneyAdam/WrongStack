@@ -63,6 +63,7 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
   const wss = new WebSocketServer({ port, host: '127.0.0.1', maxPayload: 1 * 1024 * 1024 });
 
   console.log(`[WebUI] WebSocket server starting on ws://127.0.0.1:${port}`);
+  // Auth token is sent to clients via the session.start payload — do NOT log it.
 
   // Subscribe to events once
   const eventUnsubscribers: Array<() => void> = [];
@@ -257,7 +258,23 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
       clients.set(ws, client);
       console.log('[WebUI] Client connected');
 
+      // Per-connection rate limiting: 60 messages per 60-second window.
+      let msgCount = 0;
+      let windowResetAt = Date.now() + 60_000;
+
       ws.on('message', async (data) => {
+        const now = Date.now();
+        if (now > windowResetAt) {
+          msgCount = 0;
+          windowResetAt = now + 60_000;
+        }
+        if (++msgCount > 60) {
+          send(ws, {
+            type: 'error',
+            payload: { phase: 'rate_limit', message: 'Too many messages. Please wait.' },
+          });
+          return;
+        }
         try {
           const msg = JSON.parse(data.toString()) as WSClientMessage;
           await handleMessage(ws, client, msg);

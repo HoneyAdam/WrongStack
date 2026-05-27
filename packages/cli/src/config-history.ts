@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import os from 'node:os';
 import { atomicWrite, FsError, ERROR_CODES } from '@wrongstack/core';
+import { isSecretField } from '@wrongstack/core/security';
 
 // ── Protected files/directories ────────────────────────────────────
 // These are NEVER touched by any operation in this module.
@@ -88,7 +89,7 @@ function maskConfigSecrets(cfg: Record<string, unknown>): Record<string, unknown
   if (typeof cfg !== 'object' || cfg === null) return {};
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(cfg)) {
-    if (k === 'apiKey' || k === 'apiKeys' || k === 'secret' || k === 'secrets') {
+    if (isSecretField(k)) {
       out[k] = '[REDACTED]';
     } else if (typeof v === 'object' && v !== null && !Array.isArray(v)) {
       out[k] = maskConfigSecrets(v as Record<string, unknown>);
@@ -106,7 +107,7 @@ function diffSummary(oldCfg: Record<string, unknown>, newCfg: Record<string, unk
     const o = JSON.stringify(oldCfg[k]);
     const n = JSON.stringify(newCfg[k]);
     if (o !== n) {
-      if (k === 'apiKey' || k === 'apiKeys' || k === 'secret') {
+      if (isSecretField(k)) {
         changes.push(`${k}: [CHANGED]`);
       } else if (typeof newCfg[k] !== 'object') {
         changes.push(`${k}: ${oldCfg[k] ?? '(unset)'} → ${newCfg[k]}`);

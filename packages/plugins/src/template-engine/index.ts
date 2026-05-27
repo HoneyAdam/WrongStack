@@ -8,6 +8,7 @@
  * - template_list: List all saved templates
  */
 import type { Plugin } from '@wrongstack/core';
+import { isAbsolute, resolve, relative } from 'node:path';
 
 const API_VERSION = '^0.1.10';
 
@@ -176,6 +177,12 @@ const plugin: Plugin = {
         }
 
         if (outputPath) {
+          // Path traversal guard: reject absolute paths and path components
+          // that escape the working directory. The core write tool has full
+          // project-root sandboxing; plugins get defense-in-depth only.
+          if (isAbsolute(outputPath) || outputPath.includes('..')) {
+            return { ok: false, error: 'outputPath must be a relative path without ".." components' };
+          }
           const { writeFileSync } = await import('node:fs');
           writeFileSync(outputPath, result, 'utf-8');
           return {
@@ -244,6 +251,9 @@ const plugin: Plugin = {
         }
 
         if (outputPath) {
+          if (isAbsolute(outputPath) || outputPath.includes('..')) {
+            return { ok: false, error: 'outputPath must be a relative path without ".." components' };
+          }
           const { writeFileSync } = await import('node:fs');
           writeFileSync(outputPath, result, 'utf-8');
           return {

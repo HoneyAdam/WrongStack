@@ -69,3 +69,17 @@ export {
   type TaskExecutionResult,
   type ExecutionSummary,
 } from './auto-executor.js';
+
+// Parallel fan-out run (SDD TaskGraph → ParallelEternalEngine bridge)
+export {
+  SddTaskDecomposer,
+  type SddTaskDecomposerOptions,
+  type TaskBatch,
+} from './sdd-task-decomposer.js';
+export {
+  SddParallelRun,
+  type SddParallelRunOptions,
+  type SddProgress,
+  type WaveResult,
+  type RunResult,
+} from './sdd-parallel-run.js';

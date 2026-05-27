@@ -8,6 +8,7 @@
  */
 import type { Plugin } from '@wrongstack/core';
 import { watch as fsWatch } from 'node:fs';
+import * as path from 'node:path';
 
 const API_VERSION = '^0.1.10';
 
@@ -40,6 +41,8 @@ const plugin: Plugin = {
     debounceMs: 500,
     watchOnStartup: [],
     autoUnwatchOnExit: true,
+    autoIndex: false,
+    indexProjectRoot: '',
   },
   configSchema: {
     type: 'object',
@@ -47,6 +50,16 @@ const plugin: Plugin = {
       debounceMs: { type: 'number', default: 500 },
       watchOnStartup: { type: 'array', items: { type: 'string' }, default: [] },
       autoUnwatchOnExit: { type: 'boolean', default: true },
+      autoIndex: {
+        type: 'boolean',
+        default: false,
+        description: 'When true, automatically reindex changed .ts/.tsx/.js/.jsx files via codebase-index (incremental)',
+      },
+      indexProjectRoot: {
+        type: 'string',
+        default: '',
+        description: 'Project root directory for the indexer. Defaults to cwd when empty.',
+      },
     },
   },
 
@@ -66,6 +79,15 @@ const plugin: Plugin = {
       }, ms));
     }
 
+    const autoIndex = (api.config.extensions?.['file-watcher'] as Record<string, unknown>)?.['autoIndex'] as boolean ?? false;
+    const indexProjectRoot = (api.config.extensions?.['file-watcher'] as Record<string, unknown>)?.['indexProjectRoot'] as string ?? '';
+
+    const INDEXABLE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx']);
+
+    function isIndexableFile(filePath: string): boolean {
+      return INDEXABLE_EXTENSIONS.has(path.extname(filePath));
+    }
+
     function safeWatchDir(dirPath: string, recursive: boolean, handle: WatchHandle): void {
       try {
         const watcher = fsWatch(dirPath, { recursive }, (eventType, filename) => {
@@ -82,6 +104,34 @@ const plugin: Plugin = {
             });
             api.metrics.counter('file_change', 1, { event: eventType ?? 'unknown' });
             api.log.debug(`file-watcher: ${eventType} ${fullPath} (watch=${handle.id})`);
+
+            if (autoIndex && isIndexableFile(fullPath)) {
+              debounceEvent(`index:${fullPath}`, async () => {
+                try {
+                  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+                  // @ts-ignore — runtime resolution; type-only import not visible to DTS worker
+                  const { runIndexer } = await import('@wrongstack/tools/codebase-index/index.js');
+                  const root = indexProjectRoot || dirPath;
+                  const fakeAppend = async () => { /* noop */ };
+                  const fakeClose = async () => { /* noop */ };
+                  const fakeRecordFileChange = () => { /* noop */ };
+                  const ctx = {
+                    projectRoot: root,
+                    cwd: root,
+                    messages: [],
+                    todos: [],
+                    readFiles: new Set(),
+                    fileMtimes: new Map(),
+                    session: { id: 'fw', append: fakeAppend, close: fakeClose, recordFileChange: fakeRecordFileChange },
+                  } as unknown as Parameters<typeof runIndexer>[0];
+                  await runIndexer(ctx, { projectRoot: root, files: [fullPath] });
+                  api.metrics.counter('index_file', 1);
+                  api.log.debug(`file-watcher: auto-index triggered for ${fullPath}`);
+                } catch (err) {
+                  api.log.warn(`file-watcher: auto-index failed for ${fullPath}: ${err}`);
+                }
+              }, debounceMs);
+            }
           }, debounceMs);
         });
 

@@ -2,7 +2,7 @@ import { defineConfig } from 'tsup';
 
 // L3-A: every public tool gets its own entry so users can
 // `import { bashTool } from '@wrongstack/tools/bash'` and tree-shake the
-// rest. Underscored files are private helpers and are excluded.
+// rest. Underscored files are excluded.
 export default defineConfig({
   entry: [
     'src/index.ts',
@@ -44,6 +44,8 @@ export default defineConfig({
     'src/mode.ts',
     'src/process-registry.ts',
     'src/circuit-breaker.ts',
+    // Codebase index tools
+    'src/codebase-index/index.ts',
   ],
   format: ['esm'],
   dts: true,
@@ -52,5 +54,9 @@ export default defineConfig({
   splitting: false,
   treeshake: true,
   target: 'es2023',
-  external: ['@wrongstack/core'],
+  // @wrongstack/core is a workspace dependency.
+  // node:sqlite (Node.js built-in, experimental in Node 22.5+) must be
+  // external so esbuild does NOT rewrite `node:sqlite` → `sqlite`.
+  // There is no `sqlite` npm package — Node resolves `node:sqlite` natively.
+  external: ['@wrongstack/core', 'node:sqlite'],
 });

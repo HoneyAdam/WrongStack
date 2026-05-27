@@ -72,8 +72,8 @@ const BLOCKED_ARG_PATTERNS: Record<string, RegExp[]> = {
   docker: [/^build$/, /^run$/, /^exec$/, /^push$/, /^pull$/],
   // find -exec/-ok/-execdir execute arbitrary commands
   find: [/^-exec$/, /^-exec;$/, /^-ok$/, /^-ok;$/, /^-execdir$/, /^-execdir;$/, /^-exec=/, /^-ok=/, /^-execdir=/],
-  // rm -rf / is catastrophic — block root and home targets
-  rm: [/^\/$/, /^\/\*$/, /^~$/],
+  // rm -rf / is catastrophic — block absolute paths, home, and dot-dir targets
+  rm: [/^\//, /^~/, /^\.{1,2}$/],
   // npm run/exec/create/pack/publish can execute arbitrary scripts or publish malware
   npm: [/^run$/, /^exec$/, /^create$/, /^init$/, /^pack$/, /^publish$/, /^deploy$/],
   // pnpm run/dlx/exec/create can execute arbitrary scripts

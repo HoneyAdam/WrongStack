@@ -416,7 +416,9 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
   // the URL query param `?token=...`. Without a token, any client on the
   // network can connect and send `user_message`/`key.add`/`model.switch`.
   const wsToken = randomBytes(16).toString('hex');
-  console.log(`[WebUI] WS auth token: ${wsToken}`);
+  // Token is sent to clients via session.start payload — log only a masked
+  // prefix so operators can correlate without leaking the full secret.
+  console.log(`[WebUI] WS auth token: ${wsToken.slice(0, 4)}…${wsToken.slice(-4)} (masked)`);
 
   // CSWSH guard + token auth: when the user exposes the socket beyond
   // loopback, require the shared token. Local loopback connections
@@ -1863,15 +1865,33 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
         filePath = path.join(DIST_DIR, 'index.html');
       }
 
-      const ext = path.extname(filePath);
+      // Path traversal guard: the resolved path must stay inside DIST_DIR.
+      // new URL() decodes percent-encoding (%2e%2e → ..), so path.join alone
+      // does not prevent ../../../etc/passwd escapes.
+      const resolvedPath = path.resolve(filePath);
+      const resolvedRoot = path.resolve(DIST_DIR);
+      if (!resolvedPath.startsWith(resolvedRoot + path.sep) && resolvedPath !== resolvedRoot) {
+        res.writeHead(403, { 'Content-Type': 'text/plain' });
+        res.end('Forbidden');
+        return;
+      }
+
+      const ext = path.extname(resolvedPath);
       const contentType = mimeTypes[ext] ?? 'application/octet-stream';
       res.setHeader('Content-Type', contentType);
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('X-Frame-Options', 'DENY');
+      res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
 
       if (ext === '.html') {
         res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader(
+          'Content-Security-Policy',
+          "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; img-src 'self' data:; font-src 'self' data:",
+        );
       }
 
-      const fileContent = await fs.readFile(filePath);
+      const fileContent = await fs.readFile(resolvedPath);
       res.writeHead(200);
       res.end(fileContent);
     } catch (err) {
@@ -1879,7 +1899,11 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
         // Try index.html for SPA routing
         try {
           const fileContent = await fs.readFile(path.join(DIST_DIR, 'index.html'));
-          res.writeHead(200, { 'Content-Type': 'text/html' });
+          res.writeHead(200, {
+            'Content-Type': 'text/html',
+            'X-Content-Type-Options': 'nosniff',
+            'X-Frame-Options': 'DENY',
+          });
           res.end(fileContent);
         } catch {
           res.writeHead(404);

@@ -571,9 +571,8 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
       'AI-driven SDD: /sdd [new|approve|execute|cancel|status|list|show|templates]',
     async run(args) {
       const ctx = opts.context;
-      const projectRoot = ctx?.projectRoot ?? process.cwd();
-      const specsDir = path.join(projectRoot, '.wrongstack', 'specs');
-      const graphsDir = path.join(projectRoot, '.wrongstack', 'task-graphs');
+      const specsDir = opts.paths.projectSpecs;
+      const graphsDir = opts.paths.projectTaskGraphs;
 
       const specStore = new SpecStore({ baseDir: specsDir });
       const graphStore = new TaskGraphStore({ baseDir: graphsDir });
@@ -596,11 +595,11 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
 
           // Check for existing session and offer to resume (unless --force)
           if (!sessionState.getBuilder() && !forceFlag) {
-            const sessionPath = path.join(projectRoot, '.wrongstack', 'sdd-session.json');
+            const sessionPath = opts.paths.projectSddSession;
             try {
               await fsp.access(sessionPath);
               // Session file exists — try to load it
-              const projectContext = await gatherProjectContext(projectRoot);
+              const projectContext = await gatherProjectContext(opts.context?.projectRoot ?? process.cwd());
               const tempBuilder = new AISpecBuilder({
                 store: specStore,
                 projectContext,
@@ -631,14 +630,14 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
           sddState.clearTaskState();
 
           // Gather project context for smarter AI questions
-          const projectContext = await gatherProjectContext(projectRoot);
+          const projectContext = await gatherProjectContext(opts.context?.projectRoot ?? process.cwd());
 
           sddState.setBuilder(new AISpecBuilder({
             store: specStore,
             projectContext,
             minQuestions: 2,
             maxQuestions: 10,
-            sessionPath: path.join(projectRoot, '.wrongstack', 'sdd-session.json'),
+            sessionPath: opts.paths.projectSddSession,
           }));
           // Reset session and phase timers for the new session
           sddState.setSessionStartTime(Date.now());
@@ -751,8 +750,17 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
 
         // ── Task Execution ─────────────────────────────────────────────────
 
-        case 'execute':
-        case 'run': {
+        case 'run':
+        case 'execute': {
+          // If parallel is available, delegate to it; otherwise fall through
+          if (opts.onSddParallelRun) {
+            const slotsArg = restJoined.trim();
+            const slots = slotsArg ? Number.parseInt(slotsArg, 10) : undefined;
+            const message = await opts.onSddParallelRun(
+              slots && Number.isFinite(slots) ? { parallelSlots: Math.min(16, Math.max(1, slots)) } : {},
+            );
+            return { message };
+          }
           const runBuilder = sddState.getBuilder();
           if (!runBuilder) {
             return {
@@ -772,6 +780,23 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
             message: '⚡ Starting task execution. The AI will execute tasks one by one.',
             runText: `[SDD SESSION ACTIVE]\n${execPrompt}\n\n---\nUser message:\nStart executing the tasks one by one.`,
           };
+        }
+
+        case 'parallel': {
+          if (!opts.onSddParallelRun) {
+            return { message: 'SDD parallel run is not available in this session.' };
+          }
+          const slotsArg = restJoined.trim();
+          const slots = slotsArg ? Number.parseInt(slotsArg, 10) : undefined;
+          const message = await opts.onSddParallelRun(
+            slots && Number.isFinite(slots) ? { parallelSlots: Math.min(16, Math.max(1, slots)) } : {},
+          );
+          return { message };
+        }
+
+        case 'stop': {
+          opts.onSddParallelStop?.();
+          return { message: 'SDD parallel run stopped.' };
         }
 
         case 'plan':
@@ -1303,7 +1328,7 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
 
           // Try to load from store
           try {
-            const graphStore = new TaskGraphStore({ baseDir: path.join(projectRoot, '.wrongstack', 'task-graphs') });
+            const graphStore = new TaskGraphStore({ baseDir: opts.paths.projectTaskGraphs });
             const stored = await graphStore.load(graphId);
             if (stored) {
               return { message: renderTaskGraph(stored, { compact: false }) };
@@ -1333,7 +1358,7 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
 
         case 'cancel': {
           // Always try to delete the session file and store dirs from disk
-          const sessionPath = path.join(projectRoot, '.wrongstack', 'sdd-session.json');
+          const sessionPath = opts.paths.projectSddSession;
           let deletedFromDisk = false;
           try {
             await fsp.unlink(sessionPath);
@@ -1342,12 +1367,12 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
             // No file on disk
           }
           try {
-            await fsp.rm(path.join(projectRoot, '.wrongstack', 'specs'), { recursive: true, force: true });
+            await fsp.rm(opts.paths.projectSpecs, { recursive: true, force: true });
           } catch {
             // No specs dir
           }
           try {
-            await fsp.rm(path.join(projectRoot, '.wrongstack', 'task-graphs'), { recursive: true, force: true });
+            await fsp.rm(opts.paths.projectTaskGraphs, { recursive: true, force: true });
           } catch {
             // No task-graphs dir
           }
@@ -1373,8 +1398,8 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
             return { message: 'An SDD session is already active. Use /sdd cancel first.' };
           }
 
-          const sessionPath = path.join(projectRoot, '.wrongstack', 'sdd-session.json');
-          const projectContext = await gatherProjectContext(projectRoot);
+          const sessionPath = opts.paths.projectSddSession;
+          const projectContext = await gatherProjectContext(opts.context?.projectRoot ?? process.cwd());
 
           sddState.setBuilder(new AISpecBuilder({
             store: specStore,
@@ -1560,7 +1585,7 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
           }
 
           try {
-            const graphStore = new TaskGraphStore({ baseDir: path.join(projectRoot, '.wrongstack', 'task-graphs') });
+            const graphStore = new TaskGraphStore({ baseDir: opts.paths.projectTaskGraphs });
             const graph = await graphStore.load(graphId);
             if (!graph) {
               return { message: 'Could not load task graph.' };
@@ -1795,4 +1820,14 @@ async function findGraph(store: TaskGraphStore, idOrTitle: string) {
   );
   if (match) return store.load(match.id);
   return null;
+}
+
+/** Export the task graph id so the CLI's onSddParallelRun can retrieve the graph. */
+export function getTaskGraphId(): string | null {
+  return sddState.getTaskGraphId();
+}
+
+/** Export the task tracker for use by the CLI's parallel run hook. */
+export function getTaskTracker(): TaskTracker | null {
+  return sddState.getTaskTracker();
 }

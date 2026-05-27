@@ -316,6 +316,18 @@ export {
   type TaskExecutionResult,
   type ExecutionSummary,
 } from '../sdd/auto-executor.js';
+export {
+  SddTaskDecomposer,
+  type SddTaskDecomposerOptions,
+  type TaskBatch,
+} from '../sdd/sdd-task-decomposer.js';
+export {
+  SddParallelRun,
+  type SddParallelRunOptions,
+  type SddProgress,
+  type WaveResult,
+  type RunResult,
+} from '../sdd/sdd-parallel-run.js';
 
 // ---- Observability ----
 export {

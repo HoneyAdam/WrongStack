@@ -8,8 +8,9 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import type { FileMeta, IndexStats, SearchResult, Symbol, SymbolKind, SymbolLang } from './schema.js';
+import type { FileMeta, IndexStats, Ref, SearchResult, Symbol, SymbolKind, SymbolLang } from './schema.js';
 import { SCHEMA_VERSION } from './schema.js';
+import { lspKindToInternalKind } from './lsp-kind.js';
 
 const INDEX_DIR = '.codebase-index';
 const DB_FILE = 'index.db';
@@ -57,6 +58,22 @@ export class IndexStore {
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_s_kind ON symbols(kind)');
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_s_lang ON symbols(lang)');
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_s_file ON symbols(file)');
+
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS refs (
+        id INTEGER PRIMARY KEY,
+        from_id INTEGER NOT NULL,
+        to_name TEXT NOT NULL,
+        to_id INTEGER,
+        call_type TEXT NOT NULL,
+        line INTEGER NOT NULL
+      );
+    `);
+
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_r_from ON refs(from_id)');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_r_to_id ON refs(to_id)');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_r_to_name ON refs(to_name)');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_r_call_type ON refs(call_type)');
 
     const versionRows = this.db.prepare('SELECT value FROM metadata WHERE key = ?').all('version');
     if (!versionRows.length) {
@@ -135,14 +152,25 @@ export class IndexStore {
 
   search(
     query: string,
-    filter?: { kind?: SymbolKind; lang?: SymbolLang; file?: string },
+    filter?: { kind?: SymbolKind; lang?: SymbolLang; file?: string; lspKind?: number },
   ): SearchResult[] {
     const conditions: string[] = [];
     const values: unknown[] = [];
 
-    if (filter?.kind) {
+    let effectiveKind: SymbolKind | undefined = filter?.kind;
+    if (filter?.lspKind !== undefined) {
+      const mapped = lspKindToInternalKind(filter.lspKind);
+      if (mapped !== null) {
+        effectiveKind = mapped;
+      } else {
+        // LSP kind was explicitly provided but has no internal mapping → no results
+        return [];
+      }
+    }
+
+    if (effectiveKind) {
       conditions.push('kind = ?');
-      values.push(filter.kind);
+      values.push(effectiveKind);
     }
     if (filter?.lang) {
       conditions.push('lang = ?');
@@ -180,6 +208,7 @@ export class IndexStore {
       docComment: r.doc_comment,
       score: 0,
       snippet: '',
+      lspKind: filter?.lspKind,
     }));
   }
 
@@ -238,6 +267,82 @@ export class IndexStore {
   clearAll(): void {
     this.db.exec('DELETE FROM symbols');
     this.db.exec('DELETE FROM files');
+    this.db.exec('DELETE FROM refs');
+  }
+
+  // ─── Ref CRUD ────────────────────────────────────────────────────────────────
+
+  /**
+   * Insert cross-references for a given source symbol id.
+   * Replaces any existing refs from the same source (idempotent on re-index).
+   */
+  insertRefs(fromId: number, refs: Ref[]): void {
+    // Delete old refs from this symbol (handles re-index)
+    this.db.prepare('DELETE FROM refs WHERE from_id = ?').run(fromId);
+    if (refs.length === 0) return;
+
+    const stmt = this.db.prepare(
+      `INSERT INTO refs(from_id, to_name, to_id, call_type, line)
+       VALUES (?, ?, ?, ?, ?)`,
+    );
+    for (const ref of refs) {
+      stmt.run(fromId, ref.toName, ref.toId ?? null, ref.callType, ref.line);
+    }
+  }
+
+  /**
+   * Delete all refs whose source symbols are in a given file.
+   * Used when re-indexing a file to clear stale refs.
+   */
+  deleteRefsForFile(file: string): void {
+    const ids = this.db.prepare(
+      'SELECT id FROM symbols WHERE file = ?',
+    ).all(file) as { id: number }[];
+    if (!ids.length) return;
+    const placeholders = ids.map(() => '?').join(',');
+    this.db.prepare(`DELETE FROM refs WHERE from_id IN (${placeholders})`).run(...ids.map((r) => r.id));
+  }
+
+  /**
+   * Resolve `to_name` → `to_id` for all refs that have a name but no id.
+   * Call this after all symbols have been inserted to fill in cross-references.
+   */
+  resolveRefs(): number {
+    const unresolved = this.db.prepare(
+      'SELECT id, to_name FROM refs WHERE to_id IS NULL AND to_name IS NOT NULL',
+    ).all() as { id: number; to_name: string }[];
+
+    let resolved = 0;
+    for (const row of unresolved) {
+      const target = this.db.prepare('SELECT id FROM symbols WHERE name = ? LIMIT 1').all(row.to_name) as { id: number }[];
+      if (target.length) {
+        this.db.prepare('UPDATE refs SET to_id = ? WHERE id = ?').run(target[0]!.id, row.id);
+        resolved++;
+      }
+    }
+    return resolved;
+  }
+
+  /**
+   * Find all references TO a given symbol (who calls / uses this symbol?).
+   */
+  findRefsTo(symbolId: number): Ref[] {
+    return (this.db.prepare(
+      'SELECT id, from_id, to_name, to_id, call_type, line FROM refs WHERE to_id = ? OR to_name = (SELECT name FROM symbols WHERE id = ?)',
+    ).all(symbolId, symbolId) as { id: number; from_id: number; to_name: string; to_id: number | null; call_type: string; line: number }[]).map((r) => ({
+      id: r.id, fromId: r.from_id, toName: r.to_name, toId: r.to_id ?? undefined, callType: r.call_type as Ref['callType'], line: r.line,
+    }));
+  }
+
+  /**
+   * Find all references FROM a given symbol (what does this symbol call/use?).
+   */
+  findRefsFrom(symbolId: number): Ref[] {
+    return (this.db.prepare(
+      'SELECT id, from_id, to_name, to_id, call_type, line FROM refs WHERE from_id = ?',
+    ).all(symbolId) as { id: number; from_id: number; to_name: string; to_id: number | null; call_type: string; line: number }[]).map((r) => ({
+      id: r.id, fromId: r.from_id, toName: r.to_name, toId: r.to_id ?? undefined, callType: r.call_type as Ref['callType'], line: r.line,
+    }));
   }
 
   private sizeBytes(): number {

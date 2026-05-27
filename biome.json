@@ -23,7 +23,9 @@
         "noGlobalIsFinite": "off",
         "noConfusingVoidType": "off",
         "noAssignInExpressions": "warn",
-        "noControlCharactersInRegex": "warn"
+        "noControlCharactersInRegex": "warn",
+        "noGlobalAssign": "error",
+        "noPrototypeBuiltins": "warn"
       },
       "style": {
         "useNodejsImportProtocol": "error",

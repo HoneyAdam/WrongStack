@@ -199,10 +199,12 @@ async function assertNotPrivate(hostname: string): Promise<void> {
   } else {
     // Hostname — resolve and check every record. This is best-effort against
     // DNS rebinding; Node's fetch() does its own DNS resolution afterward,
-    // so a rebinding attack between lookup and fetch is theoretically possible.
-    // Each redirect target is re-checked before following. For non-hostile
-    // single-tenant contexts this is an acceptable risk. A stricter fix would
-    // require pinning the resolved IP via a custom undici Agent.
+    // so a rebinding attack between lookup and fetch is theoretically possible
+    // (TOCTOU: attacker's DNS returns public IP for our lookup, then 169.254.x.x
+    // for the real fetch). Each redirect target is re-checked before following.
+    // SECURITY: A stricter fix would pin the resolved IP via a custom undici
+    // Agent with a `connect` callback that resolves DNS once and reuses the
+    // result. Until then, this remains an accepted risk for single-tenant use.
     try {
       const records = await dns.lookup(host, { all: true });
       for (const r of records) {
