@@ -247,6 +247,16 @@ func formatType(t ast.Expr) string {
 		return "chan " + formatType(v.Value)
 	case *ast.BasicLit:
 		return v.Value
+	case *ast.IndexExpr:
+		// Generic instantiation with one type arg, e.g. Logger[int].
+		return formatType(v.X) + "[" + formatType(v.Index) + "]"
+	case *ast.IndexListExpr:
+		// Generic instantiation with multiple type args, e.g. Map[K, V].
+		args := make([]string, len(v.Indices))
+		for i, idx := range v.Indices {
+			args[i] = formatType(idx)
+		}
+		return formatType(v.X) + "[" + strings.Join(args, ", ") + "]"
 	default:
 		return "?"
 	}

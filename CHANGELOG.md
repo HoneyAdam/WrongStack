@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and emitted nothing. The program is now written to a temp `.py` file and run
   as a script, sidestepping all shell quoting.
 
+- **Go generic types now render in signatures.** `formatType` handles
+  `ast.IndexExpr`/`ast.IndexListExpr`, so instantiations like `*Box[T]` and
+  `*Cache[K, V]` show their type arguments instead of `?`.
+
 ## [0.7.8] - 2026-05-28
 
 ### Added
