@@ -14,6 +14,7 @@
  * Startup: sends `[wstack-acp]\n` to stdout so the client knows which process
  * is the ACP server before protocol messages begin.
  */
+import {fileURLToPath} from 'node:url';
 import {StdioTransport} from './stdio-transport.js';
 import {ACPToolsRegistry} from './tools-registry.js';
 import {ACPProtocolHandler} from './protocol-handler.js';
@@ -100,7 +101,14 @@ async function main(): Promise<void> {
   await server.start();
 }
 
-main().catch((err) => {
-  process.stderr.write(`[wstack-acp fatal] ${err}\n`);
-  process.exit(1);
-});
+// Only auto-start when this file is the process entrypoint (e.g.
+// `node dist/agent/wrongstack-acp-agent.js`). Importing the module — which the
+// CLI does to reuse `WrongStackACPServer` — must stay side-effect-free, or
+// every launch would start an ACP server and hijack stdin.
+const isEntrypoint = process.argv[1] !== undefined && fileURLToPath(import.meta.url) === process.argv[1];
+if (isEntrypoint) {
+  main().catch((err) => {
+    process.stderr.write(`[wstack-acp fatal] ${err}\n`);
+    process.exit(1);
+  });
+}
