@@ -1,19 +1,13 @@
 import type { SlashCommand } from '@wrongstack/core';
 import {
   AutoPhaseRunner,
-  PhaseGraphBuilder,
-  PhaseOrchestrator,
   PhaseStore,
   type PhaseGraph,
-  type PhaseNode,
   type PhaseProgress,
   type PhaseTemplate,
 } from '@wrongstack/core';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { fileURLToPath } from 'node:url';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Global runner instance (per-session)
 let currentRunner: AutoPhaseRunner | null = null;
@@ -101,44 +95,48 @@ function formatPhaseList(graph: PhaseGraph): string {
 export const autophaseCommand: SlashCommand = {
   name: 'autophase',
   description: 'Otonom faz tabanlı iş akışı — projeyi fazlara böl ve otonom çalıştır',
-  usage: '/autophase [start|pause|resume|stop|status|list|load|save] [args...]',
+  argsHint: '[start|pause|resume|stop|status|list|load|save] [args...]',
 
-  async execute(args, ctx) {
-    const sub = args[0] ?? 'status';
+  async run(args, _ctx) {
+    const parts = args.trim().split(/\s+/).filter(Boolean);
+    const sub = parts[0] ?? 'status';
     const store = getStore();
 
     switch (sub) {
       case 'start': {
-        const title = args.slice(1).join(' ') || 'Untitled Project';
+        const title = parts.slice(1).join(' ') || 'Untitled Project';
 
-        ctx.logger.info(`🚀 AutoPhase başlatılıyor: ${title}`);
+        const runLog: string[] = [];
+        const log = (line: string) => runLog.push(line);
+
+        log(`🚀 AutoPhase başlatılıyor: ${title}`);
 
         currentRunner = new AutoPhaseRunner({
           title,
           phases: DEFAULT_PHASES,
           executeTask: async (task, phaseId) => {
-            ctx.logger.info(`  [${phaseId}] Executing: ${task.title}`);
+            log(`  [${phaseId}] Executing: ${task.title}`);
             // Gerçek uygulamada burada AI agent çalıştırılır
             await new Promise((r) => setTimeout(r, 500)); // Simülasyon
-            ctx.logger.info(`  [${phaseId}] ✅ Completed: ${task.title}`);
+            log(`  [${phaseId}] ✅ Completed: ${task.title}`);
           },
           onPhaseComplete: (phase) => {
-            ctx.logger.info(`\n✅ Phase tamamlandı: ${phase.name} (${phase.actualDurationMs ? (phase.actualDurationMs / 60000).toFixed(1) : 0}m)`);
+            log(`✅ Phase tamamlandı: ${phase.name} (${phase.actualDurationMs ? (phase.actualDurationMs / 60000).toFixed(1) : 0}m)`);
           },
           onPhaseFail: (phase, error) => {
-            ctx.logger.error(`\n❌ Phase başarısız: ${phase.name} — ${error.message}`);
+            log(`❌ Phase başarısız: ${phase.name} — ${error.message}`);
           },
           onProgress: (progress) => {
             // Her 10%'de log at
             if (progress.percentComplete % 10 === 0) {
-              ctx.logger.info(formatProgress(progress));
+              log(formatProgress(progress));
             }
           },
           onComplete: (graph) => {
-            ctx.logger.info(`\n🎉 Tüm fazlar tamamlandı! ${graph.title}`);
+            log(`🎉 Tüm fazlar tamamlandı! ${graph.title}`);
           },
-          onFail: (graph, phase, error) => {
-            ctx.logger.error(`\n💥 AutoPhase durdu: ${phase.name} — ${error.message}`);
+          onFail: (_graph, phase, error) => {
+            log(`💥 AutoPhase durdu: ${phase.name} — ${error.message}`);
           },
           autonomous: true,
           maxConcurrentPhases: 1,
@@ -151,33 +149,38 @@ export const autophaseCommand: SlashCommand = {
         await store.save(currentGraph);
 
         return {
-          content: `AutoPhase başlatıldı: **${title}**\n\n${formatPhaseList(currentGraph)}`,
+          message: [
+            `AutoPhase başlatıldı: **${title}**`,
+            '',
+            formatPhaseList(currentGraph),
+            ...(runLog.length > 0 ? ['', '---', ...runLog] : []),
+          ].join('\n'),
         };
       }
 
       case 'pause': {
         if (!currentRunner) {
-          return { content: '❌ Aktif AutoPhase yok. Önce `/autophase start` çalıştırın.' };
+          return { message: '❌ Aktif AutoPhase yok. Önce `/autophase start` çalıştırın.' };
         }
         currentRunner.pause();
-        return { content: '⏸️ AutoPhase duraklatıldı. Devam etmek için `/autophase resume`' };
+        return { message: '⏸️ AutoPhase duraklatıldı. Devam etmek için `/autophase resume`' };
       }
 
       case 'resume': {
         if (!currentRunner) {
-          return { content: '❌ Aktif AutoPhase yok. Önce `/autophase start` çalıştırın.' };
+          return { message: '❌ Aktif AutoPhase yok. Önce `/autophase start` çalıştırın.' };
         }
         currentRunner.resume();
-        return { content: '▶️ AutoPhase devam ediyor.' };
+        return { message: '▶️ AutoPhase devam ediyor.' };
       }
 
       case 'stop': {
         if (!currentRunner) {
-          return { content: '❌ Aktif AutoPhase yok.' };
+          return { message: '❌ Aktif AutoPhase yok.' };
         }
         currentRunner.stop();
         currentRunner = null;
-        return { content: '🛑 AutoPhase durduruldu.' };
+        return { message: '🛑 AutoPhase durduruldu.' };
       }
 
       case 'status': {
@@ -185,17 +188,17 @@ export const autophaseCommand: SlashCommand = {
           // Kayıtlı graph'ları listele
           const graphs = await store.list();
           if (graphs.length === 0) {
-            return { content: 'Aktif AutoPhase yok. Başlatmak için `/autophase start [title]`' };
+            return { message: 'Aktif AutoPhase yok. Başlatmak için `/autophase start [title]`' };
           }
           const list = graphs.slice(0, 5).map((g) => `  • ${g.title} (${g.status})`).join('\n');
-          return { content: `Kayıtlı AutoPhase projeleri:\n${list}` };
+          return { message: `Kayıtlı AutoPhase projeleri:\n${list}` };
         }
 
         const progress = currentRunner.getProgress();
         const phaseList = formatPhaseList(currentGraph);
 
         return {
-          content: [
+          message: [
             `**${currentGraph.title}**`,
             progress ? formatProgress(progress) : '',
             '',
@@ -210,41 +213,41 @@ export const autophaseCommand: SlashCommand = {
       case 'list': {
         const graphs = await store.list();
         if (graphs.length === 0) {
-          return { content: 'Kayıtlı AutoPhase projesi yok.' };
+          return { message: 'Kayıtlı AutoPhase projesi yok.' };
         }
         const list = graphs.map((g) => {
           const statusEmoji = g.status === 'completed' ? '✅' : g.status === 'in_progress' ? '🔄' : '⏳';
           return `  ${statusEmoji} ${g.title} (güncelleme: ${new Date(g.updatedAt).toLocaleDateString('tr-TR')})`;
         }).join('\n');
-        return { content: `**Kayıtlı Projeler:**\n${list}` };
+        return { message: `**Kayıtlı Projeler:**\n${list}` };
       }
 
       case 'load': {
-        const graphId = args[1];
+        const graphId = parts[1];
         if (!graphId) {
-          return { content: '❌ Graph ID gerekli. Kullanım: `/autophase load <id>`' };
+          return { message: '❌ Graph ID gerekli. Kullanım: `/autophase load <id>`' };
         }
         const graph = await store.load(graphId);
         if (!graph) {
-          return { content: `❌ Graph bulunamadı: ${graphId}` };
+          return { message: `❌ Graph bulunamadı: ${graphId}` };
         }
         currentGraph = graph;
         return {
-          content: `**${graph.title}** yüklendi.\n\n${formatPhaseList(graph)}`,
+          message: `**${graph.title}** yüklendi.\n\n${formatPhaseList(graph)}`,
         };
       }
 
       case 'save': {
         if (!currentGraph) {
-          return { content: '❌ Kaydedilecek aktif graph yok.' };
+          return { message: '❌ Kaydedilecek aktif graph yok.' };
         }
         await store.save(currentGraph);
-        return { content: `✅ **${currentGraph.title}** kaydedildi.` };
+        return { message: `✅ **${currentGraph.title}** kaydedildi.` };
       }
 
       default:
         return {
-          content: [
+          message: [
             '**AutoPhase Komutları:**',
             '',
             '`/autophase start [title]` — Yeni proje başlat',

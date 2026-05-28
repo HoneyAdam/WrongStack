@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { PhasePanel } from './PhasePanel';
 import { TaskBoard } from './TaskBoard';
-import type { PhaseItem, TaskItem } from './PhasePanel';
+import type { PhaseItem } from './PhasePanel';
+import type { TaskItem } from './TaskBoard';
+import type { WSServerMessage } from '@/types';
 
 interface AutoPhaseState {
   phases: PhaseItem[];
@@ -31,9 +33,9 @@ export function AutoPhaseView(): React.ReactElement {
 
   // WebSocket'ten AutoPhase state güncellemelerini dinle
   useEffect(() => {
-    const handleMessage = (msg: { type?: string; payload?: AutoPhaseState }) => {
+    const handleMessage = (msg: WSServerMessage) => {
       if (msg.type === 'autophase.state' && msg.payload) {
-        setState(msg.payload);
+        setState(msg.payload as unknown as AutoPhaseState);
       }
     };
 

@@ -424,9 +424,22 @@ export interface WSModesList {
   };
 }
 
+/** AutoPhase live state broadcast (see server/autophase-ws-handler.ts). */
+export interface WSAutoPhaseState {
+  type: 'autophase.state';
+  payload: Record<string, unknown>;
+}
+
 export type WSClientMessage =
   | WSUserMessage
   | WSToolConfirmResult
+  | { type: 'autophase.start'; payload: { title: string; phases?: unknown[]; autonomous?: boolean } }
+  | { type: 'autophase.pause'; payload: Record<string, never> }
+  | { type: 'autophase.resume'; payload: Record<string, never> }
+  | { type: 'autophase.stop'; payload: Record<string, never> }
+  | { type: 'autophase.toggleAutonomous'; payload: { autonomous?: boolean } }
+  | { type: 'autophase.selectPhase'; payload: { phaseId: string } }
+  | { type: 'autophase.taskStatus'; payload: { taskId: string; status: string } }
   | { type: 'abort'; payload: Record<string, never> }
   | { type: 'session.resume'; payload: { id: string } }
   | { type: 'session.new' }
@@ -498,7 +511,8 @@ export type WSServerMessage =
   | WSKeyOperationResult
   | WSFilesList
   | WSTodosUpdated
-  | WSModesList;
+  | WSModesList
+  | WSAutoPhaseState;
 
 // Helper to broadcast to all clients
 export type BroadcastFn = (msg: WSServerMessage) => void;
