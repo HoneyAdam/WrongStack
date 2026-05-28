@@ -404,7 +404,7 @@ type State = {
   streamFleet: boolean;
   /** When true, the full graphical fleet monitor overlay is shown (Ctrl+F). */
   monitorOpen: boolean;
-  /** When true, the agents monitor overlay is shown (Ctrl+Shift+M). */
+  /** When true, the agents monitor overlay is shown (Ctrl+G). */
   agentsMonitorOpen: boolean;
   /** Session checkpoints recorded by SessionWriter.writeCheckpoint() events. */
   checkpoints: Array<{

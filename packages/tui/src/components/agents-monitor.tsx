@@ -30,7 +30,7 @@ function fmtTokens(n: number): string {
 }
 
 /**
- * Agents monitor overlay (Ctrl+Shift+M). Shows every known subagent with
+ * Agents monitor overlay (Ctrl+G). Shows every known subagent with
  * status, elapsed time, iteration/tool counts, an activity sparkline, the
  * current tool, a global concurrency gauge, token/cost totals, and a
  * compact event timeline.
@@ -94,7 +94,7 @@ export function AgentsMonitor({
         <Text color="yellow">▶{running.length}</Text>
         <Text color="green">✓{done}</Text>
         {failed > 0 ? <Text color="red">✗{failed}</Text> : null}
-        <Text dimColor>· Ctrl+Shift+M to close</Text>
+        <Text dimColor>· Ctrl+G to close</Text>
       </Box>
 
       {/* Token + cost row */}
