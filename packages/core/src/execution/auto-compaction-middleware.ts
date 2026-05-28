@@ -1,9 +1,12 @@
 import type { Context } from '../core/context.js';
 import type { EventBus } from '../kernel/events.js';
 import type { MiddlewareHandler } from '../kernel/pipeline.js';
-import type { Compactor } from '../types/compactor.js';
+import type { CompactReport, Compactor } from '../types/compactor.js';
 import type { ContextWindowAggressiveOn, ContextWindowPolicy } from '../types/context-window.js';
 import { AgentError, ERROR_CODES } from '../types/errors.js';
+
+type PressureLevel = 'warn' | 'soft' | 'hard';
+const LEVEL_RANK: Record<PressureLevel, number> = { warn: 0, soft: 1, hard: 2 };
 
 export type CompactionFailureMode = 'throw' | 'throw_on_hard' | 'continue';
 
@@ -44,6 +47,18 @@ export class AutoCompactionMiddleware {
    * short conversations, causing premature compaction triggers.
    */
   private static readonly OVERHEAD_FACTOR = 1.3;
+
+  /**
+   * Once a compaction attempt reduces nothing (preserveK protects everything,
+   * no oversized tool_results remain to elide), retrying on every iteration
+   * just spams `compaction.fired` events without making progress. We remember
+   * the no-op and skip until either the pressure level escalates or context
+   * has grown by at least this many tokens since the failed attempt.
+   */
+  private static readonly NOOP_RETRY_DELTA_TOKENS = 2_000;
+
+  /** Tracks the most recent no-op attempt so we can avoid re-firing per turn. */
+  private lastNoopAttempt: { level: PressureLevel; tokens: number } | null = null;
 
   /**
    * @param compactor        Compactor to use for compaction.
@@ -99,25 +114,71 @@ export class AutoCompactionMiddleware {
       };
       const aggressiveOn = policy?.aggressiveOn ?? this.aggressiveOn;
 
-      if (load >= thresholds.hard) {
-        await this.compact(ctx, true, { level: 'hard', tokens, load });
-      } else if (load >= thresholds.soft) {
-        await this.compact(ctx, aggressiveOn !== 'hard', { level: 'soft', tokens, load });
-      } else if (load >= thresholds.warn) {
-        await this.compact(ctx, aggressiveOn === 'warn', { level: 'warn', tokens, load });
+      const level: PressureLevel | null =
+        load >= thresholds.hard
+          ? 'hard'
+          : load >= thresholds.soft
+            ? 'soft'
+            : load >= thresholds.warn
+              ? 'warn'
+              : null;
+
+      if (!level) {
+        // Load dropped back below all thresholds — any previously stuck state
+        // is no longer relevant.
+        this.lastNoopAttempt = null;
+        return next(ctx);
       }
+
+      if (this.shouldSkipNoopRetry(level, tokens)) {
+        return next(ctx);
+      }
+
+      const aggressive =
+        level === 'hard'
+          ? true
+          : level === 'soft'
+            ? aggressiveOn !== 'hard'
+            : aggressiveOn === 'warn';
+
+      await this.compact(ctx, aggressive, { level, tokens, load });
 
       return next(ctx);
     };
   }
 
+  /**
+   * Returns true when the previous compaction at the same or higher pressure
+   * level reduced nothing and context has not grown materially since. Prevents
+   * a stuck preserveK window from spamming compaction events every iteration.
+   */
+  private shouldSkipNoopRetry(level: PressureLevel, tokens: number): boolean {
+    const stuck = this.lastNoopAttempt;
+    if (!stuck) return false;
+    // Escalation always retries — soft → hard might be reducible aggressively.
+    if (LEVEL_RANK[level] > LEVEL_RANK[stuck.level]) return false;
+    const delta = tokens - stuck.tokens;
+    return delta < AutoCompactionMiddleware.NOOP_RETRY_DELTA_TOKENS;
+  }
+
+  private recordAttempt(level: PressureLevel, tokens: number, report: CompactReport): void {
+    const reduced = report.before > report.after;
+    const repaired = !!report.repaired;
+    if (reduced || repaired) {
+      this.lastNoopAttempt = null;
+    } else {
+      this.lastNoopAttempt = { level, tokens };
+    }
+  }
+
   private async compact(
     ctx: Context,
     aggressive: boolean,
-    pressure: { level: 'warn' | 'soft' | 'hard'; tokens: number; load: number },
+    pressure: { level: PressureLevel; tokens: number; load: number },
   ): Promise<void> {
     try {
       const report = await this.compactor.compact(ctx, { aggressive });
+      this.recordAttempt(pressure.level, pressure.tokens, report);
       this.events?.emit('compaction.fired', {
         level: pressure.level,
         tokens: pressure.tokens,

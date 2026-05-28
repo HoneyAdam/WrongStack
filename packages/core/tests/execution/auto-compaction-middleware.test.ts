@@ -239,6 +239,126 @@ describe('AutoCompactionMiddleware', () => {
     expect(failures[0]!.fatal).toBe(true);
   });
 
+  it('does not re-run compaction after a no-op attempt at the same pressure level', async () => {
+    // Compactor that reports zero savings — simulates preserveK protecting
+    // everything and no oversized tool_results outside the window.
+    const noopCompactor: Compactor & { calls: number } = {
+      calls: 0,
+      async compact() {
+        this.calls++;
+        return { before: 1000, after: 1000, reductions: [] };
+      },
+    };
+    const events = new EventBus();
+    const fired: unknown[] = [];
+    events.on('compaction.fired', (e) => fired.push(e));
+
+    const mw = new AutoCompactionMiddleware(
+      noopCompactor,
+      10000,
+      simpleEstimator(8000), // 80% raw → 104% adjusted (above hard)
+      { warn: 0.5, soft: 0.75, hard: 0.9 },
+      { aggressiveOn: 'soft', events, failureMode: 'continue' },
+    );
+
+    // Three back-to-back iterations at the same pressure with no change
+    for (let i = 0; i < 3; i++) {
+      await mw.handler()(mockContext(0), async (c) => c);
+    }
+
+    // First attempt fires; subsequent no-op-at-same-level attempts are skipped.
+    expect(noopCompactor.calls).toBe(1);
+    expect(fired).toHaveLength(1);
+  });
+
+  it('retries compaction after a no-op when context grows materially', async () => {
+    const noopCompactor: Compactor & { calls: number } = {
+      calls: 0,
+      async compact() {
+        this.calls++;
+        return { before: 1000, after: 1000, reductions: [] };
+      },
+    };
+    let currentRaw = 8000;
+    const estimator: (ctx: Context) => number = () => currentRaw;
+
+    const mw = new AutoCompactionMiddleware(
+      noopCompactor,
+      10000,
+      estimator,
+      { warn: 0.5, soft: 0.75, hard: 0.9 },
+      { failureMode: 'continue' },
+    );
+
+    await mw.handler()(mockContext(0), async (c) => c); // initial no-op records stuck state
+    expect(noopCompactor.calls).toBe(1);
+
+    // Tiny growth — still skipped
+    currentRaw = 8100;
+    await mw.handler()(mockContext(0), async (c) => c);
+    expect(noopCompactor.calls).toBe(1);
+
+    // Large growth (>= 2000 adjusted-token delta) — retries
+    currentRaw = 10000; // 13000 adjusted vs 10400 previous → +2600
+    await mw.handler()(mockContext(0), async (c) => c);
+    expect(noopCompactor.calls).toBe(2);
+  });
+
+  it('retries compaction after a no-op when pressure escalates to a higher level', async () => {
+    const noopCompactor: Compactor & { calls: number } = {
+      calls: 0,
+      async compact() {
+        this.calls++;
+        return { before: 1000, after: 1000, reductions: [] };
+      },
+    };
+    let currentRaw = 6500; // ~84.5% adjusted → soft band
+    const estimator: (ctx: Context) => number = () => currentRaw;
+
+    const mw = new AutoCompactionMiddleware(
+      noopCompactor,
+      10000,
+      estimator,
+      { warn: 0.5, soft: 0.75, hard: 0.9 },
+      { failureMode: 'continue' },
+    );
+
+    await mw.handler()(mockContext(0), async (c) => c); // no-op at soft
+    await mw.handler()(mockContext(0), async (c) => c); // skipped
+    expect(noopCompactor.calls).toBe(1);
+
+    currentRaw = 7000; // ~91% adjusted → escalates to hard
+    await mw.handler()(mockContext(0), async (c) => c);
+    expect(noopCompactor.calls).toBe(2);
+  });
+
+  it('clears the no-op record when load drops back below all thresholds', async () => {
+    const noopCompactor: Compactor & { calls: number } = {
+      calls: 0,
+      async compact() {
+        this.calls++;
+        return { before: 1000, after: 1000, reductions: [] };
+      },
+    };
+    let currentRaw = 8000;
+    const estimator: (ctx: Context) => number = () => currentRaw;
+
+    const mw = new AutoCompactionMiddleware(
+      noopCompactor,
+      10000,
+      estimator,
+      { warn: 0.5, soft: 0.75, hard: 0.9 },
+      { failureMode: 'continue' },
+    );
+
+    await mw.handler()(mockContext(0), async (c) => c); // no-op
+    currentRaw = 3000; // 39% adjusted → below warn
+    await mw.handler()(mockContext(0), async (c) => c);
+    currentRaw = 8000; // back up — stuck state cleared, should retry
+    await mw.handler()(mockContext(0), async (c) => c);
+    expect(noopCompactor.calls).toBe(2);
+  });
+
   it('can be configured to continue after compaction errors', async () => {
     const badCompactor: Compactor = {
       async compact() {

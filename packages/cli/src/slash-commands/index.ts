@@ -232,6 +232,7 @@ import {
   buildSkillUpdateCommand,
   buildSkillUninstallCommand,
 } from './skill-install.js';
+import { autophaseCommand } from './autophase.js';
 
 export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashCommand[] {
   return [
@@ -273,6 +274,7 @@ export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashComma
     buildPushCommand(opts),
     buildSecurityCommand(opts),
     buildFixCommand(opts),
+    autophaseCommand,
     buildStatuslineCommand({
       cwd: opts.cwd,
       hiddenItems: opts.statuslineHiddenItems ?? [],

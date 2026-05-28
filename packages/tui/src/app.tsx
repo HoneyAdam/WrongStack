@@ -2615,7 +2615,7 @@ export function App({
   // --- Leader agent compaction events → chat history ---
   useEffect(() => {
     const offFired = events.on('compaction.fired', (e) => {
-      const { level, tokens, load, maxContext, report, aggressive } = e as {
+      const { level, tokens, load, maxContext, report } = e as {
         level: string;
         tokens: number;
         load: number;
@@ -2627,11 +2627,25 @@ export function App({
       const before = report.before;
       const after = report.after;
       const saved = before - after;
+      // `tokens` and `load` are the overhead-adjusted figures the threshold
+      // check fires on (raw messages × 1.3 + system/tools); `report.before`
+      // is the raw message-only count. Surface both so the percentage and
+      // the byte numbers stop looking contradictory.
+      if (saved <= 0) {
+        dispatch({
+          type: 'addEntry',
+          entry: {
+            kind: 'info',
+            text: `▸ compaction skipped at ${level} — load ${pct}% (${tokens.toLocaleString()} of ${maxContext.toLocaleString()} tok, incl. ~1.3× overhead). preserveK protects recent turns; nothing to elide.`,
+          },
+        });
+        return;
+      }
       const table = [
-        `▸ context compacted at ${level} (${pct}% of ${maxContext.toLocaleString()} tok)`,
-        `  tokens before  ${before.toLocaleString().padStart(8)}`,
-        `  tokens after   ${after.toLocaleString().padStart(8)}`,
-        `  saved         ${saved.toLocaleString().padStart(8)}  (${((saved / before) * 100).toFixed(1)}%)`,
+        `▸ context compacted at ${level} — load ${pct}% (${tokens.toLocaleString()} of ${maxContext.toLocaleString()} tok, incl. ~1.3× overhead)`,
+        `  msg tokens before ${before.toLocaleString().padStart(8)}`,
+        `  msg tokens after  ${after.toLocaleString().padStart(8)}`,
+        `  saved            ${saved.toLocaleString().padStart(8)}  (${((saved / before) * 100).toFixed(1)}%)`,
       ];
       for (const line of table) {
         dispatch({ type: 'addEntry', entry: { kind: 'info', text: line } });
@@ -2641,8 +2655,8 @@ export function App({
       const { level, load, maxContext, fatal } = e as { level: string; load: number; maxContext: number; fatal: boolean };
       const pct = (load * 100).toFixed(0);
       const text = fatal
-        ? `✗ compaction failed at ${level} (${pct}% of ${maxContext.toLocaleString()} tok) — FATAL`
-        : `⚠ compaction failed at ${level} (${pct}% of ${maxContext.toLocaleString()} tok) — continuing`;
+        ? `✗ compaction failed at ${level} — load ${pct}% of ${maxContext.toLocaleString()} tok (incl. overhead) — FATAL`
+        : `⚠ compaction failed at ${level} — load ${pct}% of ${maxContext.toLocaleString()} tok (incl. overhead) — continuing`;
       dispatch({ type: 'addEntry', entry: { kind: fatal ? 'error' : 'warn', text } });
     });
     return () => {
@@ -4229,6 +4243,8 @@ export function App({
         eternalStage={state.eternalStage}
         goalSummary={state.goalSummary}
       />
+      {/* Agents monitor overlay (Ctrl+G) and fleet monitor overlay (Ctrl+F)
+          take up the lower region — hide FleetPanel while any overlay is open. */}
       {state.agentsMonitorOpen ? (
         <AgentsMonitor
           entries={entriesWithLeader}
@@ -4236,8 +4252,7 @@ export function App({
           totalTokens={state.fleetTokens}
           nowTick={nowTick}
         />
-      ) : null}
-      {state.monitorOpen ? (
+      ) : state.monitorOpen ? (
         <FleetMonitor
           entries={state.fleet}
           totalCost={state.fleetCost}

@@ -921,6 +921,59 @@ export function useWebSocket() {
   const switchContextMode = useCallback((id: string) => client.switchContextMode(id), [client]);
   const repairContext = useCallback(() => client.repairContext(), [client]);
 
+  // ── AutoPhase ───────────────────────────────────────────────────────────────
+
+  /**
+   * Toggle autonomous mode on/off for the active AutoPhase session.
+   */
+  const toggleAutoPhaseAutonomous = useCallback(
+    (autonomous: boolean) => {
+      client.send({ type: 'autophase.toggleAutonomous', payload: { autonomous } });
+    },
+    [client],
+  );
+
+  /**
+   * Start a new AutoPhase session.
+   */
+  const startAutoPhase = useCallback(
+    (title: string, phases?: unknown[], autonomous = true) => {
+      client.send({ type: 'autophase.start', payload: { title, phases, autonomous } });
+    },
+    [client],
+  );
+
+  /**
+   * Pause the running AutoPhase session.
+   */
+  const pauseAutoPhase = useCallback(() => {
+    client.send({ type: 'autophase.pause', payload: {} });
+  }, [client]);
+
+  /**
+   * Resume a paused AutoPhase session.
+   */
+  const resumeAutoPhase = useCallback(() => {
+    client.send({ type: 'autophase.resume', payload: {} });
+  }, [client]);
+
+  /**
+   * Stop the AutoPhase session.
+   */
+  const stopAutoPhase = useCallback(() => {
+    client.send({ type: 'autophase.stop', payload: {} });
+  }, [client]);
+
+  /**
+   * Select a phase to view its tasks.
+   */
+  const selectAutoPhase = useCallback(
+    (phaseId: string) => {
+      client.send({ type: 'autophase.selectPhase', payload: { phaseId } });
+    },
+    [client],
+  );
+
   return {
     client,
     sendMessage,
@@ -950,5 +1003,11 @@ export function useWebSocket() {
     listContextModes,
     switchContextMode,
     repairContext,
+    toggleAutoPhaseAutonomous,
+    startAutoPhase,
+    pauseAutoPhase,
+    resumeAutoPhase,
+    stopAutoPhase,
+    selectAutoPhase,
   };
 }

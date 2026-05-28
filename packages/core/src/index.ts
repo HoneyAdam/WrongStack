@@ -124,3 +124,30 @@ export {
   type ContextWindowPolicy,
   type ContextWindowThresholds,
 } from './types/context-window.js';
+
+// ─── AutoPhase — Otonom faz tabanlı iş akışı ────────────────────────────────
+export {
+  AutoPhaseRunner,
+  createAutoPhaseFromTaskGraph,
+  PhaseOrchestrator,
+  PhaseGraphBuilder,
+  PhaseStore,
+  CheckpointManager,
+  type AutoPhaseRunnerOptions,
+  type PhaseOrchestratorOptions,
+  type PhaseGraphBuilderOptions,
+  type PhaseStoreOptions,
+  type CheckpointManagerOptions,
+  type Checkpoint,
+  type PhaseTemplate,
+  type PhaseGraph,
+  type PhaseNode,
+  type PhaseStatus,
+  type PhaseProgress,
+  type PhaseEventMap,
+  type PhaseEventName,
+  type PhaseExecutionContext,
+  type AutoPhaseOptions,
+  type PhaseFilter,
+  type PhaseSort,
+} from './autophase/index.js';
