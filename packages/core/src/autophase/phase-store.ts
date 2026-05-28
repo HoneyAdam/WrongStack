@@ -262,8 +262,8 @@ export class PhaseStore {
       specId: serialized.specId,
       title: serialized.title,
       nodes,
-      edges: serialized.edges,
-      rootNodes: serialized.rootNodes,
+      edges: serialized.edges ?? [],
+      rootNodes: serialized.rootNodes ?? [],
       createdAt: serialized.createdAt,
       updatedAt: serialized.updatedAt,
     };

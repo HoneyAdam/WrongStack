@@ -104,7 +104,7 @@ describe('CheckpointManager', () => {
     await store.save(graph);
 
     const checkpoint = await manager.saveCheckpoint(graph, 'To be deleted');
-    const deleted = manager.deleteCheckpoint(checkpoint.id);
+    const deleted = await manager.deleteCheckpoint(checkpoint.id);
     expect(deleted).toBe(true);
 
     const list = manager.listCheckpoints();

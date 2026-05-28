@@ -98,7 +98,9 @@ export class PhaseOrchestrator {
   /** Devam et — yeni fazlar başlayabilir */
   resume(): void {
     this.paused = false;
-    void this.tick();
+    this.tick().catch((err) => {
+      console.error('[phase-orchestrator] tick failed:', err instanceof Error ? err.message : String(err));
+    });
   }
 
   /** Tamamen durdur — aktif fazlar da durdurulur */

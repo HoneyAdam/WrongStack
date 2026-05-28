@@ -132,12 +132,13 @@ export class CheckpointManager {
     return filtered.sort((a, b) => b.timestamp - a.timestamp);
   }
 
-  deleteCheckpoint(checkpointId: string): boolean {
+  async deleteCheckpoint(checkpointId: string): Promise<boolean> {
     const checkpoint = this.checkpoints.get(checkpointId);
     if (!checkpoint) return false;
 
     this.checkpoints.delete(checkpointId);
-    void this.deleteFromDisk(checkpointId);
+    // Await disk deletion to avoid split-brain between memory and disk
+    await this.deleteFromDisk(checkpointId);
     return true;
   }
 
@@ -148,6 +149,7 @@ export class CheckpointManager {
       ...checkpoint,
     };
 
+    // Read current on-disk state first
     let existing: SerializedCheckpoint[] = [];
     try {
       const raw = await fsp.readFile(filePath, 'utf8');
@@ -159,6 +161,7 @@ export class CheckpointManager {
       // File doesn't exist or is invalid — start fresh
     }
 
+    // Write to disk BEFORE updating in-memory state — ensures consistency
     existing.push(serialized);
     await fsp.writeFile(filePath, JSON.stringify(existing, null, 2), 'utf8');
   }
