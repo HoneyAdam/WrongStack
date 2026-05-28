@@ -160,6 +160,9 @@ export const autophaseCommand: SlashCommand = {
 
       case 'pause': {
         if (!currentRunner) {
+          if (currentGraph) {
+            return { message: `❌ **${currentGraph.title}** yüklü ama çalışmıyor. Duraklatmak için önce başlatın: \`/autophase start\`` };
+          }
           return { message: '❌ Aktif AutoPhase yok. Önce `/autophase start` çalıştırın.' };
         }
         currentRunner.pause();
@@ -168,6 +171,9 @@ export const autophaseCommand: SlashCommand = {
 
       case 'resume': {
         if (!currentRunner) {
+          if (currentGraph) {
+            return { message: `❌ **${currentGraph.title}** yüklü ama çalışmıyor. Devam ettirmek için önce başlatın: \`/autophase start\`` };
+          }
           return { message: '❌ Aktif AutoPhase yok. Önce `/autophase start` çalıştırın.' };
         }
         currentRunner.resume();
@@ -176,30 +182,49 @@ export const autophaseCommand: SlashCommand = {
 
       case 'stop': {
         if (!currentRunner) {
+          if (currentGraph) {
+            return { message: `❌ **${currentGraph.title}** yüklü ama çalışmıyor. Durdurmak için önce başlatın: \`/autophase start\`` };
+          }
           return { message: '❌ Aktif AutoPhase yok.' };
         }
         currentRunner.stop();
         currentRunner = null;
+        currentGraph = null;
         return { message: '🛑 AutoPhase durduruldu.' };
       }
 
       case 'status': {
-        if (!currentRunner || !currentGraph) {
-          // Kayıtlı graph'ları listele
-          const graphs = await store.list();
-          if (graphs.length === 0) {
-            return { message: 'Aktif AutoPhase yok. Başlatmak için `/autophase start [title]`' };
+        if (!currentRunner) {
+          if (!currentGraph) {
+            // Hiçbir şey yüklü değil - kayıtlı graph'ları listele
+            const graphs = await store.list();
+            if (graphs.length === 0) {
+              return { message: 'Aktif AutoPhase yok. Başlatmak için `/autophase start [title]`' };
+            }
+            const list = graphs.slice(0, 5).map((g) => `  • ${g.title} (${g.status})`).join('\n');
+            return { message: `Kayıtlı AutoPhase projeleri:\n${list}` };
           }
-          const list = graphs.slice(0, 5).map((g) => `  • ${g.title} (${g.status})`).join('\n');
-          return { message: `Kayıtlı AutoPhase projeleri:\n${list}` };
+          // Graph var ama runner yok - sadece graph durumunu göster (live metrikler yok)
+          const phaseList = formatPhaseList(currentGraph);
+          return {
+            message: [
+              `**${currentGraph.title}** (yüklü, çalışmıyor)`,
+              '',
+              '**Fazlar:**',
+              phaseList,
+              '',
+              '💡 Devam etmek için `/autophase start` veya `/autophase load <id>` kullanın.',
+            ].join('\n'),
+          };
         }
 
+        const graph = currentRunner.getGraph()!;
         const progress = currentRunner.getProgress();
-        const phaseList = formatPhaseList(currentGraph);
+        const phaseList = formatPhaseList(graph);
 
         return {
           message: [
-            `**${currentGraph.title}**`,
+            `**${graph.title}**`,
             progress ? formatProgress(progress) : '',
             '',
             '**Fazlar:**',
