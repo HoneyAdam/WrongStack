@@ -144,7 +144,7 @@ describe('FleetManager', () => {
     it('stores subagentMeta for getSubagentMeta()', () => {
       const fm = new FleetManager();
       fm.recordSpawn('sub-1', makeConfig({ name: 'worker', provider: 'openai', model: 'gpt-4o' }));
-      expect(fm.getSubagentMeta('sub-1')).toEqual({ provider: 'openai', model: 'gpt-4o' });
+      expect(fm.getSubagentMeta('sub-1')).toEqual({ provider: 'openai', model: 'gpt-4o', name: 'worker' });
     });
 
     it('stores priceLookup for cost attribution', () => {
@@ -443,7 +443,7 @@ describe('FleetManager', () => {
     it('getSubagentMeta returns data for known subagent', () => {
       const fm = new FleetManager();
       fm.recordSpawn('sub-1', makeConfig({ provider: 'openai', model: 'gpt-4o' }));
-      expect(fm.getSubagentMeta('sub-1')).toEqual({ provider: 'openai', model: 'gpt-4o' });
+      expect(fm.getSubagentMeta('sub-1')).toEqual({ provider: 'openai', model: 'gpt-4o', name: 'test-subagent' });
     });
 
     it('writeManifest returns string path when configured', async () => {

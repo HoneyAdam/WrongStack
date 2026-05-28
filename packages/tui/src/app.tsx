@@ -2872,6 +2872,17 @@ export function App({
           });
           break;
         }
+        case 'budget.extended': {
+          const p = e.payload as { totalExtensions?: number };
+          if (p?.totalExtensions !== undefined) {
+            dispatch({
+              type: 'fleetBudgetExtended',
+              id: e.subagentId,
+              totalExtensions: p.totalExtensions,
+            });
+          }
+          break;
+        }
       }
     });
 

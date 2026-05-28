@@ -138,7 +138,14 @@ export class FleetManager implements IFleetManager {
   }
 
   getSubagentMeta(id: string): { provider?: string; model?: string; name?: string } | undefined {
-    return this.subagentMeta.get(id);
+    const meta = this.subagentMeta.get(id);
+    const manifest = this.manifestEntries.get(id);
+    if (!meta && !manifest) return undefined;
+    return {
+      provider: meta?.provider ?? manifest?.provider,
+      model: meta?.model ?? manifest?.model,
+      name: manifest?.name,
+    };
   }
 
   /**
