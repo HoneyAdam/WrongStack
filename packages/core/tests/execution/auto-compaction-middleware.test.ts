@@ -122,7 +122,7 @@ describe('AutoCompactionMiddleware', () => {
     const mw = new AutoCompactionMiddleware(
       compactor,
       10000,
-      simpleEstimator(6800), // 68% raw → 88.4% adjusted: between soft(75%) and hard(90%)
+      simpleEstimator(8000), // 80% load → soft band (between soft=75% and hard=90%)
       {
         warn: 0.5,
         soft: 0.75,
@@ -131,7 +131,7 @@ describe('AutoCompactionMiddleware', () => {
       'hard',
     );
 
-    const ctx = mockContext(0); // 88.4% adjusted: between soft and hard, aggressiveOn=hard
+    const ctx = mockContext(0); // 80% load: soft band, aggressiveOn=hard
     await mw.handler()(ctx, async (c) => c);
 
     expect(compactor.compactCalls).toHaveLength(1);
@@ -256,7 +256,7 @@ describe('AutoCompactionMiddleware', () => {
     const mw = new AutoCompactionMiddleware(
       noopCompactor,
       10000,
-      simpleEstimator(8000), // 80% raw → 104% adjusted (above hard)
+      simpleEstimator(8000), // 80% load → soft band (above warn=50%)
       { warn: 0.5, soft: 0.75, hard: 0.9 },
       { aggressiveOn: 'soft', events, failureMode: 'continue' },
     );
@@ -298,8 +298,8 @@ describe('AutoCompactionMiddleware', () => {
     await mw.handler()(mockContext(0), async (c) => c);
     expect(noopCompactor.calls).toBe(1);
 
-    // Large growth (>= 2000 adjusted-token delta) — retries
-    currentRaw = 10000; // 13000 adjusted vs 10400 previous → +2600
+    // Large growth — escalates from soft (8000=80%) to hard (10000=100%) → retries
+    currentRaw = 10000;
     await mw.handler()(mockContext(0), async (c) => c);
     expect(noopCompactor.calls).toBe(2);
   });
@@ -312,7 +312,7 @@ describe('AutoCompactionMiddleware', () => {
         return { before: 1000, after: 1000, reductions: [] };
       },
     };
-    let currentRaw = 6500; // ~84.5% adjusted → soft band
+    let currentRaw = 7800; // 78% load → soft band (above soft=75%, below hard=90%)
     const estimator: (ctx: Context) => number = () => currentRaw;
 
     const mw = new AutoCompactionMiddleware(
@@ -327,7 +327,7 @@ describe('AutoCompactionMiddleware', () => {
     await mw.handler()(mockContext(0), async (c) => c); // skipped
     expect(noopCompactor.calls).toBe(1);
 
-    currentRaw = 7000; // ~91% adjusted → escalates to hard
+    currentRaw = 9200; // 92% load → escalates to hard
     await mw.handler()(mockContext(0), async (c) => c);
     expect(noopCompactor.calls).toBe(2);
   });
@@ -352,7 +352,7 @@ describe('AutoCompactionMiddleware', () => {
     );
 
     await mw.handler()(mockContext(0), async (c) => c); // no-op
-    currentRaw = 3000; // 39% adjusted → below warn
+    currentRaw = 3000; // 30% load → below warn
     await mw.handler()(mockContext(0), async (c) => c);
     currentRaw = 8000; // back up — stuck state cleared, should retry
     await mw.handler()(mockContext(0), async (c) => c);

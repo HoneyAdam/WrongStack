@@ -41,12 +41,18 @@ export class AutoCompactionMiddleware {
   private readonly policyProvider?: AutoCompactionOptions['policyProvider'];
 
   /**
-   * Overhead factor applied to the rough message-token estimate to produce a
-   * figure comparable to the real API request size (system prompt + tool defs).
-   * Without this factor, raw message tokens undercount real load by 15-50% in
-   * short conversations, causing premature compaction triggers.
+   * Calibration factor applied to the estimator output. The estimator is now
+   * expected to already include messages + system prompt + tool definitions
+   * (see `estimateRequestTokens.total`), so no overhead boost is needed. Kept
+   * as a constant so a future calibration against real provider tokenization
+   * (BPE vs the chars/3.5 rough estimator) can dial this without touching the
+   * threshold-check math.
+   *
+   * Historical note: was 1.3 when the estimator only counted messages — that
+   * double-counted system+tools once the estimator was upgraded, firing
+   * compaction ~30% earlier than intended (e.g. real 56% load showed as 73%).
    */
-  private static readonly OVERHEAD_FACTOR = 1.3;
+  private static readonly OVERHEAD_FACTOR = 1.0;
 
   /**
    * Once a compaction attempt reduces nothing (preserveK protects everything,
