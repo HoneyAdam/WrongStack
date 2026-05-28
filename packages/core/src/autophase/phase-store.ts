@@ -80,7 +80,7 @@ interface SerializedTaskNode {
  * PhaseStore — PhaseGraph'ı diske kaydeden ve yükleyen persistence katmanı.
  */
 export class PhaseStore {
-  private baseDir: string;
+  readonly baseDir: string;
 
   constructor(opts: PhaseStoreOptions) {
     this.baseDir = opts.baseDir;
