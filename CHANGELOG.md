@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.8.4] - 2026-05-28
+
+### Added
+
+- **AutoPhase — autonomous phase-based workflow.** New `/autophase` command (`start`/`pause`/`resume`/`stop`/`status`/`list`/`load`/`save`) drives a project through ordered phases (Discovery → Design → Implementation → Testing → Deployment), each with its own task graph, autonomously. Backed by `AutoPhaseRunner` / `PhaseOrchestrator` / `PhaseStore` in `@wrongstack/core`, with a WebSocket-driven AutoPhase view in the web UI.
+
+### Fixed
+
+- **TUI: input and status bar stay pinned to the bottom.** A resize/erase change homed the cursor to the top of the viewport before erasing, which wiped committed output, pushed the input box to the top of the screen, and truncated long output such as `/help`'s full command list. The live-region erase is now scoped so committed scrollback is preserved and the input/status bar remain at the bottom; history also re-renders correctly on terminal resize.
+
+- **Compaction overhead accounting.** `AutoCompactionMiddleware` now uses an `OVERHEAD_FACTOR` of 1.0 and skips compaction as a no-op when there is nothing to elide. TUI compaction messages no longer cite a misleading "~1.3× overhead" figure — load is reported against the full-request estimate.
+
+- **`release:check` is green again.** The AutoPhase CLI command and web-UI WebSocket message types were brought in line with the current `SlashCommand` contract and WS protocol unions, restoring a passing `typecheck + test + build`.
+
 ## [0.8.2] - 2026-05-28
 
 ### Fixed

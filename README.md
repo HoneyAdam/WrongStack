@@ -276,13 +276,13 @@ Flips off MCP, plugins, memory tools, models.dev fetch, and skill discovery. Wha
 
 ---
 
-## What's new in 0.8.2
+## What's new in 0.8.4
 
-- **`/autonomy director` launch prompt.** When starting `/autonomy eternal` or `/autonomy parallel` from the prompt, the CLI now offers to promote the session to Director mode so the fleet roster is available from the first iteration.
+- **AutoPhase autonomous workflow.** `/autophase start [title]` breaks a project into ordered phases (Discovery → Design → Implementation → Testing → Deployment) and runs them autonomously, with a live phase/task view in the web UI. Run `/autophase` for the full subcommand list.
 
-- **Agents monitor: names + `budget.extended` badge restored.** The agents overlay once again shows agent names, and the `⚡ extended ×N` badge fires correctly when a delegate auto-extends.
+- **TUI input stays put.** Fixed a regression where resizing or new output could push the input box to the top of the screen and erase committed history; the input and status bar now stay pinned to the bottom and `/help` lists every command in full.
 
-- **plug-lsp LSP search tool loads again.** Build ordering fixed: `packages/tools/dist/` is now guaranteed built before `plug-lsp` typechecks, so `codebase-lsp-search` resolves and the tool registers.
+- **Leaner compaction accounting.** Context-compaction load is now reported against the full-request estimate (no more confusing "~1.3× overhead" figures), and no-op compactions are skipped.
 
 For earlier release notes, see [CHANGELOG.md](CHANGELOG.md).
 
