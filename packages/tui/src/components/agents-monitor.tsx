@@ -23,13 +23,6 @@ const STATUS: Record<FleetEntry['status'], { icon: string; color: string }> = {
   stopped: { icon: '⊘', color: 'gray' },
 };
 
-/**
- * Terminal statuses linger this long in the live view before being evicted,
- * so users see the just-finished agent and the outcome icon flashes briefly
- * instead of staying on the screen forever after the run is over.
- */
-const TERMINAL_LINGER_MS = 10_000;
-
 function isTerminal(status: FleetEntry['status']): boolean {
   return status === 'success' || status === 'failed' || status === 'timeout' || status === 'stopped';
 }
@@ -49,9 +42,8 @@ function snippet(s: string, max = 72): string {
 /**
  * Live per-agent context view (Ctrl+G). Each active agent gets a card with
  * its current tool, the last tool result, the most recent streaming /
- * message text, an activity sparkline, and budget pressure. Completed
- * agents linger for {@link TERMINAL_LINGER_MS} so the outcome is visible,
- * then drop off so the monitor reflects only what's actually live.
+ * message text, an activity sparkline, and budget pressure. Terminal
+ * agents are excluded so the monitor reflects only what's actually live.
  */
 export function AgentsMonitor({
   entries,
@@ -61,25 +53,19 @@ export function AgentsMonitor({
 }: AgentsMonitorProps): React.ReactElement {
   const all = Object.values(entries);
 
-  // Filter: keep running/idle always; keep terminal-status agents only for the
-  // grace window after their last event — the FleetPanel + history still have
-  // the full record, this view is for what's happening right now.
-  const live = all.filter((e) => {
-    if (!isTerminal(e.status)) return true;
-    return nowTick - e.lastEventAt <= TERMINAL_LINGER_MS;
-  });
+  // Only running + idle agents are shown. Terminal agents are excluded —
+  // the FleetPanel + history still have the full record; this view shows
+  // only what's actually live right now.
+  const live = all.filter((e) => !isTerminal(e.status));
 
   const running = live.filter((e) => e.status === 'running').length;
-  const done = live.filter((e) => e.status === 'success').length;
-  const failed = live.filter((e) => e.status === 'failed' || e.status === 'timeout').length;
-  const hidden = all.length - live.length;
+  const totalDone = all.filter((e) => e.status === 'success').length;
+  const totalFailed = all.filter((e) => e.status === 'failed' || e.status === 'timeout').length;
 
-  // Running first, then idle, then recently-finished (newest first).
+  // Running agents first (oldest first), then idle (oldest first).
   const ordered = [...live].sort((a, b) => {
-    const ra = a.status === 'running' ? 0 : a.status === 'idle' ? 1 : 2;
-    const rb = b.status === 'running' ? 0 : b.status === 'idle' ? 1 : 2;
-    if (ra !== rb) return ra - rb;
-    if (ra === 2) return b.lastEventAt - a.lastEventAt;
+    if (a.status === 'running' && b.status !== 'running') return -1;
+    if (a.status !== 'running' && b.status === 'running') return 1;
     return a.startedAt - b.startedAt;
   });
   const shown = ordered.slice(0, 8);
@@ -93,8 +79,12 @@ export function AgentsMonitor({
         </Text>
         <Text dimColor>│</Text>
         <Text color="yellow">▶{running}</Text>
-        <Text color="green">✓{done}</Text>
-        {failed > 0 ? <Text color="red">✗{failed}</Text> : null}
+        <Text dimColor>─────────────────</Text>
+        <Text dimColor>done</Text>
+        <Text color="green">✓{totalDone}</Text>
+        <Text dimColor>·</Text>
+        <Text dimColor>failed</Text>
+        {totalFailed > 0 ? <Text color="red">✗{totalFailed}</Text> : null}
         <Text dimColor>· Ctrl+G to close</Text>
       </Box>
 
@@ -102,14 +92,13 @@ export function AgentsMonitor({
       <Box flexDirection="row" gap={1}>
         <Text dimColor>shown</Text>
         <Text color="magenta">{live.length}</Text>
-        {hidden > 0 ? <Text dimColor>(+{hidden} finished)</Text> : null}
         {totalTokens ? (
           <Text dimColor>
             {' '}
             {fmtTokens(totalTokens.input)}↑ {fmtTokens(totalTokens.output)}↓
           </Text>
         ) : null}
-        <Text color="green">{`  $${totalCost.toFixed(3)}`}</Text>
+        <Text color="green">${totalCost.toFixed(3)}</Text>
       </Box>
 
       {shown.length === 0 ? (

@@ -276,17 +276,13 @@ Flips off MCP, plugins, memory tools, models.dev fetch, and skill discovery. Wha
 
 ---
 
-## What's new in 0.8.0
+## What's new in 0.8.2
 
-- **Agents monitor overlay (`Ctrl+G` or `/agents monitor|on|off`).** A minimised agents panel above the input, independent of the full fleet monitor (`Ctrl+F`).
-  Subagent `provider.text_delta` text lands in the leader's chat history when enabled.
-- **`/agents stream on|off`.|`/agents stream on|off`.
-  sessions, specs, task-graphs, plan, and memory now live under a per-machine
-  hashed project directory; the only repo-committed file is
-  `.wrongstack/AGENTS.md`.
-- **Vault key protected from silent loss.** A corrupt or wrong-size `.key`
-  file now raises an error instead of being overwritten with a fresh key
-  (which would have destroyed all encrypted secrets).
+- **`/autonomy director` launch prompt.** When starting `/autonomy eternal` or `/autonomy parallel` from the prompt, the CLI now offers to promote the session to Director mode so the fleet roster is available from the first iteration.
+
+- **Agents monitor: names + `budget.extended` badge restored.** The agents overlay once again shows agent names, and the `⚡ extended ×N` badge fires correctly when a delegate auto-extends.
+
+- **plug-lsp LSP search tool loads again.** Build ordering fixed: `packages/tools/dist/` is now guaranteed built before `plug-lsp` typechecks, so `codebase-lsp-search` resolves and the tool registers.
 
 For earlier release notes, see [CHANGELOG.md](CHANGELOG.md).
 

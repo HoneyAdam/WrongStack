@@ -1671,14 +1671,7 @@ export function App({
     return { leader: leaderEntry, ...state.fleet };
   }, [state.fleet, state.leader, state.status, provider, model]);
 
-  // Stable per-subagent label + color, assigned on first sighting and
-  // shared between the FleetBus listener (history stream) and the
-  // fleetAgents memo (status bar 4th line). Declared HERE — above
-  // `fleetAgents` — because that memo's callback calls labelFor on
-  // every recompute. The previous declaration site (below the memo)
-  // worked while state.fleet was empty (the memo's early-return
-  // skipped the call) but threw a TDZ error the moment a subagent
-  // was spawned and the memo actually executed its body.
+  // Stable per-subagent label + color assigned on first sighting.
   const STREAM_COLORS = ['cyan', 'magenta', 'yellow', 'green', 'blue'];
   const labelsRef = useRef<Map<string, { label: string; color: string }>>(new Map());
   const labelFor = (id: string, name?: string): { label: string; color: string } => {
@@ -1694,42 +1687,6 @@ export function App({
     m.set(id, v);
     return v;
   };
-
-  // Per-agent detail for the status bar's optional 4th line. Limited to
-  // the top 4 active agents (running first, then idle) sorted by spawn
-  // order so the bar doesn't wrap on wide fleets. Reuses the global
-  // `nowTick` (bumped every 1s above) so elapsed time keeps ticking
-  // without needing a second timer.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: labelFor is ref-stable (uses useRef)
-  const fleetAgents = useMemo(() => {
-    const entries = Object.entries(state.fleet);
-    if (entries.length === 0) return undefined;
-    // Show running first, then idle. Completed/failed agents drop off
-    // the active line — they're already reflected in the aggregate ✓N
-    // counter on line 3.
-    const active = entries.filter(([_id, e]) => e.status === 'running' || e.status === 'idle');
-    if (active.length === 0) return undefined;
-    active.sort((a, b) => {
-      const sa = a[1].status === 'running' ? 0 : 1;
-      const sb = b[1].status === 'running' ? 0 : 1;
-      if (sa !== sb) return sa - sb;
-      return a[1].startedAt - b[1].startedAt;
-    });
-    return active.slice(0, 4).map(([id, e]) => {
-      const lbl = labelFor(id, e.name);
-      return {
-        label: lbl.label,
-        color: lbl.color,
-        elapsedMs: Math.max(0, nowTick - e.startedAt),
-        toolCalls: e.toolCalls,
-        running: e.status === 'running',
-        // Last/current action, so the 4th line shows what each agent is
-        // doing right now (e.g. "▶ 12s · 8t · bash") rather than just counts.
-        tool: e.currentTool?.name,
-        extensions: e.extensions,
-      };
-    });
-  }, [state.fleet, nowTick]);
 
   // Plan counts come from `<sessionId>.plan.json` on disk, not React
   // state. We poll lazily every few ticks so the chip stays current
@@ -4263,7 +4220,6 @@ export function App({
         todos={todos}
         plan={planCounts ?? undefined}
         fleet={fleetCounts}
-        fleetAgents={fleetAgents}
         git={gitInfo}
         context={contextWindow}
         projectName={projectName}

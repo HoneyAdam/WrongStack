@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.8.2] - 2026-05-28
+
+### Fixed
+
+- **plug-lsp typecheck: tools dist now built before `codebase-lsp-search` is resolved.** `tsc --noEmit` in `plug-lsp` was running before `packages/tools/dist/` was produced, so the LSP plugin's `codebase-lsp-search` import resolved to nothing and the tool never loaded. The `plug-lsp` build ordering now depends on `tools` being built first.
+
+- **Tests: director smart-dispatch regressions resolved.** Fixed test failures introduced in 0.8.0 where the dispatcher returned incorrect role matches or empty rosters under certain conditions — the test suite now passes end-to-end.
+
+- **Tests: `rm` patterns now include missing tilde (`~`) block.** The `.gitignore` cleanup pattern for `tmp/` variant files was missing the `~` prefix — `~tmp`/`~tmp-*` files are now correctly ignored, and the source assertion in the affected test was updated to match fresh output.
+
+### Added
+
+- **`/autonomy director` subcommand — runtime Director promotion at autonomy launch.** When starting `/autonomy eternal` or `/autonomy parallel` from the prompt, the CLI now offers to promote the session to Director mode before the engine starts, so the fleet roster is available from the first iteration without a pre-existing `--director` flag.
+
+- **Agents monitor: agent names restored + `budget.extended` handler.** Agent names that were dropped during the 0.8.0 agents-monitor refactor are back in the overlay; the `budget.extended` badge now fires correctly when a delegate auto-extends mid-flight.
+
 ## [0.8.0] - 2026-05-28
 
 ### Added
@@ -2289,3 +2305,4 @@ something useful: `core`, `cli`, `providers`, `tools`, `tui`, `mcp`,
 ## [0.1.0] — 2026-05-13
 
 Initial release.
+
