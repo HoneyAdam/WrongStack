@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en" class="scroll-smooth">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/wrongstack.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="WrongStack — a CLI AI coding agent for your terminal. Autonomous goal loops, multi-agent fleet orchestration, 36 built-in tools, 12 skills, ~110 providers from models.dev, AES-256-GCM encrypted secrets. Built on the wrong stack. Shipped anyway."
+    />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#070910" media="(prefers-color-scheme: dark)" />
+
+    <meta property="og:title" content="WrongStack — Terminal AI Coding Agent" />
+    <meta
+      property="og:description"
+      content="Built on the wrong stack. Shipped anyway. A CLI AI coding agent that reads code, edits files, runs commands, and drives autonomous goal loops — while you keep every permission."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://wrongstack.com" />
+    <meta property="og:image" content="https://wrongstack.com/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="WrongStack — Terminal AI Coding Agent" />
+    <meta name="twitter:description" content="Built on the wrong stack. Shipped anyway." />
+    <meta name="twitter:image" content="https://wrongstack.com/og.png" />
+
+    <link rel="canonical" href="https://wrongstack.com" />
+
+    <title>WrongStack — Terminal AI Coding Agent</title>
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "WrongStack",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "macOS, Linux, Windows",
+        "description": "A CLI AI coding agent for the terminal — autonomous goal loops, multi-agent fleet orchestration, 36 built-in tools, 12 bundled skills, ~110 providers from models.dev, AES-256-GCM encrypted secrets.",
+        "url": "https://wrongstack.com",
+        "softwareVersion": "0.8.5",
+        "license": "https://opensource.org/licenses/MIT",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "codeRepository": "https://github.com/WrongStack/WrongStack"
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Which models and providers can it use?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Around 110 providers across four wire families, sourced live from the models.dev catalog with no hardcoded model names or pricing. Switch at runtime with /model or /use."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Are my API keys safe?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "API keys and MCP tokens are encrypted at rest with AES-256-GCM using a per-machine key. Plaintext keys are re-encrypted automatically on boot."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Can it run offline?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes. The --no-features flag boots a minimal kernel with no MCP, plugins, memory, models.dev fetch, or skill discovery, and makes no network calls at startup."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What does it cost?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "WrongStack is open source under the MIT license. You bring your own provider API key and pay your model provider directly."
+            }
+          }
+        ]
+      }
+    </script>
+
+    <!-- Apply persisted theme before paint to avoid a flash -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("theme");
+          var sysDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          var dark = t === "dark" || t === null || (t === "system" && sysDark);
+          document.documentElement.classList.toggle("dark", dark);
+        } catch (e) {
+          document.documentElement.classList.add("dark");
+        }
+      })();
+    </script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800;900&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
