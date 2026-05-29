@@ -13,6 +13,7 @@ import type { VisionAdapters } from '@wrongstack/runtime/vision';
 import { render } from 'ink';
 import React from 'react';
 import { App } from './app.js';
+import { startTerminalTitle } from './terminal-title.js';
 
 export interface RunTuiOptions {
   agent: Agent;
@@ -257,6 +258,12 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
   }
   stdout.write(BRACKETED_PASTE_ON);
 
+  // Animated window/tab title: a braille spinner + live status (thinking /
+  // running a tool) driven by the EventBus, scrolling the app name when idle.
+  // Out-of-band OSC sequence, so it never touches Ink's render. Reset on
+  // cleanup(). Self-disables on a non-TTY or WRONGSTACK_NO_TITLE=1.
+  const stopTitle = startTerminalTitle({ stdout, events: opts.events, model: opts.model });
+
   // Take over EVERY keystroke. Raw mode (Ink turns this on when render
   // mounts) already disables ICANON/ECHO/ISIG/IXON on Linux+macOS, so
   // Ctrl+C/Z/\\/S/Q arrive as input bytes instead of generating
@@ -284,6 +291,11 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
   const cleanup = () => {
     if (cleaned) return;
     cleaned = true;
+    try {
+      stopTitle();
+    } catch {
+      // title controller already torn down — ignore.
+    }
     try {
       stdout.write(BRACKETED_PASTE_OFF);
       if (useAltScreen) {
