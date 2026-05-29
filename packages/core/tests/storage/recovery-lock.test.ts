@@ -41,12 +41,19 @@ describe('RecoveryLock', () => {
       await expect(lock.clear()).resolves.toBeUndefined();
     });
 
-    it('overwrites an existing lockfile atomically', async () => {
+    it('refuses to overwrite an existing lockfile (race guard)', async () => {
       const lock = new RecoveryLock({ dir, pid: 1, hostname: 'h', isPidAlive: () => false });
       await lock.write('first');
-      await lock.write('second');
+      // O_EXCL: a second write without clearing must throw rather than
+      // silently clobbering another process's recovery record.
+      await expect(lock.write('second')).rejects.toThrow(/already held/);
       const parsed = JSON.parse(await fsp.readFile(path.join(dir, 'active.json'), 'utf8'));
-      expect(parsed.sessionId).toBe('second');
+      expect(parsed.sessionId).toBe('first');
+      // After an explicit clear() the lock can be re-acquired.
+      await lock.clear();
+      await lock.write('second');
+      const reparsed = JSON.parse(await fsp.readFile(path.join(dir, 'active.json'), 'utf8'));
+      expect(reparsed.sessionId).toBe('second');
     });
   });
 

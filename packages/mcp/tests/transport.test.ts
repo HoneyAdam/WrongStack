@@ -122,7 +122,7 @@ describe('SSETransport — connection failure modes', () => {
   it('startupTimeoutMs bounds connect() wall-clock duration', async () => {
     const t = new SSETransport({
       name: 'slow',
-      url: 'http://10.255.255.1/never', // blackholed
+      url: 'https://10.255.255.1/never', // blackholed (https: non-loopback http is rejected)
       startupTimeoutMs: 150,
     });
     const start = Date.now();
@@ -159,7 +159,7 @@ describe('StreamableHTTPTransport — connection failure modes', () => {
   it('startupTimeoutMs bounds connect() wall-clock duration', async () => {
     const t = new StreamableHTTPTransport({
       name: 'slow',
-      url: 'http://10.255.255.1/never',
+      url: 'https://10.255.255.1/never', // blackholed (https: non-loopback http is rejected)
       startupTimeoutMs: 150,
     });
     const start = Date.now();
@@ -495,7 +495,7 @@ describe('StreamableHTTPTransport — connect/callTool with mocked fetch', () =>
     r.onMessage(() => {});
     // Feed enough data to exceed 256KB limit
     const large = 'x'.repeat(257 * 1024);
-    expect(() => r.feed(large)).toThrow(/exceeds.*bytes/);
+    expect(() => r.feed(large)).toThrow(/exceeds max buffer/);
   });
 
   it('SSEReader dispatches events from multiple feeds in order', () => {
