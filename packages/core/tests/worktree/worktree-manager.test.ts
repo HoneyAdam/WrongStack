@@ -7,6 +7,7 @@ import {
   type RunResult,
   WorktreeManager,
   assertSafePath,
+  parseConflictPaths,
 } from '../../src/worktree/worktree-manager.js';
 
 /** Records every git invocation and returns scripted results. */
@@ -230,6 +231,29 @@ describe.skipIf(!gitAvailable)('WorktreeManager (real repo)', () => {
       await fs.rm(base, { recursive: true, force: true });
     }
   }, 30_000);
+});
+
+describe('parseConflictPaths', () => {
+  it('extracts conflicted files from git merge stdout', () => {
+    const output = [
+      'Auto-merging seed.txt',
+      'CONFLICT (content): Merge conflict in seed.txt',
+      'Auto-merging dir/app.ts',
+      'CONFLICT (add/add): Merge conflict in dir/app.ts',
+      'Squash commit -- not updating HEAD',
+    ].join('\n');
+    expect(parseConflictPaths(output)).toEqual(['seed.txt', 'dir/app.ts']);
+  });
+
+  it('returns [] when there are no conflict lines', () => {
+    expect(parseConflictPaths('Auto-merging x\nFast-forward')).toEqual([]);
+  });
+
+  it('dedupes repeated paths and trims trailing whitespace', () => {
+    const output =
+      'CONFLICT (content): Merge conflict in a.txt  \nCONFLICT (content): Merge conflict in a.txt';
+    expect(parseConflictPaths(output)).toEqual(['a.txt']);
+  });
 });
 
 describe('assertSafePath', () => {
