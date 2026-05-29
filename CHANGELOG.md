@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.6] - 2026-05-29
+
+### Added
+
+- **Git-worktree isolation for AutoPhase + live visual surfaces.** A new `WorktreeManager` primitive (`@wrongstack/core`) gives each phase its own git worktree and `wstack/ap/<slug>` branch under `.wrongstack/worktrees/`, so `parallelizable` phases now run **truly in parallel** instead of serializing on a shared working tree. Integration is automatic and dependency-ordered: clean phases squash-merge back to the base branch in sequence; a conflicting merge is marked `needs-review` and its worktree is kept on disk **without aborting the run**. Three visual surfaces broadcast the lifecycle live — a WebUI swim-lane + SVG DAG, a TUI panel with a `Ctrl+T` overlay, and the `worktree.*` EventBus events that drive them. New `/worktree` (`/wt`) slash command lists, merges, prunes, and cleans worktrees. Opt out with `WRONGSTACK_AUTOPHASE_WORKTREES=0`.
+
+- **Animated terminal title in the TUI.** While the TUI is running, the terminal window/tab title is set live from the agent EventBus: a braille spinner with `▸ <tool>` while a tool runs, `thinking…` during model output, and a gentle scrolling marquee of the app name + model when idle. Written as an out-of-band OSC-0 sequence (never touches Ink's render), gated on a TTY, reset on exit. Opt out with `WRONGSTACK_NO_TITLE=1`.
+
+### Changed
+
+- **Website redesign.** The `wrongstack.com` marketing/docs site (in `website/`) was rebuilt with a cleaner architecture section and static, dependency-light components.
+
+### Fixed
+
+- **`providers`: salvage stringified tool-call arguments.** `parseToolInput` and the OpenAI tool-format adapter now recover when a model/proxy delivers tool arguments as a JSON **string scalar** wrapping a JSON object (a common Anthropic↔OpenAI mapping artifact), unwrapping it to the intended object instead of falling back to `{ __raw }`.
+
+- **Test robustness under load.** The fleet-manager manifest-debounce tests and the worktree real-repo tests now poll for readiness with generous timeouts instead of fixed sleeps, eliminating the deterministic CI flake under parallel CPU load.
+
+- **`tools`: git-worktree command hardening.** `git worktree add` now passes the path before the commit-ish (the documented argument order), validates branch/path against flag- and path-escape injection, and `findGitDir` resolves the gitlink `.git` **file** inside a linked worktree so tools running with `cwd` set to a worktree behave correctly.
+
 ## [0.8.5] - 2026-05-29
 
 ### Added
