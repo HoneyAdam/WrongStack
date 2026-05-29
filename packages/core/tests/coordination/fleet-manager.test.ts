@@ -18,6 +18,31 @@ import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
+/**
+ * Poll for a debounced manifest write instead of sleeping a fixed window —
+ * robust under heavy parallel load where a tight margin would flake.
+ */
+async function readWhenReady(
+  file: string,
+  ready: (content: string) => boolean = () => true,
+  timeoutMs = 3000,
+): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  // Date.now() in a test runner is fine (not a workflow script).
+  for (;;) {
+    try {
+      const content = await fsp.readFile(file, 'utf8');
+      if (ready(content)) return content;
+    } catch {
+      /* not written yet */
+    }
+    if (Date.now() >= deadline) {
+      return fsp.readFile(file, 'utf8'); // final attempt → surfaces the real error
+    }
+    await new Promise((r) => setTimeout(r, 15));
+  }
+}
+
 describe('FleetManager', () => {
   // -------------------------------------------------------------------------
   // helpers
@@ -341,10 +366,10 @@ describe('FleetManager', () => {
       // File should not exist yet (timer is pending)
       await expect(fsp.access(manifestPath)).rejects.toThrow();
 
-      // Wait for debounce to fire
-      await new Promise((resolve) => setTimeout(resolve, 80));
-
-      const content = await fsp.readFile(manifestPath, 'utf8');
+      // Wait for the debounced write to land. Poll instead of a fixed sleep:
+      // under heavy parallel load the 50ms timer + write can overrun a tight
+      // window, which made this flaky in the full suite.
+      const content = await readWhenReady(manifestPath);
       expect(content).toContain('sub-1');
       await fsp.rm(tmpDir, { recursive: true, force: true });
     });
@@ -357,10 +382,8 @@ describe('FleetManager', () => {
       fm.recordSpawn('sub-2', makeConfig());
       fm.recordSpawn('sub-3', makeConfig());
 
-      // Single timer, not three
-      await new Promise((resolve) => setTimeout(resolve, 80));
-
-      const content = await fsp.readFile(manifestPath, 'utf8');
+      // Single timer, not three — poll for the collapsed write (load-robust).
+      const content = await readWhenReady(manifestPath, (c) => c.includes('sub-3'));
       expect(content).toContain('sub-1');
       expect(content).toContain('sub-2');
       expect(content).toContain('sub-3');
