@@ -113,6 +113,7 @@ export function buildAutoPhaseCommand(opts: SlashCommandContext): SlashCommand {
               'Building autonomously in the background — one subagent per todo.',
               'Use `/autophase` for status, `/autophase pause` to hold, `/autophase stop` to abort.',
             ].join('\n'),
+            metadata: { autoPhaseInit: { title: result.graph.title } },
           };
         }
 
@@ -167,7 +168,7 @@ export function buildAutoPhaseCommand(opts: SlashCommandContext): SlashCommand {
           };
         }
 
-        default:
+        case 'default':
         case 'status': {
           const view = opts.getAutoPhaseRunner?.();
           if (!view) {

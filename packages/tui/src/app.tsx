@@ -3798,6 +3798,17 @@ export function App({
       if (state.historyIndex > 0) dispatch({ type: 'historyDown' });
       return;
     }
+    // Ctrl+P → toggle PhaseMonitor overlay when AutoPhase is active.
+    if (key.ctrl && input === 'p') {
+      if (state.autoPhase) dispatch({ type: 'autoPhaseMonitorToggle' });
+      else {
+        // No active AutoPhase — treat as a command alias for /autophase status
+        slashRegistry.dispatch('/autophase', agent.ctx).then((res) => {
+          if (res?.message) dispatch({ type: 'addEntry', entry: { kind: 'info', text: res.message } });
+        });
+      }
+      return;
+    }
     if (key.ctrl && input === 'a') {
       setDraft(buffer, 0);
       return;
@@ -4142,6 +4153,13 @@ export function App({
         const res = await slashRegistry.dispatch(trimmed, agent.ctx);
         if (res?.message) {
           dispatch({ type: 'addEntry', entry: { kind: 'info', text: res.message } });
+        }
+        // autoPhaseInit: when /autophase start succeeds, the graph title is
+        // embedded in metadata so the TUI can show the PhasePanel immediately
+        // even before the first orchestrator event fires.
+        if (res?.metadata?.autoPhaseInit) {
+          const m = res.metadata.autoPhaseInit as { title: string };
+          dispatch({ type: 'autoPhaseInit', title: m.title });
         }
         // Slash commands like /model and /use mutate agent.ctx directly.
         // Re-sync the visible status bar so the user sees the switch

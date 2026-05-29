@@ -1,4 +1,4 @@
-import { EventBus } from '../kernel/events.js';
+import type { EventBus } from '../kernel/events.js';
 import type { TaskNode } from '../types/task-graph.js';
 import { PhaseGraphBuilder } from './phase-graph-builder.js';
 import { PhaseOrchestrator } from './phase-orchestrator.js';

@@ -389,8 +389,18 @@ export class PhaseOrchestrator {
 
   getProgress(): PhaseProgress {
     const phases = Array.from(this.graph.phases.values());
-    let pending = 0, ready = 0, running = 0, paused = 0, completed = 0, failed = 0, skipped = 0;
-    let totalTasks = 0, completedTasks = 0, failedTasks = 0, estimatedHours = 0, actualHours = 0;
+    let pending = 0;
+    let ready = 0;
+    let running = 0;
+    let paused = 0;
+    let completed = 0;
+    let failed = 0;
+    let skipped = 0;
+    let totalTasks = 0;
+    let completedTasks = 0;
+    let failedTasks = 0;
+    let estimatedHours = 0;
+    let actualHours = 0;
 
     for (const p of phases) {
       switch (p.status) {

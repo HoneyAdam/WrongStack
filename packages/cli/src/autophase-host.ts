@@ -123,7 +123,7 @@ export function createAutoPhaseHost(deps: AutoPhaseHostDeps): AutoPhaseHostHooks
 
   return {
     async onAutoPhaseStart({ goal, projectContext }): Promise<AutoPhaseStartResult> {
-      if (active && active.orchestrator.isRunning()) {
+      if (active?.orchestrator.isRunning()) {
         return { ok: false, error: 'An AutoPhase run is already in progress. Use /autophase stop first.' };
       }
 

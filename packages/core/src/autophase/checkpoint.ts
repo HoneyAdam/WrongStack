@@ -1,7 +1,7 @@
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import type { PhaseGraph, PhaseNode } from './types.js';
-import { PhaseStore } from './phase-store.js';
+import type { PhaseStore } from './phase-store.js';
 
 export interface Checkpoint {
   id: string;
