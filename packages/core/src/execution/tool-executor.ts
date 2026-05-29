@@ -65,7 +65,7 @@ export class ToolExecutor {
       // sentinel here and feed back an actionable message so the model
       // resends well-formed arguments.
       if (hasMalformedArguments(use.input)) {
-        const result = this.malformedInputResult(use);
+        const result = this.malformedInputResult(use, extractMalformedRaw(use.input));
         budget = this.decrementBudget(result, budget);
         return { result, tool, durationMs: Date.now() - start };
       }
@@ -332,14 +332,28 @@ export class ToolExecutor {
     };
   }
 
-  private malformedInputResult(use: ToolUseBlock): ToolResultBlock {
+  private malformedInputResult(use: ToolUseBlock, raw?: string): ToolResultBlock {
+    let content =
+      `Tool "${use.name}" received arguments that were not a valid JSON object, so they ` +
+      `could not be parsed. Re-issue the call with the arguments encoded as a single ` +
+      `well-formed JSON object matching the tool's input schema.`;
+    // Echo the raw payload back so the model can see *what* it produced and
+    // self-correct. Without this the model is blind to its own mistake and
+    // tends to resend the identical malformed call in a loop. Common causes:
+    // unescaped newlines/quotes/backslashes inside a string field, or the
+    // arguments being truncated mid-stream.
+    if (raw) {
+      const max = 800;
+      const excerpt = raw.length > max ? `${raw.slice(0, max)}… (truncated, ${raw.length} chars total)` : raw;
+      content +=
+        ` Common cause: a string field (e.g. code in old_string/new_string) ` +
+        `contains literal newlines, quotes, or backslashes that must be JSON-escaped, ` +
+        `or the payload was cut off mid-stream. The raw arguments received were:\n${excerpt}`;
+    }
     return {
       type: 'tool_result',
       tool_use_id: use.id,
-      content:
-        `Tool "${use.name}" received arguments that were not a valid JSON object, so they ` +
-        `could not be parsed. Re-issue the call with the arguments encoded as a single ` +
-        `well-formed JSON object matching the tool's input schema.`,
+      content,
       is_error: true,
     };
   }
@@ -415,4 +429,23 @@ function hasMalformedArguments(input: unknown): boolean {
   // that legitimately uses a key named e.g. `_raw` will carry other keys too.
   const keys = Object.keys(obj);
   return keys.length === 1 && MALFORMED_ARG_MARKERS.includes(keys[0] as never);
+}
+
+/**
+ * Pull the original (unparseable) payload back out of a sentinel-wrapped input
+ * so the executor can echo it to the model. The wrapped value is usually the
+ * raw argument string, but a scalar/array that parsed cleanly is wrapped too —
+ * stringify those. Returns undefined if nothing usable is present.
+ */
+function extractMalformedRaw(input: unknown): string | undefined {
+  if (!hasMalformedArguments(input)) return undefined;
+  const obj = input as Record<string, unknown>;
+  const value = obj[Object.keys(obj)[0]!];
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }

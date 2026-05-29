@@ -120,10 +120,27 @@ describe('ToolExecutor', () => {
         const output = result.outputs[0]!;
         expect((output.result as ToolResultBlock).is_error).toBe(true);
         expect((output.result as ToolResultBlock).content).toContain('not a valid JSON object');
+        // Echo the raw payload back so the model can self-correct instead of
+        // resending the identical malformed call in a loop.
+        expect((output.result as ToolResultBlock).content).toContain('path=a.ts old=foo');
         expect(tool.execute).not.toHaveBeenCalled();
         expect(policy.evaluate).not.toHaveBeenCalled();
       },
     );
+
+    it('truncates an oversized raw payload in the feedback message', async () => {
+      const tool = makeTool({ name: 'edit', execute: vi.fn() });
+      const executor = makeExecutor([tool]);
+      const huge = 'x'.repeat(2000);
+      const result = await executor.executeBatch(
+        [makeUse('edit', { __raw: huge })],
+        makeCtx(),
+        'sequential',
+      );
+      const content = (result.outputs[0]!.result as ToolResultBlock).content as string;
+      expect(content).toContain('truncated, 2000 chars total');
+      expect(content.length).toBeLessThan(huge.length);
+    });
 
     it('still executes when a sentinel-looking key is one of several real keys', async () => {
       const tool = makeTool({

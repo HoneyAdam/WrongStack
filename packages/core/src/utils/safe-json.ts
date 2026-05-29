@@ -62,7 +62,13 @@ export function sanitizeJsonString(s: string): string | null {
   // Stage 2: strip trailing commas before } or ]
   out = out.replace(/,(\s*[}\]])/g, '$1');
 
-  // Stage 3: attempt full parse; return null if it fails so callers can
+  // Stage 3: escape literal control characters that appear *inside* string
+  // values. Models frequently emit raw newlines/tabs inside a code payload
+  // (e.g. edit's old_string/new_string) instead of the required \n / \t, which
+  // makes JSON.parse throw. This is the single most common malformed-args case.
+  out = escapeControlCharsInStrings(out);
+
+  // Stage 4: attempt full parse; return null if it fails so callers can
   // distinguish "already valid JSON" from "unrecoverable".
   try {
     JSON.parse(out);
@@ -70,6 +76,51 @@ export function sanitizeJsonString(s: string): string | null {
   } catch {
     return null; // stripped but still not valid JSON; caller handles it
   }
+}
+
+/**
+ * Walk the string tracking whether we are inside a JSON string literal and
+ * replace raw control characters (U+0000–U+001F) that appear inside strings
+ * with their valid JSON escape sequences. Characters outside strings are left
+ * untouched (insignificant whitespace stays as-is). Already-escaped sequences
+ * are not double-escaped because we only act on *literal* control bytes.
+ */
+function escapeControlCharsInStrings(s: string): string {
+  let inString = false;
+  let out = '';
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]!;
+    if (c === '"' && (i === 0 || s[i - 1] !== '\\')) {
+      inString = !inString;
+      out += c;
+      continue;
+    }
+    const code = c.charCodeAt(0);
+    if (inString && code < 0x20) {
+      switch (c) {
+        case '\n':
+          out += '\\n';
+          break;
+        case '\r':
+          out += '\\r';
+          break;
+        case '\t':
+          out += '\\t';
+          break;
+        case '\b':
+          out += '\\b';
+          break;
+        case '\f':
+          out += '\\f';
+          break;
+        default:
+          out += `\\u${code.toString(16).padStart(4, '0')}`;
+      }
+      continue;
+    }
+    out += c;
+  }
+  return out;
 }
 
 function stripSingleLineComments(s: string): string {

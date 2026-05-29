@@ -335,11 +335,15 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
         // (the orchestrator casts `emit` to a string-keyed signature), so we
         // subscribe through the same untyped view rather than the typed
         // event-name overloads.
-        const onUntyped = events.on as unknown as (
+        // Bind to `events` — pulling the method off the bus as a bare
+        // reference loses `this`, so `on`/`off` would read `this.listeners`
+        // off `undefined` and throw ("Cannot read properties of undefined
+        // (reading 'listeners')") the moment AutoPhase subscribes.
+        const onUntyped = events.on.bind(events) as unknown as (
           event: string,
           handler: (payload: unknown) => void,
         ) => void;
-        const offUntyped = events.off as unknown as (
+        const offUntyped = events.off.bind(events) as unknown as (
           event: string,
           handler: (payload: unknown) => void,
         ) => void;

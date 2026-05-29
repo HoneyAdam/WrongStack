@@ -38,4 +38,24 @@ describe('safe-json', () => {
     expect(sanitizeJsonString('{not json at all}')).toBe(null);
     expect(sanitizeJsonString('{"a":1]')).toBe(null); // mismatched bracket
   });
+  it('sanitizeJsonString escapes literal newlines inside string values', () => {
+    // The classic edit-tool failure: a code payload with a raw newline.
+    const raw = '{"old_string":"line1\nline2"}';
+    const fixed = sanitizeJsonString(raw);
+    expect(fixed).not.toBe(null);
+    expect(JSON.parse(fixed!)).toEqual({ old_string: 'line1\nline2' });
+  });
+  it('sanitizeJsonString escapes tabs and carriage returns inside strings', () => {
+    const raw = '{"code":"a\tb\r\nc"}';
+    const fixed = sanitizeJsonString(raw);
+    expect(JSON.parse(fixed!)).toEqual({ code: 'a\tb\r\nc' });
+  });
+  it('sanitizeJsonString leaves already-escaped sequences intact', () => {
+    const raw = '{"code":"line1\\nline2"}';
+    expect(JSON.parse(sanitizeJsonString(raw)!)).toEqual({ code: 'line1\nline2' });
+  });
+  it('sanitizeJsonString does not touch insignificant whitespace outside strings', () => {
+    const raw = '{\n  "a": 1,\n  "b": 2\n}';
+    expect(JSON.parse(sanitizeJsonString(raw)!)).toEqual({ a: 1, b: 2 });
+  });
 });
