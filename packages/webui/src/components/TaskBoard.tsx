@@ -141,11 +141,12 @@ export function TaskBoard({
                   const status = TASK_STATUS_CONFIG[task.status];
 
                   return (
-                    <div
+                    <button
+                      type="button"
                       key={task.id}
                       onClick={() => onTaskClick?.(task.id)}
                       className={cn(
-                        'rounded-lg border p-3 transition-all hover:shadow-sm cursor-pointer',
+                        'w-full text-left rounded-lg border p-3 transition-all hover:shadow-sm cursor-pointer',
                         task.status === 'in_progress'
                           ? 'border-amber-200 bg-amber-50/30 dark:bg-amber-950/20'
                           : task.status === 'completed'
@@ -209,6 +210,7 @@ export function TaskBoard({
                         <div className="flex gap-1 mt-2">
                           {task.status !== 'in_progress' && (
                             <button
+                              type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 onTaskStatusChange(task.id, 'in_progress');
@@ -220,6 +222,7 @@ export function TaskBoard({
                           )}
                           {task.status === 'in_progress' && (
                             <button
+                              type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 onTaskStatusChange(task.id, 'completed');
@@ -231,6 +234,7 @@ export function TaskBoard({
                           )}
                           {task.status !== 'failed' && (
                             <button
+                              type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 onTaskStatusChange(task.id, 'failed');
@@ -242,7 +246,7 @@ export function TaskBoard({
                           )}
                         </div>
                       )}
-                    </div>
+                    </button>
                   );
                 })}
               </div>

@@ -1,0 +1,72 @@
+"use client"
+
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion"
+import { Reveal, SectionHeading } from "@/components/ui/reveal"
+
+const faqs = [
+  {
+    q: "Why “the wrong stack”?",
+    a: "It’s a wink. WrongStack is a serious autonomous coding agent that happens to be built in TypeScript on Node — the “wrong” choice for some. The point is that it ships, and works, anyway.",
+  },
+  {
+    q: "Which models and providers can it use?",
+    a: "Around 110 providers across four wire families (anthropic, openai, openai-compatible, google). The catalog comes live from models.dev — there are no hardcoded model names and no hardcoded pricing. Switch provider or model at runtime with /model or /use.",
+  },
+  {
+    q: "Are my API keys safe?",
+    a: "Yes. API keys and MCP auth tokens are encrypted at rest with AES-256-GCM using a per-machine key kept at ~/.wrongstack/.key. Any plaintext key found in config.json is re-encrypted automatically on boot.",
+  },
+  {
+    q: "Do I have to use a GUI?",
+    a: "No. The plain readline REPL is the default and works everywhere a terminal does. The Ink TUI (--tui) and the web UI (webui) are both opt-in — the REPL never pays their import cost.",
+  },
+  {
+    q: "Can it run offline?",
+    a: "Yes. --no-features boots a minimal kernel with no MCP, plugins, memory tools, models.dev fetch, or skill discovery — and makes no network calls at startup. You just declare the provider family in config.",
+  },
+  {
+    q: "How does it stay safe while editing my code?",
+    a: "Every mutating or destructive tool asks for permission before it runs. Decisions persist to trust.json and are inherited by subagents. For CI and trusted workflows, --yolo (or /yolo) opts out of the prompts.",
+  },
+  {
+    q: "What does it cost?",
+    a: "WrongStack is open source under the MIT license. You bring your own provider API key, so you pay your model provider directly — there’s no WrongStack subscription in between.",
+  },
+]
+
+export function FAQ() {
+  return (
+    <section id="faq" className="scroll-mt-20 py-20 sm:py-28">
+      <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
+        <SectionHeading
+          eyebrow="FAQ"
+          title="Questions, answered"
+          highlight="straight"
+          description="No marketing fog — every answer maps to something in the source."
+        />
+
+        <Reveal className="mt-12">
+          <Accordion type="single" collapsible className="w-full">
+            {faqs.map((item, i) => (
+              <AccordionItem key={i} value={`item-${i}`}>
+                <AccordionTrigger className="text-left text-base font-semibold">
+                  {item.q}
+                </AccordionTrigger>
+                <AccordionContent>
+                  <p className="pr-6 text-sm leading-relaxed text-muted">
+                    {item.a}
+                  </p>
+                </AccordionContent>
+              </AccordionItem>
+            ))}
+          </Accordion>
+        </Reveal>
+      </div>
+    </section>
+  )
+}

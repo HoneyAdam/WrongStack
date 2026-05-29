@@ -55,7 +55,7 @@ export function makeSpawnTool(director: Director, roster?: Record<string, Subage
         });
         const dispatchRole = dispatchResult.role;
         // If we have a matching roster entry for the dispatched role, use it
-        if (roster && roster[dispatchRole]) {
+        if (roster?.[dispatchRole]) {
           cfg = instantiateRosterConfig(dispatchRole, roster[dispatchRole]!);
         } else {
           // Dispatch found a catalog agent but there's no roster entry — use the

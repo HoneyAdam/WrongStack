@@ -85,6 +85,7 @@ export function PhasePanel({
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-semibold text-foreground">Fazlar</h2>
           <button
+            type="button"
             onClick={onToggleAutonomous}
             className={cn(
               'px-2 py-1 text-xs rounded-full transition-colors',
@@ -121,6 +122,7 @@ export function PhasePanel({
 
           return (
             <button
+              type="button"
               key={phase.id}
               onClick={() => onPhaseClick?.(phase.id)}
               className={cn(

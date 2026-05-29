@@ -5,6 +5,54 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.5] - 2026-05-29
+
+### Added
+
+- **`/autonomy director` subcommand — runtime Director promotion at autonomy launch.** When starting `/autonomy eternal` or `/autonomy parallel` from the prompt, the CLI now offers to promote the session to Director mode before the engine starts, so the fleet roster is available from the first iteration without a pre-existing `--director` flag.
+
+- **Agents monitor: agent names restored + `budget.extended` handler.** Agent names that were dropped during the 0.8.0 agents-monitor refactor are back in the overlay; the `budget.extended` badge now fires correctly when a delegate auto-extends mid-flight.
+
+### Fixed
+
+- **`tools`: recover malformed tool-call arguments.** `parseToolInput` (shared by all four wire-family providers) now gracefully falls back to an empty object when argument parsing fails, instead of crashing the tool call. Previously a malformed `tool_call` block — e.g. a non-JSON body in the tool block — would throw from `JSON.parse` and kill the request.
+
+- **`autophase`: event binding fixed.** `PhaseOrchestrator` now correctly subscribes to `phase.*` and `task.*` events emitted by `AutoPhaseRunner` so webui broadcasts stay in sync during phase transitions.
+
+- **`autophase`: todos run sequentially within a phase.** Tasks within a phase whose `nextIds` graph would logically allow parallel execution are now dispatched one at a time, preventing out-of-order completion messages and ensuring the phase tracker events reflect the actual execution sequence.
+
+- **`autophase`: webui broadcasts live phase/task progress during a run.** The webui handler now surfaces `phaseStart`, `phaseComplete`, `taskStart`, and `taskComplete` events via WebSocket together with a live JSON snapshot on every heartbeat, so the PhasePanel and TaskBoard update in near real-time.
+
+- **`autophase`: LLM-planned phases now work in the CLI handler.** The `/autophase` slash command now calls `PhaseOrchestrator.planNextPhase` and surfaces the LLM-produced phase plan in CLI output, matching the webui behaviour. `start` and `load` commands work correctly with the new LLM-driven phase ordering.
+
+- **`autophase`: per-project persistence for phase state.** `PhaseStore` now stores phase/task state under `~/.wrongstack/projects/<hash>/autophase/` so multiple project directories don't share state, and no state leaks between sessions.
+
+### Security
+
+- **Full-monorepo security audit — 47 findings closed.** A comprehensive audit reviewed all 13 packages across deserialization, path traversal, RCE, secrets management, SSRF, and WebUI attack surfaces. All findings have been resolved or documented as accepted risk with rationale in `security-report/verified-findings.md`.
+
+- **`webui`: WS Host-header validation + constant-time token comparison + maxPayload + CSP header.** WebSocket connections now validate the `Host` header against an allowlist, use constant-time comparison for bearer tokens, enforce a maximum message payload size, and set a restrictive Content-Security-Policy header.
+
+- **`webui`: `undici` dependency updated for CVE-2025-22150.** Pinned undici to `^7.25.0` in `@wrongstack/tools` to address the HTTP/2 pipeline confusion vulnerability.
+
+- **`core`: zip-slip guard in `file-move`/`file-copy`/`folder-copy`.** The core security modules now reject paths containing `..` before delegating to the filesystem, preventing archive extraction from overwriting files outside the project root.
+
+- **`core`: fleet cost-caps on budget extension.** `FleetManager` now enforces a `maxCostPerExtend` cap on cost-per-budget-extension to prevent unbounded cost accumulation from auto-extending delegates, and `FleetUsageAggregator` enforces a `maxCostPerTask` cap on individual subagent tasks.
+
+- **`tools/exec`: git `-c`/`--config` argument injection blocked.** The allowlist in `exec.ts` now correctly blocks `git` arguments starting with `-c` or `--config=` to prevent the `git config` RCE chain.
+
+- **`tools/plugins`: SSRF hardening — pin resolved IP and guard `web_fetch`.** The `fetch` tool now pins the first-resolved IP address on redirect hops and validates it is not a private/routable address, preventing DNS-rebinding SSRF attacks through redirect chains.
+
+- **`tools`: code injection via filenames blocked in codebase-index parsers.** The Go and Python parsers now sanitize filenames passed to temp-file generation, preventing command injection through specially crafted symbol names.
+
+- **`cli`: WS Host-header validation and bearer-token hardening.** The CLI's WebSocket handshake now validates the `Host` header and uses constant-time comparison for token authentication.
+
+- **`core`: atomic lock write with fsync in `writeManifest`.** `FleetManager.writeManifest` now uses atomic write (temp file + rename) with `fsync` to guarantee that the manifest on disk is never partially written.
+
+- **`cli`: 0600 permissions on config file writers.** All config-writing paths now set file mode to `0o600` on POSIX systems, preventing other users from reading encrypted secrets and credentials.
+
+- **CI: GitHub Actions hardened — pinned SHAs, least-privilege permissions, provenance.** All CI actions now pin to full commit SHAs rather than version tags, use minimal `permissions` scopes, and enable OIDC provenance for tamper-resistant artifact uploads.
+
 ## [0.8.4] - 2026-05-28
 
 ### Added

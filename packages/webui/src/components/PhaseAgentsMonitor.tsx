@@ -148,6 +148,7 @@ export function PhaseAgentsMonitor({
                 <div className="flex gap-1 mt-2">
                   {onReleaseAgent && (
                     <button
+                      type="button"
                       onClick={() => onReleaseAgent(a.agentId, a.phaseId)}
                       className="flex items-center gap-1 px-2 py-0.5 text-[10px] rounded bg-red-100 text-red-700 hover:bg-red-200 transition-colors"
                     >
