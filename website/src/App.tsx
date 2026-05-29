@@ -1,77 +1,77 @@
-"use client"
+'use client';
 
-import { useEffect, useState } from "react"
-import { AnimatePresence, motion, useScroll, useSpring } from "framer-motion"
-import { ArrowUp } from "lucide-react"
-import { Header } from "@/components/layout/Header"
-import { Footer } from "@/components/layout/Footer"
-import { Hero } from "@/components/sections/Hero"
-import { ProviderStrip } from "@/components/sections/ProviderStrip"
-import { Features } from "@/components/sections/Features"
-import { Interfaces } from "@/components/sections/Interfaces"
-import { Architecture } from "@/components/sections/Architecture"
-import { TUIDemo } from "@/components/sections/TUIDemo"
-import { Skills } from "@/components/sections/Skills"
-import { Security } from "@/components/sections/Security"
-import { FAQ } from "@/components/sections/FAQ"
-import { Install } from "@/components/sections/Install"
+import { Footer } from '@/components/layout/Footer';
+import { Header } from '@/components/layout/Header';
+import { Architecture } from '@/components/sections/Architecture';
+import { FAQ } from '@/components/sections/FAQ';
+import { Features } from '@/components/sections/Features';
+import { Hero } from '@/components/sections/Hero';
+import { Install } from '@/components/sections/Install';
+import { Interfaces } from '@/components/sections/Interfaces';
+import { ProviderStrip } from '@/components/sections/ProviderStrip';
+import { Security } from '@/components/sections/Security';
+import { Skills } from '@/components/sections/Skills';
+import { TUIDemo } from '@/components/sections/TUIDemo';
+import { AnimatePresence, motion, useScroll, useSpring } from 'framer-motion';
+import { ArrowUp } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 /** Highlight the nav link for whichever section is in view. */
 function useScrollSpy() {
   useEffect(() => {
-    const sections = document.querySelectorAll<HTMLElement>("section[id]")
-    const links = document.querySelectorAll<HTMLAnchorElement>("a[data-nav]")
+    const sections = document.querySelectorAll<HTMLElement>('section[id]');
+    const links = document.querySelectorAll<HTMLAnchorElement>('a[data-nav]');
     const setActive = (id: string | null) => {
-      links.forEach((link) => {
-        const on = link.getAttribute("href") === `#${id}`
-        link.classList.toggle("text-fg", on)
-        link.classList.toggle("text-muted", !on)
-      })
-    }
+      for (const link of links) {
+        const on = link.getAttribute('href') === `#${id}`;
+        link.classList.toggle('text-fg', on);
+        link.classList.toggle('text-muted', !on);
+      }
+    };
     const observer = new IntersectionObserver(
       (entries) => {
         const visible = entries
           .filter((e) => e.isIntersecting)
-          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0]
-        if (visible) setActive(visible.target.getAttribute("id"))
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+        if (visible) setActive(visible.target.getAttribute('id'));
       },
-      { threshold: [0.2, 0.5], rootMargin: "-30% 0px -55% 0px" },
-    )
-    sections.forEach((s) => observer.observe(s))
-    return () => observer.disconnect()
-  }, [])
+      { threshold: [0.2, 0.5], rootMargin: '-30% 0px -55% 0px' },
+    );
+    for (const s of sections) observer.observe(s);
+    return () => observer.disconnect();
+  }, []);
 }
 
 function ScrollProgress() {
-  const { scrollYProgress } = useScroll()
+  const { scrollYProgress } = useScroll();
   const scaleX = useSpring(scrollYProgress, {
     stiffness: 120,
     damping: 30,
     mass: 0.2,
-  })
+  });
   return (
     <motion.div
       style={{ scaleX }}
       className="fixed inset-x-0 top-0 z-[60] h-0.5 origin-left bg-gradient-to-r from-brand via-brand-2 to-brand"
       aria-hidden
     />
-  )
+  );
 }
 
 function BackToTop() {
-  const [show, setShow] = useState(false)
+  const [show, setShow] = useState(false);
   useEffect(() => {
-    const onScroll = () => setShow(window.scrollY > 600)
-    window.addEventListener("scroll", onScroll, { passive: true })
-    onScroll()
-    return () => window.removeEventListener("scroll", onScroll)
-  }, [])
+    const onScroll = () => setShow(window.scrollY > 600);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
   return (
     <AnimatePresence>
       {show && (
         <motion.button
           aria-label="Back to top"
-          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
           initial={{ opacity: 0, scale: 0.8, y: 12 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.8, y: 12 }}
@@ -83,11 +83,11 @@ function BackToTop() {
         </motion.button>
       )}
     </AnimatePresence>
-  )
+  );
 }
 
 export default function App() {
-  useScrollSpy()
+  useScrollSpy();
 
   return (
     <div className="min-h-screen bg-bg text-fg antialiased">
@@ -117,5 +117,5 @@ export default function App() {
       <Footer />
       <BackToTop />
     </div>
-  )
+  );
 }

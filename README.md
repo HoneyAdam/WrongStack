@@ -392,7 +392,11 @@ wrongstack --provider openrouter --model anthropic/claude-opus-4-7
 | **Ctrl+C** × 1 | Cancel current iteration + terminate fleet (1.5s cap) |
 | **Ctrl+C** × 2 | Force-exit Ink loop |
 | **Ctrl+C** × 3 | Hard `process.exit(130)` |
-| **Ctrl+F** | Toggle the graphical fleet monitor — per-subagent status + fleet-wide token gauge |
+| **Ctrl+F** | Toggle the fleet monitor — per-subagent status + fleet-wide token gauge |
+| **Ctrl+G** | Toggle the agents monitor — live per-agent context (current tool, streaming tail, sparkline) |
+| **Ctrl+T** | Toggle the worktree monitor — AutoPhase isolation branches |
+| **Ctrl+P** | Toggle the phase monitor — active AutoPhase phases and tasks |
+| **Ctrl+W** | Close worktree monitor (when open); otherwise delete word before cursor |
 | `/fleet kill <id>` | Stop one specific subagent |
 
 ## Subcommands

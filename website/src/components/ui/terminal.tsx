@@ -1,22 +1,22 @@
-"use client"
+'use client';
 
-import { type ReactNode } from "react"
-import { cn } from "@/lib/utils"
+import { cn } from '@/lib/utils';
+import type { ReactNode } from 'react';
 
 /** A dark terminal window frame — intentionally dark in both site themes. */
 export function TerminalFrame({
-  title = "wrongstack",
+  title = 'wrongstack',
   right,
   children,
   className,
 }: {
-  title?: string
-  right?: ReactNode
-  children: ReactNode
-  className?: string
+  title?: string;
+  right?: ReactNode;
+  children: ReactNode;
+  className?: string;
 }) {
   return (
-    <div className={cn("terminal", className)}>
+    <div className={cn('terminal', className)}>
       <div className="flex items-center justify-between border-b border-white/10 bg-white/[0.03] px-4 py-2.5">
         <div className="flex items-center gap-3">
           <div className="flex gap-1.5">
@@ -32,7 +32,7 @@ export function TerminalFrame({
         {children}
       </div>
     </div>
-  )
+  );
 }
 
 /** Syntax-lite line helpers for terminal content. */
@@ -41,22 +41,22 @@ export const Prompt = ({ children }: { children: ReactNode }) => (
     <span className="text-term-green">❯ </span>
     <span className="text-zinc-100">{children}</span>
   </span>
-)
+);
 
 export const Out = ({
   children,
-  tone = "muted",
+  tone = 'muted',
 }: {
-  children: ReactNode
-  tone?: "muted" | "green" | "yellow" | "blue" | "purple" | "red"
+  children: ReactNode;
+  tone?: 'muted' | 'green' | 'yellow' | 'blue' | 'purple' | 'red';
 }) => {
   const map: Record<string, string> = {
-    muted: "text-zinc-500",
-    green: "text-term-green",
-    yellow: "text-term-yellow",
-    blue: "text-term-blue",
-    purple: "text-term-purple",
-    red: "text-term-red",
-  }
-  return <span className={map[tone]}>{children}</span>
-}
+    muted: 'text-zinc-500',
+    green: 'text-term-green',
+    yellow: 'text-term-yellow',
+    blue: 'text-term-blue',
+    purple: 'text-term-purple',
+    red: 'text-term-red',
+  };
+  return <span className={map[tone]}>{children}</span>;
+};

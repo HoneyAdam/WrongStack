@@ -1,37 +1,37 @@
-"use client"
+'use client';
 
-import { KeyRound, ShieldCheck, Lock, Network, Zap } from "lucide-react"
-import { Reveal, SectionHeading } from "@/components/ui/reveal"
-import { SpotlightCard } from "@/components/ui/spotlight-card"
-import { META } from "@/lib/utils"
+import { Reveal, SectionHeading } from '@/components/ui/reveal';
+import { SpotlightCard } from '@/components/ui/spotlight-card';
+import { META } from '@/lib/utils';
+import { KeyRound, Lock, Network, ShieldCheck, Zap } from 'lucide-react';
 
 const items = [
   {
     icon: ShieldCheck,
-    title: "Per-tool permission policy",
-    body: "Every tool declares auto, confirm, or deny. Decisions persist to trust.json and are inherited by subagents — destructive calls prompt before they run.",
+    title: 'Per-tool permission policy',
+    body: 'Every tool declares auto, confirm, or deny. Decisions persist to trust.json and are inherited by subagents — destructive calls prompt before they run.',
   },
   {
     icon: Lock,
-    title: "Secrets encrypted at rest",
-    body: "API keys and MCP tokens are sealed with AES-256-GCM using a per-machine key (mode 0600). Random IV per write — same plaintext, different ciphertext.",
+    title: 'Secrets encrypted at rest',
+    body: 'API keys and MCP tokens are sealed with AES-256-GCM using a per-machine key (mode 0600). Random IV per write — same plaintext, different ciphertext.',
   },
   {
     icon: KeyRound,
-    title: "Plaintext auto-migration",
-    body: "The CLI scans config.json on every boot and re-encrypts any plaintext key it finds, with regex-based field detection. enc:v1:<iv>:<tag>:<ct>.",
+    title: 'Plaintext auto-migration',
+    body: 'The CLI scans config.json on every boot and re-encrypts any plaintext key it finds, with regex-based field detection. enc:v1:<iv>:<tag>:<ct>.',
   },
   {
     icon: Network,
-    title: "Network is locked down",
-    body: "The fetch tool blocks localhost and private IPs by default; opt in with WRONGSTACK_FETCH_ALLOW_PRIVATE=1. The bash tool runs behind an env allowlist.",
+    title: 'Network is locked down',
+    body: 'The fetch tool blocks localhost and private IPs by default; opt in with WRONGSTACK_FETCH_ALLOW_PRIVATE=1. The bash tool runs behind an env allowlist.',
   },
   {
     icon: Zap,
-    title: "YOLO when you mean it",
-    body: "--yolo (or /yolo) skips every permission prompt for CI and trusted workflows. It is opt-in and never the default.",
+    title: 'YOLO when you mean it',
+    body: '--yolo (or /yolo) skips every permission prompt for CI and trusted workflows. It is opt-in and never the default.',
   },
-]
+];
 
 export function Security() {
   return (
@@ -54,9 +54,7 @@ export function Security() {
                 <span className="grid size-11 place-items-center rounded-xl border border-line bg-surface text-brand">
                   <it.icon className="size-5" />
                 </span>
-                <h3 className="mt-5 text-base font-bold tracking-tight">
-                  {it.title}
-                </h3>
+                <h3 className="mt-5 text-base font-bold tracking-tight">{it.title}</h3>
                 <p className="mt-2 text-sm leading-relaxed text-muted">{it.body}</p>
               </SpotlightCard>
             </Reveal>
@@ -72,8 +70,7 @@ export function Security() {
             >
               <h3 className="text-base font-bold tracking-tight">Threat model</h3>
               <p className="mt-2 text-sm leading-relaxed text-muted">
-                Adversary trust assumptions and the full threat model live in
-                SECURITY.md.
+                Adversary trust assumptions and the full threat model live in SECURITY.md.
               </p>
               <span className="mt-4 font-mono text-sm font-semibold text-brand">
                 Read SECURITY.md →
@@ -83,5 +80,5 @@ export function Security() {
         </div>
       </div>
     </section>
-  )
+  );
 }

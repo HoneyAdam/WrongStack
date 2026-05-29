@@ -11,175 +11,57 @@ export interface FleetPanelProps {
   roster?: Record<string, { name: string }>;
 }
 
-const STATUS_ICON: Record<FleetEntry['status'], { icon: string; color: string }> = {
-  idle: { icon: '○', color: 'gray' },
-  running: { icon: '●', color: 'green' },
-  success: { icon: '✓', color: 'green' },
-  failed: { icon: '✗', color: 'red' },
-  timeout: { icon: '⏱', color: 'yellow' },
-  stopped: { icon: '⊘', color: 'yellow' },
-};
-
-function fmtCost(n: number): string {
-  if (n === 0) return '—';
-  return `$${n.toFixed(3)}`;
-}
-
-function fmtCount(n: number): string {
-  if (n === 0) return '—';
-  return String(n);
-}
-
-function fmtDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
-}
-
-function fmtBytes(n: number): string {
-  if (n < 1024) return `${n}B`;
-  return `${(n / 1024).toFixed(1)}KB`;
-}
-
-function fmtRecentTool(tool: FleetEntry['recentTools'][number]): string {
-  const status = tool.ok === false ? 'fail' : 'ok';
-  const name = tool.name.length > 24 ? `${tool.name.slice(0, 23)}...` : tool.name;
-  const parts = [status, name];
-  if (typeof tool.durationMs === 'number') parts.push(fmtDuration(tool.durationMs));
-  if (typeof tool.outputBytes === 'number' && tool.outputBytes > 0) parts.push(fmtBytes(tool.outputBytes));
-  if (typeof tool.outputLines === 'number' && tool.outputLines > 0) parts.push(`${tool.outputLines}L`);
-  return parts.join(' ');
-}
-
-function fmtRecentMessage(message: FleetEntry['recentMessages'][number]): string {
-  const text = message.text.replace(/\s+/g, ' ');
-  return text.length > 80 ? `${text.slice(0, 79)}...` : text;
-}
-
-function fmtModel(provider?: string, model?: string): string {
-  if (!provider && !model) return '';
-  const p = provider ?? '';
-  const m = model ?? '';
-  return p && m ? `${p}/${m}` : p || m;
-}
-
-function resolveName(entry: FleetEntry, roster?: Record<string, { name: string }>): string {
-  // Try roster lookup by id first.
-  const rosterEntry = roster?.[entry.id];
-  if (rosterEntry) return rosterEntry.name;
-  return entry.name;
-}
-
 /**
- * Live fleet panel rendered below the status bar when director mode is
- * active. Shows every known subagent with status, streaming output (for
- * running agents), iteration/tool/cost counts, and a fleet-wide cost total.
- *
- * Designed to be compact — each subagent is one or two lines. When no
- * subagents have been spawned yet, the panel is hidden entirely.
+ * Compact fleet summary rendered below the status bar when director mode is
+ * active. Max 4 lines: fleet summary + up to 3 running agents with only
+ * name and current tool. Idle/finished agents are excluded.
  */
 export function FleetPanel({ entries, totalCost, roster }: FleetPanelProps): React.ReactElement | null {
   const list = Object.values(entries);
   if (list.length === 0) return null;
 
-  // Sort: running first, then recent activity, then idle/done.
-  const sorted = [...list].sort((a, b) => {
-    const order: Record<string, number> = { running: 0, success: 1, failed: 2, timeout: 3, stopped: 4, idle: 5 };
-    const ao = order[a.status] ?? 9;
-    const bo = order[b.status] ?? 9;
-    if (ao !== bo) return ao - bo;
-    return b.lastEventAt - a.lastEventAt;
-  });
+  // Only running agents - idle and finished agents are not shown
+  const running = list.filter((e) => e.status === 'running');
+  const runningCount = running.length;
 
-  const runningCount = list.filter((e) => e.status === 'running').length;
-  const totalLabel =
-    totalCost > 0
-      ? `$${totalCost.toFixed(3)} · ${runningCount} active`
-      : `${runningCount} active`;
+  // Fleet summary line
+  const costLabel = totalCost > 0 ? ` · $${totalCost.toFixed(3)}` : '';
+  const summaryLine =
+    runningCount > 0
+      ? `${runningCount} running${costLabel}`
+      : `idle${costLabel}`;
+
+  // Show up to 3 running agents
+  const shown = running.slice(0, 3);
+  const overflow = running.length > 3 ? running.length - 3 : 0;
 
   return (
-    <Box
-      flexDirection="column"
-      paddingX={1}
-      borderStyle="single"
-      borderTop={false}
-      borderBottom={false}
-      borderLeft={false}
-      borderRight={false}
-    >
-      {/* Header */}
-      <Box flexDirection="row" gap={2}>
-        <Text dimColor>Fleet</Text>
+    <Box flexDirection="column" paddingX={1}>
+      {/* Fleet summary */}
+      <Box flexDirection="row" gap={1}>
+        <Text dimColor>⚡ Fleet</Text>
         <Text dimColor>│</Text>
-        <Text dimColor>{list.length} agent{list.length === 1 ? '' : 's'}</Text>
-        <Text dimColor>│</Text>
-        <Text dimColor>{totalLabel}</Text>
+        <Text>{summaryLine}</Text>
       </Box>
 
-      {/* Per-subagent rows */}
-      {sorted.map((entry) => {
-        const si = STATUS_ICON[entry.status];
-        const modelTag = fmtModel(entry.provider, entry.model);
-        const name = resolveName(entry, roster);
-        const recentTools = (entry.recentTools ?? []).slice(-2).map(fmtRecentTool).join(' | ');
-        const recentMessages = (entry.recentMessages ?? []).slice(-2).map(fmtRecentMessage);
-
+      {/* Running agents: name + current tool only */}
+      {shown.map((entry) => {
+        const name = roster?.[entry.id]?.name ?? entry.name;
+        const tool = entry.currentTool?.name ?? '—';
         return (
-          <Box key={entry.id} flexDirection="column">
-            <Box flexDirection="row" gap={1}>
-              <Text color={si.color}>{si.icon}</Text>
-              <Text>{name.slice(0, 16).padEnd(16)}</Text>
-              {modelTag ? (
-                <>
-                  <Text dimColor>·</Text>
-                  <Text dimColor>{modelTag}</Text>
-                </>
-              ) : null}
-              <Text dimColor>·</Text>
-              <Text dimColor>{fmtCount(entry.iterations).padStart(3)}it</Text>
-              <Text dimColor>{fmtCount(entry.toolCalls).padStart(3)}tc</Text>
-              <Text dimColor>·</Text>
-              <Text color="yellow">{fmtCost(entry.cost)}</Text>
-            </Box>
-            {/* Current tool — shown only while a tool is mid-flight. */}
-            {entry.status === 'running' && entry.currentTool ? (
-              <Box paddingLeft={2}>
-                <Text color="cyan">→ {entry.currentTool.name}</Text>
-                <Text dimColor> ({Math.max(0, Date.now() - entry.currentTool.startedAt)}ms)</Text>
-              </Box>
-            ) : null}
-            {recentTools ? (
-              <Box paddingLeft={2}>
-                <Text dimColor>tools: {recentTools}</Text>
-              </Box>
-            ) : null}
-            {recentMessages.map((message, index) => (
-              <Box key={`${entry.id}-msg-${index}-${message}`} paddingLeft={2}>
-                <Text dimColor>msg: {message}</Text>
-              </Box>
-            ))}
-            {/* Budget pressure warning */}
-            {entry.budgetWarning ? (
-              <Box paddingLeft={2}>
-                <Text color="yellow">⚡ hitting {entry.budgetWarning.kind} limit ({entry.budgetWarning.used}/{entry.budgetWarning.limit}) — extending</Text>
-              </Box>
-            ) : null}
-            {/* Streaming tail for running agents */}
-            {entry.status === 'running' && entry.streamingText ? (
-              <Box paddingLeft={2}>
-                <Text dimColor>
-                  {'>'} {entry.streamingText.slice(-80)}
-                </Text>
-              </Box>
-            ) : null}
-            {/* JSONL transcript path — dim, last so users grep -F it. */}
-            {entry.transcriptPath ? (
-              <Box paddingLeft={2}>
-                <Text dimColor>log: {entry.transcriptPath}</Text>
-              </Box>
-            ) : null}
+          <Box key={entry.id} flexDirection="row" gap={1}>
+            <Text color="green">●</Text>
+            <Text>{name.slice(0, 12).padEnd(12)}</Text>
+            <Text dimColor>→</Text>
+            <Text color="cyan">{tool}</Text>
           </Box>
         );
       })}
+
+      {/* Overflow indicator */}
+      {overflow > 0 ? (
+        <Text dimColor>  +{overflow} more running</Text>
+      ) : null}
     </Box>
   );
 }

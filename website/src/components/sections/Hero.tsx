@@ -1,86 +1,92 @@
-"use client"
+'use client';
 
-import { useEffect, useRef, useState } from "react"
-import { motion, useReducedMotion } from "framer-motion"
-import { ArrowRight, Github } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { CopyButton } from "@/components/ui/copy"
-import { CountUp } from "@/components/ui/count-up"
-import { TerminalFrame, Prompt, Out } from "@/components/ui/terminal"
-import { META, heroStats } from "@/lib/utils"
+import { Button } from '@/components/ui/button';
+import { CopyButton } from '@/components/ui/copy';
+import { CountUp } from '@/components/ui/count-up';
+import { Out, Prompt, TerminalFrame } from '@/components/ui/terminal';
+import { META, heroStats } from '@/lib/utils';
+import { motion, useReducedMotion } from 'framer-motion';
+import { ArrowRight, Github } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 
 /** Two slow-drifting brand blobs. Static under reduced-motion. */
 function Aurora() {
-  const reduce = useReducedMotion()
-  const common = "absolute rounded-full blur-3xl"
+  const reduce = useReducedMotion();
+  const common = 'absolute rounded-full blur-3xl';
   if (reduce) {
     return (
       <>
         <div className={`${common} left-[5%] top-[8%] size-72 bg-brand/20`} />
         <div className={`${common} right-[8%] top-[2%] size-80 bg-brand-2/15`} />
       </>
-    )
+    );
   }
   return (
     <>
       <motion.div
         className={`${common} left-[2%] top-[6%] size-72 bg-brand/20`}
         animate={{ x: [0, 60, -20, 0], y: [0, -30, 20, 0] }}
-        transition={{ duration: 22, repeat: Infinity, ease: "easeInOut" }}
+        transition={{ duration: 22, repeat: Number.POSITIVE_INFINITY, ease: 'easeInOut' }}
       />
       <motion.div
         className={`${common} right-[4%] top-0 size-80 bg-brand-2/15`}
         animate={{ x: [0, -50, 30, 0], y: [0, 30, -20, 0] }}
-        transition={{ duration: 26, repeat: Infinity, ease: "easeInOut" }}
+        transition={{ duration: 26, repeat: Number.POSITIVE_INFINITY, ease: 'easeInOut' }}
       />
     </>
-  )
+  );
 }
 
 const lines = [
-  { cmd: "npm i -g wrongstack", out: <Out tone="green">✓ wrongstack@{META.version}</Out> },
-  { cmd: "wrongstack --tui --yolo", out: <Out tone="blue">▸ TUI ready — readline + Ink, lazy-loaded</Out> },
-  { cmd: '/goal "ship the REST API"', out: <Out tone="purple">⟳ DECIDE · ⚡ EXECUTE · ◎ REFLECT — locked in</Out> },
-  { cmd: "/fleet status", out: <Out tone="yellow">3 subagents · 2 running · 1 done</Out> },
-  { cmd: "/autophase start", out: <Out>Discovery → Design → Implementation → Testing → Deploy</Out> },
-]
+  { cmd: 'npm i -g wrongstack', out: <Out tone="green">✓ wrongstack@{META.version}</Out> },
+  {
+    cmd: 'wrongstack --tui --yolo',
+    out: <Out tone="blue">▸ TUI ready — readline + Ink, lazy-loaded</Out>,
+  },
+  {
+    cmd: '/goal "ship the REST API"',
+    out: <Out tone="purple">⟳ DECIDE · ⚡ EXECUTE · ◎ REFLECT — locked in</Out>,
+  },
+  { cmd: '/fleet status', out: <Out tone="yellow">3 subagents · 2 running · 1 done</Out> },
+  {
+    cmd: '/autophase start',
+    out: <Out>Discovery → Design → Implementation → Testing → Deploy</Out>,
+  },
+];
 
 function useTypewriter() {
-  const reduce = useReducedMotion()
-  const [active, setActive] = useState(0)
-  const [typed, setTyped] = useState("")
-  const tRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const reduce = useReducedMotion();
+  const [active, setActive] = useState(0);
+  const [typed, setTyped] = useState('');
+  const tRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     if (reduce) {
-      setTyped(lines[active].cmd)
-      const hold = setTimeout(() => setActive((a) => (a + 1) % lines.length), 2600)
-      return () => clearTimeout(hold)
+      setTyped(lines[active].cmd);
+      const hold = setTimeout(() => setActive((a) => (a + 1) % lines.length), 2600);
+      return () => clearTimeout(hold);
     }
-    const full = lines[active].cmd
-    let i = 0
+    const full = lines[active].cmd;
+    let i = 0;
     const tick = () => {
-      setTyped(full.slice(0, i))
+      setTyped(full.slice(0, i));
       if (i < full.length) {
-        i++
-        tRef.current = setTimeout(tick, 42)
+        i++;
+        tRef.current = setTimeout(tick, 42);
       } else {
-        tRef.current = setTimeout(
-          () => setActive((a) => (a + 1) % lines.length),
-          1900,
-        )
+        tRef.current = setTimeout(() => setActive((a) => (a + 1) % lines.length), 1900);
       }
-    }
-    tick()
-    return () => clearTimeout(tRef.current)
-  }, [active, reduce])
+    };
+    tick();
+    return () => clearTimeout(tRef.current);
+  }, [active, reduce]);
 
-  return { active, typed }
+  return { active, typed };
 }
 
 export function Hero() {
-  const { active, typed } = useTypewriter()
-  const history = lines.slice(0, active)
+  const { active, typed } = useTypewriter();
+  const history = lines.slice(0, active);
 
   return (
     <section className="relative overflow-hidden pt-28 pb-16 sm:pt-32 lg:pt-36 lg:pb-24">
@@ -109,8 +115,7 @@ export function Hero() {
             transition={{ duration: 0.6, delay: 0.05 }}
             className="mt-6 text-balance text-4xl font-extrabold leading-[1.05] tracking-tight sm:text-5xl lg:text-6xl"
           >
-            Built on the{" "}
-            <span className="gradient-text animated">wrong stack</span>.
+            Built on the <span className="gradient-text animated">wrong stack</span>.
             <br />
             Shipped anyway.
           </motion.h1>
@@ -121,9 +126,8 @@ export function Hero() {
             transition={{ duration: 0.6, delay: 0.12 }}
             className="mx-auto mt-6 max-w-xl text-pretty text-base leading-relaxed text-muted sm:text-lg lg:mx-0"
           >
-            A CLI AI coding agent that runs in your terminal. It reads your code,
-            edits files, runs commands, and reasons through bugs — while you keep
-            control of every permission.
+            A CLI AI coding agent that runs in your terminal. It reads your code, edits files, runs
+            commands, and reasons through bugs — while you keep control of every permission.
           </motion.p>
 
           {/* CTAs */}
@@ -198,8 +202,8 @@ export function Hero() {
           >
             <div className="flex min-h-[300px] flex-col">
               <div className="space-y-1.5">
-                {history.map((l, i) => (
-                  <div key={i} className="opacity-70">
+                {history.map((l) => (
+                  <div key={l.cmd} className="opacity-70">
                     <Prompt>{l.cmd}</Prompt>
                     <div className="pl-4">{l.out}</div>
                   </div>
@@ -214,10 +218,18 @@ export function Hero() {
 
               {/* status bar */}
               <div className="mt-auto flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-white/10 pt-3 text-xs text-zinc-500">
-                <span>ctx <span className="text-brand">38%</span></span>
-                <span>tokens <span className="text-term-purple">2.4k</span></span>
-                <span>cache <span className="text-term-blue">71%</span></span>
-                <span>cost <span className="text-term-yellow">$0.02</span></span>
+                <span>
+                  ctx <span className="text-brand">38%</span>
+                </span>
+                <span>
+                  tokens <span className="text-term-purple">2.4k</span>
+                </span>
+                <span>
+                  cache <span className="text-term-blue">71%</span>
+                </span>
+                <span>
+                  cost <span className="text-term-yellow">$0.02</span>
+                </span>
                 <span className="ml-auto flex items-center gap-1.5 text-brand">
                   <span className="size-1.5 animate-pulse rounded-full bg-brand" />
                   RUNNING
@@ -228,5 +240,5 @@ export function Hero() {
         </motion.div>
       </div>
     </section>
-  )
+  );
 }

@@ -1,75 +1,75 @@
-"use client"
+'use client';
 
+import { Reveal, SectionHeading } from '@/components/ui/reveal';
+import { SpotlightCard } from '@/components/ui/spotlight-card';
 import {
-  Infinity as InfinityIcon,
-  Users,
-  Target,
-  Wrench,
-  ShieldCheck,
   Boxes,
+  Infinity as InfinityIcon,
   ListChecks,
-  Workflow,
   Plug,
-} from "lucide-react"
-import { Reveal, SectionHeading } from "@/components/ui/reveal"
-import { SpotlightCard } from "@/components/ui/spotlight-card"
+  ShieldCheck,
+  Target,
+  Users,
+  Workflow,
+  Wrench,
+} from 'lucide-react';
 
 const features = [
   {
     icon: InfinityIcon,
-    title: "Autonomy engine",
-    tag: "eternal · parallel",
-    body: "Two goal-driven loops launched via /autonomy. Eternal runs decide → execute → reflect against a persistent goal; parallel fans the goal out across N subagents per tick.",
+    title: 'Autonomy engine',
+    tag: 'eternal · parallel',
+    body: 'Two goal-driven loops launched via /autonomy. Eternal runs decide → execute → reflect against a persistent goal; parallel fans the goal out across N subagents per tick.',
   },
   {
     icon: Users,
-    title: "Multi-agent fleet",
-    tag: "Director + 46 roles",
-    body: "A Director promotes the session and drives a fleet through 8 belt tools — spawn, assign, await, ask, roll_up, terminate. A smart dispatcher routes each task to the best-matching role.",
+    title: 'Multi-agent fleet',
+    tag: 'Director + 46 roles',
+    body: 'A Director promotes the session and drives a fleet through 8 belt tools — spawn, assign, await, ask, roll_up, terminate. A smart dispatcher routes each task to the best-matching role.',
   },
   {
     icon: Target,
-    title: "Goal system",
-    tag: "/goal — locked in",
-    body: "/goal persists to goal.json and injects a full-autonomy preamble. Pause and resume without losing work — the engine exits gracefully after the current iteration.",
+    title: 'Goal system',
+    tag: '/goal — locked in',
+    body: '/goal persists to goal.json and injects a full-autonomy preamble. Pause and resume without losing work — the engine exits gracefully after the current iteration.',
   },
   {
     icon: Wrench,
-    title: "36 built-in tools",
-    tag: "no plugin required",
-    body: "Files, shell, web, git, lint/format/typecheck/test, package audits, a SQLite codebase index, and meta-tooling — all registered out of the box behind per-tool permissions.",
+    title: '36 built-in tools',
+    tag: 'no plugin required',
+    body: 'Files, shell, web, git, lint/format/typecheck/test, package audits, a SQLite codebase index, and meta-tooling — all registered out of the box behind per-tool permissions.',
   },
   {
     icon: ShieldCheck,
-    title: "Permissions & secrets",
-    tag: "AES-256-GCM",
-    body: "Per-tool allow/deny policy persisted to trust.json and inherited by subagents. API keys are encrypted at rest with a per-machine key. YOLO mode opts out for CI.",
+    title: 'Permissions & secrets',
+    tag: 'AES-256-GCM',
+    body: 'Per-tool allow/deny policy persisted to trust.json and inherited by subagents. API keys are encrypted at rest with a per-machine key. YOLO mode opts out for CI.',
   },
   {
     icon: Boxes,
-    title: "~110 providers",
-    tag: "models.dev catalog",
-    body: "Four wire families with real end-to-end streaming. The catalog comes from models.dev — no hardcoded model names, no hardcoded pricing, no hardcoded provider lists.",
+    title: '~110 providers',
+    tag: 'models.dev catalog',
+    body: 'Four wire families with real end-to-end streaming. The catalog comes from models.dev — no hardcoded model names, no hardcoded pricing, no hardcoded provider lists.',
   },
   {
     icon: ListChecks,
-    title: "Spec-Driven Development",
-    tag: "/sdd",
-    body: "Point /sdd at a markdown spec and it runs parse → analyze → generate → track → execute, turning the spec into tracked tasks the agent works through.",
+    title: 'Spec-Driven Development',
+    tag: '/sdd',
+    body: 'Point /sdd at a markdown spec and it runs parse → analyze → generate → track → execute, turning the spec into tracked tasks the agent works through.',
   },
   {
     icon: Workflow,
-    title: "AutoPhase",
-    tag: "0.8.x",
-    body: "/autophase breaks a project into ordered phases — Discovery, Design, Implementation, Testing, Deployment — and runs them autonomously with a live phase view in the web UI.",
+    title: 'AutoPhase',
+    tag: '0.8.x',
+    body: '/autophase breaks a project into ordered phases — Discovery, Design, Implementation, Testing, Deployment — and runs them autonomously with a live phase view in the web UI.',
   },
   {
     icon: Plug,
-    title: "MCP integration",
-    tag: "stdio · SSE · HTTP",
-    body: "JSON-RPC 2.0 over three transports. Tools are namespaced mcp__<server>__<tool>; reconnect uses exponential backoff with jitter, capped before failing cleanly.",
+    title: 'MCP integration',
+    tag: 'stdio · SSE · HTTP',
+    body: 'JSON-RPC 2.0 over three transports. Tools are namespaced mcp__<server>__<tool>; reconnect uses exponential backoff with jitter, capped before failing cleanly.',
   },
-]
+];
 
 export function Features() {
   return (
@@ -100,5 +100,5 @@ export function Features() {
         </div>
       </div>
     </section>
-  )
+  );
 }

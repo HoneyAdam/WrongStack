@@ -26,9 +26,9 @@ function fmt(s: string) {
 }
 
 /**
- * Full-screen Worktree monitor overlay (Ctrl+W in TUI). Shows each AutoPhase
- * worktree: branch, base→branch, owner phase, diff stats, and conflict files
- * for any worktree left in needs-review.
+ * Full-screen Worktree monitor overlay (Ctrl+T to open, Ctrl+W/Esc to close).
+ * Shows each AutoPhase worktree: branch, base→branch, owner phase, diff stats,
+ * and conflict files for any worktree left in needs-review.
  */
 export function WorktreeMonitor({
   worktrees,
@@ -41,8 +41,8 @@ export function WorktreeMonitor({
   nowTick: number;
   onClose: () => void;
 }): React.ReactElement {
-  useInput((_, key) => {
-    if (key.escape) onClose();
+  useInput((input, key) => {
+    if (key.escape || (key.ctrl && input === 'w')) onClose();
   });
 
   const list = Object.values(worktrees);

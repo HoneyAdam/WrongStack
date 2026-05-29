@@ -48,7 +48,15 @@ export function WorktreeGraph({
 
   return (
     <div className="overflow-x-auto rounded-lg border border-[--color-border-dark] bg-[--color-card-dark]/40 p-3">
-      <svg width="100%" height={height} viewBox={`0 0 600 ${height}`} className="min-w-[420px]">
+      <svg
+        width="100%"
+        height={height}
+        viewBox={`0 0 600 ${height}`}
+        className="min-w-[420px]"
+        role="img"
+        aria-label={`Worktree branch graph off ${baseBranch || 'HEAD'}`}
+      >
+        <title>{`Worktree branch graph off ${baseBranch || 'HEAD'}`}</title>
         {/* trunk */}
         <line x1={trunkX} y1={20} x2={trunkX} y2={height - 10} stroke="#F93951" strokeWidth={3} />
         <text x={trunkX - 4} y={14} fontSize={11} fill="#9ca3af">{baseBranch || 'HEAD'}</text>

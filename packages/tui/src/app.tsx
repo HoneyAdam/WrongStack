@@ -3590,7 +3590,7 @@ export function App({
       return;
     }
 
-    // Worktree monitor toggle — Ctrl+T (Ctrl+W is taken by delete-word).
+    // Worktree monitor toggle — Ctrl+T opens, Ctrl+W closes (when open) or deletes word (when closed).
     if (key.ctrl && input === 't') {
       dispatch({ type: 'worktreeMonitorToggle' });
       return;
@@ -3909,7 +3909,11 @@ export function App({
       return;
     }
     if (key.ctrl && input === 'w') {
-      // Ctrl+W → delete word before cursor (same as Ctrl+Backspace).
+      // Ctrl+W → toggle worktree monitor when it's open, otherwise delete word before cursor.
+      if (state.worktreeMonitorOpen) {
+        dispatch({ type: 'worktreeMonitorToggle' });
+        return;
+      }
       if (cursor === 0) return;
       const beforeCursor = buffer.slice(0, cursor);
       const lastWordStart = beforeCursor.lastIndexOf(' ') + 1;

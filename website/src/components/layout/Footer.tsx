@@ -1,29 +1,29 @@
-"use client"
+'use client';
 
-import { Github, BookOpen } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
-import { META, packages } from "@/lib/utils"
+import { Badge } from '@/components/ui/badge';
+import { META, packages } from '@/lib/utils';
+import { BookOpen, Github } from 'lucide-react';
 
 const footerLinks: Record<string, { label: string; href: string }[]> = {
   Product: [
-    { label: "Features", href: "#features" },
-    { label: "Surfaces", href: "#interfaces" },
-    { label: "Architecture", href: "#architecture" },
-    { label: "Install", href: "#install" },
+    { label: 'Features', href: '#features' },
+    { label: 'Surfaces', href: '#interfaces' },
+    { label: 'Architecture', href: '#architecture' },
+    { label: 'Install', href: '#install' },
   ],
   Resources: [
-    { label: "README", href: `${META.repo}#readme` },
-    { label: "Changelog", href: `${META.repo}/blob/main/CHANGELOG.md` },
-    { label: "Docs", href: `${META.repo}/tree/main/docs` },
-    { label: "Security policy", href: `${META.repo}/blob/main/SECURITY.md` },
+    { label: 'README', href: `${META.repo}#readme` },
+    { label: 'Changelog', href: `${META.repo}/blob/main/CHANGELOG.md` },
+    { label: 'Docs', href: `${META.repo}/tree/main/docs` },
+    { label: 'Security policy', href: `${META.repo}/blob/main/SECURITY.md` },
   ],
   Community: [
-    { label: "GitHub", href: META.repo },
-    { label: "Issues", href: `${META.repo}/issues` },
-    { label: "Discussions", href: `${META.repo}/discussions` },
-    { label: "Releases", href: `${META.repo}/releases` },
+    { label: 'GitHub', href: META.repo },
+    { label: 'Issues', href: `${META.repo}/issues` },
+    { label: 'Discussions', href: `${META.repo}/discussions` },
+    { label: 'Releases', href: `${META.repo}/releases` },
   ],
-}
+};
 
 export function Footer() {
   return (
@@ -32,7 +32,7 @@ export function Footer() {
         <div className="grid grid-cols-2 gap-8 md:grid-cols-4">
           {/* Brand */}
           <div className="col-span-2 md:col-span-1">
-            <a href="#" className="flex items-center gap-2.5">
+            <a href="#main" className="flex items-center gap-2.5">
               <span className="grid size-9 place-items-center rounded-lg bg-gradient-to-br from-brand to-brand-2 font-mono text-sm font-bold text-white">
                 ❯_
               </span>
@@ -41,8 +41,8 @@ export function Footer() {
               </span>
             </a>
             <p className="mt-4 max-w-xs text-sm leading-relaxed text-muted">
-              Built on the wrong stack. Shipped anyway. A CLI AI coding agent
-              that runs in your terminal.
+              Built on the wrong stack. Shipped anyway. A CLI AI coding agent that runs in your
+              terminal.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               <Badge variant="outline" className="border-brand/30 text-brand">
@@ -63,8 +63,8 @@ export function Footer() {
                   <li key={link.label}>
                     <a
                       href={link.href}
-                      target={link.href.startsWith("#") ? undefined : "_blank"}
-                      rel={link.href.startsWith("#") ? undefined : "noopener noreferrer"}
+                      target={link.href.startsWith('#') ? undefined : '_blank'}
+                      rel={link.href.startsWith('#') ? undefined : 'noopener noreferrer'}
                       className="text-sm text-muted transition-colors hover:text-brand"
                     >
                       {link.label}
@@ -123,5 +123,5 @@ export function Footer() {
         </div>
       </div>
     </footer>
-  )
+  );
 }

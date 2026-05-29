@@ -1,13 +1,7 @@
-"use client"
+'use client';
 
-import { Reveal, SectionHeading } from "@/components/ui/reveal"
-import {
-  skills,
-  toolGroups,
-  providerFamilies,
-  plugins,
-  slashCommands,
-} from "@/lib/utils"
+import { Reveal, SectionHeading } from '@/components/ui/reveal';
+import { plugins, providerFamilies, skills, slashCommands, toolGroups } from '@/lib/utils';
 
 export function Skills() {
   return (
@@ -35,9 +29,7 @@ export function Skills() {
                     className="group rounded-lg border border-line bg-surface p-3 transition-colors hover:border-brand/40"
                   >
                     <code className="text-sm font-semibold text-brand">{s.name}</code>
-                    <p className="mt-0.5 text-xs leading-relaxed text-muted">
-                      {s.description}
-                    </p>
+                    <p className="mt-0.5 text-xs leading-relaxed text-muted">{s.description}</p>
                   </li>
                 ))}
               </ul>
@@ -85,10 +77,7 @@ export function Skills() {
               </p>
               <ul className="mt-4 space-y-2.5">
                 {providerFamilies.map((f) => (
-                  <li
-                    key={f.id}
-                    className="rounded-lg border border-line bg-surface p-3.5"
-                  >
+                  <li key={f.id} className="rounded-lg border border-line bg-surface p-3.5">
                     <div className="flex flex-wrap items-center justify-between gap-x-3">
                       <code className="text-sm font-semibold text-fg">{f.id}</code>
                       <span className="text-[11px] text-faint">{f.transport}</span>
@@ -118,10 +107,7 @@ export function Skills() {
               </header>
               <ul className="mt-5 divide-y divide-line">
                 {plugins.map((p) => (
-                  <li
-                    key={p.name}
-                    className="flex items-center justify-between gap-3 py-2.5"
-                  >
+                  <li key={p.name} className="flex items-center justify-between gap-3 py-2.5">
                     <code className="text-sm font-semibold text-fg">{p.name}</code>
                     <span className="text-right text-xs text-muted">{p.note}</span>
                   </li>
@@ -139,19 +125,21 @@ export function Skills() {
             </p>
             <div className="edge-fade mt-3 overflow-hidden">
               <div className="marquee flex w-max gap-2 px-6">
-                {[...slashCommands, ...slashCommands].map((c, i) => (
-                  <span
-                    key={`${c}-${i}`}
-                    className="rounded-md border border-line bg-surface px-2.5 py-1 font-mono text-xs text-muted"
-                  >
-                    {c}
-                  </span>
-                ))}
+                {['a', 'b'].flatMap((copy) =>
+                  slashCommands.map((c) => (
+                    <span
+                      key={`${copy}-${c}`}
+                      className="rounded-md border border-line bg-surface px-2.5 py-1 font-mono text-xs text-muted"
+                    >
+                      {c}
+                    </span>
+                  )),
+                )}
               </div>
             </div>
           </div>
         </Reveal>
       </div>
     </section>
-  )
+  );
 }

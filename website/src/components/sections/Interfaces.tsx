@@ -1,34 +1,34 @@
-"use client"
+'use client';
 
-import { type ReactNode } from "react"
-import { Terminal, MonitorPlay, Globe, Check } from "lucide-react"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { TerminalFrame, Prompt, Out } from "@/components/ui/terminal"
-import { Reveal, SectionHeading } from "@/components/ui/reveal"
+import { Reveal, SectionHeading } from '@/components/ui/reveal';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Out, Prompt, TerminalFrame } from '@/components/ui/terminal';
+import { Check, Globe, MonitorPlay, Terminal } from 'lucide-react';
+import type { ReactNode } from 'react';
 
 type Surface = {
-  id: string
-  icon: typeof Terminal
-  label: string
-  badge: string
-  blurb: string
-  features: string[]
-  preview: ReactNode
-}
+  id: string;
+  icon: typeof Terminal;
+  label: string;
+  badge: string;
+  blurb: string;
+  features: string[];
+  preview: ReactNode;
+};
 
 const surfaces: Surface[] = [
   {
-    id: "repl",
+    id: 'repl',
     icon: Terminal,
-    label: "Plain REPL",
-    badge: "default",
+    label: 'Plain REPL',
+    badge: 'default',
     blurb:
-      "Readline-based, streaming, and dependency-light. Works everywhere a terminal works — no GUI, no React import cost at startup.",
+      'Readline-based, streaming, and dependency-light. Works everywhere a terminal works — no GUI, no React import cost at startup.',
     features: [
-      "Multiline heredoc with paste detection",
-      "Full slash-command set + streaming text",
-      "Signal-safe cleanup, non-TTY guard",
-      "Runs offline with --no-features",
+      'Multiline heredoc with paste detection',
+      'Full slash-command set + streaming text',
+      'Signal-safe cleanup, non-TTY guard',
+      'Runs offline with --no-features',
     ],
     preview: (
       <div className="space-y-1.5">
@@ -54,18 +54,18 @@ const surfaces: Surface[] = [
     ),
   },
   {
-    id: "tui",
+    id: 'tui',
     icon: MonitorPlay,
-    label: "TUI",
-    badge: "--tui · Ink + React",
+    label: 'TUI',
+    badge: '--tui · Ink + React',
     blurb:
-      "A rich terminal UI, lazy-loaded behind --tui. Live status, per-subagent timers, and Esc-to-steer mid-run.",
+      'A rich terminal UI, lazy-loaded behind --tui. Live status, per-subagent timers, and Esc-to-steer mid-run.',
     features: [
-      "Status bar: model · tokens · cache hit · cost",
-      "LiveActivityStrip: tool in flight + elapsed timer",
-      "Esc-to-steer: abort and prepend a STEERING preamble",
-      "@query fuzzy file picker · clipboard image paste",
-      "Live stage chip: ⟳ DECIDE → ⚡ EXECUTE → ◎ REFLECT",
+      'Status bar: model · tokens · cache hit · cost',
+      'LiveActivityStrip: tool in flight + elapsed timer',
+      'Esc-to-steer: abort and prepend a STEERING preamble',
+      '@query fuzzy file picker · clipboard image paste',
+      'Live stage chip: ⟳ DECIDE → ⚡ EXECUTE → ◎ REFLECT',
     ],
     preview: (
       <div className="space-y-2">
@@ -81,9 +81,7 @@ const surfaces: Surface[] = [
             running: <Out tone="yellow">test</Out> vitest · 3.8s
           </div>
         </div>
-        <div className="text-xs text-zinc-500">
-          fleet ⚡ extended ×2 · 3 subagents
-        </div>
+        <div className="text-xs text-zinc-500">fleet ⚡ extended ×2 · 3 subagents</div>
         <Prompt>
           <span className="caret" />
         </Prompt>
@@ -91,18 +89,18 @@ const surfaces: Surface[] = [
     ),
   },
   {
-    id: "webui",
+    id: 'webui',
     icon: Globe,
-    label: "Web UI",
-    badge: "@wrongstack/webui",
+    label: 'Web UI',
+    badge: '@wrongstack/webui',
     blurb:
-      "A React + Radix + Tailwind front end with a Node ws backend. Standalone webui binary, or piggy-back on the CLI with --webui.",
+      'A React + Radix + Tailwind front end with a Node ws backend. Standalone webui binary, or piggy-back on the CLI with --webui.',
     features: [
-      "Topbar: ctx% · tokens · cache hit · cost · iteration",
-      "Tool bubbles stream live tool.progress",
-      "Ctrl+K palette · Ctrl+M model switcher · Ctrl+F search",
-      "Live TODO snapshot, pinned panel, history search",
-      "AutoPhase phase/task view broadcasts during a run",
+      'Topbar: ctx% · tokens · cache hit · cost · iteration',
+      'Tool bubbles stream live tool.progress',
+      'Ctrl+K palette · Ctrl+M model switcher · Ctrl+F search',
+      'Live TODO snapshot, pinned panel, history search',
+      'AutoPhase phase/task view broadcasts during a run',
     ],
     preview: (
       <div className="space-y-1.5">
@@ -122,7 +120,7 @@ const surfaces: Surface[] = [
       </div>
     ),
   },
-]
+];
 
 export function Interfaces() {
   return (
@@ -142,11 +140,7 @@ export function Interfaces() {
           <Tabs defaultValue="repl" className="w-full">
             <TabsList className="mx-auto flex h-auto w-full max-w-md flex-wrap justify-center gap-1 p-1.5">
               {surfaces.map((s) => (
-                <TabsTrigger
-                  key={s.id}
-                  value={s.id}
-                  className="flex-1 gap-2 px-3 py-2"
-                >
+                <TabsTrigger key={s.id} value={s.id} className="flex-1 gap-2 px-3 py-2">
                   <s.icon className="size-4" />
                   {s.label}
                 </TabsTrigger>
@@ -158,9 +152,7 @@ export function Interfaces() {
                 <div className="grid items-center gap-8 lg:grid-cols-2">
                   <div>
                     <span className="font-mono text-xs text-brand">{s.badge}</span>
-                    <h3 className="mt-2 text-2xl font-bold tracking-tight">
-                      {s.label}
-                    </h3>
+                    <h3 className="mt-2 text-2xl font-bold tracking-tight">{s.label}</h3>
                     <p className="mt-3 text-pretty text-muted">{s.blurb}</p>
                     <ul className="mt-5 space-y-2.5">
                       {s.features.map((f) => (
@@ -181,5 +173,5 @@ export function Interfaces() {
         </Reveal>
       </div>
     </section>
-  )
+  );
 }

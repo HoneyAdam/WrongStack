@@ -1,10 +1,10 @@
-"use client"
+'use client';
 
-import { Github } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { CopyButton } from "@/components/ui/copy"
-import { Reveal, SectionHeading } from "@/components/ui/reveal"
-import { META } from "@/lib/utils"
+import { Button } from '@/components/ui/button';
+import { CopyButton } from '@/components/ui/copy';
+import { Reveal, SectionHeading } from '@/components/ui/reveal';
+import { META } from '@/lib/utils';
+import { Github } from 'lucide-react';
 
 function Cmd({ children, copy }: { children: string; copy?: string }) {
   return (
@@ -18,38 +18,38 @@ function Cmd({ children, copy }: { children: string; copy?: string }) {
         className="shrink-0 text-muted hover:bg-surface hover:text-fg"
       />
     </div>
-  )
+  );
 }
 
 const steps = [
   {
     n: 1,
-    title: "Install globally",
-    desc: "Pulls the full stack. The TUI is lazy-loaded, so the plain REPL pays no startup cost.",
+    title: 'Install globally',
+    desc: 'Pulls the full stack. The TUI is lazy-loaded, so the plain REPL pays no startup cost.',
     cmd: `npm i -g ${META.npm}`,
   },
   {
     n: 2,
-    title: "Configure",
-    desc: "Run the wizard, or just launch — with no config the interactive provider picker appears.",
-    cmd: "wrongstack init",
+    title: 'Configure',
+    desc: 'Run the wizard, or just launch — with no config the interactive provider picker appears.',
+    cmd: 'wrongstack init',
   },
   {
     n: 3,
-    title: "Run",
-    desc: "Drop into the REPL, or go straight to the TUI. wstack is a built-in alias.",
-    cmd: "wrongstack --tui",
+    title: 'Run',
+    desc: 'Drop into the REPL, or go straight to the TUI. wstack is a built-in alias.',
+    cmd: 'wrongstack --tui',
   },
-]
+];
 
 const recipes = [
-  { label: "Director fleet", cmd: 'wrongstack --director "audit src/ for security issues"' },
-  { label: "Goal mode", cmd: 'wrongstack --goal "ship the REST API"' },
-  { label: "Pick a provider", cmd: "wrongstack --provider groq --model llama-3.3-70b-versatile" },
-  { label: "Resume a session", cmd: "wrongstack --resume <session-id>" },
-  { label: "Minimal kernel (offline)", cmd: "wrongstack --no-features" },
-  { label: "Add a key", cmd: "wrongstack auth groq" },
-]
+  { label: 'Director fleet', cmd: 'wrongstack --director "audit src/ for security issues"' },
+  { label: 'Goal mode', cmd: 'wrongstack --goal "ship the REST API"' },
+  { label: 'Pick a provider', cmd: 'wrongstack --provider groq --model llama-3.3-70b-versatile' },
+  { label: 'Resume a session', cmd: 'wrongstack --resume <session-id>' },
+  { label: 'Minimal kernel (offline)', cmd: 'wrongstack --no-features' },
+  { label: 'Add a key', cmd: 'wrongstack auth groq' },
+];
 
 export function Install() {
   return (
@@ -73,9 +73,7 @@ export function Install() {
                   </span>
                   <h3 className="text-base font-bold tracking-tight">{s.title}</h3>
                 </div>
-                <p className="mt-3 flex-1 text-sm leading-relaxed text-muted">
-                  {s.desc}
-                </p>
+                <p className="mt-3 flex-1 text-sm leading-relaxed text-muted">{s.desc}</p>
                 <div className="mt-4">
                   <Cmd>{s.cmd}</Cmd>
                 </div>
@@ -111,11 +109,7 @@ export function Install() {
               </a>
             </Button>
             <Button size="lg" variant="outline" asChild className="w-full sm:w-auto">
-              <a
-                href={`${META.repo}#readme`}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
+              <a href={`${META.repo}#readme`} target="_blank" rel="noopener noreferrer">
                 Read the docs
               </a>
             </Button>
@@ -123,5 +117,5 @@ export function Install() {
         </Reveal>
       </div>
     </section>
-  )
+  );
 }
