@@ -15,7 +15,9 @@ permissions:
 jobs:
   gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # build + typecheck + full vitest suite on a cold runner can run long;
+    # 20m was too tight and timed out mid-test. 45m leaves comfortable margin.
+    timeout-minutes: 45
     permissions:
       contents: write
       id-token: write

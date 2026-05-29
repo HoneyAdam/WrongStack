@@ -15,9 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Agents monitor hides long-idle agents.** The live agents view (`Ctrl+G`) now prunes idle agents that have produced no event for over 60s, so the panel reflects only what's actually active; a `N idle hidden` hint shows the count. Running agents are never hidden.
+
 - **Website redesign.** The `wrongstack.com` marketing/docs site (in `website/`) was rebuilt with a cleaner architecture section and static, dependency-light components.
 
 ### Fixed
+
+- **`worktree`: commit identity fallback for CI / unconfigured machines.** `WorktreeManager` now passes a fallback `git -c user.name/user.email` when no git identity is configured, so per-phase worktree commits (and the squash-merge commit) succeed on CI runners and fresh machines instead of silently failing. An existing user identity is never overridden, and the fallback is squashed away on merge.
 
 - **`providers`: salvage stringified tool-call arguments.** `parseToolInput` and the OpenAI tool-format adapter now recover when a model/proxy delivers tool arguments as a JSON **string scalar** wrapping a JSON object (a common Anthropic↔OpenAI mapping artifact), unwrapping it to the intended object instead of falling back to `{ __raw }`.
 
