@@ -12,11 +12,11 @@ on:
 permissions:
   contents: read
 
-# L3-D: the gate. typecheck → build → test must ALL be green for the
-# branch to be mergeable. Failing any one step fails the workflow; we do
-# not split into independent jobs because the build step depends on
-# typecheck passing and the test step depends on the build artifacts
-# (dts files exposed by per-package exports).
+# L3-D: the gate. build → typecheck → test must ALL be green for the branch
+# to be mergeable. Build runs FIRST: packages resolve each other's types via
+# their published dist/*.d.ts (workspace exports), so cross-package typecheck
+# (e.g. @wrongstack/acp importing @wrongstack/core) needs the dts to exist.
+# Test then depends on the same build artifacts. Failing any step fails the run.
 
 jobs:
   gate:
@@ -44,11 +44,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Typecheck (all packages, parallel)
-        run: pnpm typecheck
-
       - name: Build (all packages)
         run: pnpm build
+
+      - name: Typecheck (all packages, parallel)
+        run: pnpm typecheck
 
       - name: Test (vitest)
         run: pnpm test
