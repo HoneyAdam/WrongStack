@@ -1,8 +1,8 @@
 import { Box, Text } from 'ink';
 import type React from 'react';
 import type { FleetEntry } from '../app.js';
-import { fmtElapsed } from './status-bar.js';
 import { bucketActivity, sparkline } from './fleet-monitor.js';
+import { fmtElapsed } from './status-bar.js';
 
 export interface AgentsMonitorProps {
   entries: Record<string, FleetEntry>;
@@ -24,7 +24,41 @@ const STATUS: Record<FleetEntry['status'], { icon: string; color: string }> = {
 };
 
 function isTerminal(status: FleetEntry['status']): boolean {
-  return status === 'success' || status === 'failed' || status === 'timeout' || status === 'stopped';
+  return (
+    status === 'success' || status === 'failed' || status === 'timeout' || status === 'stopped'
+  );
+}
+
+/**
+ * An idle agent that hasn't produced any event for this long is considered
+ * stale and dropped from the live view — a running agent is never hidden.
+ * `lastEventAt` is bumped on every tool / message / stream event.
+ */
+export const IDLE_HIDE_MS = 60_000;
+
+/**
+ * Select the agents the live monitor should render: never-terminal agents,
+ * with idle agents pruned once they've been silent longer than `idleHideMs`.
+ * Running agents come first (oldest first), then surviving idle agents
+ * (most-recently-active first). Pure + exported for unit testing.
+ */
+export function selectLiveAgents(
+  all: FleetEntry[],
+  now: number,
+  idleHideMs: number = IDLE_HIDE_MS,
+): FleetEntry[] {
+  const visible = all.filter((e) => {
+    if (isTerminal(e.status)) return false;
+    if (e.status === 'running') return true;
+    // idle: keep only while it's been recently active
+    return now - e.lastEventAt < idleHideMs;
+  });
+  return visible.sort((a, b) => {
+    if (a.status === 'running' && b.status !== 'running') return -1;
+    if (a.status !== 'running' && b.status === 'running') return 1;
+    if (a.status === 'running') return a.startedAt - b.startedAt; // oldest run first
+    return b.lastEventAt - a.lastEventAt; // freshest idle first
+  });
 }
 
 function fmtTokens(n: number): string {
@@ -53,21 +87,20 @@ export function AgentsMonitor({
 }: AgentsMonitorProps): React.ReactElement {
   const all = Object.values(entries);
 
-  // Only running + idle agents are shown. Terminal agents are excluded —
-  // the FleetPanel + history still have the full record; this view shows
-  // only what's actually live right now.
-  const live = all.filter((e) => !isTerminal(e.status));
+  // Terminal agents are excluded, and idle agents that have been silent for
+  // longer than IDLE_HIDE_MS are pruned — the FleetPanel + history still hold
+  // the full record; this view shows only what's actually live right now.
+  const live = selectLiveAgents(all, nowTick);
 
   const running = live.filter((e) => e.status === 'running').length;
   const totalDone = all.filter((e) => e.status === 'success').length;
   const totalFailed = all.filter((e) => e.status === 'failed' || e.status === 'timeout').length;
+  // Idle agents pruned for being stale (live but not in the visible set).
+  const hiddenIdle = all.filter(
+    (e) => e.status === 'idle' && nowTick - e.lastEventAt >= IDLE_HIDE_MS,
+  ).length;
 
-  // Running agents first (oldest first), then idle (oldest first).
-  const ordered = [...live].sort((a, b) => {
-    if (a.status === 'running' && b.status !== 'running') return -1;
-    if (a.status !== 'running' && b.status === 'running') return 1;
-    return a.startedAt - b.startedAt;
-  });
+  const ordered = live;
   const shown = ordered.slice(0, 8);
 
   return (
@@ -99,6 +132,7 @@ export function AgentsMonitor({
           </Text>
         ) : null}
         <Text color="green">${totalCost.toFixed(3)}</Text>
+        {hiddenIdle > 0 ? <Text dimColor>· {hiddenIdle} idle hidden</Text> : null}
       </Box>
 
       {shown.length === 0 ? (
@@ -113,12 +147,8 @@ export function AgentsMonitor({
         const spark = sparkline(bucketActivity(e.recentTools, nowTick));
         const lastTool = e.recentTools[e.recentTools.length - 1];
         const lastMessage = e.recentMessages[e.recentMessages.length - 1];
-        const streamTail = e.streamingText
-          ? snippet(e.streamingText.slice(-160))
-          : '';
-        const toolElapsed = e.currentTool
-          ? Math.max(0, nowTick - e.currentTool.startedAt)
-          : 0;
+        const streamTail = e.streamingText ? snippet(e.streamingText.slice(-160)) : '';
+        const toolElapsed = e.currentTool ? Math.max(0, nowTick - e.currentTool.startedAt) : 0;
 
         return (
           <Box key={e.id} flexDirection="column" marginTop={1}>
@@ -154,9 +184,7 @@ export function AgentsMonitor({
                 {lastTool ? (
                   <Text dimColor>
                     last: {lastTool.name}
-                    {typeof lastTool.durationMs === 'number'
-                      ? ` ${lastTool.durationMs}ms`
-                      : ''}
+                    {typeof lastTool.durationMs === 'number' ? ` ${lastTool.durationMs}ms` : ''}
                     {lastTool.ok === false ? ' ✗' : ''}
                   </Text>
                 ) : null}
@@ -166,7 +194,9 @@ export function AgentsMonitor({
             {/* Live streaming tail (for running agents) */}
             {e.status === 'running' && streamTail ? (
               <Box paddingLeft={2}>
-                <Text dimColor>{'>'} {streamTail}</Text>
+                <Text dimColor>
+                  {'>'} {streamTail}
+                </Text>
               </Box>
             ) : null}
 
