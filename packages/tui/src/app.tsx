@@ -1640,14 +1640,14 @@ export function App({
   const handleRewindTo = React.useCallback(async (checkpointIndex: number) => {
     const sessionId = agent.ctx.session.id;
     if (!sessionId) return;
-    const rewinder = new DefaultSessionRewinder(sessionsDir ?? '');
+    const rewinder = new DefaultSessionRewinder(sessionsDir ?? '', projectRoot ?? agent.ctx.cwd);
     // Revert file system changes first (read-only, safe to do eagerly).
     await rewinder.rewindToCheckpoint(sessionId, checkpointIndex);
     // Then truncate the conversation history — this fires session.rewound
     // on the EventBus, which the useEffect at line 2212 listens to and
     // dispatches sessionRewound + clearHistory.
     await agent.ctx.session.truncateToCheckpoint(checkpointIndex);
-  }, [agent.ctx.session, sessionsDir]);
+  }, [agent.ctx.session, sessionsDir, projectRoot, agent.ctx.cwd]);
 
   const setDraft = (buffer: string, cursor: number): void => {
     draftRef.current = { buffer, cursor };
