@@ -246,3 +246,43 @@ The `DefaultPermissionPolicy` has a well-structured evaluation chain with explic
 ---
 
 *End of report.*
+
+---
+---
+
+# Security Audit Report 2 — Full Monorepo (`security-check`)
+
+**Target:** entire monorepo (`packages/*`, `apps/*`, CI) — 17 packages, ~568 non-test TS files
+**Date:** 2026-05-29
+**Method:** `security-check` 4-phase pipeline (Recon → Hunt → Verify → Report), 7 parallel analyzers
+**Status:** fixes merged to `main` via PR #2 (commits `992f3ac`…`61ec1de`)
+
+> Complementary to Report 1 above (which covered only `runtime`+`core`). Report 1's findings (clipboard PowerShell interpolation, secret-vault log metadata, permission subjectKey heuristic, glob cache cap) are **separate and not addressed here**.
+
+## Summary
+
+| ID | Finding | Severity | CWE | Status |
+|----|---------|----------|-----|--------|
+| F1 | Command injection via filename in codebase-index parsers (execSync shell-strings) | High | 78 | ✅ Fixed (`execFileSync` argv) |
+| F2/F6 | WebUI WS: cross-site hijacking / no Host-header (rebinding) validation | High/Med | 1385/350 | ✅ Fixed (Host allowlist, token, both servers) |
+| F3 | Zip-slip in skill/plugin tar extractor | Med | 22 | ✅ Fixed (containment assert) |
+| F4 | SSRF in web-search `web_fetch` (no IP/redirect validation) | Med | 918 | ✅ Fixed (DNS+IPv6+IMDS, per-hop redirect) |
+| F5 | DNS-rebinding TOCTOU in `fetch.ts` | Med | 918/367 | ✅ Fixed (undici dispatcher IP-pin) |
+| F7 | Fleet cost-cap bypass via budget auto-extend | Med | 770 | ✅ Fixed (re-check in extend handler) |
+| F8 | Non-atomic RecoveryLock write | Med | 367 | ✅ Fixed (routed through `atomicWrite`) |
+| F9 | Config files created without `0o600` | Low | 276 | ✅ Fixed |
+| F10 | Non-constant-time WS token compare | Low | 208 | ✅ Fixed (`timingSafeEqual`) |
+| F11 | CI/CD: mutable action tags, broad token, no provenance | Low | 1357/732 | ✅ Fixed (SHA-pin, least-priv, `--provenance`) |
+| F12 | `git -c`/`--config` arg injection in exec allowlist | Low | 88 | ✅ Fixed (denylist) |
+| F13 | WS `maxPayload`, CSP `unsafe-inline`/SPA-fallback | Low | 400/1021 | ◑ CSP+maxPayload fixed; token-in-URL deferred |
+| F14 | `_regex.ts` ReDoS heuristic non-exhaustive | Low (suspected) | 1333 | ⬜ Accepted (bounded input; only full fix is re2 dep) |
+
+**Overall posture: strong** (consistent with Report 1). Verified-sound controls: AES-256-GCM secret vault, argv-array spawning in production process launches, project-root path containment in fs tools, prototype-pollution-safe merges, schema-validated deserialization, clean `pnpm audit`.
+
+## Notable engineering notes from remediation
+
+- **F5** added `undici@^7.25` to `@wrongstack/tools` to pin the connection to the DNS-validated IP (single resolution shared by check + connect); TLS still validates the hostname cert.
+- **CI was repaired** beyond the findings: a pre-existing pnpm `version`-vs-`packageManager` conflict and a typecheck-before-build ordering bug (cross-package types resolve via `dist/*.d.ts`) had `main` red for days; both fixed.
+- The raw per-analyzer output lives in the git-ignored `security-report/` directory (not committed by design).
+
+*End of report 2.*
