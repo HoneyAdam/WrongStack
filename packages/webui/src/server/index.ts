@@ -58,14 +58,6 @@ import { WorktreeWebSocketHandler } from './worktree-ws-handler.js';
 // Re-export types
 export type { WebUIOptions, BackendServices } from './types.js';
 
-// CSP for served HTML. script-src is 'self' only — the production bundle has no
-// inline scripts, so 'unsafe-inline' is dropped (defeats injected-script XSS).
-// style-src keeps 'unsafe-inline' because Radix/React inject inline styles at
-// runtime. object-src/base-uri/frame-ancestors/form-action are tightened as
-// defense-in-depth (frame-ancestors complements X-Frame-Options: DENY).
-const HTML_CSP =
-  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; img-src 'self' data:; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'";
-
 // Internal message types
 interface WSServerMessage {
   type: string;
@@ -105,7 +97,16 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
 
   // If no active provider is set but there are saved providers, pick the first one.
   // This handles configs written in older formats or by external tools.
-  if (!config.provider && config.providers && Object.keys(config.providers).length > 0) {
+  // Guard against config.providers being a string or other non-object value
+  // (e.g., from a corrupted config or YAML parser misreading the value).
+  if (
+    !config.provider &&
+    config.providers &&
+    typeof config.providers === 'object' &&
+    config.providers !== null &&
+    !Array.isArray(config.providers) &&
+    Object.keys(config.providers).length > 0
+  ) {
     const firstKey = Object.keys(config.providers)[0]!;
     config = patchConfig(config, { provider: firstKey });
     console.log('[WebUI] No active provider — auto-selected:', firstKey);
@@ -543,15 +544,20 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
 
   // Per-connection message rate limiting: 60 messages per 60-second window.
   // Exceeding clients are temporarily blocked to prevent flooding.
+  // Uses sessionId as the key once connected, falling back to ws for
+  // pre-auth messages — prevents connection-reuse bypass.
   const RATE_LIMIT_MESSAGES = 60;
   const RATE_LIMIT_WINDOW_MS = 60_000;
-  const rateLimits = new Map<WebSocket, { count: number; resetAt: number }>();
+  const rateLimits = new Map<string, { count: number; resetAt: number }>();
 
-  function checkRateLimit(ws: WebSocket): boolean {
+  function checkRateLimit(ws: WebSocket, client: ConnectedClient): boolean {
     const now = Date.now();
-    const limit = rateLimits.get(ws);
+    // Prefer the per-client authenticated sessionId; fall back to the
+    // WebSocket identity for pre-auth messages before session.start.
+    const key = client.sessionId ?? String(ws);
+    const limit = rateLimits.get(key);
     if (!limit || now > limit.resetAt) {
-      rateLimits.set(ws, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+      rateLimits.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
       return true;
     }
     if (limit.count >= RATE_LIMIT_MESSAGES) return false;
@@ -722,7 +728,7 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
     worktreeHandler.addClient(ws);
 
     ws.on('message', async (data) => {
-      if (!checkRateLimit(ws)) {
+      if (!checkRateLimit(ws, client)) {
         send(ws, {
           type: 'error',
           payload: {
@@ -733,8 +739,24 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
         return;
       }
       try {
-        const msg = JSON.parse(data.toString()) as WSClientMessage;
-        await handleMessage(ws, client, msg);
+        // Prototype pollution guard: reject messages whose root-level payload
+        // contains __proto__, constructor, or prototype keys. These could
+        // cause prototype pollution via Object.assign({}, payload) or
+        // spread {...payload}. The top-level check below catches the
+        // dangerous keys; nested payload sub-objects are low-risk since
+        // handlers don't do deep property merges.
+        const rawObj = JSON.parse(data.toString());
+        if (typeof rawObj === 'object' && rawObj !== null) {
+          const obj = rawObj as Record<string, unknown>;
+          if ('__proto__' in obj || 'constructor' in obj || 'prototype' in obj) {
+            send(ws, { type: 'error', payload: { phase: 'parse', message: 'Invalid message object' } });
+          } else {
+            await handleMessage(ws, client, rawObj as WSClientMessage);
+          }
+        } else {
+          // Non-object JSON (array, string, number…) — pass through
+          await handleMessage(ws, client, rawObj as unknown as WSClientMessage);
+        }
       } catch (err) {
         console.error('[WebUI] Failed to parse message', err);
       }
@@ -742,7 +764,7 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
 
     ws.on('close', () => {
       clients.delete(ws);
-      rateLimits.delete(ws);
+      rateLimits.delete(String(ws));
       console.log('[WebUI] Client disconnected, total:', clients.size);
       // If the client disconnects while a permission prompt is pending,
       // resolve all pending confirms with 'no' so the agent loop doesn't
@@ -1967,7 +1989,13 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
 
       if (ext === '.html') {
         res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Content-Security-Policy', HTML_CSP);
+        // connect-src uses explicit loopback addresses rather than bare
+        // ws:/wss: schemes so a malicious page script can't connect to any
+        // WebSocket server. Combined with token-in-URL (C-2), explicit loopback
+        // prevents cross-origin abuse.
+        res.setHeader('Content-Security-Policy',
+          `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws://127.0.0.1:${wsPort} wss://127.0.0.1:${wsPort} ws://[::1]:${wsPort} wss://[::1]:${wsPort}; img-src 'self' data:; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'`
+        );
       }
 
       const fileContent = await fs.readFile(resolvedPath);
@@ -1985,7 +2013,7 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
             'Referrer-Policy': 'strict-origin-when-cross-origin',
             // SPA fallback previously shipped no CSP — apply the same policy as
             // the direct .html branch so deep-linked routes aren't unprotected.
-            'Content-Security-Policy': HTML_CSP,
+            'Content-Security-Policy': `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws://127.0.0.1:${wsPort} wss://127.0.0.1:${wsPort} ws://[::1]:${wsPort} wss://[::1]:${wsPort}; img-src 'self' data:; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'`,
           });
           res.end(fileContent);
         } catch {

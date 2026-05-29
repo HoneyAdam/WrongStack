@@ -7,7 +7,7 @@
  * - git_status_summary: Show a summary of current git status
  */
 import type { Plugin } from '@wrongstack/core';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 
 const API_VERSION = '^0.1.10';
@@ -20,7 +20,7 @@ type ConventionalType = 'feat' | 'fix' | 'docs' | 'style' | 'refactor' | 'test' 
 
 function runGit(args: string[], cwd?: string): string {
   try {
-    return execSync(`git ${args.join(' ')}`, {
+    return execFileSync('git', args, {
       encoding: 'utf-8',
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],

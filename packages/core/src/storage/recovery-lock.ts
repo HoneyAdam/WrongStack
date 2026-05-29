@@ -2,7 +2,7 @@ import * as fsp from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { SessionStore } from '../types/session.js';
-import { atomicWrite, ensureDir } from '../utils/atomic-write.js';
+import { ensureDir } from '../utils/atomic-write.js';
 
 /**
  * Per-project lockfile used for crash detection. The CLI writes one of
@@ -128,9 +128,14 @@ export class RecoveryLock {
   }
 
   /**
-   * Claim the lock for the given session. Overwrites any existing lock
-   * — the caller should have already handled abandonment (via
-   * `checkAbandoned`) before calling this.
+   * Claim the lock for the given session. Uses exclusive-create (`O_EXCL`)
+   * to detect whether another process acquired the lock between our
+   * `checkAbandoned()` call and now. If the file already exists, it means
+   * another process won the race and we throw instead of silently
+   * overwriting their recovery record.
+   *
+   * The caller MUST have already called `checkAbandoned()` and handled its
+   * null return before calling this.
    */
   async write(sessionId: string): Promise<void> {
     await ensureDir(path.dirname(this.file));
@@ -141,11 +146,20 @@ export class RecoveryLock {
       hostname: this.hostname,
       startedAt: new Date().toISOString(),
     };
-    // Atomic write via the shared primitive: unique temp name + exclusive
-    // ('wx') create + fsync + rename-with-retry (Windows-safe). A fixed `.tmp`
-    // name with a plain writeFile/rename raced between concurrent runs and
-    // could leave a torn/half-written `active.json`.
-    await atomicWrite(this.file, JSON.stringify(lock), { mode: 0o600 });
+    // O_EXCL: atomic create — fails with EEXIST if another process wrote
+    // the file between our checkAbandoned() and this write. This prevents
+    // two processes that scanned the same stale lock from both believing
+    // they hold it. The atomicWrite approach (temp+rename) would silently
+    // replace on POSIX, hiding the race.
+    try {
+      await fsp.writeFile(this.file, JSON.stringify(lock), { flag: 'wx', mode: 0o600 });
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'EEXIST') {
+        throw new Error(`Recovery lock already held by another process`);
+      }
+      throw err;
+    }
   }
 
   /**

@@ -76,6 +76,12 @@ export interface TelegramBotOptions {
   log: Logger;
   /** Called for each incoming message that passes allowlist checks. */
   onMessage(msg: TelegramIncomingMessage): void;
+  /**
+   * Optional path to a file that stores the polling offset. When provided,
+   * the offset is persisted on every successful poll and restored on startup,
+   * preventing message replay after crashes or restarts.
+   */
+  offsetStoragePath?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -95,6 +101,8 @@ export class TelegramBot {
   private pollActive = false;
   private offset = 0;
   private _startedAt: number | null = null;
+  /** If set, the offset is persisted here after each successful poll. */
+  private readonly offsetStoragePath?: string;
 
   // Circular buffer for incoming messages
   private readonly bufferMax: number;
@@ -109,6 +117,12 @@ export class TelegramBot {
     this.bufferMax = opts.bufferSize;
     this.log = opts.log;
     this.onMessage = opts.onMessage;
+    this.offsetStoragePath = opts.offsetStoragePath;
+
+    // Restore persisted offset so a crash/restart doesn't cause message replay.
+    if (this.offsetStoragePath) {
+      void this.loadOffset();
+    }
   }
 
   // ------------------------------------------------------------------
@@ -262,6 +276,12 @@ export class TelegramBot {
         const msg = { ...raw, text: raw.text };
         this.processMessage(msg);
       }
+
+      // Persist offset after each successful poll to prevent message replay
+      // after crashes or restarts.
+      if (this.offsetStoragePath && this.offset > 0) {
+        void this.saveOffset();
+      }
     } catch (err) {
       if ((err as Error).name === 'AbortError') return;
       this.log.warn(`Telegram poll error: ${(err as Error).message}`);
@@ -298,6 +318,32 @@ export class TelegramBot {
     while (this.buffer.length > this.bufferMax) this.buffer.shift();
 
     this.onMessage(incoming);
+  }
+
+  private async loadOffset(): Promise<void> {
+    if (!this.offsetStoragePath) return;
+    try {
+      const { readFileSync } = await import('node:fs');
+      const raw = readFileSync(this.offsetStoragePath, 'utf8').trim();
+      const n = Number.parseInt(raw, 10);
+      if (Number.isFinite(n) && n >= 0) {
+        this.offset = n;
+        this.log.debug(`Telegram polling offset restored: ${this.offset}`);
+      }
+    } catch {
+      // File doesn't exist yet — start from 0, which is correct.
+    }
+  }
+
+  private async saveOffset(): Promise<void> {
+    if (!this.offsetStoragePath) return;
+    try {
+      const { writeFileSync } = await import('node:fs');
+      // Write atomically so a crash mid-write can't leave a corrupt file.
+      writeFileSync(this.offsetStoragePath, String(this.offset), 'utf8');
+    } catch (err) {
+      this.log.warn(`Failed to persist Telegram offset: ${err}`);
+    }
   }
 }
 

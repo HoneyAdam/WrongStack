@@ -1,4 +1,5 @@
 import type { Dispatcher } from 'undici';
+import { randomBytes } from 'node:crypto';
 import * as https from 'node:https';
 import * as net from 'node:net';
 import type { ConnectionState, JsonRpcResponse, MCPTool, ToolCallResult } from './client.js';
@@ -53,16 +54,6 @@ function validateTransportUrl(rawUrl: string): void {
 
   const hostname = url.hostname;
 
-  // Block localhost variants
-  if (
-    hostname === 'localhost' ||
-    hostname === '0.0.0.0' ||
-    hostname === '::' ||
-    hostname === '[::1]'
-  ) {
-    return; // localhost is expected for local MCP servers — don't block
-  }
-
   // Block cloud metadata endpoints (IMDS) — these are never valid MCP servers
   const ipVersion = net.isIP(hostname);
   if (ipVersion === 4) {
@@ -71,6 +62,23 @@ function validateTransportUrl(rawUrl: string): void {
     if (parts[0] === 169 && parts[1] === 254) {
       throw new Error(
         `MCP transport: blocked link-local/IMDS address "${hostname}" — likely not a valid MCP server`,
+      );
+    }
+  }
+
+  // Plaintext http: is only permitted for loopback addresses where the
+  // attacker would already need machine-level access. Remote HTTP MCP servers
+  // must use TLS so an active network attacker cannot read or modify tool
+  // calls and responses.
+  if (url.protocol === 'http:') {
+    const isLoopback =
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '::1' ||
+      hostname === '[::1]';
+    if (!isLoopback) {
+      throw new Error(
+        `MCP transport: http:// is only allowed for loopback addresses; use https:// for "${hostname}"`,
       );
     }
   }
@@ -116,6 +124,12 @@ export class SSEReader {
   }
 
   feed(chunk: string): void {
+    // Guard against a single chunk that exceeds the buffer cap.
+    if (chunk.length > SSE_READER_MAX_BUFFER) {
+      throw new Error(
+        `SSE: chunk size ${chunk.length} exceeds max buffer ${SSE_READER_MAX_BUFFER} — refusing to accumulate`,
+      );
+    }
     this.buffer += chunk;
     if (this.buffer.length > SSE_READER_MAX_BUFFER) {
       throw new Error(
@@ -431,7 +445,10 @@ export class SSETransport {
   private buildSSEUrl(): string {
     try {
       const url = new URL(this.url);
-      url.searchParams.set('session', String(Date.now()));
+      // Cryptographically random session ID instead of timestamp —
+      // prevents an attacker on the same LAN from guessing the session
+      // param and reconnecting to the SSE stream.
+      url.searchParams.set('session', randomBytes(16).toString('hex'));
       return url.toString();
     } catch {
       return this.url;

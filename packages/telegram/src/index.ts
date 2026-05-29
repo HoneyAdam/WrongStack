@@ -55,6 +55,7 @@ const plugin: Plugin = {
       allowedChats: new Set((cfg.allowedChats ?? []).map(String)),
       bufferSize: 50,
       log,
+      offsetStoragePath: cfg.offsetStoragePath,
       onMessage(msg: TelegramIncomingMessage) {
         // Emit custom event so other plugins or the host can react.
         // The TUI can subscribe and surface it (future hook).

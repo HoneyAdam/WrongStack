@@ -35,7 +35,7 @@ describe('DefaultSessionRewinder', () => {
       const id = await writeSession([
         { type: 'session_start', ts: new Date().toISOString(), id: 's1', model: 'm', provider: 'p' },
       ]);
-      const rewind = new DefaultSessionRewinder(tmp);
+      const rewind = new DefaultSessionRewinder(tmp, tmp);
       const checkpoints = await rewind.listCheckpoints(id);
       expect(checkpoints).toEqual([]);
     });
@@ -46,7 +46,7 @@ describe('DefaultSessionRewinder', () => {
         makeCheckpoint(1, 'second prompt'),
         makeCheckpoint(2, 'third prompt'),
       ]);
-      const rewind = new DefaultSessionRewinder(tmp);
+      const rewind = new DefaultSessionRewinder(tmp, tmp);
       const checkpoints = await rewind.listCheckpoints(id);
       expect(checkpoints).toHaveLength(3);
       expect(checkpoints[0]).toMatchObject({ promptIndex: 0, promptPreview: 'first prompt' });
@@ -63,7 +63,7 @@ describe('DefaultSessionRewinder', () => {
         ]),
         makeCheckpoint(1, 'second'),
       ]);
-      const rewind = new DefaultSessionRewinder(tmp);
+      const rewind = new DefaultSessionRewinder(tmp, tmp);
       const checkpoints = await rewind.listCheckpoints(id);
       expect(checkpoints[0]).toMatchObject({ promptIndex: 0, fileCount: 2 });
       expect(checkpoints[1]).toMatchObject({ promptIndex: 1, fileCount: 0 });
@@ -83,7 +83,7 @@ describe('DefaultSessionRewinder', () => {
         makeCheckpoint(2, 'third'),
       ]);
 
-      const rewind = new DefaultSessionRewinder(tmp);
+      const rewind = new DefaultSessionRewinder(tmp, tmp);
       const result = await rewind.rewindToCheckpoint(id, 1);
 
       expect(result.revertedFiles).toContain(testFile);
@@ -95,7 +95,7 @@ describe('DefaultSessionRewinder', () => {
 
     it('throws when checkpoint not found', async () => {
       const id = await writeSession([makeCheckpoint(0, 'first')]);
-      const rewind = new DefaultSessionRewinder(tmp);
+      const rewind = new DefaultSessionRewinder(tmp, tmp);
       await expect(rewind.rewindToCheckpoint(id, 999)).rejects.toThrow('Checkpoint 999 not found');
     });
 
@@ -116,7 +116,7 @@ describe('DefaultSessionRewinder', () => {
       // File needs to exist (simulating state after prompt 0 ran)
       await fs.writeFile(createdFile, 'content', 'utf8');
 
-      const rewind = new DefaultSessionRewinder(tmp);
+      const rewind = new DefaultSessionRewinder(tmp, tmp);
       // Rewind to checkpoint 1 means "go back to state after prompt 0, before prompt 1"
       const result = await rewind.rewindToCheckpoint(id, 0);
 
@@ -134,7 +134,7 @@ describe('DefaultSessionRewinder', () => {
         makeCheckpoint(1, 'second'),
       ]);
 
-      const rewind = new DefaultSessionRewinder(tmp);
+      const rewind = new DefaultSessionRewinder(tmp, tmp);
       const result = await rewind.rewindToCheckpoint(id, 0);
 
       expect(result.revertedFiles).toContain(deletedFile);
@@ -153,7 +153,7 @@ describe('DefaultSessionRewinder', () => {
         makeCheckpoint(1, 'second'),
       ]);
 
-      const rewind = new DefaultSessionRewinder(tmp);
+      const rewind = new DefaultSessionRewinder(tmp, tmp);
       const result = await rewind.rewindToCheckpoint(id, 0);
 
       expect(result.revertedFiles).toContain(testFile);
@@ -174,7 +174,7 @@ describe('DefaultSessionRewinder', () => {
         makeCheckpoint(2, 'v2'),
       ]);
 
-      const rewind = new DefaultSessionRewinder(tmp);
+      const rewind = new DefaultSessionRewinder(tmp, tmp);
       const result = await rewind.rewindLastN(id, 1);
 
       expect(result.revertedFiles).toContain(testFile);
@@ -192,7 +192,7 @@ describe('DefaultSessionRewinder', () => {
         makeCheckpoint(1, 'v1'),
       ]);
 
-      const rewind = new DefaultSessionRewinder(tmp);
+      const rewind = new DefaultSessionRewinder(tmp, tmp);
       const result = await rewind.rewindLastN(id, 10);
 
       expect(result.revertedFiles).toContain(testFile);
@@ -202,7 +202,7 @@ describe('DefaultSessionRewinder', () => {
 
     it('returns empty result when no snapshots', async () => {
       const id = await writeSession([makeCheckpoint(0, 'only checkpoint')]);
-      const rewind = new DefaultSessionRewinder(tmp);
+      const rewind = new DefaultSessionRewinder(tmp, tmp);
       const result = await rewind.rewindLastN(id, 1);
       expect(result.revertedFiles).toEqual([]);
       expect(result.errors).toEqual([]);
@@ -222,7 +222,7 @@ describe('DefaultSessionRewinder', () => {
         makeCheckpoint(2, 'final'),
       ]);
 
-      const rewind = new DefaultSessionRewinder(tmp);
+      const rewind = new DefaultSessionRewinder(tmp, tmp);
       const result = await rewind.rewindToStart(id);
 
       expect(result.revertedFiles).toContain(testFile);
@@ -245,7 +245,7 @@ describe('DefaultSessionRewinder', () => {
         makeCheckpoint(1, 'after'),
       ]);
 
-      const rewind = new DefaultSessionRewinder(tmp);
+      const rewind = new DefaultSessionRewinder(tmp, tmp);
       const result = await rewind.rewindToStart(id);
 
       expect(result.revertedFiles).toContain(file1);

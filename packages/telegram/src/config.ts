@@ -28,9 +28,16 @@ export interface TelegramPluginConfig {
   longToolThresholdMs?: number;
   /** Maximum message length for Telegram (Telegram caps at 4096). */
   maxMessageLength?: number;
+  /**
+   * Path to a file that stores the Telegram polling offset. When set,
+   * the offset is persisted on every successful poll and restored on startup,
+   * preventing message replay after crashes or restarts.
+   * The directory must already exist and be writable.
+   */
+  offsetStoragePath?: string;
 }
 
-export const DEFAULT_CONFIG: Required<Omit<TelegramPluginConfig, 'botToken' | 'notifyChatId'>> = {
+export const DEFAULT_CONFIG: Required<Omit<TelegramPluginConfig, 'botToken' | 'notifyChatId' | 'offsetStoragePath'>> = {
   allowedUsers: [],
   allowedChats: [],
   pollIntervalSec: 2,
@@ -72,7 +79,8 @@ export const telegramConfigSchema = {
 
 export function readTelegramConfig(
   api: Pick<PluginAPI, 'config'>,
-): Required<Omit<TelegramPluginConfig, 'notifyChatId'>> & Pick<TelegramPluginConfig, 'notifyChatId'> {
+): Required<Omit<TelegramPluginConfig, 'notifyChatId' | 'offsetStoragePath'>> &
+  Pick<TelegramPluginConfig, 'notifyChatId' | 'offsetStoragePath'> {
   const config = api.config as unknown as Record<string, unknown>;
   const extensions = config.extensions as Record<string, unknown> | undefined;
   const pluginEntries = config.plugins;

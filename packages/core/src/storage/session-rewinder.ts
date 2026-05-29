@@ -6,6 +6,8 @@ import { atomicWrite } from '../utils/atomic-write.js';
 
 export interface SessionRewinderOptions {
   sessionsDir: string;
+  /** The project root directory; used to validate rewind targets stay inside it. */
+  projectRoot: string;
 }
 
 /**
@@ -13,7 +15,7 @@ export interface SessionRewinderOptions {
  * changes to any previous checkpoint.
  */
 export class DefaultSessionRewinder implements SessionRewinder {
-  constructor(private readonly sessionsDir: string) {}
+  constructor(private readonly sessionsDir: string, private readonly projectRoot: string) {}
 
   async listCheckpoints(sessionId: string): Promise<CheckpointInfo[]> {
     const file = path.join(this.sessionsDir, `${sessionId}.jsonl`);
@@ -83,7 +85,7 @@ export class DefaultSessionRewinder implements SessionRewinder {
       }
     }
 
-    const result = await revertSnapshots(snapshotsToRevert);
+    const result = await revertSnapshots(snapshotsToRevert, this.projectRoot);
     const removedEvents = events.length - targetIdx - 1;
     return { ...result, toPromptIndex: checkpointIndex, removedEvents };
   }
@@ -120,7 +122,7 @@ export class DefaultSessionRewinder implements SessionRewinder {
       }
     }
 
-    const result = await revertSnapshots(snapshotsToRevert.reverse());
+    const result = await revertSnapshots(snapshotsToRevert.reverse(), this.projectRoot);
     return { ...result, toPromptIndex: targetIndex, removedEvents: snapshotsToRevert.length };
   }
 
@@ -140,7 +142,7 @@ export class DefaultSessionRewinder implements SessionRewinder {
       return { revertedFiles: [], errors: [], toPromptIndex: 0, removedEvents: 0 };
     }
 
-    const result = await revertSnapshots(allSnapshots.reverse());
+    const result = await revertSnapshots(allSnapshots.reverse(), this.projectRoot);
     return { ...result, toPromptIndex: 0, removedEvents: allSnapshots.length };
   }
 }
@@ -170,6 +172,7 @@ function parseEvents(raw: string): SessionEvent[] {
 
 async function revertSnapshots(
   snapshots: Array<{ promptIndex: number; files: FileSnapshot[] }>,
+  projectRoot: string,
 ): Promise<RewindResult> {
   const revertedFiles: string[] = [];
   const errors: string[] = [];
@@ -177,6 +180,18 @@ async function revertSnapshots(
   for (const snapshot of snapshots) {
     for (const file of snapshot.files) {
       try {
+        // Guard: ensure the target path resolves inside the project root.
+        // Without this, a maliciously recorded path (e.g., via path traversal
+        // in a tool call that wasn't caught) could cause rewind to write
+        // to arbitrary locations.
+        const absPath = path.resolve(file.path);
+        const root = path.resolve(projectRoot);
+        const rel = path.relative(root, absPath);
+        if (rel.startsWith('..') || path.isAbsolute(rel)) {
+          errors.push(`${file.path}: path resolves outside project root — skipping`);
+          continue;
+        }
+
         if (file.action === 'deleted') {
           // File was deleted — restore it from before
           if (file.before !== null) {

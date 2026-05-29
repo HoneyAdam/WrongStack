@@ -7,7 +7,7 @@
  * - semver_changelog: Generate a changelog between two versions
  */
 import type { Plugin } from '@wrongstack/core';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
 
 const API_VERSION = '^0.1.10';
@@ -24,7 +24,7 @@ interface ConventionalCommit {
 
 function runGit(args: string[], cwd?: string): string {
   try {
-    return execSync(`git ${args.join(' ')}`, {
+    return execFileSync('git', args, {
       encoding: 'utf-8',
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],

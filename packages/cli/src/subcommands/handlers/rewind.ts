@@ -53,7 +53,7 @@ export const rewindCmd: SubcommandHandler = async (args, deps) => {
   const wpaths = resolveWstackPaths({ projectRoot: deps.projectRoot });
   const sessionsDir = path.join(wpaths.globalRoot, 'sessions');
 
-  const rewind = new DefaultSessionRewinder(sessionsDir);
+  const rewind = new DefaultSessionRewinder(sessionsDir, deps.projectRoot);
 
   // Get session ID — explicit positional wins; fall back to latest session.
   let sessionId = findSessionId(args);
