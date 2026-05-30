@@ -2,7 +2,7 @@
 
 > Built on the wrong stack. Shipped anyway.
 
-A CLI AI coding agent that runs in your terminal. It reads your code, edits files, runs commands, and reasons through bugs — while you stay in control of every permission. It drives autonomous goal loops, parallel subagent fan-out, and multi-agent Director orchestration; guides Spec-Driven Development cycles; and ships with 36 built-in tools, 12 bundled skills, 10 official plugins, and ~110 providers from models.dev — all with AES-256-GCM encrypted secrets and per-tool permission policies.
+A CLI AI coding agent that runs in your terminal. It reads your code, edits files, runs commands, and reasons through bugs — while you stay in control of every permission. It drives autonomous goal loops, parallel subagent fan-out, and multi-agent Director orchestration; guides Spec-Driven Development cycles; and ships with 36 built-in tools, 16 bundled skills, 10 official plugins, and ~110 providers from models.dev — all with AES-256-GCM encrypted secrets and per-tool permission policies.
 
 Provider catalog comes from [models.dev](https://models.dev) — no hardcoded provider lists, no hardcoded pricing, no hardcoded model names. API keys are encrypted at rest with a per-machine key. Every developer-level config lives under `~/.wrongstack/`; the only thing you'd ever commit to a repo is `.wrongstack/AGENTS.md`.
 
@@ -266,15 +266,23 @@ Four-layer observability:
 - **AES-256-GCM** encryption for all secrets at rest
 - Threat model and adversary trust assumptions in [`SECURITY.md`](SECURITY.md)
 
-### Bundled skills (12)
+### Bundled skills (16)
 
-`audit-log`, `bug-hunter`, `git-flow`, `multi-agent`, `node-modern`, `prompt-engineering`, `react-modern`, `refactor-planner`, `sdd`, `security-scanner`, `typescript-strict` — discovered in order: project → user → bundled, with first-seen winning on name collisions.
+`api-design`, `audit-log`, `bug-hunter`, `docker-deploy`, `git-flow`, `multi-agent`, `node-modern`, `observability`, `prompt-engineering`, `react-modern`, `refactor-planner`, `sdd`, `security-scanner`, `skill-creator`, `testing`, `typescript-strict` — all following one structure (Overview → Rules → Patterns → Skills in scope). Discovered in order: project → user → bundled, with first-seen winning on name collisions.
 
 ### `--no-features` minimal kernel
 
 Flips off MCP, plugins, memory tools, models.dev fetch, and skill discovery. What's left: kernel (`Container` + `Pipeline` + `EventBus` + `RunController`, 505 lines) + agent (525 lines) + 36 tools + permission policy + curated system prompt. The minimal-viable WrongStack runs offline with no network calls at startup. Provider family must be declared explicitly in config when using this mode.
 
 ---
+
+## What's new in 0.9.7
+
+- **Four new bundled skills — bundled set grows 12 → 16.** Added `testing` (vitest patterns, mocking, coverage, unit/integration/e2e), `observability` (structured logging, traces, metrics, redaction), `api-design` (REST patterns, error codes, pagination, auth), and `docker-deploy` (multi-stage builds, non-root user, image scanning).
+
+- **All bundled skills standardized.** Every skill now follows one structure — *Overview → Rules → Patterns (Do / Don't) → Skills in scope* — so they read consistently and compose predictably. Highlights: `react-modern` hook table expanded and a duplicate section removed, `typescript-strict` gained a Workflow section (tsconfig → per-file → CI gate), `refactor-planner` moved its dependency-graph example into Patterns, and `audit-log` documents the JSONL session-event structure.
+
+- **`docs/skills.md` now reflects 16 bundled skills**, with `AGENTS.md` and the skill-gen docs synced to the standardized layout.
 
 ## What's new in 0.9.4
 

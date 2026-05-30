@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.7] - 2026-05-31
+
+### Added
+
+- **Four new bundled skills — `testing`, `observability`, `api-design`, `docker-deploy`.** The bundled skill set grows from 12 to **16**:
+  - `testing` — vitest patterns, mocking strategy, coverage targets, and the unit/integration/e2e split.
+  - `observability` — structured logging, traces, metrics, and secret redaction in telemetry.
+  - `api-design` — REST conventions, error-code taxonomy, pagination, and auth patterns.
+  - `docker-deploy` — multi-stage builds, non-root user, and image scanning.
+
+### Changed
+
+- **All bundled skills standardized to one structure.** Every skill now follows the same shape — *Overview → Rules → Patterns (Do / Don't) → Skills in scope* — so the agent reads them consistently and they compose predictably:
+  - `audit-log` — expanded "What to look for", JSONL session-event structure documented, a stray non-ASCII character fixed.
+  - `bug-hunter` — bug-pattern table added under Patterns.
+  - `git-flow` — `bug-hunter` cross-linked under Skills in scope.
+  - `node-modern` — `sdd` cross-linked under Skills in scope.
+  - `prompt-engineering` — duplicate anti-patterns merged.
+  - `react-modern` — hook table expanded (`useCallback` / `useMemo` / `useDeferredValue`); duplicate "Common React 19 changes" section removed.
+  - `refactor-planner` — dependency-graph example moved into Patterns.
+  - `sdd` — missing Rules / Skills-in-scope sections added.
+  - `skill-creator` — self-consistency of its own guidance fixed.
+  - `typescript-strict` — Workflow section added (tsconfig → per-file → CI gate).
+  - `multi-agent`, `security-scanner` — Patterns (Do / Don't) sections added.
+
+- **All workspace packages bumped 0.9.6 → 0.9.7**: `wrongstack`, `@wrongstack/cli`, `@wrongstack/core`, `@wrongstack/mcp`, `@wrongstack/plug-lsp`, `@wrongstack/plugins`, `@wrongstack/providers`, `@wrongstack/runtime`, `@wrongstack/skills`, `@wrongstack/telegram`, `@wrongstack/tools`, `@wrongstack/tui`, `@wrongstack/webui`. (`apps/wrongstack` was lagging at 0.9.4 and is now realigned to 0.9.7.)
+
+### Docs
+
+- **`docs/skills.md` updated to reflect 16 bundled skills.** `AGENTS.md`, `docs/slash/skill-gen.md`, and `docs/subcommands/tools-skills.md` synced with the standardized skill layout.
+
 ## [0.9.4] - 2026-05-30
 
 ### Fixed
