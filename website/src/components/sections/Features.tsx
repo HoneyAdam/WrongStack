@@ -60,7 +60,7 @@ const features = [
   {
     icon: Workflow,
     title: 'AutoPhase',
-    tag: '0.8.x',
+    tag: '0.9.x',
     body: '/autophase breaks a project into ordered phases — Discovery, Design, Implementation, Testing, Deployment — and runs them autonomously with a live phase view in the web UI.',
   },
   {
