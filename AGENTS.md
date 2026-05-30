@@ -245,20 +245,37 @@ Format:
 ```markdown
 ---
 name: my-skill
-description: | Use this skill when doing X.
+description: |
+  Use this skill when <trigger condition>.
+  Triggers: user says "X", "Y".
 version: 1.0.0
 ---
 
 # My Skill
 
-## When to use
-...
+## Overview
+One-line description of what this skill does.
 
-## What to do
-...
+## Rules
+1. Rule one
+2. Rule two
+
+## Patterns
+### Do
+```ts
+// good example
 ```
 
-Bundled skills: `audit-log`, `bug-hunter`, `git-flow`, `multi-agent`, `node-modern`, `prompt-engineering`, `react-modern`, `refactor-planner`, `sdd`, `security-scanner`, `skill-creator`, `typescript-strict`.
+### Don't
+```ts
+// bad example
+```
+
+## Skills in scope
+- `other-skill` — for delegation when this skill needs help
+```
+
+Bundled skills: `api-design`, `audit-log`, `bug-hunter`, `docker-deploy`, `git-flow`, `multi-agent`, `node-modern`, `observability`, `prompt-engineering`, `react-modern`, `refactor-planner`, `sdd`, `security-scanner`, `skill-creator`, `testing`, `typescript-strict`.
 
 See `docs/skills.md` for the full authoring guide.
 

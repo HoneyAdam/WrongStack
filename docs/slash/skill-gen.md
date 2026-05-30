@@ -31,18 +31,33 @@ No separate wizard — the LLM handles the conversation, validation, and file wr
 ---
 name: my-skill
 description: |
-  Use this skill when [trigger condition].
-  Covers [what it does].
+  Use this skill when <trigger condition>.
+  Triggers: user says "X", "Y".
 version: 1.0.0
 ---
 
 # My Skill
 
-## When to use
-_Trigger text — the agent reads this to decide when to activate._
+## Overview
+One-line description of what this skill does.
 
-## What to do
-_Instructor text — what the agent should do when activated._
+## Rules
+1. Rule one
+2. Rule two
+
+## Patterns
+### Do
+```ts
+// good example
+```
+
+### Don't
+```ts
+// bad example
+```
+
+## Skills in scope
+- `other-skill` — for delegation when this skill needs help
 ```
 
 ## Prompt engineering tips (for the AI interviewer)

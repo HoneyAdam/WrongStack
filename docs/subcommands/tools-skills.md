@@ -22,8 +22,13 @@ Lists all available skills across all scopes:
 
 ```
 wstack skills
+  api-design        (bundled)   Use when: REST API design, error codes, pagination
   audit-log         (bundled)   Use when: log parsing, anomaly detection
   bug-hunter       (bundled)   Use when: systematic bug and code smell detection
+  docker-deploy     (bundled)   Use when: Docker containerization, multi-stage builds
+  git-flow          (bundled)   Use when: commit messages, branch hygiene
+ multi-agent      (bundled)   Use when: leader/worker delegation, fleet coordination
+  observability    (bundled)   Use when: structured logging, traces, metrics
   acme-conventions (project)   Use when: writing code in the acme-web repository
   my-skill          (user)     Use when: ...
 ```
