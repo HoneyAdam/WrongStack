@@ -269,6 +269,7 @@ describe('Director orchestration', () => {
       'roll_up',
       'spawn_subagent',
       'terminate_subagent',
+      'work_complete',
     ]);
 
     const spawn = tools.find((t) => t.name === 'spawn_subagent')!;
@@ -570,6 +571,7 @@ describe('Director orchestration', () => {
       'roll_up',
       'spawn_subagent',
       'terminate_subagent',
+      'work_complete',
     ]);
   });
 

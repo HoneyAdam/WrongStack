@@ -347,6 +347,7 @@ describe('MultiAgentHost', () => {
         'roll_up',
         'spawn_subagent',
         'terminate_subagent',
+        'work_complete',
       ]);
       // After ensureDirector(), the host considers itself in director
       // mode — the lazy build flipped the flag.
@@ -433,6 +434,7 @@ describe('MultiAgentHost', () => {
           'roll_up',
           'spawn_subagent',
           'terminate_subagent',
+          'work_complete',
         ]);
         await host.stopAll();
       });
