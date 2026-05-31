@@ -747,7 +747,7 @@ export function reducer(state: State, action: Action): State {
     case 'steerStart':
       return { ...state, steeringPending: true, steerSnapshot: action.snapshot };
     case 'steerConsume':
-      return { ...state, steeringPending: false, steerSnapshot: null };
+      return { ...state, steeringPending: false, steerSnapshot: null, interrupts: 0 };
     case 'resetInterrupts':
       return { ...state, interrupts: 0 };
     case 'hint':
@@ -3556,7 +3556,11 @@ export function App({
     // Ctrl+C which the SIGINT handler processes directly (not through handleKey).
     // We check interrupts here so the second Ctrl+C can still reach the handler
     // even though status is 'aborting'.
-    if (state.status === 'aborting' && state.interrupts === 0) return;
+    // Block input while aborting — unless the user is mid-steering
+    // (they need to type their new direction) or already pressed Ctrl+C
+    // twice (exit ladder takes priority). Ctrl+C SIGINT handler bypasses
+    // handleKey entirely so it always fires regardless of this guard.
+    if (state.status === 'aborting' && !state.steeringPending && state.interrupts === 0) return;
     // Block all input while confirmation prompt is shown — the ConfirmPrompt
     // component handles y/n/a/d/escape/enter itself and Input's disabled prop
     // is not reliable when multiple useInput hooks are active.
@@ -3673,18 +3677,6 @@ export function App({
         }
       }
       // Any other key while picker is open: ignore.
-      return;
-    }
-
-    // AutoPhase monitor toggle — Ctrl+P
-    if (key.ctrl && input === 'p') {
-      dispatch({ type: 'autoPhaseMonitorToggle' });
-      return;
-    }
-
-    // Worktree monitor toggle — Ctrl+T opens, Ctrl+T closes (when open) or deletes word (when closed).
-    if (key.ctrl && input === 't') {
-      dispatch({ type: 'worktreeMonitorToggle' });
       return;
     }
 
@@ -3851,6 +3843,8 @@ export function App({
     // Ctrl+F toggles the full graphical fleet monitor overlay. Global —
     // works whether or not the agent is running, so the user can pop the
     // dashboard mid-run to watch subagents.
+    // Ctrl+F and Ctrl+G: monitor toggles are always allowed, even while
+    // aborting — the user may want to check subagent state while steering.
     if (key.ctrl && input === 'f') {
       if (state.agentsMonitorOpen) {
         // Switch: close AgentsMonitor, open FleetMonitor
@@ -4014,8 +4008,8 @@ export function App({
       setDraft('', 0);
       return;
     }
-    if (key.ctrl && input === 'w') {
-      // Ctrl+T → toggle worktree monitor when it's open, otherwise delete word before cursor.
+    if (key.ctrl && input === 't') {
+      // Ctrl+T: toggle worktree monitor when open; otherwise delete word before cursor.
       if (state.worktreeMonitorOpen) {
         dispatch({ type: 'worktreeMonitorToggle' });
         return;
@@ -4549,7 +4543,10 @@ export function App({
         value={state.buffer}
         cursor={state.cursor}
         placeholders={state.placeholders}
-        disabled={state.status === 'aborting' || state.confirmQueue.length > 0}
+        disabled={
+          (state.status === 'aborting' && !state.steeringPending) ||
+          state.confirmQueue.length > 0
+        }
         hint={inputHint}
         onKey={handleKey}
       />
