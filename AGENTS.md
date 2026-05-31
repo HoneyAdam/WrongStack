@@ -125,6 +125,44 @@ interface Tool<I, O> {
 
 For director-driven evolution, see `docs/director-architecture.md`.
 
+### Collab Debug Session
+
+A **CollabSession** (triggered by `/collab <paths>` or `collab_debug` tool) runs a three-agent parallel pipeline: `bug-hunter` → `refactor-planner` → `critic`. Each agent emits structured events via `fleet_emit` tool, which the Director routes to the `FleetBus`. Downstream agents consume events in real time (not just at task completion).
+
+**Event types:**
+| Event | Emitted by | Consumed by |
+|-------|-----------|-------------|
+| `bug.found` | BugHunter | RefactorPlanner, Critic |
+| `refactor.plan` | RefactorPlanner | Critic |
+| `critic.evaluation` | Critic | Director (aggregated into final report) |
+
+**Key rules:**
+- Agents use `fleet_emit` tool for real-time event emission, NOT scratchpad JSON parsing
+- BugHunter emits `bug.found` per-finding as soon as each is found (no batching)
+- RefactorPlanner reads the BugHunter report from scratchpad, emits `refactor.plan` per bug
+- Critic reads both reports, emits `critic.evaluation` per subject
+- FleetMonitor (Ctrl+F) and FleetPanel show real-time agent status + event counts
+- Timeline in FleetMonitor shows last 20 events across all agents
+
+**Code references:**
+- `packages/core/src/coordination/collab-debug.ts` — `CollabSession` class
+- `packages/core/src/coordination/fleet-bus.ts` — `FleetBus` event routing
+- `packages/tui/src/components/fleet-monitor.tsx` — Ctrl+F dashboard
+- `packages/tui/src/components/fleet-panel.tsx` — status bar compact view
+
+### TUI Fleet Commands
+
+| Key / Command | Effect |
+|---|---|
+| `Ctrl+F` | Toggle full fleet monitor dashboard |
+| `Ctrl+G` | Toggle agents monitor (per-agent live view) |
+| `/fleet status` | Pending + completed task table per subagent |
+| `/fleet dispatch <task>` | Route task to best agent (heuristic + LLM) and spawn |
+| `/fleet log <id>` | Compact JSONL transcript summary for subagent |
+| `/fleet usage` | Per-agent iterations, tool calls, cost rollup |
+| `/fleet spawn <role> [n]` | Spawn N agents of given role |
+| `/fleet stream on\|off` | Show/hide subagent activity in leader history |
+
 ### MCP integration
 
 `MCPClient` speaks JSON-RPC 2.0 over three transports: `stdio` (child process), `sse` (server-sent events), `streamable-http` (NDJSON). `MCPRegistry` manages the fleet with exponential backoff + jitter on reconnect (cap 5 cycles, then `failed`). Tools get namespace prefix `mcp__<serverName>__<toolName>`.

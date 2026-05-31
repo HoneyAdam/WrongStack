@@ -13,6 +13,16 @@ export interface FleetMonitorProps {
   maxConcurrent?: number;
   /** 1s clock tick so elapsed times + sparklines stay live. */
   nowTick: number;
+  /** Active or completed collaborative debugging session. */
+  collabSession?: {
+    sessionId: string | null;
+    bugCount: number;
+    planCount: number;
+    evalCount: number;
+    overallVerdict: 'approve' | 'needs_revision' | 'reject' | null;
+    timeline: Array<{ at: number; icon: string; color: string; text: string }>;
+    startedAt: number | null;
+  } | null;
 }
 
 const STATUS: Record<FleetEntry['status'], { icon: string; color: string }> = {
@@ -86,6 +96,7 @@ export function FleetMonitor({
   totalTokens,
   maxConcurrent = 4,
   nowTick,
+  collabSession,
 }: FleetMonitorProps): React.ReactElement {
   const all = Object.values(entries);
   const running = all.filter((e) => e.status === 'running');
@@ -106,7 +117,7 @@ export function FleetMonitor({
   const shown = ordered.slice(0, 12);
   const overflow = all.length - shown.length;
 
-  // Timeline: spawn + terminal-status events across all agents, newest first.
+  // Timeline: spawn + terminal-status events across all agents + collab session events, newest first.
   const events: Array<{ at: number; icon: string; color: string; text: string }> = [];
   for (const e of all) {
     events.push({ at: e.startedAt, icon: '●', color: 'cyan', text: `${e.name} spawned` });
@@ -131,6 +142,13 @@ export function FleetMonitor({
   events.sort((a, b) => b.at - a.at);
   const timeline = events.slice(0, 20);
 
+  // Collab verdict chip color
+  const VERDICT_COLOR: Record<string, string> = {
+    approve: 'green',
+    needs_revision: 'yellow',
+    reject: 'red',
+  };
+
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
       {/* Header — orchestration identity, distinct from AGENTS · LIVE */}
@@ -145,6 +163,45 @@ export function FleetMonitor({
         {failed > 0 ? <Text color="red">✗{failed}</Text> : null}
         <Text dimColor>· Ctrl+F to close</Text>
       </Box>
+
+      {/* Collab session banner — shown when a session is active or completed */}
+      {collabSession ? (
+        <Box flexDirection="column" marginTop={1}>
+          <Box flexDirection="row" gap={1}>
+            <Text bold color="magenta">⚡ COLLAB SESSION</Text>
+            {collabSession.sessionId ? (
+              <Text dimColor>{collabSession.sessionId.slice(0, 8)}</Text>
+            ) : null}
+            <Text dimColor>│</Text>
+            <Text color="red">🐛{collabSession.bugCount}</Text>
+            <Text dimColor>│</Text>
+            <Text color="yellow">📐{collabSession.planCount}</Text>
+            <Text dimColor>│</Text>
+            <Text color="blue">⚖️{collabSession.evalCount}</Text>
+            {collabSession.overallVerdict ? (
+              <>
+                <Text dimColor>│</Text>
+                <Text bold color={VERDICT_COLOR[collabSession.overallVerdict]}>
+                  {collabSession.overallVerdict}
+                </Text>
+              </>
+            ) : null}
+          </Box>
+          {/* Inline collab timeline — first 6 entries */}
+          {collabSession.timeline.length > 0 ? (
+            <Box flexDirection="column" marginTop={0}>
+              {collabSession.timeline.slice(0, 6).map((ev, i) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: timeline is rebuilt per render
+                <Box key={i} flexDirection="row" gap={1}>
+                  <Text dimColor>{`${fmtElapsed(Math.max(0, nowTick - ev.at))} ago`.padEnd(10)}</Text>
+                  <Text color={ev.color}>{ev.icon}</Text>
+                  <Text dimColor>{ev.text}</Text>
+                </Box>
+              ))}
+            </Box>
+          ) : null}
+        </Box>
+      ) : null}
 
       {/* Concurrency + totals gauge */}
       <Box flexDirection="row" gap={1}>

@@ -461,6 +461,24 @@ type State = {
   monitorOpen: boolean;
   /** When true, the agents monitor overlay is shown (Ctrl+G). */
   agentsMonitorOpen: boolean;
+  /**
+   * Active or completed collaborative debugging session state.
+   * Null when no collab session has run. Tracks counts + the event timeline
+   * so FleetMonitor can render a live "COLLAB SESSION" banner and per-event
+   * entries (bug.found / refactor.plan / critic.evaluation) as they arrive.
+   */
+  collabSession: {
+    /** Null until the first collab subagent spawns; set on first bug.found. */
+    sessionId: string | null;
+    bugCount: number;
+    planCount: number;
+    evalCount: number;
+    /** Most recent overall verdict when the session completes. */
+    overallVerdict: 'approve' | 'needs_revision' | 'reject' | null;
+    /** Timeline of collab events for the FleetMonitor overlay. */
+    timeline: Array<{ at: number; icon: string; color: string; text: string }>;
+    startedAt: number | null;
+  } | null;
   /** Session checkpoints recorded by SessionWriter.writeCheckpoint() events. */
   checkpoints: Array<{
     promptIndex: number;
@@ -687,7 +705,17 @@ type Action =
   | { type: 'autoPhaseReset' }
   | { type: 'worktreeUpsert'; handleId: string; row: Partial<WorktreeRow & { baseBranch?: string }>; baseBranch?: string }
   | { type: 'worktreeRemove'; handleId: string }
-  | { type: 'worktreeMonitorToggle' };
+  | { type: 'worktreeMonitorToggle' }
+  /** BugHunter emitted a bug.found event on the FleetBus. */
+  | { type: 'collabBugFound'; sessionId: string; bugId: string; severity: string; description: string }
+  /** RefactorPlanner emitted a refactor.plan event on the FleetBus. */
+  | { type: 'collabPlanEmitted'; sessionId: string; planId: string; riskScore: string; phaseCount: number }
+  /** Critic emitted a critic.evaluation event on the FleetBus. */
+  | { type: 'collabEvalComplete'; sessionId: string; evalId: string; verdict: string; score: number }
+  /** Collab session completed — overall verdict is available. */
+  | { type: 'collabSessionDone'; sessionId: string; verdict: 'approve' | 'needs_revision' | 'reject' }
+  /** A collab subagent (bug-hunter / refactor-planner / critic) was spawned. */
+  | { type: 'collabSubagentSpawned'; subagentId: string; role: string };
 
 export function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -1391,6 +1419,61 @@ export function reducer(state: State, action: Action): State {
     case 'worktreeMonitorToggle': {
       return { ...state, worktreeMonitorOpen: !state.worktreeMonitorOpen };
     }
+    // --- Collab session ---
+    case 'collabSubagentSpawned': {
+      // Lazily initialize collab state on the first subagent spawn.
+      if (state.collabSession) return state;
+      return {
+        ...state,
+        collabSession: {
+          sessionId: null,
+          bugCount: 0,
+          planCount: 0,
+          evalCount: 0,
+          overallVerdict: null,
+          timeline: [{ at: Date.now(), icon: '⚡', color: 'cyan', text: `${action.role} spawned` }],
+          startedAt: Date.now(),
+        },
+      };
+    }
+    case 'collabBugFound': {
+      const cs = state.collabSession;
+      if (!cs) {
+        // Lazily bootstrap collab state on first event.
+        return {
+          ...state,
+          collabSession: {
+            sessionId: action.sessionId,
+            bugCount: 1,
+            planCount: 0,
+            evalCount: 0,
+            overallVerdict: null,
+            timeline: [{ at: Date.now(), icon: '🐛', color: 'red', text: `bug: ${action.description.slice(0, 60)}…` }],
+            startedAt: Date.now(),
+          },
+        };
+      }
+      const entry = { at: Date.now(), icon: '🐛', color: 'red', text: `bug [${action.severity}]: ${action.description.slice(0, 55)}…` };
+      return { ...state, collabSession: { ...cs, sessionId: action.sessionId, bugCount: cs.bugCount + 1, timeline: [entry, ...cs.timeline].slice(0, 30) } };
+    }
+    case 'collabPlanEmitted': {
+      const cs = state.collabSession;
+      if (!cs) return state;
+      const entry = { at: Date.now(), icon: '📐', color: 'yellow', text: `plan [${action.riskScore}]: ${action.phaseCount} phases` };
+      return { ...state, collabSession: { ...cs, sessionId: action.sessionId, planCount: cs.planCount + 1, timeline: [entry, ...cs.timeline].slice(0, 30) } };
+    }
+    case 'collabEvalComplete': {
+      const cs = state.collabSession;
+      if (!cs) return state;
+      const entry = { at: Date.now(), icon: '⚖️', color: action.verdict === 'approve' ? 'green' : action.verdict === 'reject' ? 'red' : 'yellow', text: `eval ${action.score}/10 → ${action.verdict}` };
+      return { ...state, collabSession: { ...cs, sessionId: action.sessionId, evalCount: cs.evalCount + 1, timeline: [entry, ...cs.timeline].slice(0, 30) } };
+    }
+    case 'collabSessionDone': {
+      const cs = state.collabSession;
+      if (!cs) return state;
+      const entry = { at: Date.now(), icon: '🏁', color: 'green', text: `session done — ${action.verdict}` };
+      return { ...state, collabSession: { ...cs, overallVerdict: action.verdict, timeline: [entry, ...cs.timeline].slice(0, 30) } };
+    }
   }
 }
 
@@ -1622,6 +1705,7 @@ export function App({
     streamFleet: true,
     monitorOpen: false,
     agentsMonitorOpen: false,
+    collabSession: null,
     checkpoints: [],
     rewindOverlay: null,
     eternalStage: null,
@@ -3309,6 +3393,81 @@ export function App({
           }
           break;
         }
+        // --- Collab session events ---
+        case 'bug.found': {
+          // Detect collab subagent role from subagentId: bug-hunter-<sid>,
+          // refactor-planner-<sid>, critic-<sid>
+          const role = e.subagentId.includes('bug-hunter')
+            ? 'bug-hunter'
+            : e.subagentId.includes('refactor-planner')
+              ? 'refactor-planner'
+              : e.subagentId.includes('critic')
+                ? 'critic'
+                : null;
+          if (!role && !state.collabSession) {
+            // Not a collab subagent — ignore.
+            break;
+          }
+          if (!state.collabSession) {
+            // First collab event we've seen — bootstrap state lazily.
+            dispatch({ type: 'collabSubagentSpawned', subagentId: e.subagentId, role: role ?? 'unknown' });
+          }
+          const bp = e.payload as { finding?: { id?: string; severity?: string; description?: string } };
+          if (bp?.finding) {
+            const sessionId = e.subagentId.split('-').slice(1).join('-') || e.subagentId;
+            dispatch({
+              type: 'collabBugFound',
+              sessionId,
+              bugId: bp.finding.id ?? 'unknown',
+              severity: bp.finding.severity ?? 'unknown',
+              description: bp.finding.description ?? '',
+            });
+          }
+          break;
+        }
+        case 'refactor.plan': {
+          if (!state.collabSession) break;
+          const pp = e.payload as { plan?: { id?: string; riskScore?: string; phases?: unknown[] } };
+          if (pp?.plan) {
+            const sessionId = e.subagentId.split('-').slice(1).join('-') || e.subagentId;
+            dispatch({
+              type: 'collabPlanEmitted',
+              sessionId,
+              planId: pp.plan.id ?? 'unknown',
+              riskScore: pp.plan.riskScore ?? 'unknown',
+              phaseCount: pp.plan.phases?.length ?? 0,
+            });
+          }
+          break;
+        }
+        case 'critic.evaluation': {
+          if (!state.collabSession) break;
+          const ep = e.payload as { evaluation?: { id?: string; verdict?: string; score?: number } };
+          if (ep?.evaluation) {
+            const sessionId = e.subagentId.split('-').slice(1).join('-') || e.subagentId;
+            dispatch({
+              type: 'collabEvalComplete',
+              sessionId,
+              evalId: ep.evaluation.id ?? 'unknown',
+              verdict: ep.evaluation.verdict ?? 'unknown',
+              score: ep.evaluation.score ?? 0,
+            });
+          }
+          break;
+        }
+        case 'collab.session_done': {
+          // Emitted by the CollabSession itself (EventEmitter 'session.done').
+          if (!state.collabSession) break;
+          const dp = e.payload as { report?: { sessionId?: string; overallVerdict?: 'approve' | 'needs_revision' | 'reject' } };
+          if (dp?.report) {
+            dispatch({
+              type: 'collabSessionDone',
+              sessionId: dp.report.sessionId ?? state.collabSession.sessionId ?? 'unknown',
+              verdict: dp.report.overallVerdict ?? 'needs_revision',
+            });
+          }
+          break;
+        }
       }
     });
 
@@ -4659,6 +4818,7 @@ export function App({
           totalCost={state.fleetCost}
           totalTokens={state.fleetTokens}
           nowTick={nowTick}
+          collabSession={state.collabSession}
         />
       ) : director ? (
         <FleetPanel entries={state.fleet} totalCost={state.fleetCost} roster={fleetRoster} />

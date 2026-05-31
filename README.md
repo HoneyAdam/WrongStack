@@ -299,6 +299,23 @@ Flips off MCP, plugins, memory tools, models.dev fetch, and skill discovery. Wha
 
 ---
 
+## What's new in 0.9.20
+
+- **Collaborative debugging goes live in the TUI.** The fleet monitor (`Ctrl+F`)
+  now renders a dedicated `⚡ COLLAB SESSION` banner during a
+  `Director.spawnCollab()` run: live per-stage counters (`🐛` bugs · `📐` plans ·
+  `⚖️` evaluations), a color-coded overall verdict chip
+  (`approve` / `needs_revision` / `reject`), and an inline timeline of
+  `bug.found → refactor.plan → critic.evaluation → session done` events with
+  elapsed-time stamps. The TUI listens directly to the collab FleetBus events,
+  detects each agent's role from its subagent id, and caps the timeline buffer so
+  long runs stay bounded.
+
+- **`AGENTS.md` documents the collab pipeline + fleet commands.** New reference
+  sections cover the three-agent `bug-hunter → refactor-planner → critic`
+  pipeline, the `fleet_emit` event contract, the relevant code references, and
+  the full `Ctrl+F` / `Ctrl+G` / `/fleet *` command table.
+
 ## What's new in 0.9.19
 
 - **Security audit — findings F-01 → F-07 remediated.** A full `security-check`

@@ -5,6 +5,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.20] - 2026-05-31
+
+> Surfaces the collaborative-debugging fleet primitive (shipped in 0.9.19) live
+> in the TUI, and documents the collab pipeline + fleet commands in `AGENTS.md`.
+
+### Added
+
+- **Live "COLLAB SESSION" view in the fleet monitor (`Ctrl+F`).** When a
+  `Director.spawnCollab()` run is active, the fleet monitor now renders a
+  dedicated banner above the concurrency gauge: a `⚡ COLLAB SESSION` header with
+  the session id, live per-stage counters (`🐛` bugs found · `📐` refactor plans ·
+  `⚖️` critic evaluations), and the overall verdict chip
+  (`approve` / `needs_revision` / `reject`, color-coded) once the session
+  completes. An inline timeline shows the most recent collab events as they
+  arrive — `bug.found`, `refactor.plan`, `critic.evaluation`, and the terminal
+  `session done` marker — each with an elapsed-time stamp.
+
+- **Real-time collab event wiring in the TUI.** The app now listens for the
+  collab FleetBus events (`bug.found`, `refactor.plan`, `critic.evaluation`) and
+  the `collab.session_done` marker, detects the emitting agent's role from its
+  subagent id (`bug-hunter` / `refactor-planner` / `critic`), and feeds a new
+  `collabSession` reducer slice. State bootstraps lazily on the first collab
+  event and the timeline is capped at 30 entries (6 shown inline, 20 in the
+  monitor) so a long run can't grow the buffer unbounded.
+
+### Docs
+
+- **`AGENTS.md` — Collab Debug Session + TUI Fleet Commands.** New reference
+  sections document the three-agent collab pipeline
+  (`bug-hunter → refactor-planner → critic`), the `fleet_emit`-driven event
+  contract (which event each agent emits and who consumes it), the relevant code
+  references (`collab-debug.ts`, `fleet-bus.ts`, `fleet-monitor.tsx`,
+  `fleet-panel.tsx`), and the full `Ctrl+F` / `Ctrl+G` / `/fleet *` command
+  table.
+
+### Changed
+
+- **All workspace packages bumped 0.9.19 → 0.9.20**: `wrongstack`,
+  `@wrongstack/cli`, `@wrongstack/core`, `@wrongstack/mcp`,
+  `@wrongstack/plug-lsp`, `@wrongstack/plugins`, `@wrongstack/providers`,
+  `@wrongstack/runtime`, `@wrongstack/skills`, `@wrongstack/telegram`,
+  `@wrongstack/tools`, `@wrongstack/tui`, `@wrongstack/webui`.
+  `@wrongstack/acp` tracks the same version.
+
 ## [0.9.19] - 2026-05-31
 
 > Consolidates everything since 0.9.7. The intermediate `0.9.8`–`0.9.18` version
