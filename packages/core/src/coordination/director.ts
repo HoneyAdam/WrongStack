@@ -821,10 +821,15 @@ export class Director implements ICoordinator {
     }
     let result: { subagentId: string };
     // If the config came from the roster with the default "role-as-name" pattern,
+    // OR the name is one of the synthetic defaults used by ad-hoc spawn paths,
     // upgrade to a memorable nickname before the coordinator sees it. This ensures
     // the manifest, fleet UI, and session logs all display human names like
-    // "Einstein (Bug Hunter)" instead of "bug-hunter".
-    const needsNickname = config.name === config.role || !config.name || config.name === 'subagent';
+    // "Einstein (Bug Hunter)" instead of "adhoc" or "general".
+    const needsNickname =
+      config.name === config.role ||
+      !config.name ||
+      config.name === 'subagent' ||
+      config.name === 'adhoc';
     if (needsNickname) {
       const role = config.role ?? 'subagent';
       if (this.fleetManager) {
