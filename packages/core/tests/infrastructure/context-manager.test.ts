@@ -198,6 +198,10 @@ describe('createContextManagerTool', () => {
           return { before: 1000, after: 100, reductions: [{ phase: 'summary', saved: 900 }] };
         },
       },
+      // Bypass the min-token threshold check so the compactor actually runs.
+      // Without this, effectiveThreshold = maxContext * 0.5 = 64,000 and
+      // currentTokens (~5) skips compaction before the compactor modifies messages.
+      minCompactThreshold: 1,
     });
     const ctx = makeCtx([{ role: 'user', content: 'before' }]);
 
