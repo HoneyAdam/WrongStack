@@ -122,6 +122,20 @@ export interface EventMap {
      * for tools without a meaningful line count. */
     outputLines?: number;
   };
+  /**
+   * Fired on every `iteration.completed`. UIs subscribe to render a live
+   * context-window fill bar per agent (e.g. "67% ████████░░"). The
+   * `load` fraction matches the threshold levels: 0–0.6 green, 0.6–0.75
+   * yellow, 0.75+ red.
+   */
+  'ctx.pct': {
+    /** Fraction of maxContext currently in use (0–1+. Can exceed 1 when over budget). */
+    load: number;
+    /** Estimated total tokens (system + tools + messages). */
+    tokens: number;
+    /** Provider's max context window. */
+    maxContext: number;
+  };
   'token.threshold': { used: number; limit: number };
   /**
    * Fired when the subagent budget hits a soft limit and the coordinator
@@ -312,6 +326,18 @@ export interface EventMap {
    * so the CLI/TUI can render flashy completion banners.
    */
   'subagent.done': { summary: string; ok: boolean };
+  /**
+   * Fired by MultiAgentHost when a subagent's context window load changes.
+   * The leader agent's ctx.pct is emitted directly on the host EventBus;
+   * subagent ctx.pct events are forwarded here with subagentId attribution.
+   * TUI uses this to render live context fill bars per agent.
+   */
+  'subagent.ctx_pct': {
+    subagentId: string;
+    load: number;
+    tokens: number;
+    maxContext: number;
+  };
   'mcp.server.connected': { name: string; toolCount: number };
   'mcp.server.reconnected': { name: string; toolCount: number };
   'mcp.server.disconnected': { name: string; reason: string };

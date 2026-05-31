@@ -4,6 +4,7 @@ import type { EventBus } from '../kernel/events.js';
 import { Pipeline } from '../kernel/pipeline.js';
 import { RunController } from '../kernel/run-controller.js';
 import { TOKENS } from '../kernel/tokens.js';
+import { estimateRequestTokens } from '../utils/token-estimate.js';
 import type { ProviderRegistry } from '../registry/provider-registry.js';
 import type { ToolRegistry } from '../registry/tool-registry.js';
 import type { ContentBlock, TextBlock, ToolResultBlock, ToolUseBlock } from '../types/blocks.js';
@@ -506,6 +507,7 @@ export class Agent {
         if (toolUses.length === 0) {
           // No tool calls — check autonomous continue text marker before exiting.
           // The model can signal [continue] to re-run even without a tool call.
+          this.emitContextPct();
           this.events.emit('iteration.completed', { ctx: this.ctx, index: i });
           if (autonomousContinue && responseResult.directive === 'continue') {
             await this.compactContextIfNeeded();
@@ -527,12 +529,14 @@ export class Agent {
         // working across multiple turns without the outer runner having
         // to re-invoke Agent.run().
         if (autonomousContinue && consumeAutonomousContinue(this.ctx)) {
+          this.emitContextPct();
           this.events.emit('iteration.completed', { ctx: this.ctx, index: i });
           await this.compactContextIfNeeded();
           await this.extensions.runAfterIteration(this.ctx, i);
           continue;
         }
 
+        this.emitContextPct();
         this.events.emit('iteration.completed', { ctx: this.ctx, index: i });
 
         await this.compactContextIfNeeded();
@@ -929,6 +933,20 @@ export class Agent {
    */
   private async compactContextIfNeeded(): Promise<void> {
     await this.pipelines.contextWindow.run(this.ctx);
+  }
+
+  /**
+   * Emit the current context window load as a `ctx.pct` event so subscribers
+   * (FleetBus → TUI) can render a live fill bar per agent.
+   */
+  private emitContextPct(): void {
+    const maxContext = this.ctx.provider.capabilities.maxContext ?? 200_000;
+    const { total } = estimateRequestTokens(
+      this.ctx.messages,
+      this.ctx.systemPrompt,
+      this.ctx.tools ?? [],
+    );
+    this.events.emit('ctx.pct', { load: total / maxContext, tokens: total, maxContext });
   }
 }
 

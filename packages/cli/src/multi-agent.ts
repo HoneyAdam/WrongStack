@@ -296,6 +296,17 @@ export class MultiAgentHost {
         totalExtensions: payload.totalExtensions,
       });
     });
+    // Forward ctx.pct events from the FleetBus to the host EventBus so the TUI
+    // can render live context-window fill bars per subagent.
+    this.director.fleet.filter('ctx.pct', (e) => {
+      const payload = e.payload as { load: number; tokens: number; maxContext: number };
+      this.deps.events.emit('subagent.ctx_pct', {
+        subagentId: e.subagentId,
+        load: payload.load,
+        tokens: payload.tokens,
+        maxContext: payload.maxContext,
+      });
+    });
     this.getCoordinator().on(
       'task.assigned',
       ({

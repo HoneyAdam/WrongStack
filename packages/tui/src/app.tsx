@@ -99,6 +99,16 @@ export interface FleetEntry {
    * within the same subagent entry (unlike `budgetWarning`, which clears).
    */
   extensions?: number;
+  /**
+   * Latest context window fill percentage (0–1, can exceed 1 when over budget).
+   * Emitted on every `iteration.completed` via `ctx.pct` event.
+   * Rendered as a colored progress bar in the AgentsMonitor.
+   */
+  ctxPct?: number;
+  /** Estimated total tokens in the context window (from ctx.pct event). */
+  ctxTokens?: number;
+  /** Provider's max context window in tokens (from ctx.pct event). */
+  ctxMaxTokens?: number;
 }
 
 /** A registered slash command matched against the user's current / query. */
@@ -429,6 +439,12 @@ type State = {
     lastEventAt: number;
     /** True while inside an iteration (between iteration.started and iteration.completed). */
     iterating: boolean;
+    /** Latest context window fill fraction (from ctx.pct event). */
+    ctxPct?: number;
+    /** Estimated total tokens in context window. */
+    ctxTokens?: number;
+    /** Provider max context in tokens. */
+    ctxMaxTokens?: number;
   };
   /** Fleet-wide accumulated cost. */
   fleetCost: number;
@@ -618,11 +634,19 @@ type Action =
       id: string;
       totalExtensions: number;
     }
+  | {
+      type: 'fleetCtxPct';
+      id: string;
+      load: number;
+      tokens: number;
+      maxContext: number;
+    }
   | { type: 'fleetCost'; cost: number; input?: number; output?: number }
   | { type: 'leaderIterStart' }
   | { type: 'leaderIterEnd' }
   | { type: 'leaderToolStart'; name: string }
   | { type: 'leaderToolEnd'; name: string; ok?: boolean; durationMs?: number }
+  | { type: 'leaderCtxPct'; load: number; tokens: number; maxContext: number }
   | { type: 'setStreamFleet'; enabled: boolean }
   | { type: 'toggleMonitor' }
   | { type: 'toggleAgentsMonitor' }
@@ -1156,6 +1180,23 @@ export function reducer(state: State, action: Action): State {
         },
       };
     }
+    case 'fleetCtxPct': {
+      const cur = state.fleet[action.id];
+      if (!cur) return state;
+      return {
+        ...state,
+        fleet: {
+          ...state.fleet,
+          [action.id]: {
+            ...cur,
+            ctxPct: action.load,
+            ctxTokens: action.tokens,
+            ctxMaxTokens: action.maxContext,
+            lastEventAt: Date.now(),
+          },
+        },
+      };
+    }
     case 'fleetCost': {
       return {
         ...state,
@@ -1207,6 +1248,18 @@ export function reducer(state: State, action: Action): State {
           currentTool: undefined,
           recentTools,
           lastEventAt: now,
+        },
+      };
+    }
+    case 'leaderCtxPct': {
+      return {
+        ...state,
+        leader: {
+          ...state.leader,
+          ctxPct: action.load,
+          ctxTokens: action.tokens,
+          ctxMaxTokens: action.maxContext,
+          lastEventAt: Date.now(),
         },
       };
     }
@@ -1812,6 +1865,9 @@ export function App({
       startedAt: state.leader.startedAt,
       lastEventAt: state.leader.lastEventAt,
       currentTool: state.leader.currentTool,
+      ctxPct: state.leader.ctxPct,
+      ctxTokens: state.leader.ctxTokens,
+      ctxMaxTokens: state.leader.ctxMaxTokens,
     };
     return { leader: leaderEntry, ...state.fleet };
   }, [state.fleet, state.leader, state.status, provider, model]);
@@ -2710,6 +2766,30 @@ export function App({
         },
       });
     });
+    // Live context window fill: update ctxPct on the fleet entry so the
+    // AgentsMonitor (Ctrl+G) can render a per-agent progress bar.
+    // In director mode, MultiAgentHost forwards subagent ctx.pct events as
+    // 'subagent.ctx_pct' with subagentId. The leader agent emits ctx.pct
+    // directly (handled by a separate listener below for non-director mode).
+    const offCtxPct = events.on('subagent.ctx_pct', (e) => {
+      dispatch({
+        type: 'fleetCtxPct',
+        id: e.subagentId,
+        load: e.load,
+        tokens: e.tokens,
+        maxContext: e.maxContext,
+      });
+    });
+    // Leader agent ctx.pct: emitted directly on the host EventBus (not forwarded
+    // by MultiAgentHost). Updates the dedicated leader state for the monitor.
+    const offLeaderCtxPct = events.on('ctx.pct', (e) => {
+      dispatch({
+        type: 'leaderCtxPct',
+        load: e.load,
+        tokens: e.tokens,
+        maxContext: e.maxContext,
+      });
+    });
     // Always-on per-tool state surface. Now fires in both director and
     // non-director modes, so the leader's chat history shows subagent
     // tool calls regardless of mode. Director mode also gets FleetBus
@@ -2732,6 +2812,8 @@ export function App({
       offBudgetWarning();
       offBudgetExtended();
       offIterationSummary();
+      offCtxPct();
+      offLeaderCtxPct();
       offTool();
     };
   }, [events, director]);
@@ -3770,23 +3852,37 @@ export function App({
     // works whether or not the agent is running, so the user can pop the
     // dashboard mid-run to watch subagents.
     if (key.ctrl && input === 'f') {
-      dispatch({ type: 'toggleMonitor' });
+      if (state.agentsMonitorOpen) {
+        // Switch: close AgentsMonitor, open FleetMonitor
+        dispatch({ type: 'toggleAgentsMonitor' });
+        dispatch({ type: 'toggleMonitor' });
+      } else {
+        dispatch({ type: 'toggleMonitor' });
+      }
       return;
     }
     // Ctrl+G toggles the agents monitor overlay.
     if (key.ctrl && input === 'g') {
-      dispatch({ type: 'toggleAgentsMonitor' });
+      if (state.monitorOpen) {
+        // Switch: close FleetMonitor, open AgentsMonitor
+        dispatch({ type: 'toggleMonitor' });
+        dispatch({ type: 'toggleAgentsMonitor' });
+      } else {
+        dispatch({ type: 'toggleAgentsMonitor' });
+      }
       return;
     }
-    // Esc closes the monitor when it's the only thing open (the busy-state
-    // Esc handler above already returned when a run was active).
-    if (key.escape && state.monitorOpen) {
-      dispatch({ type: 'toggleMonitor' });
-      return;
-    }
-    if (key.escape && state.agentsMonitorOpen) {
-      dispatch({ type: 'toggleAgentsMonitor' });
-      return;
+    // Esc closes whichever monitor is open. When both are closed the busy-state
+    // Esc handler above already returned when a run was active.
+    if (key.escape) {
+      if (state.agentsMonitorOpen) {
+        dispatch({ type: 'toggleAgentsMonitor' });
+        return;
+      }
+      if (state.monitorOpen) {
+        dispatch({ type: 'toggleMonitor' });
+        return;
+      }
     }
 
     if (isEnter) {

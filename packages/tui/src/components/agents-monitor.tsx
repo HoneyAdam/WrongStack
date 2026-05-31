@@ -73,6 +73,34 @@ function snippet(s: string, max = 72): string {
   return `${oneLine.slice(0, max - 1)}…`;
 }
 
+/** Colored context-window fill bar: ████░░░░░░ 67% */
+function ContextBar({
+  pct,
+  tokens,
+  maxTokens,
+}: {
+  pct: number;
+  tokens?: number;
+  maxTokens?: number;
+}): React.ReactElement {
+  const clamped = Math.max(0, Math.min(2, pct)); // cap visual at 200%
+  const totalBars = 10;
+  const filled = Math.round(clamped * totalBars);
+  const empty = totalBars - filled;
+  const color = pct < 0.6 ? 'green' : pct < 0.75 ? 'yellow' : 'red';
+  const pctText = pct >= 1 ? `${Math.round(pct * 100)}%+` : `${Math.round(pct * 100)}%`;
+  const tokenText = tokens ? ` ${fmtTokens(tokens)}/${fmtTokens(maxTokens ?? 200_000)}` : '';
+  return (
+    <Text color={color}>
+      {'█'.repeat(filled)}
+      {'░'.repeat(Math.max(0, empty))}
+      {' '}
+      {pctText}
+      {tokenText}
+    </Text>
+  );
+}
+
 /**
  * Live per-agent context view (Ctrl+G). Each active agent gets a card with
  * its current tool, the last tool result, the most recent streaming /
@@ -214,6 +242,14 @@ export function AgentsMonitor({
                   ⚡ {e.budgetWarning.kind} {e.budgetWarning.used}/{e.budgetWarning.limit} —
                   extending
                 </Text>
+              </Box>
+            ) : null}
+
+            {/* Context window fill bar */}
+            {e.ctxPct !== undefined ? (
+              <Box paddingLeft={2}>
+                <Text dimColor>ctx </Text>
+                <ContextBar pct={e.ctxPct} tokens={e.ctxTokens} maxTokens={e.ctxMaxTokens} />
               </Box>
             ) : null}
           </Box>
