@@ -35,6 +35,7 @@ import {
   createDefaultPipelines,
   makeAgentSubagentRunner,
   makeDirectorSessionFactory,
+  makeFleetEmitTool,
 } from '@wrongstack/core';
 import type { TextBlock } from '@wrongstack/core';
 import { ToolExecutor } from '@wrongstack/core/execution';
@@ -161,6 +162,11 @@ export class MultiAgentHost {
   /** Own FleetManager — created in buildDirector(), used for pending task
    *  tracking so status() can show descriptions without host-side state. */
   private fleetManager?: import('@wrongstack/core').FleetManager;
+  /** Own FleetEmitTool — created in buildDirector() so subagents in director
+   *  mode can publish structured events (bug.found, refactor.plan,
+   *  critic.evaluation) onto the fleet bus without needing the tool registered
+   *  in the host's ToolRegistry. */
+  private fleetEmitTool?: import('@wrongstack/core').Tool;
   /** Lazily built alongside the director — produces per-subagent JSONL
    *  writers under `<sessionsRoot>/<runId>/`. Null without sessionsRoot. */
   private sessionFactory?: DirectorSessionFactory;
@@ -303,8 +309,18 @@ export class MultiAgentHost {
         });
       },
     );
+    this.fleetEmitTool = makeFleetEmitTool(this.director);
     const runner = await this.buildSubagentRunner(config);
     this.getCoordinator().setRunner(runner);
+  }
+
+  /**
+   * Returns the FleetEmitTool for director-mode subagents, if the director
+   * has been built. Used by makeSubagentFactory to inject the tool into
+   * the filtered tool registry so collab session agents can emit fleet events.
+   */
+  getFleetEmitTool(): import('@wrongstack/core').Tool | undefined {
+    return this.fleetEmitTool;
   }
 
   /**
@@ -362,6 +378,22 @@ export class MultiAgentHost {
         } as SessionWriter;
       }
 
+      // Expand fleet_emit: when the subagent requests 'fleet_emit' and the
+      // director has been built (director mode), inject the fleet emit tool
+      // directly into the subagent's registry. This is the path that makes
+      // collab session agents (BugHunter, RefactorPlanner, Critic) able to
+      // emit structured fleet bus events without the host registering the
+      // tool in its own ToolRegistry.
+      const tools = subCfg.tools ? [...subCfg.tools] : undefined;
+      let injectedFleetEmit: Tool | undefined;
+      if (tools?.includes('fleet_emit')) {
+        const fleetTool = this.fleetEmitTool;
+        if (fleetTool) {
+          tools.splice(tools.indexOf('fleet_emit'), 1);
+          injectedFleetEmit = fleetTool;
+        }
+      }
+
       const ctx = new Context({
         systemPrompt: baseSystem,
         provider,
@@ -371,10 +403,12 @@ export class MultiAgentHost {
         cwd: subCwd,
         projectRoot: this.deps.projectRoot,
         model: subCfg.model ?? config.model,
-        tools: this.filterTools(subCfg.tools),
+        tools: this.filterTools(tools),
       });
 
-      const toolExecutor = new ToolExecutor(this.subagentToolRegistry(subCfg.tools), {
+      const baseRegistry = this.subagentToolRegistry(tools);
+      if (injectedFleetEmit) baseRegistry.register(injectedFleetEmit);
+      const toolExecutor = new ToolExecutor(baseRegistry, {
         permissionPolicy: new AutoApprovePermissionPolicy(),
         secretScrubber: this.deps.secretScrubber,
         renderer: this.deps.renderer,
@@ -387,7 +421,7 @@ export class MultiAgentHost {
 
       const agent = new Agent({
         container: this.deps.container,
-        tools: this.subagentToolRegistry(subCfg.tools),
+        tools: baseRegistry,
         providers: this.deps.providerRegistry,
         events,
         pipelines: createDefaultPipelines(),
