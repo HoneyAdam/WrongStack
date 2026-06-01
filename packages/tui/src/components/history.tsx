@@ -137,12 +137,21 @@ export function History({ entries, streamingText, toolStream }: HistoryProps): R
  */
 export function AssistantTail({ text }: { text: string }): React.ReactElement {
   return (
-    <Box flexDirection="column" marginY={1}>
+    <Box
+      flexDirection="column"
+      marginY={1}
+      borderStyle="single"
+      borderTop={false}
+      borderRight={false}
+      borderBottom={false}
+      borderColor={theme.assistant}
+      paddingLeft={1}
+    >
       <Box flexDirection="row">
-        <Text bold color="cyan">
-          {'ASSISTANT: '}
+        <Text bold color={theme.assistant}>
+          {'ASSISTANT'}
         </Text>
-        <Text dimColor>(streaming...)</Text>
+        <Text dimColor>{'  (streaming…)'}</Text>
       </Box>
       <Text color="white">{text}</Text>
     </Box>
@@ -303,8 +312,8 @@ export const ToolStreamBox = React.memo(function ToolStreamBox({
     <Box flexDirection="column" marginTop={0}>
       {/* Header */}
       <Box flexDirection="row">
-        <Text color="yellow">◆ </Text>
-        <Text bold color="cyan">
+        <Text color={theme.warn}>◆ </Text>
+        <Text bold color={theme.tool}>
           {name}
         </Text>
         <Text dimColor>{`  ⏱ ${fmtDuration(elapsedMs)}`}</Text>
@@ -387,7 +396,7 @@ function DiffBlock({ rows, hidden }: { rows: DiffLineRow[]; hidden: number }): R
         // stays dim outside the block so the eye anchors on the change, not
         // a wall of colour. Bright variants render lighter than plain
         // green/red on most terminals.
-        const bg = row.kind === 'add' ? 'greenBright' : 'redBright';
+        const bg = row.kind === 'add' ? theme.diffAddBg : theme.diffDelBg;
         return (
           <Text key={key}>
             <Text dimColor>{`${lnText}  `}</Text>
@@ -490,8 +499,8 @@ export const Entry = React.memo(function Entry({
       return (
         <Box flexDirection="column">
           <Text>
-            <Text color={entry.ok ? 'green' : 'red'}>{entry.ok ? '●' : '✗'}</Text>{' '}
-            <Text bold color="cyan">
+            <Text color={entry.ok ? theme.success : theme.error}>{entry.ok ? '●' : '✗'}</Text>{' '}
+            <Text bold color={theme.tool}>
               {entry.name}
             </Text>
             {argSummary ? (
