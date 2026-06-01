@@ -1,6 +1,6 @@
 {
   "name": "@wrongstack/plugins",
-  "version": "0.9.20",
+  "version": "0.10.0",
   "description": "Official WrongStack plugin collection — auto-doc, git-autocommit, shell-check, cost-tracker, file-watcher, web-search, json-path, cron, template-engine, semver-bump",
   "license": "MIT",
   "author": "ECOSTACK TECHNOLOGY OÜ",
@@ -67,7 +67,7 @@
     "@types/node": "^22.19.19",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
-    "vitest": "^3.0.0"
+    "vitest": "^4.1.7"
   },
   "dependencies": {
     "@wrongstack/core": "workspace:*"
