@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { deleteTokenBackward, splitChips, tokenLengthForward } from '../src/input-tokens.js';
+import {
+  deleteTokenBackward,
+  layoutInputRows,
+  splitChips,
+  tokenLengthForward,
+} from '../src/input-tokens.js';
+
+const rowText = (row: { ch: string }[]) => row.map((c) => c.ch).join('');
 
 describe('deleteTokenBackward', () => {
   it('deletes a whole pasted chip ending at the cursor', () => {
@@ -70,5 +77,58 @@ describe('splitChips', () => {
 
   it('returns an empty array for empty input', () => {
     expect(splitChips('')).toEqual([]);
+  });
+});
+
+describe('layoutInputRows', () => {
+  const PROMPT = '› ';
+
+  it('lays an empty buffer onto one row: prompt + cursor cell', () => {
+    const rows = layoutInputRows(PROMPT, '', 0, 80);
+    expect(rows).toHaveLength(1);
+    expect(rowText(rows[0]!)).toBe('›  '); // prompt "› " + a virtual cursor space
+    const cursorCells = rows.flat().filter((c) => c.cursor);
+    expect(cursorCells).toHaveLength(1);
+    expect(rows[0]!.slice(0, 2).every((c) => c.prompt)).toBe(true);
+  });
+
+  it('keeps a short line on a single row with the cursor in place', () => {
+    const rows = layoutInputRows(PROMPT, 'hello', 2, 80);
+    expect(rows).toHaveLength(1);
+    expect(rowText(rows[0]!)).toBe('› hello');
+    const cur = rows[0]!.find((c) => c.cursor)!;
+    expect(cur.ch).toBe('l'); // value[2]
+  });
+
+  it('grows to the exact number of wrapped rows', () => {
+    // width 10: "› " (2) + 25 chars = 27 cells → ceil(27/10) = 3 rows.
+    const rows = layoutInputRows(PROMPT, 'x'.repeat(25), 25, 10);
+    expect(rows.length).toBe(3);
+    expect(rows[0]!.length).toBe(10);
+    expect(rows[1]!.length).toBe(10);
+    // cursor at end → trailing virtual cell on the last row.
+    expect(rows.flat().filter((c) => c.cursor)).toHaveLength(1);
+    expect(rows.at(-1)!.at(-1)!.cursor).toBe(true);
+  });
+
+  it('splits explicit newlines onto their own rows', () => {
+    const rows = layoutInputRows(PROMPT, 'a\nb\nc', 5, 80);
+    expect(rows.map(rowText)).toEqual(['› a', 'b', 'c ']); // cursor space on last
+  });
+
+  it('marks chip cells inside an inline token', () => {
+    const value = 'hi [file:a.ts]';
+    const rows = layoutInputRows(PROMPT, value, 0, 80);
+    const chipChars = rows
+      .flat()
+      .filter((c) => c.chip)
+      .map((c) => c.ch)
+      .join('');
+    expect(chipChars).toBe('[file:a.ts]');
+  });
+
+  it('never produces a row wider than the width', () => {
+    const rows = layoutInputRows(PROMPT, 'abcdefghijklmnop', 3, 6);
+    for (const row of rows) expect(row.length).toBeLessThanOrEqual(6);
   });
 });

@@ -1,7 +1,7 @@
-import { Box, Text, useInput, useStdin } from 'ink';
+import { Box, Text, useInput, useStdin, useStdout } from 'ink';
 import type React from 'react';
-import { useEffect } from 'react';
-import { splitChips } from '../input-tokens.js';
+import { useEffect, useState } from 'react';
+import { type InputCell, layoutInputRows } from '../input-tokens.js';
 
 export interface InputProps {
   prompt?: string;
@@ -13,26 +13,45 @@ export interface InputProps {
 }
 
 /**
- * Render a buffer fragment as coloured chip spans + plain text. Chips are
- * dim-cyan so they read as a single styled block; plain runs render verbatim.
- * The `keyPrefix` keeps React keys unique across the before/after halves.
+ * Render one wrapped row of input cells into styled `<Text>` spans. Consecutive
+ * cells with the same style are coalesced into a single span; the cursor cell is
+ * always emitted on its own (inverse). `promptColor` styles the leading prompt.
  */
-function renderChips(text: string, keyPrefix: string): React.ReactNode[] {
+function renderRow(cells: InputCell[], rowKey: string, promptColor: string): React.ReactNode[] {
   const out: React.ReactNode[] = [];
-  let offset = 0; // running char offset — a stable, unique key per span
-  for (const span of splitChips(text)) {
-    const key = `${keyPrefix}-${offset}`;
-    out.push(
-      span.chip ? (
-        <Text key={key} color="cyan" dimColor>
-          {span.text}
-        </Text>
-      ) : (
-        <Text key={key}>{span.text}</Text>
-      ),
-    );
-    offset += span.text.length;
+  let run = '';
+  let runStart = 0;
+  let runStyle: 'prompt' | 'chip' | 'plain' | null = null;
+  const flush = (end: number) => {
+    if (run === '' || runStyle === null) return;
+    const key = `${rowKey}-${runStart}`;
+    if (runStyle === 'prompt') out.push(<Text key={key} color={promptColor}>{run}</Text>);
+    else if (runStyle === 'chip') out.push(<Text key={key} color="cyan" dimColor>{run}</Text>);
+    else out.push(<Text key={key}>{run}</Text>);
+    run = '';
+    runStart = end;
+  };
+  for (let i = 0; i < cells.length; i++) {
+    const cell = cells[i] as InputCell;
+    if (cell.cursor) {
+      flush(i);
+      out.push(
+        <Text key={`${rowKey}-c${i}`} inverse>
+          {cell.ch}
+        </Text>,
+      );
+      runStart = i + 1;
+      continue;
+    }
+    const style = cell.prompt ? 'prompt' : cell.chip ? 'chip' : 'plain';
+    if (style !== runStyle) {
+      flush(i);
+      runStyle = style;
+      runStart = i;
+    }
+    run += cell.ch;
   }
+  flush(cells.length);
   return out;
 }
 
@@ -124,9 +143,19 @@ export function Input({
     };
   }, [stdin, disabled, onKey]);
 
-  const before = value.slice(0, cursor);
-  const at = value.slice(cursor, cursor + 1) || ' ';
-  const after = value.slice(cursor + 1);
+  // Track terminal width so the input wraps at the real column count and the
+  // box grows to exactly the number of visual rows the content needs.
+  const { stdout } = useStdout();
+  const [cols, setCols] = useState(stdout?.columns ?? 80);
+  useEffect(() => {
+    if (!stdout) return;
+    const onResize = () => setCols(stdout.columns ?? 80);
+    onResize();
+    stdout.on('resize', onResize);
+    return () => {
+      stdout.off('resize', onResize);
+    };
+  }, [stdout]);
 
   // Disabled (aborting an iteration) is the only signal that needs a
   // hard visual cue — paint the prompt red. We avoid wrapping the input
@@ -136,19 +165,23 @@ export function Input({
   // to indicate the input row.
   const promptColor = disabled ? 'red' : 'cyan';
 
+  // One <Text> per wrapped row: the column box's height becomes the row count,
+  // so a long message that soft-wraps (or any embedded newlines) gives the
+  // input area a correct, line-count-driven height instead of clipping or
+  // overflowing. layoutInputRows keeps the cursor on the right row/column.
+  const rows = layoutInputRows(prompt, value, cursor, cols);
+
   return (
     <Box flexDirection="column">
-      {/* Single <Text> wrapper so prompt + buffer + cursor + tail all wrap
-          as one continuous string. Splitting them across sibling Text
-          elements would let each piece wrap independently and shift the
-          cursor cell off the intended character. Attachment chips are nested
-          inline <Text> spans, so they colour without breaking the flow. */}
-      <Text>
-        <Text color={promptColor}>{prompt}</Text>
-        {renderChips(before, 'b')}
-        <Text inverse>{at}</Text>
-        {renderChips(after, 'a')}
-      </Text>
+      {rows.map((row, i) =>
+        row.length === 0 ? (
+          // biome-ignore lint/suspicious/noArrayIndexKey: rows are positional and re-laid out every render
+          <Text key={i}> </Text> // keep blank lines one row tall
+        ) : (
+          // biome-ignore lint/suspicious/noArrayIndexKey: rows are positional and re-laid out every render
+          <Text key={i}>{renderRow(row, `r${i}`, promptColor)}</Text>
+        ),
+      )}
       {hint ? <Text dimColor>{hint}</Text> : null}
     </Box>
   );

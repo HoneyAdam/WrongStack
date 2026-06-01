@@ -4202,13 +4202,12 @@ export function App({
       return;
     }
 
-    // Plain multi-line paste below the threshold. Strip newlines to spaces
-    // so the input row stays visually single-line while the content still
-    // carries through to the agent.
+    // Any multi-line chunk is a paste (Enter was already handled above), even
+    // a short non-bracketed one. Route it through the same finalizer so it
+    // collapses to an inline `[pasted #N, L lines]` chip instead of leaking
+    // newlines (or being flattened to spaces) into the row.
     if (input.includes('\n')) {
-      const normalized = input.replace(/\r?\n/g, ' ');
-      const next = buffer.slice(0, cursor) + normalized + buffer.slice(cursor);
-      setDraft(next, cursor + normalized.length);
+      await commitPaste(input);
       return;
     }
 
