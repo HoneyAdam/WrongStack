@@ -46,6 +46,33 @@ describe('tool-format conversions', () => {
     expect(assistant?.tool_calls).toHaveLength(1);
   });
 
+  it('messagesToOpenAI emits tool messages before user content in a mixed turn (DeepSeek adjacency)', () => {
+    // A single canonical user turn carrying BOTH a tool_result and a text
+    // block (e.g. a /btw note appended onto the tool-result message). The
+    // tool message MUST come before the user text so it immediately follows
+    // the assistant tool_calls — otherwise DeepSeek 400s.
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'u1', name: 'read', input: { path: 'a' } }],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'u1', content: 'file contents' },
+          { type: 'text', text: 'btw: prefer tabs' },
+        ],
+      },
+    ];
+    const out = messagesToOpenAI(undefined, messages);
+    const assistantIdx = out.findIndex((m) => m.role === 'assistant');
+    const toolIdx = out.findIndex((m) => m.role === 'tool' && m.tool_call_id === 'u1');
+    const userIdx = out.findIndex((m) => m.role === 'user');
+    expect(assistantIdx).toBeGreaterThanOrEqual(0);
+    expect(toolIdx).toBe(assistantIdx + 1);
+    expect(userIdx).toBeGreaterThan(toolIdx);
+  });
+
   it('contentFromOpenAI parses tool_calls', () => {
     const content = contentFromOpenAI({
       message: {

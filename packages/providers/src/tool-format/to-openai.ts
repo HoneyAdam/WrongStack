@@ -90,20 +90,27 @@ export function messagesToOpenAI(
       const toolResults = blocks.filter((b): b is ToolResultBlock => b.type === 'tool_result');
       const others = blocks.filter((b) => b.type !== 'tool_result');
 
-      if (others.length > 0) {
-        out.push({
-          role: 'user',
-          content: opts.flattenContentToString
-            ? blocksToString(others)
-            : blocksToContentArray(others),
-        });
-      }
+      // Emit the `role:"tool"` responses BEFORE any `role:"user"` content.
+      // A single canonical user turn can hold both tool_result blocks and
+      // text (e.g. a `/btw` note appended onto the trailing tool-result
+      // message). OpenAI — and DeepSeek strictly — require every tool
+      // message to immediately follow the assistant `tool_calls`; a user
+      // message wedged in between triggers a 400 "assistant message with
+      // 'tool_calls' must be followed by tool messages".
       for (const r of toolResults) {
         const content = typeof r.content === 'string' ? r.content : JSON.stringify(r.content);
         out.push({
           role: 'tool',
           tool_call_id: r.tool_use_id,
           content,
+        });
+      }
+      if (others.length > 0) {
+        out.push({
+          role: 'user',
+          content: opts.flattenContentToString
+            ? blocksToString(others)
+            : blocksToContentArray(others),
         });
       }
     } else if (msg.role === 'assistant') {
