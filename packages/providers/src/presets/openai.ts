@@ -41,7 +41,9 @@ export const openaiWireFormat = defineWireFormat<OpenAIStreamState>({
     const body: Record<string, unknown> = {
       model: req.model,
       messages: messagesToOpenAI(stripCacheControl(req.system), req.messages, {}),
-      max_tokens: req.maxTokens,
+      // Real OpenAI requires `max_completion_tokens`; newer model families
+      // (gpt-4o, o1/o3/o4) 400 on the deprecated `max_tokens`. See issue #10.
+      max_completion_tokens: req.maxTokens,
       stream: true,
       stream_options: { include_usage: true },
     };

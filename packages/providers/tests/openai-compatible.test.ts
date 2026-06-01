@@ -75,6 +75,35 @@ describe('OpenAICompatibleProvider', () => {
     expect(url).toBe('https://api.example.com/v2/chat');
   });
 
+  it('keeps the legacy max_tokens field (compatible endpoints reject max_completion_tokens) (#10)', async () => {
+    let captured: Record<string, unknown> | undefined;
+    const spy = vi.fn(async (_url: unknown, init: { body?: string } = {}) => {
+      captured = JSON.parse(init.body ?? '{}');
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          model: 'm',
+          choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 1, completion_tokens: 1 },
+        }),
+        text: async () => '',
+      };
+    }) as unknown as typeof fetch;
+    const p = new OpenAICompatibleProvider({
+      id: 'groq',
+      apiKey: 'k',
+      baseUrl: 'https://api.groq.com/openai/v1',
+      fetchImpl: spy,
+    });
+    await p.complete(
+      { model: 'm', messages: [{ role: 'user', content: 'hi' }], maxTokens: 128 },
+      { signal: new AbortController().signal },
+    );
+    expect(captured?.['max_tokens']).toBe(128);
+    expect(captured?.['max_completion_tokens']).toBeUndefined();
+  });
+
   it('works without custom headers', async () => {
     const spy = mockFetchSpy();
     const p = new OpenAICompatibleProvider({

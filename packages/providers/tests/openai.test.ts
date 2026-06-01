@@ -110,6 +110,30 @@ describe('OpenAIProvider', () => {
     });
   });
 
+  it('caps output via max_completion_tokens, not the deprecated max_tokens (#10)', async () => {
+    let captured: Record<string, unknown> | undefined;
+    const fetchImpl = vi.fn(async (_url: unknown, init: { body?: string } = {}) => {
+      captured = JSON.parse(init.body ?? '{}');
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          model: 'gpt-4o',
+          choices: [{ message: { role: 'assistant', content: 'k' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 1, completion_tokens: 1 },
+        }),
+        text: async () => '',
+      };
+    }) as unknown as typeof fetch;
+    const p = new OpenAIProvider({ apiKey: 'k', fetchImpl });
+    await p.complete(
+      { model: 'gpt-4o', messages: [{ role: 'user', content: 'x' }], maxTokens: 256 },
+      { signal: new AbortController().signal },
+    );
+    expect(captured?.['max_completion_tokens']).toBe(256);
+    expect(captured?.['max_tokens']).toBeUndefined();
+  });
+
   it('appends /chat/completions to z.ai-style versioned baseUrl', async () => {
     let calledUrl = '';
     const fetchImpl = vi.fn(async (url: unknown) => {

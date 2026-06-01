@@ -59,13 +59,23 @@ export class OpenAIProvider extends WireAdapter {
     return headers;
   }
 
+  /**
+   * The request field used to cap output length. Real OpenAI deprecated
+   * `max_tokens` and the newer model families (gpt-4o, o1/o3/o4) 400 on it —
+   * they require `max_completion_tokens`. OpenAI-compatible endpoints that
+   * still only accept `max_tokens` override this. See issue #10.
+   */
+  protected tokenLimitParam(): string {
+    return 'max_completion_tokens';
+  }
+
   protected override buildBody(req: Request): Record<string, unknown> {
     const body: Record<string, unknown> = {
       model: req.model,
       messages: messagesToOpenAI(this.stripCacheControl(req), req.messages, {
         ...this.opts.quirks,
       }),
-      max_tokens: req.maxTokens,
+      [this.tokenLimitParam()]: req.maxTokens,
       stream: true,
       stream_options: { include_usage: true },
     };

@@ -57,6 +57,15 @@ export class OpenAICompatibleProvider extends OpenAIProvider {
     return super.buildUrl(req);
   }
 
+  /**
+   * Compatible endpoints (Groq, Together, Mistral, local servers, …) follow the
+   * classic Chat Completions contract and accept `max_tokens`; many reject
+   * OpenAI's newer `max_completion_tokens`. Keep the legacy field here. See #10.
+   */
+  protected override tokenLimitParam(): string {
+    return 'max_tokens';
+  }
+
   protected override buildHeaders(req: Request): Record<string, string> {
     return {
       ...super.buildHeaders(req),

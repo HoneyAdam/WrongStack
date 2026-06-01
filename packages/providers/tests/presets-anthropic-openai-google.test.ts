@@ -533,11 +533,12 @@ describe('OpenAI preset - buildBody variants', () => {
     } as Parameters<typeof openaiWireFormat.buildBody>[0]);
     expect(body).toMatchObject({
       model: 'gpt-4o',
-      max_tokens: 256,
+      max_completion_tokens: 256,
       temperature: 0.5,
       top_p: 0.8,
       stop: ['END'],
     });
+    expect(body).not.toHaveProperty('max_tokens');
   });
 
   it('sets tool_choice as string "required"', () => {
