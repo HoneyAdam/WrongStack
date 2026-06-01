@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fmtElapsed, renderProgress, stateChip } from '../src/components/status-bar.js';
+import { fmtElapsed, renderMeter, renderProgress, stateChip } from '../src/components/status-bar.js';
 
 describe('fmtElapsed', () => {
   it('renders mm:ss under one hour', () => {
@@ -73,5 +73,33 @@ describe('renderProgress', () => {
     for (let i = 0; i <= 10; i++) {
       expect(renderProgress(i / 10, 12).length).toBe(12);
     }
+  });
+});
+
+describe('renderMeter (sub-cell precision)', () => {
+  it('is empty at 0 and full at 1', () => {
+    expect(renderMeter(0, 10)).toBe('░░░░░░░░░░');
+    expect(renderMeter(1, 10)).toBe('██████████');
+  });
+
+  it('keeps total visual width stable across all ratios', () => {
+    for (let i = 0; i <= 24; i++) {
+      // Each cell is exactly one character (full block, one-eighth block, or
+      // empty track), so the rendered string is always `width` chars.
+      expect([...renderMeter(i / 24, 12)].length).toBe(12);
+    }
+  });
+
+  it('renders a fractional leading cell instead of jumping a whole cell', () => {
+    // 1/12 of the bar = a partial block in the first cell, rest empty track.
+    const bar = renderMeter(1 / 12 / 2, 12); // half a cell
+    expect(bar[0]).not.toBe('█');
+    expect(bar[0]).not.toBe('░');
+    expect(bar.slice(1)).toBe('░'.repeat(11));
+  });
+
+  it('clamps out-of-range ratios', () => {
+    expect(renderMeter(-1, 8)).toBe('░░░░░░░░');
+    expect(renderMeter(2, 8)).toBe('████████');
   });
 });

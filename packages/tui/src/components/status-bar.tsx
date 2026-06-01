@@ -2,6 +2,7 @@ import type { TokenCounter } from '@wrongstack/core';
 import { Box, Text } from 'ink';
 import type React from 'react';
 import type { GitInfo } from '../git-info.js';
+import { theme } from '../theme.js';
 
 export interface TodoCounts {
   pending: number;
@@ -481,15 +482,18 @@ function EternalStageChip({
 function ContextChip({ ctx }: { ctx: ContextWindow }): React.ReactElement {
   const ratio = Math.max(0, Math.min(1, ctx.used / ctx.max));
   const pct = Math.round(ratio * 100);
-  const color = ratio >= 0.85 ? 'red' : ratio >= 0.65 ? 'yellow' : 'cyan';
+  const color = ratio >= 0.85 ? theme.error : ratio >= 0.65 ? theme.warn : theme.accent;
   return (
     <Text>
       <Text dimColor>ctx </Text>
-      <Text color={color}>{renderProgress(ratio, 10)}</Text>
-      <Text color={color}> {pct}%</Text>
+      <Text color={color}>{renderMeter(ratio, 12)}</Text>
+      <Text color={color} bold>
+        {' '}
+        {pct}%
+      </Text>
       <Text dimColor>
         {' '}
-        ({fmtTok(ctx.used)}/{fmtTok(ctx.max)})
+        {fmtTok(ctx.used)}/{fmtTok(ctx.max)}
       </Text>
     </Text>
   );
@@ -524,6 +528,29 @@ export function renderProgress(ratio: number, width: number): string {
   const filled = clamped === 0 ? 0 : Math.max(1, Math.round(clamped * width));
   const capped = Math.min(width, filled);
   return FILLED.repeat(capped) + EMPTY.repeat(width - capped);
+}
+
+// Sub-cell-precise meter: each cell is 1/8 resolution via Unicode block
+// fractions, so the bar grows smoothly token-by-token instead of jumping a
+// whole cell. Empty track stays '░'. Total width is always `width` chars.
+const EIGHTHS = ['', '▏', '▎', '▍', '▌', '▋', '▊', '▉'];
+
+export function renderMeter(ratio: number, width: number): string {
+  const clamped = Math.max(0, Math.min(1, ratio));
+  let remaining = Math.round(clamped * width * 8);
+  let out = '';
+  for (let i = 0; i < width; i++) {
+    if (remaining >= 8) {
+      out += FILLED;
+      remaining -= 8;
+    } else if (remaining > 0) {
+      out += EIGHTHS[remaining];
+      remaining = 0;
+    } else {
+      out += EMPTY;
+    }
+  }
+  return out;
 }
 
 function fmtTok(n: number): string {
