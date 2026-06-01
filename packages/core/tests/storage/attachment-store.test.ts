@@ -144,4 +144,53 @@ describe('DefaultAttachmentStore', () => {
     expect(text).toContain('just pasted text');
     expect(text).toContain('</pasted>');
   });
+
+  it('resolves a seq-keyed token with a cosmetic suffix (`#N, L lines`)', async () => {
+    const store = new DefaultAttachmentStore();
+    await store.add({ kind: 'text', data: 'multi\nline\npaste' });
+    const blocks = await store.expand('see [pasted #1, 123 lines] here');
+    expect(blocks).toHaveLength(1);
+    const text = (blocks[0] as { text: string }).text;
+    expect(text).toContain('multi\nline\npaste');
+    expect(text).not.toContain('123 lines'); // the suffix is cosmetic, not literal
+  });
+
+  it('resolves an image token with a cosmetic suffix', async () => {
+    const store = new DefaultAttachmentStore();
+    await store.add({ kind: 'image', data: 'AAAA', meta: { mediaType: 'image/png' } });
+    const blocks = await store.expand('[image #1, PNG]');
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toMatchObject({ type: 'image' });
+  });
+
+  it('resolves a path-keyed `[file:<path>]` token by its registered path', async () => {
+    const store = new DefaultAttachmentStore();
+    await store.add({
+      kind: 'file',
+      data: 'export const x = 1;',
+      meta: { filename: 'src/a.ts', label: 'src/a.ts' },
+    });
+    const blocks = await store.expand('look at [file:src/a.ts] now');
+    expect(blocks).toHaveLength(1);
+    const text = (blocks[0] as { text: string }).text;
+    expect(text).toContain('<file path="src/a.ts">');
+    expect(text).toContain('export const x = 1;');
+  });
+
+  it('keeps an unknown path-keyed token literal', async () => {
+    const store = new DefaultAttachmentStore();
+    const blocks = await store.expand('missing [file:nope/none.ts] ok');
+    expect(blocks).toHaveLength(1);
+    expect((blocks[0] as { text: string }).text).toContain('[file:nope/none.ts]');
+  });
+
+  it('resolves a duplicated path to the most recently registered file', async () => {
+    const store = new DefaultAttachmentStore();
+    await store.add({ kind: 'file', data: 'OLD', meta: { filename: 'dup.ts' } });
+    await store.add({ kind: 'file', data: 'NEW', meta: { filename: 'dup.ts' } });
+    const blocks = await store.expand('[file:dup.ts]');
+    const text = (blocks[0] as { text: string }).text;
+    expect(text).toContain('NEW');
+    expect(text).not.toContain('OLD');
+  });
 });

@@ -87,4 +87,58 @@ describe('InputBuilder', () => {
     expect(builder.text).toContain('[image #1]');
     expect(builder.text).toContain('[pasted #2]');
   });
+
+  describe('register-only methods (TUI: token without display mutation)', () => {
+    it('registerPaste stores the paste and returns a token but leaves display empty', async () => {
+      const { store, builder } = makeBuilder();
+      const token = await builder.registerPaste('one\ntwo\nthree\nfour');
+      expect(token).toMatch(/^\[pasted #1, \d+ lines\]$/);
+      expect(builder.text).toBe(''); // display untouched
+      // The ref lives in the store, so expanding the token resolves it.
+      const blocks = await store.expand(token);
+      expect((blocks[0] as { text: string }).text).toContain('two');
+    });
+
+    it('registerFile returns a path-keyed token resolvable via the store', async () => {
+      const { store, builder } = makeBuilder();
+      const token = await builder.registerFile({
+        kind: 'file',
+        data: 'CONTENT',
+        meta: { filename: 'src/x.ts', label: 'src/x.ts' },
+      });
+      expect(token).toBe('[file:src/x.ts]');
+      expect(builder.text).toBe('');
+      const blocks = await store.expand(token);
+      expect((blocks[0] as { text: string }).text).toContain('CONTENT');
+    });
+
+    it('registerImage returns a seq-keyed labelled token without touching display', async () => {
+      const { store, builder } = makeBuilder();
+      const token = await builder.registerImage('AAAA', 'image/png');
+      expect(token).toBe('[image #1, PNG]');
+      expect(builder.text).toBe('');
+      const blocks = await store.expand(token);
+      expect(blocks.some((b) => b.type === 'image')).toBe(true);
+    });
+
+    it('a buffer of register-only tokens expands once via appendText + submit', async () => {
+      const { builder } = makeBuilder();
+      // Simulate the TUI: tokens live in the caller's own buffer.
+      const p = await builder.registerPaste('aaa\nbbb\nccc\nddd');
+      const f = await builder.registerFile({
+        kind: 'file',
+        data: 'FILE_BODY',
+        meta: { filename: 'a.ts', label: 'a.ts' },
+      });
+      builder.appendText(`hello ${p} and ${f}`);
+      const blocks = await builder.submit();
+      const joined = blocks.map((b) => (b.type === 'text' ? b.text : '')).join('');
+      expect(joined).toContain('hello ');
+      expect(joined).toContain('bbb'); // paste expanded exactly once
+      expect(joined).toContain('FILE_BODY'); // file expanded exactly once
+      // No leftover literal tokens.
+      expect(joined).not.toContain('[pasted #1');
+      expect(joined).not.toContain('[file:a.ts]');
+    });
+  });
 });

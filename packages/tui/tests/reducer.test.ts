@@ -6,8 +6,6 @@ function initial() {
     entries: [],
     buffer: '',
     cursor: 0,
-    placeholders: [],
-    placeholderContents: [],
     streamingText: '',
     toolStream: null,
     status: 'idle' as const,
@@ -63,38 +61,18 @@ describe('TUI reducer', () => {
     expect((s.entries[599] as { text: string }).text).toBe('entry-599');
   });
 
-  it('setBuffer + clearInput reset cursor and placeholders', () => {
+  it('setBuffer + clearInput reset cursor and history index', () => {
     let s = initial();
     s = reducer(s, { type: 'historyPush', text: 'older message' });
     s = reducer(s, { type: 'historyUp' });
     s = reducer(s, { type: 'setBuffer', buffer: 'hello', cursor: 5 });
-    s = reducer(s, { type: 'addPlaceholder', ph: '[pasted #1] (3 lines)' });
     expect(s.buffer).toBe('hello');
-    expect(s.placeholders).toHaveLength(1);
     expect(s.historyIndex).toBe(1);
     s = reducer(s, { type: 'clearInput' });
     expect(s.buffer).toBe('');
     expect(s.cursor).toBe(0);
-    expect(s.placeholders).toEqual([]);
     expect(s.historyIndex).toBe(0);
     expect(s.picker.open).toBe(false);
-  });
-
-  it('removeLastPlaceholder pops the last placeholder', () => {
-    let s = initial();
-    s = reducer(s, { type: 'addPlaceholder', ph: '[pasted #1] (3 lines)' });
-    s = reducer(s, { type: 'addPlaceholder', ph: '[pasted] (1 line)' });
-    expect(s.placeholders).toHaveLength(2);
-    s = reducer(s, { type: 'removeLastPlaceholder' });
-    expect(s.placeholders).toHaveLength(1);
-    expect(s.placeholders[0]).toBe('[pasted #1] (3 lines)');
-  });
-
-  it('removeLastPlaceholder on empty placeholders is a no-op', () => {
-    const s = initial();
-    const next = reducer(s, { type: 'removeLastPlaceholder' });
-    expect(next.placeholders).toEqual([]);
-    expect(next).toBe(s);
   });
 
   it('streamDelta concatenates; streamReset clears', () => {

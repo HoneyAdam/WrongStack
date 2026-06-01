@@ -1,15 +1,39 @@
 import { Box, Text, useInput, useStdin } from 'ink';
 import type React from 'react';
 import { useEffect } from 'react';
+import { splitChips } from '../input-tokens.js';
 
 export interface InputProps {
   prompt?: string;
   value: string;
   cursor: number;
-  placeholders: string[];
   disabled?: boolean;
   hint?: string;
   onKey: (input: string, key: KeyEvent) => void;
+}
+
+/**
+ * Render a buffer fragment as coloured chip spans + plain text. Chips are
+ * dim-cyan so they read as a single styled block; plain runs render verbatim.
+ * The `keyPrefix` keeps React keys unique across the before/after halves.
+ */
+function renderChips(text: string, keyPrefix: string): React.ReactNode[] {
+  const out: React.ReactNode[] = [];
+  let offset = 0; // running char offset — a stable, unique key per span
+  for (const span of splitChips(text)) {
+    const key = `${keyPrefix}-${offset}`;
+    out.push(
+      span.chip ? (
+        <Text key={key} color="cyan" dimColor>
+          {span.text}
+        </Text>
+      ) : (
+        <Text key={key}>{span.text}</Text>
+      ),
+    );
+    offset += span.text.length;
+  }
+  return out;
 }
 
 export interface KeyEvent {
@@ -76,7 +100,6 @@ export function Input({
   prompt = '› ',
   value,
   cursor,
-  placeholders,
   disabled,
   hint,
   onKey,
@@ -115,22 +138,16 @@ export function Input({
 
   return (
     <Box flexDirection="column">
-      {placeholders.map((p, i) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: placeholders are append-only, index is stable
-        <Text key={i} dimColor>
-          {'  ↳ '}
-          {p}
-        </Text>
-      ))}
       {/* Single <Text> wrapper so prompt + buffer + cursor + tail all wrap
           as one continuous string. Splitting them across sibling Text
           elements would let each piece wrap independently and shift the
-          cursor cell off the intended character. */}
+          cursor cell off the intended character. Attachment chips are nested
+          inline <Text> spans, so they colour without breaking the flow. */}
       <Text>
         <Text color={promptColor}>{prompt}</Text>
-        {before}
+        {renderChips(before, 'b')}
         <Text inverse>{at}</Text>
-        {after}
+        {renderChips(after, 'a')}
       </Text>
       {hint ? <Text dimColor>{hint}</Text> : null}
     </Box>

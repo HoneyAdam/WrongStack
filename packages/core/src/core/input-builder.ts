@@ -109,6 +109,53 @@ export class InputBuilder {
   }
 
   /**
+   * Register-only variant of `appendPaste`. Always stores the paste and
+   * returns the inline `[pasted #N, L lines]` token WITHOUT mutating
+   * `display` — the caller (TUI) owns its own editable buffer as the single
+   * source of truth, inserts the token there, and expands the buffer at
+   * submit. The collapse decision is the caller's (it gates this call); use
+   * `wouldCollapse()` for that.
+   */
+  async registerPaste(text: string): Promise<string> {
+    const ref = await this.store.add({
+      kind: 'text',
+      data: text,
+      meta: { label: paragraphLabel(text) },
+    });
+    this.refs.push(ref);
+    const lines = text.split('\n').length;
+    return `[pasted #${ref.seq}, ${lines} lines]`;
+  }
+
+  /**
+   * Register-only variant of `appendImage` — see `registerPaste`. Returns a
+   * seq-keyed `[image #N, LABEL]` token; does not touch `display`.
+   */
+  async registerImage(dataBase64: string, mediaType: string): Promise<string> {
+    const label = `${mediaType.split('/')[1]?.toUpperCase() ?? 'IMG'}`;
+    const ref = await this.store.add({
+      kind: 'image',
+      data: dataBase64,
+      meta: { mediaType, label },
+    });
+    this.refs.push(ref);
+    return `[image #${ref.seq}, ${label}]`;
+  }
+
+  /**
+   * Register-only variant of `appendFile` — see `registerPaste`. Returns a
+   * path-keyed `[file:<path>]` token (resolved by path at expand time); does
+   * not touch `display`. The path is read from `meta.filename` (falling back
+   * to `meta.label`).
+   */
+  async registerFile(input: AddAttachmentInput): Promise<string> {
+    const ref = await this.store.add({ ...input, kind: 'file' });
+    this.refs.push(ref);
+    const path = ref.meta.filename ?? ref.meta.label ?? String(ref.seq);
+    return `[file:${path}]`;
+  }
+
+  /**
    * Whether `appendPaste(text)` would collapse the text to a placeholder
    * (rather than inlining it). Lets a frontend decide where to route a paste
    * — e.g. collapsed pastes become a pill, while inlined ones can be shown

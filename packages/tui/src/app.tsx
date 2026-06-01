@@ -37,6 +37,7 @@ import { SlashMenu } from './components/slash-menu.js';
 import { StatusBar } from './components/status-bar.js';
 import { searchFiles } from './file-search.js';
 import { feedPaste } from './paste-accumulator.js';
+import { INLINE_TOKEN_SRC, deleteTokenBackward, tokenLengthForward } from './input-tokens.js';
 import { type GitInfo, readGitInfo } from './git-info.js';
 import { createQueueSlashCommand } from './queue-slash.js';
 import { createKillSlashCommand } from './kill-slash.js';
@@ -345,9 +346,6 @@ type State = {
   entries: HistoryEntry[];
   buffer: string;
   cursor: number;
-  placeholders: string[];
-  /** Parallel array to `placeholders` — stores the actual pasted content for history rendering. */
-  placeholderContents: string[];
   streamingText: string;
   /**
    * Live tail of the currently streaming tool's stdout/progress text. Mirrors
@@ -549,10 +547,7 @@ type State = {
 type Action =
   | { type: 'addEntry'; entry: DraftEntry }
   | { type: 'setBuffer'; buffer: string; cursor: number }
-  | { type: 'addPlaceholder'; ph: string; content?: string }
-  | { type: 'removeLastPlaceholder' }
   | { type: 'clearInput' }
-  | { type: 'clearPlaceholdersOnly' }
   | { type: 'clearHistory' }
   | { type: 'streamDelta'; delta: string }
   | { type: 'streamReset' }
@@ -729,32 +724,15 @@ export function reducer(state: State, action: Action): State {
     }
     case 'setBuffer':
       return { ...state, buffer: action.buffer, cursor: action.cursor };
-    case 'addPlaceholder':
-      return {
-        ...state,
-        placeholders: [...state.placeholders, action.ph],
-        placeholderContents: [...state.placeholderContents, action.content ?? ''],
-      };
-    case 'removeLastPlaceholder':
-      if (state.placeholders.length === 0) return state;
-      return {
-        ...state,
-        placeholders: state.placeholders.slice(0, -1),
-        placeholderContents: state.placeholderContents.slice(0, -1),
-      };
     case 'clearInput':
       return {
         ...state,
         buffer: '',
         cursor: 0,
-        placeholders: [],
-        placeholderContents: [],
         historyIndex: 0,
         picker: { open: false, query: '', matches: [], selected: 0 },
         slashPicker: { open: false, query: '', matches: [], selected: 0 },
       };
-    case 'clearPlaceholdersOnly':
-      return { ...state, placeholders: [], placeholderContents: [] };
     case 'clearHistory': {
       // Keep only the banner entry (always first, id=0). Any other entries
       // (user messages, assistant responses, slash results) are discarded so
@@ -1666,8 +1644,6 @@ export function App({
       : [],
     buffer: '',
     cursor: 0,
-    placeholders: [],
-    placeholderContents: [],
     streamingText: '',
     toolStream: null,
     status: 'idle' as const,
@@ -1758,6 +1734,11 @@ export function App({
   // milliseconds needed to debounce a terminal-side `\r\n` double-event
   // and then auto-releases — leaving the input live for the user.
   const lastEnterAtRef = useRef(0);
+  // Maps an inline attachment token (e.g. `[pasted #1, 123 lines]`) to a short
+  // preview of its content, so the chat-history entry can show the collapsed
+  // text below the message. Append-only for the lifetime of the session; the
+  // token strings are unique per attachment seq, so stale entries are inert.
+  const tokenPreviewsRef = useRef<Map<string, string>>(new Map());
   // The status-bar chip surfaces the basename so multiple WrongStack
   // windows running against different repos are immediately distinguishable.
   // Empty / root fallback to undefined so the chip just hides itself.
@@ -2138,9 +2119,15 @@ export function App({
         });
         return;
       }
-      const placeholder = await builder.appendImage(img.base64, img.mediaType);
+      // Register-only: the token goes inline into the editable buffer (like a
+      // pasted block) so it renders as a chip and expands from the buffer at
+      // submit — not into a separate pill above the input.
+      const token = await builder.registerImage(img.base64, img.mediaType);
       const kb = (img.bytes / 1024).toFixed(0);
-      dispatch({ type: 'addPlaceholder', ph: `${placeholder} (PNG ${kb}KB)` });
+      tokenPreviewsRef.current.set(token, `image, ${kb} KB`);
+      const { buffer, cursor } = draftRef.current;
+      const next = buffer.slice(0, cursor) + token + buffer.slice(cursor);
+      setDraft(next, cursor + token.length);
     } catch (err) {
       dispatch({
         type: 'addEntry',
@@ -2168,21 +2155,22 @@ export function App({
       return;
     }
 
-    // Attach the file via the builder. The builder appends "[file #N]" to its
-    // own display string, but we want to put the placeholder inline in the
-    // visible buffer (replacing @query) so the user sees it.
+    // Register the file (no builder display mutation) and put a path-keyed
+    // `[file:<path>]` token inline in the visible buffer (replacing @query).
+    // The buffer is the single source of truth — the token expands back to the
+    // file content at submit via the store's path lookup.
     const absPath = path.isAbsolute(picked) ? picked : path.join(projectRoot, picked);
     try {
       const data = await fs.readFile(absPath, 'utf8');
-      const placeholder = await builder.appendFile({
+      const token = await builder.registerFile({
         kind: 'file',
         data,
         meta: { filename: picked, label: picked },
       });
       const before = draft.buffer.slice(0, tok.start);
       const after = draft.buffer.slice(tok.end);
-      const next = `${before}${placeholder}${after}`;
-      setDraft(next, tok.start + placeholder.length);
+      const next = `${before}${token}${after}`;
+      setDraft(next, tok.start + token.length);
       dispatch({ type: 'pickerClose' });
     } catch (err) {
       dispatch({
@@ -3675,25 +3663,22 @@ export function App({
   };
 
   // Finalize a fully-assembled paste payload. A collapse-worthy paste (long
-  // or many-lined) or any multi-line paste becomes a `[pasted #N] (N lines)`
-  // pill above the input — the content lives in the InputBuilder and is
-  // expanded at submit. A short single-line paste is inserted straight into
-  // the editable row so the user can see and edit it; it must NOT also go
-  // through the builder, or it would be duplicated when the draft buffer is
-  // appended at submit.
+  // or many-lined) or any multi-line paste becomes an inline `[pasted #N, L
+  // lines]` chip in the editable row — the content lives in the AttachmentStore
+  // and is expanded from the buffer at submit. A short single-line paste is
+  // inserted straight into the row as raw text so the user can see and edit it.
   const commitPaste = async (full: string): Promise<void> => {
     const builder = builderRef.current;
     if (!builder || !full) return;
     if (builder.wouldCollapse(full) || full.includes('\n')) {
-      const lineCount = full.split('\n').length;
-      const ph = await builder.appendPaste(full);
-      // Truncate long pastes for preview — first 6 lines + "..." indicator.
-      const preview = truncatePastePreview(full, 6);
-      dispatch({
-        type: 'addPlaceholder',
-        ph: `${ph ?? '[pasted]'} (${lineCount} lines)`,
-        content: preview,
-      });
+      // Register-only: store the paste, get back the inline token. The token
+      // goes into the buffer (single source of truth); nothing is appended to
+      // the builder's own display, so there's no double-expansion at submit.
+      const token = await builder.registerPaste(full);
+      tokenPreviewsRef.current.set(token, truncatePastePreview(full, 6));
+      const { buffer, cursor } = draftRef.current;
+      const next = buffer.slice(0, cursor) + token + buffer.slice(cursor);
+      setDraft(next, cursor + token.length);
       return;
     }
     const { buffer, cursor } = draftRef.current;
@@ -4094,15 +4079,14 @@ export function App({
         return;
       }
 
-      // Block-level backspace: if cursor is at end and buffer ends with a
-      // placeholder pattern ([pasted #N] or [pasted]), delete the whole
-      // placeholder and remove it from the placeholders list.
-      if (key.backspace && cursor === buffer.length && state.placeholders.length > 0) {
-        const BLOCK_PH_RE = /\[pasted(?: #\d+)?\]$/;
-        if (BLOCK_PH_RE.test(buffer)) {
-          const newBuffer = buffer.replace(BLOCK_PH_RE, '').replace(/\s+$/, '');
-          dispatch({ type: 'removeLastPlaceholder' });
-          setDraft(newBuffer, newBuffer.length);
+      // Token-aware backspace: if the text immediately before the cursor ends
+      // with a whole attachment chip (`[pasted …]` / `[file:…]` / `[image …]`),
+      // delete the entire token in one keystroke — anywhere in the line, not
+      // just at the end.
+      if (key.backspace) {
+        const tokenDel = deleteTokenBackward(buffer, cursor);
+        if (tokenDel) {
+          setDraft(tokenDel.buffer, tokenDel.cursor);
           return;
         }
       }
@@ -4185,7 +4169,9 @@ export function App({
     // forward-delete when the user isn't at the terminal's physical Delete key.
     if (key.delete || (key.ctrl && input === 'd')) {
       if (cursor >= buffer.length) return;
-      const next = buffer.slice(0, cursor) + buffer.slice(cursor + 1);
+      // Token-aware forward delete: drop a whole chip if one starts at cursor.
+      const span = tokenLengthForward(buffer, cursor) || 1;
+      const next = buffer.slice(0, cursor) + buffer.slice(cursor + span);
       setDraft(next, cursor);
       return;
     }
@@ -4479,7 +4465,9 @@ export function App({
   const submit = async (overrideRaw?: string) => {
     const raw = overrideRaw ?? draftRef.current.buffer;
     const trimmed = raw.trim();
-    if (!trimmed && state.placeholders.length === 0) return;
+    // Attachment chips live inline in the buffer now, so a paste/file-only
+    // message is already non-empty here — a single `!trimmed` guard suffices.
+    if (!trimmed) return;
 
     dispatch({ type: 'resetInterrupts' });
     const pushSubmittedHistory = () => {
@@ -4608,13 +4596,14 @@ export function App({
     // steering, not the full preamble — keeps the chat readable while
     // the model still gets the explicit instruction.
     const displayText = trimmed ? (steering ? `↯ ${trimmed}` : trimmed) : '(attachments only)';
-    // Build history preview from placeholders + their actual content.
-    // Each placeholder becomes a label line; if content was stored, show a preview.
+    // Build the history preview by scanning the message for inline chip tokens
+    // and pulling each one's stored preview. Each chip becomes a label line
+    // followed by an indented snippet of its collapsed content.
     const pasteParts: string[] = [];
-    for (let i = 0; i < state.placeholders.length; i++) {
-      const label = state.placeholders[i]!;
-      const content = state.placeholderContents[i] ?? '';
-      pasteParts.push(label);
+    for (const m of trimmed.matchAll(new RegExp(INLINE_TOKEN_SRC, 'g'))) {
+      const token = m[0];
+      const content = tokenPreviewsRef.current.get(token);
+      pasteParts.push(token);
       if (content) pasteParts.push(`  ${content.split('\n').slice(0, 6).join('\n  ')}`);
     }
     const pasteContent = pasteParts.length > 0 ? pasteParts.join('\n') : undefined;
@@ -4700,7 +4689,6 @@ export function App({
       <Input
         value={state.buffer}
         cursor={state.cursor}
-        placeholders={state.placeholders}
         disabled={
           (state.status === 'aborting' && !state.steeringPending) ||
           state.confirmQueue.length > 0

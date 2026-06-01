@@ -21,13 +21,19 @@ export interface AttachmentStoreOptions {
 }
 
 const DEFAULT_SPOOL_THRESHOLD = 256 * 1024; // 256 KB
-const PLACEHOLDER_RE = /\[(pasted|image|file) #(\d+)\]/g;
+// Two placeholder shapes:
+//   - seq-keyed `[<kind> #<seq>…]` — kind is `pasted` / `image` / `file`. A
+//     cosmetic suffix after the seq (e.g. `, 123 lines`) is tolerated so the
+//     TUI can render `[pasted #1, 123 lines]` while still resolving by seq.
+//   - path-keyed `[file:<path>]` — resolves to the most recent file ref whose
+//     stored path matches, so the TUI can show a human-readable file chip.
+const PLACEHOLDER_RE = /\[(pasted|image|file) #(\d+)[^\]]*\]|\[file:([^\]]+)\]/g;
 
 /**
  * In-memory attachment store with optional disk spool. Placeholder syntax
- * is `[<kind> #<seq>]` where kind is `pasted` / `image` / `file`. Unknown
- * placeholders are passed through as-is so users can write that literal
- * text without losing it.
+ * is `[<kind> #<seq>]` (seq-keyed) or `[file:<path>]` (path-keyed) where kind
+ * is `pasted` / `image` / `file`. Unknown placeholders are passed through
+ * as-is so users can write that literal text without losing it.
  */
 export class DefaultAttachmentStore implements AttachmentStore {
   private readonly items = new Map<string, Attachment>();
@@ -89,9 +95,16 @@ export class DefaultAttachmentStore implements AttachmentStore {
       const idx = m.index ?? 0;
       const before = text.slice(lastIndex, idx);
       if (before) blocks.push({ type: 'text', text: before });
-      const kind = prefixToKind(m[1] as string);
-      const seq = Number(m[2]);
-      const ref = this.refs.find((r) => r.kind === kind && r.seq === seq);
+      let ref: AttachmentRef | undefined;
+      if (m[3] !== undefined) {
+        // Path-keyed `[file:<path>]` — most recent matching file ref wins.
+        const wantPath = m[3];
+        ref = findLast(this.refs, (r) => r.kind === 'file' && refPath(r) === wantPath);
+      } else {
+        const kind = prefixToKind(m[1] as string);
+        const seq = Number(m[2]);
+        ref = this.refs.find((r) => r.kind === kind && r.seq === seq);
+      }
       const att = ref ? this.items.get(ref.id) : undefined;
       if (!att) {
         blocks.push({ type: 'text', text: m[0] });
@@ -147,6 +160,19 @@ function prefixToKind(prefix: string): AttachmentKind {
   if (prefix === 'pasted') return 'text';
   if (prefix === 'image') return 'image';
   return 'file';
+}
+
+/** Path a file ref was registered under, for `[file:<path>]` lookup. */
+function refPath(ref: AttachmentRef): string | undefined {
+  return ref.meta.filename ?? ref.meta.label;
+}
+
+/** Last element matching the predicate (Node < 20 lacks Array.findLast). */
+function findLast<T>(arr: readonly T[], pred: (v: T) => boolean): T | undefined {
+  for (let i = arr.length - 1; i >= 0; i--) {
+    if (pred(arr[i] as T)) return arr[i];
+  }
+  return undefined;
 }
 
 function mergeAdjacentText(blocks: ContentBlock[]): ContentBlock[] {
