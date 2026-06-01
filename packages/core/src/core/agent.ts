@@ -447,6 +447,18 @@ export class Agent {
 
         const req = await this.buildAndRunRequestPipeline(opts);
 
+        // Emit a lightweight llm_request event for audit purposes.
+        await this.ctx.session.append({
+          type: 'llm_request',
+          ts: new Date().toISOString(),
+          model: req.model,
+          messageCount: req.messages.length,
+          estimatedInputTokens: estimateRequestTokens(req.messages, req.system, req.tools ?? []).total,
+          toolCount: (req.tools ?? []).length,
+        }).catch(() => {
+          // best-effort
+        });
+
         let res: Response;
         try {
           res = await customRunner(this.ctx, req);
@@ -734,6 +746,13 @@ export class Agent {
 
     // Post-processing: pipeline, session, events
     const useById = new Map(selectedToolUses.map((u) => [u.id, u]));
+    // The message we append to context must carry the RESOLVED tool_result for
+    // every tool — never a `tool_confirm_pending` sentinel, which the provider
+    // rejects ("unsupported content type 'tool_confirm_pending'"). We collect
+    // resolved results here as we go (the re-run result for a confirmed tool,
+    // the plain result otherwise) instead of mapping the raw `outputs`, which
+    // still hold the pending sentinel for any tool that needed confirmation.
+    const resultsForMessage: ToolResultBlock[] = [];
     for (const { result, tool, durationMs } of outputs) {
       // Handle pending confirm: block the agent loop and wait for TUI/WebUI resolution
       if (result.type === 'tool_confirm_pending') {
@@ -841,9 +860,12 @@ export class Agent {
           }
         }
         // Re-run result already appended above — skip the generic append at loop end.
+        resultsForMessage.push(reRunResult.result);
         continue;
       }
 
+      // Non-pending: the result is already a resolved tool_result.
+      resultsForMessage.push(result);
       const use = useById.get(result.tool_use_id);
       if (!use) continue;
       await this.pipelines.toolCall.run({
@@ -877,7 +899,7 @@ export class Agent {
 
     this.ctx.state.appendMessage({
       role: 'user',
-      content: outputs.map((o) => o.result) as ToolResultBlock[],
+      content: resultsForMessage,
     });
 
     // Extension: afterToolExecution — inspect or react to tool results

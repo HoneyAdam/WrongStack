@@ -173,6 +173,56 @@ describe('Agent', () => {
     expect(provider.calls).toBe(2);
   });
 
+  it('never sends a tool_confirm_pending block to the provider after a confirm', async () => {
+    // Regression: a confirmed tool returns `tool_confirm_pending` from the
+    // executor (no confirmAwaiter). The agent resolves it via the
+    // `tool.confirm_needed` event and re-runs the tool — but the message
+    // appended to context must carry the RESOLVED tool_result, never the
+    // pending sentinel (which the Anthropic API rejects with a 400:
+    // "unsupported content type 'tool_confirm_pending'").
+    const danger: Tool = {
+      name: 'danger',
+      description: 'a destructive op that must be confirmed',
+      inputSchema: { type: 'object' },
+      permission: 'confirm',
+      // Destructive → still confirms under plain --yolo (not --force-all-yolo),
+      // which is exactly the path that produces a pending result.
+      riskTier: 'destructive',
+      mutating: true,
+      async execute() {
+        return 'did the thing';
+      },
+    } as Tool;
+    const provider = new MockProvider([
+      {
+        content: [{ type: 'tool_use', id: 'u1', name: 'danger', input: {} }],
+        stopReason: 'tool_use',
+      },
+      { content: [{ type: 'text', text: 'ok' }], stopReason: 'end_turn' },
+    ]);
+    const requestSnapshots: Request['messages'][] = [];
+    const complete = provider.complete.bind(provider);
+    provider.complete = async (req, opts) => {
+      requestSnapshots.push(JSON.parse(JSON.stringify(req.messages)));
+      return complete(req, opts);
+    };
+    const { agent, tmp } = await buildAgent(provider, [danger]);
+    cleanupDirs.push(tmp);
+    // Approve the confirmation the moment the agent asks.
+    (agent as unknown as { events: EventBus }).events.on(
+      'tool.confirm_needed',
+      (e: { resolve: (d: 'yes' | 'no' | 'always' | 'deny') => void }) => e.resolve('yes'),
+    );
+
+    const result = await agent.run('do it');
+    expect(result.status).toBe('done');
+    expect(provider.calls).toBe(2);
+    // The pending sentinel must never reach the wire.
+    expect(JSON.stringify(requestSnapshots)).not.toContain('tool_confirm_pending');
+    // The resolved tool_result must be present in the follow-up request.
+    expect(JSON.stringify(requestSnapshots[1])).toContain('did the thing');
+  });
+
   it('handles unknown tool with error result', async () => {
     const provider = new MockProvider([
       {
