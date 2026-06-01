@@ -1,0 +1,184 @@
+import { Box, Text } from 'ink';
+import type React from 'react';
+import { detectTable, renderTable } from './markdown-table.js';
+import { theme } from './theme.js';
+
+// Lightweight markdown renderer for assistant prose. Handles inline emphasis
+// (**bold**, *italic*, `code`, ~~strike~~) plus block constructs (ATX headings,
+// bullet / numbered lists, blockquotes) and defers GitHub tables to the
+// existing box-drawing table renderer. Fenced code blocks are handled upstream
+// by AssistantBody before this sees the text.
+//
+// Like the syntax highlighter, emphasis is expressed as Ink <Text> props
+// (bold/italic/color), never raw ANSI, so width measurement stays correct.
+
+export interface InlineToken {
+  text: string;
+  bold?: boolean;
+  italic?: boolean;
+  code?: boolean;
+  strike?: boolean;
+}
+
+/**
+ * Parse one line of prose into inline-emphasis tokens. Markers are stripped
+ * (this is display text, not length-preserving). `_..._` is intentionally NOT
+ * treated as italic so snake_case / file_names aren't mangled. An unterminated
+ * marker is emitted literally so no text is ever lost.
+ */
+export function parseInline(text: string): InlineToken[] {
+  const tokens: InlineToken[] = [];
+  let plain = '';
+  let i = 0;
+  const flush = () => {
+    if (plain) {
+      tokens.push({ text: plain });
+      plain = '';
+    }
+  };
+  while (i < text.length) {
+    const ch = text[i] ?? '';
+    const two = text.slice(i, i + 2);
+
+    // `inline code` — highest precedence, no inner parsing.
+    if (ch === '`') {
+      const close = text.indexOf('`', i + 1);
+      if (close > i) {
+        flush();
+        tokens.push({ text: text.slice(i + 1, close), code: true });
+        i = close + 1;
+        continue;
+      }
+    }
+    // **bold**
+    if (two === '**') {
+      const close = text.indexOf('**', i + 2);
+      if (close > i) {
+        flush();
+        tokens.push({ text: text.slice(i + 2, close), bold: true });
+        i = close + 2;
+        continue;
+      }
+    }
+    // ~~strike~~
+    if (two === '~~') {
+      const close = text.indexOf('~~', i + 2);
+      if (close > i) {
+        flush();
+        tokens.push({ text: text.slice(i + 2, close), strike: true });
+        i = close + 2;
+        continue;
+      }
+    }
+    // *italic* — single asterisk only (the `**` case is handled above).
+    if (ch === '*' && text[i + 1] !== '*') {
+      const close = text.indexOf('*', i + 1);
+      if (close > i + 1) {
+        flush();
+        tokens.push({ text: text.slice(i + 1, close), italic: true });
+        i = close + 1;
+        continue;
+      }
+    }
+    plain += ch;
+    i += 1;
+  }
+  flush();
+  return tokens;
+}
+
+function InlineLine({ tokens, dim }: { tokens: InlineToken[]; dim?: boolean }): React.ReactElement {
+  if (tokens.length === 0) return <Text>{' '}</Text>;
+  return (
+    <Text>
+      {tokens.map((t, j) => (
+        <Text
+          // biome-ignore lint/suspicious/noArrayIndexKey: token order is stable per line
+          key={j}
+          color={t.code ? theme.accent : 'white'}
+          bold={t.bold}
+          italic={t.italic}
+          strikethrough={t.strike}
+          dimColor={dim}
+        >
+          {t.text}
+        </Text>
+      ))}
+    </Text>
+  );
+}
+
+const HEADING_RE = /^(#{1,6})\s+(.*)$/;
+const BULLET_RE = /^(\s*)[-*+]\s+(.*)$/;
+const NUMBERED_RE = /^(\s*)(\d+)\.\s+(.*)$/;
+const QUOTE_RE = /^>\s?(.*)$/;
+
+/**
+ * Render assistant prose with markdown emphasis + block formatting. Tables are
+ * routed through the existing box-drawing renderer; everything else is parsed
+ * line-by-line.
+ */
+export function MarkdownView({
+  text,
+  termWidth,
+}: { text: string; termWidth: number }): React.ReactElement {
+  const lines = text.split('\n');
+  const rows: React.ReactNode[] = [];
+  let i = 0;
+  let key = 0;
+  while (i < lines.length) {
+    // GitHub table block → existing renderer.
+    const tableEnd = detectTable(lines, i);
+    if (tableEnd > i) {
+      rows.push(
+        <Text key={`t${key++}`}>{renderTable(lines.slice(i, tableEnd), Math.max(20, termWidth))}</Text>,
+      );
+      i = tableEnd;
+      continue;
+    }
+    const line = lines[i] ?? '';
+    i += 1;
+
+    const heading = line.match(HEADING_RE);
+    if (heading) {
+      rows.push(
+        <Text key={`h${key++}`} bold color={theme.accent}>
+          {heading[2] ?? ''}
+        </Text>,
+      );
+      continue;
+    }
+    const quote = line.match(QUOTE_RE);
+    if (quote && line.startsWith('>')) {
+      rows.push(
+        <Box key={`q${key++}`} flexDirection="row">
+          <Text dimColor>{'│ '}</Text>
+          <InlineLine tokens={parseInline(quote[1] ?? '')} dim />
+        </Box>,
+      );
+      continue;
+    }
+    const bullet = line.match(BULLET_RE);
+    if (bullet) {
+      rows.push(
+        <Box key={`b${key++}`} flexDirection="row">
+          <Text color={theme.accent}>{`${bullet[1] ?? ''}• `}</Text>
+          <InlineLine tokens={parseInline(bullet[2] ?? '')} />
+        </Box>,
+      );
+      continue;
+    }
+    const numbered = line.match(NUMBERED_RE);
+    if (numbered) {
+      rows.push(
+        <Box key={`n${key++}`} flexDirection="row">
+          <Text color={theme.accent}>{`${numbered[1] ?? ''}${numbered[2]}. `}</Text>
+          <InlineLine tokens={parseInline(numbered[3] ?? '')} />
+        </Box>,
+      );
+      continue;
+    }
+    rows.push(<InlineLine key={`p${key++}`} tokens={parseInline(line)} />);
+  }
+  return <Box flexDirection="column">{rows}</Box>;
+}

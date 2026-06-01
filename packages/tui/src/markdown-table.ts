@@ -42,7 +42,7 @@ type Align = 'left' | 'right' | 'center';
 const ROW_RE = /^\s*\|.*\|\s*$/;
 const SEP_RE = /^\s*\|[\s\-:|]+\|\s*$/;
 
-function detectTable(lines: string[], start: number): number {
+export function detectTable(lines: string[], start: number): number {
   if (start + 1 >= lines.length) return start;
   if (!ROW_RE.test(lines[start] ?? '')) return start;
   const sep = lines[start + 1] ?? '';
@@ -87,7 +87,7 @@ function parseAlign(sep: string): Align {
   return 'left';
 }
 
-function renderTable(tableLines: string[], maxWidth: number): string {
+export function renderTable(tableLines: string[], maxWidth: number): string {
   const header = parseCells(tableLines[0] ?? '');
   const sepCells = parseCells(tableLines[1] ?? '');
   const cols = header.length;

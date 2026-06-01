@@ -1,7 +1,7 @@
 import { Box, Static, Text, useStdout } from 'ink';
 import React, { useEffect, useState } from 'react';
 import { detectLang, type HLState, highlightLine, type Lang } from '../highlight.js';
-import { renderMarkdownTables } from '../markdown-table.js';
+import { MarkdownView } from '../markdown.js';
 import { theme } from '../theme.js';
 
 export type HistoryEntry =
@@ -263,9 +263,7 @@ export function AssistantBody({
           <CodeBlock key={i} code={seg.text} lang={seg.lang ?? 'plain'} termWidth={termWidth} />
         ) : (
           // biome-ignore lint/suspicious/noArrayIndexKey: segment order is stable
-          <Text key={i} color="white">
-            {renderMarkdownTables(seg.text, termWidth)}
-          </Text>
+          <MarkdownView key={i} text={seg.text} termWidth={termWidth} />
         ),
       )}
     </Box>
