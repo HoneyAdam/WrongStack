@@ -53,20 +53,29 @@ jobs:
       - name: Typecheck (all packages, parallel)
         run: pnpm typecheck
 
-      # TEMPORARY hang diagnostic: step-level timeout (so the job FAILS with
-      # retained logs instead of being cancelled at the job timeout) + a custom
-      # reporter that logs each module's path on START/END. At the hang, the
-      # in-flight files are exactly those with a `[probe] START` and no matching
-      # `[probe] END` — that small set is the culprit.
+      # TEMPORARY hang diagnostic. Step-level timeout-minutes does NOT kill a
+      # hung child whose stdout pipe stays open, so we force-kill vitest from
+      # INSIDE the step with coreutils `timeout` (direct node invocation, output
+      # to a file — no pipe to keep alive). The step then exits 0, so the job
+      # completes and its logs are RETAINED (a job-timeout cancel loses them).
+      # A custom reporter logs each module's START/END; the file with a START
+      # and no matching END is the leak. Windows has no `timeout` coreutils and
+      # already passes, so this diagnostic only runs on POSIX.
       - name: Test (vitest)
-        timeout-minutes: 14
-        run: pnpm vitest run --reporter=default --reporter=./scripts/hang-probe-reporter.mjs 2>&1 | tee vitest-out.log
-      - name: Show probe diagnostic (started-but-not-ended files)
-        if: always()
+        shell: bash
         run: |
-          echo "==== files that STARTed but never ENDed (the hang) ===="
-          comm -23 \
-            <(grep '\[probe\] START' vitest-out.log | sed 's/.*START //' | sort -u) \
-            <(grep '\[probe\] END'   vitest-out.log | sed 's/.*END   //' | sort -u) || true
-          echo "==== last 40 lines of output ===="
-          tail -n 40 vitest-out.log
+          set +e
+          if command -v timeout >/dev/null 2>&1; then
+            timeout -s KILL 660 node ./node_modules/vitest/vitest.mjs run \
+              --reporter=default --reporter=./scripts/hang-probe-reporter.mjs > vitest-out.log 2>&1
+            echo "vitest exit code: $?"
+            echo "==== files that STARTed but never ENDed (THE HANG) ===="
+            comm -23 \
+              <(grep '\[probe\] START' vitest-out.log | sed 's#.*START ##' | sort -u) \
+              <(grep '\[probe\] END'   vitest-out.log | sed 's#.*END   ##' | sort -u)
+            echo "==== last 50 lines ===="
+            tail -n 50 vitest-out.log
+            exit 0
+          else
+            pnpm test
+          fi
