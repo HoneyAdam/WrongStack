@@ -1,10 +1,36 @@
+<div align="center">
+
 # WrongStack
 
-> Built on the wrong stack. Shipped anyway.
+### _Built on the wrong stack. Shipped anyway._
 
-A CLI AI coding agent that runs in your terminal. It reads your code, edits files, runs commands, and reasons through bugs — while you stay in control of every permission. It drives autonomous goal loops, parallel subagent fan-out, multi-agent Director orchestration, and collaborative debugging; guides Spec-Driven Development cycles; and ships with 36 built-in tools, 16 bundled skills, 7 first-party plugins (prompt library, GitHub cloud sync, git, security, skills, plan, observability), 10 more in the official `@wrongstack/plugins` collection, and ~110 providers from models.dev — all with AES-256-GCM encrypted secrets and per-tool permission policies.
+**A terminal-native AI coding agent that reads your code, edits files, runs commands, and reasons through bugs — while you keep your hand on every permission.**
 
-Provider catalog comes from [models.dev](https://models.dev) — no hardcoded provider lists, no hardcoded pricing, no hardcoded model names. API keys are encrypted at rest with a per-machine key. Every developer-level config lives under `~/.wrongstack/`; the only thing you'd ever commit to a repo is `.wrongstack/AGENTS.md`.
+[![npm](https://img.shields.io/npm/v/wrongstack?style=flat-square&color=0b7285&label=npm)](https://www.npmjs.com/package/wrongstack)
+[![downloads](https://img.shields.io/npm/dm/wrongstack?style=flat-square&color=0b7285)](https://www.npmjs.com/package/wrongstack)
+[![node](https://img.shields.io/badge/node-%E2%89%A5%2022-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![tests](https://img.shields.io/badge/tests-passing-2f9e44?style=flat-square)](#status)
+[![license](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
+
+```bash
+npm i -g wrongstack && wrongstack
+```
+
+</div>
+
+---
+
+WrongStack drives **autonomous goal loops**, **parallel subagent fan-out**, **multi-agent Director orchestration**, and **collaborative debugging** — and walks you through full **Spec-Driven Development** cycles. It ships with **36 built-in tools**, **16 skills**, **7 first-party plugins**, **10 more** in `@wrongstack/plugins`, and **~110 providers** pulled live from [models.dev](https://models.dev) — no hardcoded model names, no hardcoded pricing, no hardcoded lists. Secrets are **AES-256-GCM** encrypted at rest with a per-machine key; every tool call clears a **per-tool permission policy**. Everything lives under `~/.wrongstack/` — the only thing you'd ever commit is `.wrongstack/AGENTS.md`.
+
+### ✨ Why it slaps
+
+- 🧠 **Three surfaces, one brain** — a plain readline REPL, an Ink/React **TUI** (`--tui`), and a standalone **web UI**.
+- 🤖 **A fleet, not a lone agent** — a 46-role roster + smart dispatcher fan out under a Director, each subagent fully isolated with its own budget and JSONL transcript.
+- ♾️ **Set a goal, walk away** — `/goal` locks in a contract and the eternal / parallel engines grind until it's _verifiably_ done.
+- 🔌 **~110 providers, zero lock-in** — Anthropic, OpenAI, Google, and ~100 OpenAI-compatible endpoints, catalog straight from models.dev.
+- 🔐 **Locked down by default** — encrypted secrets, SSRF guards on every redirect hop, fail-closed subagents, symlink containment, plugin trust tiers.
+- 🪶 **A 505-line kernel** — `Container · Pipeline · EventBus · RunController`. Everything above it is swappable; `--no-features` boots it fully offline.
 
 ## Requirements
 
@@ -343,7 +369,7 @@ Add a key later: `wrongstack auth groq` (prompts, encrypts, stores).
 
 ### Switching providers at runtime
 
-Use `/model` (two-step picker) or `/use <provider> <model>` — no restart needed.
+In the **TUI**, `/model` opens a two-step provider → model picker — no restart needed. In the plain REPL, relaunch with `--provider` / `--model`:
 
 ```bash
 wrongstack --provider openai --model gpt-5.5
@@ -377,11 +403,15 @@ wrongstack --provider openrouter --model anthropic/claude-opus-4-7
 
 ## Slash commands
 
-**Core REPL:** `/init` `/diag` `/stats` `/help` `/clear` `/context` `/compact` `/usage` `/tools` `/use` `/model` `/save` `/resume` `/exit` `/queue` `/altscreen` `/autonomy` `/yolo` `/mode` `/image` `/plugin` `/telegram` `/sdd` `/settings` `/btw` `/fix` `/autophase`
+**Core** (both the plain REPL and the TUI): `/init` `/help` `/clear` `/compact` `/context` `/diag` `/stats` `/tools` `/plugin` `/mcp` `/memory` `/todos` `/mode` `/yolo` `/autonomy` `/btw` `/fix` `/autophase` `/worktree` `/settings` `/sdd` `/image` `/save` `/resume` `/exit`
 
-**Multi-agent:** `/spawn` `/fleet` `/agents` `/steer` `/goal` `/director` `/collab`
+**Multi-agent:** `/spawn` `/fleet` `/agents` `/goal` `/director` `/collab`
 
-**Built-in plugins:** `/prompts` `/sync` `/commit` `/gitcheck` `/push` `/security` `/skill` `/skill-gen` `/skill-install` `/skill-update` `/skill-uninstall` `/plan` `/metrics` `/health`
+**TUI-only** (need `--tui`): `/model` (provider → model picker) · `/steer` (mid-flight redirect — the plain REPL uses **Esc** instead) · `/altscreen` · `/queue`
+
+**Built-in plugins** (enabled by default): `/prompts` `/sync` `/commit` `/gitcheck` `/push` `/security` `/skill` `/skill-gen` `/skill-install` `/skill-update` `/skill-uninstall` `/plan` `/metrics` `/health`
+
+`/telegram` becomes available once the Telegram plugin is enabled — `wstack plugin install telegram`.
 
 | Command | Effect |
 |---|---|
@@ -390,22 +420,22 @@ wrongstack --provider openrouter --model anthropic/claude-opus-4-7
 | `/director` | Promote session to Director mode at runtime (must be before any subagent spawns) |
 | `/fleet status\|usage\|kill\|manifest\|retry\|log\|stream on\|off\|journal\|spawn\|terminate` | Inspect and control the subagent fleet. `log <id>` summarises; `log <id> raw` dumps full JSONL |
 | `/agents` | Print fleet roster (running, idle, completed) with kind chips for failures |
-| `/steer <text>` | Mid-flight redirect — aborts iteration, terminates fleet, drops queue, prepends STEERING preamble. Same as **Esc** then typing |
+| `/steer <text>` | _(TUI; in the plain REPL use **Esc**)_ Mid-flight redirect — aborts iteration, terminates fleet, drops queue, prepends STEERING preamble |
 | `/goal <text>` | Lock in a goal — persists to `~/.wrongstack/projects/<hash>/goal.json` and injects full-autonomy preamble. Subcommands: `/goal` (status + journal), `/goal clear` (stop engine), `/goal pause` (pause at end of iteration), `/goal resume` (resume), `/goal journal [N]` |
-| `/queue` | Show, clear, or delete entries from the in-flight message queue |
-| `/altscreen on\|off` | Toggle terminal alt-screen buffer. Default OFF (native scroll); `on` for full-screen mode |
+| `/queue` | _(TUI)_ Show, clear, or delete entries from the in-flight message queue |
+| `/altscreen on\|off` | _(TUI)_ Toggle terminal alt-screen buffer. Default OFF (native scroll); `on` for full-screen mode |
 | `/plan show\|add\|start\|done\|remove\|clear` | Per-session plan JSON. Mirrored to disk; surfaces `📋 ⌛N ☐N ✓N` chip in TUI status bar |
 | `/autonomy off\|suggest\|on\|eternal\|parallel\|stop\|toggle` | Self-driving mode. `suggest` shows next steps without executing; `on` auto-continues; `eternal` runs goal-driven loop; `parallel` fans out 4-8 subagents per tick. TUI shows `∞ AUTO` / `∞ SUGGEST` / `ETERNAL` / `⟳ PARALLEL` chip |
 | `/yolo on\|off\|toggle` | Flip YOLO mode (auto-approve all tool calls). `/yolo` alone shows status. TUI shows `⚠ YOLO` chip |
 | `/mode` | Switch persona: `default`, `code-reviewer`, `code-auditor`, `architect`, `debugger`, `tester`, `devops`, `refactorer`. Custom modes in `~/.wrongstack/modes/` |
-| `/model` | Two-step provider → model picker |
+| `/model` | _(TUI)_ Two-step provider → model picker. In the plain REPL, relaunch with `--provider` / `--model` |
 | `/image` or `/paste-image` | Attach clipboard PNG. TUI also `Alt+V` |
 | `/context mode <policy>` | Switch context-window mode: `balanced`, `frugal`, `deep`, `archival`. `repair` fixes damaged tool-call adjacency |
 | `/plugin install\|disable\|enable\|remove\|official [name]` | Manage plugins. `install` adds bundled package to config (no npm). Restart to load/unload |
-| `/telegram send\|read\|chat\|attach` | Telegram plugin: `send <chatId> <message>`, `read <chatId> [limit]`, `chat` list recent, `attach <file>` send file |
+| `/telegram send\|read\|chat\|attach` | Telegram plugin (enable with `wstack plugin install telegram`): `send <chatId> <message>`, `read <chatId> [limit]`, `chat` list recent, `attach <file>` send file |
 | `/sdd <path-to-spec.md>` | Spec-Driven Development workflow: `parse → analyze → generate → track → execute`. Built on `SpecParser`, `TaskTracker`, `TaskGenerator`, `TaskFlow` |
 | `/settings` | View or change settings (non-blocking, works in REPL + TUI): `/settings` (show), `/settings delay <seconds>`, `/settings mode <off\|suggest\|auto>`, `/settings defaults`; persists to `~/.wrongstack/config.json` |
-| `/use`, `/compact`, `/usage`, `/tools`, `/skill`, `/save`, `/resume`, `/help`, `/clear`, `/stats`, `/diag`, `/exit` | Switch modes, compact context, show usage, list tools/skills, save/resume session, help, clear, stats, diagnostics, exit REPL |
+| `/compact`, `/tools`, `/skill`, `/save`, `/resume`, `/help`, `/clear`, `/stats`, `/diag`, `/exit` | Compact context, list tools/skills, save/resume session, help, clear, token+cost stats, diagnostics, exit |
 
 ### Mid-flight controls
 
