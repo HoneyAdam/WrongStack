@@ -5534,24 +5534,30 @@ export function App({
           eternalStage={state.eternalStage}
           goalSummary={state.goalSummary}
         />
-        <KeyHintBar
-          context={{
-            confirm: state.confirmQueue.length > 0,
-            picker:
-              state.picker.open ||
-              state.slashPicker.open ||
-              state.modelPicker.open ||
-              state.autonomyPicker.open ||
-              !!state.rewindOverlay,
-            monitor:
-              state.agentsMonitorOpen ||
-              state.monitorOpen ||
-              state.worktreeMonitorOpen ||
-              !!state.autoPhase?.monitorOpen,
-            managed: managedLive,
-            mouse: mouseLive,
-          }}
-        />
+        {/* Only render the persistent hint bar in the managed (alt-screen)
+          viewport. In the default inline-redraw mode it would add a row to the
+          fragile live region and collide with monitor panels rendered below it
+          (interleaving their counts into the hints). */}
+        {managedLive ? (
+          <KeyHintBar
+            context={{
+              confirm: state.confirmQueue.length > 0,
+              picker:
+                state.picker.open ||
+                state.slashPicker.open ||
+                state.modelPicker.open ||
+                state.autonomyPicker.open ||
+                !!state.rewindOverlay,
+              monitor:
+                state.agentsMonitorOpen ||
+                state.monitorOpen ||
+                state.worktreeMonitorOpen ||
+                !!state.autoPhase?.monitorOpen,
+              managed: managedLive,
+              mouse: mouseLive,
+            }}
+          />
+        ) : null}
         {/* Agents monitor overlay (Ctrl+G) and fleet monitor overlay (Ctrl+F)
           take up the lower region — hide FleetPanel while any overlay is open. */}
         {state.agentsMonitorOpen ? (
