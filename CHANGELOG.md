@@ -5,12 +5,55 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.9.20] - 2026-05-31
+## [0.9.20] - 2026-06-01
 
-> Surfaces the collaborative-debugging fleet primitive (shipped in 0.9.19) live
-> in the TUI, and documents the collab pipeline + fleet commands in `AGENTS.md`.
+> The collaboration release. Ships four IDEAS.md items — collaborative
+> debugging (persistent multi-human sessions), deterministic replay, stateful
+> session recovery, and a tamper-evident tool-call audit trail — surfaces the
+> collaborative-debugging fleet primitive live in the TUI, and documents the
+> collab pipeline + fleet commands in `AGENTS.md`. Additive only — no breaking
+> changes; ~165 new tests across core / cli / webui.
 
-### Added
+### Added — Collaborative debugging, replay, recovery, audit (4 IDEAS items)
+
+- **#13 Collaborative debugging — persistent multi-human sessions.** A second
+  human (or any client) joins an active agent run as `observer`, `annotator`,
+  or `controller`. Observers watch a live mirror of kernel events (with
+  replay-on-join: the last 50 events render as history); annotators leave inline
+  notes on any event via a sidecar `<sessionId>.annotations.json` store
+  (`add` / `resolve` / `listOpen`); controllers pause/resume the agent loop
+  through a kernel-level `CollaborationBus` + a `collabPauseMiddleware` that sits
+  first in the `toolCall` pipeline (60s auto-resume guards against deadlock).
+  RBAC enforced per role. New `/collab` slash command, a `CollabPanel` in the
+  WebUI, and 6 WS protocol extensions.
+
+- **#2 Deterministic replay.** Every provider request/response records to a
+  sidecar JSONL; `ReplayProviderRunner` serves cached responses on a stable
+  content hash (model / system / messages / tools / sampling, sorted keys) or
+  records fresh ones. Three modes — `record` / `replay` / `auto`. CLI:
+  `--record`, `--replay <sessionId>`, and the `wstack replay <sessionId>`
+  subcommand. Byte-for-byte record→replay equality across fresh process
+  instances.
+
+- **#1 Stateful session recovery (detection + markers).** Two new session
+  events — `in_flight_start` (with crash context) and `in_flight_end`
+  (`clean` / `aborted` / `recovered`) — let the agent loop leave a "what was I
+  doing?" marker that survives crashes. `SessionRecovery.detectStale` /
+  `listResumable` surface sessions whose last event is an unmatched `start`.
+  `SessionWriter` gained `writeInFlightMarker` / `clearInFlightMarker` (wired in
+  `Agent.run`, best-effort — logging failures never abort the agent). CLI:
+  `/resume --incomplete` lists stale sessions with their crash context.
+
+- **#9 Tool-call audit trail — chained SHA-256.** Every tool_use + tool_result
+  pair appends to a sidecar JSONL whose entries chain by SHA-256
+  (`prevHash` = prior entry's `hash`), so any post-hoc edit / insert / delete of
+  a line breaks the chain from that point forward. `ToolAuditLog.verify(sessionId)`
+  recomputes the chain and returns a structured verdict
+  (`{ ok, entries }` or `{ ok: false, brokenAt, reason }`); the `wstack audit`
+  subcommand surfaces it. Defends against single-entry tampering — a full
+  consistent rewrite needs an external anchor (out of scope for Phase 1).
+
+### Added — TUI
 
 - **Live "COLLAB SESSION" view in the fleet monitor (`Ctrl+F`).** When a
   `Director.spawnCollab()` run is active, the fleet monitor now renders a

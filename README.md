@@ -301,6 +301,27 @@ Flips off MCP, plugins, memory tools, models.dev fetch, and skill discovery. Wha
 
 ## What's new in 0.9.20
 
+- **Collaborative debugging — persistent multi-human sessions.** A second human
+  (or any client) joins an active run as `observer`, `annotator`, or
+  `controller`: observers watch a live kernel-event mirror (with replay-on-join
+  of the last 50 events), annotators leave inline notes via a sidecar
+  annotations store, and controllers pause/resume the agent loop through a
+  kernel-level `CollaborationBus` + a `collabPauseMiddleware` (60s auto-resume
+  guards against deadlock). New `/collab` slash command + a WebUI `CollabPanel`.
+
+- **Deterministic replay.** `--record` writes a sidecar JSONL of every
+  provider request/response; `--replay <sessionId>` serves them back on a stable
+  content hash for byte-for-byte reproducible runs (modes: `record` / `replay` /
+  `auto`). `wstack replay <sessionId>` inspects a recorded log.
+
+- **Stateful session recovery.** The agent loop now leaves `in_flight_start` /
+  `in_flight_end` crash markers; `/resume --incomplete` lists sessions that died
+  mid-iteration along with their "what was I doing?" context.
+
+- **Tamper-evident tool-call audit trail.** Every tool_use + tool_result pair
+  appends to a sidecar JSONL chained by SHA-256, so any post-hoc edit breaks the
+  chain. `wstack audit` verifies integrity and reports the first broken entry.
+
 - **Collaborative debugging goes live in the TUI.** The fleet monitor (`Ctrl+F`)
   now renders a dedicated `⚡ COLLAB SESSION` banner during a
   `Director.spawnCollab()` run: live per-stage counters (`🐛` bugs · `📐` plans ·
@@ -440,6 +461,8 @@ wrongstack --provider openrouter --model anthropic/claude-opus-4-7
 --model <id>         Override model
 --cwd <path>         Project root (default: process.cwd())
 --resume <id>        Resume a saved session
+--record             Record provider request/response to a replay log
+--replay <id>        Replay a recorded session deterministically (no API calls)
 --tui                Use the Ink TUI instead of readline REPL
 --no-tui             Force-disable the TUI (overrides --tui)
 --no-banner          Suppress the startup banner
@@ -459,7 +482,7 @@ wrongstack --provider openrouter --model anthropic/claude-opus-4-7
 
 **Core REPL:** `/init` `/diag` `/stats` `/help` `/clear` `/context` `/compact` `/usage` `/tools` `/use` `/model` `/save` `/resume` `/exit` `/queue` `/altscreen` `/autonomy` `/yolo` `/mode` `/image` `/plugin` `/telegram` `/sdd` `/settings` `/btw` `/fix` `/autophase`
 
-**Multi-agent:** `/spawn` `/fleet` `/agents` `/steer` `/goal` `/director`
+**Multi-agent:** `/spawn` `/fleet` `/agents` `/steer` `/goal` `/director` `/collab`
 
 **Built-in plugins:** `/prompts` `/sync` `/commit` `/gitcheck` `/push` `/security` `/skill` `/skill-gen` `/skill-install` `/skill-update` `/skill-uninstall` `/plan` `/metrics` `/health`
 
@@ -511,6 +534,8 @@ wrongstack init           # First-run setup wizard
 wrongstack auth <prov>    # Store an API key (prompted, encrypted at rest)
 wrongstack sessions       # List saved sessions for this project
 wrongstack resume <id>    # Continue a saved session
+wrongstack replay <id>    # Inspect a recorded replay log (see --replay)
+wrongstack audit <id>     # Verify the SHA-256-chained tool-call audit trail
 wrongstack config         # Show / edit config
 wrongstack tools          # List registered tools
 wrongstack skills         # List discovered skills
@@ -614,7 +639,7 @@ For the full walk-through — including the L1-A reactive `ConversationState`, h
 
 ## Status
 
-- **4627 tests passing** across 335 test files (~20 s, 13 skipped)
+- **5010 tests passing** across 357 test files (13 skipped)
 - Coverage thresholds: ≥85 % lines / ≥85 % functions / ≥70 % branches / ≥82 % statements
 - All workspace packages build clean with TypeScript strict + `noUncheckedIndexedAccess`
 - Node 22+ only, ESM-only, no CommonJS bundles
