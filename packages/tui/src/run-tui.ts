@@ -520,6 +520,10 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
           saveSettings: opts.saveSettings,
           mouse: useMouse,
           subscribeMouse,
+          // Managed viewport (in-app scroll + collapsibility) follows
+          // alt-screen: it owns the screen, so there's no native-scrollback
+          // leak. Decoupled from mouse so --alt-screen alone gets it.
+          managed: useAltScreen,
         }),
         { exitOnCtrlC: false, stdin: inkStdin },
       );

@@ -1,4 +1,4 @@
-import { Box, type DOMElement, measureElement, useStdout } from 'ink';
+import { Box, type DOMElement, measureElement, Text, useStdout } from 'ink';
 import type React from 'react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
@@ -10,6 +10,11 @@ import {
   ToolStreamBox,
   tailForDisplay,
 } from './history.js';
+
+/** Max history entries laid out in the managed viewport at once. Generous
+ *  enough to cover a long session's in-app scrollback while bounding the
+ *  per-frame Yoga layout cost. */
+const MAX_MOUNTED = 500;
 
 export interface ScrollableHistoryProps extends HistoryProps {
   /** Lines scrolled up from the bottom. 0 = pinned to the newest output. */
@@ -63,6 +68,15 @@ export function ScrollableHistory({
     ? tailForDisplay(toolStream.text, MAX_STREAM_DISPLAY_CHARS)
     : '';
 
+  // Performance bound: the managed viewport re-lays-out every mounted entry
+  // each frame (unlike the <Static> path, which prints once). Mounting only
+  // the most recent MAX_MOUNTED keeps Yoga layout O(MAX_MOUNTED) regardless of
+  // how long the session runs. Older entries stay in the reducer + on disk;
+  // they're just not laid out. (True windowing — spacer boxes for measured
+  // off-screen entries — is a later upgrade; this is the safe bound.)
+  const hiddenCount = Math.max(0, entries.length - MAX_MOUNTED);
+  const shown = hiddenCount > 0 ? entries.slice(-MAX_MOUNTED) : entries;
+
   // Measure the content box height after each commit and report it up only
   // when it changes. The content's own computed height does NOT depend on
   // viewportRows or marginBottom (margins/justify are layout-outside), so this
@@ -92,7 +106,14 @@ export function ScrollableHistory({
         marginBottom={Math.max(0, scrollOffset)}
         flexShrink={0}
       >
-        {entries.map((entry) => (
+        {hiddenCount > 0 ? (
+          <Box flexShrink={0}>
+            <Text dimColor italic>
+              {`  ↑ ${hiddenCount} earlier ${hiddenCount === 1 ? 'entry' : 'entries'} (scroll lives in this session; full log on disk)`}
+            </Text>
+          </Box>
+        ) : null}
+        {shown.map((entry) => (
           <Box key={entry.id} marginBottom={entry.kind === 'turn-summary' ? 1 : 0} flexShrink={0}>
             <Entry entry={entry} termWidth={termWidth} />
           </Box>

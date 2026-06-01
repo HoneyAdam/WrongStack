@@ -331,6 +331,12 @@ export interface AppProps {
    * it on mount and tears it down on unmount. Returns an unsubscribe fn.
    */
   subscribeMouse?: (fn: (ev: import('./mouse.js').MouseEvent) => void) => () => void;
+  /**
+   * True when the managed full-screen viewport is the surface (alt-screen on).
+   * Drives ScrollableHistory + in-app scroll + collapsibility, independent of
+   * mouse. When false the app uses History + Ink <Static> (native scrollback).
+   */
+  managed?: boolean;
 
   // --- Fleet ---
   /** Live director for fleet panel rendering. Null when director mode is off. */
@@ -1846,6 +1852,7 @@ export function App({
   sessionsDir,
   mouse = false,
   subscribeMouse,
+  managed = false,
 }: AppProps): React.ReactElement {
   const { exit } = useApp();
   // Reactive mirrors of agent.ctx.{model,provider.id} so the status bar
@@ -1879,6 +1886,9 @@ export function App({
   // can only be enabled when the capability exists (otherwise mouse bytes would
   // pollute Ink), so /mouse refuses to turn on without --mouse.
   const [mouseLive, setMouseLive] = useState(mouse);
+  // Whether the managed viewport (ScrollableHistory + in-app scroll) is the
+  // active surface. Mirrors alt-screen; toggled by /altscreen and /mouse.
+  const [managedLive, setManagedLive] = useState(managed);
 
   // Sync when parent re-loads from config file (e.g., after /statusline reset)
   useEffect(() => {
@@ -2077,7 +2087,7 @@ export function App({
   // and streaming tokens never trigger a setViewportRows because the bottom
   // region's height doesn't change while the chat viewport streams).
   React.useLayoutEffect(() => {
-    if (!mouseLive) return;
+    if (!managedLive) return;
     const node = bottomRef.current;
     if (!node) return;
     const { height } = measureElement(node);
@@ -2720,6 +2730,8 @@ export function App({
           } catch {
             return { message: 'Failed to exit alt-screen.' };
           }
+          // Leaving alt-screen drops the managed viewport back to <Static>.
+          setManagedLive(false);
           return {
             message:
               'Alt-screen disabled. New entries will land in normal scrollback (mouse wheel / Shift+PgUp work). ' +
@@ -2733,7 +2745,10 @@ export function App({
           } catch {
             return { message: 'Failed to re-enter alt-screen.' };
           }
-          return { message: 'Alt-screen re-enabled. Native scroll is now disabled.' };
+          // Entering alt-screen turns on the managed viewport (in-app scroll +
+          // PgUp/PgDn + collapsibility), no mouse required.
+          setManagedLive(true);
+          return { message: 'Alt-screen re-enabled. Managed scroll (PgUp/PgDn) is now active; native scroll is off.' };
         }
         return { message: 'Usage: /altscreen on|off' };
       },
@@ -2783,6 +2798,7 @@ export function App({
             return { message: 'Failed to enable mouse mode.' };
           }
           setMouseLive(true);
+          setManagedLive(true);
           return {
             message:
               'Mouse mode ON. Click menu items, wheel-scroll the chat (PgUp/PgDn too). ' +
@@ -2797,6 +2813,9 @@ export function App({
           return { message: 'Failed to disable mouse mode.' };
         }
         setMouseLive(false);
+        // /mouse off also exits alt-screen (above), so drop the managed
+        // viewport back to native scrollback.
+        setManagedLive(false);
         return {
           message:
             'Mouse mode OFF. Native terminal scroll/copy restored; chat history flows ' +
@@ -4348,11 +4367,11 @@ export function App({
     // Re-entrancy guard: block stale-second events from \r\n terminals.
     if (inputGateRef.current) return;
 
-    // ── Mouse-mode scroll keys (PageUp/PageDown) ──────────────────────
-    // Keyboard parity with the wheel: page the chat viewport. Only
-    // meaningful in mouse mode (the scrollable viewport); inert otherwise.
-    // Home/End are left to the input editor (line start/end) below.
-    if (mouseLive) {
+    // ── Managed-viewport scroll keys (PageUp/PageDown) ────────────────
+    // Keyboard parity with the wheel: page the chat viewport. Active whenever
+    // the managed viewport is the surface (alt-screen), mouse or not. Home/End
+    // are left to the input editor (line start/end) below.
+    if (managedLive) {
       if (key.pageUp) {
         dispatch({ type: 'scrollPage', dir: 'up' });
         return;
@@ -5346,10 +5365,10 @@ export function App({
     return '';
   }, [state.buffer, state.status, state.picker.open]);
 
-  const affordanceShown = mouseLive && state.scrollOffset > 0 && state.pendingNewLines > 0;
+  const affordanceShown = managedLive && state.scrollOffset > 0 && state.pendingNewLines > 0;
   return (
-    <Box flexDirection="column" height={mouseLive ? termRows : undefined}>
-      {mouseLive ? (
+    <Box flexDirection="column" height={managedLive ? termRows : undefined}>
+      {managedLive ? (
         <ScrollableHistory
           entries={state.entries}
           streamingText={state.streamingText}
@@ -5373,10 +5392,10 @@ export function App({
       {/* In mouse mode the whole live region below the scroll viewport is
           wrapped in one measured Box so its height feeds the viewport-size
           computation. In the default path it's a layout-neutral column. */}
-      <Box ref={mouseLive ? bottomRef : undefined} flexDirection="column" flexShrink={0}>
+      <Box ref={managedLive ? bottomRef : undefined} flexDirection="column" flexShrink={0}>
         {/* Live activity strip + input. Wrapped so its height locates where an
           open picker's items start on screen (click-to-select geometry). */}
-        <Box ref={mouseLive ? prePickerRef : undefined} flexDirection="column" flexShrink={0}>
+        <Box ref={managedLive ? prePickerRef : undefined} flexDirection="column" flexShrink={0}>
           <LiveActivityStrip entries={state.fleet} nowTick={nowTick} />
           <Input
             value={state.buffer}
