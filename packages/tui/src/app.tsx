@@ -5376,6 +5376,7 @@ export function App({
           toolStream={state.toolStream}
           scrollOffset={state.scrollOffset}
           viewportRows={state.viewportRows || Math.max(MIN_VIEWPORT, termRows - 8)}
+          totalLines={state.totalLines}
           onMeasure={(total) => dispatch({ type: 'setMeasuredLines', totalLines: total })}
         />
       ) : (

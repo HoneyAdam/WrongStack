@@ -1,6 +1,7 @@
 import { Box, type DOMElement, measureElement, Text, useStdout } from 'ink';
 import type React from 'react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { theme } from '../theme.js';
 import {
   AssistantTail,
   Entry,
@@ -21,9 +22,56 @@ export interface ScrollableHistoryProps extends HistoryProps {
   scrollOffset: number;
   /** Height of the viewport in rows, computed by App from the bottom region. */
   viewportRows: number;
+  /** Last measured total content height (rows). Drives the scrollbar thumb. */
+  totalLines: number;
   /** Reports the measured total content height (rows) after every layout so
    *  App can clamp the scroll offset and drive the "N new lines" affordance. */
   onMeasure: (totalLines: number) => void;
+}
+
+/**
+ * Right-edge scrollbar for the managed viewport. A 1-column track with a thumb
+ * sized + positioned from (scrollOffset, totalLines, viewportRows). Always
+ * reserves its column so toggling scrollability doesn't reflow the content.
+ */
+/** Pure thumb geometry for the scrollbar: where the thumb starts and how many
+ *  cells it spans, given the track height, scroll offset, and total content
+ *  height. Exported for testing. */
+export function scrollbarThumb(
+  rows: number,
+  offset: number,
+  total: number,
+): { top: number; size: number; scrollable: boolean } {
+  const scrollable = total > rows;
+  if (!scrollable) return { top: 0, size: rows, scrollable: false };
+  // Visible window top in content-line space; 0 = oldest, total = newest.
+  const windowTop = Math.max(0, total - rows - offset);
+  const size = Math.max(1, Math.round((rows / total) * rows));
+  const rawTop = Math.round((windowTop / total) * rows);
+  const top = Math.max(0, Math.min(rawTop, rows - size));
+  return { top, size, scrollable: true };
+}
+
+function Scrollbar({
+  rows,
+  offset,
+  total,
+}: { rows: number; offset: number; total: number }): React.ReactElement {
+  const { top: thumbTop, size: thumbSize, scrollable } = scrollbarThumb(rows, offset, total);
+  const cells: string[] = [];
+  for (let i = 0; i < rows; i++) {
+    cells.push(i >= thumbTop && i < thumbTop + thumbSize ? '█' : '│');
+  }
+  return (
+    <Box flexDirection="column" marginLeft={1} flexShrink={0}>
+      {cells.map((c, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: fixed-height track, index is the row
+        <Text key={i} color={scrollable ? theme.accent : undefined} dimColor={!scrollable || c === '│'}>
+          {c}
+        </Text>
+      ))}
+    </Box>
+  );
 }
 
 /**
@@ -51,6 +99,7 @@ export function ScrollableHistory({
   toolStream,
   scrollOffset,
   viewportRows,
+  totalLines,
   onMeasure,
 }: ScrollableHistoryProps): React.ReactElement {
   const { stdout } = useStdout();
@@ -93,41 +142,46 @@ export function ScrollableHistory({
     }
   });
 
+  const vp = Math.max(1, viewportRows);
   return (
-    <Box
-      flexDirection="column"
-      height={Math.max(1, viewportRows)}
-      overflowY="hidden"
-      justifyContent="flex-end"
-    >
+    <Box flexDirection="row">
       <Box
-        ref={contentRef}
         flexDirection="column"
-        marginBottom={Math.max(0, scrollOffset)}
-        flexShrink={0}
+        flexGrow={1}
+        height={vp}
+        overflowY="hidden"
+        justifyContent="flex-end"
       >
-        {hiddenCount > 0 ? (
-          <Box flexShrink={0}>
-            <Text dimColor italic>
-              {`  ↑ ${hiddenCount} earlier ${hiddenCount === 1 ? 'entry' : 'entries'} (scroll lives in this session; full log on disk)`}
-            </Text>
-          </Box>
-        ) : null}
-        {shown.map((entry) => (
-          <Box key={entry.id} marginBottom={entry.kind === 'turn-summary' ? 1 : 0} flexShrink={0}>
-            <Entry entry={entry} termWidth={termWidth} />
-          </Box>
-        ))}
-        {tail ? <AssistantTail text={tail} /> : null}
-        {toolTail ? (
-          <ToolStreamBox
-            name={toolStream!.name}
-            text={toolTail}
-            startedAt={toolStream!.startedAt}
-            termWidth={termWidth}
-          />
-        ) : null}
+        <Box
+          ref={contentRef}
+          flexDirection="column"
+          marginBottom={Math.max(0, scrollOffset)}
+          flexShrink={0}
+        >
+          {hiddenCount > 0 ? (
+            <Box flexShrink={0}>
+              <Text dimColor italic>
+                {`  ↑ ${hiddenCount} earlier ${hiddenCount === 1 ? 'entry' : 'entries'} (scroll lives in this session; full log on disk)`}
+              </Text>
+            </Box>
+          ) : null}
+          {shown.map((entry) => (
+            <Box key={entry.id} marginBottom={entry.kind === 'turn-summary' ? 1 : 0} flexShrink={0}>
+              <Entry entry={entry} termWidth={termWidth} />
+            </Box>
+          ))}
+          {tail ? <AssistantTail text={tail} /> : null}
+          {toolTail ? (
+            <ToolStreamBox
+              name={toolStream!.name}
+              text={toolTail}
+              startedAt={toolStream!.startedAt}
+              termWidth={termWidth}
+            />
+          ) : null}
+        </Box>
       </Box>
+      <Scrollbar rows={vp} offset={Math.max(0, scrollOffset)} total={totalLines} />
     </Box>
   );
 }
