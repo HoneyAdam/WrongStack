@@ -203,10 +203,13 @@ function CodeBlock({
   lang,
   termWidth,
 }: { code: string; lang: Lang; termWidth: number }): React.ReactElement {
-  const maxW = Math.max(20, Math.min(termWidth - 8, 120));
   let lines = code.replace(/\n+$/, '').split('\n');
   const hidden = Math.max(0, lines.length - MAX_CODE_LINES);
   if (hidden > 0) lines = lines.slice(0, MAX_CODE_LINES);
+  const gutterW = String(lines.length).length;
+  // Reserve room for the border, padding, and the line-number gutter so long
+  // lines truncate instead of wrapping out of the frame.
+  const maxW = Math.max(20, Math.min(termWidth - 8 - gutterW - 1, 120));
   let carry: HLState = {};
   const rows = lines.map((raw) => {
     const display = raw.length > maxW ? `${raw.slice(0, maxW - 1)}…` : raw;
@@ -220,6 +223,7 @@ function CodeBlock({
       {rows.map((tokens, i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: code lines are positional
         <Text key={i}>
+          <Text dimColor>{`${String(i + 1).padStart(gutterW, ' ')} `}</Text>
           {tokens.length === 0
             ? ' '
             : tokens.map((t, j) => (
