@@ -11,7 +11,11 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmpDir, { recursive: true, force: true });
+  // On Windows a spawned `docker` child (started with cwd = tmpDir) can still
+  // hold a lock on the dir when teardown runs, making rmdir throw EBUSY. Retry,
+  // then ignore — a leaked temp dir on an ephemeral CI runner is harmless and
+  // must not fail an otherwise-passing test.
+  await fs.rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => {});
 });
 
 const makeCtx = () => ({ cwd: tmpDir, tools: [], projectRoot: tmpDir }) as any;
