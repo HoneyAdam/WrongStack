@@ -10,7 +10,11 @@ import type { Config, ConfigLoader, SyncConfig } from '../types/config.js';
 import type { SecretVault } from '../types/secret-vault.js';
 import { safeParse } from '../utils/safe-json.js';
 import type { WstackPaths } from '../utils/wstack-paths.js';
-import { DEFAULT_TOOLS_CONFIG, DEFAULT_CONTEXT_CONFIG } from '../types/default-config.js';
+import {
+  DEFAULT_TOOLS_CONFIG,
+  DEFAULT_CONTEXT_CONFIG,
+  DEFAULT_SESSION_LOGGING_CONFIG,
+} from '../types/default-config.js';
 
 /**
  * Defaults express *behavior*, not identity. Provider and model are NOT
@@ -46,6 +50,7 @@ const BEHAVIOR_DEFAULTS: Omit<Config, 'provider' | 'model'> = {
     modelsRegistry: true,
     skills: true,
   },
+  session: { ...DEFAULT_SESSION_LOGGING_CONFIG },
 };
 
 const ENV_MAP: Record<string, (cfg: PartialConfig, val: string) => void> = {

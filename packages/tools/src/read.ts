@@ -20,19 +20,36 @@ const MAX_BYTES = 5 * 1024 * 1024;
 export const readTool: Tool<ReadInput, ReadOutput> = {
   name: 'read',
   category: 'Filesystem',
-  description: 'Read the contents of a file. Lines are 1-indexed and prefixed with line numbers.',
+  description:
+    'Read the contents of a file with line numbers. This is the primary way to inspect source code, configuration, or any text file before making changes. ' +
+    'Lines are returned 1-indexed with a `   N| ` prefix for easy reference in edits.',
   usageHint:
-    'Read a file before editing it. Returns lines numbered like `   1→content`. Use `offset` and `limit` for large files (default reads up to 2000 lines).',
+    'FOUNDATIONAL TOOL — call this before almost any edit operation.\n\n' +
+    'Best practices:\n' +
+    '- Always read a file before using `edit`, `replace`, or `write` on it (the system often requires it for safety).\n' +
+    '- Use `offset` + `limit` for very large files instead of reading everything at once.\n' +
+    '- Default limit is generous (2000 lines) but can be increased.\n' +
+    '- The output format is designed to be directly usable as context for `edit` operations.',
   permission: 'auto',
   mutating: false,
+  capabilities: ['fs.read'],
   maxOutputBytes: 262_144,
   timeoutMs: 5_000,
   inputSchema: {
     type: 'object',
     properties: {
-      path: { type: 'string', description: 'File path (absolute or relative to cwd)' },
-      offset: { type: 'integer', description: '1-based line number to start from' },
-      limit: { type: 'integer', description: 'Max lines to read (default 2000)' },
+      path: {
+        type: 'string',
+        description: 'Path to the file (relative to project root or absolute within project).',
+      },
+      offset: {
+        type: 'integer',
+        description: '1-based starting line number. Use together with `limit` for large files.',
+      },
+      limit: {
+        type: 'integer',
+        description: 'Maximum number of lines to return (default is 2000).',
+      },
     },
     required: ['path'],
   },

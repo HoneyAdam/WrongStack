@@ -20,8 +20,12 @@ interface FormatOutput {
 export const formatTool: Tool<FormatInput, FormatOutput> = {
   name: 'format',
   category: 'Code Quality',
-  description: 'Format files with biome or prettier. Use `check` to verify without modifying.',
-  usageHint: 'Set `files` (glob or comma-separated). `check` only validates. `fixer` forces tool.',
+  description: 'Format source files according to project style (Biome). Can also run in check-only mode.',
+  usageHint:
+    'RUN REGULARLY:\n\n' +
+    '- Use on changed files before committing.\n' +
+    '- `check: true` verifies formatting without making changes (useful in CI-like flows).\n' +
+    'This project has very consistent formatting expectations. Always ensure your changes are formatted.',
   permission: 'confirm',
   mutating: true,
   timeoutMs: 60_000,

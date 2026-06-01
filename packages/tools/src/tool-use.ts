@@ -17,9 +17,14 @@ export const toolUseTool: Tool<ToolUseInput, ToolUseOutput> = {
   name: 'tool_use',
   category: 'Meta',
   description:
-    'Execute a specific tool by name with given input. Useful when the agent knows exactly which tool to call.',
+    'Directly execute any registered tool by its exact name, bypassing normal discovery. ' +
+    'This is a powerful meta-tool intended for cases where the agent has a clear plan and knows precisely which tool to invoke.',
   usageHint:
-    'Set `tool` with exact tool name and `input` with the tool parameters. Returns result or error.',
+    'ADVANCED META TOOL — USE WITH CARE:\n\n' +
+    '- Only use when you are certain of the exact tool name and its expected input shape.\n' +
+    '- Prefer using the normal tool calling mechanism when possible.\n' +
+    '- Very useful in batch-tool-use or when orchestrating complex workflows programmatically.\n' +
+    '- The call still goes through full permission checks and capability validation.',
   permission: 'confirm',
   mutating: true,
   timeoutMs: 60_000,
@@ -28,11 +33,11 @@ export const toolUseTool: Tool<ToolUseInput, ToolUseOutput> = {
     properties: {
       tool: {
         type: 'string',
-        description: 'Exact name of the tool to execute',
+        description: 'The exact registered name of the tool to invoke (e.g. "bash", "read", "codebase-search").',
       },
       input: {
         type: 'object',
-        description: 'Input parameters for the tool',
+        description: 'The input object matching the target tool\'s inputSchema.',
       },
     },
     required: ['tool'],

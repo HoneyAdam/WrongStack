@@ -23,3 +23,13 @@ export const DEFAULT_CONTEXT_CONFIG = Object.freeze({
 export const DEFAULT_AUTONOMY_CONFIG = Object.freeze({
   autoProceedDelayMs: 45_000,
 });
+
+/** Default session logging / audit configuration. */
+export const DEFAULT_SESSION_LOGGING_CONFIG = Object.freeze({
+  auditLevel: 'standard' as const,
+  sampling: {
+    toolProgress: {
+      sampleRate: 8,
+    },
+  },
+});

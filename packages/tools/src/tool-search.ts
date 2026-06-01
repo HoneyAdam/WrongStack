@@ -23,9 +23,13 @@ export const toolSearchTool: Tool<ToolSearchInput, ToolSearchOutput> = {
   name: 'tool_search',
   category: 'Meta',
   description:
-    'Search available tools by name, description, tags, permission level, or mutating flag.',
+    'Search the catalog of available tools. Very useful when you are unsure which tool to use for a task.',
   usageHint:
-    'Set `query` for keyword search. `tags` to filter by category. `permission` to filter by required permission. `mutating` to filter by mutating flag.',
+    'SELF-DISCOVERY TOOL:\n\n' +
+    '- Use when you need to find the right tool for a job.\n' +
+    '- `query` searches names and descriptions.\n' +
+    '- You can filter by `tags` (category), `permission`, or `mutating`.\n' +
+    'Call this before guessing tool names. It helps you discover the best tool for the current situation.',
   permission: 'auto',
   mutating: false,
   timeoutMs: 1_000,

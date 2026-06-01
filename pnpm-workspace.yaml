@@ -1,3 +1,13 @@
+# Security note (2026-06):
+# The allowlists below exist to reduce supply-chain attack surface.
+# - onlyBuiltDependencies / allowBuilds: only these packages are allowed to run
+#   lifecycle scripts (postinstall, prepare, etc.) during `pnpm install`.
+# - Any addition to this list MUST be reviewed for:
+#     * Native code / node-gyp usage
+#     * Obfuscated or remote-executing postinstall scripts
+#     * Whether the package is truly required at install time
+# See docs/plans/security-hardening-2026-06.md (P2) and SECURITY.md.
+
 packages:
   - "packages/*"
   - "apps/*"

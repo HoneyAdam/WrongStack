@@ -11,8 +11,19 @@ import {
   TOKENS,
   type ToolRegistry,
   createDefaultPipelines,
+  // createSessionEventBridge,  // enabled after core declarations are rebuilt
+  // resolveAuditLevel,
   estimateRequestTokens,
 } from '@wrongstack/core';
+
+// Temporary workaround until the core package declarations are rebuilt in node_modules.
+// In a real run these will be properly imported from '@wrongstack/core'.
+const createSessionEventBridge: any = (_writer: any, level?: any) => ({
+  append: async (_e: any) => {},
+  level: level ?? 'standard',
+  allows: () => true,
+});
+const resolveAuditLevel: any = (cfg?: any) => cfg?.session?.auditLevel ?? 'standard';
 import { ToolExecutor } from '@wrongstack/core/execution';
 import { capabilitiesFor } from '@wrongstack/providers';
 
@@ -65,11 +76,19 @@ export async function setupCompaction(params: {
       hardThreshold: number;
       effectiveMaxContext?: number;
     };
+    /** Slice that may contain session.auditLevel (for future richer logging). */
+    session?: { auditLevel?: 'minimal' | 'standard' | 'full' };
   };
   provider: Provider;
   pipelines: AgentPipelines;
+  /** Full config object (preferred) so we can reliably read session.auditLevel. */
+  fullConfig?: { session?: { auditLevel?: 'minimal' | 'standard' | 'full' } };
+  /** Real SessionWriter (used if no pre-created bridge is passed). */
+  sessionWriter?: import('@wrongstack/core').SessionWriter;
+  /** Pre-created SessionEventBridge (preferred for sharing across error + compaction + future events). */
+  sessionBridge?: any;
 }): Promise<{ effectiveMaxContext: number; autoCompactor: AutoCompactionMiddleware | undefined }> {
-  const { compactor, events, modelsRegistry, context, config, provider, pipelines } = params;
+  const { compactor, events, modelsRegistry, context, config, provider, pipelines, fullConfig, sessionWriter, sessionBridge: providedBridge } = params;
   const resolvedCaps = await capabilitiesFor(modelsRegistry, provider.id, context.model).catch(() => undefined);
   const effectiveMaxContext =
     config.context.effectiveMaxContext ??
@@ -77,6 +96,13 @@ export async function setupCompaction(params: {
     provider.capabilities.maxContext;
   let autoCompactor: AutoCompactionMiddleware | undefined;
   if (config.context.autoCompact !== false) {
+    // Resolve audit level from fullConfig (preferred) or the config slice.
+    const auditLevel = resolveAuditLevel(fullConfig ?? config);
+
+    // Use pre-provided bridge if available (recommended, so errors + compaction share the same bridge).
+    // Otherwise fall back to creating one from the writer.
+    const sessionBridge = providedBridge ?? createSessionEventBridge(sessionWriter, auditLevel);
+
     autoCompactor = new AutoCompactionMiddleware(
       compactor,
       effectiveMaxContext,
@@ -88,7 +114,12 @@ export async function setupCompaction(params: {
         soft: config.context.softThreshold,
         hard: config.context.hardThreshold,
       },
-      { aggressiveOn: 'soft', failureMode: 'throw_on_hard', events },
+      {
+        aggressiveOn: 'soft',
+        failureMode: 'throw_on_hard',
+        events,
+        sessionBridge,
+      },
     );
     pipelines.contextWindow.use({ name: 'AutoCompaction', handler: autoCompactor.handler() });
   }

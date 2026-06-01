@@ -27,9 +27,13 @@ interface TestOutput {
 export const testTool: Tool<TestInput, TestOutput> = {
   name: 'test',
   category: 'Code Quality',
-  description: 'Run tests with vitest, jest, or mocha. Returns pass/fail counts and output.',
+  description:
+    'Execute the project\'s test suite. This is one of the most critical tools for validating that your changes are correct.',
   usageHint:
-    'Set `files` for specific tests. `watch` enables watch mode. `coverage` generates coverage report. `grep` filters by name.',
+    'ESSENTIAL BEFORE CONSIDERING WORK DONE:\n\n' +
+    '- Use `files` or `grep` to run only relevant tests during development.\n' +
+    '- `coverage: true` is useful when working on critical paths.\n' +
+    'Run tests frequently. A clean test run is usually required before the task can be considered complete.',
   permission: 'confirm',
   mutating: false,
   timeoutMs: 120_000,

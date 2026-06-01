@@ -181,6 +181,23 @@ when permission prompts are approved out of habit.
   that the next LLM turn might act on. The user is the last line of
   defense via the `confirm` permission prompt.
 
+### Accepted risks & deliberate trade-offs (from 2026 security audits)
+
+The following items were reviewed during the May and June 2026 `security-check`
+audits and explicitly accepted as non-blocking:
+
+- **Postinstall git-hooks setup** (`"postinstall": "git config core.hooksPath .githooks"` in root package.json):
+  - This only affects developers who clone the repo. It is not a runtime security boundary.
+  - Listed as "maintainer call / won't fix" in both audits. Changing it would harm contributor experience with no meaningful security gain for end users.
+
+- **Some remaining name-string + denylist authorization checks** (e.g. `AutoApprovePermissionPolicy.DENY` and parts of plugin tool mutation rules):
+  - These are pragmatic and currently effective, but recognized as a medium-term evolution target toward explicit capability allowlists (see `docs/plans/security-hardening-2026-06.md` P1).
+
+- **`onlyBuiltDependencies` allowlist maintenance**:
+  - The current small allowlist (`@biomejs/biome`, `better-sqlite3`, `esbuild`) is intentionally strict. Any addition requires security review. This is tracked as an ongoing discipline item rather than a vulnerability.
+
+Future scans should treat the above as **known and accepted** rather than new findings.
+
 ## When in doubt
 
 The two rules that keep things safe:

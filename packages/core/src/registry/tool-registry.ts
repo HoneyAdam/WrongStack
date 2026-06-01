@@ -36,6 +36,18 @@ export class ToolRegistry {
         context: { tool: tool.name },
       });
     }
+
+    // Registration-time guarantee: Every tool must have a usable inputSchema.
+    // This prevents tools with broken or missing schemas from ever being registered.
+    if (!tool.inputSchema || typeof tool.inputSchema !== 'object') {
+      throw new WrongStackError({
+        message: `Tool "${tool.name}" has an invalid or missing inputSchema`,
+        code: ERROR_CODES.REGISTRY_INVALID,
+        subsystem: 'container',
+        context: { tool: tool.name },
+      });
+    }
+
     this.tools.set(tool.name, { tool, owner });
   }
 
@@ -46,6 +58,11 @@ export class ToolRegistry {
    */
   tryRegister(tool: Tool, owner = 'core'): boolean {
     if (this.tools.has(tool.name)) return false;
+
+    if (!tool.inputSchema || typeof tool.inputSchema !== 'object') {
+      return false; // silently reject invalid schema in tryRegister
+    }
+
     this.tools.set(tool.name, { tool, owner });
     return true;
   }

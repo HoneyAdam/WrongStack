@@ -28,9 +28,14 @@ interface AuditOutput {
 export const auditTool: Tool<AuditInput, AuditOutput> = {
   name: 'audit',
   category: 'Package Management',
-  description: 'Run npm/pnpm security audit. Returns vulnerabilities sorted by severity.',
+  description:
+    'Run a security audit against project dependencies (using pnpm/npm audit). Reports known vulnerabilities with severity.',
   usageHint:
-    'Set `level` to filter minimum severity. `fix` attempts auto-fix. `packages` checks specific packages.',
+    'CRITICAL SECURITY TOOL:\n\n' +
+    '- Run regularly and especially before any release.\n' +
+    '- Use `level` to focus on high/critical issues.\n' +
+    '- `fix` can attempt automatic remediation for some vulnerabilities.\n' +
+    'This is one of the most important tools for supply chain security.',
   permission: 'confirm',
   mutating: false,
   timeoutMs: 60_000,

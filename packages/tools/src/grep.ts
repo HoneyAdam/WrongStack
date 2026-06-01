@@ -28,23 +28,54 @@ const DEFAULT_IGNORE = ['node_modules', '.git', 'dist', 'build', '.next', 'cover
 export const grepTool: Tool<GrepInput, GrepOutput> = {
   name: 'grep',
   category: 'Search',
-  description: 'Search file contents with a regex. Uses ripgrep when available.',
+  description:
+    'Search across files using a regular expression. This is one of the primary code search tools. ' +
+    'Prefers ripgrep for speed and features when available.',
   usageHint:
-    'Pattern is regex. Use `output_mode: "content"` for matched lines, `"files_with_matches"` for paths, `"count"` for tallies. `glob` filters files (e.g. `*.ts`).',
+    'POWERFUL CODE SEARCH TOOL:\n\n' +
+    '- `pattern` is a regular expression.\n' +
+    '- Use `output_mode: "content"` (default) to get matching lines with context.\n' +
+    '- Use `"files_with_matches"` when you only need the list of files.\n' +
+    '- Use `"count"` for quick statistics.\n' +
+    '- `glob` and `path` let you narrow the search scope significantly.\n' +
+    '- Always prefer this over `bash grep` when searching code.',
   permission: 'auto',
   mutating: false,
+  capabilities: ['fs.read'],
   maxOutputBytes: 131_072,
   timeoutMs: 10_000,
   inputSchema: {
     type: 'object',
     properties: {
-      pattern: { type: 'string' },
-      path: { type: 'string' },
-      glob: { type: 'string' },
-      output_mode: { type: 'string', enum: ['content', 'files_with_matches', 'count'] },
-      context_lines: { type: 'integer' },
-      case_insensitive: { type: 'boolean' },
-      limit: { type: 'integer' },
+      pattern: {
+        type: 'string',
+        description: 'Regular expression pattern to search for in file contents.',
+      },
+      path: {
+        type: 'string',
+        description: 'Limit search to this directory or file (relative to project root).',
+      },
+      glob: {
+        type: 'string',
+        description: 'Glob filter for which files to include (e.g. "**/*.ts", "src/**").',
+      },
+      output_mode: {
+        type: 'string',
+        enum: ['content', 'files_with_matches', 'count'],
+        description: 'Return style: detailed matches, just file list, or count only.',
+      },
+      context_lines: {
+        type: 'integer',
+        description: 'How many lines of surrounding context to include with each match.',
+      },
+      case_insensitive: {
+        type: 'boolean',
+        description: 'Ignore case when matching.',
+      },
+      limit: {
+        type: 'integer',
+        description: 'Maximum number of matches to return.',
+      },
     },
     required: ['pattern'],
   },

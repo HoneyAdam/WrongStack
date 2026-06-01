@@ -22,9 +22,13 @@ export const jsonTool: Tool<JsonInput, JsonOutput> = {
   name: 'json',
   category: 'Data',
   description:
-    'Parse, query, and validate JSON/JSON5/YAML. Use `query` with JMESPath-like paths to extract values.',
+    'Parse, pretty-print, query, and convert between JSON, JSON5, and YAML. Supports simple path-based queries.',
   usageHint:
-    'Provide `file` path or `data` string. `query` supports dot notation (e.g. "results[0].name"). `format` outputs in specified format.',
+    'VERY USEFUL FOR DATA INSPECTION:\n\n' +
+    '- Use on package.json, tsconfig, config files, or any structured data.\n' +
+    '- `query` lets you extract specific values without reading the whole file.\n' +
+    '- Great for validating that a file has the expected structure.\n' +
+    'Prefer this over raw `read` + manual parsing when dealing with configuration or data files.',
   permission: 'auto',
   mutating: false,
   timeoutMs: 5_000,

@@ -21,11 +21,17 @@ export const codebaseSearchTool: Tool<CodebaseSearchInput, CodebaseSearchOutput>
   name: 'codebase-search',
   category: 'Project',
   description:
-    'Search indexed code symbols by name, signature, or doc comment. Uses BM25 ranking for relevance.',
+    'Semantic/keyword search over the indexed codebase symbols (functions, classes, interfaces, etc.). Uses BM25 ranking. ' +
+    'Much more powerful and structured than raw `grep` for finding code by name or concept.',
   usageHint:
-    'Pass `query` for keyword search. Filter with `kind` (class/function/interface/etc), `lang` (ts/js/etc), `file` (substring). `limit` caps results (default 20).',
+    'PREFERRED FOR CODE UNDERSTANDING:\n\n' +
+    '- Use when you need to find where something is defined or used by name.\n' +
+    '- `kind` filter is very useful (e.g. only functions or only interfaces).\n' +
+    '- Combine with `file` filter to scope to a specific directory or module.\n' +
+    'This is generally better than `grep` when you are looking for symbols rather than arbitrary text patterns.',
   permission: 'auto',
   mutating: false,
+  capabilities: ['fs.read'],
   timeoutMs: 10_000,
   inputSchema: {
     type: 'object',

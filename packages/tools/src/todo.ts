@@ -12,9 +12,16 @@ interface TodoOutput {
 export const todoTool: Tool<TodoInput, TodoOutput> = {
   name: 'todo',
   category: 'Session',
-  description: 'Replace the current todo list with a new set of items.',
+  description:
+    'Manage the session-level todo list. This is the primary mechanism for tracking multi-step work. ' +
+    'The list is fully replaced on every call (not appended).',
   usageHint:
-    'Use for multi-step tasks. Replace the full list on each call. At most ONE task may be in_progress at a time. Items have id, content, status (pending|in_progress|completed), and optional activeForm.',
+    'BEST PRACTICE for complex tasks:\n' +
+    '- At the beginning of a non-trivial task, create a clear todo list with specific, actionable items.\n' +
+    '- Only **one** item should be `in_progress` at any time.\n' +
+    '- Update the list frequently as work progresses (mark items done, add new ones, change status).\n' +
+    '- The system and user can see this list, so keep it honest and up-to-date.\n' +
+    'This tool is extremely valuable for maintaining focus and giving the user visibility into your plan.',
   permission: 'auto',
   mutating: false,
   timeoutMs: 1_000,
@@ -26,13 +33,27 @@ export const todoTool: Tool<TodoInput, TodoOutput> = {
         items: {
           type: 'object',
           properties: {
-            id: { type: 'string' },
-            content: { type: 'string' },
-            status: { type: 'string', enum: ['pending', 'in_progress', 'completed'] },
-            activeForm: { type: 'string' },
+            id: {
+              type: 'string',
+              description: 'Unique identifier for the todo item (e.g. "1", "auth-flow").',
+            },
+            content: {
+              type: 'string',
+              description: 'Clear, actionable description of the task.',
+            },
+            status: {
+              type: 'string',
+              enum: ['pending', 'in_progress', 'completed'],
+              description: 'Current status. Only one item should be "in_progress" at a time.',
+            },
+            activeForm: {
+              type: 'string',
+              description: 'Optional present-tense form shown while the task is active (e.g. "Fixing auth bug").',
+            },
           },
           required: ['id', 'content', 'status'],
         },
+        description: 'The complete new list of todos. This replaces the previous list entirely.',
       },
     },
     required: ['todos'],

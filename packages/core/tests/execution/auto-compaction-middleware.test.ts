@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Context } from '../../src/core/context.js';
 import { AutoCompactionMiddleware } from '../../src/execution/auto-compaction-middleware.js';
 import { EventBus } from '../../src/kernel/events.js';
+import type { SessionEventBridge } from '../../src/storage/session-event-bridge.js';
 import type { CompactReport, Compactor } from '../../src/types/compactor.js';
 
 function mockContext(tokenEstimate: number): Context {
@@ -382,5 +383,38 @@ describe('AutoCompactionMiddleware', () => {
       return c;
     });
     expect(ran).toBe(true);
+  });
+
+  it('writes compaction event to the provided SessionEventBridge on successful compaction', async () => {
+    const append = vi.fn();
+    const mockBridge: SessionEventBridge = {
+      append,
+      level: 'standard',
+      allows: () => true,
+    };
+
+    const mw = new AutoCompactionMiddleware(
+      compactor,
+      10000,
+      simpleEstimator(9500), // hard load → will trigger compaction
+      { warn: 0.5, soft: 0.75, hard: 0.9 },
+      {
+        aggressiveOn: 'soft',
+        sessionBridge: mockBridge,
+      },
+    );
+
+    const ctx = mockContext(0);
+    await mw.handler()(ctx, async (c) => c);
+
+    expect(compactor.compactCalls).toHaveLength(1);
+    expect(append).toHaveBeenCalledTimes(1);
+
+    const event = append.mock.calls[0]![0];
+    expect(event.type).toBe('compaction');
+    expect(event.before).toBe(1000);
+    expect(event.after).toBe(800);
+    expect(event.level).toBe('hard');
+    expect(typeof event.ts).toBe('string');
   });
 });

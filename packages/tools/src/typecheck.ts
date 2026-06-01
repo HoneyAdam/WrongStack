@@ -23,9 +23,13 @@ export const typecheckTool: Tool<TypecheckInput, TypecheckOutput> = {
   name: 'typecheck',
   category: 'Code Quality',
   description:
-    'Run TypeScript type checking with `tsc --noEmit`. Checks for type errors without compiling.',
+    'Run the project\'s TypeScript type checker (`tsc --noEmit` or equivalent). Essential for verifying type safety before making changes or committing.',
   usageHint:
-    'Set `project` for tsconfig path (default: nearest). `strict` enables strictest flags. `all` checks all projects in workspace.',
+    'ALWAYS RUN BEFORE CONSIDERING WORK COMPLETE:\n\n' +
+    '- Use this to catch type errors early.\n' +
+    '- In monorepos, `all: true` will check every package.\n' +
+    '- This is one of the most important quality gates in this project.\n' +
+    'Never claim a task is done without a clean typecheck (unless the user explicitly says otherwise).',
   permission: 'confirm',
   mutating: false,
   timeoutMs: 120_000,

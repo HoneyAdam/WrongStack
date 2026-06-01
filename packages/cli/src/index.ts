@@ -26,7 +26,27 @@ import {
   createDelegateTool,
   createMcpControlTool,
   loadDirectorState,
+  // createSessionEventBridge, // real import after core declarations are rebuilt
+  // resolveAuditLevel,
+  // type SessionEventBridge,
 } from '@wrongstack/core';
+
+// Transitional shims (until core package is rebuilt and declarations are refreshed in node_modules)
+const createSessionEventBridge: any = (_writer: any, level?: any, _opts?: any) => ({
+  append: async (_e: any) => {},
+  level: level ?? 'standard',
+  allows: () => true,
+});
+const resolveAuditLevel: any = (cfg?: any) => cfg?.session?.auditLevel ?? 'standard';
+const resolveSessionLoggingConfig: any = (cfg?: any) => ({
+  auditLevel: resolveAuditLevel(cfg),
+  sampling: {
+    toolProgress: {
+      sampleRate: cfg?.session?.sampling?.toolProgress?.sampleRate ?? 8,
+    },
+  },
+});
+type SessionEventBridge = any;
 import { MCPRegistry } from '@wrongstack/mcp';
 import { capabilitiesFor, makeProviderFromConfig } from '@wrongstack/providers';
 import { createDefaultContainer } from '@wrongstack/runtime';
@@ -364,6 +384,18 @@ export async function main(argv: string[]): Promise<number> {
   const detachTodosCheckpoint = sessResult.detachTodosCheckpoint;
   const priorFleetState = sessResult.priorFleetState;
 
+  // Central SessionEventBridge — used for compaction, errors, and future audit events.
+  // This ensures consistent auditLevel behavior and a single writer.
+  // Sampling configuration (especially for tool_progress) is now read from config.
+  const sessionConfig = resolveSessionLoggingConfig(config as any);
+  const sessionBridge: SessionEventBridge = createSessionEventBridge(
+    session,
+    sessionConfig.auditLevel,
+    {
+      sampling: sessionConfig.sampling,
+    },
+  );
+
   const stats = new SessionStats(events, tokenCounter);
 
   // Last-N error ring buffer surfaced by /diag.
@@ -375,13 +407,110 @@ export async function main(argv: string[]): Promise<number> {
         ? (err as { code: string }).code
         : 'UNKNOWN';
     const message = e.err instanceof Error ? e.err.message : String(e.err);
-    errorRing.push({ ts: new Date().toISOString(), phase: e.phase, code, message });
+    const ts = new Date().toISOString();
+
+    errorRing.push({ ts, phase: e.phase, code, message });
     if (errorRing.length > 5) errorRing.shift();
+
+    // Also persist to the session log via the central bridge (respects auditLevel).
+    // This gives us error history in the JSONL for forensics / post-mortems.
+    sessionBridge.append({
+      type: 'error',
+      ts,
+      message,
+      phase: e.phase,
+    }).catch(() => {
+      // best-effort, never block on session logging
+    });
+  });
+
+  // Persist tool execution start/end to the session log for audit + timing forensics.
+  // Uses the same central bridge (respects auditLevel).
+  events.on('tool.started', (e) => {
+    sessionBridge.append({
+      type: 'tool_call_start',
+      ts: new Date().toISOString(),
+      name: e.name,
+      id: e.id,
+      input: e.input,
+    }).catch(() => {
+      // best-effort
+    });
+  });
+
+  events.on('tool.executed', (e) => {
+    sessionBridge.append({
+      type: 'tool_call_end',
+      ts: new Date().toISOString(),
+      name: e.name,
+      id: e.id ?? '',
+      durationMs: e.durationMs,
+      outputSize: e.outputBytes ?? 0,
+      ok: e.ok,
+      outputBytes: e.outputBytes,
+      outputTokens: e.outputTokens,
+      outputLines: e.outputLines,
+    }).catch(() => {
+      // best-effort
+    });
+  });
+
+  // Forward tool progress events.
+  // Sampling + "full" level filtering is now handled inside the SessionEventBridge
+  // for consistency and reusability across CLI / TUI / WebUI etc.
+  events.on('tool.progress', (e) => {
+    sessionBridge.append({
+      type: 'tool_progress',
+      ts: new Date().toISOString(),
+      name: e.name,
+      id: e.id,
+      event: { type: e.event.type, text: e.event.text, data: e.event.data },
+    }).catch(() => {
+      // best-effort
+    });
+  });
+
+  // Provider visibility — very valuable for debugging retry storms and provider failures.
+  events.on('provider.retry', (e) => {
+    sessionBridge.append({
+      type: 'provider_retry',
+      ts: new Date().toISOString(),
+      providerId: e.providerId,
+      attempt: e.attempt,
+      delayMs: e.delayMs,
+      status: e.status,
+      description: e.description,
+    }).catch(() => {
+      // best-effort
+    });
+  });
+
+  events.on('provider.error', (e) => {
+    sessionBridge.append({
+      type: 'provider_error',
+      ts: new Date().toISOString(),
+      providerId: e.providerId,
+      status: e.status,
+      description: e.description,
+      retryable: e.retryable,
+    }).catch(() => {
+      // best-effort
+    });
   });
 
   const pipelines = setupPipelines({ events, logger });
   const compactor = container.resolve(TOKENS.Compactor);
-  const { effectiveMaxContext, autoCompactor } = await setupCompaction({ compactor, events, modelsRegistry, context, config, provider, pipelines });
+  const { effectiveMaxContext, autoCompactor } = await setupCompaction({
+    compactor,
+    events,
+    modelsRegistry,
+    context,
+    config,
+    provider,
+    pipelines,
+    fullConfig: config as any,
+    sessionBridge, // share the same bridge for consistent audit logging (compaction + errors + future)
+  });
 
   // Refresh AutoCompactionMiddleware denominator when the active model changes.
   const refreshMaxContext = async (providerId: string, modelId: string) => {

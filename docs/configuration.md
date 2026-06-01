@@ -306,6 +306,61 @@ Override with `--verbose` (`debug`), `--trace` (`trace`), or `--log-level <level
 
 ---
 
+## `session` — Session logging & audit trail
+
+Controls what gets persisted to the per-project session JSONL file
+(`~/.wrongstack/projects/<hash>/sessions/<id>.jsonl`).
+
+```jsonc
+{
+  "session": {
+    "auditLevel": "standard",
+    "sampling": {
+      "toolProgress": {
+        "sampleRate": 8
+      }
+    }
+  }
+}
+```
+
+### Fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `auditLevel` | `"minimal"` \| `"standard"` \| `"full"` | `"standard"` | How much detail is written to the persistent session log. |
+| `sampling.toolProgress.sampleRate` | `number` | `8` | Sampling rate for high-volume `tool_progress` events (`log` / `partial_output`). `1` = no sampling. Only applies when `auditLevel` is `"full"`. |
+
+### `auditLevel` values
+
+- **minimal** — Only the absolute minimum required for resume, rewind and crash recovery (`user_input`, `llm_response`, `tool_result`, checkpoints, in-flight markers).
+- **standard** (recommended) — Adds high-value lightweight audit events: `llm_request` (light), `tool_call_start`/`tool_call_end`, `compaction`, `error`, etc.
+- **full** — Enables high-volume events such as `tool_progress` (streaming tool output). These events are heavily sampled by default to avoid log bloat.
+
+### Sampling
+
+When `auditLevel` is `"full"`, certain events (especially `tool_progress`) can generate thousands of lines. WrongStack applies smart sampling:
+
+- `warning`, `metric`, `file_changed` → always recorded.
+- `log` and `partial_output` → first message is kept, then every Nth message (controlled by `sampleRate`).
+
+You can increase verbosity for debugging:
+
+```jsonc
+{
+  "session": {
+    "auditLevel": "full",
+    "sampling": {
+      "toolProgress": {
+        "sampleRate": 2   // very chatty
+      }
+    }
+  }
+}
+```
+
+---
+
 ## `extensions` — Per-plugin config namespaces
 
 ```jsonc

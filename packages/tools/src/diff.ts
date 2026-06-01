@@ -27,29 +27,50 @@ export const diffTool: Tool<DiffInput, DiffOutput> = {
   name: 'diff',
   category: 'Filesystem',
   description:
-    'Show differences between files, commits, or branches. Supports staged vs working tree.',
+    'Show code differences between files, commits, branches, or staged changes. A safer and more structured alternative to raw `git diff` via shell.',
   usageHint:
-    'Use `files` for file paths, `a`/`b` for commit refs, `staged` for git index. `mode`: unified (default), stat, side-by-side.',
+    'USE FOR CODE REVIEW AND CHANGE INSPECTION:\n\n' +
+    '- `files` + no `a`/`b` → diff working tree vs HEAD for those files.\n' +
+    '- `a` and/or `b` → git-style commit/branch diff.\n' +
+    '- `staged: true` → only show staged changes.\n' +
+    '- `mode` can be "unified", "stat", or "side-by-side".\n' +
+    'This tool has important safety guards against flag injection (see previous security findings).',
   permission: 'auto',
   mutating: false,
+  capabilities: ['fs.read'],
   timeoutMs: 10_000,
   inputSchema: {
     type: 'object',
     properties: {
-      path: { type: 'string', description: 'Working directory for diff' },
+      path: {
+        type: 'string',
+        description: 'Working directory for the diff operation (defaults to project root).',
+      },
       files: {
         type: 'string',
-        description: 'File(s) to diff: single path, comma-separated, or "**/*.ts" glob',
+        description: 'Files or globs to diff (e.g. "src/**/*.ts" or comma-separated list).',
       },
-      a: { type: 'string', description: 'First commit/branch/ref (for git diff)' },
-      b: { type: 'string', description: 'Second commit/branch/ref (for git diff)' },
-      staged: { type: 'boolean', description: 'Diff staged changes only' },
+      a: {
+        type: 'string',
+        description: 'First ref/commit/branch for git diff (e.g. HEAD, main, a commit hash).',
+      },
+      b: {
+        type: 'string',
+        description: 'Second ref/commit/branch for git diff.',
+      },
+      staged: {
+        type: 'boolean',
+        description: 'If true, only show changes that are staged in git.',
+      },
       mode: {
         type: 'string',
         enum: ['unified', 'side-by-side', 'stat'],
-        description: 'Output mode (default: unified)',
+        description: 'Output format. "unified" is default, "stat" shows summary only.',
       },
-      context: { type: 'integer', description: 'Context lines for unified diff (default: 3)' },
+      context: {
+        type: 'integer',
+        description: 'Number of context lines for unified diffs (default: 3).',
+      },
     },
   },
   async execute(input, ctx, opts) {

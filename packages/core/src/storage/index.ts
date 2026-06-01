@@ -117,4 +117,17 @@ export {
   type SyncResult,
   ALL_SYNC_CATEGORIES,
 } from './cloud-sync.js';
+
+export {
+  createSessionEventBridge,
+  resolveAuditLevel,
+  resolveSessionLoggingConfig,
+  type SessionEventBridge,
+  type AuditLevel,
+  type SessionEventBridgeOptions,
+  type SessionSamplingOptions,
+  type ToolProgressSamplingOptions,
+  CORE_RECONSTRUCT_EVENTS,
+  STANDARD_AUDIT_EVENTS,
+} from './session-event-bridge.js';
 export type { SyncConfig, SyncCategory } from '../types/config.js';

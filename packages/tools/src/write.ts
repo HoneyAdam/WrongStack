@@ -18,17 +18,31 @@ interface WriteOutput {
 export const writeTool: Tool<WriteInput, WriteOutput> = {
   name: 'write',
   category: 'Filesystem',
-  description: 'Write or overwrite a file. For existing files, prefer `edit` over `write`.',
+  description:
+    'Write or completely overwrite a file on disk. ' +
+    'This is a high-privilege operation. For modifying existing files, you should almost always prefer the `edit` tool instead, ' +
+    'because `edit` is safer and works on the last-read version of the file.',
   usageHint:
-    'Use `write` for new files or full replacements. For partial edits use `edit`. Existing files must have been `read` first in this session.',
+    'RULES FOR CORRECT USAGE:\n' +
+    '- Use `write` primarily for **new files** or when you want to replace the entire content.\n' +
+    '- For any existing file, strongly prefer `edit` (it requires a prior `read` in the same session and is more precise).\n' +
+    '- You MUST have called `read` on the file earlier in the conversation before using `write` on an existing path (the system enforces this for safety).\n' +
+    '- The path is resolved relative to the project root and protected against escaping the workspace.',
   permission: 'confirm',
   mutating: true,
   timeoutMs: 5_000,
+  capabilities: ['fs.write'],
   inputSchema: {
     type: 'object',
     properties: {
-      path: { type: 'string' },
-      content: { type: 'string' },
+      path: {
+        type: 'string',
+        description: 'Relative path from project root. Must not escape the project.',
+      },
+      content: {
+        type: 'string',
+        description: 'The complete new content of the file.',
+      },
     },
     required: ['path', 'content'],
   },

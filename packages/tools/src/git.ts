@@ -56,14 +56,22 @@ export const gitTool: Tool<GitInput, GitOutput> = {
   name: 'git',
   category: 'Git',
   description:
-    'Run git commands. Wraps common operations: status, log, diff, commit, branch, checkout, stash, push, pull, fetch, reset, worktree.',
+    'Safe wrapper around common git operations. Supports status, log, diff, commit, branch, checkout, stash, push, pull, fetch, reset, worktree, etc. ' +
+    'This is the preferred way to interact with git instead of using the raw `bash` or `exec` tools.',
   usageHint:
-    'Prefer built-in subcommands over raw args. `command` is required. `message` for commits. `branch` for checkout/branch. `files` for status/diff. `format` for log.',
+    'ALWAYS prefer this tool over raw shell git commands.\n\n' +
+    'Key fields:\n' +
+    '- `command`: one of the supported subcommands (status, log, diff, commit, etc.)\n' +
+    '- Use `message` only for commit operations.\n' +
+    '- Use `files` array for operations that take paths (status, diff, add, etc.).\n' +
+    '- Non-mutating commands (status, log, diff, branch, fetch) are still permission:confirm for safety.\n' +
+    'Never pass raw git flags through `args` for dangerous operations — use the structured fields.',
   permission: 'confirm',
   // Conservative: any of these may mutate. The non-mutating commands
   // (status/log/diff/branch/fetch) are still gated on `permission: 'confirm'`
   // and `MUTATING_SUBCOMMANDS` is consulted at runtime for per-call checks.
   mutating: true,
+  capabilities: ['fs.write', 'shell.restricted'],
   timeoutMs: TIMEOUT_MS,
   inputSchema: {
     type: 'object',

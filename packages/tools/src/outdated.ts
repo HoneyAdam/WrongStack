@@ -31,9 +31,14 @@ interface OutdatedOutput {
 export const outdatedTool: Tool<OutdatedInput, OutdatedOutput> = {
   name: 'outdated',
   category: 'Package Management',
-  description: 'Check for outdated npm packages. Shows current, wanted, and latest versions.',
+  description:
+    'Check for outdated dependencies in the project. Reports current, wanted (semver range), and latest versions available.',
   usageHint:
-    'Set `check` to filter specific packages. `format` as list or table. `include_deprecated` shows deprecated packages.',
+    'MAINTENANCE & SECURITY TOOL:\n\n' +
+    '- Run periodically or before dependency-related work.\n' +
+    '- Helps surface packages that may need updates for security or features.\n' +
+    '- Safe, read-only operation.\n' +
+    'Use the output to decide on upgrades. Prefer this over manual shell commands for dependency hygiene.',
   permission: 'auto',
   mutating: true,
   timeoutMs: 60_000,

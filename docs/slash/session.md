@@ -24,6 +24,25 @@ wstack resume <session-id>
 
 Exits the REPL. Before exiting, calls `opts.onBeforeExit()` — if that returns `{ abort: true, message }`, warns but still exits. Otherwise calls `opts.onExit()` and returns `{ exit: true }`.
 
+## Session logging configuration
+
+Persistent session logging behaviour is controlled via the top-level `session` key in your config:
+
+```jsonc
+{
+  "session": {
+    "auditLevel": "standard",           // minimal | standard | full
+    "sampling": {
+      "toolProgress": {
+        "sampleRate": 8
+      }
+    }
+  }
+}
+```
+
+See [Configuration Reference](../configuration.md#session--session-logging--audit-trail) for details.
+
 ## Code reference
 
 - `packages/cli/src/slash-commands/session.ts`

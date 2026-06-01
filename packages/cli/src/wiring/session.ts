@@ -4,6 +4,8 @@ import {
   DefaultAttachmentStore,
   QueueStore,
   RecoveryLock,
+  // createSessionEventBridge,
+  // resolveAuditLevel,
   type AbandonedSession,
   type SessionStore,
   type SessionWriter,
@@ -127,3 +129,8 @@ export async function setupSession(params: {
 
   return { session: session!, sessionRef, context, restoredMessages, attachments, recoveryLock, queueStore, planPath, detachTodosCheckpoint, priorFleetState: dirState ?? undefined };
 }
+
+// Future (Phase 1+): when emitting richer audit events, resolve via:
+// const auditLevel = resolveAuditLevel(fullConfig);
+// const bridge = createSessionEventBridge(sessionWriter, auditLevel);
+// Prefer passing the bridge instead of raw writer for new audit writes.

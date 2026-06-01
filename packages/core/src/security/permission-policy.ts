@@ -3,6 +3,7 @@ import type { Context } from '../core/context.js';
 import type { InputReader } from '../types/input-reader.js';
 import type { PermissionDecision, PermissionPolicy, TrustPolicy } from '../types/permission.js';
 import type { Tool } from '../types/tool.js';
+import { hasDangerousCapabilityForSubagents } from './capabilities.js';
 import { atomicWrite } from '../utils/atomic-write.js';
 import { matchAny, matchGlob } from '../utils/glob-match.js';
 import { safeParse } from '../utils/safe-json.js';
@@ -337,26 +338,30 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
  *
  * Tool defaults of `permission: 'deny'` are still honored (this is a
  * subagent capability override, not a deny-bypass).
+ *
+ * 2026-06+: Primary decision is now based on declared `Tool.capabilities`
+ * (capability allowlist / denylist model). The legacy name-based DENY set
+ * is kept only for backward compatibility with tools that have not yet
+ * declared capabilities.
  */
 export class AutoApprovePermissionPolicy implements PermissionPolicy {
   /**
-   * Tools that are too dangerous to auto-approve even in a delegated
-   * subagent context. Subagents run non-interactively under a director
-   * and cannot answer prompts, but inherited authorization does not
-   * imply blanket permission for destructive or privilege-escalating
-   * operations. These tools remain at their declared `permission`
-   * level so the leader must explicitly allow them per-spawn.
+   * Legacy name-based denylist.
+   * @deprecated Prefer declaring `capabilities` on the Tool and using capability-based checks.
    */
-  private static readonly DENY = new Set([
-    'bash', // arbitrary shell — use exec for constrained shell
-    'write', // arbitrary file write
-    'edit', // arbitrary in-project file modification (equivalent to write)
-    'replace', // arbitrary multi-file find/replace (equivalent to write)
-    'scaffold', // arbitrary file generation outside project root
-    'patch', // arbitrary diff application
-    'install', // installs from arbitrary package sources
-    'exec', // restricted shell but with arbitrary command args
+  private static readonly LEGACY_NAME_DENY = new Set([
+    'bash',
+    'write',
+    'edit',
+    'replace',
+    'scaffold',
+    'patch',
+    'install',
+    'exec',
   ]);
+
+  // Note: hasDangerousCapabilityForSubagents is now the shared helper from capabilities.ts
+  // The old private method was removed in favor of the centralized utility.
 
   /**
    * Tools from MCP servers (`mcp__<server>__<tool>`) are external code of
@@ -369,18 +374,26 @@ export class AutoApprovePermissionPolicy implements PermissionPolicy {
   }
 
   async evaluate(tool: Tool): Promise<PermissionDecision> {
-    const blocked =
-      AutoApprovePermissionPolicy.DENY.has(tool.name) ||
-      AutoApprovePermissionPolicy.isMcpTool(tool.name);
-    if (tool.permission === 'deny' || blocked) {
+    const hasDangerousCap = hasDangerousCapabilityForSubagents(tool);
+    const legacyNameBlock = AutoApprovePermissionPolicy.LEGACY_NAME_DENY.has(tool.name);
+    const isMcp = AutoApprovePermissionPolicy.isMcpTool(tool.name);
+
+    const blocked = tool.permission === 'deny' || hasDangerousCap || legacyNameBlock || isMcp;
+
+    if (blocked) {
+      const reason = hasDangerousCap
+        ? `tool declares dangerous capability (${tool.capabilities?.join(', ')}) — not auto-approved for subagents`
+        : legacyNameBlock || isMcp
+          ? `tool ${tool.name} is not auto-approved for subagents — ask the leader to allow it explicitly`
+          : 'tool default deny';
+
       return {
         permission: 'deny',
         source: 'subagent_guard',
-        reason: blocked
-          ? `tool ${tool.name} is not auto-approved for subagents — ask the leader to allow it explicitly`
-          : 'tool default deny',
+        reason,
       };
     }
+
     return { permission: 'auto', source: 'yolo' };
   }
   async trust(): Promise<void> {

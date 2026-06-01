@@ -106,6 +106,49 @@ describe('ToolExecutor', () => {
     });
   });
 
+  describe('dangerous-capability net is waived under yolo', () => {
+    const bashish = (): Tool =>
+      makeTool({
+        name: 'bash',
+        permission: 'auto',
+        capabilities: ['shell.arbitrary'],
+        execute: vi.fn().mockResolvedValue('ran'),
+      } as Partial<Tool> & { name: string });
+
+    const runWith = async (policyExtra: Record<string, unknown>) => {
+      const tool = bashish();
+      const executor = makeExecutor([tool], {
+        permissionPolicy: { evaluate: vi.fn().mockResolvedValue(autoPermit()), ...policyExtra } as never,
+        confirmAwaiter: undefined,
+      });
+      const r = await executor.executeBatch([makeUse('bash')], makeCtx(), 'sequential');
+      return { tool, result: r.outputs[0]!.result };
+    };
+
+    it('forces confirm for a dangerous-capability tool when NOT in any yolo', async () => {
+      const { result } = await runWith({ getYolo: () => false, getForceAllYolo: () => false });
+      // Forced to confirm + no awaiter → pending sentinel (the tool did NOT auto-run).
+      expect(result.type).toBe('tool_confirm_pending');
+    });
+
+    it('skips the confirm net under plain --yolo (no prompt for shell)', async () => {
+      const { tool, result } = await runWith({ getYolo: () => true, getForceAllYolo: () => false });
+      expect(result.type).toBe('tool_result');
+      expect((result as ToolResultBlock).content).toContain('ran');
+      expect(tool.execute).toHaveBeenCalledTimes(1);
+    });
+
+    it('skips the confirm net under --force-all-yolo', async () => {
+      const { result } = await runWith({ getForceAllYolo: () => true });
+      expect(result.type).toBe('tool_result');
+    });
+
+    it('still forces confirm when the policy exposes no yolo getters (safe default)', async () => {
+      const { result } = await runWith({});
+      expect(result.type).toBe('tool_confirm_pending');
+    });
+  });
+
   describe('executeBatch — malformed arguments', () => {
     it.each([['__raw'], ['__raw_arguments'], ['_raw']])(
       'returns an actionable error when input is wrapped under %s and never executes the tool',
@@ -539,16 +582,18 @@ describe('ToolExecutor', () => {
       expect(result.outputs[0]!.result.suggestedPattern).toContain('\\*.ts');
     });
 
-    it('returns undefined for primitive input', async () => {
+    it('falls back to the tool name when no subject key is present', async () => {
       policy.evaluate.mockResolvedValue(confirmDecision());
       const tool = makeTool({ name: 'custom' });
       const executor = makeExecutor([tool]);
+      // Valid object input (passes schema validation) but with no path/url/name
+      // key for subjectFor to latch onto → suggestedPattern falls back to the
+      // tool name so a trust entry can still be offered.
       const result = await executor.executeBatch(
-        [{ type: 'tool_use', id: 'x', name: 'custom', input: 'just a string' }],
+        [makeUse('custom', { detail: 'no recognizable subject' })],
         makeCtx(),
         'sequential',
       );
-      // Falls back to tool name
       expect(result.outputs[0]!.result.suggestedPattern).toBe('custom');
     });
   });

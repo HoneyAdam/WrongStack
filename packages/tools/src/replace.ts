@@ -36,11 +36,18 @@ export const replaceTool: Tool<ReplaceInput, ReplaceOutput> = {
   name: 'replace',
   category: 'Transform',
   description:
-    'Batch replace a pattern across multiple files matched by glob. Returns diff for each modified file.',
+    'Perform a search-and-replace across multiple files using a regex pattern. ' +
+    'This is a powerful bulk transformation tool. Always use `dry_run: true` first on anything non-trivial.',
   usageHint:
-    'Use `glob` for broad patterns (e.g. "**/*.ts"). Set `dry_run: true` to preview without modifying. `files` can be a single path, comma-separated list, or glob pattern.',
+    'DANGEROUS IF USED CARELESSLY — review the diff output carefully.\n\n' +
+    'Recommended workflow:\n' +
+    '1. Start with `dry_run: true` to see exactly what would change.\n' +
+    '2. Use a specific enough `pattern` (and `glob` / `files`) to avoid accidental broad changes.\n' +
+    '3. `replace_all` controls whether only the first match per file or all matches are replaced.\n' +
+    'This tool is excellent for large-scale refactors (renaming, import updates, etc.) but must be used with caution.',
   permission: 'confirm',
   mutating: true,
+  capabilities: ['fs.write'],
   timeoutMs: 30_000,
   inputSchema: {
     type: 'object',

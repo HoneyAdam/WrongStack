@@ -79,11 +79,17 @@ export const scaffoldTool: Tool<ScaffoldInput, ScaffoldOutput> = {
   name: 'scaffold',
   category: 'Project',
   description:
-    'Generate boilerplate code from built-in templates or paths. Creates package.json, source files, tests.',
+    'Generate new files and folder structures from built-in templates or custom definitions. ' +
+    'This is the recommended way to bootstrap new packages, components, or modules instead of creating files one by one with `write`.',
   usageHint:
-    'Set `template` (npm-package, cli-tool, react-component) and `name`. `vars` for template variables. `dry_run` preview.',
+    'PREFERRED FOR SCAFFOLDING:\n\n' +
+    '- Use built-in templates when they match your needs (e.g. react-component, npm-package).\n' +
+    '- Supports `dry_run` so you can preview exactly what will be created.\n' +
+    '- Has the powerful `fs.write.outside-project` capability — review paths carefully.\n' +
+    'Much cleaner and safer than manually writing multiple files.',
   permission: 'confirm',
   mutating: true,
+  capabilities: ['fs.write.outside-project', 'fs.write'],
   timeoutMs: 30_000,
   inputSchema: {
     type: 'object',

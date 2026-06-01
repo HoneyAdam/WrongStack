@@ -134,19 +134,41 @@ export const execTool: Tool<ExecInput, ExecOutput> = {
   name: 'exec',
   category: 'Shell',
   description:
-    'Restricted shell that only runs pre-approved commands with constrained arguments. Safer alternative to `bash`.',
+    'Execute a **whitelisted, restricted set of commands** with strict argument validation. ' +
+    'This is the **preferred and safer** alternative to the `bash` tool for running development tools (node, npm, pnpm, tsc, git, tests, linters, etc.). ' +
+    'It prevents arbitrary command injection and limits what the model can do.',
   usageHint:
-    'Set `command` (must be in allowlist). `args` passed through. For arbitrary shell access use the `bash` tool instead.',
+    'PREFERRED SHELL TOOL for most cases.\n\n' +
+    'Use this instead of `bash` whenever possible.\n' +
+    '- `command` must be one of the allowed commands (node, npm, pnpm, git, tsc, eslint, vitest, etc.).\n' +
+    '- Arguments are passed as a clean array (no shell interpretation).\n' +
+    '- `cwd` is validated to stay inside the project.\n' +
+    '- For anything that requires real shell features (pipes, complex redirection, arbitrary commands), fall back to `bash` (with strong justification).\n' +
+    'This tool significantly reduces the risk compared to full shell access.',
   permission: 'confirm',
   mutating: true,
   timeoutMs: TIMEOUT_MS,
+  capabilities: ['shell.restricted'],
   inputSchema: {
     type: 'object',
     properties: {
-      command: { type: 'string', description: 'Command to run (must be in allowlist)' },
-      args: { type: 'array', items: { type: 'string' }, description: 'Arguments' },
-      cwd: { type: 'string', description: 'Working directory (must resolve inside project root)' },
-      timeout: { type: 'integer', description: 'Timeout in ms (default: 30000)' },
+      command: {
+        type: 'string',
+        description: 'The base command to run. Must be in the internal allowlist (e.g. "node", "pnpm", "git", "tsc").',
+      },
+      args: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Arguments passed to the command. Passed as an array (no shell parsing).',
+      },
+      cwd: {
+        type: 'string',
+        description: 'Optional working directory. Must resolve inside the project root.',
+      },
+      timeout: {
+        type: 'integer',
+        description: 'Per-command timeout in milliseconds.',
+      },
     },
     required: ['command'],
   },

@@ -23,9 +23,12 @@ export const lintTool: Tool<LintInput, LintOutput> = {
   name: 'lint',
   category: 'Code Quality',
   description:
-    'Run a linter on files. Auto-detects biome, eslint, or tslint. Use `fix` to auto-fix issues.',
+    'Run the project linter (primarily Biome in this repo). Detects style violations, potential bugs, and formatting issues.',
   usageHint:
-    'Set `files` (glob or comma-separated). `fix` applies corrections. `linter` forces specific tool.',
+    'RUN OFTEN DURING DEVELOPMENT:\n\n' +
+    '- `fix: true` will automatically correct what it can.\n' +
+    '- Target specific files or globs when you only want to check part of the project.\n' +
+    'This is a fast and important quality gate. Use it before typecheck in most workflows.',
   permission: 'confirm',
   mutating: false,
   timeoutMs: 60_000,

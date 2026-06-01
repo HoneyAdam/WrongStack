@@ -140,6 +140,39 @@ export interface AutonomyConfig {
   autoProceedDelayMs?: number;
 }
 
+/**
+ * Controls how much detail is persisted to the per-session JSONL log
+ * (`~/.wrongstack/projects/<hash>/sessions/<id>.jsonl`).
+ */
+export interface SessionLoggingConfig {
+  /**
+   * How much detail to write to the persistent session log.
+   *
+   * - "minimal"  → Only events required for resume/rewind/recovery
+   * - "standard" → (default) + high-value lightweight audit events
+   *                (compaction, tool timing, retries, errors, etc.)
+   * - "full"     → Also persist full request payloads (very large).
+   *                Consider enabling a separate replay log instead.
+   */
+  auditLevel?: 'minimal' | 'standard' | 'full';
+
+  /**
+   * Sampling configuration for high-volume events (especially relevant at
+   * `auditLevel: "full"`).
+   */
+  sampling?: {
+    /** Controls sampling of `tool_progress` events. */
+    toolProgress?: {
+      /**
+       * Sample rate for noisy progress events (`log`, `partial_output`).
+       * - 1 = no sampling (every message is logged)
+       * - 8 = default (first message + every 8th)
+       */
+      sampleRate?: number;
+    };
+  };
+}
+
 export type SyncCategory = 'settings' | 'skills' | 'prompts' | 'memory' | 'history';
 
 export interface SyncConfig {
@@ -168,6 +201,12 @@ export interface Config {
   cwd?: string;
   /** Autonomy mode configuration (auto-proceed delay, etc.). */
   autonomy?: AutonomyConfig;
+
+  /**
+   * Session logging & audit configuration.
+   * Controls what gets written to the persistent JSONL transcript.
+   */
+  session?: SessionLoggingConfig;
   /**
    * Cloud sync configuration. Stored separately in sync.json to avoid
    * accidentally committing the GitHub token to project configs.

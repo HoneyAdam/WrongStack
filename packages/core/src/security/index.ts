@@ -14,3 +14,12 @@ export {
   AutoApprovePermissionPolicy,
   type PermissionPolicyOptions,
 } from './permission-policy.js';
+
+export {
+  ToolCapabilities,
+  DANGEROUS_FOR_SUBAGENTS,
+  type ToolCapability,
+  hasDangerousCapabilityForSubagents,
+  hasCapability,
+  getDangerousCapabilities,
+} from './capabilities.js';

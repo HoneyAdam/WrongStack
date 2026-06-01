@@ -199,9 +199,30 @@ The loader runs `teardown()` on SIGINT and natural exit. See `docs/plugin-author
 
 ## Session storage
 
-JSONL under `<projectDir>/.wrongstack/sessions/<id>.jsonl`. Each line is a `SessionEvent`: `user_input`, `llm_request`, `llm_response`, `tool_use`, `tool_result`, `compaction`, `error`, plus mode/task/agent/skill events.
+All persistent per-project state (including sessions) lives under the user home:
 
-`DefaultSessionStore.list()` reads a side-car `<id>.summary.json` for fast listing. `DefaultSessionReader` provides query/replay/search/export.
+```
+~/.wrongstack/projects/<sha256(absProjectRoot).slice(0,12)>/sessions/<id>.jsonl
+```
+
+Each line is a `SessionEvent`. See `packages/core/src/types/session.ts` for the full
+union and two-tier audit model (`session.auditLevel`).
+
+Key events that are **always** written (Core Reconstruct Set):
+- `user_input`, `llm_response`, `tool_result`
+- `checkpoint`, `in_flight_start`/`in_flight_end`, `session_*`
+
+Many richer audit events (`compaction`, `tool_call_*`, provider retries, etc.)
+are controlled by `Config.session.auditLevel` (default: "standard").
+
+`DefaultSessionStore.list()` reads a side-car `<id>.summary.json` for fast listing.
+`DefaultSessionReader` provides query/replay/search/export.
+
+**Source of truth for paths:** `resolveWstackPaths()` in `packages/core/src/utils/wstack-paths.ts`.
+
+The **only** things that live inside the project tree itself are the committed
+`.wrongstack/AGENTS.md` and `.wrongstack/skills/`. Everything else is in
+`~/.wrongstack/projects/<hash>/`.
 
 ## Observability
 

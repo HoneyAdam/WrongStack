@@ -296,6 +296,32 @@ When in doubt, read the closest analogue, then write yours.
 
 ---
 
+## Security Considerations for Tool Authors
+
+WrongStack treats **all LLM-generated tool inputs as adversarial** (see `SECURITY.md`).
+When you write a new tool you are extending the agent's attack surface.
+
+### Mandatory checklist before shipping a tool
+
+- [ ] **Permission & mutating flags** — Did you set `permission` and `mutating` truthfully? `mutating: true` tools default to `'confirm'` for normal users.
+- [ ] **Input validation** — `inputSchema` + runtime checks inside `execute`. Never trust `input.foo` blindly.
+- [ ] **Path containment** — If the tool touches the filesystem, use `safeResolve` / `safeResolveReal` (see `_util.ts`). Never do `path.join(base, userInput)` without subsequent realpath check.
+- [ ] **Child process / shell** — Prefer `spawn` with argument array + `shell: false`. If you must use the user's shell, go through the existing `bash`/`exec` infrastructure or get explicit security review.
+- [ ] **Network / SSRF** — Any outbound fetch should go through (or copy the logic from) the guarded fetch helpers.
+- [ ] **Secrets** — Never log or persist secrets. If your tool needs credentials, declare it and let the secret scrubber + vault handle them.
+- [ ] **Capability declaration** (2026-06+) — When the capability system lands, declare the capabilities your tool grants (`shell.arbitrary`, `fs.write.outside-project`, `net.outbound`, `mcp.proxy`, etc.). New dangerous capabilities must be reviewed.
+- [ ] **Subagent impact** — Will this tool be dangerous for subagents? If yes, it will likely be blocked by `AutoApprovePermissionPolicy` by default — document this clearly.
+
+### New tool that touches these areas requires extra review
+
+- Anything that spawns processes outside the strict `exec` allowlist
+- Filesystem write / delete / move outside the project root
+- Arbitrary outbound HTTP from inside a tool
+- MCP tool proxying or dynamic tool registration
+- Changes to `onlyBuiltDependencies` or `allowBuilds` in `pnpm-workspace.yaml`
+
+See `docs/plans/security-hardening-2026-06.md` (P2) for the current process expectations.
+
 ## Reference
 
 - Tool type: [`packages/core/src/types/tool.ts`](../packages/core/src/types/tool.ts)

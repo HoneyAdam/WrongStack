@@ -70,7 +70,7 @@ packages/skills/          — Skill packages
 
 **Compaction** — `HybridCompactor` composes `SelectiveCompactor` + `IntelligentCompactor`; `AutoCompactionMiddleware` wraps the `contextWindow` pipeline (so compaction runs after every iteration, not explicitly in the agent loop). `repairToolUseAdjacency()` removes orphan `tool_use`/`tool_result` blocks after any context surgery.
 
-**Sessions** — JSONL at `<projectDir>/.wrongstack/sessions/<id>.jsonl`; each line is a `SessionEvent`. Sidecar `<id>.summary.json` powers fast listing.
+**Sessions** — JSONL at `~/.wrongstack/projects/<hash>/sessions/<id>.jsonl` (hash = sha256(projectRoot)[:12]). Sidecar `<id>.summary.json` for fast listing. See `wstack-paths.ts` for the full layout.
 
 **IDs are ULIDs**, not UUIDs.
 

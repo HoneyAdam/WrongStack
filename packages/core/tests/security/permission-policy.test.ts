@@ -7,12 +7,19 @@ import {
   DefaultPermissionPolicy,
 } from '../../src/security/permission-policy.js';
 import type { Context, Tool } from '../../src/types/index.js';
+import {
+  hasCapability,
+  hasDangerousCapabilityForSubagents,
+  getDangerousCapabilities,
+  ToolCapabilities,
+} from '../../src/security/capabilities.js';
 
 function tool(
   name: string,
   permission: 'auto' | 'confirm' | 'deny' = 'confirm',
   riskTier?: 'safe' | 'standard' | 'destructive',
   mutating = true,
+  capabilities?: readonly string[],
 ): Tool {
   return {
     name,
@@ -21,6 +28,7 @@ function tool(
     permission,
     mutating,
     riskTier,
+    capabilities,
     async execute() {
       return 'ok';
     },
@@ -314,5 +322,67 @@ describe('AutoApprovePermissionPolicy', () => {
     await p.reload();
     // No state change observable — the policy is stateless
     expect(true).toBe(true);
+  });
+
+  // --- 2026-06 Capability-based tests ---
+
+  it('denies tools that declare dangerous capabilities even if name is not in legacy list', async () => {
+    const p = new AutoApprovePermissionPolicy();
+    const d = await p.evaluate(
+      tool('my-custom-shell', 'confirm', undefined, true, ['shell.arbitrary'])
+    );
+    expect(d.permission).toBe('deny');
+    expect(d.reason).toContain('dangerous capability');
+  });
+
+  it('denies tools with fs.write.outside-project capability', async () => {
+    const p = new AutoApprovePermissionPolicy();
+    const d = await p.evaluate(
+      tool('dangerous-scaffold', 'confirm', undefined, true, ['fs.write.outside-project'])
+    );
+    expect(d.permission).toBe('deny');
+  });
+
+  it('auto-approves tools with only safe capabilities', async () => {
+    const p = new AutoApprovePermissionPolicy();
+    const decision = await p.evaluate(
+      tool('safe-read', 'confirm', undefined, false, ['fs.read'])
+    );
+    expect(decision.permission).toBe('auto');
+  });
+
+  it('still respects legacy name deny for tools without capabilities (backward compat)', async () => {
+    const p = new AutoApprovePermissionPolicy();
+    const d = await p.evaluate(tool('bash')); // no capabilities declared
+    expect(d.permission).toBe('deny');
+  });
+
+  it('MCP tools are still denied regardless of capabilities', async () => {
+    const p = new AutoApprovePermissionPolicy();
+    const d = await p.evaluate(
+      tool('mcp__evil__do_stuff', 'auto', undefined, false, ['fs.read'])
+    );
+    expect(d.permission).toBe('deny');
+    expect(d.reason).toContain('not auto-approved for subagents');
+  });
+});
+
+describe('Capability helpers', () => {
+  it('hasDangerousCapabilityForSubagents detects dangerous caps', () => {
+    expect(hasDangerousCapabilityForSubagents(['shell.arbitrary'])).toBe(true);
+    expect(hasDangerousCapabilityForSubagents(['fs.read'])).toBe(false);
+    expect(hasDangerousCapabilityForSubagents({ capabilities: ['fs.write.outside-project'] })).toBe(true);
+  });
+
+  it('hasCapability works with single and multiple', () => {
+    expect(hasCapability(['fs.read', 'net.outbound'], ToolCapabilities.FS_READ)).toBe(true);
+    expect(hasCapability(['fs.read'], [ToolCapabilities.FS_WRITE, ToolCapabilities.NET_OUTBOUND])).toBe(false);
+  });
+
+  it('getDangerousCapabilities extracts correctly', () => {
+    const result = getDangerousCapabilities(['fs.read', 'shell.arbitrary', 'mcp.proxy']);
+    expect(result).toContain(ToolCapabilities.SHELL_ARBITRARY);
+    expect(result).toContain(ToolCapabilities.MCP_PROXY);
+    expect(result).not.toContain(ToolCapabilities.FS_READ);
   });
 });

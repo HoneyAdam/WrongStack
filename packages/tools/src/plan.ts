@@ -57,9 +57,15 @@ export const planTool: Tool<PlanInput, PlanOutput> = {
   name: 'plan',
   category: 'Session',
   description:
-    'Inspect or edit the strategic plan board for this session. Plans persist across resume (unlike todos). Use this to lay out the multi-step approach before diving in, then mark steps in_progress/done as the work proceeds. Promote a plan item to todos to start working on it. Apply templates for common workflows.',
+    'Manage a persistent strategic plan for the current session. Unlike todos, plans are meant for higher-level, multi-phase approaches and survive across conversation resumptions. ' +
+    'Use this to outline big-picture work, then promote concrete items into the todo list when ready to execute.',
   usageHint:
-    'Set action to one of: show | add | start | done | remove | promote | derive | template_use | clear. Pass `title` for add. Pass `target` (item id, 1-based index, or title substring) for start/done/remove/promote/derive. Pass `subtasks` for promote/derive to break the plan item into multiple todos. Pass `template` (e.g. "new-feature", "bug-fix", "refactor", "release") for template_use. Always returns the formatted plan plus open/total counts.',
+    'RECOMMENDED FOR COMPLEX, MULTI-PHASE WORK:\n\n' +
+    '- Start by creating a high-level plan with `action: "add"` or using templates (`template_use`).\n' +
+    '- Use `promote` to turn a plan item into actionable todos.\n' +
+    '- Keep plans at the "why and what" level, and todos at the "how and next step" level.\n' +
+    '- Common templates: "new-feature", "bug-fix", "refactor", "release", "security-audit".\n\n' +
+    'This tool is excellent for maintaining long-term direction across many turns or even multiple sessions.',
   permission: 'auto',
   mutating: false,
   timeoutMs: 2_000,
@@ -69,22 +75,28 @@ export const planTool: Tool<PlanInput, PlanOutput> = {
       action: {
         type: 'string',
         enum: ['show', 'add', 'start', 'done', 'remove', 'promote', 'derive', 'template_use', 'clear'],
+        description: 'The operation to perform on the plan board.',
       },
-      title: { type: 'string', description: 'Required when action = add.' },
-      details: { type: 'string', description: 'Optional extra context for add.' },
+      title: {
+        type: 'string',
+        description: 'Title of the plan item. Required for action=add.',
+      },
+      details: {
+        type: 'string',
+        description: 'Additional details or description for a new plan item (action=add).',
+      },
       target: {
         type: 'string',
-        description:
-          'Plan item id, 1-based index, or title substring. Required for start/done/remove/promote/derive.',
+        description: 'Identifier for the target plan item (id, 1-based index, or partial title). Required for most actions except add/show/clear.',
       },
       subtasks: {
         type: 'array',
         items: { type: 'string' },
-        description: 'Optional subtasks for promote/derive. If omitted, a single todo is created from the plan item title.',
+        description: 'List of subtask titles. Used with promote or derive to break a plan item into multiple todos.',
       },
       template: {
         type: 'string',
-        description: 'Template name for template_use action. Available: new-feature, bug-fix, refactor, release, security-audit, onboarding.',
+        description: 'Template identifier when using action=template_use. Common values: new-feature, bug-fix, refactor, release, security-audit.',
       },
     },
     required: ['action'],

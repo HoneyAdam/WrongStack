@@ -4,6 +4,19 @@ export * from './utils/index.js';
 export * from './defaults/index.js';
 export * from './skills/index.js';
 export * from './storage/index.js';
+
+// Explicit re-exports for the new session audit bridge (helps some consumers
+// and declaration bundlers pick them up reliably).
+export {
+  createSessionEventBridge,
+  resolveAuditLevel,
+  resolveSessionLoggingConfig,
+  type SessionEventBridge,
+  type AuditLevel,
+  type SessionEventBridgeOptions,
+  type SessionSamplingOptions,
+  type ToolProgressSamplingOptions,
+} from './storage/session-event-bridge.js';
 export * from './security-scanner/index.js';
 export {
   FleetManager,

@@ -33,9 +33,13 @@ export const logsTool: Tool<LogsInput, LogsOutput> = {
   name: 'logs',
   category: 'Logs',
   description:
-    'Stream or fetch logs from a service or file. Supports Docker, systemd, or plain log files.',
+    'Read or stream logs from files, Docker containers, or systemd services. Useful for debugging running applications.',
   usageHint:
-    'Set `service` for Docker/systemd, `path` for file. `lines` limits output. `stream` for tail -f behavior. `filter` regex filters lines.',
+    'DEBUGGING TOOL — USE CAREFULLY IN AUTONOMOUS MODE:\n\n' +
+    '- Prefer `path` for local files or `service` for containers/systemd.\n' +
+    '- `stream: true` = live tail (can be expensive).\n' +
+    '- Always use `filter` (regex) when possible to reduce noise and token usage.\n' +
+    '- Long-running streams should be avoided unless the user explicitly wants live logs.',
   permission: 'confirm',
   mutating: false,
   timeoutMs: 30_000,

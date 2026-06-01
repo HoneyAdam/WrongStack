@@ -37,6 +37,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Dependency Audit (moderate+)
+        run: pnpm audit --audit-level=moderate
+
       # Build first: cross-package typecheck resolves types via dist/*.d.ts.
       - name: Build
         run: pnpm build

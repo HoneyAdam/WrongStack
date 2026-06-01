@@ -31,9 +31,13 @@ export const documentTool: Tool<DocumentInput, DocumentOutput> = {
   name: 'document',
   category: 'Project',
   description:
-    'Generate or update documentation comments for functions, classes, and types. Supports JSDoc, TSDoc, and block comments.',
+    'Automatically generate or update documentation comments (JSDoc/TSDoc style) for code. Can target specific symbols or entire files/directories.',
   usageHint:
-    'Set `target` for what to document. `files` for paths. `style` for comment format. `overwrite` replaces existing docs.',
+    'USE FOR IMPROVING CODE DOCUMENTATION:\n\n' +
+    '- Good for adding missing docs to public APIs or complex functions.\n' +
+    '- `overwrite: true` will replace existing documentation (use carefully).\n' +
+    '- You can target specific symbols via `target` or whole files/directories via `files`.\n' +
+    'Always review the generated documentation before committing — the model can hallucinate details.',
   permission: 'confirm',
   mutating: true,
   timeoutMs: 30_000,

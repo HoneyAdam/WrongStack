@@ -21,12 +21,20 @@ interface InstallOutput {
 export const installTool: Tool<InstallInput, InstallOutput> = {
   name: 'install',
   category: 'Package Management',
-  description: 'Install npm packages. Detects pnpm/npm/yarn and uses the right package manager.',
+  description:
+    'Install, update or manage packages using the detected package manager (pnpm/npm/yarn). ' +
+    'Strongly preferred over raw shell commands for dependency management because it is structured and safer.',
   usageHint:
-    'Set `packages` to install. `save` as dependency type. `global` for global install. `dry_run` to preview.',
+    'ALWAYS USE THIS INSTEAD OF BASH FOR PACKAGE WORK:\n\n' +
+    '- Empty `packages` → normal `install` (respects lockfile).\n' +
+    '- Provide names → adds/updates specific packages.\n' +
+    '- `dry_run: true` for safe preview.\n' +
+    '- Set `save` appropriately.\n' +
+    'This tool has proper capability declaration and is heavily recommended in the security posture of the project.',
   permission: 'confirm',
   mutating: true,
   timeoutMs: 120_000,
+  capabilities: ['package.install', 'shell.restricted'],
   inputSchema: {
     type: 'object',
     properties: {
@@ -38,14 +46,20 @@ export const installTool: Tool<InstallInput, InstallOutput> = {
       save: {
         type: 'string',
         enum: ['dependency', 'dev', 'optional'],
-        description: 'Save as regular, dev, or optional dependency',
+        description: 'Where to save the package(s): "dependency", "devDependencies", or "optionalDependencies".',
       },
-      cwd: { type: 'string', description: 'Working directory (default: cwd)' },
+      cwd: {
+        type: 'string',
+        description: 'Working directory for the install command (must stay inside project).',
+      },
       dry_run: {
         type: 'boolean',
-        description: 'Preview install without modifying (default: false)',
+        description: 'If true, show what would be installed without actually modifying package.json or node_modules.',
       },
-      global: { type: 'boolean', description: 'Install globally (default: false)' },
+      global: {
+        type: 'boolean',
+        description: 'Whether to perform a global install (use with caution).',
+      },
     },
   },
   async execute(input, ctx, opts) {

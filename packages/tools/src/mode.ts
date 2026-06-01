@@ -18,9 +18,14 @@ export function createModeTool(modeStore: ModeStore): Tool<ModeInput, ModeOutput
     name: 'mode',
     category: 'Session',
     description:
-      'Get, list, or switch the agent mode. Modes inject role-specific prompts into the system prompt.',
+      'Manage agent operating modes. Modes change the agent\'s behavior, personality, and system prompt for different workflows (e.g. coding, security review, planning).',
     usageHint:
-      'Set `action`: `get` (current mode), `list` (all modes), `set <modeId>` (switch), `clear` (reset to default).',
+      'POWERFUL BEHAVIOR CONTROL TOOL:\n\n' +
+      '- Use `list` to see available modes.\n' +
+      '- Use `set <modeId>` to switch the agent into a specific role/mode.\n' +
+      '- Use `get` to check current mode.\n' +
+      '- Use `clear` to return to default behavior.\n' +
+      'Switching modes is very effective for specialized tasks. The mode change affects how the agent reasons and which guidelines it follows.',
     permission: 'confirm',
     mutating: true,
     timeoutMs: 5_000,
@@ -30,11 +35,11 @@ export function createModeTool(modeStore: ModeStore): Tool<ModeInput, ModeOutput
         action: {
           type: 'string',
           enum: ['get', 'list', 'set', 'clear'],
-          description: 'Action: get current, list all, set mode, or clear',
+          description: 'The mode operation to perform.',
         },
         mode: {
           type: 'string',
-          description: 'Mode ID to switch to (required for action=set)',
+          description: 'The mode identifier to activate (only required when action=set).',
         },
       },
       required: ['action'],

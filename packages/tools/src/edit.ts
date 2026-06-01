@@ -32,11 +32,19 @@ export const editTool: Tool<EditInput, EditOutput> = {
   name: 'edit',
   category: 'Filesystem',
   description:
-    'Make a surgical edit by replacing exact text. Fails if `old_string` is not unique unless `replace_all` is true.',
+    'Perform a precise, surgical text replacement in a file. This is the preferred tool for modifying existing code. ' +
+    'It requires that you have previously called `read` on the file in the current session. ' +
+    'Fails safely if the `old_string` appears more than once unless `replace_all` is set.',
   usageHint:
-    'Always `read` the file first. `old_string` must be an EXACT match (whitespace included). If multiple matches exist, either narrow `old_string` with more context or set `replace_all: true`.',
+    'MANDATORY WORKFLOW:\n' +
+    '1. Call `read` on the target file first (in the same conversation).\n' +
+    '2. Use a sufficiently unique `old_string` (include surrounding lines/context if needed).\n' +
+    '3. If the string appears multiple times and you want to change all of them, set `replace_all: true`.\n' +
+    '4. `new_string` must be the exact replacement text.\n\n' +
+    'This tool is much safer than `write` for existing files because it works against the last-read version.',
   permission: 'confirm',
   mutating: true,
+  capabilities: ['fs.write'],
   timeoutMs: 5_000,
   inputSchema: {
     type: 'object',

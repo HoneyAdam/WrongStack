@@ -13,11 +13,56 @@ export interface SessionMetadata {
   pendingToolUses?: string[];
 }
 
+/**
+ * SessionEvent — per-session persistent JSONL audit + reconstruct log.
+ *
+ * ## Two-Tier Model (see Config.session.auditLevel)
+ *
+ * **Core Reconstruct Set** (always persisted, minimal & reliable):
+ * - `session_start`, `session_resumed`, `user_input`, `llm_response`, `tool_result`
+ * - `checkpoint`, `file_snapshot`, `rewound`
+ * - `in_flight_start` / `in_flight_end`, `session_end`
+ *
+ * These events are **required** for correct resume, rewind, crash recovery
+ * and conversation replay. They are written regardless of auditLevel.
+ *
+ * **Audit Detail Set** (controlled by `session.auditLevel`):
+ * - `llm_request` (lightweight by default)
+ * - `tool_use`, `tool_call_start`/`tool_call_end`
+ * - `compaction`, `error`, `message_truncated`, provider retries, etc.
+ *
+ * When `auditLevel: "minimal"` only Core Reconstruct events are guaranteed.
+ * `"standard"` (default) adds the most valuable lightweight audit events.
+ * `"full"` enables heavier payloads (may be stored in a sidecar replay log).
+ *
+ * ## Guarantees
+ * - All appends are best-effort. A failed write logs a throttled warning but
+ *   never aborts the agent loop.
+ * - Sensitive content in `user_input` and `llm_response` is passed through
+ *   the configured SecretScrubber before being written or summarized.
+ * - The log is append-only JSONL. Individual lines may be malformed after
+ *   hard crashes; `DefaultSessionStore.load()` silently skips bad lines.
+ *
+ * ## Location (source of truth: resolveWstackPaths)
+ * ~/.wrongstack/projects/<sha256(projectRoot).slice(0,12)>/sessions/<id>.jsonl
+ *
+ * The only files that live inside the project tree are the committed
+ * `.wrongstack/AGENTS.md` and `.wrongstack/skills/`.
+ */
 export type SessionEvent =
   | { type: 'session_start'; ts: string; id: string; model: string; provider: string }
   | { type: 'session_resumed'; ts: string; id: string; model: string; provider: string }
   | { type: 'user_input'; ts: string; content: string | ContentBlock[] }
-  | { type: 'llm_request'; ts: string; model: string; messageCount: number }
+  | {
+      type: 'llm_request';
+      ts: string;
+      model: string;
+      messageCount: number;
+      /** Estimated total input tokens for this request (messages + tools + system). */
+      estimatedInputTokens?: number;
+      /** Number of tools offered to the model in this request. */
+      toolCount?: number;
+    }
   | {
       type: 'llm_response';
       ts: string;
@@ -27,7 +72,17 @@ export type SessionEvent =
     }
   | { type: 'tool_use'; ts: string; name: string; id: string; input: unknown }
   | { type: 'tool_result'; ts: string; id: string; content: unknown; isError: boolean }
-  | { type: 'compaction'; ts: string; before: number; after: number }
+  | {
+      type: 'compaction';
+      ts: string;
+      before: number;
+      after: number;
+      /** Pressure level that triggered the compaction. */
+      level?: 'warn' | 'soft' | 'hard';
+      aggressive?: boolean;
+      /** Summary of token savings per phase (elision, summary, selective). */
+      reductions?: Array<{ phase: string; saved: number }>;
+    }
   | { type: 'error'; ts: string; message: string; phase: string }
   | { type: 'session_end'; ts: string; usage: Usage; pendingToolUses?: string[] }
   | { type: 'mode_changed'; ts: string; from: string; to: string }
@@ -49,9 +104,43 @@ export type SessionEvent =
       name: string;
       id: string;
       durationMs: number;
+      /** Legacy field kept for backward compatibility. Prefer outputBytes. */
       outputSize: number;
+      ok?: boolean;
+      outputBytes?: number;
+      outputTokens?: number;
+      outputLines?: number;
+    }
+  | {
+      /** Lightweight sampled progress from Tool.executeStream (only at auditLevel 'full'). */
+      type: 'tool_progress';
+      ts: string;
+      name: string;
+      id: string;
+      event: {
+        type: 'log' | 'warning' | 'metric' | 'file_changed' | 'partial_output';
+        text?: string;
+        data?: Record<string, unknown>;
+      };
     }
   | { type: 'message_truncated'; ts: string; before: number; after: number }
+  | {
+      type: 'provider_retry';
+      ts: string;
+      providerId: string;
+      attempt: number;
+      delayMs: number;
+      status?: number;
+      description: string;
+    }
+  | {
+      type: 'provider_error';
+      ts: string;
+      providerId: string;
+      status?: number;
+      description: string;
+      retryable: boolean;
+    }
   | { type: 'checkpoint'; ts: string; promptIndex: number; promptPreview: string }
   | { type: 'file_snapshot'; ts: string; promptIndex: number; files: FileSnapshot[] }
   | { type: 'rewound'; ts: string; toPromptIndex: number; revertedFiles: string[] }

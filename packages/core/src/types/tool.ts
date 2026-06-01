@@ -93,6 +93,20 @@ export interface Tool<I = unknown, O = unknown> {
    * unpredictably.
    */
   estimatedDurationMs?: number;
+
+  /**
+   * Declarative security capabilities granted by this tool.
+   *
+   * Examples: "shell.arbitrary", "fs.write", "fs.write.outside-project",
+   * "net.outbound", "mcp.proxy", "subagent.spawn", "config.mutate".
+   *
+   * These are used by permission policies (especially subagent guards) and
+   * future capability-based allowlists. Prefer well-known values over ad-hoc strings.
+   *
+   * This field is optional for backward compatibility. Tools without it are
+   * treated conservatively by guards.
+   */
+  capabilities?: readonly string[];
   execute(input: I, ctx: Context, opts: { signal: AbortSignal }): Promise<O>;
   /**
    * Optional streaming variant. When defined, the executor prefers this

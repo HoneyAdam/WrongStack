@@ -1,6 +1,7 @@
 import type { Context } from '../core/context.js';
 import type { EventBus } from '../kernel/events.js';
 import type { MiddlewareHandler } from '../kernel/pipeline.js';
+import type { SessionEventBridge } from '../storage/session-event-bridge.js';
 import type { CompactReport, Compactor } from '../types/compactor.js';
 import type { ContextWindowAggressiveOn, ContextWindowPolicy } from '../types/context-window.js';
 import { AgentError, ERROR_CODES } from '../types/errors.js';
@@ -19,6 +20,8 @@ export interface AutoCompactionOptions {
     ContextWindowPolicy,
     'thresholds' | 'aggressiveOn'
   > | null | undefined;
+  /** Optional bridge for writing compaction events into the persistent session log. */
+  sessionBridge?: SessionEventBridge;
 }
 
 /**
@@ -45,6 +48,7 @@ export class AutoCompactionMiddleware {
   private readonly events?: EventBus;
   private readonly failureMode: CompactionFailureMode;
   private readonly policyProvider?: AutoCompactionOptions['policyProvider'];
+  private readonly sessionBridge?: SessionEventBridge;
 
   /**
    * Once a compaction attempt reduces nothing (preserveK protects everything,
@@ -94,6 +98,7 @@ export class AutoCompactionMiddleware {
     this.events = opts.events;
     this.failureMode = opts.failureMode ?? 'throw_on_hard';
     this.policyProvider = opts.policyProvider;
+    this.sessionBridge = opts.sessionBridge;
   }
 
   /** Allow callers (e.g. model-switch in WebUI) to update the context window
@@ -194,6 +199,20 @@ export class AutoCompactionMiddleware {
         report,
         aggressive,
       });
+
+      // Persist a compaction event to the session log (if a bridge was provided).
+      // This is one of the highest-value audit events for understanding context
+      // window behavior over long runs.
+      await this.sessionBridge?.append({
+        type: 'compaction',
+        ts: new Date().toISOString(),
+        before: report.before,
+        after: report.after,
+        level: pressure.level,
+        aggressive,
+        reductions: report.reductions?.map((r) => ({ phase: r.phase, saved: r.saved })),
+      });
+
       // Stale file-read metadata from before the compaction boundary is no
       // longer useful and would cause hasRead() to skip legitimate re-reads.
       ctx.clearFileTracking();

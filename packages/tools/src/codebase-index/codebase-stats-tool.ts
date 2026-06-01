@@ -12,10 +12,16 @@ import { IndexStore, codebaseIndexDirOverride } from './writer.js';
 export const codebaseStatsTool: Tool<Record<string, never>, CodebaseStatsOutput> = {
   name: 'codebase-stats',
   category: 'Project',
-  description: 'Return statistics about the symbol index: total symbols, files, breakdown by language and kind, index size, and last update time.',
-  usageHint: 'No arguments needed. Use to check if the index is stale or healthy before running a search.',
+  description: 'Return health and statistics about the current symbol index (total symbols, files, language/kind breakdown, size, last update). Useful to decide whether to re-index.',
+  usageHint:
+    'CALL BEFORE HEAVY CODEBASE-SEARCH WORK:\n\n' +
+    '- Use to see if the index is up-to-date or needs a refresh.\n' +
+    '- No arguments required.\n' +
+    '- Helps avoid wasting tokens on searches against a stale index.\n' +
+    'Lightweight and safe to call frequently.',
   permission: 'auto',
   mutating: false,
+  capabilities: ['fs.read'],
   timeoutMs: 5_000,
   inputSchema: {
     type: 'object',

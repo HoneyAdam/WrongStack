@@ -31,24 +31,44 @@ const STREAM_FLUSH_BYTES = 4 * 1024;
 export const bashTool: Tool<BashInput, BashOutput> = {
   name: 'bash',
   category: 'Shell',
-  description: 'Run a shell command. stdout and stderr are merged.',
+  description:
+    'Execute an arbitrary command in the user\'s default shell (bash/zsh/pwsh/cmd). ' +
+    'stdout and stderr are merged into one stream. This is the most powerful and dangerous tool — ' +
+    'it gives the model full access to the developer\'s machine. Prefer specialized tools whenever possible.',
   usageHint:
-    'Runs via `bash -c` (or `cmd /c` on Windows). Cwd is the project root. Default timeout 30s. Output truncated from the middle if oversized. Use for git, npm, builds, tests.',
+    'SECURITY WARNING: This tool runs with the full privileges of the current user.\n\n' +
+    'Best practices for the model:\n' +
+    '- Strongly prefer `exec` for known safe commands (node, npm, pnpm, tsc, git, etc.).\n' +
+    '- Use bash only when you genuinely need shell features (pipes, redirection, complex one-liners).\n' +
+    '- Prefer single focused commands over huge `&&` chains.\n' +
+    '- Use `background: true` only for long-running processes (dev servers, watchers).\n' +
+    '- The working directory is the project root.\n' +
+    '- Output may be truncated in the middle for very large results.',
   permission: 'confirm',
   mutating: true,
   // Trust rules match on the literal `command` string. Without subjectKey
   // the policy heuristic would have done the same here, but declaring it
   // explicitly removes the implicit cross-tool aliasing.
   subjectKey: 'command',
+  capabilities: ['shell.arbitrary'],
   timeoutMs: 30_000,
   maxOutputBytes: MAX_OUTPUT,
   estimatedDurationMs: 3_000,
   inputSchema: {
     type: 'object',
     properties: {
-      command: { type: 'string' },
-      timeout_ms: { type: 'integer' },
-      background: { type: 'boolean' },
+      command: {
+        type: 'string',
+        description: 'The exact shell command to run. Prefer simple, focused commands.',
+      },
+      timeout_ms: {
+        type: 'integer',
+        description: 'Optional timeout for this specific command in milliseconds.',
+      },
+      background: {
+        type: 'boolean',
+        description: 'If true, launch the process in the background and return the PID immediately.',
+      },
     },
     required: ['command'],
   },

@@ -39,35 +39,46 @@ export const treeTool: Tool<TreeInput, TreeOutput> = {
   name: 'tree',
   category: 'Filesystem',
   description:
-    'Display directory structure as an ASCII tree. Shows files and folders with indentation.',
+    'Display a directory tree of the project (or a subpath). This is the recommended way to explore the high-level structure of a codebase before reading specific files.',
   usageHint:
-    'Set `path` (default: cwd). `depth` limits nesting (default: 3). `glob` filters files. `exclude` ignores dirs. `show_files` toggles file listing (default: true).',
+    'BEST PRACTICE FOR INITIAL EXPLORATION:\n\n' +
+    '- Call early when working with an unfamiliar project or module.\n' +
+    '- Tune `depth` (default 3) and use `glob`/`exclude` to focus the view.\n' +
+    '- Prefer this over raw `bash find` or `glob` + manual reading when you need a quick structural overview.\n' +
+    'Output is truncated for very large trees.',
   permission: 'auto',
   mutating: false,
+  capabilities: ['fs.read'],
   timeoutMs: 15_000,
   inputSchema: {
     type: 'object',
     properties: {
-      path: { type: 'string', description: 'Root directory (default: cwd)' },
+      path: {
+        type: 'string',
+        description: 'Root directory to display the tree from (defaults to project root).',
+      },
       depth: {
         type: 'integer',
-        description: 'Max nesting depth (default: 3, 0 for unlimited)',
+        description: 'Maximum directory depth to traverse (default 3, use 0 for unlimited).',
         minimum: 0,
         maximum: 20,
       },
-      glob: { type: 'string', description: 'Filter files matching glob (e.g. "*.ts")' },
+      glob: {
+        type: 'string',
+        description: 'Only include files matching this glob pattern.',
+      },
       exclude: {
         type: 'array',
         items: { type: 'string' },
-        description: 'Directory names to exclude',
+        description: 'List of directory names to completely ignore.',
       },
       show_files: {
         type: 'boolean',
-        description: 'Show files (default: true, false shows dirs only)',
+        description: 'Whether to show individual files (default true).',
       },
       show_dirs: {
         type: 'boolean',
-        description: 'Show directories (default: true)',
+        description: 'Whether to show directories (default true).',
       },
       show_hidden: {
         type: 'boolean',

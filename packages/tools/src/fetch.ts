@@ -154,11 +154,20 @@ export async function guardedFetch(
 export const fetchTool: Tool<FetchInput, FetchOutput> = {
   name: 'fetch',
   category: 'Network',
-  description: 'Fetch the contents of a URL. HTML is converted to markdown by default.',
+  description:
+    'Fetch a URL and return its content. HTML pages are automatically converted to clean markdown. ' +
+    'This tool has strong SSRF protections (private IPs, localhost, and cloud metadata endpoints are blocked by default).',
   usageHint:
-    'HTTPS only by default. Localhost and RFC1918 ranges blocked unless WRONGSTACK_FETCH_ALLOW_PRIVATE=1. Max 5 redirects, 20s timeout, 128KB cap.',
+    'Use this when you need external information (documentation, API responses, web pages, etc.).\n\n' +
+    'Security notes:\n' +
+    '- Only HTTPS is allowed by default.\n' +
+    '- Internal/private networks are blocked unless explicitly enabled via environment variable.\n' +
+    '- Redirects are followed but re-validated at each hop.\n' +
+    '- Output is capped (128KB by default) to avoid flooding context.\n' +
+    'Prefer this over raw `bash curl` or `bash wget`.',
   permission: 'confirm',
   mutating: false,
+  capabilities: ['net.outbound'],
   // Trust rules for fetch match on the literal URL — declare it explicitly
   // so a user can trust `https://api.example.com/*` without accidentally
   // matching that pattern on any other tool that happens to have a `url`
@@ -169,8 +178,15 @@ export const fetchTool: Tool<FetchInput, FetchOutput> = {
   inputSchema: {
     type: 'object',
     properties: {
-      url: { type: 'string' },
-      format: { type: 'string', enum: ['markdown', 'text', 'raw'] },
+      url: {
+        type: 'string',
+        description: 'The target URL (must use https://).',
+      },
+      format: {
+        type: 'string',
+        enum: ['markdown', 'text', 'raw'],
+        description: 'Output format. "markdown" is recommended for HTML pages.',
+      },
     },
     required: ['url'],
   },

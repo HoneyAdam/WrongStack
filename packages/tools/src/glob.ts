@@ -20,19 +20,34 @@ const DEFAULT_IGNORE = ['node_modules', '.git', 'dist', 'build', '.next', 'cover
 export const globTool: Tool<GlobInput, GlobOutput> = {
   name: 'glob',
   category: 'Filesystem',
-  description: 'Find files matching a glob pattern. Returns paths sorted by mtime (newest first).',
+  description:
+    'Find files matching a glob pattern. Fast way to discover relevant files before reading, grepping, or editing them.',
   usageHint:
-    'Examples: `**/*.ts`, `src/**/*.test.ts`, `*.json`. Common dirs (node_modules, .git, dist) are ignored by default. Returns up to 1000 paths.',
+    'RECOMMENDED FOR SCOPING SEARCHES:\n\n' +
+    '- Use early to get a list of files you actually care about.\n' +
+    '- Combine with `path` and `limit`.\n' +
+    '- Default ignores common build/dependency directories.\n' +
+    'Much more efficient than shell `find` for most use cases inside the agent.',
   permission: 'auto',
   mutating: false,
+  capabilities: ['fs.read'],
   maxOutputBytes: 65_536,
   timeoutMs: 5_000,
   inputSchema: {
     type: 'object',
     properties: {
-      pattern: { type: 'string' },
-      path: { type: 'string', description: 'Base directory (defaults to cwd)' },
-      limit: { type: 'integer' },
+      pattern: {
+        type: 'string',
+        description: 'Glob pattern to match (e.g. "**/*.ts", "src/**").',
+      },
+      path: {
+        type: 'string',
+        description: 'Base directory to search from (defaults to project root).',
+      },
+      limit: {
+        type: 'integer',
+        description: 'Maximum number of results to return (default 1000, max 5000).',
+      },
     },
     required: ['pattern'],
   },

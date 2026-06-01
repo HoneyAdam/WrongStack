@@ -23,9 +23,15 @@ interface ToolHelpOutput {
 export const toolHelpTool: Tool<ToolHelpInput, ToolHelpOutput> = {
   name: 'tool_help',
   category: 'Meta',
-  description: 'Get help and usage information for a specific tool or list all available tools.',
+  description:
+    'Get detailed help for one or more tools, including their full schema and usage guidance. ' +
+    'This is the best way to understand exactly how to call a specific tool.',
   usageHint:
-    'Set `tool` for specific help. Omit to list all tools. `format`: short (one-liner), full (schema), markdown (formatted).',
+    'USE WHEN YOU NEED PRECISE TOOL INFORMATION:\n\n' +
+    '- Call with a specific `tool` name when you want the full schema and current usageHint.\n' +
+    '- Omit `tool` (or use a broad query) to get an overview of available tools.\n' +
+    '- Different `format` options give you different levels of detail.\n' +
+    'This tool is extremely valuable for self-correction when you are unsure about a tool\'s interface.',
   permission: 'auto',
   mutating: false,
   timeoutMs: 5_000,
@@ -34,16 +40,16 @@ export const toolHelpTool: Tool<ToolHelpInput, ToolHelpOutput> = {
     properties: {
       tool: {
         type: 'string',
-        description: 'Tool name to get help for (omit for all tools)',
+        description: 'Specific tool name to get detailed help for. Omit to get a list of all tools.',
       },
       format: {
         type: 'string',
         enum: ['short', 'full', 'markdown'],
-        description: 'Output format (default: short)',
+        description: 'Level of detail: "short" (summary), "full" (with full schema), "markdown" (human readable).',
       },
       include_examples: {
         type: 'boolean',
-        description: 'Include usage examples in output (default: false)',
+        description: 'Whether to include example usage in the response.',
       },
     },
   },

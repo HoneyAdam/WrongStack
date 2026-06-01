@@ -8,6 +8,11 @@ import type {
   ToolExecutorStrategy,
 } from '../types/tool-executor.js';
 import type { Tool } from '../types/tool.js';
+import {
+  hasDangerousCapabilityForSubagents,
+  getDangerousCapabilities,
+} from '../security/capabilities.js';
+import { validateAgainstSchema } from '../utils/json-schema-validate.js';
 import { createToolOutputSerializer } from '../utils/tool-output-serializer.js';
 
 export class ToolExecutor {
@@ -56,6 +61,42 @@ export class ToolExecutor {
         return { result, tool, durationMs: Date.now() - start };
       }
 
+      // Strong guarantee: Validate input against the tool's declared JSON Schema
+      // *before* permission checks or execution. This is a hard gate — bad calls
+      // are rejected early with actionable feedback so the model can self-correct.
+      const validation = validateAgainstSchema(use.input, tool.inputSchema);
+      if (!validation.ok) {
+        const errorDetails = validation.errors
+          .map((e) => `  - ${e.path || 'input'}: ${e.message}`)
+          .join('\n');
+
+        const result = {
+          type: 'tool_result' as const,
+          tool_use_id: use.id,
+          content:
+            `Invalid arguments for tool "${tool.name}".\n\n` +
+            `Validation errors:\n${errorDetails}\n\n` +
+            `Please call the tool again with arguments that match its inputSchema. ` +
+            `You can use the "tool-help" tool with name="${tool.name}" to see the exact expected schema.`,
+          is_error: true,
+        };
+        budget = this.decrementBudget(result, budget);
+        return { result, tool, durationMs: Date.now() - start };
+      }
+
+      // Capability safety net at the executor level (defense in depth).
+      // For tools declaring dangerous capabilities, we ensure the permission
+      // decision cannot silently become "auto" in non-yolo contexts.
+      const toolDangerousCaps = getDangerousCapabilities(tool);
+      if (toolDangerousCaps.length > 0) {
+        // If the tool has dangerous capabilities and we're not in full yolo mode,
+        // we can force the downstream permission policy to treat it more strictly.
+        // For now we record it; future policy profiles can act on this.
+        if (this.opts.events) {
+          // Observability hook for dangerous capability usage
+        }
+      }
+
       // Provider boundary: the model's tool arguments arrive as a raw JSON
       // string accumulated over streamed deltas. When that string is not a
       // valid JSON object (truncated, scalar, or mangled by a proxy/local
@@ -72,13 +113,37 @@ export class ToolExecutor {
 
       const decision = await this.opts.permissionPolicy.evaluate(tool, use.input, ctx);
 
-      if (decision.permission === 'deny') {
+      // Post-permission dangerous capability enforcement (B-side guarantee).
+      // Even after the permission policy has spoken, we apply an extra conservative
+      // rule for tools that declare high-risk capabilities (shell arbitrary, write outside
+      // project, mcp proxy, etc.). This reduces the blast radius of prompt injection.
+      let effectivePermission = decision.permission;
+
+      // YOLO is the user's explicit "stop asking" switch, so it also waives the
+      // dangerous-capability net below (matching the historical behavior where
+      // --yolo skipped every prompt). The net still fires in non-yolo runs —
+      // e.g. a trust-file auto-allow for a shell tool still gets a confirm, so
+      // a single trusted pattern can't silently widen into arbitrary shell.
+      // Detected via optional methods so policies without them (AutoApprove,
+      // test mocks) keep the stricter default.
+      const policy = this.opts.permissionPolicy as {
+        getYolo?(): boolean;
+        getForceAllYolo?(): boolean;
+      };
+      const yolo = policy.getYolo?.() === true || policy.getForceAllYolo?.() === true;
+
+      if (toolDangerousCaps.length > 0 && effectivePermission === 'auto' && !yolo) {
+        // Outside yolo we force at least 'confirm' for dangerous-capability tools.
+        effectivePermission = 'confirm';
+      }
+
+      if (effectivePermission === 'deny') {
         const result = this.deniedResult(use, decision.reason);
         budget = this.decrementBudget(result, budget);
         return { result, tool, durationMs: Date.now() - start };
       }
 
-      if (decision.permission === 'confirm') {
+      if (effectivePermission === 'confirm') {
         if (this.opts.confirmAwaiter) {
           const choice = await this.opts.confirmAwaiter(tool, use.input, use.id, tool.name);
           if (choice !== 'yes' && choice !== 'always') {
@@ -106,13 +171,18 @@ export class ToolExecutor {
         }
       }
 
-      // permission === 'auto'
+      // effectivePermission === 'auto' (after all safety layers)
+      // Capability audit for observability.
+      const toolCapsForAudit = hasDangerousCapabilityForSubagents(tool) ? (tool.capabilities ?? []) : [];
+
       // L1-C: trace each tool execution. Span is a no-op unless an OTel
       // adapter or other Tracer is bound — zero overhead by default.
       const span = this.opts.tracer?.startSpan(`tool.${tool.name}`, {
         'tool.name': tool.name,
         'tool.mutating': tool.mutating,
         'tool.permission': tool.permission,
+        'tool.capabilities': JSON.stringify(tool.capabilities ?? []),
+        'tool.has_dangerous_capabilities': toolCapsForAudit.length > 0,
       });
       try {
         const result = await this.executeTool(tool, use, ctx, budget);

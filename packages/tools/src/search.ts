@@ -21,11 +21,16 @@ const TIMEOUT_MS = 15_000;
 export const searchTool: Tool<SearchInput, SearchOutput> = {
   name: 'search',
   category: 'Search',
-  description: 'Search the web for information. Returns title, URL, and snippet for each result.',
+  description:
+    'Perform a web search and return results with title, URL, and snippet. Use this when you need up-to-date external information that is not in the local codebase.',
   usageHint:
-    'Set `num_results` (1-50, default 10). Use `source` to pick engine: duckduckgo (default), google, bing.',
+    'Good for: API documentation, error messages, library usage examples, current best practices.\n\n' +
+    '- Prefer specific queries over very broad ones.\n' +
+    '- Results go through the guarded fetch system (same protections as the `fetch` tool).\n' +
+    '- This is often better than the model trying to recall outdated knowledge.',
   permission: 'confirm',
   mutating: false,
+  capabilities: ['net.outbound'],
   timeoutMs: TIMEOUT_MS,
   inputSchema: {
     type: 'object',

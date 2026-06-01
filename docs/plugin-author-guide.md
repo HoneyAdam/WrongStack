@@ -500,6 +500,23 @@ detection paths.
 - **Registering inside a pipeline handler.** Registries are not append-safe
   during iteration. Do registrations only in `setup`.
 
+## Security Considerations for Plugin Authors
+
+Plugins run with significant power (they can register tools, wrap existing tools,
+register slash commands, contribute pipelines, and load MCP servers).
+
+### Security checklist for plugins
+
+- [ ] **Capability declaration** — Be honest in `capabilities`. Over-declaring is better than under-declaring.
+- [ ] **Tool mutation** — External (non-official) plugins can only `wrap`/`unregister` tools they solely own. Attempting to downgrade a built-in will throw (see `packages/core/src/plugin/api.ts`).
+- [ ] **MCP servers** — Loading an MCP server means proxying arbitrary tools from that server. This has major subagent impact (most `mcp__*` tools are blocked for subagents by default).
+- [ ] **Pipeline middleware** — Middleware runs on every request/response. Be extremely careful with mutation and performance.
+- [ ] **Secret access** — Plugins should almost never need direct access to the secret vault. Use the provided abstractions.
+
+Adding a plugin that grants new powerful capabilities (especially shell, arbitrary FS write, or MCP proxying) should be treated as a security-sensitive change.
+
+See `docs/plans/security-hardening-2026-06.md` (P2) and `SECURITY.md`.
+
 ---
 
 ## Reference

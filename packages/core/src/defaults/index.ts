@@ -65,6 +65,17 @@ export {
 } from '../storage/recovery-lock.js';
 export { DefaultSessionReader } from '../storage/session-reader.js';
 export { SessionAnalyzer } from '../storage/session-analyzer.js';
+
+export {
+  createSessionEventBridge,
+  resolveAuditLevel,
+  resolveSessionLoggingConfig,
+  type SessionEventBridge,
+  type AuditLevel,
+  type SessionEventBridgeOptions,
+  type SessionSamplingOptions,
+  type ToolProgressSamplingOptions,
+} from '../storage/session-event-bridge.js';
 export {
   attachTodosCheckpoint,
   loadTodosCheckpoint,

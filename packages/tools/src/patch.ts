@@ -24,11 +24,16 @@ interface PatchOutput {
 export const patchTool: Tool<PatchInput, PatchOutput> = {
   name: 'patch',
   category: 'Filesystem',
-  description: 'Apply a unified diff patch to files. Writes .orig and .rej files on failure.',
+  description:
+    'Apply a unified diff (patch) to the project. This is the correct tool when you have a diff that needs to be applied precisely, including handling of rejects.',
   usageHint:
-    'Set `patch` (the diff text). `directory` defaults to cwd. `strip` removes leading path components. `dry_run` previews.',
+    'Best used when you already have a diff (from generation, external source, or previous step).\n' +
+    '- Use `dry_run: true` to see what would happen without modifying files.\n' +
+    '- On failure it creates .rej and .orig files for manual review.\n' +
+    'Often cleaner than many small `edit` operations for larger changes.',
   permission: 'confirm',
   mutating: true,
+  capabilities: ['fs.write'],
   timeoutMs: 30_000,
   inputSchema: {
     type: 'object',
