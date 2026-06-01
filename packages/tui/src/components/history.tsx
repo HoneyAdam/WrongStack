@@ -413,29 +413,47 @@ export const Entry = React.memo(function Entry({
   switch (entry.kind) {
     case 'user':
       return (
-        <Text>
-          <Text bold color="yellow">
-            {'USER: '}
+        <Box
+          borderStyle="single"
+          borderTop={false}
+          borderRight={false}
+          borderBottom={false}
+          borderColor={theme.user}
+          paddingLeft={1}
+        >
+          <Text>
+            <Text bold color={theme.user}>
+              {'USER  '}
+            </Text>
+            <Text color="white">{entry.text}</Text>
+            {entry.queued ? <Text dimColor>{' (queued)'}</Text> : null}
+            {entry.pasteContent ? (
+              <>
+                {entry.text ? '\n' : null}
+                <Text dimColor>
+                  {'  ↳ '}
+                  {entry.pasteContent}
+                </Text>
+              </>
+            ) : null}
           </Text>
-          <Text color="white">{entry.text}</Text>
-          {entry.queued ? <Text dimColor>{' (queued)'}</Text> : null}
-          {entry.pasteContent ? (
-            <>
-              {entry.text ? '\n' : null}
-              <Text dimColor>
-                {'  ↳ '}
-                {entry.pasteContent}
-              </Text>
-            </>
-          ) : null}
-        </Text>
+        </Box>
       );
     case 'assistant':
       return (
-        <Box flexDirection="column" marginY={1}>
+        <Box
+          flexDirection="column"
+          marginY={1}
+          borderStyle="single"
+          borderTop={false}
+          borderRight={false}
+          borderBottom={false}
+          borderColor={theme.assistant}
+          paddingLeft={1}
+        >
           <Box flexDirection="row">
             <Text bold color={theme.assistant}>
-              {'ASSISTANT: '}
+              {'ASSISTANT'}
             </Text>
           </Box>
           <AssistantBody text={entry.text} termWidth={termWidth} />
@@ -504,9 +522,31 @@ export const Entry = React.memo(function Entry({
     case 'info':
       return <Text dimColor>{entry.text}</Text>;
     case 'warn':
-      return <Text color="yellow">{entry.text}</Text>;
+      return (
+        <Box
+          borderStyle="single"
+          borderTop={false}
+          borderRight={false}
+          borderBottom={false}
+          borderColor={theme.warn}
+          paddingLeft={1}
+        >
+          <Text color={theme.warn}>{entry.text}</Text>
+        </Box>
+      );
     case 'error':
-      return <Text color="red">{entry.text}</Text>;
+      return (
+        <Box
+          borderStyle="single"
+          borderTop={false}
+          borderRight={false}
+          borderBottom={false}
+          borderColor={theme.error}
+          paddingLeft={1}
+        >
+          <Text color={theme.error}>{entry.text}</Text>
+        </Box>
+      );
     case 'turn-summary':
       return <Text dimColor>{entry.text}</Text>;
     case 'confirm':
