@@ -1,15 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@wrongstack/providers', () => ({
+  // Fresh capabilities object per call (each provider owns its own), with the
+  // openai-compatible family default so the maxContext overlay is observable.
   makeProviderFromConfig: vi.fn(() => ({
     id: 'mock',
-    capabilities: { streaming: false, tools: true },
+    capabilities: { streaming: false, tools: true, maxContext: 32_000 },
     complete: vi.fn(async () => ({
       content: [{ type: 'text', text: 'ok' }],
       stopReason: 'end_turn',
       usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 },
     })),
   })),
+  capabilitiesFor: vi.fn(async () => ({ maxContext: 128_000 })),
 }));
 
 import {
@@ -644,5 +647,24 @@ describe('MultiAgentHost.makeSubagentFactory', () => {
     expect(a.events).not.toBe(b.events);
     await a.dispose?.();
     await b.dispose?.();
+  });
+
+  it('overlays the real context window on the subagent provider when modelsRegistry is wired', async () => {
+    // Without the overlay an openai-compatible subagent (DeepSeek/Groq)
+    // reports the 32k family default in the fleet panel. With a registry
+    // wired, the factory resolves the real window (here mocked to 128k).
+    const deps = depsWithTools();
+    deps.modelsRegistry = {} as unknown as MultiAgentDeps['modelsRegistry'];
+    const host = new MultiAgentHost(deps);
+    const { agent, dispose } = await host.makeSubagentFactory(config)(slotCfg);
+    expect(agent.ctx.provider.capabilities.maxContext).toBe(128_000);
+    await dispose?.();
+  });
+
+  it('falls back to the family default window when no modelsRegistry is wired', async () => {
+    const host = new MultiAgentHost(depsWithTools());
+    const { agent, dispose } = await host.makeSubagentFactory(config)(slotCfg);
+    expect(agent.ctx.provider.capabilities.maxContext).toBe(32_000);
+    await dispose?.();
   });
 });

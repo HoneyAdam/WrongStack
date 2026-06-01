@@ -558,6 +558,7 @@ export async function main(argv: string[]): Promise<number> {
       toolRegistry,
       providerRegistry,
       configStore,
+      modelsRegistry,
       events,
       systemPromptBuilder: promptBuilder,
       session,

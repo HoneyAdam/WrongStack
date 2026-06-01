@@ -20,6 +20,7 @@ import {
   type DirectorSessionFactory,
   EventBus,
   FleetManager,
+  type ModelsRegistry,
   NULL_FLEET_BUS,
   type Provider,
   type ProviderRegistry,
@@ -39,13 +40,21 @@ import {
 } from '@wrongstack/core';
 import type { TextBlock } from '@wrongstack/core';
 import { ToolExecutor } from '@wrongstack/core/execution';
-import { makeProviderFromConfig } from '@wrongstack/providers';
+import { capabilitiesFor, makeProviderFromConfig } from '@wrongstack/providers';
 
 export interface MultiAgentDeps {
   container: Container;
   toolRegistry: ToolRegistry;
   providerRegistry: ProviderRegistry;
   configStore: ConfigStore;
+  /**
+   * Models catalog used to resolve a subagent provider's real context
+   * window. Without it, an `openai-compatible` subagent (DeepSeek, Groq,
+   * …) falls back to the 32k family default and the fleet panel reports
+   * the wrong window per subagent. Optional so callers/tests that don't
+   * wire it still build providers (the family default applies).
+   */
+  modelsRegistry?: ModelsRegistry;
   events: EventBus;
   systemPromptBuilder: SystemPromptBuilder;
   session: SessionWriter;
@@ -350,7 +359,11 @@ export class MultiAgentHost {
   makeSubagentFactory(config: Config): AgentFactory {
     return async (subCfg: SubagentConfig) => {
       const events = new EventBus();
-      const provider = await this.buildSubagentProvider(config, subCfg.provider);
+      const provider = await this.buildSubagentProvider(
+        config,
+        subCfg.provider,
+        subCfg.model ?? config.model,
+      );
 
       // Per-subagent cwd (defaults to the factory cwd). AutoPhase points this
       // at a phase's git worktree so isolated checkouts don't collide.
@@ -543,17 +556,41 @@ export class MultiAgentHost {
    * not configured (so a typo doesn't crash the whole run — we just
    * use the leader and the calling code can decide to error later).
    */
-  private async buildSubagentProvider(config: Config, overrideId?: string): Promise<Provider> {
+  private async buildSubagentProvider(
+    config: Config,
+    overrideId?: string,
+    model?: string,
+  ): Promise<Provider> {
     const providerId = overrideId && config.providers?.[overrideId] ? overrideId : config.provider;
     const newCfg = config.providers?.[providerId] ?? {
       type: providerId,
       apiKey: config.apiKey,
       baseUrl: config.baseUrl,
     };
-    return makeProviderFromConfig(providerId, {
+    const provider = makeProviderFromConfig(providerId, {
       ...newCfg,
       type: providerId,
     });
+    // Overlay the real context window. `makeProviderFromConfig` stamps the
+    // family default (32k for openai-compatible), which makes every DeepSeek/
+    // Groq subagent report a 32k window in the fleet panel. Resolve it the
+    // same way the leader does — models catalog first, then the leader's
+    // effective override, then the family default as a last resort. Each
+    // provider owns its own capabilities object, so mutating in place is safe.
+    if (this.deps.modelsRegistry) {
+      const resolvedModel = model ?? config.model;
+      const caps = await capabilitiesFor(
+        this.deps.modelsRegistry,
+        providerId,
+        resolvedModel,
+      ).catch(() => undefined);
+      const mc =
+        caps?.maxContext ??
+        config.context?.effectiveMaxContext ??
+        provider.capabilities.maxContext;
+      if (mc && mc > 0) provider.capabilities.maxContext = mc;
+    }
+    return provider;
   }
 
   async spawnACP(
