@@ -1,6 +1,8 @@
 import { Box, Static, Text, useStdout } from 'ink';
 import React, { useEffect, useState } from 'react';
+import { detectLang, type HLState, highlightLine, type Lang } from '../highlight.js';
 import { renderMarkdownTables } from '../markdown-table.js';
+import { theme } from '../theme.js';
 
 export type HistoryEntry =
   | { id: number; kind: 'user'; text: string; queued?: boolean; pasteContent?: string }
@@ -143,6 +145,116 @@ export function AssistantTail({ text }: { text: string }): React.ReactElement {
         <Text dimColor>(streaming...)</Text>
       </Box>
       <Text color="white">{text}</Text>
+    </Box>
+  );
+}
+
+/** Max code-block lines rendered before a "+N more" footer (mirrors ToolStreamBox). */
+const MAX_CODE_LINES = 80;
+
+export interface BodySegment {
+  type: 'prose' | 'code';
+  text: string;
+  lang?: Lang;
+}
+
+/**
+ * Split assistant text into prose and ```fenced``` code segments, in order.
+ * Pure + testable. An unterminated fence treats the remainder as code.
+ */
+export function splitFencedBlocks(text: string): BodySegment[] {
+  const lines = text.split('\n');
+  const segs: BodySegment[] = [];
+  let prose: string[] = [];
+  let code: string[] | null = null;
+  let lang: Lang = 'plain';
+  const flushProse = () => {
+    if (prose.length > 0) {
+      segs.push({ type: 'prose', text: prose.join('\n') });
+      prose = [];
+    }
+  };
+  for (const line of lines) {
+    const fence = line.match(/^\s*```(.*)$/);
+    if (fence) {
+      if (code === null) {
+        flushProse();
+        code = [];
+        lang = detectLang(fence[1] ?? '');
+      } else {
+        segs.push({ type: 'code', text: code.join('\n'), lang });
+        code = null;
+        lang = 'plain';
+      }
+      continue;
+    }
+    if (code !== null) code.push(line);
+    else prose.push(line);
+  }
+  if (code !== null) segs.push({ type: 'code', text: code.join('\n'), lang });
+  flushProse();
+  return segs;
+}
+
+/** Syntax-highlighted, framed code block. Each line is a row of <Text color>
+ *  segments (never raw ANSI), so Ink measures width by visible glyphs. */
+function CodeBlock({
+  code,
+  lang,
+  termWidth,
+}: { code: string; lang: Lang; termWidth: number }): React.ReactElement {
+  const maxW = Math.max(20, Math.min(termWidth - 8, 120));
+  let lines = code.replace(/\n+$/, '').split('\n');
+  const hidden = Math.max(0, lines.length - MAX_CODE_LINES);
+  if (hidden > 0) lines = lines.slice(0, MAX_CODE_LINES);
+  let carry: HLState = {};
+  const rows = lines.map((raw) => {
+    const display = raw.length > maxW ? `${raw.slice(0, maxW - 1)}…` : raw;
+    const r = highlightLine(display, lang, carry);
+    carry = r.carry;
+    return r.tokens;
+  });
+  return (
+    <Box flexDirection="column" marginLeft={2} marginY={0} borderStyle="round" borderColor={theme.borderDefault} paddingX={1}>
+      {lang !== 'plain' ? <Text dimColor>{lang}</Text> : null}
+      {rows.map((tokens, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: code lines are positional
+        <Text key={i}>
+          {tokens.length === 0
+            ? ' '
+            : tokens.map((t, j) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: token order is stable per line
+                <Text key={j} color={t.color} dimColor={t.dim} bold={t.bold}>
+                  {t.text}
+                </Text>
+              ))}
+        </Text>
+      ))}
+      {hidden > 0 ? <Text dimColor italic>{`… +${hidden} more line${hidden === 1 ? '' : 's'}`}</Text> : null}
+    </Box>
+  );
+}
+
+/** Assistant message body: prose (with markdown tables) interleaved with
+ *  highlighted code blocks. */
+export function AssistantBody({
+  text,
+  termWidth,
+}: { text: string; termWidth: number }): React.ReactElement {
+  const segments = splitFencedBlocks(text);
+  return (
+    <Box flexDirection="column">
+      {segments.map((seg, i) =>
+        seg.type === 'code' ? (
+          // biome-ignore lint/suspicious/noArrayIndexKey: segment order is stable
+          <CodeBlock key={i} code={seg.text} lang={seg.lang ?? 'plain'} termWidth={termWidth} />
+        ) : (
+          // biome-ignore lint/suspicious/noArrayIndexKey: segment order is stable
+          <Text key={i} color="white">
+            {renderMarkdownTables(seg.text, termWidth)}
+          </Text>
+        ),
+      )}
     </Box>
   );
 }
@@ -318,11 +430,11 @@ export const Entry = React.memo(function Entry({
       return (
         <Box flexDirection="column" marginY={1}>
           <Box flexDirection="row">
-            <Text bold color="cyan">
+            <Text bold color={theme.assistant}>
               {'ASSISTANT: '}
             </Text>
           </Box>
-          <Text color="white">{renderMarkdownTables(entry.text, termWidth)}</Text>
+          <AssistantBody text={entry.text} termWidth={termWidth} />
         </Box>
       );
     case 'tool': {
