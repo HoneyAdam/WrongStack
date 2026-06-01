@@ -545,6 +545,7 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
     const rawMaxTokens = subagent.config.maxTokens;
     const rawMaxCostUsd = subagent.config.maxCostUsd;
     const rawTimeoutMs = subagent.config.timeoutMs;
+    const rawIdleTimeoutMs = subagent.config.idleTimeoutMs;
     const configWithRosterDefaults = applyRosterBudget(subagent.config);
     const budget = new SubagentBudget({
       maxIterations:
@@ -557,8 +558,14 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
         rawMaxTokens ?? this.config.defaultBudget?.maxTokens ?? configWithRosterDefaults.maxTokens,
       maxCostUsd:
         rawMaxCostUsd ?? this.config.defaultBudget?.maxCostUsd ?? configWithRosterDefaults.maxCostUsd,
+      // Wall-clock cap is opt-in (explicit config / defaultBudget only); the
+      // roster no longer supplies one. Idle is the default reaper.
       timeoutMs:
         rawTimeoutMs ?? this.config.defaultBudget?.timeoutMs ?? configWithRosterDefaults.timeoutMs,
+      idleTimeoutMs:
+        rawIdleTimeoutMs ??
+        this.config.defaultBudget?.idleTimeoutMs ??
+        configWithRosterDefaults.idleTimeoutMs,
     });
     subagent.activeBudget = budget;
 
@@ -632,92 +639,129 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
     budget: SubagentBudget,
   ) {
     const initialTimeoutMs = budget.limits.timeoutMs;
-    if (initialTimeoutMs === undefined) return runner(task, ctx);
+    const idleLimitMs = budget.limits.idleTimeoutMs;
+    if (initialTimeoutMs === undefined && idleLimitMs === undefined) {
+      return runner(task, ctx);
+    }
 
-    // Re-armable watchdog. When the wall-clock fires, give the budget a
-    // chance to negotiate an extension (via the same onThreshold path the
-    // other limit kinds use). The Director's auto-extend listener handles
-    // `kind: 'timeout'` and patches `budget.limits.timeoutMs`; we observe
-    // that patch on the next tick and re-arm the timer for the remaining
-    // window. If onThreshold is unset or negotiation returns 'stop',
-    // reject as before with `elapsed` (not `Date.now()`) so the error
-    // message reads sensibly.
+    // Re-armable watchdog. The default guard is IDLE-based: while the agent
+    // keeps producing activity (iterations / tool calls / streamed progress),
+    // `budget.idleMs()` stays below the window and we simply re-arm — an
+    // actively-working subagent is never killed by the clock. Only a genuine
+    // stall (no activity for `idleTimeoutMs`) reaps it. An explicit wall-clock
+    // `timeoutMs` (rare, opt-in) keeps the original soft-warning behaviour: it
+    // negotiates an extension via the Director's auto-extend listener and
+    // re-arms rather than hard-killing a task solely for running long.
     const start = Date.now();
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     const timeoutPromise = new Promise<never>((_, reject) => {
       const armFor = (ms: number) => {
         if (timer) clearTimeout(timer);
-        timer = setTimeout(async () => {
-          const elapsed = Date.now() - start;
-          const limit = budget.limits.timeoutMs ?? initialTimeoutMs;
-          // Without an onThreshold handler the original behaviour stands:
-          // abort the signal and hard-reject. This preserves the contract
-          // for direct SubagentBudget consumers that don't wire negotiation.
-          if (!budget.onThreshold) {
-            this.subagents.get(ctx.subagentId)?.abortController.abort();
-            reject(new BudgetExceededError('timeout', limit, elapsed));
+        timer = setTimeout(onTick, Math.max(0, ms));
+      };
+      // Re-arm for whichever deadline is sooner — the idle window (counted
+      // from last activity) or the explicit wall-clock cap. Either being
+      // unset drops out of the min, so single-limit configs behave exactly
+      // as that limit alone.
+      const scheduleNext = () => {
+        const wallRemaining =
+          initialTimeoutMs === undefined
+            ? Number.POSITIVE_INFINITY
+            : (budget.limits.timeoutMs ?? initialTimeoutMs) - (Date.now() - start);
+        const idleRemaining =
+          idleLimitMs === undefined
+            ? Number.POSITIVE_INFINITY
+            : (budget.limits.idleTimeoutMs ?? idleLimitMs) - budget.idleMs();
+        // Floor at a small positive so a near-zero remainder can't busy-loop.
+        armFor(Math.max(25, Math.min(wallRemaining, idleRemaining)));
+      };
+
+      const onTick = async () => {
+        const elapsed = Date.now() - start;
+        const wallLimit =
+          initialTimeoutMs === undefined ? undefined : budget.limits.timeoutMs ?? initialTimeoutMs;
+        const idleLimit =
+          idleLimitMs === undefined ? undefined : budget.limits.idleTimeoutMs ?? idleLimitMs;
+        const wallExceeded = wallLimit !== undefined && elapsed >= wallLimit;
+        const idleExceeded = idleLimit !== undefined && budget.idleMs() >= idleLimit;
+
+        // Idle stall with no wall-clock cap also due: a genuinely hung agent
+        // (no activity for the whole window). Reap it directly — idle is not
+        // negotiable; the point of the default is to free a stuck slot.
+        if (idleExceeded && !wallExceeded) {
+          this.subagents.get(ctx.subagentId)?.abortController.abort();
+          reject(new BudgetExceededError('timeout', idleLimit!, budget.idleMs()));
+          return;
+        }
+        // Neither deadline actually tripped — we woke early because activity
+        // pushed the idle deadline out. Re-arm for the new soonest deadline.
+        if (!wallExceeded) {
+          scheduleNext();
+          return;
+        }
+
+        // Wall-clock cap hit. This is opt-in and keeps the original
+        // soft-warning behaviour: negotiate an extension rather than
+        // hard-killing a task solely for running long.
+        const limit = wallLimit!;
+        // Without an onThreshold handler the original behaviour stands:
+        // abort the signal and hard-reject. This preserves the contract
+        // for direct SubagentBudget consumers that don't wire negotiation.
+        if (!budget.onThreshold) {
+          this.subagents.get(ctx.subagentId)?.abortController.abort();
+          reject(new BudgetExceededError('timeout', limit, elapsed));
+          return;
+        }
+        // With a handler, ask for an extension. The budget's
+        // requestDecision returns 'stop' on no response (decision
+        // fallback timer inside SubagentBudget), so this never hangs.
+        try {
+          const result = budget.onThreshold({
+            kind: 'timeout',
+            used: elapsed,
+            limit,
+            requestDecision: () =>
+              new Promise((resolveDecision) => {
+                budget._events?.emit('budget.threshold_reached', {
+                  kind: 'timeout',
+                  used: elapsed,
+                  limit,
+                  timeoutMs: 60_000,
+                  extend: (extra) => resolveDecision({ extend: extra }),
+                  deny: () => resolveDecision('stop'),
+                });
+              }),
+          });
+          const decision = typeof result === 'string' ? result : await result;
+          if (decision === 'continue' || decision === 'throw' || decision === 'stop') {
+            // Timeout denied / no-op — re-arm for another full wall window so
+            // we ask again later. This makes wall-clock timeout a pure warning
+            // event: the subagent keeps running until it naturally finishes or
+            // the user stops it. No task is hard-killed solely for running long.
+            armFor(Math.max(1_000, limit));
             return;
           }
-          // With a handler, ask for an extension. The budget's
-          // requestDecision returns 'stop' on no response (decision
-          // fallback timer inside SubagentBudget), so this never hangs.
-          try {
-            const result = budget.onThreshold({
-              kind: 'timeout',
-              used: elapsed,
-              limit,
-              requestDecision: () =>
-                new Promise((resolveDecision) => {
-                  budget._events?.emit('budget.threshold_reached', {
-                    kind: 'timeout',
-                    used: elapsed,
-                    limit,
-                    timeoutMs: 60_000,
-                    extend: (extra) => resolveDecision({ extend: extra }),
-                    deny: () => resolveDecision('stop'),
-                  });
-                }),
-            });
-            const decision =
-              typeof result === 'string' ? result : await result;
-            if (decision === 'continue') {
-              armFor(Math.max(1_000, limit));
-              return;
-            }
-            if (decision === 'throw' || decision === 'stop') {
-              // Timeout denied — re-arm for the same limit so we ask again
-              // on the next tick. This makes timeout a pure warning event:
-              // the subagent keeps running, the user sees "⚡ timeout —
-              // extending" in chat history, and work continues until the
-              // subagent naturally finishes or the user stops it. No task
-              // is hard-killed solely because its wall-clock ran out.
-              armFor(Math.max(1_000, limit));
-              return;
-            }
-            // 'extend' — patch budget and re-arm for the new remainder.
-            if (decision.extend.timeoutMs !== undefined) {
-              (budget.limits as Record<string, unknown>).timeoutMs =
-                decision.extend.timeoutMs;
-              const newLimit = decision.extend.timeoutMs;
-              const remaining = Math.max(1_000, newLimit - elapsed);
-              armFor(remaining);
-              return;
-            }
-            // No timeoutMs in extend — fall through to reject.
-            this.subagents.get(ctx.subagentId)?.abortController.abort();
-            reject(new BudgetExceededError('timeout', limit, elapsed));
-          } catch (err) {
-            this.subagents.get(ctx.subagentId)?.abortController.abort();
-            reject(
-              err instanceof BudgetExceededError
-                ? err
-                : new BudgetExceededError('timeout', limit, elapsed),
-            );
+          // 'extend' — patch budget and re-arm for the new remainder.
+          if (decision.extend.timeoutMs !== undefined) {
+            (budget.limits as Record<string, unknown>).timeoutMs = decision.extend.timeoutMs;
+            scheduleNext();
+            return;
           }
-        }, ms);
+          // No timeoutMs in extend — fall through to reject.
+          this.subagents.get(ctx.subagentId)?.abortController.abort();
+          reject(new BudgetExceededError('timeout', limit, elapsed));
+        } catch (err) {
+          this.subagents.get(ctx.subagentId)?.abortController.abort();
+          reject(
+            err instanceof BudgetExceededError
+              ? err
+              : new BudgetExceededError('timeout', limit, elapsed),
+          );
+        }
       };
-      armFor(initialTimeoutMs);
+      // First arm: whichever of the idle window / wall-clock cap is sooner.
+      scheduleNext();
     });
 
     try {

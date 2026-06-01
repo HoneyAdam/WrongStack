@@ -271,11 +271,22 @@ export const FLEET_ROSTER: Record<string, SubagentConfig> = {
 // ---------------------------------------------------------------------------
 export interface FleetRosterBudget {
   timeoutMs?: number;
+  /** Idle reap window (ms). Resets on activity — see `applyRosterBudget`. */
+  idleTimeoutMs?: number;
   maxIterations?: number;
   maxToolCalls?: number;
   maxTokens?: number;
   maxCostUsd?: number;
 }
+
+/**
+ * Default idle window for delegated subagents: reap only after this long with
+ * NO activity (no iteration / tool call / streamed progress). An actively-
+ * working agent resets this clock continuously, so it runs until its task
+ * naturally ends — no more wall-clock kills of productive runs. Power users
+ * can still impose a hard `timeoutMs` per delegate.
+ */
+export const DEFAULT_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 
 export const FLEET_ROSTER_BUDGETS: Record<string, FleetRosterBudget> = {
   'audit-log': { timeoutMs: 7.5 * 60 * 60 * 1000, maxIterations: 5000, maxToolCalls: 15000 },
@@ -292,12 +303,13 @@ export const FLEET_ROSTER_BUDGETS: Record<string, FleetRosterBudget> = {
  * Apply roster budget to a config (only when the config has no explicit
  * budget fields set). This is called by the coordinator before dispatch.
  */
-// Generic default budget applied when no role matches and no explicit
-// budget fields are set. Used for `name` / free-form delegates that don't
-// go through the roster path. Allows very long runs — the LLM sees a
-// conservative schema default (30 min) but the subagent gets 3 hours.
+// Generic default budget applied when no role matches and no explicit budget
+// fields are set. Used for `name` / free-form delegates. There is no default
+// wall-clock timeout — a delegated agent runs until its task naturally ends
+// (`end_turn`) or it stalls past the idle window. Iteration / tool-call ceilings
+// remain as a runaway backstop.
 const GENERIC_SUBAGENT_BUDGET: FleetRosterBudget = {
-  timeoutMs: 3 * 60 * 60 * 1000,
+  idleTimeoutMs: DEFAULT_IDLE_TIMEOUT_MS,
   maxIterations: 5000,
   maxToolCalls: 15000,
 };
@@ -309,7 +321,13 @@ export function applyRosterBudget(cfg: SubagentConfig): SubagentConfig {
   if (!defaultBudget) return cfg;
   return {
     ...cfg,
-    timeoutMs: cfg.timeoutMs ?? defaultBudget.timeoutMs,
+    // Wall-clock cap is opt-in only: forward an explicit `cfg.timeoutMs`, but
+    // do NOT impose the roster's historical multi-hour wall-clock default — it
+    // killed agents that were still actively working. Reaping is idle-based.
+    timeoutMs: cfg.timeoutMs,
+    // Idle window is the default reaper. Resets on activity, so a long-but-
+    // productive run is never killed; only a genuine stall is reaped.
+    idleTimeoutMs: cfg.idleTimeoutMs ?? defaultBudget.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS,
     maxIterations: cfg.maxIterations ?? defaultBudget.maxIterations,
     maxToolCalls: cfg.maxToolCalls ?? defaultBudget.maxToolCalls,
     maxTokens: cfg.maxTokens ?? defaultBudget.maxTokens,

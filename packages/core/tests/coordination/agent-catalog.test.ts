@@ -114,11 +114,14 @@ describe('fleet roster derivation', () => {
     }
   });
 
-  it('every roster role has a budget and applyRosterBudget fills a timeout', () => {
+  it('every roster role has a budget and applyRosterBudget fills an idle window', () => {
     for (const role of Object.keys(FLEET_ROSTER)) {
       expect(FLEET_ROSTER_BUDGETS[role], `budget for ${role}`).toBeDefined();
       const resolved = applyRosterBudget({ ...FLEET_ROSTER[role]!, role });
-      expect(resolved.timeoutMs, `resolved timeout for ${role}`).toBeGreaterThan(0);
+      // The default reaper is idle-based now — no wall-clock cap is imposed
+      // by default (it killed active agents); idleTimeoutMs is always filled.
+      expect(resolved.idleTimeoutMs, `resolved idle window for ${role}`).toBeGreaterThan(0);
+      expect(resolved.timeoutMs, `no default wall-clock for ${role}`).toBeUndefined();
     }
   });
 });

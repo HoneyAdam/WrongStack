@@ -220,6 +220,10 @@ export function makeAgentSubagentRunner(opts: AgentRunnerOptions): SubagentRunne
       // Cheap: O(1) per progress event, and the budget short-circuits
       // when timeoutMs is unset (most subagents have one set anyway).
       events.on('tool.progress', () => {
+        // Streamed progress (bash chunks, fetch bytes, spawn stdout) is forward
+        // motion — reset the idle clock so a long-but-working tool is never
+        // mistaken for a stall, THEN check whether a genuine timeout tripped.
+        ctx.budget.markActivity();
         try {
           ctx.budget.checkTimeout();
         } catch (e) {
@@ -239,6 +243,9 @@ export function makeAgentSubagentRunner(opts: AgentRunnerOptions): SubagentRunne
         currentToolName = e.name;
       }),
       events.on('provider.text_delta', (e) => {
+        // Streamed assistant text is forward motion too — keep the idle
+        // clock fresh while the model is actively generating.
+        ctx.budget.markActivity();
         // Accumulate last ~200 chars for the partial text snapshot.
         streamingTextAcc = (streamingTextAcc + e.text).slice(-200);
       }),

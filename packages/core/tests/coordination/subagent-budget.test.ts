@@ -257,4 +257,63 @@ describe('SubagentBudget', () => {
     b.recordIteration();
     expect(b.isNearLimit()).toBe(false);
   });
+
+  describe('idle timeout', () => {
+    it('markActivity resets the idle clock so an active agent does not time out', async () => {
+      const b = new SubagentBudget({ idleTimeoutMs: 40 });
+      b.start();
+      // Keep poking activity faster than the idle window — must never trip.
+      for (let i = 0; i < 4; i++) {
+        await new Promise((r) => setTimeout(r, 25));
+        b.markActivity();
+        expect(() => b.checkTimeout()).not.toThrow();
+        expect(b.isTimedOut()).toBe(false);
+      }
+    });
+
+    it('checkTimeout trips when idle exceeds idleTimeoutMs with no activity', async () => {
+      const b = new SubagentBudget({ idleTimeoutMs: 30 });
+      b.start();
+      await new Promise((r) => setTimeout(r, 60));
+      expect(b.isTimedOut()).toBe(true);
+      expect(() => b.checkTimeout()).toThrow(BudgetExceededError);
+      expect(() => b.checkTimeout()).toThrow(/timeout/i);
+    });
+
+    it('recordToolCall counts as activity and keeps the idle clock fresh', async () => {
+      const b = new SubagentBudget({ idleTimeoutMs: 40, maxToolCalls: 100 });
+      b.start();
+      await new Promise((r) => setTimeout(r, 30));
+      b.recordToolCall(); // activity → resets idle
+      await new Promise((r) => setTimeout(r, 20));
+      expect(b.isTimedOut()).toBe(false); // only 20ms idle since the tool call
+    });
+
+    it('idleMs reports time since the last activity, not since start', async () => {
+      const b = new SubagentBudget({ idleTimeoutMs: 10_000 });
+      b.start();
+      await new Promise((r) => setTimeout(r, 40));
+      b.markActivity();
+      expect(b.idleMs()).toBeLessThan(20);
+    });
+
+    it('an explicit wall-clock timeoutMs still enforces a hard cap', async () => {
+      const b = new SubagentBudget({ timeoutMs: 30 });
+      b.start();
+      // Activity does NOT reset a wall-clock cap.
+      b.markActivity();
+      await new Promise((r) => setTimeout(r, 60));
+      b.markActivity();
+      expect(b.isTimedOut()).toBe(true);
+      expect(() => b.checkTimeout()).toThrow(BudgetExceededError);
+    });
+
+    it('no timeout fields → checkTimeout is always a no-op', async () => {
+      const b = new SubagentBudget({ maxIterations: 10 });
+      b.start();
+      await new Promise((r) => setTimeout(r, 30));
+      expect(() => b.checkTimeout()).not.toThrow();
+      expect(b.isTimedOut()).toBe(false);
+    });
+  });
 });

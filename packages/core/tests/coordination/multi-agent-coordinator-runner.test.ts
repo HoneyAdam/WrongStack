@@ -187,6 +187,47 @@ describe('DefaultMultiAgentCoordinator with runner', () => {
     expect(result.result).toBe('finished');
   });
 
+  it('idle-timeout reaps a genuinely stalled subagent (no activity)', async () => {
+    // A runner that does nothing but sleep past the idle window, never
+    // emitting activity — the watchdog should reap it as a stall.
+    const runner: SubagentRunner = async (_task, ctx) => {
+      await new Promise<void>((resolve, reject) => {
+        const t = setTimeout(() => resolve(), 500);
+        ctx.signal.addEventListener('abort', () => {
+          clearTimeout(t);
+          reject(new Error('aborted'));
+        });
+      });
+      return { result: 'too late', iterations: 1, toolCalls: 0 };
+    };
+    const coord = new DefaultMultiAgentCoordinator(makeConfig(), { runner });
+    // idleTimeoutMs only (no wall-clock cap).
+    await coord.spawn({ id: 'a1', name: 'A1', idleTimeoutMs: 40 });
+    const donePromise = waitForDone(coord);
+    await coord.assign({ id: 't1', description: 'stalled' });
+    const [result] = await donePromise;
+    expect(result.status).toBe('timeout');
+  });
+
+  it('idle-timeout does NOT reap an actively-working subagent', async () => {
+    // The runner keeps marking activity faster than the idle window, so the
+    // watchdog must re-arm forever and let it finish on its own.
+    const runner: SubagentRunner = async (_task, ctx) => {
+      for (let i = 0; i < 6; i++) {
+        await new Promise((r) => setTimeout(r, 20));
+        ctx.budget.markActivity(); // simulate a tool call / streamed progress
+      }
+      return { result: 'finished', iterations: 1, toolCalls: 6 };
+    };
+    const coord = new DefaultMultiAgentCoordinator(makeConfig(), { runner });
+    await coord.spawn({ id: 'a1', name: 'A1', idleTimeoutMs: 40 });
+    const donePromise = waitForDone(coord);
+    await coord.assign({ id: 't1', description: 'busy but slow' });
+    const [result] = await donePromise;
+    expect(result.status).toBe('success');
+    expect(result.result).toBe('finished');
+  });
+
   it('respects maxConcurrent — extra tasks queue until a slot frees', async () => {
     let active = 0;
     let maxActive = 0;

@@ -10,7 +10,15 @@ export interface SubagentConfig {
   maxToolCalls?: number;
   maxTokens?: number;
   maxCostUsd?: number;
+  /** Hard wall-clock cap (ms) from start. Opt-in; prefer `idleTimeoutMs`. */
   timeoutMs?: number;
+  /**
+   * Idle timeout (ms): reap the subagent only after this long with no
+   * activity. Resets on every iteration / tool call / streamed progress, so
+   * an actively-working agent runs until its task naturally ends. This is the
+   * default reaper for delegated subagents (see `applyRosterBudget`).
+   */
+  idleTimeoutMs?: number;
   tools?: string[];
   model?: string;
   priority?: number;
@@ -183,6 +191,7 @@ export interface MultiAgentConfig {
     maxTokens?: number;
     maxCostUsd?: number;
     timeoutMs?: number;
+    idleTimeoutMs?: number;
   };
 }
 

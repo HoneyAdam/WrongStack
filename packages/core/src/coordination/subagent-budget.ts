@@ -23,8 +23,21 @@ export interface BudgetLimits {
   maxTokens?: number;
   /** Estimated USD cost ceiling. */
   maxCostUsd?: number;
-  /** Wall-clock timeout from start() to checkTimeout(). */
+  /**
+   * Hard wall-clock timeout measured from `start()`. Off by default — set it
+   * explicitly only when a task must finish within an absolute window. For
+   * the everyday "don't kill an agent that's still working" guard, prefer
+   * `idleTimeoutMs`, which resets on activity.
+   */
   timeoutMs?: number;
+  /**
+   * Idle timeout: the maximum gap (ms) between activity signals (iterations,
+   * tool calls, token usage, streamed progress) before the subagent is
+   * considered hung and reaped. Unlike `timeoutMs`, an actively-working
+   * agent continuously resets this clock via `markActivity()`, so it never
+   * trips on a long-but-productive run — only on a genuine stall.
+   */
+  idleTimeoutMs?: number;
 }
 
 /**
@@ -126,6 +139,13 @@ export class SubagentBudget {
   private tokenOutput = 0;
   private costUsd = 0;
   private startTime: number | null = null;
+  /**
+   * Timestamp of the most recent activity (iteration / tool call / token
+   * usage / streamed progress). Drives the idle timeout — reset by
+   * `markActivity()`. Initialised to `start()` time so a never-active agent
+   * still eventually trips its idle window.
+   */
+  private lastActivityTime: number | null = null;
   private _onThreshold: BudgetThresholdHandler | undefined;
   /**
    * Hard cap on how long `_negotiateExtension` waits for the coordinator to
@@ -180,6 +200,26 @@ export class SubagentBudget {
 
   start(): void {
     this.startTime = Date.now();
+    this.lastActivityTime = this.startTime;
+  }
+
+  /**
+   * Reset the idle clock. Called on any sign of forward progress —
+   * iterations, tool calls, token usage, and streamed tool/text progress —
+   * so a long-but-productive subagent never trips its `idleTimeoutMs`.
+   */
+  markActivity(): void {
+    this.lastActivityTime = Date.now();
+  }
+
+  /**
+   * Milliseconds since the last activity signal. Returns 0 before `start()`
+   * (nothing to measure yet). Used by the coordinator watchdog to decide
+   * whether to re-arm (still active) or reap (genuinely idle).
+   */
+  idleMs(): number {
+    const since = this.lastActivityTime ?? this.startTime;
+    return since === null ? 0 : Date.now() - since;
   }
 
   /** Returns true if we're within 10% of any limit — useful for pre-flight checks. */
@@ -230,9 +270,18 @@ export class SubagentBudget {
     if (this.limits.maxCostUsd !== undefined && this.costUsd > this.limits.maxCostUsd) {
       exceeded.push({ kind: 'cost', used: this.costUsd, limit: this.limits.maxCostUsd });
     }
-    // Wall-clock timeout: called from checkTimeout() with elapsedMs.
-    if (elapsedMs !== undefined && this.limits.timeoutMs !== undefined && elapsedMs > this.limits.timeoutMs) {
-      exceeded.push({ kind: 'timeout', used: elapsedMs, limit: this.limits.timeoutMs });
+    // Timeout: called from checkTimeout() with elapsedMs (wall-clock) and the
+    // current idle gap. Either crossing its limit trips the 'timeout' kind.
+    // Wall-clock (`timeoutMs`) is an explicit hard cap; idle (`idleTimeoutMs`)
+    // is the default guard that resets on activity. Idle takes precedence in
+    // the pushed entry so the surfaced limit reads as the one actually hit.
+    if (elapsedMs !== undefined) {
+      const idle = this.idleMs();
+      if (this.limits.idleTimeoutMs !== undefined && idle > this.limits.idleTimeoutMs) {
+        exceeded.push({ kind: 'timeout', used: idle, limit: this.limits.idleTimeoutMs });
+      } else if (this.limits.timeoutMs !== undefined && elapsedMs > this.limits.timeoutMs) {
+        exceeded.push({ kind: 'timeout', used: elapsedMs, limit: this.limits.timeoutMs });
+      }
     }
 
     if (exceeded.length === 0) return [];
@@ -359,6 +408,9 @@ export class SubagentBudget {
       if (ext.timeoutMs !== undefined) {
         (this.limits as Record<string, unknown>).timeoutMs = ext.timeoutMs;
       }
+      if (ext.idleTimeoutMs !== undefined) {
+        (this.limits as Record<string, unknown>).idleTimeoutMs = ext.idleTimeoutMs;
+      }
       return decision;
     } finally {
       this._pendingNegotiations.delete(kind);
@@ -367,11 +419,13 @@ export class SubagentBudget {
 
   recordIteration(): void {
     this.iterations++;
+    this.markActivity();
     void this.checkLimits();
   }
 
   recordToolCall(): void {
     this.toolCalls++;
+    this.markActivity();
     void this.checkLimits();
   }
 
@@ -379,6 +433,7 @@ export class SubagentBudget {
     this.tokenInput += usage.input;
     this.tokenOutput += usage.output;
     this.costUsd += costUsd;
+    this.markActivity();
     void this.checkLimits();
   }
 
@@ -394,16 +449,23 @@ export class SubagentBudget {
    * - `mode === 'auto'` + listener     → throw `BudgetExceededError` (timeout is not extendable)
    */
   checkTimeout(): void {
-    if (this.startTime === null || this.limits.timeoutMs === undefined) return;
+    if (this.startTime === null) return;
+    const { timeoutMs, idleTimeoutMs } = this.limits;
+    if (timeoutMs === undefined && idleTimeoutMs === undefined) return;
     const elapsed = Date.now() - this.startTime;
-    if (elapsed <= this.limits.timeoutMs) return;
+    const wallTripped = timeoutMs !== undefined && elapsed > timeoutMs;
+    const idleTripped = idleTimeoutMs !== undefined && this.idleMs() > idleTimeoutMs;
+    if (!wallTripped && !idleTripped) return;
     void this.checkLimits(elapsed);
   }
 
-  /** Returns true if a timeout has occurred without throwing. Useful for races. */
+  /** Returns true if a wall-clock or idle timeout has occurred without throwing. */
   isTimedOut(): boolean {
-    if (this.startTime === null || this.limits.timeoutMs === undefined) return false;
-    return Date.now() - this.startTime > this.limits.timeoutMs;
+    if (this.startTime === null) return false;
+    const { timeoutMs, idleTimeoutMs } = this.limits;
+    if (timeoutMs !== undefined && Date.now() - this.startTime > timeoutMs) return true;
+    if (idleTimeoutMs !== undefined && this.idleMs() > idleTimeoutMs) return true;
+    return false;
   }
 
   usage(): BudgetUsage {
