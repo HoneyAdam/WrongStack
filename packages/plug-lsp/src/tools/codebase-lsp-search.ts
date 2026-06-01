@@ -16,6 +16,7 @@ import {
   tokenise,
   internalKindToLspKind,
   lspKindToInternalKind,
+  codebaseIndexDirOverride,
 } from '@wrongstack/tools/codebase-index/index';
 
 import { LSP_CONSTANTS } from '../constants.js';
@@ -96,7 +97,12 @@ export function createCodebaseLspSearchTool(deps: ToolDeps): Tool<CodebaseLspSea
 
         // ── Step 1: Query index (unless preferLsp is set) ──────────────────────
         if (!input.preferLsp) {
-          const indexOutcome = await searchIndex(ctx.projectRoot, query, limit);
+          const indexOutcome = await searchIndex(
+            ctx.projectRoot,
+            query,
+            limit,
+            codebaseIndexDirOverride(ctx),
+          );
           indexResults = indexOutcome.results;
           totalIndex = indexOutcome.total;
           usedIndex = true;
@@ -141,8 +147,9 @@ async function searchIndex(
   projectRoot: string,
   query: string,
   limit: number,
+  indexDir?: string,
 ): Promise<{ results: CodebaseLspResult[]; total: number }> {
-  const store = new IndexStore(projectRoot);
+  const store = new IndexStore(projectRoot, { indexDir });
   try {
     const candidates = store.search(query);
 

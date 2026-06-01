@@ -1,6 +1,7 @@
 
 import type { Tool } from '@wrongstack/core';
 import { runIndexer } from './indexer.js';
+import { codebaseIndexDirOverride } from './writer.js';
 
 export const codebaseIndexTool: Tool<CodebaseIndexInput, CodebaseIndexOutput> = {
   name: 'codebase-index',
@@ -31,6 +32,7 @@ export const codebaseIndexTool: Tool<CodebaseIndexInput, CodebaseIndexOutput> = 
       projectRoot: ctx.projectRoot,
       force: input.force ?? false,
       langs: input.langs,
+      indexDir: codebaseIndexDirOverride(ctx),
     });
     return result;
   },

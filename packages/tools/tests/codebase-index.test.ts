@@ -32,6 +32,9 @@ function mkCtx(root: string): Context {
   return {
     cwd: root,
     projectRoot: root,
+    // Redirect the index into the temp project dir so tests never touch the
+    // real ~/.wrongstack home (the production default location).
+    meta: { codebaseIndexDir: path.join(root, '.codebase-index') },
     readFiles: new Set<string>(),
     fileMtimes: new Map<string, number>(),
     hasRead(p: string) {
@@ -248,7 +251,7 @@ describe('IndexStore', () => {
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-idx-'));
-    store = new IndexStore(tmpDir);
+    store = new IndexStore(tmpDir, { indexDir: path.join(tmpDir, '.codebase-index') });
   });
 
   afterEach(async () => {
@@ -317,7 +320,7 @@ describe('IndexStore', () => {
       1,
     );
     store.close();
-    const store2 = new IndexStore(tmpDir);
+    const store2 = new IndexStore(tmpDir, { indexDir: path.join(tmpDir, '.codebase-index') });
     const stats = store2.getStats();
     expect(stats.totalSymbols).toBe(1);
     store2.close();
@@ -821,7 +824,7 @@ describe('search with lspKind filter', () => {
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-lsp-'));
-    store = new IndexStore(tmpDir);
+    store = new IndexStore(tmpDir, { indexDir: path.join(tmpDir, '.codebase-index') });
   });
 
   afterEach(async () => {

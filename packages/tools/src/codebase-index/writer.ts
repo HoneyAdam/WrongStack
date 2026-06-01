@@ -2,19 +2,41 @@
  * SQLite storage layer for the codebase index.
  *
  * Uses `node:sqlite` (synchronous API — DatabaseSync class).
- * Database file: {projectRoot}/.codebase-index/index.db
+ * Database file: ~/.wrongstack/projects/<hash>/codebase-index/index.db — kept
+ * out of the repo so it never clutters the working tree or needs gitignoring.
  */
 
 import { createRequire } from 'node:module';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
+import { resolveWstackPaths } from '@wrongstack/core';
 import type { FileMeta, IndexStats, Ref, SearchResult, Symbol as IndexSymbol, SymbolKind, SymbolLang } from './schema.js';
 import { SCHEMA_VERSION } from './schema.js';
 import { lspKindToInternalKind } from './lsp-kind.js';
 
-const INDEX_DIR = '.codebase-index';
 const DB_FILE = 'index.db';
+
+/**
+ * Resolve the per-project index directory. By default it lives under the
+ * global project dir (`~/.wrongstack/projects/<hash>/codebase-index`),
+ * matching every other piece of per-project state. Callers may pass an
+ * explicit `override` (used by tests and any wiring that already resolved the
+ * path) to avoid touching the real home directory.
+ */
+export function resolveIndexDir(projectRoot: string, override?: string): string {
+  return override ?? resolveWstackPaths({ projectRoot }).projectCodebaseIndex;
+}
+
+/**
+ * Optional index-directory override carried on the run context's `meta` bag.
+ * Production leaves it unset (the index resolves to the global per-project
+ * dir); tests and bespoke wiring set `meta.codebaseIndexDir` to redirect it.
+ */
+export function codebaseIndexDirOverride(ctx: { meta?: Record<string, unknown> }): string | undefined {
+  const v = ctx.meta?.['codebaseIndexDir'];
+  return typeof v === 'string' ? v : undefined;
+}
 
 let warningSilenced = false;
 /**
@@ -59,12 +81,14 @@ function loadDatabaseSync(): typeof DatabaseSync {
 
 export class IndexStore {
   private db: DatabaseSync;
+  /** Absolute path to this project's index directory. */
+  private readonly indexDir: string;
 
-  constructor(private projectRoot: string) {
-    const dir = path.join(projectRoot, INDEX_DIR);
-    fs.mkdirSync(dir, { recursive: true });
+  constructor(projectRoot: string, opts: { indexDir?: string } = {}) {
+    this.indexDir = resolveIndexDir(projectRoot, opts.indexDir);
+    fs.mkdirSync(this.indexDir, { recursive: true });
     const Database = loadDatabaseSync();
-    this.db = new Database(path.join(dir, DB_FILE));
+    this.db = new Database(path.join(this.indexDir, DB_FILE));
     this.initSchema();
   }
 
@@ -294,7 +318,7 @@ export class IndexStore {
       totalFiles,
       byLang,
       byKind,
-      indexPath: path.join(this.projectRoot, INDEX_DIR),
+      indexPath: this.indexDir,
       lastIndexed,
       sizeBytes,
       version: SCHEMA_VERSION,
@@ -389,7 +413,7 @@ export class IndexStore {
   }
 
   private sizeBytes(): number {
-    const dbPath = path.join(this.projectRoot, INDEX_DIR, DB_FILE);
+    const dbPath = path.join(this.indexDir, DB_FILE);
     try {
       return fs.statSync(dbPath).size;
     } catch {

@@ -7,7 +7,7 @@
  */
 
 import type { Tool } from '@wrongstack/core';
-import { IndexStore } from './writer.js';
+import { IndexStore, codebaseIndexDirOverride } from './writer.js';
 
 export const codebaseStatsTool: Tool<Record<string, never>, CodebaseStatsOutput> = {
   name: 'codebase-stats',
@@ -23,7 +23,7 @@ export const codebaseStatsTool: Tool<Record<string, never>, CodebaseStatsOutput>
     additionalProperties: false,
   },
   async execute(_input, ctx) {
-    const store = new IndexStore(ctx.projectRoot);
+    const store = new IndexStore(ctx.projectRoot, { indexDir: codebaseIndexDirOverride(ctx) });
     try {
       const stats = store.getStats();
       return {

@@ -13,7 +13,7 @@
  */
 
 import type { Tool } from '@wrongstack/core';
-import { IndexStore } from './writer.js';
+import { IndexStore, codebaseIndexDirOverride } from './writer.js';
 import { buildBm25Index, buildIndexableText, tokenise } from './bm25.js';
 import type { SearchResult, SymbolKind, SymbolLang } from './schema.js';
 
@@ -60,7 +60,7 @@ export const codebaseSearchTool: Tool<CodebaseSearchInput, CodebaseSearchOutput>
     required: ['query'],
   },
   async execute(input, ctx) {
-    const store = new IndexStore(ctx.projectRoot);
+    const store = new IndexStore(ctx.projectRoot, { indexDir: codebaseIndexDirOverride(ctx) });
     try {
       const limit = Math.min(input.limit ?? 20, 100);
 

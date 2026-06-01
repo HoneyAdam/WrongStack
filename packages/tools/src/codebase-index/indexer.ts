@@ -34,6 +34,8 @@ interface IndexerOptions {
   force?: boolean;
   langs?: string[];
   ignore?: string[];
+  /** Override the index directory (default: the global per-project dir). */
+  indexDir?: string;
 }
 
 async function findSourceFiles(
@@ -118,9 +120,9 @@ export async function runIndexer(
   _ctx: Context,
   opts: IndexerOptions,
 ): Promise<IndexResult> {
-  const { projectRoot, force = false, langs, ignore = [] } = opts;
+  const { projectRoot, force = false, langs, ignore = [], indexDir } = opts;
 
-  const store = new IndexStore(projectRoot);
+  const store = new IndexStore(projectRoot, { indexDir });
   const startMs = Date.now();
   const errors: string[] = [];
   const langStats: Record<string, number> = {};

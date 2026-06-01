@@ -37,6 +37,12 @@ export interface WstackPaths {
   modelsCache: string;
   /** ~/.wrongstack/cache/models-overlay.json — cached curated overlay. */
   modelsOverlayCache: string;
+  /**
+   * Per-project codebase symbol index (SQLite). Lives under the global project
+   * dir — NOT inside the repo — so it never clutters the working tree or needs
+   * gitignoring. `~/.wrongstack/projects/<hash>/codebase-index`.
+   */
+  projectCodebaseIndex: string;
   /** ~/.wrongstack/history — REPL line history. */
   historyFile: string;
   /** ~/.wrongstack/logs/wrongstack.log */
@@ -107,6 +113,7 @@ export function resolveWstackPaths(opts: WstackPathOptions): WstackPaths {
     historyFile: path.join(globalRoot, 'history'),
     logFile: path.join(globalRoot, 'logs', 'wrongstack.log'),
     projectDir,
+    projectCodebaseIndex: path.join(projectDir, 'codebase-index'),
     projectMemory: path.join(projectDir, 'memory.md'),
     projectSessions: path.join(projectDir, 'sessions'),
     projectTrust: path.join(projectDir, 'trust.json'),
