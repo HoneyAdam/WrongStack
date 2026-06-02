@@ -610,7 +610,7 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
       // which also flips `signal.aborted=true`. Inspect the error first so we
       // surface 'timeout' rather than masking it as 'stopped'.
       const status: TaskResult['status'] =
-        err instanceof BudgetExceededError && err.kind === 'timeout'
+        err instanceof BudgetExceededError && (err.kind === 'timeout' || err.kind === 'idle_timeout')
           ? 'timeout'
           : subagent.abortController.signal.aborted
             ? 'stopped'
@@ -853,6 +853,39 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
     }
   }
 
+  /**
+   * Stop a subagent and remove it from the coordinator. Releases all
+   * associated resources (AbortController, context, budget state).
+   * The subagent entry is deleted so the id can be reused in a future spawn.
+   */
+  async remove(subagentId: string): Promise<void> {
+    const subagent = this.subagents.get(subagentId);
+    if (!subagent) return;
+
+    // Gracefully stop first — same logic as stop() but don't block on it.
+    if (subagent.status === 'running' || subagent.status === 'idle') {
+      this.terminating.add(subagentId);
+      subagent.abortController.abort();
+      subagent.status = 'stopped';
+    }
+
+    // Release all resources associated with this subagent.
+    this.subagents.delete(subagentId);
+    this.terminating.delete(subagentId);
+
+    // Clean up any pending tasks assigned to this subagent.
+    this.pendingTasks = this.pendingTasks.filter((t) => t.subagentId !== subagentId);
+
+    this.fleetBus?.emit({
+      subagentId,
+      ts: Date.now(),
+      type: 'subagent.removed',
+      payload: { subagentId },
+    });
+
+    this.emitCoordinatorStats();
+  }
+
   private isDone(): boolean {
     if (this.config.doneCondition.type === 'all_tasks_done') {
       return this.pendingTasks.length === 0 && this.inFlight === 0;
@@ -916,6 +949,7 @@ export function classifySubagentError(
       tokens: 'budget_tokens',
       cost: 'budget_cost',
       timeout: 'budget_timeout',
+      idle_timeout: 'budget_timeout',
     };
     return {
       kind: map[err.kind],

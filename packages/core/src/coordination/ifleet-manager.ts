@@ -133,4 +133,11 @@ export interface IFleetManager {
     completed: number;
     subagentStatuses: { subagentId: string; taskId: string; status: string; assigned: boolean }[];
   };
+
+  /**
+   * Release all resources held by the fleet manager.
+   * Clears any pending manifest debounce timer and disposes the usage aggregator.
+   * Call this when the fleet manager is no longer needed (e.g. process shutdown).
+   */
+  dispose(): void;
 }

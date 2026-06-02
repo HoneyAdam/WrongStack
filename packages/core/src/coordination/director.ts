@@ -600,7 +600,7 @@ export class Director implements ICoordinator {
     });
     this.fleet.filter('budget.threshold_reached', (e) => {
       const payload = e.payload as {
-        kind: 'timeout' | 'iterations' | 'tool_calls' | 'tokens' | 'cost';
+        kind: 'timeout' | 'idle_timeout' | 'iterations' | 'tool_calls' | 'tokens' | 'cost';
         used: number;
         limit: number;
         timeoutMs: number;
@@ -1266,6 +1266,8 @@ export class Director implements ICoordinator {
 
   async remove(subagentId: string): Promise<void> {
     await this.coordinator.remove(subagentId);
+    // Clean up the aggregator so terminated subagent data doesn't accumulate.
+    this.usage.removeSubagent(subagentId);
   }
 
   status(): CoordinatorStatus {

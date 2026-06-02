@@ -1,7 +1,7 @@
 import type { Usage } from '../types/provider.js';
 import type { EventBus } from '../kernel/events.js';
 
-export type BudgetKind = 'tool_calls' | 'iterations' | 'tokens' | 'timeout' | 'cost';
+export type BudgetKind = 'tool_calls' | 'iterations' | 'tokens' | 'timeout' | 'idle_timeout' | 'cost';
 
 export class BudgetExceededError extends Error {
   readonly kind: BudgetKind;
@@ -271,15 +271,17 @@ export class SubagentBudget {
       exceeded.push({ kind: 'cost', used: this.costUsd, limit: this.limits.maxCostUsd });
     }
     // Timeout: called from checkTimeout() with elapsedMs (wall-clock) and the
-    // current idle gap. Either crossing its limit trips the 'timeout' kind.
+    // current idle gap. Either crossing its limit trips its own kind so the
+    // coordinator and auto-extend policy can distinguish them.
     // Wall-clock (`timeoutMs`) is an explicit hard cap; idle (`idleTimeoutMs`)
-    // is the default guard that resets on activity. Idle takes precedence in
-    // the pushed entry so the surfaced limit reads as the one actually hit.
+    // is the default guard that resets on activity. Both can be exceeded in
+    // the same call — we push both entries so all violated limits are reported.
     if (elapsedMs !== undefined) {
       const idle = this.idleMs();
       if (this.limits.idleTimeoutMs !== undefined && idle > this.limits.idleTimeoutMs) {
-        exceeded.push({ kind: 'timeout', used: idle, limit: this.limits.idleTimeoutMs });
-      } else if (this.limits.timeoutMs !== undefined && elapsedMs > this.limits.timeoutMs) {
+        exceeded.push({ kind: 'idle_timeout', used: idle, limit: this.limits.idleTimeoutMs });
+      }
+      if (this.limits.timeoutMs !== undefined && elapsedMs > this.limits.timeoutMs) {
         exceeded.push({ kind: 'timeout', used: elapsedMs, limit: this.limits.timeoutMs });
       }
     }
@@ -366,7 +368,7 @@ export class SubagentBudget {
             // Emit one event per exceeded kind so the FleetBus routes them.
             for (const { kind, used, limit } of exceeded) {
               bus.emit('budget.threshold_reached', {
-                kind: kind as 'iterations' | 'tool_calls' | 'tokens' | 'cost' | 'timeout',
+                kind: kind as 'iterations' | 'tool_calls' | 'tokens' | 'cost' | 'timeout' | 'idle_timeout',
                 used,
                 limit,
                 timeoutMs: SubagentBudget.DECISION_TIMEOUT_MS,

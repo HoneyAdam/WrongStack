@@ -261,6 +261,7 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
               if (timer) clearTimeout(timer);
               offTool();
               offIter();
+              offProgress();
               resolve(value);
             };
             const arm = () => {
@@ -272,6 +273,10 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
             };
             const offTool = dir.fleet.filter('tool.executed', bump);
             const offIter = dir.fleet.filter('iteration.started', bump);
+            // tool.progress fires for streamed bash output, fetch byte progress,
+            // and other long-duration tools — these are forward motion events
+            // that should reset the idle timer just like iteration.started does.
+            const offProgress = dir.fleet.filter('tool.progress', bump);
             arm();
             dir
               .awaitTasks([taskId])

@@ -174,6 +174,7 @@ export interface SubagentUsageSnapshot {
 export class FleetUsageAggregator {
   private readonly perSubagent = new Map<string, SubagentUsageSnapshot>();
   private readonly total = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
+  private readonly unsub = new Array<() => void>();
 
   constructor(
     bus: FleetBus,
@@ -186,9 +187,32 @@ export class FleetUsageAggregator {
       subagentId: string,
     ) => { provider?: string; model?: string } | undefined,
   ) {
-    bus.filter('provider.response', (e) => this.onProviderResponse(e));
-    bus.filter('tool.executed', (e) => this.onToolExecuted(e));
-    bus.filter('iteration.started', (e) => this.onIterationStarted(e));
+    this.unsub.push(bus.filter('provider.response', (e) => this.onProviderResponse(e)));
+    this.unsub.push(bus.filter('tool.executed', (e) => this.onToolExecuted(e)));
+    this.unsub.push(bus.filter('iteration.started', (e) => this.onIterationStarted(e)));
+  }
+
+  /**
+   * Remove a terminated subagent's data from the aggregator and subtract its
+   * contribution from the running totals. Call this when a subagent is removed
+   * from the fleet so the aggregator doesn't accumulate unbounded data for
+   * entities that will never emit events again.
+   */
+  removeSubagent(subagentId: string): void {
+    const snap = this.perSubagent.get(subagentId);
+    if (!snap) return;
+    this.perSubagent.delete(subagentId);
+    this.total.input -= snap.input;
+    this.total.output -= snap.output;
+    this.total.cacheRead -= snap.cacheRead;
+    this.total.cacheWrite -= snap.cacheWrite;
+    this.total.cost -= snap.cost;
+  }
+
+  /** Disposes all fleet-bus subscriptions. Call when the aggregator is no longer needed. */
+  dispose(): void {
+    for (const off of this.unsub) off();
+    this.unsub.length = 0;
   }
 
   /** Live snapshot — safe to call from a tool's execute() body. */

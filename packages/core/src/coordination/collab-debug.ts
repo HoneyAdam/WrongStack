@@ -198,7 +198,7 @@ export interface CriticEvaluationPayload {
 export interface CollabBudgetWarningPayload {
   sessionId: string;
   role: string;
-  kind: 'timeout' | 'iterations' | 'tool_calls' | 'tokens' | 'cost';
+  kind: 'timeout' | 'idle_timeout' | 'iterations' | 'tool_calls' | 'tokens' | 'cost';
   used: number;
   limit: number;
   timeoutMs?: number;
@@ -575,7 +575,7 @@ export class CollabSession extends EventEmitter {
     // budget.threshold_reached → Director's alert handler
     const dBudget = this.fleetBus.filter('budget.threshold_reached', (e) => {
       const payload = e.payload as {
-        kind: 'timeout' | 'iterations' | 'tool_calls' | 'tokens' | 'cost';
+        kind: 'timeout' | 'idle_timeout' | 'iterations' | 'tool_calls' | 'tokens' | 'cost';
         used: number;
         limit: number;
         timeoutMs?: number;
@@ -618,7 +618,8 @@ export class CollabSession extends EventEmitter {
 
       // Progress-based timeout handling: extend if agent is doing work,
       // deny only if genuinely stuck (no tool calls since last grant).
-      if (payload.kind === 'timeout') {
+      // Both wall-clock timeout and idle timeout use this heartbeat-aware path.
+      if (payload.kind === 'timeout' || payload.kind === 'idle_timeout') {
         const progress = this.progressBySubagent.get(e.subagentId) ?? 0;
         const lastProgress = this.lastTimeoutProgress.get(e.subagentId) ?? -1;
         if (progress <= lastProgress) {

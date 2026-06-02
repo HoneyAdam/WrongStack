@@ -438,4 +438,13 @@ export class FleetManager implements IFleetManager {
     // manager has no direct visibility into subagent status
     return { pending, live: [] };
   }
+
+  /** Release all resources: clear the manifest debounce timer and dispose the usage aggregator. */
+  dispose(): void {
+    if (this.manifestTimer) {
+      clearTimeout(this.manifestTimer);
+      this.manifestTimer = null;
+    }
+    this.usage.dispose();
+  }
 }

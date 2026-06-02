@@ -55,6 +55,7 @@ const FIELD_BY_KIND = {
   tokens: 'maxTokens',
   cost: 'maxCostUsd',
   timeout: 'timeoutMs',
+  idle_timeout: 'timeoutMs',
 } as const;
 
 /**
@@ -83,7 +84,7 @@ export function attachAutoExtend(events: EventBus, policy: AutoExtendPolicy = {}
     events.on('budget.threshold_reached', (e) => {
       const { kind, limit, extend, deny } = e;
 
-      if (kind === 'timeout') {
+      if (kind === 'timeout' || kind === 'idle_timeout') {
         if (progress > lastTimeoutProgress) {
           lastTimeoutProgress = progress;
           const next = Math.min(Math.ceil(limit * (1 + factor)), ceiling.timeoutMs);
