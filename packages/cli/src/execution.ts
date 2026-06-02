@@ -451,13 +451,11 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
           // resize/overlay-leak artifacts can opt back into alt-screen with
           // `--alt-screen`. `--no-alt-screen` still wins when both are passed.
           altScreen: flags['alt-screen'] === true && flags['no-alt-screen'] !== true,
-          // Full mouse mode: clickable pickers + in-app wheel scroll. Opt-in
-          // via --mouse. The TUI combines altScreen || mouse to determine
-          // whether to use the managed viewport (ScrollableHistory + in-app
-          // scroll); --mouse alone enables that without requiring --alt-screen.
-          // Mouse mode takes ownership of the terminal's mouse, suspending
-          // native scroll/copy until `/mouse off`.
-          mouse: flags.mouse === true,
+          // Mouse mode is DISABLED. It was unreliable on Windows consoles
+          // (freezes / constant repaint in the managed viewport) and is not
+          // wanted, so `--mouse` is intentionally ignored and never engages —
+          // the TUI stays keyboard-only. Do not re-wire `flags.mouse` here.
+          mouse: false,
           director,
           fleetRoster,
           onAfterExit: () => {
