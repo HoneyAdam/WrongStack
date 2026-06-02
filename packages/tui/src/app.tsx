@@ -54,7 +54,6 @@ import { WorktreeMonitor } from './components/worktree-monitor.js';
 import { WorktreePanel, type WorktreeRow } from './components/worktree-panel.js';
 import { searchFiles } from './file-search.js';
 import { type GitInfo, readGitInfo } from './git-info.js';
-import { confirmButtonsRow, pickerFirstItemRow } from './hit-test.js';
 import {
   INLINE_TOKEN_SRC,
   deleteTokenBackward,
@@ -2208,24 +2207,23 @@ export function App({
   // height locates the input's first screen row for click-to-position-cursor.
   const liveStripRef = useRef<DOMElement | null>(null);
   const liveStripRowsRef = useRef(0);
-  // Viewport sizing. useLayoutEffect (not useEffect) so the viewport is sized
-  // BEFORE paint — no one-frame flash. The dispatch is guarded to fire only when
-  // the height actually changed.
-  //
-  // Deps are INTENTIONALLY [managedLive, termRows] only — this effect MUST NOT
-  // run on every commit. The "↓ N new lines" affordance is a 1-row element whose
-  // presence depends on scroll state; recomputing `vp` every render lets the
-  // affordance toggle feed back through setViewportRows → ScrollableHistory
-  // re-measure → setMeasuredLines → scroll-state change → affordance toggle …,
-  // an infinite render loop that pins the event loop (screen flickers, keyboard
-  // AND mouse freeze). Keeping the narrow deps is what makes it a stable
-  // measure-and-set. preRows/liveStrip measurement lives in its OWN effect below
-  // (refs only, no dispatch) so it can stay fresh without risking that loop.
+  // useLayoutEffect (not useEffect) so the viewport is sized BEFORE paint — no
+  // one-frame flash. measureElement here only READS the already-computed Yoga
+  // height (cheap), and the dispatch is guarded to fire only when the height
+  // actually changed, so this stays a stable measure-and-set (no churn loop,
+  // and streaming tokens never trigger a setViewportRows because the bottom
+  // region's height doesn't change while the chat viewport streams).
   React.useLayoutEffect(() => {
     if (!managedLive) return;
     const node = bottomRef.current;
     if (!node) return;
     const { height } = measureElement(node);
+    if (prePickerRef.current) {
+      preRowsRef.current = measureElement(prePickerRef.current).height;
+    }
+    if (liveStripRef.current) {
+      liveStripRowsRef.current = measureElement(liveStripRef.current).height;
+    }
     const s = stateRef.current;
     const affordance = s.scrollOffset > 0 && s.pendingNewLines > 0 ? 1 : 0;
     // Bias the viewport DOWN by one row: an extra blank chat row is invisible,
@@ -2234,23 +2232,9 @@ export function App({
     if (vp !== s.viewportRows) {
       dispatch({ type: 'setViewportRows', rows: vp });
     }
-    // stable deps — see the loop warning above.
+    // stable deps: stateRef (ref), dispatch (stable from useReducer),
+    // termRows is a prop of the effect scope.
   }, [managedLive, termRows]);
-
-  // Keep the mouse hit-test geometry refs fresh on EVERY commit. This is safe to
-  // run unconditionally because it only WRITES refs (never dispatches), so it
-  // cannot trigger a re-render or the feedback loop the sizing effect above
-  // guards against. It fixes click mapping going stale when the input wraps to
-  // more rows or the live-activity strip grows/shrinks without termRows moving.
-  React.useLayoutEffect(() => {
-    if (!managedLive) return;
-    if (prePickerRef.current) {
-      preRowsRef.current = measureElement(prePickerRef.current).height;
-    }
-    if (liveStripRef.current) {
-      liveStripRowsRef.current = measureElement(liveStripRef.current).height;
-    }
-  });
 
   // Latest handleKey, so click-to-activate can replay an Enter through the
   // normal input pipeline (handleKey is defined far below; the ref is filled
@@ -2387,11 +2371,8 @@ export function App({
         const head = s.confirmQueue[0];
         if (node && head) {
           const { height } = measureElement(node);
-          // The dialog is wrapped in a Box with marginY={1}; measureElement
-          // excludes that margin, so the button row math must add it back.
-          // confirmButtonsRow encapsulates the layout contract (see hit-test.ts).
-          const rowsAbove = s.viewportRows + affordance + preRowsRef.current;
-          const buttonsRow = confirmButtonsRow(rowsAbove, height);
+          const top = s.viewportRows + affordance + preRowsRef.current + 1;
+          const buttonsRow = top + height - 2; // -1 bottom border, -1 to land on buttons
           if (ev.y === buttonsRow) {
             // round border (1) + paddingX (1) before the first content column.
             const contentX = ev.x - 1 - 2;
@@ -2522,10 +2503,7 @@ export function App({
 
       // Absolute (1-based) row of the picker's first item:
       //   viewport rows + affordance + (live strip + input) + header.
-      const firstItemRow = pickerFirstItemRow(
-        s.viewportRows + affordance + preRowsRef.current,
-        picker.header,
-      );
+      const firstItemRow = s.viewportRows + affordance + preRowsRef.current + picker.header + 1;
       const index = ev.y - firstItemRow;
       if (index < 0 || index >= picker.count) return;
       // Single-click select + confirm. handleKey's Enter path confirms whatever
