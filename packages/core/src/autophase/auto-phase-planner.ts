@@ -131,6 +131,7 @@ export class AutoPhasePlanner {
     try {
       data = JSON.parse(json);
     } catch {
+      // best-effort: invalid JSON yields empty phase list
       return [];
     }
     if (!Array.isArray(data)) return [];
