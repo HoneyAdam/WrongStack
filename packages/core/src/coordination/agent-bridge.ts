@@ -27,6 +27,8 @@ export class InMemoryAgentBridge implements AgentBridge {
   private timeoutMs: number;
   /** Guards request() so concurrent calls on the same id can't silently overwrite. */
   private readonly inflightGuards = new Set<string>();
+  /** Stores the transport unsubscribe function so it can be called on stop(). */
+  private _transportUnsubscribe?: () => void;
 
   constructor(config: AgentBridgeConfig, transport: BridgeTransport) {
     this.agentId = config.agentId;
@@ -34,7 +36,7 @@ export class InMemoryAgentBridge implements AgentBridge {
     this.transport = transport;
     this.timeoutMs = config.timeoutMs ?? 30_000;
 
-    this.transport.subscribe(this.agentId, (msg) => {
+    this._transportUnsubscribe = this.transport.subscribe(this.agentId, (msg) => {
       if (msg.type === 'heartbeat') return;
 
       const pending = this.pendingRequests.get(msg.id);
@@ -133,6 +135,10 @@ export class InMemoryAgentBridge implements AgentBridge {
     this.pendingRequests.clear();
     this.inflightGuards.clear();
     this.subscriptions.clear();
+    // Call the transport unsubscribe to clean up the subscription handler.
+    // This prevents memory leaks when bridges are created and destroyed frequently.
+    this._transportUnsubscribe?.();
+    this._transportUnsubscribe = undefined;
     await this.transport.close(this.agentId);
   }
 }
