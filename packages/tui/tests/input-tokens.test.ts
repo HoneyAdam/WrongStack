@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   deleteTokenBackward,
+  inputIndexAtRowCol,
   layoutInputRows,
   splitChips,
   tokenLengthForward,
@@ -130,5 +131,53 @@ describe('layoutInputRows', () => {
   it('never produces a row wider than the width', () => {
     const rows = layoutInputRows(PROMPT, 'abcdefghijklmnop', 3, 6);
     for (const row of rows) expect(row.length).toBeLessThanOrEqual(6);
+  });
+});
+
+describe('inputIndexAtRowCol (click → cursor index)', () => {
+  const PROMPT = '› '; // length 2 — value starts at column 2 on row 0
+
+  it('maps a click on a value column to the buffer index before that char', () => {
+    // row 0: cols 0='›' 1=' ' 2='h'(0) 3='e'(1) 4='l'(2) 5='l'(3) 6='o'(4)
+    expect(inputIndexAtRowCol(PROMPT, 'hello', 80, 0, 4)).toBe(2);
+    expect(inputIndexAtRowCol(PROMPT, 'hello', 80, 0, 2)).toBe(0);
+  });
+
+  it('clicking the prompt lands at the start of the buffer', () => {
+    expect(inputIndexAtRowCol(PROMPT, 'hello', 80, 0, 0)).toBe(0);
+    expect(inputIndexAtRowCol(PROMPT, 'hello', 80, 0, 1)).toBe(0);
+  });
+
+  it('clicking past the last character lands just after it', () => {
+    expect(inputIndexAtRowCol(PROMPT, 'hello', 80, 0, 99)).toBe(5);
+  });
+
+  it('clicking below all rows lands at the end of the buffer', () => {
+    expect(inputIndexAtRowCol(PROMPT, 'hello', 80, 5, 0)).toBe(5);
+  });
+
+  it('handles an empty buffer (only the prompt row)', () => {
+    expect(inputIndexAtRowCol(PROMPT, '', 80, 0, 0)).toBe(0);
+    expect(inputIndexAtRowCol(PROMPT, '', 80, 0, 9)).toBe(0);
+  });
+
+  it('maps clicks across explicit newlines to the right line', () => {
+    // "ab\ncd": row0 = "› ab" (a=0,b=1), row1 = "cd" (c=3,d=4)
+    expect(inputIndexAtRowCol(PROMPT, 'ab\ncd', 80, 0, 2)).toBe(0); // 'a'
+    expect(inputIndexAtRowCol(PROMPT, 'ab\ncd', 80, 0, 99)).toBe(2); // end of line 1 (before \n)
+    expect(inputIndexAtRowCol(PROMPT, 'ab\ncd', 80, 1, 0)).toBe(3); // 'c'
+    expect(inputIndexAtRowCol(PROMPT, 'ab\ncd', 80, 1, 99)).toBe(5); // end
+  });
+
+  it('places the caret on a blank line between newlines', () => {
+    // "a\n\nb": row1 is the empty line; clicking it → index right after first \n
+    expect(inputIndexAtRowCol(PROMPT, 'a\n\nb', 80, 1, 0)).toBe(2);
+  });
+
+  it('follows soft-wrapped rows (width-bounded, no newline)', () => {
+    // width 6: row0 = "› abcd" (a..d = 0..3), row1 = "efgh" (e..h = 4..7)
+    expect(inputIndexAtRowCol(PROMPT, 'abcdefgh', 6, 0, 5)).toBe(3); // 'd'
+    expect(inputIndexAtRowCol(PROMPT, 'abcdefgh', 6, 1, 0)).toBe(4); // 'e'
+    expect(inputIndexAtRowCol(PROMPT, 'abcdefgh', 6, 1, 99)).toBe(8); // end
   });
 });

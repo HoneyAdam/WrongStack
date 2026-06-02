@@ -268,14 +268,16 @@ const ALT_SCREEN_ON = '\x1b[?1049h';
 const ALT_SCREEN_OFF = '\x1b[?1049l';
 const CURSOR_HOME = '\x1b[H';
 
-// Mouse tracking: DECSET 1000 (button press/release) + 1006 (SGR extended
+// Mouse tracking: DECSET 1000 (button press/release) + 1002 (button-event
+// tracking: motion reported only WHILE a button is held) + 1006 (SGR extended
 // coordinates, so columns/rows beyond 223 are reported as decimal). Enabling
 // these takes the mouse away from the terminal's native wheel-scroll and
 // text-selection — which is why mouse mode is opt-in and forces alt-screen so
-// the app owns the screen and can render its own scroll viewport. We do NOT
-// enable 1002/1003 (drag/any-motion) — clicks + wheel are all we consume.
-const MOUSE_ON = '\x1b[?1000h\x1b[?1006h';
-const MOUSE_OFF = '\x1b[?1006l\x1b[?1000l';
+// the app owns the screen and can render its own scroll viewport. 1002 (not
+// 1003 any-motion) keeps idle moves quiet while still enabling scrollbar
+// thumb drags; the SGR parser flags held-motion via the drag bit.
+const MOUSE_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
+const MOUSE_OFF = '\x1b[?1006l\x1b[?1002l\x1b[?1000l';
 
 export async function runTui(opts: RunTuiOptions): Promise<number> {
   const stdout = process.stdout;

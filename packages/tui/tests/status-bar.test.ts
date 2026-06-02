@@ -1,5 +1,53 @@
 import { describe, expect, it } from 'vitest';
-import { fmtElapsed, renderMeter, renderProgress, stateChip } from '../src/components/status-bar.js';
+import {
+  fmtElapsed,
+  renderMeter,
+  renderProgress,
+  stateChip,
+  statusBarAutonomySpan,
+  statusBarModelSpan,
+} from '../src/components/status-bar.js';
+
+describe('statusBarModelSpan (mouse hit-test geometry)', () => {
+  it('places the model chip after the state chip (no version)', () => {
+    const span = statusBarModelSpan({ state: 'idle', model: 'anthropic/claude' });
+    // padX(1) + "● idle"(6) + gap(2) + "│"(1) + gap(2) = 12
+    expect(span).toEqual({ start: 12, len: 'anthropic/claude'.length });
+  });
+
+  it('accounts for the leading WS version chip', () => {
+    const span = statusBarModelSpan({ version: '0.10.0', state: 'idle', model: 'x/y' });
+    // + "WS v0.10.0"(10) + gap(2) + "│"(1) + gap(2) = 15 before the state chip
+    expect(span.start).toBe(12 + 15);
+  });
+
+  it('widens the offset for the longer "thinking…" state label', () => {
+    const idle = statusBarModelSpan({ state: 'idle', model: 'm' });
+    const busy = statusBarModelSpan({ state: 'running', model: 'm' });
+    // "thinking…"(9) vs "idle"(4) → +5
+    expect(busy.start - idle.start).toBe(5);
+  });
+});
+
+describe('statusBarAutonomySpan (mouse hit-test geometry)', () => {
+  it('returns null when autonomy is off or unset', () => {
+    expect(statusBarAutonomySpan({ autonomy: 'off' })).toBeNull();
+    expect(statusBarAutonomySpan({})).toBeNull();
+  });
+
+  it('starts at the left padding when YOLO is not shown', () => {
+    expect(statusBarAutonomySpan({ autonomy: 'auto' })).toEqual({
+      start: 1,
+      len: 2 + 'AUTO'.length,
+    });
+  });
+
+  it('shifts right past the YOLO chip + separator', () => {
+    const span = statusBarAutonomySpan({ yolo: true, autonomy: 'eternal' });
+    // padX(1) + "⚠ YOLO"(6) + gap(2) + "│"(1) + gap(2) = 12
+    expect(span).toEqual({ start: 12, len: 2 + 'ETERNAL'.length });
+  });
+});
 
 describe('fmtElapsed', () => {
   it('renders mm:ss under one hour', () => {

@@ -95,4 +95,23 @@ describe('TUI scroll reducer', () => {
     expect(out.viewportRows).toBe(40);
     expect(out.scrollOffset).toBe(60);
   });
+
+  it('scrollTo sets an absolute offset, clamped to [0, maxOffset]', () => {
+    const base = scrollState({ totalLines: 100, viewportRows: 20 }); // maxOffset 80
+    expect(reducer(base, { type: 'scrollTo', offset: 42 }).scrollOffset).toBe(42);
+    expect(reducer(base, { type: 'scrollTo', offset: 999 }).scrollOffset).toBe(80);
+    expect(reducer(base, { type: 'scrollTo', offset: -5 }).scrollOffset).toBe(0);
+  });
+
+  it('scrollTo 0 clears the pending-new-lines counter', () => {
+    const s = scrollState({
+      totalLines: 100,
+      viewportRows: 20,
+      scrollOffset: 9,
+      pendingNewLines: 4,
+    });
+    const out = reducer(s, { type: 'scrollTo', offset: 0 });
+    expect(out.scrollOffset).toBe(0);
+    expect(out.pendingNewLines).toBe(0);
+  });
 });

@@ -297,3 +297,65 @@ describe('selectedSlashCommandLine', () => {
     expect(selectedSlashCommandLine({ open: true, selected: 0, matches: [] })).toBeNull();
   });
 });
+
+describe('settings picker reducer', () => {
+  // Minimal state slice — only the fields the settings cases touch. The
+  // reducer returns {...state, settingsPicker}, so other fields are irrelevant.
+  const base = (over: Record<string, unknown> = {}) =>
+    ({
+      settingsPicker: { open: false, field: 0, mode: 'off', delayMs: 0, ...over },
+    }) as unknown as Parameters<typeof reducer>[0];
+
+  it('opens with the supplied mode + delay and focuses the first field', () => {
+    const s = reducer(base(), { type: 'settingsOpen', mode: 'auto', delayMs: 30_000 });
+    expect(s.settingsPicker).toMatchObject({ open: true, field: 0, mode: 'auto', delayMs: 30_000 });
+  });
+
+  it('close flips open false but keeps the values', () => {
+    const s = reducer(base({ open: true, mode: 'suggest', delayMs: 15_000 }), {
+      type: 'settingsClose',
+    });
+    expect(s.settingsPicker).toMatchObject({ open: false, mode: 'suggest', delayMs: 15_000 });
+  });
+
+  it('field move wraps between the two fields', () => {
+    let s = reducer(base({ open: true, field: 0 }), { type: 'settingsFieldMove', delta: 1 });
+    expect(s.settingsPicker.field).toBe(1);
+    s = reducer(s, { type: 'settingsFieldMove', delta: 1 });
+    expect(s.settingsPicker.field).toBe(0);
+  });
+
+  it('settingsFieldSet focuses an explicit field', () => {
+    const s = reducer(base({ open: true, field: 0 }), { type: 'settingsFieldSet', field: 1 });
+    expect(s.settingsPicker.field).toBe(1);
+  });
+
+  it('value change cycles the mode on field 0 (wraps off→suggest→auto→off)', () => {
+    let s = reducer(base({ open: true, field: 0, mode: 'off' }), {
+      type: 'settingsValueChange',
+      delta: 1,
+    });
+    expect(s.settingsPicker.mode).toBe('suggest');
+    s = reducer(
+      { ...s, settingsPicker: { ...s.settingsPicker, mode: 'auto' } },
+      {
+        type: 'settingsValueChange',
+        delta: 1,
+      },
+    );
+    expect(s.settingsPicker.mode).toBe('off');
+  });
+
+  it('value change steps the delay presets on field 1 (and wraps backwards)', () => {
+    const up = reducer(base({ open: true, field: 1, delayMs: 0 }), {
+      type: 'settingsValueChange',
+      delta: 1,
+    });
+    expect(up.settingsPicker.delayMs).toBe(15_000);
+    const down = reducer(base({ open: true, field: 1, delayMs: 0 }), {
+      type: 'settingsValueChange',
+      delta: -1,
+    });
+    expect(down.settingsPicker.delayMs).toBe(120_000);
+  });
+});

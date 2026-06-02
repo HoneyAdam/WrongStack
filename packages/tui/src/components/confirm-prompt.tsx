@@ -1,11 +1,60 @@
 import { Box, Text, useInput } from 'ink';
 import React from 'react';
 
+export type ConfirmDecision = 'yes' | 'no' | 'always' | 'deny';
+
 export interface ConfirmPromptProps {
   toolName: string;
   input: unknown;
   suggestedPattern: string;
-  onDecision: (decision: 'yes' | 'no' | 'always' | 'deny') => void;
+  onDecision: (decision: ConfirmDecision) => void;
+}
+
+/** Ink color for each button's bracketed key. */
+const BUTTON_COLOR: Record<ConfirmDecision, string> = {
+  yes: 'green',
+  no: 'red',
+  always: 'cyan',
+  deny: 'red',
+};
+
+/**
+ * The button row as a list of {bracket, rest} segments. Single source of
+ * truth for BOTH the rendered row and the mouse hit-test geometry
+ * (`confirmButtonSegments`), so they can never drift. `rest` carries the
+ * trailing space that separates one button from the next.
+ */
+function buttonLabels(suggestedPattern: string): Array<{
+  decision: ConfirmDecision;
+  bracket: string;
+  rest: string;
+}> {
+  return [
+    { decision: 'yes', bracket: '[y]', rest: 'es ' },
+    { decision: 'no', bracket: '[n]', rest: 'o ' },
+    { decision: 'always', bracket: '[a]', rest: `lways (${suggestedPattern}) ` },
+    { decision: 'deny', bracket: '[d]', rest: 'eny' },
+  ];
+}
+
+/**
+ * 0-based column spans of each button WITHIN the dialog's content area (i.e.
+ * relative to the first printable column inside the border + paddingX). Used
+ * by the TUI mouse handler to map a click on the button row to a decision.
+ * Derived from the same `buttonLabels` the component renders, so the offsets
+ * always match what's on screen.
+ */
+export function confirmButtonSegments(
+  suggestedPattern: string,
+): Array<{ decision: ConfirmDecision; start: number; len: number }> {
+  const out: Array<{ decision: ConfirmDecision; start: number; len: number }> = [];
+  let col = 0;
+  for (const l of buttonLabels(suggestedPattern)) {
+    const len = l.bracket.length + l.rest.length;
+    out.push({ decision: l.decision, start: col, len });
+    col += len;
+  }
+  return out;
 }
 
 function stringifyInput(input: unknown): string {
@@ -88,14 +137,12 @@ export function ConfirmPrompt({
   const inp = input as { diff?: unknown };
   const diff = typeof inp?.diff === 'string' ? inp.diff : '';
 
+  // NOTE: no marginY here — the call site wraps this in a measured Box that
+  // owns the vertical margin, so `measureElement` on the wrapper reports the
+  // exact box height (top border + content + bottom border) the mouse
+  // hit-test relies on to locate the button row.
   return (
-    <Box
-      flexDirection="column"
-      borderStyle="round"
-      borderColor="yellow"
-      paddingX={1}
-      marginY={1}
-    >
+    <Box flexDirection="column" borderStyle="round" borderColor="yellow" paddingX={1}>
       <Box flexDirection="row">
         <Text bold color="yellow">
           ⚠ APPROVAL REQUIRED
@@ -114,22 +161,14 @@ export function ConfirmPrompt({
       <Text dimColor>─────────────────</Text>
       <Box flexDirection="row">
         <Text>
-          <Text bold color="green">
-            [y]
-          </Text>
-          <Text dimColor>es </Text>
-          <Text bold color="red">
-            [n]
-          </Text>
-          <Text dimColor>o </Text>
-          <Text bold color="cyan">
-            [a]
-          </Text>
-          <Text dimColor>lways ({suggestedPattern}) </Text>
-          <Text bold color="red">
-            [d]
-          </Text>
-          <Text dimColor>eny</Text>
+          {buttonLabels(suggestedPattern).map((l) => (
+            <React.Fragment key={l.decision}>
+              <Text bold color={BUTTON_COLOR[l.decision]}>
+                {l.bracket}
+              </Text>
+              <Text dimColor>{l.rest}</Text>
+            </React.Fragment>
+          ))}
         </Text>
       </Box>
     </Box>

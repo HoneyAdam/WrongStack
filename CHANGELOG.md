@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added — Full TUI mouse support (`--mouse`)
+
+- **Every interactive surface is now mouse-drivable** in `--mouse` mode.
+  - **Permission dialog** — clickable `[y]`/`[n]`/`[a]`/`[d]` buttons.
+  - **Checkpoint timeline** (`/rewind`) — click a checkpoint to select, click
+    again to rewind.
+  - **Status bar** — click the model chip to open the model picker, or the
+    `∞ MODE` chip to open the autonomy picker.
+  - **Scrollbar** — click the right-edge track to jump, or drag the thumb to
+    scrub the chat viewport (enables SGR button-event motion, DECSET 1002).
+  - **Input** — click inside the prompt to position the caret (single- and
+    multi-line).
+  - **Overlays** — click the lower region to dismiss an open monitor
+    (`Ctrl+F`/`G`/`T`/`P`) or the `?` help overlay (parity with `Esc`).
+- **`/settings` slash command + `Ctrl+S`** — open the autonomy settings editor
+  (default mode + auto-proceed delay) with keyboard nav and mouse clicks. Wires
+  up the previously-unrendered `SettingsPicker`.
+
+Hit-testing derives rows from measured layout heights and columns from
+deterministic, unit-tested helpers co-located with each component
+(`confirmButtonSegments`, `statusBarModelSpan`/`statusBarAutonomySpan`,
+`scrollOffsetForTrackRow`, `inputIndexAtRowCol`). +52 unit tests.
+
 ## [0.9.20] - 2026-06-01
 
 > The collaboration release. Ships four IDEAS.md items — collaborative

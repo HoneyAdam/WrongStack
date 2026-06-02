@@ -1,4 +1,4 @@
-import { Box, type DOMElement, measureElement, Text, useStdout } from 'ink';
+import { Box, type DOMElement, Text, measureElement, useStdout } from 'ink';
 import type React from 'react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { theme } from '../theme.js';
@@ -52,6 +52,19 @@ export function scrollbarThumb(
   return { top, size, scrollable: true };
 }
 
+/** Inverse of {@link scrollbarThumb}: given a clicked/dragged 0-based cell on a
+ *  track of `rows` height, return the scroll offset (rows up from the bottom)
+ *  that lands the visible window there. Cell 0 (top) → oldest content (max
+ *  offset); cell rows-1 (bottom) → newest (offset 0). Exported for testing and
+ *  the TUI scrollbar mouse handler. */
+export function scrollOffsetForTrackRow(rows: number, total: number, cell: number): number {
+  if (total <= rows) return 0;
+  const maxOffset = total - rows;
+  const clampedCell = Math.max(0, Math.min(rows - 1, cell));
+  const windowTop = Math.round((clampedCell / Math.max(1, rows - 1)) * maxOffset);
+  return Math.max(0, Math.min(maxOffset, maxOffset - windowTop));
+}
+
 function Scrollbar({
   rows,
   offset,
@@ -65,8 +78,12 @@ function Scrollbar({
   return (
     <Box flexDirection="column" marginLeft={1} flexShrink={0}>
       {cells.map((c, i) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: fixed-height track, index is the row
-        <Text key={i} color={scrollable ? theme.accent : undefined} dimColor={!scrollable || c === '│'}>
+        <Text
+          // biome-ignore lint/suspicious/noArrayIndexKey: fixed-height track, index is the row
+          key={i}
+          color={scrollable ? theme.accent : undefined}
+          dimColor={!scrollable || c === '│'}
+        >
           {c}
         </Text>
       ))}

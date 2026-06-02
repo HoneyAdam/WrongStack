@@ -123,29 +123,38 @@ export interface StatusBarProps {
    * chip like `⏸ decide` or `▶ execute(todo:fix-auth)` next to the
    * autonomy chip on line 2.
    */
-  eternalStage?: {
-    phase: 'idle';
-  } | {
-    phase: 'decide';
-    reason: string;
-  } | {
-    phase: 'execute';
-    task: string;
-  } | {
-    phase: 'reflect';
-    status: 'success' | 'failure' | 'aborted' | 'skipped';
-    note?: string;
-  } | {
-    phase: 'sleep';
-    ms: number;
-  } | {
-    phase: 'paused';
-  } | {
-    phase: 'stopped';
-  } | {
-    phase: 'error';
-    message: string;
-  } | null;
+  eternalStage?:
+    | {
+        phase: 'idle';
+      }
+    | {
+        phase: 'decide';
+        reason: string;
+      }
+    | {
+        phase: 'execute';
+        task: string;
+      }
+    | {
+        phase: 'reflect';
+        status: 'success' | 'failure' | 'aborted' | 'skipped';
+        note?: string;
+      }
+    | {
+        phase: 'sleep';
+        ms: number;
+      }
+    | {
+        phase: 'paused';
+      }
+    | {
+        phase: 'stopped';
+      }
+    | {
+        phase: 'error';
+        message: string;
+      }
+    | null;
   /** Active goal summary for startup banner display. */
   goalSummary?: {
     goal: string;
@@ -212,8 +221,7 @@ export function StatusBar({
   // agent / subagents make progress. Hidden when nothing is in flight
   // so a fresh session keeps the two-line baseline.
   const fleetHasActivity =
-    (fleet &&
-      (fleet.running > 0 || fleet.idle > 0 || fleet.pending > 0 || fleet.completed > 0)) ||
+    (fleet && (fleet.running > 0 || fleet.idle > 0 || fleet.pending > 0 || fleet.completed > 0)) ||
     subagentCount > 0;
   const hasThirdLine =
     (todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0)) ||
@@ -234,7 +242,9 @@ export function StatusBar({
         {version ? (
           <>
             <Text>
-              <Text color="blue" bold>WS</Text>
+              <Text color="blue" bold>
+                WS
+              </Text>
               <Text dimColor> v{version}</Text>
             </Text>
             <Text dimColor>│</Text>
@@ -282,7 +292,9 @@ export function StatusBar({
         {typeof processCount === 'number' && processCount > 0 ? (
           <>
             <Text dimColor>│</Text>
-            <Text color="red">⚡ {processCount} process{processCount === 1 ? '' : 'es'}</Text>
+            <Text color="red">
+              ⚡ {processCount} process{processCount === 1 ? '' : 'es'}
+            </Text>
           </>
         ) : null}
         {hint ? (
@@ -304,9 +316,7 @@ export function StatusBar({
             <>
               {yolo ? <Text dimColor>│</Text> : null}
               <Text
-                color={
-                  autonomy === 'eternal' ? 'red' : autonomy === 'auto' ? 'yellow' : 'cyan'
-                }
+                color={autonomy === 'eternal' ? 'red' : autonomy === 'auto' ? 'yellow' : 'cyan'}
                 bold
               >
                 ∞ {autonomy.toUpperCase()}
@@ -321,7 +331,9 @@ export function StatusBar({
           ) : null}
           {elapsedMs !== undefined && !hiddenSet.has('elapsed') ? (
             <>
-              {yolo || (autonomy && autonomy !== 'off') || eternalStage ? <Text dimColor>│</Text> : null}
+              {yolo || (autonomy && autonomy !== 'off') || eternalStage ? (
+                <Text dimColor>│</Text>
+              ) : null}
               <Text dimColor>⏱ {fmtElapsed(elapsedMs)}</Text>
             </>
           ) : null}
@@ -334,8 +346,22 @@ export function StatusBar({
           {goalSummary ? (
             <>
               {yolo || elapsedMs !== undefined || projectName ? <Text dimColor>│</Text> : null}
-              <Text color={goalSummary.goalState === 'active' ? 'green' : goalSummary.goalState === 'paused' ? 'yellow' : goalSummary.goalState === 'completed' ? 'green' : 'dim'}>
-                🎯 {goalSummary.goal.length > 40 ? `${goalSummary.goal.slice(0, 37)}…` : goalSummary.goal} [{goalSummary.goalState}] (iter {goalSummary.iterations})
+              <Text
+                color={
+                  goalSummary.goalState === 'active'
+                    ? 'green'
+                    : goalSummary.goalState === 'paused'
+                      ? 'yellow'
+                      : goalSummary.goalState === 'completed'
+                        ? 'green'
+                        : 'dim'
+                }
+              >
+                🎯{' '}
+                {goalSummary.goal.length > 40
+                  ? `${goalSummary.goal.slice(0, 37)}…`
+                  : goalSummary.goal}{' '}
+                [{goalSummary.goalState}] (iter {goalSummary.iterations})
               </Text>
             </>
           ) : null}
@@ -382,8 +408,8 @@ export function StatusBar({
           ) : null}
           {fleetHasActivity ? (
             <>
-              {((todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0)) ||
-                (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0))) ? (
+              {(todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0)) ||
+              (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0)) ? (
                 <Text dimColor>│</Text>
               ) : null}
               {fleet ? (
@@ -417,11 +443,11 @@ export function StatusBar({
               <Text color={a.color} bold>
                 {a.label}
               </Text>
-              <Text dimColor>{' '}</Text>
+              <Text dimColor> </Text>
               <Text color={a.running ? 'yellow' : undefined} dimColor={!a.running}>
                 {a.running ? '▶' : '·'}
               </Text>
-              <Text dimColor>{' '}</Text>
+              <Text dimColor> </Text>
               <Text dimColor>{fmtElapsed(a.elapsedMs)}</Text>
               <Text dimColor>{' · '}</Text>
               <Text dimColor>{a.toolCalls}t</Text>
@@ -464,7 +490,11 @@ function EternalStageChip({
       );
     case 'reflect':
       return (
-        <Text color={stage.status === 'success' ? 'green' : stage.status === 'failure' ? 'red' : 'yellow'}>
+        <Text
+          color={
+            stage.status === 'success' ? 'green' : stage.status === 'failure' ? 'red' : 'yellow'
+          }
+        >
           ↩ reflect: {stage.status}
         </Text>
       );
@@ -508,6 +538,54 @@ function ContextChip({ ctx }: { ctx: ContextWindow }): React.ReactElement {
  * misleading, so when `fleetRunning > 0` and the foreground is idle we surface
  * the live agent count (`agents ▶N`) in a distinct color instead.
  */
+// Layout constants shared by the status-bar span helpers below — they MUST
+// mirror the `<Box gap={2} paddingX={1}>` rows rendered above so the TUI mouse
+// hit-test lands on the right chip.
+const SB_GAP = 2;
+const SB_PADX = 1;
+
+/**
+ * 0-based column span (offset from the box's left edge, including the left
+ * paddingX) of the `{provider}/{model}` chip on status-bar line 1. The TUI
+ * mouse handler uses it to make the model chip clickable (→ open model
+ * picker). Mirrors the line-1 flex layout: optional `WS v…` chip + `│`, then
+ * `● {stateLabel}` + `│`, then the model.
+ */
+export function statusBarModelSpan(opts: {
+  version?: string;
+  state: 'idle' | 'running' | 'streaming' | 'aborting';
+  fleetRunning?: number;
+  model: string;
+}): { start: number; len: number } {
+  let col = SB_PADX;
+  if (opts.version) {
+    col += `WS v${opts.version}`.length + SB_GAP; // WS chip
+    col += 1 + SB_GAP; // │ separator
+  }
+  const { label } = stateChip(opts.state, opts.fleetRunning ?? 0);
+  col += 2 + label.length + SB_GAP; // "● " + label
+  col += 1 + SB_GAP; // │ separator
+  return { start: col, len: opts.model.length };
+}
+
+/**
+ * 0-based column span of the `∞ MODE` autonomy chip on status-bar line 2, or
+ * null when it isn't shown (autonomy off/unset). When YOLO is on it precedes
+ * the autonomy chip (plus a `│` separator), so the span shifts right.
+ */
+export function statusBarAutonomySpan(opts: {
+  yolo?: boolean;
+  autonomy?: 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel';
+}): { start: number; len: number } | null {
+  if (!opts.autonomy || opts.autonomy === 'off') return null;
+  let col = SB_PADX;
+  if (opts.yolo) {
+    col += '⚠ YOLO'.length + SB_GAP;
+    col += 1 + SB_GAP; // │ separator
+  }
+  return { start: col, len: 2 + opts.autonomy.toUpperCase().length }; // "∞ " + MODE
+}
+
 export function stateChip(
   state: 'idle' | 'running' | 'streaming' | 'aborting',
   fleetRunning: number,

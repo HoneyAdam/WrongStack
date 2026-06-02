@@ -17,6 +17,8 @@ describe('helpSections', () => {
     expect(keys).toContain('Ctrl+T');
     expect(keys).toContain('?');
     expect(keys).toContain('/help');
+    expect(keys).toContain('Ctrl+S');
+    expect(keys).toContain('/settings');
   });
 
   it('adds PgUp/PgDn only in the managed viewport', () => {

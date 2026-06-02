@@ -25,26 +25,42 @@ import {
   AutonomyPicker,
 } from './components/autonomy-picker.js';
 import { CheckpointTimeline } from './components/checkpoint-timeline.js';
-import { ConfirmPrompt } from './components/confirm-prompt.js';
+import {
+  type ConfirmDecision,
+  ConfirmPrompt,
+  confirmButtonSegments,
+} from './components/confirm-prompt.js';
 import { FilePicker } from './components/file-picker.js';
 import { FleetMonitor } from './components/fleet-monitor.js';
 import { FleetPanel } from './components/fleet-panel.js';
+import { HelpOverlay } from './components/help-overlay.js';
 import { History, type HistoryEntry } from './components/history.js';
 import { EMPTY_KEY, Input, type KeyEvent } from './components/input.js';
-import { HelpOverlay } from './components/help-overlay.js';
 import { KeyHintBar } from './components/key-hint-bar.js';
 import { LiveActivityStrip } from './components/live-activity-strip.js';
 import { ModelPicker, type ProviderOption } from './components/model-picker.js';
 import { PhaseMonitor } from './components/phase-monitor.js';
 import { PhasePanel } from './components/phase-panel.js';
-import { ScrollableHistory } from './components/scrollable-history.js';
+import { ScrollableHistory, scrollOffsetForTrackRow } from './components/scrollable-history.js';
+import {
+  DELAY_PRESETS_MS,
+  SETTINGS_MODES,
+  type SettingsMode,
+  SettingsPicker,
+} from './components/settings-picker.js';
 import { SlashMenu } from './components/slash-menu.js';
-import { StatusBar } from './components/status-bar.js';
+import { StatusBar, statusBarAutonomySpan, statusBarModelSpan } from './components/status-bar.js';
 import { WorktreeMonitor } from './components/worktree-monitor.js';
 import { WorktreePanel, type WorktreeRow } from './components/worktree-panel.js';
 import { searchFiles } from './file-search.js';
 import { type GitInfo, readGitInfo } from './git-info.js';
-import { INLINE_TOKEN_SRC, deleteTokenBackward, tokenLengthForward } from './input-tokens.js';
+import {
+  INLINE_TOKEN_SRC,
+  deleteTokenBackward,
+  inputIndexAtRowCol,
+  layoutInputRows,
+  tokenLengthForward,
+} from './input-tokens.js';
 import { createKillSlashCommand } from './kill-slash.js';
 import type { MouseEvent as TuiMouseEvent } from './mouse.js';
 import { feedPaste } from './paste-accumulator.js';
@@ -62,6 +78,9 @@ const WHEEL_STEP = 3;
 /** Floor for the scroll viewport so it never collapses to nothing when the
  *  bottom region (overlays, wrapped input) is tall. */
 const MIN_VIEWPORT = 3;
+/** Input prompt — mirrors the <Input> default so click-to-position-cursor maps
+ *  columns the same way the input renders them. */
+const INPUT_PROMPT = '› ';
 
 /** Per-subagent state tracked live from the FleetBus. */
 export interface FleetEntry {
@@ -456,6 +475,15 @@ type State = {
     selected: number;
     hint?: string;
   };
+  /** Autonomy settings editor — opened by `/settings` or Ctrl+S. */
+  settingsPicker: {
+    open: boolean;
+    /** Focused row: 0 = mode, 1 = delay. */
+    field: number;
+    mode: SettingsMode;
+    delayMs: number;
+    hint?: string;
+  };
   /** Pending tool confirmations — queue to handle multiple tools requesting confirmation. */
   confirmQueue: {
     toolUseId: string;
@@ -664,6 +692,12 @@ type Action =
   | { type: 'autonomyPickerClose' }
   | { type: 'autonomyPickerMove'; delta: number }
   | { type: 'autonomyPickerHint'; text?: string }
+  | { type: 'settingsOpen'; mode: SettingsMode; delayMs: number }
+  | { type: 'settingsClose' }
+  | { type: 'settingsFieldMove'; delta: number }
+  | { type: 'settingsFieldSet'; field: number }
+  | { type: 'settingsValueChange'; delta: number }
+  | { type: 'settingsHint'; text?: string }
   | { type: 'historyPush'; text: string }
   | { type: 'historyUp' }
   | { type: 'historyDown' }
@@ -805,6 +839,7 @@ type Action =
   // --- In-app chat scroll (mouse mode) ---
   /** Scroll by `delta` rows: +up (older), -down (newer). Clamped. */
   | { type: 'scrollBy'; delta: number }
+  | { type: 'scrollTo'; offset: number }
   /** Scroll by a viewport page in `dir`. */
   | { type: 'scrollPage'; dir: 'up' | 'down' }
   /** Jump to the newest output (pinned). */
@@ -1135,6 +1170,59 @@ export function reducer(state: State, action: Action): State {
         ...state,
         autonomyPicker: { ...state.autonomyPicker, hint: action.text },
       };
+    case 'settingsOpen':
+      return {
+        ...state,
+        settingsPicker: {
+          open: true,
+          field: 0,
+          mode: action.mode,
+          delayMs: action.delayMs,
+          hint: undefined,
+        },
+      };
+    case 'settingsClose':
+      return {
+        ...state,
+        settingsPicker: { ...state.settingsPicker, open: false, hint: undefined },
+      };
+    case 'settingsFieldMove': {
+      // Two fields (mode / delay); wrap around.
+      const next = (state.settingsPicker.field + action.delta + 2) % 2;
+      return {
+        ...state,
+        settingsPicker: { ...state.settingsPicker, field: next, hint: undefined },
+      };
+    }
+    case 'settingsFieldSet': {
+      const field = action.field === 1 ? 1 : 0;
+      return { ...state, settingsPicker: { ...state.settingsPicker, field, hint: undefined } };
+    }
+    case 'settingsValueChange': {
+      if (state.settingsPicker.field === 0) {
+        const i = SETTINGS_MODES.indexOf(state.settingsPicker.mode);
+        const base = i < 0 ? 0 : i;
+        const next = (base + action.delta + SETTINGS_MODES.length) % SETTINGS_MODES.length;
+        return {
+          ...state,
+          settingsPicker: { ...state.settingsPicker, mode: SETTINGS_MODES[next]!, hint: undefined },
+        };
+      }
+      const j = DELAY_PRESETS_MS.indexOf(state.settingsPicker.delayMs);
+      // Snap an off-preset value onto the nearest step before moving.
+      const base = j < 0 ? 0 : j;
+      const next = (base + action.delta + DELAY_PRESETS_MS.length) % DELAY_PRESETS_MS.length;
+      return {
+        ...state,
+        settingsPicker: {
+          ...state.settingsPicker,
+          delayMs: DELAY_PRESETS_MS[next]!,
+          hint: undefined,
+        },
+      };
+    }
+    case 'settingsHint':
+      return { ...state, settingsPicker: { ...state.settingsPicker, hint: action.text } };
     case 'confirmOpen':
       return { ...state, confirmQueue: [...state.confirmQueue, action.info] };
     case 'confirmClose':
@@ -1580,6 +1668,15 @@ export function reducer(state: State, action: Action): State {
         pendingNewLines: next === 0 ? 0 : state.pendingNewLines,
       };
     }
+    case 'scrollTo': {
+      const maxOffset = Math.max(0, state.totalLines - state.viewportRows);
+      const next = Math.max(0, Math.min(maxOffset, action.offset));
+      return {
+        ...state,
+        scrollOffset: next,
+        pendingNewLines: next === 0 ? 0 : state.pendingNewLines,
+      };
+    }
     case 'scrollToBottom':
       return { ...state, scrollOffset: 0, pendingNewLines: 0 };
     case 'scrollToTop': {
@@ -1845,6 +1942,8 @@ export function App({
   keyTail,
   getPickableProviders,
   switchProviderAndModel,
+  getSettings,
+  saveSettings,
   switchAutonomy,
   effectiveMaxContext,
   onExit,
@@ -1976,6 +2075,7 @@ export function App({
       selected: 0,
     },
     autonomyPicker: { open: false, options: [], selected: 0 },
+    settingsPicker: { open: false, field: 0, mode: 'off', delayMs: 0 },
     confirmQueue: [],
     contextChipVersion: 0,
     fleet: {},
@@ -2089,6 +2189,10 @@ export function App({
   // items begin, so a click can be mapped to a list index.
   const prePickerRef = useRef<DOMElement | null>(null);
   const preRowsRef = useRef(0);
+  // Wraps just the LiveActivityStrip (the rows ABOVE the input). Its measured
+  // height locates the input's first screen row for click-to-position-cursor.
+  const liveStripRef = useRef<DOMElement | null>(null);
+  const liveStripRowsRef = useRef(0);
   // useLayoutEffect (not useEffect) so the viewport is sized BEFORE paint — no
   // one-frame flash. measureElement here only READS the already-computed Yoga
   // height (cheap), and the dispatch is guarded to fire only when the height
@@ -2102,6 +2206,9 @@ export function App({
     const { height } = measureElement(node);
     if (prePickerRef.current) {
       preRowsRef.current = measureElement(prePickerRef.current).height;
+    }
+    if (liveStripRef.current) {
+      liveStripRowsRef.current = measureElement(liveStripRef.current).height;
     }
     const s = stateRef.current;
     const affordance = s.scrollOffset > 0 && s.pendingNewLines > 0 ? 1 : 0;
@@ -2120,6 +2227,28 @@ export function App({
   // Set to the row index a mouse click selected; the effect below replays Enter
   // once that row is the live selection, giving single-click confirm.
   const pendingClickConfirmRef = useRef<number | null>(null);
+  // Latest open-routines + rewind handler + confirm decision, so the
+  // empty-dep mouse handler can drive surfaces defined further down without
+  // re-subscribing. Populated each render (see assignments below their defs).
+  const openModelPickerRef = useRef<(() => void) | null>(null);
+  const openAutonomyPickerRef = useRef<(() => void) | null>(null);
+  const handleRewindToRef = useRef<((promptIndex: number) => void) | null>(null);
+  // The bordered ConfirmPrompt's wrapper Box + the live decision callback, so
+  // a click on the button row can be located (measured height) and fired.
+  const confirmRef = useRef<DOMElement | null>(null);
+  const confirmDecisionRef = useRef<((d: ConfirmDecision) => void) | null>(null);
+  // True while the left button is held after pressing on the scrollbar, so
+  // subsequent motion events scrub the chat viewport (thumb drag).
+  const scrollbarDragRef = useRef(false);
+  // Live status-bar chip inputs, so the empty-dep mouse handler can hit-test
+  // the model / autonomy chips against their current values (not stale ones).
+  const statusChipRef = useRef<{
+    version?: string;
+    model: string;
+    fleetRunning: number;
+    yolo: boolean;
+    autonomy: 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel';
+  }>({ version: appVersion, model, fleetRunning: 0, yolo, autonomy: 'off' });
 
   // Mouse routing. Wheel scrolls history (or drives an open picker's
   // selection); a left click on a picker item selects + activates it; a click
@@ -2135,17 +2264,119 @@ export function App({
         if (s.slashPicker.open) return dispatch({ type: 'slashPickerMove', delta: step });
         if (s.modelPicker.open) return dispatch({ type: 'modelPickerMove', delta: step });
         if (s.autonomyPicker.open) return dispatch({ type: 'autonomyPickerMove', delta: step });
+        if (s.settingsPicker.open) return dispatch({ type: 'settingsFieldMove', delta: step });
         if (s.picker.open) return dispatch({ type: 'pickerMove', delta: step });
         if (s.rewindOverlay) return dispatch({ type: 'rewindOverlayMove', delta: step });
         // Otherwise scroll the chat history viewport.
         return dispatch({ type: 'scrollBy', delta: up ? WHEEL_STEP : -WHEEL_STEP });
       }
-      if (ev.type !== 'press' || ev.button !== 'left') return;
+      // Button release ends any in-progress scrollbar drag.
+      if (ev.type === 'release') {
+        scrollbarDragRef.current = false;
+        return;
+      }
+      if (ev.button !== 'left') return;
+
+      // Scrollbar (right edge, rows 1..viewportRows): a press on it jumps the
+      // viewport to that position and arms a drag; subsequent held-motion
+      // events scrub. The bar is the terminal's last column — accept it plus
+      // its 1-col left margin so near-misses still grab. Motion events never
+      // fall through to click handling.
+      {
+        const rows = s.viewportRows;
+        if (ev.drag) {
+          if (scrollbarDragRef.current && s.totalLines > rows) {
+            dispatch({
+              type: 'scrollTo',
+              offset: scrollOffsetForTrackRow(rows, s.totalLines, ev.y - 1),
+            });
+          }
+          return;
+        }
+        const cols = process.stdout.columns ?? 0;
+        const onScrollbar = cols > 0 && ev.x >= cols - 1 && ev.y >= 1 && ev.y <= rows;
+        if (onScrollbar && s.totalLines > rows) {
+          scrollbarDragRef.current = true;
+          dispatch({
+            type: 'scrollTo',
+            offset: scrollOffsetForTrackRow(rows, s.totalLines, ev.y - 1),
+          });
+          return;
+        }
+      }
+
+      // A click in the bottom region (where they render) dismisses an open
+      // informational overlay — mouse parity with Esc. These can't coexist
+      // with pickers/confirm (handleKey guards that), so this never eats a
+      // picker click. Clicks up in the chat viewport are left alone.
+      if (ev.y > s.viewportRows) {
+        if (s.helpOpen) return dispatch({ type: 'toggleHelp' });
+        if (s.agentsMonitorOpen) return dispatch({ type: 'toggleAgentsMonitor' });
+        if (s.monitorOpen) return dispatch({ type: 'toggleMonitor' });
+        if (s.worktreeMonitorOpen) return dispatch({ type: 'worktreeMonitorToggle' });
+        if (s.autoPhase?.monitorOpen) return dispatch({ type: 'autoPhaseMonitorToggle' });
+      }
 
       const affordance = s.scrollOffset > 0 && s.pendingNewLines > 0 ? 1 : 0;
       // The affordance occupies the row just below the viewport (1-based).
       if (affordance && ev.y === s.viewportRows + 1) {
         return dispatch({ type: 'scrollToBottom' });
+      }
+
+      // Permission dialog: map a click on the button row to a decision. The
+      // dialog is the only thing between the input region and the status bar
+      // while a confirm is pending, so its top row is deterministic. We
+      // measure its box height to find the button row (the line just above the
+      // bottom border).
+      if (s.confirmQueue.length > 0) {
+        const node = confirmRef.current;
+        const head = s.confirmQueue[0];
+        if (node && head) {
+          const { height } = measureElement(node);
+          const top = s.viewportRows + affordance + preRowsRef.current + 1;
+          const buttonsRow = top + height - 2; // -1 bottom border, -1 to land on buttons
+          if (ev.y === buttonsRow) {
+            // round border (1) + paddingX (1) before the first content column.
+            const contentX = ev.x - 1 - 2;
+            for (const seg of confirmButtonSegments(head.suggestedPattern)) {
+              if (contentX >= seg.start && contentX < seg.start + seg.len) {
+                confirmDecisionRef.current?.(seg.decision);
+                return;
+              }
+            }
+          }
+        }
+        return; // a confirm is modal — swallow other clicks
+      }
+
+      // Checkpoint timeline (/rewind): click selects; click on the already
+      // selected row rewinds. Layout: outer padding(1) + header(1) +
+      // marginBottom(1) = 3 rows before the first checkpoint.
+      if (s.rewindOverlay) {
+        const cps = s.rewindOverlay.checkpoints;
+        const firstItemRow = s.viewportRows + affordance + preRowsRef.current + 3 + 1;
+        const index = ev.y - firstItemRow;
+        if (index < 0 || index >= cps.length) return;
+        if (index === s.rewindOverlay.selected) {
+          handleRewindToRef.current?.(cps[index]!.promptIndex);
+        } else {
+          dispatch({ type: 'rewindOverlayMove', delta: index - s.rewindOverlay.selected });
+        }
+        return;
+      }
+
+      // Settings editor: click focuses a field; clicking the already-focused
+      // field cycles its value. Header: title(1) + hint(1) = 2 rows.
+      if (s.settingsPicker.open) {
+        const firstRow = s.viewportRows + affordance + preRowsRef.current + 2 + 1;
+        const field = ev.y - firstRow;
+        if (field < 0 || field > 1) return;
+        if (field === s.settingsPicker.field) {
+          dispatch({ type: 'settingsValueChange', delta: 1 });
+        } else {
+          dispatch({ type: 'settingsFieldSet', field });
+        }
+        return;
       }
 
       // Identify the open picker, its header height (rows before the first
@@ -2183,7 +2414,54 @@ export function App({
                   move: (delta: number) => dispatch({ type: 'pickerMove', delta }),
                 }
               : null;
-      if (!picker || picker.count === 0) return;
+      if (!picker || picker.count === 0) {
+        // Click inside the editable input → reposition the caret. The input
+        // sits just below the live-activity strip; its first row and wrapped
+        // height are deterministic from the measured strip height + the same
+        // layout the component renders. Skipped while the input is disabled.
+        const inputDisabled = s.status === 'aborting' && !s.steeringPending;
+        if (!inputDisabled) {
+          const cols = process.stdout.columns ?? 80;
+          const inputTop = s.viewportRows + affordance + liveStripRowsRef.current + 1;
+          const inputRows = layoutInputRows(INPUT_PROMPT, s.buffer, s.cursor, cols).length;
+          const rowIdx = ev.y - inputTop;
+          if (rowIdx >= 0 && rowIdx < inputRows) {
+            const next = inputIndexAtRowCol(INPUT_PROMPT, s.buffer, cols, rowIdx, ev.x - 1);
+            return dispatch({ type: 'setBuffer', buffer: s.buffer, cursor: next });
+          }
+        }
+
+        // No list picker open → the status bar is at a deterministic row.
+        // Make its model chip (line 1) and autonomy chip (line 2) clickable.
+        if (
+          !s.helpOpen &&
+          !s.agentsMonitorOpen &&
+          !s.monitorOpen &&
+          !s.worktreeMonitorOpen &&
+          !s.autoPhase?.monitorOpen
+        ) {
+          const chip = statusChipRef.current;
+          const statusTop = s.viewportRows + affordance + preRowsRef.current + 1;
+          const contentX = ev.x - 1; // status bar has no left border; paddingX folded into spans
+          if (ev.y === statusTop + 1) {
+            const span = statusBarModelSpan({
+              version: chip.version,
+              state: s.status,
+              fleetRunning: chip.fleetRunning,
+              model: chip.model,
+            });
+            if (contentX >= span.start && contentX < span.start + span.len) {
+              openModelPickerRef.current?.();
+            }
+          } else if (ev.y === statusTop + 2) {
+            const span = statusBarAutonomySpan({ yolo: chip.yolo, autonomy: chip.autonomy });
+            if (span && contentX >= span.start && contentX < span.start + span.len) {
+              openAutonomyPickerRef.current?.();
+            }
+          }
+        }
+        return;
+      }
 
       // Absolute (1-based) row of the picker's first item:
       //   viewport rows + affordance + (live strip + input) + header.
@@ -2502,6 +2780,8 @@ export function App({
       state.picker.open ||
       state.slashPicker.open ||
       state.modelPicker.open ||
+      state.autonomyPicker.open ||
+      state.settingsPicker.open ||
       state.confirmQueue.length > 0;
     const overlayClosed = prevAnyOverlayOpen.current && !anyOpenNow;
     const newEntryCommitted = state.entries.length > prevEntriesCount.current;
@@ -2524,6 +2804,8 @@ export function App({
     state.picker.open,
     state.slashPicker.open,
     state.modelPicker.open,
+    state.autonomyPicker.open,
+    state.settingsPicker.open,
     state.confirmQueue.length,
     state.entries.length,
   ]);
@@ -2799,7 +3081,10 @@ export function App({
           // Entering alt-screen turns on the managed viewport (in-app scroll +
           // PgUp/PgDn + collapsibility), no mouse required.
           setManagedLive(true);
-          return { message: 'Alt-screen re-enabled. Managed scroll (PgUp/PgDn) is now active; native scroll is off.' };
+          return {
+            message:
+              'Alt-screen re-enabled. Managed scroll (PgUp/PgDn) is now active; native scroll is off.',
+          };
         }
         return { message: 'Usage: /altscreen on|off' };
       },
@@ -3034,6 +3319,24 @@ export function App({
   // does NOT register its own /goal here — that would collide with the
   // builtin and throw "already registered" on mount.
 
+  // Open routines shared by their slash command AND a mouse click on the
+  // matching status-bar chip. Kept in refs (below) so the empty-dep mouse
+  // handler can fire the latest version without re-subscribing.
+  const openModelPicker = React.useCallback(async () => {
+    if (!getPickableProviders) return;
+    const providers = await getPickableProviders();
+    dispatch({ type: 'modelPickerOpen', providers });
+  }, [getPickableProviders]);
+  const openAutonomyPicker = React.useCallback(() => {
+    if (!switchAutonomy) return;
+    dispatch({ type: 'autonomyPickerOpen', options: AUTONOMY_OPTIONS });
+  }, [switchAutonomy]);
+  const openSettings = React.useCallback(() => {
+    if (!getSettings) return;
+    const s = getSettings();
+    dispatch({ type: 'settingsOpen', mode: s.mode, delayMs: s.delayMs });
+  }, [getSettings]);
+
   // Register the TUI-only `/model` command — opens a two-step picker
   // (provider → model). All work is local state mutation; the actual
   // switch fires only after the user confirms a model in step 2.
@@ -3044,8 +3347,7 @@ export function App({
       aliases: ['provider', 'switch'],
       description: 'Pick a provider + model interactively (two-step).',
       async run() {
-        const providers = await getPickableProviders();
-        dispatch({ type: 'modelPickerOpen', providers });
+        await openModelPicker();
         return { message: undefined };
       },
     };
@@ -3053,7 +3355,27 @@ export function App({
     return () => {
       slashRegistry.unregister('model');
     };
-  }, [slashRegistry, getPickableProviders, switchProviderAndModel]);
+  }, [slashRegistry, getPickableProviders, switchProviderAndModel, openModelPicker]);
+
+  // Register the TUI-only `/settings` command — opens the autonomy settings
+  // editor (default mode + auto-proceed delay). Gated on the settings
+  // accessors being wired by the host (CLI passes them in).
+  useEffect(() => {
+    if (!getSettings || !saveSettings) return;
+    const cmd = {
+      name: 'settings',
+      aliases: ['config', 'prefs'],
+      description: 'Edit autonomy defaults (mode + auto-proceed delay).',
+      async run() {
+        openSettings();
+        return { message: undefined };
+      },
+    };
+    slashRegistry.register(cmd);
+    return () => {
+      slashRegistry.unregister('settings');
+    };
+  }, [slashRegistry, getSettings, saveSettings, openSettings]);
 
   // Register the TUI-only `/autonomy` command — opens a single-step picker.
   // When the user types `/autonomy` with no arg, the picker appears.
@@ -4244,6 +4566,14 @@ export function App({
         });
         return;
       }
+      if (current.settingsPicker.open) {
+        dispatch({ type: 'settingsClose' });
+        dispatch({
+          type: 'addEntry',
+          entry: { kind: 'warn', text: 'Settings cancelled.' },
+        });
+        return;
+      }
       if (current.slashPicker.open) {
         dispatch({ type: 'slashPickerClose' });
         dispatch({
@@ -4579,6 +4909,40 @@ export function App({
       return;
     }
 
+    if (state.settingsPicker.open) {
+      if (key.escape || (key.ctrl && input === 's')) {
+        dispatch({ type: 'settingsClose' });
+        return;
+      }
+      if (key.upArrow) {
+        dispatch({ type: 'settingsFieldMove', delta: -1 });
+        return;
+      }
+      if (key.downArrow) {
+        dispatch({ type: 'settingsFieldMove', delta: 1 });
+        return;
+      }
+      if (key.leftArrow) {
+        dispatch({ type: 'settingsValueChange', delta: -1 });
+        return;
+      }
+      if (key.rightArrow) {
+        dispatch({ type: 'settingsValueChange', delta: 1 });
+        return;
+      }
+      if (isEnter) {
+        const { mode, delayMs } = state.settingsPicker;
+        const err = await saveSettings?.({ mode, delayMs });
+        if (err) {
+          dispatch({ type: 'settingsHint', text: err });
+          return;
+        }
+        dispatch({ type: 'settingsClose' });
+        return;
+      }
+      return;
+    }
+
     if (state.slashPicker.open) {
       if (key.escape) {
         dispatch({ type: 'slashPickerClose' });
@@ -4752,6 +5116,17 @@ export function App({
       dispatch({ type: 'worktreeMonitorToggle' });
       return;
     }
+    // Ctrl+S toggles the autonomy settings editor (also openable via
+    // `/settings`). Only when the host wired the settings accessors.
+    if (key.ctrl && input === 's') {
+      if (state.settingsPicker.open) {
+        dispatch({ type: 'settingsClose' });
+      } else if (getSettings && saveSettings) {
+        const cfg = getSettings();
+        dispatch({ type: 'settingsOpen', mode: cfg.mode, delayMs: cfg.delayMs });
+      }
+      return;
+    }
     // Esc closes whichever monitor is open. When both are closed the busy-state
     // Esc handler above already returned when a run was active.
     if (key.escape) {
@@ -4782,6 +5157,7 @@ export function App({
       !state.picker.open &&
       !state.modelPicker.open &&
       !state.autonomyPicker.open &&
+      !state.settingsPicker.open &&
       !state.rewindOverlay &&
       !state.monitorOpen &&
       !state.agentsMonitorOpen &&
@@ -5438,6 +5814,22 @@ export function App({
 
   // Expose the latest handleKey to the mouse handler (click-to-confirm).
   handleKeyRef.current = handleKey;
+  // Expose the latest open-routines / rewind handler / status chip values to
+  // the empty-dep mouse handler so clicks drive the live state.
+  openModelPickerRef.current = () => {
+    void openModelPicker();
+  };
+  openAutonomyPickerRef.current = openAutonomyPicker;
+  handleRewindToRef.current = (promptIndex: number) => {
+    void handleRewindTo(promptIndex);
+  };
+  statusChipRef.current = {
+    version: appVersion,
+    model: `${liveProvider}/${liveModel}`,
+    fleetRunning: fleetCounts?.running ?? 0,
+    yolo: yoloLive,
+    autonomy: autonomyLive,
+  };
 
   const inputHint = useMemo(() => {
     if (state.status !== 'idle') return '';
@@ -5478,8 +5870,11 @@ export function App({
         {/* Live activity strip + input. Wrapped so its height locates where an
           open picker's items start on screen (click-to-select geometry). */}
         <Box ref={managedLive ? prePickerRef : undefined} flexDirection="column" flexShrink={0}>
-          <LiveActivityStrip entries={state.fleet} nowTick={nowTick} />
+          <Box ref={managedLive ? liveStripRef : undefined} flexDirection="column" flexShrink={0}>
+            <LiveActivityStrip entries={state.fleet} nowTick={nowTick} />
+          </Box>
           <Input
+            prompt={INPUT_PROMPT}
             value={state.buffer}
             cursor={state.cursor}
             disabled={
@@ -5521,6 +5916,14 @@ export function App({
             hint={state.autonomyPicker.hint}
           />
         ) : null}
+        {state.settingsPicker.open ? (
+          <SettingsPicker
+            field={state.settingsPicker.field}
+            mode={state.settingsPicker.mode}
+            delayMs={state.settingsPicker.delayMs}
+            hint={state.settingsPicker.hint}
+          />
+        ) : null}
         {state.rewindOverlay ? (
           <CheckpointTimeline
             checkpoints={state.rewindOverlay.checkpoints}
@@ -5536,18 +5939,26 @@ export function App({
           (() => {
             const head = state.confirmQueue[0]!;
             let resolved = false;
+            const onDecision = (decision: ConfirmDecision) => {
+              if (resolved) return;
+              resolved = true;
+              head.resolve(decision);
+              dispatch({ type: 'confirmClose' });
+            };
+            // Expose the live decision callback so a mouse click on the button
+            // row can fire it (see handleMouse). The wrapper Box owns marginY
+            // and carries the ref so measureElement returns the exact box
+            // height the hit-test uses to locate the button row.
+            confirmDecisionRef.current = onDecision;
             return (
-              <ConfirmPrompt
-                toolName={head.toolName}
-                input={head.input}
-                suggestedPattern={head.suggestedPattern}
-                onDecision={(decision) => {
-                  if (resolved) return;
-                  resolved = true;
-                  head.resolve(decision);
-                  dispatch({ type: 'confirmClose' });
-                }}
-              />
+              <Box ref={confirmRef} flexDirection="column" marginY={1} flexShrink={0}>
+                <ConfirmPrompt
+                  toolName={head.toolName}
+                  input={head.input}
+                  suggestedPattern={head.suggestedPattern}
+                  onDecision={onDecision}
+                />
+              </Box>
             );
           })()}
         <StatusBar
@@ -5585,6 +5996,7 @@ export function App({
                 state.slashPicker.open ||
                 state.modelPicker.open ||
                 state.autonomyPicker.open ||
+                state.settingsPicker.open ||
                 !!state.rewindOverlay,
               monitor:
                 state.agentsMonitorOpen ||

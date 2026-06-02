@@ -27,6 +27,8 @@ export function helpSections(opts: { managed: boolean; mouse: boolean }): HelpSe
   if (opts.mouse)
     nav.push(
       { keys: 'wheel', desc: 'scroll chat history' },
+      { keys: 'drag scrollbar', desc: 'scrub to any position' },
+      { keys: 'click input', desc: 'move the caret' },
       { keys: 'click', desc: 'select / confirm' },
     );
   nav.push(
@@ -51,6 +53,7 @@ export function helpSections(opts: { managed: boolean; mouse: boolean }): HelpSe
         { keys: 'Enter', desc: 'send (queues while the agent is busy)' },
         { keys: 'Esc Esc', desc: 'clear the input buffer' },
         { keys: 'Ctrl+Backspace', desc: 'delete the previous word' },
+        { keys: 'Ctrl+S', desc: 'edit autonomy settings' },
         { keys: 'Ctrl+C', desc: 'interrupt the run · twice to exit' },
       ],
     },
@@ -62,6 +65,7 @@ export function helpSections(opts: { managed: boolean; mouse: boolean }): HelpSe
         { keys: '/fleet', desc: 'multi-agent fleet controls' },
         { keys: '/goal', desc: 'set an autonomous goal' },
         { keys: '/autonomy', desc: 'autonomy mode (eternal / off)' },
+        { keys: '/settings', desc: 'autonomy defaults (also Ctrl+S)' },
         { keys: '/clear', desc: 'clear the conversation' },
       ],
     },
@@ -83,10 +87,7 @@ export function HelpOverlay({
   mouse: boolean;
 }): React.ReactElement {
   const sections = helpSections({ managed, mouse });
-  const keyWidth = Math.max(
-    ...sections.flatMap((s) => s.entries.map((e) => e.keys.length)),
-    0,
-  );
+  const keyWidth = Math.max(...sections.flatMap((s) => s.entries.map((e) => e.keys.length)), 0);
 
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={theme.accent} paddingX={1}>

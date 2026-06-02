@@ -122,3 +122,71 @@ export function layoutInputRows(
   if (row.length > 0 || rows.length === 0) rows.push(row);
   return rows;
 }
+
+/**
+ * Inverse of {@link layoutInputRows} for mouse clicks: given a click at visual
+ * `(row, col)` (both 0-based; col is the column WITHIN the input area, i.e. the
+ * prompt occupies the first columns of row 0), return the buffer cursor index
+ * to place the caret. Mirrors layoutInputRows' wrapping exactly so the mapping
+ * matches what's on screen. Clicking the prompt → start of buffer; clicking
+ * past a row's last character → just after it; clicking below all rows → end of
+ * buffer. Exported for the TUI input-click handler and unit tests.
+ */
+export function inputIndexAtRowCol(
+  prompt: string,
+  value: string,
+  width: number,
+  row: number,
+  col: number,
+): number {
+  const w = Math.max(1, Math.floor(width));
+  // Flat cells: prompt (buf = -1) then value (buf = its index). Newlines are
+  // consumed as row breaks, exactly like layoutInputRows.
+  const flat: Array<{ ch: string; buf: number }> = [];
+  for (let i = 0; i < prompt.length; i++) flat.push({ ch: prompt[i] as string, buf: -1 });
+  for (let i = 0; i < value.length; i++) flat.push({ ch: value[i] as string, buf: i });
+
+  const rows: Array<{ buf: number }[]> = [];
+  const starts: number[] = []; // value index where each row's content begins
+  let cur: Array<{ buf: number }> = [];
+  let curStart = 0;
+  for (const cell of flat) {
+    if (cell.ch === '\n') {
+      rows.push(cur);
+      starts.push(curStart);
+      cur = [];
+      curStart = cell.buf + 1; // content after the newline
+      continue;
+    }
+    if (cur.length === 0 && cell.buf >= 0) curStart = cell.buf;
+    cur.push({ buf: cell.buf });
+    if (cur.length >= w) {
+      rows.push(cur);
+      starts.push(curStart);
+      cur = [];
+      curStart = -1; // set by the next pushed cell (or stays for a trailing newline)
+    }
+  }
+  if (cur.length > 0 || rows.length === 0) {
+    rows.push(cur);
+    starts.push(curStart);
+  }
+
+  const clamp = (n: number) => Math.max(0, Math.min(value.length, n));
+  if (row < 0) return 0;
+  if (row >= rows.length) return value.length;
+  const r = rows[row] as { buf: number }[];
+  const c = Math.max(0, col);
+  if (c < r.length) {
+    const b = (r[c] as { buf: number }).buf;
+    return b < 0 ? 0 : clamp(b); // prompt cell → start of value
+  }
+  // Past the last visible cell: place after the row's last value char…
+  for (let k = r.length - 1; k >= 0; k--) {
+    const b = (r[k] as { buf: number }).buf;
+    if (b >= 0) return clamp(b + 1);
+  }
+  // …or, for an empty / prompt-only row, at the row's start offset.
+  const start = starts[row];
+  return clamp(start !== undefined && start >= 0 ? start : value.length);
+}

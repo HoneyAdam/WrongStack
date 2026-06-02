@@ -72,8 +72,23 @@ process.exit(exitCode);
 | `@` | File picker |
 | `/` (at start) | Slash command picker |
 | `Ctrl+G` | Toggle agents monitor overlay |
+| `Ctrl+S` | Edit autonomy settings (default mode + auto-proceed delay); also `/settings` |
 | `Esc` | Close any picker / dialog / agents monitor |
 | `Ctrl+L` | Clear screen (TUI keeps state — equivalent to scrolling) |
+
+### Mouse mode (`--mouse`)
+
+With `--mouse` the TUI takes over terminal mouse tracking (forces alt-screen; native wheel-scroll and text selection are suspended until `/mouse off`). Then:
+
+- **Wheel** scrolls chat history, or moves the selection in an open picker.
+- **Click or drag the right-edge scrollbar** to jump/scrub the chat viewport to any position.
+- **Click inside the input** to move the caret (single- and multi-line).
+- **Click** a picker item to select + confirm it (single click).
+- **Click** the permission dialog's `[y]/[n]/[a]/[d]` buttons.
+- **Click** a `/rewind` checkpoint to select it; click again to rewind.
+- **Click** the status-bar model chip to open the model picker, or the `∞ MODE` chip to open the autonomy picker.
+- **Click** a `/settings` row to focus it; click again to cycle its value.
+- **Click** the lower region to dismiss an open monitor (`Ctrl+F/G/T/P`) or the `?` help overlay (parity with `Esc`).
 
 ## Options worth knowing
 
