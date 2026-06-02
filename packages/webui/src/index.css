@@ -187,6 +187,8 @@
   width: 3px;
   border-radius: 2px;
   background-color: hsl(var(--primary));
+  pointer-events: none;
+  user-select: none;
 }
 
 .dark [data-message-id][data-focused="true"] {

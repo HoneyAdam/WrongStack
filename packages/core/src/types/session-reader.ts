@@ -72,8 +72,12 @@ export interface SessionReader {
   query(q?: SessionQuery): Promise<SessionSummaryLite[]>;
   /** Yield events for `sessionId` in chronological order. */
   replay(sessionId: string): AsyncIterable<SessionEvent>;
-  /** Full-text/regex search across one or all sessions. */
-  search(q: SessionSearchQuery, sessionId?: string): Promise<SessionSearchHit[]>;
+  /**
+   * Full-text/regex search across one or all sessions.
+   * @param sessionQuery - Optional filter to apply to sessions before searching events.
+   *                       Reduces I/O by loading events only from matching sessions.
+   */
+  search(q: SessionSearchQuery, sessionId?: string, sessionQuery?: SessionQuery): Promise<SessionSearchHit[]>;
   /** Render a session for human or downstream-tool consumption. */
   export(sessionId: string, opts: SessionExportOptions): Promise<string>;
   /** Read the metadata header without loading the full event stream. */

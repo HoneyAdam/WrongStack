@@ -54,12 +54,31 @@ export class DefaultSessionReader implements SessionReader {
     for (const e of data.events) yield e;
   }
 
-  async search(q: SessionSearchQuery, sessionId?: string): Promise<SessionSearchHit[]> {
+  async search(q: SessionSearchQuery, sessionId?: string, sessionQuery?: SessionQuery): Promise<SessionSearchHit[]> {
     const limit = q.limit ?? 100;
     const matcher = buildMatcher(q);
     const allowedTypes = q.types ? new Set(q.types) : null;
 
-    const ids = sessionId ? [sessionId] : (await this.store.list(1000)).map((s) => s.id);
+    // Filter sessions BEFORE loading events — avoids loading thousands of events
+    // from sessions that don't match the time/provider/model criteria.
+    let ids: string[];
+    if (sessionId) {
+      ids = [sessionId];
+    } else {
+      const sessions = await this.store.list(1000);
+      const titleNeedle = sessionQuery?.titleContains?.toLowerCase();
+      const filtered = sessions.filter((s) => {
+        if (sessionQuery?.since && s.startedAt < sessionQuery.since) return false;
+        if (sessionQuery?.until && s.startedAt > sessionQuery.until) return false;
+        if (sessionQuery?.provider && s.provider !== sessionQuery.provider) return false;
+        if (sessionQuery?.model && s.model !== sessionQuery.model) return false;
+        if (sessionQuery?.minTokens !== undefined && s.tokenTotal < sessionQuery.minTokens) return false;
+        if (titleNeedle && !s.title.toLowerCase().includes(titleNeedle)) return false;
+        return true;
+      });
+      ids = filtered.map((s) => s.id);
+    }
+
     const hits: SessionSearchHit[] = [];
     for (const id of ids) {
       let data;

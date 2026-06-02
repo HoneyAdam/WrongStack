@@ -73,15 +73,57 @@ export class SessionRecovery {
    */
   async detectStale(sessionId: string): Promise<StaleSession | null> {
     const fp = this.filePath(sessionId);
-    let raw: string;
+    // Only read the last ~8KB — enough for several large events.
+    // This is O(1) I/O vs O(n) of reading the entire file.
+    const TAIL_SIZE = 8192;
+    let stat;
     try {
-      raw = await fs.readFile(fp, 'utf8');
+      stat = await fs.stat(fp);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
-      // Corrupt or unreadable — not a candidate for resume.
       return null;
     }
-    return this.parseForStale(sessionId, fp, raw);
+    if (stat.size === 0) return null;
+    const position = Math.max(0, stat.size - TAIL_SIZE);
+    const buf = Buffer.alloc(TAIL_SIZE);
+    let fh;
+    try {
+      fh = await fs.open(fp, 'r');
+      const { bytesRead } = await fh.read(buf, 0, TAIL_SIZE, position);
+      // Count total events for StaleSession.eventCount — requires full scan.
+      // For very large files this is a trade-off; count is informational.
+      let eventCount = 0;
+      const raw = buf.subarray(0, bytesRead).toString('utf8');
+      for (const line of raw.split('\n')) {
+        if (line.trim()) eventCount++;
+      }
+      // Find the last complete JSON line in the tail.
+      const lines = raw.split('\n').filter((l) => l.trim());
+      for (let i = lines.length - 1; i >= 0; i--) {
+        try {
+          const ev = JSON.parse(lines[i]!) as SessionEvent;
+          if (ev.type === 'in_flight_start') {
+            return {
+              sessionId,
+              path: fp,
+              lastEventTs: ev.ts,
+              context: ev.context,
+              eventCount,
+            };
+          }
+          // Found a different last event — clean shutdown or legacy
+          return null;
+        } catch {
+          // Incomplete line (spans the read boundary) — skip
+          continue;
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    } finally {
+      if (fh) await fh.close();
+    }
   }
 
   /**
@@ -178,46 +220,6 @@ export class SessionRecovery {
       throw new Error(`Invalid sessionId: ${sessionId}`);
     }
     return path.join(this.dir, `${sessionId}.jsonl`);
-  }
-
-  /**
-   * Stream-parse the last few lines of a JSONL log. We do NOT load
-   * the whole file into memory — for long-running sessions the log
-   * can be megabytes. Instead we read tail-ward and find the last
-   * `in_flight_start` / `in_flight_end` pair.
-   */
-  private async parseForStale(
-    sessionId: string,
-    fp: string,
-    raw: string,
-  ): Promise<StaleSession | null> {
-    const lines = raw.split('\n');
-    let lastEvent: SessionEvent | null = null;
-    let eventCount = 0;
-    // Walk forward — for a fast log this is fine. For huge logs a
-    // streaming parser would be better; deferred to Phase 2.
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      try {
-        const ev = JSON.parse(line) as SessionEvent;
-        lastEvent = ev;
-        eventCount++;
-      } catch {
-        // Skip corrupt lines — same recovery philosophy as the
-        // other sidecar stores (meta-data, not fatal).
-      }
-    }
-    if (!lastEvent) return null;
-    if (lastEvent.type === 'in_flight_start') {
-      return {
-        sessionId,
-        path: fp,
-        lastEventTs: lastEvent.ts,
-        context: lastEvent.context,
-        eventCount,
-      };
-    }
-    return null;
   }
 
   constructor(private readonly dir: string) {}

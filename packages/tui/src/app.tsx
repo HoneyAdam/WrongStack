@@ -2791,12 +2791,27 @@ export function App({
   // We can't reach log-update directly, but we can issue an erase-below-
   // cursor (\x1b[J) at the moments most likely to leak: when a picker /
   // dialog transitions from open → closed (the live region's height
-  // drops sharply), and when a fresh history entry was just committed.
+  // drops sharply), when a fresh history entry was just committed, and
+  // when the terminal resizes (Ink re-renders the live region but the
+  // cleanup logic above doesn't fire since none of its deps changed).
   // \x1b[J only touches what's below the cursor, so committed Static
   // history above is preserved. For users in heavy resize / picker
   // workflows the bullet-proof alternative is still `--alt-screen`.
   const prevAnyOverlayOpen = useRef(false);
   const prevEntriesCount = useRef(0);
+  const eraseLiveRegion = () => {
+    try {
+      // \x1b[J = erase from cursor to end of screen. The cursor sits at the
+      // top of log-update's live region, so this clears the stale live
+      // region only and leaves committed Static history (in scrollback)
+      // untouched. Do NOT prefix with \x1b[H: homing to (0,0) wipes the
+      // visible committed output and forces the input/status bar to redraw
+      // at the top of the viewport instead of staying pinned to the bottom.
+      process.stdout.write('\x1b[J');
+    } catch {
+      // stdout might be detached during shutdown — ignore.
+    }
+  };
   useEffect(() => {
     const anyOpenNow =
       state.picker.open ||
@@ -2810,17 +2825,7 @@ export function App({
     prevAnyOverlayOpen.current = anyOpenNow;
     prevEntriesCount.current = state.entries.length;
     if (overlayClosed || newEntryCommitted) {
-      try {
-        // \x1b[J = erase from cursor to end of screen. The cursor sits at the
-        // top of log-update's live region, so this clears the stale live
-        // region only and leaves committed Static history (in scrollback)
-        // untouched. Do NOT prefix with \x1b[H: homing to (0,0) wipes the
-        // visible committed output and forces the input/status bar to redraw
-        // at the top of the viewport instead of staying pinned to the bottom.
-        process.stdout.write('\x1b[J');
-      } catch {
-        // stdout might be detached during shutdown — ignore.
-      }
+      eraseLiveRegion();
     }
   }, [
     state.picker.open,
@@ -2831,6 +2836,17 @@ export function App({
     state.confirmQueue.length,
     state.entries.length,
   ]);
+
+  // Erase stale live-region content on terminal resize. Without this, Ink
+  // re-renders the live region at the new dimensions but leaves visual
+  // artifacts from the previous size that bleed into scrollback.
+  useEffect(() => {
+    const handleResize = () => eraseLiveRegion();
+    process.stdout.on('resize', handleResize);
+    return () => {
+      process.stdout.off('resize', handleResize);
+    };
+  }, []);
 
   // Detect an active `@<query>` token at the cursor and drive the picker.
   // Reruns whenever buffer/cursor changes — guards against stale results.

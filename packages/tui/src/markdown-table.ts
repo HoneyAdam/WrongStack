@@ -87,6 +87,21 @@ function parseAlign(sep: string): Align {
   return 'left';
 }
 
+/**
+ * Extract visual widths from a separator row (e.g., "|------|--------|").
+ * Counts dash characters as the minimum width for each column.
+ * Returns null for cells that don't look like valid separators.
+ */
+function parseSeparatorWidths(sepCells: string[]): (number | null)[] {
+  return sepCells.map((cell) => {
+    const trimmed = cell.trim();
+    // Must be dashes only (possibly with colons for alignment).
+    const dashes = trimmed.replace(/:/g, '');
+    if (/^-+$/.test(dashes)) return dashes.length;
+    return null;
+  });
+}
+
 export function renderTable(tableLines: string[], maxWidth: number): string {
   const header = parseCells(tableLines[0] ?? '');
   const sepCells = parseCells(tableLines[1] ?? '');
@@ -102,7 +117,9 @@ export function renderTable(tableLines: string[], maxWidth: number): string {
     row.length = cols;
   }
 
-  const widths = computeWidths([header, ...dataRows], cols, maxWidth);
+  // Parse separator widths to use as minimum column widths.
+  const sepWidths = parseSeparatorWidths(sepCells);
+  const widths = computeWidths([header, ...dataRows], cols, maxWidth, sepWidths);
 
   const lines: string[] = [];
   lines.push(border('┌', '┬', '┐', widths));
@@ -115,7 +132,12 @@ export function renderTable(tableLines: string[], maxWidth: number): string {
   return lines.join('\n');
 }
 
-function computeWidths(allRows: string[][], cols: number, maxWidth: number): number[] {
+function computeWidths(
+  allRows: string[][],
+  cols: number,
+  maxWidth: number,
+  sepWidths?: (number | null)[],
+): number[] {
   // Each column adds `│ … ` of overhead (2 padding + 1 separator); the
   // very first column also gets an opening `│`. Net overhead = 3*cols + 1.
   const overhead = 3 * cols + 1;
@@ -124,11 +146,20 @@ function computeWidths(allRows: string[][], cols: number, maxWidth: number): num
   for (const row of allRows) {
     for (let c = 0; c < cols; c++) {
       const cell = row[c] ?? '';
-      const w = longestWord(cell); // floor: never wrap mid-word in the middle of a short label
-      const total = cell.length;
-      // Track both, prefer the natural width but ensure at least `w`.
-      natural[c] = Math.max(natural[c]!, total);
-      if (w > natural[c]!) natural[c] = Math.min(total + 1, w);
+      const w = longestWord(cell); // visual width of the longest word in this cell
+      const total = strWidth(cell); // visual width of the entire cell content
+      // Ensure the column is at least wide enough for the longest word,
+      // and at least wide enough for the full cell content.
+      natural[c] = Math.max(natural[c]!, w, total);
+    }
+  }
+  // Apply separator widths as minimums (markdown separator defines column widths).
+  if (sepWidths) {
+    for (let c = 0; c < cols && c < sepWidths.length; c++) {
+      const sepW = sepWidths[c];
+      if (sepW != null) {
+        natural[c] = Math.max(natural[c]!, sepW);
+      }
     }
   }
   const sumNatural = natural.reduce((s, n) => s + n, 0);
@@ -156,9 +187,70 @@ function computeWidths(allRows: string[][], cols: number, maxWidth: number): num
 
 const MIN_COL_WIDTH = 4;
 
+/**
+ * Return the number of terminal columns a string occupies.
+ * Uses East Asian Width property to determine character widths:
+ * - Emoji (U+1F000+ and various other emoji blocks) count as 2 columns.
+ * - Full-width (F) and Wide (W) characters count as 2 columns.
+ * - ASCII printable characters count as 1.
+ * - Control characters count as 0.
+ */
+export function strWidth(s: string): number {
+  let width = 0;
+  for (const cp of s) {
+    const code = cp.codePointAt(0)!;
+    // Control characters: no width
+    if (code < 0x20 || (code >= 0x7f && code < 0xa0)) {
+      continue;
+    }
+    // Emoji: Most emoji render as double-width in terminals.
+    // Modern emoji are in U+1F000+ or various other blocks.
+    if (
+      code >= 0x1f000 || // Supplementary Pictographs (U+1F000-U+1FFFF)
+      (code >= 0x2600 && code <= 0x27bf) || // Miscellaneous Symbols, Dingbats
+      (code >= 0x2300 && code <= 0x23ff) || // Miscellaneous Technical
+      (code >= 0x2b50 && code <= 0x2b55) || // Stars and similar
+      (code >= 0x2934 && code <= 0x2935) || // Arrow forms
+      (code >= 0x2190 && code <= 0x21ff) || // Arrows
+      (code >= 0x25a0 && code <= 0x25ff) || // Geometric Shapes
+      (code >= 0x25c0 && code <= 0x25fe) || // More Geometric Shapes (includes ▶)
+      (code >= 0x2700 && code <= 0x27bf) // Dingbats (includes ✅ ❌)
+    ) {
+      width += 2;
+      continue;
+    }
+    // East Asian Width: Wide characters take 2 columns.
+    // CJK Unified Ideographs, Hiragana, Katakana, Hangul, etc.
+    if (
+      (code >= 0x1100 && code <= 0x115f) || // Hangul Jamo
+      code === 0x2329 || // LEFT-POINTING ANGLE BRACKET
+      code === 0x232a || // RIGHT-POINTING ANGLE BRACKET
+      (code >= 0x2e80 && code <= 0x303e) || // CJK Radicals Supplement
+      (code >= 0x3040 && code <= 0xa4cf) || // Hiragana, Katakana, CJK
+      (code >= 0xac00 && code <= 0xd7a3) || // Hangul Syllables
+      (code >= 0xf900 && code <= 0xfaf9) || // CJK Compatibility Ideographs
+      (code >= 0xfe10 && code <= 0xfe1f) || // Vertical forms
+      (code >= 0xfe30 && code <= 0xfe6f) || // CJK Compatibility Forms
+      (code >= 0xff00 && code <= 0xff60) || // Fullwidth Forms
+      (code >= 0xffe0 && code <= 0xffe6) || // Halfwidth and Fullwidth Forms
+      (code >= 0x20000 && code <= 0x2fffd) || // CJK Extension B+
+      (code >= 0x30000 && code <= 0x3fffd) // CJK Extension F+
+    ) {
+      width += 2;
+      continue;
+    }
+    // ASCII and most other printable characters: 1 column
+    width += 1;
+  }
+  return width;
+}
+
 function longestWord(s: string): number {
   let max = 0;
-  for (const w of s.split(/\s+/)) if (w.length > max) max = w.length;
+  for (const w of s.split(/\s+/)) {
+    const visualWidth = strWidth(w);
+    if (visualWidth > max) max = visualWidth;
+  }
   return max;
 }
 
@@ -183,31 +275,48 @@ function renderRow(cells: string[], widths: number[], aligns: Align[]): string[]
 }
 
 function wrapCell(text: string, width: number): string[] {
-  if (text.length <= width) return [text];
+  if (strWidth(text) <= width) return [text];
   const out: string[] = [];
   // Split on whitespace, keep grouping until we'd overflow.
   const words = text.split(/(\s+)/);
   let cur = '';
+  let curWidth = 0;
   for (const word of words) {
     if (!word) continue;
-    if (cur.length + word.length <= width) {
+    const wordWidth = strWidth(word);
+    if (curWidth + wordWidth <= width) {
       cur += word;
+      curWidth += wordWidth;
       continue;
     }
     if (cur) {
       out.push(cur.trimEnd());
       cur = '';
+      curWidth = 0;
     }
-    if (word.length > width) {
-      // Hard-break a word longer than the column.
+    if (wordWidth > width) {
+      // Hard-break a word longer than the column — slice by visual width.
       let rest = word;
-      while (rest.length > width) {
-        out.push(rest.slice(0, width));
-        rest = rest.slice(width);
+      let restWidth = wordWidth;
+      while (restWidth > width) {
+        // Collect characters until we reach `width` visual columns.
+        let collected = '';
+        let collectedWidth = 0;
+        for (const cp of rest) {
+          const cpWidth = strWidth(cp);
+          if (collectedWidth + cpWidth > width) break;
+          collected += cp;
+          collectedWidth += cpWidth;
+        }
+        out.push(collected);
+        rest = rest.slice(collected.length);
+        restWidth = strWidth(rest);
       }
       cur = rest;
+      curWidth = strWidth(rest);
     } else if (!/^\s+$/.test(word)) {
       cur = word;
+      curWidth = wordWidth;
     }
   }
   if (cur) out.push(cur.trimEnd());
@@ -215,8 +324,15 @@ function wrapCell(text: string, width: number): string[] {
 }
 
 function padCell(text: string, width: number, align: Align): string {
-  if (text.length >= width) return text.slice(0, width);
-  const pad = width - text.length;
+  const visualLen = strWidth(text);
+  // Border creates visual width of (width + 2), so content must also be (width + 2)
+  // to match. This is critical for emoji/CJK where text.length != visual width.
+  const targetWidth = width + 2;
+  if (visualLen >= targetWidth) {
+    // Truncate to visual width. For emoji this means fewer code units.
+    return text.slice(0, targetWidth);
+  }
+  const pad = targetWidth - visualLen;
   if (align === 'right') return ' '.repeat(pad) + text;
   if (align === 'center') {
     const l = Math.floor(pad / 2);

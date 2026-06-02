@@ -1,5 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { renderMarkdownTables } from '../src/markdown-table.js';
+import { renderMarkdownTables, strWidth } from '../src/markdown-table.js';
+
+describe('strWidth', () => {
+  it('returns correct widths for emoji', () => {
+    expect(strWidth('✅')).toBe(2);
+    expect(strWidth('❌')).toBe(2);
+  });
+
+  it('returns correct widths for CJK', () => {
+    expect(strWidth('名前')).toBe(4);
+    expect(strWidth('田中')).toBe(4);
+  });
+
+  it('returns correct widths for ASCII', () => {
+    expect(strWidth('Status')).toBe(6);
+    expect(strWidth('Name')).toBe(4);
+  });
+});
 
 describe('renderMarkdownTables', () => {
   it('passes through prose with no tables unchanged', () => {
@@ -70,5 +87,74 @@ describe('renderMarkdownTables', () => {
     // The table should be much narrower than 200.
     const first = out.split('\n')[0]!;
     expect([...first].length).toBeLessThan(40);
+  });
+
+  it('keeps table borders aligned when cells contain emoji', () => {
+    // Emoji like ✅ are single code points but modern emoji render as
+    // double-width in most terminals. Without proper width handling,
+    // borders would misalign because text.length != visual width.
+    const input = [
+      '| Status | Name |',
+      '|--------|------|',
+      '| ✅     | Alice |',
+      '| ❌     | Bob   |',
+    ].join('\n');
+    const out = renderMarkdownTables(input, 60);
+    const lines = out.split('\n');
+    // All lines must have the same character width.
+    const widths = new Set(lines.map((l) => l.length));
+    expect(widths.size).toBe(1);
+    // Borders must use proper box-drawing characters.
+    expect(lines[0]).toMatch(/^┌─+┬─+┐$/); // top border
+    expect(lines[2]).toMatch(/^├─+┼─+┤$/); // header separator
+    expect(lines[5]).toMatch(/^└─+┴─+┘$/); // bottom border
+  });
+
+  it('handles CJK characters (double-width) without border misalignment', () => {
+    // CJK characters are double-width in terminals.
+    const input = [
+      '| Name | Status |',
+      '|------|--------|',
+      '| 名前 | ✅    |',
+      '| 山本 | ❌    |',
+    ].join('\n');
+    const out = renderMarkdownTables(input, 60);
+    const lines = out.split('\n');
+    // Debug: print lines and widths
+    console.log('CJK test output:');
+    lines.forEach((l, i) => console.log(`  [${i}] "${l}" len=${l.length}`));
+    // All lines must have the same character width.
+    const widths = new Set(lines.map((l) => l.length));
+    expect(widths.size).toBe(1);
+  });
+
+  it('emoji column width matches header width', () => {
+    // The emoji column should be as wide as the header column, not just wide enough for the emoji.
+    const input = [
+      '| Status |',
+      '|--------|',
+      '| ✅     |',
+    ].join('\n');
+    const out = renderMarkdownTables(input, 60);
+    const lines = out.split('\n');
+    console.log('Emoji single column:');
+    lines.forEach((l, i) => console.log(`  [${i}] "${l}" len=${l.length}`));
+    // All lines must have the same character width.
+    const widths = new Set(lines.map((l) => l.length));
+    expect(widths.size).toBe(1);
+  });
+
+  it('handles emoji in wrapped cells correctly', () => {
+    // A long cell with emoji should wrap at the right visual position.
+    const input = [
+      '| Item | Description |',
+      '|------|-------------|',
+      '| 1    | This is a very long description with emoji 🚀 that should wrap |',
+    ].join('\n');
+    const out = renderMarkdownTables(input, 50);
+    const lines = out.split('\n');
+    // All lines must have the same character width.
+    const widths = new Set(lines.map((l) => l.length));
+    expect(widths.size).toBe(1);
   });
 });

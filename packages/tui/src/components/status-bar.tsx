@@ -1,8 +1,14 @@
 import type { TokenCounter } from '@wrongstack/core';
-import { Box, Text } from 'ink';
+import { Box, Text, useStdout } from 'ink';
 import type React from 'react';
+import { useEffect, useState } from 'react';
 import type { GitInfo } from '../git-info.js';
 import { theme } from '../theme.js';
+
+/** Minimum terminal width before we switch to ultra-compact mode. */
+const COMPACT_THRESHOLD = 50;
+/** Above this width, show most available information. */
+const COMFORTABLE_THRESHOLD = 90;
 
 export interface TodoCounts {
   pending: number;
@@ -200,6 +206,22 @@ export function StatusBar({
   eternalStage,
   goalSummary,
 }: StatusBarProps): React.ReactElement {
+  // Track terminal width so we can adapt layout on narrow terminals.
+  // We snapshot into state so that renders are stable — we don't want
+  // the live-region to churn on every resize event during active streaming.
+  const { stdout } = useStdout();
+  const [termWidth, setTermWidth] = useState(stdout?.columns ?? 90);
+  useEffect(() => {
+    const handleResize = () => setTermWidth(stdout?.columns ?? 90);
+    handleResize(); // snapshot immediately
+    process.stdout.on('resize', handleResize);
+    return () => {
+      process.stdout.off('resize', handleResize);
+    };
+  }, [stdout]);
+
+  const isCompact = termWidth < COMPACT_THRESHOLD;
+  const isComfortable = termWidth >= COMFORTABLE_THRESHOLD;
   const hiddenSet = new Set(hiddenItems);
   const usage = tokenCounter?.total();
   const cost = tokenCounter?.estimateCost();
@@ -238,71 +260,84 @@ export function StatusBar({
       borderLeft={false}
       borderRight={false}
     >
+      {/* Line 1: Essential runtime info. Compact mode shows only state + model. */}
       <Box flexDirection="row" gap={2}>
-        {version ? (
+        {isCompact ? (
+          // Ultra-compact: state · model
           <>
-            <Text>
-              <Text color="blue" bold>
-                WS
-              </Text>
-              <Text dimColor> v{version}</Text>
-            </Text>
-            <Text dimColor>│</Text>
+            <Text color={stateColor}>●{stateLabel}</Text>
+            <Text dimColor>·</Text>
+            <Text color="magenta">{model}</Text>
           </>
-        ) : null}
-        <Text color={stateColor}>● {stateLabel}</Text>
-        <Text dimColor>│</Text>
-        <Text color="magenta">{model}</Text>
-        {context && context.max > 0 ? (
+        ) : (
+          // Full mode: version · state · model · context · tokens · cost · queue · processes · hint
           <>
+            {version ? (
+              <>
+                <Text>
+                  <Text color="blue" bold>
+                    WS
+                  </Text>
+                  <Text dimColor> v{version}</Text>
+                </Text>
+                <Text dimColor>│</Text>
+              </>
+            ) : null}
+            <Text color={stateColor}>● {stateLabel}</Text>
             <Text dimColor>│</Text>
-            <ContextChip ctx={context} />
+            <Text color="magenta">{model}</Text>
+            {context && context.max > 0 ? (
+              <>
+                <Text dimColor>│</Text>
+                <ContextChip ctx={context} />
+              </>
+            ) : null}
+            {usage && isComfortable ? (
+              <>
+                <Text dimColor>│</Text>
+                <Text>
+                  ↑{' '}
+                  <Text color="cyan">
+                    {fmtTok(usage.input + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0))}
+                  </Text>{' '}
+                  ↓ <Text color="cyan">{fmtTok(usage.output)}</Text>
+                </Text>
+              </>
+            ) : null}
+            {cache && cache.hitRatio > 0 && isComfortable ? (
+              <>
+                <Text dimColor>│</Text>
+                <Text dimColor>cache {(cache.hitRatio * 100).toFixed(0)}%</Text>
+              </>
+            ) : null}
+            {cost && cost.total > 0 ? (
+              <>
+                <Text dimColor>│</Text>
+                <Text color="yellow">${cost.total.toFixed(4)}</Text>
+              </>
+            ) : null}
+            {queueCount > 0 ? (
+              <>
+                <Text dimColor>│</Text>
+                <Text color="cyan">⌛ queued: {queueCount}</Text>
+              </>
+            ) : null}
+            {typeof processCount === 'number' && processCount > 0 ? (
+              <>
+                <Text dimColor>│</Text>
+                <Text color="red">
+                  ⚡ {processCount} process{processCount === 1 ? '' : 'es'}
+                </Text>
+              </>
+            ) : null}
+            {hint ? (
+              <>
+                <Text dimColor>│</Text>
+                <Text dimColor>{hint}</Text>
+              </>
+            ) : null}
           </>
-        ) : null}
-        {usage ? (
-          <>
-            <Text dimColor>│</Text>
-            <Text>
-              ↑{' '}
-              <Text color="cyan">
-                {fmtTok(usage.input + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0))}
-              </Text>{' '}
-              ↓ <Text color="cyan">{fmtTok(usage.output)}</Text>
-            </Text>
-          </>
-        ) : null}
-        {cache && cache.hitRatio > 0 ? (
-          <>
-            <Text dimColor>│</Text>
-            <Text dimColor>cache {(cache.hitRatio * 100).toFixed(0)}%</Text>
-          </>
-        ) : null}
-        {cost && cost.total > 0 ? (
-          <>
-            <Text dimColor>│</Text>
-            <Text color="yellow">${cost.total.toFixed(4)}</Text>
-          </>
-        ) : null}
-        {queueCount > 0 ? (
-          <>
-            <Text dimColor>│</Text>
-            <Text color="cyan">⌛ queued: {queueCount}</Text>
-          </>
-        ) : null}
-        {typeof processCount === 'number' && processCount > 0 ? (
-          <>
-            <Text dimColor>│</Text>
-            <Text color="red">
-              ⚡ {processCount} process{processCount === 1 ? '' : 'es'}
-            </Text>
-          </>
-        ) : null}
-        {hint ? (
-          <>
-            <Text dimColor>│</Text>
-            <Text dimColor>{hint}</Text>
-          </>
-        ) : null}
+        )}
       </Box>
 
       {hasSecondLine ? (

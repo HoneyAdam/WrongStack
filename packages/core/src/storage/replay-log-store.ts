@@ -59,6 +59,8 @@ export class ReplayLogStore {
   private readonly writeChains = new Map<string, Promise<void>>();
   /** Per-session hash → entry index, kept in memory after the first load. */
   private readonly cache = new Map<string, Map<string, ReplayEntry>>();
+  /** Per-session entry count on disk, to detect when compaction is needed. */
+  private readonly diskCount = new Map<string, number>();
   private readonly maxEntries: number;
 
   constructor(opts: ReplayLogStoreOptions) {
@@ -88,21 +90,34 @@ export class ReplayLogStore {
         request: input.request,
         response: input.response,
       };
-      // Append the new entry, then enforce the rotation cap. The
-      // `Map.values()` order is insertion order, so evicting the
-      // first N entries preserves the most recent N — exactly the
-      // LRU-by-insertion semantics we want for a replay log.
-      let all = [...cache.values(), entry];
-      if (all.length > this.maxEntries) {
-        const evictCount = all.length - this.maxEntries;
-        all = all.slice(evictCount);
+      // True append — O(1) per write. Only compact (full rewrite) when
+      // we exceed maxEntries and need to evict oldest entries.
+      cache.set(hash, entry);
+      const count = (this.diskCount.get(input.sessionId) ?? 0) + 1;
+      if (count > this.maxEntries) {
+        // Need to compact: keep only the most recent maxEntries.
+        await this.compact(input.sessionId, cache);
+      } else {
+        await fs.appendFile(this.filePath(input.sessionId), JSON.stringify(entry) + '\n', 'utf8');
+        this.diskCount.set(input.sessionId, count);
       }
-      await this.writeAll(input.sessionId, all);
-      // Reset the cache to match the rotated file.
-      cache.clear();
-      for (const e of all) cache.set(e.hash, e);
     });
     return hash;
+  }
+
+  /**
+   * Compact the replay log to keep only the most recent maxEntries.
+   * Called when entry count exceeds the cap. Rewrites the entire file
+   * but only happens O(n / maxEntries) times per session.
+   */
+  private async compact(sessionId: string, cache: Map<string, ReplayEntry>): Promise<void> {
+    // Map.values() preserves insertion order — take the last maxEntries.
+    const all = [...cache.values()];
+    const keep = all.slice(-this.maxEntries);
+    await this.writeAll(sessionId, keep);
+    cache.clear();
+    for (const e of keep) cache.set(e.hash, e);
+    this.diskCount.set(sessionId, keep.length);
   }
 
   // ── Reads ───────────────────────────────────────────────────────────────
@@ -206,6 +221,7 @@ export class ReplayLogStore {
     cache = new Map();
     for (const e of all) cache.set(e.hash, e);
     this.cache.set(sessionId, cache);
+    this.diskCount.set(sessionId, all.length);
     return cache;
   }
 

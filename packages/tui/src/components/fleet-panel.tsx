@@ -1,5 +1,6 @@
-import { Box, Text } from 'ink';
+import { Box, Text, useStdout } from 'ink';
 import type React from 'react';
+import { useEffect, useState } from 'react';
 import type { FleetEntry } from '../app.js';
 
 export interface FleetPanelProps {
@@ -20,8 +21,23 @@ export interface FleetPanelProps {
  * session is active (LEADER always shows as "waiting" in that case).
  */
 export function FleetPanel({ entries, totalCost, collabSession }: FleetPanelProps): React.ReactElement | null {
+  // Track terminal width to adapt name truncation.
+  const { stdout } = useStdout();
+  const [termWidth, setTermWidth] = useState(stdout?.columns ?? 90);
+  useEffect(() => {
+    const handleResize = () => setTermWidth(stdout?.columns ?? 90);
+    handleResize();
+    process.stdout.on('resize', handleResize);
+    return () => {
+      process.stdout.off('resize', handleResize);
+    };
+  }, [stdout]);
+
   const list = Object.values(entries);
   if (list.length === 0 && !collabSession) return null;
+
+  // Adapt name truncation based on terminal width.
+  const nameMaxLen = Math.max(6, Math.min(14, termWidth - 30));
 
   // Always extract the leader entry separately — it gets special treatment.
   const leader = list.find((e) => e.id === 'leader');
@@ -67,7 +83,7 @@ export function FleetPanel({ entries, totalCost, collabSession }: FleetPanelProp
       {hasCollab && leader ? (
         <Box flexDirection="row" gap={1}>
           <Text color="yellow">●</Text>
-          <Text>{leader.name.slice(0, 14).padEnd(14)}</Text>
+          <Text>{leader.name.slice(0, nameMaxLen)}</Text>
           <Text dimColor>→</Text>
           <Text color="yellow">{leaderTool}</Text>
         </Box>
@@ -77,12 +93,12 @@ export function FleetPanel({ entries, totalCost, collabSession }: FleetPanelProp
       {shown.map((entry) => {
         // entry.name is the subagent's display name (nickname when assigned,
         // e.g. "Einstein (Bug Hunter)") — prefer it over the raw id.
-        const name = entry.name && entry.name !== entry.id ? entry.name : entry.id.slice(0, 8);
+        const name = entry.name && entry.name !== entry.id ? entry.name : entry.id.slice(0, nameMaxLen);
         const tool = entry.currentTool?.name ?? '—';
         return (
           <Box key={entry.id} flexDirection="row" gap={1}>
             <Text color="green">●</Text>
-            <Text>{name.slice(0, 14).padEnd(14)}</Text>
+            <Text>{name.slice(0, nameMaxLen)}</Text>
             <Text dimColor>→</Text>
             <Text color="cyan">{tool}</Text>
           </Box>
@@ -92,7 +108,7 @@ export function FleetPanel({ entries, totalCost, collabSession }: FleetPanelProp
       {/* Overflow indicator — show count and the first overflowed agent name */}
       {overflow > 0 ? (
         <Text dimColor>
-          {' '}+{overflow}: {running[3]?.name?.slice(0, 12) ?? 'agent'}…
+          {' '}+{overflow}: {running[3]?.name?.slice(0, nameMaxLen - 2) ?? 'agent'}…
         </Text>
       ) : null}
     </Box>

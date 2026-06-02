@@ -189,6 +189,62 @@ describe('ReplayLogStore', () => {
     const entries = await store.load('s1');
     expect(entries).toHaveLength(N);
   });
+
+  it('appends to file rather than rewriting entire file on each record', async () => {
+    // Record 5 entries and verify file has exactly 5 lines.
+    for (let i = 0; i < 5; i++) {
+      await store.record({
+        sessionId: 's1',
+        request: makeRequest({ messages: [{ role: 'user', content: [{ type: 'text', text: `m${i}` }] }] }),
+        response: makeResponse(),
+      });
+    }
+    const filePath = path.join(dir, 's1.replay.jsonl');
+    const raw = await fs.readFile(filePath, 'utf8');
+    const lines = raw.split('\n').filter((l) => l.trim());
+    expect(lines).toHaveLength(5);
+    // Verify entries are in insertion order.
+    const entries = await store.load('s1');
+    expect(entries).toHaveLength(5);
+    for (let i = 0; i < 5; i++) {
+      expect(entries[i]!.request.messages[0]!.content).toMatchObject([{ type: 'text', text: `m${i}` }]);
+    }
+  });
+
+  it('compacts when maxEntries is exceeded, keeping only the most recent entries', async () => {
+    const smallStore = new ReplayLogStore({ dir, maxEntries: 5 });
+    // Record 8 unique entries (exceeds maxEntries of 5).
+    for (let i = 0; i < 8; i++) {
+      await smallStore.record({
+        sessionId: 's1',
+        request: makeRequest({ messages: [{ role: 'user', content: [{ type: 'text', text: `m${i}` }] }] }),
+        response: makeResponse(),
+      });
+    }
+    const entries = await smallStore.load('s1');
+    // Should keep only the last 5.
+    expect(entries).toHaveLength(5);
+    // The first 3 (m0-m2) should be evicted, last 5 (m3-m7) should remain.
+    expect(entries[0]!.request.messages[0]!.content).toMatchObject([{ type: 'text', text: 'm3' }]);
+    expect(entries[4]!.request.messages[0]!.content).toMatchObject([{ type: 'text', text: 'm7' }]);
+  });
+
+  it('fresh store instance loads compacted file and returns correct count', async () => {
+    const smallStore = new ReplayLogStore({ dir, maxEntries: 3 });
+    for (let i = 0; i < 5; i++) {
+      await smallStore.record({
+        sessionId: 's1',
+        request: makeRequest({ messages: [{ role: 'user', content: [{ type: 'text', text: `m${i}` }] }] }),
+        response: makeResponse(),
+      });
+    }
+    // Create a fresh store instance — should load compacted state.
+    const freshStore = new ReplayLogStore({ dir });
+    const entries = await freshStore.load('s1');
+    expect(entries).toHaveLength(3);
+    expect(entries[0]!.request.messages[0]!.content).toMatchObject([{ type: 'text', text: 'm2' }]);
+    expect(entries[2]!.request.messages[0]!.content).toMatchObject([{ type: 'text', text: 'm4' }]);
+  });
 });
 
 // ── ReplayProviderRunner ──────────────────────────────────────────────────
