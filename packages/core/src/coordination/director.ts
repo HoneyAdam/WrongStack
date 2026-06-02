@@ -930,9 +930,10 @@ export class Director implements ICoordinator {
     if (needsNickname) {
       const role = config.role ?? 'subagent';
       if (this.fleetManager) {
-        // FleetManager owns the used-nicknames set — ask it to assign + record atomically.
-        // assignNicknameAndRecord writes the nickname into config.name before recording.
-        this.fleetManager.assignNicknameAndRecord('', config, priceLookup);
+        // FleetManager owns the used-nicknames set — just assign the nickname.
+        // recordSpawn is called after spawn regardless of needsNickname to ensure
+        // the manifest is keyed by the real subagentId.
+        this.fleetManager.assignNicknameAndRecord(config);
       } else {
         config.name = assignNickname(role, this._usedNicknames);
         this._usedNicknames.add(config.name.split(' ')[0]!.toLowerCase().replace(/[^a-z0-9-]/g, '-'));
@@ -941,11 +942,8 @@ export class Director implements ICoordinator {
     result = await this.coordinator.spawn(config);
     // Record with FleetManager when available; otherwise manage inline.
     if (this.fleetManager) {
-      // When needsNickname was true, assignNicknameAndRecord already recorded the spawn.
-      // Otherwise we still need to record metadata here.
-      if (!needsNickname) {
-        this.fleetManager.recordSpawn(result.subagentId, config, priceLookup);
-      }
+      // Always record the spawn with the real subagentId so the manifest is keyed correctly.
+      this.fleetManager.recordSpawn(result.subagentId, config, priceLookup);
     } else {
       this.spawnCount += 1;
       this.subagentMeta.set(result.subagentId, {

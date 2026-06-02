@@ -149,7 +149,7 @@ export interface EventMap {
    * runner/budget classes.
    */
   'budget.threshold_reached': {
-    kind: 'iterations' | 'tool_calls' | 'tokens' | 'cost' | 'timeout';
+    kind: 'iterations' | 'tool_calls' | 'tokens' | 'cost' | 'timeout' | 'idle_timeout';
     used: number;
     limit: number;
     /**

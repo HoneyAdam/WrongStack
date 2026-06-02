@@ -46,18 +46,16 @@ export interface IFleetManager {
   setLeaderContextPressure(tokens: number): void;
 
   /**
-   * Assign a memorable nickname (e.g. "Einstein (Bug Hunter)"), mark it
-   * as used so it is never reused, then record the spawn. The nickname
-   * is written back to `config.name` so the coordinator and manifest both
-   * see the human-readable name.
+   * Assign a memorable nickname (e.g. "Einstein (Bug Hunter)") and mark it
+   * as used so it is never reused. The nickname is written back to `config.name`
+   * so the coordinator and manifest both see the human-readable name.
+   *
+   * NOTE: This only assigns the nickname. The caller MUST call `recordSpawn`
+   * after `coordinator.spawn()` returns with the real subagentId.
    *
    * Returns the assigned nickname string.
    */
-  assignNicknameAndRecord(
-    subagentId: string,
-    config: SubagentConfig,
-    priceLookup?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number },
-  ): string;
+  assignNicknameAndRecord(config: SubagentConfig): string;
 
   /**
    * Readonly view of already-assigned nickname keys. Used by `Director.spawn()`

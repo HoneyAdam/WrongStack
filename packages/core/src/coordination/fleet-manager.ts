@@ -214,11 +214,14 @@ export class FleetManager implements IFleetManager {
    * Call this INSTEAD of `recordSpawn` when you want automatic nicknames.
    * The nickname is written back to `config.name` BEFORE the coordinator
    * sees the config, so the manifest, logs, and fleet UI all show it.
+   *
+   * NOTE: This method ONLY assigns the nickname and marks it used.
+   * The caller MUST call `recordSpawn(subagentId, config, priceLookup)` AFTER
+   * `coordinator.spawn()` returns with the real subagentId. This is because
+   * the subagentId is not known until after the coordinator creates the subagent.
    */
   assignNicknameAndRecord(
-    subagentId: string,
     config: SubagentConfig,
-    priceLookup?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number },
   ): string {
     const role = config.role ?? 'subagent';
     const nickname = assignNickname(role, this._usedNicknames);
@@ -228,7 +231,6 @@ export class FleetManager implements IFleetManager {
     // Write the full nickname back into config so the coordinator
     // and manifest both see the human name.
     config.name = nickname;
-    this.recordSpawn(subagentId, config, priceLookup);
     return nickname;
   }
 

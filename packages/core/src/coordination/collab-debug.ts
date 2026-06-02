@@ -56,7 +56,7 @@ export interface DirectorAlert {
   /** Human-readable message for UI/logs */
   message: string;
   /** Budget kind that triggered this alert, if any */
-  budgetKind?: 'timeout' | 'iterations' | 'tool_calls' | 'tokens' | 'cost';
+  budgetKind?: 'timeout' | 'idle_timeout' | 'iterations' | 'tool_calls' | 'tokens' | 'cost';
   /** Elapsed ms at time of alert */
   elapsedMs?: number;
   /** Limit that was hit */

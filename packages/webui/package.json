@@ -85,7 +85,7 @@
     "react-markdown": "^9.0.3",
     "remark-gfm": "^4.0.0",
     "tailwind-merge": "^2.6.0",
-    "ws": "^8.18.0",
+    "ws": "^8.20.1",
     "zustand": "^5.0.2"
   },
   "devDependencies": {

@@ -254,11 +254,6 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
     await Promise.allSettled([...this.subagents.keys()].map((id) => this.stop(id)));
   }
 
-  async remove(subagentId: string): Promise<void> {
-    await this.stop(subagentId);
-    this.subagents.delete(subagentId);
-  }
-
   /**
    * Get current coordinator stats for monitoring/debugging.
    */
