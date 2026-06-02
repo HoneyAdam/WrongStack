@@ -9,19 +9,19 @@
       "types": "./dist/index.d.ts"
     },
     "./client": {
-      "import": "./dist/client/index.js",
-      "types": "./dist/client/index.d.ts"
+      "import": "./dist/client.js",
+      "types": "./dist/client.d.ts"
     },
     "./agent": {
-      "import": "./dist/agent/index.js",
-      "types": "./dist/agent/index.d.ts"
+      "import": "./dist/agent.js",
+      "types": "./dist/agent.d.ts"
     }
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsup",
     "typecheck": "tsc --noEmit",
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "test": "vitest run"
