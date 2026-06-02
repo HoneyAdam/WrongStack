@@ -408,8 +408,11 @@ function expandIPv6(addr: string): number[] | null {
 }
 
 function combineSignals(...sigs: AbortSignal[]): AbortSignal {
-  if (typeof (AbortSignal as { any?: unknown }).any === 'function') {
-    return (AbortSignal as { any: (s: AbortSignal[]) => AbortSignal }).any(sigs);
+  // Check for AbortSignal.any() static method (may not exist in older runtimes)
+  // AbortSignal.any() takes rest parameters: (...sigs: AbortSignal[]) => AbortSignal
+  const anyFn = (AbortSignal as unknown as { any?: (...sigs: AbortSignal[]) => AbortSignal }).any;
+  if (typeof anyFn === 'function') {
+    return anyFn(...sigs);
   }
   // Fallback for older runtimes. We register listeners on the parent signals
   // and clean them up once any of them fires (or once ctrl itself aborts) to

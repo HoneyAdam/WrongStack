@@ -66,8 +66,9 @@ export function hasDangerousCapabilityForSubagents(
   toolOrCaps: { capabilities?: readonly string[] } | readonly string[] | undefined,
 ): boolean {
   if (!toolOrCaps) return false;
-  const input = toolOrCaps as any;
-  const caps: readonly string[] = Array.isArray(input) ? input : (input?.capabilities ?? []);
+  // Use `as unknown as ...` to allow accessing .capabilities on the union type
+  const input = toolOrCaps as unknown as { capabilities?: readonly string[] };
+  const caps: readonly string[] = Array.isArray(toolOrCaps) ? toolOrCaps : (input.capabilities ?? []);
   return caps.some((c) => DANGEROUS_FOR_SUBAGENTS.includes(c as ToolCapability));
 }
 
@@ -79,8 +80,9 @@ export function hasCapability(
   capability: ToolCapability | ToolCapability[],
 ): boolean {
   if (!toolOrCaps) return false;
-  const input = toolOrCaps as any;
-  const caps: readonly string[] = Array.isArray(input) ? input : (input?.capabilities ?? []);
+  // Use `as unknown as ...` to allow accessing .capabilities on the union type
+  const input = toolOrCaps as unknown as { capabilities?: readonly string[] };
+  const caps: readonly string[] = Array.isArray(toolOrCaps) ? toolOrCaps : (input.capabilities ?? []);
   const toCheck = Array.isArray(capability) ? capability : [capability];
   return toCheck.some((c) => caps.includes(c));
 }
@@ -93,8 +95,9 @@ export function getDangerousCapabilities(
   toolOrCaps: { capabilities?: readonly string[] } | readonly string[] | undefined,
 ): ToolCapability[] {
   if (!toolOrCaps) return [];
-  const input = toolOrCaps as any;
-  const caps: readonly string[] = Array.isArray(input) ? input : (input?.capabilities ?? []);
+  // Use `as unknown as ...` to allow accessing .capabilities on the union type
+  const input = toolOrCaps as unknown as { capabilities?: readonly string[] };
+  const caps: readonly string[] = Array.isArray(toolOrCaps) ? toolOrCaps : (input.capabilities ?? []);
   return caps.filter((c): c is ToolCapability =>
     DANGEROUS_FOR_SUBAGENTS.includes(c as ToolCapability),
   );
