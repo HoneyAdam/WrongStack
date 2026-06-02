@@ -328,15 +328,28 @@ function padCell(text: string, width: number, align: Align): string {
   // Border creates visual width of (width + 2), so content must also be (width + 2)
   // to match. This is critical for emoji/CJK where text.length != visual width.
   const targetWidth = width + 2;
-  if (visualLen >= targetWidth) {
-    // Truncate to visual width. For emoji this means fewer code units.
-    return text.slice(0, targetWidth);
+  let displayText = text;
+  if (visualLen > targetWidth) {
+    // Truncate to visual width — iterate code points, stop when we'd exceed target.
+    let takenWidth = 0;
+    let endIdx = 0;
+    for (const cp of text) {
+      const cpWidth = strWidth(cp);
+      if (takenWidth + cpWidth > targetWidth) break;
+      takenWidth += cpWidth;
+      endIdx += cp.length;
+    }
+    displayText = text.slice(0, endIdx);
+    // Fill remaining space with a visual indicator (avoids returning a
+    // half-emoji that would confuse strWidth on the next pass).
+    const remaining = targetWidth - takenWidth;
+    displayText += '·'.repeat(remaining);
   }
-  const pad = targetWidth - visualLen;
-  if (align === 'right') return ' '.repeat(pad) + text;
+  const pad = targetWidth - strWidth(displayText);
+  if (align === 'right') return ' '.repeat(pad) + displayText;
   if (align === 'center') {
     const l = Math.floor(pad / 2);
-    return ' '.repeat(l) + text + ' '.repeat(pad - l);
+    return ' '.repeat(l) + displayText + ' '.repeat(pad - l);
   }
-  return text + ' '.repeat(pad);
+  return displayText + ' '.repeat(pad);
 }
