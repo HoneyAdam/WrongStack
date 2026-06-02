@@ -12,13 +12,16 @@ const fmtElapsed = (ms: number): string => {
 
 export interface PhasePanelProps {
   /** Per-phase state from the App reducer. */
-  phases: Record<string, {
-    name: string;
-    status: string;
-    completedTasks: number;
-    totalTasks: number;
-    startedAt?: number;
-  }>;
+  phases: Record<
+    string,
+    {
+      name: string;
+      status: string;
+      completedTasks: number;
+      totalTasks: number;
+      startedAt?: number;
+    }
+  >;
   /** Active running phase IDs. */
   runningPhaseIds: string[];
   /** nowTick for elapsed time display. */
@@ -26,20 +29,20 @@ export interface PhasePanelProps {
 }
 
 const STATUS: Record<string, { icon: string; color: string }> = {
-  pending:   { icon: '○', color: 'gray' },
-  ready:     { icon: '◐', color: 'cyan' },
-  running:   { icon: '●', color: 'yellow' },
-  paused:    { icon: '⏸', color: 'magenta' },
+  pending: { icon: '○', color: 'gray' },
+  ready: { icon: '◐', color: 'cyan' },
+  running: { icon: '●', color: 'yellow' },
+  paused: { icon: '⏸', color: 'magenta' },
   completed: { icon: '✓', color: 'green' },
-  failed:    { icon: '✗', color: 'red' },
-  skipped:   { icon: '⊘', color: 'gray' },
+  failed: { icon: '✗', color: 'red' },
+  skipped: { icon: '⊘', color: 'gray' },
 };
 
 function s(entry: string) {
   return STATUS[entry] ?? { icon: '?', color: 'white' };
 }
 
- /**
+/**
  * AutoPhase sidebar panel — shown below fleet panel when AutoPhase is active.
  * Compact 2-line-per-phase view optimized for the TUI layout.
  * Unlike PhaseMonitor (an overlay), PhasePanel is always visible while active.
@@ -77,24 +80,18 @@ export function PhasePanel({ phases, nowTick }: PhasePanelProps): React.ReactEle
       {list.map((phase, i) => {
         const phaseKey = Object.keys(phases).find((k) => phases[k] === phase) ?? String(i);
         const st = s(phase.status);
-        const progress = phase.totalTasks > 0
-          ? `${phase.completedTasks}/${phase.totalTasks}`
-          : '';
-        const elapsed = phase.startedAt
-          ? fmtElapsed(nowTick - phase.startedAt)
-          : '';
+        const progress = phase.totalTasks > 0 ? `${phase.completedTasks}/${phase.totalTasks}` : '';
+        const elapsed = phase.startedAt ? fmtElapsed(nowTick - phase.startedAt) : '';
 
         return (
           <Box key={phaseKey} flexDirection="row" gap={1}>
             <Text color={st.color}>{st.icon}</Text>
             <Text>{phase.name.slice(0, 14).padEnd(14)}</Text>
-            <Text color={st.color} dimColor>{st.icon === '●' ? phase.status : ''}</Text>
-            {progress ? (
-              <Text dimColor> {progress}</Text>
-            ) : null}
-            {elapsed && st.icon === '●' ? (
-              <Text dimColor> {elapsed}</Text>
-            ) : null}
+            <Text color={st.color} dimColor>
+              {st.icon === '●' ? phase.status : ''}
+            </Text>
+            {progress ? <Text dimColor> {progress}</Text> : null}
+            {elapsed && st.icon === '●' ? <Text dimColor> {elapsed}</Text> : null}
           </Box>
         );
       })}

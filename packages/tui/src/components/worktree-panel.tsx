@@ -22,13 +22,13 @@ export interface WorktreeRow {
 }
 
 const STATUS: Record<string, { icon: string; color: string }> = {
-  allocating:    { icon: '○', color: 'gray' },
-  active:        { icon: '●', color: 'yellow' },
-  committing:    { icon: '◐', color: 'cyan' },
-  merging:       { icon: '⇡', color: 'blue' },
-  merged:        { icon: '✓', color: 'green' },
-  'needs-review':{ icon: '⚠', color: 'magenta' },
-  failed:        { icon: '✗', color: 'red' },
+  allocating: { icon: '○', color: 'gray' },
+  active: { icon: '●', color: 'yellow' },
+  committing: { icon: '◐', color: 'cyan' },
+  merging: { icon: '⇡', color: 'blue' },
+  merged: { icon: '✓', color: 'green' },
+  'needs-review': { icon: '⚠', color: 'magenta' },
+  failed: { icon: '✗', color: 'red' },
 };
 
 function st(status: string) {
@@ -50,7 +50,9 @@ export function WorktreePanel({
   const list = Object.values(worktrees);
   if (list.length === 0) return null;
 
-  const active = list.filter((w) => w.status === 'active' || w.status === 'committing' || w.status === 'merging').length;
+  const active = list.filter(
+    (w) => w.status === 'active' || w.status === 'committing' || w.status === 'merging',
+  ).length;
   const merged = list.filter((w) => w.status === 'merged').length;
   const failed = list.filter((w) => w.status === 'failed' || w.status === 'needs-review').length;
 
@@ -80,12 +82,20 @@ export function WorktreePanel({
         return (
           <Box key={w.branch} flexDirection="row" gap={1}>
             <Text color={s.color}>{s.icon}</Text>
-            <Text>{w.branch.replace(/^wstack\/ap\//, '').slice(0, 18).padEnd(18)}</Text>
+            <Text>
+              {w.branch
+                .replace(/^wstack\/ap\//, '')
+                .slice(0, 18)
+                .padEnd(18)}
+            </Text>
             <Text dimColor>{w.ownerLabel.slice(0, 12)}</Text>
             {conflict ? (
               <Text color="magenta"> CONFLICT</Text>
             ) : (
-              <Text dimColor> +{w.insertions}/-{w.deletions} {w.files}f</Text>
+              <Text dimColor>
+                {' '}
+                +{w.insertions}/-{w.deletions} {w.files}f
+              </Text>
             )}
             {elapsed && (w.status === 'active' || w.status === 'committing') ? (
               <Text dimColor> {elapsed}</Text>

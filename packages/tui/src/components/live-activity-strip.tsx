@@ -33,8 +33,10 @@ function fmtRecentTool(tool: FleetEntry['recentTools'][number]): string {
   const name = tool.name.length > 18 ? `${tool.name.slice(0, 17)}...` : tool.name;
   const parts = [status, name];
   if (typeof tool.durationMs === 'number') parts.push(fmtElapsed(tool.durationMs));
-  if (typeof tool.outputBytes === 'number' && tool.outputBytes > 0) parts.push(fmtBytes(tool.outputBytes));
-  if (typeof tool.outputLines === 'number' && tool.outputLines > 0) parts.push(`${tool.outputLines}L`);
+  if (typeof tool.outputBytes === 'number' && tool.outputBytes > 0)
+    parts.push(fmtBytes(tool.outputBytes));
+  if (typeof tool.outputLines === 'number' && tool.outputLines > 0)
+    parts.push(`${tool.outputLines}L`);
   return parts.join(' ');
 }
 
@@ -85,7 +87,8 @@ export const LiveActivityStrip = React.memo(function LiveActivityStrip({
           : 'idle between tools';
         const recentTools = (e.recentTools ?? []).slice(-2).map(fmtRecentTool).join(' | ');
         const messageText =
-          e.streamingText.trim() || (e.recentMessages ?? []).slice(-1).map(fmtRecentMessage).join('');
+          e.streamingText.trim() ||
+          (e.recentMessages ?? []).slice(-1).map(fmtRecentMessage).join('');
         return (
           <Box key={e.id} flexDirection="row" gap={1}>
             <Text color={theme.accent}>●</Text>

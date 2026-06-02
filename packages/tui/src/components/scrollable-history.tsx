@@ -157,7 +157,8 @@ export function ScrollableHistory({
       lastReported.current = height;
       onMeasure(height);
     }
-  });
+    // onMeasure is stable (dispatch from useReducer) and node is a ref.
+  }, [onMeasure]);
 
   const vp = Math.max(1, viewportRows);
   return (

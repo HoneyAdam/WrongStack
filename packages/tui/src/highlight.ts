@@ -44,22 +44,131 @@ const C = {
 } as const;
 
 const TS_KEYWORDS = new Set([
-  'const','let','var','function','return','if','else','for','while','do','switch','case','break',
-  'continue','new','class','extends','implements','interface','type','enum','import','export','from',
-  'as','default','async','await','yield','try','catch','finally','throw','typeof','instanceof','in',
-  'of','this','super','void','delete','public','private','protected','readonly','static','get','set',
-  'true','false','null','undefined','never','any','unknown','string','number','boolean','satisfies',
+  'const',
+  'let',
+  'var',
+  'function',
+  'return',
+  'if',
+  'else',
+  'for',
+  'while',
+  'do',
+  'switch',
+  'case',
+  'break',
+  'continue',
+  'new',
+  'class',
+  'extends',
+  'implements',
+  'interface',
+  'type',
+  'enum',
+  'import',
+  'export',
+  'from',
+  'as',
+  'default',
+  'async',
+  'await',
+  'yield',
+  'try',
+  'catch',
+  'finally',
+  'throw',
+  'typeof',
+  'instanceof',
+  'in',
+  'of',
+  'this',
+  'super',
+  'void',
+  'delete',
+  'public',
+  'private',
+  'protected',
+  'readonly',
+  'static',
+  'get',
+  'set',
+  'true',
+  'false',
+  'null',
+  'undefined',
+  'never',
+  'any',
+  'unknown',
+  'string',
+  'number',
+  'boolean',
+  'satisfies',
 ]);
 
 const PY_KEYWORDS = new Set([
-  'def','return','if','elif','else','for','while','break','continue','class','import','from','as',
-  'with','try','except','finally','raise','yield','lambda','pass','global','nonlocal','assert','del',
-  'and','or','not','in','is','None','True','False','async','await','self','print',
+  'def',
+  'return',
+  'if',
+  'elif',
+  'else',
+  'for',
+  'while',
+  'break',
+  'continue',
+  'class',
+  'import',
+  'from',
+  'as',
+  'with',
+  'try',
+  'except',
+  'finally',
+  'raise',
+  'yield',
+  'lambda',
+  'pass',
+  'global',
+  'nonlocal',
+  'assert',
+  'del',
+  'and',
+  'or',
+  'not',
+  'in',
+  'is',
+  'None',
+  'True',
+  'False',
+  'async',
+  'await',
+  'self',
+  'print',
 ]);
 
 const BASH_KEYWORDS = new Set([
-  'if','then','else','elif','fi','for','while','do','done','case','esac','function','in','select',
-  'return','export','local','readonly','source','echo','cd','set','unset',
+  'if',
+  'then',
+  'else',
+  'elif',
+  'fi',
+  'for',
+  'while',
+  'do',
+  'done',
+  'case',
+  'esac',
+  'function',
+  'in',
+  'select',
+  'return',
+  'export',
+  'local',
+  'readonly',
+  'source',
+  'echo',
+  'cd',
+  'set',
+  'unset',
 ]);
 
 // Anchored (^) so `.match` only matches at the START of the sliced remainder.
@@ -96,7 +205,11 @@ function readString(s: string, i: number): string {
   return s.slice(i, Math.min(j, s.length));
 }
 
-function tokenizeCLike(line: string, kw: Set<string>, carry: HLState): { tokens: Token[]; carry: HLState } {
+function tokenizeCLike(
+  line: string,
+  kw: Set<string>,
+  carry: HLState,
+): { tokens: Token[]; carry: HLState } {
   const tokens: Token[] = [];
   let i = 0;
   const next: HLState = { ...carry };
@@ -192,7 +305,9 @@ function tokenizeJson(line: string): Token[] {
     const id = matchAt(IDENT, line, i);
     if (id) {
       tokens.push(
-        id === 'true' || id === 'false' || id === 'null' ? { text: id, color: C.literal } : { text: id },
+        id === 'true' || id === 'false' || id === 'null'
+          ? { text: id, color: C.literal }
+          : { text: id },
       );
       i += id.length;
       continue;
@@ -331,7 +446,8 @@ function tokenizePython(line: string, carry: HLState): { tokens: Token[]; carry:
 function tokenizeDiff(line: string): Token[] {
   // Whole-line classification — one token, length-preserving.
   if (line.startsWith('@@')) return [{ text: line, color: C.diffMeta }];
-  if (line.startsWith('+++') || line.startsWith('---')) return [{ text: line, color: C.diffMeta, dim: true }];
+  if (line.startsWith('+++') || line.startsWith('---'))
+    return [{ text: line, color: C.diffMeta, dim: true }];
   if (line.startsWith('+')) return [{ text: line, color: C.diffAdd }];
   if (line.startsWith('-')) return [{ text: line, color: C.diffDel }];
   return [{ text: line, dim: true }];
@@ -342,7 +458,11 @@ function tokenizeDiff(line: string): Token[] {
  * strings) from the previous line; pass the returned `carry` into the next call.
  * Guarantees `result.tokens.map(t=>t.text).join('') === line`.
  */
-export function highlightLine(line: string, lang: Lang, carry: HLState = {}): { tokens: Token[]; carry: HLState } {
+export function highlightLine(
+  line: string,
+  lang: Lang,
+  carry: HLState = {},
+): { tokens: Token[]; carry: HLState } {
   switch (lang) {
     case 'ts':
     case 'js':
@@ -361,12 +481,25 @@ export function highlightLine(line: string, lang: Lang, carry: HLState = {}): { 
 }
 
 const LANG_ALIASES: Record<string, Lang> = {
-  ts: 'ts', tsx: 'ts', typescript: 'ts',
-  js: 'js', jsx: 'js', javascript: 'js', mjs: 'js', cjs: 'js',
-  json: 'json', json5: 'json',
-  sh: 'bash', bash: 'bash', shell: 'bash', zsh: 'bash', console: 'bash',
-  py: 'python', python: 'python',
-  diff: 'diff', patch: 'diff',
+  ts: 'ts',
+  tsx: 'ts',
+  typescript: 'ts',
+  js: 'js',
+  jsx: 'js',
+  javascript: 'js',
+  mjs: 'js',
+  cjs: 'js',
+  json: 'json',
+  json5: 'json',
+  sh: 'bash',
+  bash: 'bash',
+  shell: 'bash',
+  zsh: 'bash',
+  console: 'bash',
+  py: 'python',
+  python: 'python',
+  diff: 'diff',
+  patch: 'diff',
 };
 
 /** Map a code-fence info string (```ts, ```bash, …) to a supported Lang. */

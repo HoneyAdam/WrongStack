@@ -12,13 +12,16 @@ const fmtElapsed = (ms: number): string => {
 
 export interface PhaseMonitorProps {
   /** Per-phase state from the App reducer. */
-  phases: Record<string, {
-    name: string;
-    status: string;
-    completedTasks: number;
-    totalTasks: number;
-    startedAt?: number;
-  }>;
+  phases: Record<
+    string,
+    {
+      name: string;
+      status: string;
+      completedTasks: number;
+      totalTasks: number;
+      startedAt?: number;
+    }
+  >;
   /** IDs of currently running phases. */
   runningPhaseIds: string[];
   /** Session-level elapsed ms. */
@@ -29,13 +32,13 @@ export interface PhaseMonitorProps {
 }
 
 const PHASE_STATUS: Record<string, { icon: string; color: string; label: string }> = {
-  pending:    { icon: '⏳', color: 'gray',   label: 'pending' },
-  ready:      { icon: '🔜', color: 'cyan',   label: 'ready' },
-  running:    { icon: '▶',  color: 'yellow', label: 'running' },
-  paused:     { icon: '⏸',  color: 'magenta', label: 'paused' },
-  completed:  { icon: '✓',  color: 'green',  label: 'done' },
-  failed:     { icon: '✗',  color: 'red',    label: 'failed' },
-  skipped:    { icon: '⏭',  color: 'gray',   label: 'skipped' },
+  pending: { icon: '⏳', color: 'gray', label: 'pending' },
+  ready: { icon: '🔜', color: 'cyan', label: 'ready' },
+  running: { icon: '▶', color: 'yellow', label: 'running' },
+  paused: { icon: '⏸', color: 'magenta', label: 'paused' },
+  completed: { icon: '✓', color: 'green', label: 'done' },
+  failed: { icon: '✗', color: 'red', label: 'failed' },
+  skipped: { icon: '⏭', color: 'gray', label: 'skipped' },
 };
 
 function fmtPhase(s: string): { icon: string; color: string; label: string } {
@@ -63,7 +66,9 @@ export function PhaseMonitor({
   });
 
   const phaseList = Object.values(phases);
-  const running = phaseList.filter((p) => runningPhaseIds.includes(Object.keys(phases).find((k) => phases[k] === p) ?? ''));
+  const running = phaseList.filter((p) =>
+    runningPhaseIds.includes(Object.keys(phases).find((k) => phases[k] === p) ?? ''),
+  );
   const done = phaseList.filter((p) => p.status === 'completed' || p.status === 'skipped');
   const failed = phaseList.filter((p) => p.status === 'failed');
 
@@ -71,7 +76,9 @@ export function PhaseMonitor({
     <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
       {/* Header */}
       <Box flexDirection="row" gap={1} marginBottom={1}>
-        <Text bold color="cyan">PHASE MONITOR</Text>
+        <Text bold color="cyan">
+          PHASE MONITOR
+        </Text>
         <Text dimColor>│</Text>
         <Text dimColor>⏱ {fmtElapsed(elapsedMs)}</Text>
         <Text dimColor>│</Text>
@@ -95,14 +102,15 @@ export function PhaseMonitor({
           const phaseKey = Object.keys(phases).find((k) => phases[k] === phase) ?? String(i);
           const isRunning = runningPhaseIds.includes(phaseKey);
           const elapsed = phase.startedAt ? fmtElapsed(nowTick - phase.startedAt) : '—';
-          const progress = phase.totalTasks > 0
-            ? `${phase.completedTasks}/${phase.totalTasks}`
-            : '—';
+          const progress =
+            phase.totalTasks > 0 ? `${phase.completedTasks}/${phase.totalTasks}` : '—';
 
           return (
             <Box key={phaseKey} flexDirection="column" marginTop={1}>
               <Box flexDirection="row" gap={1}>
-                <Text color={s.color} bold>{s.icon}</Text>
+                <Text color={s.color} bold>
+                  {s.icon}
+                </Text>
                 <Text bold>{phase.name}</Text>
                 <Text dimColor>·</Text>
                 <Text color={s.color}>{s.label}</Text>

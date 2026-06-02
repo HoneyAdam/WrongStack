@@ -1,6 +1,6 @@
 import { Box, Static, Text, useStdout } from 'ink';
 import React, { useEffect, useState } from 'react';
-import { detectLang, type HLState, highlightLine, type Lang } from '../highlight.js';
+import { type HLState, type Lang, detectLang, highlightLine } from '../highlight.js';
 import { MarkdownView } from '../markdown.js';
 import { theme } from '../theme.js';
 
@@ -252,7 +252,14 @@ function CodeBlock({
     return r.tokens;
   });
   return (
-    <Box flexDirection="column" marginLeft={2} marginY={0} borderStyle="round" borderColor={theme.borderDefault} paddingX={1}>
+    <Box
+      flexDirection="column"
+      marginLeft={2}
+      marginY={0}
+      borderStyle="round"
+      borderColor={theme.borderDefault}
+      paddingX={1}
+    >
       {lang !== 'plain' ? <Text dimColor>{lang}</Text> : null}
       {rows.map((tokens, i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: code lines are positional
@@ -268,7 +275,9 @@ function CodeBlock({
               ))}
         </Text>
       ))}
-      {hidden > 0 ? <Text dimColor italic>{`… +${hidden} more line${hidden === 1 ? '' : 's'}`}</Text> : null}
+      {hidden > 0 ? (
+        <Text dimColor italic>{`… +${hidden} more line${hidden === 1 ? '' : 's'}`}</Text>
+      ) : null}
     </Box>
   );
 }
@@ -511,11 +520,7 @@ export const Entry = React.memo(function Entry({
               {'ASSISTANT'}
             </Text>
           </Box>
-          <AssistantBody
-            text={entry.text}
-            termWidth={termWidth}
-            contentWidth={contentWidth}
-          />
+          <AssistantBody text={entry.text} termWidth={termWidth} contentWidth={contentWidth} />
         </Box>
       );
     }

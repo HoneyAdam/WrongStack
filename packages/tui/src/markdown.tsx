@@ -88,7 +88,7 @@ export function parseInline(text: string): InlineToken[] {
 }
 
 function InlineLine({ tokens, dim }: { tokens: InlineToken[]; dim?: boolean }): React.ReactElement {
-  if (tokens.length === 0) return <Text>{' '}</Text>;
+  if (tokens.length === 0) return <Text> </Text>;
   return (
     <Text>
       {tokens.map((t, j) => (

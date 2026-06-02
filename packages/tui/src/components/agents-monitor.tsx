@@ -93,9 +93,7 @@ function ContextBar({
   return (
     <Text color={color}>
       {'█'.repeat(filled)}
-      {'░'.repeat(Math.max(0, empty))}
-      {' '}
-      {pctText}
+      {'░'.repeat(Math.max(0, empty))} {pctText}
       {tokenText}
     </Text>
   );

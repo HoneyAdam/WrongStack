@@ -12,13 +12,13 @@ const fmtElapsed = (ms: number): string => {
 };
 
 const WT_STATUS: Record<string, { icon: string; color: string; label: string }> = {
-  allocating:    { icon: '○', color: 'gray',    label: 'allocating' },
-  active:        { icon: '●', color: 'yellow',  label: 'active' },
-  committing:    { icon: '◐', color: 'cyan',    label: 'committing' },
-  merging:       { icon: '⇡', color: 'blue',    label: 'merging' },
-  merged:        { icon: '✓', color: 'green',   label: 'merged' },
-  'needs-review':{ icon: '⚠', color: 'magenta', label: 'needs-review' },
-  failed:        { icon: '✗', color: 'red',     label: 'failed' },
+  allocating: { icon: '○', color: 'gray', label: 'allocating' },
+  active: { icon: '●', color: 'yellow', label: 'active' },
+  committing: { icon: '◐', color: 'cyan', label: 'committing' },
+  merging: { icon: '⇡', color: 'blue', label: 'merging' },
+  merged: { icon: '✓', color: 'green', label: 'merged' },
+  'needs-review': { icon: '⚠', color: 'magenta', label: 'needs-review' },
+  failed: { icon: '✗', color: 'red', label: 'failed' },
 };
 
 function fmt(s: string) {
@@ -53,7 +53,9 @@ export function WorktreeMonitor({
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="green" paddingX={1}>
       <Box flexDirection="row" gap={1} marginBottom={1}>
-        <Text bold color="green">WORKTREE MONITOR</Text>
+        <Text bold color="green">
+          WORKTREE MONITOR
+        </Text>
         <Text dimColor>│</Text>
         {baseBranch ? <Text dimColor>base {baseBranch}</Text> : null}
         <Text dimColor>│</Text>
@@ -79,14 +81,18 @@ export function WorktreeMonitor({
           return (
             <Box key={w.branch} flexDirection="column" marginTop={1}>
               <Box flexDirection="row" gap={1}>
-                <Text color={s.color} bold>{s.icon}</Text>
+                <Text color={s.color} bold>
+                  {s.icon}
+                </Text>
                 <Text bold>{short}</Text>
                 <Text dimColor>·</Text>
                 <Text color={s.color}>{s.label}</Text>
                 <Text dimColor>· elapsed {elapsed}</Text>
               </Box>
               <Box flexDirection="row" gap={1} marginLeft={2}>
-                <Text dimColor>{w.baseBranch ?? baseBranch ?? 'base'} → {short}</Text>
+                <Text dimColor>
+                  {w.baseBranch ?? baseBranch ?? 'base'} → {short}
+                </Text>
                 <Text dimColor>· owner: {w.ownerLabel}</Text>
               </Box>
               <Box flexDirection="row" gap={1} marginLeft={2}>

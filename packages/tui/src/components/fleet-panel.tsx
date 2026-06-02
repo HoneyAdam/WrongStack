@@ -11,7 +11,12 @@ export interface FleetPanelProps {
   /** Optional roster for resolving role ids to display names. */
   roster?: Record<string, { name: string }>;
   /** When set, the LEADER row is always shown (even when idle) with a collab session indicator. */
-  collabSession?: { sessionId: string | null; bugCount: number; planCount: number; evalCount: number } | null;
+  collabSession?: {
+    sessionId: string | null;
+    bugCount: number;
+    planCount: number;
+    evalCount: number;
+  } | null;
 }
 
 /**
@@ -20,7 +25,11 @@ export interface FleetPanelProps {
  * name and current tool. Idle/finished agents are excluded unless a collab
  * session is active (LEADER always shows as "waiting" in that case).
  */
-export function FleetPanel({ entries, totalCost, collabSession }: FleetPanelProps): React.ReactElement | null {
+export function FleetPanel({
+  entries,
+  totalCost,
+  collabSession,
+}: FleetPanelProps): React.ReactElement | null {
   // Track terminal width to adapt name truncation.
   const { stdout } = useStdout();
   const [termWidth, setTermWidth] = useState(stdout?.columns ?? 90);
@@ -52,9 +61,10 @@ export function FleetPanel({ entries, totalCost, collabSession }: FleetPanelProp
 
   // Fleet summary line
   const costLabel = totalCost > 0 ? ` · ${totalCost.toFixed(3)}` : '';
-  const collabLabel = hasCollab && collabSession.sessionId
-    ? ` · collab(${collabSession.bugCount}b/${collabSession.planCount}p/${collabSession.evalCount}e)`
-    : '';
+  const collabLabel =
+    hasCollab && collabSession.sessionId
+      ? ` · collab(${collabSession.bugCount}b/${collabSession.planCount}p/${collabSession.evalCount}e)`
+      : '';
   const summaryLine =
     runningCount > 0
       ? `${runningCount} running${costLabel}${collabLabel}`
@@ -93,7 +103,8 @@ export function FleetPanel({ entries, totalCost, collabSession }: FleetPanelProp
       {shown.map((entry) => {
         // entry.name is the subagent's display name (nickname when assigned,
         // e.g. "Einstein (Bug Hunter)") — prefer it over the raw id.
-        const name = entry.name && entry.name !== entry.id ? entry.name : entry.id.slice(0, nameMaxLen);
+        const name =
+          entry.name && entry.name !== entry.id ? entry.name : entry.id.slice(0, nameMaxLen);
         const tool = entry.currentTool?.name ?? '—';
         return (
           <Box key={entry.id} flexDirection="row" gap={1}>
@@ -108,7 +119,8 @@ export function FleetPanel({ entries, totalCost, collabSession }: FleetPanelProp
       {/* Overflow indicator — show count and the first overflowed agent name */}
       {overflow > 0 ? (
         <Text dimColor>
-          {' '}+{overflow}: {running[3]?.name?.slice(0, nameMaxLen - 2) ?? 'agent'}…
+          {' '}
+          +{overflow}: {running[3]?.name?.slice(0, nameMaxLen - 2) ?? 'agent'}…
         </Text>
       ) : null}
     </Box>

@@ -61,7 +61,10 @@ export function CheckpointTimeline({
               </Text>
               <Text dimColor> {new Date(cp.ts).toLocaleTimeString()}</Text>
               {cp.fileCount > 0 && (
-                <Text dimColor> · {cp.fileCount} file{cp.fileCount !== 1 ? 's' : ''}</Text>
+                <Text dimColor>
+                  {' '}
+                  · {cp.fileCount} file{cp.fileCount !== 1 ? 's' : ''}
+                </Text>
               )}
             </Box>
           );

@@ -26,14 +26,19 @@ export function createKillSlashCommand(): SlashCommand {
       if (sub === 'all') {
         const pids = getProcessRegistry().killAll();
         if (pids.length === 0) return { message: 'No processes to kill.' };
-        return { message: `Killed ${pids.length} process${pids.length === 1 ? '' : 'es'}: ${pids.join(', ')}` };
+        return {
+          message: `Killed ${pids.length} process${pids.length === 1 ? '' : 'es'}: ${pids.join(', ')}`,
+        };
       }
 
       if (sub === 'force') {
         getProcessRegistry().forceBreakerOpen();
         const pids = getProcessRegistry().killAll({ force: true });
-        if (pids.length === 0) return { message: 'Circuit breaker forced open. No processes to kill.' };
-        return { message: `Force-killed ${pids.length} process${pids.length === 1 ? '' : 'es'}: ${pids.join(', ')}` };
+        if (pids.length === 0)
+          return { message: 'Circuit breaker forced open. No processes to kill.' };
+        return {
+          message: `Force-killed ${pids.length} process${pids.length === 1 ? '' : 'es'}: ${pids.join(', ')}`,
+        };
       }
 
       if (sub === 'reset') {
