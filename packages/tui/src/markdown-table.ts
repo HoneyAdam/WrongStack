@@ -290,7 +290,7 @@ function wrapCell(text: string, width: number): string[] {
       continue;
     }
     if (cur) {
-      out.push(cur.trimEnd());
+      out.push(padVisual(cur, width));
       cur = '';
       curWidth = 0;
     }
@@ -308,8 +308,8 @@ function wrapCell(text: string, width: number): string[] {
           collected += cp;
           collectedWidth += cpWidth;
         }
-        out.push(collected);
-        rest = rest.slice(collected.length);
+        out.push(padVisual(collected, width));
+        rest = rest.slice([...collected].join('').length);
         restWidth = strWidth(rest);
       }
       cur = rest;
@@ -319,8 +319,26 @@ function wrapCell(text: string, width: number): string[] {
       curWidth = wordWidth;
     }
   }
-  if (cur) out.push(cur.trimEnd());
+  if (cur) out.push(padVisual(cur, width));
   return out.length === 0 ? [''] : out;
+}
+
+/** Pad a string to a target visual width using spaces. */
+function padVisual(text: string, targetWidth: number): string {
+  const w = strWidth(text);
+  if (w >= targetWidth) {
+    // Truncate to targetWidth visual columns, iterating code points.
+    let taken = 0;
+    let endIdx = 0;
+    for (const cp of text) {
+      const cpw = strWidth(cp);
+      if (taken + cpw > targetWidth) break;
+      taken += cpw;
+      endIdx += [...cp].join('').length;
+    }
+    return text.slice(0, endIdx);
+  }
+  return text + ' '.repeat(targetWidth - w);
 }
 
 function padCell(text: string, width: number, align: Align): string {
@@ -337,13 +355,9 @@ function padCell(text: string, width: number, align: Align): string {
       const cpWidth = strWidth(cp);
       if (takenWidth + cpWidth > targetWidth) break;
       takenWidth += cpWidth;
-      endIdx += cp.length;
+      endIdx += [...cp].join('').length;
     }
     displayText = text.slice(0, endIdx);
-    // Fill remaining space with a visual indicator (avoids returning a
-    // half-emoji that would confuse strWidth on the next pass).
-    const remaining = targetWidth - takenWidth;
-    displayText += '·'.repeat(remaining);
   }
   const pad = targetWidth - strWidth(displayText);
   if (align === 'right') return ' '.repeat(pad) + displayText;
