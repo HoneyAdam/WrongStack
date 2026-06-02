@@ -198,6 +198,8 @@ export interface Config {
   log: LogConfig;
   features: FeaturesConfig;
   yolo?: boolean;
+  /** When true, show lightweight LLM-predicted next steps after each turn (/next). */
+  nextPrediction?: boolean;
   cwd?: string;
   /** Autonomy mode configuration (auto-proceed delay, etc.). */
   autonomy?: AutonomyConfig;

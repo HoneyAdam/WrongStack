@@ -168,7 +168,7 @@ export function MarkdownView({
     if (quote && line.startsWith('>')) {
       rows.push(
         <Box key={`q${key++}`} flexDirection="row">
-          <Text dimColor>{'│ '}</Text>
+          <Text dimColor>{'  '}</Text>
           <InlineLine tokens={parseInline(quote[1] ?? '')} dim />
         </Box>,
       );

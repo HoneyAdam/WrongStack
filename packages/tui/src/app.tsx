@@ -269,6 +269,15 @@ export interface AppProps {
     | null
     | Promise<string | null>;
   /**
+   * Predict likely next steps after a completed turn (/next). The CLI owns the
+   * gating (toggle + autonomy off) and returns [] when disabled, so the App can
+   * call it unconditionally on a done turn. Display-only — never executed.
+   */
+  predictNext?: (input: {
+    userRequest: string;
+    assistantSummary: string;
+  }) => Promise<string[]>;
+  /**
    * SDD session context getter. When an SDD session is active, returns
    * the AI prompt context to inject into user messages so the model
    * knows it's in a spec-building conversation.
@@ -1944,6 +1953,7 @@ export function App({
   switchProviderAndModel,
   getSettings,
   saveSettings,
+  predictNext,
   switchAutonomy,
   effectiveMaxContext,
   onExit,
@@ -5517,6 +5527,32 @@ export function App({
             text: `[in: ${fmtTok(after.input - before.input)}  out: ${fmtTok(after.output - before.output)}  iters: ${result.iterations}  cost: ${(costAfter - costBefore).toFixed(4)}  ${((Date.now() - startedAt) / 1000).toFixed(1)}s]`,
           },
         });
+      }
+
+      // ── Next-task prediction (/next) ─────────────────────────────────
+      // Opt-in. The CLI gates on the toggle + autonomy-off and returns []
+      // when disabled, so calling unconditionally here is safe. Best-effort:
+      // any failure is swallowed so prediction can never break the turn.
+      if (result.status === 'done' && predictNext) {
+        try {
+          const userRequest = blocks
+            .filter((b) => b.type === 'text')
+            .map((b) => (b as { text: string }).text)
+            .join(' ')
+            .trim();
+          const predictions = await predictNext({
+            userRequest,
+            assistantSummary: result.finalText ?? '',
+          });
+          if (predictions.length > 0) {
+            const text = ['↳ likely next:', ...predictions.map((p, i) => `  ${i + 1}. ${p}`)].join(
+              '\n',
+            );
+            dispatch({ type: 'addEntry', entry: { kind: 'turn-summary', text } });
+          }
+        } catch {
+          // Best-effort — never let prediction break the turn.
+        }
       }
     } catch (err) {
       dispatch({

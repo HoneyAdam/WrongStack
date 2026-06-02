@@ -251,6 +251,15 @@ export interface RunTuiOptions {
     | string
     | null
     | Promise<string | null>;
+  /**
+   * Predict likely next steps after a completed turn. The CLI wires this from
+   * the session provider and the `/next` toggle; it returns [] when prediction
+   * is disabled or autonomy isn't 'off'. Display-only — never executed.
+   */
+  predictNext?: (input: {
+    userRequest: string;
+    assistantSummary: string;
+  }) => Promise<string[]>;
 }
 
 // Bracketed paste mode wraps any pasted text with these markers, letting us
@@ -328,40 +337,66 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
      * internal `needReadable` state machine: _read(0) calls this.read(0) which
      * returns null when the buffer is empty, preventing PassThrough from ever
      * emitting the 'readable' event that Ink's handleReadable waits on — classic
-     * deadlock (mouse AND keyboard freeze).  A minimal custom Readable avoids
-     * this because _read(size) is only called when downstream demands data,
-     * and we explicitly push() to signal availability.
+     * deadlock (mouse AND keyboard freeze). A minimal custom Readable avoids
+     * this by properly implementing _read() to NEVER block — it just returns
+     * and lets push() from the stdin data handler signal availability.
      */
     class KeyboardReadable extends Readable {
+      private pendingChunks: string[] = [];
+
       // eslint-disable-next-line no-useless-constructor
       constructor() {
-        super({ encoding: 'utf8' });
+        super({ encoding: 'utf8', highWaterMark: 64 * 1024 }); // 64KB buffer
       }
+
       override _read(_size: number): void {
-        // No-op: data arrives via push() from the stdin data handler below.
-        // Keeping _read present satisfies the Readable contract without
-        // interfering with the push() signalling that Ink's 'readable' listener
-        // depends on.
+        // Pull any pending chunks through. This is called when the buffer is
+        // drained enough to drop below the high-water mark. We don't block —
+        // we push whatever we have (which may be nothing if stdin hasn't
+        // delivered yet). The 'readable' event will fire when push() adds
+        // data to an empty buffer.
         void _size;
+        this.flushPending();
       }
+
+      private flushPending(): void {
+        while (this.pendingChunks.length > 0) {
+          const chunk = this.pendingChunks[0]!;
+          const ok = this.push(chunk);
+          this.pendingChunks.shift();
+          if (!ok) {
+            // Buffer is full again — stop flushing, wait for _read to be
+            // called when the buffer drains. Store remaining chunks.
+            break;
+          }
+        }
+      }
+
       /** Called by the stdin data handler when keyboard bytes are available. */
       doPush(chunk: string): void {
         if (chunk.length === 0) return;
-        // push() returns false when the internal buffer exceeds its high-water
-        // mark.  Readable then suppresses further _read() calls until it drains.
-        // That back-pressure signal propagates: the readable side stops calling
-        // _read(), stdin naturally stops emitting data events (the event loop is
-        // busy with Ink rendering), and everything resumes once Ink has consumed
-        // enough bytes and the HWM drops.
+        // push() returns false when the internal buffer exceeds high-water mark.
+        // When that happens, queue the chunk so it's not lost. The _read()
+        // method will drain the queue when the buffer drains.
         const ok = this.push(chunk);
-        if (!ok) {
-          // Buffer is full — stdin will naturally stop emitting data events
-          // because the event loop isn't cycling while Ink is rendering.
-          // Once Ink reads from us and the HWM drops, readable fires again.
+        if (ok) {
+          // Successfully buffered — if we had pending chunks, try to flush more.
+          if (this.pendingChunks.length > 0) {
+            this.flushPending();
+          }
+        } else {
+          // Buffer full — queue for when _read is called after buffer drains.
+          // Cap the queue to prevent unbounded memory growth (drop oldest if needed).
+          if (this.pendingChunks.length >= 100) {
+            this.pendingChunks.shift(); // drop oldest
+          }
+          this.pendingChunks.push(chunk);
         }
       }
+
       /** Called on shutdown so the stream closes cleanly. */
       doEnd(): void {
+        this.pendingChunks = [];
         this.push(null); // null = EOF
       }
     }
@@ -568,6 +603,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
           projectRoot: opts.projectRoot,
           getSettings: opts.getSettings,
           saveSettings: opts.saveSettings,
+          predictNext: opts.predictNext,
           mouse: useMouse,
           subscribeMouse,
           // Managed viewport (in-app scroll + collapsibility) follows

@@ -235,15 +235,17 @@ export function splitFencedBlocks(text: string): BodySegment[] {
 function CodeBlock({
   code,
   lang,
-  termWidth,
-}: { code: string; lang: Lang; termWidth: number }): React.ReactElement {
+  contentWidth,
+}: { code: string; lang: Lang; contentWidth: number }): React.ReactElement {
   let lines = code.replace(/\n+$/, '').split('\n');
   const hidden = Math.max(0, lines.length - MAX_CODE_LINES);
   if (hidden > 0) lines = lines.slice(0, MAX_CODE_LINES);
   const gutterW = String(lines.length).length;
-  // Reserve room for the border, padding, and the line-number gutter so long
-  // lines truncate instead of wrapping out of the frame.
-  const maxW = Math.max(20, Math.min(termWidth - 8 - gutterW - 1, 120));
+  // Reserve room for the border (1+1), paddingX (1+1), and the line-number
+  // gutter so long lines truncate instead of wrapping out of the frame.
+  // CodeBlock is already inside a panel with marginLeft=2, so we only subtract
+  // its own chrome (border+paddingX = 4 chars) + gutter + 1 space.
+  const maxW = Math.max(20, Math.min(contentWidth - 6 - gutterW - 1, 120));
   let carry: HLState = {};
   const rows = lines.map((raw) => {
     const display = raw.length > maxW ? `${raw.slice(0, maxW - 1)}…` : raw;
@@ -285,13 +287,10 @@ function CodeBlock({
 /** Assistant message body: prose (with markdown tables) interleaved with
  *  highlighted code blocks.
  *
- *  - `termWidth` is the full terminal width and is forwarded to `CodeBlock`,
- *    which already accounts for its own border + paddingX + marginLeft chrome
- *    via the `termWidth - 8 - gutterW - 1` formula.
  *  - `contentWidth` is the real inner width of the surrounding panel. It is
- *    forwarded to `MarkdownView` for the *table* path so tables don't lay out
- *    for the full terminal width and overflow the panel (which would make Ink
- *    wrap the last cell at the right edge — a 2-column shift / extra row).
+ *    forwarded to both `MarkdownView` (for tables) and `CodeBlock` (for line
+ *    truncation) so neither overflows the panel and forces Ink to wrap the
+ *    last cell at the right edge — a 2-column shift / extra row.
  *    Optional, defaults to `termWidth`, so `AssistantBody` is still safe to
  *    call from contexts without a bordered panel.
  */
@@ -312,7 +311,7 @@ export function AssistantBody({
       {segments.map((seg, i) =>
         seg.type === 'code' ? (
           // biome-ignore lint/suspicious/noArrayIndexKey: segment order is stable
-          <CodeBlock key={i} code={seg.text} lang={seg.lang ?? 'plain'} termWidth={termWidth} />
+          <CodeBlock key={i} code={seg.text} lang={seg.lang ?? 'plain'} contentWidth={inner} />
         ) : (
           // biome-ignore lint/suspicious/noArrayIndexKey: segment order is stable
           <MarkdownView key={i} text={seg.text} termWidth={inner} />

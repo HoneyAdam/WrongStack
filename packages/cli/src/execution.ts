@@ -26,6 +26,7 @@ import { capabilitiesFor } from '@wrongstack/providers';
 import type { ReadlineInputReader } from './input-reader.js';
 import type { TerminalRenderer } from './renderer.js';
 import { FleetStatusLine } from './fleet-statusline.js';
+import { type PredictLLMProvider, predictNextTasks } from './next-task-predictor.js';
 import { runRepl } from './repl.js';
 import type { SessionStats } from './session-stats.js';
 import { fmtTok } from './utils.js';
@@ -86,6 +87,8 @@ export interface ExecutionDeps {
   getAutonomy?: () => import('./slash-commands/autonomy.js').AutonomyMode;
   /** Set autonomy mode (used by SIGINT handler to flip back to 'off'). */
   onAutonomy?: (mode: import('./slash-commands/autonomy.js').AutonomyMode) => void;
+  /** Whether next-task prediction is enabled (toggled via /next). */
+  getNextPredict?: () => boolean;
   /**
    * Access the (possibly null) eternal-autonomy engine. The REPL drives
    * `runOneIteration()` from its main loop when autonomy is 'eternal'.
@@ -176,6 +179,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
     getYolo,
     getAutonomy,
     onAutonomy,
+    getNextPredict,
     getEternalEngine,
     getParallelEngine,
     subscribeEternalIteration,
@@ -386,6 +390,20 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
           yolo: !!config.yolo,
           getYolo,
           getAutonomy,
+          // Next-task prediction (/next). Host owns the gating: returns [] when
+          // the toggle is off or autonomy is self-driving, so the TUI can call
+          // this unconditionally after a done turn. Display-only.
+          predictNext: async (input: { userRequest: string; assistantSummary: string }) => {
+            if (!getNextPredict?.()) return [];
+            if ((getAutonomy?.() ?? 'off') !== 'off') return [];
+            return predictNextTasks(
+              { ...input, todos: context.todos },
+              {
+                provider: context.provider as unknown as PredictLLMProvider,
+                model: context.model,
+              },
+            );
+          },
           getEternalEngine,
           subscribeEternalIteration,
           subscribeEternalStage,
@@ -519,6 +537,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
           projectRoot,
           getAutonomy,
           onAutonomy,
+          getNextPredict,
           getEternalEngine,
           getParallelEngine,
           skillLoader,
@@ -544,6 +563,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
         projectName: path.basename(projectRoot) || undefined,
         getAutonomy,
         onAutonomy,
+        getNextPredict,
         getEternalEngine,
         getParallelEngine,
         skillLoader,

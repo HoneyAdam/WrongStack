@@ -638,6 +638,9 @@ export async function main(argv: string[]): Promise<number> {
     return 'off';
   })();
   autonomyModeRef.current = autonomyMode;
+  // Next-task prediction toggle — persisted in config so it survives restarts.
+  // Read/written via `onNextPredict`, read by the REPL via `getNextPredict`.
+  let nextPredictEnabled = config.nextPrediction === true;
   // Eternal-autonomy engine instance — lazy, created when /autonomy eternal is invoked.
   // Lives at function scope so /autonomy stop and SIGINT handlers can reach it.
   let eternalEngine: import('@wrongstack/core').EternalAutonomyEngine | null = null;
@@ -1348,6 +1351,14 @@ export async function main(argv: string[]): Promise<number> {
       }
       return policy.getYolo();
     },
+    onNextPredict: (setTo?: boolean) => {
+      if (setTo !== undefined) {
+        nextPredictEnabled = setTo;
+        config = patchConfig(config, { nextPrediction: setTo });
+        return setTo;
+      }
+      return nextPredictEnabled;
+    },
     onAutonomy: (setTo?) => {
       if (setTo !== undefined) {
         autonomyMode = setTo;
@@ -1612,6 +1623,7 @@ export async function main(argv: string[]): Promise<number> {
       }
       return autonomyMode;
     },
+    getNextPredict: () => nextPredictEnabled,
     getEternalEngine: () => eternalEngine,
     getParallelEngine: () => parallelEngine,
     subscribeEternalIteration: (fn) => {

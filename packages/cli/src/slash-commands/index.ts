@@ -120,6 +120,8 @@ export interface SlashCommandContext {
   onPlugin?: (args: string) => Promise<string>;
   /** Toggle or query YOLO mode at runtime. Pass undefined to query, boolean to set. */
   onYolo?: (setTo?: boolean) => boolean;
+  /** Toggle or query next-task prediction. Pass undefined to query, boolean to set. */
+  onNextPredict?: (setTo?: boolean) => boolean;
   /** Toggle or query autonomy mode. Pass undefined to query, AutonomyMode to set. */
   onAutonomy?: (setTo?: import('./autonomy.js').AutonomyMode) => import('./autonomy.js').AutonomyMode;
   /**
@@ -247,6 +249,7 @@ import { buildToolsCommand } from './tools.js';
 import { buildYoloCommand } from './yolo.js';
 import { buildAutonomyCommand } from './autonomy.js';
 import { buildBtwCommand } from './btw.js';
+import { buildNextCommand } from './next.js';
 import { buildGoalCommand } from './goal.js';
 import { buildModeCommand } from './mode.js';
 import { buildSddCommand } from './sdd.js';
@@ -282,6 +285,7 @@ export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashComma
     buildAutonomyCommand(opts),
     buildGoalCommand(opts),
     buildBtwCommand(opts),
+    buildNextCommand(opts),
     buildModeCommand(opts),
     buildExitCommand(opts),
     buildFixCommand(opts),

@@ -6,6 +6,7 @@ import {
   type VisionAdapters,
 } from '@wrongstack/runtime';
 import type { ReadlineInputReader } from './input-reader.js';
+import { predictNextTasks, type PredictLLMProvider } from './next-task-predictor.js';
 import type { TerminalRenderer } from './renderer.js';
 import { getActiveSDDContext, trySaveSpecFromAIOutput, trySaveTasksFromAIOutput, getTaskListText, getTaskProgress, autoDetectTaskCompletion, getActiveSDDPhase, trySaveImplementationPlan, renderTaskListWithProgress, getCurrentExecutingContext, advanceToNextTask } from './slash-commands/sdd.js';
 import { theme } from './theme.js';
@@ -25,6 +26,12 @@ export interface ReplOptions {
   getAutonomy?: () => import('./slash-commands/autonomy.js').AutonomyMode;
   /** Set autonomy mode (used by SIGINT handler to flip back to 'off'). */
   onAutonomy?: (mode: import('./slash-commands/autonomy.js').AutonomyMode) => void;
+  /**
+   * Whether next-task prediction is enabled. When true, the REPL runs a
+   * lightweight single-shot prediction after each completed turn and shows
+   * the likely next steps (display-only). Toggled via `/next`.
+   */
+  getNextPredict?: () => boolean;
   /**
    * Access the eternal-autonomy engine. When autonomy mode is 'eternal'
    * the REPL skips reading user input and instead drives engine
@@ -515,6 +522,43 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
               }
             } catch {
               // Silently skip suggestion errors
+            } finally {
+              activeCtrl = undefined;
+            }
+          }
+        }
+
+        // ── Next-task prediction (/next) ────────────────────────────────
+        // Opt-in: after a completed turn, a cheap single-shot LLM call
+        // guesses the user's likely next steps and shows them dimly.
+        // Display-only — never executed. Only runs when autonomy is off
+        // (auto/suggest/eternal already drive or print their own next
+        // steps). Best-effort: any failure is swallowed so prediction can
+        // never break the turn.
+        if (result.status === 'done' && opts.getNextPredict?.()) {
+          const autonomy = opts.getAutonomy?.() ?? 'off';
+          if (autonomy === 'off') {
+            const predictCtrl = new AbortController();
+            activeCtrl = predictCtrl;
+            try {
+              const predictions = await predictNextTasks(
+                {
+                  userRequest: trimmed,
+                  assistantSummary: result.finalText ?? '',
+                  todos: opts.agent.ctx.todos,
+                },
+                {
+                  provider: opts.agent.ctx.provider as unknown as PredictLLMProvider,
+                  model: opts.agent.ctx.model,
+                  signal: predictCtrl.signal,
+                },
+              );
+              if (predictions.length > 0) {
+                const lines = predictions.map((p, i) => `    ${i + 1}. ${p}`).join('\n');
+                opts.renderer.write(`\n${color.dim('  ↳ likely next:')}\n${color.dim(lines)}\n`);
+              }
+            } catch {
+              // Best-effort — never let prediction break the turn.
             } finally {
               activeCtrl = undefined;
             }
