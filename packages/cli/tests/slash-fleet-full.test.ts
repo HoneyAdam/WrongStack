@@ -37,9 +37,11 @@ describe('buildFleetCommand', () => {
   });
 
   it('kill without id reports usage', async () => {
-    const cmd = buildFleetCommand({ ...ctx(), onFleet: vi.fn() });
+    const onFleetKill = vi.fn(() => 0);
+    const cmd = buildFleetCommand({ ...ctx(), onFleetKill });
     const res = await cmd.run('kill', ctx());
-    expect(res?.message).toContain('Usage: /fleet kill <subagent-id>');
+    expect(onFleetKill).toHaveBeenCalledTimes(1);
+    expect(res?.message).toMatch(/Killed 0 subagent/);
   });
 
   it('kill with id forwards to onFleet', async () => {

@@ -588,12 +588,26 @@ describe('built-in slash commands', () => {
       expect(r?.message).toBe('stopped');
     });
 
-    it('/fleet kill without id surfaces the usage line', async () => {
-      const onFleet = vi.fn(async () => 'should not be called');
-      const { registry } = makeFleetRig(onFleet);
+    it('/fleet kill without id calls onFleetKill', async () => {
+      const onFleetKill = vi.fn(() => 2);
+      // Build fleet command directly with onFleetKill instead of via makeFleetRig
+      const registry = new SlashCommandRegistry();
+      const toolRegistry = new ToolRegistry();
+      const renderer = new FakeRenderer();
+      const tokenCounter = new DefaultTokenCounter();
+      const compactor = new HybridCompactor({ preserveK: 5 });
+      const cmds = buildBuiltinSlashCommands({
+        registry,
+        toolRegistry,
+        compactor,
+        tokenCounter,
+        renderer: renderer as unknown as Parameters<typeof buildBuiltinSlashCommands>[0]['renderer'],
+        onFleetKill,
+      });
+      for (const c of cmds) registry.register(c);
       const r = await registry.dispatch('/fleet kill', fakeCtx);
-      expect(r?.message).toMatch(/Usage:\s*\/fleet kill/);
-      expect(onFleet).not.toHaveBeenCalled();
+      expect(onFleetKill).toHaveBeenCalledTimes(1);
+      expect(r?.message).toMatch(/Killed 2 subagent/);
     });
 
     it('/fleet help returns inline usage block', async () => {
