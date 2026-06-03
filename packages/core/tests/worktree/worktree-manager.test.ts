@@ -239,6 +239,74 @@ describe.skipIf(!gitAvailable)('WorktreeManager (real repo)', () => {
       await fs.rm(base, { recursive: true, force: true });
     }
   }, 30_000);
+
+  it('resolve callback clears the conflict → merge lands on base (resolved)', async () => {
+    const base = await makeRepo();
+    try {
+      const wm = new WorktreeManager({ projectRoot: base });
+      const h = await wm.allocate('p', { slugHint: 'resolve-ok' });
+
+      await fs.writeFile(path.join(h.dir, 'seed.txt'), 'line1\nWORKTREE\nline3\n');
+      await wm.commitAll(h, 'edit on branch');
+      await fs.writeFile(path.join(base, 'seed.txt'), 'line1\nBASE\nline3\n');
+      spawnSync('git', ['-C', base, 'commit', '-aqm', 'edit on base'], {
+        stdio: 'ignore',
+        env: GIT_ENV,
+      });
+
+      let sawConflict: string[] | undefined;
+      const m = await wm.merge(h, {
+        squash: true,
+        resolve: async ({ conflictFiles, cwd }) => {
+          sawConflict = conflictFiles;
+          // Resolve by combining both sides and removing every marker.
+          await fs.writeFile(path.join(cwd, 'seed.txt'), 'line1\nBASE+WORKTREE\nline3\n');
+          return true;
+        },
+      });
+
+      expect(m.ok).toBe(true);
+      expect(m.resolved).toBe(true);
+      expect(h.status).toBe('merged');
+      if (sawConflict && sawConflict.length > 0) expect(sawConflict).toContain('seed.txt');
+      const onBase = await fs.readFile(path.join(base, 'seed.txt'), 'utf8');
+      expect(onBase.replace(/\r/g, '')).toBe('line1\nBASE+WORKTREE\nline3\n');
+    } finally {
+      await fs.rm(base, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it('resolve callback that leaves markers → aborts to needs-review (never commits)', async () => {
+    const base = await makeRepo();
+    try {
+      const wm = new WorktreeManager({ projectRoot: base });
+      const h = await wm.allocate('p', { slugHint: 'resolve-bad' });
+
+      await fs.writeFile(path.join(h.dir, 'seed.txt'), 'line1\nWORKTREE\nline3\n');
+      await wm.commitAll(h, 'edit on branch');
+      await fs.writeFile(path.join(base, 'seed.txt'), 'line1\nBASE\nline3\n');
+      spawnSync('git', ['-C', base, 'commit', '-aqm', 'edit on base'], {
+        stdio: 'ignore',
+        env: GIT_ENV,
+      });
+
+      // Resolver claims success but leaves the conflict markers in place.
+      const m = await wm.merge(h, { squash: true, resolve: async () => true });
+
+      expect(m.ok).toBe(false);
+      expect(m.conflict).toBe(true);
+      expect(m.resolved).toBeFalsy();
+      expect(h.status).toBe('needs-review');
+      // base HEAD is still the pre-merge commit (nothing was committed)
+      const head = spawnSync('git', ['-C', base, 'log', '-1', '--pretty=%s'], {
+        encoding: 'utf8',
+        env: GIT_ENV,
+      });
+      expect(head.stdout.trim()).toBe('edit on base');
+    } finally {
+      await fs.rm(base, { recursive: true, force: true });
+    }
+  }, 30_000);
 });
 
 describe('parseConflictPaths', () => {

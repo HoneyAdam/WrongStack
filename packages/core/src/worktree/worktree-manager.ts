@@ -57,6 +57,16 @@ export interface AllocateOpts {
 export interface MergeOpts {
   squash?: boolean;
   message?: string;
+  /**
+   * Optional conflict resolver. Invoked when the squash-merge conflicts, with
+   * the conflicted paths and the base working tree (`cwd`). It must resolve the
+   * conflict markers in place and return `true` when done. If it returns `true`
+   * and no conflict markers remain, the merge is committed and `merge()` returns
+   * `{ ok: true, resolved: true }`. Otherwise the merge is aborted (hard reset)
+   * and the handle is parked `needs-review` — exactly as if no resolver were
+   * provided, so the base tree is never left dirty.
+   */
+  resolve?: (info: { conflictFiles: string[]; cwd: string }) => Promise<boolean>;
 }
 
 export interface MergeResult {
@@ -64,6 +74,8 @@ export interface MergeResult {
   conflict?: boolean;
   conflictFiles?: string[];
   stderr?: string;
+  /** True when an initial conflict was successfully resolved by `opts.resolve`. */
+  resolved?: boolean;
 }
 
 export interface RunResult {
@@ -225,6 +237,16 @@ export class WorktreeManager {
       const fromOutput = parseConflictPaths(`${merged.stdout}\n${merged.stderr}`);
       const fromIndex = await this.unmergedFiles();
       const conflictFiles = [...new Set([...fromOutput, ...fromIndex])];
+
+      // Caller-driven resolution: leave the conflicted tree in place, hand the
+      // marked files to the resolver, and finalize the merge commit only if it
+      // cleared every marker. Any failure falls through to the safe reset below,
+      // so the base tree is never left dirty.
+      if (opts.resolve) {
+        const finalized = await this.tryResolveConflict(handle, conflictFiles, opts);
+        if (finalized) return finalized;
+      }
+
       // `merge --squash` leaves no MERGE_HEAD, so `merge --abort` won't work;
       // hard-reset the base tree — the work is safe on the branch.
       await this.runGit(['reset', '--hard', 'HEAD'], this.projectRoot);
@@ -260,6 +282,62 @@ export class WorktreeManager {
       squash,
     });
     return { ok: true };
+  }
+
+  /**
+   * Run the caller-supplied resolver against a conflicted squash-merge, then
+   * commit if it cleared every marker. Returns a successful `MergeResult` on a
+   * clean resolution, or `null` to signal the caller should fall back to the
+   * abort path. Never leaves the base tree committed-but-dirty: a partial or
+   * failed resolution returns `null` and the caller hard-resets.
+   */
+  private async tryResolveConflict(
+    handle: WorktreeHandle,
+    conflictFiles: string[],
+    opts: MergeOpts,
+  ): Promise<MergeResult | null> {
+    let resolved = false;
+    try {
+      resolved = await opts.resolve!({ conflictFiles, cwd: this.projectRoot });
+    } catch {
+      resolved = false;
+    }
+    if (!resolved) return null;
+
+    // Stage the resolver's edits, then refuse to commit if any conflict marker
+    // survived (a half-resolved file is worse than a clean abort).
+    await this.runGit(['add', '-A'], this.projectRoot);
+    if (await this.hasConflictMarkers()) return null;
+
+    const idArgs = await this.identityArgs(this.projectRoot);
+    const msg = opts.message ?? `merge ${handle.branch} (squash, conflict resolved)`;
+    const commit = await this.runGit([...idArgs, 'commit', '-m', msg], this.projectRoot);
+    if (commit.code !== 0 && !/nothing to commit/i.test(commit.stdout + commit.stderr)) {
+      return null;
+    }
+
+    handle.conflictFiles = conflictFiles;
+    this.setStatus(handle, 'merged');
+    this.emit('worktree.merged', {
+      handleId: handle.id,
+      ownerId: handle.ownerId,
+      branch: handle.branch,
+      baseBranch: handle.baseBranch,
+      squash: true,
+    });
+    return { ok: true, resolved: true, conflictFiles };
+  }
+
+  /**
+   * True when staged content still carries conflict markers. `git diff --cached
+   * --check` exits nonzero and prints a "leftover conflict marker" line for each
+   * survivor; whitespace-only errors (also flagged by --check) are ignored so a
+   * clean resolution with unrelated whitespace is not rejected.
+   */
+  private async hasConflictMarkers(): Promise<boolean> {
+    const check = await this.runGit(['diff', '--cached', '--check'], this.projectRoot);
+    if (check.code === 0) return false;
+    return /conflict marker/i.test(`${check.stdout}\n${check.stderr}`);
   }
 
   /**
