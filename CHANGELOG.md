@@ -5,6 +5,141 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.41.0] - 2026-06-03
+
+> The code-quality & model-routing release. Consolidates everything since the
+> `0.32.0` lockstep realignment. The headlines are a per-task **model matrix**
+> with a `/setmodel` command, an **AutoPhase verification gate** that catches
+> broken phases before merge, a unified **TTY / stdout abstraction** layer that
+> eliminates ~20 scattered `process.stdout` / `process.stdin` checks, and a
+> WebUI server decomposition pass. Additive only; no breaking changes.
+>
+> **Version consolidation.** The intermediate `0.33.0`–`0.40.1` bumps shipped
+> as mechanical `chore: bump version` / `feat: update code` commits without
+> their own changelog sections; their substantive changes are folded into this
+> entry. All 15 workspace manifests are realigned to `0.41.0` in lockstep.
+
+### Added
+
+- **Per-task model matrix + `/setmodel` slash command.** A new
+  `Config.modelMatrix` map lets different fleet roles or phases run on
+  different models — e.g. `security-scanner` on one model, `documentation` on
+  another — while the leader keeps its own model. Resolution precedence:
+  exact role → role's phase → `*` default → leader model fallback. The new
+  `/setmodel <key> <provider/model>` command validates keys against the
+  46-agent catalog and persists to `config.json`. `resolveModelMatrix()`,
+  `matrixKeyKind()`, and `isValidMatrixKey()` exported from
+  `@wrongstack/core/coordination`.
+
+- **AutoPhase verification gate + auto-repair + merge-conflict resolver.**
+  `PhaseOrchestrator` now runs an optional `verifyPhase` callback after all
+  tasks in a phase succeed. When verification fails (e.g. typecheck / test),
+  the orchestrator retries up to `maxVerifyAttempts` (default 2) with an
+  `autoRepair` callback before marking the phase as failed. Additionally,
+  `WorktreeManager.merge()` accepts a `resolveConflicts` callback so
+  AutoPhase can attempt to resolve merge conflicts before falling back to
+  `needs-review`.
+
+- **TTY detection helpers (`@wrongstack/core/utils/term`).** Single source
+  of truth for `isStdoutTTY()`, `isStdinTTY()`, `isInteractive()`,
+  `getTermSize()`, `onResize()`, and `setRawMode()` — replaces ~20 ad-hoc
+  `process.stdin.isTTY` / `process.stdout.isTTY` checks scattered across
+  the codebase. Test code can now mock one module instead of stubbing `isTTY`
+  on every stream.
+
+- **`writeOut` / `writeErr` / `writeTo` output primitives
+  (`@wrongstack/core/utils`).** All stdout/stderr writes across CLI, ACP,
+  and WebUI now route through a shared seam instead of raw
+  `process.stdout.write()` / `process.stderr.write()`. Enables future
+  output capture / middleware without monkey-patching globals.
+
+- **TUI F-key monitor aliases.** `F1`–`F4` now toggle the fleet, agents,
+  worktree, and phase monitors respectively (alongside the existing
+  `Ctrl+F`/`G`/`T`/`P` bindings). Model + context-pressure display added to
+  the agents and fleet monitors.
+
+- **Collab debug target file limits.** `CollabSession` now enforces a file
+  count limit to prevent token overflow in large codebases: explicit
+  `maxTargetFiles` > dynamic from `contextWindow` > default (30). Exceeding
+  the limit throws a clear error with guidance to narrow the target or run
+  per-package sessions.
+
+- **`detectPackageManager` utility (`@wrongstack/tools/_util`).** Deduped
+  the `pnpm` / `yarn` / `npm` / `bun` detection logic that was duplicated
+  across `install`, `audit`, `outdated`, and `document` tools into a single
+  shared helper.
+
+### Changed
+
+- **WebUI server decomposition.** Extracted the static-file HTTP server
+  (MIME handling, CSP header, SPA fallback) into its own
+  `packages/webui/src/server/http-server.ts` module (-75 lines from
+  `index.ts`). Boot-time secret-migration notices now route through
+  `writeErr` instead of raw `process.stderr.write`.
+
+- **CLI `index.ts` decomposed.** Extracted five modules from the 1,400-line
+  monolith: `cli-entry-point.ts`, `cli-eternal-flag.ts`,
+  `cli-recovery-prompt.ts`, `cli-update-notice.ts`, `cli-bundled-skills.ts`.
+  The main file is ~130 lines shorter; each extraction is independently
+  testable.
+
+- **`diff` tool clarified.** The `files`-only path now explicitly renders
+  line-numbered file content (not a misleading unified diff with `---`/`+++`
+  headers). Usage hints updated to distinguish the two modes. Security
+  guards from the 0.31.1 audit (leading-dash rejection) remain.
+
+- **`plan` tool hardened.** The built-in `plan` tool now validates that
+  `path` resolves inside the project root and that `id` / `details` fields
+  are strings, preventing potential path traversal and type confusion.
+
+### Fixed
+
+- **2026-06-03 audit batch — 4 critical/high findings resolved:**
+  - `document` tool: `--tsconfig` / `--format` argument injection blocked
+    (leading-dash guard + allowlist).
+  - `install` tool: package name injection blocked (bare-word validation).
+  - `outdated` tool: `--depth` argument injection blocked.
+  - `diff` tool: mode and file-path flags hardened (complements F-01).
+  - 8 regression-guard tests added across the fixed tools.
+
+- **`cron` plugin teardown.** The cron plugin's `beforeIteration` /
+  `afterIteration` hooks now clean up correctly on plugin unload, preventing
+  stale interval timers from leaking across hot-reloads.
+
+- **`file-watcher` plugin teardown.** Open `fs.watch` handles are now
+  closed in the plugin's `teardown()` method.
+
+### Tests
+
+- **~107 new test cases** across 20 files:
+  - `packages/core/tests/utils/term.test.ts` — TTY detection + resize + raw mode
+  - `packages/core/tests/coordination/model-matrix.test.ts` — matrix resolution
+  - `packages/core/tests/coordination/director-model-matrix.test.ts` — Director integration
+  - `packages/core/tests/worktree/worktree-manager.test.ts` — merge conflict resolver
+  - `packages/core/tests/autophase/phase-orchestrator.test.ts` — verify gate + auto-repair
+  - `packages/cli/tests/input-reader.test.ts` — readKey coverage
+  - `packages/cli/tests/slash-setmodel.test.ts` — `/setmodel` command
+  - `packages/tools/tests/_util.test.ts` — detectPackageManager
+  - `packages/tools/tests/permission-mutating-invariant.test.ts` — safety invariant
+  - `packages/plugins/tests/plugin-teardown.test.ts` — cron + file-watcher teardown
+  - `packages/tui/tests/fn-keys.test.ts` — F-key binding
+  - `packages/webui/tests/server/http-server.test.ts` — extracted HTTP server
+
+### Docs
+
+- **`docs/collab-debug.md`** — usage guide documenting target file limits,
+  context-window-based calculation, and per-package session strategy.
+- **`docs/slash/setmodel.md`** — `/setmodel` command reference.
+
+### Changed — versions
+
+- **All workspace packages bumped to 0.41.0**: `wrongstack`,
+  `@wrongstack/cli`, `@wrongstack/core`, `@wrongstack/mcp`,
+  `@wrongstack/plug-lsp`, `@wrongstack/plugins`, `@wrongstack/providers`,
+  `@wrongstack/runtime`, `@wrongstack/skills`, `@wrongstack/telegram`,
+  `@wrongstack/tools`, `@wrongstack/tui`, `@wrongstack/webui`.
+  `@wrongstack/acp` tracks the same version.
+
 ## [0.32.0] - 2026-06-03
 
 > Version bump to 0.32.0.
