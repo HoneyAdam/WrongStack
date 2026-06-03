@@ -24,14 +24,25 @@ export async function findLocalBinary(cwd: string, command: string): Promise<str
   }
 }
 
-export async function commandExistsOnPath(command: string): Promise<boolean> {
+export async function commandExistsOnPath(command: string, timeoutMs = 2000): Promise<boolean> {
   const probe = process.platform === 'win32' ? 'where.exe' : 'sh';
   const args =
     process.platform === 'win32' ? [command] : ['-lc', `command -v ${shellQuote(command)}`];
   return new Promise((resolve) => {
     const child = spawn(probe, args, { env: buildChildEnv(), stdio: 'ignore', windowsHide: true });
-    child.on('error', () => resolve(false));
-    child.on('close', (code) => resolve(code === 0));
+    const timer = setTimeout(() => {
+      child.kill();
+      resolve(false);
+    }, timeoutMs);
+    timer.unref?.();
+    child.on('error', () => {
+      clearTimeout(timer);
+      resolve(false);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      resolve(code === 0);
+    });
   });
 }
 
