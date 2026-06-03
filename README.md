@@ -405,7 +405,7 @@ wrongstack --provider openrouter --model anthropic/claude-opus-4-7
 
 **Core** (both the plain REPL and the TUI): `/init` `/help` `/clear` `/compact` `/context` `/diag` `/stats` `/tools` `/plugin` `/mcp` `/memory` `/todos` `/mode` `/yolo` `/autonomy` `/btw` `/fix` `/autophase` `/worktree` `/settings` `/sdd` `/image` `/save` `/resume` `/exit`
 
-**Multi-agent:** `/spawn` `/fleet` `/agents` `/goal` `/director` `/collab`
+**Multi-agent:** `/spawn` `/fleet` `/agents` `/goal` `/director` `/collab` `/setmodel`
 
 **TUI-only** (need `--tui`): `/model` (provider → model picker) · `/steer` (mid-flight redirect — the plain REPL uses **Esc** instead) · `/altscreen` · `/queue`
 
@@ -429,6 +429,7 @@ wrongstack --provider openrouter --model anthropic/claude-opus-4-7
 | `/yolo on\|off\|toggle` | Flip YOLO mode (auto-approve all tool calls). `/yolo` alone shows status. TUI shows `⚠ YOLO` chip |
 | `/mode` | Switch persona: `default`, `code-reviewer`, `code-auditor`, `architect`, `debugger`, `tester`, `devops`, `refactorer`. Custom modes in `~/.wrongstack/modes/` |
 | `/model` | _(TUI)_ Two-step provider → model picker. In the plain REPL, relaunch with `--provider` / `--model` |
+| `/setmodel <key> <provider/model>` | Set per-role or per-phase model in the model matrix (e.g. `/setmodel security-scanner openai/gpt-4o`). Keys: catalog role, phase name, or `*` (default). Persists to config |
 | `/image` or `/paste-image` | Attach clipboard PNG. TUI also `Alt+V` |
 | `/context mode <policy>` | Switch context-window mode: `balanced`, `frugal`, `deep`, `archival`. `repair` fixes damaged tool-call adjacency |
 | `/plugin install\|disable\|enable\|remove\|official [name]` | Manage plugins. `install` adds bundled package to config (no npm). Restart to load/unload |
@@ -566,7 +567,7 @@ For the full walk-through — including the L1-A reactive `ConversationState`, h
 
 ## Status
 
-- **5297 tests passing** across 372 test files (13 skipped)
+- **5400+ tests passing** across 382 test files (13 skipped)
 - Coverage thresholds: ≥85 % lines / ≥85 % functions / ≥70 % branches / ≥82 % statements
 - All workspace packages build clean with TypeScript strict + `noUncheckedIndexedAccess`
 - Node 22+ only, ESM-only, no CommonJS bundles
