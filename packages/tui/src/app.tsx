@@ -3742,7 +3742,6 @@ export function App({
             : e.status === 'stopped'
               ? '⊘'
               : '✗';
-      const errKind = e.error?.kind;
       const errMsg = e.error?.message;
       const errMsgTail = errMsg
         ? ` — ${errMsg.replace(/\s+/g, ' ').slice(0, 100)}${errMsg.length > 100 ? '…' : ''}`

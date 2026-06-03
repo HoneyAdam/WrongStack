@@ -75,8 +75,8 @@ function baseDir(pat: string): string {
  * Literal paths (no glob chars) are returned as-is.
  *
  * @example
- * await expandGlob('src/**/*.ts')  // → ['src/a.ts', 'src/b/c.ts', ...]
- * await expandGlob('foo.txt')      // → ['foo.txt']
+ * await expandGlob('src/**\/*.ts')  // → ['src/a.ts', 'src/b/c.ts', ...]
+ * await expandGlob('foo.txt')       // → ['foo.txt']
  */
 export async function expandGlob(pattern: string): Promise<string[]> {
   if (!isGlob(pattern)) return [pattern];
