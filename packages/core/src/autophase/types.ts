@@ -11,13 +11,13 @@ import type { TaskGraph, TaskNode } from '../types/task-graph.js';
 // ─── Phase Status ───────────────────────────────────────────────────────────
 
 export type PhaseStatus =
-  | 'pending'      // Henüz başlamadı, önceki faz bekleniyor
-  | 'ready'        // Başlamaya hazır (önceki faz tamamlandı)
-  | 'running'      // Aktif çalışıyor
-  | 'paused'       // Kullanıcı duraklattı
-  | 'completed'    // Tüm görevleri bitti
-  | 'failed'       // En az bir görev başarısız ve retry hakkı bitti
-  | 'skipped';     // Atlandı
+  | 'pending' // Henüz başlamadı, önceki faz bekleniyor
+  | 'ready' // Başlamaya hazır (önceki faz tamamlandı)
+  | 'running' // Aktif çalışıyor
+  | 'paused' // Kullanıcı duraklattı
+  | 'completed' // Tüm görevleri bitti
+  | 'failed' // En az bir görev başarısız ve retry hakkı bitti
+  | 'skipped'; // Atlandı
 
 // ─── Phase Node ─────────────────────────────────────────────────────────────
 
@@ -107,8 +107,19 @@ export interface PhaseEventMap {
   'phase.failed': { phaseId: string; name: string; error?: string };
   'phase.taskCompleted': { phaseId: string; taskId: string; taskTitle: string };
   'phase.taskFailed': { phaseId: string; taskId: string; taskTitle: string; error: string };
-  'phase.taskRetrying': { phaseId: string; taskId: string; taskTitle: string; attempt: number; maxRetries: number };
+  'phase.taskRetrying': {
+    phaseId: string;
+    taskId: string;
+    taskTitle: string;
+    attempt: number;
+    maxRetries: number;
+  };
   'phase.allTasksDone': { phaseId: string; completed: number; failed: number };
+  'phase.verifying': { phaseId: string; name: string; attempt: number };
+  'phase.verifyFailed': { phaseId: string; name: string; attempt: number; error?: string };
+  'phase.repairing': { phaseId: string; name: string; attempt: number };
+  'phase.conflictResolving': { phaseId: string; name: string; files: string[] };
+  'phase.conflictResolved': { phaseId: string; name: string };
   'graph.completed': { graphId: string; durationMs: number };
   'graph.failed': { graphId: string; failedPhaseId: string; error: string };
   'autonomous.tick': { activePhases: string[]; queuedPhases: string[] };
@@ -130,6 +141,43 @@ export interface PhaseExecutionContext {
     phaseId: string,
     env?: { cwd?: string; branch?: string },
   ) => Promise<unknown>;
+  /**
+   * Opsiyonel doğrulama kapısı. Bir fazın tüm görevleri bittikten *sonra*,
+   * faz "completed" işaretlenmeden ve worktree'si ana branch'e merge edilmeden
+   * *önce* çağrılır. `env`, fazın worktree'sine (varsa) işaret eder; doğrulama
+   * o izole dizinde koşmalıdır (örn. typecheck/test). `ok:false` dönerse merge
+   * bloklanır ve (varsa) `repairPhase` ile onarım denenir.
+   *
+   * Tanımlanmazsa kapı atlanır (geriye dönük uyumlu — eski davranış).
+   */
+  verifyPhase?: (
+    phase: PhaseNode,
+    env?: { cwd?: string; branch?: string },
+  ) => Promise<{ ok: boolean; output?: string }>;
+  /**
+   * Opsiyonel onarım geçişi. `verifyPhase` başarısız olduğunda, yakalanan hata
+   * çıktısı ile çağrılır. Worktree'deki kodu düzeltmeye çalışmalıdır (örn. bir
+   * onarım subagent'ı). Dönüş beklenmez; orchestrator ardından `verifyPhase`'i
+   * yeniden koşar. `verifyPhase` tanımlı değilse hiç çağrılmaz.
+   */
+  repairPhase?: (
+    phase: PhaseNode,
+    failure: string,
+    attempt: number,
+    env?: { cwd?: string; branch?: string },
+  ) => Promise<void>;
+  /**
+   * Opsiyonel birleştirme-çakışması çözücü. Bir fazın worktree'si ana branch'e
+   * squash-merge edilirken çakışma çıkarsa çağrılır. `info.cwd` ana çalışma
+   * ağacına (çakışma işaretçilerinin bulunduğu yer) işaret eder; çözücü oradaki
+   * işaretçileri temizlemeli ve `true` döndürmelidir. Başarılı olursa merge
+   * commit'lenir; aksi halde merge iptal edilir ve worktree `needs-review`'da
+   * saklanır. Tanımlanmazsa çakışma eski davranışla parked-for-review olur.
+   */
+  resolveConflict?: (
+    phase: PhaseNode,
+    info: { conflictFiles: string[]; cwd: string },
+  ) => Promise<boolean>;
   /** Bir faz tamamlandığında çağrılır */
   onPhaseComplete?: (phase: PhaseNode) => void;
   /** Bir faz başarısız olduğunda çağrılır */
@@ -147,6 +195,12 @@ export interface AutoPhaseOptions {
   maxConcurrentTasks?: number;
   /** Başarısız görev retry sayısı */
   maxRetries?: number;
+  /**
+   * Doğrulama kapısı başarısız olduğunda yapılacak maksimum onarım denemesi.
+   * Toplam doğrulama koşusu = maxVerifyAttempts + 1 (ilk koşu + her onarım
+   * sonrası yeniden koşu). Varsayılan 2. `verifyPhase` verilmezse etkisizdir.
+   */
+  maxVerifyAttempts?: number;
   /** Otonom mod: faz tamamlandıkça otomatik sonrakine geç */
   autonomous?: boolean;
   /** Fazlar arası bekleme süresi (ms) */

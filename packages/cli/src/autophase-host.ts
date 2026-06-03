@@ -17,18 +17,20 @@
  */
 
 import { spawn } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   AutoPhasePlanner,
-  buildChildEnv,
-  PhaseGraphBuilder,
-  PhaseOrchestrator,
-  PhaseStore,
-  WorktreeManager,
   type Config,
   type EventBus,
   type PhaseGraph,
+  PhaseGraphBuilder,
+  PhaseOrchestrator,
   type PhaseProgress,
+  PhaseStore,
   type TaskNode,
+  WorktreeManager,
+  buildChildEnv,
 } from '@wrongstack/core';
 import type { MultiAgentHost } from './multi-agent.js';
 
@@ -39,9 +41,17 @@ const WORKTREE_PHASE_CONCURRENCY = 4;
 function gitText(args: string[], cwd: string): Promise<{ code: number; out: string }> {
   return new Promise((resolve) => {
     let out = '';
-    const child = spawn('git', args, { cwd, env: buildChildEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
-    child.stdout?.on('data', (c: Buffer) => { out += c.toString(); });
-    child.stderr?.on('data', (c: Buffer) => { out += c.toString(); });
+    const child = spawn('git', args, {
+      cwd,
+      env: buildChildEnv(),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    child.stdout?.on('data', (c: Buffer) => {
+      out += c.toString();
+    });
+    child.stderr?.on('data', (c: Buffer) => {
+      out += c.toString();
+    });
     child.on('error', () => resolve({ code: 1, out }));
     child.on('close', (code) => resolve({ code: code ?? 1, out: out.trim() }));
   });
@@ -50,6 +60,52 @@ function gitText(args: string[], cwd: string): Promise<{ code: number; out: stri
 async function isGitRepo(cwd: string): Promise<boolean> {
   const { code, out } = await gitText(['rev-parse', '--is-inside-work-tree'], cwd);
   return code === 0 && out.trim() === 'true';
+}
+
+/** Run an arbitrary command, capturing combined stdout+stderr. */
+function runCmd(
+  cmd: string,
+  args: string[],
+  cwd: string,
+  shell = false,
+): Promise<{ code: number; out: string }> {
+  return new Promise((resolve) => {
+    let out = '';
+    const child = spawn(cmd, args, {
+      cwd,
+      env: buildChildEnv(),
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: shell || process.platform === 'win32',
+    });
+    child.stdout?.on('data', (c: Buffer) => {
+      out += c.toString();
+    });
+    child.stderr?.on('data', (c: Buffer) => {
+      out += c.toString();
+    });
+    child.on('error', (e) => resolve({ code: 1, out: `${out}${String(e)}` }));
+    child.on('close', (code) => resolve({ code: code ?? 1, out: out.trim() }));
+  });
+}
+
+/** Detect the project's package manager from lockfiles at the repo root. */
+function detectPackageManager(root: string): string {
+  if (existsSync(join(root, 'pnpm-lock.yaml'))) return 'pnpm';
+  if (existsSync(join(root, 'yarn.lock'))) return 'yarn';
+  if (existsSync(join(root, 'bun.lockb'))) return 'bun';
+  return 'npm';
+}
+
+/** Read package.json scripts for a directory (empty on any failure). */
+function readScripts(cwd: string): Record<string, string> {
+  try {
+    const pkg = JSON.parse(readFileSync(join(cwd, 'package.json'), 'utf8')) as {
+      scripts?: Record<string, string>;
+    };
+    return pkg.scripts ?? {};
+  } catch {
+    return {};
+  }
 }
 
 export interface AutoPhaseHostDeps {
@@ -81,12 +137,13 @@ export interface AutoPhaseRunnerView {
   isRunning: () => boolean;
 }
 
-export type AutoPhaseStartResult =
-  | { ok: true; graph: PhaseGraph }
-  | { ok: false; error: string };
+export type AutoPhaseStartResult = { ok: true; graph: PhaseGraph } | { ok: false; error: string };
 
 export interface AutoPhaseHostHooks {
-  onAutoPhaseStart: (opts: { goal: string; projectContext?: string }) => Promise<AutoPhaseStartResult>;
+  onAutoPhaseStart: (opts: {
+    goal: string;
+    projectContext?: string;
+  }) => Promise<AutoPhaseStartResult>;
   onAutoPhasePause: () => void;
   onAutoPhaseResume: () => void;
   onAutoPhaseStop: () => void;
@@ -153,6 +210,83 @@ export function createAutoPhaseHost(deps: AutoPhaseHostDeps): AutoPhaseHostHooks
       .join('\n');
   }
 
+  function buildRepairPrompt(phaseName: string, failure: string, goal: string): string {
+    return [
+      `You are repairing a FAILED verification inside an autonomous, phase-based build.`,
+      `Overall goal: ${goal}`,
+      `Phase: ${phaseName}`,
+      '',
+      `The phase's code changes were applied, but verification (typecheck/lint)`,
+      `failed in this working directory. Verifier output:`,
+      '```',
+      failure.slice(0, 4000),
+      '```',
+      '',
+      `Fix the code in THIS working directory so verification passes. Use your tools`,
+      `(read, edit, write, bash). Fix the root cause — do NOT delete code, weaken`,
+      `types, or disable lint rules just to silence the error. When finished, end`,
+      `with a one-line summary of what you changed.`,
+    ].join('\n');
+  }
+
+  function buildConflictPrompt(files: string[], goal: string): string {
+    const fileList = files.length
+      ? files.map((f) => `  - ${f}`).join('\n')
+      : '  (run `git diff --check` or search for "<<<<<<<" to find them)';
+    return [
+      `A git squash-merge hit conflicts while integrating an autonomous build phase`,
+      `into the base branch. Overall goal: ${goal}`,
+      '',
+      `These files contain conflict markers (<<<<<<<, =======, >>>>>>>) in the`,
+      `current working directory:`,
+      fileList,
+      '',
+      `Resolve every conflict by correctly combining BOTH sides — keep the intent of`,
+      `the base branch AND the phase's changes; do not blindly discard either side.`,
+      `Remove all conflict markers from every affected file. Do NOT run \`git commit\``,
+      `or \`git add\` — just leave the resolved files on disk. If a conflict cannot be`,
+      `resolved safely, say so explicitly. End with a one-line summary.`,
+    ].join('\n');
+  }
+
+  /**
+   * Verify a phase's working tree. Runs the project's `typecheck` + `lint` scripts
+   * (or a custom `WRONGSTACK_AUTOPHASE_VERIFY_CMD`) in `cwd`. Returns ok:true when
+   * all pass, or when verification cannot meaningfully run (no deps / no scripts) —
+   * the gate never blocks on things it can't actually check.
+   */
+  async function runVerify(cwd: string): Promise<{ ok: boolean; output?: string }> {
+    // Script commands need resolvable node_modules. A nested git worktree resolves
+    // upward to the repo-root node_modules, so accept either location.
+    if (
+      !existsSync(join(cwd, 'node_modules')) &&
+      !existsSync(join(deps.projectRoot, 'node_modules'))
+    ) {
+      return { ok: true, output: 'verify skipped: node_modules not found' };
+    }
+
+    const custom = process.env['WRONGSTACK_AUTOPHASE_VERIFY_CMD']?.trim();
+    if (custom) {
+      const res = await runCmd(custom, [], cwd, true);
+      return res.code === 0
+        ? { ok: true }
+        : { ok: false, output: `[verify] exited ${res.code}\n${res.out}` };
+    }
+
+    const pm = detectPackageManager(deps.projectRoot);
+    const scripts = readScripts(cwd);
+    const steps = (['typecheck', 'lint'] as const).filter((s) => typeof scripts[s] === 'string');
+    if (steps.length === 0) return { ok: true, output: 'verify skipped: no typecheck/lint script' };
+
+    for (const step of steps) {
+      const res = await runCmd(pm, ['run', step], cwd);
+      if (res.code !== 0) {
+        return { ok: false, output: `[${step}] exited ${res.code}\n${res.out}` };
+      }
+    }
+    return { ok: true };
+  }
+
   async function persist(graph: PhaseGraph): Promise<void> {
     try {
       await store.save(graph);
@@ -164,7 +298,10 @@ export function createAutoPhaseHost(deps: AutoPhaseHostDeps): AutoPhaseHostHooks
   return {
     async onAutoPhaseStart({ goal, projectContext }): Promise<AutoPhaseStartResult> {
       if (active?.orchestrator.isRunning()) {
-        return { ok: false, error: 'An AutoPhase run is already in progress. Use /autophase stop first.' };
+        return {
+          ok: false,
+          error: 'An AutoPhase run is already in progress. Use /autophase stop first.',
+        };
       }
 
       const abort = new AbortController();
@@ -180,11 +317,17 @@ export function createAutoPhaseHost(deps: AutoPhaseHostDeps): AutoPhaseHostHooks
         });
         const result = await planner.plan();
         if (result.parseFailed || result.phases.length === 0) {
-          return { ok: false, error: 'The planner did not produce a usable phase plan. Try a more specific goal.' };
+          return {
+            ok: false,
+            error: 'The planner did not produce a usable phase plan. Try a more specific goal.',
+          };
         }
         phases = result.phases;
       } catch (err) {
-        return { ok: false, error: `Planning failed: ${err instanceof Error ? err.message : String(err)}` };
+        return {
+          ok: false,
+          error: `Planning failed: ${err instanceof Error ? err.message : String(err)}`,
+        };
       }
 
       const todoCount = phases.reduce((n, p) => n + (p.taskTemplates?.length ?? 0), 0);
@@ -207,8 +350,25 @@ export function createAutoPhaseHost(deps: AutoPhaseHostDeps): AutoPhaseHostHooks
       let worktrees: WorktreeManager | undefined;
       if (worktreesEnabled && (await isGitRepo(deps.projectRoot))) {
         worktrees = new WorktreeManager({ projectRoot: deps.projectRoot, events: deps.events });
-        log(`🌿 Worktree isolation on — up to ${deps.maxConcurrentPhases ?? WORKTREE_PHASE_CONCURRENCY} phases run in parallel.`);
+        log(
+          `🌿 Worktree isolation on — up to ${deps.maxConcurrentPhases ?? WORKTREE_PHASE_CONCURRENCY} phases run in parallel.`,
+        );
       }
+
+      // Per-phase verification gate. After a phase's todos all succeed, run the
+      // project's typecheck/lint in the phase worktree before merging; on failure
+      // a repair subagent gets the output and fixes the tree, then we re-verify.
+      // Disable with WRONGSTACK_AUTOPHASE_VERIFY=0.
+      const verifyEnabled = process.env['WRONGSTACK_AUTOPHASE_VERIFY'] !== '0';
+      if (verifyEnabled) {
+        log(`🔎 Verify gate on — phases must pass typecheck/lint before merging.`);
+      }
+
+      // Merge-conflict resolution. Only meaningful with worktree isolation (the
+      // only path that merges). On conflict a resolver subagent edits the base
+      // tree to clear the markers; if it fails the worktree is parked for review
+      // as before. Disable with WRONGSTACK_AUTOPHASE_RESOLVE=0.
+      const resolveEnabled = !!worktrees && process.env['WRONGSTACK_AUTOPHASE_RESOLVE'] !== '0';
 
       // 3) RUN (background)
       const orchestrator = new PhaseOrchestrator({
@@ -224,6 +384,36 @@ export function createAutoPhaseHost(deps: AutoPhaseHostDeps): AutoPhaseHostHooks
               env?.cwd,
             );
           },
+          verifyPhase: verifyEnabled
+            ? async (_phase, env) => runVerify(env?.cwd ?? deps.projectRoot)
+            : undefined,
+          repairPhase: verifyEnabled
+            ? async (phase, failure, attempt, env) => {
+                log(`🔧 Repairing "${phase.name}" (attempt ${attempt}) after verify failure…`);
+                await runOnce(
+                  buildRepairPrompt(phase.name, failure, goal),
+                  `autophase-repair-${phase.name}`.slice(0, 48),
+                  abort.signal,
+                  env?.cwd,
+                );
+              }
+            : undefined,
+          resolveConflict: resolveEnabled
+            ? async (_phase, info) => {
+                log(`🔀 Resolving merge conflict in ${info.conflictFiles.length} file(s)…`);
+                try {
+                  await runOnce(
+                    buildConflictPrompt(info.conflictFiles, goal),
+                    'autophase-conflict',
+                    abort.signal,
+                    info.cwd,
+                  );
+                  return true;
+                } catch {
+                  return false;
+                }
+              }
+            : undefined,
           onPhaseComplete: (phase) => {
             log(`✅ Phase completed: ${phase.name}`);
             void persist(graph);
@@ -238,7 +428,9 @@ export function createAutoPhaseHost(deps: AutoPhaseHostDeps): AutoPhaseHostHooks
         autonomous: true,
         // With isolation, parallelizable phases run concurrently; without it,
         // stay strictly sequential to protect the shared working tree.
-        maxConcurrentPhases: worktrees ? (deps.maxConcurrentPhases ?? WORKTREE_PHASE_CONCURRENCY) : 1,
+        maxConcurrentPhases: worktrees
+          ? (deps.maxConcurrentPhases ?? WORKTREE_PHASE_CONCURRENCY)
+          : 1,
         // Sequential within a phase: each todo is a full-tool agent and todos in
         // a phase typically build on one another (they share the phase worktree).
         maxConcurrentTasks: 1,
@@ -341,7 +533,9 @@ export function createAutoPhaseHost(deps: AutoPhaseHostDeps): AutoPhaseHostHooks
           for (const d of dirs) await gitText(['worktree', 'remove', '--force', d], root);
           await gitText(['worktree', 'prune'], root);
           const branches = (await gitText(['branch', '--list', 'wstack/ap/*'], root)).out
-            .split('\n').map((b) => b.replace(/^[*+]?\s*/, '').trim()).filter(Boolean);
+            .split('\n')
+            .map((b) => b.replace(/^[*+]?\s*/, '').trim())
+            .filter(Boolean);
           for (const b of branches) await gitText(['branch', '-D', b], root);
           return `🧹 Removed ${dirs.length} worktree(s) and ${branches.length} branch(es).`;
         }

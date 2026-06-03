@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { PhaseOrchestrator } from '../../src/autophase/phase-orchestrator.js';
+import { describe, expect, it } from 'vitest';
 import { PhaseGraphBuilder } from '../../src/autophase/phase-graph-builder.js';
+import { PhaseOrchestrator } from '../../src/autophase/phase-orchestrator.js';
 import type { PhaseExecutionContext, PhaseGraph } from '../../src/autophase/types.js';
 import type { TaskNode } from '../../src/types/task-graph.js';
 import type { WorktreeHandle, WorktreeManager } from '../../src/worktree/worktree-manager.js';
@@ -39,12 +39,25 @@ function fakeWorktrees(opts: { conflictOn?: (label: string) => boolean } = {}) {
       calls.push(`commit:${h.ownerId}`);
       return { committed: true };
     },
-    async merge(h: WorktreeHandle) {
+    async merge(
+      h: WorktreeHandle,
+      mergeOpts: {
+        resolve?: (info: { conflictFiles: string[]; cwd: string }) => Promise<boolean>;
+      } = {},
+    ) {
       liveMerges++;
       maxLiveMerges = Math.max(maxLiveMerges, liveMerges);
       await new Promise((r) => setTimeout(r, 5));
       liveMerges--;
       const conflict = opts.conflictOn?.(h.slug) ?? false;
+      if (conflict && mergeOpts.resolve) {
+        const ok = await mergeOpts.resolve({ conflictFiles: ['x.ts'], cwd: '/proj' });
+        if (ok) {
+          calls.push(`merge:${h.ownerId}:resolved`);
+          h.status = 'merged';
+          return { ok: true, resolved: true, conflictFiles: ['x.ts'] };
+        }
+      }
       calls.push(`merge:${h.ownerId}:${conflict ? 'conflict' : 'ok'}`);
       if (conflict) h.status = 'needs-review';
       return { ok: !conflict, conflict, conflictFiles: conflict ? ['x.ts'] : [] };
@@ -56,7 +69,13 @@ function fakeWorktrees(opts: { conflictOn?: (label: string) => boolean } = {}) {
     get: (id: string) => handles.get(id),
     list: () => [...handles.values()],
   };
-  return { wm: wm as unknown as WorktreeManager, calls, get maxLiveMerges() { return maxLiveMerges; } };
+  return {
+    wm: wm as unknown as WorktreeManager,
+    calls,
+    get maxLiveMerges() {
+      return maxLiveMerges;
+    },
+  };
 }
 
 describe('PhaseOrchestrator', () => {
@@ -71,8 +90,20 @@ describe('PhaseOrchestrator', () => {
           estimateHours: 1,
           parallelizable: false,
           taskTemplates: [
-            { title: 'Task 1', description: 'First task', type: 'chore', priority: 'high', estimateHours: 0.5 },
-            { title: 'Task 2', description: 'Second task', type: 'chore', priority: 'medium', estimateHours: 0.5 },
+            {
+              title: 'Task 1',
+              description: 'First task',
+              type: 'chore',
+              priority: 'high',
+              estimateHours: 0.5,
+            },
+            {
+              title: 'Task 2',
+              description: 'Second task',
+              type: 'chore',
+              priority: 'medium',
+              estimateHours: 0.5,
+            },
           ],
         },
         {
@@ -82,7 +113,13 @@ describe('PhaseOrchestrator', () => {
           estimateHours: 2,
           parallelizable: false,
           taskTemplates: [
-            { title: 'Task 3', description: 'Third task', type: 'feature', priority: 'critical', estimateHours: 1 },
+            {
+              title: 'Task 3',
+              description: 'Third task',
+              type: 'feature',
+              priority: 'critical',
+              estimateHours: 1,
+            },
           ],
         },
       ],
@@ -189,12 +226,30 @@ describe('PhaseOrchestrator + worktrees', () => {
       title: 'WT Test',
       phases: [
         {
-          name: 'Setup', description: '', priority: 'high', estimateHours: 1, parallelizable: false,
-          taskTemplates: [{ title: 'T1', description: '', type: 'chore', priority: 'high', estimateHours: 0.5 }],
+          name: 'Setup',
+          description: '',
+          priority: 'high',
+          estimateHours: 1,
+          parallelizable: false,
+          taskTemplates: [
+            { title: 'T1', description: '', type: 'chore', priority: 'high', estimateHours: 0.5 },
+          ],
         },
         {
-          name: 'Build', description: '', priority: 'critical', estimateHours: 2, parallelizable: false,
-          taskTemplates: [{ title: 'T2', description: '', type: 'feature', priority: 'critical', estimateHours: 1 }],
+          name: 'Build',
+          description: '',
+          priority: 'critical',
+          estimateHours: 2,
+          parallelizable: false,
+          taskTemplates: [
+            {
+              title: 'T2',
+              description: '',
+              type: 'feature',
+              priority: 'critical',
+              estimateHours: 1,
+            },
+          ],
         },
       ],
     }).build();
@@ -207,7 +262,11 @@ describe('PhaseOrchestrator + worktrees', () => {
 
     const orchestrator = new PhaseOrchestrator({
       graph,
-      ctx: { executeTask: async (_t, _p, env) => { seenCwds.push(env?.cwd); } },
+      ctx: {
+        executeTask: async (_t, _p, env) => {
+          seenCwds.push(env?.cwd);
+        },
+      },
       worktrees: wt.wm,
       autonomous: false,
     });
@@ -265,16 +324,36 @@ describe('PhaseOrchestrator + worktrees', () => {
     const graph = await new PhaseGraphBuilder({
       title: 'Parallel',
       phases: [
-        { name: 'A', description: '', priority: 'high', estimateHours: 1, parallelizable: true,
-          taskTemplates: [{ title: 'a', description: '', type: 'chore', priority: 'high', estimateHours: 0.5 }] },
-        { name: 'B', description: '', priority: 'high', estimateHours: 1, parallelizable: true,
-          taskTemplates: [{ title: 'b', description: '', type: 'chore', priority: 'high', estimateHours: 0.5 }] },
+        {
+          name: 'A',
+          description: '',
+          priority: 'high',
+          estimateHours: 1,
+          parallelizable: true,
+          taskTemplates: [
+            { title: 'a', description: '', type: 'chore', priority: 'high', estimateHours: 0.5 },
+          ],
+        },
+        {
+          name: 'B',
+          description: '',
+          priority: 'high',
+          estimateHours: 1,
+          parallelizable: true,
+          taskTemplates: [
+            { title: 'b', description: '', type: 'chore', priority: 'high', estimateHours: 0.5 },
+          ],
+        },
       ],
     }).build();
     const wt = fakeWorktrees();
     const orchestrator = new PhaseOrchestrator({
       graph,
-      ctx: { executeTask: async () => { await new Promise((r) => setTimeout(r, 5)); } },
+      ctx: {
+        executeTask: async () => {
+          await new Promise((r) => setTimeout(r, 5));
+        },
+      },
       worktrees: wt.wm,
       autonomous: false,
       maxConcurrentPhases: 2,
@@ -287,10 +366,198 @@ describe('PhaseOrchestrator + worktrees', () => {
   it('is backward compatible with a 1-arg executeTask and no worktrees', async () => {
     const graph = await buildGraph();
     let count = 0;
-    const ctx: PhaseExecutionContext = { executeTask: async () => { count++; } };
+    const ctx: PhaseExecutionContext = {
+      executeTask: async () => {
+        count++;
+      },
+    };
     const orchestrator = new PhaseOrchestrator({ graph, ctx, autonomous: false });
     await orchestrator.start();
     expect(count).toBe(2);
     expect(Array.from(graph.phases.values()).every((p) => p.status === 'completed')).toBe(true);
+  });
+});
+
+describe('PhaseOrchestrator + verify gate', () => {
+  async function singlePhaseGraph(): Promise<PhaseGraph> {
+    return new PhaseGraphBuilder({
+      title: 'Verify',
+      phases: [
+        {
+          name: 'Build',
+          description: '',
+          priority: 'high',
+          estimateHours: 1,
+          parallelizable: false,
+          taskTemplates: [
+            { title: 'T', description: '', type: 'feature', priority: 'high', estimateHours: 1 },
+          ],
+        },
+      ],
+    }).build();
+  }
+
+  it('merges the phase when verification passes', async () => {
+    const graph = await singlePhaseGraph();
+    const wt = fakeWorktrees();
+    let verifies = 0;
+    const orchestrator = new PhaseOrchestrator({
+      graph,
+      ctx: {
+        executeTask: async () => {},
+        verifyPhase: async () => {
+          verifies++;
+          return { ok: true };
+        },
+      },
+      worktrees: wt.wm,
+      autonomous: false,
+    });
+    await orchestrator.start();
+
+    const phase = Array.from(graph.phases.values())[0]!;
+    expect(verifies).toBe(1);
+    expect(phase.status).toBe('completed');
+    expect(wt.calls).toContain(`merge:${phase.id}:ok`);
+  });
+
+  it('repairs and re-verifies when the first verification fails, then merges', async () => {
+    const graph = await singlePhaseGraph();
+    const wt = fakeWorktrees();
+    let verifies = 0;
+    let repairs = 0;
+    const orchestrator = new PhaseOrchestrator({
+      graph,
+      ctx: {
+        executeTask: async () => {},
+        verifyPhase: async () => {
+          verifies++;
+          return verifies === 1 ? { ok: false, output: 'TS2304: cannot find name' } : { ok: true };
+        },
+        repairPhase: async () => {
+          repairs++;
+        },
+      },
+      worktrees: wt.wm,
+      autonomous: false,
+    });
+    await orchestrator.start();
+
+    const phase = Array.from(graph.phases.values())[0]!;
+    expect(repairs).toBe(1);
+    expect(verifies).toBe(2);
+    expect(phase.status).toBe('completed');
+    expect(wt.calls).toContain(`merge:${phase.id}:ok`);
+  });
+
+  it('fails the phase and never merges when verification never passes', async () => {
+    const graph = await singlePhaseGraph();
+    const wt = fakeWorktrees();
+    let repairs = 0;
+    const orchestrator = new PhaseOrchestrator({
+      graph,
+      ctx: {
+        executeTask: async () => {},
+        verifyPhase: async () => ({ ok: false, output: 'still broken' }),
+        repairPhase: async () => {
+          repairs++;
+        },
+      },
+      worktrees: wt.wm,
+      autonomous: false,
+      maxVerifyAttempts: 2,
+    });
+    await orchestrator.start();
+
+    const phase = Array.from(graph.phases.values())[0]!;
+    expect(phase.status).toBe('failed');
+    expect(repairs).toBe(2); // one repair per failed attempt, up to maxVerifyAttempts
+    // broken code is never merged; the worktree is kept for review
+    expect(wt.calls.some((c) => c.startsWith(`merge:${phase.id}`))).toBe(false);
+    expect(wt.calls).toContain(`release:${phase.id}:keep`);
+  });
+
+  it('skips the gate entirely when no verifyPhase is wired (back-compat)', async () => {
+    const graph = await singlePhaseGraph();
+    const wt = fakeWorktrees();
+    const orchestrator = new PhaseOrchestrator({
+      graph,
+      ctx: { executeTask: async () => {} },
+      worktrees: wt.wm,
+      autonomous: false,
+    });
+    await orchestrator.start();
+
+    const phase = Array.from(graph.phases.values())[0]!;
+    expect(phase.status).toBe('completed');
+    expect(wt.calls).toContain(`merge:${phase.id}:ok`);
+  });
+});
+
+describe('PhaseOrchestrator + conflict resolution', () => {
+  async function singlePhaseGraph(): Promise<PhaseGraph> {
+    return new PhaseGraphBuilder({
+      title: 'Conflict',
+      phases: [
+        {
+          name: 'Build',
+          description: '',
+          priority: 'high',
+          estimateHours: 1,
+          parallelizable: false,
+          taskTemplates: [
+            { title: 'T', description: '', type: 'feature', priority: 'high', estimateHours: 1 },
+          ],
+        },
+      ],
+    }).build();
+  }
+
+  it('resolves a merge conflict via ctx.resolveConflict instead of parking the phase', async () => {
+    const graph = await singlePhaseGraph();
+    const name = Array.from(graph.phases.values())[0]!.name;
+    const wt = fakeWorktrees({ conflictOn: (slug) => slug === name });
+    let resolves = 0;
+    const orchestrator = new PhaseOrchestrator({
+      graph,
+      ctx: {
+        executeTask: async () => {},
+        resolveConflict: async () => {
+          resolves++;
+          return true;
+        },
+      },
+      worktrees: wt.wm,
+      autonomous: false,
+    });
+    await orchestrator.start();
+
+    const phase = Array.from(graph.phases.values())[0]!;
+    expect(resolves).toBe(1);
+    expect(phase.status).toBe('completed');
+    expect(wt.calls).toContain(`merge:${phase.id}:resolved`);
+    expect(wt.calls).toContain(`release:${phase.id}:remove`);
+  });
+
+  it('parks the worktree for review when conflict resolution fails (run still completes)', async () => {
+    const graph = await singlePhaseGraph();
+    const name = Array.from(graph.phases.values())[0]!.name;
+    const wt = fakeWorktrees({ conflictOn: (slug) => slug === name });
+    const orchestrator = new PhaseOrchestrator({
+      graph,
+      ctx: {
+        executeTask: async () => {},
+        resolveConflict: async () => false,
+      },
+      worktrees: wt.wm,
+      autonomous: false,
+    });
+    await orchestrator.start();
+
+    const phase = Array.from(graph.phases.values())[0]!;
+    // a merge conflict never fails the phase itself — work is parked, run continues
+    expect(phase.status).toBe('completed');
+    expect(wt.calls).toContain(`merge:${phase.id}:conflict`);
+    expect(wt.calls).toContain(`release:${phase.id}:keep`);
   });
 });

@@ -893,6 +893,8 @@ Key components:
 | `PhaseStore` | Persists phase state for resume after interruption. |
 | `CheckpointManager` | Saves/restores phase progress snapshots. |
 
+**Verification gate.** After a phase's tasks all succeed, the orchestrator runs an optional verify gate (`PhaseExecutionContext.verifyPhase`) inside the phase's worktree *before* marking it completed and merging back. On failure it invokes `repairPhase` (a repair subagent given the verifier output) and re-verifies, up to `maxVerifyAttempts` (default 2); if it still fails the phase is marked `failed` and its worktree is kept for review rather than merged. The CLI host (`autophase-host.ts`) wires this to the project's `typecheck`/`lint` scripts (auto-detected, or `WRONGSTACK_AUTOPHASE_VERIFY_CMD`); disable with `WRONGSTACK_AUTOPHASE_VERIFY=0`. When no `verifyPhase` is wired the gate is skipped (back-compatible).
+
 Auto-phase runs emit WebSocket events via the `autophase-ws-handler` in WebUI, allowing real-time progress visualization in the browser.
 
 ### Git Worktree Manager
@@ -900,6 +902,8 @@ Auto-phase runs emit WebSocket events via the `autophase-ws-handler` in WebUI, a
 The `worktree/` area (`packages/core/src/worktree/`) provides `WorktreeManager` — a Git worktree orchestration layer used by the AutoPhase system to create isolated parallel workspaces for concurrent agent phases. It is now a first-class kernel DI token (`TOKENS.WorktreeManager`), so hosts can resolve, decorate, or override the manager through the container like any other core service.
 
 Each `WorktreeHandle` transitions through states: `allocating → active → committing → merging → merged`, with failure handling at any stage. Worktree lifecycle events are broadcast via `worktree-ws-handler` to WebUI for live status display.
+
+**Conflict resolution.** `WorktreeManager.merge()` accepts an optional `resolve` callback (`MergeOpts.resolve`). On a squash-merge conflict it hands the conflicted paths and base working tree to the resolver *before* aborting; if the resolver clears every marker (validated with `git diff --cached --check`) the merge is committed and `MergeResult.resolved` is `true`. Any failure or surviving marker falls through to the original safe path — `git reset --hard` + `needs-review`, work preserved on the branch. AutoPhase wires this through `PhaseExecutionContext.resolveConflict` to a resolver subagent (CLI host); a conflict therefore no longer silently strands a phase's work. Disable with `WRONGSTACK_AUTOPHASE_RESOLVE=0`.
 
 ## UI Architecture
 

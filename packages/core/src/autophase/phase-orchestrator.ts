@@ -1,8 +1,8 @@
 import type { EventBus } from '../kernel/events.js';
+import { DefaultTaskStore } from '../sdd/task-generator.js';
+import { TaskTracker } from '../sdd/task-tracker.js';
 import type { TaskNode } from '../types/task-graph.js';
 import type { WorktreeHandle, WorktreeManager } from '../worktree/worktree-manager.js';
-import { TaskTracker } from '../sdd/task-tracker.js';
-import { DefaultTaskStore } from '../sdd/task-generator.js';
 import type {
   AutoPhaseOptions,
   PhaseEventMap,
@@ -59,6 +59,7 @@ export class PhaseOrchestrator {
       maxConcurrentPhases: opts.maxConcurrentPhases ?? 1,
       maxConcurrentTasks: opts.maxConcurrentTasks ?? 2,
       maxRetries: opts.maxRetries ?? 2,
+      maxVerifyAttempts: opts.maxVerifyAttempts ?? 2,
       autonomous: opts.autonomous ?? true,
       phaseDelayMs: opts.phaseDelayMs ?? 0,
       stopOnFailure: opts.stopOnFailure ?? true,
@@ -120,7 +121,10 @@ export class PhaseOrchestrator {
   resume(): void {
     this.paused = false;
     this.tick().catch((err) => {
-      console.error('[phase-orchestrator] tick failed:', err instanceof Error ? err.message : String(err));
+      console.error(
+        '[phase-orchestrator] tick failed:',
+        err instanceof Error ? err.message : String(err),
+      );
     });
   }
 
@@ -225,35 +229,37 @@ export class PhaseOrchestrator {
       });
 
       if (failedTasks > 0 && this.opts.stopOnFailure) {
-        this.updatePhaseStatus(phase, 'failed');
-        phase.completedAt = Date.now();
-        phase.actualDurationMs = Date.now() - (phase.startedAt ?? Date.now());
-        this.runningPhases.delete(phase.id);
-        this.graph.activePhaseIds = this.graph.activePhaseIds.filter((id) => id !== phase.id);
-        this.emit('phase.failed', {
-          phaseId: phase.id,
-          name: phase.name,
-          error: `${failedTasks} task(s) failed`,
-        });
-        this.ctx.onPhaseFail?.(phase, new Error(`${failedTasks} task(s) failed`));
-        await this.keepWorktreeForReview(phase);
-      } else {
-        this.updatePhaseStatus(phase, 'completed');
-        phase.completedAt = Date.now();
-        phase.actualDurationMs = Date.now() - (phase.startedAt ?? Date.now());
-        this.runningPhases.delete(phase.id);
-        this.graph.activePhaseIds = this.graph.activePhaseIds.filter((id) => id !== phase.id);
-        this.graph.completedPhaseIds.push(phase.id);
-        this.emit('phase.completed', {
-          phaseId: phase.id,
-          name: phase.name,
-          durationMs: phase.actualDurationMs,
-        });
-        this.ctx.onPhaseComplete?.(phase);
-        // Commit the phase's work in its worktree and queue the merge back into
-        // the base branch (dependency-ordered + globally serialized).
-        await this.commitAndEnqueueMerge(phase);
+        await this.failPhaseAfterTasks(phase, `${failedTasks} task(s) failed`);
+        return;
       }
+
+      // Verification gate: all tasks succeeded, but the produced code must still
+      // pass (typecheck/test/…) before we mark the phase done and merge it back.
+      // Skipped entirely when no verifyPhase callback is wired (back-compat).
+      const verdict = await this.runVerifyGate(phase);
+      if (!verdict.ok) {
+        await this.failPhaseAfterTasks(
+          phase,
+          `verification failed${verdict.output ? `: ${this.truncate(verdict.output)}` : ''}`,
+        );
+        return;
+      }
+
+      this.updatePhaseStatus(phase, 'completed');
+      phase.completedAt = Date.now();
+      phase.actualDurationMs = Date.now() - (phase.startedAt ?? Date.now());
+      this.runningPhases.delete(phase.id);
+      this.graph.activePhaseIds = this.graph.activePhaseIds.filter((id) => id !== phase.id);
+      this.graph.completedPhaseIds.push(phase.id);
+      this.emit('phase.completed', {
+        phaseId: phase.id,
+        name: phase.name,
+        durationMs: phase.actualDurationMs,
+      });
+      this.ctx.onPhaseComplete?.(phase);
+      // Commit the phase's work in its worktree and queue the merge back into
+      // the base branch (dependency-ordered + globally serialized).
+      await this.commitAndEnqueueMerge(phase);
     } catch (error) {
       this.updatePhaseStatus(phase, 'failed');
       phase.completedAt = Date.now();
@@ -269,6 +275,82 @@ export class PhaseOrchestrator {
       this.ctx.onPhaseFail?.(phase, error instanceof Error ? error : new Error(String(error)));
       await this.keepWorktreeForReview(phase);
     }
+  }
+
+  // ─── Verification gate ──────────────────────────────────────────────────────
+
+  /**
+   * Run the verification gate for a phase whose tasks all succeeded. Verifies in
+   * the phase's worktree; on failure, runs the repair pass and re-verifies, up to
+   * `maxVerifyAttempts` repairs. Returns the final verdict. When no `verifyPhase`
+   * callback is wired the gate is a no-op and always passes.
+   */
+  private async runVerifyGate(phase: PhaseNode): Promise<{ ok: boolean; output?: string }> {
+    if (!this.ctx.verifyPhase) return { ok: true };
+    const env = this.worktreeEnv(phase);
+
+    for (let attempt = 0; attempt <= this.opts.maxVerifyAttempts; attempt++) {
+      if (this.stopped) return { ok: false, output: 'stopped before verification completed' };
+
+      this.emit('phase.verifying', { phaseId: phase.id, name: phase.name, attempt });
+      let verdict: { ok: boolean; output?: string };
+      try {
+        verdict = await this.ctx.verifyPhase(phase, env);
+      } catch (err) {
+        verdict = { ok: false, output: err instanceof Error ? err.message : String(err) };
+      }
+      if (verdict.ok) return { ok: true };
+
+      this.emit('phase.verifyFailed', {
+        phaseId: phase.id,
+        name: phase.name,
+        attempt,
+        error: verdict.output,
+      });
+
+      // Out of attempts, no repair pass available, or aborted → give up.
+      if (attempt >= this.opts.maxVerifyAttempts || !this.ctx.repairPhase || this.stopped) {
+        return { ok: false, output: verdict.output };
+      }
+
+      this.emit('phase.repairing', { phaseId: phase.id, name: phase.name, attempt: attempt + 1 });
+      try {
+        await this.ctx.repairPhase(
+          phase,
+          verdict.output ?? 'verification failed',
+          attempt + 1,
+          env,
+        );
+      } catch {
+        // A failed repair is non-fatal: the next verifyPhase run will observe the
+        // still-broken tree and the loop will exit with ok:false.
+      }
+    }
+    return { ok: false };
+  }
+
+  /** Worktree env (cwd/branch) for a phase, or undefined if it runs on the shared tree. */
+  private worktreeEnv(phase: PhaseNode): { cwd?: string; branch?: string } | undefined {
+    const handle = this.phaseWorktrees.get(phase.id);
+    return handle ? { cwd: handle.dir, branch: handle.branch } : undefined;
+  }
+
+  /** Shared failure bookkeeping for a phase whose tasks ran but the phase failed. */
+  private async failPhaseAfterTasks(phase: PhaseNode, error: string): Promise<void> {
+    this.updatePhaseStatus(phase, 'failed');
+    phase.completedAt = Date.now();
+    phase.actualDurationMs = Date.now() - (phase.startedAt ?? Date.now());
+    this.runningPhases.delete(phase.id);
+    this.graph.activePhaseIds = this.graph.activePhaseIds.filter((id) => id !== phase.id);
+    this.emit('phase.failed', { phaseId: phase.id, name: phase.name, error });
+    this.ctx.onPhaseFail?.(phase, new Error(error));
+    await this.keepWorktreeForReview(phase);
+  }
+
+  /** Trim long verifier output so it fits cleanly in an event/error message. */
+  private truncate(text: string, max = 500): string {
+    const t = text.trim();
+    return t.length <= max ? t : `${t.slice(0, max)}… (+${t.length - max} chars)`;
   }
 
   // ─── Worktree integration ───────────────────────────────────────────────────
@@ -302,13 +384,30 @@ export class PhaseOrchestrator {
     this.phaseMergePromise.set(phase.id, merged);
   }
 
-  /** Squash-merge one phase. Conflicts mark the worktree needs-review (run continues). */
+  /**
+   * Squash-merge one phase. When a `resolveConflict` callback is wired, a merge
+   * conflict is handed to it (a resolver subagent) before giving up; only if
+   * that fails does the worktree fall to needs-review and the run continues.
+   */
   private async mergeOne(phase: PhaseNode, handle: WorktreeHandle): Promise<void> {
     if (!this.worktrees) return;
     try {
-      const result = await this.worktrees.merge(handle, { squash: true });
+      const resolve = this.ctx.resolveConflict
+        ? async (info: { conflictFiles: string[]; cwd: string }) => {
+            this.emit('phase.conflictResolving', {
+              phaseId: phase.id,
+              name: phase.name,
+              files: info.conflictFiles,
+            });
+            return this.ctx.resolveConflict!(phase, info);
+          }
+        : undefined;
+      const result = await this.worktrees.merge(handle, { squash: true, resolve });
+      if (result.resolved) {
+        this.emit('phase.conflictResolved', { phaseId: phase.id, name: phase.name });
+      }
       // merge() already emitted worktree.merged / worktree.conflict and set status.
-      // Clean merge → remove the worktree; conflict → release(keep) preserves it.
+      // Clean (or resolved) merge → remove the worktree; conflict → release(keep).
       await this.worktrees.release(handle, { keep: !result.ok });
     } catch (err) {
       this.emit('phase.failed', {
@@ -383,7 +482,11 @@ export class PhaseOrchestrator {
 
     if (currentRetries < this.opts.maxRetries) {
       this.taskRetryCounts.set(taskKey, currentRetries + 1);
-      tracker.updateNodeStatus(task.id, 'pending', `Retry ${currentRetries + 1}/${this.opts.maxRetries}`);
+      tracker.updateNodeStatus(
+        task.id,
+        'pending',
+        `Retry ${currentRetries + 1}/${this.opts.maxRetries}`,
+      );
       this.emit('phase.taskRetrying', {
         phaseId: phase.id,
         taskId: task.id,
@@ -392,7 +495,11 @@ export class PhaseOrchestrator {
         maxRetries: this.opts.maxRetries,
       });
     } else {
-      tracker.updateNodeStatus(task.id, 'failed', error instanceof Error ? error.message : String(error));
+      tracker.updateNodeStatus(
+        task.id,
+        'failed',
+        error instanceof Error ? error.message : String(error),
+      );
       this.emit('phase.taskFailed', {
         phaseId: phase.id,
         taskId: task.id,
@@ -511,13 +618,27 @@ export class PhaseOrchestrator {
 
     for (const p of phases) {
       switch (p.status) {
-        case 'pending': pending++; break;
-        case 'ready': ready++; break;
-        case 'running': running++; break;
-        case 'paused': paused++; break;
-        case 'completed': completed++; break;
-        case 'failed': failed++; break;
-        case 'skipped': skipped++; break;
+        case 'pending':
+          pending++;
+          break;
+        case 'ready':
+          ready++;
+          break;
+        case 'running':
+          running++;
+          break;
+        case 'paused':
+          paused++;
+          break;
+        case 'completed':
+          completed++;
+          break;
+        case 'failed':
+          failed++;
+          break;
+        case 'skipped':
+          skipped++;
+          break;
       }
       estimatedHours += p.estimateHours;
       if (p.actualDurationMs) actualHours += p.actualDurationMs / 3600000;
