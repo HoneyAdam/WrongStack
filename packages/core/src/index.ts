@@ -52,6 +52,12 @@ export {
 } from './core/agent.js';
 export { runProviderWithRetry } from './core/provider-runner.js';
 export {
+  bootConfig,
+  flagsToConfigPatch,
+  type BootConfigOptions,
+  type BootConfigResult,
+} from './infrastructure/boot.js';
+export {
   parseContinueDirective,
   type ContinueDirective,
   makeContinueToNextIterationTool,

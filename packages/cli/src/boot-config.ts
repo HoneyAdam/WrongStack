@@ -1,15 +1,9 @@
-import * as fs from 'node:fs/promises';
-import * as os from 'node:os';
-import * as path from 'node:path';
 import {
+  type BootConfigOptions,
   type Config,
-  DefaultConfigLoader,
-  DefaultPathResolver,
-  DefaultSecretVault,
+  type DefaultPathResolver,
   type WstackPaths,
-  migratePlaintextSecrets,
-  resolveWstackPaths,
-  writeErr,
+  bootConfig as coreBootConfig,
 } from '@wrongstack/core';
 
 export interface BootPaths {
@@ -23,99 +17,28 @@ export interface BootPaths {
 export interface BootConfigResult {
   paths: BootPaths;
   config: Config;
-  vault: DefaultSecretVault;
+  vault: BootConfigVault;
 }
 
+/** The concrete vault type returned by the core boot routine. */
+type BootConfigVault = Awaited<ReturnType<typeof coreBootConfig>>['vault'];
+
 /**
- * Resolve paths and load config. This covers:
- *   - cwd/project resolution
- *   - wstack paths
- *   - secret vault creation + plaintext migration
- *   - config loading with CLI flag overrides
+ * Thin CLI wrapper over the canonical `bootConfig` in `@wrongstack/core`.
+ * Re-shapes the core result into the CLI's historical `{ paths, config, vault }`
+ * return type. All real boot behavior (path resolution, vault, secret
+ * migration, config + sync loading) lives in core so the CLI and the WebUI
+ * server can't drift.
  */
 export async function bootConfig(
   flags: Record<string, string | boolean>,
 ): Promise<BootConfigResult> {
-  const cwd = typeof flags['cwd'] === 'string' ? path.resolve(flags['cwd']) : process.cwd();
-  const pathResolver = new DefaultPathResolver(cwd);
-  const projectRoot = pathResolver.projectRoot;
-  const userHome = os.homedir();
-  const wpaths = resolveWstackPaths({ projectRoot, userHome });
-  await ensureProjectMeta(wpaths, projectRoot);
-
-  // Vault must come first so the config loader can decrypt apiKey-like
-  // fields. It lazily creates ~/.wrongstack/.key on first encrypt/decrypt.
-  const vault = new DefaultSecretVault({ keyFile: wpaths.secretsKey });
-
-  // Auto-encrypt any plaintext secrets users still have in their config
-  // files (left over from before the vault existed, or hand-written).
-  // Silent no-op for already-encrypted configs.
-  for (const file of [wpaths.globalConfig, wpaths.projectLocalConfig]) {
-    try {
-      const { migrated } = await migratePlaintextSecrets(file, vault);
-      if (migrated > 0) {
-        writeErr(`[wstack] Encrypted ${migrated} plaintext secret(s) in ${file}\n`);
-      }
-    } catch {
-      // best-effort — never block boot on migration issues
-    }
-  }
-
-  const configLoader = new DefaultConfigLoader({ paths: wpaths, vault });
-  let config = await configLoader.load({ cliFlags: flagsToConfigPatch(flags) });
-
-  // Load and decrypt sync config from ~/.wrongstack/sync.json and merge it
-  // into the main config so ConfigStore starts with the correct sync state.
-  // `load()` returns a frozen Config, so we rebuild a new frozen object rather
-  // than mutating it in place (a direct assignment throws "Cannot add property
-  // sync, object is not extensible" once sync.json exists).
-  const syncConfig = await configLoader.loadSyncConfig();
-  if (syncConfig) {
-    config = Object.freeze({ ...config, sync: syncConfig }) as Config;
-  }
-
+  const opts: BootConfigOptions = { flags, appLabel: 'wstack' };
+  const { cwd, projectRoot, userHome, wpaths, pathResolver, config, vault } =
+    await coreBootConfig(opts);
   return {
     paths: { cwd, projectRoot, userHome, wpaths, pathResolver },
     config,
     vault,
   };
-}
-
-function flagsToConfigPatch(flags: Record<string, string | boolean>): Partial<Config> {
-  const patch: Partial<Config> = {};
-  if (typeof flags['provider'] === 'string') patch.provider = flags['provider'];
-  if (typeof flags['model'] === 'string') patch.model = flags['model'];
-  if (typeof flags['cwd'] === 'string') patch.cwd = flags['cwd'];
-  if (typeof flags['log-level'] === 'string') {
-    patch.log = { level: flags['log-level'] as Config['log']['level'] };
-  } else if (flags['verbose']) {
-    patch.log = { level: 'debug' };
-  } else if (flags['trace']) {
-    patch.log = { level: 'trace' };
-  }
-  if (flags['yolo']) patch.yolo = true;
-  if (flags['no-features']) {
-    patch.features = {
-      mcp: false,
-      plugins: false,
-      memory: false,
-      modelsRegistry: false,
-      skills: false,
-    };
-  }
-  return patch;
-}
-
-async function ensureProjectMeta(paths: WstackPaths, projectRoot: string): Promise<void> {
-  try {
-    await fs.mkdir(paths.projectDir, { recursive: true });
-    const meta = {
-      hash: paths.projectHash,
-      root: projectRoot,
-      lastSeen: new Date().toISOString(),
-    };
-    await fs.writeFile(paths.projectMeta, JSON.stringify(meta, null, 2));
-  } catch {
-    // best-effort
-  }
 }
