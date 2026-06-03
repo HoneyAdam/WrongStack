@@ -7,10 +7,9 @@
  * the resolved value.
  *
  * readLine (which uses readline.createInterface) and readSecret
- * (which uses raw mode + bullet masking) are not exercised here yet —
- * both depend on Node internal stream state that's awkward to mock
- * without pulling in a full `stream.passThrough` harness. The seams
- * for them are tagged for follow-up coverage.
+ * (which uses raw mode + bullet masking) are covered in the sibling
+ * file input-reader-line-secret.test.ts, which mocks `node:readline`
+ * and stands in for a TTY stdin to drive both paths.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
