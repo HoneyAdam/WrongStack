@@ -981,6 +981,21 @@ export class Director implements ICoordinator {
     );
     this.coordinator.setSubagentBridge(result.subagentId, subagentBridge);
     this.subagentBridges.set(result.subagentId, subagentBridge);
+    // Emit subagent.spawned on the FleetBus so the TUI can track collab agents
+    // (which bypass MultiAgentHost.spawn and go through director.spawn directly).
+    this.fleet.emit({
+      subagentId: result.subagentId,
+      ts: Date.now(),
+      type: 'subagent.spawned',
+      payload: {
+        subagentId: result.subagentId,
+        taskId: '', // taskId will be set when assign() is called
+        name: config.name,
+        role: config.role,
+        provider: config.provider,
+        model: config.model,
+      },
+    });
     // Record manifest entry only when not using FleetManager (it manages its own).
     if (!this.fleetManager) {
       this.manifestEntries.set(result.subagentId, {

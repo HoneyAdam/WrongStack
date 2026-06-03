@@ -320,6 +320,19 @@ export class MultiAgentHost {
         maxContext: payload.maxContext,
       });
     });
+    // Forward subagent.spawned from FleetBus to host EventBus so the TUI can
+    // track collab agents (bug-hunter, refactor-planner, critic) that bypass
+    // MultiAgentHost.spawn and go through director.spawn directly.
+    this.director.fleet.filter('subagent.spawned', (e) => {
+      const payload = e.payload as { subagentId: string; taskId: string; name?: string; role?: string; provider?: string; model?: string };
+      this.deps.events.emit('subagent.spawned', {
+        subagentId: payload.subagentId,
+        taskId: payload.taskId,
+        name: payload.name,
+        provider: payload.provider,
+        model: payload.model,
+      });
+    });
     this.getCoordinator().on(
       'task.assigned',
       ({
@@ -615,6 +628,17 @@ export class MultiAgentHost {
       description: task,
     });
 
+    // Emit for TUI visibility - ACP agents use subagentId as their name
+    // (e.g. "bug-hunter", "refactor-planner" - already meaningful names)
+    this.deps.events.emit('subagent.spawned', {
+      subagentId,
+      taskId,
+      name: subagentId,
+      provider: 'acp',
+      model: undefined,
+      description: task,
+    });
+
     return taskId;
   }
 
@@ -677,15 +701,9 @@ export class MultiAgentHost {
     // Track the pending task via FleetManager so status() can show descriptions
     // without host-side state duplication.
     this.fleetManager?.addPendingTask(taskId, subagentId, description);
-    this.deps.events.emit('subagent.spawned', {
-      subagentId,
-      taskId,
-      name: subagentConfig.name,
-      provider: opts?.provider,
-      model: opts?.model,
-      description,
-      transcriptPath,
-    });
+    // NOTE: subagent.spawned is now emitted via FleetBus in Director.spawn()
+    // and bridged to EventBus in buildDirector(). This ensures the correct
+    // nickname (e.g. "Einstein (Bug Hunter)") is captured, not the placeholder.
     return { subagentId, taskId };
   }
 
