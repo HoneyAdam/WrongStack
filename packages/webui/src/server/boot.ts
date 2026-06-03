@@ -9,6 +9,7 @@ import {
   type WstackPaths,
   migratePlaintextSecrets,
   resolveWstackPaths,
+  writeErr,
 } from '@wrongstack/core';
 
 export interface BootResult {
@@ -44,7 +45,7 @@ export async function bootConfig(): Promise<BootResult> {
     try {
       const { migrated } = await migratePlaintextSecrets(file, vault);
       if (migrated > 0) {
-        process.stderr.write(`[WebUI] Encrypted ${migrated} plaintext secret(s) in ${file}\n`);
+        writeErr(`[WebUI] Encrypted ${migrated} plaintext secret(s) in ${file}\n`);
       }
     } catch {
       // best-effort
