@@ -3,6 +3,7 @@ import { EventBus } from '../../src/kernel/events.js';
 import { FleetBus } from '../../src/coordination/fleet-bus.js';
 import {
   CollabSession,
+  DEFAULT_MAX_TARGET_FILES,
   type CollabDebugReport,
   type BugFinding,
   type RefactorPlan,
@@ -299,7 +300,79 @@ describe('CollabSession', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Test 5: session.done event is emitted on successful completion
+  // Test 5: buildSnapshot rejects when target exceeds DEFAULT_MAX_TARGET_FILES
+  // -------------------------------------------------------------------------
+  it('throws when target file count exceeds DEFAULT_MAX_TARGET_FILES', async () => {
+    const { mockDirector } = makeMockDirector(fleetBus);
+
+    // Create a session with more file paths than the default limit.
+    // expandGlob is called first; the count is checked before any reading.
+    const manyFiles = Array.from({ length: DEFAULT_MAX_TARGET_FILES + 1 }, (_, i) => `src/file${i}.ts`);
+    const session = new CollabSession(mockDirector as never, fleetBus, {
+      targetPaths: manyFiles,
+      timeoutMs: 5000,
+    });
+
+    await expect(session.buildSnapshot()).rejects.toThrow(/exceeds the limit/i);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 5a: explicit maxTargetFiles overrides the default
+  // -------------------------------------------------------------------------
+  it('throws when explicit maxTargetFiles is exceeded', async () => {
+    const { mockDirector } = makeMockDirector(fleetBus);
+
+    const session = new CollabSession(mockDirector as never, fleetBus, {
+      targetPaths: ['src/a.ts', 'src/b.ts', 'src/c.ts'],
+      maxTargetFiles: 2,
+      timeoutMs: 5000,
+    });
+
+    await expect(session.buildSnapshot()).rejects.toThrow(/exceeds the limit/i);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 5b: contextWindow triggers dynamic limit calculation
+  // -------------------------------------------------------------------------
+  it('computes dynamic limit from contextWindow when maxTargetFiles is not set', async () => {
+    const { mockDirector } = makeMockDirector(fleetBus);
+
+    // With contextWindow=100_000: floor(100000 * 0.4 / 2000) = 20
+    // So 15 files should pass, 25 should fail.
+    const sessionOk = new CollabSession(mockDirector as never, fleetBus, {
+      targetPaths: Array.from({ length: 15 }, (_, i) => `src/file${i}.ts`),
+      contextWindow: 100_000,
+      timeoutMs: 5000,
+    });
+    await expect(sessionOk.buildSnapshot()).resolves.toBeDefined();
+
+    const sessionFail = new CollabSession(mockDirector as never, fleetBus, {
+      targetPaths: Array.from({ length: 25 }, (_, i) => `src/file${i}.ts`),
+      contextWindow: 100_000,
+      timeoutMs: 5000,
+    });
+    await expect(sessionFail.buildSnapshot()).rejects.toThrow(/exceeds the limit/i);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 5c: maxTargetFiles takes priority over contextWindow
+  // -------------------------------------------------------------------------
+  it('explicit maxTargetFiles overrides contextWindow dynamic calculation', async () => {
+    const { mockDirector } = makeMockDirector(fleetBus);
+
+    // contextWindow=100_000 would give limit=20, but maxTargetFiles=5 is lower
+    const session = new CollabSession(mockDirector as never, fleetBus, {
+      targetPaths: Array.from({ length: 10 }, (_, i) => `src/file${i}.ts`),
+      maxTargetFiles: 5,
+      contextWindow: 100_000,
+      timeoutMs: 5000,
+    });
+
+    await expect(session.buildSnapshot()).rejects.toThrow(/exceeds the limit/i);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 6: session.done event is emitted on successful completion
   // -------------------------------------------------------------------------
   it('emits session.done with the report on successful completion', async () => {
     const { mockDirector } = makeMockDirector(fleetBus);

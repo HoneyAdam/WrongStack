@@ -418,17 +418,35 @@ export function makeCollabDebugTool(director: Director): Tool {
           minimum: 1,
           description: 'Timeout in ms. Default: 600000 (10 minutes).',
         },
+        maxTargetFiles: {
+          type: 'number',
+          minimum: 1,
+          description:
+            'Maximum number of files to include in the snapshot. ' +
+            'If not set, the limit is computed dynamically from contextWindow ' +
+            'or falls back to the default (30).',
+        },
+        contextWindow: {
+          type: 'number',
+          minimum: 1,
+          description:
+            'Context window size (tokens) of the model. When provided and ' +
+            'maxTargetFiles is not set, the file limit is computed dynamically ' +
+            'as floor((contextWindow * 0.4) / 2000).',
+        },
       },
       required: ['targetPaths'],
     },
     async execute(input: unknown) {
-      const i = input as { targetPaths?: string[]; timeoutMs?: number };
+      const i = input as { targetPaths?: string[]; timeoutMs?: number; maxTargetFiles?: number; contextWindow?: number };
       if (!i.targetPaths?.length) {
         return { error: 'collab_debug: targetPaths is required and must be non-empty.' };
       }
       const options: CollabSessionOptions = {
         targetPaths: i.targetPaths,
         timeoutMs: i.timeoutMs,
+        maxTargetFiles: i.maxTargetFiles,
+        contextWindow: i.contextWindow,
       };
       try {
         const report = await director.spawnCollab(options);

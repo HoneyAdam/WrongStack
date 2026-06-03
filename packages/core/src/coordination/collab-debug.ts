@@ -32,6 +32,15 @@ import { randomUUID } from 'node:crypto';
 import type { SubagentConfig, TaskResult } from '../types/multi-agent.js';
 import { expandGlob } from '../utils/glob-expand.js';
 
+/**
+ * Default maximum number of files a collab_debug session may target.
+ * Each of the three agents (BugHunter, RefactorPlanner, Critic) receives
+ * the full file snapshot as context — a large target causes token overflow
+ * and timeout failures. Keep this low (20-30) for reliable sessions.
+ * Used when neither `maxTargetFiles` nor `contextWindow` is provided.
+ */
+export const DEFAULT_MAX_TARGET_FILES = 30;
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -228,6 +237,20 @@ export interface CollabSessionOptions {
   /** Max time to wait for the session to resolve (ms). Default: 10 min. */
   timeoutMs?: number;
   /**
+   * Maximum number of files to include in the snapshot.
+   * - If set explicitly: use this value (hard override).
+   * - If `contextWindow` is set: calculate dynamically from estimated token budget.
+   * - If neither: use `DEFAULT_MAX_TARGET_FILES` (30).
+   */
+  maxTargetFiles?: number;
+  /**
+   * Context window size (in tokens) of the model running the subagents.
+   * When provided and `maxTargetFiles` is not set, the limit is computed
+   * dynamically: `floor((contextWindow * 0.4) / AVG_TOKENS_PER_FILE)`.
+   * If not provided, `DEFAULT_MAX_TARGET_FILES` is used as the fallback.
+   */
+  contextWindow?: number;
+  /**
    * Budget overrides per role. When provided, these override the hard-coded
    * defaults so the Director can enforce fleet-wide budget policy.
    * Keys must match role names: 'bug-hunter', 'refactor-planner', 'critic'.
@@ -313,9 +336,42 @@ export class CollabSession extends EventEmitter {
     return new Map(this.subagentIds);
   }
 
+  /**
+   * Returns the effective file limit for this session.
+   * Priority: explicit `maxTargetFiles` > dynamic from `contextWindow` > `DEFAULT_MAX_TARGET_FILES`.
+   */
+  effectiveFileLimit(): number {
+    if (this.options.maxTargetFiles !== undefined) {
+      return this.options.maxTargetFiles;
+    }
+    if (this.options.contextWindow !== undefined) {
+      // Reserve 40% of context window for the file snapshot.
+      // Heuristic: ~2000 tokens per average source file.
+      return Math.max(5, Math.floor((this.options.contextWindow * 0.4) / 2000));
+    }
+    return DEFAULT_MAX_TARGET_FILES;
+  }
+
   async buildSnapshot(): Promise<SharedFileSnapshot> {
     if (this.snapshot.files.length > 0) return this.snapshot;
-    for (const filePath of (await Promise.all(this.options.targetPaths.map(p => expandGlob(p)))).flat()) {
+    const allFiles: string[] = [];
+    for (const pattern of this.options.targetPaths) {
+      const expanded = await expandGlob(pattern);
+      allFiles.push(...expanded);
+    }
+    const limit = this.effectiveFileLimit();
+    if (allFiles.length > limit) {
+      const hint = this.options.contextWindow
+        ? `contextWindow=${this.options.contextWindow} → calculated limit=${limit}`
+        : `default limit=${DEFAULT_MAX_TARGET_FILES}`;
+      throw new Error(
+        `[collab_debug] Target has ${allFiles.length} files, which exceeds the ` +
+        `limit (${hint}). Narrow the target or pass maxTargetFiles / contextWindow ` +
+        `to override. For large codebases, run package-by-package or ` +
+        `module-by-module sessions instead of targeting the entire repo.`,
+      );
+    }
+    for (const filePath of allFiles) {
       try {
         const content = await fsp.readFile(filePath, 'utf8');
         const ext = filePath.split('.').pop() ?? '';
