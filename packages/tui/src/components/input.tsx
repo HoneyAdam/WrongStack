@@ -1,6 +1,7 @@
 import { Box, Text, useInput, useStdin, useStdout } from 'ink';
 import type React from 'react';
 import { useEffect, useState } from 'react';
+import { fnKey } from '../fn-keys.js';
 import { type InputCell, layoutInputRows } from '../input-tokens.js';
 
 export interface InputProps {
@@ -82,6 +83,12 @@ export interface KeyEvent {
   pageDown: boolean;
   home: boolean;
   end: boolean;
+  /** Function-key number 1–12 when a plain F-key was pressed, else undefined.
+   *  Ink's useInput does not decode F-keys, so these are caught from raw stdin
+   *  (same mechanism as Home/End) and surfaced here. F-keys are terminal-safe
+   *  aliases for chords some terminals intercept (e.g. Windows Terminal eats
+   *  Ctrl+F for "Find"). */
+  fn?: number;
 }
 
 // Ink 5.x useInput does not expose home/end as boolean flags even though
@@ -133,9 +140,18 @@ export function Input({
   useEffect(() => {
     if (!stdin || disabled) return;
     const handleData = (data: Buffer) => {
-      const kind = isHomeEnd(data.toString());
-      if (kind === 'home') onKey('', { ...EMPTY_KEY, home: true });
-      else if (kind === 'end') onKey('', { ...EMPTY_KEY, end: true });
+      const s = data.toString();
+      const kind = isHomeEnd(s);
+      if (kind === 'home') {
+        onKey('', { ...EMPTY_KEY, home: true });
+        return;
+      }
+      if (kind === 'end') {
+        onKey('', { ...EMPTY_KEY, end: true });
+        return;
+      }
+      const fn = fnKey(s);
+      if (fn !== null) onKey('', { ...EMPTY_KEY, fn });
     };
     stdin.on('data', handleData);
     return () => {

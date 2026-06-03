@@ -1277,7 +1277,11 @@ export function reducer(state: State, action: Action): State {
         // the race between EventBus's "subagent.spawned" (which fires before
         // Director.spawn() assigns the nickname) and FleetBus's
         // "subagent.assigned" (which fires after the manifest is updated).
-        if (isPlaceholderName(existing.name) && !isPlaceholderName(incomingName) && incomingName !== existing.name) {
+        if (
+          isPlaceholderName(existing.name) &&
+          !isPlaceholderName(incomingName) &&
+          incomingName !== existing.name
+        ) {
           return {
             ...state,
             fleet: {
@@ -5179,12 +5183,13 @@ export function App({
       return;
     }
 
-    // Ctrl+F toggles the full graphical fleet monitor overlay. Global —
-    // works whether or not the agent is running, so the user can pop the
-    // dashboard mid-run to watch subagents.
-    // Ctrl+F and Ctrl+G: monitor toggles are always allowed, even while
-    // aborting — the user may want to check subagent state while steering.
-    if (key.ctrl && input === 'f') {
+    // Monitor overlays. Ctrl+F/G/T are the primary chords; F2/F3/F4 are
+    // terminal-safe aliases because some terminals intercept the chord before
+    // it reaches the app (notably Windows Terminal eats Ctrl+F for "Find").
+    // F11 is deliberately unused — most terminals reserve it for fullscreen.
+    // All toggles are allowed even while aborting, so the user can check
+    // subagent state mid-steer.
+    const toggleFleetOverlay = () => {
       if (state.agentsMonitorOpen) {
         // Switch: close AgentsMonitor, open FleetMonitor
         dispatch({ type: 'toggleAgentsMonitor' });
@@ -5192,10 +5197,8 @@ export function App({
       } else {
         dispatch({ type: 'toggleMonitor' });
       }
-      return;
-    }
-    // Ctrl+G toggles the agents monitor overlay.
-    if (key.ctrl && input === 'g') {
+    };
+    const toggleAgentsOverlay = () => {
       if (state.monitorOpen) {
         // Switch: close FleetMonitor, open AgentsMonitor
         dispatch({ type: 'toggleMonitor' });
@@ -5203,21 +5206,32 @@ export function App({
       } else {
         dispatch({ type: 'toggleAgentsMonitor' });
       }
-      return;
-    }
-    // Ctrl+T toggles the worktree monitor overlay — a sibling of Ctrl+F/G.
-    // Global so the user can pop it mid-run. Opening it closes any other
-    // overlay first so only one dashboard shows at a time. (Word-delete that
-    // used to live on Ctrl+T is covered by Ctrl+Backspace.)
-    if (key.ctrl && input === 't') {
+    };
+    const toggleWorktreeOverlay = () => {
       if (state.worktreeMonitorOpen) {
         dispatch({ type: 'worktreeMonitorToggle' });
         return;
       }
+      // Opening closes any other overlay first so only one dashboard shows.
       if (state.agentsMonitorOpen) dispatch({ type: 'toggleAgentsMonitor' });
       if (state.monitorOpen) dispatch({ type: 'toggleMonitor' });
       if (state.autoPhase?.monitorOpen) dispatch({ type: 'autoPhaseMonitorToggle' });
       dispatch({ type: 'worktreeMonitorToggle' });
+    };
+    // Ctrl+F / F2 → fleet orchestration monitor.
+    if ((key.ctrl && input === 'f') || key.fn === 2) {
+      toggleFleetOverlay();
+      return;
+    }
+    // Ctrl+G / F3 → agents live monitor.
+    if ((key.ctrl && input === 'g') || key.fn === 3) {
+      toggleAgentsOverlay();
+      return;
+    }
+    // Ctrl+T / F4 → worktree monitor. (Word-delete that used to live on Ctrl+T
+    // is covered by Ctrl+Backspace.)
+    if ((key.ctrl && input === 't') || key.fn === 4) {
+      toggleWorktreeOverlay();
       return;
     }
     // Ctrl+S toggles the autonomy settings editor (also openable via
@@ -5439,6 +5453,11 @@ export function App({
     }
 
     if (!input || key.ctrl || key.meta) return;
+
+    // Never insert a raw escape sequence as text. An unrecognized F-key or CSI
+    // sequence that Ink forwards as `input` would otherwise leak bytes into the
+    // row (the F2/F3/F4 overlays are handled above via key.fn from raw stdin).
+    if (input.charCodeAt(0) === 0x1b) return;
 
     // Non-bracketed large paste: some terminals (notably older Windows
     // consoles) don't emit \x1b[200~ markers, so a paste arrives as one big

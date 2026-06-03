@@ -85,6 +85,22 @@ function fmtCost(n: number): string {
 }
 
 /**
+ * Compact `provider:model` label for the monitors. Strips any `provider/`
+ * prefix from the model id and keeps it terminal-friendly. Returns '' when
+ * neither is known (e.g. a leader entry before the first request resolves).
+ * Shared by the Agents (Ctrl+G) and Fleet (Ctrl+F) monitors.
+ */
+export function fmtModelLabel(provider?: string, model?: string): string {
+  if (!model && !provider) return '';
+  const short = model
+    ? model.includes('/')
+      ? model.slice(model.lastIndexOf('/') + 1)
+      : model
+    : '?';
+  return provider ? `${provider}:${short}` : short;
+}
+
+/**
  * Fleet orchestration dashboard (Ctrl+F). Concurrency gauge, fleet totals,
  * a compact one-line-per-agent table, and a recent-events timeline. Live
  * per-agent context (current tool / streaming tail) lives in the Agents
@@ -162,7 +178,7 @@ export function FleetMonitor({
         <Text dimColor>○{idle}</Text>
         <Text color="green">✓{done}</Text>
         {failed > 0 ? <Text color="red">✗{failed}</Text> : null}
-        <Text dimColor>· Ctrl+F to close</Text>
+        <Text dimColor>· Ctrl+F / F2 to close</Text>
       </Box>
 
       {/* Collab session banner — shown when a session is active or completed */}
@@ -233,9 +249,10 @@ export function FleetMonitor({
         <Box flexDirection="column" marginTop={1}>
           <Box flexDirection="row" gap={1}>
             <Text dimColor>{'  '}</Text>
-            <Text dimColor>{'name'.padEnd(16)}</Text>
-            <Text dimColor>{'status'.padEnd(10)}</Text>
-            <Text dimColor>{'L/t'.padEnd(8)}</Text>
+            <Text dimColor>{'name'.padEnd(14)}</Text>
+            <Text dimColor>{'model'.padEnd(18)}</Text>
+            <Text dimColor>{'status'.padEnd(9)}</Text>
+            <Text dimColor>{'L/t·ctx'.padEnd(12)}</Text>
             <Text dimColor>{'elapsed'.padEnd(8)}</Text>
             <Text dimColor>cost</Text>
           </Box>
@@ -245,12 +262,18 @@ export function FleetMonitor({
               e.status === 'running'
                 ? fmtElapsed(Math.max(0, nowTick - e.startedAt))
                 : fmtElapsed(Math.max(0, nowTick - e.lastEventAt)) + ' ago';
+            const model = fmtModelLabel(e.provider, e.model) || '—';
+            const ltCtx =
+              e.ctxPct !== undefined
+                ? `L${e.iterations} ${e.toolCalls}t ${Math.round(e.ctxPct * 100)}%`
+                : `L${e.iterations} ${e.toolCalls}t`;
             return (
               <Box key={e.id} flexDirection="row" gap={1}>
                 <Text color={s.color}>{s.icon}</Text>
-                <Text>{e.name.padEnd(16).slice(0, 16)}</Text>
-                <Text color={s.color}>{e.status.padEnd(10)}</Text>
-                <Text dimColor>{`L${e.iterations} ${e.toolCalls}t`.padEnd(8)}</Text>
+                <Text>{e.name.padEnd(14).slice(0, 14)}</Text>
+                <Text dimColor>{model.padEnd(18).slice(0, 18)}</Text>
+                <Text color={s.color}>{e.status.padEnd(9)}</Text>
+                <Text dimColor>{ltCtx.padEnd(12).slice(0, 12)}</Text>
                 <Text dimColor>{elapsed.padEnd(8).slice(0, 8)}</Text>
                 <Text color="yellow">{fmtCost(e.cost)}</Text>
                 {e.extensions && e.extensions > 0 ? (

@@ -41,9 +41,9 @@ export function helpSections(opts: { managed: boolean; mouse: boolean }): HelpSe
     {
       title: 'Monitors',
       entries: [
-        { keys: 'Ctrl+F', desc: 'fleet orchestration monitor' },
-        { keys: 'Ctrl+G', desc: 'agents live monitor' },
-        { keys: 'Ctrl+T', desc: 'worktree monitor' },
+        { keys: 'Ctrl+F / F2', desc: 'fleet orchestration monitor' },
+        { keys: 'Ctrl+G / F3', desc: 'agents live monitor' },
+        { keys: 'Ctrl+T / F4', desc: 'worktree monitor' },
         { keys: 'Esc', desc: 'close the open monitor / overlay' },
       ],
     },

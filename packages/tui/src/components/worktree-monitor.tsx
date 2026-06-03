@@ -68,7 +68,7 @@ export function WorktreeMonitor({
             <Text color="red">✗{failed}</Text>
           </>
         ) : null}
-        <Text dimColor>│ Ctrl+T / Esc to close</Text>
+        <Text dimColor>│ Ctrl+T / F4 / Esc to close</Text>
       </Box>
 
       {list.length === 0 ? (

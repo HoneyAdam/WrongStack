@@ -12,9 +12,10 @@ describe('helpSections', () => {
 
   it('always lists the monitor + help keys', () => {
     const keys = flat({ managed: false, mouse: false });
-    expect(keys).toContain('Ctrl+F');
-    expect(keys).toContain('Ctrl+G');
-    expect(keys).toContain('Ctrl+T');
+    // Monitor chords are listed with their terminal-safe F-key aliases.
+    expect(keys).toContain('Ctrl+F / F2');
+    expect(keys).toContain('Ctrl+G / F3');
+    expect(keys).toContain('Ctrl+T / F4');
     expect(keys).toContain('?');
     expect(keys).toContain('/help');
     expect(keys).toContain('Ctrl+S');

@@ -1,7 +1,7 @@
 import { Box, Text } from 'ink';
 import type React from 'react';
 import type { FleetEntry } from '../app.js';
-import { bucketActivity, sparkline } from './fleet-monitor.js';
+import { bucketActivity, fmtModelLabel, sparkline } from './fleet-monitor.js';
 import { fmtElapsed } from './status-bar.js';
 
 export interface AgentsMonitorProps {
@@ -144,7 +144,7 @@ export function AgentsMonitor({
         <Text dimColor>·</Text>
         <Text dimColor>failed</Text>
         {totalFailed > 0 ? <Text color="red">✗{totalFailed}</Text> : null}
-        <Text dimColor>· Ctrl+G to close</Text>
+        <Text dimColor>· Ctrl+G / F3 to close</Text>
       </Box>
 
       {/* Token + cost row */}
@@ -178,18 +178,28 @@ export function AgentsMonitor({
 
         return (
           <Box key={e.id} flexDirection="column" marginTop={1}>
-            {/* Identity line: icon · name · elapsed · iter/tools · extensions */}
+            {/* Identity line: icon · name · model · elapsed · iter/tools · ctx · extensions
+                — ctx bar lives here (not its own line) to save vertical space. */}
             <Box flexDirection="row" gap={1}>
               <Text color={s.color} bold>
                 {s.icon}
               </Text>
               <Text bold>{e.name}</Text>
+              {fmtModelLabel(e.provider, e.model) ? (
+                <Text dimColor>{fmtModelLabel(e.provider, e.model)}</Text>
+              ) : null}
               <Text dimColor>·</Text>
               <Text dimColor>{elapsed}</Text>
               <Text dimColor>·</Text>
               <Text dimColor>
                 L{e.iterations} {e.toolCalls}t
               </Text>
+              {e.ctxPct !== undefined ? (
+                <>
+                  <Text dimColor>·</Text>
+                  <ContextBar pct={e.ctxPct} tokens={e.ctxTokens} maxTokens={e.ctxMaxTokens} />
+                </>
+              ) : null}
               {e.extensions && e.extensions > 0 ? (
                 <Text color="yellow">⚡×{e.extensions}</Text>
               ) : null}
@@ -247,14 +257,6 @@ export function AgentsMonitor({
             {e.failureReason && e.status !== 'success' ? (
               <Box paddingLeft={2}>
                 <Text color="red">✗ {e.failureReason}</Text>
-              </Box>
-            ) : null}
-
-            {/* Context window fill bar */}
-            {e.ctxPct !== undefined ? (
-              <Box paddingLeft={2}>
-                <Text dimColor>ctx </Text>
-                <ContextBar pct={e.ctxPct} tokens={e.ctxTokens} maxTokens={e.ctxMaxTokens} />
               </Box>
             ) : null}
           </Box>
