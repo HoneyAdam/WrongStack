@@ -61,9 +61,8 @@ implementations.
 
 ## 2. webui/src/server/index.ts — remaining concerns
 
-**Progress.** `index.ts` is now **1923 lines** (it had grown to 2046).
-`http-server.ts` (#17), **`ws-auth.ts` (#6), `lifecycle.ts` (#18), and
-`token-estimator.ts` (#7) are extracted**.
+**Progress.** `index.ts` is now **1815 lines** (it had grown to 2046 —
+−231 this session). Extracted, each pure + tested:
 
 | # | Concern | Status | Migration cost |
 |---|---------|--------|---------------:|
@@ -71,10 +70,23 @@ implementations.
 | 6  | `ws-auth.ts` — token check, time-constant compare, DNS-rebinding | ✅ done (2026-06-03) | LOW |
 | 18 | `lifecycle.ts` — graceful shutdown + SIGINT/SIGTERM | ✅ done (2026-06-03) | LOW |
 | 7  | `token-estimator.ts` — per-section context.debug token breakdown | ✅ done (2026-06-03) | LOW |
-| 11 | `error-formatter.ts` — ⚠️ plan mismatch (see below) | re-scope | LOW |
-| 9  | `rest-routes.ts` — `/api/...` registration | ⚠️ does not exist | n/a |
 | 8a | `provider-keys.ts` — `key.*`/`provider.*` record transforms | ✅ done (2026-06-03) | LOW |
+| 11 | `errMessage()` helper — dedup err-message ternary (×18) | ✅ done (2026-06-04) | LOW |
+| —  | `usage-cost.ts` — getCostRates + computeUsageCost (cost math) | ✅ done (2026-06-04) | LOW |
+| —  | `file-picker.ts` — files.list dotfile/skip filtering + fuzzy ranking | ✅ done (2026-06-04) | LOW |
+| 9  | `rest-routes.ts` — `/api/...` registration | ⚠️ does not exist | n/a |
 | 8  | `ws-handlers.ts` — rest of the `handleMessage` switch | open | HIGH (shared state) |
+
+The pure-slice seam is now largely mined. What remains in `index.ts` is the
+genuinely stateful core: `startWebUI`'s boot/wiring (provider registry,
+session, agent, container) and the `handleMessage` cases that mutate live
+`session`/`context`/`clients`/`config` and broadcast (`user_message`,
+`session.new`, `model.switch`, `context.*`, …). Extracting those safely needs a
+**WS integration-test harness** first — which itself requires refactoring
+`startWebUI` to accept injected config + ephemeral ports and return server
+handles (it currently returns `void` and binds fixed ports). That's the next
+real unit of work, and it's a deliberate, reviewable change — not another
+mechanical pure-slice lift.
 
 **token-estimator.ts done (2026-06-03).** Extracted the `context.debug`
 per-section token breakdown (~78 lines) into pure `estimateTokens` /
