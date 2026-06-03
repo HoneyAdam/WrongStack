@@ -383,7 +383,6 @@ export class CollabSession extends EventEmitter {
     });
 
     let results: TaskResult[][] | null = null;
-    let timedOut = false;
     try {
       results = await Promise.race([
         Promise.all([
@@ -402,7 +401,6 @@ export class CollabSession extends EventEmitter {
       if (this._timeoutTimer) {
         clearTimeout(this._timeoutTimer);
         this._timeoutTimer = undefined;
-        timedOut = true;
       }
       this.cleanup();
       const error = err instanceof Error ? err : new Error(String(err));

@@ -188,6 +188,9 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
         timeoutMs?: number;
         maxIterations?: number;
         maxToolCalls?: number;
+        idleTimeoutMs?: number;
+        maxTokens?: number;
+        maxCostUsd?: number;
       };
 
       if (typeof i.task !== 'string' || !i.task.trim()) {

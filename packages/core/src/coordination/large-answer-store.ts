@@ -67,7 +67,6 @@ export class LargeAnswerStore {
       storedAt: Date.now(),
     });
 
-    const summary = serialized.slice(0, 300) + (serialized.length > 300 ? '...' : '');
     return {
       key,
       summary: `[stored: ${size} chars — use roll_up or ask_result tool to retrieve, key=${key}]`,
