@@ -47,6 +47,7 @@ import { CollaborationWebSocketHandler } from './collaboration-ws-handler.js';
 import { WorktreeWebSocketHandler } from './worktree-ws-handler.js';
 import { verifyClient as verifyWsClient } from './ws-auth.js';
 import { registerShutdownHandlers } from './lifecycle.js';
+import { computeUsageCost, getCostRates } from './usage-cost.js';
 import {
   addProvider as addProviderRecord,
   deleteKey as deleteKeyRecord,
@@ -448,12 +449,10 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
       // models.dev pricing is dollars per 1M tokens; some providers omit the
       // field for free/unmetered plans (e.g. minimax-coding-plan) — in that
       // case we report 0 and the cost chip just stays at $0.
-      const cost = (
-        m as { cost?: { input?: number; output?: number; cache_read?: number } } | undefined
-      )?.cost;
-      inputCost = cost?.input ?? 0;
-      outputCost = cost?.output ?? 0;
-      cacheReadCost = cost?.cache_read ?? 0;
+      const rates = getCostRates(m);
+      inputCost = rates.input;
+      outputCost = rates.output;
+      cacheReadCost = rates.cacheRead;
     } catch {
       // best-effort
     }
@@ -1688,15 +1687,7 @@ export async function startWebUI(opts: { wsPort?: number; wsHost?: string } = {}
         const usage = tokenCounter.total();
         const cacheStats = tokenCounter.cacheStats();
         const m = await modelsRegistry.getModel(config.provider, config.model).catch(() => null);
-        const inputCost = (m as { cost?: { input?: number } } | null)?.cost?.input ?? 0;
-        const outputCost = (m as { cost?: { output?: number } } | null)?.cost?.output ?? 0;
-        const cacheReadCost =
-          (m as { cost?: { cache_read?: number } } | null)?.cost?.cache_read ?? 0;
-        const cost =
-          (usage.input * inputCost +
-            usage.output * outputCost +
-            (usage.cacheRead ?? 0) * cacheReadCost) /
-          1_000_000;
+        const cost = computeUsageCost(usage, getCostRates(m));
         send(ws, {
           type: 'stats.get',
           payload: {
