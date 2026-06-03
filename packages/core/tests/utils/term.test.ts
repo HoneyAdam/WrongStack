@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { getTermSize, isInteractive, isStdinTTY, isStdoutTTY } from '../../src/utils/term.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { getTermSize, isInteractive, isStdinTTY, isStdoutTTY, onResize } from '../../src/utils/term.js';
 
 describe('term helpers', () => {
   // Snapshot the original stream props so afterEach can restore them, even
@@ -82,6 +82,94 @@ describe('term helpers', () => {
       Object.defineProperty(process.stdout, 'rows', { value: undefined, configurable: true });
       Object.defineProperty(process.stdout, 'columns', { value: undefined, configurable: true });
       expect(getTermSize()).toEqual({ rows: 24, cols: 80 });
+    });
+  });
+
+  describe('onResize', () => {
+    // Fake stream with the same surface area the helper needs (on/off/rows/cols).
+    // We never bind it to a real TTY — onResize is allowed by signature to take
+    // any object that quacks like NodeJS.WriteStream.
+    function makeFakeStream(rows = 24, cols = 80): {
+      rows: number;
+      columns: number;
+      on: (ev: string, h: (...a: unknown[]) => void) => unknown;
+      off: (ev: string, h: (...a: unknown[]) => void) => unknown;
+      _listeners: Map<string, Set<(...a: unknown[]) => void>>;
+      emit: (ev: string) => void;
+    } {
+      const listeners = new Map<string, Set<(...a: unknown[]) => void>>();
+      return {
+        rows,
+        columns: cols,
+        on(ev, h) {
+          let set = listeners.get(ev);
+          if (!set) {
+            set = new Set();
+            listeners.set(ev, set);
+          }
+          set.add(h);
+          return this;
+        },
+        off(ev, h) {
+          listeners.get(ev)?.delete(h);
+          return this;
+        },
+        _listeners: listeners,
+        emit(ev) {
+          for (const h of listeners.get(ev) ?? []) h();
+        },
+      };
+    }
+
+    it('registers a listener and calls cb on resize with the current size', () => {
+      const stream = makeFakeStream(40, 120);
+      const cb = vi.fn();
+      const off = onResize(cb, stream as unknown as NodeJS.WriteStream);
+
+      stream.rows = 50;
+      stream.columns = 130;
+      stream.emit('resize');
+
+      expect(cb).toHaveBeenCalledTimes(1);
+      expect(cb).toHaveBeenCalledWith({ rows: 50, cols: 130 });
+
+      off();
+    });
+
+    it('returns a cleanup that unregisters the listener', () => {
+      const stream = makeFakeStream();
+      const cb = vi.fn();
+      const off = onResize(cb, stream as unknown as NodeJS.WriteStream);
+
+      stream.emit('resize');
+      expect(cb).toHaveBeenCalledTimes(1);
+
+      off();
+      stream.emit('resize');
+      expect(cb).toHaveBeenCalledTimes(1); // unchanged
+    });
+
+    it('falls back to 24x80 when the stream has no size info', () => {
+      const stream = makeFakeStream();
+      // null overrides simulate "not yet known"
+      stream.rows = null as unknown as number;
+      stream.columns = null as unknown as number;
+      const cb = vi.fn();
+      onResize(cb, stream as unknown as NodeJS.WriteStream);
+
+      stream.emit('resize');
+
+      expect(cb).toHaveBeenCalledWith({ rows: 24, cols: 80 });
+    });
+
+    it('returns a no-op cleanup when stream is null/undefined', () => {
+      const cb = vi.fn();
+      const off = onResize(cb, null as unknown as NodeJS.WriteStream);
+
+      // Must not throw, must not register anywhere
+      expect(typeof off).toBe('function');
+      expect(() => off()).not.toThrow();
+      expect(cb).not.toHaveBeenCalled();
     });
   });
 });

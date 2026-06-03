@@ -49,3 +49,32 @@ export function getTermSize(): { rows: number; cols: number } {
     cols: process.stdout.columns ?? 80,
   };
 }
+
+/**
+ * Subscribe to terminal resize events. `cb` is called with the new size each
+ * time the underlying stream emits `resize`. Returns a cleanup function the
+ * caller MUST call on dispose to remove the listener — leaving a stale
+ * `resize` listener on a disposed component leaks the closure (and the
+ * component itself, transitively) until the process exits.
+ *
+ * The stream argument defaults to `process.stdout`. Pass an explicit
+ * `NodeJS.WriteStream` when the caller already owns one (e.g. a status line
+ * that targets an injected `out` for testability). For non-TTY streams no
+ * listener is registered and the returned cleanup is a no-op.
+ */
+export function onResize(
+  cb: (size: { rows: number; cols: number }) => void,
+  stream: NodeJS.WriteStream = process.stdout,
+): () => void {
+  if (!stream || typeof stream.on !== 'function') return () => {};
+  const handler = (): void => {
+    cb({
+      rows: stream.rows ?? 24,
+      cols: stream.columns ?? 80,
+    });
+  };
+  stream.on('resize', handler);
+  return () => {
+    stream.off('resize', handler);
+  };
+}

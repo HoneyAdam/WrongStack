@@ -15,6 +15,7 @@
  */
 import { color } from '@wrongstack/core';
 import type { EventBus } from '@wrongstack/core';
+import { onResize } from '@wrongstack/core';
 
 export interface FleetAgentState {
   id: string;
@@ -135,6 +136,7 @@ export class FleetStatusLine {
   private rows = 0;
   private repaintTimer: ReturnType<typeof setTimeout> | null = null;
   private tickTimer: ReturnType<typeof setInterval> | null = null;
+  private resizeCleanup: (() => void) | null = null;
   private lastPaint = 0;
   private readonly onResize = () => {
     if (this.active) {
@@ -242,7 +244,7 @@ export class FleetStatusLine {
     this.out.write('\n');
     this.out.write(`\x1b[1;${this.rows - 1}r`);
     this.out.write(`\x1b[${this.rows - 1};1H`);
-    this.out.on('resize', this.onResize);
+    this.resizeCleanup = onResize(() => this.onResize(), this.out);
     this.tickTimer = setInterval(() => this.paint(true), 1000);
     if (this.tickTimer.unref) this.tickTimer.unref();
     this.paint(true);
@@ -259,7 +261,8 @@ export class FleetStatusLine {
       clearTimeout(this.repaintTimer);
       this.repaintTimer = null;
     }
-    this.out.off('resize', this.onResize);
+    this.resizeCleanup?.();
+    this.resizeCleanup = null;
     if (this.isTty()) {
       // Clear the reserved line and reset the scroll region to full screen.
       this.out.write('\x1b7');
