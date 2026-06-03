@@ -1,6 +1,7 @@
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
-import { type Context, stripAnsi } from '@wrongstack/core';
+import * as Core from '@wrongstack/core';
+import type { Context } from '@wrongstack/core';
 
 /** Detected package manager for a project directory. */
 export type PackageManager = 'pnpm' | 'yarn' | 'npm';
@@ -220,7 +221,7 @@ export function normalizeCommandOutput(
   opts: { maxBytes?: number } = {},
 ): string {
   if (!raw) return raw;
-  let text = stripAnsi(raw);
+  let text = Core.stripAnsi(raw);
   text = collapseCarriageReturns(text);
   text = text.replace(/[ \t]+$/gm, ''); // trailing whitespace per line
   text = collapseConsecutiveDuplicates(text);
