@@ -131,7 +131,8 @@ export const editTool: Tool<EditInput, EditOutput> = {
     const newFile = toStyle(newFileLf, style);
 
     await atomicWrite(absPath, newFile, { mode: updated.mode & 0o777 });
-    ctx.recordRead(absPath, updated.mtimeMs);
+    const written = await fs.stat(absPath);
+    ctx.recordRead(absPath, written.mtimeMs);
 
     // Record for session rewind
     ctx.session.recordFileChange({

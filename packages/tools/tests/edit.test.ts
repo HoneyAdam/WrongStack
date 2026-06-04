@@ -136,6 +136,14 @@ describe('edit tool', () => {
       { signal: newSignal() },
     );
     expect(first.replacements).toBe(1);
+
+    const second = await editTool.execute(
+      { path: 'a.txt', old_string: 'world', new_string: 'there' },
+      sb.ctx,
+      { signal: newSignal() },
+    );
+    expect(second.replacements).toBe(1);
+    await expect(fs.readFile(file, 'utf8')).resolves.toBe('hi there');
   });
 
   describe('lineNumbersFor multi-match', () => {

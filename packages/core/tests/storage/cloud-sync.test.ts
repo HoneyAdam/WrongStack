@@ -429,4 +429,55 @@ describe('CloudSync', () => {
       });
     });
   });
+
+  describe('pull() path safety', () => {
+    it('rejects remote tree paths that escape a directory-backed category root', async () => {
+      await withTempDir(async (dir) => {
+        const paths: WstackPaths = {
+          ...mockPaths,
+          globalRoot: dir,
+          globalConfig: path.join(dir, 'config.json'),
+          globalSkills: path.join(dir, 'skills'),
+        };
+        const sync = new CloudSync(
+          paths,
+          () => ({ enabled: true, repo: 'testuser/testrepo', categories: ['skills'] }),
+          vi.fn(),
+        );
+
+        vi.spyOn(sync, 'getRef' as keyof CloudSync).mockResolvedValue({ object: { sha: 'commit' } } as never);
+        vi.spyOn(sync, 'getCommit' as keyof CloudSync).mockResolvedValue({ tree: { sha: 'tree' } } as never);
+        vi.spyOn(sync, 'getTreeEntries' as keyof CloudSync).mockResolvedValue([
+          { path: 'data/skills/../../config.json', sha: 'blob', type: 'blob' },
+        ] as never);
+        vi.spyOn(sync, 'getBlob' as keyof CloudSync).mockResolvedValue(Buffer.from('owned').toString('base64') as never);
+
+        await expect(sync.pull('fake-token')).rejects.toThrow(/path traversal/i);
+        await expect(fs.readFile(path.join(dir, 'config.json'), 'utf8')).rejects.toThrow();
+      });
+    });
+
+    it('rejects nested remote paths for file-backed categories', async () => {
+      await withTempDir(async (dir) => {
+        const paths: WstackPaths = {
+          ...mockPaths,
+          globalRoot: dir,
+          globalConfig: path.join(dir, 'config.json'),
+        };
+        const sync = new CloudSync(
+          paths,
+          () => ({ enabled: true, repo: 'testuser/testrepo', categories: ['settings'] }),
+          vi.fn(),
+        );
+
+        vi.spyOn(sync, 'getRef' as keyof CloudSync).mockResolvedValue({ object: { sha: 'commit' } } as never);
+        vi.spyOn(sync, 'getCommit' as keyof CloudSync).mockResolvedValue({ tree: { sha: 'tree' } } as never);
+        vi.spyOn(sync, 'getTreeEntries' as keyof CloudSync).mockResolvedValue([
+          { path: 'data/settings/nested/config.json', sha: 'blob', type: 'blob' },
+        ] as never);
+
+        await expect(sync.pull('fake-token')).rejects.toThrow(/file category/i);
+      });
+    });
+  });
 });

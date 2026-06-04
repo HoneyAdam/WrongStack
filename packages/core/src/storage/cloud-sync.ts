@@ -152,9 +152,12 @@ export class CloudSync {
       const localPath = this.categoryToPath(cat);
       if (!localPath) continue;
 
-      // Reconstruct relative path under the category dir
+      // Reconstruct relative path under the category dir. Remote trees are
+      // untrusted input: a compromised sync repo could contain paths like
+      // data/skills/../../config.json. Keep every write inside the selected
+      // category root, and only allow subpaths for directory-backed categories.
       const rel = segments.slice(2).join('/');
-      const destPath = rel ? path.join(localPath, rel) : localPath;
+      const destPath = resolvePulledCategoryPath(cat, localPath, rel, entry.path);
 
       const blobData = await this.getBlob(token, owner, repoName, entry.sha);
       await fs.mkdir(path.dirname(destPath), { recursive: true });
@@ -372,6 +375,34 @@ export class CloudSync {
     }
     return results;
   }
+}
+
+function resolvePulledCategoryPath(
+  cat: SyncCategory,
+  localPath: string,
+  rel: string,
+  remotePath: string,
+): string {
+  const directoryBacked = cat === 'skills' || cat === 'prompts';
+  if (!directoryBacked) {
+    if (rel) throw new Error(`Refusing nested CloudSync path for file category: ${remotePath}`);
+    return localPath;
+  }
+
+  if (!rel) return localPath;
+  const normalizedRel = path.normalize(rel);
+  const traversesUp = normalizedRel === '..' || normalizedRel.startsWith(`..${path.sep}`);
+  if (path.isAbsolute(normalizedRel) || traversesUp) {
+    throw new Error(`Refusing CloudSync path traversal: ${remotePath}`);
+  }
+
+  const dest = path.resolve(localPath, normalizedRel);
+  const root = path.resolve(localPath);
+  const relative = path.relative(root, dest);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new Error(`Refusing CloudSync path outside category root: ${remotePath}`);
+  }
+  return dest;
 }
 
 function timeAgo(iso: string): string {
