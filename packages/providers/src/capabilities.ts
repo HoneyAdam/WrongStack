@@ -20,22 +20,23 @@ export async function capabilitiesFor(
   const model = await registry.getModel(providerId, modelId);
   if (!model) return { ...base };
 
-  // maxContext priority: resolved model caps → raw model limit.context → family default
-  const resolvedMaxContext = model.capabilities.maxContext;
-  let maxContext = resolvedMaxContext;
-  if (!maxContext && provider) {
-    // Fallback: read limit.context directly from the raw model list
-    const rawModel = provider.models.find((m) => m.id === modelId);
-    maxContext = rawModel?.limit?.context ?? base.maxContext;
-  } else if (!maxContext) {
-    maxContext = base.maxContext;
-  }
+  // maxContext priority:
+  //  1. model.capabilities.maxContext   — from registry getModel() (mapped from limit.context)
+  //  2. raw model limit.context         — direct lookup in provider.models
+  //  3. raw model limit.output          — some models.dev entries only report output
+  //  4. base.maxContext                 — family default as ultimate fallback
+  const rawModel = provider?.models.find((m) => m.id === modelId);
+  const catalogMaxContext =
+    model.capabilities.maxContext ||
+    rawModel?.limit?.context ||
+    rawModel?.limit?.output ||
+    base.maxContext;
 
   return {
     ...base,
     tools: model.capabilities.tools && base.tools,
     parallelTools: model.capabilities.tools && base.parallelTools,
     vision: model.capabilities.vision && base.vision,
-    maxContext,
+    maxContext: catalogMaxContext,
   };
 }

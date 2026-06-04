@@ -383,7 +383,7 @@ Add a key later: `wrongstack auth groq` (prompts, encrypts, stores).
 
 ### Switching providers at runtime
 
-In the **TUI**, `/model` opens a two-step provider → model picker — no restart needed. In the plain REPL, relaunch with `--provider` / `--model`:
+In the **TUI**, `/model` opens a two-step provider → model picker with **type-to-search filtering** in step 2 — no restart needed. In the plain REPL, relaunch with `--provider` / `--model`:
 
 ```bash
 wrongstack --provider openai --model gpt-5.5
@@ -404,6 +404,7 @@ wrongstack --provider openrouter --model anthropic/claude-opus-4-7
 --no-tui             Force-disable the TUI (overrides --tui)
 --no-banner          Suppress the startup banner
 --no-features        Minimal kernel — no MCP, plugins, memory, models.dev, skills
+--no-models-refresh  Skip the boot-time models.dev catalog refresh (offline/CI)
 --yolo               Auto-allow all tool calls (don't ask for confirmation)
 --director           Enable Director-based fleet orchestration (LLM-driven subagent planning)
 --goal "<task>"      Boot directly into goal mode — GOAL preamble injected, TUI auto-enabled
@@ -482,7 +483,7 @@ wrongstack config         # Show / edit config
 wrongstack tools          # List registered tools
 wrongstack skills         # List discovered skills
 wrongstack providers      # ~110 providers grouped by wire family
-wrongstack models [prov]  # Models for a provider (default: current)
+wrongstack models [prov] [--search <term>] [--page N] [--per-page N]
 wrongstack mcp            # Inspect connected MCP servers
 wrongstack plugin         # Plugin manifest commands
 wrongstack diag           # Diagnostics: provider, tokens, paths
@@ -581,7 +582,7 @@ For the full walk-through — including the L1-A reactive `ConversationState`, h
 
 ## Status
 
-- **5491 tests passing** across 389 test files (13 skipped) in the 0.51.3 release gate
+- **5494 tests passing** across 390 test files (13 skipped) in the 0.54.1 release gate
 - Coverage thresholds: ≥85 % lines / ≥85 % functions / ≥70 % branches / ≥82 % statements
 - All workspace packages build clean with TypeScript strict + `noUncheckedIndexedAccess`
 - Node 22+ only, ESM-only, no CommonJS bundles
