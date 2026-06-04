@@ -55,6 +55,7 @@ function fmtModel(id: string, def: CustomModelDefinition): string {
     const flags: string[] = [];
     if (caps.tools) flags.push('tools');
     if (caps.vision) flags.push('vision');
+    if (caps.reasoning) flags.push('reasoning');
     if (caps.streaming) flags.push('streaming');
     if (caps.jsonMode) flags.push('json');
     if (flags.length) parts.push(`${color.dim('caps:')} ${flags.join(', ')}`);
@@ -106,6 +107,9 @@ function parseFlags(tokens: string[]): {
           break;
         case 'streaming':
           caps.streaming = true;
+          break;
+        case 'reasoning':
+          caps.reasoning = true;
           break;
         case 'json-mode':
           caps.jsonMode = true;
@@ -165,6 +169,7 @@ export function buildModelsCommand(opts: SlashCommandContext): SlashCommand {
     '  --tools              Tool-capable',
     '  --vision             Vision-capable',
     '  --streaming          Streaming support',
+    '  --reasoning          Reasoning support',
     '  --json-mode          JSON mode support',
     '',
     'Persisted to ~/.wrongstack/config.json.',

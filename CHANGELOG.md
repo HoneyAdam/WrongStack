@@ -5,6 +5,100 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.54.1] - 2026-06-04
+
+> The boot-refresh & model-picker release. Consolidates everything since the
+> `0.51.3` lockstep realignment. The headlines are a **blocking models.dev
+> catalog refresh on boot** so the TUI and model resolution always see fresh
+> data, a **type-to-search model picker** with scroll-window navigation, and
+> a trio of hardening fixes — **WebUI secret redaction** before broadcast,
+> **cloud-sync path-traversal guard**, and a stale-read fix in the `edit` tool
+> that prevented double-editing the same file. Additive only; no breaking
+> changes.
+>
+> **Version consolidation.** The intermediate `0.51.4`–`0.54.0` bumps shipped
+> as mechanical `chore: bump version` / `feat: update code` commits without
+> their own changelog sections; their substantive changes are folded into this
+> entry. All 15 workspace manifests are aligned to `0.54.1` in lockstep.
+
+### Added
+
+- **Blocking models.dev catalog refresh on boot.** `boot.ts` now fetches the
+  models.dev catalog synchronously before the app starts, so the TUI model
+  picker, provider resolution, and capability queries always work against
+  fresh data. A 15-second `AbortController` timeout (configurable via
+  `refreshTimeoutMs` on `DefaultModelsRegistryOptions`) prevents a stalled
+  network call from hanging boot; on timeout or network failure, the app falls
+  back to cache with a warning and continues normally. The new
+  `--no-models-refresh` flag skips the refresh entirely — useful in offline or
+  CI environments.
+
+- **TUI model picker type-to-search (step 2).** After selecting a provider,
+  typing printable characters now filters the model list live: each keystroke
+  narrows the list to models containing the search string, Backspace deletes
+  from the filter (or goes back to step 1 when empty), and ↑/↓ navigation
+  operates on the filtered results. Long lists render a centered visible
+  window with `▲ N above` / `▼ N below` overflow indicators, capped at 10
+  visible items. The header shows the active filter string and match count.
+
+- **`wstack models` pagination + search.** The `wstack models [provider]`
+  subcommand gained three new flags — `--search <term>` (case-insensitive
+  model id filter), `--page N`, and `--per-page N` — with a page navigator
+  and ↑/↓ indicators for multi-page output.
+
+### Changed
+
+- **Model capabilities context resolution priority improved.** `capabilitiesFor()`
+  now resolves `maxContext` in a clear three-tier priority: (1) resolved model
+  capabilities from the registry, (2) raw `model.limit.context` from the
+  provider's model list, (3) family default (e.g. 32K for openai-compatible).
+  Previously only tiers 1 and 3 were checked; providers that expose context
+  limits in their model metadata but not in the registry's capability layer
+  now surface the correct window size.
+
+### Fixed
+
+- **WebUI secret redaction before broadcast.** `webui-server.ts` now scrubs
+  `tool.started` and `tool.executed` input/output payloads through
+  `DefaultSecretScrubber` before broadcasting to WebSocket clients. Previously
+  tool arguments or output containing API keys, bearer tokens, or other
+  secrets would ride in cleartext over the WebSocket to every connected WebUI
+  tab.
+
+- **Cloud-sync path traversal.** The `pull()` path now validates remote tree
+  entries through a new `resolvePulledCategoryPath()` guard that rejects
+  traversal patterns (`..`, absolute paths, or any path resolving outside the
+  category root). File-backed categories (e.g. `settings`) additionally reject
+  nested paths. This closes a path where a compromised or malicious sync repo
+  could overwrite `config.json` or other files outside the intended category
+  directory.
+
+- **`edit` tool double-edit stale read.** After writing the edited file,
+  `editTool.execute()` now re-stat()s the file to get the actual on-disk
+  mtime before calling `ctx.recordRead()`. The previous code used the
+  pre-write file metadata, which on Windows (2s mtime granularity) and some
+  network filesystems caused a second `edit` call on the same file to throw a
+  bogus "modified externally" error.
+
+### Tests
+
+- **`webui-server-redaction.test.ts`** — end-to-end WebSocket test verifying
+  that `DefaultSecretScrubber` redacts OpenAI keys and bearer tokens from both
+  `tool.started` and `tool.executed` broadcast payloads.
+- **Cloud-sync path safety tests** — two new cases in `cloud-sync.test.ts`
+  covering traversal rejection for directory-backed and file-backed categories.
+- **`edit.test.ts` double-edit regression** — verifies that two consecutive
+  `edit` calls on the same file succeed without a stale-mtime error.
+
+### Changed — versions
+
+- **All workspace packages bumped to 0.54.1**: `wrongstack`,
+  `@wrongstack/cli`, `@wrongstack/core`, `@wrongstack/mcp`,
+  `@wrongstack/plug-lsp`, `@wrongstack/plugins`, `@wrongstack/providers`,
+  `@wrongstack/runtime`, `@wrongstack/skills`, `@wrongstack/telegram`,
+  `@wrongstack/tools`, `@wrongstack/tui`, `@wrongstack/webui`.
+  `@wrongstack/acp` tracks the same version.
+
 ## [0.51.3] - 2026-06-04
 
 > The Brain-governed AutoPhase release. The main thread since `0.41.0` is a new
