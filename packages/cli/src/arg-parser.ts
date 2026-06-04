@@ -25,6 +25,7 @@ export const BOOLEAN_FLAGS = new Set([
   'metrics',
   'webui',
   'no-check',
+  'no-models-refresh',
   'director',
   'no-director',
   'no-autonomy',

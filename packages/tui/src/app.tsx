@@ -489,9 +489,13 @@ type State = {
     step: 'provider' | 'model';
     providerOptions: ProviderOption[];
     modelOptions: string[];
+    /** Filtered list shown in step 2 (same as modelOptions when searchQuery is empty). */
+    filteredOptions: string[];
     selected: number;
     pickedProviderId?: string;
     hint?: string;
+    /** Live search filter in step 2. */
+    searchQuery: string;
   };
   /** Single-step autonomy mode picker — opened by `/autonomy`. */
   autonomyPicker: {
@@ -691,6 +695,8 @@ type Action =
   | { type: 'modelPickerPickProvider'; providerId: string; models: string[] }
   | { type: 'modelPickerBack' }
   | { type: 'modelPickerHint'; text?: string }
+  /** Update the search filter in step 2. */
+  | { type: 'modelPickerSearch'; query: string }
   | { type: 'autonomyPickerOpen'; options: AutonomyOption[] }
   | { type: 'autonomyPickerClose' }
   | { type: 'autonomyPickerMove'; delta: number }
@@ -1079,8 +1085,10 @@ export function reducer(state: State, action: Action): State {
           step: 'provider',
           providerOptions: action.providers,
           modelOptions: [],
+          filteredOptions: [],
           selected: 0,
           hint: undefined,
+          searchQuery: '',
         },
       };
     case 'modelPickerClose':
@@ -1091,15 +1099,18 @@ export function reducer(state: State, action: Action): State {
           step: 'provider',
           providerOptions: [],
           modelOptions: [],
+          filteredOptions: [],
           selected: 0,
+          searchQuery: '',
         },
       };
     case 'modelPickerMove': {
       if (!state.modelPicker.open) return state;
-      const len =
+      const list =
         state.modelPicker.step === 'provider'
-          ? state.modelPicker.providerOptions.length
-          : state.modelPicker.modelOptions.length;
+          ? state.modelPicker.providerOptions
+          : state.modelPicker.filteredOptions;
+      const len = list.length;
       if (len === 0) return state;
       const next = (state.modelPicker.selected + action.delta + len) % len;
       return {
@@ -1114,9 +1125,11 @@ export function reducer(state: State, action: Action): State {
           ...state.modelPicker,
           step: 'model',
           modelOptions: action.models,
+          filteredOptions: action.models,
           selected: 0,
           pickedProviderId: action.providerId,
           hint: undefined,
+          searchQuery: '',
         },
       };
     case 'modelPickerBack':
@@ -1126,11 +1139,33 @@ export function reducer(state: State, action: Action): State {
           ...state.modelPicker,
           step: 'provider',
           modelOptions: [],
+          filteredOptions: [],
           selected: 0,
           pickedProviderId: undefined,
           hint: undefined,
+          searchQuery: '',
         },
       };
+    case 'modelPickerSearch': {
+      if (!state.modelPicker.open || state.modelPicker.step !== 'model') return state;
+      const q = action.query.toLowerCase();
+      const filtered = q
+        ? state.modelPicker.modelOptions.filter((id) => id.toLowerCase().includes(q))
+        : state.modelPicker.modelOptions;
+      const selected = filtered.length > 0
+        ? Math.min(state.modelPicker.selected, filtered.length - 1)
+        : 0;
+      return {
+        ...state,
+        modelPicker: {
+          ...state.modelPicker,
+          filteredOptions: filtered,
+          selected,
+          searchQuery: action.query,
+          hint: undefined,
+        },
+      };
+    }
     case 'modelPickerHint':
       return {
         ...state,
@@ -2106,7 +2141,9 @@ export function App({
       step: 'provider' as const,
       providerOptions: [],
       modelOptions: [],
+      filteredOptions: [],
       selected: 0,
+      searchQuery: '',
     },
     autonomyPicker: { open: false, options: [], selected: 0 },
     settingsPicker: { open: false, field: 0, mode: 'off', delayMs: 0 },
@@ -5012,6 +5049,7 @@ export function App({
     // Model picker takes absolute precedence: nothing else is meaningful
     // while the two-step overlay is open. Esc cancels (or backs out of
     // step 2 to step 1); Enter advances to the next step or confirms.
+    // Step 2 additionally supports type-to-search and Backspace-to-delete.
     if (state.modelPicker.open) {
       if (key.escape) {
         if (state.modelPicker.step === 'model') {
@@ -5029,6 +5067,21 @@ export function App({
         dispatch({ type: 'modelPickerMove', delta: 1 });
         return;
       }
+      // Step 2: type-to-search — printable characters append to the filter.
+      if (state.modelPicker.step === 'model' && input && !key.return && !key.backspace) {
+        dispatch({ type: 'modelPickerSearch', query: state.modelPicker.searchQuery + input });
+        return;
+      }
+      // Step 2: Backspace — delete last char from filter, or go back if empty.
+      if (state.modelPicker.step === 'model' && key.backspace) {
+        const q = state.modelPicker.searchQuery;
+        if (q.length > 0) {
+          dispatch({ type: 'modelPickerSearch', query: q.slice(0, -1) });
+        } else {
+          dispatch({ type: 'modelPickerBack' });
+        }
+        return;
+      }
       if (isEnter) {
         inputGateRef.current = true;
         try {
@@ -5042,9 +5095,9 @@ export function App({
             });
             return;
           }
-          // step === 'model' → commit the switch
+          // step === 'model' → commit the switch (use filteredOptions for selected model)
           const providerId = state.modelPicker.pickedProviderId;
-          const modelId = state.modelPicker.modelOptions[state.modelPicker.selected];
+          const modelId = state.modelPicker.filteredOptions[state.modelPicker.selected];
           if (!providerId || !modelId) return;
           const err = switchProviderAndModel?.(providerId, modelId);
           if (err) {
@@ -6147,8 +6200,10 @@ export function App({
             step={state.modelPicker.step}
             providerOptions={state.modelPicker.providerOptions}
             modelOptions={state.modelPicker.modelOptions}
+            filteredOptions={state.modelPicker.filteredOptions}
             selected={state.modelPicker.selected}
             pickedProviderId={state.modelPicker.pickedProviderId}
+            searchQuery={state.modelPicker.searchQuery}
             hint={state.modelPicker.hint}
           />
         ) : null}

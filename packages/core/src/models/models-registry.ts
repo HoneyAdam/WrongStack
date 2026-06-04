@@ -13,6 +13,7 @@ import { mergeModelsPayload } from '../utils/merge-models-payload.js';
 
 const DEFAULT_URL = 'https://models.dev/api.json';
 const DEFAULT_TTL_SECONDS = 24 * 3600;
+const DEFAULT_REFRESH_TIMEOUT_MS = 15_000;
 
 interface CacheEnvelope {
   fetchedAt: string;
@@ -34,6 +35,12 @@ export interface DefaultModelsRegistryOptions {
    * stale fallback entirely.
    */
   maxStaleAgeSeconds?: number;
+  /**
+   * Timeout in milliseconds for the models.dev network fetch. When exceeded,
+   * the fetch is aborted and cache/stale fallback is used instead.
+   * Defaults to 15 seconds. Set to `0` to disable (infinite wait).
+   */
+  refreshTimeoutMs?: number;
   /**
    * Curated override payload deep-merged ON TOP of the models.dev base via
    * `mergeModelsPayload` — adds providers/models the base lacks and overrides
@@ -94,6 +101,7 @@ export class DefaultModelsRegistry implements ModelsRegistry {
   private readonly fetchImpl: typeof fetch;
   private readonly seed?: ModelsDevPayload;
   private readonly maxStaleAgeMs: number;
+  private readonly refreshTimeoutMs: number;
   private readonly overlay?: ModelsDevPayload;
   private readonly overlayUrl?: string;
   private readonly overlayFile?: string;
@@ -108,6 +116,7 @@ export class DefaultModelsRegistry implements ModelsRegistry {
     // Default max stale age: 7 days
     const maxStaleSeconds = opts.maxStaleAgeSeconds ?? 7 * 24 * 3600;
     this.maxStaleAgeMs = maxStaleSeconds * 1000;
+    this.refreshTimeoutMs = opts.refreshTimeoutMs ?? DEFAULT_REFRESH_TIMEOUT_MS;
     this.overlay = opts.overlay;
     this.overlayUrl = opts.overlayUrl;
     this.overlayFile = opts.overlayFile;
@@ -177,22 +186,34 @@ export class DefaultModelsRegistry implements ModelsRegistry {
 
   /** Fetch + cache the models.dev base. Throws on failure (used by `refresh`). */
   private async refreshBase(): Promise<ModelsDevPayload> {
-    const res = await this.fetchImpl(this.url, {
-      method: 'GET',
-      headers: { accept: 'application/json' },
-    });
-    if (!res.ok) {
-      throw new Error(`ModelsRegistry: HTTP ${res.status} fetching ${this.url}`);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.refreshTimeoutMs);
+    try {
+      const res = await this.fetchImpl(this.url, {
+        method: 'GET',
+        headers: { accept: 'application/json' },
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (!res.ok) {
+        throw new Error(`ModelsRegistry: HTTP ${res.status} fetching ${this.url}`);
+      }
+      const json = (await res.json()) as ModelsDevPayload;
+      this.fetchedAt = new Date();
+      const envelope: CacheEnvelope = {
+        fetchedAt: this.fetchedAt.toISOString(),
+        url: this.url,
+        payload: json,
+      };
+      await atomicWrite(this.cacheFile, JSON.stringify(envelope));
+      return json;
+    } catch (err) {
+      clearTimeout(timeout);
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new Error(`ModelsRegistry: fetch timed out after ${this.refreshTimeoutMs}ms`);
+      }
+      throw err;
     }
-    const json = (await res.json()) as ModelsDevPayload;
-    this.fetchedAt = new Date();
-    const envelope: CacheEnvelope = {
-      fetchedAt: this.fetchedAt.toISOString(),
-      url: this.url,
-      payload: json,
-    };
-    await atomicWrite(this.cacheFile, JSON.stringify(envelope));
-    return json;
   }
 
   /**

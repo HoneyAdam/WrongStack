@@ -148,6 +148,19 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
       });
   }
 
+  // Blocking models.dev refresh — fetches fresh catalog before app starts.
+  // --no-models-refresh skips this. On timeout (15s default) or network failure,
+  // falls back to cache and logs a warning; the app still boots normally.
+  if (!flags['no-models-refresh']) {
+    try {
+      await modelsRegistry.refresh();
+      logger.info('models.dev catalog refreshed');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn(`models.dev refresh failed (${msg}); using cached catalog`);
+    }
+  }
+
   // Quick path: subcommand dispatch
   const first = positional[0];
   if (first && subcommands[first]) {

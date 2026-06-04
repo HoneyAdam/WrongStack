@@ -2,7 +2,7 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { Agent, EventBus, ModelsRegistry, SessionWriter } from '@wrongstack/core';
-import { type ProviderConfig, atomicWrite } from '@wrongstack/core';
+import { DefaultSecretScrubber, type ProviderConfig, atomicWrite } from '@wrongstack/core';
 import {
   DefaultSecretVault,
   decryptConfigSecrets,
@@ -52,6 +52,7 @@ interface ConnectedClient {
 export async function runWebUI(opts: WebUIOptions): Promise<void> {
   const port = opts.port ?? 3457;
   const clients = new Map<WebSocket, ConnectedClient>();
+  const secretScrubber = new DefaultSecretScrubber();
   let abortController: AbortController | null = null;
 
   // Generate a random auth token to prevent unauthorized local connections.
@@ -114,7 +115,7 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
           payload: {
             id: e.id,
             name: e.name,
-            input: e.input,
+            input: secretScrubber.scrubObject(e.input),
             messageId: `tool_${e.id}`,
           },
         });
@@ -147,8 +148,8 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
             name: e.name,
             durationMs: e.durationMs,
             ok: e.ok,
-            input: e.input,
-            output: e.output,
+            input: secretScrubber.scrubObject(e.input),
+            output: secretScrubber.scrubObject(e.output),
           },
         });
       }),
