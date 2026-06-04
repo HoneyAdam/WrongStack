@@ -13,7 +13,6 @@
  * happened, `false` if the flag was empty.
  */
 import {
-  DefaultPermissionPolicy,
   TOKENS,
   type Compactor,
   type Config,
@@ -90,11 +89,11 @@ export async function launchEternalFromFlag(
       }
     : emptyGoal(eternalFlag);
   await saveGoal(goalPath, next);
-  // Force YOLO on for destructive ops, matching the /autonomy eternal path.
-  const policy = deps.container.resolve(
-    TOKENS.PermissionPolicy,
-  ) as DefaultPermissionPolicy;
-  policy.setYolo(true);
+  // Force regular YOLO on, matching the /autonomy eternal path. Clearly
+  // destructive calls still use the normal destructive gate unless the
+  // session was launched with --yolo-destructive.
+  const policy = deps.container.resolve(TOKENS.PermissionPolicy);
+  policy.setYolo?.(true);
   deps.configRef.current = patchConfig(deps.configRef.current, { yolo: true });
   const compactor = deps.container.resolve(TOKENS.Compactor) as Compactor;
   const engine = new EternalAutonomyEngine({

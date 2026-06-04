@@ -10,7 +10,7 @@ wrongstack "refactor src/auth.ts to use async/await instead of callbacks. Keep t
 ```
 
 The agent will: read the file → understand the pattern → propose
-changes → apply edits (auto-approve in `--yolo`) → run tests to verify.
+changes → apply edits (normal project work auto-approves in `--yolo`) → run tests to verify.
 
 ## Debug a failing test
 
@@ -103,7 +103,7 @@ wrongstack "verify every workspace package has a consistent version. Flag any cr
 ## Combine flags for long-running work
 
 ```bash
-# Fast iteration: TUI + YOLO + cheap-fast provider
+# Fast iteration: TUI + YOLO + cheap-fast provider (normal project work auto-approved)
 wrongstack --tui --yolo --provider groq --model llama-3.3-70b-versatile \
   "add error boundaries to every React component under packages/webui/src/components"
 

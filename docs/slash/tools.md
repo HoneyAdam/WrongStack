@@ -2,15 +2,15 @@
 
 ## What it does
 
-Lists all registered tools from the `ToolRegistry` with their name, owner package, mutability flag, and permission level.
+Lists all registered tools from the `ToolRegistry` with their name, owner package, mutability flag, and permission level. Risk tier is not currently rendered; use the source catalog or tool help when auditing YOLO/destructive behavior.
 
 ## Output format
 
 ```
 Tools (N):
-  read                            [core] ro  read
-  write                           [core] mut write
-  bash                            [core] mut bash
+  read                            [@wrongstack/tools] ro auto
+  write                           [@wrongstack/tools] mut confirm
+  bash                            [@wrongstack/tools] mut confirm
   ...
 ```
 
@@ -20,7 +20,7 @@ Each line: `name [owner] mut|ro permission`
 |---|---|
 | `mut` | Tool modifies filesystem or external state |
 | `ro` | Read-only tool |
-| Permission | Risk level shown in renderer color |
+| Permission | Declared permission: `auto`, `confirm`, or `deny` |
 
 ## Tools included by default
 

@@ -26,12 +26,18 @@ export function parseMcpArgs(args: string): McpParsedArgs | null {
   const enable = parts.includes('--enable') || parts.includes('-e');
 
   switch (action) {
-    case 'add':    return name ? { action: 'add', name, enable } : null;
-    case 'remove': return name ? { action: 'remove', name } : null;
-    case 'enable': return name ? { action: 'enable', name } : null;
-    case 'disable': return name ? { action: 'disable', name } : null;
-    case 'restart': return name ? { action: 'restart', name } : null;
-    default: return null;
+    case 'add':
+      return name ? { action: 'add', name, enable } : null;
+    case 'remove':
+      return name ? { action: 'remove', name } : null;
+    case 'enable':
+      return name ? { action: 'enable', name } : null;
+    case 'disable':
+      return name ? { action: 'disable', name } : null;
+    case 'restart':
+      return name ? { action: 'restart', name } : null;
+    default:
+      return null;
   }
 }
 
@@ -47,14 +53,24 @@ export async function runMcpManagementCommand(
   deps: McpManagementDeps,
 ): Promise<string> {
   const { config, configPath, mcpRegistry, allServerPresets } = deps;
-  const configured = config.mcpServers ?? {};
+  const diskConfig = await readConfig(configPath);
+  const configured = isMcpServerRecord(diskConfig.mcpServers)
+    ? diskConfig.mcpServers
+    : (config.mcpServers ?? {});
 
   switch (parsed.action) {
     case 'list':
       return renderList(configured, mcpRegistry, allServerPresets);
 
     case 'add':
-      return runAdd(parsed.name, parsed.enable ?? false, configured, configPath, allServerPresets);
+      return runAdd(
+        parsed.name,
+        parsed.enable ?? false,
+        configured,
+        configPath,
+        mcpRegistry,
+        allServerPresets,
+      );
 
     case 'remove':
       return runRemove(parsed.name, configured, configPath, mcpRegistry);
@@ -85,12 +101,9 @@ function renderList(
     for (const [name, cfg] of Object.entries(configured)) {
       const live = liveMap.get(name);
       const toolCount = live ? color.dim(` (${live.toolCount} tools)`) : '';
-      const enabled = cfg.enabled === false
-        ? `${color.dim('disabled')}  `
-        : `${color.green('● enabled')}  `;
-      const stateStr = live
-        ? stateBadge(live.state)
-        : color.dim('○ not running');
+      const enabled =
+        cfg.enabled === false ? `${color.dim('disabled')}  ` : `${color.green('● enabled')}  `;
+      const stateStr = live ? stateBadge(live.state) : color.dim('○ not running');
       lines.push(`  ${color.bold(name)}  ${enabled}${stateStr}${toolCount}`);
       if (cfg.description) lines.push(`    ${color.dim(cfg.description)}`);
     }
@@ -120,6 +133,7 @@ async function runAdd(
   enable: boolean,
   configured: Record<string, MCPServerConfig>,
   configPath: string,
+  mcpRegistry: MCPRegistry,
   all: Record<string, MCPServerConfig>,
 ): Promise<string> {
   const preset = all[name];
@@ -127,23 +141,37 @@ async function runAdd(
     const known = Object.keys(all).join(', ');
     return `Unknown server "${name}". Available: ${known}`;
   }
-  if (configured[name]) {
-    // Update existing entry: keep user's overrides (command/args/env) but
-    // apply the preset shape and the new enabled flag.
-    const full = await readConfig(configPath);
-    full.mcpServers = {
-      ...(full.mcpServers ?? {}),
-      [name]: { ...preset, ...configured[name], enabled: enable },
-    };
-    await writeConfig(configPath, full);
-    return `${color.green('Updated')} "${name}" (${enable ? 'enabled' : 'disabled'}). Config written.`;
-  }
+
+  const existing = configured[name];
+  const nextCfg = existing
+    ? { ...preset, ...existing, enabled: enable }
+    : { ...preset, enabled: enable };
+
   const full = await readConfig(configPath);
-  const mcpServers = { ...(full.mcpServers ?? {}), [name]: { ...preset, enabled: enable } };
+  const mcpServers: Record<string, MCPServerConfig> = {
+    ...(isMcpServerRecord(full.mcpServers) ? full.mcpServers : {}),
+    [name]: nextCfg,
+  };
   full.mcpServers = mcpServers;
   await writeConfig(configPath, full);
-  const verb = enable ? 'Enabled' : 'Added (disabled — /mcp enable to start)';
-  return `${color.green(verb)} "${name}" (${preset.transport}). Config written to ${configPath}.`;
+
+  if (!enable) {
+    const verb = existing ? 'Updated' : 'Added (disabled — /mcp enable to start)';
+    return `${color.green(verb)} "${name}" (${nextCfg.transport}). Config written to ${configPath}.`;
+  }
+
+  try {
+    if (mcpRegistry.list().some((server) => server.name === name)) {
+      await mcpRegistry.restart(name);
+    } else {
+      await mcpRegistry.start(nextCfg);
+    }
+    const verb = existing ? 'Updated and started' : 'Enabled and started';
+    return `${color.green(verb)} "${name}" (${nextCfg.transport}). Config written to ${configPath}.`;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return `${color.yellow('Enabled')} "${name}" in config, but failed to start: ${message}`;
+  }
 }
 
 async function runRemove(
@@ -153,9 +181,13 @@ async function runRemove(
   mcpRegistry: MCPRegistry,
 ): Promise<string> {
   if (!configured[name]) return `Server "${name}" is not in config.`;
-  await mcpRegistry.stop(name).catch(() => {/* ignore */});
+  await mcpRegistry.stop(name).catch(() => {
+    /* ignore */
+  });
   const full = await readConfig(configPath);
-  const mcpServers: Record<string, MCPServerConfig> = { ...((full.mcpServers as Record<string, MCPServerConfig> | undefined) ?? {}) };
+  const mcpServers: Record<string, MCPServerConfig> = {
+    ...((full.mcpServers as Record<string, MCPServerConfig> | undefined) ?? {}),
+  };
   delete mcpServers[name];
   full.mcpServers = mcpServers;
   await writeConfig(configPath, full);
@@ -181,7 +213,9 @@ async function runEnable(
     }
   }
   const full = await readConfig(configPath);
-  const mcpServers: Record<string, MCPServerConfig> = { ...((full.mcpServers as Record<string, MCPServerConfig> | undefined) ?? {}) };
+  const mcpServers: Record<string, MCPServerConfig> = {
+    ...((full.mcpServers as Record<string, MCPServerConfig> | undefined) ?? {}),
+  };
   mcpServers[name] = { ...mcpServers[name]!, enabled: true };
   full.mcpServers = mcpServers;
   await writeConfig(configPath, full);
@@ -201,9 +235,13 @@ async function runDisable(
 ): Promise<string> {
   const cfg = configured[name];
   if (!cfg) return `Server "${name}" is not in config.`;
-  await mcpRegistry.stop(name).catch(() => {/* ignore */});
+  await mcpRegistry.stop(name).catch(() => {
+    /* ignore */
+  });
   const full = await readConfig(configPath);
-  const mcpServers: Record<string, MCPServerConfig> = { ...((full.mcpServers as Record<string, MCPServerConfig> | undefined) ?? {}) };
+  const mcpServers: Record<string, MCPServerConfig> = {
+    ...((full.mcpServers as Record<string, MCPServerConfig> | undefined) ?? {}),
+  };
   mcpServers[name] = { ...mcpServers[name]!, enabled: false };
   full.mcpServers = mcpServers;
   await writeConfig(configPath, full);
@@ -227,12 +265,18 @@ async function runRestart(name: string, mcpRegistry: MCPRegistry): Promise<strin
 
 function stateBadge(state: string): string {
   switch (state) {
-    case 'connected':    return color.green('● connected');
-    case 'connecting':   return color.cyan('◐ connecting');
-    case 'reconnecting': return color.cyan('◑ reconnecting');
-    case 'disconnected': return color.dim('○ disconnected');
-    case 'failed':       return color.red('✗ failed');
-    default:             return color.dim(state);
+    case 'connected':
+      return color.green('● connected');
+    case 'connecting':
+      return color.cyan('◐ connecting');
+    case 'reconnecting':
+      return color.cyan('◑ reconnecting');
+    case 'disconnected':
+      return color.dim('○ disconnected');
+    case 'failed':
+      return color.red('✗ failed');
+    default:
+      return color.dim(state);
   }
 }
 
@@ -242,6 +286,10 @@ async function readConfig(path: string): Promise<Record<string, unknown>> {
   } catch {
     return {};
   }
+}
+
+function isMcpServerRecord(value: unknown): value is Record<string, MCPServerConfig> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
 async function writeConfig(path: string, cfg: Record<string, unknown>): Promise<void> {

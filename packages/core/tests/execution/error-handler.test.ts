@@ -41,6 +41,13 @@ describe('DefaultErrorHandler.classify', () => {
     expect(eh.classify(provErr('context length exceeded', 400)).kind).toBe('context_overflow');
   });
 
+  it('classifies provider body context-window messages as context_overflow', () => {
+    const err = new ProviderError('openai HTTP 400', 400, false, 'openai', {
+      body: { message: 'Your input exceeds the context window of this model.' },
+    });
+    expect(eh.classify(err)).toEqual({ kind: 'context_overflow', retryable: false });
+  });
+
   it('classifies generic 4xx as client (not retryable)', () => {
     expect(eh.classify(provErr('bad', 404))).toEqual({
       kind: 'client',

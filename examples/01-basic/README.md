@@ -53,7 +53,7 @@ wrongstack resume <session-id>
 
 ## YOLO mode
 
-Skip all permission prompts for fast iteration:
+Auto-approve normal project work for fast iteration. Clearly destructive calls can still ask unless you also start with `--yolo-destructive`:
 
 ```bash
 wrongstack --tui --yolo "add JSDoc comments to all exported functions in src/"
@@ -63,7 +63,7 @@ Toggle at runtime from inside the REPL or TUI:
 
 ```
 /yolo            # show current status
-/yolo on         # auto-approve every tool call
+/yolo on         # auto-approve normal project work
 /yolo off        # re-enable permission prompts
 /yolo toggle     # flip
 ```

@@ -17,7 +17,8 @@ The `wrongstack` umbrella package transitively installs `@wrongstack/cli` along 
 ```bash
 wstack                        # interactive REPL — no flags = default
 wstack --tui                  # Ink-based TUI
-wstack --yolo                 # auto-approve every tool call
+wstack --yolo                 # auto-approve normal project work
+wstack --yolo --yolo-destructive  # also auto-approve destructive-gated calls
 wstack "refactor src/auth.ts" # one-shot query (no interactive loop)
 
 wstack --provider <id> --model <id>   # skip the picker
@@ -94,7 +95,9 @@ API keys are encrypted at rest with AES-256-GCM and the key file at `~/.wrongsta
 | Flag | Effect |
 |------|--------|
 | `--tui` / `--no-tui` | Force/disable Ink TUI |
-| `--yolo` | Auto-approve every tool call (use with care) |
+| `--yolo` | Auto-approve normal in-project tool calls |
+| `--yolo-destructive` | Also auto-approve clearly destructive YOLO-gated calls |
+| `--force-all-yolo` | Deprecated alias for `--yolo-destructive` |
 | `--provider <id>` | Override the configured provider |
 | `--model <id>` | Override the configured model |
 | `--resume <id>` | Resume a saved session by id |

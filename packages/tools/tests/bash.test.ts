@@ -11,6 +11,13 @@ const echoCmd = isWin ? 'echo hello' : 'echo hello';
 const failCmd = isWin ? 'exit 7' : 'exit 7';
 
 describe('bashTool', () => {
+  it('has correct metadata', () => {
+    expect(bashTool.name).toBe('bash');
+    expect(bashTool.permission).toBe('confirm');
+    expect(bashTool.mutating).toBe(true);
+    expect(bashTool.riskTier).toBe('destructive');
+  });
+
   it('runs a simple command and captures output', async () => {
     const sb = await mkSandbox();
     try {

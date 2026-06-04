@@ -7,14 +7,21 @@ import { hasDangerousCapabilityForSubagents } from './capabilities.js';
 import { atomicWrite } from '../utils/atomic-write.js';
 import { matchAny, matchGlob } from '../utils/glob-match.js';
 import { safeParse } from '../utils/safe-json.js';
+import {
+  getInputString,
+  isClearlyDestructiveBashCommand,
+  pathLooksInsideProject,
+} from './yolo-risk.js';
 
 export interface PermissionPolicyOptions {
   trustFile: string;
   yolo?: boolean;
   /**
-   * When true, YOLO mode allows even `destructive` tools without confirm.
-   * Corresponds to the `--force-all-yolo` CLI flag.
+   * When true, YOLO mode allows even calls classified as truly destructive
+   * without confirm. Corresponds to the `--yolo-destructive` CLI flag.
    */
+  yoloDestructive?: boolean;
+  /** @deprecated Use `yoloDestructive`. Kept for `--force-all-yolo` compatibility. */
   forceAllYolo?: boolean;
   promptDelegate?: (
     tool: Tool,
@@ -29,7 +36,7 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
   private loaded = false;
   private readonly trustFile: string;
   private yolo: boolean;
-  private forceAllYolo: boolean;
+  private yoloDestructive: boolean;
   /**
    * Session-scoped "soft deny" map. When the user presses 'n' (block once),
    * the tool+pattern is added here. If the LLM retries in the same session,
@@ -63,7 +70,7 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
   constructor(opts: PermissionPolicyOptions) {
     this.trustFile = opts.trustFile;
     this.yolo = opts.yolo ?? false;
-    this.forceAllYolo = opts.forceAllYolo ?? false;
+    this.yoloDestructive = opts.yoloDestructive ?? opts.forceAllYolo ?? false;
     this.promptDelegate = opts.promptDelegate;
   }
 
@@ -87,14 +94,24 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
     return this.yolo;
   }
 
-  /** Toggle force-all-YOLO at runtime. */
-  setForceAllYolo(enabled: boolean): void {
-    this.forceAllYolo = enabled;
+  /** Toggle the destructive YOLO override at runtime. */
+  setYoloDestructive(enabled: boolean): void {
+    this.yoloDestructive = enabled;
   }
 
-  /** Check whether force-all-YOLO is active. */
+  /** Check whether the destructive YOLO override is active. */
+  getYoloDestructive(): boolean {
+    return this.yoloDestructive;
+  }
+
+  /** @deprecated Use `setYoloDestructive`. */
+  setForceAllYolo(enabled: boolean): void {
+    this.setYoloDestructive(enabled);
+  }
+
+  /** @deprecated Use `getYoloDestructive`. */
   getForceAllYolo(): boolean {
-    return this.forceAllYolo;
+    return this.getYoloDestructive();
   }
 
   async reload(): Promise<void> {
@@ -162,9 +179,11 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
       return { permission: 'auto', source: 'trust' };
     }
 
-    // 6. YOLO — but `destructive` tools still confirm unless force-all-yolo
+    // 6. YOLO — auto-approve normal in-project work, but keep truly
+    // destructive operations gated unless the destructive override is enabled.
     if (this.yolo) {
-      if (tool.riskTier === 'destructive' && !this.forceAllYolo) {
+      const destructive = this.isDestructiveYoloCall(tool, input, ctx);
+      if (destructive && !this.yoloDestructive) {
         if (this.promptDelegate) {
           const decision = await this.promptDelegate(tool, input, subject ?? tool.name);
           if (decision === 'always') {
@@ -226,6 +245,21 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
       return { permission: decision === 'yes' ? 'auto' : 'deny', source: 'user' };
     }
     return { permission: 'confirm', source: 'default' };
+  }
+
+  private isDestructiveYoloCall(tool: Tool, input: unknown, ctx: Context): boolean {
+    if (tool.name === 'bash') {
+      const command = getInputString(input, 'command');
+      return command ? isClearlyDestructiveBashCommand(command, ctx.projectRoot) : true;
+    }
+
+    if (tool.name === 'write' || tool.name === 'edit' || tool.name === 'replace' || tool.name === 'patch') {
+      const targetPath = getInputString(input, 'path') ?? getInputString(input, 'file');
+      if (!targetPath || !ctx.projectRoot) return false;
+      return !pathLooksInsideProject(targetPath, ctx.projectRoot);
+    }
+
+    return tool.riskTier === 'destructive';
   }
 
   async trust(rule: { tool: string; pattern: string }): Promise<void> {

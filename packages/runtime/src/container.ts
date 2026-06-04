@@ -28,6 +28,8 @@ export interface CreateContainerOptions {
   modelsRegistry: ModelsRegistry;
   permission?: {
     yolo?: boolean;
+    yoloDestructive?: boolean;
+    /** @deprecated Use `yoloDestructive`. */
     forceAllYolo?: boolean;
     promptDelegate?: (
       tool: Tool,
@@ -93,7 +95,7 @@ export function createDefaultContainer(opts: CreateContainerOptions): Container 
       new DefaultPermissionPolicy({
         trustFile: wpaths.projectTrust,
         yolo: opts.permission?.yolo ?? false,
-        forceAllYolo: opts.permission?.forceAllYolo ?? false,
+        yoloDestructive: opts.permission?.yoloDestructive ?? opts.permission?.forceAllYolo ?? false,
         promptDelegate: opts.permission?.promptDelegate,
       }),
   );

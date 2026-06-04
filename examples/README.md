@@ -30,7 +30,7 @@ wrongstack --tui
 ## Common flag combos
 
 ```bash
-# TUI + YOLO + a fast provider (no permission prompts)
+# TUI + YOLO + a fast provider (auto-approve normal project work)
 wrongstack --tui --yolo --provider groq --model llama-3.3-70b-versatile \
   "add JSDoc to every exported function in src/"
 

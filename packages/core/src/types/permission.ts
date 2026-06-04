@@ -37,4 +37,16 @@ export interface PermissionPolicy {
    */
   allowOnce(rule: { tool: string; pattern: string }): void;
   reload(): Promise<void>;
+  /** Optional runtime query for policies that support leader YOLO toggling. */
+  getYolo?(): boolean;
+  /** Optional runtime setter for policies that support leader YOLO toggling. */
+  setYolo?(enabled: boolean): void;
+  /** Optional runtime query for the destructive YOLO override. */
+  getYoloDestructive?(): boolean;
+  /** Optional runtime setter for the destructive YOLO override. */
+  setYoloDestructive?(enabled: boolean): void;
+  /** @deprecated Use `getYoloDestructive`. */
+  getForceAllYolo?(): boolean;
+  /** @deprecated Use `setYoloDestructive`. */
+  setForceAllYolo?(enabled: boolean): void;
 }

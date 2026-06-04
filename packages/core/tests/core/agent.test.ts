@@ -185,7 +185,7 @@ describe('Agent', () => {
       description: 'a destructive op that must be confirmed',
       inputSchema: { type: 'object' },
       permission: 'confirm',
-      // Destructive → still confirms under plain --yolo (not --force-all-yolo),
+      // Destructive → still confirms under regular --yolo (not --yolo-destructive),
       // which is exactly the path that produces a pending result.
       riskTier: 'destructive',
       mutating: true,
@@ -344,7 +344,7 @@ describe('Agent', () => {
     };
     const provider = new MockProvider([
       {
-        content: [{ type: 'tool_use', id: 'u1', name: 'bash', input: {} }],
+        content: [{ type: 'tool_use', id: 'u1', name: 'bash', input: { command: 'echo build' } }],
         stopReason: 'tool_use',
       },
       { content: [{ type: 'text', text: 'ok' }], stopReason: 'end_turn' },
@@ -459,7 +459,7 @@ describe('Agent — sizeSignals coverage', () => {
     };
     const provider = new MockProvider([
       {
-        content: [{ type: 'tool_use', id: 'u1', name: 'bash', input: {} }],
+        content: [{ type: 'tool_use', id: 'u1', name: 'bash', input: { command: 'echo build' } }],
         stopReason: 'tool_use',
       },
       { content: [{ type: 'text', text: 'ok' }], stopReason: 'end_turn' },

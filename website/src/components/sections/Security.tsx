@@ -39,7 +39,7 @@ const items = [
   {
     icon: Zap,
     title: 'YOLO when you mean it',
-    body: '--yolo (or /yolo) skips every permission prompt for CI and trusted workflows. It is opt-in and never the default.',
+    body: '--yolo (or /yolo) auto-approves normal project work for trusted workflows. Clearly destructive calls still require the --yolo-destructive override.',
   },
 ];
 

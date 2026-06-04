@@ -34,6 +34,8 @@ function makeRenderer(): TerminalRenderer {
   } as unknown as TerminalRenderer;
 }
 
+const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, '');
+
 function makeReader(answers: string[]): ReadlineInputReader {
   let i = 0;
   return {
@@ -194,6 +196,8 @@ describe('runLaunchPrompts', () => {
     const reader = makeReader(['', 'y', '', '']);
     const result = await runLaunchPrompts({ renderer, reader });
     expect(result.yolo).toBe(true);
+    const yoloPrompt = stripAnsi(String(vi.mocked(reader.readLine).mock.calls[1]?.[0] ?? ''));
+    expect(yoloPrompt).toContain('auto-approve normal project work');
   });
 
   it("'n' on yolo prompt disables YOLO mode", async () => {

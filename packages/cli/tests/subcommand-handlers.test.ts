@@ -22,6 +22,7 @@ vi.mock('../src/config-history.js', () => ({
 
 import { authCmd } from '../src/subcommands/handlers/auth.js';
 import { historyCmd, restoreCmd } from '../src/subcommands/handlers/config-history.js';
+import { helpCmd } from '../src/subcommands/handlers/version-help.js';
 
 function fakeDeps() {
   return {
@@ -40,6 +41,20 @@ beforeEach(() => {
   getHistoryEntry.mockReset();
   restoreFromHistory.mockReset();
   restoreLast.mockReset();
+});
+
+describe('helpCmd', () => {
+  it('documents YOLO and the destructive override flag', async () => {
+    const deps = fakeDeps();
+    const code = await helpCmd([], deps);
+    expect(code).toBe(0);
+    const output = (deps.renderer.write as ReturnType<typeof vi.fn>).mock.calls
+      .map((call) => call[0])
+      .join('');
+    expect(output).toContain('--yolo');
+    expect(output).toContain('--yolo-destructive');
+    expect(output).toContain('Deprecated alias for --yolo-destructive');
+  });
 });
 
 describe('authCmd', () => {

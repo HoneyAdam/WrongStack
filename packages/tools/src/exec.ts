@@ -147,6 +147,7 @@ export const execTool: Tool<ExecInput, ExecOutput> = {
     'This tool significantly reduces the risk compared to full shell access.',
   permission: 'confirm',
   mutating: true,
+  riskTier: 'standard',
   timeoutMs: TIMEOUT_MS,
   capabilities: ['shell.restricted'],
   inputSchema: {

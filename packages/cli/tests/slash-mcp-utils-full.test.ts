@@ -2,10 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import {
-  parseMcpArgs,
-  runMcpManagementCommand,
-} from '../src/slash-commands/mcp-utils.js';
+import { parseMcpArgs, runMcpManagementCommand } from '../src/slash-commands/mcp-utils.js';
 import type { Config, MCPServerConfig } from '@wrongstack/core';
 
 // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape sequences are valid here
@@ -120,7 +117,9 @@ describe('runMcpManagementCommand — list', () => {
       {
         config,
         configPath,
-        mcpRegistry: makeRegistry({ list: () => [{ name: 'github', state: 'connected', toolCount: 5 }] }),
+        mcpRegistry: makeRegistry({
+          list: () => [{ name: 'github', state: 'connected', toolCount: 5 }],
+        }),
         allServerPresets: { github: fakePreset() },
       },
     );
@@ -216,17 +215,21 @@ describe('runMcpManagementCommand — add', () => {
     expect(out).toContain('github');
   });
 
-  it('writes the preset to config (enabled=true)', async () => {
+  it('writes the preset to config and starts it when enabled=true', async () => {
+    const registry = makeRegistry();
     const out = await runMcpManagementCommand(
       { action: 'add', name: 'github', enable: true },
       {
         config: fakeConfig({ mcpServers: {} }),
         configPath,
-        mcpRegistry: makeRegistry(),
+        mcpRegistry: registry,
         allServerPresets: { github: fakePreset() },
       },
     );
-    expect(stripAnsi(out)).toContain('Enabled');
+    expect(stripAnsi(out)).toContain('Enabled and started');
+    expect((registry as { start: ReturnType<typeof vi.fn> }).start).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'github', enabled: true }),
+    );
     const written = JSON.parse(await fs.readFile(configPath, 'utf8'));
     expect(written.mcpServers.github.enabled).toBe(true);
   });
@@ -366,6 +369,27 @@ describe('runMcpManagementCommand — enable', () => {
     expect(stripAnsi(out)).toContain('Enabled');
     const written = JSON.parse(await fs.readFile(configPath, 'utf8'));
     expect(written.mcpServers.github.enabled).toBe(true);
+  });
+
+  it('reads current config from disk instead of a stale startup snapshot', async () => {
+    await fs.writeFile(
+      configPath,
+      JSON.stringify({ mcpServers: { github: fakePreset({ enabled: false }) } }),
+    );
+    const registry = makeRegistry({
+      restart: vi.fn().mockRejectedValue(new Error('not running')),
+    });
+    const out = await runMcpManagementCommand(
+      { action: 'enable', name: 'github' },
+      {
+        config: fakeConfig({ mcpServers: {} }),
+        configPath,
+        mcpRegistry: registry,
+        allServerPresets: { github: fakePreset() },
+      },
+    );
+    expect(stripAnsi(out)).toContain('Enabled');
+    expect((registry as { start: ReturnType<typeof vi.fn> }).start).toHaveBeenCalled();
   });
 });
 

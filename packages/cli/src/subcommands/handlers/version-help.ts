@@ -38,6 +38,14 @@ export const helpCmd: SubcommandHandler = async (_args, deps) => {
     '  wstack export <id> [opts]    Render a session',
     '  wstack usage                 Token + cost summary',
     '  wstack version               Print version',
+    '',
+    color.bold('Common flags'),
+    '  --yolo                       Auto-approve normal in-project tool calls',
+    '  --yolo-destructive           Also auto-approve clearly destructive YOLO-gated calls',
+    '  --force-all-yolo             Deprecated alias for --yolo-destructive',
+    '  --tui / --no-tui             Force or disable TUI mode',
+    '  --eternal "<mission>"        Start an eternal-autonomy loop',
+    '  --no-hints                   Hide launch hints',
   ];
   deps.renderer.write(lines.join('\n') + '\n');
   return 0;

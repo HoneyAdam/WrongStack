@@ -126,20 +126,20 @@ describe('ToolExecutor', () => {
     };
 
     it('forces confirm for a dangerous-capability tool when NOT in any yolo', async () => {
-      const { result } = await runWith({ getYolo: () => false, getForceAllYolo: () => false });
+      const { result } = await runWith({ getYolo: () => false, getYoloDestructive: () => false });
       // Forced to confirm + no awaiter → pending sentinel (the tool did NOT auto-run).
       expect(result.type).toBe('tool_confirm_pending');
     });
 
-    it('skips the confirm net under plain --yolo (no prompt for shell)', async () => {
-      const { tool, result } = await runWith({ getYolo: () => true, getForceAllYolo: () => false });
+    it('skips the confirm net under regular --yolo (no prompt for shell)', async () => {
+      const { tool, result } = await runWith({ getYolo: () => true, getYoloDestructive: () => false });
       expect(result.type).toBe('tool_result');
       expect((result as ToolResultBlock).content).toContain('ran');
       expect(tool.execute).toHaveBeenCalledTimes(1);
     });
 
-    it('skips the confirm net under --force-all-yolo', async () => {
-      const { result } = await runWith({ getForceAllYolo: () => true });
+    it('skips the confirm net under --yolo-destructive', async () => {
+      const { result } = await runWith({ getYoloDestructive: () => true });
       expect(result.type).toBe('tool_result');
     });
 

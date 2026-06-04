@@ -16,15 +16,18 @@ packages/
   tui/          React/Ink terminal UI (lazy-loaded behind --tui)
   plug-lsp/     LSP bridge + language tooling + slash commands
   runtime/      Default runtime implementations and host-level composition helpers
+  acp/          ACP server/client integration for external agent protocols
+  plugins/      Bundled plugin library
   telegram/     Telegram bridge plugin — send messages, receive prompts, get notified
+  skills/       Skill subpackages published independently
   webui/        Vite+React web UI served by the CLI
 apps/
   wrongstack/   bin entry — runs cli/main(argv)
 ```
 
 Each package depends only on what's below it. `core` depends on nothing
-WrongStack-internal; `providers`/`tools`/`mcp`/`plug-lsp`/`runtime`/`telegram` depend on `core`;
-`cli`/`tui` depend on everything beneath.
+WrongStack-internal; `providers`/`tools`/`mcp`/`plug-lsp`/`runtime`/`acp`/`plugins`/`telegram` depend on `core`;
+`cli`/`tui`/`webui` compose the product-facing surfaces above those packages.
 
 ---
 
@@ -46,6 +49,7 @@ TOKENS.PathResolver    TOKENS.ConfigLoader      TOKENS.ConfigStore
 TOKENS.Renderer        TOKENS.InputReader       TOKENS.ErrorHandler
 TOKENS.RetryPolicy     TOKENS.SkillLoader       TOKENS.SystemPromptBuilder
 TOKENS.SecretScrubber  TOKENS.ModelsRegistry    TOKENS.ModeStore
+TOKENS.ProviderRunner  TOKENS.WorktreeManager   TOKENS.BrainArbiter
 ```
 
 The CLI binds defaults at boot; plugins can rebind any token before
@@ -221,14 +225,21 @@ A `Tool` is the runtime-callable interface that the model invokes:
 interface Tool<I, O> {
   name: string;
   description: string;
+  usageHint?: string;
+  category?: string;
   inputSchema: JSONSchema;
   permission: 'auto' | 'confirm' | 'deny';
   mutating: boolean;
+  riskTier?: 'safe' | 'standard' | 'destructive';
+  subjectKey?: string;
+  capabilities?: readonly string[];
   execute(input, ctx, opts): Promise<O>;
   executeStream?(input, ctx, opts): AsyncIterable<ToolStreamEvent<O>>;
   cleanup?(input, ctx): Promise<void>;
 }
 ```
+
+`riskTier` feeds the permission policy: YOLO auto-approves normal project work, while clearly destructive calls can still prompt unless `--yolo-destructive` is active.
 
 When defined, `executeStream` is preferred: yields `log`, `partial_output`,
 `metric`, `file_changed`, or `warning` events, then a terminal
@@ -306,9 +317,9 @@ provider request as the final safety net. CLI users can force it with
 For the **director-driven** evolution of this — where every subagent
 runs with its own provider, model, context, session, and budget under
 an LLM-driven Director agent — see
-[director-architecture.md](director-architecture.md). It's a design
-doc, not yet implemented; the gap analysis there lists the small set
-of additions needed on top of the primitives above.
+[director-architecture.md](director-architecture.md). The current
+implementation exposes director/fleet orchestration tools and persists
+fleet state under the project session directory.
 
 ---
 
@@ -323,9 +334,9 @@ NDJSON). `MCPRegistry` manages a fleet of clients with:
 - Tool-list cache that invalidates on `notifications/tools/list_changed`
 - Tool namespace prefix: `mcp__<serverName>__`
 
-Built-in presets in [`mcp-servers.ts`](../packages/core/src/defaults/mcp-servers.ts):
+Built-in presets in [`mcp-servers.ts`](../packages/core/src/infrastructure/mcp-servers.ts):
 filesystem, github, context7, brave-search, block, everart, slack, aws,
-google-maps, sentinel. All disabled by default.
+google-maps, sentinel, zai-vision, and minimax-vision. All disabled by default.
 
 ---
 
@@ -379,7 +390,7 @@ by the ToolExecutor. Everything is noop unless you wire a real tracer.
 
 ## Session storage
 
-JSONL files under `<projectDir>/.wrongstack/sessions/<id>.jsonl`. Each
+JSONL files under `~/.wrongstack/projects/<hash>/sessions/<id>.jsonl`. Each
 line is one `SessionEvent`: `user_input`, `llm_request`, `llm_response`,
 `tool_use`, `tool_result`, `compaction`, `error`, plus mode/task/agent/
 skill events.

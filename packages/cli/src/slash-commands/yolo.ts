@@ -9,12 +9,12 @@ export function buildYoloCommand(opts: SlashCommandContext): SlashCommand {
     help: [
       'Usage:',
       '  /yolo          Show current YOLO status',
-      '  /yolo on       Enable YOLO mode (auto-approve every tool call)',
+      '  /yolo on       Enable YOLO mode (auto-approve normal project work)',
       '  /yolo off      Disable YOLO mode (restore permission prompts)',
       '  /yolo toggle   Toggle YOLO mode',
       '',
-      'YOLO mode skips all permission prompts and auto-approves every tool call.',
-      'Use with caution — the agent can execute any tool without asking.',
+      'YOLO mode auto-approves normal in-project tool calls, including simple shell commands.',
+      'Clearly destructive calls may still ask unless --yolo-destructive is enabled.',
     ].join('\n'),
     async run(args) {
       const arg = args.trim().toLowerCase();
@@ -29,7 +29,7 @@ export function buildYoloCommand(opts: SlashCommandContext): SlashCommand {
       if (!arg) {
         const current = opts.onYolo();
         const status = current
-          ? `${color.yellow('ON')} ${color.dim('(auto-approving all tool calls)')}`
+          ? `${color.yellow('ON')} ${color.dim('(auto-approving normal project work)')}`
           : `${color.green('OFF')} ${color.dim('(permission prompts active)')}`;
         const msg = `YOLO mode: ${status}`;
         opts.renderer.write(msg);
@@ -52,7 +52,7 @@ export function buildYoloCommand(opts: SlashCommandContext): SlashCommand {
 
       opts.onYolo(newState);
       const label = newState
-        ? `${color.yellow('ENABLED')} — all tool calls will be auto-approved`
+        ? `${color.yellow('ENABLED')} — normal project tool calls will be auto-approved`
         : `${color.green('DISABLED')} — permission prompts are active`;
       const msg = `YOLO mode: ${label}`;
       opts.renderer.write(msg);

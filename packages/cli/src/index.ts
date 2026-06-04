@@ -9,7 +9,6 @@ import {
   DefaultBrainArbiter,
   DefaultPathResolver,
   HumanEscalatingBrainArbiter,
-  type DefaultPermissionPolicy,
   DefaultSystemPromptBuilder,
   makeAutonomyPromptContributor,
   ObservableBrainArbiter,
@@ -157,7 +156,7 @@ export async function main(argv: string[]): Promise<number> {
     modelsRegistry,
     permission: {
       yolo: config.yolo,
-      forceAllYolo: flags['force-all-yolo'] === true,
+      yoloDestructive: flags['yolo-destructive'] === true || flags['force-all-yolo'] === true,
       promptDelegate: makePromptDelegate(reader) as unknown as ContainerPromptDelegate,
     },
     compactor: {
@@ -1507,13 +1506,13 @@ export async function main(argv: string[]): Promise<number> {
       });
     },
     onYolo: (setTo?: boolean) => {
-      const policy = container.resolve(TOKENS.PermissionPolicy) as DefaultPermissionPolicy;
+      const policy = container.resolve(TOKENS.PermissionPolicy);
       if (setTo !== undefined) {
-        policy.setYolo(setTo);
+        policy.setYolo?.(setTo);
         config = patchConfig(config, { yolo: setTo });
         return setTo;
       }
-      return policy.getYolo();
+      return policy.getYolo?.() ?? config.yolo ?? false;
     },
     onNextPredict: (setTo?: boolean) => {
       if (setTo !== undefined) {
@@ -1778,8 +1777,8 @@ export async function main(argv: string[]): Promise<number> {
     statuslineHiddenItems,
     setStatuslineHiddenItems,
     getYolo: () => {
-      const policy = container.resolve(TOKENS.PermissionPolicy) as DefaultPermissionPolicy;
-      return policy.getYolo();
+      const policy = container.resolve(TOKENS.PermissionPolicy);
+      return policy.getYolo?.() ?? config.yolo ?? false;
     },
     getAutonomy: () => autonomyMode,
     onAutonomy: (setTo?) => {

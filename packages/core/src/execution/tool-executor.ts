@@ -153,18 +153,19 @@ export class ToolExecutor {
       // project, mcp proxy, etc.). This reduces the blast radius of prompt injection.
       let effectivePermission = decision.permission;
 
-      // YOLO is the user's explicit "stop asking" switch, so it also waives the
-      // dangerous-capability net below (matching the historical behavior where
-      // --yolo skipped every prompt). The net still fires in non-yolo runs —
-      // e.g. a trust-file auto-allow for a shell tool still gets a confirm, so
-      // a single trusted pattern can't silently widen into arbitrary shell.
+      // YOLO is the user's explicit fast-path for normal project work, so it
+      // waives the post-policy dangerous-capability net only after the permission
+      // policy has already returned `auto`. Destructive-gated calls still arrive
+      // here as `confirm` unless the destructive YOLO override is active. Outside
+      // YOLO, a trust-file auto-allow for a shell tool still gets a confirm, so a
+      // single trusted pattern can't silently widen into arbitrary shell.
       // Detected via optional methods so policies without them (AutoApprove,
       // test mocks) keep the stricter default.
-      const policy = this.opts.permissionPolicy as {
-        getYolo?(): boolean;
-        getForceAllYolo?(): boolean;
-      };
-      const yolo = policy.getYolo?.() === true || policy.getForceAllYolo?.() === true;
+      const policy = this.opts.permissionPolicy;
+      const yolo =
+        policy.getYolo?.() === true ||
+        policy.getYoloDestructive?.() === true ||
+        policy.getForceAllYolo?.() === true;
 
       if (toolDangerousCaps.length > 0 && effectivePermission === 'auto' && !yolo) {
         // Outside yolo we force at least 'confirm' for dangerous-capability tools.

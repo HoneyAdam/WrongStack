@@ -9,6 +9,7 @@ describe('installTool', () => {
     expect(installTool.name).toBe('install');
     expect(installTool.permission).toBe('confirm');
     expect(installTool.mutating).toBe(true);
+    expect(installTool.riskTier).toBe('standard');
   });
 
   it('handles empty packages', async () => {

@@ -1,3 +1,7 @@
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { DefaultConfigStore } from '@wrongstack/core';
 import { describe, expect, it, vi } from 'vitest';
 import { buildContextCommand } from '../src/slash-commands/context.js';
 
@@ -99,6 +103,83 @@ describe('buildContextCommand', () => {
     await cmd.run('mode frugal', ctx);
     const res = await cmd.run('', ctx);
     expect(res?.message).toContain('frugal');
+  });
+
+  it('sets the effective context limit for the current session', async () => {
+    const renderer = fakeRenderer();
+    let liveLimit = 0;
+    const cmd = buildContextCommand({
+      renderer,
+      onContextLimit: vi.fn((tokens?: number) => {
+        if (tokens !== undefined) liveLimit = tokens;
+        return liveLimit;
+      }),
+    } as never);
+    const ctx = fakeCtx();
+    const res = await cmd.run('limit 220k', ctx);
+    expect(res?.message).toMatch(/220[,.]000/);
+    expect(ctx.meta['effectiveMaxContext']).toBe(220_000);
+    expect(liveLimit).toBe(220_000);
+  });
+
+  it('persists the effective context limit when --persist is used', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-context-'));
+    const configPath = path.join(dir, 'config.json');
+    await fs.writeFile(configPath, JSON.stringify({ version: 1, context: { mode: 'balanced' } }));
+    const configStore = new DefaultConfigStore({
+      version: 1,
+      provider: 'openai',
+      model: 'gpt-test',
+      context: {
+        mode: 'balanced',
+        warnThreshold: 0.6,
+        softThreshold: 0.75,
+        hardThreshold: 0.9,
+        autoCompact: true,
+        preserveK: 10,
+        eliseThreshold: 2000,
+      },
+      tools: {
+        defaultExecutionStrategy: 'smart',
+        maxIterations: 100,
+        iterationTimeoutMs: 300_000,
+        sessionTimeoutMs: 1_800_000,
+        perIterationOutputCapBytes: 100_000,
+      },
+      log: { level: 'info' },
+      features: { mcp: true, plugins: true, memory: true, modelsRegistry: true, skills: true },
+    } as never);
+    const renderer = fakeRenderer();
+    const cmd = buildContextCommand({
+      renderer,
+      paths: { globalConfig: configPath },
+      configStore,
+      onContextLimit: vi.fn((tokens?: number) => tokens ?? 0),
+    } as never);
+
+    const res = await cmd.run('limit 220k --persist', fakeCtx());
+    expect(res?.message).toContain('persisted');
+    const persisted = JSON.parse(await fs.readFile(configPath, 'utf8'));
+    expect(persisted.context.effectiveMaxContext).toBe(220_000);
+    expect(configStore.get().context.effectiveMaxContext).toBe(220_000);
+  });
+
+  it('sets custom context compaction thresholds for the current session', async () => {
+    const renderer = fakeRenderer();
+    const cmd = buildContextCommand({ renderer } as never);
+    const ctx = fakeCtx();
+    const res = await cmd.run('thresholds 50% 70% 85%', ctx);
+    expect(res?.message).toContain('Context thresholds set');
+    expect(ctx.meta['contextWindowPolicy']).toMatchObject({
+      thresholds: { warn: 0.5, soft: 0.7, hard: 0.85 },
+    });
+  });
+
+  it('rejects invalid threshold ordering', async () => {
+    const renderer = fakeRenderer();
+    const cmd = buildContextCommand({ renderer } as never);
+    const res = await cmd.run('thresholds 80% 70% 90%', fakeCtx());
+    expect(res?.message).toContain('warn < soft < hard');
   });
 
   it('"repair" reports no orphans when messages are well-formed', async () => {

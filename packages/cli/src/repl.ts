@@ -11,6 +11,7 @@ import {
   routeImagesForModel,
   type VisionAdapters,
 } from '@wrongstack/runtime';
+import { contextOverflowHint } from './context-overflow-diagnostic.js';
 import type { ReadlineInputReader } from './input-reader.js';
 import { predictNextTasks, type PredictLLMProvider } from './next-task-predictor.js';
 import type { TerminalRenderer } from './renderer.js';
@@ -416,6 +417,8 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
           if (err) {
             const tag = err.recoverable ? ' (recoverable)' : '';
             opts.renderer.writeError(`Failed [${err.severity}]${tag}: ${err.describe()}`);
+            const hint = contextOverflowHint(err);
+            if (hint) opts.renderer.writeWarning(hint);
           } else {
             opts.renderer.writeError('Failed.');
           }

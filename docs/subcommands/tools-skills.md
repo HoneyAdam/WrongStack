@@ -2,19 +2,19 @@
 
 ## `wstack tools`
 
-Lists all registered tools with their metadata:
+Lists all registered tools with their owner package and declared permission:
 
 ```
 wstack tools
-  read                            [core] ro   auto       Read a file
-  write                           [core] mut  confirm    Write or overwrite a file
-  bash                            [core] mut  confirm    Run a shell command
-  grep                            [core] ro   auto       Search file contents
-  glob                            [core] ro   auto       Find files by pattern
+  read                         [@wrongstack/tools] auto
+  write                        [@wrongstack/tools] confirm
+  bash                         [@wrongstack/tools] confirm
+  grep                         [@wrongstack/tools] auto
+  glob                         [@wrongstack/tools] auto
   ...
 ```
 
-Columns: name (padded), owner package, `mut`/`ro`, permission level, description.
+Columns: name (padded), owner package, permission level. The subcommand does not currently render mutability, description, or risk tier; use `/tools` in-session for mutability and tool help/source for deeper audits.
 
 ## `wstack skills`
 

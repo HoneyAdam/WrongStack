@@ -21,6 +21,7 @@ export const echoTool: Tool<{ text: string }, { echoed: string }> = {
   },
   permission: 'auto',
   mutating: false,
+  riskTier: 'safe',
   async execute(input) {
     return { echoed: input.text };
   },
@@ -42,6 +43,7 @@ interface Tool<I, O> {
   inputSchema: JSONSchema;         // validated before execute() runs
   permission: 'auto' | 'confirm' | 'deny';
   mutating: boolean;               // hints UI; doesn't enforce anything
+  riskTier?: 'safe' | 'standard' | 'destructive';
   maxOutputBytes?: number;
   timeoutMs?: number;
   estimatedDurationMs?: number;    // TUI spinner hint only
@@ -59,6 +61,7 @@ interface Tool<I, O> {
 | `inputSchema` | JSON Schema subset (no `$ref`, no `format`). Validated by `validateAgainstSchema` before `execute` runs. |
 | `permission` | `auto` runs without prompting. `confirm` prompts the user. `deny` rejects calls without prompting (useful for read-only modes). |
 | `mutating` | UI hint that this tool may change the workspace. Doesn't enforce anything — `permission` is the real gate. |
+| `riskTier` | Optional risk classification: `safe`, `standard`, or `destructive`. YOLO auto-approves normal project work; clearly destructive calls still prompt unless `--yolo-destructive` is active. |
 | `maxOutputBytes` | Hard cap. The executor truncates and emits a warning. |
 | `timeoutMs` | Hard cap. After this, the executor aborts via the run's `AbortController`. |
 
@@ -67,8 +70,9 @@ interface Tool<I, O> {
 ## `permission`: the three settings
 
 - **`auto`** — runs without prompting. Use for read-only or clearly-safe
-  ops. The user can still globally enable `--yolo` to skip even
-  `confirm` prompts.
+  ops. The user can still globally enable `--yolo` to skip `confirm`
+  prompts for normal project work; clearly destructive calls still require
+  `--yolo-destructive`.
 - **`confirm`** — prompts the user before each call. Use for write paths,
   shell execution, network mutations, anything reviewable.
 - **`deny`** — rejected before `execute` runs. Mostly used by per-tool
@@ -303,7 +307,7 @@ When you write a new tool you are extending the agent's attack surface.
 
 ### Mandatory checklist before shipping a tool
 
-- [ ] **Permission & mutating flags** — Did you set `permission` and `mutating` truthfully? `mutating: true` tools default to `'confirm'` for normal users.
+- [ ] **Permission, mutating, and risk flags** — Did you set `permission`, `mutating`, and `riskTier` truthfully? `mutating: true` tools default to `'confirm'` for normal users, and `riskTier: 'destructive'` keeps YOLO from silently running high-risk actions.
 - [ ] **Input validation** — `inputSchema` + runtime checks inside `execute`. Never trust `input.foo` blindly.
 - [ ] **Path containment** — If the tool touches the filesystem, use `safeResolve` / `safeResolveReal` (see `_util.ts`). Never do `path.join(base, userInput)` without subsequent realpath check.
 - [ ] **Child process / shell** — Prefer `spawn` with argument array + `shell: false`. If you must use the user's shell, go through the existing `bash`/`exec` infrastructure or get explicit security review.

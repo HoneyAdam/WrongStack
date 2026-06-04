@@ -43,7 +43,7 @@ const features = [
     icon: ShieldCheck,
     title: 'Permissions & secrets',
     tag: 'AES-256-GCM',
-    body: 'Per-tool allow/deny policy persisted to trust.json and inherited by subagents. API keys are encrypted at rest with a per-machine key. YOLO mode opts out for CI.',
+    body: 'Per-tool allow/deny policy persisted to trust.json and inherited by subagents. API keys are encrypted at rest with a per-machine key. YOLO auto-approves normal project work for trusted sessions.',
   },
   {
     icon: Boxes,

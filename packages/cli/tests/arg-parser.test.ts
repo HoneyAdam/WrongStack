@@ -7,7 +7,7 @@ describe('parseArgs', () => {
   });
 
   it('treats listed BOOLEAN_FLAGS as true even when next arg looks value-like', () => {
-    for (const flag of ['yolo', 'verbose', 'help', 'tui']) {
+    for (const flag of ['yolo', 'yolo-destructive', 'force-all-yolo', 'verbose', 'help', 'tui']) {
       const result = parseArgs([`--${flag}`, 'next']);
       expect(result.flags[flag]).toBe(true);
       // "next" should remain positional since the flag is boolean-only
@@ -81,6 +81,8 @@ describe('parseArgs', () => {
   it('exports a non-empty BOOLEAN_FLAGS set including key flags', () => {
     expect(BOOLEAN_FLAGS.size).toBeGreaterThan(0);
     expect(BOOLEAN_FLAGS.has('yolo')).toBe(true);
+    expect(BOOLEAN_FLAGS.has('yolo-destructive')).toBe(true);
+    expect(BOOLEAN_FLAGS.has('force-all-yolo')).toBe(true);
     expect(BOOLEAN_FLAGS.has('version')).toBe(true);
   });
 });

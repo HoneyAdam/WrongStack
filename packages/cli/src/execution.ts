@@ -25,6 +25,7 @@ import { createToolVisionAdapters } from '@wrongstack/runtime/vision';
 import { capabilitiesFor } from '@wrongstack/providers';
 import type { ReadlineInputReader } from './input-reader.js';
 import type { TerminalRenderer } from './renderer.js';
+import { contextOverflowHint } from './context-overflow-diagnostic.js';
 import { FleetStatusLine } from './fleet-statusline.js';
 import { type PredictLLMProvider, predictNextTasks } from './next-task-predictor.js';
 import { runRepl } from './repl.js';
@@ -285,6 +286,8 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
           if (err) {
             const tag = err.recoverable ? ' (recoverable)' : '';
             renderer.writeError(`Failed [${err.severity}]${tag}: ${err.describe()}`);
+            const hint = contextOverflowHint(err);
+            if (hint) renderer.writeWarning(hint);
           } else {
             renderer.writeError('Failed.');
           }

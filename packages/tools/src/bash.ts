@@ -46,6 +46,7 @@ export const bashTool: Tool<BashInput, BashOutput> = {
     '- Output may be truncated in the middle for very large results.',
   permission: 'confirm',
   mutating: true,
+  riskTier: 'destructive',
   // Trust rules match on the literal `command` string. Without subjectKey
   // the policy heuristic would have done the same here, but declaring it
   // explicitly removes the implicit cross-tool aliasing.

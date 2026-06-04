@@ -205,7 +205,7 @@ export class SddParallelRun {
       '── EXECUTION PROTOCOL ──',
       '• Execute the assigned SDD task end-to-end using multiple tool calls.',
       '• Mark the task [done] in the tracker when complete.',
-      '• Do not ask for confirmation.',
+      '• Do not ask before routine in-project tool use; if a permission gate appears, wait for that flow.',
       '• Keep output concise — summarize changes, do not transcribe files.',
     ].join('\n');
 

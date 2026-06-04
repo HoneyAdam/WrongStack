@@ -118,6 +118,8 @@ export interface SlashCommandContext {
   onDirector?: () => Promise<string | null>;
   /** Manage plugin config from the interactive slash menu. */
   onPlugin?: (args: string) => Promise<string>;
+  /** Set/query the effective context window for this session. */
+  onContextLimit?: (tokens?: number) => number;
   /** Toggle or query YOLO mode at runtime. Pass undefined to query, boolean to set. */
   onYolo?: (setTo?: boolean) => boolean;
   /** Toggle or query next-task prediction. Pass undefined to query, boolean to set. */

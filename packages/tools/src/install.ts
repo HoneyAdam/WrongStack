@@ -33,6 +33,7 @@ export const installTool: Tool<InstallInput, InstallOutput> = {
     'This tool has proper capability declaration and is heavily recommended in the security posture of the project.',
   permission: 'confirm',
   mutating: true,
+  riskTier: 'standard',
   timeoutMs: 120_000,
   capabilities: ['package.install', 'shell.restricted'],
   inputSchema: {

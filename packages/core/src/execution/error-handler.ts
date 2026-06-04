@@ -19,7 +19,7 @@ export interface RecoveryStrategy {
 }
 
 // Package-level compiled regex for hot paths — avoids repeated compilation.
-const CONTEXT_OVERFLOW_RE = /context|too long|tokens/i;
+const CONTEXT_OVERFLOW_RE = /context|too long|tokens|exceeds the context window|context window/i;
 
 /**
  * Builds the ordered list of recovery strategies used by DefaultErrorHandler.
@@ -35,7 +35,7 @@ export function buildRecoveryStrategies(opts?: {
       compactor: opts?.compactor,
       async attempt(err, ctx) {
         if (!(err instanceof ProviderError)) return null;
-        if (err.status !== 413 && !CONTEXT_OVERFLOW_RE.test(err.message)) return null;
+        if (err.status !== 413 && !isContextOverflowError(err)) return null;
 
         if (this.compactor) {
           try {
@@ -115,6 +115,15 @@ export function buildRecoveryStrategies(opts?: {
 
 export const DEFAULT_RECOVERY_STRATEGIES = buildRecoveryStrategies();
 
+function isContextOverflowError(err: ProviderError): boolean {
+  return CONTEXT_OVERFLOW_RE.test([
+    err.message,
+    err.body?.message,
+    err.body?.type,
+    err.body?.raw,
+  ].filter(Boolean).join('\n'));
+}
+
 export class DefaultErrorHandler implements ErrorHandler {
   private readonly strategies: RecoveryStrategy[];
 
@@ -150,7 +159,7 @@ export class DefaultErrorHandler implements ErrorHandler {
       if (err.status === 429) return { kind: 'rate_limit', retryable: true };
       if (err.status === 529) return { kind: 'overloaded', retryable: true };
       if (err.status >= 500) return { kind: 'server', retryable: true };
-      if (err.status === 413 || CONTEXT_OVERFLOW_RE.test(err.message)) {
+      if (err.status === 413 || isContextOverflowError(err)) {
         return { kind: 'context_overflow', retryable: false };
       }
       if (err.status >= 400) return { kind: 'client', retryable: false };

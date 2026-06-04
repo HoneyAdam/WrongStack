@@ -64,7 +64,7 @@ const GROUPS: readonly HintGroup[] = [
     items: [
       { key: '/mode', blurb: 'switch persona: code-reviewer, debugger, architect, tester, devops, …' },
       { key: '/model', blurb: 'two-step provider → model picker, hot-swap at runtime' },
-      { key: '/yolo on|off|toggle', blurb: 'auto-approve every tool call without restart' },
+      { key: '/yolo on|off|toggle', blurb: 'auto-approve normal project work without restart' },
       { key: '/context mode frugal|balanced|deep|archival', blurb: 'pick how aggressively history is trimmed' },
       { key: '/compact', blurb: 'manually compact the in-flight context window' },
       { key: '/plan show|add|start|done', blurb: 'strategic roadmap, survives /resume across sessions' },

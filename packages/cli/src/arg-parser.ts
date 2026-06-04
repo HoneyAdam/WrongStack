@@ -6,6 +6,7 @@
 /** Flags that are boolean-only (no value expected after them). */
 export const BOOLEAN_FLAGS = new Set([
   'yolo',
+  'yolo-destructive',
   'force-all-yolo',
   'verbose',
   'trace',

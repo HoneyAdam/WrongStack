@@ -13,6 +13,7 @@ describe('execTool', () => {
     expect(execTool.name).toBe('exec');
     expect(execTool.permission).toBe('confirm');
     expect(execTool.mutating).toBe(true);
+    expect(execTool.riskTier).toBe('standard');
   });
 
   it('rejects empty command', async () => {

@@ -161,7 +161,7 @@ export async function runProjectCheck(opts: {
 export interface LaunchModeChoices {
   /** TUI or plain REPL. */
   mode: 'tui' | 'repl';
-  /** Auto-approve every tool call (no permission prompts). */
+  /** Auto-approve normal project work; destructive-gated calls may still prompt. */
   yolo: boolean;
   /** Start with Director mode on (fleet manifest + scratchpad enabled). */
   director: boolean;
@@ -222,7 +222,7 @@ export async function runLaunchPrompts(opts: {
   } else {
     const answer = (
       await reader.readLine(
-        `  ${color.amber('?')} YOLO mode ${color.dim('(auto-approve every tool call)')} ${color.dim('[Y/n/q]')} `,
+        `  ${color.amber('?')} YOLO mode ${color.dim('(auto-approve normal project work)')} ${color.dim('[Y/n/q]')} `,
       )
     )
       .trim()
