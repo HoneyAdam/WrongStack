@@ -6,6 +6,7 @@ import type {
   Provider,
   ProviderConfig,
 } from '@wrongstack/core';
+import { mergeCustomModelDefs } from '@wrongstack/core';
 import { capabilitiesFor } from '@wrongstack/providers';
 
 export interface ResolveMaxContextInput {
@@ -55,11 +56,15 @@ export async function resolveRuntimeMaxContext(input: ResolveMaxContextInput): P
   // defaults.  This is the preferred path; for models with catalog data it
   // returns the authoritative limit (e.g. 1M for deepseek-v4-pro).
   if (input.modelsRegistry && !hasCustomBaseUrl) {
+    const mergedModels = mergeCustomModelDefs(
+      providerConfig?.customModels,
+      input.config.models,
+    );
     const caps = await capabilitiesFor(
       input.modelsRegistry,
       input.providerId,
       input.modelId,
-      input.config.models,
+      mergedModels,
     ).catch(() => undefined);
     const catalogMax = positiveNumber(caps?.maxContext);
     if (catalogMax) return catalogMax;

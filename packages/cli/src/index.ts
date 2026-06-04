@@ -30,6 +30,7 @@ import {
   createMcpControlTool,
   isStdinTTY,
   loadDirectorState,
+  mergeCustomModelDefs,
   writeErr,
   writeOut,
   // createSessionEventBridge, // real import after core declarations are rebuilt
@@ -203,9 +204,12 @@ export async function main(argv: string[]): Promise<number> {
   const modeId = activeMode?.id ?? 'default';
   const modePrompt = activeMode?.prompt ?? '';
   const [resolvedCaps, resolvedModel] = await Promise.all([
-    capabilitiesFor(modelsRegistry, provider.id, config.model, config.models).catch(
-      () => undefined,
-    ),
+    capabilitiesFor(
+      modelsRegistry,
+      provider.id,
+      config.model,
+      mergeCustomModelDefs(config.providers?.[provider.id]?.customModels, config.models),
+    ).catch(() => undefined),
     modelsRegistry.getModel(config.provider, config.model).catch(() => undefined),
   ]);
   const modelCapabilities = resolvedCaps

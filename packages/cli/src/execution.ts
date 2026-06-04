@@ -17,7 +17,7 @@ import type {
   SlashCommandRegistry,
   TokenCounter,
 } from '@wrongstack/core';
-import { color, writeOut } from '@wrongstack/core';
+import { color, mergeCustomModelDefs, writeOut } from '@wrongstack/core';
 import { persistAutonomySetting } from './settings-menu.js';
 import type { ProviderConfig, ResolvedProvider, WstackPaths } from '@wrongstack/core';
 import type { MCPRegistry } from '@wrongstack/mcp';
@@ -193,11 +193,16 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
     const visionAdapters = () => createToolVisionAdapters(agent.tools);
     const supportsVision = async (): Promise<boolean> => {
       try {
+        const providerConfig = config.providers?.[context.provider.id];
+        const mergedModels = mergeCustomModelDefs(
+          providerConfig?.customModels,
+          config.models,
+        );
         const caps = await capabilitiesFor(
           modelsRegistry,
           context.provider.id,
           context.model,
-          config.models,
+          mergedModels,
         );
         return caps.vision;
       } catch {

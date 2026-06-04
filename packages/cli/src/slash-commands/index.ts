@@ -253,6 +253,7 @@ import { buildInitCommand } from './init.js';
 import { buildMcpSlashCommand } from './mcp.js';
 import { buildMemoryCommand } from './memory.js';
 import { buildModeCommand } from './mode.js';
+import { buildModelsCommand } from './models.js';
 import { buildNextCommand } from './next.js';
 import { buildPluginCommand } from './plugin.js';
 import { buildSddCommand } from './sdd.js';
@@ -299,6 +300,7 @@ export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashComma
     buildWorktreeCommand(opts),
     buildSettingsCommand(opts),
     buildSetModelCommand(opts),
+    buildModelsCommand(opts),
     buildCollabCommand(opts),
     buildStatuslineCommand({
       cwd: opts.cwd,

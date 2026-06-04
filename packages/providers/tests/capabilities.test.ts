@@ -1,6 +1,6 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { DefaultModelsRegistry, type ModelsDevPayload } from '@wrongstack/core';
+import { DefaultModelsRegistry, type CustomModelDefinition, type ModelsDevPayload } from '@wrongstack/core';
 import { describe, expect, it } from 'vitest';
 import { capabilitiesFor } from '../src/capabilities.js';
 
@@ -89,5 +89,65 @@ describe('capabilitiesFor', () => {
     expect(c.vision).toBe(false);
     expect(c.cacheControl).toBe('native');
     expect(c.maxContext).toBe(100_000);
+  });
+
+  // ---- custom model overrides ----
+
+  it('custom model overrides maxContext on known model', async () => {
+    const custom: Record<string, CustomModelDefinition> = {
+      'claude-sonnet-4-6': { capabilities: { maxContext: 500_000 } },
+    };
+    const c = await capabilitiesFor(reg(), 'anthropic', 'claude-sonnet-4-6', custom);
+    expect(c.maxContext).toBe(500_000);
+    // Non-overridden fields still come from catalog
+    expect(c.tools).toBe(true);
+    expect(c.vision).toBe(true);
+    expect(c.cacheControl).toBe('native');
+  });
+
+  it('custom model overrides capabilities flags on known model', async () => {
+    const custom: Record<string, CustomModelDefinition> = {
+      'claude-sonnet-4-6': { capabilities: { tools: false, vision: false } },
+    };
+    const c = await capabilitiesFor(reg(), 'anthropic', 'claude-sonnet-4-6', custom);
+    expect(c.tools).toBe(false);
+    expect(c.vision).toBe(false);
+    expect(c.cacheControl).toBe('native');
+    expect(c.maxContext).toBe(200_000);
+  });
+
+  it('custom model defines capabilities for unknown model', async () => {
+    const custom: Record<string, CustomModelDefinition> = {
+      'local-llama': { capabilities: { maxContext: 8192, tools: true, vision: false } },
+    };
+    const c = await capabilitiesFor(reg(), 'anthropic', 'local-llama', custom);
+    expect(c.maxContext).toBe(8192);
+    expect(c.tools).toBe(true);
+    expect(c.vision).toBe(false);
+    // Falls back to family baseline for unset fields
+    expect(c.cacheControl).toBe('native');
+  });
+
+  it('custom model for unknown provider uses custom caps only', async () => {
+    const custom: Record<string, CustomModelDefinition> = {
+      'my-model': { capabilities: { maxContext: 32_000, tools: true, streaming: true } },
+    };
+    const c = await capabilitiesFor(reg(), 'ollama', 'my-model', custom);
+    expect(c.maxContext).toBe(32_000);
+    expect(c.tools).toBe(true);
+    expect(c.streaming).toBe(true);
+    // Unsupportable fields fall to unsupported family baseline
+    expect(c.vision).toBe(false);
+  });
+
+  it('custom model partial override merges with catalog', async () => {
+    const custom: Record<string, CustomModelDefinition> = {
+      'claude-sonnet-4-6': { capabilities: { streaming: false } },
+    };
+    const c = await capabilitiesFor(reg(), 'anthropic', 'claude-sonnet-4-6', custom);
+    expect(c.streaming).toBe(false);
+    // Rest unchanged
+    expect(c.tools).toBe(true);
+    expect(c.maxContext).toBe(200_000);
   });
 });
