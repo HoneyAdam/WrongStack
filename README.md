@@ -29,8 +29,9 @@ WrongStack drives **autonomous goal loops**, **parallel subagent fan-out**, **mu
 - 🤖 **A fleet, not a lone agent** — a 46-role roster + smart dispatcher fan out under a Director, each subagent fully isolated with its own budget and JSONL transcript.
 - 🧠 **Brain as an authority seam** — risky AutoPhase and Director choices can be auto-decided by policy, denied, or escalated to the human through the TUI.
 - ♾️ **Set a goal, walk away** — `/goal` locks in a contract and the eternal / parallel engines grind until it's _verifiably_ done.
-- 🔌 **~110 providers, zero lock-in** — Anthropic, OpenAI, Google, and ~100 OpenAI-compatible endpoints, catalog straight from models.dev.
-- 🔐 **Locked down by default** — encrypted secrets, SSRF guards on every redirect hop, fail-closed subagents, symlink containment, plugin trust tiers.
+- 🔌 **~110 providers, zero lock-in** — Anthropic, OpenAI, Google, and ~100 OpenAI-compatible endpoints, catalog refreshed from models.dev at boot.
+- 🔎 **Fast model switching** — the TUI `/model` picker supports type-to-search filtering with scroll-window navigation, and `wstack models` supports search + pagination.
+- 🔐 **Locked down by default** — encrypted secrets, SSRF guards on every redirect hop, fail-closed subagents, symlink containment, plugin trust tiers, WebUI redaction, and cloud-sync path guards.
 - 🪶 **A 505-line kernel** — `Container · Pipeline · EventBus · RunController`. Everything above it is swappable; `--no-features` boots it fully offline.
 
 ## Requirements
@@ -248,7 +249,7 @@ Seven plugins ship **enabled by default** and load before any user plugin — th
 | `wstack-plan` | `/plan show\|add\|start\|done\|remove\|clear` | Per-session strategic roadmap (chip in the TUI status bar) |
 | `wstack-observability` | `/metrics`, `/health` | Prometheus metrics + health snapshot |
 
-**Cloud sync** (`/sync`) pushes/pulls user-selected `~/.wrongstack` categories — `settings`, `skills`, `prompts`, `memory`, `history` — to a private GitHub repo over the REST API. State lives in `~/.wrongstack/sync.json` (token encrypted) + `sync-state.json`; pick categories with `/sync categories`.
+**Cloud sync** (`/sync`) pushes/pulls user-selected `~/.wrongstack` categories — `settings`, `skills`, `prompts`, `memory`, `history` — to a private GitHub repo over the REST API. State lives in `~/.wrongstack/sync.json` (token encrypted) + `sync-state.json`; pick categories with `/sync categories`. Pulls validate every remote tree entry and reject traversal (`..`, absolute paths, or paths resolving outside the category root); file-backed categories such as `settings` also reject nested paths.
 
 Manage from CLI or REPL:
 ```bash
@@ -271,7 +272,7 @@ wstack plugin remove telegram
 | `google` | Gemini `:streamGenerateContent?alt=sse` | Google AI Studio |
 | `unsupported` | Needs plugin | Cohere, Bedrock, Vertex (non-Anthropic), Azure |
 
-All four supported families implement **real streaming** end-to-end: `provider.stream()` is the source of truth, `complete()` is `aggregateStream(stream(...))`. Mid-stream aborts preserve any partial assistant text already received. Catalog comes from `models.dev/api.json` — no hardcoded pricing, no hardcoded model names.
+All four supported families implement **real streaming** end-to-end: `provider.stream()` is the source of truth, `complete()` is `aggregateStream(stream(...))`. Mid-stream aborts preserve any partial assistant text already received. Catalog comes from `models.dev/api.json` — no hardcoded pricing, no hardcoded model names — and is refreshed synchronously on boot so provider resolution, model capabilities, and the TUI picker see fresh data before the app starts. The refresh has a 15-second timeout and falls back to cache with a warning; use `--no-models-refresh` for offline or CI runs.
 
 **Vision MCP adapters**: text-only models work with images via MCP server adapters:
 ```bash
@@ -325,6 +326,8 @@ Four-layer observability:
 - **SSRF guard everywhere**: the `fetch` tool and the builtin `search` tool resolve + re-validate every redirect hop against private/IMDS ranges; MCP transport URL validation blocks IPv4 **and** IPv6 IMDS (`fd00:ec2::254`, link-local `fe80::/10`)
 - **Fail-closed subagent guard**: non-interactive subagents deny `bash`/`write`/`edit`/`replace`/`exec`/`patch`/`install`/`scaffold` and all `mcp__*` tools — prompt-injected delegates can't mutate files the user never confirmed
 - **Session-log scrubbing**: user- and model-turn text is scrubbed before it hits the `0o600` JSONL (and before it rides along in cloud sync), not just tool output
+- **WebUI broadcast redaction**: `tool.started` and `tool.executed` payloads are scrubbed before WebSocket broadcast, so API keys and bearer tokens don't leak to connected tabs
+- **Cloud-sync path containment**: pulled remote entries are rejected if they traverse outside their category root; file-backed categories reject nested paths
 - **Symlink containment**: `read`/`edit`/`write` resolve symlinks and re-check the target is inside the project root
 - **Plugin trust tiers**: only first-party (`official`) plugins may register bare slash-command names, override builtins, or `wrap`/`unregister` tools they don't own
 - Threat model and adversary trust assumptions in [`SECURITY.md`](SECURITY.md); audit findings and verification in [`security-report/`](security-report/)
@@ -383,7 +386,7 @@ Add a key later: `wrongstack auth groq` (prompts, encrypts, stores).
 
 ### Switching providers at runtime
 
-In the **TUI**, `/model` opens a two-step provider → model picker with **type-to-search filtering** in step 2 — no restart needed. In the plain REPL, relaunch with `--provider` / `--model`:
+In the **TUI**, `/model` opens a two-step provider → model picker with **type-to-search filtering** in step 2 — no restart needed. After picking a provider, type printable characters to filter models live, use Backspace to edit the filter, and navigate long lists through a centered 10-row window with `▲ N above` / `▼ N below` indicators. In the plain REPL, relaunch with `--provider` / `--model`:
 
 ```bash
 wrongstack --provider openai --model gpt-5.5
@@ -483,7 +486,7 @@ wrongstack config         # Show / edit config
 wrongstack tools          # List registered tools
 wrongstack skills         # List discovered skills
 wrongstack providers      # ~110 providers grouped by wire family
-wrongstack models [prov] [--search <term>] [--page N] [--per-page N]
+wrongstack models [prov] [--search <term>] [--page N] [--per-page N]  # searchable, paginated model list
 wrongstack mcp            # Inspect connected MCP servers
 wrongstack plugin         # Plugin manifest commands
 wrongstack diag           # Diagnostics: provider, tokens, paths
