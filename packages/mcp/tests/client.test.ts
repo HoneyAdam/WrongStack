@@ -1,5 +1,20 @@
 import { describe, expect, it, vi } from 'vitest';
-import { MCPClient, type MCPTool } from '../src/client.js';
+import { MCPClient, type MCPTool, quoteWindowsArg } from '../src/client.js';
+
+describe('quoteWindowsArg', () => {
+  it('leaves simple tokens untouched', () => {
+    expect(quoteWindowsArg('npx')).toBe('npx');
+    expect(quoteWindowsArg('-y')).toBe('-y');
+    expect(quoteWindowsArg('@scope/pkg')).toBe('@scope/pkg');
+    expect(quoteWindowsArg('C:\\path\\no-space')).toBe('C:\\path\\no-space');
+  });
+  it('wraps tokens with whitespace in double quotes', () => {
+    expect(quoteWindowsArg('C:\\Program Files\\x')).toBe('"C:\\Program Files\\x"');
+  });
+  it('escapes embedded double quotes as cmd.exe doubles them', () => {
+    expect(quoteWindowsArg('a "b" c')).toBe('"a ""b"" c"');
+  });
+});
 
 describe('MCPClient', () => {
   it('starts in idle state', () => {

@@ -164,10 +164,26 @@ export class MCPClient {
     // attempt would corrupt JSON-RPC parsing on the new stream.
     this.rxBuffer = '';
 
-    const child = spawn(this.opts.command, this.opts.args ?? [], {
-      env: buildChildEnv({ extra: this.opts.env }),
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    // On Windows, MCP servers are usually launched via `npx`/`npm`/`uvx`,
+    // which resolve to `.cmd` shims. Since the CVE-2024-27980 fix Node refuses
+    // to spawn `.cmd`/`.bat` without a shell (raw spawn throws ENOENT), so the
+    // whole npx-based preset catalog is unusable without a shell. We pass the
+    // full command line as a single string (with each token cmd.exe-quoted) and
+    // `shell: true` — an empty args array avoids the DEP0190 warning that
+    // `shell:true` + an args array triggers. Server command+args come from
+    // config (admin-controlled), not the model, so shell use is not an
+    // injection vector here.
+    const isWin = process.platform === 'win32';
+    const rawArgs = this.opts.args ?? [];
+    const spawnEnv = buildChildEnv({ extra: this.opts.env });
+    const stdio: ['pipe', 'pipe', 'pipe'] = ['pipe', 'pipe', 'pipe'];
+    const child = isWin
+      ? spawn([this.opts.command, ...rawArgs].map(quoteWindowsArg).join(' '), {
+          env: spawnEnv,
+          stdio,
+          shell: true,
+        })
+      : spawn(this.opts.command, rawArgs, { env: spawnEnv, stdio });
     this.child = child;
 
     child.stdout?.on('data', (chunk: Buffer) => this.onData(chunk.toString()));
@@ -581,4 +597,15 @@ export class MCPClient {
   removeToolsChangedListener(listener: ToolsChangedListener): void {
     this.toolsChangedListeners.delete(listener);
   }
+}
+
+/**
+ * Quote a single argument for `cmd.exe` when spawning with `shell: true` on
+ * Windows. Only args containing whitespace or quotes need wrapping; inside
+ * double quotes cmd.exe escapes a literal `"` as `""`. Backslashes are literal
+ * inside cmd quotes, so paths like `C:\Program Files\x` pass through unharmed.
+ */
+export function quoteWindowsArg(arg: string): string {
+  if (!/[\s"]/.test(arg)) return arg;
+  return `"${arg.replace(/"/g, '""')}"`;
 }
