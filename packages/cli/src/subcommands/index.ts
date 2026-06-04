@@ -25,6 +25,12 @@ export interface SubcommandDeps {
   cwd: string;
   projectRoot: string;
   userHome: string;
+  /**
+   * Parsed top-level CLI flags (e.g. `--yolo`, `--tools`). The dispatcher
+   * strips flags from the positional args, so handlers that need them (e.g.
+   * `mcp serve --yolo`) read them here.
+   */
+  flags?: Record<string, string | boolean>;
 }
 
 import { acpCmd } from './handlers/acp.js';

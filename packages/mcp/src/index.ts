@@ -8,6 +8,18 @@ export {
 } from './client.js';
 export { wrapMCPTool } from './wrap-tool.js';
 export { MCPRegistry, type MCPRegistryOptions } from './registry.js';
+export {
+  MCPServer,
+  serveStdio,
+  toContentBlocks,
+  type MCPServerTool,
+  type MCPServerToolHost,
+  type MCPServerCallResult,
+  type MCPServerOptions,
+  type MCPServerLogger,
+  type ServeStdioHandle,
+  type ServeStdioOptions,
+} from './server.js';
 export { MCP_CONSTANTS } from './constants.js';
 export {
   SSETransport,

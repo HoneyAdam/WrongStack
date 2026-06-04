@@ -194,7 +194,9 @@ A **CollabSession** (triggered by `/collab <paths>` or `collab_debug` tool) runs
 
 ### MCP integration
 
-`MCPClient` speaks JSON-RPC 2.0 over three transports: `stdio` (child process), `sse` (server-sent events), `streamable-http` (NDJSON). `MCPRegistry` manages the fleet with exponential backoff + jitter on reconnect (cap 5 cycles, then `failed`). Tools get namespace prefix `mcp__<serverName>__<toolName>`.
+**Client** (consume external servers): `MCPClient` speaks JSON-RPC 2.0 over three transports: `stdio` (child process), `sse` (server-sent events), `streamable-http` (NDJSON). `MCPRegistry` manages the fleet with exponential backoff + jitter on reconnect (cap 5 cycles, then `failed`). Tools get namespace prefix `mcp__<serverName>__<toolName>`. Enable/disable/restart via `/mcp` (REPL) or `wstack mcp` (CLI), persisted to `mcpServers` in config.
+
+**Server** (expose WrongStack outward): `MCPServer` + `serveStdio` (`packages/mcp/src/server.ts`) make WrongStack itself an MCP server — `wstack mcp serve` exposes the built-in tool registry over stdio JSON-RPC. Default policy is read-only (`AutoApprovePermissionPolicy`); `--yolo` exposes write/exec tools, `--tools a,b,c` whitelists. CLI wiring in `packages/cli/src/mcp-serve.ts`. See `docs/mcp-server.md`.
 
 ### Compactors
 

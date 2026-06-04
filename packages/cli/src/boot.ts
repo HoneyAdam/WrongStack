@@ -194,6 +194,7 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
       cwd,
       projectRoot,
       userHome,
+      flags,
     });
     await reader.close();
     return code;

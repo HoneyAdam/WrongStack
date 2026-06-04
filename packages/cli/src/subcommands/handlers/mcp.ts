@@ -1,12 +1,19 @@
 import * as fs from 'node:fs/promises';
 import { atomicWrite } from '@wrongstack/core';
 import { allServers } from '@wrongstack/core/infrastructure';
+import { serveMcpStdio } from '../../mcp-serve.js';
 import type { SubcommandDeps, SubcommandHandler } from '../index.js';
 
 const BUILT_IN_MCP = allServers();
 
 export const mcpCmd: SubcommandHandler = async (args, deps) => {
   const sub = args[0];
+  if (sub === 'serve') {
+    // Run WrongStack as an MCP server over stdio. Blocks until stdin closes.
+    // Flags (--yolo/--tools) come via deps.flags — the dispatcher strips them
+    // from positional args.
+    return serveMcpStdio(deps);
+  }
   if (!sub || sub === 'list') {
     const servers = deps.config.mcpServers ?? {};
     if (Object.keys(servers).length === 0) {
