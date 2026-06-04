@@ -138,6 +138,13 @@ export function flagsToConfigPatch(flags: Record<string, string | boolean>): Par
   const patch: Partial<Config> = {};
   if (typeof flags['provider'] === 'string') patch.provider = flags['provider'];
   if (typeof flags['model'] === 'string') patch.model = flags['model'];
+  if (typeof flags['fallback-model'] === 'string') {
+    const list = flags['fallback-model']
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (list.length > 0) patch.fallbackModels = list;
+  }
   if (typeof flags['cwd'] === 'string') patch.cwd = flags['cwd'];
   if (typeof flags['log-level'] === 'string') {
     patch.log = { level: flags['log-level'] as Config['log']['level'] };

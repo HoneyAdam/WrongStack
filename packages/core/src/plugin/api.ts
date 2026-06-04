@@ -1,4 +1,5 @@
 import { ExtensionRegistry } from '../extension/registry.js';
+import type { HookRegistry } from '../hooks/registry.js';
 import type { Container } from '../kernel/container.js';
 import type { EventBus, EventName, Listener } from '../kernel/events.js';
 import type { Pipeline } from '../kernel/pipeline.js';
@@ -19,6 +20,7 @@ import type {
   SlashCommandRegistryView,
   ToolRegistryView,
 } from '../types/plugin.js';
+import type { HookEvent, HookMatcher, InProcessHook } from '../types/hooks.js';
 import type { SystemPromptContributor } from '../types/system-prompt-contributor.js';
 import type { Tool } from '../types/tool.js';
 
@@ -41,6 +43,11 @@ export interface PluginAPIInit {
    * instances here to hook into agent lifecycle events.
    */
   extensions?: ExtensionRegistry;
+  /**
+   * The host's lifecycle hook registry. When provided, `api.registerHook`
+   * adds in-process hooks here. When absent, `registerHook` is a noop.
+   */
+  hookRegistry?: HookRegistry;
   /**
    * The active session writer. Plugins append custom events here.
    * When not provided, a noop writer is used.
@@ -85,10 +92,14 @@ export class DefaultPluginAPI implements PluginAPI {
   private readonly configStore:
     | { watch(cb: (next: unknown, prev: unknown) => void): () => void }
     | undefined;
+  private readonly hookRegistry: HookRegistry | undefined;
+  private readonly ownerName: string;
   private readonly pluginCleanupFns: Array<() => void> = [];
 
   constructor(init: PluginAPIInit) {
     const owner = init.ownerName;
+    this.ownerName = owner;
+    this.hookRegistry = init.hookRegistry;
     this.container = init.container;
     this.events = init.events;
     this.config = init.config;
@@ -203,6 +214,17 @@ export class DefaultPluginAPI implements PluginAPI {
 
   registerSystemPromptContributor(c: SystemPromptContributor): () => void {
     return this.extensions.registerSystemPromptContributor(c);
+  }
+
+  registerHook(
+    event: HookEvent,
+    matcher: HookMatcher | undefined,
+    hook: InProcessHook,
+  ): () => void {
+    if (!this.hookRegistry) return () => {};
+    const off = this.hookRegistry.registerInProcess(event, matcher, hook, this.ownerName);
+    this.pluginCleanupFns.push(off);
+    return off;
   }
 }
 

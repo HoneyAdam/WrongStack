@@ -1,6 +1,6 @@
 # WrongStack Architecture
 
-This document is a repository-level architecture map for WrongStack as scanned on 2026-06-03 (version 0.34.0). It is written for maintainers, plugin authors, and contributors who need to understand how the monorepo fits together before changing runtime behavior.
+This document is a repository-level architecture map for WrongStack as reviewed on 2026-06-04 (monorepo version 0.61.0). It is written for maintainers, plugin authors, and contributors who need to understand how the monorepo fits together before changing runtime behavior. Counts and package internals can drift; prefer source and tests when a detail disagrees.
 
 WrongStack is a TypeScript/Node.js agent platform. The user-facing product is a terminal AI coding agent, but the implementation is deliberately split into reusable packages: a small core runtime, provider adapters, built-in tools, MCP integration, terminal and browser UIs, and an optional multi-agent director layer.
 
@@ -82,23 +82,23 @@ The workspace is managed by `pnpm`, uses TypeScript 5.9, builds packages with `t
 
 ### Package Inventory
 
-The scan found the following package sizes:
+The workspace currently contains these package-level responsibilities. File counts are intentionally omitted here because they drift quickly; use the source tree or package-specific tests for current size.
 
-| Package | Source files | Test files | Primary responsibility |
-|---|---:|---:|---|
-| `@wrongstack/core` | ~241 | ~157 | Agent runtime, DI, storage, security, security-scanner, multi-agent coordination, observability, autophase, worktree, replay, built-in plugins, skills. |
-| `@wrongstack/cli` | 92 | 66 | CLI boot, runtime assembly, REPL, slash commands, plugin management, WebUI launcher. |
-| `@wrongstack/tools` | 58 | 43 | Built-in tools and meta-tools. |
-| `@wrongstack/webui` | 21 | 11 | Browser UI and standalone WebSocket backend. |
-| `@wrongstack/plug-lsp` | 43 | 15 | LSP runtime, tools, slash commands, server lifecycle. |
-| `@wrongstack/providers` | 22 | 18 | Provider adapters, streaming parsers, tool wire conversions. |
-| `@wrongstack/plugins` | 11 | 12 | Bundled plugin library: auto-doc, cost-tracker, cron, file-watcher, git-autocommit, json-path, semver-bump, shell-check, template-engine, web-search. |
-| `@wrongstack/tui` | 15 | 33 | Ink terminal UI components and state rendering. |
-| `@wrongstack/mcp` | 8 | 5 | MCP client, registry, transports, wrapping. |
-| `@wrongstack/acp` | 10 | 1 | ACP server transport, protocol handler, ACP subagent runner. |
-| `@wrongstack/runtime` | 6 | 6 | Default runtime implementations, host composition, vision, clipboard. |
-| `@wrongstack/telegram` | 6 | 5 | Telegram bridge plugin with bot, tools, and slash commands. |
-| `@wrongstack/skills` | 0 | 0 | Umbrella for skill subpackages published as separate npm packages (git-flow, test-runner, etc.). |
+| Package | Primary responsibility |
+|---|---|
+| `@wrongstack/core` | Agent runtime, DI, storage, security, security-scanner, multi-agent coordination, observability, autophase, worktree, replay, built-in plugins, skills. |
+| `@wrongstack/cli` | CLI boot, runtime assembly, REPL, slash commands, plugin management, WebUI launcher. |
+| `@wrongstack/tools` | Built-in tools and meta-tools. |
+| `@wrongstack/webui` | Browser UI and WebSocket backend. |
+| `@wrongstack/plug-lsp` | LSP runtime, tools, slash commands, server lifecycle. |
+| `@wrongstack/providers` | Provider adapters, streaming parsers, tool wire conversions. |
+| `@wrongstack/plugins` | Bundled plugin library: auto-doc, cost-tracker, cron, file-watcher, git-autocommit, json-path, semver-bump, shell-check, template-engine, web-search. |
+| `@wrongstack/tui` | Ink terminal UI components and state rendering. |
+| `@wrongstack/mcp` | MCP client, registry, transports, wrapping. |
+| `@wrongstack/acp` | ACP server transport, protocol handler, ACP subagent runner. |
+| `@wrongstack/runtime` | Default runtime implementations, host composition, vision, clipboard. |
+| `@wrongstack/telegram` | Telegram bridge plugin with bot, tools, and slash commands. |
+| `@wrongstack/skills` | Umbrella for skill subpackages published as separate npm packages. |
 
 ## Dependency Topology
 
@@ -174,6 +174,7 @@ packages/core/src/
   security-scanner/ Security scanner: orchestrator, detector, scanner, gitignore updater, report generator, skill generator.
   registry/        Tool, provider, and slash command registries.
   plugin/          Plugin API and loader.
+  hooks/           Lifecycle hooks: HookRegistry, HookRunner, shell-executor (PreToolUse/PostToolUse/UserPromptSubmit/SessionStart/Stop; shell + in-process). See docs/hooks.md.
   extension/       Agent lifecycle extension registry and extension points (BeforeRun, AfterRun, BeforeIteration, AfterIteration, OnError, wrapProviderRunner, beforeToolExecution, afterToolExecution).
   coordination/    Multi-agent coordinator, Director, FleetBus, FleetManager, delegate tool, bridge, budgets, transport, collab-debug, collab-bus, dispatcher, auto-extend, parallel-eternal-engine, agents (9-phase system), agent-subagent-runner, large-answer-store, subagent-nicknames.
   models/          models.dev registry, model selection (llm-selector), mode-store.
@@ -191,34 +192,36 @@ packages/core/src/
   tools/           Core-built tools: mcp-control (MCP runtime control via tools).
 ```
 
-### Core Area Sizes
+### Core Area Map
 
-| Area | Files | Notes |
-|---|---:|---|
-| `types` | 40 | Public contracts. Keep these stable and additive when possible. |
-| `coordination` | 38 | Multi-agent orchestration: director, bridge, fleet, fleet-manager, budgets, transport, collab-debug, collab-bus, dispatcher, auto-extend, parallel-eternal-engine, agents (9-phase), agent-subagent-runner, large-answer-store, subagent-nicknames. |
-| `storage` | 24 | JSONL sessions, config, memory, checkpoints, recovery, goal store, queue store, session rewind, cloud-sync, annotations, prompt-store, replay-log, session-analyzer, session-event-bridge, tool-audit-log, plan-templates. |
-| `utils` | 18 | Shared helpers: paths, JSON, glob, diff, color, atomic write, serializers, regex guard, token estimate, json-schema validation, message invariants, newline normalization, todos format, child-env, merge-models-payload. |
-| `execution` | 16 | Tool execution, retry, compaction (intelligent/selective/auto), skill loading, autonomous runner, error handler, auto-compaction middleware, eternal-autonomy, goal-preamble, autonomy-prompt-contributor, parallel-eternal-engine. |
-| `sdd` | 15 | Parser, generator, flow, tracker, graph store, visualizer, spec store, builder, versioning, templates, auto-executor, critical path, task decomposer, parallel run. |
-| `core` | 14 | Agent loop, context, conversation state, input builder, run env, streaming response, provider runner, iteration limit, continue-to-next-iteration, system prompt builder, /btw steering, modes. |
-| `observability` | 9 | Metrics/traces/health integrations, event bridge, OTLP traces/metrics, Prometheus. |
-| `security-scanner` | 9 | Orchestrator, detector, scanner, gitignore updater, report generator, skill generator, slash-command, types. |
-| `autophase` | 8 | Auto-phase planner, runner, orchestrator, checkpoint, phase-store, phase-graph-builder, types. |
-| `plugins` | 7 | Built-in core plugins: git, observability, plan, prompts, security, skills, sync. |
-| `kernel` | 6 | Low-level primitives: container, pipeline, events, run controller, tokens, index. |
-| `infrastructure` | 6 | Logger, token counter, path resolver, context manager, MCP presets. |
-| `security` | 6 | Vault, scrubber, permission policy, config secrets, tool capabilities. |
-| `models` | 4 | Model registry, LLM selector, mode store. |
-| `skills` | 4 | Skill loading helpers and built-in skill plumbing. |
-| `registry` | 3 | Tool, provider, slash-command registries. |
-| `extension` | 3 | Extension registry, extension points, index. |
-| `replay` | 2 | Session replay via replay-provider-runner and hash. |
-| `worktree` | 2 | Git worktree manager for parallel agent workspaces. |
-| `tools` | 2 | Core-built tools: mcp-control. |
-| `plugin` | 2 | Plugin API and loader. |
-| `middleware` | 1 | Koa-style middleware: collab-pause. |
-| `defaults` | 1 | Backward-compatible re-export barrel. |
+The core area changes frequently, so this table tracks responsibilities rather than file counts.
+
+| Area | Notes |
+|---|---|
+| `types` | Public contracts. Keep these stable and additive when possible. |
+| `coordination` | Multi-agent orchestration: director, bridge, fleet, fleet-manager, budgets, transport, collab-debug, collab-bus, dispatcher, auto-extend, parallel-eternal-engine, agents, agent-subagent-runner, large-answer-store, subagent-nicknames. |
+| `storage` | JSONL sessions, config, memory, checkpoints, recovery, goal store, queue store, session rewind, cloud-sync, annotations, prompt-store, replay-log, session-analyzer, session-event-bridge, tool-audit-log, plan-templates. |
+| `utils` | Shared helpers: paths, JSON, glob, diff, color, atomic write, serializers, regex guard, token estimate, json-schema validation, message invariants, newline normalization, todos format, child-env, merge-models-payload. |
+| `execution` | Tool execution, retry, compaction, skill loading, autonomous runner, error handler, auto-compaction middleware, eternal-autonomy, goal-preamble, autonomy-prompt-contributor, parallel-eternal-engine. |
+| `sdd` | Parser, generator, flow, tracker, graph store, visualizer, spec store, builder, versioning, templates, auto-executor, critical path, task decomposer, parallel run. |
+| `core` | Agent loop, context, conversation state, input builder, run env, streaming response, provider runner, iteration limit, continue-to-next-iteration, system prompt builder, /btw steering, modes. |
+| `observability` | Metrics/traces/health integrations, event bridge, OTLP traces/metrics, Prometheus. |
+| `security-scanner` | Orchestrator, detector, scanner, gitignore updater, report generator, skill generator, slash-command, types. |
+| `autophase` | Auto-phase planner, runner, orchestrator, checkpoint, phase-store, phase-graph-builder, types. |
+| `plugins` | Built-in core plugins: git, observability, plan, prompts, security, skills, sync. |
+| `kernel` | Low-level primitives: container, pipeline, events, run controller, tokens, index. |
+| `infrastructure` | Logger, token counter, path resolver, context manager, MCP presets. |
+| `security` | Vault, scrubber, permission policy, config secrets, tool capabilities. |
+| `models` | Model registry, LLM selector, mode store. |
+| `skills` | Skill loading helpers and built-in skill plumbing. |
+| `registry` | Tool, provider, slash-command registries. |
+| `extension` | Extension registry, extension points, index. |
+| `replay` | Session replay via replay-provider-runner and hash. |
+| `worktree` | Git worktree manager for parallel agent workspaces. |
+| `tools` | Core-built tools such as mcp-control. |
+| `plugin` | Plugin API and loader. |
+| `middleware` | Koa-style middleware such as collab-pause. |
+| `defaults` | Backward-compatible re-export barrel. |
 
 ## Kernel Primitives
 
@@ -245,7 +248,7 @@ The standard tokens are:
 Logger, TokenCounter, SessionStore, MemoryStore, PermissionPolicy, Compactor,
 PathResolver, ConfigLoader, ConfigStore, Renderer, InputReader, ErrorHandler,
 RetryPolicy, SkillLoader, SystemPromptBuilder, SecretScrubber, ModelsRegistry,
-ModeStore, ProviderRunner, WorktreeManager
+ModeStore, ProviderRunner, WorktreeManager, BrainArbiter
 ```
 
 ### Pipeline
@@ -564,7 +567,7 @@ Important provider internals:
 
 ## Tool System
 
-Built-in tools live in `@wrongstack/tools`. Each tool implements the core `Tool` interface and declares a JSON schema, permission level, mutating flag, and execution function.
+Built-in tools live in `@wrongstack/tools`. Each tool implements the core `Tool` interface and declares a JSON schema, permission level, mutating flag, optional risk tier, optional capabilities, and an `execute` or `executeStream` function.
 
 ### Built-in Tool Catalog
 

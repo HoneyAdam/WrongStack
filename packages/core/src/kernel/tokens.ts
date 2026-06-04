@@ -1,4 +1,5 @@
 import type { BrainArbiter } from '../coordination/brain.js';
+import type { HookRegistry } from '../hooks/registry.js';
 import type { Compactor } from '../types/compactor.js';
 import type { ConfigLoader, ConfigStore } from '../types/config.js';
 import type { ErrorHandler } from '../types/error-handler.js';
@@ -47,4 +48,6 @@ export const TOKENS = {
   WorktreeManager: t<WorktreeManager>('WorktreeManager'),
   /** Optional global Brain arbiter for policy/decision escalation. */
   BrainArbiter: t<BrainArbiter>('BrainArbiter'),
+  /** Lifecycle hook registry (shell + in-process hooks). */
+  HookRegistry: t<HookRegistry>('HookRegistry'),
 } as const;

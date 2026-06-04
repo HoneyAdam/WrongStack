@@ -33,6 +33,7 @@ export const BOOLEAN_FLAGS = new Set([
   'eternal',
   'no-hints',
   'hints',
+  'no-hooks',
 ]);
 
 // ------------------------------------------------------------------ main args

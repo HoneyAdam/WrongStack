@@ -1,4 +1,5 @@
 import type { ContextWindowModeId } from './context-window.js';
+import type { HookEvent, ShellHook } from './hooks.js';
 import type { WireFamily } from './models-registry.js';
 import type { Capabilities } from './provider.js';
 import type { Permission } from './tool.js';
@@ -248,6 +249,21 @@ export interface Config {
   context: ContextConfig;
   tools: ToolsConfig;
   mcpServers?: Record<string, MCPServerConfig>;
+  /**
+   * Ordered list of fallback model references tried, in order, when the
+   * primary model is overloaded (HTTP 429/529/5xx) and its own retries are
+   * exhausted. Each entry is a model reference: a bare model id (same
+   * provider), `provider/model`, or `provider model`. The primary is always
+   * re-tried first at the start of every user turn. See `createFallbackModelExtension`.
+   */
+  fallbackModels?: string[];
+  /**
+   * Lifecycle shell hooks, keyed by event. Each command receives the hook
+   * `HookInput` JSON on stdin; a JSON `HookOutcome` on stdout (and exit code 2
+   * = block) steers the agent. In-process hooks are registered separately via
+   * the plugin API. Disabled entirely under `--bare` / `--no-hooks`.
+   */
+  hooks?: Partial<Record<HookEvent, ShellHook[]>>;
   plugins?: (string | PluginConfig)[];
   log: LogConfig;
   features: FeaturesConfig;

@@ -68,6 +68,19 @@ export interface EventMap {
     description: string;
     retryable: boolean;
   };
+  /**
+   * Fired by the fallback-model extension when the primary model is overloaded
+   * (after its own retries are exhausted) and the agent switches to the next
+   * model in the configured `fallbackModels` chain. `providerSwitched` is true
+   * when the fallback also changed the active provider (cross-provider). UIs
+   * render this as a notice: "⚠ opus overloaded — falling back to sonnet".
+   */
+  'provider.fallback': {
+    from: { providerId: string; model: string };
+    to: { providerId: string; model: string };
+    status: number;
+    providerSwitched: boolean;
+  };
   'tool.started': { name: string; id: string; input?: unknown };
   /**
    * Fired for each ToolProgressEvent yielded by `Tool.executeStream`. UIs

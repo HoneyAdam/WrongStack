@@ -48,6 +48,7 @@ TOKENS.PermissionPolicy · TOKENS.Compactor · TOKENS.PathResolver · TOKENS.Con
 TOKENS.ConfigStore · TOKENS.Renderer · TOKENS.InputReader · TOKENS.ErrorHandler
 TOKENS.RetryPolicy · TOKENS.SkillLoader · TOKENS.SystemPromptBuilder · TOKENS.SecretScrubber
 TOKENS.ModelsRegistry · TOKENS.ModeStore · TOKENS.ProviderRunner · TOKENS.WorktreeManager
+TOKENS.BrainArbiter · TOKENS.HookRegistry
 ```
 
 Plugins rebind any token before `Agent.run`. No service-locator pattern — every dependency is explicit.
@@ -78,7 +79,7 @@ const mw: Middleware<Request> = {
 |---|---|
 | **Session** | `session.started`, `session.ended`, `session.damaged`, `session.rewound` |
 | **Iteration** | `iteration.started`, `iteration.completed`, `iteration.limit_reached` |
-| **Provider** | `provider.response`, `provider.text_delta`, `provider.thinking_delta`, `provider.tool_use_start`, `provider.tool_use_stop`, `provider.retry`, `provider.error`, `provider.trust.persisted` |
+| **Provider** | `provider.response`, `provider.text_delta`, `provider.thinking_delta`, `provider.tool_use_start`, `provider.tool_use_stop`, `provider.retry`, `provider.error`, `provider.fallback`, `provider.trust.persisted` |
 | **Tool** | `tool.started`, `tool.progress`, `tool.confirm_needed`, `tool.executed` |
 | **Context** | `ctx.pct`, `token.threshold`, `budget.threshold_reached`, `context.repaired` |
 | **Compaction** | `compaction.fired`, `compaction.failed` |
@@ -133,6 +134,14 @@ interface Tool<I, O> {
 ```
 
 `executeStream` yields `log`, `partial_output`, `metric`, `file_changed`, `warning` events, then terminal `{ type: 'final', output }`. The executor publishes each as `tool.progress` on the EventBus. Tool execution strategies: `parallel` (all at once), `sequential`, or `smart` (auto, defaults to parallel for independent tools).
+
+### Lifecycle hooks
+
+User/plugin-defined hooks that **steer** (not just observe — the EventBus can't block). Core lives in `packages/core/src/hooks/` (`HookRegistry`, `HookRunner`, `runShellHook`); pure types in `types/hooks.ts`; DI token `TOKENS.HookRegistry`. Events: `PreToolUse` / `PostToolUse` (wired in `ToolExecutor` — block, rewrite input, append context), `UserPromptSubmit` (a `userInput` pipeline middleware — block via thrown `HookBlockedError`, inject context), `SessionStart` / `Stop` (an `AgentExtension`). Two transports: **shell** (`config.hooks`, JSON over stdin, exit 2 = block) and **in-process** (`api.registerHook(event, matcher, fn)`). CLI wiring in `packages/cli/src/hooks-wiring.ts` + boot in `index.ts`; gated off by `--no-hooks`. See `docs/hooks.md`.
+
+### Fallback model
+
+`config.fallbackModels` (CLI `--fallback-model a,b,c`) — ordered chain tried when the primary is overloaded (429/529/5xx) after its own retries. Implemented as an `AgentExtension` (`packages/cli/src/fallback-model.ts`) that wraps the provider runner: walks the chain within a single provider call (so it doesn't burn the loop's `recoveryRetries`), cross-provider via `buildProviderForId` (shared with `/model`), and `beforeRun` restores the primary each turn. Emits `provider.fallback`.
 
 ### Multi-agent
 

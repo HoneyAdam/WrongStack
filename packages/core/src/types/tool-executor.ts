@@ -62,6 +62,13 @@ export interface ToolExecutorOptions {
   confirmAwaiter?: ConfirmAwaiter | undefined;
   iterationTimeoutMs?: number;
   perIterationOutputCapBytes?: number;
+  /**
+   * Optional lifecycle hook runner. When present, `PreToolUse` hooks run
+   * before the permission check (and can block the call or rewrite its input)
+   * and `PostToolUse` hooks run after the tool returns (and can append context
+   * to the result the model sees).
+   */
+  hookRunner?: import('../hooks/runner.js').HookRunner | undefined;
 }
 
 export interface ToolExecutorInit {

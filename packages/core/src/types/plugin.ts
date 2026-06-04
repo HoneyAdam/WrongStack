@@ -7,6 +7,7 @@ import type { ReadonlyPipeline } from '../kernel/pipeline.js';
 import type { ToolWrapper } from '../registry/tool-registry.js';
 import type { TextBlock } from './blocks.js';
 import type { Config } from './config.js';
+import type { HookEvent, HookMatcher, InProcessHook } from './hooks.js';
 import type { Logger } from './logger.js';
 import type { WireFamily } from './models-registry.js';
 import type { Provider, Request, Response } from './provider.js';
@@ -108,6 +109,14 @@ export interface PluginAPI {
    * Returns an unregister function.
    */
   registerSystemPromptContributor(c: SystemPromptContributor): () => void;
+  /**
+   * Register an in-process lifecycle hook. `matcher` is a tool-name filter for
+   * `PreToolUse`/`PostToolUse` (`"Bash"`, `"edit|write"`, `"*"`) and ignored
+   * for other events. The hook can block, rewrite tool input, or inject extra
+   * context — see `HookOutcome`. Automatically removed when the plugin is
+   * uninstalled. Returns an unregister function.
+   */
+  registerHook(event: HookEvent, matcher: HookMatcher | undefined, hook: InProcessHook): () => void;
   config: Config;
   log: Logger;
   /**

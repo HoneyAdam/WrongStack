@@ -28,6 +28,8 @@ import {
   ParallelEternalEngine,
   createDelegateTool,
   createMcpControlTool,
+  HookRegistry,
+  HookRunner,
   isStdinTTY,
   loadDirectorState,
   mergeCustomModelDefs,
@@ -74,6 +76,11 @@ import { loadStatuslineConfig, saveStatuslineConfig } from './slash-commands/sta
 import { Spinner } from './spinner.js';
 import { fmtTaskResultLine, patchConfig } from './utils.js';
 import { createAgent, setupCompaction, setupPipelines } from './wiring/pipeline.js';
+import { createFallbackModelExtension } from './fallback-model.js';
+import {
+  createLifecycleHooksExtension,
+  createUserPromptSubmitMiddleware,
+} from './hooks-wiring.js';
 import { setupMetrics } from './wiring/metrics.js';
 import { setupPlugins } from './wiring/plugins.js';
 import { setupProvider } from './wiring/provider.js';
@@ -515,6 +522,27 @@ export async function main(argv: string[]): Promise<number> {
   });
 
   const pipelines = setupPipelines({ events, logger });
+
+  // ── Lifecycle hooks ──────────────────────────────────────────────────────
+  // `--no-hooks` disables everything (shell + in-process). Otherwise shell
+  // hooks are loaded from `config.hooks`; plugins add in-process hooks via
+  // `api.registerHook`. The runner is wired into the tool executor
+  // (PreToolUse/PostToolUse), the userInput pipeline (UserPromptSubmit), and an
+  // agent extension (SessionStart/Stop, registered after the agent is built).
+  const hooksEnabled = flags['no-hooks'] !== true;
+  const hookRegistry = new HookRegistry();
+  if (hooksEnabled) hookRegistry.loadShellHooks(config.hooks);
+  container.bind(TOKENS.HookRegistry, () => hookRegistry);
+  const hookRunner = new HookRunner({
+    registry: hookRegistry,
+    logger,
+    allowShell: hooksEnabled,
+    sessionId: () => session.id,
+  });
+  if (hooksEnabled) {
+    pipelines.userInput.use(createUserPromptSubmitMiddleware(hookRunner));
+  }
+
   const compactor = container.resolve(TOKENS.Compactor);
   const compactionSetup = await setupCompaction({
     compactor,
@@ -571,7 +599,14 @@ export async function main(argv: string[]): Promise<number> {
     context,
     config,
     confirmAwaiter: makeConfirmAwaiter(reader),
+    hookRunner,
   });
+
+  // SessionStart / Stop lifecycle hooks (PreToolUse/PostToolUse live in the
+  // tool executor; UserPromptSubmit in the userInput pipeline above).
+  if (hooksEnabled) {
+    agent.extensions.register(createLifecycleHooksExtension(hookRunner));
+  }
 
   // MCP servers
   const mcpRegistry = new MCPRegistry({ toolRegistry, events, log: logger });
@@ -607,7 +642,35 @@ export async function main(argv: string[]): Promise<number> {
     configStore,
     vault,
     paths: wpaths,
+    hookRegistry,
   });
+
+  // Construct a credential-resolved Provider for a provider id (alias-resolved
+  // via `providers[id].type`), WITHOUT persisting anything. Shared by the
+  // `/model` switch below and the fallback-model extension.
+  const buildProviderForId = (providerId: string): import('@wrongstack/core').Provider => {
+    const savedCfg = config.providers?.[providerId];
+    const resolvedProviderId = savedCfg?.type ?? providerId;
+    const newCfg = savedCfg ?? {
+      type: providerId,
+      apiKey: config.apiKey,
+      baseUrl: config.baseUrl,
+    };
+    const cfgWithType = { ...newCfg, type: resolvedProviderId };
+    return config.features.modelsRegistry && providerRegistry.has(resolvedProviderId)
+      ? providerRegistry.create(cfgWithType)
+      : makeProviderFromConfig(resolvedProviderId, cfgWithType);
+  };
+
+  // Cross-provider fallback: switch to the next configured model when the
+  // primary is overloaded. No-op (null) when `fallbackModels` is empty.
+  const fallbackExtension = createFallbackModelExtension({
+    getConfig: () => config,
+    buildProvider: buildProviderForId,
+    events,
+    logger,
+  });
+  if (fallbackExtension) agent.extensions.register(fallbackExtension);
 
   // Build provider+model switch as a single callback. The TUI picker
   // calls this after the user confirms a (provider, model) pair; we
@@ -617,16 +680,11 @@ export async function main(argv: string[]): Promise<number> {
     try {
       const savedCfg = config.providers?.[providerId];
       const resolvedProviderId = savedCfg?.type ?? providerId;
-      const newCfg = savedCfg ?? {
-        type: providerId,
-        apiKey: config.apiKey,
-        baseUrl: config.baseUrl,
+      const cfgWithType = {
+        ...(savedCfg ?? { type: providerId, apiKey: config.apiKey, baseUrl: config.baseUrl }),
+        type: resolvedProviderId,
       };
-      const cfgWithType = { ...newCfg, type: resolvedProviderId };
-      const newProvider =
-        config.features.modelsRegistry && providerRegistry.has(resolvedProviderId)
-          ? providerRegistry.create(cfgWithType)
-          : makeProviderFromConfig(resolvedProviderId, cfgWithType);
+      const newProvider = buildProviderForId(providerId);
       context.provider = newProvider;
       context.model = modelId;
       config = patchConfig(config, { provider: providerId, model: modelId });
@@ -1409,6 +1467,21 @@ export async function main(argv: string[]): Promise<number> {
         return `${result.message}\nRestart WrongStack to load or unload plugin code in this session.`;
       }
       return result.message;
+    },
+    onContextLimit: (tokens?: number) => {
+      if (typeof tokens === 'number' && Number.isFinite(tokens) && tokens > 0) {
+        effectiveMaxContext = tokens;
+        context.provider.capabilities.maxContext = tokens;
+        context.meta['effectiveMaxContext'] = tokens;
+        autoCompactor?.setMaxContext(tokens);
+        events.emit('ctx.max_context', {
+          providerId: config.provider,
+          modelId: context.model,
+          maxContext: tokens,
+        });
+        updateSpinnerContext();
+      }
+      return effectiveMaxContext;
     },
     onMcp: async (args) => {
       const parsed = parseMcpArgs(args);

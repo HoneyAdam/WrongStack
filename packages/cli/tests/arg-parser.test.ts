@@ -38,6 +38,19 @@ describe('parseArgs', () => {
     expect(r.flags.other).toBe('x');
   });
 
+  it('treats --no-hooks as a boolean flag', () => {
+    expect(BOOLEAN_FLAGS.has('no-hooks')).toBe(true);
+    const r = parseArgs(['--no-hooks', 'prompt']);
+    expect(r.flags['no-hooks']).toBe(true);
+    expect(r.positional).toContain('prompt');
+  });
+
+  it('parses --fallback-model as a value flag (comma list preserved)', () => {
+    expect(BOOLEAN_FLAGS.has('fallback-model')).toBe(false);
+    const r = parseArgs(['--fallback-model', 'sonnet,haiku']);
+    expect(r.flags['fallback-model']).toBe('sonnet,haiku');
+  });
+
   it('stops parsing at "--" and collects rest as positional', () => {
     const r = parseArgs(['--yolo', '--', '--not-a-flag', 'extra']);
     expect(r.flags.yolo).toBe(true);

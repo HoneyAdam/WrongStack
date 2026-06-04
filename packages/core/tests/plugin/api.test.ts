@@ -4,6 +4,8 @@ import {
   DefaultLogger,
   DefaultPluginAPI,
   EventBus,
+  HookRegistry,
+  HookRunner,
   ProviderRegistry,
   ToolRegistry,
 } from '../../src/index.js';
@@ -44,6 +46,54 @@ function mkApi() {
   });
   return { api, toolRegistry, providerRegistry };
 }
+
+describe('DefaultPluginAPI.registerHook', () => {
+  function mkApiWithHooks() {
+    const hookRegistry = new HookRegistry();
+    const api = new DefaultPluginAPI({
+      ownerName: 'plugin-x',
+      container: new Container(),
+      events: new EventBus(),
+      pipelines: {} as Parameters<typeof DefaultPluginAPI>[0]['pipelines'],
+      toolRegistry: new ToolRegistry(),
+      providerRegistry: new ProviderRegistry(),
+      config: baseConfig,
+      log: new DefaultLogger({ level: 'error' }),
+      hookRegistry,
+    });
+    return { api, hookRegistry };
+  }
+
+  it('registers an in-process hook that the runner invokes', async () => {
+    const { api, hookRegistry } = mkApiWithHooks();
+    api.registerHook('PreToolUse', 'Bash', () => ({ decision: 'block', reason: 'nope' }));
+    const runner = new HookRunner({ registry: hookRegistry });
+    const r = await runner.preToolUse('bash', {}, { cwd: '/x' });
+    expect(r.block).toBe(true);
+  });
+
+  it('drainCleanup removes registered hooks', async () => {
+    const { api, hookRegistry } = mkApiWithHooks();
+    api.registerHook('PreToolUse', '*', () => ({ decision: 'block' }));
+    api.drainCleanup();
+    const runner = new HookRunner({ registry: hookRegistry });
+    expect(await runner.preToolUse('bash', {}, { cwd: '/x' })).toEqual({});
+  });
+
+  it('is a noop when no hookRegistry is wired', () => {
+    const api = new DefaultPluginAPI({
+      ownerName: 'plugin-x',
+      container: new Container(),
+      events: new EventBus(),
+      pipelines: {} as Parameters<typeof DefaultPluginAPI>[0]['pipelines'],
+      toolRegistry: new ToolRegistry(),
+      providerRegistry: new ProviderRegistry(),
+      config: baseConfig,
+      log: new DefaultLogger({ level: 'error' }),
+    });
+    expect(() => api.registerHook('Stop', undefined, () => {})()).not.toThrow();
+  });
+});
 
 describe('DefaultPluginAPI', () => {
   it('tools.register attributes ownership and list reflects it', () => {

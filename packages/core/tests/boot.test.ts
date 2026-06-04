@@ -62,7 +62,7 @@ vi.mock('../src/utils/wstack-paths.js', () => ({
 }));
 vi.mock('../src/utils/term.js', () => ({ writeErr: (s: string) => process.stderr.write(s) }));
 
-import { bootConfig } from '../src/boot.js';
+import { bootConfig, flagsToConfigPatch } from '../src/boot.js';
 import { migratePlaintextSecrets } from '../src/security/secret-vault.js';
 
 const migrateMock = migratePlaintextSecrets as unknown as ReturnType<typeof vi.fn>;
@@ -121,5 +121,17 @@ describe('bootConfig (core)', () => {
   it('swallows migration errors (best-effort)', async () => {
     migrateMock.mockRejectedValueOnce(new Error('vault locked'));
     await expect(bootConfig()).resolves.toBeDefined();
+  });
+});
+
+describe('flagsToConfigPatch — fallbackModels', () => {
+  it('splits a comma list into a trimmed array', () => {
+    const patch = flagsToConfigPatch({ 'fallback-model': 'sonnet, haiku ,opus' });
+    expect(patch.fallbackModels).toEqual(['sonnet', 'haiku', 'opus']);
+  });
+
+  it('omits fallbackModels when the flag is absent or empty', () => {
+    expect(flagsToConfigPatch({}).fallbackModels).toBeUndefined();
+    expect(flagsToConfigPatch({ 'fallback-model': ' , ' }).fallbackModels).toBeUndefined();
   });
 });

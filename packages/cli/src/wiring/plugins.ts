@@ -31,6 +31,8 @@ export interface PluginsWiringDeps {
   mcpRegistry: MCPRegistry;
   log: Logger;
   agent: { extensions?: ExtensionRegistry };
+  /** Lifecycle hook registry — injected so plugins can register in-process hooks. */
+  hookRegistry?: import('@wrongstack/core').HookRegistry;
   sessionWriter: SessionWriter;
   metricsSink?: MetricsSinkView;
   /** Health registry — injected so the observability built-in can run /health. */
@@ -110,6 +112,7 @@ export async function setupPlugins(params: PluginsWiringDeps): Promise<void> {
     configStore,
     pipelines,
     paths,
+    hookRegistry,
   } = params;
 
   // ── 1. Load built-in plugins (prompts, sync, git, …) only when paths are
@@ -198,6 +201,7 @@ export async function setupPlugins(params: PluginsWiringDeps): Promise<void> {
         config: pluginConfig,
         log,
         extensions: agent.extensions,
+        hookRegistry,
         sessionWriter: {
           transcriptPath: sessionWriter.transcriptPath,
           append: (e: Record<string, unknown> & { type: string; ts: string }) =>

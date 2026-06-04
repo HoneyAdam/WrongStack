@@ -52,6 +52,17 @@ export {
 } from './core/agent.js';
 export { runProviderWithRetry } from './core/provider-runner.js';
 export {
+  HookRegistry,
+  HookRunner,
+  hookMatcherMatches,
+  runShellHook,
+  type HookRunEnv,
+  type HookRunnerOptions,
+  type PreToolUseResult,
+  type PromptResult,
+  type ShellHookSpec,
+} from './hooks/index.js';
+export {
   bootConfig,
   flagsToConfigPatch,
   type BootConfigOptions,

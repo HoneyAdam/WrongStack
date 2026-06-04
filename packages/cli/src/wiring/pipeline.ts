@@ -14,6 +14,7 @@ import {
   // createSessionEventBridge,  // enabled after core declarations are rebuilt
   // resolveAuditLevel,
   estimateRequestTokensCalibrated,
+  resolveContextWindowPolicy,
 } from '@wrongstack/core';
 
 // Temporary workaround until the core package declarations are rebuilt in node_modules.
@@ -73,10 +74,13 @@ export async function setupCompaction(params: {
     model?: string;
     providers?: import('@wrongstack/core').Config['providers'];
     context: {
+      mode?: import('@wrongstack/core').ContextWindowModeId;
       autoCompact?: boolean;
       warnThreshold: number;
       softThreshold: number;
       hardThreshold: number;
+      preserveK?: number;
+      eliseThreshold?: number;
       effectiveMaxContext?: number;
     };
     /** Slice that may contain session.auditLevel (for future richer logging). */
@@ -110,6 +114,10 @@ export async function setupCompaction(params: {
     providerId: config.provider ?? provider.id,
     modelId: config.model ?? context.model,
   });
+  const initialPolicy = resolveContextWindowPolicy(config.context);
+  context.meta ??= {};
+  context.meta['contextWindowMode'] = initialPolicy.id;
+  context.meta['contextWindowPolicy'] = initialPolicy;
   let autoCompactor: AutoCompactionMiddleware | undefined;
   // Skip auto-compaction when the context window is unknown (0).
   // Guessing would trigger premature compaction and degrade the session.
@@ -128,15 +136,20 @@ export async function setupCompaction(params: {
       // response so this converges on real token counts for compaction decisions.
       (ctx) =>
         estimateRequestTokensCalibrated(ctx.messages, ctx.systemPrompt, ctx.tools ?? []).total,
+      initialPolicy.thresholds,
       {
-        warn: config.context.warnThreshold,
-        soft: config.context.softThreshold,
-        hard: config.context.hardThreshold,
-      },
-      {
-        aggressiveOn: 'soft',
+        aggressiveOn: initialPolicy.aggressiveOn,
         failureMode: 'throw_on_hard',
         events,
+        policyProvider: (ctx) => {
+          const policy = ctx.meta?.['contextWindowPolicy'];
+          return policy && typeof policy === 'object'
+            ? (policy as {
+                thresholds: { warn: number; soft: number; hard: number };
+                aggressiveOn: 'hard' | 'soft' | 'warn';
+              })
+            : null;
+        },
         sessionBridge,
       },
     );
@@ -163,6 +176,8 @@ export function createAgent(params: {
   confirmAwaiter: import('@wrongstack/core').AgentInit['confirmAwaiter'];
   permissionPolicy?: import('@wrongstack/core').PermissionPolicy;
   tracer?: import('@wrongstack/core').Tracer | undefined;
+  /** Optional lifecycle hook runner — wired into the tool executor (PreToolUse/PostToolUse). */
+  hookRunner?: import('@wrongstack/core').HookRunner | undefined;
 }): Agent {
   const secretScrubber = params.container.resolve(TOKENS.SecretScrubber);
   const renderer = params.container.has(TOKENS.Renderer)
@@ -177,6 +192,7 @@ export function createAgent(params: {
     iterationTimeoutMs: params.config.tools.iterationTimeoutMs,
     perIterationOutputCapBytes: params.config.tools.perIterationOutputCapBytes,
     tracer: params.tracer,
+    hookRunner: params.hookRunner,
   });
 
   return new Agent({

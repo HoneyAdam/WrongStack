@@ -50,8 +50,10 @@ export class ToolExecutor {
   ): Promise<ToolBatchResult> {
     let budget = this.opts.perIterationOutputCapBytes ?? 100_000;
 
-    const runOne = async (use: ToolUseBlock): Promise<ToolExecutionOutput> => {
+    const runOne = async (use0: ToolUseBlock): Promise<ToolExecutionOutput> => {
       const start = Date.now();
+      // `use` is rebindable because a PreToolUse hook may rewrite its input.
+      let use = use0;
       const tool = this.registry.get(use.name);
 
       // Fast path: unknown tool
@@ -109,6 +111,38 @@ export class ToolExecutor {
         const result = this.malformedInputResult(use, extractMalformedRaw(use.input));
         budget = this.decrementBudget(result, budget);
         return { result, tool, durationMs: Date.now() - start };
+      }
+
+      // PreToolUse hooks: may block the call outright or rewrite its input.
+      // Runs before the permission check so a hook can veto a tool that the
+      // trust policy would otherwise auto-allow.
+      if (this.opts.hookRunner?.has('PreToolUse')) {
+        const pre = await this.opts.hookRunner.preToolUse(tool.name, use.input, ctx);
+        if (pre.block) {
+          const result = this.blockedByHookResult(use, pre.reason);
+          budget = this.decrementBudget(result, budget);
+          return { result, tool, durationMs: Date.now() - start };
+        }
+        if (pre.input) {
+          // A hook rewrote the arguments — re-validate before trusting them.
+          const reval = validateAgainstSchema(pre.input, tool.inputSchema);
+          if (!reval.ok) {
+            const errorDetails = reval.errors
+              .map((e) => `  - ${e.path || 'input'}: ${e.message}`)
+              .join('\n');
+            const result = {
+              type: 'tool_result' as const,
+              tool_use_id: use.id,
+              content:
+                `A PreToolUse hook rewrote the arguments for "${tool.name}" into an invalid shape.\n\n` +
+                `Validation errors:\n${errorDetails}`,
+              is_error: true,
+            };
+            budget = this.decrementBudget(result, budget);
+            return { result, tool, durationMs: Date.now() - start };
+          }
+          use = { ...use, input: pre.input };
+        }
       }
 
       const decision = await this.opts.permissionPolicy.evaluate(tool, use.input, ctx);
@@ -185,7 +219,20 @@ export class ToolExecutor {
         'tool.has_dangerous_capabilities': toolCapsForAudit.length > 0,
       });
       try {
-        const result = await this.executeTool(tool, use, ctx, budget);
+        let result = await this.executeTool(tool, use, ctx, budget);
+        // PostToolUse hooks: observe the result and optionally append context
+        // (e.g. a linter note) that the model sees alongside the tool output.
+        if (this.opts.hookRunner?.has('PostToolUse')) {
+          const post = await this.opts.hookRunner.postToolUse(
+            tool.name,
+            use.input,
+            { content: String(result.content), isError: !!result.is_error },
+            ctx,
+          );
+          if (post.additionalContext) {
+            result = { ...result, content: `${result.content}\n\n${post.additionalContext}` };
+          }
+        }
         budget = this.decrementBudget(result, budget);
         span?.setAttribute('tool.is_error', !!result.is_error);
         span?.setAttribute(
@@ -433,6 +480,15 @@ export class ToolExecutor {
       type: 'tool_result',
       tool_use_id: use.id,
       content: `Tool "${use.name}" denied: ${reason ?? 'policy'}`,
+      is_error: true,
+    };
+  }
+
+  private blockedByHookResult(use: ToolUseBlock, reason?: string): ToolResultBlock {
+    return {
+      type: 'tool_result',
+      tool_use_id: use.id,
+      content: `Tool "${use.name}" was blocked by a PreToolUse hook: ${reason ?? 'no reason given'}`,
       is_error: true,
     };
   }

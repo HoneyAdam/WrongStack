@@ -49,7 +49,9 @@ WrongStack uses a layered configuration system. Settings are merged from multipl
 | `model` | `string` | *(required)* | Active model id (e.g. `claude-opus-4-7`, `gpt-4.1`). |
 | `apiKey` | `string` | — | API key for the active provider. Auto-encrypted on first contact. |
 | `baseUrl` | `string` | — | Custom API base URL. Overrides the provider's default endpoint. |
-| `yolo` | `boolean` | `false` | Auto-approve all tool calls. Overridden by `--yolo` CLI flag. |
+| `yolo` | `boolean` | `false` | Auto-approve safe/standard tool calls. Destructive tools may still prompt unless `--force-all-yolo` is used. Overridden by `--yolo` CLI flag. |
+| `fallbackModels` | `string[]` | — | Ordered fallback chain tried when the primary model is overloaded (429/529/5xx) and its own retries are exhausted. Each entry is `model`, `provider/model`, or `provider model`. Cross-provider. The primary is re-tried first each turn. Overridden by `--fallback-model a,b,c`. |
+| `hooks` | `object` | — | Lifecycle shell hooks keyed by event. See [`hooks`](#hooks--lifecycle-hooks) below and [hooks.md](./hooks.md). |
 | `cwd` | `string` | `process.cwd()` | Working directory. Overridden by `--cwd` CLI flag. |
 
 ---
@@ -108,12 +110,12 @@ Controls compaction behavior, token thresholds, and context window modes.
 {
   "context": {
     "mode": "balanced",
-    "warnThreshold": 0.7,
-    "softThreshold": 0.85,
-    "hardThreshold": 0.95,
+    "warnThreshold": 0.6,
+    "softThreshold": 0.75,
+    "hardThreshold": 0.9,
     "autoCompact": true,
     "preserveK": 10,
-    "eliseThreshold": 500,
+    "eliseThreshold": 2000,
     "strategy": "hybrid",
     "llmSelector": false,
     "effectiveMaxContext": 200000,
@@ -126,15 +128,15 @@ Controls compaction behavior, token thresholds, and context window modes.
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `mode` | `string` | `"balanced"` | Context window policy. One of: `balanced`, `frugal`, `deep`, `archival`. Switch at runtime with `/context mode`. |
-| `warnThreshold` | `number` | `0.7` | Fraction of context window that triggers a warning. |
-| `softThreshold` | `number` | `0.85` | Fraction that triggers soft compaction. |
-| `hardThreshold` | `number` | `0.95` | Fraction that triggers aggressive compaction. |
+| `warnThreshold` | `number` | `0.6` | Fraction of context window that triggers a warning. Runtime override: `/context thresholds`. |
+| `softThreshold` | `number` | `0.75` | Fraction that triggers soft compaction. Runtime override: `/context thresholds`. |
+| `hardThreshold` | `number` | `0.9` | Fraction that triggers aggressive compaction and hard-overflow protection. Runtime override: `/context thresholds`. |
 | `autoCompact` | `boolean` | `true` | Automatically compact when thresholds are crossed. |
 | `preserveK` | `number` | `10` | Number of recent message pairs to preserve during compaction. |
-| `eliseThreshold` | `number` | `500` | Token count below which tool results are not elided. |
+| `eliseThreshold` | `number` | `2000` | Token count below which tool results are not elided. |
 | `strategy` | `string` | `"hybrid"` | Compaction strategy: `hybrid` (rules), `intelligent` (LLM), `selective` (LLM-driven selection). |
 | `llmSelector` | `boolean` | `false` | Use LLM to select which messages to compact. |
-| `effectiveMaxContext` | `number` | provider-reported | Override the effective context window size (tokens). |
+| `effectiveMaxContext` | `number` | provider-reported or unknown for custom `baseUrl` | Override the effective context window size in tokens. Use this for proxies/account-gated endpoints whose real limit differs from models.dev. Runtime override: `/context limit`. |
 | `maxSessionTokens` | `number` | — | Maximum tokens per session. |
 | `maxDailyTokens` | `number` | — | Maximum tokens per day. |
 | `summarizerModel` | `string` | active model | Model used for LLM-assisted summarization. |
@@ -229,6 +231,62 @@ wrongstack mcp add github --enable
 wrongstack mcp add context7 --enable
 wrongstack mcp add brave-search --enable
 ```
+
+---
+
+## `fallbackModels` — Overload fallback chain
+
+When the active model returns an overload error (HTTP 429/529/5xx) and its own
+retry policy is exhausted, the agent switches to the next entry in this list and
+retries the same turn. Entries may cross providers. The configured primary is
+always tried first at the start of every new turn.
+
+```jsonc
+{
+  "provider": "anthropic",
+  "model": "claude-opus-4-8",
+  "fallbackModels": [
+    "claude-sonnet-4-6",      // same provider, bare model id
+    "openai/gpt-5.4",         // cross-provider (provider must have credentials)
+    "groq llama-3.3-70b-versatile"
+  ]
+}
+```
+
+CLI override (comma-separated): `wrongstack --fallback-model "claude-sonnet-4-6,openai/gpt-5.4"`.
+
+A fallback entry whose provider has no resolvable credentials is skipped (with a
+warning) and the chain continues. Each switch emits a `provider.fallback` event.
+
+---
+
+## `hooks` — Lifecycle hooks
+
+Shell commands run at lifecycle points (`PreToolUse`, `PostToolUse`,
+`UserPromptSubmit`, `SessionStart`, `Stop`). The hook payload is written to the
+command's stdin as JSON; a JSON `HookOutcome` on stdout (or exit code `2`)
+steers the agent. `PreToolUse`/`PostToolUse` entries take a `matcher` (a
+pipe-delimited tool-name list, or `*`).
+
+```jsonc
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "bash", "command": "./scripts/guard-bash.sh", "timeoutMs": 3000 }
+    ],
+    "PostToolUse": [
+      { "matcher": "edit|write", "command": "npm run -s lint:staged" }
+    ],
+    "UserPromptSubmit": [
+      { "command": "./scripts/inject-context.sh" }
+    ]
+  }
+}
+```
+
+Disable all hooks for a session with `--no-hooks`. Plugins can register
+in-process hooks via `api.registerHook(...)`. See [hooks.md](./hooks.md) for the
+full payload/outcome schema and the security model.
 
 ---
 
