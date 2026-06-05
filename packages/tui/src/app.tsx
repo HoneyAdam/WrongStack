@@ -3266,6 +3266,10 @@ export function App({
         return;
       }
       if (isEnter) {
+        // Debounce \r\n double-event from terminals that emit Enter as two stdin reads.
+        const now = Date.now();
+        if (now - lastEnterAtRef.current < 50) return;
+        lastEnterAtRef.current = now;
         inputGateRef.current = true;
         try {
           if (state.modelPicker.step === 'provider') {
@@ -3319,6 +3323,10 @@ export function App({
         return;
       }
       if (isEnter) {
+        // Debounce \r\n double-event from terminals that emit Enter as two stdin reads.
+        const now = Date.now();
+        if (now - lastEnterAtRef.current < 50) return;
+        lastEnterAtRef.current = now;
         const opt = state.autonomyPicker.options[state.autonomyPicker.selected];
         if (!opt) return;
         const err = switchAutonomy?.(opt.mode);
@@ -3354,6 +3362,10 @@ export function App({
         return;
       }
       if (isEnter) {
+        // Debounce \r\n double-event from terminals that emit Enter as two stdin reads.
+        const now = Date.now();
+        if (now - lastEnterAtRef.current < 50) return;
+        lastEnterAtRef.current = now;
         const { mode, delayMs } = state.settingsPicker;
         const err = await saveSettings?.({ mode, delayMs });
         if (err) {
@@ -3420,6 +3432,10 @@ export function App({
         return;
       }
       if (isEnter) {
+        // Debounce \r\n double-event from terminals that emit Enter as two stdin reads.
+        const now = Date.now();
+        if (now - lastEnterAtRef.current < 50) return;
+        lastEnterAtRef.current = now;
         inputGateRef.current = true;
         try {
           await acceptPickerSelection();
