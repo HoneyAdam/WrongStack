@@ -50,6 +50,7 @@ export async function downloadGitHubTarball(parsed: ParsedRef): Promise<Download
   const url = `https://api.github.com/repos/${parsed.owner}/${parsed.repo}/tarball/${parsed.ref}`;
 
   const response = await fetch(url, {
+    signal: AbortSignal.timeout(30_000),
     headers: {
       Accept: 'application/vnd.github+json',
       'User-Agent': 'wrongstack-skill-installer',

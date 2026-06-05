@@ -252,7 +252,8 @@ export function handleRunResult(msg: WSServerMessage) {
   const runStart = useChatStore.getState().runStart;
   if (runStart && payload.status === 'done') {
     const all = useChatStore.getState().messages;
-    let lastAssistantIdx = -1, toolCount = 0;
+    let lastAssistantIdx = -1;
+    let toolCount = 0;
     for (let i = all.length - 1; i >= 0; i--) {
       const m = all[i]!;
       if (m.role === 'assistant' && lastAssistantIdx === -1 && m.content) lastAssistantIdx = i;

@@ -1,5 +1,5 @@
 import { Box, Text } from 'ink';
-import React from 'react';
+import type React from 'react';
 import { type Lang, detectLang } from '../../highlight.js';
 import { MarkdownView } from '../../markdown.js';
 import { theme } from '../../theme.js';

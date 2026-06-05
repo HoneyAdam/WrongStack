@@ -39,7 +39,7 @@ import { ToolExecutor } from '@wrongstack/core/execution';
 import { decryptConfigSecrets, encryptConfigSecrets } from '@wrongstack/core/security';
 import { buildProviderFactoriesFromRegistry, makeProviderFromConfig } from '@wrongstack/providers';
 import { builtinToolsPack, forgetTool, rememberTool } from '@wrongstack/tools';
-import { WebSocket, WebSocketServer } from 'ws';
+import { type WebSocket, WebSocketServer } from 'ws';
 import { createDefaultContainer } from '../../../runtime/src/container.js';
 import { bootConfig, patchConfig, } from './boot.js';
 import { AutoPhaseWebSocketHandler } from './autophase-ws-handler.js';

@@ -3,7 +3,7 @@ import React from 'react';
 import { theme } from '../../theme.js';
 import { Banner } from './banner.js';
 import { DiffBlock, extractDiffPreview } from './code-block.js';
-import { type HistoryEntry } from './types.js';
+import type { HistoryEntry } from './types.js';
 import { MESSAGE_PANEL_CHROME_WIDTH, AssistantBody } from './assistant.js';
 import {
   fmtBytes,

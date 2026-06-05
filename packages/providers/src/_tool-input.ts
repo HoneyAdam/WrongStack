@@ -61,9 +61,8 @@ function completePartialObject(s: string): string {
       if (nextNonWs === ':') {
         // This quote opens a key — the NEXT unescaped quote should close it
         inString = true;
-        continue;
       } else if (nextNonWs === ',' || nextNonWs === '}') {
-        if (inString) { inString = false; continue; }
+        if (inString) inString = false;
       }
     }
   }

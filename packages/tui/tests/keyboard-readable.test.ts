@@ -35,7 +35,7 @@ describe('KeyboardReadable (mouse-mode stdin proxy)', () => {
     const chunks: string[] = [];
 
     await new Promise<void>((resolve) => {
-      stream.on('readable', function () {
+      stream.on('readable', () => {
         let chunk: string | null;
         while ((chunk = stream.read()) !== null) {
           chunks.push(chunk);
@@ -56,7 +56,7 @@ describe('KeyboardReadable (mouse-mode stdin proxy)', () => {
     let received = '';
 
     await new Promise<void>((resolve) => {
-      stream.on('readable', function () {
+      stream.on('readable', () => {
         readableCount++;
         let chunk: string | null;
         while ((chunk = stream.read()) !== null) {
@@ -98,7 +98,7 @@ describe('KeyboardReadable (mouse-mode stdin proxy)', () => {
     let received = '';
 
     await new Promise<void>((resolve) => {
-      stream.on('readable', function () {
+      stream.on('readable', () => {
         let chunk: string | null;
         while ((chunk = stream.read()) !== null) {
           received += chunk;
@@ -119,7 +119,7 @@ describe('KeyboardReadable (mouse-mode stdin proxy)', () => {
     let received = '';
 
     await new Promise<void>((resolve) => {
-      stream.on('readable', function () {
+      stream.on('readable', () => {
         let chunk: string | null;
         while ((chunk = stream.read()) !== null) {
           received += chunk;
@@ -141,7 +141,7 @@ describe('KeyboardReadable (mouse-mode stdin proxy)', () => {
     let readableCount = 0;
 
     await new Promise<void>((resolve) => {
-      stream.on('readable', function () {
+      stream.on('readable', () => {
         readableCount++;
         let chunk: string | null;
         while ((chunk = stream.read()) !== null) {

@@ -3,7 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReadlineInputReader } from '../src/input-reader.js';
-import { detectProjectKind, LaunchAbortedError, runLaunchPrompts, runProjectCheck } from '../src/pre-launch.js';
+import { detectProjectKind, LaunchAbortedError, persistLaunchChoices, runLaunchPrompts, runProjectCheck } from '../src/pre-launch.js';
 import type { TerminalRenderer } from '../src/renderer.js';
 
 /**
@@ -34,7 +34,8 @@ function makeRenderer(): TerminalRenderer {
   } as unknown as TerminalRenderer;
 }
 
-const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, '');
+const ANSI_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
+const stripAnsi = (s: string): string => s.replace(ANSI_RE, '');
 
 function makeReader(answers: string[]): ReadlineInputReader {
   let i = 0;
@@ -287,5 +288,116 @@ describe('runLaunchPrompts', () => {
     const reader = makeReader(['', '', 'q']);
     await expect(runLaunchPrompts({ renderer, reader })).rejects.toThrow(LaunchAbortedError);
     expect(reader.readLine).toHaveBeenCalledTimes(3);
+  });
+
+  // --- Saved-preferences (lastChoices) summary gate ---
+
+  it('with lastChoices, empty answer accepts saved values (single prompt)', async () => {
+    const renderer = makeRenderer();
+    const reader = makeReader(['']); // just the summary prompt
+    const lastChoices = { mode: 'tui' as const, yolo: true, director: false, autonomy: 'off' as const };
+
+    const result = await runLaunchPrompts({ renderer, reader, lastChoices });
+
+    expect(result).toEqual(lastChoices);
+    expect(reader.readLine).toHaveBeenCalledTimes(1);
+  });
+
+  it("with lastChoices, 'Y' answer accepts saved values", async () => {
+    const renderer = makeRenderer();
+    const reader = makeReader(['y']);
+    const lastChoices = { mode: 'repl' as const, yolo: false, director: true, autonomy: 'auto' as const };
+
+    const result = await runLaunchPrompts({ renderer, reader, lastChoices });
+
+    expect(result).toEqual(lastChoices);
+    expect(reader.readLine).toHaveBeenCalledTimes(1);
+  });
+
+  it("with lastChoices, 'n' falls through to individual prompts", async () => {
+    const renderer = makeRenderer();
+    // 'n' on summary, then answers for 4 individual prompts
+    const reader = makeReader(['n', 'r', 'n', 'n', 'n']);
+    const lastChoices = { mode: 'tui' as const, yolo: true, director: true, autonomy: 'auto' as const };
+
+    const result = await runLaunchPrompts({ renderer, reader, lastChoices });
+
+    expect(result).toEqual({ mode: 'repl', yolo: false, director: false, autonomy: 'off' });
+    expect(reader.readLine).toHaveBeenCalledTimes(5); // summary + 4 prompts
+  });
+
+  it("with lastChoices, 'q' on summary aborts", async () => {
+    const renderer = makeRenderer();
+    const reader = makeReader(['q']);
+    const lastChoices = { mode: 'tui' as const, yolo: true, director: true, autonomy: 'auto' as const };
+
+    await expect(runLaunchPrompts({ renderer, reader, lastChoices })).rejects.toThrow(
+      LaunchAbortedError,
+    );
+    expect(reader.readLine).toHaveBeenCalledTimes(1);
+  });
+
+  it('with lastChoices + pinned overrides, summary shows merged values', async () => {
+    const renderer = makeRenderer();
+    const reader = makeReader(['']); // accept the merged summary
+    const lastChoices = { mode: 'tui' as const, yolo: true, director: true, autonomy: 'auto' as const };
+
+    // CLI pinned REPL and YOLO off — summary should reflect overrides
+    const result = await runLaunchPrompts({
+      renderer,
+      reader,
+      modePinned: 'repl',
+      yoloPinned: false,
+      lastChoices,
+    });
+
+    expect(result.mode).toBe('repl'); // pinned overrides saved 'tui'
+    expect(result.yolo).toBe(false); // pinned overrides saved true
+    expect(result.director).toBe(true); // from lastChoices (not pinned)
+    expect(result.autonomy).toBe('auto'); // from lastChoices (not pinned)
+    expect(reader.readLine).toHaveBeenCalledTimes(1);
+  });
+
+  it('without lastChoices, prompts individually as before (backwards compat)', async () => {
+    const renderer = makeRenderer();
+    const reader = makeReader(['t', '', '', '']);
+    const result = await runLaunchPrompts({ renderer, reader });
+    expect(result.mode).toBe('tui');
+    expect(result.yolo).toBe(true);
+    expect(result.director).toBe(true);
+    expect(result.autonomy).toBe('auto');
+    expect(reader.readLine).toHaveBeenCalledTimes(4);
+  });
+
+  // --- persistLaunchChoices ---
+
+  it('persistLaunchChoices writes launch + yolo to config file', async () => {
+    const dir = await mkTempDir('wstack-persist-');
+    const configPath = path.join(dir, 'config.json');
+    const choices = { mode: 'tui' as const, yolo: true, director: false, autonomy: 'auto' as const };
+
+    await persistLaunchChoices(configPath, choices);
+
+    const raw = await fs.readFile(configPath, 'utf8');
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    expect(parsed.yolo).toBe(true);
+    expect(parsed.launch).toEqual({ mode: 'tui', director: false, autonomy: 'auto' });
+  });
+
+  it('persistLaunchChoices preserves existing config fields', async () => {
+    const dir = await mkTempDir('wstack-persist-');
+    const configPath = path.join(dir, 'config.json');
+    // Pre-populate with some existing config
+    await fs.writeFile(configPath, JSON.stringify({ provider: 'anthropic', model: 'claude', version: 1 }));
+    const choices = { mode: 'repl' as const, yolo: false, director: true, autonomy: 'off' as const };
+
+    await persistLaunchChoices(configPath, choices);
+
+    const raw = await fs.readFile(configPath, 'utf8');
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    expect(parsed.provider).toBe('anthropic'); // preserved
+    expect(parsed.model).toBe('claude'); // preserved
+    expect(parsed.yolo).toBe(false); // updated
+    expect(parsed.launch).toEqual({ mode: 'repl', director: true, autonomy: 'off' }); // added
   });
 });

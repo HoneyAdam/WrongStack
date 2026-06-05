@@ -142,7 +142,7 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
 
   async spawn(subagent: SubagentConfig): Promise<SpawnResult> {
     const id = subagent.id || randomUUID();
-    subagent = this.withNickname(subagent, id);
+    const cfg = this.withNickname(subagent, id);
     // Duplicate-id guard. Previously a second spawn({id}) with the
     // same id silently overwrote the existing entry — orphaning the
     // first subagent's AbortController, Context, and any in-flight
@@ -163,13 +163,13 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
     };
 
     this.subagents.set(id, {
-      config: { ...subagent, id },
+      config: { ...cfg, id },
       context,
       status: 'idle',
       abortController: new AbortController(),
     });
 
-    this.emit('subagent.started', { subagent: { ...subagent, id } });
+    this.emit('subagent.started', { subagent: { ...cfg, id } });
 
     this.fleetBus?.emit({
       subagentId: id,

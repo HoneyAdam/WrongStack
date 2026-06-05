@@ -47,6 +47,7 @@ export {
   type AgentInput,
   type AgentPipelines,
   type UserInputPayload,
+  type ToolCallPipelinePayload,
   createDefaultPipelines,
   DEFAULT_MAX_ITERATIONS,
 } from './core/agent.js';

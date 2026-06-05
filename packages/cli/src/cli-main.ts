@@ -65,6 +65,7 @@ import {
   createUserPromptSubmitMiddleware,
 } from './hooks-wiring.js';
 import { setupMetrics } from './wiring/metrics.js';
+import { setupCodebaseIndexing } from './wiring/codebase-index.js';
 import { setupPlugins } from './wiring/plugins.js';
 import { setupProvider } from './wiring/provider.js';
 import { setupSession } from './wiring/session.js';
@@ -1704,6 +1705,18 @@ export async function main(argv: string[]): Promise<number> {
   if (eternalFlag.length > 0) {
     autonomyMode = 'eternal';
   }
+
+  // Automatic codebase indexing: blocking startup index (with a visible
+  // summary) + background reindex on agent edits and external file changes.
+  // Runs here so the startup index completes before any front-end mounts.
+  const disposeIndexing = await setupCodebaseIndexing({
+    config,
+    context,
+    pipelines,
+    projectRoot,
+    logger,
+  });
+  process.once('exit', disposeIndexing);
 
   // Dispatch to execution phase — single-shot, TUI, REPL, or WebUI.
   const savedProviderCfg = config.providers?.[config.provider];

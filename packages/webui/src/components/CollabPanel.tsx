@@ -3,6 +3,7 @@ import { getWSClient } from '@/lib/ws-client';
 import { useConfigStore } from '@/stores';
 import { Eye, LogIn, LogOut, MessageSquareWarning, Pause, Play, Users } from 'lucide-react';
 import type React from 'react';
+import type { CollabRole, WSCollabAnnotationAdded, WSCollabAnnotationResolved, WSCollabParticipantJoined, WSCollabParticipantLeft, WSCollabPauseGranted, WSCollabPauseReleased, WSCollabState, WSError, WSServerMessage } from '@/types';
 import { useEffect, useState } from 'react';
 
 export interface CollabPanelProps {
@@ -14,7 +15,7 @@ export interface CollabPanelProps {
 
 export interface CollabParticipant {
   participantId: string;
-  role: 'observer';
+  role: CollabRole;
   joinedAt: string;
 }
 
@@ -46,18 +47,19 @@ export function CollabPanel({ sessionId, className }: CollabPanelProps): React.R
 
     // collab.state — full snapshot, sent on connect and every 2s.
     offs.push(
-      client.on('collab.state', (msg: any) => {
-        if (msg?.payload?.sessionId === sessionId) {
-          setParticipants(msg.payload.participants ?? []);
+      client.on('collab.state', (msg: WSServerMessage) => {
+        const p = msg.payload as WSCollabState['payload'];
+        if (p.sessionId === sessionId) {
+          setParticipants(p.participants ?? []);
         }
       }),
     );
 
     // collab.participant.joined — incremental add.
     offs.push(
-      client.on('collab.participant.joined', (msg: any) => {
-        if (msg?.payload?.sessionId !== sessionId) return;
-        const p = msg.payload;
+      client.on('collab.participant.joined', (msg: WSServerMessage) => {
+        const p = msg.payload as WSCollabParticipantJoined['payload'];
+        if (p.sessionId !== sessionId) return;
         setParticipants((prev) => {
           if (prev.some((x) => x.participantId === p.participantId)) return prev;
           return [...prev, { participantId: p.participantId, role: p.role, joinedAt: p.joinedAt }];
@@ -67,18 +69,20 @@ export function CollabPanel({ sessionId, className }: CollabPanelProps): React.R
 
     // collab.participant.left — incremental remove.
     offs.push(
-      client.on('collab.participant.left', (msg: any) => {
-        if (msg?.payload?.sessionId !== sessionId) return;
-        const id = msg.payload.participantId;
+      client.on('collab.participant.left', (msg: WSServerMessage) => {
+        const p = msg.payload as WSCollabParticipantLeft['payload'];
+        if (p.sessionId !== sessionId) return;
+        const id = p.participantId;
         setParticipants((prev) => prev.filter((p) => p.participantId !== id));
       }),
     );
 
     // Surface collab-tagged server errors (e.g. role not available).
     offs.push(
-      client.on('error', (msg: any) => {
-        if (msg?.payload?.phase === 'collab') {
-          setError(msg.payload.message);
+      client.on('error', (msg: WSServerMessage) => {
+        const p = msg.payload as WSError['payload'];
+        if (p.phase === 'collab') {
+          setError(p.message);
           // Optimistically mark as not joined so the user can retry.
           setJoined(false);
         }
@@ -94,15 +98,17 @@ export function CollabPanel({ sessionId, className }: CollabPanelProps): React.R
     // full annotation timeline UI is a follow-up; the count gives
     // immediate visibility ("are people reviewing this?").
     offs.push(
-      client.on('collab.annotation.added', (msg: any) => {
-        if (msg?.payload?.sessionId !== sessionId) return;
-        if (msg?.payload?.annotation?.resolved) return;
+      client.on('collab.annotation.added', (msg: WSServerMessage) => {
+        const p = msg.payload as WSCollabAnnotationAdded['payload'];
+        if (p.sessionId !== sessionId) return;
+        if (p.annotation?.resolved) return;
         setOpenAnnotationCount((c) => c + 1);
       }),
     );
     offs.push(
-      client.on('collab.annotation.resolved', (msg: any) => {
-        if (msg?.payload?.sessionId !== sessionId) return;
+      client.on('collab.annotation.resolved', (msg: WSServerMessage) => {
+        const p = msg.payload as WSCollabAnnotationResolved['payload'];
+        if (p.sessionId !== sessionId) return;
         setOpenAnnotationCount((c) => Math.max(0, c - 1));
       }),
     );
@@ -111,14 +117,16 @@ export function CollabPanel({ sessionId, className }: CollabPanelProps): React.R
     // state and surface a small "Paused" chip. The actual pause/
     // resume actions are gated to controller participants.
     offs.push(
-      client.on('collab.pause.granted', (msg: any) => {
-        if (msg?.payload?.sessionId !== sessionId) return;
+      client.on('collab.pause.granted', (msg: WSServerMessage) => {
+        const p = msg.payload as WSCollabPauseGranted['payload'];
+        if (p.sessionId !== sessionId) return;
         setPaused(true);
       }),
     );
     offs.push(
-      client.on('collab.pause.released', (msg: any) => {
-        if (msg?.payload?.sessionId !== sessionId) return;
+      client.on('collab.pause.released', (msg: WSServerMessage) => {
+        const p = msg.payload as WSCollabPauseReleased['payload'];
+        if (p.sessionId !== sessionId) return;
         setPaused(false);
       }),
     );

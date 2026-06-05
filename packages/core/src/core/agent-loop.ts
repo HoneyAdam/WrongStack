@@ -13,7 +13,7 @@ import { buildBtwBlock, consumeBtwNotes } from './btw.js';
 import { runProviderWithRetry } from './provider-runner.js';
 import { requestLimitExtension } from './iteration-limit.js';
 import { TOKENS } from '../kernel/tokens.js';
-import { RunController } from '../kernel/run-controller.js';
+import type { RunController } from '../kernel/run-controller.js';
 import type { RunOptions } from './context.js';
 import type { RunResult, UserInputPayload } from './agent-types.js';
 import type { AgentInternals } from './agent-internals.js';

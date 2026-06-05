@@ -3,7 +3,7 @@
  * dependencies and keep the Agent class focused on runtime logic.
  */
 import { Pipeline } from '../kernel/pipeline.js';
-import { ExtensionRegistry } from '../extension/registry.js';
+import type { ExtensionRegistry } from '../extension/registry.js';
 import type { Container } from '../kernel/container.js';
 import type { EventBus } from '../kernel/events.js';
 import type { ProviderRegistry } from '../registry/provider-registry.js';

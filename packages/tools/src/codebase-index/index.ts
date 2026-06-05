@@ -17,6 +17,16 @@ export { codebaseIndexTool } from './codebase-index-tool.js';
 export { codebaseSearchTool } from './codebase-search-tool.js';
 export { codebaseStatsTool } from './codebase-stats-tool.js';
 
+// Indexer entry point + background coordinator (used by CLI auto-index wiring
+// and the file-watcher plugin's autoIndex path).
+export { runIndexer } from './indexer.js';
+export {
+  runStartupIndex,
+  enqueueReindex,
+  isIndexableFile,
+  cancelPendingReindexes,
+} from './background-indexer.js';
+
 // Re-export shared internal helpers so external consumers (e.g. plug-lsp)
 // can use them without importing from implementation detail files.
 export { IndexStore, resolveIndexDir, codebaseIndexDirOverride } from './writer.js';

@@ -250,7 +250,7 @@ export class ToolAuditLog {
     // This limits data loss to at most fsyncEvery entries on crash.
     const count = (this.unSyncedWrites.get(sessionId) ?? 0) + 1;
     this.unSyncedWrites.set(sessionId, count);
-    if (this.fsyncEvery !== Infinity && count % this.fsyncEvery === 0) {
+    if (this.fsyncEvery !== Number.POSITIVE_INFINITY && count % this.fsyncEvery === 0) {
       await this.sync(sessionId, fp);
     }
   }

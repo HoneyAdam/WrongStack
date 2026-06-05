@@ -10,7 +10,8 @@ function fakeWs() {
     readyState: 1,
     send: (data: string) => sent.push(JSON.parse(data)),
     on: (ev: string, fn: (arg?: any) => void) => {
-      (handlers[ev] ??= []).push(fn);
+      handlers[ev] ??= [];
+      handlers[ev].push(fn);
     },
     fire: (ev: string) => {
       for (const fn of handlers[ev] ?? []) fn();

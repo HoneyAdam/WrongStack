@@ -1,5 +1,6 @@
 import type { Config, ModelsRegistry, ResolvedProvider } from '@wrongstack/core';
 import { color } from '@wrongstack/core';
+import os from 'node:os';
 import type { ReadlineInputReader } from './input-reader.js';
 import { hasApiKey } from './provider-helpers.js';
 import type { TerminalRenderer } from './renderer.js';
@@ -17,7 +18,7 @@ export async function saveToGlobalConfig(
   configPath: string,
   provider: string,
   model: string,
-  homeFn: () => string = () => process.env.HOME ?? require('node:os').homedir(),
+  homeFn: () => string = () => process.env.HOME ?? os.homedir(),
 ): Promise<boolean> {
   try {
     const { atomicWrite } = await import('@wrongstack/core');
@@ -35,8 +36,12 @@ export async function saveToGlobalConfig(
     existing.provider = provider;
     existing.model = model;
 
-    // Backup before writing — pass homeFn so it backs up the right config
-    await backupCurrent(homeFn);
+    // Backup before writing — best-effort (never blocks save)
+    try {
+      await backupCurrent(homeFn);
+    } catch (err) {
+      console.warn('[picker] backupCurrent failed:', err);
+    }
 
     await atomicWrite(configPath, JSON.stringify(existing, null, 2), { mode: 0o600 });
 
@@ -53,7 +58,8 @@ export async function saveToGlobalConfig(
     }
 
     return true;
-  } catch {
+  } catch (err) {
+    console.warn('[picker] saveToGlobalConfig failed:', err instanceof Error ? err.message : String(err));
     return false;
   }
 }

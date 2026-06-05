@@ -23,6 +23,7 @@ import {
 } from '../src/codebase-index/lsp-kind.js';
 import { detectLang, parseSymbols } from '../src/codebase-index/ts-parser.js';
 import { IndexStore } from '../src/codebase-index/writer.js';
+import { runIndexer } from '../src/codebase-index/indexer.js';
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -538,6 +539,73 @@ describe('codebase-index tool', () => {
     expect(second.durationMs).toBeLessThan(first.durationMs + 100);
     // symbols should be the same count
     expect(second.symbolsIndexed).toBe(firstSymCount);
+  });
+
+  it('reindexing a low-id file after others were added does not collide ids', async () => {
+    // Regression: ids were allocated from COUNT(*), so once a changed file's
+    // rows were deleted the count dropped below MAX(id) and the new ids landed
+    // on surviving rows → "UNIQUE constraint failed: symbols.id". Allocation now
+    // uses MAX(id)+1. Sequence below deterministically triggered the old bug.
+    const aPath = path.join(tmpDir, 'A.ts');
+    const bPath = path.join(tmpDir, 'B.ts');
+
+    // 1. A has 1 symbol → gets the low id.
+    await fs.writeFile(aPath, 'class A1 {}');
+    await codebaseIndexTool.execute({}, ctx, { signal: newSignal() });
+
+    // 2. B adds 3 symbols → higher ids; A stays unchanged (skipped).
+    await fs.writeFile(bPath, 'class B1 {}\nclass B2 {}\nclass B3 {}');
+    await codebaseIndexTool.execute({}, ctx, { signal: newSignal() });
+
+    // 3. Grow A to 3 symbols and force a newer mtime so it is reindexed.
+    await fs.writeFile(aPath, 'class A1 {}\nclass A2 {}\nclass A3 {}');
+    const future = new Date(Date.now() + 5000);
+    await fs.utimes(aPath, future, future);
+
+    const result = await codebaseIndexTool.execute({}, ctx, { signal: newSignal() });
+    expect(result.errors).toHaveLength(0);
+
+    // The new symbols are searchable and nothing was lost.
+    const found = await codebaseSearchTool.execute({ query: 'A3' }, ctx, { signal: newSignal() });
+    expect(found.results.some((r) => r.name === 'A3')).toBe(true);
+    const foundB = await codebaseSearchTool.execute({ query: 'B2' }, ctx, { signal: newSignal() });
+    expect(foundB.results.some((r) => r.name === 'B2')).toBe(true);
+  });
+
+  it('skips files and directories matched by .gitignore', async () => {
+    await fs.writeFile(path.join(tmpDir, '.gitignore'), 'ignored-dir/\nsecret.ts\n');
+    await fs.mkdir(path.join(tmpDir, 'ignored-dir'), { recursive: true });
+    await fs.writeFile(path.join(tmpDir, 'ignored-dir', 'Hidden.ts'), 'class HiddenSymbol {}');
+    await fs.writeFile(path.join(tmpDir, 'secret.ts'), 'class SecretSymbol {}');
+    await fs.writeFile(path.join(tmpDir, 'Visible.ts'), 'class VisibleSymbol {}');
+
+    const result = await codebaseIndexTool.execute({}, ctx, { signal: newSignal() });
+    expect(result.errors).toHaveLength(0);
+
+    const visible = await codebaseSearchTool.execute({ query: 'VisibleSymbol' }, ctx, { signal: newSignal() });
+    expect(visible.results.some((r) => r.name === 'VisibleSymbol')).toBe(true);
+
+    const hidden = await codebaseSearchTool.execute({ query: 'HiddenSymbol' }, ctx, { signal: newSignal() });
+    expect(hidden.results.some((r) => r.name === 'HiddenSymbol')).toBe(false);
+
+    const secret = await codebaseSearchTool.execute({ query: 'SecretSymbol' }, ctx, { signal: newSignal() });
+    expect(secret.results.some((r) => r.name === 'SecretSymbol')).toBe(false);
+  });
+
+  it('skips a gitignored file passed explicitly (watcher / per-edit path)', async () => {
+    await fs.writeFile(path.join(tmpDir, '.gitignore'), 'generated.ts\n');
+    const gen = path.join(tmpDir, 'generated.ts');
+    await fs.writeFile(gen, 'class GeneratedSymbol {}');
+
+    // The per-edit / watcher path calls runIndexer directly with an explicit
+    // file list (the tool itself never forwards `files`).
+    const result = await runIndexer(ctx, {
+      projectRoot: tmpDir,
+      files: [gen],
+      indexDir: path.join(tmpDir, '.codebase-index'),
+    });
+    expect(result.filesIndexed).toBe(0);
+    expect(result.symbolsIndexed).toBe(0);
   });
 });
 

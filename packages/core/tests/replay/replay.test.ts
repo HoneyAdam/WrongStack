@@ -453,7 +453,7 @@ describe('ReplayLogStore rotation', () => {
   });
 
   it('respects maxEntries=Infinity to disable rotation', async () => {
-    const store = new ReplayLogStore({ dir, maxEntries: Infinity });
+    const store = new ReplayLogStore({ dir, maxEntries: Number.POSITIVE_INFINITY });
     for (let i = 0; i < 30; i++) {
       await store.record({
         sessionId: 's1',

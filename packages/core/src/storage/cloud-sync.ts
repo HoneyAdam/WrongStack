@@ -212,6 +212,7 @@ export class CloudSync {
   ): Promise<unknown> {
     const url = `https://api.github.com/repos/${owner}/${repo}${pathSegment}`;
     const res = await fetch(url, {
+      signal: AbortSignal.timeout(15_000),
       method,
       headers: {
         Authorization: `Bearer ${token}`,

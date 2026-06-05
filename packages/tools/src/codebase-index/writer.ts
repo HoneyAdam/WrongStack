@@ -285,6 +285,18 @@ export class IndexStore {
     );
   }
 
+  /**
+   * Largest symbol id currently in the table (0 when empty). New ids must be
+   * allocated from this, NOT from `COUNT(*)`: incremental reindexes delete a
+   * changed file's rows, so the row count drops below the max id and a
+   * count-based id would collide with a surviving row (UNIQUE constraint on
+   * `symbols.id`). Ids may have gaps — that is fine.
+   */
+  getMaxSymbolId(): number {
+    const rows = this.db.prepare('SELECT MAX(id) AS m FROM symbols').all() as { m: number | null }[];
+    return rows[0]?.m ?? 0;
+  }
+
   // ─── Stats ───────────────────────────────────────────────────────────────────
 
   getStats(): IndexStats {

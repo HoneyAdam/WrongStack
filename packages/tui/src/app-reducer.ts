@@ -17,7 +17,8 @@ import { InputBuilder, buildGoalPreamble, formatTodosList, writeOut } from '@wro
 import { type VisionAdapters, routeImagesForModel } from '@wrongstack/runtime/vision';
 import { getProcessRegistry } from '@wrongstack/tools';
 import { Box, type DOMElement, Text, measureElement, useApp, useStdout } from 'ink';
-import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import type React from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { readClipboardImage } from './clipboard.js';
 import { AgentsMonitor } from './components/agents-monitor.js';
 import {

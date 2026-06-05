@@ -1,5 +1,6 @@
 import { Box, Static, useStdout } from 'ink';
-import React, { useEffect, useState } from 'react';
+import type React from 'react';
+import { useEffect, useState } from 'react';
 import { AssistantTail } from './assistant.js';
 import { Entry } from './entry.js';
 import { ToolStreamBox, MAX_STREAM_DISPLAY_CHARS, tailForDisplay } from './utils.js';

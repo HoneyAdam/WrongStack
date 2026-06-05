@@ -1,5 +1,5 @@
 import type { EventBus } from '@wrongstack/core';
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import type { Action } from '../app-reducer.js';
 
 const STREAM_COLORS = ['cyan', 'magenta', 'yellow', 'green', 'blue'];
@@ -31,7 +31,10 @@ export function useSubagentEvents(
   setActiveMaxContext: (v: number | undefined) => void,
 ): void {
   const labelsRef = useRef<Map<string, { label: string; color: string }>>(new Map());
-  const lbl = (id: string, name?: string) => labelFor(labelsRef, id, name);
+  const lbl = useCallback(
+    (id: string, name?: string) => labelFor(labelsRef, id, name),
+    [], // labelsRef is a stable ref
+  );
 
   useEffect(() => {
     const offSpawned = events.on('subagent.spawned', (e) => {
@@ -107,5 +110,5 @@ export function useSubagentEvents(
       offLeaderCtxPct(); offLeaderMaxContext();
       offTool();
     };
-  }, [events, dispatch, setActiveMaxContext]);
+  }, [events, dispatch, setActiveMaxContext, lbl]);
 }

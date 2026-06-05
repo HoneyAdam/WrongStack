@@ -1,6 +1,6 @@
-import { useWebSocket } from '@/hooks/useWebSocket';
+import type { useWebSocket } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';
-import { useHistoryStore, useUIStore } from '@/stores';
+import { type useHistoryStore, useUIStore } from '@/stores';
 import {
   History,
   Loader2,

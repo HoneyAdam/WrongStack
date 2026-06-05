@@ -50,8 +50,19 @@ const BEHAVIOR_DEFAULTS: Omit<Config, 'provider' | 'model'> = {
     modelsRegistry: true,
     skills: true,
   },
+  indexing: {
+    onSessionStart: true,
+    onEdit: true,
+    watchExternal: true,
+    debounceMs: 400,
+  },
   session: { ...DEFAULT_SESSION_LOGGING_CONFIG },
 };
+
+/** Parse a boolean-ish env var: "0"/"false"/"no"/"off" → false, anything else → true. */
+function envBool(v: string): boolean {
+  return !/^(0|false|no|off)$/i.test(v.trim());
+}
 
 const ENV_MAP: Record<string, (cfg: PartialConfig, val: string) => void> = {
   WRONGSTACK_PROVIDER: (c, v) => {
@@ -78,7 +89,23 @@ const ENV_MAP: Record<string, (cfg: PartialConfig, val: string) => void> = {
     if (!c.log) c.log = { level: 'info' };
     c.log.level = v as Config['log']['level'];
   },
+  WRONGSTACK_INDEX_ON_START: (c, v) => {
+    c.indexing = { ...defaultIndexing, ...c.indexing, onSessionStart: envBool(v) };
+  },
+  WRONGSTACK_INDEX_ON_EDIT: (c, v) => {
+    c.indexing = { ...defaultIndexing, ...c.indexing, onEdit: envBool(v) };
+  },
+  WRONGSTACK_INDEX_WATCH: (c, v) => {
+    c.indexing = { ...defaultIndexing, ...c.indexing, watchExternal: envBool(v) };
+  },
 };
+
+const defaultIndexing = {
+  onSessionStart: true,
+  onEdit: true,
+  watchExternal: true,
+  debounceMs: 400,
+} as const;
 
 type PartialConfig = Partial<Config> & {
   providers?: Record<string, { apiKey?: string; baseUrl?: string; type?: string }>;

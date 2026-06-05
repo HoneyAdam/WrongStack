@@ -5,7 +5,7 @@ import {
   TOKENS,
   makeAgentSubagentRunner,
 } from '@wrongstack/core';
-import { MultiAgentHost } from './host.js';
+import type { MultiAgentHost } from './host.js';
 
 /**
  * Routing runner — dispatches tasks to standard or ACP runner based on provider.

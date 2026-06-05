@@ -37,6 +37,10 @@ export {
   codebaseIndexTool,
   codebaseSearchTool,
   codebaseStatsTool,
+  runStartupIndex,
+  enqueueReindex,
+  isIndexableFile,
+  cancelPendingReindexes,
 } from './codebase-index/index.js';
 
 // builtinTools moved to './builtin.ts' so consumers that only need a subset of

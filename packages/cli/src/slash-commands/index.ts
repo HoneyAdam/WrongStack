@@ -243,6 +243,7 @@ import { buildAutonomyCommand } from './autonomy.js';
 import { buildAutoPhaseCommand } from './autophase.js';
 import { buildBtwCommand } from './btw.js';
 import { buildClearCommand } from './clear.js';
+import { buildCodebaseReindexCommand } from './codebase-reindex.js';
 import { buildCollabCommand } from './collab.js';
 import { buildCompactCommand } from './compact.js';
 import { buildContextCommand } from './context.js';
@@ -276,6 +277,7 @@ export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashComma
     buildClearCommand(opts),
     buildCompactCommand(opts),
     buildContextCommand(opts),
+    buildCodebaseReindexCommand(opts),
     buildToolsCommand(opts),
     buildPluginCommand(opts),
     buildMcpSlashCommand(opts),

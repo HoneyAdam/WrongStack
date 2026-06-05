@@ -15,10 +15,12 @@ import {
   type ConfigStore,
   type Container,
   Context,
+  DEFAULT_SUBAGENT_BASELINE,
   type DefaultMultiAgentCoordinator,
   Director,
   type DirectorSessionFactory,
   EventBus,
+  FLEET_ROSTER,
   FleetManager,
   type ModelsRegistry,
   type Provider,
@@ -422,12 +424,21 @@ export class MultiAgentHost {
         subagent: true,
       });
 
-      // Append the role persona, when supplied. The dispatcher/parallel engine
-      // routes a slot to a catalog role and passes that role's prompt through
-      // `systemPromptOverride`; appending it here makes the slot agent actually
-      // adopt the role. Roster spawns that don't set it are unaffected.
-      if (subCfg.systemPromptOverride) {
-        baseSystem.push({ type: 'text', text: subCfg.systemPromptOverride });
+      // Prepend bridge contract so the subagent knows it has a parent it
+      // can ask for clarification. Placed first so the subagent reads its
+      // role in the hierarchy before absorbing the full identity block.
+      // The builder already includes the identity + tools + skills layers.
+      baseSystem.unshift({ type: 'text', text: DEFAULT_SUBAGENT_BASELINE });
+
+      // Append the role persona. Priority:
+      //   1. Explicit `systemPromptOverride` on the SubagentConfig (caller control)
+      //   2. Roster lookup by `subCfg.role` — matches catalog agents (bug-hunter, etc.)
+      //   3. Nothing — subagent runs with generic identity + bridge contract only
+      const rolePrompt =
+        subCfg.systemPromptOverride ??
+        (subCfg.role ? FLEET_ROSTER[subCfg.role]?.prompt : undefined);
+      if (rolePrompt) {
+        baseSystem.push({ type: 'text', text: rolePrompt });
       }
 
       let subSession: SessionWriter;

@@ -29,6 +29,7 @@ function resolveBundledOverlayFile(): string | undefined {
 }
 import {
   type Config,
+  color,
   DefaultLogger,
   DefaultModelsRegistry,
   type ModelsRegistry,
@@ -41,10 +42,10 @@ import {
 } from '@wrongstack/core';
 import { builtinToolsPack } from '@wrongstack/tools';
 import { parseArgs } from './arg-parser.js';
-import { LaunchAbortedError, runLaunchPrompts } from './pre-launch.js';
+import { LaunchAbortedError, persistLaunchChoices, runLaunchPrompts } from './pre-launch.js';
 import { bootConfig } from './boot-config.js';
 import { ReadlineInputReader } from './input-reader.js';
-import { runPicker, saveToGlobalConfig } from './picker.js';
+import { runPicker, saveToGlobalConfig, type PickerResult } from './picker.js';
 import { printLaunchHints } from './launch-hints.js';
 import { runProjectCheck } from './pre-launch.js';
 import { TerminalRenderer } from './renderer.js';
@@ -216,20 +217,56 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
   const modelFlag = typeof flags['model'] === 'string' ? flags['model'] : undefined;
   if (!(!!providerFlag && !!modelFlag)) {
     if (isStdinTTY()) {
-      const picked = await runPicker({
-        modelsRegistry,
-        renderer,
-        reader,
-        config,
-        defaultProvider: providerFlag ?? config.provider,
-        defaultModel: modelFlag ?? config.model,
-      });
-      if (!picked) {
+      let picked: PickerResult | undefined;
+      let skipPicker = false;
+
+      // --- Summary gate: saved provider/model from last session ---
+      const savedProvider = config.provider;
+      const savedModel = config.model;
+      if (savedProvider && savedModel) {
+        renderer.write(
+          `\n  ${color.dim('Last settings:')} ${color.bold(savedProvider)} / ${color.bold(savedModel)}\n`,
+        );
+        const answer = (
+          await reader.readLine(
+            `  ${color.amber('?')} Continue with these? ${color.dim('[Y/n/q]')} `,
+          )
+        )
+          .trim()
+          .toLowerCase();
+        if (answer === 'q') {
+          renderer.write(color.dim('  Goodbye!\n'));
+          await reader.close();
+          return 0;
+        }
+        if (answer !== 'n' && answer !== 'no') {
+          // Accepted — use saved values, skip the picker entirely
+          skipPicker = true;
+          renderer.write(
+            `\n  ${color.green('▶')} ${color.bold(savedProvider)} / ${color.bold(savedModel)}\n\n`,
+          );
+        }
+      }
+
+      if (!skipPicker) {
+        picked = await runPicker({
+          modelsRegistry,
+          renderer,
+          reader,
+          config,
+          defaultProvider: providerFlag ?? config.provider,
+          defaultModel: modelFlag ?? config.model,
+        });
+      }
+
+      if (!picked && !skipPicker) {
         if (!config.provider || !config.model) {
           await reader.close();
           return 2;
         }
-      } else {
+      }
+
+      if (picked) {
         const prevProvider = config.provider;
         const prevModel = config.model;
         config = patchConfig(config, { provider: picked.provider, model: picked.model });
@@ -239,7 +276,13 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
             picked.provider,
             picked.model,
           );
-          if (saved) renderer.writeInfo(`Saved ${picked.provider}/${picked.model} as default.\n`);
+          if (saved) {
+            renderer.writeInfo(`Saved ${picked.provider}/${picked.model} as default.\n`);
+          } else {
+            renderer.writeWarning(
+              `Could not save ${picked.provider}/${picked.model} to config. Check permissions or disk space.\n`,
+            );
+          }
         }
       }
     } else if (!config.provider || !config.model) {
@@ -279,6 +322,18 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
     } else if (flags['autonomy'] === true) {
       autonomyPinned = 'auto';
     }
+
+    // Build saved preferences from config so the prompt can offer a one-line
+    // "Continue with these?" summary instead of re-asking every question.
+    const lastChoices = config.launch
+      ? {
+          mode: config.launch.mode ?? 'tui',
+          yolo: config.yolo ?? true,
+          director: config.launch.director ?? true,
+          autonomy: config.launch.autonomy ?? 'auto',
+        }
+      : undefined;
+
     let choices: Awaited<ReturnType<typeof runLaunchPrompts>>;
     try {
       choices = await runLaunchPrompts({
@@ -288,6 +343,7 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
         yoloPinned,
         directorPinned,
         autonomyPinned,
+        lastChoices,
       });
     } catch (err) {
       if (err instanceof LaunchAbortedError) {
@@ -306,6 +362,13 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
     if (choices.yolo !== config.yolo) config = patchConfig(config, { yolo: choices.yolo });
     if (choices.director) flags['director'] = true;
     flags['autonomy'] = choices.autonomy;
+
+    // Persist launch preferences so the next boot remembers them.
+    try {
+      await persistLaunchChoices(wpaths.globalConfig, choices);
+    } catch {
+      // Best-effort — never blocks launch.
+    }
 
     printLaunchHints(renderer, flags, {
       cursorFile: path.join(wpaths.cacheDir, 'hint-cursor'),

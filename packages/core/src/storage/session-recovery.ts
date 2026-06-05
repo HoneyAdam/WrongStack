@@ -115,7 +115,6 @@ export class SessionRecovery {
           return null;
         } catch {
           // Incomplete line (spans the read boundary) — skip
-          continue;
         }
       }
       return null;

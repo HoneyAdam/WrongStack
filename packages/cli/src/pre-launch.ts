@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { color } from '@wrongstack/core';
+import { atomicWrite, color } from '@wrongstack/core';
 import type { ReadlineInputReader } from './input-reader.js';
 import type { TerminalRenderer } from './renderer.js';
 import { detectProjectFacts, renderAgentsTemplate } from './slash-commands/index.js';
@@ -186,6 +186,10 @@ export class LaunchAbortedError extends Error {
  * Each prompt is skipped when the corresponding option is pinned via CLI
  * flag. Returns the resolved set.
  *
+ * When `lastChoices` is provided (from saved config), the function shows a
+ * one-line summary and asks **one** question: "Continue with these?" instead
+ * of re-asking every prompt individually.
+ *
  * @throws LaunchAbortedError when the user presses q to cancel.
  */
 export async function runLaunchPrompts(opts: {
@@ -195,9 +199,66 @@ export async function runLaunchPrompts(opts: {
   yoloPinned?: boolean;
   directorPinned?: boolean;
   autonomyPinned?: 'off' | 'auto';
+  /** Saved launch preferences from a previous session (persisted to config). */
+  lastChoices?: LaunchModeChoices;
 }): Promise<LaunchModeChoices> {
-  const { renderer, reader, modePinned, yoloPinned, directorPinned, autonomyPinned } = opts;
+  const { renderer, reader, modePinned, yoloPinned, directorPinned, autonomyPinned, lastChoices } =
+    opts;
 
+  // If EVERY field is pinned by CLI flags, skip all prompts entirely.
+  if (
+    modePinned !== undefined &&
+    yoloPinned !== undefined &&
+    directorPinned !== undefined &&
+    autonomyPinned !== undefined
+  ) {
+    return { mode: modePinned, yolo: yoloPinned, director: directorPinned, autonomy: autonomyPinned };
+  }
+
+  // --- Summary gate: when saved preferences exist, show them + one question ---
+  if (lastChoices) {
+    // Merge: pinned values override saved preferences.
+    const effective = {
+      mode: modePinned ?? lastChoices.mode,
+      yolo: yoloPinned ?? lastChoices.yolo,
+      director: directorPinned ?? lastChoices.director,
+      autonomy: autonomyPinned ?? lastChoices.autonomy,
+    };
+
+    const onOff = (v: boolean) => (v ? color.green('on') : color.dim('off'));
+    const modeLabel = effective.mode.toUpperCase();
+
+    renderer.write(
+      `\n  ${color.dim('Last settings:')} ${color.bold(modeLabel)} · YOLO ${onOff(effective.yolo)} · Director ${onOff(effective.director)} · Autonomy ${effective.autonomy === 'auto' ? color.green('auto') : color.dim('off')}\n`,
+    );
+
+    const answer = (
+      await reader.readLine(
+        `  ${color.amber('?')} Continue with these? ${color.dim('[Y/n/q]')} `,
+      )
+    )
+      .trim()
+      .toLowerCase();
+
+    if (answer === 'q') {
+      renderer.write(color.dim('  Goodbye!\n'));
+      throw new LaunchAbortedError();
+    }
+
+    if (answer !== 'n' && answer !== 'no') {
+      // User accepted — proceed with effective values.
+      const badges = buildBadges(effective);
+      const badgeStr = badges.length > 0 ? ` (${badges.join(' · ')})` : '';
+      renderer.write(
+        `\n  ${color.green('▶')} Launching in ${color.bold(modeLabel)} mode${badgeStr}\n\n`,
+      );
+      return effective;
+    }
+
+    // User said no — fall through to individual prompts.
+  }
+
+  // --- Individual prompts (existing behavior, one at a time) ---
   let mode: 'tui' | 'repl';
   if (modePinned) {
     mode = modePinned;
@@ -270,14 +331,51 @@ export async function runLaunchPrompts(opts: {
     autonomy = answer !== 'n' && answer !== 'no' ? 'auto' : 'off';
   }
 
-  const badges: string[] = [];
-  if (yolo) badges.push(color.yellow('YOLO'));
-  if (director) badges.push(color.cyan('DIRECTOR'));
-  if (autonomy !== 'off') badges.push(color.magenta(`AUTONOMY:${autonomy.toUpperCase()}`));
+  const badges = buildBadges({ mode, yolo, director, autonomy });
   const badgeStr = badges.length > 0 ? ` (${badges.join(' · ')})` : '';
   renderer.write(
     `\n  ${color.green('▶')} Launching in ${color.bold(mode.toUpperCase())} mode${badgeStr}\n\n`,
   );
 
   return { mode, yolo, director, autonomy };
+}
+
+/** Build the mode-badge labels shown in the launch line. */
+function buildBadges(chosen: LaunchModeChoices): string[] {
+  const badges: string[] = [];
+  if (chosen.yolo) badges.push(color.yellow('YOLO'));
+  if (chosen.director) badges.push(color.cyan('DIRECTOR'));
+  if (chosen.autonomy !== 'off') badges.push(color.magenta(`AUTONOMY:${chosen.autonomy.toUpperCase()}`));
+  return badges;
+}
+
+/**
+ * Persist the user's launch-mode choices (mode, yolo, director, autonomy)
+ * back to the global config file so the next boot can offer a one-line
+ * "Continue with these?" summary instead of re-asking every question.
+ *
+ * Reads the existing config, updates only the `yolo` and `launch` keys,
+ * and writes back atomically. Other fields (including encrypted secrets)
+ * pass through round-trip unchanged.
+ */
+export async function persistLaunchChoices(
+  configPath: string,
+  choices: LaunchModeChoices,
+): Promise<void> {
+  let existing: Record<string, unknown> = {};
+  try {
+    const raw = await fs.readFile(configPath, 'utf8');
+    existing = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    // No existing config — start fresh, that's fine.
+  }
+
+  existing.yolo = choices.yolo;
+  existing.launch = {
+    mode: choices.mode,
+    director: choices.director,
+    autonomy: choices.autonomy,
+  };
+
+  await atomicWrite(configPath, JSON.stringify(existing, null, 2), { mode: 0o600 });
 }

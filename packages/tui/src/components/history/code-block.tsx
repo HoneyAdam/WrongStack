@@ -1,5 +1,5 @@
 import { Box, Text } from 'ink';
-import React from 'react';
+import type React from 'react';
 import { type HLState, type Lang, highlightLine } from '../../highlight.js';
 import { theme } from '../../theme.js';
 import { stringOf, truncMid, tryParseJson } from './utils.js';

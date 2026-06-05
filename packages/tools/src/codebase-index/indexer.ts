@@ -22,6 +22,7 @@ import { parseSymbols as parsePy } from './py-parser.js';
 import { parseSymbols as parseRs } from './rs-parser.js';
 import { parseSymbols as parseJson } from './json-parser.js';
 import { parseSymbols as parseYaml } from './yaml-parser.js';
+import { loadGitignoreMatcher, type IgnoreMatcher } from './gitignore.js';
 
 const DEFAULT_IGNORE = [
   'node_modules', '.git', 'dist', 'build', '.next', 'coverage',
@@ -41,6 +42,7 @@ interface IndexerOptions {
 async function findSourceFiles(
   projectRoot: string,
   ignore: string[],
+  isGitIgnored: IgnoreMatcher,
 ): Promise<string[]> {
   const results: string[] = [];
   const ignoreSet = new Set([...DEFAULT_IGNORE, ...ignore]);
@@ -68,11 +70,15 @@ async function findSourceFiles(
     for (const e of entries) {
       if (ignoreSet.has(e.name)) continue;
       const full = path.join(dir, e.name);
+      // Normalize to forward-slash relative path for pattern matching
+      const rel = path.relative(projectRoot, full).replace(/\\/g, '/');
       if (e.isDirectory()) {
+        // Prune .gitignore'd directories before descending (skips node_modules,
+        // build output, and any project-specific ignored dirs).
+        if (isGitIgnored(rel, true)) continue;
         await walk(full);
       } else if (e.isFile()) {
-        // Normalize to forward-slash relative path for pattern matching
-        const rel = path.relative(projectRoot, full).replace(/\\/g, '/');
+        if (isGitIgnored(rel, false)) continue;
         const ext = path.extname(e.name);
         for (const { ext: extName, pat } of globs) {
           if (ext === extName && (pat.test(rel) || pat.test(e.name))) {
@@ -129,11 +135,19 @@ export async function runIndexer(
   let filesIndexed = 0;
   let symbolsIndexed = 0;
 
+  // Honor the project-root .gitignore (skips node_modules, build output, and
+  // any project-specific ignored paths) on top of the always-on DEFAULT_IGNORE.
+  const isGitIgnored = await loadGitignoreMatcher(projectRoot);
+
   let files: string[];
   if (opts.files && opts.files.length > 0) {
-    files = opts.files.map((f) => path.resolve(projectRoot, f));
+    // Explicit file list (per-edit / watcher path): drop any that are gitignored
+    // so an ignored file edited in the editor never enters the index.
+    files = opts.files
+      .map((f) => path.resolve(projectRoot, f))
+      .filter((f) => !isGitIgnored(path.relative(projectRoot, f).replace(/\\/g, '/'), false));
   } else {
-    files = await findSourceFiles(projectRoot, ignore);
+    files = await findSourceFiles(projectRoot, ignore, isGitIgnored);
   }
 
   if (langs && langs.length > 0) {
@@ -173,8 +187,11 @@ export async function runIndexer(
       continue;
     }
 
-    store.deleteSymbolsForFile(file);
+    // Refs first: deleteRefsForFile resolves the file's symbol ids via the
+    // symbols table, so it must run before those symbols are deleted (otherwise
+    // the lookup finds nothing and orphan refs are left behind).
     store.deleteRefsForFile(file);
+    store.deleteSymbolsForFile(file);
 
     let content: string;
     try {
@@ -204,7 +221,9 @@ export async function runIndexer(
       continue;
     }
 
-    const nextId = store.getStats().totalSymbols + 1;
+    // Allocate ids from MAX(id), not COUNT(*): incremental reindexes leave gaps,
+    // so a count-based id would collide with a surviving row (symbols.id UNIQUE).
+    const nextId = store.getMaxSymbolId() + 1;
     const symbolsWithIds: IndexSymbol[] = parsed.symbols.map((s, i) => ({ ...s, id: nextId + i }));
     store.insertSymbols(symbolsWithIds, nextId);
     const count = symbolsWithIds.length;

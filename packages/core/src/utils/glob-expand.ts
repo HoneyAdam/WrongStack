@@ -23,7 +23,8 @@ function isGlob(p: string): boolean {
 }
 
 function globToRegex(pat: string): RegExp {
-  let i = 0, re = '^';
+  let i = 0;
+  let re = '^';
   while (i < pat.length) {
     const c = pat[i]!;
     if (c === '*') {

@@ -163,6 +163,40 @@ export interface AutonomyConfig {
 }
 
 /**
+ * Automatic codebase symbol-index maintenance. Keeps the `codebase-search`
+ * index (SQLite, `~/.wrongstack/projects/<hash>/codebase-index/index.db`) fresh
+ * without the user having to call `codebase-index` by hand.
+ */
+export interface IndexingConfig {
+  /** Run a blocking incremental index at session start (with a visible summary). Default: true. */
+  onSessionStart: boolean;
+  /** Reindex files the agent writes/edits via tools, in the background. Default: true. */
+  onEdit: boolean;
+  /** Watch the project root for external editor changes and reindex them. Default: true. */
+  watchExternal: boolean;
+  /** Debounce window (ms) coalescing rapid edits to the same file. Default: 400. */
+  debounceMs: number;
+}
+
+/**
+ * Saved launch preferences — restored on next boot so the pre-launch prompt
+ * can offer a one-line "Continue with last settings? [Y/n]" instead of
+ * re-asking every question from scratch.
+ */
+export interface LaunchConfig {
+  /** Interactive mode: 'tui' (Ink TUI) or 'repl' (readline REPL). */
+  mode?: 'tui' | 'repl';
+  /** Start with Director mode on (fleet manifest + multi-agent orchestration). */
+  director?: boolean;
+  /**
+   * Launch-time autonomy mode (binary choice from pre-launch prompt).
+   * 'off' = stops after each turn; 'auto' = self-driving.
+   * Distinct from `AutonomyConfig.defaultMode` which also supports 'suggest'.
+   */
+  autonomy?: 'off' | 'auto';
+}
+
+/**
  * Controls how much detail is persisted to the per-session JSONL log
  * (`~/.wrongstack/projects/<hash>/sessions/<id>.jsonl`).
  */
@@ -273,6 +307,10 @@ export interface Config {
   cwd?: string;
   /** Autonomy mode configuration (auto-proceed delay, etc.). */
   autonomy?: AutonomyConfig;
+  /** Automatic codebase symbol-index maintenance (session-start + live updates). */
+  indexing?: IndexingConfig;
+  /** Saved launch preferences — restored on next boot for one-line confirmation. */
+  launch?: LaunchConfig;
 
   /**
    * Session logging & audit configuration.
