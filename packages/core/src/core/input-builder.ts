@@ -123,7 +123,9 @@ export class InputBuilder {
       meta: { label: paragraphLabel(text) },
     });
     this.refs.push(ref);
-    const lines = text.split('\n').length;
+    // Split on \r\n, \r, or \n — Windows terminals often send \r-only
+    // line separators in bracketed-paste mode (e.g. pasted from cmd.exe).
+    const lines = text.split(/\r?\n|\r/).length;
     return `[pasted #${ref.seq}, ${lines} lines]`;
   }
 
@@ -186,7 +188,12 @@ export class InputBuilder {
     if (text.length >= this.pasteCharThreshold) return true;
     let lines = 1;
     for (let i = 0; i < text.length; i++) {
-      if (text.charCodeAt(i) === 10) lines++;
+      const c = text.charCodeAt(i);
+      // \n (10) is always a line break.
+      // \r (13) is a line break only when NOT followed by \n (Mac-style).
+      // \r\n sequences are counted once by the \n check on the next iteration.
+      if (c === 10) lines++;
+      else if (c === 13 && text.charCodeAt(i + 1) !== 10) lines++;
       if (lines >= this.pasteLineThreshold) return true;
     }
     return false;
@@ -194,7 +201,9 @@ export class InputBuilder {
 }
 
 function paragraphLabel(text: string): string {
-  const lines = text.split('\n').length;
+  // Split on \r\n, \r, or \n — handles Windows (\r\n), Unix (\n), and
+  // legacy Mac / bracketed-paste \r-only separators.
+  const lines = text.split(/\r?\n|\r/).length;
   const bytes = Buffer.byteLength(text, 'utf8');
   if (bytes < 1024) return `${lines} lines, ${bytes} B`;
   return `${lines} lines, ${(bytes / 1024).toFixed(1)} KB`;

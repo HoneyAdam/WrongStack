@@ -8,6 +8,13 @@ export interface Mode {
   tags?: string[];
   /** Tools that should be prioritized/highlighted when this mode is active */
   toolPreferences?: string[];
+  /**
+   * Skill names that are particularly relevant to this mode. The system
+   * prompt builder appends a "Suggested skills" note so the model knows
+   * which domain knowledge to leverage first. Skill must exist in the
+   * loaded skill set to appear.
+   */
+  suggestedSkills?: string[];
 }
 
 export interface ModeManifest {
@@ -50,6 +57,7 @@ When reviewing code:
 - Ensure naming conventions are followed`,
     tags: ['review', 'quality', 'security'],
     toolPreferences: ['read', 'grep', 'git', 'diff', 'test'],
+    suggestedSkills: ['bug-hunter', 'security-scanner', 'typescript-strict', 'testing'],
   },
   {
     id: 'code-auditor',
@@ -67,6 +75,7 @@ When auditing code for security:
 - Look for timing attacks and information leakage`,
     tags: ['security', 'audit', 'compliance'],
     toolPreferences: ['grep', 'read', 'audit', 'bash'],
+    suggestedSkills: ['security-scanner', 'bug-hunter', 'audit-log'],
   },
   {
     id: 'architect',
@@ -85,6 +94,7 @@ When designing or reviewing architecture:
 - Consider operational aspects (monitoring, logging, deployment)`,
     tags: ['architecture', 'design', 'scalability'],
     toolPreferences: ['read', 'glob', 'tree', 'diff'],
+    suggestedSkills: ['api-design', 'refactor-planner', 'node-modern', 'docker-deploy'],
   },
   {
     id: 'debugger',
@@ -103,6 +113,7 @@ When investigating bugs:
 - Verify fixes with tests before considering done`,
     tags: ['debug', 'investigation', 'error-resolution'],
     toolPreferences: ['read', 'grep', 'bash', 'logs', 'test'],
+    suggestedSkills: ['bug-hunter', 'audit-log', 'observability'],
   },
   {
     id: 'tester',
@@ -121,6 +132,7 @@ When testing or writing tests:
 - Verify test isolation and cleanup`,
     tags: ['testing', 'qa', 'quality'],
     toolPreferences: ['read', 'grep', 'test', 'bash'],
+    suggestedSkills: ['testing', 'bug-hunter', 'typescript-strict'],
   },
   {
     id: 'devops',
@@ -139,6 +151,7 @@ When working on infrastructure:
 - Check for resource limits and quotas`,
     tags: ['devops', 'infrastructure', 'operations'],
     toolPreferences: ['read', 'bash', 'grep', 'logs', 'git'],
+    suggestedSkills: ['docker-deploy', 'observability', 'security-scanner'],
   },
   {
     id: 'refactorer',
@@ -157,6 +170,7 @@ When refactoring code:
 - Keep performance in mind — don't regress`,
     tags: ['refactor', 'modernization', 'improvement'],
     toolPreferences: ['read', 'edit', 'test', 'git', 'grep'],
+    suggestedSkills: ['refactor-planner', 'typescript-strict', 'node-modern', 'testing'],
   },
   {
     id: 'brief',
@@ -187,6 +201,7 @@ Get to the point — read files, run commands, make changes.
 - Max 3 sentences per paragraph.`,
     tags: ['fast', 'concise', 'direct'],
     toolPreferences: ['read', 'edit', 'bash'],
+    suggestedSkills: [],
   },
   {
     id: 'teach',
@@ -252,5 +267,6 @@ You follow these principles, but always with explanation:
 Remember: your job is to make the user a better developer, not just to complete tasks faster.`,
     tags: ['teaching', 'mentor', 'learning'],
     toolPreferences: ['read', 'edit', 'explain'],
+    suggestedSkills: ['prompt-engineering', 'skill-creator', 'node-modern', 'typescript-strict'],
   },
 ];

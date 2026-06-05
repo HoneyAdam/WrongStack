@@ -143,6 +143,13 @@ export interface SubagentPromptParts {
    * can still narrow or replace it.
    */
   sharedScratchpad?: string;
+  /**
+   * Optional skill body content injected into the subagent's system prompt.
+   * Use this to provide domain-specific knowledge (SKILL.md bodies) to
+   * subagents that need it. Placed after `sharedScratchpad` and before
+   * `override` so the override can still narrow or replace it.
+   */
+  skills?: string;
   /** Final per-spawn override from `SubagentConfig.systemPromptOverride`.
    *  Added last so it wins on conflict — that's by design: the spawn site
    *  knows the most about what this specific subagent should do. */
@@ -154,15 +161,18 @@ export interface SubagentPromptParts {
  *   1. Baseline (bridge contract)
  *   2. Role
  *   3. Task brief
- *   4. Per-spawn override
+ *   4. Shared scratchpad
+ *   5. Skills (domain knowledge from SKILL.md)
+ *   6. Per-spawn override
  *
  * Same blank-line-separated joining as the director composer.
  *
  * Layering rationale: the baseline never needs to change between
  * subagents; the role is the "what kind of worker is this"; the task is
- * the "what should you do *now*"; the override is the spawn-site escape
- * hatch ("…and respond only in JSON"). Putting override last means it
- * never gets squashed by something earlier in the chain.
+ * the "what should you do *now*"; skills provide reusable domain knowledge
+ * (e.g. bug-hunting patterns, security scanning rules); the override is
+ * the spawn-site escape hatch ("…and respond only in JSON"). Putting
+ * override last means it never gets squashed by something earlier in the chain.
  */
 export function composeSubagentPrompt(parts: SubagentPromptParts = {}): string {
   const sections: string[] = [];
@@ -184,6 +194,9 @@ export function composeSubagentPrompt(parts: SubagentPromptParts = {}): string {
         `- Use stable filenames (one file per concern); overwrite instead of appending so the ` +
         `Director sees the latest state.`,
     );
+  }
+  if (parts.skills && parts.skills.trim().length > 0) {
+    sections.push(`Domain knowledge:\n${parts.skills.trim()}`);
   }
   if (parts.override && parts.override.trim().length > 0) {
     sections.push(parts.override.trim());

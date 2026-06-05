@@ -16,6 +16,7 @@ import {
   rememberTool,
 } from '@wrongstack/tools';
 import type { TextBlock } from '@wrongstack/core';
+import { resolveBundledSkillsDir } from '../cli-bundled-skills.js';
 
 export interface ToolsWiringDeps {
   config: Config;
@@ -56,9 +57,13 @@ export async function setupTools(params: ToolsWiringDeps): Promise<ToolsWiringRe
   const modeId = activeMode?.id ?? 'default';
   const modePrompt = activeMode?.prompt ?? '';
 
-  // Skill loader
+  // Skill loader — discovers project, user, and bundled skills.
+  // Bundled skills ship with @wrongstack/core (packages/core/skills/).
   const skillLoader = config.features.skills
-    ? new DefaultSkillLoader({ paths: wpaths })
+    ? new DefaultSkillLoader({
+        paths: wpaths,
+        bundledDir: resolveBundledSkillsDir(),
+      })
     : undefined;
 
   // Resolve model capabilities for system prompt

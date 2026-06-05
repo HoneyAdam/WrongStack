@@ -117,6 +117,10 @@ export function handleKeyOperationResult(msg: WSServerMessage) {
   const p = msg.payload as { success: boolean; message: string };
   if (p.success) toast.success(p.message);
   else toast.error(p.message);
+  // Refresh saved providers after any key operation so the SettingsPanel
+  // (and any other viewer) immediately sees the updated list.
+  const client = getWSClient(useConfigStore.getState().wsUrl);
+  client.listSavedProviders();
 }
 
 export function handleContextCompacted(msg: WSServerMessage) {

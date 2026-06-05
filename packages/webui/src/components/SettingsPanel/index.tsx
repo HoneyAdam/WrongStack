@@ -1,10 +1,8 @@
+import { toast } from '@/components/Toaster';
 import { useWebSocket } from '@/hooks/useWebSocket';
-import { cn } from '@/lib/utils';
 import { useConfigStore, useUIStore } from '@/stores';
 import type { WSServerMessage } from '@/types';
 import {
-  AlertCircle,
-  CheckCircle2,
   Cpu,
   Globe,
   Monitor,
@@ -53,10 +51,6 @@ export function SettingsPanel() {
   const [isLoadingCatalog, setIsLoadingCatalog] = useState(false);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [isLoadingSaved, setIsLoadingSaved] = useState(false);
-  const [operationStatus, setOperationStatus] = useState<{
-    success: boolean;
-    message: string;
-  } | null>(null);
 
   const [providerTab, setProviderTab] = useState<ProviderTab>('catalog');
   const [catalogQuery, setCatalogQuery] = useState('');
@@ -91,21 +85,11 @@ export function SettingsPanel() {
       }
     };
 
-    const handleKeyOperationResult = (msg: WSServerMessage) => {
-      if (msg.type === 'key.operation_result') {
-        const payload = msg.payload as { success: boolean; message: string };
-        setOperationStatus(payload);
-        setTimeout(() => setOperationStatus(null), 3000);
-        wsClient.listSavedProviders();
-      }
-    };
-
     if (!wsConnected || !wsClient) return;
 
     const off1 = wsClient.on('provider.catalog', handleProviderCatalog);
     const off2 = wsClient.on('provider.models', handleProviderModels);
     const off3 = wsClient.on('providers.saved', handleSavedProviders);
-    const off4 = wsClient.on('key.operation_result', handleKeyOperationResult);
 
     setIsLoadingCatalog(true);
     setIsLoadingSaved(true);
@@ -116,7 +100,6 @@ export function SettingsPanel() {
       off1?.();
       off2?.();
       off3?.();
-      off4?.();
     };
   }, [wsConnected, wsClient]);
 
@@ -138,7 +121,7 @@ export function SettingsPanel() {
       setModel(modelId);
       const currentProvider = useConfigStore.getState().provider;
       ws.switchModel?.(currentProvider, modelId);
-      setOperationStatus({ success: true, message: `Switching to ${currentProvider} / ${modelId}…` });
+      toast.success(`Switching to ${currentProvider} / ${modelId}…`);
     },
     [setModel, ws],
   );
@@ -214,24 +197,6 @@ export function SettingsPanel() {
 
             {/* Provider Tab */}
             <TabsContent value="provider" className="space-y-4">
-              {operationStatus && (
-                <div
-                  className={cn(
-                    'p-3 rounded-lg mb-4 flex items-center gap-2',
-                    operationStatus.success
-                      ? 'bg-green-500/10 text-green-600'
-                      : 'bg-red-500/10 text-red-600',
-                  )}
-                >
-                  {operationStatus.success ? (
-                    <CheckCircle2 className="h-4 w-4" />
-                  ) : (
-                    <AlertCircle className="h-4 w-4" />
-                  )}
-                  {operationStatus.message}
-                </div>
-              )}
-
               <ProviderSection
                 activeProvider={provider}
                 catalogProviders={catalogProviders}

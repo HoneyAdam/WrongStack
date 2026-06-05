@@ -59,6 +59,15 @@ export interface SubagentConfig {
   systemPromptOverride?: string;
 
   /**
+   * Domain-specific knowledge injected into the subagent's system prompt
+   * between the shared scratchpad and the override. Typically populated
+   * from SKILL.md body content matching the subagent's role (e.g. the
+   * bug-hunter skill body for a bug-hunter subagent). Keeps subagents
+   * informed of same domain patterns the host agent knows.
+   */
+  skillContent?: string;
+
+  /**
    * Routing for streaming output. `'director'` (default) forwards
    * text/tool events to the parent's FleetBus so the director can read
    * the subagent's stream. `'silent'` keeps everything subagent-local;

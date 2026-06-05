@@ -62,6 +62,8 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
    */
   private envCacheByRoot = new Map<string, string>();
   private skillCache?: string;
+  /** Cached full skill bodies (after frontmatter), built once per session. */
+  private skillBodyCache?: string;
   constructor(private readonly opts: DefaultSystemPromptBuilderOptions = {}) {}
 
   async build(ctx: BuildContext): Promise<TextBlock[]> {
@@ -73,8 +75,9 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
         if (entries.length > 0) {
           const lines: string[] = [];
           for (const e of entries) {
-            const scopeTag = e.scope.length > 0 ? ` — ${e.scope.slice(0, 4).join(', ')}` : '';
-            lines.push(`- **${e.name}**${scopeTag}  (${e.trigger})`);
+            // Compact format: name + shortened trigger (full body in Active Skills)
+            const shortTrigger = compactTrigger(e.trigger);
+            lines.push(`- **${e.name}**  (${shortTrigger})`);
           }
           this.skillCache = lines.join('\n');
         }
@@ -114,6 +117,28 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
         text: layer5,
         cache_control: { type: 'ephemeral' },
       });
+    }
+
+    // Suggested skills for the active mode — helps the model know which
+    // domain instructions to prioritize when multiple skills are loaded.
+    if (this.opts.modeStore && this.opts.skillLoader) {
+      try {
+        const activeMode = await this.opts.modeStore.getActiveMode();
+        if (activeMode?.suggestedSkills && activeMode.suggestedSkills.length > 0) {
+          const skills = await this.opts.skillLoader.list();
+          const loadedNames = new Set(skills.map((s) => s.name));
+          const available = activeMode.suggestedSkills.filter((n) => loadedNames.has(n));
+          if (available.length > 0) {
+            blocks.push({
+              type: 'text',
+              text: `Mode "${activeMode.id}" works best with these skills: ${available.join(', ')}. Their full instructions are in the Active Skills block above.`,
+              cache_control: { type: 'ephemeral' },
+            });
+          }
+        }
+      } catch {
+        // skip — non-critical hint
+      }
     }
 
     if (layer6.trim()) {
@@ -380,7 +405,13 @@ summarize it, and let the tool result hold only the summary.`);
       );
     }
     if (this.skillCache) {
-      lines.push('', '## Skills in scope for this session', this.skillCache);
+      lines.push(
+        '',
+        '## Skills in scope for this session',
+        this.skillCache,
+        '',
+        'Full skill instructions are injected in the Active Skills block below.',
+      );
     }
     const text = lines.join('\n');
     this.envCacheByRoot.set(ctx.projectRoot, text);
@@ -397,8 +428,42 @@ summarize it, and let the tool result hold only the summary.`);
         // skip
       }
     }
-    // Skills are rendered in buildEnvironment (envCache) to benefit from caching.
-    // Layer 4 only contains memory content.
+    // Skill bodies — load once and cache for the session lifetime.
+    // Skills are listed by name+trigger in buildEnvironment (envCache);
+    // here we inject the full body content so the model has the actual
+    // domain instructions, not just a trigger hint.
+    if (this.opts.skillLoader && this.skillBodyCache === undefined) {
+      try {
+        const skills = await this.opts.skillLoader.list();
+        if (skills.length > 0) {
+          const bodies: string[] = [];
+          for (const s of skills) {
+            try {
+              const raw = await this.opts.skillLoader.readBody(s.name);
+              // Strip YAML frontmatter — keep only the markdown body.
+              const body = stripFrontmatter(raw);
+              if (body.trim()) {
+                bodies.push(`## Skill: ${s.name}\n\n${body.trim()}`);
+              }
+            } catch {
+              // skip unreadable skill
+            }
+          }
+          if (bodies.length > 0) {
+            this.skillBodyCache = bodies.join('\n\n---\n\n');
+          } else {
+            this.skillBodyCache = ''; // mark as resolved to avoid retrying
+          }
+        } else {
+          this.skillBodyCache = '';
+        }
+      } catch {
+        this.skillBodyCache = '';
+      }
+    }
+    if (this.skillBodyCache) {
+      parts.push(`# Active Skills\n\n${this.skillBodyCache}`);
+    }
     return parts.join('\n\n');
   }
 
@@ -497,4 +562,35 @@ summarize it, and let the tool result hold only the summary.`);
     const langs = new Set(hits.filter((l): l is string => l !== null));
     return langs.size === 0 ? 'unknown' : Array.from(langs).join(', ');
   }
+}
+
+/** Strip YAML frontmatter from a SKILL.md file, returning only the body. */
+function stripFrontmatter(raw: string): string {
+  if (!raw.startsWith('---')) return raw;
+  const end = raw.indexOf('\n---', 4);
+  if (end === -1) return raw;
+  // Skip past the closing `---` and the following newline
+  let body = raw.slice(end + 4);
+  if (body.startsWith('\n')) body = body.slice(1);
+  return body;
+}
+
+/**
+ * Compact a skill trigger description into a short label.
+ * "Use this skill when scanning source code for bugs..."
+ * → "scanning source code for bugs, anti-patterns, code smells"
+ */
+function compactTrigger(trigger: string): string {
+  // Strip common prefixes
+  let s = trigger
+    .replace(/^Use this skill when /i, '')
+    .replace(/^Use this skill for /i, '')
+    .replace(/^Use when /i, '')
+    .replace(/\.$/, '');
+  // Truncate to ~72 chars at a word boundary
+  if (s.length > 72) {
+    const cut = s.lastIndexOf(' ', 68);
+    s = cut > 50 ? s.slice(0, cut) + '…' : s.slice(0, 68) + '…';
+  }
+  return s;
 }

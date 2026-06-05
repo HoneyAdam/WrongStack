@@ -1589,6 +1589,7 @@ export class Director implements ICoordinator {
       role: config.prompt,
       task: taskBrief,
       sharedScratchpad: this.sharedScratchpadPath ?? undefined,
+      skills: config.skillContent,
       override: config.systemPromptOverride,
     });
   }

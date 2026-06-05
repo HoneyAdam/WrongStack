@@ -97,10 +97,21 @@ export const toolSearchTool: Tool<ToolSearchInput, ToolSearchOutput> = {
       mutating: t.mutating,
     }));
 
+    // When no tools match, give the model actionable guidance so it
+    // doesn't spiral through random queries. Point it at tool-help
+    // which lists every available tool with descriptions.
+    const totalAvailable = tools.length;
+    const hint =
+      results.length === 0 && query
+        ? `No tools matched "${input.query}". Use tool-help (without arguments) to see all ${totalAvailable} available tools.`
+        : undefined;
+
     return {
       tools: results,
       total: filtered.length,
       truncated: filtered.length > limit,
+      ...(hint ? { hint } : {}),
+      _available: totalAvailable,
     };
   },
 };
