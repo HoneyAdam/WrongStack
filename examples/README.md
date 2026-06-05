@@ -14,6 +14,9 @@ wrongstack "explain what this project does"
 # Or launch the interactive REPL / TUI
 wrongstack
 wrongstack --tui
+
+# Run a guided demo for any example
+cd examples/01-basic && bash demo.sh       # or .\demo.ps1 on Windows
 ```
 
 ## Index

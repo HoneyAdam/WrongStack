@@ -164,8 +164,7 @@ export class ToolExecutor {
       const policy = this.opts.permissionPolicy;
       const yolo =
         policy.getYolo?.() === true ||
-        policy.getYoloDestructive?.() === true ||
-        policy.getForceAllYolo?.() === true;
+        policy.getYoloDestructive?.() === true;
 
       if (toolDangerousCaps.length > 0 && effectivePermission === 'auto' && !yolo) {
         // Outside yolo we force at least 'confirm' for dangerous-capability tools.

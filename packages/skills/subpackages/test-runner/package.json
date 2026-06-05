@@ -1,6 +1,0 @@
-{
-  "name": "@wrongstack/skill-test-runner",
-  "version": "0.32.0",
-  "private": true,
-  "description": "Test execution, coverage analysis, and failure triage"
-}

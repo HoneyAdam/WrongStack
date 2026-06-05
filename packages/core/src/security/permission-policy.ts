@@ -125,16 +125,6 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
     return this.confirmDestructive;
   }
 
-  /** @deprecated Use `setYoloDestructive`. */
-  setForceAllYolo(enabled: boolean): void {
-    this.setYoloDestructive(enabled);
-  }
-
-  /** @deprecated Use `getYoloDestructive`. */
-  getForceAllYolo(): boolean {
-    return this.getYoloDestructive();
-  }
-
   async reload(): Promise<void> {
     try {
       const raw = await fs.readFile(this.trustFile, 'utf8');

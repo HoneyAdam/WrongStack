@@ -1,59 +1,12 @@
 import { EventBus } from '@wrongstack/core/kernel';
-import { WebSocket } from 'ws';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runWebUI } from '../src/webui-server.js';
+import { openWs } from './_ws-client.js';
 
 const ports = { next: 45_570 };
 
 function nextPort(): number {
   return ports.next++;
-}
-
-/**
- * Wraps a WebSocket with a message queue. The `'message'` listener is attached
- * at construction — *before* `'open'` — so the server's immediate `session.start`
- * (sent synchronously inside the connection handler, arriving in the same TCP
- * batch as the handshake) is buffered rather than dropped. Mirrors how a real
- * frontend client sets `onmessage` before the socket opens.
- */
-interface WsClient {
-  ws: WebSocket;
-  waitForMessage(type: string): Promise<any>;
-}
-
-function openWs(url: string): Promise<WsClient> {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url, { headers: { Origin: 'http://localhost' } });
-    const buffer: any[] = [];
-    const waiters: Array<{ type: string; resolve: (m: any) => void }> = [];
-
-    ws.on('message', (data) => {
-      const msg = JSON.parse(data.toString());
-      const idx = waiters.findIndex((w) => w.type === msg.type);
-      if (idx >= 0) waiters.splice(idx, 1)[0]!.resolve(msg);
-      else buffer.push(msg);
-    });
-
-    const waitForMessage = (type: string): Promise<any> =>
-      new Promise((res, rej) => {
-        const idx = buffer.findIndex((m) => m.type === type);
-        if (idx >= 0) {
-          res(buffer.splice(idx, 1)[0]);
-          return;
-        }
-        const timer = setTimeout(() => rej(new Error(`timed out waiting for ${type}`)), 5_000);
-        waiters.push({
-          type,
-          resolve: (m) => {
-            clearTimeout(timer);
-            res(m);
-          },
-        });
-      });
-
-    ws.once('open', () => resolve({ ws, waitForMessage }));
-    ws.once('error', reject);
-  });
 }
 
 describe('runWebUI redaction', () => {

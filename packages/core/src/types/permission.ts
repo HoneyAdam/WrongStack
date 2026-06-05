@@ -45,10 +45,6 @@ export interface PermissionPolicy {
   getYoloDestructive?(): boolean;
   /** Optional runtime setter for the destructive YOLO override. */
   setYoloDestructive?(enabled: boolean): void;
-  /** @deprecated Use `getYoloDestructive`. */
-  getForceAllYolo?(): boolean;
-  /** @deprecated Use `setYoloDestructive`. */
-  setForceAllYolo?(enabled: boolean): void;
   /** Query whether destructive-operation confirmation gate is active. */
   getConfirmDestructive?(): boolean;
   /** Enable/disable destructive-operation confirmation (only meaningful in yolo mode). */

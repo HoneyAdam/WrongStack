@@ -16,6 +16,7 @@ export interface FromOpenAIOptions {
   /**
    * Deprecated: the sanitizer fallback is now always attempted. Kept for
    * backward compatibility; the value is ignored.
+   * TODO(breaking): remove in next major release.
    */
   jsonArgumentsBuggy?: boolean;
   /**
