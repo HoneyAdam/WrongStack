@@ -33,20 +33,10 @@ export type { TaskProgress } from '@wrongstack/core';
 import { getTaskTrackerExport as _getTaskTracker } from './sdd/task-manager.js';
 export function getTaskTracker(): TaskTracker | null { return _getTaskTracker(); }
 
+import { sddHelp } from './sdd/rendering.js';
+
 /**
  * `/sdd` — AI-driven Specification-Driven Development workflow.
- *
- * Workflow:
- *   /sdd new [title]       — Start AI-driven spec session (AI asks questions)
- *   /sdd approve           — Approve current phase (spec → impl → tasks → done)
- *   /sdd execute           — Execute generated tasks
- *   /sdd cancel            — Cancel current session
- *   /sdd status            — Show current session status
- *
- * Also:
- *   /sdd list              — List saved specs
- *   /sdd show <id>         — Show a spec
- *   /sdd templates         — List available templates
  */
 export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
   // All state accesses in this command go through sessionState so that
@@ -1142,6 +1132,4 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
     },
   };
 }
-
-import { sddHelp } from './sdd/rendering.js';
 
