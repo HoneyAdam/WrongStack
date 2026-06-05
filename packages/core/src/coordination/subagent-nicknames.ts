@@ -66,7 +66,12 @@ const NICKNAME_POOL = {
 } as const;
 
 /** Flat ordered list of all available nicknames — used for round-robin. */
-const ALL_NICKNAMES = Object.values(NICKNAME_POOL);
+const ALL_NICKNAMES = Object.entries(NICKNAME_POOL) as [NicknameKey, { name: string; domain: string }][];
+
+/** Reverse index: display name (e.g. "Von Neumann") → canonical pool key. */
+const NAME_TO_KEY: Record<string, string> = Object.fromEntries(
+  ALL_NICKNAMES.map(([key, entry]) => [entry.name, key]),
+);
 
 /** Domain → preferred nickname keys (fallback chain). */
 const DOMAIN_PREFERENCES: Record<string, string[]> = {
@@ -96,15 +101,30 @@ const DOMAIN_PREFERENCES: Record<string, string[]> = {
 
 type NicknameKey = keyof typeof NICKNAME_POOL;
 
+/** Result of a nickname assignment. */
+export interface NicknameAssignment {
+  /**
+   * Canonical pool key (e.g. `von-neumann`). This — NOT the display string — is
+   * what callers must add to their `used` set and later remove on release.
+   * Deriving the key by parsing the display string is unsafe: multi-word names
+   * like "Von Neumann" would be truncated to "von" and never dedupe correctly.
+   */
+  key: string;
+  /** Human display string, e.g. `Von Neumann (Backend)`. */
+  display: string;
+}
+
 /**
  * Assign a unique nickname to a subagent based on its role.
- * Returns `Name (Role)` formatted string, e.g. `Einstein (Bug Hunter)`.
  *
- * @param role    - The subagent's role id (e.g. 'bug-hunter', 'security-scanner')
- * @param used    - Set of nickname keys already assigned in this fleet
- *                  (so no two subagents share the same base name)
+ * Returns both the canonical pool `key` (for the `used` set) and the formatted
+ * `display` string (`Name (Role)`, e.g. `Einstein (Bug Hunter)`).
+ *
+ * @param role - The subagent's role id (e.g. 'bug-hunter', 'security-scanner')
+ * @param used - Set of nickname KEYS already assigned in this fleet
+ *               (so no two subagents share the same base name)
  */
-export function assignNickname(role: string, used: ReadonlySet<string>): string {
+export function assignNickname(role: string, used: ReadonlySet<string>): NicknameAssignment {
   // 1. Build preference list: role-specific → default fallback
   const preferences = [
     ...(DOMAIN_PREFERENCES[role] ?? []),
@@ -117,21 +137,37 @@ export function assignNickname(role: string, used: ReadonlySet<string>): string 
   for (const key of preferences) {
     const entry = NICKNAME_POOL[key as NicknameKey];
     if (entry && !used.has(key)) {
-      return `${entry.name} (${formatRole(role)})`;
+      return { key, display: `${entry.name} (${formatRole(role)})` };
     }
   }
 
-  // 3. Exhausted preferences — pick the first unused name round-robin style
-  for (const entry of ALL_NICKNAMES) {
-    const key = Object.entries(NICKNAME_POOL).find(([, v]) => v.name === entry.name)?.[0];
-    if (key && !used.has(key)) {
-      return `${entry.name} (${formatRole(role)})`;
+  // 3. Exhausted preferences — pick the first unused name round-robin style.
+  for (const [key, entry] of ALL_NICKNAMES) {
+    if (!used.has(key)) {
+      return { key, display: `${entry.name} (${formatRole(role)})` };
     }
   }
 
-  // 4. Pool exhausted — append counter to last resort
+  // 4. Pool exhausted — synthesize a stable, unique key/display pair.
   const counter = used.size + 1;
-  return `Scientist #${counter} (${formatRole(role)})`;
+  return { key: `scientist-${counter}`, display: `Scientist #${counter} (${formatRole(role)})` };
+}
+
+/**
+ * Resolve a previously-assigned display string back to its canonical pool key,
+ * for release paths that only retained the formatted name (e.g. a manifest
+ * entry). Strips the trailing ` (Role)` suffix, then matches the base name
+ * against the pool. Returns `undefined` when the name is not a known nickname.
+ *
+ * Use this instead of `name.split(' ')[0]` — the latter mangles multi-word
+ * names like "Von Neumann" and "Berners-Lee".
+ */
+export function nicknameKeyFromDisplay(display: string): string | undefined {
+  const base = display.replace(/\s*\([^)]*\)\s*$/, '').trim();
+  const key = NAME_TO_KEY[base];
+  if (key) return key;
+  const synthesized = base.match(/^Scientist #(\d+)$/);
+  return synthesized ? `scientist-${synthesized[1]}` : undefined;
 }
 
 /** Format role id into human-readable title-case. */

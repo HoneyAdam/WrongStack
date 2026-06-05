@@ -53,7 +53,7 @@ import { InMemoryBridgeTransport } from './in-memory-transport.js';
 import { LargeAnswerStore } from './large-answer-store.js';
 import { resolveModelMatrix } from './model-matrix.js';
 import { DefaultMultiAgentCoordinator } from './multi-agent-coordinator.js';
-import { assignNickname } from './subagent-nicknames.js';
+import { assignNickname, nicknameKeyFromDisplay } from './subagent-nicknames.js';
 
 /**
  * Director — high-level orchestrator that owns a `MultiAgentCoordinator`,
@@ -1101,13 +1101,9 @@ export class Director implements ICoordinator {
         // the manifest is keyed by the real subagentId.
         this.fleetManager.assignNicknameAndRecord(config);
       } else {
-        config.name = assignNickname(role, this._usedNicknames);
-        this._usedNicknames.add(
-          config.name
-            .split(' ')[0]!
-            .toLowerCase()
-            .replace(/[^a-z0-9-]/g, '-'),
-        );
+        const { key, display } = assignNickname(role, this._usedNicknames);
+        config.name = display;
+        this._usedNicknames.add(key);
       }
     }
     result = await this.coordinator.spawn(config);
@@ -1475,11 +1471,8 @@ export class Director implements ICoordinator {
     } else {
       const entry = this.manifestEntries.get(subagentId);
       if (entry?.name) {
-        const nicknameKey = entry.name
-          .split(' ')[0]!
-          .toLowerCase()
-          .replace(/[^a-z0-9-]/g, '-');
-        this._usedNicknames.delete(nicknameKey);
+        const nicknameKey = nicknameKeyFromDisplay(entry.name);
+        if (nicknameKey) this._usedNicknames.delete(nicknameKey);
       }
     }
 

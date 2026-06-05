@@ -136,11 +136,10 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
       name === 'generic' ||
       /^slot-/.test(name);
     if (!isPlaceholder) return subagent;
-    const nickname = assignNickname(role, this.usedNicknames);
-    const baseKey = nickname.split(' ')[0]!.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-    this.usedNicknames.add(baseKey);
-    this.subagentNicknames.set(subagentId, baseKey);
-    return { ...subagent, name: nickname };
+    const { key, display } = assignNickname(role, this.usedNicknames);
+    this.usedNicknames.add(key);
+    this.subagentNicknames.set(subagentId, key);
+    return { ...subagent, name: display };
   }
 
   async spawn(subagent: SubagentConfig): Promise<SpawnResult> {

@@ -2,7 +2,7 @@ import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { atomicWrite } from '../utils/atomic-write.js';
-import { assignNickname } from './subagent-nicknames.js';
+import { assignNickname, nicknameKeyFromDisplay } from './subagent-nicknames.js';
 import type { SubagentConfig } from '../types/multi-agent.js';
 import type { SessionWriter } from '../types/session.js';
 import { DirectorStateCheckpoint } from '../storage/director-state.js';
@@ -234,14 +234,13 @@ export class FleetManager implements IFleetManager {
     config: SubagentConfig,
   ): string {
     const role = config.role ?? 'subagent';
-    const nickname = assignNickname(role, this._usedNicknames);
-    // Extract the base key (e.g. "einstein") from the pool to mark it used.
-    const baseKey = nickname.split(' ')[0]!.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-    this._usedNicknames.add(baseKey);
+    const { key, display } = assignNickname(role, this._usedNicknames);
+    // Mark the canonical pool key used so the same name is never reused.
+    this._usedNicknames.add(key);
     // Write the full nickname back into config so the coordinator
     // and manifest both see the human name.
-    config.name = nickname;
-    return nickname;
+    config.name = display;
+    return display;
   }
 
   /**
@@ -460,8 +459,8 @@ export class FleetManager implements IFleetManager {
     // Free the nickname slot so the same name can be reused.
     const entry = this.manifestEntries.get(subagentId);
     if (entry?.name) {
-      const nicknameKey = entry.name.split(' ')[0]!.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-      this._usedNicknames.delete(nicknameKey);
+      const nicknameKey = nicknameKeyFromDisplay(entry.name);
+      if (nicknameKey) this._usedNicknames.delete(nicknameKey);
     }
     // Remove any pending tasks assigned to this subagent.
     for (const [taskId, task] of this.pendingTasks) {

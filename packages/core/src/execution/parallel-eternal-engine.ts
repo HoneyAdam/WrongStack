@@ -432,6 +432,12 @@ export class ParallelEternalEngine {
       results = coordinator.results().slice(-taskIds.length);
     }
 
+    // Free each per-tick subagent now that its task has resolved. Without this,
+    // an eternal-parallel run accumulates dead subagent entries (and their
+    // nickname slots) in the coordinator forever — a slow but unbounded leak
+    // over multi-day loops. remove() is idempotent and non-throwing per id.
+    await Promise.allSettled(subagentIds.map((id) => coordinator.remove(id)));
+
     const allSuccessful = results.length > 0 && results.every((r) => r.status === 'success');
     const goalComplete = results.some(
       (r) =>
