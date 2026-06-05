@@ -48,7 +48,11 @@ export class WrongStackACPServer {
     this.handler = new ACPProtocolHandler(
       this.transport,
       this.registry,
-      /* TODO: load WrongStack Context */ {},
+      // Future: WrongStack session/memory context for tool execution.
+      // When wired, this would carry session state, memory entries, and
+      // project metadata so ACP tools can self-contextualise.
+      // Tracked in docs/notes/refactor-2026-06-05.md §5.1.
+      {},
     );
   }
 

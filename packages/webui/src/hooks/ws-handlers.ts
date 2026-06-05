@@ -1,0 +1,420 @@
+import { toast } from '@/components/Toaster';
+import { playCompletionChime, playPermissionChime } from '@/lib/chime';
+import { setFaviconStatus } from '@/lib/favicon';
+import { ensureNotificationPermission, notifyIfHidden } from '@/lib/notify';
+import { getWSClient } from '@/lib/ws-client';
+import type { WrongStackWebSocketClient } from '@/lib/ws-client';
+import {
+  type SessionHistoryEntry,
+  type SubagentEvent,
+  useChatStore,
+  useConfigStore,
+  useFleetStore,
+  useHistoryStore,
+  useSessionStore,
+  useUIStore,
+  useWorktreeStore,
+} from '@/stores';
+import type { WorktreeHandleView, WSServerMessage } from '@/types';
+
+// ── Session handlers ──
+
+export function handleSessionStart(msg: WSServerMessage) {
+  const payload = msg.payload as {
+    sessionId: string;
+    model: string;
+    provider: string;
+    maxContext?: number;
+    projectName?: string;
+    cwd?: string;
+    mode?: string;
+    contextMode?: string;
+    inputCost?: number;
+    outputCost?: number;
+    cacheReadCost?: number;
+    reset?: boolean;
+  };
+  const prev = useSessionStore.getState().session?.id;
+  const isNew = !prev || prev !== payload.sessionId;
+  useSessionStore.getState().startSession({
+    id: payload.sessionId,
+    startedAt: Date.now(),
+    model: payload.model,
+    provider: payload.provider,
+  });
+  useSessionStore.getState().setEnv({
+    maxContext: payload.maxContext,
+    projectName: payload.projectName,
+    mode: payload.mode,
+    contextMode: payload.contextMode,
+    inputCost: payload.inputCost,
+    outputCost: payload.outputCost,
+    cacheReadCost: payload.cacheReadCost,
+  });
+  useConfigStore.getState().setConfig({
+    provider: payload.provider,
+    model: payload.model,
+  });
+  if (isNew || payload.reset) {
+    useChatStore.getState().clearMessages();
+    useFleetStore.getState().clear();
+  }
+  // Resume hydration
+  const replay = (payload as { replayMessages?: Array<{ role: string; content: unknown }> }).replayMessages;
+  if (replay && replay.length > 0) {
+    const chat = useChatStore.getState();
+    for (const m of replay) {
+      if (m.role === 'user' || m.role === 'assistant' || m.role === 'system') {
+        let text = '';
+        if (typeof m.content === 'string') {
+          text = m.content;
+        } else if (Array.isArray(m.content)) {
+          for (const b of m.content as Array<Record<string, unknown>>) {
+            if (b.type === 'text' && typeof b.text === 'string') {
+              text += (text ? '\n' : '') + b.text;
+            } else if (b.type === 'tool_use') {
+              if (text) { chat.addMessage({ role: m.role as 'user' | 'assistant', content: text }); text = ''; }
+              chat.addMessage({ role: 'tool', content: '', toolName: String(b.name ?? 'tool'), toolInput: b.input, toolUseId: String(b.id ?? '') });
+            } else if (b.type === 'tool_result') {
+              const all = useChatStore.getState().messages;
+              let last: { id: string } | undefined;
+              for (let i = all.length - 1; i >= 0; i--) {
+                if (all[i]!.toolUseId === String(b.tool_use_id ?? '')) { last = all[i]!; break; }
+              }
+              if (last) { chat.setToolResult(last.id, typeof b.content === 'string' ? b.content : JSON.stringify(b.content), !b.is_error); }
+            }
+          }
+        }
+        if (text) chat.addMessage({ role: m.role as 'user' | 'assistant', content: text });
+      }
+    }
+  }
+}
+
+// ── Context handlers ──
+
+export function handleContextDebug(msg: WSServerMessage) {
+  const p = msg.payload as {
+    total: number; systemPrompt: number;
+    tools: { total: number; count: number; breakdown: Array<{ name: string; tokens: number }> };
+    messages: { total: number; count: number; breakdown: Array<{ index: number; role: string; tokens: number; preview: string }> };
+  };
+  const fmt = (n: number) => n.toLocaleString();
+  const topTools = [...p.tools.breakdown].sort((a, b) => b.tokens - a.tokens).slice(0, 8);
+  const topMsgs = [...p.messages.breakdown].sort((a, b) => b.tokens - a.tokens).slice(0, 8);
+  useChatStore.getState().addMessage({ role: 'assistant', content: [
+    `📊 **Context breakdown** (heuristic — 4 chars/token)`, '',
+    `**Total estimate:** ${fmt(p.total)} tokens`,
+    `• System prompt: ${fmt(p.systemPrompt)}`,
+    `• Tool schemas: ${fmt(p.tools.total)} (${p.tools.count} tools)`,
+    `• Messages: ${fmt(p.messages.total)} (${p.messages.count} messages)`, '',
+    `**Top tool schemas:**`, ...topTools.map((t) => `  · ${t.name}: ${fmt(t.tokens)}`), '',
+    `**Top messages:**`, ...topMsgs.map((m) => `  · #${m.index} ${m.role}: ${fmt(m.tokens)} — ${m.preview || '(empty)'}`),
+  ].join('\n') });
+}
+
+export function handleKeyOperationResult(msg: WSServerMessage) {
+  const p = msg.payload as { success: boolean; message: string };
+  if (p.success) toast.success(p.message);
+  else toast.error(p.message);
+}
+
+export function handleContextCompacted(msg: WSServerMessage) {
+  const payload = msg.payload as {
+    before: number; after: number; saved: number;
+    reductions: Array<{ phase: string; saved: number }>;
+    repaired?: { removedToolUses: string[]; removedToolResults: string[]; removedMessages: number };
+  };
+  let summary = payload.reductions.length ? payload.reductions.map((r) => `${r.phase}: ${r.saved}`).join(', ') : 'no-op';
+  if (payload.repaired) summary += `; repaired ${payload.repaired.removedToolUses.length} tool_use, ${payload.repaired.removedToolResults.length} tool_result, ${payload.repaired.removedMessages} empty messages`;
+  useChatStore.getState().addMessage({ role: 'assistant', content: `🗜️ Context compacted: ${payload.before} → ${payload.after} tokens (saved ~${payload.saved}). ${summary}` });
+  useSessionStore.setState({ lastInputTokens: payload.after });
+}
+
+export function handleProviderResponse(msg: WSServerMessage) {
+  const payload = msg.payload as { usage: { input: number; output: number; cacheRead?: number; cacheWrite?: number }; stopReason: string; messageId: string };
+
+  // Update lastInputTokens from usage delta (was a separate handler)
+  const u = payload.usage;
+  const delta = (u.input ?? 0) + (u.cacheWrite ?? 0) - (u.cacheRead ?? 0);
+  if (delta > 0) useSessionStore.setState({ lastInputTokens: delta });
+
+  // Main response handler
+  useSessionStore.getState().updateUsage(payload.usage);
+  const { inputCost, outputCost, cacheReadCost } = useSessionStore.getState();
+  const dCost = (payload.usage.input * inputCost + payload.usage.output * outputCost + (payload.usage.cacheRead ?? 0) * cacheReadCost) / 1_000_000;
+  if (dCost > 0) useSessionStore.getState().addCost(dCost);
+  if (payload.stopReason !== 'tool_use' && payload.stopReason !== 'tool_call') useChatStore.getState().setLoading(false);
+  const id = useChatStore.getState().currentAssistantMessageId;
+  if (id) {
+    useChatStore.getState().finalizeMessage(id);
+    if (payload.usage.output > 0) useChatStore.getState().updateMessage(id, { usage: payload.usage });
+  }
+  useChatStore.getState().setCurrentAssistantMessage(null);
+  useChatStore.getState().clearThinking();
+}
+
+export function handleContextRepaired(msg: WSServerMessage) {
+  const payload = msg.payload as { removedToolUses: string[]; removedToolResults: string[]; removedMessages: number; beforeMessages?: number; afterMessages?: number };
+  const removed = payload.removedToolUses.length + payload.removedToolResults.length + payload.removedMessages;
+  const msgCount = payload.beforeMessages !== undefined && payload.afterMessages !== undefined ? ` Messages: ${payload.beforeMessages} -> ${payload.afterMessages}.` : '';
+  useChatStore.getState().addMessage({ role: 'assistant', content: `Context repaired: removed ${removed} orphan protocol item(s).${msgCount} tool_use ${payload.removedToolUses.length}, tool_result ${payload.removedToolResults.length}.` });
+}
+
+// ── Agent handlers ──
+
+export function handleSessionEnd() {
+  useConfigStore.getState().setWsConnected(false);
+}
+
+export function handleIterationStarted(msg: WSServerMessage) {
+  const payload = msg.payload as { index: number; maxIterations?: number };
+  useSessionStore.getState().setIteration({ index: payload.index, max: payload.maxIterations ?? 0 });
+  useChatStore.getState().setLoading(true);
+  if (typeof document !== 'undefined' && document.hidden) setFaviconStatus('running');
+  if (useChatStore.getState().runStart === null) {
+    useChatStore.getState().setRunStart({ at: Date.now(), cost: useSessionStore.getState().cost });
+  }
+  useChatStore.getState().setCurrentAssistantMessage(null);
+}
+
+export function handleTextDelta(msg: WSServerMessage) {
+  const payload = msg.payload as { text: string; messageId: string };
+  useChatStore.getState().clearThinking();
+  let id = useChatStore.getState().currentAssistantMessageId;
+  if (!id) {
+    id = useChatStore.getState().addMessage({ role: 'assistant', content: '', streaming: true });
+    useChatStore.getState().setCurrentAssistantMessage(id);
+  }
+  useChatStore.getState().appendToMessage(id, payload.text);
+}
+
+export function handleThinkingDelta(msg: WSServerMessage) {
+  const payload = msg.payload as { text: string };
+  if (!payload.text) return;
+  useChatStore.getState().appendThinking(payload.text);
+}
+
+export function handleToolStarted(msg: WSServerMessage) {
+  const payload = msg.payload as { id: string; name: string; input?: unknown; messageId: string };
+  const existing = useChatStore.getState().messages.find((m) => m.toolUseId === payload.id);
+  if (existing) { useChatStore.getState().setCurrentToolId(existing.id); return; }
+  useChatStore.getState().clearThinking();
+  useChatStore.getState().setCurrentAssistantMessage(null);
+  const id = useChatStore.getState().addMessage({ role: 'tool', content: '', toolName: payload.name, toolInput: payload.input, toolUseId: payload.id });
+  useChatStore.getState().setCurrentToolId(id);
+  useChatStore.getState().addExecution({ id: payload.id, name: payload.name, input: payload.input, ok: true, startedAt: Date.now() });
+}
+
+export function handleToolProgress(msg: WSServerMessage) {
+  const payload = msg.payload as { id: string; name: string; event: { type: string; text?: string } };
+  const text = (payload.event?.text ?? '').trim();
+  if (!text) return;
+  const messages = useChatStore.getState().messages;
+  const owner = messages.find((m) => m.toolUseId === payload.id);
+  if (!owner) return;
+  const prefix = payload.event?.type === 'warning' ? '⚠ ' : '';
+  useChatStore.getState().appendToolProgress(owner.id, prefix + text);
+}
+
+export function handleToolExecuted(msg: WSServerMessage) {
+  const payload = msg.payload as { id?: string; name: string; durationMs: number; ok: boolean; input?: unknown; output?: string };
+  const { messages, currentToolId } = useChatStore.getState();
+  const owner = payload.id ? messages.find((m) => m.toolUseId === payload.id) : currentToolId ? messages.find((m) => m.id === currentToolId) : undefined;
+  if (owner?.toolResult !== undefined) return;
+  if (owner) {
+    useChatStore.getState().setToolResult(owner.id, payload.output ?? '', payload.ok);
+    useChatStore.getState().updateMessage(owner.id, { toolDurationMs: payload.durationMs });
+  }
+  if (payload.id) useChatStore.getState().updateExecution(payload.id, { completedAt: Date.now(), durationMs: payload.durationMs, output: payload.output, ok: payload.ok });
+  if (currentToolId && owner && owner.id === currentToolId) useChatStore.getState().setCurrentToolId(null);
+}
+
+export function handleToolConfirmNeeded(msg: WSServerMessage) {
+  const payload = msg.payload as { id: string; toolName: string; input: unknown; suggestedPattern: string };
+  useUIStore.getState().showConfirm({ id: payload.id, toolName: payload.toolName, input: payload.input, suggestedPattern: payload.suggestedPattern });
+  try { playPermissionChime(); } catch { /* audio policy */ }
+  void ensureNotificationPermission();
+  notifyIfHidden('WrongStack needs approval', `Tool "${payload.toolName}" is waiting for your decision.`, 'wrongstack-confirm');
+  if (typeof document !== 'undefined' && document.hidden) setFaviconStatus('attention');
+}
+
+export function handleRunResult(msg: WSServerMessage) {
+  const payload = msg.payload as { status: string; iterations: number; finalText?: string; error?: { code: string; message: string; recoverable: boolean } };
+  useSessionStore.getState().setIteration(null);
+  useChatStore.getState().setLoading(false);
+  useChatStore.getState().setCurrentAssistantMessage(null);
+  useChatStore.getState().clearThinking();
+  const runStart = useChatStore.getState().runStart;
+  if (runStart && payload.status === 'done') {
+    const all = useChatStore.getState().messages;
+    let lastAssistantIdx = -1, toolCount = 0;
+    for (let i = all.length - 1; i >= 0; i--) {
+      const m = all[i]!;
+      if (m.role === 'assistant' && lastAssistantIdx === -1 && m.content) lastAssistantIdx = i;
+      if (m.role === 'tool' && m.timestamp >= runStart.at) toolCount += 1;
+      if (m.role === 'user' && m.timestamp <= runStart.at) break;
+    }
+    if (lastAssistantIdx !== -1) {
+      const sessionCost = useSessionStore.getState().cost;
+      useChatStore.getState().updateMessage(all[lastAssistantIdx]!.id, { runSummary: { iterations: payload.iterations, tools: toolCount, durationMs: Date.now() - runStart.at, costDelta: Math.max(0, sessionCost - runStart.cost) } });
+    }
+  }
+  useChatStore.getState().setRunStart(null);
+  if (payload.status !== 'done' && payload.error) {
+    useChatStore.getState().addMessage({ role: 'assistant', content: `Error: ${payload.error.message}`, isError: true });
+    toast.error(`Run ended: ${payload.error.message}`);
+    notifyIfHidden('WrongStack run failed', payload.error.message);
+    if (typeof document !== 'undefined' && document.hidden) setFaviconStatus('error');
+  } else if (payload.status === 'done') {
+    if (typeof document !== 'undefined' && document.hidden) {
+      toast.success(`Run completed in ${payload.iterations} iteration${payload.iterations === 1 ? '' : 's'}`);
+      notifyIfHidden('WrongStack run finished', `Completed in ${payload.iterations} iteration${payload.iterations === 1 ? '' : 's'}.`);
+      setFaviconStatus('ready');
+    }
+    void ensureNotificationPermission();
+    if (useConfigStore.getState().soundOnComplete) {
+      try { playCompletionChime(); } catch { /* audio policy */ }
+    }
+  }
+  const next = useChatStore.getState().dequeue();
+  if (next) {
+    const client = getWSClient(useConfigStore.getState().wsUrl);
+    useChatStore.getState().addMessage({ role: 'user', content: next });
+    useChatStore.getState().setLoading(true);
+    client.sendMessage(next);
+  }
+}
+
+// ── Info / misc handlers ──
+
+export function handleToolsList(msg: WSServerMessage) {
+  const p = msg.payload as { tools: Array<{ name: string; description: string; params: string[] }> };
+  useChatStore.getState().addMessage({ role: 'assistant', content: [
+    `🛠️ **Registered tools** (${p.tools.length})`, '',
+    ...p.tools.map((t) => `• \`${t.name}\`${t.params.length ? ` (${t.params.join(', ')})` : ''} — ${t.description || '_no description_'}`),
+  ].join('\n') });
+}
+
+export function handleMemoryList(msg: WSServerMessage) {
+  const p = msg.payload as { text: string; error?: string };
+  const body = p.text?.trim();
+  useChatStore.getState().addMessage({ role: 'assistant', content: p.error ? `Memory read failed: ${p.error}` : body ? `🧠 **Memory** \n\n${body}` : '🧠 **Memory** \n\n_empty — nothing remembered yet_' });
+}
+
+export function handleSkillsList(msg: WSServerMessage) {
+  const p = msg.payload as { enabled: boolean; error?: string; skills: Array<{ name: string; description: string; version: string; source: string; path: string; trigger: string; scope: string[] }> };
+  if (!p.enabled) { useChatStore.getState().addMessage({ role: 'assistant', content: '🎯 **Skills** \n\n_disabled (config.features.skills = false)_' }); return; }
+  const lines = [`🎯 **Skills** (${p.skills.length})`, '', ...(p.skills.length === 0 ? ['_none registered_'] : p.skills.map((s) => `• \`${s.name}\`${s.version ? ` v${s.version}` : ''} _(${s.source})_ — ${s.description || s.trigger || '_no description_'}`))];
+  if (p.error) lines.push('', `⚠ ${p.error}`);
+  useChatStore.getState().addMessage({ role: 'assistant', content: lines.join('\n') });
+}
+
+export function handleDiagGet(msg: WSServerMessage) {
+  const p = msg.payload as { provider: string; model: string; cwd: string; sessionId: string; tools: { count: number; names: string[] }; features: { memory: boolean; skills: boolean; modelsRegistry: boolean }; mode: string; usage: { input: number; output: number; cacheRead?: number }; messages: number; todos: number };
+  useChatStore.getState().addMessage({ role: 'assistant', content: [
+    '🩺 **Runtime diagnostics**', '',
+    `**Provider:** \`${p.provider}\` / \`${p.model}\``,
+    `**Mode:** \`${p.mode}\``, `**Session:** \`${p.sessionId}\``, `**CWD:** \`${p.cwd}\``, '',
+    `**Tools:** ${p.tools.count}`, `**Messages:** ${p.messages}  ·  **Todos:** ${p.todos}`,
+    `**Usage:** ${p.usage.input.toLocaleString()} in · ${p.usage.output.toLocaleString()} out${p.usage.cacheRead ? ` · ${p.usage.cacheRead.toLocaleString()} cache` : ''}`, '',
+    `**Features:** memory=${p.features.memory ? '✓' : '✗'} · skills=${p.features.skills ? '✓' : '✗'} · modelsRegistry=${p.features.modelsRegistry ? '✓' : '✗'}`,
+  ].join('\n') });
+}
+
+export function handleStatsGet(msg: WSServerMessage) {
+  const p = msg.payload as { sessionId: string; provider: string; model: string; usage: { input: number; output: number; cacheRead?: number; cacheWrite?: number }; cache: { readTokens: number; writeTokens: number; hitRatio: number } | null; cost: number; messages: number; readFiles: number; tools: number; elapsedMs: number };
+  const elapsedSec = Math.floor(p.elapsedMs / 1000);
+  const elapsed = elapsedSec < 60 ? `${elapsedSec}s` : elapsedSec < 3600 ? `${Math.floor(elapsedSec / 60)}m ${elapsedSec % 60}s` : `${Math.floor(elapsedSec / 3600)}h ${Math.floor((elapsedSec % 3600) / 60)}m`;
+  useChatStore.getState().addMessage({ role: 'assistant', content: [
+    '📈 **Session stats**', '',
+    `**Session:** \`${p.sessionId}\``, `**Provider/Model:** \`${p.provider}\` / \`${p.model}\``, `**Elapsed:** ${elapsed}`, '',
+    `**Usage:** ${p.usage.input.toLocaleString()} in · ${p.usage.output.toLocaleString()} out`,
+    ...(p.cache && p.cache.readTokens > 0 ? [`**Cache:** ${p.cache.readTokens.toLocaleString()} read · ${p.cache.writeTokens.toLocaleString()} write · hit ratio ${(p.cache.hitRatio * 100).toFixed(1)}%`] : []),
+    `**Cost:** $${p.cost.toFixed(4)}`, '',
+    `**Messages:** ${p.messages}  ·  **Files read:** ${p.readFiles}  ·  **Tools available:** ${p.tools}`,
+  ].join('\n') });
+}
+
+export function handleTodosUpdated(msg: WSServerMessage) {
+  const p = msg.payload as { todos: Array<{ id: string; content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string }> };
+  useSessionStore.getState().setTodos(p.todos ?? []);
+}
+
+export function handleModesList(msg: WSServerMessage) {
+  const p = msg.payload as { modes: Array<{ id: string; name: string; description: string; isActive: boolean }>; activeId: string };
+  useSessionStore.getState().setModes(p.modes.map((m) => ({ id: m.id, name: m.name, description: m.description })));
+  useSessionStore.getState().setEnv({ mode: p.activeId });
+}
+
+export function handleContextModesList(msg: WSServerMessage) {
+  const p = msg.payload as { activeId: string; modes: Array<{ id: string; name: string; description: string; isActive: boolean; thresholds?: { warn: number; soft: number; hard: number }; preserveK?: number; eliseThreshold?: number }> };
+  useSessionStore.getState().setContextModes(p.modes.map((m) => ({ id: m.id, name: m.name, description: m.description, thresholds: m.thresholds, preserveK: m.preserveK, eliseThreshold: m.eliseThreshold })));
+  useSessionStore.getState().setEnv({ contextMode: p.activeId });
+}
+
+export function handleContextModeChanged(msg: WSServerMessage) {
+  const p = msg.payload as { id: string; name?: string };
+  useSessionStore.getState().setEnv({ contextMode: p.id });
+}
+
+export function handleSessionsList(msg: WSServerMessage) {
+  const payload = msg.payload as { sessions: SessionHistoryEntry[]; error?: string };
+  useHistoryStore.getState().setEntries(payload.sessions ?? [], payload.error ?? null);
+}
+
+export function handleError(msg: WSServerMessage) {
+  const payload = msg.payload as { phase: string; message: string };
+  useChatStore.getState().addMessage({ role: 'assistant', content: `[${payload.phase}] ${payload.message}`, isError: true });
+  useChatStore.getState().setLoading(false);
+}
+
+// ── Worktree / Fleet handlers ──
+
+export function handleWorktreeState(msg: WSServerMessage) {
+  const p = msg.payload as { worktrees: WorktreeHandleView[]; baseBranch: string };
+  useWorktreeStore.getState().setSnapshot(p.worktrees ?? [], p.baseBranch ?? '');
+}
+
+export function handleWorktreeEvent(msg: WSServerMessage) {
+  const p = msg.payload as { kind: string; handleId: string; text: string; at: number };
+  useWorktreeStore.getState().pushEvent(p);
+}
+
+export function handleSubagentEvent(msg: WSServerMessage) {
+  useFleetStore.getState().applyEvent(msg.payload as SubagentEvent);
+}
+
+// ── Handler registry: maps message types to handler functions ──
+
+export const WS_HANDLERS: Record<string, (msg: WSServerMessage) => void> = {
+  'session.start': handleSessionStart,
+  'context.debug': handleContextDebug,
+  'key.operation_result': handleKeyOperationResult,
+  'context.compacted': handleContextCompacted,
+  'provider.response': handleProviderResponse,
+  'context.repaired': handleContextRepaired,
+  'session.end': handleSessionEnd,
+  'iteration.started': handleIterationStarted,
+  'provider.text_delta': handleTextDelta,
+  'provider.thinking_delta': handleThinkingDelta,
+  'tool.started': handleToolStarted,
+  'tool.progress': handleToolProgress,
+  'tool.executed': handleToolExecuted,
+  'tool.confirm_needed': handleToolConfirmNeeded,
+  'run.result': handleRunResult,
+  'tools.list': handleToolsList,
+  'memory.list': handleMemoryList,
+  'skills.list': handleSkillsList,
+  'diag.get': handleDiagGet,
+  'stats.get': handleStatsGet,
+  'todos.updated': handleTodosUpdated,
+  'modes.list': handleModesList,
+  'context.modes.list': handleContextModesList,
+  'context.mode.changed': handleContextModeChanged,
+  'sessions.list': handleSessionsList,
+  'error': handleError,
+  'worktree.state': handleWorktreeState,
+  'worktree.event': handleWorktreeEvent,
+  'subagent.event': handleSubagentEvent,
+};

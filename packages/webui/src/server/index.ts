@@ -51,16 +51,9 @@ import { registerInstance, unregisterInstance } from './instance-registry.js';
 import { findFreePort } from './port-utils.js';
 import { openBrowser } from './open-browser.js';
 import { computeUsageCost, getCostRates } from './usage-cost.js';
-import {
-  addProvider as addProviderRecord,
-  deleteKey as deleteKeyRecord,
-  maskedKey,
-  normalizeKeys,
-  removeProvider as removeProviderRecord,
-  setActiveKey as setActiveKeyRecord,
-  upsertKey as upsertKeyRecord,
-} from './provider-keys.js';
-import { loadSavedProviders, saveProviders } from './provider-config-io.js';
+import { createProviderHandlers } from './provider-handlers.js';
+import { setupEvents } from './setup-events.js';
+import { maskedKey, normalizeKeys } from './provider-keys.js';
 import { send, broadcast, sendResult, errMessage, generateAuthToken } from './ws-utils.js';
 import { estimateContextBreakdown } from './token-estimator.js';
 
@@ -665,185 +658,6 @@ export async function startWebUI(
   // it up and resolve — unblocking the agent loop.
   const pendingConfirms = new Map<string, (d: 'yes' | 'no' | 'always' | 'deny') => void>();
 
-  // Event subscriptions
-  function setupEvents() {
-    events.on('iteration.started', (e) => {
-      broadcast(clients, {
-        type: 'iteration.started',
-        payload: { index: e.index, maxIterations: config.tools?.maxIterations ?? 100 },
-      });
-    });
-
-    events.on('provider.text_delta', (e) => {
-      broadcast(clients, { type: 'provider.text_delta', payload: { text: e.text, messageId: 'current' } });
-    });
-
-    events.on('provider.thinking_delta', (e) => {
-      broadcast(clients, { type: 'provider.thinking_delta', payload: { text: e.text } });
-    });
-
-    events.on('tool.started', (e) => {
-      broadcast(clients, {
-        type: 'tool.started',
-        payload: { id: e.id, name: e.name, input: e.input, messageId: `tool_${e.id}` },
-      });
-    });
-
-    events.on('tool.progress', (e) => {
-      // Streaming progress (bash stdout chunks, fetch body deltas, scan
-      // counts...). We forward the lightweight shape: id + type + text so
-      // the UI can render an inline "live" preview while the tool is still
-      // running. Heavy `data` blob is intentionally dropped here — the
-      // frontend doesn't need it and broadcasting it would balloon the WS
-      // traffic for tools that emit progress every few ms.
-      broadcast(clients, {
-        type: 'tool.progress',
-        payload: {
-          id: e.id,
-          name: e.name,
-          eventType: e.event.type,
-          text: e.event.text,
-        },
-      });
-    });
-
-    events.on('tool.executed', (e) => {
-      broadcast(clients, {
-        type: 'tool.executed',
-        payload: {
-          // Forward the tool_use id so frontend can correlate with the
-          // matching tool.started bubble — without this, parallel tool calls
-          // all stay stuck on "Running…" because the frontend can't tell
-          // which bubble this result belongs to.
-          id: e.id,
-          name: e.name,
-          durationMs: e.durationMs,
-          ok: e.ok,
-          input: e.input,
-          output: e.output,
-        },
-      });
-      // Push the current todo snapshot too — the TodoWrite tool mutates
-      // context.todos in place, and a side-panel that needs to react to
-      // that change shouldn't have to poll. Cheap (todos are tiny).
-      broadcast(clients, {
-        type: 'todos.updated',
-        payload: { todos: [...context.todos] },
-      });
-    });
-
-    events.on('provider.response', (e) => {
-      broadcast(clients, {
-        type: 'provider.response',
-        payload: {
-          usage: e.usage,
-          stopReason: e.stopReason,
-          messageId: 'current',
-        },
-      });
-    });
-
-    events.on('context.repaired', (e) => {
-      broadcast(clients, {
-        type: 'context.repaired',
-        payload: {
-          removedToolUses: e.removedToolUses,
-          removedToolResults: e.removedToolResults,
-          removedMessages: e.removedMessages,
-        },
-      });
-    });
-
-    events.on('tool.confirm_needed', (e) => {
-      const id = e.toolUseId ?? `confirm_${Date.now()}`;
-      pendingConfirms.set(id, e.resolve);
-      broadcast(clients, {
-        type: 'tool.confirm_needed',
-        payload: {
-          id,
-          toolName: e.tool?.name ?? 'unknown',
-          input: e.input,
-          suggestedPattern: e.suggestedPattern,
-        },
-      });
-    });
-
-    events.on('error', (e) => {
-      broadcast(clients, {
-        type: 'error',
-        payload: {
-          phase: e.phase,
-          message: e.err instanceof Error ? e.err.message : String(e.err),
-        },
-      });
-    });
-
-    // Subagent fleet lifecycle — flatten the kernel's subagent.* catalog into a
-    // single kind-tagged `subagent.event` stream so the WebUI's FleetPanel
-    // (useFleetStore) can render a live roster of the leader's nickname'd
-    // workers. Mirrors the CLI-embedded server (packages/cli/src/webui-server.ts);
-    // only names + counters are forwarded, so there's nothing to scrub.
-    const forwardSubagent = (kind: string, payload: Record<string, unknown>) =>
-      broadcast(clients, { type: 'subagent.event', payload: { kind, ...payload } });
-    events.on('subagent.spawned', (e) =>
-      forwardSubagent('spawned', {
-        subagentId: e.subagentId,
-        taskId: e.taskId,
-        name: e.name,
-        provider: e.provider,
-        model: e.model,
-        description: e.description,
-      }),
-    );
-    events.on('subagent.task_started', (e) =>
-      forwardSubagent('task_started', {
-        subagentId: e.subagentId,
-        taskId: e.taskId,
-        description: e.description,
-      }),
-    );
-    events.on('subagent.tool_executed', (e) =>
-      forwardSubagent('tool_executed', {
-        subagentId: e.subagentId,
-        toolName: e.name,
-        durationMs: e.durationMs,
-        ok: e.ok,
-      }),
-    );
-    events.on('subagent.iteration_summary', (e) =>
-      forwardSubagent('iteration_summary', {
-        subagentId: e.subagentId,
-        iteration: e.iteration,
-        toolCalls: e.toolCalls,
-        costUsd: e.costUsd,
-        currentTool: e.currentTool,
-      }),
-    );
-    events.on('subagent.budget_extended', (e) =>
-      forwardSubagent('budget_extended', {
-        subagentId: e.subagentId,
-        totalExtensions: e.totalExtensions,
-      }),
-    );
-    events.on('subagent.ctx_pct', (e) =>
-      forwardSubagent('ctx_pct', {
-        subagentId: e.subagentId,
-        load: e.load,
-        tokens: e.tokens,
-        maxContext: e.maxContext,
-      }),
-    );
-    events.on('subagent.task_completed', (e) =>
-      forwardSubagent('task_completed', {
-        subagentId: e.subagentId,
-        status: e.status,
-        iterations: e.iterations,
-        toolCalls: e.toolCalls,
-        error: e.error ? { kind: e.error.kind, message: e.error.message } : undefined,
-      }),
-    );
-  }
-
   const handleConnection = (ws: WebSocket): void => {
     const client: ConnectedClient = { ws, sessionId: session.id, connectedAt: Date.now() };
     clients.set(ws, client);
@@ -921,7 +735,7 @@ export async function startWebUI(
     if (eventsArmed) return;
     eventsArmed = true;
     console.log(`[WebUI] Backend ready (${label})`);
-    setupEvents();
+    setupEvents({ events, broadcast, clients, config, context, pendingConfirms });
   };
 
   wssPrimary.on('listening', () => armOnce(`${wsHost}:${wsPort}`));
@@ -1214,7 +1028,7 @@ export async function startWebUI(
       }
 
     case 'providers.saved': {
-      const saved = await loadConfigProviders();
+      const saved = await providerHandlers.loadConfigProviders();
       send(ws, {
         type: 'providers.saved',
         payload: {
@@ -1326,21 +1140,21 @@ export async function startWebUI(
         const { providerId, label, apiKey } = (
           msg as { payload: { providerId: string; label: string; apiKey: string } }
         ).payload;
-        await handleKeyUpsert(ws, providerId, label, apiKey);
+        await providerHandlers.handleKeyUpsert(ws, providerId, label, apiKey);
         break;
       }
 
       case 'key.delete': {
         const { providerId, label } = (msg as { payload: { providerId: string; label: string } })
           .payload;
-        await handleKeyDelete(ws, providerId, label);
+        await providerHandlers.handleKeyDelete(ws, providerId, label);
         break;
       }
 
       case 'key.set_active': {
         const { providerId, label } = (msg as { payload: { providerId: string; label: string } })
           .payload;
-        await handleKeySetActive(ws, providerId, label);
+        await providerHandlers.handleKeySetActive(ws, providerId, label);
         break;
       }
 
@@ -1348,13 +1162,13 @@ export async function startWebUI(
         const p = (
           msg as { payload: { id: string; family: string; baseUrl?: string; apiKey?: string } }
         ).payload;
-        await handleProviderAdd(ws, p);
+        await providerHandlers.handleProviderAdd(ws, p);
         break;
       }
 
       case 'provider.remove': {
         const { providerId } = (msg as { payload: { providerId: string } }).payload;
-        await handleProviderRemove(ws, providerId);
+        await providerHandlers.handleProviderRemove(ws, providerId);
         break;
       }
 
@@ -1819,90 +1633,13 @@ export async function startWebUI(
     }
   }
 
-  // ---- Provider/Key management helpers ----
-  // loadSavedProviders / saveProviders from provider-config-io.ts do the
-  // heavy lifting (read, decrypt, encrypt, write). We wrap saveProviders
-  // with the configWriteLock so concurrent handler calls serialize correctly.
-
-  async function loadConfigProviders(): Promise<Record<string, ProviderConfig>> {
-    return loadSavedProviders(globalConfigPath, vault);
-  }
-
-  async function saveConfigProviders(providers: Record<string, ProviderConfig>): Promise<void> {
-    configWriteLock = configWriteLock.then(() =>
-      saveProviders(globalConfigPath, vault, providers),
-    );
-    await configWriteLock;
-  }
-
-  // Each handler loads the decrypted providers record, applies a pure transform
-  // from ./provider-keys.ts, persists only on success, and reports the result.
-  async function handleKeyUpsert(
-    ws: WebSocket,
-    providerId: string,
-    label: string,
-    apiKey: string,
-  ): Promise<void> {
-    try {
-      const providers = await loadConfigProviders();
-      const result = upsertKeyRecord(providers, providerId, label, apiKey, new Date().toISOString());
-      if (result.ok) await saveConfigProviders(providers);
-      sendResult(ws, result.ok, result.message);
-    } catch (err) {
-      sendResult(ws, false, errMessage(err));
-    }
-  }
-
-  async function handleKeyDelete(ws: WebSocket, providerId: string, label: string): Promise<void> {
-    try {
-      const providers = await loadConfigProviders();
-      const result = deleteKeyRecord(providers, providerId, label);
-      if (result.ok) await saveConfigProviders(providers);
-      sendResult(ws, result.ok, result.message);
-    } catch (err) {
-      sendResult(ws, false, errMessage(err));
-    }
-  }
-
-  async function handleKeySetActive(
-    ws: WebSocket,
-    providerId: string,
-    label: string,
-  ): Promise<void> {
-    try {
-      const providers = await loadConfigProviders();
-      const result = setActiveKeyRecord(providers, providerId, label);
-      if (result.ok) await saveConfigProviders(providers);
-      sendResult(ws, result.ok, result.message);
-    } catch (err) {
-      sendResult(ws, false, errMessage(err));
-    }
-  }
-
-  async function handleProviderAdd(
-    ws: WebSocket,
-    payload: { id: string; family: string; baseUrl?: string; apiKey?: string },
-  ): Promise<void> {
-    try {
-      const providers = await loadConfigProviders();
-      const result = addProviderRecord(providers, payload, new Date().toISOString());
-      if (result.ok) await saveConfigProviders(providers);
-      sendResult(ws, result.ok, result.message);
-    } catch (err) {
-      sendResult(ws, false, errMessage(err));
-    }
-  }
-
-  async function handleProviderRemove(ws: WebSocket, providerId: string): Promise<void> {
-    try {
-      const providers = await loadConfigProviders();
-      const result = removeProviderRecord(providers, providerId);
-      if (result.ok) await saveConfigProviders(providers);
-      sendResult(ws, result.ok, result.message);
-    } catch (err) {
-      sendResult(ws, false, errMessage(err));
-    }
-  }
+  // ---- Provider/Key management helpers (extracted to provider-handlers.ts) ----
+  const providerHandlers = createProviderHandlers({
+    globalConfigPath,
+    vault,
+    getConfigWriteLock: () => configWriteLock,
+    setConfigWriteLock: (p) => { configWriteLock = p; },
+  });
 
   // HTTP server for the React frontend (port 3456) — see `http-server.ts`
   // for the static-serve, MIME matching, path-traversal guard, and CSP

@@ -54,6 +54,7 @@ import { LargeAnswerStore } from './large-answer-store.js';
 import { resolveModelMatrix } from './model-matrix.js';
 import { DefaultMultiAgentCoordinator } from './multi-agent-coordinator.js';
 import { assignNickname, nicknameKeyFromDisplay } from './subagent-nicknames.js';
+import { FleetSpawnBudgetError, FleetCostCapError, FleetContextOverflowError } from './director/director-errors.js';
 
 /**
  * Director — high-level orchestrator that owns a `MultiAgentCoordinator`,
@@ -265,75 +266,8 @@ export type ModelMatrixSource =
   | Record<string, ModelMatrixEntry>
   | (() => Record<string, ModelMatrixEntry> | undefined);
 
-/**
- * Thrown by `Director.spawn()` when a configured spawn cap (`maxSpawns`,
- * `maxSpawnDepth`) is hit. Distinct error class so callers — including
- * the `spawn_subagent` tool surface — can recognize the budget case and
- * report it cleanly instead of treating it like an unexpected failure.
- */
-export class FleetSpawnBudgetError extends Error {
-  readonly kind: 'max_spawns' | 'max_spawn_depth';
-  readonly limit: number;
-  readonly observed: number;
-  constructor(
-    kind: 'max_spawns' | 'max_spawn_depth',
-    limit: number,
-    observed: number,
-    message?: string,
-  ) {
-    const defaultMsg =
-      kind === 'max_spawns'
-        ? `Director spawn budget exceeded: tried to spawn #${observed} but maxSpawns is ${limit}`
-        : `Director spawn depth budget exceeded: this director is at depth ${observed} and maxSpawnDepth is ${limit}`;
-    super(message ?? defaultMsg);
-    this.name = 'FleetSpawnBudgetError';
-    this.kind = kind;
-    this.limit = limit;
-    this.observed = observed;
-  }
-}
-
-/**
- * Thrown by `Director.spawn()` when the fleet-wide cost cap is exceeded.
- * Distinct from `FleetSpawnBudgetError` (spawn count/depth) — this is a
- * dollar-denominated ceiling that tracks cumulative spend across all
- * subagents in the fleet.
- */
-export class FleetCostCapError extends Error {
-  readonly kind: 'max_cost_usd';
-  readonly limit: number;
-  readonly observed: number;
-  constructor(limit: number, observed: number) {
-    super(
-      `Director cost cap exceeded: total fleet spend ${observed.toFixed(4)} exceeds maxCostUsd ${limit.toFixed(4)}`,
-    );
-    this.name = 'FleetCostCapError';
-    this.kind = 'max_cost_usd';
-    this.limit = limit;
-    this.observed = observed;
-  }
-}
-
-/**
- * Thrown by `Director.spawn()` when the leader agent's context pressure
- * exceeds the configured threshold. The leader must compact before a new
- * subagent can be spawned — the context window is too full to safely
- * orchestrate additional agents.
- */
-export class FleetContextOverflowError extends Error {
-  readonly kind: 'max_context_load';
-  readonly limit: number;
-  readonly observed: number;
-  constructor(limit: number, observed: number) {
-    super(
-      `Leader context overflow: leader has ${observed} tokens in flight (limit: ${limit}). Compact the leader context before spawning more subagents.`,
-    );
-    this.name = 'FleetContextOverflowError';
-    this.kind = 'max_context_load';
-    this.limit = limit;
-    this.observed = observed;
-  }
-}
+// Re-exported from director-errors.ts for backward compatibility
+export { FleetSpawnBudgetError, FleetCostCapError, FleetContextOverflowError } from './director/director-errors.js';
 
 export class Director implements ICoordinator {
   /** Alias for the ICoordinator contract. `id` is retained for backward compatibility. */

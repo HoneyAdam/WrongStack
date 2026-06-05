@@ -1,0 +1,41 @@
+import type { EventBus } from '@wrongstack/core';
+import { useEffect } from 'react';
+import type { Action, State } from '../app-reducer.js';
+import type { HistoryEntry } from '../components/history.js';
+
+/**
+ * Brain decision events → chat history / status bar.
+ */
+export function useBrainEvents(events: EventBus, dispatch: React.Dispatch<Action>): void {
+  useEffect(() => {
+    const requestSummary = (request: { source: string; question: string }) =>
+      `${request.source}: ${request.question}`.slice(0, 80);
+
+    const addBrainEntry = (
+      status: Exclude<Extract<HistoryEntry, { kind: 'brain' }>['status'], 'thinking'>,
+      payload: unknown,
+    ) => {
+      const p = payload as {
+        request: { id: string; source: string; risk: Extract<HistoryEntry, { kind: 'brain' }>['risk']; question: string; context?: string; options?: NonNullable<State['brainPrompt']>['options'] };
+        decision: { type: string; optionId?: string; text?: string; prompt?: string; reason?: string; rationale?: string };
+      };
+      const decision = p.decision.optionId ?? p.decision.text ?? p.decision.reason ?? p.decision.prompt ?? p.decision.type;
+      dispatch({ type: 'brainStatus', state: status, source: p.request.source, risk: p.request.risk, summary: decision });
+      if (status === 'ask_human') {
+        dispatch({ type: 'brainPromptSet', prompt: { requestId: p.request.id, source: p.request.source, risk: p.request.risk, question: p.request.question, context: p.request.context, options: p.request.options } });
+      } else {
+        dispatch({ type: 'brainPromptClear' });
+      }
+      dispatch({ type: 'addEntry', entry: { kind: 'brain', status, source: p.request.source, risk: p.request.risk, question: p.request.question, decision, rationale: p.decision.rationale } });
+    };
+
+    const offRequested = events.on('brain.decision_requested', ({ request }) => {
+      dispatch({ type: 'brainStatus', state: 'deciding', source: request.source, risk: request.risk, summary: requestSummary(request) });
+    });
+    const offAnswered = events.on('brain.decision_answered', (payload) => addBrainEntry('answered', payload));
+    const offAskHuman = events.on('brain.decision_ask_human', (payload) => addBrainEntry('ask_human', payload));
+    const offDenied = events.on('brain.decision_denied', (payload) => addBrainEntry('denied', payload));
+
+    return () => { offRequested(); offAnswered(); offAskHuman(); offDenied(); };
+  }, [events, dispatch]);
+}
