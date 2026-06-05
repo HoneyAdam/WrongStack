@@ -66,11 +66,23 @@ import { feedPaste } from './paste-accumulator.js';
 import { createPsSlashCommand } from './ps-slash.js';
 import { createQueueSlashCommand } from './queue-slash.js';
 
-export interface QueueItem {
-  id: number;
-  displayText: string;
-  blocks: ContentBlock[];
-}
+// Types imported from app-reducer.ts (single source of truth for reducer + State types)
+import {
+  reducer,
+  type Action,
+  type FleetEntry,
+  type QueueItem,
+  type SlashCommandMatch,
+  type State,
+} from './app-reducer.js';
+export {
+  reducer,
+  type Action,
+  type FleetEntry,
+  type QueueItem,
+  type SlashCommandMatch,
+  type State,
+} from './app-reducer.js';
 
 /** Rows the chat-history viewport scrolls per wheel tick (mouse mode). */
 const WHEEL_STEP = 3;
@@ -80,83 +92,6 @@ const MIN_VIEWPORT = 3;
 /** Input prompt — mirrors the <Input> default so click-to-position-cursor maps
  *  columns the same way the input renders them. */
 const INPUT_PROMPT = '› ';
-
-/** Per-subagent state tracked live from the FleetBus. */
-export interface FleetEntry {
-  id: string;
-  name: string;
-  provider?: string;
-  model?: string;
-  status: 'idle' | 'running' | 'success' | 'failed' | 'timeout' | 'stopped';
-  streamingText: string;
-  iterations: number;
-  toolCalls: number;
-  recentTools: Array<{
-    name: string;
-    ok?: boolean;
-    durationMs?: number;
-    outputBytes?: number;
-    outputLines?: number;
-    at: number;
-  }>;
-  recentMessages: Array<{ text: string; at: number }>;
-  cost: number;
-  startedAt: number;
-  lastEventAt: number;
-  /**
-   * Tool the subagent is currently inside, set on `tool.started` and
-   * cleared on `tool.executed`. Lets the FleetPanel render "running →
-   * bash" instead of an opaque "running". Undefined when no tool is
-   * mid-flight (between iterations, before the first tool, or after
-   * the last tool of a run).
-   */
-  currentTool?: { name: string; startedAt: number };
-  /**
-   * Absolute path to the per-subagent JSONL transcript on disk, when
-   * one was created. Surfaced so the FleetPanel can render `path:`
-   * dim under the entry — users grep / tail the file for full
-   * visibility into the subagent's run.
-   */
-  transcriptPath?: string;
-  /**
-   * Most recent budget warning: subagent hit a soft limit and the
-   * coordinator is auto-extending. Rendered in FleetPanel as:
-   * "⚡ hitting tool_calls limit (350/400) — extending"
-   * Cleared on the next fleetDone or fleetStart.
-   */
-  budgetWarning?: { kind: string; used: number; limit: number; at: number };
-  /**
-   * Cumulative auto-extension grants for this subagent. Surfaced as a
-   * persistent "⚡×N" badge in the monitor and 4th status line so the user
-   * can see how often never-die kept the agent alive. Survives across tasks
-   * within the same subagent entry (unlike `budgetWarning`, which clears).
-   */
-  extensions?: number;
-  /**
-   * Latest context window fill percentage (0–1, can exceed 1 when over budget).
-   * Emitted on every `iteration.completed` via `ctx.pct` event.
-   * Rendered as a colored progress bar in the AgentsMonitor.
-   */
-  ctxPct?: number;
-  /** Estimated total tokens in the context window (from ctx.pct event). */
-  ctxTokens?: number;
-  /** Provider's max context window in tokens (from ctx.pct event). */
-  ctxMaxTokens?: number;
-  /**
-   * Human-readable reason for terminal failure, when known.
-   * E.g. "provider_auth", "rate_limit", "timeout", "budget_iterations".
-   * Shown in the Fleet timeline and the per-agent card in the agents monitor.
-   */
-  failureReason?: string;
-}
-
-/** A registered slash command matched against the user's current / query. */
-export interface SlashCommandMatch {
-  name: string;
-  description: string;
-  argsHint?: string;
-  isBuiltin: boolean;
-}
 
 export function selectedSlashCommandLine(picker: {
   open: boolean;
@@ -373,9 +308,6 @@ export interface AppProps {
     setVisible: (visible: boolean) => void;
   };
 }
-
-import { reducer, type State, type Action } from './app-reducer.js';
-export { reducer, type State, type Action } from './app-reducer.js';
 
 const PASTE_THRESHOLD_CHARS = 200;
 
