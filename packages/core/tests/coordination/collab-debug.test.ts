@@ -116,6 +116,50 @@ describe('CollabSession', () => {
   });
 
   // -------------------------------------------------------------------------
+  // Test 1b: the session-level timeout timer must be cleared on the SUCCESS
+  // path. Regression: cleanup() previously only disposed FleetBus listeners,
+  // so a completed session left its setTimeout armed for the full timeoutMs,
+  // later firing a spurious cancel() + an unhandled rejection on the orphaned
+  // `timeout` promise. With fake timers, a leaked timer shows as count===1.
+  // -------------------------------------------------------------------------
+  it('clears the session timeout timer after a successful run (no leaked timer)', async () => {
+    // Distinctive delay so we can pick the session-level timer out of the
+    // mock's own short timers (0ms assign, 20ms awaitTasks). Real timers — the
+    // mock resolves fast, so start() completes well under the test timeout.
+    const TIMEOUT = 987_654;
+    let sessionTimer: ReturnType<typeof setTimeout> | undefined;
+    const realSetTimeout = globalThis.setTimeout;
+    const setSpy = vi
+      .spyOn(globalThis, 'setTimeout')
+      .mockImplementation(((fn: (...a: unknown[]) => void, ms?: number, ...rest: unknown[]) => {
+        const handle = (
+          realSetTimeout as unknown as (...a: unknown[]) => ReturnType<typeof setTimeout>
+        )(fn, ms as number, ...rest);
+        if (ms === TIMEOUT) sessionTimer = handle;
+        return handle;
+      }) as unknown as typeof setTimeout);
+    const clearSpy = vi.spyOn(globalThis, 'clearTimeout');
+
+    try {
+      const { mockDirector } = makeMockDirector(fleetBus);
+      const session = new CollabSession(mockDirector as never, fleetBus, {
+        targetPaths: ['src/does-not-exist.ts'],
+        timeoutMs: TIMEOUT,
+      });
+      const report = await session.start();
+      expect(report.disposition).toBe('completed');
+      // cleanup() must clear the armed session timer on the success path —
+      // otherwise it leaks for the full timeoutMs and later fires a spurious
+      // cancel() plus an unhandled rejection on the orphaned timeout promise.
+      expect(sessionTimer).toBeDefined();
+      expect(clearSpy).toHaveBeenCalledWith(sessionTimer);
+    } finally {
+      setSpy.mockRestore();
+      clearSpy.mockRestore();
+    }
+  });
+
+  // -------------------------------------------------------------------------
   // Test 2: events collected in the assembled report
   // -------------------------------------------------------------------------
   it('collects bug.found, refactor.plan, and critic.evaluation events', async () => {

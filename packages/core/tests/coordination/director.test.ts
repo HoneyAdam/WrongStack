@@ -178,6 +178,78 @@ describe('Director orchestration', () => {
     expect(extended).toBe(false);
   });
 
+  it('extends idle_timeout via the heartbeat path with a real idleTimeoutMs (not a no-op extend)', async () => {
+    const { director: d } = buildDirector();
+    director = d;
+    let extended: Record<string, unknown> | null = null;
+    let denied = false;
+
+    d.fleet.emit({
+      subagentId: 'agent-idle',
+      taskId: 'task-idle',
+      ts: Date.now(),
+      type: 'budget.threshold_reached',
+      payload: {
+        kind: 'idle_timeout',
+        used: 40,
+        limit: 30,
+        timeoutMs: 30,
+        extend: (extra: Record<string, unknown>) => {
+          extended = extra;
+        },
+        deny: () => {
+          denied = true;
+        },
+      },
+    });
+
+    await waitImmediate();
+    await waitImmediate();
+
+    // Regression: idle_timeout previously fell through to the generic per-kind
+    // switch (which has no idle_timeout case) and produced extend({}) — raising
+    // no limit. It must instead extend the idle window.
+    expect(denied).toBe(false);
+    expect(extended?.idleTimeoutMs).toBeGreaterThan(30);
+    // And it must NOT touch the wall-clock timeout field.
+    expect(extended?.timeoutMs).toBeUndefined();
+  });
+
+  it('denies an idle_timeout extension when the subagent made no progress since the last grant', async () => {
+    const { director: d } = buildDirector();
+    director = d;
+    let extendCount = 0;
+    let denied = false;
+    const emitIdle = () =>
+      d.fleet.emit({
+        subagentId: 'agent-stuck',
+        taskId: 'task-stuck',
+        ts: Date.now(),
+        type: 'budget.threshold_reached',
+        payload: {
+          kind: 'idle_timeout',
+          used: 40,
+          limit: 30,
+          timeoutMs: 30,
+          extend: () => {
+            extendCount++;
+          },
+          deny: () => {
+            denied = true;
+          },
+        },
+      });
+
+    emitIdle(); // first: progress(0) > last(-1) → extend
+    await waitImmediate();
+    await waitImmediate();
+    emitIdle(); // second: no new tool.executed → progress(0) <= last(0) → deny
+    await waitImmediate();
+
+    expect(extendCount).toBe(1);
+    expect(denied).toBe(true);
+  });
+
   it('isolates subagents: per-id provider + model attribution', async () => {
     const { director: d } = buildDirector();
     director = d;

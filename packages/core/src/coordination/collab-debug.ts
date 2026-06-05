@@ -892,6 +892,16 @@ export class CollabSession extends EventEmitter {
   }
 
   private cleanup(): void {
+    // Clear the session-level timeout timer. Without this, the SUCCESS path
+    // (Promise.race resolved via awaitTasks) leaves the setTimeout armed: it
+    // keeps the event loop alive for up to timeoutMs, then fires a spurious
+    // cancel() and rejects the now-orphaned `timeout` promise — an unhandled
+    // rejection after every completed session. cleanup() runs on both the
+    // success and error paths, so it's the right single owner of the timer.
+    if (this._timeoutTimer) {
+      clearTimeout(this._timeoutTimer);
+      this._timeoutTimer = undefined;
+    }
     for (const dispose of this.disposers) dispose();
     this.disposers.length = 0;
   }

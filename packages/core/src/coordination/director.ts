@@ -706,21 +706,32 @@ export class Director implements ICoordinator {
         // the subagent to finish naturally without Director intervention.
         return;
       }
-      // Timeout is governed by the heartbeat, not the extension cap. While the
-      // subagent keeps executing tools it never dies on wall-clock time; once
-      // it stops making progress between grants, it's genuinely stuck → deny.
-      if (payload.kind === 'timeout') {
+      // Both timeout kinds — wall-clock `timeout` and `idle_timeout` (the
+      // default roster guard) — are governed by the heartbeat, not the
+      // extension cap. While the subagent keeps executing tools it never dies
+      // on time; once it stops making progress between grants, it's genuinely
+      // stuck → deny. `timeout` extends the wall-clock cap; `idle_timeout`
+      // extends the idle window. idle_timeout MUST be handled here: if it fell
+      // through to the generic grantExtension() switch below (which has no case
+      // for it) the Director would emit a no-op extend({}) — raising no limit
+      // while still burning the extension counter and broadcasting a bogus
+      // extension event. The collab handler treats both kinds the same way.
+      if (payload.kind === 'timeout' || payload.kind === 'idle_timeout') {
+        // Key the heartbeat by subagent+kind so a wall-clock grant and an idle
+        // grant for the same subagent don't suppress each other.
+        const heartbeatKey = `${e.subagentId}:${payload.kind}`;
         const progress = progressBySubagent.get(e.subagentId) ?? 0;
-        const lastProgress = lastTimeoutProgress.get(e.subagentId) ?? -1;
+        const lastProgress = lastTimeoutProgress.get(heartbeatKey) ?? -1;
         if (progress <= lastProgress) {
           payload.deny();
           return;
         }
-        lastTimeoutProgress.set(e.subagentId, progress);
+        lastTimeoutProgress.set(heartbeatKey, progress);
+        const field = payload.kind === 'timeout' ? 'timeoutMs' : 'idleTimeoutMs';
         setImmediate(() => {
           const newLimit = Math.min(Math.ceil(payload.limit * 2), 24 * 60 * 60_000);
-          this.recordExtension(e.subagentId, e.taskId, 'timeout', newLimit);
-          payload.extend({ timeoutMs: newLimit });
+          this.recordExtension(e.subagentId, e.taskId, payload.kind, newLimit);
+          payload.extend({ [field]: newLimit });
         });
         return;
       }

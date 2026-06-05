@@ -166,8 +166,6 @@ The session throws a clear error if the resolved file count exceeds the effectiv
 // ✅ Good — single package, limited files
 collab_debug(["packages/core/src/agents/**/*.ts"])
 
-// ✅ Dynamic — limit computed from contextWindow
-collab_debug({
 // ✅ Explicit — override limit directly
 collab_debug({
   targetPaths: ["packages/core/src/**/*.ts"],

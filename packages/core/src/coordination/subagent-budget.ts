@@ -440,15 +440,22 @@ export class SubagentBudget {
   }
 
   /**
-   * Wall-clock budget check. Unlike other limits, timeout is always a hard stop
-   * — wall-clock time cannot be "extended" by the coordinator, so it throws
-   * synchronously rather than entering the negotiation flow.
+   * Wall-clock / idle budget check. Delegates to `checkLimits(elapsed)`, so
+   * `timeout` and `idle_timeout` follow the SAME negotiation path as the other
+   * kinds — they are NOT a special-cased hard stop. This is deliberate: a
+   * heartbeat-aware policy (see `attachAutoExtend` and `CollabSession`) grants
+   * a timeout extension only while the agent is making progress and denies it
+   * once the agent is genuinely stuck, which is safer than an unconditional
+   * hard kill of a long-but-working agent. The runner translates the resulting
+   * `BudgetThresholdSignal` decision (`extend` → patch limits in place,
+   * `stop` → abort) just like every other kind.
    *
-   * Decision table:
-   * - no `onThreshold` handler         → throw `BudgetExceededError`
-   * - `mode === 'sync'`               → throw `BudgetExceededError`
-   * - `mode === 'auto'` + no listener  → throw `BudgetExceededError`
-   * - `mode === 'auto'` + listener     → throw `BudgetExceededError` (timeout is not extendable)
+   * Decision table (same as `checkLimits`):
+   * - no `onThreshold` handler        → throw `BudgetExceededError` (hard stop)
+   * - `mode === 'sync'`               → throw `BudgetExceededError` (hard stop)
+   * - `mode === 'auto'` + no listener → throw `BudgetExceededError` (no one to ask)
+   * - `mode === 'auto'` + listener    → throw `BudgetThresholdSignal` (negotiated;
+   *                                     a heartbeat-aware policy may extend the timeout)
    */
   checkTimeout(): void {
     if (this.startTime === null) return;

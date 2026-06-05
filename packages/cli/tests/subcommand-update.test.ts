@@ -116,7 +116,7 @@ describe('updateCmd subcommand', () => {
     const code = await updateCmd([], deps);
     expect(code).toBe(0);
     expect(updateMocks.spawn).toHaveBeenCalledWith(
-      'npm',
+      process.platform === 'win32' ? 'npm.cmd' : 'npm',
       ['install', '-g', 'wrongstack@latest'],
       expect.objectContaining({ cwd: '/tmp', stdio: 'pipe' }),
     );
