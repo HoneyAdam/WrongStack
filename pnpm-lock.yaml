@@ -66,6 +66,9 @@ importers:
       '@wrongstack/plug-lsp':
         specifier: workspace:*
         version: link:../plug-lsp
+      '@wrongstack/plugins':
+        specifier: workspace:*
+        version: link:../plugins
       '@wrongstack/providers':
         specifier: workspace:*
         version: link:../providers

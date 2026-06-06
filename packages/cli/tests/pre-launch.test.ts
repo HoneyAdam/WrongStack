@@ -87,7 +87,7 @@ describe('runProjectCheck', () => {
     await fs.writeFile(path.join(dir, '.wrongstack', 'AGENTS.md'), '# notes');
     const reader = makeReader([]);
 
-    const result = await runProjectCheck({ projectRoot: dir, renderer, reader });
+    const result = await runProjectCheck({ projectRoot: dir, cwd: dir, renderer, reader });
 
     expect(result).toBe(true);
     expect(reader.readLine).not.toHaveBeenCalled();
@@ -98,7 +98,7 @@ describe('runProjectCheck', () => {
     await fs.writeFile(path.join(dir, 'package.json'), '{"name":"x","version":"1.0.0"}');
     const reader = makeReader(['y']);
 
-    const result = await runProjectCheck({ projectRoot: dir, renderer, reader });
+    const result = await runProjectCheck({ projectRoot: dir, cwd: dir, renderer, reader });
 
     expect(result).toBe(true);
     const agentsFile = path.join(dir, '.wrongstack', 'AGENTS.md');
@@ -114,7 +114,7 @@ describe('runProjectCheck', () => {
     await fs.writeFile(path.join(dir, 'package.json'), '{}');
     const reader = makeReader(['n']);
 
-    const result = await runProjectCheck({ projectRoot: dir, renderer, reader });
+    const result = await runProjectCheck({ projectRoot: dir, cwd: dir, renderer, reader });
 
     expect(result).toBe(true);
     const agentsFile = path.join(dir, '.wrongstack', 'AGENTS.md');
@@ -130,7 +130,7 @@ describe('runProjectCheck', () => {
     // Two prompts: 'Initialize git?' then 'Continue anyway?'
     const reader = makeReader(['n', 'n']);
 
-    const result = await runProjectCheck({ projectRoot: dir, renderer, reader });
+    const result = await runProjectCheck({ projectRoot: dir, cwd: dir, renderer, reader });
 
     expect(result).toBe(false);
   });
@@ -140,7 +140,7 @@ describe('runProjectCheck', () => {
     // Two prompts: 'Initialize git?' then 'Continue anyway?'
     const reader = makeReader(['n', 'y']);
 
-    const result = await runProjectCheck({ projectRoot: dir, renderer, reader });
+    const result = await runProjectCheck({ projectRoot: dir, cwd: dir, renderer, reader });
 
     expect(result).toBe(true);
   });
@@ -150,7 +150,7 @@ describe('runProjectCheck', () => {
     // Two prompts: 'Initialize git?' (empty) then 'Continue anyway?' (empty)
     const reader = makeReader(['', '']);
 
-    const result = await runProjectCheck({ projectRoot: dir, renderer, reader });
+    const result = await runProjectCheck({ projectRoot: dir, cwd: dir, renderer, reader });
 
     expect(result).toBe(true);
   });

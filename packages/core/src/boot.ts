@@ -82,6 +82,10 @@ export async function bootConfig(options: BootConfigOptions = {}): Promise<BootC
   await fs.mkdir(wpaths.projectSessions, { recursive: true });
   await writeProjectMeta(wpaths, projectRoot);
 
+  // Clean up stale project directories left behind by tests or deleted
+  // working directories.  Best-effort — never blocks boot.
+  cleanupStaleProjects(wpaths).catch(() => {});
+
   // Vault must come first so the config loader can decrypt apiKey-like fields.
   // It lazily creates ~/.wrongstack/.key on first encrypt/decrypt.
   const vault = new DefaultSecretVault({ keyFile: wpaths.secretsKey });
@@ -171,11 +175,46 @@ async function writeProjectMeta(paths: WstackPaths, projectRoot: string): Promis
     await fs.mkdir(paths.projectDir, { recursive: true });
     const meta = {
       hash: paths.projectHash,
+      slug: paths.projectSlug,
       root: projectRoot,
       lastSeen: new Date().toISOString(),
     };
     await fs.writeFile(paths.projectMeta, JSON.stringify(meta, null, 2));
   } catch {
     // best-effort
+  }
+}
+
+/**
+ * Remove project directories whose original `root` no longer exists on
+ * disk (e.g. temp directories from tests, deleted working copies).  Runs
+ * as a fire-and-forget best-effort — failures are silently ignored.
+ */
+async function cleanupStaleProjects(wpaths: WstackPaths): Promise<void> {
+  const projectsRoot = path.dirname(wpaths.projectDir);
+  let entries;
+  try {
+    entries = await fs.readdir(projectsRoot, { withFileTypes: true });
+  } catch {
+    return; // directory doesn't exist or can't be read
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const metaPath = path.join(projectsRoot, entry.name, 'meta.json');
+    try {
+      const raw = await fs.readFile(metaPath, 'utf8');
+      const meta = JSON.parse(raw) as { root?: string };
+      if (typeof meta.root === 'string') {
+        try {
+          await fs.access(meta.root);
+          // root still exists — keep it
+        } catch {
+          // root gone → remove the entire project directory
+          await fs.rm(path.join(projectsRoot, entry.name), { recursive: true, force: true });
+        }
+      }
+    } catch {
+      // no readable meta.json → leave it alone (don't nuke ambiguous dirs)
+    }
   }
 }

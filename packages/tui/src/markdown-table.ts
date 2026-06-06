@@ -187,6 +187,58 @@ function computeWidths(
 
 const MIN_COL_WIDTH = 4;
 
+// ---------------------------------------------------------------------------
+// Ligature breaker — prevents font-level ligatures from misaligning tables
+// ---------------------------------------------------------------------------
+
+/**
+ * Character pairs that commonly form ligatures in programming fonts
+ * (Fira Code, Cascadia Code, JetBrains Mono, etc.). When these sequences
+ * appear in table cells, the font renders them as a single-glyph arrow or
+ * symbol, collapsing 2 terminal columns into 1 visual column and breaking
+ * Unicode box-drawing alignment.
+ *
+ * We insert U+200B ZERO WIDTH SPACE between the two characters. This
+ * invisible breaker prevents the ligature without adding visual width
+ * (strWidth \u200B = 0), so the alignment math stays correct.
+ */
+const LIGATURE_PAIRS: Array<[string, string]> = [
+  ['-', '>'],  // →  arrow
+  ['<', '-'],  // ←
+  ['=', '>'],  // ⇒
+  ['<', '='],  // ≤
+  ['>', '='],  // ≥
+  ['!', '='],  // ≠
+  ['=', '='],  // equality (some fonts)
+  ['~', '>'],  // ⇝
+  ['<', '~'],  // ⇜
+];
+
+const ZWSP = '\u200B'; // zero-width space
+
+/**
+ * Insert zero-width spaces between known ligature-prone character pairs
+ * so that the font renders each character individually. Only applied inside
+ * table cells; code blocks and prose pass through unchanged.
+ */
+export function breakLigatures(text: string): string {
+  // Fast path: skip if no ligature-initiating characters present.
+  if (!/[-<=>!~]/.test(text)) return text;
+
+  let result = '';
+  for (let i = 0; i < text.length; i++) {
+    result += text[i];
+    if (i + 1 >= text.length) break;
+    for (const [a, b] of LIGATURE_PAIRS) {
+      if (text[i] === a && text[i + 1] === b) {
+        result += ZWSP;
+        break;
+      }
+    }
+  }
+  return result;
+}
+
 /**
  * Return the number of terminal columns a string occupies.
  * Uses East Asian Width property to determine character widths:
@@ -259,7 +311,8 @@ function border(left: string, mid: string, right: string, widths: number[]): str
 }
 
 function renderRow(cells: string[], widths: number[], aligns: Align[]): string[] {
-  const wrapped = cells.map((c, i) => wrapCell(c, widths[i] ?? MIN_COL_WIDTH));
+  const safe = cells.map((c) => breakLigatures(c));
+  const wrapped = safe.map((c, i) => wrapCell(c, widths[i] ?? MIN_COL_WIDTH));
   const height = Math.max(1, ...wrapped.map((w) => w.length));
   const out: string[] = [];
   for (let line = 0; line < height; line++) {

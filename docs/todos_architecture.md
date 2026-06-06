@@ -2,7 +2,7 @@
 
 > **Scope:** This document describes the `todos` subsystem in WrongStack — the live task board that the LLM mutates per-turn, its persistence model, integration points across CLI / TUI / WebUI, and the relationship to the higher-level `plan` system.
 >
-> **Last updated:** 2026-05-20
+> **Last updated:** 2026-06-06
 
 ---
 
@@ -48,7 +48,7 @@ export interface TodoItem {
 
 ## 3. State Layer (`ConversationState`)
 
-Todos live inside `Context`, but mutations should go through `ConversationState` so observers stay in sync.
+Todos live inside `Context`, but mutations MUST go through `ConversationState` so observers stay in sync.
 
 ```
 Context (mutable bag)
@@ -62,12 +62,15 @@ Context (mutable bag)
     └── onChange(handler)      → subscribes to the event stream
 ```
 
-### 3.1 Why two paths exist
+### 3.1 Why `state.replaceTodos()` is mandatory
 
-- **Legacy tools** (and some tests) mutate `ctx.todos.push(...)` directly. This is fast but invisible to subscribers.
-- **New code** uses `ctx.state.replaceTodos([...])`, which fires `StateChange` events.
+- **Direct mutations** (`ctx.todos.push(...)`, `ctx.todos.length = 0`) are invisible to the checkpoint writer and TUI auto-echo.
+- **Observed mutations** (`ctx.state.replaceTodos([...])`) fire `StateChange` events → subscribers react immediately.
 
-The checkpoint writer (§4) and TUI auto-echo (§5.2) both subscribe to `onChange`; if a tool mutates the raw array, those subscribers miss the update until the *next* observed mutation coalesces them.
+**As of 2026-06-06, ALL mutation paths use `state.replaceTodos()`:**
+- `todoTool` → `ctx.state.replaceTodos(items)`
+- `/todos add/done/clear/remove` → `ctx.state.replaceTodos(...)`
+- WebUI `todos.clear` / `todos.remove` → `context.state.replaceTodos(...)`
 
 ### 3.2 StateChange types
 
@@ -131,6 +134,7 @@ await detach();  // guaranteed flush
 
 - **Read failure** (missing / corrupt file) → returns `null`, treated as "no prior state"
 - **Write failure** → logged to `console.warn`, does **not** throw; a lost checkpoint must not crash the agent run
+- **Validation on load**: filters out items with missing/invalid `id`, `content`, `status`, or non-string `activeForm`
 
 ---
 
@@ -145,10 +149,14 @@ export const todoTool: Tool<TodoInput, TodoOutput> = {
   category: 'Session',
   description: 'Replace the current todo list with a new set of items.',
   usageHint:
-    'Use for multi-step tasks. Replace the full list on each call. ' +
-    'At most ONE task may be in_progress at a time.',
+    'BEST PRACTICE for complex tasks:\n' +
+    '- At the beginning of a non-trivial task, create a clear todo list.\n' +
+    '- Only **one** item should be `in_progress` at any time.\n' +
+    '- Update the list frequently as work progresses.\n' +
+    '- **Re-order items** to reflect current priorities.\n' +
+    'This tool is extremely valuable for maintaining focus.',
   permission: 'auto',
-  mutating: false,          // replaces in-place; no external side effects
+  mutating: true,          // mutates conversation state via state.replaceTodos
   timeoutMs: 1_000,
   inputSchema: { /* array of TodoItem objects */ },
 };
@@ -166,22 +174,27 @@ export const todoTool: Tool<TodoInput, TodoOutput> = {
 
 The tool is **not** CRUD. The LLM sends the *entire* desired board on every call. This avoids race conditions (the model's view of the board is always the ground truth) and eliminates the need for separate add/remove/done tools.
 
+Item order is significant — the model controls order by the array order it submits. Re-ordering items to reflect current priorities is an explicit best practice in the usage hint.
+
 ---
 
 ## 6. Slash Command: `/todos`
 
 ```
-/todos              → show formatted list
-/todos show         → same
-/todos clear        → wipe all items
-/todos add <text>   → append a pending item
-/todos done <id|#>  → mark matched item completed
+/todos                  → show formatted list
+/todos show             → same
+/todos clear            → wipe all items
+/todos add <text>       → append a pending item
+/todos done <id|#>      → mark matched item completed
+/todos remove <id|#>    → delete matched item
+/todos rm <id|#>        → alias for remove
+/todos delete <id|#>    → alias for remove
 ```
 
 - Implemented in `packages/cli/src/slash-commands/todos.ts`
 - Uses `randomUUID()` for IDs when user adds items manually
-- `done` matches by 1-based index, exact `id`, or substring fuzzy search
-- Mutates `ctx.todos` **directly** (not via `state.replaceTodos`) — this is a known gap; the checkpoint subscriber still catches it on the *next* observed mutation, but an immediate `/todos` followed by session exit could lose the manual edit. See §9 (Fix Plan).
+- Matching priority: 1-based index → exact `id` → case-insensitive substring
+- All mutations use `ctx.state.replaceTodos()` — observers (checkpoint writer, TUI) stay in sync
 
 ---
 
@@ -204,14 +217,24 @@ Todos (1/3 done):
 
 ### 7.2 TUI integration
 
-In `packages/tui/src/app.tsx`, the `tool.executed` event listener checks `e.name === 'todo'` and, on success, dispatches an `info` entry containing `formatTodosList(agent.ctx.todos)`. This means the user sees the updated board in chat history immediately after the model edits it — no polling required.
+**Status bar** (line 3): shows live counts as `todos ⌛N ☐M ✓K`.
+
+**F5 — Right-side compact panel** (`CompactTodosPanel`): managed (alt-screen) mode only. ~30% terminal width, sorted by status (in_progress first), auto-truncated labels, "+N more" overflow indicator.
+
+**F6 — Full-screen overlay** (`TodosMonitor`): bordered panel with two-column layout on wide terminals. F6 or Esc to close.
+
+**Auto-echo**: the `tool.executed` event listener checks `e.name === 'todo'` and, on success, dispatches an `info` entry containing `formatTodosList(agent.ctx.todos)`.
 
 ### 7.3 WebUI integration
 
-The WebUI server (`packages/webui/src/server/index.ts`) broadcasts `todos.updated` events on every `tool.executed` and also handles two client messages:
+**`TodosPanel` component** (`packages/webui/src/components/TodosPanel.tsx`): self-contained, subscribes to `todos.updated` WS events. Renders each item with status icon, colored left border, and hover-to-reveal ✕ remove button.
 
+**Server WS messages**:
 - `todos.get` — returns current snapshot on demand
-- `todos.clear` — wipes the array in place and broadcasts `todos.updated` with `[]`
+- `todos.clear` — wipes the array via `state.replaceTodos([])`
+- `todos.remove` — removes a single item by id or 1-based index
+
+All mutations broadcast `todos.updated` with the new snapshot.
 
 ---
 
@@ -220,7 +243,7 @@ The WebUI server (`packages/webui/src/server/index.ts`) broadcasts `todos.update
 | Aspect | `/todos` (todos system) | `/plan` (plan system) |
 |--------|------------------------|----------------------|
 | **Granularity** | Per-turn task board | Strategic roadmap |
-| **Mutated by** | LLM via `todo` tool | User via slash command |
+| **Mutated by** | LLM via `todo` tool + user via slash | User via slash command |
 | **Persistence** | `todos-checkpoint.ts` (auto) | `plan-store.ts` (auto) |
 | **Lifespan** | Session-scoped, derived | Session-scoped, canonical |
 | **Typical use** | "Build the project → Test → Deploy" | "Refactor auth layer → Add OAuth → Audit" |
@@ -231,23 +254,23 @@ Both systems can coexist: a user might set up a high-level plan with `/plan`, th
 
 ## 9. Feature Plan
 
-### 9.1 Short-term (next 1–2 releases)
+### 9.1 Short-term (next 1–2 releases) — ✅ COMPLETE
 
-| # | Feature | Motivation | Files touched |
-|---|---------|------------|---------------|
-| 1 | **Fix `/todos` direct-mutation gap** | `/todos add` and `/todos done` mutate `ctx.todos` directly, bypassing `ConversationState`. This can lose edits if the session exits before the next observed mutation. | `packages/cli/src/slash-commands/todos.ts` |
-| 2 | **Todo item ordering** | Allow the LLM to re-order items (e.g. move a blocked task down). The current "replace full list" semantics already support this, but the tool description should explicitly mention ordering. | `packages/tools/src/todo.ts` |
-| 3 | **WebUI todo panel** | Render the live todo list in a dedicated sidebar, updated via `todos.updated` WS events. | `packages/webui/src/components/` |
-| 4 | **Todo count in status bar** | Surface `in_progress / pending / completed` counts in the CLI prompt and WebUI header. | `packages/cli/src/repl.ts`, `packages/webui/src/server/index.ts` |
+| # | Feature | Status | Files touched |
+|---|---------|--------|---------------|
+| 1 | **Fix `/todos` direct-mutation gap** | ✅ **Done** | `packages/cli/src/slash-commands/todos.ts` |
+| 2 | **Todo item ordering** | ✅ **Done** | `packages/tools/src/todo.ts` |
+| 3 | **WebUI todo panel** | ✅ **Done** | `packages/webui/src/components/TodosPanel.tsx` |
+| 4 | **Todo count in status bar** | ✅ **Done** (was already present) | Status bar line 3 chip |
 
 ### 9.2 Medium-term (next 3–6 releases)
 
 | # | Feature | Motivation | Files touched |
 |---|---------|------------|---------------|
-| 5 | **Todo → Plan bridge** | Allow promoting a todo item into a plan item (and vice versa) so users can escalate a task from "today's board" to "project roadmap". | `packages/cli/src/slash-commands/todos.ts`, `packages/cli/src/slash-commands/plan.ts` |
-| 6 | **Todo history / undo** | Keep a rolling log of todo mutations (last N states) so the user can undo an accidental `clear` or a bad LLM replacement. | `packages/core/src/storage/todos-checkpoint.ts`, `packages/core/src/core/conversation-state.ts` |
-| 7 | **Per-todo notes / subtasks** | Optional `notes?: string` and `subtasks?: TodoItem[]` fields for items that need more detail without promoting to a plan. | `packages/core/src/core/context.ts`, `packages/core/src/utils/todos-format.ts` |
-| 8 | **Todo deadlines / reminders** | Optional `dueAt?: string` with a lightweight reminder hook that fires via the event bus when a deadline approaches. | `packages/core/src/core/context.ts`, `packages/core/src/kernel/events.ts` |
+| 5 | **Todo → Plan bridge** | Allow promoting a todo item into a plan item (and vice versa). | `packages/cli/src/slash-commands/todos.ts`, `packages/cli/src/slash-commands/plan.ts` |
+| 6 | **Todo history / undo** | Keep a rolling log of todo mutations (last N states) so the user can undo an accidental `clear`. | `packages/core/src/storage/todos-checkpoint.ts`, `packages/core/src/core/conversation-state.ts` |
+| 7 | **Per-todo notes / subtasks** | Optional `notes?: string` and `subtasks?: TodoItem[]` fields. | `packages/core/src/core/context.ts`, `packages/core/src/utils/todos-format.ts` |
+| 8 | **Todo deadlines / reminders** | Optional `dueAt?: string` with reminder hook. | `packages/core/src/core/context.ts`, `packages/core/src/kernel/events.ts` |
 
 ### 9.3 Long-term / exploratory
 
@@ -261,16 +284,15 @@ Both systems can coexist: a user might set up a high-level plan with `/plan`, th
 
 ## 10. Fix Plan
 
-### 10.1 Known bugs / gaps
+### 10.1 Known bugs / gaps — ALL FIXED ✅
 
-| ID | Issue | Severity | Fix | ETA |
-|----|-------|----------|-----|-----|
-| F-1 | `/todos add` and `/todos done` mutate `ctx.todos` directly, skipping `ConversationState` observers. A session exit immediately after these commands may not flush the checkpoint. | **Medium** | Route all mutations through `ctx.state.replaceTodos()` in the slash command. | Short-term |
-| F-2 | `todoTool` declares `mutating: false` but it *does* mutate conversation state. This is a metadata lie that could mislead permission policies or UI indicators. | **Low** | Change `mutating: true` (or document why `false` is intentional — it has no *external* side effects). | Short-term |
-| F-3 | `todos-checkpoint.ts` does not validate `activeForm` on load. A corrupt checkpoint with a non-string `activeForm` would pass validation and later crash the formatter. | **Low** | Add `typeof t.activeForm === 'string'` to the load filter, or make the field optional in validation. | Short-term |
-| F-4 | No test covers the `/todos` slash command directly. The existing tests only cover the `todoTool` and the checkpoint layer. | **Low** | Add unit tests for `buildTodosCommand` covering `show`, `add`, `done`, `clear`, and error paths. | Short-term |
-| F-5 | WebUI `todos.clear` uses `context.todos.length = 0` (direct mutation) instead of `context.state.replaceTodos([])`. Same observer-skip issue as F-1. | **Medium** | Replace with `context.state.replaceTodos([])` and verify the `todos.updated` broadcast still fires. | Short-term |
-| F-6 | WebUI `session.start` replay handler drops assistant text when a message mixes `text` + `tool_use` blocks. The `text` accumulator is reset to `''` on every `tool_use` without flushing, so the preceding text never gets emitted as a message. | **High** | Flush accumulated text before emitting `tool_use` in the replay loop. | **Fixed** |
+| ID | Issue | Severity | Status |
+|----|-------|----------|--------|
+| F-1 | `/todos add/done` mutated `ctx.todos` directly, skipping observers. | **Medium** | ✅ Fixed — all mutations via `state.replaceTodos()` |
+| F-2 | `todoTool` declared `mutating: false` but mutates state. | **Low** | ✅ Fixed — changed to `mutating: true` |
+| F-3 | `todos-checkpoint.ts` didn't validate `activeForm` on load. | **Low** | ✅ Fixed — validates `typeof t.activeForm === 'string'` |
+| F-4 | No test covered the `/todos` slash command. | **Low** | ✅ Fixed — 16 test cases including `remove` path |
+| F-5 | WebUI `todos.clear` used direct mutation. | **Medium** | ✅ Fixed — uses `state.replaceTodos([])` |
 
 ### 10.2 Refactoring candidates
 
@@ -289,16 +311,23 @@ Both systems can coexist: a user might set up a high-level plan with `/plan`, th
 |------|------|
 | `packages/core/src/core/context.ts` | `TodoItem` interface, `Context` class (holds raw `todos` array) |
 | `packages/core/src/core/conversation-state.ts` | Observable wrapper, `replaceTodos()`, `onChange()` |
-| `packages/core/src/storage/todos-checkpoint.ts` | Atomic save/load, `attachTodosCheckpoint()` subscriber |
+| `packages/core/src/storage/todos-checkpoint.ts` | Atomic save/load, `attachTodosCheckpoint()` subscriber, activeForm validation |
 | `packages/core/src/utils/todos-format.ts` | `formatTodosList()` text renderer |
-| `packages/tools/src/todo.ts` | `todoTool` definition and execution logic |
-| `packages/cli/src/slash-commands/todos.ts` | `/todos` slash command implementation |
+| `packages/tools/src/todo.ts` | `todoTool` definition, execution logic, ordering hint |
+| `packages/cli/src/slash-commands/todos.ts` | `/todos` slash command — show/add/done/clear/remove |
 | `packages/cli/src/wiring/session.ts` | Session setup: restore todos on resume, attach checkpoint |
 | `packages/cli/src/slash-commands/clear.ts` | `/clear` wipes todos via `state.replaceTodos([])` |
 | `packages/cli/src/slash-commands/context.ts` | `/context` prints todo counts |
-| `packages/tui/src/app.tsx` | TUI auto-echo of todo list after `todo` tool execution |
-| `packages/webui/src/server/index.ts` | WebUI WS handlers for `todos.get`, `todos.clear`, and `todos.updated` broadcasts |
-| `packages/webui/src/hooks/useWebSocket.ts` | WebSocket event handlers including `session.start` replay hydration |
+| `packages/cli/tests/slash-diag-memory-todos.test.ts` | `/todos` slash command tests (16 cases) |
+| `packages/tui/src/app.tsx` | TUI auto-echo, F5 compact panel, F6 monitor overlay |
+| `packages/tui/src/app-reducer.ts` | `todosMonitorOpen` + `rightTodosPanelOpen` state |
+| `packages/tui/src/components/compact-todos-panel.tsx` | F5 right-side compact panel with overflow indicator |
+| `packages/tui/src/components/todos-monitor.tsx` | F6 full-screen monitor overlay |
+| `packages/tui/src/components/status-bar.tsx` | Line 3 todos chip + `statusBarTodosSpan()` for mouse |
+| `packages/webui/src/components/TodosPanel.tsx` | Live todos panel with remove button |
+| `packages/webui/src/server/index.ts` | WS handlers for `todos.get`, `todos.clear`, `todos.remove` |
+| `packages/webui/src/lib/ws-client.ts` | `getTodos()`, `clearTodos()`, `removeTodo()` methods |
+| `packages/webui/src/types.ts` | WS message types |
 | `packages/core/tests/storage/todos-checkpoint.test.ts` | Checkpoint round-trip, debounce, detach-flush tests |
 | `packages/tools/tests/todo.test.ts` | Tool execution and single-`in_progress` enforcement tests |
 | `packages/core/tests/core/run-env-state.test.ts` | `ConversationState` observer tests (including `replaceTodos`) |
@@ -310,7 +339,7 @@ Both systems can coexist: a user might set up a high-level plan with `/plan`, th
 | Term | Definition |
 |------|------------|
 | **Checkpoint** | An atomic on-disk snapshot of `todos` tied to a session ID. |
-| **Direct mutation** | Modifying `ctx.todos` or `ctx.messages` without going through `ConversationState`. Fast but invisible to observers. |
+| **Direct mutation** | Modifying `ctx.todos` or `ctx.messages` without going through `ConversationState`. Fast but invisible to observers. **Eliminated as of 2026-06-06.** |
 | **Observed mutation** | A change routed through `ctx.state.replaceTodos()` etc., which fires `StateChange` events. |
 | **Plan** | The strategic counterpart to todos; managed by `/plan` and stored separately. |
 | **Single-writer invariant** | At most one todo may have `status === 'in_progress'` at any time. |

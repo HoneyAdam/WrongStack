@@ -646,6 +646,20 @@ export function statusBarAutonomySpan(opts: {
   return { start: col, len: 2 + opts.autonomy.toUpperCase().length }; // "∞ " + MODE
 }
 
+/**
+ * 0-based column span of the `todos ⌛N ☐M ✓K` chip on status-bar line 3.
+ * Returns null when no todos are visible. Used by the TUI mouse handler
+ * to make the todos chip clickable (→ F5 right panel / F6 overlay).
+ * The chip is always at the start of line 3 with only left padding.
+ */
+export function statusBarTodosSpan(): { start: number; len: number } {
+  // Line 3: paddingX(1) + chip text (variable). The chip is the first item.
+  // We return a fixed span for the label portion — the exact width depends
+  // on counts, so we use a generous estimate that covers "todos ⌛99 ☐99 ✓99".
+  const LABEL_MAX = 20;
+  return { start: SB_PADX, len: LABEL_MAX };
+}
+
 export function stateChip(
   state: 'idle' | 'running' | 'streaming' | 'aborting',
   fleetRunning: number,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { renderMarkdownTables, strWidth } from '../src/markdown-table.js';
+import { breakLigatures, renderMarkdownTables, strWidth } from '../src/markdown-table.js';
 
 describe('strWidth', () => {
   it('returns correct widths for emoji', () => {
@@ -157,5 +157,37 @@ describe('renderMarkdownTables', () => {
     // All lines must have the same character width.
     const widths = new Set(lines.map((l) => l.length));
     expect(widths.size).toBe(1);
+  });
+
+  it('prevents -> ligature from misaligning table borders', () => {
+    // In Fira Code / Cascadia Code / JetBrains Mono, `->` renders as a
+    // single-width → glyph, collapsing 2 character positions into 1 visual
+    // column. breakLigatures inserts U+200B to prevent the ligature.
+    const input = [
+      '| Pattern  | Value |',
+      '|----------|-------|',
+      '| arrow    | a->b  |',
+      '| fat      | x=>y  |',
+    ].join('\n');
+    const out = renderMarkdownTables(input, 60);
+    const lines = out.split('\n');
+    // Every line (borders + data) must have identical visual width.
+    const widths = new Set(lines.map((l) => strWidth(l)));
+    expect(widths.size).toBe(1);
+    // The cell containing a->b must have a zero-width space breaking the ligature.
+    const arrowRow = lines.find((l) => l.includes('a') && l.includes('b'))!;
+    expect(arrowRow).toContain('\u200B');
+  });
+
+  it('prevents arrow chain ligatures in cells', () => {
+    const input = [
+      '| Chain |',
+      '|-------|',
+      '| a->b=>c |',
+    ].join('\n');
+    const out = renderMarkdownTables(input, 60);
+    // Both ligature pairs must be broken.
+    const count = (out.match(/\u200B/g) ?? []).length;
+    expect(count).toBe(2);
   });
 });

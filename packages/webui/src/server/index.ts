@@ -1426,6 +1426,32 @@ export async function startWebUI(
         break;
       }
 
+      case 'todos.remove': {
+        // Remove a single todo item by id or 1-based index.
+        const payload = msg.payload as { id?: string; index?: number } | undefined;
+        if (!payload) { sendResult(ws, false, 'Missing id or index'); break; }
+        const { id, index } = payload;
+        let targetIdx = -1;
+        if (typeof id === 'string') {
+          targetIdx = context.todos.findIndex((t) => t.id === id);
+        } else if (typeof index === 'number' && index > 0) {
+          targetIdx = index - 1;
+        }
+        if (targetIdx < 0 || !context.todos[targetIdx]) {
+          sendResult(ws, false, 'Todo not found');
+          break;
+        }
+        const removed = context.todos[targetIdx]!;
+        const next = [
+          ...context.todos.slice(0, targetIdx),
+          ...context.todos.slice(targetIdx + 1),
+        ];
+        context.state.replaceTodos(next);
+        sendResult(ws, true, `Removed: ${removed.content}`);
+        broadcast(clients, { type: 'todos.updated', payload: { todos: next } });
+        break;
+      }
+
       case 'plan.get': {
         // On-demand plan snapshot — used when a UI surface first mounts
         // and needs to render the live plan without waiting for the next

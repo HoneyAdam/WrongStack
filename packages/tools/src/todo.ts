@@ -20,10 +20,11 @@ export const todoTool: Tool<TodoInput, TodoOutput> = {
     '- At the beginning of a non-trivial task, create a clear todo list with specific, actionable items.\n' +
     '- Only **one** item should be `in_progress` at any time.\n' +
     '- Update the list frequently as work progresses (mark items done, add new ones, change status).\n' +
+    '- **Re-order items** to reflect current priorities — the full list is replaced each call, so item order is entirely under your control.\n' +
     '- The system and user can see this list, so keep it honest and up-to-date.\n' +
     'This tool is extremely valuable for maintaining focus and giving the user visibility into your plan.',
   permission: 'auto',
-  mutating: false,
+  mutating: true, // mutates conversation state (ctx.todos) via state.replaceTodos
   timeoutMs: 1_000,
   inputSchema: {
     type: 'object',

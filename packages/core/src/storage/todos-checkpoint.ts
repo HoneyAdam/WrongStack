@@ -37,7 +37,11 @@ export async function loadTodosCheckpoint(filePath: string): Promise<TodoItem[] 
     if (parsed?.version !== 1 || !Array.isArray(parsed.todos)) return null;
     return parsed.todos.filter(
       (t): t is TodoItem =>
-        !!t && typeof t.id === 'string' && typeof t.content === 'string' && typeof t.status === 'string',
+        !!t &&
+        typeof t.id === 'string' &&
+        typeof t.content === 'string' &&
+        typeof t.status === 'string' &&
+        (t.activeForm === undefined || typeof t.activeForm === 'string'),
     );
   } catch {
     return null;

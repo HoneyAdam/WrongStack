@@ -92,6 +92,19 @@ export const BUILTIN_PLUGIN_FACTORIES: (() => Promise<Plugin>)[] = [
     const { createPlanPlugin } = await import('@wrongstack/core');
     return createPlanPlugin();
   },
+  // ── Workspace plugins (@wrongstack/plugins subpath exports) ──────────
+  async () => (await import('@wrongstack/plugins/cost-tracker')).default,
+  async () => (await import('@wrongstack/plugins/json-path')).default,
+  async () => (await import('@wrongstack/plugins/web-search')).default,
+  async () => (await import('@wrongstack/plugins/file-watcher')).default,
+  async () => (await import('@wrongstack/plugins/git-autocommit')).default,
+  async () => (await import('@wrongstack/plugins/auto-doc')).default,
+  async () => (await import('@wrongstack/plugins/shell-check')).default,
+  async () => (await import('@wrongstack/plugins/cron')).default,
+  async () => (await import('@wrongstack/plugins/template-engine')).default,
+  async () => (await import('@wrongstack/plugins/semver-bump')).default,
+  // ── LSP plugin ──────────────────────────────────────────────────────
+  async () => (await import('@wrongstack/plug-lsp')).default,
 ];
 
 export async function setupPlugins(params: PluginsWiringDeps): Promise<void> {

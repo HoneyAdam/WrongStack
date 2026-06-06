@@ -150,8 +150,17 @@ describe('buildMemoryCommand', () => {
 
 // ── /todos ──────────────────────────────────────────────────────────────────
 
-function makeCtxState(initialTodos: Array<{ id: string; content: string; status: string }> = []) {
-  return { todos: [...initialTodos] };
+function makeCtx(initialTodos: Array<{ id: string; content: string; status: string; activeForm?: string }> = []) {
+  const todos = [...initialTodos];
+  return {
+    todos,
+    state: {
+      replaceTodos(next: typeof todos) {
+        todos.length = 0;
+        todos.push(...next);
+      },
+    },
+  };
 }
 
 describe('buildTodosCommand', () => {
@@ -162,13 +171,13 @@ describe('buildTodosCommand', () => {
   });
 
   it('show renders the formatted list', async () => {
-    const cmd = buildTodosCommand(emptyCtx({ context: makeCtxState([{ id: 't1', content: 'do thing', status: 'pending' }]) as never }));
+    const cmd = buildTodosCommand(emptyCtx({ context: makeCtx([{ id: 't1', content: 'do thing', status: 'pending' }]) as never }));
     const res = await cmd.run('');
     expect(res.message).toContain('do thing');
   });
 
   it('clear empties the array', async () => {
-    const ctxState = makeCtxState([{ id: 't1', content: 'x', status: 'pending' }]);
+    const ctxState = makeCtx([{ id: 't1', content: 'x', status: 'pending' }]);
     const cmd = buildTodosCommand(emptyCtx({ context: ctxState as never }));
     const res = await cmd.run('clear');
     expect(res.message).toContain('Cleared 1 todo');
@@ -176,19 +185,19 @@ describe('buildTodosCommand', () => {
   });
 
   it('clear on empty notes "already empty"', async () => {
-    const cmd = buildTodosCommand(emptyCtx({ context: makeCtxState() as never }));
+    const cmd = buildTodosCommand(emptyCtx({ context: makeCtx() as never }));
     const res = await cmd.run('clear');
     expect(res.message).toContain('already empty');
   });
 
   it('add without text returns usage', async () => {
-    const cmd = buildTodosCommand(emptyCtx({ context: makeCtxState() as never }));
+    const cmd = buildTodosCommand(emptyCtx({ context: makeCtx() as never }));
     const res = await cmd.run('add');
     expect(res.message).toContain('Usage:');
   });
 
   it('add inserts a new pending todo with stable shape', async () => {
-    const ctxState = makeCtxState();
+    const ctxState = makeCtx();
     const cmd = buildTodosCommand(emptyCtx({ context: ctxState as never }));
     const res = await cmd.run('add ship the thing');
     expect(res.message).toBe('Added: ship the thing');
@@ -199,13 +208,13 @@ describe('buildTodosCommand', () => {
   });
 
   it('done without arg returns usage', async () => {
-    const cmd = buildTodosCommand(emptyCtx({ context: makeCtxState() as never }));
+    const cmd = buildTodosCommand(emptyCtx({ context: makeCtx() as never }));
     const res = await cmd.run('done');
     expect(res.message).toContain('Usage:');
   });
 
   it('done by 1-based index marks the entry completed', async () => {
-    const ctxState = makeCtxState([
+    const ctxState = makeCtx([
       { id: 'a', content: 'first', status: 'pending' },
       { id: 'b', content: 'second', status: 'pending' },
     ]);
@@ -216,27 +225,68 @@ describe('buildTodosCommand', () => {
   });
 
   it('done by id marks the entry completed', async () => {
-    const ctxState = makeCtxState([{ id: 'todo_xyz', content: 'one', status: 'pending' }]);
+    const ctxState = makeCtx([{ id: 'todo_xyz', content: 'one', status: 'pending' }]);
     const cmd = buildTodosCommand(emptyCtx({ context: ctxState as never }));
     const res = await cmd.run('complete todo_xyz');
     expect(res.message).toContain('Marked done: one');
   });
 
   it('done by substring match falls through', async () => {
-    const ctxState = makeCtxState([{ id: 'x', content: 'fix the bug', status: 'pending' }]);
+    const ctxState = makeCtx([{ id: 'x', content: 'fix the bug', status: 'pending' }]);
     const cmd = buildTodosCommand(emptyCtx({ context: ctxState as never }));
     const res = await cmd.run('done THE Bug');
     expect(res.message).toContain('Marked done: fix the bug');
   });
 
   it('done with no match reports not found', async () => {
-    const cmd = buildTodosCommand(emptyCtx({ context: makeCtxState() as never }));
+    const cmd = buildTodosCommand(emptyCtx({ context: makeCtx() as never }));
     const res = await cmd.run('done nope');
     expect(res.message).toContain('No todo matched');
   });
 
+  // ── /todos remove ──
+
+  it('remove without arg returns usage', async () => {
+    const cmd = buildTodosCommand(emptyCtx({ context: makeCtx() as never }));
+    const res = await cmd.run('remove');
+    expect(res.message).toContain('Usage:');
+  });
+
+  it('rm alias works', async () => {
+    const ctxState = makeCtx([{ id: 'x', content: 'junk', status: 'pending' }]);
+    const cmd = buildTodosCommand(emptyCtx({ context: ctxState as never }));
+    const res = await cmd.run('rm 1');
+    expect(res.message).toContain('Removed: junk');
+  });
+
+  it('remove by index deletes the item', async () => {
+    const ctxState = makeCtx([
+      { id: 'a', content: 'first', status: 'pending' },
+      { id: 'b', content: 'second', status: 'in_progress' },
+    ]);
+    const cmd = buildTodosCommand(emptyCtx({ context: ctxState as never }));
+    const res = await cmd.run('remove 2');
+    expect(res.message).toBe('Removed: second');
+    expect(ctxState.todos).toHaveLength(1);
+    expect(ctxState.todos[0]?.content).toBe('first');
+  });
+
+  it('remove by id deletes the item', async () => {
+    const ctxState = makeCtx([{ id: 'todo_z', content: 'bye', status: 'pending' }]);
+    const cmd = buildTodosCommand(emptyCtx({ context: ctxState as never }));
+    const res = await cmd.run('remove todo_z');
+    expect(res.message).toContain('Removed: bye');
+    expect(ctxState.todos).toHaveLength(0);
+  });
+
+  it('remove with no match reports not found', async () => {
+    const cmd = buildTodosCommand(emptyCtx({ context: makeCtx() as never }));
+    const res = await cmd.run('delete nope');
+    expect(res.message).toContain('No todo matched');
+  });
+
   it('unknown subcommand reports usage', async () => {
-    const cmd = buildTodosCommand(emptyCtx({ context: makeCtxState() as never }));
+    const cmd = buildTodosCommand(emptyCtx({ context: makeCtx() as never }));
     const res = await cmd.run('frobulate');
     expect(res.message).toContain('Unknown subcommand "frobulate"');
   });

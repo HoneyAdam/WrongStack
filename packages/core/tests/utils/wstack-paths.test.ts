@@ -1,6 +1,6 @@
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { projectHash, resolveWstackPaths } from '../../src/utils/wstack-paths.js';
+import { projectHash, projectSlug, resolveWstackPaths } from '../../src/utils/wstack-paths.js';
 
 describe('wstack-paths', () => {
   it('projectHash is stable for the same absolute path', () => {
@@ -13,6 +13,25 @@ describe('wstack-paths', () => {
     expect(projectHash('/a')).not.toBe(projectHash('/b'));
   });
 
+  it('projectSlug uses folder basename + short hash', () => {
+    const slug = projectSlug('/work/my-project');
+    expect(slug).toMatch(/^my-project-[a-f0-9]{6}$/);
+  });
+
+  it('projectSlug is stable for the same path', () => {
+    expect(projectSlug('/a/b/c')).toBe(projectSlug('/a/b/c'));
+  });
+
+  it('projectSlug differs when basenames differ', () => {
+    expect(projectSlug('/work/foo')).not.toBe(projectSlug('/work/bar'));
+  });
+
+  it('slugify collapses special chars', () => {
+    // imported indirectly via projectSlug
+    const s = projectSlug('/tmp/My Cool Project!');
+    expect(s).toMatch(/^my-cool-project-[a-f0-9]{6}$/);
+  });
+
   it('resolves global + project dirs under user home', () => {
     const paths = resolveWstackPaths({
       userHome: '/home/dev',
@@ -21,7 +40,7 @@ describe('wstack-paths', () => {
     expect(paths.globalRoot).toBe(path.join('/home/dev', '.wrongstack'));
     expect(paths.modelsCache).toContain('cache');
     expect(paths.projectDir).toContain('projects');
-    expect(paths.projectDir).toContain(paths.projectHash);
+    expect(paths.projectDir).toContain(paths.projectSlug);
   });
 
   it('only AGENTS.md and skills are project-local', () => {
@@ -44,6 +63,6 @@ describe('wstack-paths', () => {
       projectRoot: '/work/x',
     });
     expect(paths.projectAutophase).toBe(path.join(paths.projectDir, 'autophase'));
-    expect(paths.projectAutophase).toContain(paths.projectHash);
+    expect(paths.projectAutophase).toContain(paths.projectSlug);
   });
 });

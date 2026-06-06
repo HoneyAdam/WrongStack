@@ -49,6 +49,7 @@
     "@wrongstack/core": "workspace:*",
     "@wrongstack/mcp": "workspace:*",
     "@wrongstack/plug-lsp": "workspace:*",
+    "@wrongstack/plugins": "workspace:*",
     "@wrongstack/providers": "workspace:*",
     "@wrongstack/runtime": "workspace:*",
     "@wrongstack/telegram": "workspace:*",

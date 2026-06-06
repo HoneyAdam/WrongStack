@@ -454,6 +454,13 @@ export class WrongStackWebSocketClient {
     this.send({ type: 'todos.clear' });
   }
 
+  removeTodo(idOrIndex: string | number) {
+    const payload = typeof idOrIndex === 'number'
+      ? { index: idOrIndex }
+      : { id: idOrIndex };
+    this.send({ type: 'todos.remove', payload });
+  }
+
   listSessions(limit = 50) {
     this.send({ type: 'sessions.list', payload: { limit } });
   }

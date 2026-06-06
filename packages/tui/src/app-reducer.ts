@@ -1,12 +1,12 @@
 // Reducer + State/Action types extracted from app.tsx.
 // This file has NO React or Ink dependencies — pure state transformation.
 import type { AutonomyStage, ContentBlock } from '@wrongstack/core';
-import type { ProviderOption } from './components/model-picker.js';
 import type { AutonomyOption } from './components/autonomy-picker.js';
-import type { SettingsMode } from './components/settings-picker.js';
-import { SETTINGS_MODES, DELAY_PRESETS_MS } from './components/settings-picker.js';
-import type { WorktreeRow } from './components/worktree-panel.js';
 import type { HistoryEntry } from './components/history.js';
+import type { ProviderOption } from './components/model-picker.js';
+import type { SettingsMode } from './components/settings-picker.js';
+import { DELAY_PRESETS_MS, SETTINGS_MODES } from './components/settings-picker.js';
+import type { WorktreeRow } from './components/worktree-panel.js';
 
 export interface QueueItem {
   id: number;
@@ -260,6 +260,10 @@ export type State = {
   agentsMonitorOpen: boolean;
   /** When true, the keys-&-commands help overlay is shown (`?` on an empty prompt). */
   helpOpen: boolean;
+  /** When true, the todos monitor overlay is shown (F6). */
+  todosMonitorOpen: boolean;
+  /** When true, the right-side compact todos panel is shown in managed mode (F5). */
+  rightTodosPanelOpen: boolean;
   /**
    * Active or completed collaborative debugging session state.
    * Null when no collab session has run. Tracks counts + the event timeline
@@ -482,6 +486,8 @@ export type Action =
   | { type: 'toggleMonitor' }
   | { type: 'toggleAgentsMonitor' }
   | { type: 'toggleHelp' }
+  | { type: 'toggleTodosMonitor' }
+  | { type: 'toggleRightTodosPanel' }
   | { type: 'checkpointReceived'; cp: State['checkpoints'][0] }
   | { type: 'rewindOverlayOpen' }
   | { type: 'rewindOverlayClose' }
@@ -849,9 +855,8 @@ export function reducer(state: State, action: Action): State {
       const filtered = q
         ? state.modelPicker.modelOptions.filter((id) => id.toLowerCase().includes(q))
         : state.modelPicker.modelOptions;
-      const selected = filtered.length > 0
-        ? Math.min(state.modelPicker.selected, filtered.length - 1)
-        : 0;
+      const selected =
+        filtered.length > 0 ? Math.min(state.modelPicker.selected, filtered.length - 1) : 0;
       return {
         ...state,
         modelPicker: {
@@ -1282,6 +1287,12 @@ export function reducer(state: State, action: Action): State {
     }
     case 'toggleHelp': {
       return { ...state, helpOpen: !state.helpOpen };
+    }
+    case 'toggleTodosMonitor': {
+      return { ...state, todosMonitorOpen: !state.todosMonitorOpen };
+    }
+    case 'toggleRightTodosPanel': {
+      return { ...state, rightTodosPanelOpen: !state.rightTodosPanelOpen };
     }
     case 'checkpointReceived': {
       const existing = state.checkpoints.find((c) => c.promptIndex === action.cp.promptIndex);

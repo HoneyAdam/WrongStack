@@ -11,7 +11,7 @@ import type {
   SlashCommandRegistry,
   TokenCounter,
 } from '@wrongstack/core';
-import { DefaultSessionRewinder, type AutonomyStage } from '@wrongstack/core';
+import { type AutonomyStage, DefaultSessionRewinder } from '@wrongstack/core';
 import { InputBuilder, buildGoalPreamble, formatTodosList, writeOut } from '@wrongstack/core';
 import { type VisionAdapters, routeImagesForModel } from '@wrongstack/runtime/vision';
 import { getProcessRegistry } from '@wrongstack/tools';
@@ -19,16 +19,11 @@ import { Box, type DOMElement, Text, measureElement, useApp, useStdout } from 'i
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { readClipboardImage } from './clipboard.js';
 import { AgentsMonitor } from './components/agents-monitor.js';
-import {
-  AUTONOMY_OPTIONS,
-  AutonomyPicker,
-} from './components/autonomy-picker.js';
+import { AUTONOMY_OPTIONS, AutonomyPicker } from './components/autonomy-picker.js';
 import { BrainDecisionPrompt } from './components/brain-decision-prompt.js';
 import { CheckpointTimeline } from './components/checkpoint-timeline.js';
-import {
-  type ConfirmDecision,
-  ConfirmPrompt,
-} from './components/confirm-prompt.js';
+import { CompactTodosPanel } from './components/compact-todos-panel.js';
+import { type ConfirmDecision, ConfirmPrompt } from './components/confirm-prompt.js';
 import { FilePicker } from './components/file-picker.js';
 import { FleetMonitor } from './components/fleet-monitor.js';
 import { FleetPanel } from './components/fleet-panel.js';
@@ -41,22 +36,17 @@ import { ModelPicker, type ProviderOption } from './components/model-picker.js';
 import { PhaseMonitor } from './components/phase-monitor.js';
 import { PhasePanel } from './components/phase-panel.js';
 import { ScrollableHistory } from './components/scrollable-history.js';
-import {
-  SettingsPicker,
-} from './components/settings-picker.js';
+import { SettingsPicker } from './components/settings-picker.js';
 import { SlashMenu } from './components/slash-menu.js';
 import { StatusBar } from './components/status-bar.js';
+import { TodosMonitor } from './components/todos-monitor.js';
 import { WorktreeMonitor } from './components/worktree-monitor.js';
 import { WorktreePanel } from './components/worktree-panel.js';
 import { searchFiles } from './file-search.js';
 import { type GitInfo, readGitInfo } from './git-info.js';
-import {
-  INLINE_TOKEN_SRC,
-  deleteTokenBackward,
-  tokenLengthForward,
-} from './input-tokens.js';
-import { useSubagentEvents } from './hooks/use-subagent-events.js';
 import { useBrainEvents } from './hooks/use-brain-events.js';
+import { useSubagentEvents } from './hooks/use-subagent-events.js';
+import { INLINE_TOKEN_SRC, deleteTokenBackward, tokenLengthForward } from './input-tokens.js';
 import { createKillSlashCommand } from './kill-slash.js';
 import { feedPaste } from './paste-accumulator.js';
 import { createPsSlashCommand } from './ps-slash.js';
@@ -64,7 +54,13 @@ import { createQueueSlashCommand } from './queue-slash.js';
 import { buildSteeringPreamble } from './steering-preamble.js';
 
 // Types imported from app-reducer.ts (single source of truth for reducer + State types)
-import { reducer, type Action, type FleetEntry, type SlashCommandMatch, type State } from './app-reducer.js';
+import {
+  type Action,
+  type FleetEntry,
+  type SlashCommandMatch,
+  type State,
+  reducer,
+} from './app-reducer.js';
 export {
   reducer,
   type Action,
@@ -80,6 +76,16 @@ const MIN_VIEWPORT = 3;
 /** Input prompt — mirrors the <Input> default so click-to-position-cursor maps
  *  columns the same way the input renders them. */
 const INPUT_PROMPT = '› ';
+
+export interface Settings {
+  mode: 'off' | 'suggest' | 'auto';
+  delayMs: number;
+  titleAnimation: boolean;
+  yolo: boolean;
+  streamFleet: boolean;
+  chime: boolean;
+  confirmExit: boolean;
+}
 
 export function selectedSlashCommandLine(picker: {
   open: boolean;
@@ -106,6 +112,10 @@ export interface AppProps {
   queueStore?: QueueStore;
   /** Reflects the policy's --yolo flag for the status bar's "⚠ YOLO" chip. */
   yolo?: boolean;
+  /** Play terminal bell when an agent run completes. */
+  chime?: boolean;
+  /** When true, the first Ctrl+C aborts work and shows "confirm exit" rather than "exit". */
+  confirmExit?: boolean;
   /**
    * Query the live YOLO state from the permission policy. Called after
    * every slash-command dispatch so `/yolo off` (which mutates the
@@ -153,15 +163,13 @@ export interface AppProps {
    * Read the persisted autonomy settings (defaultMode, autoProceedDelayMs).
    * Used by the SettingsPicker in the TUI on mount and after Ctrl+S toggle.
    */
-  getSettings?: () => { mode: 'off' | 'suggest' | 'auto'; delayMs: number };
+  /** Settings shape — shared between getSettings and saveSettings. */
+  getSettings?: () => Settings;
   /**
-   * Persist autonomy settings changes. Returns null on success, or an
+   * Persist settings changes. Returns null on success, or an
    * error string on failure (so the TUI can display it as a hint).
    */
-  saveSettings?: (s: { mode: 'off' | 'suggest' | 'auto'; delayMs: number }) =>
-    | string
-    | null
-    | Promise<string | null>;
+  saveSettings?: (s: Settings) => string | null | Promise<string | null>;
   /**
    * Predict likely next steps after a completed turn (/next). The CLI owns the
    * gating (toggle + autonomy off) and returns [] when disabled, so the App can
@@ -311,6 +319,8 @@ export function App({
   banner = true,
   queueStore,
   yolo = false,
+  chime = false,
+  confirmExit = true,
   getYolo,
   getAutonomy,
   getEternalEngine,
@@ -461,7 +471,7 @@ export function App({
       searchQuery: '',
     },
     autonomyPicker: { open: false, options: [], selected: 0 },
-    settingsPicker: { open: false, field: 0, mode: 'off', delayMs: 0 },
+    settingsPicker: { open: false, field: 0, mode: 'off', delayMs: 0, titleAnimation: true, yolo: false, streamFleet: true, chime: false, confirmExit: true },
     confirmQueue: [],
     contextChipVersion: 0,
     fleet: {},
@@ -481,6 +491,8 @@ export function App({
     monitorOpen: false,
     agentsMonitorOpen: false,
     helpOpen: false,
+    todosMonitorOpen: false,
+    rightTodosPanelOpen: false,
     collabSession: null,
     checkpoints: [],
     rewindOverlay: null,
@@ -547,6 +559,11 @@ export function App({
     const base = path.basename(projectRoot);
     return base && base !== path.sep ? base : undefined;
   }, [projectRoot]);
+
+  const chimeRef = useRef(chime);
+  chimeRef.current = chime;
+  const confirmExitRef = useRef(confirmExit);
+  confirmExitRef.current = confirmExit;
 
   // Source of truth for the streamed assistant text — kept here, not in
   // React state, because we need to read it synchronously when `agent.run`
@@ -1343,7 +1360,16 @@ export function App({
   const openSettings = React.useCallback(() => {
     if (!getSettings) return;
     const s = getSettings();
-    dispatch({ type: 'settingsOpen', mode: s.mode, delayMs: s.delayMs });
+    dispatch({
+      type: 'settingsOpen',
+      mode: s.mode,
+      delayMs: s.delayMs,
+      titleAnimation: s.titleAnimation ?? true,
+      yolo: s.yolo ?? false,
+      streamFleet: s.streamFleet ?? true,
+      chime: s.chime ?? false,
+      confirmExit: s.confirmExit ?? true,
+    });
   }, [getSettings]);
 
   // Register the TUI-only `/model` command — opens a two-step picker
@@ -2427,7 +2453,7 @@ export function App({
             type: 'addEntry',
             entry: {
               kind: 'warn',
-              text: `Iteration cancelled${director ? ' + fleet terminated' : ''}${procTag}. Dropped ${droppedCount} queued message${droppedCount === 1 ? '' : 's'}. Press Ctrl+C again to exit.`,
+              text: `Iteration cancelled${director ? ' + fleet terminated' : ''}${procTag}. Dropped ${droppedCount} queued message${droppedCount === 1 ? '' : 's'}. ${confirmExitRef.current ? 'Press Ctrl+C again to confirm exit.' : 'Press Ctrl+C again to exit.'}`,
             },
           });
         } else {
@@ -2435,7 +2461,7 @@ export function App({
             type: 'addEntry',
             entry: {
               kind: 'warn',
-              text: `Iteration cancelled${director ? ' + fleet terminated' : ''}${procTag}. Press Ctrl+C again to exit.`,
+              text: `Iteration cancelled${director ? ' + fleet terminated' : ''}${procTag}. ${confirmExitRef.current ? 'Press Ctrl+C again to confirm exit.' : 'Press Ctrl+C again to exit.'}`,
             },
           });
         }
@@ -2480,7 +2506,7 @@ export function App({
             type: 'addEntry',
             entry: {
               kind: 'warn',
-              text: `${bits.join(' + ') || 'Background work stopped'}. Press Ctrl+C again to exit.`,
+              text: `${bits.join(' + ') || 'Background work stopped'}. ${confirmExitRef.current ? 'Press Ctrl+C again to confirm exit.' : 'Press Ctrl+C again to exit.'}`,
             },
           });
           return;
@@ -2778,8 +2804,8 @@ export function App({
         const now = Date.now();
         if (now - lastEnterAtRef.current < 50) return;
         lastEnterAtRef.current = now;
-        const { mode, delayMs } = state.settingsPicker;
-        const err = await saveSettings?.({ mode, delayMs });
+        const { mode, delayMs, titleAnimation, yolo, streamFleet, chime, confirmExit } = state.settingsPicker;
+        const err = await saveSettings?.({ mode, delayMs, titleAnimation, yolo, streamFleet, chime, confirmExit });
         if (err) {
           dispatch({ type: 'settingsHint', text: err });
           return;
@@ -2959,7 +2985,20 @@ export function App({
       if (state.agentsMonitorOpen) dispatch({ type: 'toggleAgentsMonitor' });
       if (state.monitorOpen) dispatch({ type: 'toggleMonitor' });
       if (state.autoPhase?.monitorOpen) dispatch({ type: 'autoPhaseMonitorToggle' });
+      if (state.todosMonitorOpen) dispatch({ type: 'toggleTodosMonitor' });
       dispatch({ type: 'worktreeMonitorToggle' });
+    };
+    const toggleTodosOverlay = () => {
+      if (state.todosMonitorOpen) {
+        dispatch({ type: 'toggleTodosMonitor' });
+        return;
+      }
+      // Opening closes any other overlay first so only one dashboard shows.
+      if (state.agentsMonitorOpen) dispatch({ type: 'toggleAgentsMonitor' });
+      if (state.monitorOpen) dispatch({ type: 'toggleMonitor' });
+      if (state.worktreeMonitorOpen) dispatch({ type: 'worktreeMonitorToggle' });
+      if (state.autoPhase?.monitorOpen) dispatch({ type: 'autoPhaseMonitorToggle' });
+      dispatch({ type: 'toggleTodosMonitor' });
     };
     // Ctrl+F / F2 → fleet orchestration monitor.
     if ((key.ctrl && input === 'f') || key.fn === 2) {
@@ -2977,6 +3016,16 @@ export function App({
       toggleWorktreeOverlay();
       return;
     }
+    // F5 → right-side compact todos panel (managed mode only).
+    if (key.fn === 5) {
+      dispatch({ type: 'toggleRightTodosPanel' });
+      return;
+    }
+    // F6 → full-screen todos monitor overlay.
+    if (key.fn === 6) {
+      toggleTodosOverlay();
+      return;
+    }
     // Ctrl+S toggles the autonomy settings editor (also openable via
     // `/settings`). Only when the host wired the settings accessors.
     if (key.ctrl && input === 's') {
@@ -2984,7 +3033,16 @@ export function App({
         dispatch({ type: 'settingsClose' });
       } else if (getSettings && saveSettings) {
         const cfg = getSettings();
-        dispatch({ type: 'settingsOpen', mode: cfg.mode, delayMs: cfg.delayMs });
+        dispatch({
+          type: 'settingsOpen',
+          mode: cfg.mode,
+          delayMs: cfg.delayMs,
+          titleAnimation: cfg.titleAnimation ?? true,
+          yolo: cfg.yolo ?? false,
+          streamFleet: cfg.streamFleet ?? true,
+          chime: cfg.chime ?? false,
+          confirmExit: cfg.confirmExit ?? true,
+        });
       }
       return;
     }
@@ -3001,6 +3059,10 @@ export function App({
       }
       if (state.worktreeMonitorOpen) {
         dispatch({ type: 'worktreeMonitorToggle' });
+        return;
+      }
+      if (state.todosMonitorOpen) {
+        dispatch({ type: 'toggleTodosMonitor' });
         return;
       }
     }
@@ -3023,6 +3085,7 @@ export function App({
       !state.monitorOpen &&
       !state.agentsMonitorOpen &&
       !state.worktreeMonitorOpen &&
+      !state.todosMonitorOpen &&
       !state.autoPhase?.monitorOpen
     ) {
       dispatch({ type: 'toggleHelp' });
@@ -3030,6 +3093,14 @@ export function App({
     }
 
     if (isEnter) {
+      // Shift+Enter inserts a literal newline instead of submitting.
+      if (key.shift) {
+        const { buffer, cursor } = draftRef.current;
+        const next = buffer.slice(0, cursor) + '\n' + buffer.slice(cursor);
+        setDraft(next, cursor + 1);
+        return;
+      }
+
       // Re-entrancy protection for terminals that emit `\r\n` as two
       // separate stdin events: ignore Enter pressed within 50ms of the
       // last one. The 50ms window catches the double-event reliably
@@ -3053,22 +3124,13 @@ export function App({
 
     const { buffer, cursor } = draftRef.current;
 
-    if (key.backspace || key.delete) {
+    if (key.backspace) {
       if (key.ctrl) {
-        if (key.backspace) {
-          if (cursor === 0) return;
-          const beforeCursor = buffer.slice(0, cursor);
-          const lastWordStart = beforeCursor.lastIndexOf(' ') + 1;
-          const next = beforeCursor.slice(0, lastWordStart) + buffer.slice(cursor);
-          setDraft(next, lastWordStart);
-        } else {
-          if (cursor >= buffer.length) return;
-          const afterCursor = buffer.slice(cursor);
-          const nextWordStart = afterCursor.indexOf(' ');
-          const end = nextWordStart === -1 ? buffer.length : cursor + nextWordStart + 1;
-          const next = buffer.slice(0, cursor) + buffer.slice(end);
-          setDraft(next, cursor);
-        }
+        if (cursor === 0) return;
+        const beforeCursor = buffer.slice(0, cursor);
+        const lastWordStart = beforeCursor.lastIndexOf(' ') + 1;
+        const next = beforeCursor.slice(0, lastWordStart) + buffer.slice(cursor);
+        setDraft(next, lastWordStart);
         return;
       }
 
@@ -3076,17 +3138,34 @@ export function App({
       // with a whole attachment chip (`[pasted …]` / `[file:…]` / `[image …]`),
       // delete the entire token in one keystroke — anywhere in the line, not
       // just at the end.
-      if (key.backspace) {
-        const tokenDel = deleteTokenBackward(buffer, cursor);
-        if (tokenDel) {
-          setDraft(tokenDel.buffer, tokenDel.cursor);
-          return;
-        }
+      const tokenDel = deleteTokenBackward(buffer, cursor);
+      if (tokenDel) {
+        setDraft(tokenDel.buffer, tokenDel.cursor);
+        return;
       }
 
       if (cursor === 0) return;
       const next = buffer.slice(0, cursor - 1) + buffer.slice(cursor);
       setDraft(next, cursor - 1);
+      return;
+    }
+
+    if (key.delete) {
+      if (key.ctrl) {
+        if (cursor >= buffer.length) return;
+        const afterCursor = buffer.slice(cursor);
+        const nextWordStart = afterCursor.indexOf(' ');
+        const end = nextWordStart === -1 ? buffer.length : cursor + nextWordStart + 1;
+        const next = buffer.slice(0, cursor) + buffer.slice(end);
+        setDraft(next, cursor);
+        return;
+      }
+
+      if (cursor >= buffer.length) return;
+      // Token-aware forward delete: drop a whole chip if one starts at cursor.
+      const span = tokenLengthForward(buffer, cursor) || 1;
+      const next = buffer.slice(0, cursor) + buffer.slice(cursor + span);
+      setDraft(next, cursor);
       return;
     }
 
@@ -3169,10 +3248,10 @@ export function App({
       setDraft('', 0);
       return;
     }
-    // Delete key and Ctrl+D → delete character at cursor (forward delete).
+    // Ctrl+D → delete character at cursor (forward delete).
     // Ctrl+D also doubles as "EOF" in some shells — here it's just convenient
     // forward-delete when the user isn't at the terminal's physical Delete key.
-    if (key.delete || (key.ctrl && input === 'd')) {
+    if (key.ctrl && input === 'd') {
       if (cursor >= buffer.length) return;
       // Token-aware forward delete: drop a whole chip if one starts at cursor.
       const span = tokenLengthForward(buffer, cursor) || 1;
@@ -3362,6 +3441,10 @@ export function App({
     } finally {
       activeCtrlRef.current = null;
       dispatch({ type: 'status', status: 'idle' });
+      // Completion chime: terminal bell when agent finishes.
+      if (chimeRef.current) {
+        try { process.stdout.write('\x07'); } catch { /* stdout closed */ }
+      }
     }
 
     // Drain the queue. If the run was aborted, the SIGINT handler has
@@ -3730,36 +3813,52 @@ export function App({
   }, [state.buffer, state.status, state.picker.open]);
 
   const affordanceShown = managedLive && state.scrollOffset > 0 && state.pendingNewLines > 0;
+
+  // When the right todos panel is open in managed mode, the chat area gets
+  // ~70% of the terminal width. Give ScrollableHistory a maxWidth so code
+  // blocks, tables, and prose don't overflow into the right panel.
+  const rightPanelOpen = managedLive && state.rightTodosPanelOpen;
+  const chatMaxWidth = rightPanelOpen ? Math.floor((stdout?.columns ?? 80) * 0.7) - 2 : undefined;
+
   return (
-    <Box flexDirection="column" height={managedLive ? termRows : undefined}>
-      {managedLive ? (
-        <ScrollableHistory
-          entries={state.entries}
-          streamingText={state.streamingText}
-          toolStream={state.toolStream}
-          scrollOffset={state.scrollOffset}
-          viewportRows={state.viewportRows || Math.max(MIN_VIEWPORT, termRows - 8)}
-          totalLines={state.totalLines}
-          onMeasure={(total) => dispatch({ type: 'setMeasuredLines', totalLines: total })}
-        />
-      ) : (
-        <History
-          entries={state.entries}
-          streamingText={state.streamingText}
-          toolStream={state.toolStream}
-        />
-      )}
-      {affordanceShown ? (
-        <Text dimColor>
-          {`  ↓ ${state.pendingNewLines} new line${state.pendingNewLines === 1 ? '' : 's'} — PgDn or click to jump to bottom`}
-        </Text>
-      ) : null}
-      {/* In mouse mode the whole live region below the scroll viewport is
-          wrapped in one measured Box so its height feeds the viewport-size
-          computation. In the default path it's a layout-neutral column. */}
-      <Box ref={managedLive ? bottomRef : undefined} flexDirection="column" flexShrink={0}>
-        <LiveActivityStrip entries={state.fleet} nowTick={nowTick} />
-        <Input
+    <Box
+      flexDirection={rightPanelOpen ? 'row' : 'column'}
+      height={managedLive ? termRows : undefined}
+    >
+      <Box
+        flexDirection="column"
+        flexGrow={rightPanelOpen ? 7 : 1}
+        flexShrink={rightPanelOpen ? 1 : 0}
+      >
+        {managedLive ? (
+          <ScrollableHistory
+            entries={state.entries}
+            streamingText={state.streamingText}
+            toolStream={state.toolStream}
+            scrollOffset={state.scrollOffset}
+            viewportRows={state.viewportRows || Math.max(MIN_VIEWPORT, termRows - 8)}
+            totalLines={state.totalLines}
+            onMeasure={(total) => dispatch({ type: 'setMeasuredLines', totalLines: total })}
+            maxWidth={chatMaxWidth}
+          />
+        ) : (
+          <History
+            entries={state.entries}
+            streamingText={state.streamingText}
+            toolStream={state.toolStream}
+          />
+        )}
+        {affordanceShown ? (
+          <Text dimColor>
+            {`  ↓ ${state.pendingNewLines} new line${state.pendingNewLines === 1 ? '' : 's'} — PgDn or click to jump to bottom`}
+          </Text>
+        ) : null}
+        {/* In mouse mode the whole live region below the scroll viewport is
+            wrapped in one measured Box so its height feeds the viewport-size
+            computation. In the default path it's a layout-neutral column. */}
+        <Box ref={managedLive ? bottomRef : undefined} flexDirection="column" flexShrink={0}>
+          <LiveActivityStrip entries={state.fleet} nowTick={nowTick} />
+          <Input
             prompt={INPUT_PROMPT}
             value={state.buffer}
             cursor={state.cursor}
@@ -3770,193 +3869,213 @@ export function App({
             hint={inputHint}
             onKey={handleKey}
           />
-        {state.picker.open ? (
-          <FilePicker
-            query={state.picker.query}
-            matches={state.picker.matches}
-            selected={state.picker.selected}
-          />
-        ) : null}
-        {state.slashPicker.open ? (
-          <SlashMenu
-            query={state.slashPicker.query}
-            matches={state.slashPicker.matches}
-            selected={state.slashPicker.selected}
-          />
-        ) : null}
-        {state.modelPicker.open ? (
-          <ModelPicker
-            step={state.modelPicker.step}
-            providerOptions={state.modelPicker.providerOptions}
-            modelOptions={state.modelPicker.modelOptions}
-            filteredOptions={state.modelPicker.filteredOptions}
-            selected={state.modelPicker.selected}
-            pickedProviderId={state.modelPicker.pickedProviderId}
-            searchQuery={state.modelPicker.searchQuery}
-            hint={state.modelPicker.hint}
-          />
-        ) : null}
-        {state.autonomyPicker.open ? (
-          <AutonomyPicker
-            options={state.autonomyPicker.options}
-            selected={state.autonomyPicker.selected}
-            hint={state.autonomyPicker.hint}
-          />
-        ) : null}
-        {state.settingsPicker.open ? (
-          <SettingsPicker
-            field={state.settingsPicker.field}
-            mode={state.settingsPicker.mode}
-            delayMs={state.settingsPicker.delayMs}
-            hint={state.settingsPicker.hint}
-          />
-        ) : null}
-        {state.rewindOverlay ? (
-          <CheckpointTimeline
-            checkpoints={state.rewindOverlay.checkpoints}
-            selected={state.rewindOverlay.selected}
-            onSelect={(i) =>
-              dispatch({ type: 'rewindOverlayMove', delta: i - state.rewindOverlay!.selected })
-            }
-            onConfirm={(i) => handleRewindTo(state.rewindOverlay!.checkpoints[i]!.promptIndex)}
-            onClose={() => dispatch({ type: 'rewindOverlayClose' })}
-          />
-        ) : null}
-        {state.brainPrompt ? (
-          <Box flexDirection="column" marginY={1} flexShrink={0}>
-            <BrainDecisionPrompt
-              {...state.brainPrompt}
-              onAnswer={(answer) => {
-                events.emit('brain.human_answered', { ...answer, at: Date.now() });
-                dispatch({ type: 'brainPromptClear' });
-              }}
+          {state.picker.open ? (
+            <FilePicker
+              query={state.picker.query}
+              matches={state.picker.matches}
+              selected={state.picker.selected}
             />
-          </Box>
-        ) : null}
-        {state.confirmQueue.length > 0 &&
-          (() => {
-            const head = state.confirmQueue[0]!;
-            let resolved = false;
-            const onDecision = (decision: ConfirmDecision) => {
-              if (resolved) return;
-              resolved = true;
-              head.resolve(decision);
-              dispatch({ type: 'confirmClose' });
-            };
-            return (
+          ) : null}
+          {state.slashPicker.open ? (
+            <SlashMenu
+              query={state.slashPicker.query}
+              matches={state.slashPicker.matches}
+              selected={state.slashPicker.selected}
+            />
+          ) : null}
+          {state.modelPicker.open ? (
+            <ModelPicker
+              step={state.modelPicker.step}
+              providerOptions={state.modelPicker.providerOptions}
+              modelOptions={state.modelPicker.modelOptions}
+              filteredOptions={state.modelPicker.filteredOptions}
+              selected={state.modelPicker.selected}
+              pickedProviderId={state.modelPicker.pickedProviderId}
+              searchQuery={state.modelPicker.searchQuery}
+              hint={state.modelPicker.hint}
+            />
+          ) : null}
+          {state.autonomyPicker.open ? (
+            <AutonomyPicker
+              options={state.autonomyPicker.options}
+              selected={state.autonomyPicker.selected}
+              hint={state.autonomyPicker.hint}
+            />
+          ) : null}
+          {state.settingsPicker.open ? (
+            <SettingsPicker
+              field={state.settingsPicker.field}
+              mode={state.settingsPicker.mode}
+              delayMs={state.settingsPicker.delayMs}
+              titleAnimation={state.settingsPicker.titleAnimation}
+              yolo={state.settingsPicker.yolo}
+              streamFleet={state.settingsPicker.streamFleet}
+              chime={state.settingsPicker.chime}
+              confirmExit={state.settingsPicker.confirmExit}
+              hint={state.settingsPicker.hint}
+            />
+          ) : null}
+          {state.rewindOverlay ? (
+            <CheckpointTimeline
+              checkpoints={state.rewindOverlay.checkpoints}
+              selected={state.rewindOverlay.selected}
+              onSelect={(i) =>
+                dispatch({ type: 'rewindOverlayMove', delta: i - state.rewindOverlay!.selected })
+              }
+              onConfirm={(i) => handleRewindTo(state.rewindOverlay!.checkpoints[i]!.promptIndex)}
+              onClose={() => dispatch({ type: 'rewindOverlayClose' })}
+            />
+          ) : null}
+          {state.brainPrompt ? (
+            <Box flexDirection="column" marginY={1} flexShrink={0}>
+              <BrainDecisionPrompt
+                {...state.brainPrompt}
+                onAnswer={(answer) => {
+                  events.emit('brain.human_answered', { ...answer, at: Date.now() });
+                  dispatch({ type: 'brainPromptClear' });
+                }}
+              />
+            </Box>
+          ) : null}
+          {state.confirmQueue.length > 0 &&
+            (() => {
+              const head = state.confirmQueue[0]!;
+              let resolved = false;
+              const onDecision = (decision: ConfirmDecision) => {
+                if (resolved) return;
+                resolved = true;
+                head.resolve(decision);
+                dispatch({ type: 'confirmClose' });
+              };
+              return (
                 <ConfirmPrompt
                   toolName={head.toolName}
                   input={head.input}
                   suggestedPattern={head.suggestedPattern}
                   onDecision={onDecision}
                 />
-            );
-          })()}
-        <StatusBar
-          model={`${liveProvider}/${liveModel}`}
-          version={appVersion}
-          state={state.status}
-          tokenCounter={tokenCounter}
-          hint={renderRunningTools(state.runningTools) || state.hint}
-          queueCount={state.queue.length}
-          yolo={yoloLive}
-          autonomy={autonomyLive}
-          elapsedMs={elapsedMs}
-          todos={todos}
-          plan={planCounts ?? undefined}
-          fleet={fleetCounts}
-          git={gitInfo}
-          context={contextWindow}
-          brain={state.brain}
-          projectName={projectName}
-          subagentCount={Object.keys(state.fleet).length}
-          processCount={getProcessRegistry().activeCount}
-          hiddenItems={hiddenItems}
-          eternalStage={state.eternalStage}
-          goalSummary={state.goalSummary}
-        />
-        {/* Only render the persistent hint bar in the managed (alt-screen)
+              );
+            })()}
+          <StatusBar
+            model={`${liveProvider}/${liveModel}`}
+            version={appVersion}
+            state={state.status}
+            tokenCounter={tokenCounter}
+            hint={renderRunningTools(state.runningTools) || state.hint}
+            queueCount={state.queue.length}
+            yolo={yoloLive}
+            autonomy={autonomyLive}
+            elapsedMs={elapsedMs}
+            todos={todos}
+            plan={planCounts ?? undefined}
+            fleet={fleetCounts}
+            git={gitInfo}
+            context={contextWindow}
+            brain={state.brain}
+            projectName={projectName}
+            subagentCount={Object.keys(state.fleet).length}
+            processCount={getProcessRegistry().activeCount}
+            hiddenItems={hiddenItems}
+            eternalStage={state.eternalStage}
+            goalSummary={state.goalSummary}
+          />
+          {/* Only render the persistent hint bar in the managed (alt-screen)
           viewport. In the default inline-redraw mode it would add a row to the
           fragile live region and collide with monitor panels rendered below it
           (interleaving their counts into the hints). */}
-        {managedLive ? (
-          <KeyHintBar
-            context={{
-              confirm: state.confirmQueue.length > 0,
-              picker:
-                state.picker.open ||
-                state.slashPicker.open ||
-                state.modelPicker.open ||
-                state.autonomyPicker.open ||
-                state.settingsPicker.open ||
-                !!state.rewindOverlay,
-              monitor:
-                state.agentsMonitorOpen ||
-                state.monitorOpen ||
-                state.worktreeMonitorOpen ||
-                !!state.autoPhase?.monitorOpen,
-              managed: managedLive,
-            }}
-          />
-        ) : null}
-        {/* Keys-&-commands help overlay (`?` on an empty prompt). Modal: while
+          {managedLive ? (
+            <KeyHintBar
+              context={{
+                confirm: state.confirmQueue.length > 0,
+                picker:
+                  state.picker.open ||
+                  state.slashPicker.open ||
+                  state.modelPicker.open ||
+                  state.autonomyPicker.open ||
+                  state.settingsPicker.open ||
+                  !!state.rewindOverlay,
+                monitor:
+                  state.agentsMonitorOpen ||
+                  state.monitorOpen ||
+                  state.worktreeMonitorOpen ||
+                  state.todosMonitorOpen ||
+                  !!state.autoPhase?.monitorOpen,
+                managed: managedLive,
+              }}
+            />
+          ) : null}
+          {/* Keys-&-commands help overlay (`?` on an empty prompt). Modal: while
           open, handleKey swallows everything but Esc/?/q, so it never coexists
           with a monitor. */}
-        {state.helpOpen ? <HelpOverlay managed={managedLive} /> : null}
-        {/* Agents monitor overlay (Ctrl+G) and fleet monitor overlay (Ctrl+F)
+          {state.helpOpen ? <HelpOverlay managed={managedLive} /> : null}
+          {/* Agents monitor overlay (Ctrl+G) and fleet monitor overlay (Ctrl+F)
           take up the lower region — hide FleetPanel while any overlay is open. */}
-        {state.agentsMonitorOpen ? (
-          <AgentsMonitor
-            entries={entriesWithLeader}
-            totalCost={state.fleetCost}
-            totalTokens={state.fleetTokens}
-            nowTick={nowTick}
-          />
-        ) : state.autoPhase?.monitorOpen ? (
-          <PhaseMonitor
-            phases={state.autoPhase.phases}
-            runningPhaseIds={state.autoPhase.runningPhaseIds}
-            elapsedMs={state.autoPhase.elapsedMs}
-            nowTick={nowTick}
-            onClose={() => dispatch({ type: 'autoPhaseMonitorToggle' })}
-          />
-        ) : state.worktreeMonitorOpen ? (
-          <WorktreeMonitor
-            worktrees={state.worktrees}
-            baseBranch={state.worktreeBase}
-            nowTick={nowTick}
-            onClose={() => dispatch({ type: 'worktreeMonitorToggle' })}
-          />
-        ) : state.monitorOpen ? (
-          <FleetMonitor
-            entries={state.fleet}
-            totalCost={state.fleetCost}
-            totalTokens={state.fleetTokens}
-            maxConcurrent={state.fleetConcurrency}
-            nowTick={nowTick}
-            collabSession={state.collabSession}
-          />
-        ) : director ? (
-          <FleetPanel
-            entries={entriesWithLeader}
-            totalCost={state.fleetCost}
-            roster={fleetRoster}
-            collabSession={state.collabSession}
-          />
-        ) : null}
-        {state.autoPhase && !state.autoPhase.monitorOpen ? (
-          <PhasePanel
-            phases={state.autoPhase.phases}
-            runningPhaseIds={state.autoPhase.runningPhaseIds}
-            nowTick={nowTick}
-          />
-        ) : null}
-        {Object.keys(state.worktrees).length > 0 &&
-        !state.worktreeMonitorOpen &&
-        !state.monitorOpen ? (
-          <WorktreePanel worktrees={state.worktrees} nowTick={nowTick} />
-        ) : null}
+          {state.agentsMonitorOpen ? (
+            <AgentsMonitor
+              entries={entriesWithLeader}
+              totalCost={state.fleetCost}
+              totalTokens={state.fleetTokens}
+              nowTick={nowTick}
+            />
+          ) : state.autoPhase?.monitorOpen ? (
+            <PhaseMonitor
+              phases={state.autoPhase.phases}
+              runningPhaseIds={state.autoPhase.runningPhaseIds}
+              elapsedMs={state.autoPhase.elapsedMs}
+              nowTick={nowTick}
+              onClose={() => dispatch({ type: 'autoPhaseMonitorToggle' })}
+            />
+          ) : state.worktreeMonitorOpen ? (
+            <WorktreeMonitor
+              worktrees={state.worktrees}
+              baseBranch={state.worktreeBase}
+              nowTick={nowTick}
+              onClose={() => dispatch({ type: 'worktreeMonitorToggle' })}
+            />
+          ) : state.todosMonitorOpen && !managedLive ? (
+            <TodosMonitor todos={agent.ctx.todos} />
+          ) : state.monitorOpen ? (
+            <FleetMonitor
+              entries={state.fleet}
+              totalCost={state.fleetCost}
+              totalTokens={state.fleetTokens}
+              maxConcurrent={state.fleetConcurrency}
+              nowTick={nowTick}
+              collabSession={state.collabSession}
+            />
+          ) : director ? (
+            <FleetPanel
+              entries={entriesWithLeader}
+              totalCost={state.fleetCost}
+              roster={fleetRoster}
+              collabSession={state.collabSession}
+            />
+          ) : null}
+          {state.autoPhase && !state.autoPhase.monitorOpen ? (
+            <PhasePanel
+              phases={state.autoPhase.phases}
+              runningPhaseIds={state.autoPhase.runningPhaseIds}
+              nowTick={nowTick}
+            />
+          ) : null}
+          {Object.keys(state.worktrees).length > 0 &&
+          !state.worktreeMonitorOpen &&
+          !state.monitorOpen ? (
+            <WorktreePanel worktrees={state.worktrees} nowTick={nowTick} />
+          ) : null}
+        </Box>
       </Box>
+      {rightPanelOpen ? (
+        <Box
+          flexDirection="column"
+          flexGrow={3}
+          flexShrink={0}
+          borderStyle="round"
+          borderColor="yellow"
+        >
+          <CompactTodosPanel todos={agent.ctx.todos} />
+        </Box>
+      ) : null}
     </Box>
   );
 }

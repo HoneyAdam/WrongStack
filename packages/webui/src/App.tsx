@@ -16,6 +16,7 @@ import { ShortcutsOverlay } from './components/ShortcutsOverlay';
 import { Sidebar } from './components/Sidebar';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
 import { Toaster } from './components/Toaster';
+import { TodosPanel } from './components/TodosPanel';
 
 function AppInner() {
   const { theme } = useTheme();
@@ -210,6 +211,8 @@ function AppInner() {
                 <CollabPanel sessionId={sessionId} />
                 {/* Live subagent roster — self-hides when no fleet is running. */}
                 <FleetPanel />
+                {/* Live agent todo list — self-hides when empty. */}
+                <TodosPanel />
               </div>
             )}
             <ChatView />

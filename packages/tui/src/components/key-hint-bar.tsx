@@ -38,11 +38,12 @@ export function hintsFor(ctx: KeyHintContext): Hint[] {
       { key: '^F', label: 'fleet' },
       { key: '^G', label: 'agents' },
       { key: '^T', label: 'worktrees' },
+      { key: 'F6', label: 'todos' },
     ];
   }
   // Idle / chat.
   const base: Hint[] = [{ key: '?', label: 'help' }];
-  if (ctx.managed) base.push({ key: 'PgUp/PgDn', label: 'scroll' });
+  if (ctx.managed) base.push({ key: 'PgUp/PgDn', label: 'scroll' }, { key: 'F5', label: 'todos' });
   base.push({ key: '^G', label: 'agents' }, { key: '^C', label: 'stop' });
   return base;
 }

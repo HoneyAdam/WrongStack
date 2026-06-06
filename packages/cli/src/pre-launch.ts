@@ -61,10 +61,14 @@ async function scaffoldAgentsMd(projectRoot: string): Promise<string> {
  */
 export async function runProjectCheck(opts: {
   projectRoot: string;
+  /** The actual working directory — where the user is standing. Git init
+   *  always happens here, never in a parent projectRoot that the walk-up
+   *  detected. */
+  cwd: string;
   renderer: TerminalRenderer;
   reader: ReadlineInputReader;
 }): Promise<boolean> {
-  const { projectRoot, renderer, reader } = opts;
+  const { projectRoot, cwd, renderer, reader } = opts;
   const kind = await detectProjectKind(projectRoot);
 
   if (kind === 'initialized') {
@@ -131,7 +135,7 @@ export async function runProjectCheck(opts: {
       try {
         const { spawn } = await import('node:child_process');
         await new Promise<void>((resolve, reject) => {
-          const child = spawn('git', ['init'], { cwd: projectRoot });
+          const child = spawn('git', ['init'], { cwd });
           child.on('error', reject);
           child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`git init failed with ${code}`))));
         });

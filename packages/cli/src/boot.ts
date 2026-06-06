@@ -205,7 +205,7 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
   const isInteractiveTTY = isStdinTTY() && !isSingleShot;
 
   if (isInteractiveTTY) {
-    const cont = await runProjectCheck({ projectRoot, renderer, reader });
+    const cont = await runProjectCheck({ projectRoot, cwd, renderer, reader });
     if (!cont) {
       await reader.close();
       return 0;

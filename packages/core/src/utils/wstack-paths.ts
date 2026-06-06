@@ -67,6 +67,8 @@ export interface WstackPaths {
   inProjectWorktrees: string;
   /** Stable hash for the project root. */
   projectHash: string;
+  /** Human-readable project slug: `wrongstack-a1b2c3` instead of `3024e5e6fa58`. */
+  projectSlug: string;
   /** ~/.wrongstack/projects/<hash>/goal.json — goal persistence */
   projectGoal: string;
   /** ~/.wrongstack/projects/<hash>/specs — SDD spec files */
@@ -87,6 +89,28 @@ export function projectHash(absRoot: string): string {
   return createHash('sha256').update(path.resolve(absRoot)).digest('hex').slice(0, 12);
 }
 
+/**
+ * Human-readable project directory name: slugified folder name + short hash
+ * suffix for uniqueness.  e.g. `wrongstack-a1b2c3` instead of `3024e5e6fa58`.
+ */
+export function projectSlug(absRoot: string): string {
+  const base = slugify(path.basename(absRoot));
+  const hash = createHash('sha256').update(path.resolve(absRoot)).digest('hex').slice(0, 6);
+  return `${base}-${hash}`;
+}
+
+/** Turn a folder name into a filesystem-safe lowercase slug. */
+function slugify(name: string): string {
+  return (
+    name
+      .toLowerCase()
+      // Collapse any run of non-alphanumeric chars into a single hyphen.
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 40) || 'project'
+  );
+}
+
 export interface WstackPathOptions {
   userHome?: string;
   projectRoot: string;
@@ -98,7 +122,8 @@ export function resolveWstackPaths(opts: WstackPathOptions): WstackPaths {
   const home = opts.userHome ?? os.homedir();
   const globalRoot = opts.globalRoot ?? path.join(home, '.wrongstack');
   const hash = projectHash(opts.projectRoot);
-  const projectDir = path.join(globalRoot, 'projects', hash);
+  const slug = projectSlug(opts.projectRoot);
+  const projectDir = path.join(globalRoot, 'projects', slug);
   return {
     globalRoot,
     configDir: globalRoot,
@@ -123,6 +148,7 @@ export function resolveWstackPaths(opts: WstackPathOptions): WstackPaths {
     inProjectSkills: path.join(opts.projectRoot, '.wrongstack', 'skills'),
     inProjectWorktrees: path.join(opts.projectRoot, '.wrongstack', 'worktrees'),
     projectHash: hash,
+    projectSlug: slug,
     projectGoal: path.join(projectDir, 'goal.json'),
     projectSpecs: path.join(projectDir, 'specs'),
     projectTaskGraphs: path.join(projectDir, 'task-graphs'),

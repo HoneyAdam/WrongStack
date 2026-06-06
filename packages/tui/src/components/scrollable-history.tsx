@@ -1,6 +1,6 @@
 import { Box, type DOMElement, Text, measureElement, useStdout } from 'ink';
 import type React from 'react';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 import { theme } from '../theme.js';
 import {
   AssistantTail,
@@ -27,6 +27,8 @@ export interface ScrollableHistoryProps extends HistoryProps {
   /** Reports the measured total content height (rows) after every layout so
    *  App can clamp the scroll offset and drive the "N new lines" affordance. */
   onMeasure: (totalLines: number) => void;
+  /** Optional cap on the width used for entry wrapping (right panel mode). */
+  maxWidth?: number;
 }
 
 /**
@@ -118,16 +120,11 @@ export function ScrollableHistory({
   viewportRows,
   totalLines,
   onMeasure,
+  maxWidth,
 }: ScrollableHistoryProps): React.ReactElement {
   const { stdout } = useStdout();
-  const [termWidth, setTermWidth] = useState(stdout?.columns ?? 80);
-  useEffect(() => {
-    const onResize = () => setTermWidth(stdout?.columns ?? 80);
-    process.stdout.on('resize', onResize);
-    return () => {
-      process.stdout.off('resize', onResize);
-    };
-  }, [stdout]);
+  const rawWidth = stdout?.columns ?? 80;
+  const termWidth = maxWidth ? Math.min(rawWidth, maxWidth) : rawWidth;
 
   const tail = streamingText ? tailForDisplay(streamingText, MAX_STREAM_DISPLAY_CHARS) : '';
   const toolTail = toolStream?.text

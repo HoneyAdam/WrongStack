@@ -513,6 +513,7 @@ export type WSClientMessage =
   | { type: 'files.list'; payload: { query?: string; limit?: number } }
   | { type: 'todos.get' }
   | { type: 'todos.clear' }
+  | { type: 'todos.remove'; payload: { id?: string; index?: number } }
   | { type: 'ping' }
   | WSCollabJoin
   | WSCollabLeave

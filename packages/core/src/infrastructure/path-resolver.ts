@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import type { PathResolver } from '../types/path-resolver.js';
 
@@ -9,7 +10,11 @@ const PROJECT_MARKERS = [
   'go.mod',
   'Cargo.toml',
   'pyproject.toml',
-  '.wrongstack',
+  // Use AGENTS.md, not the bare .wrongstack directory.  A bare .wrongstack/
+  // directory can be the global config directory (~/.wrongstack), which is
+  // NOT a project marker.  Only .wrongstack/AGENTS.md signals a real
+  // WrongStack project.
+  '.wrongstack/AGENTS.md',
 ];
 
 export class DefaultPathResolver implements PathResolver {
@@ -24,7 +29,17 @@ export class DefaultPathResolver implements PathResolver {
   detectProjectRoot(start: string): string {
     let dir = path.resolve(start);
     const root = path.parse(dir).root;
+    const home = path.resolve(os.homedir());
+    const startPath = path.resolve(start);
     while (dir !== root) {
+      // Don't walk past the user home directory.  Home often has stray
+      // markers (.git for dotfile tracking, package.json from global
+      // tooling) that are unrelated to the actual working directory.
+      // When cwd IS home we still check markers there — this guard
+      // only fires during the upward walk from a subdirectory.
+      if (dir === home && dir !== startPath) {
+        break;
+      }
       for (const marker of PROJECT_MARKERS) {
         try {
           fs.accessSync(path.join(dir, marker));
@@ -37,7 +52,7 @@ export class DefaultPathResolver implements PathResolver {
       if (parent === dir) break;
       dir = parent;
     }
-    return path.resolve(start);
+    return startPath;
   }
 
   resolve(input: string): string {
