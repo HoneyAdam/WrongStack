@@ -89,6 +89,13 @@ export function useSubagentEvents(
       dispatch({ type: 'fleetCtxPct', id: e.subagentId, load: e.load, tokens: e.tokens, maxContext: e.maxContext });
     });
 
+    const offConcurrencyChanged = events.on('concurrency.changed', (e: unknown) => {
+      const { n } = e as { n: number };
+      if (typeof n === 'number' && n > 0) {
+        dispatch({ type: 'fleetConcurrency', n });
+      }
+    });
+
     const offLeaderCtxPct = events.on('ctx.pct', (e) => {
       setActiveMaxContext(e.maxContext);
       dispatch({ type: 'leaderCtxPct', load: e.load, tokens: e.tokens, maxContext: e.maxContext });
@@ -106,7 +113,7 @@ export function useSubagentEvents(
     return () => {
       offSpawned(); offStarted(); offCompleted();
       offBudgetWarning(); offBudgetExtended();
-      offIterationSummary(); offCtxPct();
+      offIterationSummary(); offCtxPct(); offConcurrencyChanged();
       offLeaderCtxPct(); offLeaderMaxContext();
       offTool();
     };

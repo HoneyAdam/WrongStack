@@ -245,6 +245,8 @@ export type State = {
   fleetCost: number;
   /** Fleet-wide token totals from the usage aggregator, for the monitor gauge. */
   fleetTokens: { input: number; output: number };
+  /** Live concurrency ceiling — updated by /fleet concurrency and concurrency.changed event. */
+  fleetConcurrency: number;
   /**
    * When true, subagent text activity is
    * streamed into the main history with an `AGENT#N` prefix. Toggled
@@ -469,6 +471,8 @@ export type Action =
       maxContext: number;
     }
   | { type: 'fleetCost'; cost: number; input?: number; output?: number }
+  /** Runtime concurrency ceiling change from CLI /fleet concurrency <n>. */
+  | { type: 'fleetConcurrency'; n: number }
   | { type: 'leaderIterStart' }
   | { type: 'leaderIterEnd' }
   | { type: 'leaderToolStart'; name: string }
@@ -1207,6 +1211,9 @@ export function reducer(state: State, action: Action): State {
               }
             : state.fleetTokens,
       };
+    }
+    case 'fleetConcurrency': {
+      return { ...state, fleetConcurrency: action.n };
     }
     case 'leaderIterStart': {
       return {

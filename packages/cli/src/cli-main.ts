@@ -1127,6 +1127,7 @@ export async function main(argv: string[]): Promise<number> {
         }
         try {
           multiAgentHost.setMaxConcurrent(n);
+          events.emit('concurrency.changed', { n });
         } catch (err) {
           return err instanceof Error ? err.message : String(err);
         }

@@ -476,6 +476,7 @@ export function App({
     },
     fleetCost: 0,
     fleetTokens: { input: 0, output: 0 },
+    fleetConcurrency: 4,
     streamFleet: true,
     monitorOpen: false,
     agentsMonitorOpen: false,
@@ -3931,6 +3932,7 @@ export function App({
             entries={state.fleet}
             totalCost={state.fleetCost}
             totalTokens={state.fleetTokens}
+            maxConcurrent={state.fleetConcurrency}
             nowTick={nowTick}
             collabSession={state.collabSession}
           />

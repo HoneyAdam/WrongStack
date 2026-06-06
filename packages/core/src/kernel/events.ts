@@ -411,6 +411,12 @@ export interface EventMap {
     subagentStatuses: { subagentId: string; taskId: string; status: string; assigned: boolean }[];
   };
   /**
+   * The coordinator's max-concurrent subagent ceiling was changed at runtime
+   * (e.g. via `/fleet concurrency <n>`). `n` is the new ceiling. Lets the
+   * TUI/WebUI reflect the updated limit without polling the host.
+   */
+  'concurrency.changed': { n: number };
+  /**
    * Git-worktree lifecycle, emitted by WorktreeManager. AutoPhase allocates one
    * worktree per phase so parallelizable phases run isolated, then merges them
    * back sequentially. The WebUI/TUI subscribe to render live swim-lanes/DAG.
