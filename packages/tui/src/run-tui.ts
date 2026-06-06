@@ -252,6 +252,19 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
 
   stdout.write(BRACKETED_PASTE_ON);
 
+  // Clear the VISIBLE screen (not scrollback) before Ink's first paint. The
+  // REPL boot output (provider banner, Director roster, fleet paths, recovery
+  // prompts) typically fills the terminal, so without this Ink mounts with its
+  // live region (input + status bar) jammed against the bottom edge. The first
+  // post-mount re-render — async git/fleet/goal state landing a frame later —
+  // then grows/shifts that region by a row or two, the terminal scrolls, and
+  // the top of the live region (the `›` input row + status-bar border) is
+  // stranded permanently in scrollback (the "two prompts on launch" bug).
+  // \x1b[2J scrolls the boot output up into native scrollback (still reachable
+  // with the mouse wheel / Shift+PgUp), \x1b[H homes the cursor so Ink starts
+  // from a clean top-of-screen with a full screen of headroom below it.
+  stdout.write('\x1b[2J\x1b[H');
+
   const inkStdin: NodeJS.ReadStream = stdin;
 
   // Animated window/tab title: a braille spinner + live status (thinking /
