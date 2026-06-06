@@ -124,7 +124,7 @@ export function layoutInputRows(
 }
 
 /**
- * Inverse of {@link layoutInputRows} for mouse clicks: given a click at visual
+ * Inverse of {@link layoutInputRows}: given a pointer at visual
  * `(row, col)` (both 0-based; col is the column WITHIN the input area, i.e. the
  * prompt occupies the first columns of row 0), return the buffer cursor index
  * to place the caret. Mirrors layoutInputRows' wrapping exactly so the mapping

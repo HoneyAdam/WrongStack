@@ -682,10 +682,11 @@ export async function main(argv: string[]): Promise<number> {
   // path defaults to `<projectSessions>/<sessionId>/fleet.json`; users can
   // override via `WRONGSTACK_FLEET_MANIFEST` if they want a fixed path.
   const directorMode = flags['director'] === true || typeof flags['resume'] === 'string';
-  // Concurrent subagent ceiling. Order: CLI flag → env var → default (4).
+  // Concurrent subagent ceiling. Priority: CLI flag → env var → config → default (4).
   // Caps how many delegated tasks the coordinator dispatches at once;
   // extra tasks queue. Keeps the leader from spawning enough parallel
-  // subagents to trip provider rate limits.
+  // subagents to trip provider rate limits. Persist a default in config.json
+  // via `maxConcurrent` or change live with /fleet concurrency <n>.
   const maxConcurrentFromFlag =
     typeof flags['max-concurrent'] === 'string'
       ? Number.parseInt(flags['max-concurrent'], 10)
@@ -694,12 +695,18 @@ export async function main(argv: string[]): Promise<number> {
     typeof process.env['WRONGSTACK_MAX_CONCURRENT'] === 'string'
       ? Number.parseInt(process.env['WRONGSTACK_MAX_CONCURRENT'], 10)
       : undefined;
+  const maxConcurrentFromConfig =
+    typeof config.maxConcurrent === 'number' && config.maxConcurrent > 0
+      ? config.maxConcurrent
+      : undefined;
   const maxConcurrent =
     Number.isFinite(maxConcurrentFromFlag) && (maxConcurrentFromFlag as number) > 0
       ? (maxConcurrentFromFlag as number)
       : Number.isFinite(maxConcurrentFromEnv) && (maxConcurrentFromEnv as number) > 0
         ? (maxConcurrentFromEnv as number)
-        : undefined;
+        : Number.isFinite(maxConcurrentFromConfig) && (maxConcurrentFromConfig as number) > 0
+          ? (maxConcurrentFromConfig as number)
+          : undefined;
   let director: Director | null = null;
   // Autonomy mode: 'off' (default), 'suggest' (show next steps), 'auto' (self-driving)
   // Initial value can be pinned via the launch prompt (or `--autonomy <mode>`),

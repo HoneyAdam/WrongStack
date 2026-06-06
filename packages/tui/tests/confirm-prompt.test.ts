@@ -112,7 +112,7 @@ describe('ConfirmPrompt helpers', () => {
   });
 });
 
-describe('confirmButtonSegments (mouse hit-test geometry)', () => {
+describe('confirmButtonSegments (button hit-test geometry)', () => {
   it('lays out the four buttons left-to-right with contiguous columns', () => {
     const segs = confirmButtonSegments('P');
     expect(segs.map((s) => s.decision)).toEqual(['yes', 'no', 'always', 'deny']);

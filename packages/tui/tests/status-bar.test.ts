@@ -8,7 +8,7 @@ import {
   statusBarModelSpan,
 } from '../src/components/status-bar.js';
 
-describe('statusBarModelSpan (mouse hit-test geometry)', () => {
+describe('statusBarModelSpan (hit-test geometry)', () => {
   it('places the model chip after the state chip (no version)', () => {
     const span = statusBarModelSpan({ state: 'idle', model: 'anthropic/claude' });
     // padX(1) + "● idle"(6) + gap(2) + "│"(1) + gap(2) = 12
@@ -29,7 +29,7 @@ describe('statusBarModelSpan (mouse hit-test geometry)', () => {
   });
 });
 
-describe('statusBarAutonomySpan (mouse hit-test geometry)', () => {
+describe('statusBarAutonomySpan (hit-test geometry)', () => {
   it('returns null when autonomy is off or unset', () => {
     expect(statusBarAutonomySpan({ autonomy: 'off' })).toBeNull();
     expect(statusBarAutonomySpan({})).toBeNull();

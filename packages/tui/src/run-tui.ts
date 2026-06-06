@@ -1,4 +1,3 @@
-import { Readable } from 'node:stream';
 import type {
   Agent,
   AttachmentStore,
@@ -13,7 +12,6 @@ import type { VisionAdapters } from '@wrongstack/runtime/vision';
 import { render } from 'ink';
 import React from 'react';
 import { App } from './app.js';
-import { type MouseEvent, parseSgrMouse, stripSgrMouse } from './mouse.js';
 import { startTerminalTitle } from './terminal-title.js';
 
 // Re-export autonomy stage types from core for backward compatibility
@@ -91,7 +89,7 @@ export interface RunTuiOptions {
   projectRoot?: string;
   /** Render into the terminal's alternate screen buffer (like vim/less/htop).
    * Default: false — native scrollback stays live so chat history is
-   * scrollable via mouse wheel / Shift+PgUp, which matches the user's
+   * scrollable (wheel / Shift+PgUp), which matches the user's
    * "this is a chat app, let me scroll the chat" intuition. Pass true
    * (or run with `--alt-screen`) for the full-screen mode that owns the
    * terminal and prevents resize/overlay leaks of the live region —
@@ -99,14 +97,6 @@ export interface RunTuiOptions {
    * while the TUI is up and only what's currently on screen is visible.
    */
   altScreen?: boolean;
-  /**
-   * Enable full mouse support: clickable list items in menus/pickers and
-   * in-app mouse-wheel scrolling of the chat history. Opt-in (default false)
-   * because enabling terminal mouse tracking disables the terminal's own
-   * wheel-scroll and text-selection/copy. When true this FORCES alt-screen
-   * on (the app must own the screen to render its scroll viewport).
-   */
-  mouse?: boolean;
   /**
    * Called right after we exit the alt-screen on a clean shutdown. The
    * CLI uses this to print a one-line "session saved to …" hint into
@@ -246,17 +236,6 @@ const ALT_SCREEN_ON = '\x1b[?1049h';
 const ALT_SCREEN_OFF = '\x1b[?1049l';
 const CURSOR_HOME = '\x1b[H';
 
-// Mouse tracking: DECSET 1000 (button press/release) + 1002 (button-event
-// tracking: motion reported only WHILE a button is held) + 1006 (SGR extended
-// coordinates, so columns/rows beyond 223 are reported as decimal). Enabling
-// these takes the mouse away from the terminal's native wheel-scroll and
-// text-selection — which is why mouse mode is opt-in and forces alt-screen so
-// the app owns the screen and can render its own scroll viewport. 1002 (not
-// 1003 any-motion) keeps idle moves quiet while still enabling scrollbar
-// thumb drags; the SGR parser flags held-motion via the drag bit.
-const MOUSE_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
-const MOUSE_OFF = '\x1b[?1006l\x1b[?1002l\x1b[?1000l';
-
 export async function runTui(opts: RunTuiOptions): Promise<number> {
   const stdout = process.stdout;
   const stdin = process.stdin;
@@ -273,155 +252,14 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
     return 2;
   }
 
-  const useMouse = opts.mouse === true;
-  // Mouse mode forces alt-screen: in-app scroll needs the app to own the
-  // whole screen (no native-scrollback leak), which is exactly what
-  // alt-screen guarantees.
-  const useAltScreen = opts.altScreen === true || useMouse;
+  const useAltScreen = opts.altScreen === true;
   if (useAltScreen) {
     stdout.write(ALT_SCREEN_ON);
     stdout.write(CURSOR_HOME);
   }
   stdout.write(BRACKETED_PASTE_ON);
-  if (useMouse) {
-    stdout.write(MOUSE_ON);
-  }
 
-  // When mouse mode is on we intercept stdin: the real TTY is consumed here,
-  // SGR mouse sequences are decoded and fanned out to subscribers, and only
-  // the remaining keyboard bytes are forwarded to a PassThrough that Ink
-  // reads instead of process.stdin. This keeps mouse bytes from ever
-  // polluting Ink's keypress parser (which would otherwise insert `<0;..M`
-  // junk into the input). When mouse mode is off, Ink reads process.stdin
-  // directly and nothing below runs — zero behavior change for the default.
-  const mouseListeners = new Set<(ev: MouseEvent) => void>();
-  let inkStdin: NodeJS.ReadStream = stdin;
-  let detachMouse: (() => void) | null = null;
-  if (useMouse) {
-    /**
-     * Keyboard-only readable stream that fans out SGR mouse bytes to subscribers
-     * and forwards the remaining keyboard bytes to Ink's stdin.
-     *
-     * PassThrough was tried first but its _read(0) override destabilises the
-     * internal `needReadable` state machine: _read(0) calls this.read(0) which
-     * returns null when the buffer is empty, preventing PassThrough from ever
-     * emitting the 'readable' event that Ink's handleReadable waits on — classic
-     * deadlock (mouse AND keyboard freeze). A minimal custom Readable avoids
-     * this by properly implementing _read() to NEVER block — it just returns
-     * and lets push() from the stdin data handler signal availability.
-     */
-    class KeyboardReadable extends Readable {
-      private pendingChunks: string[] = [];
-
-      // eslint-disable-next-line no-useless-constructor
-      constructor() {
-        super({ encoding: 'utf8', highWaterMark: 64 * 1024 }); // 64KB buffer
-      }
-
-      override _read(_size: number): void {
-        // Pull any pending chunks through. This is called when the buffer is
-        // drained enough to drop below the high-water mark. We don't block —
-        // we push whatever we have (which may be nothing if stdin hasn't
-        // delivered yet). The 'readable' event will fire when push() adds
-        // data to an empty buffer.
-        void _size;
-        this.flushPending();
-      }
-
-      private flushPending(): void {
-        while (this.pendingChunks.length > 0) {
-          const chunk = this.pendingChunks[0]!;
-          const ok = this.push(chunk);
-          this.pendingChunks.shift();
-          if (!ok) {
-            // Buffer is full again — stop flushing, wait for _read to be
-            // called when the buffer drains. Store remaining chunks.
-            break;
-          }
-        }
-      }
-
-      /** Called by the stdin data handler when keyboard bytes are available. */
-      doPush(chunk: string): void {
-        if (chunk.length === 0) return;
-        // push() returns false when the internal buffer exceeds high-water mark.
-        // When that happens, queue the chunk so it's not lost. The _read()
-        // method will drain the queue when the buffer drains.
-        const ok = this.push(chunk);
-        if (ok) {
-          // Successfully buffered — if we had pending chunks, try to flush more.
-          if (this.pendingChunks.length > 0) {
-            this.flushPending();
-          }
-        } else {
-          // Buffer full — queue for when _read is called after buffer drains.
-          // Cap the queue to prevent unbounded memory growth (drop oldest if needed).
-          if (this.pendingChunks.length >= 100) {
-            this.pendingChunks.shift(); // drop oldest
-          }
-          this.pendingChunks.push(chunk);
-        }
-      }
-
-      /** Called on shutdown so the stream closes cleanly. */
-      doEnd(): void {
-        this.pendingChunks = [];
-        this.push(null); // null = EOF
-      }
-    }
-    const keyboardStream = new KeyboardReadable();
-    const p = keyboardStream as unknown as NodeJS.ReadStream;
-    // Ink probes isTTY and drives raw mode / ref bookkeeping on its stdin;
-    // delegate those to the real terminal so its behavior is unchanged.
-    p.isTTY = true;
-    p.setRawMode = (mode: boolean): NodeJS.ReadStream => {
-      try {
-        stdin.setRawMode?.(mode);
-      } catch {
-        // real stdin may not support raw mode in some shells — ignore.
-      }
-      return p;
-    };
-    const realRef = stdin.ref?.bind(stdin);
-    const realUnref = stdin.unref?.bind(stdin);
-    p.ref = (): NodeJS.ReadStream => {
-      realRef?.();
-      return p;
-    };
-    p.unref = (): NodeJS.ReadStream => {
-      realUnref?.();
-      return p;
-    };
-    stdin.setEncoding('utf8');
-    const onData = (chunk: string) => {
-      const evs = parseSgrMouse(chunk);
-      for (const ev of evs) {
-        for (const fn of mouseListeners) {
-          try {
-            fn(ev);
-          } catch {
-            // a listener throwing must not break input routing — ignore.
-          }
-        }
-      }
-      const rest = stripSgrMouse(chunk);
-      keyboardStream.doPush(rest);
-    };
-    stdin.on('data', onData);
-    detachMouse = () => {
-      stdin.off('data', onData);
-      keyboardStream.doEnd();
-    };
-    inkStdin = p;
-  }
-  const subscribeMouse = useMouse
-    ? (fn: (ev: MouseEvent) => void): (() => void) => {
-        mouseListeners.add(fn);
-        return () => {
-          mouseListeners.delete(fn);
-        };
-      }
-    : undefined;
+  const inkStdin: NodeJS.ReadStream = stdin;
 
   // Animated window/tab title: a braille spinner + live status (thinking /
   // running a tool) driven by the EventBus, scrolling the app name when idle.
@@ -462,17 +300,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
       // title controller already torn down — ignore.
     }
     try {
-      detachMouse?.();
-    } catch {
-      // listener already detached — ignore.
-    }
-    try {
       stdout.write(BRACKETED_PASTE_OFF);
-      // Mouse off before alt-screen off: disable tracking while we still own
-      // the screen, then restore the user's previous terminal contents.
-      if (useMouse) {
-        stdout.write(MOUSE_OFF);
-      }
       if (useAltScreen) {
         stdout.write(ALT_SCREEN_OFF);
       }
@@ -573,11 +401,8 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
           getSettings: opts.getSettings,
           saveSettings: opts.saveSettings,
           predictNext: opts.predictNext,
-          mouse: useMouse,
-          subscribeMouse,
           // Managed viewport (in-app scroll + collapsibility) follows
-          // alt-screen: it owns the screen, so there's no native-scrollback
-          // leak. Decoupled from mouse so --alt-screen alone gets it.
+          // alt-screen: it owns the screen, so there's no native-scrollback leak.
           managed: useAltScreen,
         }),
         { exitOnCtrlC: false, stdin: inkStdin },

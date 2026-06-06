@@ -326,8 +326,8 @@ export type State = {
   /** True while the worktree monitor overlay is open (Ctrl+T). */
   worktreeMonitorOpen: boolean;
   /**
-   * In-app chat scroll state, used only in mouse mode (the scrollable
-   * viewport). In the default `<Static>` path these are inert.
+   * In-app chat scroll state for the scrollable viewport.
+   * In the default `<Static>` path these are inert.
    *   scrollOffset    — rows scrolled up from the bottom; 0 = pinned to newest.
    *   totalLines      — last measured content height (rows), from onMeasure.
    *   viewportRows    — last computed viewport height (rows).
@@ -510,7 +510,7 @@ export type Action =
     }
   | { type: 'worktreeRemove'; handleId: string }
   | { type: 'worktreeMonitorToggle' }
-  // --- In-app chat scroll (mouse mode) ---
+  // --- In-app chat scroll ---
   /** Scroll by `delta` rows: +up (older), -down (newer). Clamped. */
   | { type: 'scrollBy'; delta: number }
   | { type: 'scrollTo'; offset: number }
@@ -1398,7 +1398,7 @@ export function reducer(state: State, action: Action): State {
     case 'worktreeMonitorToggle': {
       return { ...state, worktreeMonitorOpen: !state.worktreeMonitorOpen };
     }
-    // --- In-app chat scroll (mouse mode) ---
+    // --- In-app chat scroll ---
     case 'scrollBy': {
       const maxOffset = Math.max(0, state.totalLines - state.viewportRows);
       const next = Math.max(0, Math.min(maxOffset, state.scrollOffset + action.delta));

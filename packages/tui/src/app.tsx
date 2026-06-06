@@ -28,25 +28,24 @@ import { CheckpointTimeline } from './components/checkpoint-timeline.js';
 import {
   type ConfirmDecision,
   ConfirmPrompt,
-  confirmButtonSegments,
 } from './components/confirm-prompt.js';
 import { FilePicker } from './components/file-picker.js';
 import { FleetMonitor } from './components/fleet-monitor.js';
 import { FleetPanel } from './components/fleet-panel.js';
 import { HelpOverlay } from './components/help-overlay.js';
 import { History } from './components/history.js';
-import { EMPTY_KEY, Input, type KeyEvent } from './components/input.js';
+import { Input, type KeyEvent } from './components/input.js';
 import { KeyHintBar } from './components/key-hint-bar.js';
 import { LiveActivityStrip } from './components/live-activity-strip.js';
 import { ModelPicker, type ProviderOption } from './components/model-picker.js';
 import { PhaseMonitor } from './components/phase-monitor.js';
 import { PhasePanel } from './components/phase-panel.js';
-import { ScrollableHistory, scrollOffsetForTrackRow } from './components/scrollable-history.js';
+import { ScrollableHistory } from './components/scrollable-history.js';
 import {
   SettingsPicker,
 } from './components/settings-picker.js';
 import { SlashMenu } from './components/slash-menu.js';
-import { StatusBar, statusBarAutonomySpan, statusBarModelSpan } from './components/status-bar.js';
+import { StatusBar } from './components/status-bar.js';
 import { WorktreeMonitor } from './components/worktree-monitor.js';
 import { WorktreePanel } from './components/worktree-panel.js';
 import { searchFiles } from './file-search.js';
@@ -54,14 +53,11 @@ import { type GitInfo, readGitInfo } from './git-info.js';
 import {
   INLINE_TOKEN_SRC,
   deleteTokenBackward,
-  inputIndexAtRowCol,
-  layoutInputRows,
   tokenLengthForward,
 } from './input-tokens.js';
 import { useSubagentEvents } from './hooks/use-subagent-events.js';
 import { useBrainEvents } from './hooks/use-brain-events.js';
 import { createKillSlashCommand } from './kill-slash.js';
-import type { MouseEvent as TuiMouseEvent } from './mouse.js';
 import { feedPaste } from './paste-accumulator.js';
 import { createPsSlashCommand } from './ps-slash.js';
 import { createQueueSlashCommand } from './queue-slash.js';
@@ -78,8 +74,6 @@ export {
   type State,
 } from './app-reducer.js';
 
-/** Rows the chat-history viewport scrolls per wheel tick (mouse mode). */
-const WHEEL_STEP = 3;
 /** Floor for the scroll viewport so it never collapses to nothing when the
  *  bottom region (overlays, wrapped input) is tall. */
 const MIN_VIEWPORT = 3;
@@ -250,18 +244,6 @@ export interface AppProps {
   /** Directory for session JSONL files. Passed to App for /rewind. */
   sessionsDir?: string;
   /**
-   * True when full mouse mode is active (clickable pickers + in-app wheel
-   * scrolling). Implies alt-screen. Switches History to the scrollable
-   * viewport and enables the mouse event handlers.
-   */
-  mouse?: boolean;
-  /**
-   * Subscribe to decoded mouse events (press/release/wheel with 1-based
-   * col/row). Installed by run-tui only when mouse mode is on; the App wires
-   * it on mount and tears it down on unmount. Returns an unsubscribe fn.
-   */
-  subscribeMouse?: (fn: (ev: import('./mouse.js').MouseEvent) => void) => () => void;
-  /**
    * True when the managed full-screen viewport is the surface (alt-screen on).
    * Drives ScrollableHistory + in-app scroll + collapsibility, independent of
    * mouse. When false the app uses History + Ink <Static> (native scrollback).
@@ -360,8 +342,6 @@ export function App({
   initialGoal,
   initialAsk,
   sessionsDir,
-  mouse = false,
-  subscribeMouse,
   managed = false,
 }: AppProps): React.ReactElement {
   const { exit } = useApp();
@@ -381,16 +361,13 @@ export function App({
   >(getAutonomy?.() ?? 'off');
   const [hiddenItems, setHiddenItems] = useState(statuslineHiddenItems);
 
-  // Terminal row count, tracked reactively so the mouse-mode scroll viewport
-  // can size itself against the live screen height. Only consumed in mouse
-  // mode; harmless to track otherwise.
+  // Terminal row count, tracked reactively so the managed scroll viewport
+  // can size itself against the live screen height.
   const { stdout } = useStdout();
   const [termRows, setTermRows] = useState(stdout?.rows ?? 24);
-  const [termCols, setTermCols] = useState(stdout?.columns ?? 80);
   useEffect(() => {
     const onResize = () => {
       setTermRows(process.stdout.rows ?? 24);
-      setTermCols(process.stdout.columns ?? 80);
     };
     process.stdout.on('resize', onResize);
     return () => {
@@ -398,14 +375,8 @@ export function App({
     };
   }, []);
 
-  // `mouse` (prop) is the launch-time CAPABILITY: it's only true when run-tui
-  // set up the stdin proxy + mouse-event subscription, which only happens with
-  // --mouse. `mouseLive` is the runtime ON/OFF, toggled by `/mouse`. Tracking
-  // can only be enabled when the capability exists (otherwise mouse bytes would
-  // pollute Ink), so /mouse refuses to turn on without --mouse.
-  const [mouseLive, setMouseLive] = useState(mouse);
   // Whether the managed viewport (ScrollableHistory + in-app scroll) is the
-  // active surface. Mirrors alt-screen; toggled by /altscreen and /mouse.
+  // active surface. Mirrors alt-screen; toggled by /altscreen.
   const [managedLive, setManagedLive] = useState(managed);
 
   // Sync when parent re-loads from config file (e.g., after /statusline reset)
@@ -594,37 +565,17 @@ export function App({
   const draftRef = useRef({ buffer: state.buffer, cursor: state.cursor });
   draftRef.current = { buffer: state.buffer, cursor: state.cursor };
 
-  // ── Mouse mode: viewport geometry + event routing ─────────────────────
+  // ── Managed viewport: geometry measurement ────────────────────────────
   // Measures the bottom region (everything below the scroll viewport) so the
   // viewport height can be derived as termRows − bottomHeight. One ref over the
-  // whole region instead of per-block bookkeeping. Mouse mode only.
+  // whole region instead of per-block bookkeeping.
   const bottomRef = useRef<DOMElement | null>(null);
-  // Wraps the rows ABOVE any open picker (live strip + input). Its measured
-  // height tells the click handler the absolute screen row where a picker's
-  // items begin, so a click can be mapped to a list index.
-  const prePickerRef = useRef<DOMElement | null>(null);
-  const preRowsRef = useRef(0);
-  // Wraps just the LiveActivityStrip (the rows ABOVE the input). Its measured
-  // height locates the input's first screen row for click-to-position-cursor.
-  const liveStripRef = useRef<DOMElement | null>(null);
-  const liveStripRowsRef = useRef(0);
-  // useLayoutEffect (not useEffect) so the viewport is sized BEFORE paint — no
-  // one-frame flash. measureElement here only READS the already-computed Yoga
-  // height (cheap), and the dispatch is guarded to fire only when the height
-  // actually changed, so this stays a stable measure-and-set (no churn loop,
-  // and streaming tokens never trigger a setViewportRows because the bottom
-  // region's height doesn't change while the chat viewport streams).
+  // viewport height.
   React.useLayoutEffect(() => {
     if (!managedLive) return;
     const node = bottomRef.current;
     if (!node) return;
     const { height } = measureElement(node);
-    if (prePickerRef.current) {
-      preRowsRef.current = measureElement(prePickerRef.current).height;
-    }
-    if (liveStripRef.current) {
-      liveStripRowsRef.current = measureElement(liveStripRef.current).height;
-    }
     const s = stateRef.current;
     const affordance = s.scrollOffset > 0 && s.pendingNewLines > 0 ? 1 : 0;
     // Bias the viewport DOWN by one row: an extra blank chat row is invisible,
@@ -637,334 +588,9 @@ export function App({
     // termRows is a prop of the effect scope.
   }, [managedLive, termRows]);
 
-  // Latest handleKey, so click-to-activate can replay an Enter through the
-  // normal input pipeline (handleKey is defined far below; the ref is filled
-  // after it). handleMouse only ever runs post-mount, so the ref is populated.
+  // Latest handleKey, so the keyboard event pipeline can be accessed from
+  // effects and callbacks defined above handleKey in the component body.
   const handleKeyRef = useRef<((input: string, key: KeyEvent) => void) | null>(null);
-  // Set to the row index a mouse click selected; the effect below replays Enter
-  // once that row is the live selection, giving single-click confirm.
-  const pendingClickConfirmRef = useRef<number | null>(null);
-  // Latest open-routines + rewind handler + confirm decision, so the
-  // empty-dep mouse handler can drive surfaces defined further down without
-  // re-subscribing. Populated each render (see assignments below their defs).
-  const openModelPickerRef = useRef<(() => void) | null>(null);
-  const openAutonomyPickerRef = useRef<(() => void) | null>(null);
-  const handleRewindToRef = useRef<((promptIndex: number) => void) | null>(null);
-  // The bordered ConfirmPrompt's wrapper Box + the live decision callback, so
-  // a click on the button row can be located (measured height) and fired.
-  const confirmRef = useRef<DOMElement | null>(null);
-  const confirmDecisionRef = useRef<((d: ConfirmDecision) => void) | null>(null);
-  // True while the left button is held after pressing on the scrollbar, so
-  // subsequent motion events scrub the chat viewport (thumb drag).
-  const scrollbarDragRef = useRef(false);
-  // Multi-click detection: tracks the timestamp and position of the last left
-  // click to identify double/triple clicks. SGR 1006 doesn't emit native
-  // multi-click events, so we track them ourselves.
-  const lastLeftClickRef = useRef<{ x: number; y: number; ts: number; count: number } | null>(null);
-  const DOUBLE_CLICK_MS = 500;
-  const DOUBLE_CLICK_DIST = 5; // max pixels between clicks to count as multi-click
-  // Live status-bar chip inputs, so the empty-dep mouse handler can hit-test
-  // the model / autonomy chips against their current values (not stale ones).
-  const statusChipRef = useRef<{
-    version?: string;
-    model: string;
-    fleetRunning: number;
-    yolo: boolean;
-    autonomy: 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel';
-  }>({ version: appVersion, model, fleetRunning: 0, yolo, autonomy: 'off' });
-
-  // Mouse routing. Wheel scrolls history (or drives an open picker's
-  // selection); a left click on a picker item selects + activates it; a click
-  // on the "N new lines" affordance jumps to the bottom. Registered once;
-  // reads live state via stateRef + measured geometry via preRowsRef.
-  const handleMouse = React.useCallback(
-    (ev: TuiMouseEvent) => {
-      const s = stateRef.current;
-      if (ev.type === 'wheel') {
-        const up = ev.button === 'wheelUp';
-        const step = up ? -1 : 1;
-        // An open list overlay claims the wheel for its own selection.
-        if (s.slashPicker.open) return dispatch({ type: 'slashPickerMove', delta: step });
-        if (s.modelPicker.open) return dispatch({ type: 'modelPickerMove', delta: step });
-        if (s.autonomyPicker.open) return dispatch({ type: 'autonomyPickerMove', delta: step });
-        if (s.settingsPicker.open) return dispatch({ type: 'settingsFieldMove', delta: step });
-        if (s.picker.open) return dispatch({ type: 'pickerMove', delta: step });
-        if (s.rewindOverlay) return dispatch({ type: 'rewindOverlayMove', delta: step });
-        // Otherwise scroll the chat history viewport.
-        return dispatch({ type: 'scrollBy', delta: up ? WHEEL_STEP : -WHEEL_STEP });
-      }
-      // Button release ends any in-progress scrollbar drag.
-      if (ev.type === 'release') {
-        scrollbarDragRef.current = false;
-        return;
-      }
-      if (ev.button !== 'left') return;
-
-      // Multi-click detection: tracks consecutive clicks within DOUBLE_CLICK_MS
-      // and DOUBLE_CLICK_DIST to identify double/triple clicks. Note: terminal
-      // text selection is managed by the terminal emulator, not the app, so
-      // clickCount is tracked here for future use (e.g., terminal selection API).
-      const now = Date.now();
-      const lastClick = lastLeftClickRef.current;
-      const isMultiClick =
-        lastClick !== null &&
-        now - lastClick.ts < DOUBLE_CLICK_MS &&
-        Math.abs(ev.x - lastClick.x) <= DOUBLE_CLICK_DIST &&
-        Math.abs(ev.y - lastClick.y) <= DOUBLE_CLICK_DIST;
-      const clickCount = isMultiClick ? lastClick.count + 1 : 1;
-      lastLeftClickRef.current = { x: ev.x, y: ev.y, ts: now, count: clickCount };
-      void clickCount; // tracked for future terminal selection API use
-
-      // Scrollbar (right edge, rows 1..viewportRows): a press on it jumps the
-      // viewport to that position and arms a drag; subsequent held-motion
-      // events scrub. The bar is the terminal's last column — accept it plus
-      // its 1-col left margin so near-misses still grab. Motion events never
-      // fall through to click handling.
-      {
-        const rows = s.viewportRows;
-        if (ev.drag) {
-          if (scrollbarDragRef.current && s.totalLines > rows) {
-            dispatch({
-              type: 'scrollTo',
-              offset: scrollOffsetForTrackRow(rows, s.totalLines, ev.y - 1),
-            });
-          }
-          return;
-        }
-        const cols = termCols || 80;
-        // Accept the scrollbar column plus 1-col left margin so near-misses still grab.
-        const onScrollbar = cols > 0 && ev.x >= cols - 2 && ev.y >= 1 && ev.y <= rows;
-        if (onScrollbar && s.totalLines > rows) {
-          scrollbarDragRef.current = true;
-          dispatch({
-            type: 'scrollTo',
-            offset: scrollOffsetForTrackRow(rows, s.totalLines, ev.y - 1),
-          });
-          return;
-        }
-      }
-
-      // A click in the bottom region (where they render) dismisses an open
-      // informational overlay — mouse parity with Esc. These can't coexist
-      // with pickers/confirm (handleKey guards that), so this never eats a
-      // picker click. Clicks up in the chat viewport are left alone.
-      if (ev.y > s.viewportRows) {
-        if (s.helpOpen) return dispatch({ type: 'toggleHelp' });
-        if (s.agentsMonitorOpen) return dispatch({ type: 'toggleAgentsMonitor' });
-        if (s.monitorOpen) return dispatch({ type: 'toggleMonitor' });
-        if (s.worktreeMonitorOpen) return dispatch({ type: 'worktreeMonitorToggle' });
-        if (s.autoPhase?.monitorOpen) return dispatch({ type: 'autoPhaseMonitorToggle' });
-      }
-
-      const affordance = s.scrollOffset > 0 && s.pendingNewLines > 0 ? 1 : 0;
-      // The affordance occupies the row just below the viewport (1-based).
-      if (affordance && ev.y === s.viewportRows + 1) {
-        return dispatch({ type: 'scrollToBottom' });
-      }
-
-      // Permission dialog: map a click on the button row to a decision. The
-      // dialog is the only thing between the input region and the status bar
-      // while a confirm is pending, so its top row is deterministic. We
-      // measure its box height to find the button row (the line just above the
-      // bottom border).
-      if (s.confirmQueue.length > 0) {
-        const node = confirmRef.current;
-        const head = s.confirmQueue[0];
-        if (node && head) {
-          const { height } = measureElement(node);
-          const top = s.viewportRows + affordance + preRowsRef.current + 1;
-          const buttonsRow = top + height - 2; // -1 bottom border, -1 to land on buttons
-          if (ev.y === buttonsRow) {
-            // round border (1) + paddingX (1) before the first content column.
-            const contentX = ev.x - 1 - 2;
-            for (const seg of confirmButtonSegments(head.suggestedPattern)) {
-              if (contentX >= seg.start && contentX < seg.start + seg.len) {
-                confirmDecisionRef.current?.(seg.decision);
-                return;
-              }
-            }
-          }
-        }
-        return; // a confirm is modal — swallow other clicks
-      }
-
-      // Checkpoint timeline (/rewind): click selects; click on the already
-      // selected row rewinds. Layout: outer padding(1) + header(1) +
-      // marginBottom(1) = 3 rows before the first checkpoint.
-      if (s.rewindOverlay) {
-        const cps = s.rewindOverlay.checkpoints;
-        const firstItemRow = s.viewportRows + affordance + preRowsRef.current + 3 + 1;
-        const index = ev.y - firstItemRow;
-        if (index < 0 || index >= cps.length) return;
-        if (index === s.rewindOverlay.selected) {
-          handleRewindToRef.current?.(cps[index]!.promptIndex);
-        } else {
-          dispatch({ type: 'rewindOverlayMove', delta: index - s.rewindOverlay.selected });
-        }
-        return;
-      }
-
-      // Settings editor: click focuses a field; clicking the already-focused
-      // field cycles its value. Header: title(1) + hint(1) = 2 rows.
-      if (s.settingsPicker.open) {
-        const firstRow = s.viewportRows + affordance + preRowsRef.current + 2 + 1;
-        const field = ev.y - firstRow;
-        if (field < 0 || field > 1) return;
-        if (field === s.settingsPicker.field) {
-          dispatch({ type: 'settingsValueChange', delta: 1 });
-        } else {
-          dispatch({ type: 'settingsFieldSet', field });
-        }
-        return;
-      }
-
-      // Identify the open picker, its header height (rows before the first
-      // item) and how to move/confirm it. Only the bottom-anchored list
-      // pickers participate; the full-screen rewind overlay does not.
-      const picker = s.modelPicker.open
-        ? {
-            header: 2,
-            count:
-              s.modelPicker.step === 'provider'
-                ? s.modelPicker.providerOptions.length
-                : s.modelPicker.modelOptions.length,
-            selected: s.modelPicker.selected,
-            move: (delta: number) => dispatch({ type: 'modelPickerMove', delta }),
-          }
-        : s.autonomyPicker.open
-          ? {
-              header: 2,
-              count: s.autonomyPicker.options.length,
-              selected: s.autonomyPicker.selected,
-              move: (delta: number) => dispatch({ type: 'autonomyPickerMove', delta }),
-            }
-          : s.slashPicker.open
-            ? {
-                header: 1,
-                count: s.slashPicker.matches.length,
-                selected: s.slashPicker.selected,
-                move: (delta: number) => dispatch({ type: 'slashPickerMove', delta }),
-              }
-            : s.picker.open
-              ? {
-                  header: 1,
-                  count: s.picker.matches.length,
-                  selected: s.picker.selected,
-                  move: (delta: number) => dispatch({ type: 'pickerMove', delta }),
-                }
-              : null;
-      if (!picker || picker.count === 0) {
-        // Click inside the editable input → reposition the caret. The input
-        // sits just below the live-activity strip; its first row and wrapped
-        // height are deterministic from the measured strip height + the same
-        // layout the component renders. Skipped while the input is disabled.
-        const inputDisabled = s.status === 'aborting' && !s.steeringPending;
-        if (!inputDisabled) {
-          const cols = termCols || 80;
-          const inputTop = s.viewportRows + affordance + liveStripRowsRef.current + 1;
-          const inputRows = layoutInputRows(INPUT_PROMPT, s.buffer, s.cursor, cols).length;
-          const rowIdx = ev.y - inputTop;
-          if (rowIdx >= 0 && rowIdx < inputRows) {
-            const next = inputIndexAtRowCol(INPUT_PROMPT, s.buffer, cols, rowIdx, ev.x - 1);
-            return dispatch({ type: 'setBuffer', buffer: s.buffer, cursor: next });
-          }
-        }
-
-        // No list picker open → the status bar is at a deterministic row.
-        // Make its model chip (line 1) and autonomy chip (line 2) clickable.
-        if (
-          !s.helpOpen &&
-          !s.agentsMonitorOpen &&
-          !s.monitorOpen &&
-          !s.worktreeMonitorOpen &&
-          !s.autoPhase?.monitorOpen
-        ) {
-          const chip = statusChipRef.current;
-          const statusTop = s.viewportRows + affordance + preRowsRef.current + 1;
-          const contentX = ev.x - 1; // status bar has no left border; paddingX folded into spans
-          if (ev.y === statusTop + 1) {
-            const span = statusBarModelSpan({
-              version: chip.version,
-              state: s.status,
-              fleetRunning: chip.fleetRunning,
-              model: chip.model,
-            });
-            if (contentX >= span.start && contentX < span.start + span.len) {
-              openModelPickerRef.current?.();
-            }
-          } else if (ev.y === statusTop + 2) {
-            const span = statusBarAutonomySpan({ yolo: chip.yolo, autonomy: chip.autonomy });
-            if (span && contentX >= span.start && contentX < span.start + span.len) {
-              openAutonomyPickerRef.current?.();
-            }
-          }
-        }
-        return;
-      }
-
-      // Absolute (1-based) row of the picker's first item:
-      //   viewport rows + affordance + (live strip + input) + header.
-      const firstItemRow = s.viewportRows + affordance + preRowsRef.current + picker.header + 1;
-      const index = ev.y - firstItemRow;
-      if (index < 0 || index >= picker.count) return;
-      // Single-click select + confirm. handleKey's Enter path confirms whatever
-      // is selected at RENDER time, so we can't move + confirm in one event.
-      // Instead: if the row is already selected, confirm now; otherwise move to
-      // it and arm pendingClickConfirm — an effect replays Enter on the next
-      // render (when handleKey closes over the updated selection). If anything
-      // is off, it degrades gracefully to a second click confirming.
-      if (index === picker.selected) {
-        handleKeyRef.current?.('', { ...EMPTY_KEY, return: true });
-      } else {
-        pendingClickConfirmRef.current = index;
-        picker.move(index - picker.selected);
-      }
-    },
-    // dispatch is stable (useReducer); refs are mutable — no reactive deps.
-    // termCols is stable (useState + resize effect).
-    [termCols],
-  );
-  useEffect(() => {
-    if (!subscribeMouse) return;
-    return subscribeMouse(handleMouse);
-  }, [subscribeMouse, handleMouse]);
-
-  // Single-click confirm: after a click moved the selection, replay Enter once
-  // the clicked row is the live selection (handleKey then closes over the
-  // updated state, so it confirms the RIGHT item). Cleared if the picker closes.
-  useEffect(() => {
-    const target = pendingClickConfirmRef.current;
-    if (target === null) return;
-    const open =
-      state.slashPicker.open ||
-      state.modelPicker.open ||
-      state.autonomyPicker.open ||
-      state.picker.open;
-    if (!open) {
-      pendingClickConfirmRef.current = null;
-      return;
-    }
-    const sel = state.slashPicker.open
-      ? state.slashPicker.selected
-      : state.modelPicker.open
-        ? state.modelPicker.selected
-        : state.autonomyPicker.open
-          ? state.autonomyPicker.selected
-          : state.picker.selected;
-    if (sel === target) {
-      pendingClickConfirmRef.current = null;
-      handleKeyRef.current?.('', { ...EMPTY_KEY, return: true });
-    }
-  }, [
-    state.slashPicker.open,
-    state.slashPicker.selected,
-    state.modelPicker.open,
-    state.modelPicker.selected,
-    state.autonomyPicker.open,
-    state.autonomyPicker.selected,
-    state.picker.open,
-    state.picker.selected,
-  ]);
 
   // handleRewindTo must be declared before the /rewind useEffect (line 1803)
   // so the closure can capture it. It is intentionally NOT in useCallback
@@ -1551,76 +1177,6 @@ export function App({
     };
   }, [slashRegistry]);
 
-  // Register `/mouse on|off` — runtime toggle for full mouse mode (clickable
-  // pickers + in-app wheel scroll). Enabling REQUIRES launching with --mouse:
-  // that's when run-tui installs the stdin proxy that keeps mouse bytes out of
-  // Ink's keypress parser. Without it, turning tracking on would spray
-  // `<0;..M` junk into the input — so we refuse and tell the user to relaunch.
-  const mouseLiveRef = useRef(mouseLive);
-  mouseLiveRef.current = mouseLive;
-  useEffect(() => {
-    const MOUSE_ON_SEQ = '\x1b[?1000h\x1b[?1006h';
-    const MOUSE_OFF_SEQ = '\x1b[?1006l\x1b[?1000l';
-    const ALT_ON = '\x1b[?1049h';
-    const ALT_OFF = '\x1b[?1049l';
-    const cmd = {
-      name: 'mouse',
-      description:
-        'Toggle mouse mode (clickable menus + wheel-scroll chat). Needs launch with --mouse to enable.',
-      async run(args: string) {
-        const arg = args.trim().toLowerCase();
-        if (arg !== 'on' && arg !== 'off') {
-          return {
-            message: `Mouse mode is ${mouseLiveRef.current ? 'ON' : 'OFF'}. Usage: /mouse on|off`,
-          };
-        }
-        if (arg === 'on') {
-          if (!mouse) {
-            return {
-              message:
-                'Mouse mode needs the --mouse launch flag (it rewires stdin so mouse ' +
-                'bytes never reach the input). Restart with `wstack --tui --mouse`.',
-            };
-          }
-          try {
-            writeOut(ALT_ON);
-            writeOut('\x1b[H');
-            writeOut(MOUSE_ON_SEQ);
-          } catch {
-            return { message: 'Failed to enable mouse mode.' };
-          }
-          setMouseLive(true);
-          setManagedLive(true);
-          return {
-            message:
-              'Mouse mode ON. Click menu items, wheel-scroll the chat (PgUp/PgDn too). ' +
-              'Native terminal copy/scroll are suspended until `/mouse off`.',
-          };
-        }
-        // off
-        try {
-          writeOut(MOUSE_OFF_SEQ);
-          writeOut(ALT_OFF);
-        } catch {
-          return { message: 'Failed to disable mouse mode.' };
-        }
-        setMouseLive(false);
-        // /mouse off also exits alt-screen (above), so drop the managed
-        // viewport back to native scrollback.
-        setManagedLive(false);
-        return {
-          message:
-            'Mouse mode OFF. Native terminal scroll/copy restored; chat history flows ' +
-            'into native scrollback again.',
-        };
-      },
-    };
-    slashRegistry.register(cmd);
-    return () => {
-      slashRegistry.unregister('mouse');
-    };
-  }, [slashRegistry, mouse]);
-
   // `/steer <message>` — slash-command equivalent of Esc-to-steer.
   // Useful when Esc is consumed by an outer terminal multiplexer, or
   // when the user wants a single-shot redirect without the typed
@@ -1783,10 +1339,6 @@ export function App({
     const providers = await getPickableProviders();
     dispatch({ type: 'modelPickerOpen', providers });
   }, [getPickableProviders]);
-  const openAutonomyPicker = React.useCallback(() => {
-    if (!switchAutonomy) return;
-    dispatch({ type: 'autonomyPickerOpen', options: AUTONOMY_OPTIONS });
-  }, [switchAutonomy]);
   const openSettings = React.useCallback(() => {
     if (!getSettings) return;
     const s = getSettings();
@@ -4166,24 +3718,8 @@ export function App({
     })();
   }, [initialAsk, initialGoal]);
 
-  // Expose the latest handleKey to the mouse handler (click-to-confirm).
+  // Expose the latest handleKey for the keyboard event pipeline.
   handleKeyRef.current = handleKey;
-  // Expose the latest open-routines / rewind handler / status chip values to
-  // the empty-dep mouse handler so clicks drive the live state.
-  openModelPickerRef.current = () => {
-    void openModelPicker();
-  };
-  openAutonomyPickerRef.current = openAutonomyPicker;
-  handleRewindToRef.current = (promptIndex: number) => {
-    void handleRewindTo(promptIndex);
-  };
-  statusChipRef.current = {
-    version: appVersion,
-    model: `${liveProvider}/${liveModel}`,
-    fleetRunning: fleetCounts?.running ?? 0,
-    yolo: yoloLive,
-    autonomy: autonomyLive,
-  };
 
   const inputHint = useMemo(() => {
     if (state.status !== 'idle') return '';
@@ -4221,13 +3757,8 @@ export function App({
           wrapped in one measured Box so its height feeds the viewport-size
           computation. In the default path it's a layout-neutral column. */}
       <Box ref={managedLive ? bottomRef : undefined} flexDirection="column" flexShrink={0}>
-        {/* Live activity strip + input. Wrapped so its height locates where an
-          open picker's items start on screen (click-to-select geometry). */}
-        <Box ref={managedLive ? prePickerRef : undefined} flexDirection="column" flexShrink={0}>
-          <Box ref={managedLive ? liveStripRef : undefined} flexDirection="column" flexShrink={0}>
-            <LiveActivityStrip entries={state.fleet} nowTick={nowTick} />
-          </Box>
-          <Input
+        <LiveActivityStrip entries={state.fleet} nowTick={nowTick} />
+        <Input
             prompt={INPUT_PROMPT}
             value={state.buffer}
             cursor={state.cursor}
@@ -4238,7 +3769,6 @@ export function App({
             hint={inputHint}
             onKey={handleKey}
           />
-        </Box>
         {state.picker.open ? (
           <FilePicker
             query={state.picker.query}
@@ -4312,20 +3842,13 @@ export function App({
               head.resolve(decision);
               dispatch({ type: 'confirmClose' });
             };
-            // Expose the live decision callback so a mouse click on the button
-            // row can fire it (see handleMouse). The wrapper Box owns marginY
-            // and carries the ref so measureElement returns the exact box
-            // height the hit-test uses to locate the button row.
-            confirmDecisionRef.current = onDecision;
             return (
-              <Box ref={confirmRef} flexDirection="column" marginY={1} flexShrink={0}>
                 <ConfirmPrompt
                   toolName={head.toolName}
                   input={head.input}
                   suggestedPattern={head.suggestedPattern}
                   onDecision={onDecision}
                 />
-              </Box>
             );
           })()}
         <StatusBar
@@ -4372,14 +3895,13 @@ export function App({
                 state.worktreeMonitorOpen ||
                 !!state.autoPhase?.monitorOpen,
               managed: managedLive,
-              mouse: mouseLive,
             }}
           />
         ) : null}
         {/* Keys-&-commands help overlay (`?` on an empty prompt). Modal: while
           open, handleKey swallows everything but Esc/?/q, so it never coexists
           with a monitor. */}
-        {state.helpOpen ? <HelpOverlay managed={managedLive} mouse={mouseLive} /> : null}
+        {state.helpOpen ? <HelpOverlay managed={managedLive} /> : null}
         {/* Agents monitor overlay (Ctrl+G) and fleet monitor overlay (Ctrl+F)
           take up the lower region — hide FleetPanel while any overlay is open. */}
         {state.agentsMonitorOpen ? (

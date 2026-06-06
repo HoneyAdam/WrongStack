@@ -265,6 +265,13 @@ export interface Config {
   model: string;
   apiKey?: string;
   baseUrl?: string;
+  /**
+   * Maximum number of subagent tasks the fleet coordinator dispatches
+   * simultaneously. Extra tasks queue until a slot frees. Default: 4.
+   * Overridden by WRONGSTACK_MAX_CONCURRENT env var and --max-concurrent
+   * CLI flag. Change at runtime with /fleet concurrency <n>.
+   */
+  maxConcurrent?: number;
   providers?: Record<string, ProviderConfig>;
   /**
    * Top-level custom models (maps modelId → definition). Merged with

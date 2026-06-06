@@ -18,19 +18,11 @@ export interface HelpSection {
  * Static cheat-sheet content: keybindings + common slash commands, grouped by
  * area. Pure data (no JSX) so the exact set of entries is unit-testable and the
  * overlay renders identically everywhere. The Navigation section adapts to the
- * active surface — scroll keys only make sense in the managed viewport, wheel/
- * click only when full mouse mode is on.
+ * active surface — scroll keys only make sense in the managed viewport.
  */
-export function helpSections(opts: { managed: boolean; mouse: boolean }): HelpSection[] {
+export function helpSections(opts: { managed: boolean }): HelpSection[] {
   const nav: HelpEntry[] = [];
   if (opts.managed) nav.push({ keys: 'PgUp/PgDn', desc: 'scroll chat history' });
-  if (opts.mouse)
-    nav.push(
-      { keys: 'wheel', desc: 'scroll chat history' },
-      { keys: 'drag scrollbar', desc: 'scrub to any position' },
-      { keys: 'click input', desc: 'move the caret' },
-      { keys: 'click', desc: 'select / confirm' },
-    );
   nav.push(
     { keys: '↑/↓', desc: 'previous / next input (empty prompt)' },
     { keys: '?', desc: 'open this help (empty prompt)' },
@@ -81,12 +73,10 @@ export function helpSections(opts: { managed: boolean; mouse: boolean }): HelpSe
  */
 export function HelpOverlay({
   managed,
-  mouse,
 }: {
   managed: boolean;
-  mouse: boolean;
 }): React.ReactElement {
-  const sections = helpSections({ managed, mouse });
+  const sections = helpSections({ managed });
   const keyWidth = Math.max(...sections.flatMap((s) => s.entries.map((e) => e.keys.length)), 0);
 
   return (

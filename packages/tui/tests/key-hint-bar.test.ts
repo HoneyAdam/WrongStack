@@ -8,9 +8,8 @@ describe('KeyHintBar context priority', () => {
     expect(keys({ confirm: true, picker: true, monitor: true })).toEqual(['y', 'n', 'a', 'd']);
   });
 
-  it('picker shows move/select/cancel; adds click in mouse mode', () => {
+  it('picker shows move/select/cancel', () => {
     expect(keys({ picker: true })).toEqual(['↑↓', '↵', 'Esc']);
-    expect(keys({ picker: true, mouse: true })).toContain('click');
   });
 
   it('monitor shows close + switch keys', () => {
@@ -18,9 +17,8 @@ describe('KeyHintBar context priority', () => {
     expect(keys({ monitor: true })).toContain('^F');
   });
 
-  it('idle shows help and stop; adds scroll hints by capability', () => {
+  it('idle shows help and stop; adds scroll hints in managed viewport', () => {
     expect(keys({})).toEqual(['?', '^G', '^C']);
     expect(keys({ managed: true })).toContain('PgUp/PgDn');
-    expect(keys({ mouse: true })).toContain('wheel');
   });
 });

@@ -449,15 +449,10 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
           },
           effectiveMaxContext,
           // Default OFF so the terminal's native scrollback works for chat
-          // history out of the box (mouse wheel / Shift+PgUp). Users who hit
-          // resize/overlay-leak artifacts can opt back into alt-screen with
-          // `--alt-screen`. `--no-alt-screen` still wins when both are passed.
+          // history out of the box. Users who hit resize/overlay-leak
+          // artifacts can opt back into alt-screen with `--alt-screen`.
+          // `--no-alt-screen` still wins when both are passed.
           altScreen: flags['alt-screen'] === true && flags['no-alt-screen'] !== true,
-          // Mouse mode is DISABLED. It was unreliable on Windows consoles
-          // (freezes / constant repaint in the managed viewport) and is not
-          // wanted, so `--mouse` is intentionally ignored and never engages —
-          // the TUI stays keyboard-only. Do not re-wire `flags.mouse` here.
-          mouse: false,
           director,
           fleetRoster,
           onAfterExit: () => {

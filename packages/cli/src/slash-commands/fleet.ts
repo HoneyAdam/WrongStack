@@ -44,6 +44,7 @@ export function buildFleetCommand(opts: SlashCommandContext): SlashCommand {
       '  /fleet terminate <subagentId>  Stop a specific subagent by id',
       '  /fleet kill         Stop all running subagents',
       '  /fleet usage        Token and cost breakdown across the fleet',
+      '  /fleet concurrency [n]  Show or set the concurrent-subagent ceiling',
       '  /fleet journal      Show recent journal entries from /goal journal',
       '',
       'In the TUI, press Ctrl+F to open the graphical fleet monitor.',
@@ -317,6 +318,18 @@ export function buildFleetCommand(opts: SlashCommandContext): SlashCommand {
         return { message: msg };
       }
 
+      // ── /fleet concurrency [n] ────────────────────────────────────────────
+      if (cmd === 'concurrency' || cmd === 'slots' || cmd === 'parallel') {
+        if (opts.onFleet) {
+          const n = subargs[0];
+          const msg = await opts.onFleet('concurrency', n || undefined);
+          return { message: msg };
+        }
+        const msg = `${color.amber('⚠ /fleet concurrency is not wired in this session.')}`;
+        opts.renderer.writeWarning(msg);
+        return { message: msg };
+      }
+
       // ── /fleet help ───────────────────────────────────────────────────────
       if (cmd === 'help' || cmd === '?') {
         const msg = [
@@ -329,6 +342,7 @@ export function buildFleetCommand(opts: SlashCommandContext): SlashCommand {
           `  ${color.dim('/fleet terminate <subagentId>')}  Stop a specific subagent by id`,
           `  ${color.dim('/fleet kill')}         Stop all running subagents`,
           `  ${color.dim('/fleet usage')}        Token and cost breakdown across the fleet`,
+          `  ${color.dim('/fleet concurrency [n]')}  Show or set the concurrent-subagent ceiling`,
           `  ${color.dim('/fleet journal')}      Show recent journal entries from /goal journal`,
         ].join('\n');
         opts.renderer.write(msg);
@@ -336,7 +350,7 @@ export function buildFleetCommand(opts: SlashCommandContext): SlashCommand {
       }
 
       // ── Unknown command ───────────────────────────────────────────────────
-      const valid = ['status', 'list', 'dispatch', 'usage', 'spawn', 'terminate', 'kill', 'retry', 'journal'];
+      const valid = ['status', 'list', 'dispatch', 'usage', 'spawn', 'terminate', 'kill', 'retry', 'concurrency', 'journal'];
       const msg = `Unknown subcommand "${cmd}". Valid subcommands: ${valid.join(', ')}. Run /fleet with no args to see status, or /fleet help for usage.`;
       opts.renderer.writeWarning(msg);
       return { message: msg };

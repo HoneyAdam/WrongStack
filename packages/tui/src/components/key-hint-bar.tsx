@@ -9,7 +9,6 @@ export interface KeyHintContext {
   picker?: boolean; // file / slash / model / autonomy picker, or rewind overlay
   monitor?: boolean; // any full-screen monitor overlay open
   managed?: boolean; // managed viewport active (in-app scroll)
-  mouse?: boolean; // full mouse mode on
 }
 
 export interface Hint {
@@ -31,7 +30,6 @@ export function hintsFor(ctx: KeyHintContext): Hint[] {
       { key: '↑↓', label: 'move' },
       { key: '↵', label: 'select' },
       { key: 'Esc', label: 'cancel' },
-      ...(ctx.mouse ? [{ key: 'click', label: 'pick' }] : []),
     ];
   }
   if (ctx.monitor) {
@@ -45,7 +43,6 @@ export function hintsFor(ctx: KeyHintContext): Hint[] {
   // Idle / chat.
   const base: Hint[] = [{ key: '?', label: 'help' }];
   if (ctx.managed) base.push({ key: 'PgUp/PgDn', label: 'scroll' });
-  if (ctx.mouse) base.push({ key: 'wheel', label: 'scroll' }, { key: 'click', label: 'select' });
   base.push({ key: '^G', label: 'agents' }, { key: '^C', label: 'stop' });
   return base;
 }
