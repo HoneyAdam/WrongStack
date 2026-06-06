@@ -10,13 +10,13 @@ export interface FilePickerProps {
 export function FilePicker({ query, matches, selected }: FilePickerProps): React.ReactElement {
   if (matches.length === 0) {
     return (
-      <Box flexDirection="column" paddingX={1}>
+      <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
         <Text dimColor>@{query} — no matches</Text>
       </Box>
     );
   }
   return (
-    <Box flexDirection="column" paddingX={1}>
+    <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
       <Text dimColor>@{query || '…'} — ↑/↓ select, Enter attach, Esc cancel</Text>
       {matches.map((m, i) => (
         <Text key={m} color={i === selected ? 'cyan' : undefined} inverse={i === selected}>

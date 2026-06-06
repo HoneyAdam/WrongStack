@@ -26,6 +26,8 @@ export interface TelegramPluginConfig {
   notifyOnSessionEnd?: boolean;
   /** Notify when a tool runs longer than this threshold (ms). Set 0 to disable. */
   longToolThresholdMs?: number;
+  /** Notify (humanized) when a `delegate` subagent finishes. Default: true. */
+  notifyOnDelegate?: boolean;
   /** Maximum message length for Telegram (Telegram caps at 4096). */
   maxMessageLength?: number;
   /**
@@ -43,6 +45,7 @@ export const DEFAULT_CONFIG: Required<Omit<TelegramPluginConfig, 'botToken' | 'n
   pollIntervalSec: 2,
   notifyOnSessionEnd: false,
   longToolThresholdMs: 30_000,
+  notifyOnDelegate: true,
   maxMessageLength: 4000,
 };
 
@@ -72,6 +75,7 @@ export const telegramConfigSchema = {
     },
     notifyOnSessionEnd: { type: 'boolean' },
     longToolThresholdMs: { type: 'integer', minimum: 0 },
+    notifyOnDelegate: { type: 'boolean' },
     maxMessageLength: { type: 'integer', minimum: 100, maximum: 4096 },
   },
   required: ['botToken'],

@@ -33,6 +33,11 @@ const COMPACT_THRESHOLD = 50;
 /** Above this width, show most available information. */
 const COMFORTABLE_THRESHOLD = 90;
 
+// Animated braille spinner shown when the agent is thinking/streaming.
+// Cycles at ~8fps, same as the terminal title animation.
+const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+const SPINNER_INTERVAL_MS = 130;
+
 export interface TodoCounts {
   pending: number;
   inProgress: number;
@@ -234,7 +239,23 @@ export function StatusBar({
   const usage = tokenCounter?.total();
   const cost = tokenCounter?.estimateCost();
   const cache = tokenCounter?.cacheStats();
+
+  // Animated braille spinner — cycles while the agent is thinking/streaming.
+  // Stops when idle so the interval doesn't drive unnecessary re-renders.
+  const [spinnerIdx, setSpinnerIdx] = useState(0);
+  useEffect(() => {
+    if (state === 'idle' || state === 'aborting') return;
+    const t = setInterval(
+      () => setSpinnerIdx((n) => (n + 1) % SPINNER_FRAMES.length),
+      SPINNER_INTERVAL_MS,
+    );
+    return () => clearInterval(t);
+  }, [state]);
+  const spinner = SPINNER_FRAMES[spinnerIdx]!;
+
   const { label: stateLabel, color: stateColor } = stateChip(state, fleet?.running ?? 0);
+  // Animated spinner for thinking/streaming; static ● for idle/aborting.
+  const statePrefix = state === 'idle' || state === 'aborting' ? '●' : spinner;
 
   // Line 2 is *session context* — slow-moving facts about where you
   // are: the project, the branch, the elapsed clock, YOLO chip. These
@@ -276,7 +297,7 @@ export function StatusBar({
         {isCompact ? (
           // Ultra-compact: state · model
           <>
-            <Text color={stateColor}>●{stateLabel}</Text>
+            <Text color={stateColor}>{statePrefix}{stateLabel}</Text>
             <Text dimColor>·</Text>
             <Text color="magenta">{model}</Text>
           </>
@@ -294,7 +315,7 @@ export function StatusBar({
                 <Text dimColor>│</Text>
               </>
             ) : null}
-            <Text color={stateColor}>● {stateLabel}</Text>
+            <Text color={stateColor}>{statePrefix} {stateLabel}</Text>
             <Text dimColor>│</Text>
             <Text color="magenta">{model}</Text>
             {context && context.max > 0 ? (
@@ -359,6 +380,10 @@ export function StatusBar({
         )}
       </Box>
 
+      {/* Line 2 always rendered — empty spacer when no content, to keep the
+          live-region height stable in non-altScreen mode. Without this, the
+          StatusBar jumping from 1→2 or 2→1 lines shifts the Ink layout and
+          pushes the input area into the static history scrollback. */}
       {hasSecondLine ? (
         <Box flexDirection="row" gap={2}>
           {yolo ? (
@@ -444,8 +469,13 @@ export function StatusBar({
             </>
           ) : null}
         </Box>
-      ) : null}
+      ) : (
+        <Box height={1}>
+          <Text> </Text>
+        </Box>
+      )}
 
+      {/* Line 3 always rendered — same stability guarantee as line 2. */}
       {hasThirdLine ? (
         <Box flexDirection="row" gap={2}>
           {todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0) ? (
@@ -510,8 +540,16 @@ export function StatusBar({
             </>
           ) : null}
         </Box>
-      ) : null}
+      ) : (
+        <Box height={1}>
+          <Text> </Text>
+        </Box>
+      )}
 
+      {/* Fleet agent detail line — always rendered with a spacer so the
+          live-region height never changes when subagents start/stop.
+          Without this the Input area above scrolls into static history
+          when the first agent appears (the "pyramid" bug). */}
       {fleetAgents && fleetAgents.length > 0 ? (
         <Box flexDirection="row" gap={2}>
           {fleetAgents.map((a, i) => (
@@ -543,7 +581,11 @@ export function StatusBar({
             </Text>
           ))}
         </Box>
-      ) : null}
+      ) : (
+        <Box height={1}>
+          <Text> </Text>
+        </Box>
+      )}
     </Box>
   );
 }

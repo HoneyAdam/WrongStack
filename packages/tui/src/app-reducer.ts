@@ -252,6 +252,21 @@ export type State = {
     suggestedPattern: string;
     resolve: (decision: 'yes' | 'no' | 'always' | 'deny') => void;
   }[];
+  /**
+   * Active prompt-refinement ("did you mean this?") panel. Set while the
+   * EnhancePanel is shown after the refiner rewrites a user message; the
+   * panel resolves to one of refined/original/edit and `submit()` continues.
+   * Null when no refinement is pending.
+   */
+  enhance: {
+    original: string;
+    refined: string;
+    resolve: (decision: 'refined' | 'original' | 'edit') => void;
+  } | null;
+  /** When true, free-text submits are run through the prompt refiner first. Toggled by `/enhance`. */
+  enhanceEnabled: boolean;
+  /** True while the refiner LLM call is in flight (before the panel appears). Drives a "refining…" indicator. */
+  enhanceBusy: boolean;
   /** Incremented on /clear so the context chip re-reads from agent.ctx tokens. */
   contextChipVersion: number;
   /** Live fleet state: per-subagent entries from FleetBus events. Keyed by subagentId. */
@@ -300,9 +315,7 @@ export type State = {
   helpOpen: boolean;
   /** When true, the todos monitor overlay is shown (F6). */
   todosMonitorOpen: boolean;
-  /** When true, the right-side compact todos panel is shown in managed mode (F5). */
-  rightTodosPanelOpen: boolean;
-  /** When true, the right-side queue panel is shown (F7). */
+  /** When true, the queue panel is shown (F7). */
   queuePanelOpen: boolean;
   /**
    * Active or completed collaborative debugging session state.
@@ -472,6 +485,10 @@ export type Action =
   | { type: 'historyDown' }
   | { type: 'confirmOpen'; info: State['confirmQueue'][0] }
   | { type: 'confirmClose' }
+  | { type: 'enhanceOpen'; info: NonNullable<State['enhance']> }
+  | { type: 'enhanceClose' }
+  | { type: 'enhanceSet'; enabled: boolean }
+  | { type: 'enhanceBusy'; on: boolean }
   | { type: 'resetContextChip' }
   // Fleet actions
   | { type: 'fleetSeed'; entries: FleetEntry[]; cost: number }
@@ -535,7 +552,14 @@ export type Action =
       tokens: number;
       maxContext: number;
     }
-  | { type: 'fleetCost'; cost: number; input?: number; output?: number }
+  | {
+      type: 'fleetCost';
+      cost: number;
+      input?: number;
+      output?: number;
+      /** Per-subagent usage keyed by subagent id (from the director snapshot). */
+      perAgent?: Record<string, { cost: number }>;
+    }
   /** Runtime concurrency ceiling change from CLI /fleet concurrency <n>. */
   | { type: 'fleetConcurrency'; n: number }
   | { type: 'leaderIterStart' }
@@ -548,7 +572,6 @@ export type Action =
   | { type: 'toggleAgentsMonitor' }
   | { type: 'toggleHelp' }
   | { type: 'toggleTodosMonitor' }
-  | { type: 'toggleRightTodosPanel' }
   | { type: 'toggleQueuePanel' }
   | { type: 'checkpointReceived'; cp: State['checkpoints'][0] }
   | { type: 'rewindOverlayOpen' }
@@ -669,6 +692,21 @@ export function reducer(state: State, action: Action): State {
         nextQueueId: 1,
         scrollOffset: 0,
         pendingNewLines: 0,
+        // Reset fleet state on /clear so old subagent entries don't
+        // cause the LiveActivityStrip to render stale spacers, and
+        // the fleet cost/tokens chips show zero.
+        fleet: {},
+        fleetCost: 0,
+        fleetTokens: { input: 0, output: 0 },
+        leader: {
+          iterations: 0,
+          toolCalls: 0,
+          recentTools: [],
+          currentTool: undefined,
+          startedAt: Date.now(),
+          lastEventAt: Date.now(),
+          iterating: false,
+        },
       };
     }
     case 'streamDelta':
@@ -1073,6 +1111,14 @@ export function reducer(state: State, action: Action): State {
       return { ...state, confirmQueue: [...state.confirmQueue, action.info] };
     case 'confirmClose':
       return { ...state, confirmQueue: state.confirmQueue.slice(1) };
+    case 'enhanceOpen':
+      return { ...state, enhance: action.info };
+    case 'enhanceClose':
+      return { ...state, enhance: null };
+    case 'enhanceSet':
+      return { ...state, enhanceEnabled: action.enabled };
+    case 'enhanceBusy':
+      return { ...state, enhanceBusy: action.on };
     case 'resetContextChip':
       return { ...state, contextChipVersion: state.contextChipVersion + 1 };
     // --- Fleet ---
@@ -1324,8 +1370,26 @@ export function reducer(state: State, action: Action): State {
       };
     }
     case 'fleetCost': {
+      // Fold per-subagent cost into each live fleet entry so the AgentsMonitor
+      // can show a per-agent `$` chip. Only touches entries we already track.
+      let fleet = state.fleet;
+      if (action.perAgent) {
+        let changed = false;
+        const next: Record<string, FleetEntry> = {};
+        for (const [id, entry] of Object.entries(state.fleet)) {
+          const cost = action.perAgent[id]?.cost;
+          if (cost !== undefined && cost !== entry.cost) {
+            next[id] = { ...entry, cost };
+            changed = true;
+          } else {
+            next[id] = entry;
+          }
+        }
+        if (changed) fleet = next;
+      }
       return {
         ...state,
+        fleet,
         fleetCost: action.cost,
         fleetTokens:
           action.input !== undefined || action.output !== undefined
@@ -1409,9 +1473,6 @@ export function reducer(state: State, action: Action): State {
     }
     case 'toggleTodosMonitor': {
       return { ...state, todosMonitorOpen: !state.todosMonitorOpen };
-    }
-    case 'toggleRightTodosPanel': {
-      return { ...state, rightTodosPanelOpen: !state.rightTodosPanelOpen };
     }
     case 'toggleQueuePanel': {
       return { ...state, queuePanelOpen: !state.queuePanelOpen };

@@ -152,6 +152,43 @@ export interface EventMap {
     outputLines?: number;
   };
   /**
+   * Fired by the `delegate` tool right before it hands work to a subagent
+   * and blocks on the result. Lets UIs render a "started delegating" line
+   * immediately instead of looking idle for the (often minutes-long) life
+   * of the subagent. Paired with `delegate.completed`.
+   */
+  'delegate.started': {
+    /** Resolved roster role or free-form subagent name. */
+    target: string;
+    /** The task instruction handed to the subagent (untruncated — UIs trim). */
+    task: string;
+  };
+  /**
+   * Fired by the `delegate` tool once the subagent settles (success,
+   * timeout, budget exhaustion, error). Carries human-friendly, untruncated
+   * fields so UIs / the Telegram bridge can render a readable summary
+   * instead of the JSON-stringified, ~400-char-truncated `tool.executed`
+   * preview.
+   */
+  'delegate.completed': {
+    /** Resolved roster role or free-form subagent name. */
+    target: string;
+    /** The task instruction handed to the subagent. */
+    task: string;
+    /** True only when the subagent finished its task cleanly. */
+    ok: boolean;
+    /** Task status — 'success' | 'timeout' | 'host_timeout' | 'stopped' | ... */
+    status?: string;
+    /** One-line human summary (from `buildDelegateSummary`), untruncated. */
+    summary: string;
+    durationMs: number;
+    iterations: number;
+    toolCalls: number;
+    /** Estimated subagent cost in USD, from the director usage snapshot when known. */
+    costUsd?: number;
+    subagentId?: string;
+  };
+  /**
    * Fired on every `iteration.completed`. UIs subscribe to render a live
    * context-window fill bar per agent (e.g. "67% ████████░░"). The
    * `load` fraction matches the threshold levels: 0–0.6 green, 0.6–0.75

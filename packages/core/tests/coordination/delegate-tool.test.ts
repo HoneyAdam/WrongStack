@@ -540,6 +540,116 @@ describe('createDelegateTool', () => {
     await fs.rm(tmpRoot, { recursive: true, force: true });
   });
 
+  // ─────────────────────────────────────────────────────────────────
+  // delegate.started / delegate.completed lifecycle events
+  // ─────────────────────────────────────────────────────────────────
+
+  it('emits delegate.started before and delegate.completed after a successful delegation', async () => {
+    director = buildLiveDirector();
+    const hostBus = new EventBus();
+    const started: Array<{ target: string; task: string }> = [];
+    const completed: Array<{
+      target: string;
+      ok: boolean;
+      status?: string;
+      summary: string;
+      iterations: number;
+      toolCalls: number;
+    }> = [];
+    hostBus.on('delegate.started', (e) => started.push({ target: e.target, task: e.task }));
+    hostBus.on('delegate.completed', (e) =>
+      completed.push({
+        target: e.target,
+        ok: e.ok,
+        status: e.status,
+        summary: e.summary,
+        iterations: e.iterations,
+        toolCalls: e.toolCalls,
+      }),
+    );
+
+    const tool = createDelegateTool({
+      host: buildHost(director),
+      roster: FLEET_ROSTER,
+      events: hostBus,
+    });
+    const out = (await tool.execute(
+      { role: 'bug-hunter', task: 'audit src/parser.ts' },
+      null as never,
+      { signal: new AbortController().signal },
+    )) as { ok: boolean };
+
+    expect(out.ok).toBe(true);
+    expect(started).toEqual([{ target: 'bug-hunter', task: 'audit src/parser.ts' }]);
+    expect(completed).toHaveLength(1);
+    expect(completed[0]).toMatchObject({
+      target: 'bug-hunter',
+      ok: true,
+      status: 'success',
+      iterations: 1,
+      toolCalls: 1,
+    });
+    expect(completed[0]!.summary).toMatch(/bug-hunter/);
+  });
+
+  it('uses the free-form name as the delegate.* target when no role is given', async () => {
+    director = buildLiveDirector();
+    const hostBus = new EventBus();
+    const targets: string[] = [];
+    hostBus.on('delegate.started', (e) => targets.push(e.target));
+    const tool = createDelegateTool({ host: buildHost(director), events: hostBus });
+    await tool.execute(
+      { name: 'oneoff', task: 'do the thing' },
+      null as never,
+      { signal: new AbortController().signal },
+    );
+    expect(targets).toEqual(['oneoff']);
+  });
+
+  it('emits delegate.completed with host_timeout status on a timeout', async () => {
+    const runner = vi.fn(
+      () =>
+        new Promise<SubagentRunOutcome>(() => {
+          /* never resolves */
+        }),
+    );
+    director = new Director({
+      config: {
+        coordinatorId: 'timeout-event-director',
+        doneCondition: { type: 'all_tasks_done' },
+        maxConcurrent: 1,
+      },
+      runner,
+    });
+    const hostBus = new EventBus();
+    const completed: Array<{ ok: boolean; status?: string }> = [];
+    hostBus.on('delegate.completed', (e) => completed.push({ ok: e.ok, status: e.status }));
+    const tool = createDelegateTool({
+      host: buildHost(director),
+      roster: FLEET_ROSTER,
+      events: hostBus,
+    });
+    const out = (await tool.execute(
+      { role: 'bug-hunter', task: 'wait forever', timeoutMs: 30 },
+      null as never,
+      { signal: new AbortController().signal },
+    )) as { ok: boolean };
+    expect(out.ok).toBe(false);
+    expect(completed).toEqual([{ ok: false, status: 'host_timeout' }]);
+    await director.shutdown();
+  });
+
+  it('does not throw when no events bus is wired (best-effort emits)', async () => {
+    director = buildLiveDirector();
+    const tool = createDelegateTool({ host: buildHost(director), roster: FLEET_ROSTER });
+    const out = (await tool.execute(
+      { role: 'bug-hunter', task: 'no bus here' },
+      null as never,
+      { signal: new AbortController().signal },
+    )) as { ok: boolean };
+    expect(out.ok).toBe(true);
+  });
+
   it('readSubagentPartial gracefully skips unreadable sessionsRoot entries', async () => {
     // sessionsRoot exists but readdir fails (permissions) — should return undefined, not throw
     const runner = vi.fn(

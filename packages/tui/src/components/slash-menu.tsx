@@ -11,7 +11,7 @@ export interface SlashMenuProps {
 export function SlashMenu({ query, matches, selected }: SlashMenuProps): React.ReactElement {
   const placeholder = query ? `/${query}` : '/';
   return (
-    <Box flexDirection="column" paddingX={1}>
+    <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
       <Text dimColor>
         {placeholder || '/'} — ↑/↓ select, Enter dispatch, Tab autocomplete, Esc close
       </Text>

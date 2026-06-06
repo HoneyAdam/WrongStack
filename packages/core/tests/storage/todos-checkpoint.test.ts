@@ -96,11 +96,20 @@ describe('todos-checkpoint', () => {
     try {
       const ctx = makeContext();
       const detach = attachTodosCheckpoint(ctx.state, file, 'sess');
-      ctx.state.replaceTodos([{ id: 'b', content: 'beta', status: 'completed' }]);
+      // Include a pending item alongside a completed one — when ALL items
+      // are completed the board auto-clears (by design), but a mixed board
+      // should persist fully.
+      ctx.state.replaceTodos([
+        { id: 'b', content: 'beta', status: 'completed' },
+        { id: 'c', content: 'gamma', status: 'pending' },
+      ]);
       // Detach immediately — the debounced write should still land.
       await detach();
       const loaded = await loadTodosCheckpoint(file);
-      expect(loaded).toEqual([{ id: 'b', content: 'beta', status: 'completed' }]);
+      expect(loaded).toEqual([
+        { id: 'b', content: 'beta', status: 'completed' },
+        { id: 'c', content: 'gamma', status: 'pending' },
+      ]);
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }

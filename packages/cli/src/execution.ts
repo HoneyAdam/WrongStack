@@ -75,6 +75,11 @@ export interface ExecutionDeps {
     enabled: boolean;
     setEnabled: (enabled: boolean) => void;
   };
+  /** Shared controller for the `/enhance on|off` prompt-refinement toggle. */
+  enhanceController?: {
+    enabled: boolean;
+    setEnabled: (enabled: boolean) => void;
+  };
   /** Status bar hidden items controller (passed to TUI). */
   statuslineHiddenItems: Array<'todos' | 'plan' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost'>;
   setStatuslineHiddenItems: (
@@ -155,6 +160,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
     director,
     fleetRoster,
     fleetStreamController,
+    enhanceController,
     statuslineHiddenItems,
     setStatuslineHiddenItems,
     agentsMonitorController,
@@ -615,6 +621,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
             dispatch({ type: 'resetContextChip' });
           },
           fleetStreamController,
+          enhanceController,
           statuslineHiddenItems,
           setStatuslineHiddenItems,
           agentsMonitorController,
@@ -661,6 +668,10 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
             return messages;
           },
           modeLabel: modeId,
+          getModeLabel: () => {
+            const metaMode = context.meta?.['mode'];
+            return typeof metaMode === 'string' ? metaMode : (modeId ?? 'default');
+          },
         });
       } finally {
         renderer.setSilent(false);

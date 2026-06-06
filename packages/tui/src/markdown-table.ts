@@ -243,6 +243,7 @@ export function breakLigatures(text: string): string {
  * Return the number of terminal columns a string occupies.
  *
  * Handles Unicode properly:
+ * - ANSI escape sequences (SGR codes like \x1b[1m, \x1b[0m) are zero-width.
  * - ZWJ emoji sequences (👨‍👩‍👧, 🧑‍🏫) count as 2 columns total.
  * - Variation selectors (U+FE0F, U+FE0E) contribute zero width.
  * - Zero-width characters (ZWJ U+200D, ZWSP U+200B, etc.) contribute zero width.
@@ -256,6 +257,16 @@ export function strWidth(s: string): number {
   const len = s.length;
   let i = 0;
   while (i < len) {
+    // Skip ANSI escape sequences — they contribute zero visual width.
+    // SGR codes: \x1b[ … m  (with optional ;-separated parameters)
+    // Also handle OSC (\x1b]), CSI sequences beyond SGR.
+    if (s[i] === '\x1b' && i + 1 < len && s[i + 1] === '[') {
+      i += 2; // skip \x1b[
+      while (i < len && s[i] !== 'm') i++; // skip to terminator
+      if (i < len) i++; // skip the 'm'
+      continue;
+    }
+
     const code = s.codePointAt(i)!;
     const cpLen = code > 0xffff ? 2 : 1; // surrogate pair = single code point
 

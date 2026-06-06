@@ -7,12 +7,14 @@ import type {
   Director,
   EventBus,
   FleetEvent,
+  Message,
   QueueStore,
   SlashCommandRegistry,
   TokenCounter,
 } from '@wrongstack/core';
 import { type AutonomyStage, DefaultSessionRewinder } from '@wrongstack/core';
 import { InputBuilder, buildGoalPreamble, formatTodosList, writeOut } from '@wrongstack/core';
+import { enhanceUserPrompt, normalizedEqual, recentTextTurns, shouldEnhance } from '@wrongstack/core';
 import { type VisionAdapters, routeImagesForModel } from '@wrongstack/runtime/vision';
 import { getProcessRegistry, getIndexState, onIndexStateChange } from '@wrongstack/tools';
 import { Box, type DOMElement, Text, measureElement, useApp, useStdout } from 'ink';
@@ -22,8 +24,8 @@ import { AgentsMonitor } from './components/agents-monitor.js';
 import { AUTONOMY_OPTIONS, AutonomyPicker } from './components/autonomy-picker.js';
 import { BrainDecisionPrompt } from './components/brain-decision-prompt.js';
 import { CheckpointTimeline } from './components/checkpoint-timeline.js';
-import { CompactTodosPanel } from './components/compact-todos-panel.js';
 import { type ConfirmDecision, ConfirmPrompt } from './components/confirm-prompt.js';
+import { EnhancePanel } from './components/enhance-panel.js';
 import { FilePicker } from './components/file-picker.js';
 import { FleetMonitor } from './components/fleet-monitor.js';
 import { FleetPanel } from './components/fleet-panel.js';
@@ -110,6 +112,42 @@ export function selectedSlashCommandLine(picker: {
   return picked ? `/${picked.name}` : null;
 }
 
+/**
+ * Convert restored session messages into TUI history entries so a resumed
+ * session renders its prior conversation visually, not just in the LLM context.
+ *
+ * - system messages are skipped (not displayed)
+ * - user messages become `kind: 'user'` entries
+ * - assistant messages become `kind: 'assistant'` entries (tool_use blocks
+ *   are stripped; full tool rendering needs the execution events which are
+ *   not available at resume time)
+ */
+export function rehydrateHistory(
+  messages: Message[],
+  startId: number,
+): import('./components/history/types.js').HistoryEntry[] {
+  const entries: import('./components/history/types.js').HistoryEntry[] = [];
+  for (const msg of messages) {
+    if (msg.role === 'system') continue;
+    // Inline asText: extract string content from text blocks.
+    const text =
+      typeof msg.content === 'string'
+        ? msg.content
+        : msg.content
+            .filter((b) => b.type === 'text')
+            .map((b) => (b as { text: string }).text)
+            .join('');
+    const trimmed = text.trim();
+    if (!trimmed) continue;
+    if (msg.role === 'user') {
+      entries.push({ id: startId++, kind: 'user', text: trimmed });
+    } else if (msg.role === 'assistant') {
+      entries.push({ id: startId++, kind: 'assistant', text: trimmed });
+    }
+  }
+  return entries;
+}
+
 export interface AppProps {
   agent: Agent;
   slashRegistry: SlashCommandRegistry;
@@ -130,6 +168,23 @@ export interface AppProps {
   /** When true, the first Ctrl+C aborts work and shows "confirm exit" rather than "exit". */
   confirmExit?: boolean;
   /**
+   * When true, free-text prompts are run through the prompt refiner
+   * ("did you mean this?") before reaching the main agent. Default on;
+   * toggled live via the `/enhance` slash command + `enhanceController`.
+   */
+  enhanceEnabled?: boolean;
+  /**
+   * Shared controller for the `/enhance on|off` toggle. The TUI rebinds
+   * `setEnabled` on mount to a dispatch-backed setter so the slash command
+   * (handled in the CLI) flips the reducer flag. Mirrors `fleetStreamController`.
+   */
+  enhanceController?: {
+    enabled: boolean;
+    setEnabled: (enabled: boolean) => void;
+  };
+  /** Auto-send countdown (ms) for the refinement preview panel. Default 4000. */
+  enhanceDelayMs?: number;
+  /**
    * Query the live YOLO state from the permission policy. Called after
    * every slash-command dispatch so `/yolo off` (which mutates the
    * policy inside the CLI) is immediately reflected in the status bar.
@@ -139,6 +194,8 @@ export interface AppProps {
   getYolo?: () => boolean;
   /** Query the live autonomy mode. */
   getAutonomy?: () => 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel';
+  /** Query the live agent mode label for the status bar (e.g. "teach"). */
+  getModeLabel?: () => string;
   /**
    * Access the eternal-autonomy engine. When autonomy mode goes to
    * 'eternal' the TUI drives `runOneIteration()` from a post-slash hook
@@ -336,6 +393,9 @@ export function App({
   yolo = false,
   chime = false,
   confirmExit = true,
+  enhanceEnabled = true,
+  enhanceController,
+  enhanceDelayMs = 4000,
   getYolo,
   getAutonomy,
   getEternalEngine,
@@ -369,6 +429,7 @@ export function App({
   sessionsDir,
   managed = false,
   modeLabel,
+  getModeLabel,
 }: AppProps): React.ReactElement {
   const { exit } = useApp();
   // Reactive mirrors of agent.ctx.{model,provider.id} so the status bar
@@ -385,6 +446,9 @@ export function App({
   const [autonomyLive, setAutonomyLive] = useState<
     'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel'
   >(getAutonomy?.() ?? 'off');
+  // Reactive mirror of the active agent mode so the status bar chip
+  // updates after /mode <id> without remounting the App.
+  const [liveModeLabel, setLiveModeLabel] = useState<string>(modeLabel ?? '');
   const [hiddenItems, setHiddenItems] = useState(statuslineHiddenItems);
 
   // Codebase indexing state — synced from the process-wide indexer
@@ -451,21 +515,39 @@ export function App({
       });
   }, [projectRoot]);
 
+  // Rehydrate TUI chat history from restored messages (session resume).
+  // agent.ctx.messages is populated by setupSession → context.state.replaceMessages()
+  // when wstack resume <id> is used. These messages only exist in the LLM context
+  // by default; we convert them to visible history entries here.
+  const restoredEntries = (() => {
+    const msgs = agent.ctx.messages;
+    if (!msgs || msgs.length === 0) return [];
+    // Filter out system prompt messages (role === 'system') — the banner
+    // already shows the provider/model, and system prompts are not user-visible.
+    const visible = msgs.filter((m) => m.role !== 'system');
+    if (visible.length === 0) return [];
+    return rehydrateHistory(visible, /* startId */ 1);
+  })();
+  const initialNextId = 1 + restoredEntries.length;
+
   const [state, dispatch] = useReducer(reducer, {
-    entries: banner
-      ? [
-          {
-            id: 0,
-            kind: 'banner' as const,
-            version: appVersion ?? 'dev',
-            provider: provider ?? 'agent',
-            model,
-            cwd: agent.ctx.cwd,
-            family,
-            keyTail,
-          },
-        ]
-      : [],
+    entries: [
+      ...(banner
+        ? [
+            {
+              id: 0,
+              kind: 'banner' as const,
+              version: appVersion ?? 'dev',
+              provider: provider ?? 'agent',
+              model,
+              cwd: agent.ctx.cwd,
+              family,
+              keyTail,
+            },
+          ]
+        : []),
+      ...restoredEntries,
+    ],
     buffer: '',
     cursor: 0,
     streamingText: '',
@@ -477,7 +559,7 @@ export function App({
     hint: '',
     brain: { state: 'idle' as const },
     brainPrompt: null,
-    nextId: 1,
+    nextId: initialNextId,
     picker: { open: false, query: '', matches: [], selected: 0 },
     slashPicker: { open: false, query: '', matches: [], selected: 0 },
     runningTools: new Map(),
@@ -497,6 +579,9 @@ export function App({
     autonomyPicker: { open: false, options: [], selected: 0 },
     settingsPicker: { open: false, field: 0, mode: 'off', delayMs: 0, titleAnimation: true, yolo: false, streamFleet: true, chime: false, confirmExit: true, nextPrediction: false, featureMcp: true, featurePlugins: true, featureMemory: true, featureSkills: true, featureModelsRegistry: true, contextAutoCompact: true, contextStrategy: 'hybrid', logLevel: 'info', auditLevel: 'standard', indexOnStart: true, maxIterations: 500 },
     confirmQueue: [],
+    enhance: null,
+    enhanceEnabled,
+    enhanceBusy: false,
     contextChipVersion: 0,
     fleet: {},
     leader: {
@@ -516,7 +601,6 @@ export function App({
     agentsMonitorOpen: false,
     helpOpen: false,
     todosMonitorOpen: false,
-    rightTodosPanelOpen: false,
     queuePanelOpen: false,
     collabSession: null,
     checkpoints: [],
@@ -791,7 +875,10 @@ export function App({
       toolCalls: state.leader.toolCalls,
       recentTools: state.leader.recentTools,
       recentMessages: [],
-      cost: 0,
+      // Leader (main session) cost — the same number the statusline shows.
+      // Kept distinct from fleet (subagent) cost so the monitor can show a
+      // trustworthy grand total = leader + fleet.
+      cost: tokenCounter?.estimateCost().total ?? 0,
       startedAt: state.leader.startedAt,
       lastEventAt: state.leader.lastEventAt,
       currentTool: state.leader.currentTool,
@@ -800,7 +887,7 @@ export function App({
       ctxMaxTokens: state.leader.ctxMaxTokens ?? effectiveMaxContext,
     };
     return { leader: leaderEntry, ...state.fleet };
-  }, [state.fleet, state.leader, state.status, provider, model, effectiveMaxContext]);
+  }, [state.fleet, state.leader, state.status, provider, model, effectiveMaxContext, tokenCounter]);
 
   // Stable per-subagent label + color assigned on first sighting.
   const STREAM_COLORS = ['cyan', 'magenta', 'yellow', 'green', 'blue'];
@@ -884,6 +971,10 @@ export function App({
   // workflows the bullet-proof alternative is still `--alt-screen`.
   const prevAnyOverlayOpen = useRef(false);
   const prevEntriesCount = useRef(0);
+  // Track tool-stream text length so we can fire eraseLiveRegion when the
+  // live tool-output box grows — prevents the ◆ bash ⏱ Xms header line
+  // from duplicating into scrollback on every 500ms tick.
+  const prevToolStreamLen = useRef(0);
   // Stable erase function — only calls process.stdout.write which is a stable global.
   const eraseLiveRegion = useCallback(() => {
     try {
@@ -898,19 +989,30 @@ export function App({
       // stdout might be detached during shutdown — ignore.
     }
   }, []);
-  useEffect(() => {
+  // useLayoutEffect fires synchronously in the commit phase, BEFORE Ink
+  // flushes the new tree to the terminal. This means \x1b[J cleans the old
+  // live region BEFORE new Static items are written — preventing stale
+  // input/statusbar content from bleeding into scrollback.
+  // useEffect (async microtask) was too late: the terminal had already
+  // scrolled the old content into scrollback by the time it fired.
+  React.useLayoutEffect(() => {
     const anyOpenNow =
       state.picker.open ||
       state.slashPicker.open ||
       state.modelPicker.open ||
       state.autonomyPicker.open ||
       state.settingsPicker.open ||
+      state.enhanceBusy ||
+      state.enhance != null ||
       state.confirmQueue.length > 0;
     const overlayClosed = prevAnyOverlayOpen.current && !anyOpenNow;
     const newEntryCommitted = state.entries.length > prevEntriesCount.current;
+    const curToolStreamLen = state.toolStream?.text.length ?? 0;
+    const toolStreamGrew = curToolStreamLen > 0 && curToolStreamLen > prevToolStreamLen.current;
     prevAnyOverlayOpen.current = anyOpenNow;
     prevEntriesCount.current = state.entries.length;
-    if (overlayClosed || newEntryCommitted) {
+    prevToolStreamLen.current = curToolStreamLen;
+    if (overlayClosed || newEntryCommitted || toolStreamGrew) {
       eraseLiveRegion();
     }
   }, [
@@ -919,8 +1021,11 @@ export function App({
     state.modelPicker.open,
     state.autonomyPicker.open,
     state.settingsPicker.open,
+    state.enhanceBusy,
+    state.enhance,
     state.confirmQueue.length,
     state.entries.length,
+    state.toolStream?.text,
     eraseLiveRegion,
   ]);
 
@@ -934,6 +1039,16 @@ export function App({
       process.stdout.off('resize', handleResize);
     };
   }, [eraseLiveRegion]);
+
+  // While the prompt-refinement flow is active, the 1s `nowTick` and the
+  // EnhancePanel's own countdown both re-render the live region. In inline
+  // mode each redraw can bleed the region's top rows into native scrollback,
+  // so the preview "clones" itself once per second. Erase the stale region
+  // before each tick's paint (layout effect runs pre-flush) so nothing
+  // accumulates. Gated on the flow being active so idle redraws are untouched.
+  React.useLayoutEffect(() => {
+    if (state.enhanceBusy || state.enhance != null) eraseLiveRegion();
+  }, [nowTick, state.enhanceBusy, state.enhance, eraseLiveRegion]);
 
   // Detect an active `@<query>` token at the cursor and drive the picker.
   // Reruns whenever buffer/cursor changes — guards against stale results.
@@ -1528,23 +1643,28 @@ export function App({
       });
     });
     const offTool = events.on('tool.executed', (e) => {
-      dispatch({
-        type: 'addEntry',
-        entry: {
-          kind: 'tool',
-          name: e.name,
-          durationMs: e.durationMs,
-          ok: e.ok,
-          input: e.input,
-          output: e.output,
-          // Real model-visible sizes — forwarded so the size chip beside
-          // the tool header can show what the model paid for instead of
-          // the misleading preview-byte count we used to surface.
-          outputBytes: e.outputBytes,
-          outputTokens: e.outputTokens,
-          outputLines: e.outputLines,
-        },
-      });
+      // `delegate` renders its own readable start/finish lines via the
+      // delegate.started / delegate.completed events below — skip the
+      // generic tool entry so history doesn't also show the big JSON blob.
+      if (e.name !== 'delegate') {
+        dispatch({
+          type: 'addEntry',
+          entry: {
+            kind: 'tool',
+            name: e.name,
+            durationMs: e.durationMs,
+            ok: e.ok,
+            input: e.input,
+            output: e.output,
+            // Real model-visible sizes — forwarded so the size chip beside
+            // the tool header can show what the model paid for instead of
+            // the misleading preview-byte count we used to surface.
+            outputBytes: e.outputBytes,
+            outputTokens: e.outputTokens,
+            outputLines: e.outputLines,
+          },
+        });
+      }
       // `tool.executed` has no tool_use id; the reducer falls back to
       // clearing the oldest running entry that matches this name.
       dispatch({ type: 'toolEnded', name: e.name });
@@ -1630,6 +1750,37 @@ export function App({
         },
       });
     });
+    // `delegate` lifecycle — render a "started" line up front (so the
+    // minutes-long subagent wait doesn't look idle) and a humanized result
+    // line on completion. These replace the suppressed generic tool entry.
+    const offDelegateStart = events.on('delegate.started', (e) => {
+      const task = e.task.length > 100 ? `${e.task.slice(0, 99)}…` : e.task;
+      dispatch({
+        type: 'addEntry',
+        entry: {
+          kind: 'subagent',
+          agentLabel: e.target,
+          agentColor: 'magenta',
+          icon: '🤝',
+          text: 'delegating',
+          detail: task,
+        },
+      });
+    });
+    const offDelegateDone = events.on('delegate.completed', (e) => {
+      const cost = e.costUsd && e.costUsd > 0 ? `$${e.costUsd.toFixed(3)}` : undefined;
+      dispatch({
+        type: 'addEntry',
+        entry: {
+          kind: 'subagent',
+          agentLabel: e.target,
+          agentColor: e.ok ? 'green' : 'red',
+          icon: e.ok ? '✓' : '✗',
+          text: e.summary,
+          detail: cost,
+        },
+      });
+    });
     return () => {
       offDelta();
       offToolStart();
@@ -1642,6 +1793,8 @@ export function App({
       offProvResp();
       offConfirmNeeded();
       offTrustPersisted();
+      offDelegateStart();
+      offDelegateDone();
       if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
     };
   }, [events, agent.ctx.todos]);
@@ -1654,6 +1807,16 @@ export function App({
   useEffect(() => {
     streamFleetRef.current = state.streamFleet;
   }, [state.streamFleet]);
+
+  // Live mirror of the prompt-refinement toggle, read synchronously inside
+  // submit() (which can't see the latest reducer state through its closure).
+  const enhanceEnabledRef = useRef(state.enhanceEnabled);
+  useEffect(() => {
+    enhanceEnabledRef.current = state.enhanceEnabled;
+  }, [state.enhanceEnabled]);
+  // Abort handle for the in-flight refiner call, so Esc can cancel a slow
+  // "refining…" and send the original immediately.
+  const enhanceAbortRef = useRef<AbortController | null>(null);
 
   // --- Subagent lifecycle events (extracted to use-subagent-events.ts) ---
   useSubagentEvents(events, dispatch, setActiveMaxContext);
@@ -1937,6 +2100,22 @@ export function App({
     if (fleetStreamController) fleetStreamController.enabled = state.streamFleet;
   }, [state.streamFleet, fleetStreamController]);
 
+  // Install a dispatch-backed setter into the prompt-refinement controller so
+  // the `/enhance on|off` slash command (handled in the CLI) flips our reducer
+  // flag. Restored to a plain mirror on unmount.
+  useEffect(() => {
+    if (!enhanceController) return;
+    enhanceController.enabled = state.enhanceEnabled;
+    enhanceController.setEnabled = (enabled: boolean) => {
+      dispatch({ type: 'enhanceSet', enabled });
+    };
+    return () => {
+      enhanceController.setEnabled = (enabled: boolean) => {
+        enhanceController.enabled = enabled;
+      };
+    };
+  }, [enhanceController, state.enhanceEnabled]);
+
   // Install a dispatch-backed setter into the shared controller so the
   // `/agents on|off` slash command can toggle our overlay flag.
   // Restored to a noop on unmount so a late-arriving slash callback
@@ -2050,6 +2229,7 @@ export function App({
       cost: d.snapshot().total.cost,
       input: d.snapshot().total.input,
       output: d.snapshot().total.output,
+      perAgent: d.snapshot().perSubagent,
     });
 
     // Discover new subagents on first FleetBus event for an unknown id.
@@ -2208,6 +2388,7 @@ export function App({
             cost: d.snapshot().total.cost,
             input: d.snapshot().total.input,
             output: d.snapshot().total.output,
+            perAgent: d.snapshot().perSubagent,
           });
           break;
         }
@@ -2365,6 +2546,7 @@ export function App({
         cost: d.snapshot().total.cost,
         input: d.snapshot().total.input,
         output: d.snapshot().total.output,
+        perAgent: d.snapshot().perSubagent,
       });
       // Drain any pending streaming text right before the completion
       // entry is committed by the EventBus listener so the order
@@ -2622,6 +2804,14 @@ export function App({
     // component handles y/n/a/d/escape/enter itself and Input's disabled prop
     // is not reliable when multiple useInput hooks are active.
     if (state.confirmQueue.length > 0) return;
+    // While the refiner call is in flight, Esc cancels it (send original now);
+    // all other keys are swallowed so nothing leaks into the input.
+    if (state.enhanceBusy) {
+      if (key.escape) enhanceAbortRef.current?.abort();
+      return;
+    }
+    // The EnhancePanel owns Enter/Esc/e, so the main input stays out of the way.
+    if (state.enhance) return;
 
     // The help overlay is modal: Esc / `?` / `q` dismiss it; every other key is
     // swallowed so nothing leaks into the editor or chat behind it.
@@ -2630,34 +2820,18 @@ export function App({
       return;
     }
 
-    // Monitor overlays are modal — block all keys except Escape and the overlay's
-    // own toggle key so nothing leaks into the chat input behind them.
+    // ── Non-modal panel state: allow typing while panels are visible.
+    // Monitor overlays and side panels are informational views — the user
+    // can keep typing in the chat input while referencing them. Toggle
+    // keys (F2–F7) and Escape still work; all other keystrokes reach
+    // the input buffer normally.
     const anyMonitorOpen =
       state.todosMonitorOpen ||
       state.monitorOpen ||
       state.agentsMonitorOpen ||
       state.worktreeMonitorOpen ||
       !!state.autoPhase?.monitorOpen;
-    if (anyMonitorOpen) {
-      // Escape closes whichever overlay is open (handled in the Escape block below).
-      // The overlay's own toggle key also toggles it closed.
-      // We allow those through; swallow everything else.
-      if (key.escape) {
-        // Fall through to the Escape handler below — it knows which overlay to close.
-      } else if (
-        (key.fn === 2 || (key.ctrl && input === 'f')) ||
-        (key.fn === 3 || (key.ctrl && input === 'g')) ||
-        (key.fn === 4 || (key.ctrl && input === 't')) ||
-        key.fn === 5 ||
-        key.fn === 6 ||
-        key.fn === 7 ||
-        (key.ctrl && input === 'p')
-      ) {
-        // Fall through to the F-key / Ctrl+P handlers below — they toggle overlays.
-      } else {
-        return;
-      }
-    }
+    void anyMonitorOpen; // unused now — kept for clarity in the Escape handler below
 
     // Re-entrancy guard: block stale-second events from \r\n terminals.
     if (inputGateRef.current) return;
@@ -3031,33 +3205,47 @@ export function App({
     // All toggles are allowed even while aborting, so the user can check
     // subagent state mid-steer.
     const toggleFleetOverlay = () => {
-      if (state.agentsMonitorOpen) {
-        // Switch: close AgentsMonitor, open FleetMonitor
-        dispatch({ type: 'toggleAgentsMonitor' });
+      if (state.monitorOpen) {
         dispatch({ type: 'toggleMonitor' });
-      } else {
-        dispatch({ type: 'toggleMonitor' });
+        return;
       }
+      // Opening: close all other overlays/panels first.
+      if (state.agentsMonitorOpen) dispatch({ type: 'toggleAgentsMonitor' });
+      if (state.worktreeMonitorOpen) dispatch({ type: 'worktreeMonitorToggle' });
+      if (state.todosMonitorOpen) dispatch({ type: 'toggleTodosMonitor' });
+      if (state.autoPhase?.monitorOpen) dispatch({ type: 'autoPhaseMonitorToggle' });
+      if (state.settingsPicker.open) dispatch({ type: 'settingsClose' });
+      if (state.queuePanelOpen) dispatch({ type: 'toggleQueuePanel' });
+      if (state.helpOpen) dispatch({ type: 'toggleHelp' });
+      dispatch({ type: 'toggleMonitor' });
     };
     const toggleAgentsOverlay = () => {
-      if (state.monitorOpen) {
-        // Switch: close FleetMonitor, open AgentsMonitor
-        dispatch({ type: 'toggleMonitor' });
+      if (state.agentsMonitorOpen) {
         dispatch({ type: 'toggleAgentsMonitor' });
-      } else {
-        dispatch({ type: 'toggleAgentsMonitor' });
+        return;
       }
+      // Opening: close all other overlays/panels first.
+      if (state.monitorOpen) dispatch({ type: 'toggleMonitor' });
+      if (state.worktreeMonitorOpen) dispatch({ type: 'worktreeMonitorToggle' });
+      if (state.todosMonitorOpen) dispatch({ type: 'toggleTodosMonitor' });
+      if (state.autoPhase?.monitorOpen) dispatch({ type: 'autoPhaseMonitorToggle' });
+      if (state.settingsPicker.open) dispatch({ type: 'settingsClose' });
+      if (state.queuePanelOpen) dispatch({ type: 'toggleQueuePanel' });
+      if (state.helpOpen) dispatch({ type: 'toggleHelp' });
+      dispatch({ type: 'toggleAgentsMonitor' });
     };
     const toggleWorktreeOverlay = () => {
       if (state.worktreeMonitorOpen) {
         dispatch({ type: 'worktreeMonitorToggle' });
         return;
       }
-      // Opening closes any other overlay first so only one dashboard shows.
       if (state.agentsMonitorOpen) dispatch({ type: 'toggleAgentsMonitor' });
       if (state.monitorOpen) dispatch({ type: 'toggleMonitor' });
       if (state.autoPhase?.monitorOpen) dispatch({ type: 'autoPhaseMonitorToggle' });
       if (state.todosMonitorOpen) dispatch({ type: 'toggleTodosMonitor' });
+      if (state.settingsPicker.open) dispatch({ type: 'settingsClose' });
+      if (state.queuePanelOpen) dispatch({ type: 'toggleQueuePanel' });
+      if (state.helpOpen) dispatch({ type: 'toggleHelp' });
       dispatch({ type: 'worktreeMonitorToggle' });
     };
     const toggleTodosOverlay = () => {
@@ -3065,11 +3253,13 @@ export function App({
         dispatch({ type: 'toggleTodosMonitor' });
         return;
       }
-      // Opening closes any other overlay first so only one dashboard shows.
       if (state.agentsMonitorOpen) dispatch({ type: 'toggleAgentsMonitor' });
       if (state.monitorOpen) dispatch({ type: 'toggleMonitor' });
       if (state.worktreeMonitorOpen) dispatch({ type: 'worktreeMonitorToggle' });
       if (state.autoPhase?.monitorOpen) dispatch({ type: 'autoPhaseMonitorToggle' });
+      if (state.settingsPicker.open) dispatch({ type: 'settingsClose' });
+      if (state.queuePanelOpen) dispatch({ type: 'toggleQueuePanel' });
+      if (state.helpOpen) dispatch({ type: 'toggleHelp' });
       dispatch({ type: 'toggleTodosMonitor' });
     };
     // Ctrl+F / F2 → fleet orchestration monitor.
@@ -3088,27 +3278,20 @@ export function App({
       toggleWorktreeOverlay();
       return;
     }
-    // F5 → right-side compact todos panel (managed mode only).
+    // F5 → open/close the autonomy settings editor. Opening closes any
+    // other open overlay or panel so only one dashboard is visible.
     if (key.fn === 5) {
-      dispatch({ type: 'toggleRightTodosPanel' });
-      return;
-    }
-    // F6 → full-screen todos monitor overlay.
-    if (key.fn === 6) {
-      toggleTodosOverlay();
-      return;
-    }
-    // F7 → right-side queue panel (managed mode only).
-    if (key.fn === 7) {
-      dispatch({ type: 'toggleQueuePanel' });
-      return;
-    }
-    // Ctrl+S toggles the autonomy settings editor (also openable via
-    // `/settings`). Only when the host wired the settings accessors.
-    if (key.ctrl && input === 's') {
       if (state.settingsPicker.open) {
         dispatch({ type: 'settingsClose' });
       } else if (getSettings && saveSettings) {
+        // Close all other overlays/panels first.
+        if (state.agentsMonitorOpen) dispatch({ type: 'toggleAgentsMonitor' });
+        if (state.monitorOpen) dispatch({ type: 'toggleMonitor' });
+        if (state.worktreeMonitorOpen) dispatch({ type: 'worktreeMonitorToggle' });
+        if (state.todosMonitorOpen) dispatch({ type: 'toggleTodosMonitor' });
+        if (state.autoPhase?.monitorOpen) dispatch({ type: 'autoPhaseMonitorToggle' });
+        if (state.queuePanelOpen) dispatch({ type: 'toggleQueuePanel' });
+        if (state.helpOpen) dispatch({ type: 'toggleHelp' });
         const cfg = getSettings();
         dispatch({
           type: 'settingsOpen',
@@ -3135,8 +3318,69 @@ export function App({
       }
       return;
     }
-    // Esc closes whichever monitor is open. When both are closed the busy-state
-    // Esc handler above already returned when a run was active.
+    // F6 → full-screen todos monitor overlay.
+    if (key.fn === 6) {
+      toggleTodosOverlay();
+      return;
+    }
+    // F7 → queue panel. Opening closes any other overlay or panel.
+    if (key.fn === 7) {
+      if (state.queuePanelOpen) {
+        dispatch({ type: 'toggleQueuePanel' });
+      } else {
+        // Close all other overlays/panels first.
+        if (state.agentsMonitorOpen) dispatch({ type: 'toggleAgentsMonitor' });
+        if (state.monitorOpen) dispatch({ type: 'toggleMonitor' });
+        if (state.worktreeMonitorOpen) dispatch({ type: 'worktreeMonitorToggle' });
+        if (state.todosMonitorOpen) dispatch({ type: 'toggleTodosMonitor' });
+        if (state.autoPhase?.monitorOpen) dispatch({ type: 'autoPhaseMonitorToggle' });
+        if (state.settingsPicker.open) dispatch({ type: 'settingsClose' });
+        if (state.helpOpen) dispatch({ type: 'toggleHelp' });
+        dispatch({ type: 'toggleQueuePanel' });
+      }
+      return;
+    }
+    // Ctrl+S toggles the autonomy settings editor (also openable via
+    // F5 and `/settings`). Opening closes any other overlay or panel.
+    if (key.ctrl && input === 's') {
+      if (state.settingsPicker.open) {
+        dispatch({ type: 'settingsClose' });
+      } else if (getSettings && saveSettings) {
+        // Close all other overlays/panels first.
+        if (state.agentsMonitorOpen) dispatch({ type: 'toggleAgentsMonitor' });
+        if (state.monitorOpen) dispatch({ type: 'toggleMonitor' });
+        if (state.worktreeMonitorOpen) dispatch({ type: 'worktreeMonitorToggle' });
+        if (state.todosMonitorOpen) dispatch({ type: 'toggleTodosMonitor' });
+        if (state.autoPhase?.monitorOpen) dispatch({ type: 'autoPhaseMonitorToggle' });
+        if (state.queuePanelOpen) dispatch({ type: 'toggleQueuePanel' });
+        if (state.helpOpen) dispatch({ type: 'toggleHelp' });
+        const cfg = getSettings();
+        dispatch({
+          type: 'settingsOpen',
+          mode: cfg.mode,
+          delayMs: cfg.delayMs,
+          titleAnimation: cfg.titleAnimation ?? true,
+          yolo: cfg.yolo ?? false,
+          streamFleet: cfg.streamFleet ?? true,
+          chime: cfg.chime ?? false,
+          confirmExit: cfg.confirmExit ?? true,
+          nextPrediction: cfg.nextPrediction ?? false,
+          featureMcp: cfg.featureMcp ?? true,
+          featurePlugins: cfg.featurePlugins ?? true,
+          featureMemory: cfg.featureMemory ?? true,
+          featureSkills: cfg.featureSkills ?? true,
+          featureModelsRegistry: cfg.featureModelsRegistry ?? true,
+          contextAutoCompact: cfg.contextAutoCompact ?? true,
+          contextStrategy: cfg.contextStrategy ?? 'hybrid',
+          logLevel: cfg.logLevel ?? 'info',
+          auditLevel: cfg.auditLevel ?? 'standard',
+          indexOnStart: cfg.indexOnStart ?? true,
+          maxIterations: cfg.maxIterations ?? 500,
+        });
+      }
+      return;
+    }
+    // Esc closes whichever overlay/panel is open.
     if (key.escape) {
       if (state.agentsMonitorOpen) {
         dispatch({ type: 'toggleAgentsMonitor' });
@@ -3152,6 +3396,18 @@ export function App({
       }
       if (state.todosMonitorOpen) {
         dispatch({ type: 'toggleTodosMonitor' });
+        return;
+      }
+      if (state.autoPhase?.monitorOpen) {
+        dispatch({ type: 'autoPhaseMonitorToggle' });
+        return;
+      }
+      if (state.settingsPicker.open) {
+        dispatch({ type: 'settingsClose' });
+        return;
+      }
+      if (state.queuePanelOpen) {
+        dispatch({ type: 'toggleQueuePanel' });
         return;
       }
     }
@@ -3757,6 +4013,10 @@ export function App({
             void runParallelLoopRef.current();
           }
         }
+        if (getModeLabel) {
+          const currentMode = getModeLabel();
+          if (currentMode !== liveModeLabel) setLiveModeLabel(currentMode);
+        }
         if (res?.exit) {
           exit();
           onExit(0);
@@ -3788,6 +4048,9 @@ export function App({
         const cmd = trimmed.slice(1).split(/\s+/, 1)[0];
         if (cmd === 'clear') {
           onClearHistory?.(dispatch);
+          // Reset cumulative token/cost counters so the status bar
+          // reflects a fresh session, not pre-clear stats.
+          tokenCounter?.reset();
         }
       } catch (err) {
         dispatch({
@@ -3810,6 +4073,80 @@ export function App({
     // text so accountability stays with the human who triggered it.
     const steering = state.steeringPending;
 
+    // ── Prompt refinement ("did you mean this?") ───────────────────────
+    // Before the main agent sees the message, run it through a separate
+    // one-shot LLM call (its own system prompt, no history) that rewrites it
+    // into a clearer instruction, then briefly preview it. The user can let
+    // it auto-send (countdown), accept now (Enter), keep the original (Esc),
+    // or edit (e). Skipped for steering interrupts, messages carrying inline
+    // attachment chips (the refiner would drop the tokens), and inputs the
+    // heuristic judges not worth refining. Best-effort — any failure falls
+    // straight through to the original text.
+    let effectiveText = trimmed;
+    const hasChips = trimmed
+      ? new RegExp(INLINE_TOKEN_SRC, 'g').test(trimmed)
+      : false;
+    if (
+      enhanceEnabledRef.current &&
+      state.status === 'idle' &&
+      !steering &&
+      !hasChips &&
+      shouldEnhance(trimmed)
+    ) {
+      dispatch({ type: 'enhanceBusy', on: true });
+      // Let the user bail out of a slow refine (reasoning models can take many
+      // seconds) by pressing Esc while "refining…" shows — handleKey aborts
+      // this controller, the call rejects → null → we send the original.
+      const ac = new AbortController();
+      enhanceAbortRef.current = ac;
+      let refined: string | null = null;
+      let enhanceErr: string | null = null;
+      try {
+        refined = await enhanceUserPrompt({
+          provider: agent.ctx.provider,
+          model: agent.ctx.model,
+          text: trimmed,
+          signal: ac.signal,
+          onError: (reason) => {
+            enhanceErr = reason;
+          },
+          // Feed recent conversation so follow-ups ("do the same", "that file")
+          // resolve against context instead of being refined blind.
+          history: recentTextTurns(agent.ctx.messages),
+        });
+      } finally {
+        enhanceAbortRef.current = null;
+        dispatch({ type: 'enhanceBusy', on: false });
+      }
+      // Surface WHY a refine fell through (provider rejected it, timed out, no
+      // text) — otherwise "refining…" vanishing with no panel is confusing.
+      // Skipped when the user cancelled it themselves.
+      if (refined === null && !ac.signal.aborted) {
+        dispatch({
+          type: 'addEntry',
+          entry: {
+            kind: 'info',
+            text: enhanceErr
+              ? `✨ refinement unavailable (${enhanceErr}) — sent your message as-is`
+              : '✨ refinement unavailable — sent your message as-is',
+          },
+        });
+      }
+      if (refined && !normalizedEqual(refined, trimmed)) {
+        const decision = await new Promise<'refined' | 'original' | 'edit'>((resolve) => {
+          dispatch({ type: 'enhanceOpen', info: { original: trimmed, refined, resolve } });
+        });
+        dispatch({ type: 'enhanceClose' });
+        if (decision === 'edit') {
+          // Load the refined text back into the input so the user can tweak
+          // it and re-submit. Nothing is sent this round.
+          setDraft(refined, refined.length);
+          return;
+        }
+        effectiveText = decision === 'refined' ? refined : trimmed;
+      }
+    }
+
     // ── SDD Context Injection ──────────────────────────────────────────
     // When an SDD session is active, prepend the session context so the
     // model knows it's in a spec-building conversation.
@@ -3819,14 +4156,20 @@ export function App({
     }
 
     if (trimmed) {
-      const toAppend = steering ? buildSteeringPreamble(state.steerSnapshot, trimmed) : trimmed;
+      const toAppend = steering
+        ? buildSteeringPreamble(state.steerSnapshot, effectiveText)
+        : effectiveText;
       builder.appendText(toAppend);
     }
     if (steering) dispatch({ type: 'steerConsume' });
     // The user sees their original text + a visual ↯ marker when
     // steering, not the full preamble — keeps the chat readable while
     // the model still gets the explicit instruction.
-    const displayText = trimmed ? (steering ? `↯ ${trimmed}` : trimmed) : '(attachments only)';
+    const displayText = trimmed
+      ? steering
+        ? `↯ ${effectiveText}`
+        : effectiveText
+      : '(attachments only)';
     // Build the history preview by scanning the message for inline chip tokens
     // and pulling each one's stored preview. Each chip becomes a label line
     // followed by an indented snippet of its collapsed content.
@@ -3910,22 +4253,14 @@ export function App({
 
   const affordanceShown = managedLive && state.scrollOffset > 0 && state.pendingNewLines > 0;
 
-  // When a right panel is open in managed mode, the chat area gets ~70% of
-  // the terminal width. Give ScrollableHistory a maxWidth so code blocks,
-  // tables, and prose don't overflow into the right panel.
-  const rightPanelOpen = managedLive && (state.rightTodosPanelOpen || state.queuePanelOpen);
-  const chatMaxWidth = rightPanelOpen ? Math.floor((stdout?.columns ?? 80) * 0.7) - 2 : undefined;
+  // True while a prompt-refinement call is in flight or its preview panel is
+  // open. Used to blank the live input row (so the un-cleared draft can't bleed
+  // into scrollback) and to drive the per-tick live-region erase below.
+  const enhanceActive = state.enhanceBusy || state.enhance != null;
 
   return (
-    <Box
-      flexDirection={rightPanelOpen ? 'row' : 'column'}
-      height={managedLive ? termRows : undefined}
-    >
-      <Box
-        flexDirection="column"
-        flexGrow={rightPanelOpen ? 7 : 1}
-        flexShrink={rightPanelOpen ? 1 : 0}
-      >
+    <Box flexDirection="column" height={managedLive ? termRows : undefined}>
+      <Box flexDirection="column" flexGrow={1} flexShrink={0}>
         {managedLive ? (
           <ScrollableHistory
             entries={state.entries}
@@ -3935,7 +4270,6 @@ export function App({
             viewportRows={state.viewportRows || Math.max(MIN_VIEWPORT, termRows - 8)}
             totalLines={state.totalLines}
             onMeasure={(total) => dispatch({ type: 'setMeasuredLines', totalLines: total })}
-            maxWidth={chatMaxWidth}
           />
         ) : (
           <History
@@ -3956,13 +4290,21 @@ export function App({
           <LiveActivityStrip entries={state.fleet} nowTick={nowTick} />
           <Input
             prompt={INPUT_PROMPT}
-            value={state.buffer}
-            cursor={state.cursor}
+            // While the prompt-refinement flow is in flight (refining… / panel
+            // open) the draft hasn't been cleared yet (clearDraft runs after the
+            // flow resolves). The 1s nowTick + countdown re-renders would
+            // otherwise redraw the still-populated input each tick, and in
+            // inline mode log-update bleeds that top row into native scrollback
+            // — the user sees their typed prompt "cloned" several times. Render
+            // an empty prompt during the flow; the buffer is preserved in state
+            // for the [e]dit path and Esc-abort.
+            value={enhanceActive ? '' : state.buffer}
+            cursor={enhanceActive ? 0 : state.cursor}
             disabled={
               (state.status === 'aborting' && !state.steeringPending) ||
               state.confirmQueue.length > 0
             }
-            hint={inputHint}
+            hint={enhanceActive ? '' : inputHint}
             onKey={handleKey}
           />
           {state.picker.open ? (
@@ -4064,6 +4406,30 @@ export function App({
                 />
               );
             })()}
+          {state.enhanceBusy && !state.enhance ? (
+            <Box paddingX={1}>
+              <Text color="cyan">✨ refining your request…</Text>
+            </Box>
+          ) : null}
+          {state.enhance
+            ? (() => {
+                const info = state.enhance;
+                let resolved = false;
+                const onDecision = (decision: 'refined' | 'original' | 'edit') => {
+                  if (resolved) return;
+                  resolved = true;
+                  info.resolve(decision);
+                };
+                return (
+                  <EnhancePanel
+                    original={info.original}
+                    refined={info.refined}
+                    delayMs={enhanceDelayMs}
+                    onDecision={onDecision}
+                  />
+                );
+              })()
+            : null}
           <StatusBar
             model={`${liveProvider}/${liveModel}`}
             version={appVersion}
@@ -4087,7 +4453,7 @@ export function App({
             eternalStage={state.eternalStage}
             goalSummary={state.goalSummary}
             indexState={indexState}
-            modeLabel={modeLabel}
+            modeLabel={liveModeLabel || undefined}
           />
           {/* Only render the persistent hint bar in the managed (alt-screen)
           viewport. In the default inline-redraw mode it would add a row to the
@@ -4124,6 +4490,7 @@ export function App({
             <AgentsMonitor
               entries={entriesWithLeader}
               totalCost={state.fleetCost}
+              leaderCost={tokenCounter?.estimateCost().total ?? 0}
               totalTokens={state.fleetTokens}
               nowTick={nowTick}
             />
@@ -4173,23 +4540,10 @@ export function App({
           !state.monitorOpen ? (
             <WorktreePanel worktrees={state.worktrees} nowTick={nowTick} />
           ) : null}
+          {/* Queue panel — renders as full-width panel at the bottom. */}
+          {state.queuePanelOpen ? <QueuePanel items={state.queue} /> : null}
         </Box>
       </Box>
-      {rightPanelOpen ? (
-        <Box
-          flexDirection="column"
-          flexGrow={3}
-          flexShrink={0}
-          borderStyle="round"
-          borderColor={state.queuePanelOpen ? 'cyan' : 'yellow'}
-        >
-          {state.queuePanelOpen ? (
-            <QueuePanel items={state.queue} />
-          ) : (
-            <CompactTodosPanel todos={agent.ctx.todos} />
-          )}
-        </Box>
-      ) : null}
     </Box>
   );
 }

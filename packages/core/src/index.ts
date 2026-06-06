@@ -156,6 +156,15 @@ export {
   type SelectiveCompactorOptions,
 } from './defaults/index.js';
 export {
+  ENHANCER_SYSTEM_PROMPT,
+  shouldEnhance,
+  normalizedEqual,
+  enhanceUserPrompt,
+  recentTextTurns,
+  type ConversationTurn,
+  type EnhanceUserPromptOptions,
+} from './execution/prompt-enhancer.js';
+export {
   CONTEXT_WINDOW_MODES,
   DEFAULT_CONTEXT_WINDOW_MODE_ID,
   formatContextWindowModeList,

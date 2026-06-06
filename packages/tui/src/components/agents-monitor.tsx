@@ -6,8 +6,14 @@ import { fmtElapsed } from './status-bar.js';
 
 export interface AgentsMonitorProps {
   entries: Record<string, FleetEntry>;
-  /** Fleet-wide accumulated cost. */
+  /** Fleet (subagents) accumulated cost — excludes the leader/main session. */
   totalCost: number;
+  /**
+   * Leader (main session) cost — the same figure the statusline shows. Added
+   * to `totalCost` for a trustworthy grand total. Optional for callers that
+   * don't track it (defaults to 0).
+   */
+  leaderCost?: number;
   /** Fleet-wide token totals, when available. */
   totalTokens?: { input: number; output: number };
   /** 1s clock tick so elapsed times + sparklines stay live. */
@@ -112,10 +118,13 @@ function ContextBar({
 export function AgentsMonitor({
   entries,
   totalCost,
+  leaderCost = 0,
   totalTokens,
   nowTick,
 }: AgentsMonitorProps): React.ReactElement {
   const all = Object.values(entries);
+  // Grand total the user can trust = leader (main session) + fleet (subagents).
+  const grandCost = leaderCost + totalCost;
 
   // Terminal agents are excluded, and idle agents that have been silent for
   // longer than IDLE_HIDE_MS are pruned — the FleetPanel + history still hold
@@ -161,7 +170,13 @@ export function AgentsMonitor({
             {fmtTokens(totalTokens.input)}↑ {fmtTokens(totalTokens.output)}↓
           </Text>
         ) : null}
-        <Text color="green">${totalCost.toFixed(3)}</Text>
+        <Text dimColor>total</Text>
+        <Text color="green" bold>
+          ${grandCost.toFixed(3)}
+        </Text>
+        <Text dimColor>
+          (leader ${leaderCost.toFixed(3)} · fleet ${totalCost.toFixed(3)})
+        </Text>
         {hiddenIdle > 0 ? <Text dimColor>· {hiddenIdle} idle hidden</Text> : null}
       </Box>
 
@@ -210,6 +225,7 @@ export function AgentsMonitor({
               {e.extensions && e.extensions > 0 ? (
                 <Text color="yellow">⚡×{e.extensions}</Text>
               ) : null}
+              {e.cost > 0 ? <Text color="green">${e.cost.toFixed(3)}</Text> : null}
             </Box>
 
             {/* Current tool (live, ms-precision) — only while inside a tool */}

@@ -70,7 +70,23 @@ export const LiveActivityStrip = React.memo(function LiveActivityStrip({
     // every time a tool starts/ends on one of the rows.
     .sort((a, b) => a.startedAt - b.startedAt)
     .slice(0, maxRows);
-  if (running.length === 0) return null;
+  // When the fleet is completely empty (no entries of any status — e.g.
+  // after /clear) we return null so the Input area sits flush against
+  // history. When fleet entries exist but none are running we still render
+  // spacers: this keeps the live-region height stable and prevents the
+  // Input from scrolling into scrollback when the first subagent starts.
+  if (running.length === 0) {
+    if (Object.keys(entries).length === 0) return null;
+    return (
+      <Box flexDirection="column" paddingX={1}>
+        {Array.from({ length: maxRows }, (_, i) => (
+          <Box key={`empty-${i}`} height={1}>
+            <Text> </Text>
+          </Box>
+        ))}
+      </Box>
+    );
+  }
 
   // Reference nowTick so React knows we depend on it — otherwise the
   // 1s ticker won't re-render the elapsed values.

@@ -101,6 +101,16 @@ export interface SlashCommandContext {
     setEnabled: (enabled: boolean) => void;
   };
   /**
+   * Toggle prompt refinement ("did you mean this?"). The TUI installs the
+   * actual dispatch-backed setter on mount via this shared controller; before
+   * that, `enabled` just mirrors the requested value so a pre-mount toggle
+   * still takes effect. Backed by `config.autonomy.enhance`.
+   */
+  enhanceController?: {
+    enabled: boolean;
+    setEnabled: (enabled: boolean) => void;
+  };
+  /**
    * Re-run interrupted tasks from a prior director-state.json. Pass `undefined`
    * to list them, a specific task id to retry one, or 'all' to retry every
    * interrupted task. Returns a human-readable summary. Only wired when
@@ -248,6 +258,7 @@ import { buildCollabCommand } from './collab.js';
 import { buildCompactCommand } from './compact.js';
 import { buildContextCommand } from './context.js';
 import { buildDiagCommand, buildStatsCommand } from './diag-stats.js';
+import { buildEnhanceCommand } from './enhance.js';
 import { buildFixCommand } from './fix.js';
 import { buildFleetCommand } from './fleet.js';
 import { buildGoalCommand } from './goal.js';
@@ -288,6 +299,7 @@ export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashComma
     buildAgentsCommand(opts),
     buildDirectorCommand(opts),
     buildFleetCommand(opts),
+    buildEnhanceCommand(opts),
     buildMemoryCommand(opts),
     buildTodosCommand(opts),
     buildSddCommand(opts),

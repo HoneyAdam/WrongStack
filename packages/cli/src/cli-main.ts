@@ -435,6 +435,21 @@ export async function main(argv: string[]): Promise<number> {
       });
   });
 
+  // Humanized `delegate` lifecycle lines for the plain (non-TUI) CLI. The
+  // Ink TUI renders its own delegate history entries, so skip these when it
+  // owns the screen to avoid double-printing.
+  const tuiOwnsScreen = flags.tui === true && flags['no-tui'] !== true;
+  if (!tuiOwnsScreen) {
+    events.on('delegate.started', (e) => {
+      const task = e.task.length > 100 ? `${e.task.slice(0, 99)}…` : e.task;
+      renderer.writeInfo(`🤝 Delegating → ${e.target}: ${task}`);
+    });
+    events.on('delegate.completed', (e) => {
+      const cost = e.costUsd && e.costUsd > 0 ? ` · $${e.costUsd.toFixed(3)}` : '';
+      renderer.writeInfo(`${e.ok ? '✅' : '❌'} ${e.summary}${cost}`);
+    });
+  }
+
   // Forward tool progress events.
   // Sampling + "full" level filtering is now handled inside the SessionEventBridge
   // for consistency and reusability across CLI / TUI / WebUI etc.
@@ -829,6 +844,9 @@ export async function main(argv: string[]): Promise<number> {
       // result and the host LLM has no idea what work was done.
       sessionsRoot: subagentSessionsRoot,
       directorRunId: session.id,
+      // Host bus so `delegate` can emit start/finish events that the TUI,
+      // plain CLI, and Telegram bridge render as readable lines.
+      events,
     }),
   );
 
@@ -876,6 +894,17 @@ export async function main(argv: string[]): Promise<number> {
   // stable view even when invoked from a non-TUI surface.
   const fleetStreamController = {
     enabled: true,
+    setEnabled(enabled: boolean) {
+      this.enabled = enabled;
+    },
+  };
+
+  // Shared controller for the `/enhance on|off` prompt-refinement toggle.
+  // Same pattern as `fleetStreamController`: the TUI rebinds `setEnabled` to a
+  // dispatch-backed setter on mount. Seeded from persisted config (default on).
+  const enhanceController = {
+    enabled:
+      ((config.autonomy as Record<string, unknown> | undefined)?.['enhance'] as boolean) ?? true,
     setEnabled(enabled: boolean) {
       this.enabled = enabled;
     },
@@ -946,6 +975,7 @@ export async function main(argv: string[]): Promise<number> {
     planPath,
     modeStore,
     fleetStreamController,
+    enhanceController,
     llmProvider: provider,
     llmModel: config.model,
     statuslineConfig: statuslineConfigDeps,
@@ -1758,6 +1788,7 @@ export async function main(argv: string[]): Promise<number> {
     director: director ?? null,
     fleetRoster: FLEET_ROSTER as Record<string, { name: string }>,
     fleetStreamController,
+    enhanceController,
     statuslineHiddenItems,
     setStatuslineHiddenItems,
     getYolo: () => {

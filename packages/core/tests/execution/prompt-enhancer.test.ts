@@ -1,0 +1,182 @@
+import { describe, expect, it, vi } from 'vitest';
+import type { Provider, Request, Response } from '../../src/types/provider.js';
+import type { Message } from '../../src/types/messages.js';
+import {
+  enhanceUserPrompt,
+  normalizedEqual,
+  recentTextTurns,
+  shouldEnhance,
+} from '../../src/execution/prompt-enhancer.js';
+
+function makeProvider(
+  impl: (req: Request, opts: { signal: AbortSignal }) => Promise<Response>,
+): Provider {
+  return {
+    id: 'test',
+    capabilities: {
+      tools: false,
+      parallelTools: false,
+      vision: false,
+      streaming: false,
+      promptCache: false,
+      systemPrompt: true,
+      jsonMode: false,
+      reasoning: false,
+      maxContext: 128000,
+      cacheControl: 'none',
+    },
+    stream() {
+      return (async function* () {})();
+    },
+    complete: impl,
+  };
+}
+
+function textResponse(text: string): Response {
+  return {
+    content: [{ type: 'text', text }],
+    stopReason: 'end_turn',
+    usage: { input: 10, output: 5 },
+    model: 'test',
+  };
+}
+
+describe('shouldEnhance', () => {
+  it('skips empty, slash, short, and affirmation inputs', () => {
+    expect(shouldEnhance('')).toBe(false);
+    expect(shouldEnhance('   ')).toBe(false);
+    expect(shouldEnhance('/model')).toBe(false);
+    expect(shouldEnhance('fix it')).toBe(false); // < 12 chars
+    expect(shouldEnhance('yes')).toBe(false);
+    expect(shouldEnhance('continue')).toBe(false);
+    expect(shouldEnhance('go ahead')).toBe(false);
+    expect(shouldEnhance('42')).toBe(false);
+    expect(shouldEnhance('1, 2, 3')).toBe(false);
+    expect(shouldEnhance('two words')).toBe(false); // 2 words
+  });
+
+  it('enhances genuine multi-word requests', () => {
+    expect(shouldEnhance('fix the bug in the parser')).toBe(true);
+    expect(shouldEnhance('make the login flow faster please')).toBe(true);
+  });
+});
+
+describe('normalizedEqual', () => {
+  it('treats whitespace/case differences as equal', () => {
+    expect(normalizedEqual('Fix  the   Bug', 'fix the bug')).toBe(true);
+    expect(normalizedEqual('fix the bug', 'fix the null deref')).toBe(false);
+  });
+});
+
+describe('enhanceUserPrompt', () => {
+  it('returns the refined text from the provider', async () => {
+    const provider = makeProvider(async () =>
+      textResponse('Fix the null-deref in auth.ts login() when the token is missing.'),
+    );
+    const out = await enhanceUserPrompt({ provider, model: 'm', text: 'fix the bug' });
+    expect(out).toBe('Fix the null-deref in auth.ts login() when the token is missing.');
+  });
+
+  it('sends the enhancer system prompt and the raw text as a user message', async () => {
+    const complete = vi.fn(async () => textResponse('refined'));
+    const provider = makeProvider(complete);
+    await enhanceUserPrompt({ provider, model: 'gpt-x', text: 'do the thing properly' });
+    const req = complete.mock.calls[0]![0] as Request;
+    expect(req.model).toBe('gpt-x');
+    expect(req.system?.[0]?.text).toMatch(/request refiner/i);
+    expect(req.messages).toEqual([{ role: 'user', content: 'do the thing properly' }]);
+  });
+
+  it('embeds conversation history as context in a single user message', async () => {
+    const complete = vi.fn(async () => textResponse('refined'));
+    const provider = makeProvider(complete);
+    await enhanceUserPrompt({
+      provider,
+      model: 'm',
+      text: 'do the same for the other file',
+      history: [
+        { role: 'user', text: 'fix the null deref in auth.ts' },
+        { role: 'assistant', text: 'Fixed auth.ts login().' },
+      ],
+    });
+    const req = complete.mock.calls[0]![0] as Request;
+    // Still a single user message (no role-alternation risk).
+    expect(req.messages).toHaveLength(1);
+    expect(req.messages[0]!.role).toBe('user');
+    const content = req.messages[0]!.content as string;
+    expect(content).toMatch(/context only/i);
+    expect(content).toContain('User: fix the null deref in auth.ts');
+    expect(content).toContain('Assistant: Fixed auth.ts login().');
+    expect(content).toContain('Latest message to refine:');
+    expect(content).toContain('do the same for the other file');
+  });
+
+  it('returns null on provider error (best-effort, never throws)', async () => {
+    const provider = makeProvider(async () => {
+      throw new Error('boom');
+    });
+    const out = await enhanceUserPrompt({ provider, model: 'm', text: 'fix the bug here' });
+    expect(out).toBeNull();
+  });
+
+  it('returns null when the provider yields empty text', async () => {
+    const provider = makeProvider(async () => textResponse('   '));
+    const out = await enhanceUserPrompt({ provider, model: 'm', text: 'fix the bug here' });
+    expect(out).toBeNull();
+  });
+
+  it('returns null on timeout', async () => {
+    const provider = makeProvider(
+      (_req, { signal }) =>
+        new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(new Error('aborted')));
+        }),
+    );
+    const out = await enhanceUserPrompt({
+      provider,
+      model: 'm',
+      text: 'fix the bug here',
+      timeoutMs: 20,
+    });
+    expect(out).toBeNull();
+  });
+});
+
+describe('recentTextTurns', () => {
+  const msg = (role: Message['role'], content: Message['content']): Message => ({ role, content });
+
+  it('extracts user/assistant text turns oldest→newest', () => {
+    const out = recentTextTurns([
+      msg('user', 'first'),
+      msg('assistant', [{ type: 'text', text: 'reply' }]),
+      msg('user', 'second'),
+    ]);
+    expect(out).toEqual([
+      { role: 'user', text: 'first' },
+      { role: 'assistant', text: 'reply' },
+      { role: 'user', text: 'second' },
+    ]);
+  });
+
+  it('skips system messages and tool-only turns', () => {
+    const out = recentTextTurns([
+      msg('system', 'you are a bot'),
+      msg('user', [{ type: 'tool_result', tool_use_id: 't1', content: 'big output' }]),
+      msg('assistant', [{ type: 'tool_use', id: 't1', name: 'read', input: {} }]),
+      msg('user', 'real question'),
+    ]);
+    expect(out).toEqual([{ role: 'user', text: 'real question' }]);
+  });
+
+  it('keeps only the last maxTurns', () => {
+    const messages = Array.from({ length: 10 }, (_, i) => msg('user', `m${i}`));
+    const out = recentTextTurns(messages, 3);
+    expect(out.map((t) => t.text)).toEqual(['m7', 'm8', 'm9']);
+  });
+
+  it('truncates long turns to maxChars', () => {
+    const out = recentTextTurns([msg('user', 'x'.repeat(100))], 6, 10);
+    expect(out[0]!.text.length).toBe(10);
+    expect(out[0]!.text.endsWith('…')).toBe(true);
+  });
+});

@@ -62,17 +62,6 @@ function rig(projectRoot: string) {
   return { registry, renderer, ctx };
 }
 
-const fakeCtx = {
-  messages: [],
-  todos: [],
-  systemPrompt: [],
-  readFiles: new Set(),
-  fileMtimes: new Map(),
-  model: 'test-model',
-  cwd: '/tmp',
-  projectRoot: '/proj',
-} as unknown as Context;
-
 describe('/goal slash command', () => {
   let tmp: string;
 
@@ -86,43 +75,49 @@ describe('/goal slash command', () => {
   });
 
   it('reports no goal set when goal.json is missing', async () => {
-    const { registry } = rig(tmp);
-    const result = await registry.dispatch('/goal', fakeCtx);
+    const { registry, ctx } = rig(tmp);
+    const result = await registry.dispatch('/goal', ctx as SlashCommandContext);
     expect(result?.message).toMatch(/No goal set/);
   });
 
   it('/goal set writes the file and reports back', async () => {
-    const { registry } = rig(tmp);
-    const result = await registry.dispatch('/goal set Ship release v2', fakeCtx);
+    const { registry, ctx } = rig(tmp);
+    const c = ctx as SlashCommandContext;
+    const result = await registry.dispatch('/goal set Ship release v2', c);
     expect(result?.message).toContain('Goal locked');
     expect(result?.message).toContain('Ship release v2');
     expect(result?.runText).toContain('GOAL — LOCKED IN');
     expect(result?.runText).toContain('Ship release v2');
-    const onDisk = await loadGoal(goalFilePath(tmp));
+    const goalPath = c.paths?.projectGoal ?? goalFilePath(tmp);
+    const onDisk = await loadGoal(goalPath);
     expect(onDisk?.goal).toBe('Ship release v2');
     expect(onDisk?.iterations).toBe(0);
   });
 
   it('/goal <text> without "set" prefix is treated as setting the goal', async () => {
-    const { registry } = rig(tmp);
-    const result = await registry.dispatch('/goal rewrite the auth module', fakeCtx);
+    const { registry, ctx } = rig(tmp);
+    const c = ctx as SlashCommandContext;
+    const result = await registry.dispatch('/goal rewrite the auth module', c);
     expect(result?.message).toContain('Goal locked');
     expect(result?.message).toContain('rewrite the auth module');
     expect(result?.runText).toContain('rewrite the auth module');
-    const onDisk = await loadGoal(goalFilePath(tmp));
+    const goalPath = c.paths?.projectGoal ?? goalFilePath(tmp);
+    const onDisk = await loadGoal(goalPath);
     expect(onDisk?.goal).toBe('rewrite the auth module');
   });
 
   it('/goal set with existing goal preserves the iteration counter', async () => {
+    const { registry, ctx } = rig(tmp);
+    const c = ctx as SlashCommandContext;
+    const goalPath = c.paths?.projectGoal ?? goalFilePath(tmp);
     // Seed an existing goal with journal entries.
     let seed = emptyGoal('original mission');
     seed = appendJournal(seed, { source: 'todo', task: 'a', status: 'success' });
     seed = appendJournal(seed, { source: 'git', task: 'b', status: 'success' });
-    await saveGoal(goalFilePath(tmp), seed);
+    await saveGoal(goalPath, seed);
 
-    const { registry } = rig(tmp);
-    await registry.dispatch('/goal set replaced mission', fakeCtx);
-    const after = await loadGoal(goalFilePath(tmp));
+    await registry.dispatch('/goal set replaced mission', c);
+    const after = await loadGoal(goalPath);
     expect(after?.goal).toBe('replaced mission');
     // Journal + iteration count preserved across set.
     expect(after?.iterations).toBe(2);
@@ -130,45 +125,51 @@ describe('/goal slash command', () => {
   });
 
   it('/goal clear unlinks the goal file and signals stop', async () => {
-    await saveGoal(goalFilePath(tmp), emptyGoal('to be cleared'));
     const { registry, ctx } = rig(tmp);
+    const c = ctx as SlashCommandContext;
+    const goalPath = c.paths?.projectGoal ?? goalFilePath(tmp);
+    await saveGoal(goalPath, emptyGoal('to be cleared'));
     const stopSpy = vi.fn();
-    (ctx as SlashCommandContext).onEternalStop = stopSpy;
-    const result = await registry.dispatch('/goal clear', fakeCtx);
+    c.onEternalStop = stopSpy;
+    const result = await registry.dispatch('/goal clear', c);
     expect(result?.message).toMatch(/Goal cleared/);
     expect(stopSpy).toHaveBeenCalledOnce();
-    const after = await loadGoal(goalFilePath(tmp));
+    const after = await loadGoal(goalPath);
     expect(after).toBeNull();
   });
 
   it('/goal clear is a no-op when no goal exists', async () => {
-    const { registry } = rig(tmp);
-    const result = await registry.dispatch('/goal clear', fakeCtx);
+    const { registry, ctx } = rig(tmp);
+    const result = await registry.dispatch('/goal clear', ctx as SlashCommandContext);
     expect(result?.message).toMatch(/No goal to clear/);
   });
 
   it('/goal journal shows recent entries', async () => {
+    const { registry, ctx } = rig(tmp);
+    const c = ctx as SlashCommandContext;
+    const goalPath = c.paths?.projectGoal ?? goalFilePath(tmp);
     let seed = emptyGoal('journaled goal');
     seed = appendJournal(seed, { source: 'todo', task: 'first task', status: 'success' });
     seed = appendJournal(seed, { source: 'git', task: 'second task', status: 'failure', note: 'broke tests' });
-    await saveGoal(goalFilePath(tmp), seed);
+    await saveGoal(goalPath, seed);
 
-    const { registry } = rig(tmp);
-    const result = await registry.dispatch('/goal journal', fakeCtx);
+    const result = await registry.dispatch('/goal journal', c);
     expect(result?.message).toContain('first task');
     expect(result?.message).toContain('second task');
     expect(result?.message).toContain('broke tests');
   });
 
   it('/goal journal N respects the limit', async () => {
+    const { registry, ctx } = rig(tmp);
+    const c = ctx as SlashCommandContext;
+    const goalPath = c.paths?.projectGoal ?? goalFilePath(tmp);
     let seed = emptyGoal('many entries');
     for (let i = 1; i <= 10; i++) {
       seed = appendJournal(seed, { source: 'todo', task: `task-${i}`, status: 'success' });
     }
-    await saveGoal(goalFilePath(tmp), seed);
+    await saveGoal(goalPath, seed);
 
-    const { registry } = rig(tmp);
-    const result = await registry.dispatch('/goal journal 3', fakeCtx);
+    const result = await registry.dispatch('/goal journal 3', c);
     expect(result?.message).toContain('task-10');
     expect(result?.message).toContain('task-9');
     expect(result?.message).toContain('task-8');
@@ -176,6 +177,9 @@ describe('/goal slash command', () => {
   });
 
   it('/goal status formats Spent line when telemetry is present', async () => {
+    const { registry, ctx } = rig(tmp);
+    const c = ctx as SlashCommandContext;
+    const goalPath = c.paths?.projectGoal ?? goalFilePath(tmp);
     let seed = emptyGoal('paid mission');
     seed = appendJournal(seed, {
       source: 'todo',
@@ -184,34 +188,37 @@ describe('/goal slash command', () => {
       tokens: { input: 5000, output: 2500 },
       costUsd: 0.075,
     });
-    await saveGoal(goalFilePath(tmp), seed);
+    await saveGoal(goalPath, seed);
 
-    const { registry } = rig(tmp);
-    const result = await registry.dispatch('/goal status', fakeCtx);
+    const result = await registry.dispatch('/goal status', c);
     expect(result?.message).toContain('Spent: $0.0750');
   });
 
   it('a single unknown word becomes the goal text (merged TUI semantics)', async () => {
-    const { registry } = rig(tmp);
-    const result = await registry.dispatch('/goal explode', fakeCtx);
+    const { registry, ctx } = rig(tmp);
+    const c = ctx as SlashCommandContext;
+    const goalPath = c.paths?.projectGoal ?? goalFilePath(tmp);
+    const result = await registry.dispatch('/goal explode', c);
     expect(result?.message).toContain('Goal locked');
     expect(result?.runText).toBeDefined();
-    const onDisk = await loadGoal(goalFilePath(tmp));
+    const onDisk = await loadGoal(goalPath);
     expect(onDisk?.goal).toBe('explode');
   });
 
   it('/goal journal reports "Journal is empty" when goal has no entries yet', async () => {
+    const { registry, ctx } = rig(tmp);
+    const c = ctx as SlashCommandContext;
+    const goalPath = c.paths?.projectGoal ?? goalFilePath(tmp);
     // Seed a goal with no journal entries.
     const seed = emptyGoal('fresh goal');
-    await saveGoal(goalFilePath(tmp), seed);
-    const { registry } = rig(tmp);
-    const result = await registry.dispatch('/goal journal', fakeCtx);
+    await saveGoal(goalPath, seed);
+    const result = await registry.dispatch('/goal journal', c);
     expect(result?.message).toMatch(/empty/i);
   });
 
   it('/goal journal without a saved goal reports "No goal set"', async () => {
-    const { registry } = rig(tmp);
-    const result = await registry.dispatch('/goal journal', fakeCtx);
+    const { registry, ctx } = rig(tmp);
+    const result = await registry.dispatch('/goal journal', ctx as SlashCommandContext);
     expect(result?.message).toMatch(/no goal set/i);
   });
 });

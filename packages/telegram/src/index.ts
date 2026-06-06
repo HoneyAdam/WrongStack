@@ -3,6 +3,7 @@ import { TelegramBot } from './bot.js';
 import type { TelegramIncomingMessage } from './bot.js';
 import { truncateForTelegram } from './bot.js';
 import { PLUGIN_NAME, readTelegramConfig, telegramConfigSchema } from './config.js';
+import { formatDelegateCompleted } from './format.js';
 import { registerSlashCommands } from './slash-commands/index.js';
 import { makeTelegramReadTool } from './tools/telegram-read.js';
 import { makeTelegramSendTool } from './tools/telegram-send.js';
@@ -152,6 +153,23 @@ const plugin: Plugin = {
 
           void bot.sendMessage(cfg.notifyChatId!, msg).catch((err) => {
             log.warn(`Failed to send tool notification: ${(err as Error).message}`);
+          });
+        }),
+      );
+    }
+
+    // Notify (humanized) when a delegated subagent finishes. The generic
+    // `tool.executed` notifier would dump the delegate's truncated JSON
+    // result; `delegate.completed` carries readable fields instead.
+    if (cfg.notifyOnDelegate && cfg.notifyChatId) {
+      offs.push(
+        api.events.on('delegate.completed', (event) => {
+          const msg = truncateForTelegram(
+            formatDelegateCompleted(event),
+            cfg.maxMessageLength,
+          );
+          void bot.sendMessage(cfg.notifyChatId!, msg).catch((err) => {
+            log.warn(`Failed to send delegate notification: ${(err as Error).message}`);
           });
         }),
       );

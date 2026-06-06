@@ -214,29 +214,88 @@ export function SettingsPicker({
     },
   ];
 
+  // Build field → row index mapping. `rows` includes section headers
+  // that are NOT counted by `field`; without this mapping the highlight
+  // lands on the wrong row (or never shows on the first field).
+  const fieldRowIndex: number[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    if (!rows[i]!.section) fieldRowIndex.push(i);
+  }
+
+  // Compute visible window. On small terminals, the picker can overflow;
+  // we show at most VISIBLE_FIELDS around the current selection so every
+  // field stays reachable.
+  const VISIBLE_FIELDS = 8;
+  const totalFields = fieldRowIndex.length; // = SETTINGS_FIELD_COUNT = 19
+  const windowStart =
+    totalFields <= VISIBLE_FIELDS
+      ? 0
+      : Math.max(0, Math.min(field - Math.floor(VISIBLE_FIELDS / 2), totalFields - VISIBLE_FIELDS));
+  const windowEnd = Math.min(windowStart + VISIBLE_FIELDS, totalFields);
+  const hasAbove = windowStart > 0;
+  const hasBelow = windowEnd < totalFields;
+
+  // Build section → field range map so we can decide whether to show
+  // a section header (show it when ANY of its fields are in the window).
+  const sectionFields: Array<{ headerIdx: number; fieldStart: number; fieldEnd: number }> = [];
+  let curHeader = -1;
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i]!.section) curHeader = i;
+    else if (curHeader >= 0) {
+      const fieldIdx = fieldRowIndex.indexOf(i);
+      if (fieldIdx === -1) continue;
+      const entry = sectionFields.find((s) => s.headerIdx === curHeader);
+      if (entry) {
+        entry.fieldEnd = fieldIdx + 1;
+      } else {
+        sectionFields.push({ headerIdx: curHeader, fieldStart: fieldIdx, fieldEnd: fieldIdx + 1 });
+      }
+    }
+  }
+  const shouldShowSection = (headerIdx: number): boolean => {
+    const sec = sectionFields.find((s) => s.headerIdx === headerIdx);
+    if (!sec) return false;
+    return sec.fieldStart < windowEnd && sec.fieldEnd > windowStart;
+  };
+
   return (
-    <Box flexDirection="column" paddingX={1}>
+    <Box flexDirection="column" borderStyle="round" borderColor="yellow" paddingX={1}>
       <Text color="cyan" bold>
         ━━ Settings ━━
       </Text>
       <Text dimColor>↑/↓ field · ←/→ change · Enter save · Esc cancel</Text>
+      {hasAbove ? (
+        <Text dimColor>{`  ↑ ${windowStart} field${windowStart === 1 ? '' : 's'} above`}</Text>
+      ) : null}
       {rows.map((row, i) => {
-        if (row.section) {
-          return (
-            <Text key={`section-${i}`} bold color="green">
-              ── {row.section} ──
-            </Text>
-          );
+        const fieldAtRow = fieldRowIndex.indexOf(i);
+        // Section headers are always shown when they fall between visible fields.
+        // Non-section rows are only shown when their field index is in the window.
+        if (fieldAtRow === -1) {
+          // Section header — show when any of its fields are in the window.
+          if (shouldShowSection(i)) {
+            return (
+              <Text key={`section-${i}`} bold color="green">
+                ── {row.section} ──
+              </Text>
+            );
+          }
+          return null;
         }
+        if (fieldAtRow < windowStart || fieldAtRow >= windowEnd) return null;
+        const selected = fieldAtRow === field;
         return (
-          <Text key={`row-${i}`} color={i === field ? 'yellow' : undefined} inverse={i === field}>
-            {i === field ? '› ' : '  '}
+          <Text key={`row-${i}`} color={selected ? 'yellow' : undefined} inverse={selected}>
+            {selected ? '› ' : '  '}
             <Text bold>{(row.label ?? '').padEnd(26)}</Text>
             <Text color="cyan">{String(row.value ?? '').padEnd(12)}</Text>
             <Text dimColor>{row.detail ?? ''}</Text>
           </Text>
         );
       })}
+      {hasBelow ? (
+        <Text dimColor>{`  ↓ ${totalFields - windowEnd} field${totalFields - windowEnd === 1 ? '' : 's'} below`}</Text>
+      ) : null}
       <Text dimColor>Persisted to ~/.wrongstack/config.json</Text>
       {hint ? <Text color="yellow">{hint}</Text> : null}
     </Box>

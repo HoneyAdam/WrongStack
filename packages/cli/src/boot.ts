@@ -117,7 +117,15 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
   const { cwd, projectRoot, userHome, wpaths, pathResolver } = paths;
   void pathResolver; // used by callers via container binding
 
-  const logger = new DefaultLogger({ level: config.log.level, file: wpaths.logFile });
+  const logger = new DefaultLogger({
+    level: config.log.level,
+    file: wpaths.logFile,
+    // Suppress stderr output in TUI mode: plugin/library log messages
+    // (e.g. Telegram "getUpdates failed") write directly to stderr and
+    // bypass Ink, which breaks the Static/live boundary in non-altScreen
+    // mode. Logs still go to the disk file for post-hoc debugging.
+    stderr: !flags.tui,
+  });
   const renderer = new TerminalRenderer();
   const reader = new ReadlineInputReader({ historyFile: wpaths.historyFile });
   const modelsRegistry = new DefaultModelsRegistry({

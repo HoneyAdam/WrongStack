@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { reducer, selectedSlashCommandLine } from '../src/app.js';
+import { SETTINGS_FIELD_COUNT } from '../src/components/settings-picker.js';
 
 function initial() {
   return {
@@ -31,6 +32,9 @@ function initial() {
       selected: 0,
     },
     confirm: null,
+    enhance: null,
+    enhanceEnabled: true,
+    enhanceBusy: false,
     contextChipVersion: 0,
     fleet: {},
     fleetCost: 0,
@@ -268,6 +272,63 @@ describe('TUI reducer', () => {
     expect(s.fleet['agent-1']?.recentTools[1]?.ok).toBe(false);
   });
 
+  it('enhanceOpen sets the panel state and enhanceClose clears it', () => {
+    let s = initial();
+    const resolve = () => {};
+    s = reducer(s, {
+      type: 'enhanceOpen',
+      info: { original: 'fix the bug', refined: 'Fix the null deref in auth.ts', resolve },
+    });
+    expect(s.enhance).toEqual({
+      original: 'fix the bug',
+      refined: 'Fix the null deref in auth.ts',
+      resolve,
+    });
+    s = reducer(s, { type: 'enhanceClose' });
+    expect(s.enhance).toBeNull();
+  });
+
+  it('enhanceSet toggles the enhanceEnabled flag', () => {
+    let s = initial();
+    expect(s.enhanceEnabled).toBe(true);
+    s = reducer(s, { type: 'enhanceSet', enabled: false });
+    expect(s.enhanceEnabled).toBe(false);
+    s = reducer(s, { type: 'enhanceSet', enabled: true });
+    expect(s.enhanceEnabled).toBe(true);
+  });
+
+  it('fleetCost folds per-subagent cost into the matching fleet entries', () => {
+    let s = initial();
+    s = reducer(s, { type: 'fleetSpawn', id: 'agent-1', name: 'worker' });
+    s = reducer(s, { type: 'fleetSpawn', id: 'agent-2', name: 'helper' });
+    s = reducer(s, {
+      type: 'fleetCost',
+      cost: 0.5,
+      input: 1000,
+      output: 200,
+      perAgent: {
+        'agent-1': { cost: 0.3 },
+        'agent-2': { cost: 0.2 },
+        // An unknown id must be ignored, not crash or create an entry.
+        'ghost-agent': { cost: 9.9 },
+      },
+    });
+
+    expect(s.fleetCost).toBe(0.5);
+    expect(s.fleetTokens).toEqual({ input: 1000, output: 200 });
+    expect(s.fleet['agent-1']?.cost).toBe(0.3);
+    expect(s.fleet['agent-2']?.cost).toBe(0.2);
+    expect(s.fleet['ghost-agent']).toBeUndefined();
+  });
+
+  it('fleetCost without perAgent leaves entry costs untouched', () => {
+    let s = initial();
+    s = reducer(s, { type: 'fleetSpawn', id: 'agent-1', name: 'worker' });
+    s = reducer(s, { type: 'fleetCost', cost: 1.2 });
+    expect(s.fleetCost).toBe(1.2);
+    expect(s.fleet['agent-1']?.cost).toBe(0);
+  });
+
   it('fleetMessage keeps only the last two compact text snippets', () => {
     let s = initial();
     s = reducer(s, { type: 'fleetSpawn', id: 'agent-1', name: 'worker' });
@@ -362,11 +423,55 @@ describe('settings picker reducer', () => {
   // reducer returns {...state, settingsPicker}, so other fields are irrelevant.
   const base = (over: Record<string, unknown> = {}) =>
     ({
-      settingsPicker: { open: false, field: 0, mode: 'off', delayMs: 0, ...over },
+      settingsPicker: {
+        open: false,
+        field: 0,
+        mode: 'off' as const,
+        delayMs: 0,
+        titleAnimation: true,
+        yolo: false,
+        streamFleet: true,
+        chime: false,
+        confirmExit: true,
+        nextPrediction: false,
+        featureMcp: true,
+        featurePlugins: true,
+        featureMemory: true,
+        featureSkills: true,
+        featureModelsRegistry: true,
+        contextAutoCompact: true,
+        contextStrategy: 'hybrid' as const,
+        logLevel: 'info' as const,
+        auditLevel: 'standard' as const,
+        indexOnStart: true,
+        maxIterations: 500,
+        ...over,
+      },
     }) as unknown as Parameters<typeof reducer>[0];
 
   it('opens with the supplied mode + delay and focuses the first field', () => {
-    const s = reducer(base(), { type: 'settingsOpen', mode: 'auto', delayMs: 30_000 });
+    const s = reducer(base(), {
+      type: 'settingsOpen',
+      mode: 'auto',
+      delayMs: 30_000,
+      titleAnimation: true,
+      yolo: false,
+      streamFleet: true,
+      chime: false,
+      confirmExit: true,
+      nextPrediction: false,
+      featureMcp: true,
+      featurePlugins: true,
+      featureMemory: true,
+      featureSkills: true,
+      featureModelsRegistry: true,
+      contextAutoCompact: true,
+      contextStrategy: 'hybrid',
+      logLevel: 'info',
+      auditLevel: 'standard',
+      indexOnStart: true,
+      maxIterations: 500,
+    });
     expect(s.settingsPicker).toMatchObject({ open: true, field: 0, mode: 'auto', delayMs: 30_000 });
   });
 
@@ -377,10 +482,14 @@ describe('settings picker reducer', () => {
     expect(s.settingsPicker).toMatchObject({ open: false, mode: 'suggest', delayMs: 15_000 });
   });
 
-  it('field move wraps between the two fields', () => {
+  it('field move wraps between fields', () => {
+    // SETTINGS_FIELD_COUNT = 19; wrap back to 0 after the last field.
     let s = reducer(base({ open: true, field: 0 }), { type: 'settingsFieldMove', delta: 1 });
     expect(s.settingsPicker.field).toBe(1);
-    s = reducer(s, { type: 'settingsFieldMove', delta: 1 });
+    // Move forward enough to wrap around
+    for (let i = 1; i < SETTINGS_FIELD_COUNT; i++) {
+      s = reducer(s, { type: 'settingsFieldMove', delta: 1 });
+    }
     expect(s.settingsPicker.field).toBe(0);
   });
 

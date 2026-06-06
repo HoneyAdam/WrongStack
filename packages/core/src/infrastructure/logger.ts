@@ -25,6 +25,14 @@ export interface DefaultLoggerOptions {
   file?: string;
   pretty?: boolean;
   bindings?: Record<string, unknown>;
+  /**
+   * When false, suppress stderr output entirely — only write to the log
+   * file (if configured). Use this in TUI mode so plugin/library log
+   * messages don't interleave with Ink's terminal rendering and break
+   * the Static/live boundary in non-altScreen mode.
+   * Default: true (stderr output is enabled).
+   */
+  stderr?: boolean;
 }
 
 export class DefaultLogger implements Logger {
@@ -32,12 +40,14 @@ export class DefaultLogger implements Logger {
   private readonly file?: string;
   private readonly bindings: Record<string, unknown>;
   private readonly pretty: boolean;
+  private readonly stderr: boolean;
 
   constructor(opts: DefaultLoggerOptions = {}) {
     this.level = opts.level ?? (process.env.WRONGSTACK_LOG_LEVEL as LogLevel) ?? 'info';
     this.file = opts.file;
     this.bindings = opts.bindings ?? {};
     this.pretty = opts.pretty ?? true;
+    this.stderr = opts.stderr !== false; // default true
     if (this.file) {
       try {
         fs.mkdirSync(path.dirname(this.file), { recursive: true });
@@ -68,6 +78,7 @@ export class DefaultLogger implements Logger {
       level: this.level,
       file: this.file,
       pretty: this.pretty,
+      stderr: this.stderr,
       bindings: { ...this.bindings, ...bindings },
     });
   }
@@ -89,7 +100,9 @@ export class DefaultLogger implements Logger {
         // ignore
       }
     }
-    // Stderr: pretty or json
+    // Stderr: pretty or json. Suppressed when this.stderr is false (TUI mode)
+    // so plugin/library log messages don't interleave with Ink's rendering.
+    if (!this.stderr) return;
     if (r <= LEVEL_RANK.warn || this.level === 'debug' || this.level === 'trace') {
       const head = `${color.dim(ts)} ${COLORS[level](level.toUpperCase().padEnd(5))} ${msg}`;
       if (ctx !== undefined) {

@@ -32,7 +32,7 @@ export function QueuePanel({ items }: { items: QueueItem[] }): React.ReactElemen
   const overflow = items.length - visible.length;
 
   return (
-    <Box flexDirection="column" flexGrow={1} paddingX={1}>
+    <Box flexDirection="column" flexGrow={1} borderStyle="round" borderColor="cyan" paddingX={1}>
       <Box flexDirection="column" marginBottom={1}>
         <Box flexDirection="row" gap={1}>
           <Text bold color="cyan">

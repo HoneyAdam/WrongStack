@@ -76,7 +76,7 @@ export function buildModeCommand(
       '  /mode brief    Switch to brief mode',
       '  /mode teach    Switch to teach mode',
     ].join('\n'),
-    async run(args, _ctx) {
+    async run(args, ctx) {
       const modeStore = opts.modeStore;
       if (!modeStore) {
         return { message: 'Mode store not available in this context.' };
@@ -93,6 +93,7 @@ export function buildModeCommand(
             return { message: 'Mode selection cancelled.' };
           }
           await modeStore.setActiveMode(selected.id);
+          ctx?.state?.setMeta?.('mode', selected.id);
           return {
             message: `Switched to "${selected.name}" mode.\n${selected.description}`,
           };
@@ -116,6 +117,7 @@ export function buildModeCommand(
       }
 
       await modeStore.setActiveMode(targetMode.id);
+      ctx?.state?.setMeta?.('mode', targetMode.id);
       return {
         message: `Switched to "${targetMode.name}" mode.\n${targetMode.description}`,
       };

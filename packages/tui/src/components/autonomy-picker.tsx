@@ -53,7 +53,7 @@ export function AutonomyPicker({
   hint,
 }: AutonomyPickerProps): React.ReactElement {
   return (
-    <Box flexDirection="column" paddingX={1}>
+    <Box flexDirection="column" borderStyle="round" borderColor="magenta" paddingX={1}>
       <Text color="cyan" bold>
         ━━ Autonomy Mode ━━
       </Text>

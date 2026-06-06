@@ -55,7 +55,7 @@ export function ModelPicker({
 }: ModelPickerProps): React.ReactElement {
   if (step === 'provider') {
     return (
-      <Box flexDirection="column" paddingX={1}>
+      <Box flexDirection="column" borderStyle="round" borderColor="yellow" paddingX={1}>
         <Text color="cyan" bold>
           {'━━ Switch model — Step 1/2: Pick provider ━━'}
         </Text>
@@ -92,7 +92,7 @@ export function ModelPicker({
       : '';
 
   return (
-    <Box flexDirection="column" paddingX={1}>
+    <Box flexDirection="column" borderStyle="round" borderColor="yellow" paddingX={1}>
       <Text color="cyan" bold>
         {'━━ Switch model — Step 2/2: Pick model '}({pickedProviderId}
         {searchHint}){' ━━'}

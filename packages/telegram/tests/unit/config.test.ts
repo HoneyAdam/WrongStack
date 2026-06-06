@@ -8,6 +8,7 @@ describe('telegram config', () => {
     expect(cfg.pollIntervalSec).toBe(2);
     expect(cfg.notifyOnSessionEnd).toBe(false);
     expect(cfg.longToolThresholdMs).toBe(30_000);
+    expect(cfg.notifyOnDelegate).toBe(true);
     expect(cfg.maxMessageLength).toBe(4000);
     expect(cfg.allowedUsers).toEqual([]);
     expect(cfg.allowedChats).toEqual([]);

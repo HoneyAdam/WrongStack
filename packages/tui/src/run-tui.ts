@@ -109,6 +109,8 @@ export interface RunTuiOptions {
   confirmExit?: boolean;
   /** Active agent mode label shown in the status bar (e.g. "teach", "brief"). */
   modeLabel?: string;
+  /** Live getter for the agent mode label so the status bar updates after /mode. */
+  getModeLabel?: () => string;
   /**
    * Called right after we exit the alt-screen on a clean shutdown. The
    * CLI uses this to print a one-line "session saved to …" hint into
@@ -148,6 +150,16 @@ export interface RunTuiOptions {
    * both sides stay synchronized.
    */
   fleetStreamController?: {
+    enabled: boolean;
+    setEnabled: (enabled: boolean) => void;
+  };
+  /**
+   * Controller for the `/enhance on|off` prompt-refinement toggle. The App
+   * installs a dispatch-backed `setEnabled` here on mount so the slash command
+   * (run in the CLI process) flips the TUI's reducer flag. Mirrors
+   * `fleetStreamController`.
+   */
+  enhanceController?: {
     enabled: boolean;
     setEnabled: (enabled: boolean) => void;
   };
@@ -404,6 +416,8 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
             ? (dispatch) => opts.onClearHistory!(dispatch)
             : undefined,
           fleetStreamController: opts.fleetStreamController,
+          enhanceController: opts.enhanceController,
+          enhanceEnabled: opts.enhanceController?.enabled ?? true,
           statuslineHiddenItems: opts.statuslineHiddenItems,
           setStatuslineHiddenItems: opts.setStatuslineHiddenItems,
           agentsMonitorController: opts.agentsMonitorController,
@@ -422,6 +436,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
           chime: opts.chime,
           confirmExit: opts.confirmExit,
           modeLabel: opts.modeLabel,
+          getModeLabel: opts.getModeLabel,
         }),
         { exitOnCtrlC: false, stdin: inkStdin },
       );

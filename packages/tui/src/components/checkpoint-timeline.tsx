@@ -38,7 +38,7 @@ export function CheckpointTimeline({
   });
 
   return (
-    <Box flexDirection="column" padding={1}>
+    <Box flexDirection="column" borderStyle="round" borderColor="cyan" padding={1}>
       <Box marginBottom={1}>
         <Text bold color="cyan">
           ⟲ Session Rewind

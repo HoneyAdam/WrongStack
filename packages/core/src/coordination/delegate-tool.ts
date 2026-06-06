@@ -1,6 +1,7 @@
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import type { EventBus } from '../kernel/events.js';
 import type { SubagentConfig, TaskResult } from '../types/multi-agent.js';
 import type { JSONSchema, Tool } from '../types/tool.js';
 import type { Director } from './director.js';
@@ -71,6 +72,15 @@ export interface CreateDelegateToolOptions {
    * more headroom before the host kills them).
    */
   subagentTimeoutBufferMs?: number;
+  /**
+   * Host EventBus. When supplied, `delegate` emits `delegate.started`
+   * (before it blocks on the subagent) and `delegate.completed` (once the
+   * subagent settles) so UIs / the Telegram bridge can render readable
+   * start/finish lines instead of inferring them from the truncated
+   * `tool.executed` JSON preview. Optional — emits are best-effort and a
+   * missing bus never affects delegation behaviour.
+   */
+  events?: EventBus;
 }
 
 /**
@@ -197,6 +207,11 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
         return { ok: false, error: '`task` is required.' };
       }
 
+      // Human-friendly label for the subagent — surfaced in the
+      // delegate.* events so UIs say "Delegating → bug-hunter" rather
+      // than echoing an opaque generated id.
+      const target = i.role ?? i.name ?? 'subagent';
+
         try {
           let director = await opts.host.ensureDirector();
           if (!director) {
@@ -272,6 +287,11 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
             cfg.timeoutMs = Math.max(30_000, timeoutMs - SUBAGENT_TIMEOUT_BUFFER_MS);
           }
 
+          // Announce the delegation before we block — UIs render a
+          // "started" line immediately so the (often minutes-long) wait
+          // doesn't look idle.
+          opts.events?.emit('delegate.started', { target, task: i.task });
+
           const subagentId = await director.spawn(cfg);
           const taskId = await director.assign({
             id: `${randomUUID()}`,
@@ -319,6 +339,17 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
 
           if ('__timeout' in result) {
             const partial = await readSubagentPartial(opts, subagentId);
+            opts.events?.emit('delegate.completed', {
+              target,
+              task: i.task,
+              ok: false,
+              status: 'host_timeout',
+              summary: `[${target}] timed out — no result within ${Math.round(timeoutMs / 1000)}s`,
+              durationMs: timeoutMs,
+              iterations: partial?.events ?? 0,
+              toolCalls: partial?.toolUsesObserved ?? 0,
+              subagentId,
+            });
             return {
               ok: false,
               stopReason: 'host_timeout',
@@ -349,6 +380,27 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
           // what the subagent accomplished without digging into the full result.
           const summary = buildDelegateSummary(i.role, result);
 
+          // Per-subagent cost from the director's usage aggregator, when it
+          // tracks one. Best-effort: undefined if pricing isn't wired.
+          let costUsd: number | undefined;
+          try {
+            costUsd = dir.snapshot().perSubagent[result.subagentId]?.cost;
+          } catch {
+            costUsd = undefined;
+          }
+          opts.events?.emit('delegate.completed', {
+            target,
+            task: i.task,
+            ok: result.status === 'success',
+            status: result.status,
+            summary,
+            durationMs: result.durationMs,
+            iterations: result.iterations,
+            toolCalls: result.toolCalls,
+            costUsd,
+            subagentId: result.subagentId,
+          });
+
           return {
             ok: result.status === 'success',
             status: result.status,
@@ -372,10 +424,24 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
             summary,
           };
         } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          // Resolve any "started" line the UI is showing — without this a
+          // spawn/assign failure after delegate.started would leave a
+          // dangling "Delegating…" entry with no outcome.
+          opts.events?.emit('delegate.completed', {
+            target,
+            task: i.task,
+            ok: false,
+            status: 'error',
+            summary: `[${target}] failed — ${message}`,
+            durationMs: 0,
+            iterations: 0,
+            toolCalls: 0,
+          });
           return {
             ok: false,
             stopReason: 'error' as const,
-            error: err instanceof Error ? err.message : String(err),
+            error: message,
           };
         }
     },
