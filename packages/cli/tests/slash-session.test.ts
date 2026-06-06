@@ -68,7 +68,7 @@ describe('buildLoadCommand', () => {
     expect(res?.message).toContain('Recent sessions');
     expect(res?.message).toContain('first task');
     expect(res?.message).toContain('second task');
-    expect(res?.message).toContain('Resume one with: wstack resume a');
+    expect(res?.message).toContain('Resume: wstack resume a');
     expect(write).toHaveBeenCalled();
   });
 });

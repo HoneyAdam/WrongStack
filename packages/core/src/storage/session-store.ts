@@ -344,11 +344,12 @@ export class DefaultSessionStore implements SessionStore {
         const childPrefix = depth === 0 ? entry.name : `${prefix}/${entry.name}`;
         ids.push(...(await this.collectSessionIds(path.join(dir, entry.name), childPrefix, depth + 1)));
       } else if (entry.isFile() && entry.name.endsWith('.jsonl')) {
+        // Skip the session index itself — it's bookkeeping, not a session log.
+        // (Only skip THIS file at root, not every root-level jsonl: flat/legacy
+        // sessions and the test fixtures live directly under the sessions dir.)
+        if (entry.name === '_index.jsonl') continue;
         const base = entry.name.replace(/\.jsonl$/, '');
-        // Skip files at root level (like .jsonl that might be the index itself)
-        if (depth === 0) continue;
-        // Skip subagent session logs (they live under subagents/ which we skip above;
-        // but if somehow found, skip by heuristic: base starts with a known role name)
+        // Subagent session logs live under subagents/ which we skip above.
         ids.push(prefix ? `${prefix}/${base}` : base);
       }
     }

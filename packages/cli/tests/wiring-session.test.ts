@@ -45,6 +45,7 @@ function makeSessionStore(overrides: Partial<SessionStore> = {}): SessionStore {
     resume: vi.fn(),
     delete: vi.fn().mockResolvedValue(undefined),
     list: vi.fn().mockResolvedValue([]),
+    prune: vi.fn().mockResolvedValue(0),
     ...overrides,
   } as unknown as SessionStore;
 }
