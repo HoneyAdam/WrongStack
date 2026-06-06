@@ -93,6 +93,11 @@ EventBus              — agent.run() emits these, the TUI subscribes
 
 State is a single `useReducer` `State` shape with discriminated-union `Action`s. The reducer is exported (`reducer`) and unit-tested.
 
+## React Version
+
+TUI remains on React 18 because ink v5 does not yet fully support React 19.
+WebUI uses React 19. This is a known divergence tracked in this codebase.
+
 ## License
 
 MIT
