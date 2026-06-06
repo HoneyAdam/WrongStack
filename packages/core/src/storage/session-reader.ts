@@ -11,6 +11,15 @@ import type {
 import { compileUserRegex } from '../utils/regex-guard.js';
 import type { SessionEvent, SessionMetadata, SessionStore } from '../types/session.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 /**
  * L2-A: read-only view over a `SessionStore` with query, replay, search,
  * and export helpers. Implemented on top of the public `SessionStore`
@@ -54,7 +63,7 @@ export class DefaultSessionReader implements SessionReader {
     for (const e of data.events) yield e;
   }
 
-  async search(q: SessionSearchQuery, sessionId?: string, sessionQuery?: SessionQuery): Promise<SessionSearchHit[]> {
+  async search(q: SessionSearchQuery, sessionId?: string | undefined, sessionQuery?: SessionQuery): Promise<SessionSearchHit[]> {
     const limit = q.limit ?? 100;
     const matcher = buildMatcher(q);
     const allowedTypes = q.types ? new Set(q.types) : null;
@@ -88,7 +97,7 @@ export class DefaultSessionReader implements SessionReader {
         continue;
       }
       for (let i = 0; i < data.events.length; i++) {
-        const ev = data.events[i]!;
+        const ev = expectDefined(data.events[i]);
         if (allowedTypes && !allowedTypes.has(ev.type)) continue;
         const text = eventText(ev);
         if (text === null) continue;

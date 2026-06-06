@@ -27,11 +27,11 @@ export type AgentPhase =
 
 /** Per-role budget tier. Same shape as fleet.ts `FleetRosterBudget`. */
 export interface AgentBudgetTier {
-  timeoutMs?: number;
-  maxIterations?: number;
-  maxToolCalls?: number;
-  maxTokens?: number;
-  maxCostUsd?: number;
+  timeoutMs?: number | undefined;
+  maxIterations?: number | undefined;
+  maxToolCalls?: number | undefined;
+  maxTokens?: number | undefined;
+  maxCostUsd?: number | undefined;
 }
 
 /** Dispatcher routing metadata. */

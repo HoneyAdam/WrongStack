@@ -115,9 +115,9 @@ function validateArgs(cmd: string, args: string[]): string | null {
 
 interface ExecInput {
   command: string;
-  args?: string[];
-  cwd?: string;
-  timeout?: number;
+  args?: string[] | undefined;
+  cwd?: string | undefined;
+  timeout?: number | undefined;
 }
 
 interface ExecOutput {

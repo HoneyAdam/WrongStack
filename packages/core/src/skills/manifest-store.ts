@@ -11,7 +11,7 @@ export interface InstalledSkillEntry {
   /** Installation scope */
   scope: 'project' | 'user';
   /** Project hash — only set when scope=project */
-  projectHash?: string;
+  projectHash?: string | undefined;
   /** ISO 8601 timestamp */
   installedAt: string;
   /** List of files that were installed (relative to skill dir) */
@@ -24,7 +24,7 @@ export interface ManifestData {
 
 export class SkillManifestStore {
   private readonly manifestPath: string;
-  private cache?: ManifestData;
+  private cache?: ManifestData | undefined;
 
   constructor(manifestPath: string) {
     this.manifestPath = manifestPath;

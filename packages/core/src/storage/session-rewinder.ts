@@ -4,6 +4,15 @@ import type { CheckpointInfo, RewindResult, RewindResultExtended, SessionRewinde
 import type { SessionEvent, FileSnapshot } from '../types/session.js';
 import { atomicWrite } from '../utils/atomic-write.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export interface SessionRewinderOptions {
   sessionsDir: string;
   /** The project root directory; used to validate rewind targets stay inside it. */
@@ -57,7 +66,7 @@ export class DefaultSessionRewinder implements SessionRewinder {
 
     let targetIdx = -1;
     for (let i = 0; i < events.length; i++) {
-      const event = events[i]!;
+      const event = expectDefined(events[i]);
       if (event.type === 'checkpoint') {
         const checkpointEvent = event as { promptIndex: number };
         if (checkpointEvent.promptIndex === checkpointIndex) {
@@ -73,7 +82,7 @@ export class DefaultSessionRewinder implements SessionRewinder {
 
     const snapshotsToRevert: Array<{ promptIndex: number; files: FileSnapshot[] }> = [];
     for (let i = targetIdx + 1; i < events.length; i++) {
-      const event = events[i]!;
+      const event = expectDefined(events[i]);
       if (event.type === 'checkpoint') {
         break;
       }
@@ -157,8 +166,8 @@ function parseEvents(raw: string): SessionEvent[] {
       if (
         parsed !== null &&
         typeof parsed === 'object' &&
-        typeof (parsed as { type?: unknown }).type === 'string' &&
-        typeof (parsed as { ts?: unknown }).ts === 'string'
+        typeof (parsed as { type?: unknown | undefined }).type === 'string' &&
+        typeof (parsed as { ts?: unknown | undefined }).ts === 'string'
       ) {
         events.push(parsed as SessionEvent);
       }

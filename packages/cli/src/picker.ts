@@ -6,6 +6,15 @@ import { hasApiKey } from './provider-helpers.js';
 import type { TerminalRenderer } from './renderer.js';
 import { backupCurrent, appendHistory } from './config-history.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 // Simple theme alias (avoids importing the full theme module just for one color)
 const theme = { primary: color.amber };
 
@@ -82,9 +91,9 @@ export async function runPicker(deps: {
   modelsRegistry: ModelsRegistry;
   renderer: TerminalRenderer;
   reader: ReadlineInputReader;
-  config?: Config;
-  defaultProvider?: string;
-  defaultModel?: string;
+  config?: Config | undefined;
+  defaultProvider?: string | undefined;
+  defaultModel?: string | undefined;
 }): Promise<PickerResult | undefined> {
   const { modelsRegistry, renderer, reader, config, defaultProvider, defaultModel } = deps;
 
@@ -203,7 +212,7 @@ export async function runPicker(deps: {
       const entry = config?.providers?.[p.id];
       const configKey =
         (typeof entry?.apiKey === 'string' && entry.apiKey.length > 0) ||
-        (Array.isArray(entry?.apiKeys) && entry!.apiKeys!.some((k) => k?.apiKey));
+        (Array.isArray(entry?.apiKeys) && entry?.apiKeys?.some((k) => k?.apiKey));
       // ● green = env key, ◉ cyan = stored in config, ○ dim = no key
       const marker = envFound ? color.green('●') : configKey ? color.cyan('◉') : color.dim('○');
       const isDefault = p.id === defaultProvider;
@@ -276,7 +285,7 @@ async function pickModel(
   registry: ModelsRegistry,
   renderer: TerminalRenderer,
   reader: ReadlineInputReader,
-  defaultModel?: string,
+  defaultModel?: string | undefined,
 ): Promise<PickerResult | undefined> {
   renderer.write(`\n  ${color.bold(provider.name)} ${color.dim(`(${provider.id})`)} models:\n\n`);
 
@@ -300,7 +309,7 @@ async function pickModel(
   while (offset < models.length) {
     const page = models.slice(offset, offset + pageSize);
     for (let i = 0; i < page.length; i++) {
-      const m = page[i]!;
+      const m = expectDefined(page[i]);
       const num = offset + i + 1;
       const ctx = m.limit?.context
         ? `${(m.limit.context / 1000).toFixed(0)}k`.padStart(6)
@@ -363,12 +372,12 @@ async function resolveModelSelection(
   models: {
     id: string;
     name: string;
-    release_date?: string;
-    limit?: { context?: number };
-    cost?: { input?: number; output?: number };
-    tool_call?: boolean;
-    reasoning?: boolean;
-    modalities?: { input?: string[] };
+    release_date?: string | undefined;
+    limit?: { context?: number | undefined };
+    cost?: { input?: number | undefined; output?: number | undefined };
+    tool_call?: boolean | undefined;
+    reasoning?: boolean | undefined;
+    modalities?: { input?: string[] | undefined };
   }[],
   provider: ResolvedProvider,
   _registry: ModelsRegistry,
@@ -379,7 +388,7 @@ async function resolveModelSelection(
   let modelId: string | undefined;
 
   if (!Number.isNaN(idx) && idx >= 1 && idx <= models.length) {
-    modelId = models[idx - 1]!.id;
+    modelId = models[idx - 1]?.id;
   } else {
     // Try fuzzy matching by id
     const lower = answer.toLowerCase();
@@ -390,7 +399,7 @@ async function resolveModelSelection(
       // Partial match
       const partial = models.filter((m) => m.id.toLowerCase().includes(lower));
       if (partial.length === 1) {
-        modelId = partial[0]!.id;
+        modelId = partial[0]?.id;
       } else if (partial.length > 1) {
         renderer.writeError(`"${answer}" matches multiple models. Be more specific.`);
         return undefined;

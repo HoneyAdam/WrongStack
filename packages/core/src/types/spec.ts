@@ -13,7 +13,7 @@ export interface SpecSection {
   title: string;
   content: string;
   level: number;
-  children?: SpecSection[];
+  children?: SpecSection[] | undefined;
 }
 
 export interface SpecRequirement {
@@ -22,8 +22,8 @@ export interface SpecRequirement {
   priority: 'critical' | 'high' | 'medium' | 'low';
   description: string;
   acceptanceCriteria: string[];
-  blockedBy?: string[];
-  implements?: string[];
+  blockedBy?: string[] | undefined;
+  implements?: string[] | undefined;
 }
 
 export interface SpecApiEndpoint {
@@ -32,7 +32,7 @@ export interface SpecApiEndpoint {
   description: string;
   request?: Record<string, unknown>;
   response?: Record<string, unknown>;
-  auth?: boolean;
+  auth?: boolean | undefined;
 }
 
 export interface Specification {
@@ -43,8 +43,8 @@ export interface Specification {
   overview: string;
   sections: SpecSection[];
   requirements: SpecRequirement[];
-  apiEndpoints?: SpecApiEndpoint[];
-  dependencies?: string[];
+  apiEndpoints?: SpecApiEndpoint[] | undefined;
+  dependencies?: string[] | undefined;
   createdAt: number;
   updatedAt: number;
   metadata?: Record<string, unknown>;

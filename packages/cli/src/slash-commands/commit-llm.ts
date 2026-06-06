@@ -1,3 +1,10 @@
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 /**
  * LLM-powered commit message generation.
  * Generates proper commit messages by analyzing git diffs via the configured LLM provider.
@@ -7,10 +14,10 @@ export interface CommitLLMProvider {
   complete(
     req: {
       model: string;
-      system?: { type: 'text'; text: string }[];
+      system?: { type: 'text' | undefined; text: string }[];
       messages: { role: string; content: { type: 'text'; text: string }[] }[];
       maxTokens: number;
-      temperature?: number;
+      temperature?: number | undefined;
     },
     opts: { signal: AbortSignal },
   ): Promise<{
@@ -61,11 +68,11 @@ export async function generateCommitMessageWithLLM(
     const rawContent = resp.content;
     const text =
       Array.isArray(rawContent)
-        ? (rawContent[0] as { type: string; text?: string })?.text ?? ''
+        ? (rawContent[0] as { type: string; text?: string | undefined })?.text ?? ''
         : typeof rawContent === 'object' && rawContent !== null
-          ? (rawContent as { type: string; text?: string }).text ?? ''
+          ? (rawContent as { type: string; text?: string | undefined }).text ?? ''
           : String(rawContent);
-    const message = text.trim().split('\n')[0]!;
+    const message = expectDefined(text.trim().split('\n')[0]);
 
     if (message.length > 0 && message.length < 200) {
       return message;

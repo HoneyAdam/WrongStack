@@ -41,15 +41,15 @@ export interface PhaseNode {
   /** Tahmini süre (saat) */
   estimateHours: number;
   /** Gerçekleşen süre (ms) */
-  actualDurationMs?: number;
+  actualDurationMs?: number | undefined;
   /** Başlangıç zamanı */
-  startedAt?: number;
+  startedAt?: number | undefined;
   /** Bitiş zamanı */
-  completedAt?: number;
+  completedAt?: number | undefined;
   /** Bu fazda atanmış agent'lar */
   assignedAgents: string[];
   /** Faz metadata */
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, unknown> | undefined;
   createdAt: number;
   updatedAt: number;
 }
@@ -76,8 +76,8 @@ export interface PhaseGraph {
   stopOnComplete: boolean;
   createdAt: number;
   updatedAt: number;
-  startedAt?: number;
-  completedAt?: number;
+  startedAt?: number | undefined;
+  completedAt?: number | undefined;
 }
 
 // ─── Phase Progress ─────────────────────────────────────────────────────────
@@ -105,7 +105,7 @@ export interface PhaseEventMap {
   'phase.statusChange': { phaseId: string; from: PhaseStatus; to: PhaseStatus };
   'phase.started': { phaseId: string; name: string };
   'phase.completed': { phaseId: string; name: string; durationMs: number };
-  'phase.failed': { phaseId: string; name: string; error?: string };
+  'phase.failed': { phaseId: string; name: string; error?: string | undefined };
   'phase.taskCompleted': { phaseId: string; taskId: string; taskTitle: string };
   'phase.taskFailed': { phaseId: string; taskId: string; taskTitle: string; error: string };
   'phase.taskRetrying': {
@@ -117,7 +117,7 @@ export interface PhaseEventMap {
   };
   'phase.allTasksDone': { phaseId: string; completed: number; failed: number };
   'phase.verifying': { phaseId: string; name: string; attempt: number };
-  'phase.verifyFailed': { phaseId: string; name: string; attempt: number; error?: string };
+  'phase.verifyFailed': { phaseId: string; name: string; attempt: number; error?: string | undefined };
   'phase.repairing': { phaseId: string; name: string; attempt: number };
   'phase.conflictResolving': { phaseId: string; name: string; files: string[] };
   'phase.conflictResolved': { phaseId: string; name: string };
@@ -140,7 +140,7 @@ export interface PhaseExecutionContext {
   executeTask: (
     task: TaskNode,
     phaseId: string,
-    env?: { cwd?: string; branch?: string },
+    env?: { cwd?: string | undefined; branch?: string | undefined },
   ) => Promise<unknown>;
   /**
    * Opsiyonel doğrulama kapısı. Bir fazın tüm görevleri bittikten *sonra*,
@@ -153,8 +153,8 @@ export interface PhaseExecutionContext {
    */
   verifyPhase?: (
     phase: PhaseNode,
-    env?: { cwd?: string; branch?: string },
-  ) => Promise<{ ok: boolean; output?: string }>;
+    env?: { cwd?: string | undefined; branch?: string | undefined },
+  ) => Promise<{ ok: boolean; output?: string | undefined }>;
   /**
    * Opsiyonel onarım geçişi. `verifyPhase` başarısız olduğunda, yakalanan hata
    * çıktısı ile çağrılır. Worktree'deki kodu düzeltmeye çalışmalıdır (örn. bir
@@ -165,7 +165,7 @@ export interface PhaseExecutionContext {
     phase: PhaseNode,
     failure: string,
     attempt: number,
-    env?: { cwd?: string; branch?: string },
+    env?: { cwd?: string | undefined; branch?: string | undefined },
   ) => Promise<void>;
   /**
    * Opsiyonel birleştirme-çakışması çözücü. Bir fazın worktree'si ana branch'e
@@ -180,9 +180,9 @@ export interface PhaseExecutionContext {
     info: { conflictFiles: string[]; cwd: string },
   ) => Promise<boolean>;
   /** Opsiyonel global Brain arbiter: policy/karar/escalation katmanı. */
-  brain?: BrainArbiter;
+  brain?: BrainArbiter | undefined;
   /** Bir faz tamamlandığında çağrılır */
-  onPhaseComplete?: (phase: PhaseNode) => void;
+  onPhaseComplete?: ((phase: PhaseNode) => void) | undefined;
   /** Bir faz başarısız olduğunda çağrılır */
   onPhaseFail?: (phase: PhaseNode, error: Error) => void;
   /** Her tick'te çağrılır (otonom modda) */
@@ -193,38 +193,38 @@ export interface PhaseExecutionContext {
 
 export interface AutoPhaseOptions {
   /** Maksimum parallel faz sayısı */
-  maxConcurrentPhases?: number;
+  maxConcurrentPhases?: number | undefined;
   /** Maksimum parallel görev sayısı (faz içinde) */
-  maxConcurrentTasks?: number;
+  maxConcurrentTasks?: number | undefined;
   /** Başarısız görev retry sayısı */
-  maxRetries?: number;
+  maxRetries?: number | undefined;
   /**
    * Doğrulama kapısı başarısız olduğunda yapılacak maksimum onarım denemesi.
    * Toplam doğrulama koşusu = maxVerifyAttempts + 1 (ilk koşu + her onarım
    * sonrası yeniden koşu). Varsayılan 2. `verifyPhase` verilmezse etkisizdir.
    */
-  maxVerifyAttempts?: number;
+  maxVerifyAttempts?: number | undefined;
   /** Otonom mod: faz tamamlandıkça otomatik sonrakine geç */
-  autonomous?: boolean;
+  autonomous?: boolean | undefined;
   /** Fazlar arası bekleme süresi (ms) */
-  phaseDelayMs?: number;
+  phaseDelayMs?: number | undefined;
   /** Bir faz failed olursa dur */
-  stopOnFailure?: boolean;
+  stopOnFailure?: boolean | undefined;
   /** Event bus */
-  events?: import('../kernel/events.js').EventBus;
+  events?: import('../kernel/events.js').EventBus | undefined;
   /**
    * Opsiyonel git-worktree yöneticisi. Verilirse her faz kendi
    * worktree+branch'inde izole çalışır ve tamamlanınca ana branch'e sıralı
    * squash-merge edilir. Yoksa davranış değişmez (paylaşılan working tree).
    */
-  worktrees?: import('../worktree/worktree-manager.js').WorktreeManager;
+  worktrees?: import('../worktree/worktree-manager.js').WorktreeManager | undefined;
 }
 
 // ─── Phase Filter / Sort ────────────────────────────────────────────────────
 
 export interface PhaseFilter {
-  status?: PhaseStatus[];
-  priority?: PhaseNode['priority'][];
+  status?: PhaseStatus[] | undefined;
+  priority?: PhaseNode['priority'][] | undefined;
 }
 
 export interface PhaseSort {
@@ -247,6 +247,6 @@ export interface PhaseTemplate {
     type: import('../types/task-graph.js').TaskType;
     priority: import('../types/task-graph.js').TaskPriority;
     estimateHours: number;
-    tags?: string[];
+    tags?: string[] | undefined;
   }>;
 }

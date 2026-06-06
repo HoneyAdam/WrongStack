@@ -4,11 +4,11 @@ import { toWrongStackError } from '../types/errors.js';
 import type { DoneCondition } from '../types/multi-agent.js';
 import { compileUserRegex } from '../utils/regex-guard.js';
 
-type AutonomousResult = RunResult & { toolCalls: number; reason?: string };
+type AutonomousResult = RunResult & { toolCalls: number; reason?: string | undefined };
 
 export interface DoneCheckResult {
   done: boolean;
-  reason?: string;
+  reason?: string | undefined;
   iterations: number;
   toolCalls: number;
 }
@@ -29,7 +29,7 @@ export class DoneConditionChecker {
     }
   }
 
-  check(state: { iterations: number; toolCalls: number; lastOutput?: string }): DoneCheckResult {
+  check(state: { iterations: number; toolCalls: number; lastOutput?: string | undefined }): DoneCheckResult {
     switch (this.condition.type) {
       case 'iterations':
         if (this.condition.maxIterations && state.iterations >= this.condition.maxIterations) {
@@ -87,22 +87,22 @@ export interface AutonomousRunnerOptions {
   agent: Agent;
   context: Context;
   doneCondition: DoneCondition;
-  iterationTimeoutMs?: number;
-  onIteration?: (state: { iteration: number; toolCalls: number }) => void;
-  onDone?: (result: AutonomousResult) => void;
+  iterationTimeoutMs?: number | undefined;
+  onIteration?: (state: { iteration: number | undefined; toolCalls: number }) => void;
+  onDone?: (((result: AutonomousResult) => void)) | undefined;
   /**
    * When true and `doneCondition.type === 'directive'`, the runner
    * runs the agent with `autonomousContinue: true` so the agent loop
    * handles its own [continue]/[done] markers internally (no outer
    * re-invocation needed). The runner still provides iteration/timeouts.
    */
-  enableAutonomousContinue?: boolean;
+  enableAutonomousContinue?: boolean | undefined;
 }
 
 export class AutonomousRunner {
   private iterations = 0;
   private toolCalls = 0;
-  private lastOutput?: string;
+  private lastOutput?: string | undefined;
   private stopped = false;
   private readonly doneChecker: DoneConditionChecker;
 

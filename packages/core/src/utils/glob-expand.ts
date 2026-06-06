@@ -11,6 +11,15 @@
 import * as fsp from 'node:fs/promises';
 import { isAbsolute, resolve } from 'node:path';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 const GLOB_CHARS = new Set(['*', '?', '[']);
 const IS_WINDOWS = process.platform === 'win32';
 const SEP = IS_WINDOWS ? '\\' : '/';
@@ -26,7 +35,7 @@ function globToRegex(pat: string): RegExp {
   let i = 0;
   let re = '^';
   while (i < pat.length) {
-    const c = pat[i]!;
+    const c = expectDefined(pat[i]);
     if (c === '*') {
       if (pat[i + 1] === '*') {
         re += '.*';
@@ -66,7 +75,7 @@ function globToRegex(pat: string): RegExp {
 
 function baseDir(pat: string): string {
   let i = pat.length - 1;
-  while (i >= 0 && !GLOB_CHARS.has(pat[i]!) && pat[i] !== SEP && pat[i] !== '/') i--;
+  while (i >= 0 && !GLOB_CHARS.has(expectDefined(pat[i])) && pat[i] !== SEP && pat[i] !== '/') i--;
   const cut = i >= 0 ? pat.lastIndexOf(SEP, i) : pat.lastIndexOf('/', i);
   return cut < 0 ? '.' : pat.slice(0, cut);
 }

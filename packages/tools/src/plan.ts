@@ -38,15 +38,15 @@ interface PlanInput {
     | 'template_use'
     | 'clear';
   /** Required for add. */
-  title?: string;
+  title?: string | undefined;
   /** Optional detail line for add. */
-  details?: string;
+  details?: string | undefined;
   /** Required for start/done/remove/promote/derive — accepts plan item id OR 1-based index OR title substring. */
-  target?: string;
+  target?: string | undefined;
   /** Optional subtasks for promote/derive. If omitted, a single todo is created from the plan item title. */
-  subtasks?: string[];
+  subtasks?: string[] | undefined;
   /** Required for template_use — the template name (e.g. "new-feature", "bug-fix"). */
-  template?: string;
+  template?: string | undefined;
 }
 
 interface PlanOutput {
@@ -59,7 +59,7 @@ interface PlanOutput {
   /** Number of items not in 'done' status. */
   open: number;
   /** When promote/derive succeed, the generated todo items so the caller can inspect them. */
-  todos?: Array<{ id: string; content: string; status: string; activeForm?: string }>;
+  todos?: Array<{ id: string; content: string; status: string; activeForm?: string | undefined }>;
 }
 
 export const planTool: Tool<PlanInput, PlanOutput> = {
@@ -234,15 +234,16 @@ function mkResult(
   plan: PlanFile,
   ok: boolean,
   message: string,
-  todos?: Array<{ id: string; content: string; status: string; activeForm?: string }>,
+  todos?: PlanOutput['todos'],
 ): PlanOutput {
   const open = plan.items.filter((i) => i.status !== 'done').length;
-  return {
+  const result: PlanOutput = {
     ok,
     message,
     plan: formatPlan(plan),
     count: plan.items.length,
     open,
-    todos,
   };
+  if (todos !== undefined) result.todos = todos;
+  return result;
 }

@@ -4,10 +4,10 @@ import type { Context } from '@wrongstack/core';
 import { color } from '@wrongstack/core';
 
 export interface ProjectFacts {
-  build?: string;
-  test?: string;
-  lint?: string;
-  run?: string;
+  build?: string | undefined;
+  test?: string | undefined;
+  lint?: string | undefined;
+  run?: string | undefined;
   hints: string[];
 }
 
@@ -54,7 +54,7 @@ export async function detectProjectFacts(root: string): Promise<ProjectFacts> {
   try {
     const pkg = JSON.parse(await fs.readFile(path.join(root, 'package.json'), 'utf8')) as {
       scripts?: Record<string, string>;
-      packageManager?: string;
+      packageManager?: string | undefined;
     };
     const scripts = pkg.scripts ?? {};
     const pm = await detectPackageManager(root, pkg.packageManager);

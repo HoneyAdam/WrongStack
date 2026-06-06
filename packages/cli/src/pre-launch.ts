@@ -199,12 +199,12 @@ export class LaunchAbortedError extends Error {
 export async function runLaunchPrompts(opts: {
   renderer: TerminalRenderer;
   reader: ReadlineInputReader;
-  modePinned?: 'tui' | 'repl';
-  yoloPinned?: boolean;
-  directorPinned?: boolean;
-  autonomyPinned?: 'off' | 'auto';
+  modePinned?: 'tui' | 'repl' | undefined;
+  yoloPinned?: boolean | undefined;
+  directorPinned?: boolean | undefined;
+  autonomyPinned?: 'off' | 'auto' | undefined;
   /** Saved launch preferences from a previous session (persisted to config). */
-  lastChoices?: LaunchModeChoices;
+  lastChoices?: LaunchModeChoices | undefined;
 }): Promise<LaunchModeChoices> {
   const { renderer, reader, modePinned, yoloPinned, directorPinned, autonomyPinned, lastChoices } =
     opts;

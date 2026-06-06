@@ -35,7 +35,7 @@ export interface AgentFactoryResult {
    * thrown here are swallowed so a flaky cleanup can't mask the task's
    * real result.
    */
-  dispose?: () => Promise<void> | void;
+  dispose?: ((() => Promise<void> | void)) | undefined;
 }
 
 export interface AgentRunnerOptions {
@@ -52,7 +52,7 @@ export interface AgentRunnerOptions {
    * injection seam that lets the TUI fleet panel observe subagent activity
    * live — without it, FleetBus stays empty.
    */
-  fleetBus?: FleetBus;
+  fleetBus?: FleetBus | undefined;
 }
 
 /**

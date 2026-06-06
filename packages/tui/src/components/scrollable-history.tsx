@@ -28,7 +28,7 @@ export interface ScrollableHistoryProps extends HistoryProps {
    *  App can clamp the scroll offset and drive the "N new lines" affordance. */
   onMeasure: (totalLines: number) => void;
   /** Optional cap on the width used for entry wrapping (right panel mode). */
-  maxWidth?: number;
+  maxWidth?: number | undefined;
 }
 
 /**
@@ -83,7 +83,7 @@ function Scrollbar({
         <Text
           // biome-ignore lint/suspicious/noArrayIndexKey: fixed-height track, index is the row
           key={i}
-          color={scrollable ? theme.accent : undefined}
+          {...(scrollable ? { color: theme.accent } : {})}
           dimColor={!scrollable || c === '│'}
         >
           {c}
@@ -186,11 +186,11 @@ export function ScrollableHistory({
             </Box>
           ))}
           {tail ? <AssistantTail text={tail} termWidth={termWidth} /> : null}
-          {toolTail ? (
+          {toolTail && toolStream ? (
             <ToolStreamBox
-              name={toolStream!.name}
+              name={toolStream.name}
               text={toolTail}
-              startedAt={toolStream!.startedAt}
+              startedAt={toolStream.startedAt}
               termWidth={termWidth}
             />
           ) : null}

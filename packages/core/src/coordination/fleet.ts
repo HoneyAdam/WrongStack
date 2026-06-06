@@ -270,13 +270,13 @@ export const FLEET_ROSTER: Record<string, SubagentConfig> = {
 // These can be overridden per-call via delegate tool parameters.
 // ---------------------------------------------------------------------------
 export interface FleetRosterBudget {
-  timeoutMs?: number;
+  timeoutMs?: number | undefined;
   /** Idle reap window (ms). Resets on activity — see `applyRosterBudget`. */
-  idleTimeoutMs?: number;
-  maxIterations?: number;
-  maxToolCalls?: number;
-  maxTokens?: number;
-  maxCostUsd?: number;
+  idleTimeoutMs?: number | undefined;
+  maxIterations?: number | undefined;
+  maxToolCalls?: number | undefined;
+  maxTokens?: number | undefined;
+  maxCostUsd?: number | undefined;
 }
 
 /**

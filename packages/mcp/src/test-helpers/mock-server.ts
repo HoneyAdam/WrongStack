@@ -19,12 +19,12 @@ import type { MCPTool } from '../client.js';
 
 export interface MockToolResponse {
   content: unknown;
-  isError?: boolean;
+  isError?: boolean | undefined;
 }
 
 export interface MockMCPServerOptions {
   /** Delay injected between receiving a request and sending the response (ms). */
-  responseDelayMs?: number;
+  responseDelayMs?: number | undefined;
 }
 
 /**
@@ -37,7 +37,7 @@ export class MockMCPServer {
   private readonly delayMs: number;
   /** Responses keyed by `JSON.stringify(params)` for tools/call. */
   private readonly responses = new Map<string, MockToolResponse>();
-  private scriptPath?: string;
+  private scriptPath?: string | undefined;
 
   constructor(tools: MCPTool[] = [], opts: MockMCPServerOptions = {}) {
     this.tools = tools;

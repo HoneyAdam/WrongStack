@@ -108,12 +108,12 @@ export interface LaunchHintOptions {
    * consecutive launches show different categories (round-robin). Missing
    * or unreadable file starts the rotation at the first category.
    */
-  readonly cursorFile?: string;
+  readonly cursorFile?: string | undefined;
   /**
    * Force a specific category index (wraps around). Overrides the cursor.
    * Mainly for tests and `--hints`-style explicit selection.
    */
-  readonly groupIndex?: number;
+  readonly groupIndex?: number | undefined;
 }
 
 const wrap = (n: number): number => ((n % GROUPS.length) + GROUPS.length) % GROUPS.length;

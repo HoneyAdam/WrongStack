@@ -13,7 +13,7 @@ interface SavedProvider {
 interface CatalogModel {
   id: string;
   name: string;
-  contextWindow?: number;
+  contextWindow?: number | undefined;
 }
 
 /**
@@ -107,7 +107,7 @@ export function QuickModelSwitcher() {
       provider: string;
       model: string;
       modelName: string;
-      contextWindow?: number;
+      contextWindow?: number | undefined;
       isCurrent: boolean;
     }> = [];
     for (const sp of saved) {

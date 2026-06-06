@@ -12,9 +12,9 @@ import {
 import { repairToolUseAdjacency } from '../utils/message-invariants.js';
 
 export interface CompactorOptions {
-  preserveK?: number;
-  eliseThreshold?: number;
-  estimator?: (text: string) => number;
+  preserveK?: number | undefined;
+  eliseThreshold?: number | undefined;
+  estimator?: (((text: string) => number)) | undefined;
 }
 
 /**
@@ -38,7 +38,7 @@ export class HybridCompactor implements Compactor {
     this.estimator = opts.estimator ?? estimateTextTokens;
   }
 
-  async compact(ctx: Context, opts: { aggressive?: boolean } = {}): Promise<CompactReport> {
+  async compact(ctx: Context, opts: { aggressive?: boolean | undefined } = {}): Promise<CompactReport> {
     const beforeTokens = this.estimateMessages(ctx.messages);
     const beforeFull = this.estimateFullRequest(ctx);
     const reductions: CompactReport['reductions'] = [];

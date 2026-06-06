@@ -22,14 +22,14 @@ export interface TaskTrackerOptions {
    * fire-and-forget their writes; without this, a failing store silently
    * loses graph mutations. Defaults to a console.warn.
    */
-  onPersistError?: (err: unknown) => void;
+  onPersistError?: (((err: unknown) => void)) | undefined;
 }
 
 export interface TaskTransition {
   from: TaskNode['status'];
   to: TaskNode['status'];
   timestamp: number;
-  reason?: string;
+  reason?: string | undefined;
 }
 
 export class TaskTracker {
@@ -170,7 +170,7 @@ export class TaskTracker {
         if (filter.type?.length && !filter.type.includes(n.type)) return false;
         if (filter.assignee?.length && n.assignee && !filter.assignee.includes(n.assignee))
           return false;
-        if (filter.tags?.length && n.tags && !n.tags.some((t) => filter.tags!.includes(t)))
+        if (filter.tags?.length && n.tags && !n.tags.some((t) => filter.tags?.includes(t)))
           return false;
         if (filter.specRequirementId && n.specRequirementId !== filter.specRequirementId)
           return false;

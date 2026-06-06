@@ -15,6 +15,15 @@ import type { FileMeta, IndexStats, Ref, SearchResult, Symbol as IndexSymbol, Sy
 import { SCHEMA_VERSION } from './schema.js';
 import { lspKindToInternalKind } from './lsp-kind.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 const DB_FILE = 'index.db';
 
 /**
@@ -84,7 +93,7 @@ export class IndexStore {
   /** Absolute path to this project's index directory. */
   private readonly indexDir: string;
 
-  constructor(projectRoot: string, opts: { indexDir?: string } = {}) {
+  constructor(projectRoot: string, opts: { indexDir?: string | undefined } = {}) {
     this.indexDir = resolveIndexDir(projectRoot, opts.indexDir);
     fs.mkdirSync(this.indexDir, { recursive: true });
     const Database = loadDatabaseSync();
@@ -203,7 +212,7 @@ export class IndexStore {
       'SELECT file, lang, mtime_ms, symbol_count, last_indexed FROM files WHERE file = ?',
     ).all(file) as { file: string; lang: string; mtime_ms: number; symbol_count: number; last_indexed: number }[];
     if (!rows.length) return null;
-    const r = rows[0]!;
+    const r = expectDefined(rows[0]);
     return { file: r.file, lang: r.lang as SymbolLang, mtimeMs: r.mtime_ms, symbolCount: r.symbol_count, lastIndexed: r.last_indexed };
   }
 
@@ -219,7 +228,7 @@ export class IndexStore {
 
   search(
     query: string,
-    filter?: { kind?: SymbolKind; lang?: SymbolLang; file?: string; lspKind?: number },
+    filter?: { kind?: SymbolKind | undefined; lang?: SymbolLang | undefined; file?: string | undefined; lspKind?: number | undefined },
   ): SearchResult[] {
     const conditions: string[] = [];
     const values: unknown[] = [];
@@ -305,7 +314,7 @@ export class IndexStore {
     const lastRows = this.db.prepare(
       "SELECT value FROM metadata WHERE key = 'last_indexed'",
     ).all() as { value: string }[];
-    const lastIndexed = lastRows.length ? Number(lastRows[0]!.value) : null;
+    const lastIndexed = lastRows.length ? Number(lastRows[0]?.value) : null;
 
     const totalRows = this.db.prepare('SELECT COUNT(*) FROM symbols').all() as { 'COUNT(*)': number }[];
     const totalSymbols = totalRows[0] ? Number(totalRows[0]['COUNT(*)']) : 0;
@@ -394,8 +403,9 @@ export class IndexStore {
     let resolved = 0;
     for (const row of unresolved) {
       const target = this.db.prepare('SELECT id FROM symbols WHERE name = ? LIMIT 1').all(row.to_name) as { id: number }[];
-      if (target.length) {
-        this.db.prepare('UPDATE refs SET to_id = ? WHERE id = ?').run(target[0]!.id, row.id);
+      const first = target[0];
+      if (first) {
+        this.db.prepare('UPDATE refs SET to_id = ? WHERE id = ?').run(first.id, row.id);
         resolved++;
       }
     }

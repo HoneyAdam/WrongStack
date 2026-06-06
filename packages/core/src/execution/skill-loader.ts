@@ -5,7 +5,7 @@ import type { WstackPaths } from '../utils/wstack-paths.js';
 
 export interface SkillLoaderOptions {
   paths: WstackPaths;
-  bundledDir?: string;
+  bundledDir?: string | undefined;
 }
 
 /**
@@ -17,7 +17,7 @@ export interface SkillLoaderOptions {
  */
 export class DefaultSkillLoader implements SkillLoader {
   private readonly dirs: { dir: string; source: SkillManifest['source'] }[];
-  private cache?: SkillManifest[];
+  private cache?: SkillManifest[] | undefined;
 
   constructor(opts: SkillLoaderOptions) {
     this.dirs = [
@@ -109,9 +109,9 @@ export class DefaultSkillLoader implements SkillLoader {
 }
 
 interface Frontmatter {
-  name?: string;
-  description?: string;
-  version?: string;
+  name?: string | undefined;
+  description?: string | undefined;
+  version?: string | undefined;
 }
 
 function parseFrontmatter(raw: string): Frontmatter {
@@ -171,7 +171,7 @@ function parseDescription(raw: string): { trigger: string; scope: string[] } {
   const scope: string[] = [];
   const coversMatch = /(?:covers|for|including)\s+([^.]+)/i.exec(desc);
   if (coversMatch) {
-    const items = coversMatch[1]!
+    const items = coversMatch[1] ?? ''
       .replace(/[·•]/g, ',')
       .split(',')
       .map((s) => s.trim())

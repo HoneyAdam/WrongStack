@@ -27,38 +27,38 @@ export type ContextManagerAction =
 export interface ContextManagerInput {
   action: ContextManagerAction;
   /** 0-based message indices for prune/summary (inclusive). */
-  from?: number;
-  to?: number;
+  from?: number | undefined;
+  to?: number | undefined;
   /** Text for add_note / summary actions. For summary, this is the LLM-provided summary text. */
-  text?: string;
+  text?: string | undefined;
   /** Inject after which index (for add_note). Defaults to prepend (0). */
-  afterIndex?: number;
+  afterIndex?: number | undefined;
   /**
    * System prompt blocks for accurate total token estimation in check action.
    * When provided, check returns the full API request estimate
    * (messages + system + tools) instead of just message tokens.
    */
-  systemPrompt?: unknown;
+  systemPrompt?: unknown | undefined;
   /**
    * Registered tools for accurate total token estimation in check action.
    * Each tool's name + description + inputSchema is counted.
    */
-  tools?: { name: string; description?: string; inputSchema: unknown }[];
+  tools?: { name: string; description?: string | undefined; inputSchema: unknown }[];
 }
 
 export interface ContextManagerResult {
   action: ContextManagerAction;
   beforeTokens: number;
-  afterTokens?: number;
-  removedCount?: number;
+  afterTokens?: number | undefined;
+  removedCount?: number | undefined;
   messageCount: number;
-  summary?: string;
-  notes?: string;
+  summary?: string | undefined;
+  notes?: string | undefined;
   repaired?: {
     removedToolUses: string[];
     removedToolResults: string[];
     removedMessages: number;
-  };
+  } | undefined;
 }
 
 /**
@@ -66,35 +66,35 @@ export interface ContextManagerResult {
  * `compactor` is required for the "compact" action; without it the action returns an error.
  */
 export interface ContextManagerToolOptions {
-  compactor?: Compactor;
+  compactor?: Compactor | undefined;
   /**
    * Optional sub-LLM summarizer. When provided, the "summary" action calls this
    * to produce real summaries of message ranges instead of placeholder text.
    * (signature matches Provider.complete — return the summary text in result.content[0].text)
    */
-  summarizer?: (messages: Message[]) => Promise<string>;
+  summarizer?: (((messages: Message[]) => Promise<string>)) | undefined;
   /**
    * Minimum full-request token count before the compact action is allowed to run.
    * Prevents unnecessary compaction calls when context is small.
    * Default: 0 (always allow). Set to ~5000 for meaningful compaction targets.
    */
-  minCompactThreshold?: number;
+  minCompactThreshold?: number | undefined;
   /**
    * Minimum token growth required before retrying after a NOOP compaction.
    * A NOOP is when compaction saved nothing (preserveK protects everything,
    * no oversized tool_results). Default: 2000.
    */
-  noopRetryDeltaTokens?: number;
+  noopRetryDeltaTokens?: number | undefined;
   /**
    * Provider's max context window in tokens. Used to compute a relative
    * threshold when `minCompactThreshold` is not set. Default: 128_000.
    */
-  maxContext?: number;
+  maxContext?: number | undefined;
   /**
    * Fraction of maxContext that triggers compaction. Only used when
    * `minCompactThreshold` is not set. Default: 0.5 (50% of maxContext).
    */
-  compactThresholdFraction?: number;
+  compactThresholdFraction?: number | undefined;
 }
 
 function roughEstimate(messages: Message[]): number {

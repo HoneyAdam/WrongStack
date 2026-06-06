@@ -32,7 +32,7 @@ export class SlashCommandRegistry {
    * self-declared by the plugin — an external plugin cannot name itself into
    * the official tier.
    */
-  register(cmd: SlashCommand, owner = 'core', opts?: { official?: boolean }): void {
+  register(cmd: SlashCommand, owner = 'core', opts?: { official?: boolean | undefined }): void {
     const isPlugin = owner !== 'core';
     const official = !isPlugin || opts?.official === true;
 
@@ -128,7 +128,7 @@ export class SlashCommandRegistry {
   async dispatch(
     line: string,
     ctx: Context,
-  ): Promise<{ exit?: boolean; message?: string; runText?: string; metadata?: Record<string, unknown> } | null> {
+  ): Promise<{ exit?: boolean | undefined; message?: string | undefined; runText?: string | undefined; metadata?: Record<string, unknown> } | null> {
     if (!line.startsWith('/')) return null;
     const trimmed = line.slice(1);
     const spaceIdx = trimmed.indexOf(' ');

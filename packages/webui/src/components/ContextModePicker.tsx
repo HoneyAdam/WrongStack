@@ -4,6 +4,15 @@ import { useSessionStore } from '@/stores';
 import { Check, ChevronDown, Gauge } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 const FALLBACK_MODES = [
   {
     id: 'balanced',
@@ -43,7 +52,7 @@ export function ContextModePicker() {
   }, [open]);
 
   const items = contextModes.length > 0 ? contextModes : FALLBACK_MODES;
-  const active = items.find((m) => m.id === contextMode) ?? items[0]!;
+  const active = items.find((m) => m.id === contextMode) ?? expectDefined(items[0]);
 
   return (
     <div ref={rootRef} className="relative shrink-0">
@@ -87,7 +96,7 @@ export function ContextModePicker() {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-xs font-mono">{m.id}</span>
-                  {m.thresholds && (
+                  {m.thresholds?.warn !== undefined && (
                     <span className="text-[10px] text-muted-foreground tabular-nums">
                       {Math.round(m.thresholds.warn * 100)}/{Math.round(m.thresholds.soft * 100)}/
                       {Math.round(m.thresholds.hard * 100)}%

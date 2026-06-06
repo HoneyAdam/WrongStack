@@ -58,8 +58,8 @@ export class AutoPhaseWebSocketHandler {
     private context: Context,
     private logger: Logger,
     storeDir: string,
-    private events?: EventBus,
-    private projectRoot?: string,
+    private events?: EventBus | undefined,
+    private projectRoot?: string | undefined,
   ) {
     this.store = new PhaseStore({ baseDir: storeDir });
   }
@@ -260,7 +260,7 @@ export class AutoPhaseWebSocketHandler {
         runOnce: async (prompt) => {
           const result = (await this.agent.run(prompt, { signal: new AbortController().signal })) as {
             status: string;
-            finalText?: string;
+            finalText?: string | undefined;
           };
           return result.status === 'done' ? (result.finalText ?? '') : '';
         },
@@ -281,7 +281,7 @@ export class AutoPhaseWebSocketHandler {
   private async executeTaskWithAgent(
     task: import('@wrongstack/core').TaskNode,
     phaseId: string,
-    env?: { cwd?: string; branch?: string },
+    env?: { cwd?: string | undefined; branch?: string | undefined },
   ): Promise<unknown> {
     // Task'ı agent'a çalıştır
     const prompt = `Execute task: ${task.title}\n\nDescription: ${task.description}\nPhase: ${phaseId}\nPriority: ${task.priority}\nType: ${task.type}`;

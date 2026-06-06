@@ -4,10 +4,10 @@ import type { Usage } from '../types/provider.js';
 import type { CacheStats, TokenCounter } from '../types/token-counter.js';
 
 interface PriceEntry {
-  input?: number;
-  output?: number;
-  cacheRead?: number;
-  cacheWrite?: number;
+  input?: number | undefined;
+  output?: number | undefined;
+  cacheRead?: number | undefined;
+  cacheWrite?: number | undefined;
 }
 
 const PRICE_CACHE_MAX_SIZE = 100;
@@ -24,15 +24,15 @@ export class DefaultTokenCounter implements TokenCounter {
   private cacheWrite = 0;
   private costInput = 0;
   private costOutput = 0;
-  private readonly registry?: ModelsRegistry;
-  private readonly providerId?: string;
-  private readonly events?: EventBus;
+  private readonly registry?: ModelsRegistry | undefined;
+  private readonly providerId?: string | undefined;
+  private readonly events?: EventBus | undefined;
   private priceCache = new Map<string, PriceEntry>();
   /** Most recently accounted request's tokens. Used for per-request context pressure. */
   private lastInput = 0;
   private lastCacheRead = 0;
 
-  constructor(opts: { registry?: ModelsRegistry; providerId?: string; events?: EventBus } = {}) {
+  constructor(opts: { registry?: ModelsRegistry | undefined; providerId?: string | undefined; events?: EventBus | undefined } = {}) {
     this.registry = opts.registry;
     this.providerId = opts.providerId;
     this.events = opts.events;
@@ -54,7 +54,7 @@ export class DefaultTokenCounter implements TokenCounter {
       // Evict oldest entry when cache is full before async lookup.
       if (this.priceCache.size >= PRICE_CACHE_MAX_SIZE) {
         const keys = [...this.priceCache.keys()];
-        this.priceCache.delete(keys[0]!);
+        this.priceCache.delete(keys[0] ?? '');
       }
       // Async lookup — populate cache, but don't block this call.
       void this.registry
@@ -86,7 +86,7 @@ export class DefaultTokenCounter implements TokenCounter {
     const price = priceFromModel(resolved);
     if (this.priceCache.size >= PRICE_CACHE_MAX_SIZE) {
       const keys = [...this.priceCache.keys()];
-      this.priceCache.delete(keys[0]!);
+        this.priceCache.delete(keys[0] ?? '');
     }
     this.priceCache.set(resolved.modelId, price);
     this.applyPrice(usage, price);

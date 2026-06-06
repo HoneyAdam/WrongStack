@@ -26,13 +26,13 @@ export interface AutoPhasePlannerOptions {
   /** Hedef/proje başlığı. */
   goal: string;
   /** package.json/dizin yapısı gibi opsiyonel proje bağlamı. */
-  projectContext?: string;
+  projectContext?: string | undefined;
   /** İstenen minimum faz sayısı (default 3). */
-  minPhases?: number;
+  minPhases?: number | undefined;
   /** İstenen maksimum faz sayısı (default 8). */
-  maxPhases?: number;
+  maxPhases?: number | undefined;
   /** Faz başına hedeflenen todo sayısı (default 6). */
-  todosPerPhase?: number;
+  todosPerPhase?: number | undefined;
 }
 
 export interface AutoPhasePlanResult {
@@ -230,7 +230,7 @@ function firstBalancedArray(text: string): string | null {
   let inString = false;
   let escaped = false;
   for (let i = start; i < text.length; i++) {
-    const ch = text[i]!;
+    const ch = text[i] ?? '';
     if (inString) {
       if (escaped) {
         escaped = false;

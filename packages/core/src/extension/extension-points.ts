@@ -49,7 +49,7 @@ export type AfterIterationHook = (ctx: Context, iterationIndex: number) => void 
  * or tool execution phase. The hook can return a modified context
  * or signal that recovery should be attempted.
  *
- * Return `{ action: 'retry', model?: string }` to retry the turn
+ * Return `{ action: 'retry', model?: string | undefined }` to retry the turn
  * (possibly with a different model).
  * Return `{ action: 'fail' }` to propagate the error.
  * Return `{ action: 'continue' }` to skip and continue the loop.
@@ -60,12 +60,12 @@ export type OnErrorHook = (
   phase: 'provider' | 'tool' | 'agent',
   iterationIndex: number,
 ) =>
-  | { action: 'retry'; model?: string }
+  | { action: 'retry'; model?: string | undefined }
   | { action: 'fail' }
   | { action: 'continue' }
   | void
   | Promise<
-      { action: 'retry'; model?: string } | { action: 'fail' } | { action: 'continue' } | void
+      { action: 'retry'; model?: string | undefined } | { action: 'fail' } | { action: 'continue' } | void
     >;
 
 // ── Provider runner extension ───────────────────────────────────────
@@ -135,14 +135,14 @@ export interface AgentExtension {
   /** Unique name for this extension. Used in diagnostics and logging. */
   name: string;
   /** Optional owner tag (plugin name or host identifier). */
-  owner?: string;
+  owner?: string | undefined;
 
-  beforeRun?: BeforeRunHook;
-  afterRun?: AfterRunHook;
-  beforeIteration?: BeforeIterationHook;
-  afterIteration?: AfterIterationHook;
-  onError?: OnErrorHook;
-  wrapProviderRunner?: ProviderRunnerWrapper;
-  beforeToolExecution?: BeforeToolExecutionHook;
-  afterToolExecution?: AfterToolExecutionHook;
+  beforeRun?: BeforeRunHook | undefined;
+  afterRun?: AfterRunHook | undefined;
+  beforeIteration?: BeforeIterationHook | undefined;
+  afterIteration?: AfterIterationHook | undefined;
+  onError?: OnErrorHook | undefined;
+  wrapProviderRunner?: ProviderRunnerWrapper | undefined;
+  beforeToolExecution?: BeforeToolExecutionHook | undefined;
+  afterToolExecution?: AfterToolExecutionHook | undefined;
 }

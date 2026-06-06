@@ -49,7 +49,7 @@ export interface SlashCommandsDeps {
     visible: boolean;
     setVisible: (visible: boolean) => void;
   };
-  compactor: { compact(ctx: Context, opts?: { aggressive?: boolean }): Promise<CompactReport> };
+  compactor: { compact(ctx: Context, opts?: { aggressive?: boolean | undefined }): Promise<CompactReport> };
   configStore: ConfigStore;
 }
 

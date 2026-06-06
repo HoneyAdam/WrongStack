@@ -57,7 +57,7 @@ export interface ExecutionDeps {
   queueStore: import('@wrongstack/core').QueueStore;
   context: import('@wrongstack/core').Context;
   stats: SessionStats;
-  detachTodosCheckpoint?: () => void | Promise<void>;
+  detachTodosCheckpoint?: (() => void | Promise<void>) | undefined;
   savedProviderCfg: ProviderConfig | undefined;
   resolvedProvider: ResolvedProvider | undefined;
   getPickableProviders: () => Promise<Array<{ id: string; family: string; models: string[] }>>;
@@ -91,23 +91,23 @@ export interface ExecutionDeps {
     setVisible: (visible: boolean) => void;
   };
   /** Query the live YOLO state from the permission policy. */
-  getYolo?: () => boolean;
+  getYolo?: (() => boolean) | undefined;
   /** Query the live autonomy mode. */
-  getAutonomy?: () => import('./slash-commands/autonomy.js').AutonomyMode;
+  getAutonomy?: (() => import('./slash-commands/autonomy.js').AutonomyMode) | undefined;
   /** Set autonomy mode (used by SIGINT handler to flip back to 'off'). */
-  onAutonomy?: (mode: import('./slash-commands/autonomy.js').AutonomyMode) => void;
+  onAutonomy?: ((mode: import('./slash-commands/autonomy.js').AutonomyMode) => void) | undefined;
   /** Whether next-task prediction is enabled (toggled via /next). */
-  getNextPredict?: () => boolean;
+  getNextPredict?: (() => boolean) | undefined;
   /**
    * Access the (possibly null) eternal-autonomy engine. The REPL drives
    * `runOneIteration()` from its main loop when autonomy is 'eternal'.
    */
-  getEternalEngine?: () => import('@wrongstack/core').EternalAutonomyEngine | null;
+  getEternalEngine?: (() => import('@wrongstack/core').EternalAutonomyEngine | null) | undefined;
   /**
    * Access the (possibly null) parallel-eternal engine. The REPL drives
    * `runOneIteration()` from its main loop when autonomy is 'eternal-parallel'.
    */
-  getParallelEngine?: () => import('@wrongstack/core').ParallelEternalEngine | null;
+  getParallelEngine?: (() => import('@wrongstack/core').ParallelEternalEngine | null) | undefined;
   /**
    * Subscribe to live per-iteration events from the eternal engine.
    * Returns an unsubscribe function. The TUI uses this to render each
@@ -122,11 +122,11 @@ export interface ExecutionDeps {
    * Returns an unsubscribe function. TUI uses this to render live status
    * (decide/execute/reflect or decompose/fanout/aggregate) in the status bar.
    */
-  subscribeEternalStage?: (fn: (stage: AutonomyStage) => void) => () => void;
+  subscribeEternalStage?: ((fn: (stage: AutonomyStage) => void) => () => void) | undefined;
   /** Skill loader for the skill generator wizard. */
-  skillLoader?: import('@wrongstack/core').SkillLoader;
+  skillLoader?: import('@wrongstack/core').SkillLoader | undefined;
   /** Active agent mode id shown in the status bar (e.g. "teach", "brief"). */
-  modeId?: string;
+  modeId?: string | undefined;
 }
 
 export async function execute(deps: ExecutionDeps): Promise<number> {
@@ -289,8 +289,8 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
         if (result.finalText) renderer.write('\n' + result.finalText + '\n');
         // Surface any delegate subagent completion banners.
         const r = result as {
-          delegateSummaries?: Array<{ summary: string; ok: boolean }>;
-          messages?: Array<unknown>;
+          delegateSummaries?: Array<{ summary: string | undefined; ok: boolean }>;
+          messages?: Array<unknown> | undefined;
         };
         renderer.writeDelegateSummaries(r);
         renderer.write(
@@ -461,23 +461,23 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
           async saveSettings(s: {
             mode: 'off' | 'suggest' | 'auto';
             delayMs: number;
-            titleAnimation?: boolean;
-            yolo?: boolean;
-            streamFleet?: boolean;
-            chime?: boolean;
-            confirmExit?: boolean;
-            nextPrediction?: boolean;
-            featureMcp?: boolean;
-            featurePlugins?: boolean;
-            featureMemory?: boolean;
-            featureSkills?: boolean;
-            featureModelsRegistry?: boolean;
-            contextAutoCompact?: boolean;
-            contextStrategy?: string;
-            logLevel?: string;
-            auditLevel?: string;
-            indexOnStart?: boolean;
-            maxIterations?: number;
+            titleAnimation?: boolean | undefined;
+            yolo?: boolean | undefined;
+            streamFleet?: boolean | undefined;
+            chime?: boolean | undefined;
+            confirmExit?: boolean | undefined;
+            nextPrediction?: boolean | undefined;
+            featureMcp?: boolean | undefined;
+            featurePlugins?: boolean | undefined;
+            featureMemory?: boolean | undefined;
+            featureSkills?: boolean | undefined;
+            featureModelsRegistry?: boolean | undefined;
+            contextAutoCompact?: boolean | undefined;
+            contextStrategy?: string | undefined;
+            logLevel?: string | undefined;
+            auditLevel?: string | undefined;
+            indexOnStart?: boolean | undefined;
+            maxIterations?: number | undefined;
           }) {
             try {
               // Persist autonomy section (existing behaviour).

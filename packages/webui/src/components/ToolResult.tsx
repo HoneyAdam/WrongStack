@@ -23,14 +23,14 @@ function CollapsibleText({
   showLineNumbers,
 }: {
   text: string;
-  isError?: boolean;
-  className?: string;
+  isError?: boolean | undefined;
+  className?: string | undefined;
   wrapClass: string;
   /** Whether to render a left gutter with line numbers when the output is
    *  long. Off for the numbered/Read-tool path (which already prefixes its
    *  own line numbers in the content) and for wrap-mode bodies where a
    *  fixed gutter can't stay aligned with wrapped lines. */
-  showLineNumbers?: boolean;
+  showLineNumbers?: boolean | undefined;
 }) {
   const lines = useMemo(() => text.split('\n'), [text]);
   const isLong = lines.length > LONG_OUTPUT_THRESHOLD;
@@ -97,10 +97,10 @@ function CollapsibleText({
 }
 
 interface Props {
-  toolName?: string;
+  toolName?: string | undefined;
   result: string;
-  isError?: boolean;
-  className?: string;
+  isError?: boolean | undefined;
+  className?: string | undefined;
 }
 
 /**
@@ -178,11 +178,11 @@ export const ToolResult = memo(function ToolResult({
 interface Shape {
   kind: 'numbered' | 'json' | 'bash' | 'plain';
   /** For JSON results. */
-  value?: unknown;
+  value?: unknown | undefined;
   /** For bash-shape results. */
-  stdout?: string;
-  exitCode?: number;
-  duration?: string;
+  stdout?: string | undefined;
+  exitCode?: number | undefined;
+  duration?: string | undefined;
 }
 
 function detectShape(toolName: string | undefined, result: string): Shape {
@@ -229,8 +229,8 @@ function JsonResult({
   className,
 }: {
   value: unknown;
-  isError?: boolean;
-  className?: string;
+  isError?: boolean | undefined;
+  className?: string | undefined;
 }) {
   const pretty = useMemo(() => {
     try {

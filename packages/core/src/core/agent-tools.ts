@@ -96,9 +96,9 @@ export function createAgentToolHandler(a: AgentInternals): AgentToolHandler {
     const resultsForMessage: ToolResultBlock[] = [];
 
     for (const { result, tool, durationMs } of outputs) {
-      if (result.type === 'tool_confirm_pending') {
+      if (result.type === 'tool_confirm_pending' && tool) {
         const decision = await waitForConfirm({
-          tool: tool!,
+          tool: tool,
           input: result.input,
           toolUseId: result.toolUseId,
           suggestedPattern: result.suggestedPattern,
@@ -107,30 +107,30 @@ export function createAgentToolHandler(a: AgentInternals): AgentToolHandler {
         // Persist trust/deny rules
         if (decision === 'always') {
           try {
-            await a.permission.trust({ tool: tool!.name, pattern: result.suggestedPattern });
-            a.events.emit('trust.persisted', { tool: tool!.name, pattern: result.suggestedPattern, decision });
+            await a.permission.trust({ tool: tool.name, pattern: result.suggestedPattern });
+            a.events.emit('trust.persisted', { tool: tool.name, pattern: result.suggestedPattern, decision });
           } catch { /* best-effort */ }
         } else if (decision === 'deny') {
           try {
-            await a.permission.deny({ tool: tool!.name, pattern: result.suggestedPattern });
-            a.events.emit('trust.persisted', { tool: tool!.name, pattern: result.suggestedPattern, decision });
+            await a.permission.deny({ tool: tool.name, pattern: result.suggestedPattern });
+            a.events.emit('trust.persisted', { tool: tool.name, pattern: result.suggestedPattern, decision });
           } catch { /* best-effort */ }
         }
 
         // Soft allow/deny for session-scoped retry prevention
         if (decision === 'yes') {
           const p = a.permission as unknown as { allowOnce?(r: { tool: string; pattern: string }): void };
-          p.allowOnce?.({ tool: tool!.name, pattern: result.suggestedPattern });
+          p.allowOnce?.({ tool: tool.name, pattern: result.suggestedPattern });
         } else if (decision === 'no') {
           const p = a.permission as unknown as { denyOnce?(r: { tool: string; pattern: string }): void };
-          p.denyOnce?.({ tool: tool!.name, pattern: result.suggestedPattern });
+          p.denyOnce?.({ tool: tool.name, pattern: result.suggestedPattern });
         }
 
         const reRunResult =
           decision === 'yes' || decision === 'always'
-            ? await executeSingleWithDecision(tool!, {
+            ? await executeSingleWithDecision(tool, {
                 id: result.toolUseId,
-                name: tool!.name,
+                name: tool.name,
                 input: result.input,
               })
             : {
@@ -139,8 +139,8 @@ export function createAgentToolHandler(a: AgentInternals): AgentToolHandler {
                   tool_use_id: result.toolUseId,
                   content:
                     decision === 'deny'
-                      ? `Tool "${tool!.name}" denied and blocked for this pattern.`
-                      : `Tool "${tool!.name}" denied by user.`,
+                      ? `Tool "${tool.name}" denied and blocked for this pattern.`
+                      : `Tool "${tool.name}" denied by user.`,
                   is_error: true,
                 },
                 durationMs: 0,
@@ -158,7 +158,7 @@ export function createAgentToolHandler(a: AgentInternals): AgentToolHandler {
           });
           emitToolExecuted(
             reRunResult.result.tool_use_id,
-            tool!.name,
+            tool.name,
             reRunResult.durationMs,
             !reRunResult.result.is_error,
             result.input,
@@ -170,6 +170,7 @@ export function createAgentToolHandler(a: AgentInternals): AgentToolHandler {
       }
 
       // Non-pending: already a resolved tool_result
+      if (result.type !== 'tool_result') continue;
       resultsForMessage.push(result);
       const use = useById.get(result.tool_use_id);
       if (!use) continue;

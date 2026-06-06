@@ -15,28 +15,28 @@ import {
 
 export interface PermissionPolicyOptions {
   trustFile: string;
-  yolo?: boolean;
+  yolo?: boolean | undefined;
   /**
    * When true, YOLO mode auto-approves even destructive calls without confirm.
    * @deprecated YOLO now auto-approves everything by default. Use `confirmDestructive`
    *   to opt back into destructive-operation confirmation prompts.
    */
-  yoloDestructive?: boolean;
+  yoloDestructive?: boolean | undefined;
   /** @deprecated Use `yoloDestructive`. */
-  forceAllYolo?: boolean;
+  forceAllYolo?: boolean | undefined;
   /**
    * When true AND yolo is true, destructive operations still require confirmation.
    * This is the opt-in safety net: set this if you want YOLO for normal work but
    * explicit approval for `rm -rf`, project-escaping writes, etc.
    * Has no effect when yolo is false (normal permission flow applies).
    */
-  confirmDestructive?: boolean;
+  confirmDestructive?: boolean | undefined;
   promptDelegate?: (
     tool: Tool,
     input: unknown,
     suggestedPattern: string,
   ) => Promise<'yes' | 'no' | 'always' | 'deny'>;
-  inputReader?: InputReader;
+  inputReader?: InputReader | undefined;
 }
 
 export class DefaultPermissionPolicy implements PermissionPolicy {
@@ -73,7 +73,7 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
    * confirmation at runtime (e.g. when `--goal` forces TUI mode after
    * the agent was already constructed).
    */
-  private promptDelegate?: PermissionPolicyOptions['promptDelegate'];
+  private promptDelegate?: PermissionPolicyOptions['promptDelegate'] | undefined;
   /** Pre-compiled wildcard patterns — rebuilt on reload for O(1) lookup. */
   private wildcardEntries: { pattern: string; value: TrustPolicy[string] }[] = [];
 

@@ -4,6 +4,15 @@ import type { SkillLoader } from '../types/skill.js';
 import { downloadGitHubTarball, parseSkillRef } from './github-fetcher.js';
 import { type InstalledSkillEntry, SkillManifestStore } from './manifest-store.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export interface SkillInstallerOptions {
   /** Path to the manifest file (~/.wrongstack/installed-skills.json) */
   manifestPath: string;
@@ -14,9 +23,9 @@ export interface SkillInstallerOptions {
   /** Current project hash (for manifest tracking) */
   projectHash: string;
   /** Skill loader — cache will be invalidated after mutations */
-  skillLoader?: SkillLoader;
+  skillLoader?: SkillLoader | undefined;
   /** Logger for status messages */
-  log?: (msg: string) => void;
+  log?: (((msg: string) => void)) | undefined;
 }
 
 export interface InstallResult {
@@ -49,7 +58,7 @@ export class SkillInstaller {
    * Install skills from a GitHub repository.
    * Supports both single-skill repos (SKILL.md at root) and multi-skill repos (skills/ subdirectory).
    */
-  async install(refInput: string, opts?: { global?: boolean }): Promise<InstallResult[]> {
+  async install(refInput: string, opts?: { global?: boolean | undefined }): Promise<InstallResult[]> {
     const parsed = parseSkillRef(refInput);
     const scope: 'project' | 'user' = opts?.global ? 'user' : 'project';
     const targetDir = scope === 'project' ? this.opts.projectSkillsDir : this.opts.globalSkillsDir;
@@ -145,8 +154,8 @@ export class SkillInstaller {
    * - Name + newRef: update to a different ref
    */
   async update(
-    nameOrRef?: string,
-    _opts?: { global?: boolean },
+    nameOrRef?: string | undefined,
+    _opts?: { global?: boolean | undefined } | undefined,
   ): Promise<UpdateResult> {
     const result: UpdateResult = { updated: [], unchanged: [], errors: [] };
     const allEntries = await this.manifest.listAll();
@@ -187,11 +196,11 @@ export class SkillInstaller {
     for (const entry of targets) {
       const key = `${entry.source}@${entry.ref}`;
       if (!bySource.has(key)) bySource.set(key, []);
-      bySource.get(key)!.push(entry);
+      bySource.get(key)?.push(entry);
     }
 
     for (const [, entries] of bySource) {
-      const first = entries[0]!;
+      const first = expectDefined(entries[0]);
       const scope = first.scope;
       const isGlobal = scope === 'user';
 
@@ -234,7 +243,7 @@ export class SkillInstaller {
   /**
    * Uninstall a skill by name.
    */
-  async uninstall(name: string, opts?: { global?: boolean }): Promise<void> {
+  async uninstall(name: string, opts?: { global?: boolean | undefined }): Promise<void> {
     const scope: 'project' | 'user' = opts?.global ? 'user' : 'project';
     const entries = await this.manifest.findByName(name);
     const entry = entries.find((e) => e.scope === scope);
@@ -344,8 +353,8 @@ export class SkillInstaller {
 // ── Utilities ──────────────────────────────────────────────────────
 
 interface Frontmatter {
-  name?: string;
-  description?: string;
+  name?: string | undefined;
+  description?: string | undefined;
 }
 
 function parseFrontmatter(raw: string): Frontmatter {

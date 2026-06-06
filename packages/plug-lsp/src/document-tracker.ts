@@ -16,7 +16,7 @@ export class DocumentTracker {
     private readonly registry: () => LSPRegistry,
     private readonly log: Logger,
     cwd: string,
-    private readonly events?: EventBus,
+    private readonly events?: EventBus | undefined,
   ) {
     this.cwd = cwd;
   }
@@ -28,7 +28,7 @@ export class DocumentTracker {
   async handleToolExecuted(event: EventMap['tool.executed']): Promise<void> {
     if (!event.ok) return;
     if (event.name !== 'read' && event.name !== 'edit' && event.name !== 'write') return;
-    const input = event.input as { path?: unknown } | undefined;
+    const input = event.input as { path?: unknown | undefined } | undefined;
     if (!input || typeof input.path !== 'string') return;
     const absPath = this.resolve(input.path);
     if (event.name === 'read') await this.open(absPath);

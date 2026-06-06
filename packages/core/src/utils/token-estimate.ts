@@ -1,3 +1,10 @@
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 /**
  * Shared token estimation with JSON.stringify caching.
  * Avoids repeated stringification of tool input objects.
@@ -50,7 +57,7 @@ function getCachedEstimate(key: string, compute: () => number): number {
     // Evict oldest quarter when at capacity — simple LRU-ish policy.
     const keys = [...ESTIMATE_CACHE.keys()];
     for (let i = 0; i < Math.floor(ESTIMATE_CACHE_MAX_SIZE / 4); i++) {
-      ESTIMATE_CACHE.delete(keys[i]!);
+      ESTIMATE_CACHE.delete(expectDefined(keys[i]));
     }
   }
   const estimate = compute();
@@ -93,7 +100,7 @@ export function estimateTextTokens(text: string): number {
  * Accounts for the JSON-serialized inputSchema which is sent to the API
  * but NOT included in roughEstimate(content).
  */
-export function estimateToolDefTokens(tool: { name: string; description?: string; inputSchema: unknown }): number {
+export function estimateToolDefTokens(tool: { name: string; description?: string | undefined; inputSchema: unknown }): number {
   return RoughTokenEstimate(tool.name) +
     RoughTokenEstimate(tool.description ?? '') +
     RoughTokenEstimate(JSON.stringify(tool.inputSchema));
@@ -121,7 +128,7 @@ export interface RequestTokenBreakdown {
 export function estimateRequestTokens(
   messages: unknown,
   systemPrompt: unknown,
-  tools: { name: string; description?: string; inputSchema: unknown }[],
+  tools: { name: string; description?: string | undefined; inputSchema: unknown }[],
 ): RequestTokenBreakdown {
   // Messages: apply the same logic as roughEstimate
   let messagesTokens = 0;
@@ -136,7 +143,7 @@ export function estimateRequestTokens(
         } else if (Array.isArray(content)) {
           for (const b of content) {
             if (typeof b === 'object' && b !== null) {
-              if ((b as { type?: string }).type === 'text') {
+              if ((b as { type?: string | undefined }).type === 'text') {
                 messagesTokens += RoughTokenEstimate((b as { text: string }).text);
               } else {
                 messagesTokens += RoughTokenEstimate(JSON.stringify(b));
@@ -154,7 +161,7 @@ export function estimateRequestTokens(
     systemTokens = RoughTokenEstimate(systemPrompt);
   } else if (Array.isArray(systemPrompt)) {
     for (const b of systemPrompt) {
-      if (typeof b === 'object' && b !== null && (b as { type?: string }).type === 'text') {
+      if (typeof b === 'object' && b !== null && (b as { type?: string | undefined }).type === 'text') {
         systemTokens += RoughTokenEstimate((b as { text: string }).text);
       }
     }
@@ -235,7 +242,7 @@ export function getCalibrationState(): { ratio: number; count: number; calibrate
 export function estimateRequestTokensCalibrated(
   messages: unknown,
   systemPrompt: unknown,
-  tools: { name: string; description?: string; inputSchema: unknown }[],
+  tools: { name: string; description?: string | undefined; inputSchema: unknown }[],
 ): RequestTokenBreakdown {
   const result = estimateRequestTokens(messages, systemPrompt, tools);
 

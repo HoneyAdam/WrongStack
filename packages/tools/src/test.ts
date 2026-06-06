@@ -4,13 +4,13 @@ import { spawnStream } from './_spawn-stream.js';
 import { normalizeCommandOutput, safeResolve } from './_util.js';
 
 interface TestInput {
-  files?: string | string[];
-  runner?: 'vitest' | 'jest' | 'mocha' | 'auto';
-  watch?: boolean;
-  coverage?: boolean;
-  cwd?: string;
-  grep?: string;
-  timeout?: number;
+  files?: string | string[] | undefined;
+  runner?: 'vitest' | 'jest' | 'mocha' | 'auto' | undefined;
+  watch?: boolean | undefined;
+  coverage?: boolean | undefined;
+  cwd?: string | undefined;
+  grep?: string | undefined;
+  timeout?: number | undefined;
 }
 
 interface TestOutput {
@@ -58,7 +58,9 @@ export const testTool: Tool<TestInput, TestOutput> = {
   },
   async execute(input, ctx, opts) {
     let final: TestOutput | undefined;
-    for await (const ev of testTool.executeStream!(input, ctx, opts)) {
+    const executeStream = testTool.executeStream;
+    if (!executeStream) throw new Error('testTool: stream execution unavailable');
+    for await (const ev of executeStream(input, ctx, opts)) {
       if (ev.type === 'final') final = ev.output;
     }
     if (!final) throw new Error('test: stream ended without final event');
@@ -159,7 +161,7 @@ function buildArgs(runner: string, input: TestInput): string[] {
 
 function parseResult(
   runner: string,
-  result: { stdout: string; stderr: string; exitCode: number; truncated: boolean; error?: string },
+  result: { stdout: string; stderr: string; exitCode: number; truncated: boolean; error?: string | undefined },
   duration: number,
 ): TestOutput {
   const out = result.stdout + result.stderr;

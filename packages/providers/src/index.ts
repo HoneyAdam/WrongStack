@@ -7,10 +7,24 @@ import type {
   ResolvedProvider,
   WireFamily,
 } from '@wrongstack/core';
+import { ERROR_CODES, WrongStackError } from '@wrongstack/core';
 import { AnthropicProvider } from './anthropic.js';
 import { GoogleProvider } from './google.js';
-import { OpenAICompatibleProvider } from './openai-compatible.js';
+import {
+  type CompatibilityQuirks,
+  isCompatibilityQuirks,
+  OpenAICompatibleProvider,
+} from './openai-compatible.js';
 import { OpenAIProvider } from './openai.js';
+
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
 
 export { AnthropicProvider, type AnthropicProviderOptions } from './anthropic.js';
 export { OpenAIProvider, type OpenAIProviderOptions } from './openai.js';
@@ -50,7 +64,7 @@ export { contentFromOpenAI, type OpenAIChoice } from './tool-format/from-openai.
 export interface BuildFactoriesOptions {
   registry: ModelsRegistry;
   /** Used to log unsupported families during boot. */
-  log?: Logger;
+  log?: Logger | undefined;
 }
 
 /**
@@ -88,7 +102,7 @@ export async function buildProviderFactoriesFromRegistry(
         apiKey: requireKey(cfg),
         baseUrl: cfg.baseUrl ?? '',
         headers: cfg.headers,
-        quirks: cfg.quirks as ConstructorParameters<typeof OpenAICompatibleProvider>[0]['quirks'],
+        quirks: validateQuirks('openai-compatible', cfg.quirks),
       }),
   });
 
@@ -134,24 +148,24 @@ function makeProvider(p: ResolvedProvider, cfg: ProviderConfig): Provider {
 
   switch (family) {
     case 'anthropic':
-      return new AnthropicProvider({ apiKey: apiKey!, baseUrl });
+      return new AnthropicProvider({ apiKey: expectDefined(apiKey), baseUrl });
     case 'openai':
       return new OpenAIProvider({
-        apiKey: apiKey!,
+        apiKey: expectDefined(apiKey),
         baseUrl,
         id: p.id,
-        quirks: cfg.quirks as ConstructorParameters<typeof OpenAIProvider>[0]['quirks'],
+        quirks: validateQuirks(p.id, cfg.quirks),
       });
     case 'openai-compatible':
       return new OpenAICompatibleProvider({
         id: p.id,
-        apiKey: apiKey!,
+        apiKey: expectDefined(apiKey),
         baseUrl: baseUrl ?? '',
         headers: cfg.headers,
-        quirks: cfg.quirks as ConstructorParameters<typeof OpenAICompatibleProvider>[0]['quirks'],
+        quirks: validateQuirks(p.id, cfg.quirks),
       });
     case 'google':
-      return new GoogleProvider({ id: p.id, apiKey: apiKey!, baseUrl });
+      return new GoogleProvider({ id: p.id, apiKey: expectDefined(apiKey), baseUrl });
   }
 }
 
@@ -188,4 +202,14 @@ function readFromEnv(vars: string[]): string | undefined {
 function requireKey(cfg: ProviderConfig): string {
   if (cfg.apiKey) return cfg.apiKey;
   throw new Error('Provider config requires apiKey (or set the corresponding env var).');
+}
+
+function validateQuirks(providerId: string, quirks: unknown): CompatibilityQuirks | undefined {
+  if (quirks === undefined) return undefined;
+  if (isCompatibilityQuirks(quirks)) return quirks;
+  throw new WrongStackError({
+    message: `Invalid quirks for provider "${providerId}". Expected CompatibilityQuirks.`,
+    code: ERROR_CODES.CONFIG_INVALID,
+    subsystem: 'provider',
+  });
 }

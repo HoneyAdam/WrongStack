@@ -1,3 +1,10 @@
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export type ContextWindowModeId = 'balanced' | 'frugal' | 'deep' | 'archival';
 
 export type ContextWindowAggressiveOn = 'hard' | 'soft' | 'warn';
@@ -22,12 +29,12 @@ export interface ContextWindowMode {
 export interface ContextWindowPolicy extends ContextWindowMode {}
 
 export interface ContextWindowConfigLike {
-  mode?: ContextWindowModeId | string;
-  warnThreshold?: number;
-  softThreshold?: number;
-  hardThreshold?: number;
-  preserveK?: number;
-  eliseThreshold?: number;
+  mode?: ContextWindowModeId | string | undefined;
+  warnThreshold?: number | undefined;
+  softThreshold?: number | undefined;
+  hardThreshold?: number | undefined;
+  preserveK?: number | undefined;
+  eliseThreshold?: number | undefined;
 }
 
 export const DEFAULT_CONTEXT_WINDOW_MODE_ID: ContextWindowModeId = 'balanced';
@@ -91,10 +98,10 @@ export function isContextWindowModeId(id: string): id is ContextWindowModeId {
 
 export function resolveContextWindowPolicy(
   config: ContextWindowConfigLike = {},
-  overrideMode?: string | null,
+  overrideMode?: string | null | undefined,
 ): ContextWindowPolicy {
   const requested = overrideMode ?? config.mode ?? DEFAULT_CONTEXT_WINDOW_MODE_ID;
-  const mode = getContextWindowMode(requested) ?? getContextWindowMode(DEFAULT_CONTEXT_WINDOW_MODE_ID)!;
+  const mode = getContextWindowMode(requested) ?? expectDefined(getContextWindowMode(DEFAULT_CONTEXT_WINDOW_MODE_ID));
 
   if (mode.id !== DEFAULT_CONTEXT_WINDOW_MODE_ID) {
     return mode;

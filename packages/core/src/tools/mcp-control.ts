@@ -15,6 +15,15 @@ import * as fs from 'node:fs/promises';
 import { allServers } from '../infrastructure/mcp-servers.js';
 import type { Config, JSONSchema, MCPServerConfig, Tool } from '../index.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export interface MCPRegistryHandle {
   start(cfg: MCPServerConfig): Promise<void>;
   stop(name: string): Promise<void>;
@@ -75,7 +84,7 @@ export function createMcpControlTool(opts: CreateMcpControlToolOptions): Tool {
     riskTier: 'standard',
     inputSchema,
     async execute(raw) {
-      const input = raw as { action: string; query?: string; server?: string };
+      const input = raw as { action: string; query?: string | undefined; server?: string | undefined };
       return mcpControlDispatch(input, { getConfig, configPath, registry });
     },
   };
@@ -84,7 +93,7 @@ export function createMcpControlTool(opts: CreateMcpControlToolOptions): Tool {
 // ── Dispatch ──────────────────────────────────────────────────────────────────
 
 async function mcpControlDispatch(
-  input: { action: string; query?: string; server?: string },
+  input: { action: string; query?: string | undefined; server?: string | undefined },
   deps: { getConfig: () => Config; configPath: string; registry: MCPRegistryHandle },
 ): Promise<string> {
   const { action, query, server } = input;
@@ -92,9 +101,9 @@ async function mcpControlDispatch(
   switch (action) {
     case 'list':  return renderList(deps);
     case 'search': return renderSearch(query ?? '', deps);
-    case 'enable': return runEnable(server!, deps);
-    case 'disable': return runDisable(server!, deps);
-    case 'restart': return runRestart(server!, deps);
+    case 'enable': return server ? runEnable(server, deps) : '`server` is required for enable.';
+    case 'disable': return server ? runDisable(server, deps) : '`server` is required for disable.';
+    case 'restart': return server ? runRestart(server, deps) : '`server` is required for restart.';
     default:
       return `Unknown action "${action}". Use one of: list, search, enable, disable, restart.`;
   }
@@ -242,7 +251,7 @@ async function runDisable(
   const mcpServers: Record<string, MCPServerConfig> = {
     ...((full.mcpServers as Record<string, MCPServerConfig> | undefined) ?? {}),
   };
-  const existing = mcpServers[name]!;
+  const existing = expectDefined(mcpServers[name]);
   mcpServers[name] = { ...existing, enabled: false };
   full.mcpServers = mcpServers;
   await writeConfig(deps.configPath, full);

@@ -15,7 +15,7 @@ export const projectsCmd: SubcommandHandler = async (_args, deps) => {
       try {
         const meta = JSON.parse(
           await fs.readFile(path.join(projectsRoot, hash, 'meta.json'), 'utf8'),
-        ) as { root?: string; lastSeen?: string };
+        ) as { root?: string | undefined; lastSeen?: string | undefined };
         deps.renderer.write(
           `  ${color.dim(hash)}  ${color.dim(meta.lastSeen ?? '')}  ${meta.root ?? '?'}\n`,
         );

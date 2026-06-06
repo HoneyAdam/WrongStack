@@ -3,8 +3,8 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
 export interface AtomicWriteOptions {
-  mode?: number;
-  encoding?: BufferEncoding;
+  mode?: number | undefined;
+  encoding?: BufferEncoding | undefined;
 }
 
 export async function atomicWrite(

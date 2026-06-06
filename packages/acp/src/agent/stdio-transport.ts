@@ -11,6 +11,15 @@
 import { writeErr } from '@wrongstack/core';
 import type { ACPMessage } from '../types/acp-messages.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export interface AgentServerTransport {
   send(msg: ACPMessage): Promise<void>;
   sendRaw(chunk: string): void;
@@ -55,7 +64,7 @@ export class StdioTransport implements AgentServerTransport {
   }
 
   read(): Promise<ACPMessage | null> {
-    if (this.messageQueue.length > 0) return Promise.resolve(this.messageQueue.shift()!);
+    if (this.messageQueue.length > 0) return Promise.resolve(expectDefined(this.messageQueue.shift()));
     if (this.closed) return Promise.resolve(null);
     return new Promise((resolve) => {
       this.resolveRead = resolve;
@@ -126,10 +135,10 @@ import type { EventEmitter } from 'node:events';
 
 export interface ClientTransportOptions {
   command: string;
-  args?: string[];
+  args?: string[] | undefined;
   env?: Record<string, string>;
-  cwd?: string;
-  handshakeTimeoutMs?: number;
+  cwd?: string | undefined;
+  handshakeTimeoutMs?: number | undefined;
 }
 
 export interface ACPChildProcess extends EventEmitter {
@@ -216,7 +225,7 @@ export class ClientTransport {
     if (!this.child) return Promise.reject(new Error('ClientTransport not started'));
     return new Promise((resolve, reject) => {
       const line = JSON.stringify(msg) + '\n';
-      this.child!.stdin.write(line, 'utf8', (err) => {
+      this.child?.stdin.write(line, 'utf8', (err) => {
         if (err) reject(err);
         else resolve();
       });
@@ -224,7 +233,7 @@ export class ClientTransport {
   }
 
   read(): Promise<ACPMessage | null> {
-    if (this.messageQueue.length > 0) return Promise.resolve(this.messageQueue.shift()!);
+    if (this.messageQueue.length > 0) return Promise.resolve(expectDefined(this.messageQueue.shift()));
     if (this.closed) return Promise.resolve(null);
     return new Promise((resolve) => {
       this.resolveRead = resolve;

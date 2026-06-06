@@ -44,7 +44,7 @@ export class LargeAnswerStore {
    * Store a value, returning a summary + key for inline use.
    * If the value is below sizeThreshold, returns it as-is (no store entry).
    */
-  storeAnswer(value: unknown): { key?: string; summary: string; inline: boolean } {
+  storeAnswer(value: unknown): { key?: string | undefined; summary: string; inline: boolean } {
     if (value === undefined || value === null) {
       return { summary: String(value), inline: true };
     }

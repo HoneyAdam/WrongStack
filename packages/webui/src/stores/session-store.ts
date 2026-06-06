@@ -36,9 +36,9 @@ interface SessionState {
     id: string;
     name: string;
     description: string;
-    thresholds?: { warn: number; soft: number; hard: number };
-    preserveK?: number;
-    eliseThreshold?: number;
+    thresholds?: { warn: number | undefined; soft: number; hard: number };
+    preserveK?: number | undefined;
+    eliseThreshold?: number | undefined;
   }>;
   /** Iteration progress while the agent is running. Resets on run.result. */
   iteration: { index: number; max: number } | null;
@@ -48,7 +48,7 @@ interface SessionState {
     id: string;
     content: string;
     status: 'pending' | 'in_progress' | 'completed';
-    activeForm?: string;
+    activeForm?: string | undefined;
   }>;
 
   setSession: (session: SessionInfo | null) => void;
@@ -57,13 +57,13 @@ interface SessionState {
   startSession: (session: SessionInfo) => void;
   endSession: () => void;
   setEnv: (env: {
-    maxContext?: number;
-    projectName?: string;
-    mode?: string;
-    contextMode?: string;
-    inputCost?: number;
-    outputCost?: number;
-    cacheReadCost?: number;
+    maxContext?: number | undefined;
+    projectName?: string | undefined;
+    mode?: string | undefined;
+    contextMode?: string | undefined;
+    inputCost?: number | undefined;
+    outputCost?: number | undefined;
+    cacheReadCost?: number | undefined;
   }) => void;
   setIteration: (it: { index: number; max: number } | null) => void;
   setModes: (modes: Array<{ id: string; name: string; description: string }>) => void;

@@ -27,17 +27,17 @@ export type HookMatcher = string;
 export interface HookInput {
   event: HookEvent;
   /** Present for PreToolUse / PostToolUse. */
-  toolName?: string;
+  toolName?: string | undefined;
   /** Tool arguments (PreToolUse / PostToolUse). */
-  toolInput?: unknown;
+  toolInput?: unknown | undefined;
   /** Tool result preview (PostToolUse only). */
   toolResult?: { content: string; isError: boolean };
   /** The submitted user text (UserPromptSubmit only). */
-  prompt?: string;
+  prompt?: string | undefined;
   /** Absolute working directory of the session. */
   cwd: string;
   /** Active session id, when known. */
-  sessionId?: string;
+  sessionId?: string | undefined;
 }
 
 /**
@@ -49,9 +49,9 @@ export interface HookOutcome {
    * `block` stops the action (PreToolUse → tool not run; UserPromptSubmit →
    * turn short-circuited). `allow` is the explicit no-op. Omitted = allow.
    */
-  decision?: 'block' | 'allow';
+  decision?: 'block' | 'allow' | undefined;
   /** Human-readable reason, surfaced to the model when blocking. */
-  reason?: string;
+  reason?: string | undefined;
   /**
    * PreToolUse only: replacement tool arguments. The executor swaps these in
    * and RE-VALIDATES them against the tool's input schema before running.
@@ -62,7 +62,7 @@ export interface HookOutcome {
    * (PostToolUse), the user message (UserPromptSubmit), or the system preamble
    * (SessionStart).
    */
-  additionalContext?: string;
+  additionalContext?: string | undefined;
 }
 
 /** An in-process hook function (registered via the plugin API). */
@@ -77,9 +77,9 @@ export interface ShellHook {
   /** Command line run via the platform shell. */
   command: string;
   /** Tool-name matcher (defaults to `*`). */
-  matcher?: HookMatcher;
+  matcher?: HookMatcher | undefined;
   /** Per-invocation timeout in ms (default 5000). */
-  timeoutMs?: number;
+  timeoutMs?: number | undefined;
 }
 
 /** A registered hook entry, discriminated by transport. */
@@ -89,6 +89,6 @@ export type HookEntry =
       event: HookEvent;
       matcher: HookMatcher;
       hook: InProcessHook;
-      owner?: string;
+      owner?: string | undefined;
     }
-  | { kind: 'shell'; event: HookEvent; matcher: HookMatcher; command: string; timeoutMs?: number };
+  | { kind: 'shell'; event: HookEvent; matcher: HookMatcher; command: string; timeoutMs?: number | undefined };

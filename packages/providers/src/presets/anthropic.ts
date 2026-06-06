@@ -23,7 +23,7 @@ interface AnthropicStreamState {
   stopReason: StopReason;
   started: boolean;
   stopped: boolean;
-  blocks: Map<number, { kind: BlockKind; id?: string; name?: string; partial: string }>;
+  blocks: Map<number, { kind: BlockKind; id?: string | undefined; name?: string | undefined; partial: string }>;
 }
 
 const DEFAULT_VERSION = '2023-06-01';
@@ -81,11 +81,11 @@ export const anthropicWireFormat = defineWireFormat<AnthropicStreamState>({
       case 'message_start': {
         const message = ev['message'] as
           | {
-              model?: string;
+              model?: string | undefined;
               usage?: {
-                input_tokens?: number;
-                cache_read_input_tokens?: number;
-                cache_creation_input_tokens?: number;
+                input_tokens?: number | undefined;
+                cache_read_input_tokens?: number | undefined;
+                cache_creation_input_tokens?: number | undefined;
               };
             }
           | undefined;
@@ -104,7 +104,7 @@ export const anthropicWireFormat = defineWireFormat<AnthropicStreamState>({
       }
       case 'content_block_start': {
         const index = Number(ev['index'] ?? 0);
-        const cb = ev['content_block'] as { type?: string; id?: string; name?: string } | undefined;
+        const cb = ev['content_block'] as { type?: string | undefined; id?: string | undefined; name?: string | undefined } | undefined;
         if (cb?.type === 'tool_use') {
           state.blocks.set(index, { kind: 'tool_use', id: cb.id, name: cb.name, partial: '' });
           if (cb.id && cb.name) {
@@ -124,11 +124,11 @@ export const anthropicWireFormat = defineWireFormat<AnthropicStreamState>({
         const index = Number(ev['index'] ?? 0);
         const delta = ev['delta'] as
           | {
-              type?: string;
-              text?: string;
-              partial_json?: string;
-              thinking?: string;
-              signature?: string;
+              type?: string | undefined;
+              text?: string | undefined;
+              partial_json?: string | undefined;
+              thinking?: string | undefined;
+              signature?: string | undefined;
             }
           | undefined;
         const block = state.blocks.get(index);
@@ -159,8 +159,8 @@ export const anthropicWireFormat = defineWireFormat<AnthropicStreamState>({
         break;
       }
       case 'message_delta': {
-        const delta = ev['delta'] as { stop_reason?: string | null } | undefined;
-        const u = ev['usage'] as { output_tokens?: number } | undefined;
+        const delta = ev['delta'] as { stop_reason?: string | null | undefined } | undefined;
+        const u = ev['usage'] as { output_tokens?: number | undefined } | undefined;
         if (delta?.stop_reason !== undefined) {
           state.stopReason = normalizeAnthropic(delta.stop_reason);
         }
@@ -174,7 +174,7 @@ export const anthropicWireFormat = defineWireFormat<AnthropicStreamState>({
         out.push({ type: 'message_stop', stopReason: state.stopReason, usage: state.usage });
         break;
       case 'error': {
-        const err = ev['error'] as { message?: string; type?: string } | undefined;
+        const err = ev['error'] as { message?: string | undefined; type?: string | undefined } | undefined;
         throw new ProviderError(err?.message ?? 'Anthropic stream error', 0, false, 'anthropic', {
           body: { type: err?.type, message: err?.message },
         });

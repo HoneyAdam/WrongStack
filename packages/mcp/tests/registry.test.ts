@@ -225,7 +225,9 @@ describe('MCPRegistry', () => {
       const warnCalls: { msg: string; err?: unknown }[] = [];
       const warnLog: Logger = {
         ...silentLog,
-        warn: (msg, err) => warnCalls.push({ msg, err }),
+        warn: (msg, err) => {
+          warnCalls.push({ msg, err });
+        },
       };
       const reg = new MCPRegistry({ toolRegistry: toolReg, events, log: warnLog });
       // Inject a client directly into the servers map
@@ -454,7 +456,9 @@ describe('MCPRegistry', () => {
       const warnCalls: { msg: string; err?: unknown }[] = [];
       const warnLog: Logger = {
         ...silentLog,
-        warn: (msg, err) => warnCalls.push({ msg, err }),
+        warn: (msg, err) => {
+          warnCalls.push({ msg, err });
+        },
       };
       const reg = new MCPRegistry({ toolRegistry: toolReg, events, log: warnLog });
       // Create a slot with a client that returns a tool that fails registration

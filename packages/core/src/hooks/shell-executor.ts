@@ -7,7 +7,7 @@ const MAX_OUTPUT_BYTES = 64 * 1024;
 
 export interface ShellHookSpec {
   command: string;
-  timeoutMs?: number;
+  timeoutMs?: number | undefined;
 }
 
 /**
@@ -23,7 +23,7 @@ export interface ShellHookSpec {
 export async function runShellHook(
   spec: ShellHookSpec,
   input: HookInput,
-  logger?: Logger,
+  logger?: Logger | undefined,
 ): Promise<HookOutcome | null> {
   const timeoutMs = spec.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 

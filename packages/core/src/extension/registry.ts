@@ -22,6 +22,15 @@ import type {
   ProviderRunnerFn,
 } from './extension-points.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export class ExtensionRegistry {
   private readonly extensions: AgentExtension[] = [];
   private readonly promptContributors: SystemPromptContributor[] = [];
@@ -192,7 +201,7 @@ export class ExtensionRegistry {
   async runOnError(
     ...args: Parameters<OnErrorHook>
   ): Promise<
-    { action: 'retry'; model?: string } | { action: 'fail' } | { action: 'continue' } | void
+    { action: 'retry'; model?: string | undefined } | { action: 'fail' } | { action: 'continue' } | void
   > {
     const snapshot = [...this.extensions];
     for (const ext of snapshot) {
@@ -214,14 +223,15 @@ export class ExtensionRegistry {
   wrapProviderRunner(inner: ProviderRunnerFn): ProviderRunnerFn {
     const wrappers = this.extensions
       .filter((e) => e.wrapProviderRunner)
-      .map((e) => ({ name: e.name, wrap: e.wrapProviderRunner! }));
+      .map((e) => ({ name: e.name, wrap: expectDefined(e.wrapProviderRunner) }));
 
     if (wrappers.length === 0) return inner;
 
     // Build chain from innermost to outermost
     let composed: ProviderRunnerFn = inner;
     for (let i = wrappers.length - 1; i >= 0; i--) {
-      const wrapper = wrappers[i]!;
+      const wrapper = wrappers[i];
+      if (!wrapper) continue;
       const next = composed;
       composed = async (ctx, req) => {
         try {

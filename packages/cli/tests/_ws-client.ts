@@ -11,29 +11,31 @@ import { WebSocket } from 'ws';
  */
 export interface WsClient {
   ws: WebSocket;
-  waitForMessage(type: string, predicate?: (m: any) => boolean): Promise<any>;
+  waitForMessage(type: string, predicate?: (m: WsMessage) => boolean): Promise<WsMessage>;
 }
+
+type WsMessage = { type?: string | undefined; [key: string]: unknown };
 
 export function openWs(url: string): Promise<WsClient> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url, { headers: { Origin: 'http://localhost' } });
-    const buffer: any[] = [];
+    const buffer: WsMessage[] = [];
     const waiters: Array<{
       type: string;
-      predicate?: (m: any) => boolean;
-      resolve: (m: any) => void;
+      predicate?: (m: WsMessage) => boolean;
+      resolve: (m: WsMessage) => void;
     }> = [];
 
     ws.on('message', (data) => {
-      const msg = JSON.parse(data.toString());
+      const msg = JSON.parse(data.toString()) as WsMessage;
       const idx = waiters.findIndex(
         (w) => w.type === msg.type && (!w.predicate || w.predicate(msg)),
       );
-      if (idx >= 0) waiters.splice(idx, 1)[0]!.resolve(msg);
+      if (idx >= 0) waiters.splice(idx, 1)[0]?.resolve(msg);
       else buffer.push(msg);
     });
 
-    const waitForMessage = (type: string, predicate?: (m: any) => boolean): Promise<any> =>
+    const waitForMessage = (type: string, predicate?: (m: WsMessage) => boolean): Promise<WsMessage> =>
       new Promise((res, rej) => {
         const idx = buffer.findIndex((m) => m.type === type && (!predicate || predicate(m)));
         if (idx >= 0) {

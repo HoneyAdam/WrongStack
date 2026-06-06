@@ -26,21 +26,21 @@ export interface OtlpMetricsExporterOptions {
    */
   endpoint: string;
   /** Push interval in milliseconds. Defaults to 30s (Prometheus default). */
-  intervalMs?: number;
+  intervalMs?: number | undefined;
   /** Optional bearer token / API key (sent as `Authorization`). */
-  authorization?: string;
+  authorization?: string | undefined;
   /** Extra request headers (vendor-specific keys go here). */
   headers?: Record<string, string>;
   /** Resource attributes attached to every export. Defaults: `service.name=wrongstack`. */
   resourceAttributes?: Record<string, string>;
   /** Instrumentation scope. Default: `wrongstack`. */
-  scopeName?: string;
+  scopeName?: string | undefined;
   /** Per-request timeout. Defaults to 10s. */
-  timeoutMs?: number;
+  timeoutMs?: number | undefined;
   /** Override fetch (for tests). Defaults to global `fetch`. */
-  fetchImpl?: typeof globalThis.fetch;
+  fetchImpl?: typeof globalThis.fetch | undefined;
   /** Called when a push fails. Defaults to silent (telemetry must never crash the host). */
-  onError?: (err: unknown) => void;
+  onError?: ((err: unknown) => void) | undefined;
 }
 
 export interface OtlpMetricsExporterHandle {
@@ -66,27 +66,27 @@ interface OtlpAttribute {
 interface OtlpDataPoint {
   attributes: OtlpAttribute[];
   timeUnixNano: string;
-  asDouble?: number;
-  asInt?: string;
-  count?: string;
-  sum?: number;
-  quantileValues?: { quantile: number; value: number }[];
+  asDouble?: number | undefined;
+  asInt?: string | undefined;
+  count?: string | undefined;
+  sum?: number | undefined;
+  quantileValues?: { quantile: number | undefined; value: number }[];
 }
 
 interface OtlpMetric {
   name: string;
-  description?: string;
-  unit?: string;
-  sum?: { dataPoints: OtlpDataPoint[]; aggregationTemporality: 2; isMonotonic: true };
-  gauge?: { dataPoints: OtlpDataPoint[] };
-  summary?: { dataPoints: OtlpDataPoint[] };
+  description?: string | undefined;
+  unit?: string | undefined;
+  sum?: { dataPoints: OtlpDataPoint[] | undefined; aggregationTemporality: 2; isMonotonic: true };
+  gauge?: { dataPoints: OtlpDataPoint[] | undefined };
+  summary?: { dataPoints: OtlpDataPoint[] | undefined };
 }
 
 interface OtlpExportRequest {
   resourceMetrics: {
     resource: { attributes: OtlpAttribute[] };
     scopeMetrics: {
-      scope: { name: string; version?: string };
+      scope: { name: string; version?: string | undefined };
       metrics: OtlpMetric[];
     }[];
   }[];
@@ -159,7 +159,7 @@ function buildExportBody(opts: {
  */
 export function buildOtlpMetricsRequest(
   sink: MetricsSink,
-  opts: { resourceAttributes?: Record<string, string>; scopeName?: string } = {},
+  opts: { resourceAttributes?: Record<string, string>; scopeName?: string | undefined } = {},
 ): OtlpExportRequest {
   return buildExportBody({
     series: sink.snapshot().series,

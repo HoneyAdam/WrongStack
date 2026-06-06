@@ -84,8 +84,8 @@ export class DefaultModeStore implements ModeStore {
 }
 
 export interface ModeLoaderOptions {
-  projectModesDir?: string;
-  userModesDir?: string;
+  projectModesDir?: string | undefined;
+  userModesDir?: string | undefined;
 }
 
 export async function loadProjectModes(modesDir: string): Promise<Mode[]> {

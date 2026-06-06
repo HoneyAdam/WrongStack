@@ -20,7 +20,7 @@ export class HookRegistry {
     event: HookEvent,
     matcher: HookMatcher | undefined,
     hook: InProcessHook,
-    owner?: string,
+    owner?: string | undefined,
   ): () => void {
     const entry: HookEntry = {
       kind: 'inprocess',

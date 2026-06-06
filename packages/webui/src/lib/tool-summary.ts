@@ -38,7 +38,7 @@ export function summarizeToolInput(toolName: string | undefined, input: unknown)
 
   // ---- TodoWrite ----------------------------------------------------
   if (/^todo(_?write)?$|^todos$/i.test(name) || Array.isArray(obj.todos)) {
-    const todos = (obj.todos ?? []) as Array<{ status?: string; content?: string }>;
+    const todos = (obj.todos ?? []) as Array<{ status?: string | undefined; content?: string | undefined }>;
     if (Array.isArray(todos)) {
       const done = todos.filter((t) => t.status === 'completed').length;
       const wip = todos.filter((t) => t.status === 'in_progress').length;

@@ -9,8 +9,8 @@ export function CopyButton({
   label = 'Copy',
 }: {
   text: string;
-  className?: string;
-  label?: string;
+  className?: string | undefined;
+  label?: string | undefined;
 }) {
   const [copied, setCopied] = useState(false);
   return (

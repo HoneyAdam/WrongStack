@@ -33,9 +33,9 @@ export function isPortFree(host: string, port: number): Promise<boolean> {
 
 export interface FindFreePortOptions {
   /** Ports to skip even if free (e.g. one already chosen for the sibling server). */
-  exclude?: Set<number>;
+  exclude?: Set<number> | undefined;
   /** How many consecutive ports to try before giving up. Default 200. */
-  maxTries?: number;
+  maxTries?: number | undefined;
 }
 
 /**

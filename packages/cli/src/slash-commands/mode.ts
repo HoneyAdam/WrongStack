@@ -19,8 +19,7 @@ async function runModePicker(modeStore: ModeStore, reader: InputReader): Promise
     lines.push(`\n${color.bold(color.amber('WrongStack') + color.dim(' — Mode Selection'))}\n`);
     lines.push(color.dim('  ↑↓ navigate   Enter select   q quit\n'));
     lines.push('');
-    for (let i = 0; i < modes.length; i++) {
-      const m = modes[i];
+    for (const [i, m] of modes.entries()) {
       const mark = m.id === active?.id ? color.green(' [active]') : '';
       const prefix = i === currentCursor ? color.bold('❯ ') : '  ';
       const name = i === currentCursor ? color.bold(m.name) : m.name;
@@ -56,7 +55,7 @@ async function runModePicker(modeStore: ModeStore, reader: InputReader): Promise
 }
 
 export function buildModeCommand(
-  opts: SlashCommandContext & { modeStore?: ModeStore },
+  opts: SlashCommandContext & { modeStore?: ModeStore | undefined },
 ): SlashCommand {
   return {
     name: 'mode',

@@ -9,12 +9,12 @@ export interface TaskItem {
   status: 'pending' | 'in_progress' | 'blocked' | 'failed' | 'review' | 'completed';
   priority: 'critical' | 'high' | 'medium' | 'low';
   type: 'feature' | 'bugfix' | 'refactor' | 'docs' | 'test' | 'chore';
-  estimateHours?: number;
-  actualHours?: number;
-  assignee?: string;
+  estimateHours?: number | undefined;
+  actualHours?: number | undefined;
+  assignee?: string | undefined;
   tags: string[];
-  startedAt?: number;
-  completedAt?: number;
+  startedAt?: number | undefined;
+  completedAt?: number | undefined;
 }
 
 export interface TaskBoardProps {
@@ -22,10 +22,10 @@ export interface TaskBoardProps {
   phaseStatus: string;
   tasks: TaskItem[];
   /** Task tıklandığında */
-  onTaskClick?: (taskId: string) => void;
+  onTaskClick?: ((taskId: string) => void) | undefined;
   /** Task durumunu değiştir */
   onTaskStatusChange?: (taskId: string, status: TaskItem['status']) => void;
-  className?: string;
+  className?: string | undefined;
 }
 
 // Token-driven so every state reads correctly in both light and dark. Status

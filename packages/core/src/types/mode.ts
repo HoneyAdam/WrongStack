@@ -5,21 +5,21 @@ export interface Mode {
   /** Additional prompt text injected into system prompt when mode is active */
   prompt: string;
   /** Tags for tool_search filtering */
-  tags?: string[];
+  tags?: string[] | undefined;
   /** Tools that should be prioritized/highlighted when this mode is active */
-  toolPreferences?: string[];
+  toolPreferences?: string[] | undefined;
   /**
    * Skill names that are particularly relevant to this mode. The system
    * prompt builder appends a "Suggested skills" note so the model knows
    * which domain knowledge to leverage first. Skill must exist in the
    * loaded skill set to appear.
    */
-  suggestedSkills?: string[];
+  suggestedSkills?: string[] | undefined;
 }
 
 export interface ModeManifest {
   modes: Mode[];
-  defaultMode?: string;
+  defaultMode?: string | undefined;
 }
 
 export interface ModeStore {

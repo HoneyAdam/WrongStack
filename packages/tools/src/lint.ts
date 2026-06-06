@@ -3,10 +3,10 @@ import { spawnStream } from './_spawn-stream.js';
 import { normalizeCommandOutput, safeResolve } from './_util.js';
 
 interface LintInput {
-  files?: string | string[];
-  fix?: boolean;
-  linter?: 'biome' | 'eslint' | 'tslint' | 'auto';
-  cwd?: string;
+  files?: string | string[] | undefined;
+  fix?: boolean | undefined;
+  linter?: 'biome' | 'eslint' | 'tslint' | 'auto' | undefined;
+  cwd?: string | undefined;
 }
 
 interface LintOutput {
@@ -51,7 +51,9 @@ export const lintTool: Tool<LintInput, LintOutput> = {
   },
   async execute(input, ctx, opts) {
     let final: LintOutput | undefined;
-    for await (const ev of lintTool.executeStream!(input, ctx, opts)) {
+    const executeStream = lintTool.executeStream;
+    if (!executeStream) throw new Error('lintTool: stream execution unavailable');
+    for await (const ev of executeStream(input, ctx, opts)) {
       if (ev.type === 'final') final = ev.output;
     }
     if (!final) throw new Error('lint: stream ended without final event');

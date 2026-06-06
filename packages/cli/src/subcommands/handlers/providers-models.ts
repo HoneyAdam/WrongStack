@@ -10,6 +10,15 @@ import {
 } from '@wrongstack/core';
 import type { SubcommandHandler } from '../index.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export const providersCmd: SubcommandHandler = async (args, deps) => {
   const showAll = args.includes('--all');
   const showUnsupported = args.includes('--unsupported');
@@ -58,14 +67,14 @@ export const providersCmd: SubcommandHandler = async (args, deps) => {
 function parseFlags(args: string[]): Record<string, string | boolean> {
   const flags: Record<string, string | boolean> = {};
   for (let i = 0; i < args.length; i++) {
-    const a = args[i]!;
+    const a = expectDefined(args[i]);
     if (a.startsWith('--')) {
       const eq = a.indexOf('=');
       if (eq !== -1) {
         flags[a.slice(2, eq)] = a.slice(eq + 1);
       } else {
         const name = a.slice(2);
-        if (i + 1 < args.length && !args[i + 1]!.startsWith('--')) {
+        if (i + 1 < args.length && !args[i + 1]?.startsWith('--')) {
           flags[name] = args[++i] ?? '';
         } else {
           flags[name] = true;
@@ -80,12 +89,12 @@ function parseFlags(args: string[]): Record<string, string | boolean> {
 function positionals(args: string[]): string[] {
   const out: string[] = [];
   for (let i = 0; i < args.length; i++) {
-    const a = args[i]!;
+    const a = expectDefined(args[i]);
     if (a.startsWith('--')) {
       const eq = a.indexOf('=');
       if (eq === -1) {
         // If the next arg is a value (not a flag), skip it
-        if (i + 1 < args.length && !args[i + 1]!.startsWith('--')) {
+        if (i + 1 < args.length && !args[i + 1]?.startsWith('--')) {
           i++;
         }
       }
@@ -272,7 +281,7 @@ function parseSizeFlag(raw: string | undefined): number | undefined {
   const s = raw.trim().toLowerCase();
   const match = /^(\d+(?:\.\d+)?)\s*(k|m|b)?$/.exec(s);
   if (!match) return undefined;
-  const num = Number.parseFloat(match[1]!);
+  const num = Number.parseFloat(expectDefined(match[1]));
   const unit = match[2];
   if (unit === 'b') return Math.round(num * 1_000_000_000);
   if (unit === 'm') return Math.round(num * 1_000_000);

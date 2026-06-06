@@ -2,13 +2,13 @@ import type { ModeStore, Tool } from '@wrongstack/core';
 
 interface ModeInput {
   action: 'get' | 'list' | 'set' | 'clear';
-  mode?: string;
+  mode?: string | undefined;
 }
 
 interface ModeOutput {
   action: string;
-  currentMode?: string;
-  modes?: { id: string; name: string; description: string }[];
+  currentMode?: string | undefined;
+  modes?: { id: string | undefined; name: string; description: string }[];
   success: boolean;
   message: string;
 }

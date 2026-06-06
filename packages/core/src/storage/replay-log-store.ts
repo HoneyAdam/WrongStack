@@ -51,7 +51,7 @@ export interface ReplayLogStoreOptions {
    * (messages + tools + response), so 1000 entries is ~5MB per
    * session which is a reasonable upper bound.
    */
-  maxEntries?: number;
+  maxEntries?: number | undefined;
 }
 
 export class ReplayLogStore {
@@ -182,7 +182,7 @@ export class ReplayLogStore {
       for (const line of raw.split('\n')) {
         if (!line.trim()) continue;
         try {
-          const parsed = JSON.parse(line) as { version?: number; entry?: ReplayEntry } & ReplayEntry;
+          const parsed = JSON.parse(line) as { version?: number | undefined; entry?: ReplayEntry | undefined } & ReplayEntry;
           // Forward-compat: v1 stores entries one per line, no envelope.
           // A future "v2" could wrap with `{version, entries:[...]}`;
           // the loader would then branch on `parsed.version`.

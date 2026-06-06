@@ -1,6 +1,15 @@
 
 import type { FileSymbols, Symbol as IndexSymbol, SymbolLang } from './schema.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 // ─── Public API ─────────────────────────────────────────────────────────────
 
 export function parseSymbols(opts: {
@@ -30,7 +39,7 @@ function regexParse(opts: { file: string; content: string; lang: SymbolLang }): 
   // Build line offset map for accurate line/col
   const lineOffsets: number[] = [0];
   for (let i = 0; i < lines.length; i++) {
-    lineOffsets.push(lineOffsets[i]! + lines[i]!.length + 1);
+    lineOffsets.push((lineOffsets[i] ?? 0) + (lines[i]?.length ?? 0) + 1);
   }
 
   function lineFromOffset(offset: number): number {
@@ -38,7 +47,7 @@ function regexParse(opts: { file: string; content: string; lang: SymbolLang }): 
     let hi = lineOffsets.length - 1;
     while (lo < hi) {
       const mid = (lo + hi + 1) >>> 1;
-      if (lineOffsets[mid]! <= offset) lo = mid;
+      if (expectDefined(lineOffsets[mid]) <= offset) lo = mid;
       else hi = mid - 1;
     }
     return lo + 1;
@@ -48,8 +57,8 @@ function regexParse(opts: { file: string; content: string; lang: SymbolLang }): 
   // &anchor_name
   const anchorRegex = /&(\w[\w-]*)/g;
   for (let match = anchorRegex.exec(content); match !== null; match = anchorRegex.exec(content)) {
-    const name = match[1]!;
-    const offset = match.index!;
+    const name = expectDefined(match[1]);
+    const offset = (match.index ?? 0);
     const line = lineFromOffset(offset);
     const col = offset - (lineOffsets[line - 1] ?? 0);
     symbols.push(
@@ -68,8 +77,8 @@ function regexParse(opts: { file: string; content: string; lang: SymbolLang }): 
   // *alias_name
   const aliasRegex = /\*(\w[\w-]*)/g;
   for (let match = aliasRegex.exec(content); match !== null; match = aliasRegex.exec(content)) {
-    const name = match[1]!;
-    const offset = match.index!;
+    const name = expectDefined(match[1]);
+    const offset = (match.index ?? 0);
     const line = lineFromOffset(offset);
     const col = offset - (lineOffsets[line - 1] ?? 0);
     symbols.push(
@@ -90,9 +99,10 @@ function regexParse(opts: { file: string; content: string; lang: SymbolLang }): 
   // Uses negative lookbehind and context to avoid false positives
   const kvRegex = /^(\s*)([^:#\s][^:#\s]*)\s*:/gm;
   for (let match = kvRegex.exec(content); match !== null; match = kvRegex.exec(content)) {
-    const indent = match[1]!.length;
-    const key = match[2]!;
-    const offset = match.index!;
+    const indent = match[1]?.length ?? 0;
+    const key = match[2];
+    if (!key) continue;
+    const offset = (match.index ?? 0);
     const line = lineFromOffset(offset);
     const col = offset - (lineOffsets[line - 1] ?? 0);
 
@@ -104,7 +114,7 @@ function regexParse(opts: { file: string; content: string; lang: SymbolLang }): 
     // Skip keys that are clearly part of a string value (unusual indent)
     if (indent > 12) continue;
 
-    const value = extractValue(content, match.index!);
+    const value = extractValue(content, (match.index ?? 0));
     const kind: IndexSymbol['kind'] = isScalar(value) ? 'literal' : 'property';
     const signature = `${key}: ${truncate(value, 60)}`;
 
@@ -115,11 +125,11 @@ function regexParse(opts: { file: string; content: string; lang: SymbolLang }): 
   // `- key: value` (list item that is a keyed object)
   const listItemRegex = /^-(\s+)([^:#\s][^:#\s]*)\s*:/gm;
   for (let match = listItemRegex.exec(content); match !== null; match = listItemRegex.exec(content)) {
-    const key = match[2]!;
-    const offset = match.index!;
+    const key = expectDefined(match[2]);
+    const offset = (match.index ?? 0);
     const line = lineFromOffset(offset);
     const col = offset - (lineOffsets[line - 1] ?? 0);
-    const value = extractValue(content, offset + match[0]!.length);
+    const value = extractValue(content, offset + match[0]?.length);
     const kind: IndexSymbol['kind'] = isScalar(value) ? 'literal' : 'property';
     symbols.push(
       makeSymbol({
@@ -137,8 +147,8 @@ function regexParse(opts: { file: string; content: string; lang: SymbolLang }): 
   // ── 4. Block scalar keys (key: | or key: >) ────────────────────────────────
   const blockScalarRegex = /^(\s*)([^:#\s][^:#\s]*)\s*:\s*[|>](\s|$)/gm;
   for (let match = blockScalarRegex.exec(content); match !== null; match = blockScalarRegex.exec(content)) {
-    const key = match[2]!;
-    const offset = match.index!;
+    const key = expectDefined(match[2]);
+    const offset = (match.index ?? 0);
     const line = lineFromOffset(offset);
     const col = offset - (lineOffsets[line - 1] ?? 0);
     symbols.push(

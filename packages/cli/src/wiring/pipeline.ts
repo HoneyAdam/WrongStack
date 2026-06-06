@@ -31,7 +31,7 @@ export function setupPipelines(params: {
 
   const installBoundary = <_T>(p: {
     setErrorHandler: (
-      h: (ev: { middleware: string; owner?: string; err: unknown }) => 'rethrow' | 'swallow',
+      h: (ev: { middleware: string; owner?: string | undefined; err: unknown }) => 'rethrow' | 'swallow',
     ) => unknown;
   }) => {
     p.setErrorHandler((ev) => {
@@ -62,30 +62,30 @@ export async function setupCompaction(params: {
   modelsRegistry: ModelsRegistry;
   context: Context;
   config: {
-    provider?: string;
-    model?: string;
-    providers?: import('@wrongstack/core').Config['providers'];
+    provider?: string | undefined;
+    model?: string | undefined;
+    providers?: import('@wrongstack/core').Config['providers'] | undefined;
     context: {
-      mode?: import('@wrongstack/core').ContextWindowModeId;
-      autoCompact?: boolean;
+      mode?: import('@wrongstack/core').ContextWindowModeId | undefined;
+      autoCompact?: boolean | undefined;
       warnThreshold: number;
       softThreshold: number;
       hardThreshold: number;
-      preserveK?: number;
-      eliseThreshold?: number;
-      effectiveMaxContext?: number;
+      preserveK?: number | undefined;
+      eliseThreshold?: number | undefined;
+      effectiveMaxContext?: number | undefined;
     };
     /** Slice that may contain session.auditLevel (for future richer logging). */
-    session?: { auditLevel?: 'minimal' | 'standard' | 'full' };
+    session?: { auditLevel?: 'minimal' | 'standard' | 'full' | undefined };
   };
   provider: Provider;
   pipelines: AgentPipelines;
   /** Full config object (preferred) so we can reliably read session.auditLevel. */
-  fullConfig?: { session?: { auditLevel?: 'minimal' | 'standard' | 'full' } };
+  fullConfig?: { session?: { auditLevel?: 'minimal' | 'standard' | 'full' | undefined } };
   /** Real SessionWriter (used if no pre-created bridge is passed). */
-  sessionWriter?: import('@wrongstack/core').SessionWriter;
+  sessionWriter?: import('@wrongstack/core').SessionWriter | undefined;
   /** Pre-created SessionEventBridge (preferred for sharing across error + compaction + future events). */
-  sessionBridge?: SessionEventBridge;
+  sessionBridge?: SessionEventBridge | undefined;
 }): Promise<{ effectiveMaxContext: number; autoCompactor: AutoCompactionMiddleware | undefined }> {
   const {
     compactor,
@@ -166,7 +166,7 @@ export function createAgent(params: {
     };
   };
   confirmAwaiter: import('@wrongstack/core').AgentInit['confirmAwaiter'];
-  permissionPolicy?: import('@wrongstack/core').PermissionPolicy;
+  permissionPolicy?: import('@wrongstack/core').PermissionPolicy | undefined;
   tracer?: import('@wrongstack/core').Tracer | undefined;
   /** Optional lifecycle hook runner — wired into the tool executor (PreToolUse/PostToolUse). */
   hookRunner?: import('@wrongstack/core').HookRunner | undefined;

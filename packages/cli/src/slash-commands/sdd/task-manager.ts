@@ -1,6 +1,15 @@
 import { DefaultTaskStore, TaskTracker, renderProgress, type TaskProgress } from '@wrongstack/core';
 import { sddState } from './state.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export { renderProgress };
 export type { TaskProgress };
 
@@ -72,7 +81,7 @@ export function getCurrentTask(): { id: string; title: string; description: stri
   if (!tracker) return null;
   const nodes = tracker.getAllNodes({ status: ['in_progress'] });
   if (nodes.length === 0) return null;
-  const n = nodes[0]!;
+  const n = expectDefined(nodes[0]);
   return { id: n.id, title: n.title, description: n.description, priority: n.priority, estimateHours: n.estimateHours ?? 0, tags: n.tags ?? [], startedAt: n.startedAt };
 }
 
@@ -105,7 +114,7 @@ export function renderTaskListWithProgress(): string | null {
 
   const sorted = [...nodes].sort((a, b) => { const order: Record<string, number> = { in_progress: 0, pending: 1, review: 2, blocked: 3, failed: 4, completed: 5 }; return (order[a.status] ?? 6) - (order[b.status] ?? 6); });
   for (let i = 0; i < sorted.length; i++) {
-    const n = sorted[i]!;
+    const n = expectDefined(sorted[i]);
     const status = n.status === 'completed' ? '✅' : n.status === 'in_progress' ? '🔄' : n.status === 'failed' ? '❌' : n.status === 'blocked' ? '🚫' : n.status === 'review' ? '👁' : '⏳';
     const title = n.title.length > 50 ? n.title.slice(0, 49) + '…' : n.title;
     let elapsed = '';
@@ -120,7 +129,7 @@ export function getCurrentExecutingContext(): string | null {
   if (!tracker) return null;
   const nodes = tracker.getAllNodes({ status: ['in_progress'] });
   if (nodes.length === 0) return null;
-  const n = nodes[0]!;
+  const n = expectDefined(nodes[0]);
   const elapsed = n.startedAt ? ` · elapsed: ${formatElapsed(Date.now() - n.startedAt)}` : '';
   const progress = tracker.getProgress();
   return [

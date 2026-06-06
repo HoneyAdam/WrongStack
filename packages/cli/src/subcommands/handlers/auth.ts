@@ -2,6 +2,15 @@ import { parseAuthFlags } from '../../arg-parser.js';
 import { runAuthDirect, runAuthMenu } from '../../auth-menu.js';
 import type { SubcommandHandler } from '../index.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export const authCmd: SubcommandHandler = async (args, deps) => {
   const flags = parseAuthFlags(args);
   const menuDeps = {
@@ -13,7 +22,7 @@ export const authCmd: SubcommandHandler = async (args, deps) => {
   };
   if (flags.positional.length === 0) return runAuthMenu(menuDeps);
   return runAuthDirect(menuDeps, {
-    providerId: flags.positional[0]!,
+    providerId: expectDefined(flags.positional[0]),
     label: flags.label,
     family: flags.family,
     baseUrl: flags.baseUrl,

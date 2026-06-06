@@ -21,27 +21,29 @@
 import type { EventBus } from '../kernel/events.js';
 
 export interface AutoExtendCeiling {
-  maxIterations?: number;
-  maxToolCalls?: number;
-  maxTokens?: number;
-  maxCostUsd?: number;
-  timeoutMs?: number;
+  maxIterations?: number | undefined;
+  maxToolCalls?: number | undefined;
+  maxTokens?: number | undefined;
+  maxCostUsd?: number | undefined;
+  timeoutMs?: number | undefined;
 }
 
 export interface AutoExtendPolicy {
   /** Multiplier applied to the tripped limit when extending. Default 0.5 (+50%). */
-  factor?: number;
+  factor?: number | undefined;
   /**
    * Max extensions per NON-timeout kind before denying. Timeout is governed by
    * the heartbeat check, not this cap, so it can extend indefinitely while the
    * agent makes progress. Default 8.
    */
-  maxExtensionsPerKind?: number;
+  maxExtensionsPerKind?: number | undefined;
   /** Absolute ceilings — an extension never pushes a limit past these. */
-  ceiling?: AutoExtendCeiling;
+  ceiling?: AutoExtendCeiling | undefined;
 }
 
-const DEFAULT_CEILING: Required<AutoExtendCeiling> = {
+type AutoExtendCeilingValues = { [K in keyof AutoExtendCeiling]-?: number };
+
+const DEFAULT_CEILING: AutoExtendCeilingValues = {
   maxIterations: 50_000,
   maxToolCalls: 100_000,
   maxTokens: 5_000_000,
@@ -87,7 +89,10 @@ export function attachAutoExtend(events: EventBus, policy: AutoExtendPolicy = {}
       if (kind === 'timeout' || kind === 'idle_timeout') {
         if (progress > lastTimeoutProgress) {
           lastTimeoutProgress = progress;
-          const next = Math.min(Math.ceil(limit * (1 + factor)), ceiling.timeoutMs);
+          const next = Math.min(
+            Math.ceil(limit * (1 + factor)),
+            ceiling.timeoutMs ?? DEFAULT_CEILING.timeoutMs,
+          );
           extend({ timeoutMs: next });
         } else {
           // No new work since the last timeout extension — the agent is stuck.
@@ -103,7 +108,7 @@ export function attachAutoExtend(events: EventBus, policy: AutoExtendPolicy = {}
       }
       extendCounts.set(kind, count + 1);
       const field = FIELD_BY_KIND[kind];
-      const cap = ceiling[field];
+      const cap = ceiling[field] ?? DEFAULT_CEILING[field];
       const next = Math.min(Math.ceil(limit * (1 + factor)), cap);
       extend({ [field]: next });
     }),

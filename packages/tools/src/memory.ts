@@ -2,7 +2,7 @@ import type { MemoryScope, MemoryStore, Tool } from '@wrongstack/core';
 
 interface RememberInput {
   text: string;
-  scope?: MemoryScope;
+  scope?: MemoryScope | undefined;
 }
 
 interface RememberOutput {
@@ -12,7 +12,7 @@ interface RememberOutput {
 
 interface ForgetInput {
   query: string;
-  scope?: MemoryScope;
+  scope?: MemoryScope | undefined;
 }
 
 interface ForgetOutput {

@@ -5,6 +5,15 @@ import { useConfigStore } from '@/stores';
 import { FileText, Folder } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 interface FilePickerProps {
   /** Whatever the user typed after the `@` trigger (case-preserved). */
   query: string;
@@ -68,7 +77,7 @@ export function FilePicker({ query, onPick, onClose }: FilePickerProps) {
       } else if (e.key === 'Enter' || e.key === 'Tab') {
         if (files.length === 0) return;
         e.preventDefault();
-        onPick(files[index]!);
+        onPick(expectDefined(files[index]));
       } else if (e.key === 'Escape') {
         e.preventDefault();
         onClose();

@@ -7,13 +7,13 @@ import type { Tool } from '@wrongstack/core';
 import { safeResolve } from './_util.js';
 
 interface DiffInput {
-  path?: string;
-  files?: string | string[];
-  a?: string;
-  b?: string;
-  staged?: boolean;
-  mode?: 'unified' | 'side-by-side' | 'stat';
-  context?: number;
+  path?: string | undefined;
+  files?: string | string[] | undefined;
+  a?: string | undefined;
+  b?: string | undefined;
+  staged?: boolean | undefined;
+  mode?: 'unified' | 'side-by-side' | 'stat' | undefined;
+  context?: number | undefined;
 }
 
 interface DiffOutput {

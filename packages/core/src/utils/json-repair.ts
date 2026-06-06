@@ -1,3 +1,10 @@
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 /**
  * Attempt to close an incomplete JSON object string by auto-closing braces
  * and completing any unclosed double-quoted string values.
@@ -37,7 +44,7 @@ export function completePartialObject(s: string): string {
   let stringBraceDepth = 0;
 
   for (let i = 0; i < s.length; i++) {
-    const ch = s[i]!;
+    const ch = expectDefined(s[i]);
     if (inString) {
       contentEnd = i + 1;
       if (escaped) {

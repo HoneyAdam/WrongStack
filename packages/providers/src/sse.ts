@@ -133,7 +133,7 @@ function isNodeReadable(b: unknown): boolean {
   return (
     !!b &&
     typeof b === 'object' &&
-    typeof (b as { pipe?: unknown }).pipe === 'function' &&
-    typeof (b as { on?: unknown }).on === 'function'
+    typeof (b as { pipe?: unknown | undefined }).pipe === 'function' &&
+    typeof (b as { on?: unknown | undefined }).on === 'function'
   );
 }

@@ -103,10 +103,10 @@ export const PROMETHEUS_CONTENT_TYPE = 'text/plain; version=0.0.4; charset=utf-8
 export interface MetricsServerOptions {
   port: number;
   /** Bind address. Defaults to 127.0.0.1 so we don't accidentally expose metrics publicly. */
-  host?: string;
+  host?: string | undefined;
   sink: MetricsSink;
   /** Path to serve on. Defaults to /metrics. */
-  path?: string;
+  path?: string | undefined;
   /**
    * V2-C: optional health registry. When provided, the server also responds
    * on `/healthz` (configurable via `healthPath`) with a JSON aggregate of
@@ -114,11 +114,11 @@ export interface MetricsServerOptions {
    * exposing both `/metrics` and `/healthz`, so we mount them on the same
    * port rather than opening a sibling listener.
    */
-  healthRegistry?: HealthRegistry;
+  healthRegistry?: HealthRegistry | undefined;
   /** Path to serve health JSON on. Defaults to /healthz. */
-  healthPath?: string;
+  healthPath?: string | undefined;
   /** Enable HTTPS by providing TLS key/cert. Both required. */
-  tls?: MetricsTlsOptions;
+  tls?: MetricsTlsOptions | undefined;
 }
 
 export interface MetricsServerHandle {

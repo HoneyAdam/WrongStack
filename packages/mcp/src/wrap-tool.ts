@@ -53,8 +53,8 @@ function stringify(c: unknown): string {
     return c
       .map((item) => {
         if (item && typeof item === 'object') {
-          const t = (item as { type?: string; text?: string }).type;
-          if (t === 'text') return (item as { text?: string }).text ?? '';
+          const t = (item as { type?: string | undefined; text?: string | undefined }).type;
+          if (t === 'text') return (item as { text?: string | undefined }).text ?? '';
           return JSON.stringify(item);
         }
         return String(item);

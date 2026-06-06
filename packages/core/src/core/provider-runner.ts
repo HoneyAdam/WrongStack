@@ -15,7 +15,7 @@ export interface RunProviderOptions {
   events: EventBus;
   retry: RetryPolicy;
   logger: Logger;
-  tracer?: Tracer;
+  tracer?: Tracer | undefined;
 }
 
 /**

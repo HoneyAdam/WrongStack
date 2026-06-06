@@ -2,6 +2,15 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { SessionEvent } from '../types/session.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 /**
  * Idea #1 from IDEAS.md — Stateful Session Recovery.
  *
@@ -101,7 +110,7 @@ export class SessionRecovery {
       const lines = raw.split('\n').filter((l) => l.trim());
       for (let i = lines.length - 1; i >= 0; i--) {
         try {
-          const ev = JSON.parse(lines[i]!) as SessionEvent;
+          const ev = JSON.parse(expectDefined(lines[i])) as SessionEvent;
           if (ev.type === 'in_flight_start') {
             return {
               sessionId,
@@ -158,8 +167,8 @@ export class SessionRecovery {
     let lastCheckpoint: SessionEvent | null = null;
     let lastCheckpointIdx = -1;
     for (let i = 0; i < events.length; i++) {
-      if (events[i]!.type === 'checkpoint') {
-        lastCheckpoint = events[i]!;
+      if (events[i]?.type === 'checkpoint') {
+        lastCheckpoint = expectDefined(events[i]);
         lastCheckpointIdx = i;
       }
     }
@@ -167,7 +176,7 @@ export class SessionRecovery {
     const pendingEvents =
       lastCheckpointIdx >= 0 ? events.slice(lastCheckpointIdx + 1) : events;
     // The dangling in_flight_start, if the last event is one.
-    const lastEv = events[events.length - 1]!;
+    const lastEv = expectDefined(events[events.length - 1]);
     const inFlightStart =
       lastEv.type === 'in_flight_start' ? lastEv : null;
     const context = inFlightStart && inFlightStart.type === 'in_flight_start'

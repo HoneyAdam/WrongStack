@@ -28,12 +28,12 @@ export interface BootConfigOptions {
    * The CLI passes `wstack`; the WebUI server passes `WebUI`. Default
    * `wstack`.
    */
-  appLabel?: string;
+  appLabel?: string | undefined;
   /**
    * Load `~/.wrongstack/sync.json` and merge it into `config.sync` so the
    * ConfigStore starts with the correct CloudSync state. Default `true`.
    */
-  loadSyncConfig?: boolean;
+  loadSyncConfig?: boolean | undefined;
 }
 
 /**
@@ -203,7 +203,7 @@ async function cleanupStaleProjects(wpaths: WstackPaths): Promise<void> {
     const metaPath = path.join(projectsRoot, entry.name, 'meta.json');
     try {
       const raw = await fs.readFile(metaPath, 'utf8');
-      const meta = JSON.parse(raw) as { root?: string };
+      const meta = JSON.parse(raw) as { root?: string | undefined };
       if (typeof meta.root === 'string') {
         try {
           await fs.access(meta.root);

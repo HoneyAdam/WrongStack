@@ -112,10 +112,10 @@ function slugify(name: string): string {
 }
 
 export interface WstackPathOptions {
-  userHome?: string;
+  userHome?: string | undefined;
   projectRoot: string;
   /** Override the global root (e.g. for tests). Default: `${userHome}/.wrongstack`. */
-  globalRoot?: string;
+  globalRoot?: string | undefined;
 }
 
 export function resolveWstackPaths(opts: WstackPathOptions): WstackPaths {

@@ -6,8 +6,8 @@ import { safeResolve } from './_util.js';
 
 interface GlobInput {
   pattern: string;
-  path?: string;
-  limit?: number;
+  path?: string | undefined;
+  limit?: number | undefined;
 }
 
 interface GlobOutput {

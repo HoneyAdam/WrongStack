@@ -19,7 +19,7 @@ export interface PhasePanelProps {
       status: string;
       completedTasks: number;
       totalTasks: number;
-      startedAt?: number;
+      startedAt?: number | undefined;
     }
   >;
   /** Active running phase IDs. */

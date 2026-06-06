@@ -96,16 +96,16 @@ export class WrongStackError extends Error {
   readonly subsystem: ErrorSubsystem;
   readonly severity: ErrorSeverity;
   readonly recoverable: boolean;
-  readonly context?: Record<string, unknown>;
+  readonly context?: Record<string, unknown> | undefined;
 
   constructor(opts: {
     message: string;
     code: ErrorCode;
     subsystem: ErrorSubsystem;
-    severity?: ErrorSeverity;
-    recoverable?: boolean;
-    context?: Record<string, unknown>;
-    cause?: unknown;
+    severity?: ErrorSeverity | undefined;
+    recoverable?: boolean | undefined;
+    context?: Record<string, unknown> | undefined;
+    cause?: unknown | undefined;
   }) {
     super(opts.message, { cause: opts.cause });
     this.name = 'WrongStackError';
@@ -153,9 +153,9 @@ export class ToolError extends WrongStackError {
       | 'TOOL_INPUT_INVALID'
     >;
     toolName: string;
-    recoverable?: boolean;
-    context?: Record<string, unknown>;
-    cause?: unknown;
+    recoverable?: boolean | undefined;
+    context?: Record<string, unknown> | undefined;
+    cause?: unknown | undefined;
   }) {
     super({
       message: opts.message,
@@ -180,8 +180,8 @@ export class ConfigError extends WrongStackError {
       ErrorCode,
       'CONFIG_INVALID' | 'CONFIG_NOT_FOUND' | 'CONFIG_PARSE_FAILED' | 'CONFIG_MIGRATION_NEEDED'
     >;
-    context?: Record<string, unknown>;
-    cause?: unknown;
+    context?: Record<string, unknown> | undefined;
+    cause?: unknown | undefined;
   }) {
     super({
       message: opts.message,
@@ -209,8 +209,8 @@ export class PluginError extends WrongStackError {
       'PLUGIN_LOAD_FAILED' | 'PLUGIN_API_MISMATCH' | 'PLUGIN_MISSING_DEPENDENCY'
     >;
     pluginName: string;
-    context?: Record<string, unknown>;
-    cause?: unknown;
+    context?: Record<string, unknown> | undefined;
+    cause?: unknown | undefined;
   }) {
     super({
       message: opts.message,
@@ -237,9 +237,9 @@ export class AgentError extends WrongStackError {
       ErrorCode,
       'AGENT_ITERATION_LIMIT' | 'AGENT_CONTEXT_OVERFLOW' | 'AGENT_ABORTED' | 'AGENT_RUN_FAILED'
     >;
-    recoverable?: boolean;
-    context?: Record<string, unknown>;
-    cause?: unknown;
+    recoverable?: boolean | undefined;
+    context?: Record<string, unknown> | undefined;
+    cause?: unknown | undefined;
   }) {
     super({
       message: opts.message,
@@ -277,14 +277,14 @@ export function toWrongStackError(
  * Session storage errors.
  */
 export class SessionError extends WrongStackError {
-  readonly sessionId?: string;
+  readonly sessionId?: string | undefined;
 
   constructor(opts: {
     message: string;
     code: Extract<ErrorCode, 'SESSION_NOT_FOUND' | 'SESSION_CORRUPTED' | 'SESSION_WRITE_FAILED'>;
-    sessionId?: string;
-    context?: Record<string, unknown>;
-    cause?: unknown;
+    sessionId?: string | undefined;
+    context?: Record<string, unknown> | undefined;
+    cause?: unknown | undefined;
   }) {
     super({
       message: opts.message,
@@ -304,7 +304,7 @@ export class SessionError extends WrongStackError {
  * File system operation errors.
  */
 export class FsError extends WrongStackError {
-  readonly path?: string;
+  readonly path?: string | undefined;
 
   constructor(opts: {
     message: string;
@@ -312,9 +312,9 @@ export class FsError extends WrongStackError {
       ErrorCode,
       'FS_READ_FAILED' | 'FS_WRITE_FAILED' | 'FS_MKDIR_FAILED' | 'FS_DELETE_FAILED' | 'FS_ATOMIC_WRITE_FAILED'
     >;
-    path?: string;
-    context?: Record<string, unknown>;
-    cause?: unknown;
+    path?: string | undefined;
+    context?: Record<string, unknown> | undefined;
+    cause?: unknown | undefined;
   }) {
     super({
       message: opts.message,

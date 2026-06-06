@@ -2,12 +2,21 @@ import type { EventBus } from '@wrongstack/core';
 import { useCallback, useEffect, useRef } from 'react';
 import type { Action } from '../app-reducer.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 const STREAM_COLORS = ['cyan', 'magenta', 'yellow', 'green', 'blue'];
 
 function labelFor(
   labelsRef: React.MutableRefObject<Map<string, { label: string; color: string }>>,
   id: string,
-  name?: string,
+  name?: string | undefined,
 ): { label: string; color: string } {
   const m = labelsRef.current;
   const existing = m.get(id);
@@ -15,7 +24,7 @@ function labelFor(
   const n = m.size + 1;
   const v = {
     label: name && name !== id ? name : `AGENT#${n}`,
-    color: STREAM_COLORS[(n - 1) % STREAM_COLORS.length]!,
+    color: expectDefined(STREAM_COLORS[(n - 1) % STREAM_COLORS.length]),
   };
   m.set(id, v);
   return v;

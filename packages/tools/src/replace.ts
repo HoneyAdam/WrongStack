@@ -14,19 +14,28 @@ import type { Context, Tool } from '@wrongstack/core';
 import { compileUserRegex } from './_regex.js';
 import { isBinaryBuffer, safeResolve } from './_util.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 interface ReplaceInput {
   pattern: string;
   replacement: string;
   files: string | string[];
-  glob?: string;
-  replace_all?: boolean;
-  dry_run?: boolean;
+  glob?: string | undefined;
+  replace_all?: boolean | undefined;
+  dry_run?: boolean | undefined;
 }
 
 interface ReplaceOutput {
   files_modified: number;
   total_replacements: number;
-  results: { path: string; replacements: number; diff?: string }[];
+  results: { path: string; replacements: number; diff?: string | undefined }[];
   dry_run: boolean;
 }
 
@@ -149,11 +158,11 @@ export const replaceTool: Tool<ReplaceInput, ReplaceOutput> = {
       // right to left so earlier indices stay valid.
       let newContentLf = contentLf;
       for (let i = matches.length - 1; i >= 0; i--) {
-        const m = matches[i]!;
+        const m = expectDefined(matches[i]);
         newContentLf =
           newContentLf.slice(0, m.index) +
           input.replacement +
-          newContentLf.slice(m.index! + m[0].length);
+          newContentLf.slice(expectDefined(m.index) + m[0].length);
       }
       re.lastIndex = 0;
       totalReplacements += count;
@@ -193,7 +202,7 @@ export const replaceTool: Tool<ReplaceInput, ReplaceOutput> = {
 async function resolveFiles(
   filesInput: string,
   ctx: Context,
-  extraGlob?: RegExp | null,
+  extraGlob?: RegExp | null | undefined,
 ): Promise<string[]> {
   const base = ctx.cwd;
   const normalized = filesInput.trim();
@@ -222,7 +231,7 @@ async function resolveFiles(
 async function globFiles(
   pattern: string,
   base: string,
-  extraGlob?: RegExp | null,
+  extraGlob?: RegExp | null | undefined,
 ): Promise<string[]> {
 
   const rgAvailable = await checkRg();
@@ -270,7 +279,7 @@ function spawnRgFind(pattern: string, base: string): { promise: Promise<string[]
 async function globNative(
   pattern: string,
   base: string,
-  extraGlob?: RegExp | null,
+  extraGlob?: RegExp | null | undefined,
 ): Promise<string[]> {
   const results: string[] = [];
   const globRe = compileGlob(pattern);

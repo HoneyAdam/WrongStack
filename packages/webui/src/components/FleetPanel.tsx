@@ -152,7 +152,7 @@ function AgentCard({ a }: { a: SubagentView }): React.ReactElement {
  * Renders nothing when the fleet is empty, so a solo session is unaffected.
  * Collapsible so a large fleet doesn't dominate the chat column.
  */
-export function FleetPanel({ className }: { className?: string }): React.ReactElement | null {
+export function FleetPanel({ className }: { className?: string | undefined }): React.ReactElement | null {
   const agents = useFleetStore((s) => s.agents);
   const [collapsed, setCollapsed] = useState(false);
 

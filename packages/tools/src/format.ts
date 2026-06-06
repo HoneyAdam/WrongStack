@@ -3,10 +3,10 @@ import { spawnStream } from './_spawn-stream.js';
 import { normalizeCommandOutput, safeResolve } from './_util.js';
 
 interface FormatInput {
-  files?: string | string[];
-  fixer?: 'biome' | 'prettier' | 'auto';
-  check?: boolean;
-  cwd?: string;
+  files?: string | string[] | undefined;
+  fixer?: 'biome' | 'prettier' | 'auto' | undefined;
+  check?: boolean | undefined;
+  cwd?: string | undefined;
 }
 
 interface FormatOutput {
@@ -51,7 +51,9 @@ export const formatTool: Tool<FormatInput, FormatOutput> = {
   },
   async execute(input, ctx, opts) {
     let final: FormatOutput | undefined;
-    for await (const ev of formatTool.executeStream!(input, ctx, opts)) {
+    const executeStream = formatTool.executeStream;
+    if (!executeStream) throw new Error('formatTool: stream execution unavailable');
+    for await (const ev of executeStream(input, ctx, opts)) {
       if (ev.type === 'final') final = ev.output;
     }
     if (!final) throw new Error('format: stream ended without final event');

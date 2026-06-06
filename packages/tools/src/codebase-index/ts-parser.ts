@@ -155,7 +155,7 @@ export function parseSymbols(opts: ParseOptions): FileSymbols {
     const kind = kindOf(node);
 
     if (kind) {
-      const nameNode = (node as { name?: ts.Identifier }).name;
+      const nameNode = (node as { name?: ts.Identifier | undefined }).name;
       if (!nameNode || !ts.isIdentifier(nameNode)) return;
       const name = nameNode.text;
       const pos = nameNode.getStart(sourceFile);

@@ -17,14 +17,14 @@ export type SeverityName = 'error' | 'warning' | 'info' | 'hint';
 
 export interface ServerConfig {
   command: string;
-  args?: string[];
+  args?: string[] | undefined;
   env?: Record<string, string>;
   languages: string[];
-  rootPatterns?: string[];
-  initializationOptions?: unknown;
-  settings?: unknown;
-  startupTimeoutMs?: number;
-  enabled?: boolean;
+  rootPatterns?: string[] | undefined;
+  initializationOptions?: unknown | undefined;
+  settings?: unknown | undefined;
+  startupTimeoutMs?: number | undefined;
+  enabled?: boolean | undefined;
 }
 
 export interface PlugLSPConfig {
@@ -73,7 +73,7 @@ export class LSPError extends Error {
   constructor(
     readonly code: LSPErrorCode,
     message: string,
-    readonly details?: unknown,
+    readonly details?: unknown | undefined,
   ) {
     super(message);
     this.name = 'LSPError';

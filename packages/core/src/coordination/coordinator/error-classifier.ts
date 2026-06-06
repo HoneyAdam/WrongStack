@@ -14,7 +14,7 @@ import { BudgetExceededError } from '../subagent-budget.js';
  */
 export function classifySubagentError(
   err: unknown,
-  hints: { parentAborted?: boolean } = {},
+  hints: { parentAborted?: boolean | undefined } = {},
 ): SubagentError {
   const cause = err instanceof Error
     ? { name: err.name, message: err.message, stack: err.stack }

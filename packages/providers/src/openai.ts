@@ -11,15 +11,15 @@ import { WireAdapter } from './wire-adapter.js';
 
 export interface OpenAIProviderOptions {
   apiKey: string;
-  baseUrl?: string;
-  organization?: string;
-  fetchImpl?: typeof fetch;
+  baseUrl?: string | undefined;
+  organization?: string | undefined;
+  fetchImpl?: typeof fetch | undefined;
   quirks?: ConvertOptions & {
-    parallelToolsDisabled?: boolean;
-    jsonArgumentsBuggy?: boolean;
-  };
-  id?: string;
-  capabilities?: Partial<Capabilities>;
+    parallelToolsDisabled?: boolean | undefined;
+    jsonArgumentsBuggy?: boolean | undefined;
+  } | undefined;
+  id?: string | undefined;
+  capabilities?: Partial<Capabilities> | undefined;
 }
 
 const DEFAULT_BASE = 'https://api.openai.com/v1';
@@ -147,7 +147,7 @@ async function* parseOpenAIStream(
   let thinkingOpen = false;
   const toolByIndex = new Map<
     number,
-    { id?: string; name?: string; argBuf: string; emittedStart: boolean; emittedArgLength: number }
+    { id?: string | undefined; name?: string | undefined; argBuf: string; emittedStart: boolean; emittedArgLength: number }
   >();
 
   for await (const msg of parseSSE(body)) {
@@ -165,16 +165,16 @@ async function* parseOpenAIStream(
     const choices = obj['choices'] as
       | Array<{
           delta?: {
-            content?: string | null;
-            reasoning_content?: string;
-            reasoning?: string;
+            content?: string | null | undefined;
+            reasoning_content?: string | undefined;
+            reasoning?: string | undefined;
             tool_calls?: Array<{
-              index?: number;
-              id?: string;
-              function?: { name?: string; arguments?: string };
+              index?: number | undefined;
+              id?: string | undefined;
+              function?: { name?: string | undefined; arguments?: string | undefined };
             }>;
           };
-          finish_reason?: string | null;
+          finish_reason?: string | null | undefined;
         }>
       | undefined;
     const choice = choices?.[0];
@@ -255,12 +255,12 @@ async function* parseOpenAIStream(
 
     const u = obj['usage'] as
       | {
-          prompt_tokens?: number;
-          input_tokens?: number;
-          completion_tokens?: number;
-          prompt_tokens_details?: { cached_tokens?: number };
-          prompt_cache_hit_tokens?: number;
-          prompt_cache_miss_tokens?: number;
+          prompt_tokens?: number | undefined;
+          input_tokens?: number | undefined;
+          completion_tokens?: number | undefined;
+          prompt_tokens_details?: { cached_tokens?: number | undefined };
+          prompt_cache_hit_tokens?: number | undefined;
+          prompt_cache_miss_tokens?: number | undefined;
         }
       | undefined;
     if (u) {

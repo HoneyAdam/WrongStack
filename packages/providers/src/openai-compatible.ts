@@ -4,34 +4,60 @@ import { capabilitiesForFamily } from './family-capabilities.js';
 import { OpenAIProvider } from './openai.js';
 
 export interface CompatibilityQuirks {
-  stripCacheControl?: boolean;
-  systemAsMessage?: boolean;
-  flattenContentToString?: boolean;
-  preserveToolCallIds?: boolean;
-  parallelToolsDisabled?: boolean;
-  jsonArgumentsBuggy?: boolean;
-  emptyToolCallContent?: 'null' | 'empty_string';
+  stripCacheControl?: boolean | undefined;
+  systemAsMessage?: boolean | undefined;
+  flattenContentToString?: boolean | undefined;
+  preserveToolCallIds?: boolean | undefined;
+  parallelToolsDisabled?: boolean | undefined;
+  jsonArgumentsBuggy?: boolean | undefined;
+  emptyToolCallContent?: 'null' | 'empty_string' | undefined;
+}
+
+const VALID_QUIRK_KEYS = new Set<keyof CompatibilityQuirks>([
+  'stripCacheControl',
+  'systemAsMessage',
+  'flattenContentToString',
+  'preserveToolCallIds',
+  'parallelToolsDisabled',
+  'jsonArgumentsBuggy',
+  'emptyToolCallContent',
+]);
+
+export function isCompatibilityQuirks(value: unknown): value is CompatibilityQuirks {
+  if (value === undefined) return true;
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+
+  const obj = value as Record<string, unknown>;
+  for (const [key, v] of Object.entries(obj)) {
+    if (!VALID_QUIRK_KEYS.has(key as keyof CompatibilityQuirks)) return false;
+    if (key === 'emptyToolCallContent') {
+      if (v !== 'null' && v !== 'empty_string') return false;
+    } else if (typeof v !== 'boolean') {
+      return false;
+    }
+  }
+  return true;
 }
 
 export interface OpenAICompatibleOptions {
   id: string;
   apiKey: string;
   baseUrl: string;
-  headers?: Record<string, string>;
-  quirks?: CompatibilityQuirks;
-  capabilities?: Partial<Capabilities>;
-  fetchImpl?: typeof fetch;
+  headers?: Record<string, string> | undefined;
+  quirks?: CompatibilityQuirks | undefined;
+  capabilities?: Partial<Capabilities> | undefined;
+  fetchImpl?: typeof fetch | undefined;
   /**
    * Optional override for URL construction. Receives the base URL and request,
    * returns the full URL to use. Allows custom providers with non-standard
    * URL structures (e.g. Google with model-in-path, Anthropic with /v1/messages).
    */
-  urlOverride?: (baseUrl: string, req: Request) => string;
+  urlOverride?: ((baseUrl: string, req: Request) => string) | undefined;
 }
 
 export class OpenAICompatibleProvider extends OpenAIProvider {
-  private readonly extraHeaders?: Record<string, string>;
-  private readonly urlOverride?: (baseUrl: string, req: Request) => string;
+  private readonly extraHeaders?: Record<string, string> | undefined;
+  private readonly urlOverride?: ((baseUrl: string, req: Request) => string) | undefined;
 
   constructor(opts: OpenAICompatibleOptions) {
     super({

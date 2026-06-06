@@ -108,9 +108,9 @@ const defaultIndexing = {
 } as const;
 
 type PartialConfig = Partial<Config> & {
-  providers?: Record<string, { apiKey?: string; baseUrl?: string; type?: string }>;
+  providers?: Record<string, { apiKey?: string | undefined; baseUrl?: string | undefined; type?: string | undefined }>;
   /** Fields that came from environment variables — must not be persisted. */
-  _envSource?: Set<string>;
+  _envSource?: Set<string> | undefined;
 };
 
 function isPrimitiveArray(a: unknown[]): boolean {
@@ -174,7 +174,7 @@ export interface ConfigSource {
   /** Unique name for debugging and error messages. */
   name: string;
   /** Lower numbers merge first, higher numbers override lower. Default: 50. */
-  priority?: number;
+  priority?: number | undefined;
   /**
    * Read the raw config patch. Return an empty object if unavailable.
    * Errors are surfaced but do not abort loading — the source is skipped.
@@ -184,10 +184,10 @@ export interface ConfigSource {
 
 export interface ConfigLoaderOptions {
   paths: WstackPaths;
-  strict?: boolean;
-  vault?: SecretVault;
+  strict?: boolean | undefined;
+  vault?: SecretVault | undefined;
   /** Extra sources merged after the built-in layers. */
-  sources?: ConfigSource[];
+  sources?: ConfigSource[] | undefined;
 }
 
 export class DefaultConfigLoader implements ConfigLoader {
@@ -203,7 +203,7 @@ export class DefaultConfigLoader implements ConfigLoader {
     this.extraSources = opts.sources ?? [];
   }
 
-  async load(opts: { cliFlags?: Partial<Config>; cwd?: string } = {}): Promise<Config> {
+  async load(opts: { cliFlags?: Partial<Config> | undefined; cwd?: string | undefined } = {}): Promise<Config> {
     let cfg: PartialConfig = { ...BEHAVIOR_DEFAULTS } as PartialConfig;
 
     // Layer 2 & 3: global + project-local config — read in parallel
@@ -258,7 +258,7 @@ export class DefaultConfigLoader implements ConfigLoader {
     if (cfg.providers) {
       for (const pcfg of Object.values(cfg.providers)) {
         if (!pcfg || typeof pcfg !== 'object') continue;
-        const rawKeys = (pcfg as { apiKeys?: unknown }).apiKeys;
+        const rawKeys = (pcfg as { apiKeys?: unknown | undefined }).apiKeys;
         if (!Array.isArray(rawKeys) || rawKeys.length === 0) continue;
         // Each apiKeys entry came from arbitrary JSON. Filter to entries
         // that actually have a string apiKey + label so a malformed array
@@ -268,18 +268,18 @@ export class DefaultConfigLoader implements ConfigLoader {
           (k): k is { label: string; apiKey: string } =>
             !!k &&
             typeof k === 'object' &&
-            typeof (k as { label?: unknown }).label === 'string' &&
-            typeof (k as { apiKey?: unknown }).apiKey === 'string',
+            typeof (k as { label?: unknown | undefined }).label === 'string' &&
+            typeof (k as { apiKey?: unknown | undefined }).apiKey === 'string',
         );
         if (keys.length === 0) continue;
-        const existing = (pcfg as { apiKey?: string }).apiKey;
+        const existing = (pcfg as { apiKey?: string | undefined }).apiKey;
         if (existing && existing.length > 0) continue;
-        const activeLabel = (pcfg as { activeKey?: string }).activeKey;
+        const activeLabel = (pcfg as { activeKey?: string | undefined }).activeKey;
         const chosen = activeLabel
           ? (keys.find((k) => k.label === activeLabel) ?? keys[0])
           : keys[0];
         if (chosen?.apiKey) {
-          (pcfg as { apiKey?: string }).apiKey = chosen.apiKey;
+          (pcfg as { apiKey?: string | undefined }).apiKey = chosen.apiKey;
         }
       }
     }

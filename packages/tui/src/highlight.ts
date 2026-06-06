@@ -13,16 +13,16 @@
 
 export interface Token {
   text: string;
-  color?: string;
-  dim?: boolean;
-  bold?: boolean;
+  color?: string | undefined;
+  dim?: boolean | undefined;
+  bold?: boolean | undefined;
 }
 
 export type Lang = 'ts' | 'js' | 'json' | 'bash' | 'python' | 'diff' | 'plain';
 
 /** Carry state for constructs that span lines (block comments, triple strings). */
 export interface HLState {
-  block?: boolean; // inside a /* … */ comment (ts/js)
+  block?: boolean | undefined; // inside a /* … */ comment (ts/js)
   triple?: string | null; // inside a python triple-quoted string ("""/''')
 }
 

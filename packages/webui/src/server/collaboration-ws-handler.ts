@@ -66,20 +66,20 @@ export class CollaborationWebSocketHandler {
      * is still allowed — the observer simply starts from "now" with no
      * historical context.
      */
-    private readonly reader?: SessionReader,
+    private readonly reader?: SessionReader | undefined,
     /**
      * Optional sidecar store for collaboration annotations. Required
      * for the `annotator` role — without it, `collab.annotate` messages
      * are rejected with an error.
      */
-    private readonly annotations?: AnnotationsStore,
+    private readonly annotations?: AnnotationsStore | undefined,
     /**
      * Optional kernel-level pause/resume bus. Required for the
      * `controller` role — without it, `collab.request_pause` is rejected
      * with an error. Wired to the agent's `toolCall` pipeline via
      * `collabPauseMiddleware` in the webui server boot.
      */
-    private readonly bus?: CollaborationBus,
+    private readonly bus?: CollaborationBus | undefined,
   ) {
     this.subscribe();
   }
@@ -109,10 +109,10 @@ export class CollaborationWebSocketHandler {
    */
   handleMessage(
     ws: WebSocket,
-    msg: { type: string; payload?: unknown },
+    msg: { type: string; payload?: unknown | undefined },
   ): boolean {
     if (msg.type === 'collab.join') {
-      const payload = msg.payload as { sessionId?: string; role?: CollabRole } | undefined;
+      const payload = msg.payload as { sessionId?: string | undefined; role?: CollabRole | undefined } | undefined;
       if (!payload?.sessionId) {
         this.send(ws, this.errorMessage('collab.join requires sessionId'));
         return true;
@@ -300,7 +300,7 @@ export class CollaborationWebSocketHandler {
       return;
     }
     const payload = raw as
-      | { sessionId?: string; atEventIndex?: number; text?: string }
+      | { sessionId?: string | undefined; atEventIndex?: number | undefined; text?: string | undefined }
       | undefined;
     if (
       !payload?.sessionId ||
@@ -376,7 +376,7 @@ export class CollaborationWebSocketHandler {
       return;
     }
     const payload = raw as
-      | { sessionId?: string; annotationId?: string }
+      | { sessionId?: string | undefined; annotationId?: string | undefined }
       | undefined;
     if (!payload?.sessionId || !payload.annotationId) {
       this.send(
@@ -527,7 +527,7 @@ export class CollaborationWebSocketHandler {
     const tail = all.slice(-REPLAY_LIMIT);
     if (tail.length === 0) return; // nothing to replay
     for (const raw of tail) {
-      const ev = raw as { type?: string; ts?: string; [k: string]: unknown };
+      const ev = raw as { type?: string | undefined; ts?: string | undefined; [k: string]: unknown };
       const kind = this.historyEventToKind(ev);
       if (!kind) continue; // skip events we don't know how to mirror
       this.send(ws, {
@@ -548,7 +548,7 @@ export class CollaborationWebSocketHandler {
    * Returns null for events that don't have a meaningful live analog
    * (e.g. `session_start`, file-snapshot bookkeeping, rewind markers).
    */
-  private historyEventToKind(ev: { type?: string }): string | null {
+  private historyEventToKind(ev: { type?: string | undefined }): string | null {
     switch (ev.type) {
       case 'user_input':
         return 'user_input';
@@ -650,7 +650,7 @@ export class CollaborationWebSocketHandler {
       );
       return;
     }
-    const payload = raw as { sessionId?: string } | undefined;
+    const payload = raw as { sessionId?: string | undefined } | undefined;
     if (!payload?.sessionId || payload.sessionId !== participant.sessionId) {
       this.send(ws, this.errorMessage('pause sessionId mismatch'));
       return;
@@ -702,7 +702,7 @@ export class CollaborationWebSocketHandler {
       );
       return;
     }
-    const payload = raw as { sessionId?: string } | undefined;
+    const payload = raw as { sessionId?: string | undefined } | undefined;
     if (!payload?.sessionId || payload.sessionId !== participant.sessionId) {
       this.send(ws, this.errorMessage('resume sessionId mismatch'));
       return;
@@ -733,7 +733,7 @@ export class CollaborationWebSocketHandler {
       return;
     }
     const payload = raw as
-      | { sessionId?: string; toParticipant?: string }
+      | { sessionId?: string | undefined; toParticipant?: string | undefined }
       | undefined;
     if (
       !payload?.sessionId ||
@@ -776,11 +776,11 @@ export class CollaborationWebSocketHandler {
     }
     const payload = raw as
       | {
-          sessionId?: string;
-          toolUseId?: string;
-          content?: unknown;
-          isError?: boolean;
-          reason?: string;
+          sessionId?: string | undefined;
+          toolUseId?: string | undefined;
+          content?: unknown | undefined;
+          isError?: boolean | undefined;
+          reason?: string | undefined;
         }
       | undefined;
     if (

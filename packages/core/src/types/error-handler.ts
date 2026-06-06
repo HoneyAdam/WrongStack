@@ -9,7 +9,7 @@ export type RecoveryDecision =
        */
       action: 'retry';
       reason: string;
-      model?: string;
+      model?: string | undefined;
     }
   | {
       /**
@@ -18,13 +18,13 @@ export type RecoveryDecision =
        */
       action: 'continue';
       response: Response;
-      reason?: string;
+      reason?: string | undefined;
     }
   | {
       /** Recovery inspected the error and decided the agent must fail. */
       action: 'fail';
       reason: string;
-      error?: unknown;
+      error?: unknown | undefined;
     };
 
 export interface ErrorHandler {

@@ -3,9 +3,18 @@ import { MCP_CONSTANTS } from './constants.js';
 import { type ConnectionState, MCPClient } from './client.js';
 import { wrapMCPTool } from './wrap-tool.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 interface ServerSlot {
   cfg: MCPServerConfig;
-  client?: MCPClient;
+  client?: MCPClient | undefined;
   state: ConnectionState;
   toolNames: string[];
   attempts: number;
@@ -26,7 +35,7 @@ interface ServerSlot {
    * would silently keep the old handler, causing duplicate reconnect
    * cycles after a few transport flaps.
    */
-  onDisconnect?: () => void;
+  onDisconnect?: (() => void) | undefined;
 }
 
 export interface MCPRegistryOptions {
@@ -121,7 +130,7 @@ export class MCPRegistry {
    * Health check — returns 'ok' for connected servers, the current state otherwise.
    * For HTTP-based transports this could also ping the server.
    */
-  health(): { name: string; alive: boolean; latencyMs?: number }[] {
+  health(): { name: string; alive: boolean; latencyMs?: number | undefined }[] {
     return Array.from(this.servers.values()).map((s) => ({
       name: s.cfg.name,
       alive: s.state === 'connected',
@@ -149,7 +158,7 @@ export class MCPRegistry {
     const wrapped = slot.client
       .listTools()
       .filter((t) => !allowed || allowed.includes(t.name))
-      .map((t) => wrapMCPTool(slot.cfg.name, t, slot.client!, slot.cfg.permission ?? 'confirm'));
+      .map((t) => wrapMCPTool(slot.cfg.name, t, expectDefined(slot.client), slot.cfg.permission ?? 'confirm'));
     for (const tool of wrapped) {
       try {
         this.toolRegistry.register(tool, `mcp:${slot.cfg.name}`);

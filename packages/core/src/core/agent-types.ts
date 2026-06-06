@@ -23,10 +23,10 @@ export const DEFAULT_MAX_ITERATIONS = 100;
 
 export interface RunResult {
   status: 'done' | 'failed' | 'max_iterations' | 'aborted';
-  error?: WrongStackError;
-  finalText?: string;
+  error?: WrongStackError | undefined;
+  finalText?: string | undefined;
   iterations: number;
-  delegateSummaries?: Array<{ summary: string; ok: boolean }>;
+  delegateSummaries?: Array<{ summary: string | undefined; ok: boolean }>;
 }
 
 export interface AgentInit {
@@ -36,14 +36,14 @@ export interface AgentInit {
   events: EventBus;
   pipelines: AgentPipelines;
   context: Context;
-  maxIterations?: number;
-  iterationTimeoutMs?: number;
-  executionStrategy?: 'parallel' | 'sequential' | 'smart';
-  perIterationOutputCapBytes?: number;
-  autoExtendLimit?: boolean;
-  autonomousContinue?: boolean;
+  maxIterations?: number | undefined;
+  iterationTimeoutMs?: number | undefined;
+  executionStrategy?: 'parallel' | 'sequential' | 'smart' | undefined;
+  perIterationOutputCapBytes?: number | undefined;
+  autoExtendLimit?: boolean | undefined;
+  autonomousContinue?: boolean | undefined;
   confirmAwaiter?: import('../types/tool-executor.js').ConfirmAwaiter | undefined;
-  permissionPolicy?: PermissionPolicy;
+  permissionPolicy?: PermissionPolicy | undefined;
   tracer?: Tracer | undefined;
   extensions?: ExtensionRegistry | undefined;
   toolExecutor: ToolExecutorLike;
@@ -78,7 +78,7 @@ export interface ToolCallPipelinePayload {
   toolUse: ToolUseBlock;
   result: ToolResultBlock;
   ctx: Context;
-  tool?: Tool;
+  tool?: Tool | undefined;
 }
 
 export function createDefaultPipelines(): AgentPipelines {

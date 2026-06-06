@@ -13,29 +13,29 @@ import type {
 export interface AutoPhaseRunnerOptions extends AutoPhaseOptions {
   /** Proje başlığı */
   title: string;
-  description?: string;
+  description?: string | undefined;
   /** Faz şablonları */
   phases: PhaseTemplate[];
   /** Task çalıştırma fonksiyonu */
   executeTask: PhaseExecutionContext['executeTask'];
   /** Opsiyonel doğrulama kapısı */
-  verifyPhase?: PhaseExecutionContext['verifyPhase'];
+  verifyPhase?: PhaseExecutionContext['verifyPhase'] | undefined;
   /** Doğrulama başarısız olduğunda opsiyonel onarım geçişi */
-  repairPhase?: PhaseExecutionContext['repairPhase'];
+  repairPhase?: PhaseExecutionContext['repairPhase'] | undefined;
   /** Worktree merge çakışmaları için opsiyonel çözücü */
-  resolveConflict?: PhaseExecutionContext['resolveConflict'];
+  resolveConflict?: PhaseExecutionContext['resolveConflict'] | undefined;
   /** Opsiyonel Brain arbiter */
-  brain?: PhaseExecutionContext['brain'];
+  brain?: PhaseExecutionContext['brain'] | undefined;
   /** Faz tamamlandığında */
-  onPhaseComplete?: (phase: PhaseNode) => void;
+  onPhaseComplete?: (((phase: PhaseNode) => void)) | undefined;
   /** Faz başarısız olduğunda */
   onPhaseFail?: (phase: PhaseNode, error: Error) => void;
   /** Her tick'te */
   onTick?: (ctx: { activePhases: PhaseNode[]; readyPhases: PhaseNode[] }) => void;
   /** Progress değiştiğinde */
-  onProgress?: (progress: PhaseProgress) => void;
+  onProgress?: (((progress: PhaseProgress) => void)) | undefined;
   /** Graph tamamlandığında */
-  onComplete?: (graph: PhaseGraph) => void;
+  onComplete?: (((graph: PhaseGraph) => void)) | undefined;
   /** Graph başarısız olduğunda */
   onFail?: (graph: PhaseGraph, failedPhase: PhaseNode, error: Error) => void;
 }
@@ -100,9 +100,6 @@ export class AutoPhaseRunner {
     // Execution context
     const ctx: PhaseExecutionContext = {
       executeTask: this.opts.executeTask,
-      verifyPhase: this.opts.verifyPhase,
-      repairPhase: this.opts.repairPhase,
-      resolveConflict: this.opts.resolveConflict,
       brain: this.opts.brain,
       onPhaseComplete: (phase) => {
         this.opts.onPhaseComplete?.(phase);
@@ -114,6 +111,9 @@ export class AutoPhaseRunner {
         this.opts.onTick?.(tickCtx);
       },
     };
+    if (this.opts.verifyPhase !== undefined) ctx.verifyPhase = this.opts.verifyPhase;
+    if (this.opts.repairPhase !== undefined) ctx.repairPhase = this.opts.repairPhase;
+    if (this.opts.resolveConflict !== undefined) ctx.resolveConflict = this.opts.resolveConflict;
 
     // Orchestrator oluştur ve başlat
     this.orchestrator = new PhaseOrchestrator({
@@ -133,8 +133,8 @@ export class AutoPhaseRunner {
     // Progress reporting
     if (this.opts.onProgress) {
       this.progressInterval = setInterval(() => {
-        const progress = this.orchestrator!.getProgress();
-        this.opts.onProgress!(progress);
+        const progress = this.orchestrator?.getProgress();
+        if (progress) this.opts.onProgress?.(progress);
       }, 2000);
     }
 
@@ -211,8 +211,8 @@ export class AutoPhaseRunner {
 export async function createAutoPhaseFromTaskGraph(
   taskGraph: import('../types/task-graph.js').TaskGraph,
   options: Omit<AutoPhaseRunnerOptions, 'phases' | 'title'> & {
-    title?: string;
-    tasksPerPhase?: number;
+    title?: string | undefined;
+    tasksPerPhase?: number | undefined;
   },
 ): Promise<AutoPhaseRunner> {
   const graph = await PhaseGraphBuilder.fromTaskGraph(taskGraph, {

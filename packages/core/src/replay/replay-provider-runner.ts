@@ -43,8 +43,8 @@ export interface ReplayProviderRunnerOptions {
    * upstream).
    */
   logger?: {
-    debug?: (msg: string) => void;
-    warn?: (msg: string) => void;
+    debug?: ((msg: string) => void) | undefined;
+    warn?: ((msg: string) => void) | undefined;
   };
 }
 

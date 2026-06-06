@@ -5,20 +5,20 @@ import { compileUserRegex } from './_regex.js';
 import { safeResolve } from './_util.js';
 
 interface LogsInput {
-  service?: string;
-  path?: string;
-  lines?: number;
-  stream?: boolean;
-  filter?: string;
-  since?: '1h' | '6h' | '24h' | 'all';
-  cwd?: string;
+  service?: string | undefined;
+  path?: string | undefined;
+  lines?: number | undefined;
+  stream?: boolean | undefined;
+  filter?: string | undefined;
+  since?: '1h' | '6h' | '24h' | 'all' | undefined;
+  cwd?: string | undefined;
 }
 
 interface LogEntry {
   timestamp: string;
   level: string;
   message: string;
-  source?: string;
+  source?: string | undefined;
 }
 
 interface LogsOutput {
@@ -112,7 +112,7 @@ async function dockerLogs(
   filterRe: RegExp | null,
   cwd: string,
   signal: AbortSignal,
-  since?: string,
+  since?: string | undefined,
 ): Promise<LogsOutput> {
   const args = ['logs'];
   if (lines > 0) args.push('--tail', String(lines));

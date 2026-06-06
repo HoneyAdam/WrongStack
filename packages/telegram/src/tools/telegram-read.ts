@@ -3,14 +3,14 @@ import type { TelegramBot } from '../bot.js';
 
 interface TelegramReadInput {
   /** Filter to messages from a specific chat/user ID. Omit to see all chats. */
-  chat_id?: string | number;
+  chat_id?: string | number | undefined;
   /** Max messages to return (default: 10, max: 50). */
-  limit?: number;
+  limit?: number | undefined;
   /**
    * If a message_id is provided, acknowledge all messages up to and
    * including this ID (mark them as processed / remove from buffer).
    */
-  ack_last?: number;
+  ack_last?: number | undefined;
 }
 
 export function makeTelegramReadTool(opts: {

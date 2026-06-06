@@ -6,8 +6,8 @@ type Theme = 'light' | 'dark' | 'system';
 
 interface ThemeProviderProps {
   children: React.ReactNode;
-  defaultTheme?: Theme;
-  storageKey?: string;
+  defaultTheme?: Theme | undefined;
+  storageKey?: string | undefined;
 }
 
 interface ThemeProviderState {

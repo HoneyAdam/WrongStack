@@ -152,8 +152,8 @@ export function isIndexableFile(filePath: string): boolean {
  */
 export async function runStartupIndex(opts: {
   projectRoot: string;
-  indexDir?: string;
-  force?: boolean;
+  indexDir?: string | undefined;
+  force?: boolean | undefined;
 }): Promise<IndexResult> {
   _indexing = true;
   _currentFile = 0;
@@ -190,9 +190,9 @@ export async function runStartupIndex(opts: {
 export function enqueueReindex(opts: {
   projectRoot: string;
   files: string[];
-  indexDir?: string;
-  debounceMs?: number;
-  onError?: (err: unknown) => void;
+  indexDir?: string | undefined;
+  debounceMs?: number | undefined;
+  onError?: ((err: unknown) => void) | undefined;
 }): void {
   const files = opts.files.filter(isIndexableFile);
   if (files.length === 0) return;

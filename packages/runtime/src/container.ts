@@ -27,22 +27,22 @@ export interface CreateContainerOptions {
   logger: Logger;
   modelsRegistry: ModelsRegistry;
   permission?: {
-    yolo?: boolean;
-    yoloDestructive?: boolean;
+    yolo?: boolean | undefined;
+    yoloDestructive?: boolean | undefined;
     /** @deprecated Use `yoloDestructive`. */
-    forceAllYolo?: boolean;
+    forceAllYolo?: boolean | undefined;
     /** When true, destructive ops prompt even in YOLO mode. */
-    confirmDestructive?: boolean;
+    confirmDestructive?: boolean | undefined;
     promptDelegate?: (
       tool: Tool,
       input: unknown,
       suggestedPattern: string,
     ) => Promise<'yes' | 'no' | 'always' | 'deny'>;
   };
-  compactor?: { preserveK?: number; eliseThreshold?: number };
-  systemPrompt?: Partial<DefaultSystemPromptBuilderOptions>;
+  compactor?: { preserveK?: number | undefined; eliseThreshold?: number | undefined };
+  systemPrompt?: Partial<DefaultSystemPromptBuilderOptions> | undefined;
   /** Bundled skills directory path (resolved at boot time). */
-  bundledSkillsDir?: string;
+  bundledSkillsDir?: string | undefined;
 }
 
 /**
@@ -93,14 +93,18 @@ export function createDefaultContainer(opts: CreateContainerOptions): Container 
 
   container.bind(
     TOKENS.PermissionPolicy,
-    () =>
-      new DefaultPermissionPolicy({
+    () => {
+      const policyOptions: ConstructorParameters<typeof DefaultPermissionPolicy>[0] = {
         trustFile: wpaths.projectTrust,
         yolo: opts.permission?.yolo ?? false,
         yoloDestructive: opts.permission?.yoloDestructive ?? opts.permission?.forceAllYolo ?? false,
         confirmDestructive: opts.permission?.confirmDestructive ?? false,
-        promptDelegate: opts.permission?.promptDelegate,
-      }),
+      };
+      if (opts.permission?.promptDelegate !== undefined) {
+        policyOptions.promptDelegate = opts.permission.promptDelegate;
+      }
+      return new DefaultPermissionPolicy(policyOptions);
+    },
   );
 
   container.bind(

@@ -24,7 +24,7 @@ const ALGO = 'aes-256-gcm';
  */
 export class DefaultSecretVault implements SecretVault {
   private readonly keyFile: string;
-  private key?: Buffer;
+  private key?: Buffer | undefined;
 
   constructor(opts: SecretVaultOptions) {
     this.keyFile = opts.keyFile;

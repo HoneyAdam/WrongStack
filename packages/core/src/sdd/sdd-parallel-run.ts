@@ -30,6 +30,15 @@ import type { TaskTracker } from './task-tracker.js';
 import { SddTaskDecomposer, type TaskBatch } from './sdd-task-decomposer.js';
 import { computeTaskProgress } from '../types/task-graph.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export interface SddParallelRunOptions {
   /** Pre-constructed TaskTracker (must already hold the graph's initial state). */
   tracker: TaskTracker;
@@ -40,15 +49,15 @@ export interface SddParallelRunOptions {
   /** Project root (used for coordinator id). */
   projectRoot: string;
   /** Override default parallel slots (1–16). Default: 4. */
-  parallelSlots?: number;
+  parallelSlots?: number | undefined;
   /** Per-task timeout in ms. Default: 300_000 (5 min). */
-  taskTimeoutMs?: number;
+  taskTimeoutMs?: number | undefined;
   /** Override the default agent factory. */
-  subagentFactory?: AgentFactory;
+  subagentFactory?: AgentFactory | undefined;
   /** Called after each wave completes. */
-  onWave?: (wave: WaveResult) => void;
+  onWave?: ((wave: WaveResult) => void) | undefined;
   /** Called with progress stats every ~2s during execution. */
-  onProgress?: (progress: SddProgress) => void;
+  onProgress?: ((progress: SddProgress) => void) | undefined;
 }
 
 export interface SddProgress {
@@ -210,8 +219,10 @@ export class SddParallelRun {
     ].join('\n');
 
     // Phase 1: spawn all subagents
+    if (!this.coordinator) throw new Error('SDD parallel runner requires a coordinator');
+    const coordinator = this.coordinator;
     const spawns = subagentIds.map((subagentId) =>
-      this.coordinator!.spawn({
+      coordinator.spawn({
         id: subagentId,
         name: subagentId,
         role: 'executor',
@@ -220,14 +231,14 @@ export class SddParallelRun {
     );
     const spawnResults = await Promise.all(spawns);
     // All spawns succeeded or we bail entirely — no partial waves
-    if (!spawnResults.every((r) => r.subagentId)) {
+    if (!spawnResults.every((r) => Boolean(r.subagentId))) {
       throw new Error('One or more subagent spawns failed');
     }
 
     // Phase 2: assign task specs to spawned subagents
     const assignPromises = tasks.map((task, i) => {
       const spec: TaskSpec = {
-        id: taskIds[i]!,
+          id: taskIds[i] ?? task.id,
         description: [
           directivePreamble,
           '',
@@ -236,17 +247,17 @@ export class SddParallelRun {
           '',
           task.description,
         ].join('\n'),
-        subagentId: subagentIds[i]!,
+          subagentId: subagentIds[i] ?? spawnResults[i]?.subagentId ?? task.id,
         timeoutMs: this.timeoutMs,
       };
-      return this.coordinator!.assign(spec);
+      return this.coordinator?.assign(spec);
     });
     await Promise.all(assignPromises);
 
     // Phase 3: wait for all task results
     let results: TaskResult[];
     try {
-      results = await this.coordinator!.awaitTasks(taskIds);
+      results = await coordinator.awaitTasks(taskIds);
     } catch (err) {
       // await threw — synthesize error results for all pending tasks
       results = taskIds.map((id) => ({
@@ -265,8 +276,8 @@ export class SddParallelRun {
 
     // Phase 4: update tracker status for each result
     for (let i = 0; i < results.length; i++) {
-      const result = results[i]!;
-      const taskId = taskIds[i]!;
+      const result = expectDefined(results[i]);
+      const taskId = expectDefined(taskIds[i]);
       if (result.status === 'success') {
         this.opts.tracker.updateNodeStatus(taskId, 'completed');
       } else {

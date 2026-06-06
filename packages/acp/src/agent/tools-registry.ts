@@ -106,6 +106,14 @@ function toACPInputSchema(src: unknown): ACPInputSchema {
     return {};
   }
   const s = src as Record<string, unknown>;
+  const out: ACPInputSchema = {};
+  if (typeof s.type === 'string') out.type = s.type;
+  if (Array.isArray(s.enum)) out.enum = s.enum;
+  if (typeof s.description === 'string') out.description = s.description;
+  if ('default' in s) out.default = s.default;
+  if (typeof s.minimum === 'number') out.minimum = s.minimum;
+  if (typeof s.maximum === 'number') out.maximum = s.maximum;
+  if (s.items) out.items = toACPInputSchema(s.items);
 
   // Recursively convert properties
   if (s.properties && typeof s.properties === 'object') {
@@ -113,28 +121,11 @@ function toACPInputSchema(src: unknown): ACPInputSchema {
     for (const [k, v] of Object.entries(s.properties as Record<string, unknown>)) {
       props[k] = toACPInputSchema(v);
     }
-    return {
-      type: typeof s.type === 'string' ? s.type : undefined,
-      properties: props,
-      required: Array.isArray(s.required) ? (s.required as string[]) : undefined,
-      items: s.items ? toACPInputSchema(s.items) : undefined,
-      enum: Array.isArray(s.enum) ? s.enum : undefined,
-      description: typeof s.description === 'string' ? s.description : undefined,
-      default: s.default,
-      minimum: typeof s.minimum === 'number' ? s.minimum : undefined,
-      maximum: typeof s.maximum === 'number' ? s.maximum : undefined,
-    };
+    out.properties = props;
+    if (Array.isArray(s.required)) out.required = s.required as string[];
   }
 
-  return {
-    type: typeof s.type === 'string' ? s.type : undefined,
-    items: s.items ? toACPInputSchema(s.items) : undefined,
-    enum: Array.isArray(s.enum) ? s.enum : undefined,
-    description: typeof s.description === 'string' ? s.description : undefined,
-    default: s.default,
-    minimum: typeof s.minimum === 'number' ? s.minimum : undefined,
-    maximum: typeof s.maximum === 'number' ? s.maximum : undefined,
-  };
+  return out;
 }
 
 /** Convert a WrongStack ToolResult → ACP ContentBlock[] */

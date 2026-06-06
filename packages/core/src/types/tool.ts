@@ -14,12 +14,12 @@ export type Permission = 'auto' | 'confirm' | 'deny';
 export type RiskTier = 'safe' | 'standard' | 'destructive';
 
 export interface JSONSchema {
-  type?: string;
+  type?: string | undefined;
   properties?: Record<string, JSONSchema>;
-  required?: string[];
-  items?: JSONSchema;
-  enum?: unknown[];
-  description?: string;
+  required?: string[] | undefined;
+  items?: JSONSchema | undefined;
+  enum?: unknown[] | undefined;
+  description?: string | undefined;
   [k: string]: unknown;
 }
 
@@ -41,7 +41,7 @@ export interface ToolProgressEvent {
    * - `partial_output` — stream of textual output (bash stdout, fetch body)
    */
   type: 'log' | 'warning' | 'metric' | 'file_changed' | 'partial_output';
-  text?: string;
+  text?: string | undefined;
   data?: Record<string, unknown>;
 }
 
@@ -60,9 +60,9 @@ export type ToolStreamEvent<O = unknown> = ToolProgressEvent | ToolFinalEvent<O>
 export interface Tool<I = unknown, O = unknown> {
   name: string;
   description: string;
-  usageHint?: string;
+  usageHint?: string | undefined;
   /** Optional category for grouping in help lists and system prompts. */
-  category?: string;
+  category?: string | undefined;
   inputSchema: JSONSchema;
   permission: Permission;
   mutating: boolean;
@@ -72,7 +72,7 @@ export interface Tool<I = unknown, O = unknown> {
    * set. Defaults to `standard` when omitted — callers should always check
    * `riskTier` after the basic permission decision.
    */
-  riskTier?: RiskTier;
+  riskTier?: RiskTier | undefined;
   /**
    * Input-field name that the permission policy should match trust rules
    * against. Without this, the policy falls back to a heuristic
@@ -84,15 +84,15 @@ export interface Tool<I = unknown, O = unknown> {
    * The named field's value must be a string at runtime; non-string values
    * fall back to the heuristic.
    */
-  subjectKey?: string;
-  maxOutputBytes?: number;
-  timeoutMs?: number;
+  subjectKey?: string | undefined;
+  maxOutputBytes?: number | undefined;
+  timeoutMs?: number | undefined;
   /**
    * Hint for the TUI spinner — does NOT affect actual timeout enforcement.
    * Use `timeoutMs` for hard limits. Leave undefined when duration varies
    * unpredictably.
    */
-  estimatedDurationMs?: number;
+  estimatedDurationMs?: number | undefined;
 
   /**
    * Declarative security capabilities granted by this tool.
@@ -106,7 +106,7 @@ export interface Tool<I = unknown, O = unknown> {
    * This field is optional for backward compatibility. Tools without it are
    * treated conservatively by guards.
    */
-  capabilities?: readonly string[];
+  capabilities?: readonly string[] | undefined;
   execute(input: I, ctx: Context, opts: { signal: AbortSignal }): Promise<O>;
   /**
    * Optional streaming variant. When defined, the executor prefers this

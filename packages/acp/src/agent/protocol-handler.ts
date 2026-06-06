@@ -92,7 +92,7 @@ export class ACPProtocolHandler {
 
   private async handleNotification(n: ACPNotification): Promise<boolean> {
     if (n.method === 'cancel') {
-      this.handleCancelNotification(n as ACPNotification & {params?: {reason?: string}});
+      this.handleCancelNotification(n as ACPNotification & {params?: {reason?: string | undefined}});
     }
     return false;
   }
@@ -175,7 +175,7 @@ export class ACPProtocolHandler {
   }
 
   private handleCancelNotification(
-    _n: ACPNotification & {params?: {reason?: string}},
+    _n: ACPNotification & {params?: {reason?: string | undefined}},
   ): void {
     // Broadcast cancellation to all pending — best-effort
   }

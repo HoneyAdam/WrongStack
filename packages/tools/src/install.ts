@@ -3,11 +3,11 @@ import { spawnStream } from './_spawn-stream.js';
 import { detectPackageManager, normalizeCommandOutput, safeResolve } from './_util.js';
 
 interface InstallInput {
-  packages?: string | string[];
-  save?: 'dependency' | 'dev' | 'optional';
-  cwd?: string;
-  dry_run?: boolean;
-  global?: boolean;
+  packages?: string | string[] | undefined;
+  save?: 'dependency' | 'dev' | 'optional' | undefined;
+  cwd?: string | undefined;
+  dry_run?: boolean | undefined;
+  global?: boolean | undefined;
 }
 
 interface InstallOutput {
@@ -65,7 +65,9 @@ export const installTool: Tool<InstallInput, InstallOutput> = {
   },
   async execute(input, ctx, opts) {
     let final: InstallOutput | undefined;
-    for await (const ev of installTool.executeStream!(input, ctx, opts)) {
+    const executeStream = installTool.executeStream;
+    if (!executeStream) throw new Error('installTool: stream execution unavailable');
+    for await (const ev of executeStream(input, ctx, opts)) {
       if (ev.type === 'final') final = ev.output;
     }
     if (!final) throw new Error('install: stream ended without final event');

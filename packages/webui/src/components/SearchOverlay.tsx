@@ -60,7 +60,7 @@ export function SearchOverlay() {
     // ring-flash navigation behaviour below still works.
     const win = window as unknown as {
       CSS?: { highlights?: Map<string, unknown> };
-      Highlight?: new (...ranges: Range[]) => unknown;
+      Highlight?: new (...ranges: Range[]) => unknown | undefined;
     };
     const highlights = win.CSS?.highlights;
     const HighlightCtor = win.Highlight;

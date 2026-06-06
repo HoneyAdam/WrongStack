@@ -66,7 +66,7 @@ export interface SettingsPickerProps {
   indexOnStart: boolean;
   // ── Tools ──
   maxIterations: number;
-  hint?: string;
+  hint?: string | undefined;
 }
 
 /** Total number of settings rows (used for wrap-around navigation). */
@@ -98,10 +98,10 @@ export function SettingsPicker({
   const boolVal = (v: boolean) => (v ? 'on' : 'off');
 
   interface Row {
-    section?: string;
-    label?: string;
-    value?: string;
-    detail?: string;
+    section?: string | undefined;
+    label?: string | undefined;
+    value?: string | undefined;
+    detail?: string | undefined;
   }
 
   const rows: Row[] = [
@@ -219,7 +219,7 @@ export function SettingsPicker({
   // lands on the wrong row (or never shows on the first field).
   const fieldRowIndex: number[] = [];
   for (let i = 0; i < rows.length; i++) {
-    if (!rows[i]!.section) fieldRowIndex.push(i);
+    if (!rows[i]?.section) fieldRowIndex.push(i);
   }
 
   // Compute visible window. On small terminals, the picker can overflow;
@@ -240,7 +240,7 @@ export function SettingsPicker({
   const sectionFields: Array<{ headerIdx: number; fieldStart: number; fieldEnd: number }> = [];
   let curHeader = -1;
   for (let i = 0; i < rows.length; i++) {
-    if (rows[i]!.section) curHeader = i;
+    if (rows[i]?.section) curHeader = i;
     else if (curHeader >= 0) {
       const fieldIdx = fieldRowIndex.indexOf(i);
       if (fieldIdx === -1) continue;
@@ -275,7 +275,7 @@ export function SettingsPicker({
           // Section header — show when any of its fields are in the window.
           if (shouldShowSection(i)) {
             return (
-              <Text key={`section-${i}`} bold color="green">
+              <Text key={`section-${row.section ?? i}`} bold color="green">
                 ── {row.section} ──
               </Text>
             );
@@ -285,7 +285,7 @@ export function SettingsPicker({
         if (fieldAtRow < windowStart || fieldAtRow >= windowEnd) return null;
         const selected = fieldAtRow === field;
         return (
-          <Text key={`row-${i}`} color={selected ? 'yellow' : undefined} inverse={selected}>
+          <Text key={`row-${row.label ?? fieldAtRow}`} inverse={selected} {...(selected ? { color: 'yellow' } : {})}>
             {selected ? '› ' : '  '}
             <Text bold>{(row.label ?? '').padEnd(26)}</Text>
             <Text color="cyan">{String(row.value ?? '').padEnd(12)}</Text>

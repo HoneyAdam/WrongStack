@@ -11,8 +11,8 @@ export interface Classification {
   subcategory: string;
   language: string;
   skillHints: string[];
-  framework?: string;
-  errorCode?: string;
+  framework?: string | undefined;
+  errorCode?: string | undefined;
   confidence: number;
   detail: string;
 }
@@ -31,12 +31,12 @@ interface Pat {
   pat: RegExp;
   cat: ErrorCategory;
   sub: string;
-  lang?: string;
-  fw?: string;
+  lang?: string | undefined;
+  fw?: string | undefined;
   hints: string[];
   detail: string | ((m: RegExpMatchArray) => string);
-  code?: (m: RegExpMatchArray) => string | undefined;
-  conf?: number;
+  code?: ((m: RegExpMatchArray) => string) | undefined;
+  conf?: number | undefined;
 }
 
 /**

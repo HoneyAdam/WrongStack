@@ -29,15 +29,15 @@ export interface CollabPauseMiddlewareOptions {
    * Defaults to 60_000 ms. Set to 0 for an unbounded wait (the
    * caller is then responsible for cancellation via the bus itself).
    */
-  defaultTimeoutMs?: number;
+  defaultTimeoutMs?: number | undefined;
   /**
    * Optional logger — receives a debug line on pause entry and on
    * timeout-driven auto-resume. Matches the `Logger` token surface
    * so the runtime can pass its existing logger.
    */
   logger?: {
-    debug?: (msg: string) => void;
-    warn?: (msg: string) => void;
+    debug?: ((msg: string) => void) | undefined;
+    warn?: ((msg: string) => void) | undefined;
   };
 }
 
@@ -106,8 +106,8 @@ export function collabInjectMiddleware(
   bus: CollaborationBus,
   opts: {
     logger?: {
-      debug?: (msg: string) => void;
-      warn?: (msg: string) => void;
+      debug?: ((msg: string) => void) | undefined;
+      warn?: ((msg: string) => void) | undefined;
     };
   } = {},
 ) {

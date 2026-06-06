@@ -10,18 +10,18 @@ import { mergeCustomModelDefs } from '@wrongstack/core';
 import { capabilitiesFor } from '@wrongstack/providers';
 
 export interface ResolveMaxContextInput {
-  modelsRegistry?: ModelsRegistry;
+  modelsRegistry?: ModelsRegistry | undefined;
   config: {
-    provider?: string;
-    model?: string;
-    baseUrl?: string;
-    context?: Pick<Config['context'], 'effectiveMaxContext'>;
-    providers?: Config['providers'];
-    models?: Record<string, CustomModelDefinition>;
+    provider?: string | undefined;
+    model?: string | undefined;
+    baseUrl?: string | undefined;
+    context?: { effectiveMaxContext?: number | undefined } | undefined;
+    providers?: Config['providers'] | undefined;
+    models?: Record<string, CustomModelDefinition> | undefined;
   };
   provider: Provider;
   /** Provider config actually used to construct `provider` (important for aliases). */
-  runtimeProviderConfig?: ProviderConfig;
+  runtimeProviderConfig?: ProviderConfig | undefined;
   providerId: string;
   modelId: string;
 }
@@ -116,7 +116,7 @@ export async function resolveRuntimeMaxContext(input: ResolveMaxContextInput): P
 async function safeGetProvider(
   registry: ModelsRegistry,
   id: string,
-): Promise<{ apiBase?: string } | undefined> {
+): Promise<{ apiBase?: string | undefined } | undefined> {
   try {
     return await registry.getProvider(id);
   } catch {
@@ -132,7 +132,7 @@ function normalizeBaseUrl(url: string | undefined): string {
 
 function readConfiguredMaxContext(providerConfig: unknown): number | undefined {
   if (!providerConfig || typeof providerConfig !== 'object') return undefined;
-  const capabilities = (providerConfig as { capabilities?: unknown }).capabilities;
+  const capabilities = (providerConfig as { capabilities?: unknown | undefined }).capabilities;
   if (!capabilities || typeof capabilities !== 'object') return undefined;
   return (capabilities as Partial<Capabilities>).maxContext;
 }

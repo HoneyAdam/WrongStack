@@ -18,17 +18,17 @@ export type BrainFallback = 'ask_human' | 'deny' | 'continue';
 export interface BrainDecisionOption {
   id: string;
   label: string;
-  consequence?: string;
-  risk?: BrainRisk;
-  recommended?: boolean;
+  consequence?: string | undefined;
+  risk?: BrainRisk | undefined;
+  recommended?: boolean | undefined;
 }
 
 export interface BrainDecisionRequest {
   id: string;
   source: BrainDecisionSource;
   question: string;
-  context?: string;
-  options?: BrainDecisionOption[];
+  context?: string | undefined;
+  options?: BrainDecisionOption[] | undefined;
   risk: BrainRisk;
   /** What a non-LLM/default Brain should do when policy cannot decide safely. */
   fallback: BrainFallback;
@@ -37,15 +37,15 @@ export interface BrainDecisionRequest {
 export type BrainDecision =
   | {
       type: 'answer';
-      optionId?: string;
+      optionId?: string | undefined;
       text: string;
-      rationale?: string;
+      rationale?: string | undefined;
     }
   | {
       type: 'ask_human';
       prompt: string;
-      options?: BrainDecisionOption[];
-      rationale?: string;
+      options?: BrainDecisionOption[] | undefined;
+      rationale?: string | undefined;
     }
   | {
       type: 'deny';
@@ -83,7 +83,7 @@ export class ObservableBrainArbiter implements BrainArbiter {
 
 export interface BrainDecisionQueueOptions {
   /** Safety fallback if the human never answers. Default: no timeout. */
-  timeoutMs?: number;
+  timeoutMs?: number | undefined;
 }
 
 /**
@@ -96,7 +96,7 @@ export class BrainDecisionQueue {
     {
       request: BrainDecisionRequest;
       resolve: (decision: BrainDecision) => void;
-      timer?: ReturnType<typeof setTimeout>;
+      timer?: ReturnType<typeof setTimeout> | undefined;
     }
   >();
   private readonly offAnswer: () => void;
@@ -135,7 +135,7 @@ export class BrainDecisionQueue {
       const entry: {
         request: BrainDecisionRequest;
         resolve: (decision: BrainDecision) => void;
-        timer?: ReturnType<typeof setTimeout>;
+        timer?: ReturnType<typeof setTimeout> | undefined;
       } = { request, resolve };
       if (this.opts.timeoutMs && this.opts.timeoutMs > 0) {
         entry.timer = setTimeout(() => {
@@ -178,7 +178,7 @@ export class HumanEscalatingBrainArbiter implements BrainArbiter {
 
 export interface DefaultBrainArbiterOptions {
   /** Allow deterministic auto-answering for low-risk requests. Default true. */
-  allowLowRiskAutoAnswer?: boolean;
+  allowLowRiskAutoAnswer?: boolean | undefined;
 }
 
 /**

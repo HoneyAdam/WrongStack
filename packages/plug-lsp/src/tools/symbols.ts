@@ -8,9 +8,9 @@ import { pathToUri } from '../utils/uri.js';
 import { type ToolDeps, requireServer, resolveInputPath, stringifyToolError } from './shared.js';
 
 interface SymbolsInput {
-  path?: string;
-  query?: string;
-  limit?: number;
+  path?: string | undefined;
+  query?: string | undefined;
+  limit?: number | undefined;
 }
 
 export function createSymbolsTool(deps: ToolDeps): Tool<SymbolsInput, string> {

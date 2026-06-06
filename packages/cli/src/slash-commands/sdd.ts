@@ -22,6 +22,15 @@ import { sddState, getSessionState } from './sdd/state.js';
 import { advanceToNextTask, formatElapsed, getTaskProgress } from './sdd/task-manager.js';
 import { findSpec, gatherProjectContext } from './sdd/project-context.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 // Re-exports for backward compat
 export { sddState, getSessionState, SDDState } from './sdd/state.js';
 export { trySaveSpecFromAIOutput, isExplanatoryText, autoDetectTaskCompletion, trySaveImplementationPlan } from './sdd/spec-detection.js';
@@ -119,7 +128,7 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
           // Reset session and phase timers for the new session
           sddState.setSessionStartTime(Date.now());
           sddState.setPhaseStartTime(Date.now());
-          const builder = sddState.getBuilder()!;
+          const builder = expectDefined(sddState.getBuilder());
           builder.startSession(title);
 
           const aiPrompt = builder.getAIPrompt();
@@ -379,7 +388,7 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
           });
 
           for (let i = 0; i < sorted.length; i++) {
-            const n = sorted[i]!;
+            const n = expectDefined(sorted[i]);
             const status = n.status === 'completed' ? '✅' : n.status === 'in_progress' ? '🔄' : n.status === 'failed' ? '❌' : n.status === 'blocked' ? '🚫' : n.status === 'review' ? '👁' : '⏳';
             const num = `${i + 1}`.padStart(3);
             const prio = n.priority.slice(0, 4).padEnd(5);
@@ -387,7 +396,7 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
             const elapsed = n.status === 'in_progress' && n.startedAt ? ` (${formatElapsed(Date.now() - n.startedAt)})` : '';
             lines.push(`  ${num}  ${status}     ${prio}   ${title}${elapsed}`);
             if (n.description && n.status !== 'completed') {
-              const first = n.description.split('\n')[0]!;
+              const first = expectDefined(n.description.split('\n')[0]);
               const truncated = first.length > 42 ? first.slice(0, 41) + '…' : first;
               lines.push(`        ↳ ${truncated}`);
             }
@@ -598,7 +607,7 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
             return { message: 'No completed tasks to undo.' };
           }
           // Pop the last completed node (most recently completed)
-          const last = completed[completed.length - 1]!;
+          const last = expectDefined(completed[completed.length - 1]);
           undoTracker.updateNodeStatus(last.id, 'pending');
           const progress = undoTracker.getProgress();
           return {
@@ -662,7 +671,7 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
           ];
 
           if (next.description) {
-            const first = next.description.split('\n')[0]!;
+            const first = expectDefined(next.description.split('\n')[0]);
             lines.push(`     ↳ ${first}`);
           }
 
@@ -796,7 +805,7 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
               return (order[a.status] ?? 6) - (order[b.status] ?? 6);
             });
             for (let i = 0; i < sorted.length; i++) {
-              const n = sorted[i]!;
+              const n = expectDefined(sorted[i]);
               const status = n.status === 'completed' ? '✅' : n.status === 'in_progress' ? '🔄' : n.status === 'failed' ? '❌' : n.status === 'blocked' ? '🚫' : n.status === 'review' ? '👁' : '⏳';
               lines.push(`${i + 1}. ${status} [${n.priority}] ${n.title}`);
             }
@@ -826,7 +835,7 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
             return (order[a.status] ?? 6) - (order[b.status] ?? 6);
           });
           for (let i = 0; i < sorted.length; i++) {
-            const n = sorted[i]!;
+            const n = expectDefined(sorted[i]);
             const status = n.status === 'completed' ? '✅' : n.status === 'in_progress' ? '🔄' : n.status === 'failed' ? '❌' : n.status === 'blocked' ? '🚫' : n.status === 'review' ? '👁' : '⏳';
             lines.push(`${i + 1}. ${status} [${n.priority}] ${n.title}`);
           }
@@ -885,7 +894,7 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
             maxQuestions: 10,
             sessionPath,
           }));
-          const resumeBuilder = sddState.getBuilder()!;
+          const resumeBuilder = expectDefined(sddState.getBuilder());
           const loaded = await resumeBuilder.loadSession();
           if (!loaded) {
             sddState.setBuilder(null);

@@ -5,16 +5,16 @@ interface BatchToolUseInput {
     tool: string;
     input: Record<string, unknown>;
   }[];
-  stop_on_error?: boolean;
-  parallel?: boolean;
+  stop_on_error?: boolean | undefined;
+  parallel?: boolean | undefined;
 }
 
 interface BatchToolUseOutput {
   results: {
     tool: string;
     success: boolean;
-    result?: unknown;
-    error?: string;
+    result?: unknown | undefined;
+    error?: string | undefined;
     executionMs: number;
   }[];
   total: number;

@@ -19,12 +19,12 @@ export interface WSServerMessage {
 
 export interface WSClientMessage {
   type: string;
-  payload?: unknown;
+  payload?: unknown | undefined;
 }
 
 export interface WebUIOptions {
-  port?: number;
-  webuiPort?: number;
+  port?: number | undefined;
+  webuiPort?: number | undefined;
 }
 
 export interface BackendServices {

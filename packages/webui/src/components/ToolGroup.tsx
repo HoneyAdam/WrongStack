@@ -4,6 +4,15 @@ import { CheckCircle2, ChevronDown, ChevronRight, Loader2, Terminal, XCircle } f
 import { memo, useState } from 'react';
 import { MessageBubble } from './MessageBubble';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 interface ToolGroupProps {
   /** A run of consecutive tool messages (>=1). Rendered as one chip while
    *  collapsed, expanded into the usual MessageBubble list on click. */
@@ -11,12 +20,12 @@ interface ToolGroupProps {
   /** Force-expand the latest group so newly-running tools are visible by
    *  default (otherwise users see "5 tool calls" pop in and have to click to
    *  understand what's running). Older groups stay collapsed. */
-  defaultOpen?: boolean;
+  defaultOpen?: boolean | undefined;
   /** Render as a continuation of the previous item in the same agent turn —
    *  hides the avatar column (replaced with a transparent spacer) and the
    *  group's chrome stitches into the same flow as the surrounding text /
    *  tool items instead of standing alone. */
-  isContinuation?: boolean;
+  isContinuation?: boolean | undefined;
 }
 
 function formatDuration(ms: number): string {
@@ -36,7 +45,7 @@ export const ToolGroup = memo(function ToolGroup({
 
   // Single tool? Render as a normal bubble — grouping overhead is just noise.
   if (tools.length === 1) {
-    return <MessageBubble message={tools[0]!} isFirst isContinuation={isContinuation} />;
+    return <MessageBubble message={expectDefined(tools[0])} isFirst isContinuation={isContinuation} />;
   }
 
   const running = tools.filter((t) => t.toolResult === undefined).length;

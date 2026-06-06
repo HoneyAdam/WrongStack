@@ -62,6 +62,15 @@ import {
   type State,
   reducer,
 } from './app-reducer.js';
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export {
   reducer,
   type Action,
@@ -122,6 +131,7 @@ export function rehydrateHistory(
   startId: number,
 ): import('./components/history/types.js').HistoryEntry[] {
   const entries: import('./components/history/types.js').HistoryEntry[] = [];
+  let nextId = startId;
   for (const msg of messages) {
     if (msg.role === 'system') continue;
     // Inline asText: extract string content from text blocks.
@@ -135,9 +145,9 @@ export function rehydrateHistory(
     const trimmed = text.trim();
     if (!trimmed) continue;
     if (msg.role === 'user') {
-      entries.push({ id: startId++, kind: 'user', text: trimmed });
+      entries.push({ id: nextId++, kind: 'user', text: trimmed });
     } else if (msg.role === 'assistant') {
-      entries.push({ id: startId++, kind: 'assistant', text: trimmed });
+      entries.push({ id: nextId++, kind: 'assistant', text: trimmed });
     }
   }
   return entries;
@@ -148,26 +158,26 @@ export interface AppProps {
   slashRegistry: SlashCommandRegistry;
   attachments: AttachmentStore;
   events: EventBus;
-  tokenCounter?: TokenCounter;
-  visionAdapters?: VisionAdapters;
+  tokenCounter?: TokenCounter | undefined;
+  visionAdapters?: VisionAdapters | undefined;
   /** Resolve current model vision support. Falls back to provider capability when omitted. */
-  supportsVision?: () => boolean | Promise<boolean>;
+  supportsVision?: (() => boolean | Promise<boolean>) | undefined;
   model: string;
-  banner?: boolean;
+  banner?: boolean | undefined;
   /** Persists the queue across crashes; rehydrated on mount, written on every mutation. */
-  queueStore?: QueueStore;
+  queueStore?: QueueStore | undefined;
   /** Reflects the policy's --yolo flag for the status bar's "⚠ YOLO" chip. */
-  yolo?: boolean;
+  yolo?: boolean | undefined;
   /** Play terminal bell when an agent run completes. */
-  chime?: boolean;
+  chime?: boolean | undefined;
   /** When true, the first Ctrl+C aborts work and shows "confirm exit" rather than "exit". */
-  confirmExit?: boolean;
+  confirmExit?: boolean | undefined;
   /**
    * When true, free-text prompts are run through the prompt refiner
    * ("did you mean this?") before reaching the main agent. Default on;
    * toggled live via the `/enhance` slash command + `enhanceController`.
    */
-  enhanceEnabled?: boolean;
+  enhanceEnabled?: boolean | undefined;
   /**
    * Shared controller for the `/enhance on|off` toggle. The TUI rebinds
    * `setEnabled` on mount to a dispatch-backed setter so the slash command
@@ -176,9 +186,9 @@ export interface AppProps {
   enhanceController?: {
     enabled: boolean;
     setEnabled: (enabled: boolean) => void;
-  };
+  } | undefined;
   /** Auto-send countdown (ms) for the refinement preview panel. Default 4000. */
-  enhanceDelayMs?: number;
+  enhanceDelayMs?: number | undefined;
   /**
    * Query the live YOLO state from the permission policy. Called after
    * every slash-command dispatch so `/yolo off` (which mutates the
@@ -186,104 +196,104 @@ export interface AppProps {
    * Mirrors the `agent.ctx.model` → `setLiveModel` pattern used for
    * provider/model sync.
    */
-  getYolo?: () => boolean;
+  getYolo?: (() => boolean) | undefined;
   /** Query the live autonomy mode. */
-  getAutonomy?: () => 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel';
+  getAutonomy?: (() => 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel') | undefined;
   /** Query the live agent mode label for the status bar (e.g. "teach"). */
-  getModeLabel?: () => string;
+  getModeLabel?: (() => string) | undefined;
   /**
    * Access the eternal-autonomy engine. When autonomy mode goes to
    * 'eternal' the TUI drives `runOneIteration()` from a post-slash hook
    * so the engine and TUI never race for the shared Context.
    */
-  getEternalEngine?: () => import('@wrongstack/core').EternalAutonomyEngine | null;
+  getEternalEngine?: (() => import('@wrongstack/core').EternalAutonomyEngine | null) | undefined;
   /**
    * Access the parallel-eternal engine. When autonomy mode goes to
    * 'eternal-parallel' the TUI drives `runOneIteration()` from a post-slash
    * hook so the engine and TUI never race for the shared Context.
    */
-  getParallelEngine?: () => import('@wrongstack/core').ParallelEternalEngine | null;
+  getParallelEngine?: (() => import('@wrongstack/core').ParallelEternalEngine | null) | undefined;
   /**
    * Subscribe to live per-iteration events from the eternal engine. The
    * TUI installs this on mount to render each iteration as a timeline
    * entry the moment it lands — strictly more responsive than reading
    * goal.json after the fact.
    */
-  subscribeEternalIteration?: (
+  subscribeEternalIteration?: ((
     fn: (entry: import('@wrongstack/core').JournalEntry) => void,
-  ) => () => void;
+  ) => () => void) | undefined;
   /**
    * Subscribe to per-iteration stage transitions from the autonomy engines.
    * Drives `state.eternalStage` used by the status bar to show the
    * engine's current location.
    */
-  subscribeEternalStage?: (fn: (stage: AutonomyStage) => void) => () => void;
+  subscribeEternalStage?: ((fn: (stage: AutonomyStage) => void) => () => void) | undefined;
   /**
    * Subscribe to AutoPhase phase/task events from the PhaseOrchestrator.
    * Drives `state.autoPhase` used by the PhaseMonitor component.
    * Handlers receive the event name and payload from PhaseEventMap.
    */
-  subscribeAutoPhase?: (handler: (event: string, payload: unknown) => void) => () => void;
+  subscribeAutoPhase?: ((handler: (event: string, payload: unknown) => void) => () => void) | undefined;
   /**
    * Read the persisted autonomy settings (defaultMode, autoProceedDelayMs).
    * Used by the SettingsPicker in the TUI on mount and after Ctrl+S toggle.
    */
   /** Settings shape — shared between getSettings and saveSettings. */
-  getSettings?: () => Settings;
+  getSettings?: (() => Settings) | undefined;
   /**
    * Persist settings changes. Returns null on success, or an
    * error string on failure (so the TUI can display it as a hint).
    */
-  saveSettings?: (s: Settings) => string | null | Promise<string | null>;
+  saveSettings?: ((s: Settings) => string | null | Promise<string | null>) | undefined;
   /**
    * Predict likely next steps after a completed turn (/next). The CLI owns the
    * gating (toggle + autonomy off) and returns [] when disabled, so the App can
    * call it unconditionally on a done turn. Display-only — never executed.
    */
-  predictNext?: (input: {
+  predictNext?: ((input: {
     userRequest: string;
     assistantSummary: string;
-  }) => Promise<string[]>;
+  }) => Promise<string[]>) | undefined;
   /**
    * SDD session context getter. When an SDD session is active, returns
    * the AI prompt context to inject into user messages so the model
    * knows it's in a spec-building conversation.
    */
-  getSDDContext?: () => string | null;
+  getSDDContext?: (() => string | null) | undefined;
   /**
    * Process AI output for SDD auto-detection (spec, tasks, plan).
    * Called after every agent.run() completes. Returns displayable
    * status messages (e.g. "✓ Spec detected and saved!").
    */
-  onSDDOutput?: (output: string) => Promise<string[]>;
+  onSDDOutput?: ((output: string) => Promise<string[]>) | undefined;
   /** Surfaced in the startup banner. Falls back to "dev" when omitted. */
-  appVersion?: string;
+  appVersion?: string | undefined;
   /** Provider id shown in the banner ("openai", "anthropic", …). Defaults to "agent". */
-  provider?: string;
+  provider?: string | undefined;
   /** Wire family for the configured provider — rendered under provider in the banner. */
-  family?: string;
+  family?: string | undefined;
   /** Last 3 chars of the active API key, shown in the banner for "did I pick the right key?" verification. */
-  keyTail?: string;
+  keyTail?: string | undefined;
   /**
    * Snapshot the keyed providers (and their model lists) for the
    * `/model` picker. Called every time the picker opens, so the result
    * stays in sync with config edits / new aliases. Async because the
    * host may need to load the models.dev catalog.
    */
-  getPickableProviders?: () => Promise<ProviderOption[]>;
+  getPickableProviders?: (() => Promise<ProviderOption[]>) | undefined;
   /**
    * Apply a (provider, model) pair after the picker confirms. Returns
    * an error message on failure; null on success. The host owns the
    * actual Provider construction + Context mutation.
    */
-  switchProviderAndModel?: (providerId: string, modelId: string) => string | null;
+  switchProviderAndModel?: ((providerId: string, modelId: string) => string | null) | undefined;
   /**
    * Apply an autonomy mode after the picker confirms. Returns
    * an error string on failure; null on success.
    */
-  switchAutonomy?: (
+  switchAutonomy?: ((
     mode: 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel',
-  ) => string | null;
+  ) => string | null) | undefined;
   /**
    * Real max-context token budget for the *active model*, resolved by the
    * CLI via the ModelsRegistry. The provider object only knows its family
@@ -291,14 +301,14 @@ export interface AppProps {
    * 1M-context Opus model. The status bar's context chip uses this when
    * provided and falls back to the provider baseline otherwise.
    */
-  effectiveMaxContext?: number;
+  effectiveMaxContext?: number | undefined;
   /** Absolute project root for goal.json loading. */
-  projectRoot?: string;
+  projectRoot?: string | undefined;
   onExit: (code: number) => void;
   /** Called when /clear is dispatched — the TUI should wipe its history entries (but keep the banner). */
-  onClearHistory?: (
+  onClearHistory?: ((
     dispatch: React.Dispatch<{ type: 'clearHistory' } | { type: 'resetContextChip' }>,
-  ) => void;
+  ) => void) | undefined;
 
   /**
    * Goal text passed from `--goal "..."` on the command line. When set,
@@ -307,21 +317,21 @@ export interface AppProps {
    * having to type the slash command. Mutually advisory with `initialSteer`
    * — `initialGoal` wins if both are present.
    */
-  initialGoal?: string;
+  initialGoal?: string | undefined;
   /**
    * Initial user message passed from `--ask "..."` on the command line.
    * Submitted verbatim as the first turn (no preamble) so users can
    * launch the TUI and pre-populate one turn from a shell alias / script.
    */
-  initialAsk?: string;
+  initialAsk?: string | undefined;
   /** Directory for session JSONL files. Passed to App for /rewind. */
-  sessionsDir?: string;
+  sessionsDir?: string | undefined;
 
   // --- Fleet ---
   /** Live director for fleet panel rendering. Null when director mode is off. */
   director: Director | null;
   /** Optional roster for human-readable subagent names. */
-  fleetRoster?: Record<string, { name: string }>;
+  fleetRoster?: Record<string, { name: string }> | undefined;
   /**
    * Shared controller for the `/fleet stream on|off` slash command. The
    * App installs a dispatch-backed setter on mount so the slash command
@@ -330,7 +340,7 @@ export interface AppProps {
   fleetStreamController?: {
     enabled: boolean;
     setEnabled: (enabled: boolean) => void;
-  };
+  } | undefined;
   /**
    * Controller for status bar hidden items. App installs a dispatch-backed
    * setter on mount so the /statusline slash command can update the TUI's
@@ -351,7 +361,7 @@ export interface AppProps {
     setVisible: (visible: boolean) => void;
   };
   /** Active agent mode label shown in the status bar (e.g. "teach", "brief"). */
-  modeLabel?: string;
+  modeLabel?: string | undefined;
 }
 
 const PASTE_THRESHOLD_CHARS = 200;
@@ -718,7 +728,7 @@ export function App({
     };
     const t = setInterval(poll, 2000);
     return () => clearInterval(t);
-  }, []);
+  }, [agent.ctx.todos]);
 
   // Git branch + change counts. Polled every 5s (cheap, two short-lived
   // `git` subprocesses). Skipped silently when the cwd isn't a repo or
@@ -860,7 +870,7 @@ export function App({
     const n = m.size + 1;
     const v = {
       label: name && name !== id ? name : `AGENT#${n}`,
-      color: STREAM_COLORS[(n - 1) % STREAM_COLORS.length]!,
+      color: STREAM_COLORS[(n - 1) % STREAM_COLORS.length] ?? 'cyan',
     };
     m.set(id, v);
     return v;
@@ -883,7 +893,7 @@ export function App({
       try {
         const data = await fs.readFile(planPath, 'utf8');
         const parsed = JSON.parse(data) as {
-          items?: Array<{ status?: string }>;
+          items?: Array<{ status?: string | undefined }>;
         };
         if (cancelled) return;
         if (!Array.isArray(parsed.items)) {
@@ -1793,7 +1803,7 @@ export function App({
           break;
         }
         case 'phase.failed': {
-          const p = payload as { phaseId: string; name: string; error?: string };
+          const p = payload as { phaseId: string; name: string; error?: string | undefined };
           dispatch({
             type: 'autoPhasePhaseUpdate',
             phaseId: p.phaseId,
@@ -2204,7 +2214,7 @@ export function App({
           dispatch({ type: 'fleetStart', id: e.subagentId });
           break;
         case 'provider.text_delta': {
-          const p = e.payload as { text?: string };
+          const p = e.payload as { text?: string | undefined };
           if (p?.text) {
             const cur = pending.get(e.subagentId) ?? '';
             pending.set(e.subagentId, cur + p.text);
@@ -2219,7 +2229,7 @@ export function App({
           // Extended thinking output — same buffering as text_delta so
           // it gets flushed into recentMessages and (when streaming is
           // on) injected into leader history.
-          const p = e.payload as { text?: string };
+          const p = e.payload as { text?: string | undefined };
           if (p?.text) {
             streamBuf.set(e.subagentId, (streamBuf.get(e.subagentId) ?? '') + p.text);
             if (streamFlushTimer) clearTimeout(streamFlushTimer);
@@ -2228,7 +2238,7 @@ export function App({
           break;
         }
         case 'provider.retry': {
-          const p = e.payload as { attempt?: number; delayMs?: number };
+          const p = e.payload as { attempt?: number | undefined; delayMs?: number | undefined };
           dispatch({
             type: 'addEntry',
             entry: {
@@ -2239,7 +2249,7 @@ export function App({
           break;
         }
         case 'provider.error': {
-          const p = e.payload as { description?: string };
+          const p = e.payload as { description?: string | undefined };
           dispatch({
             type: 'addEntry',
             entry: {
@@ -2250,7 +2260,7 @@ export function App({
           break;
         }
         case 'tool.started': {
-          const p = e.payload as { name?: string };
+          const p = e.payload as { name?: string | undefined };
           if (p?.name) {
             dispatch({ type: 'fleetToolStart', id: e.subagentId, name: p.name });
           }
@@ -2258,11 +2268,11 @@ export function App({
         }
         case 'tool.executed': {
           const p = e.payload as {
-            name?: string;
-            ok?: boolean;
-            durationMs?: number;
-            outputBytes?: number;
-            outputLines?: number;
+            name?: string | undefined;
+            ok?: boolean | undefined;
+            durationMs?: number | undefined;
+            outputBytes?: number | undefined;
+            outputLines?: number | undefined;
           };
           dispatch({
             type: 'fleetTool',
@@ -2324,7 +2334,7 @@ export function App({
           });
           break;
         case 'budget.threshold_reached': {
-          const p = e.payload as { kind?: string; used?: number; limit?: number };
+          const p = e.payload as { kind?: string | undefined; used?: number | undefined; limit?: number | undefined };
           dispatch({
             type: 'fleetBudgetWarning',
             id: e.subagentId,
@@ -2335,7 +2345,7 @@ export function App({
           break;
         }
         case 'budget.extended': {
-          const p = e.payload as { totalExtensions?: number };
+          const p = e.payload as { totalExtensions?: number | undefined };
           if (p?.totalExtensions !== undefined) {
             dispatch({
               type: 'fleetBudgetExtended',
@@ -2369,7 +2379,7 @@ export function App({
             });
           }
           const bp = e.payload as {
-            finding?: { id?: string; severity?: string; description?: string };
+            finding?: { id?: string | undefined; severity?: string | undefined; description?: string | undefined };
           };
           if (bp?.finding) {
             const sessionId = e.subagentId.split('-').slice(1).join('-') || e.subagentId;
@@ -2386,7 +2396,7 @@ export function App({
         case 'refactor.plan': {
           if (!state.collabSession) break;
           const pp = e.payload as {
-            plan?: { id?: string; riskScore?: string; phases?: unknown[] };
+            plan?: { id?: string | undefined; riskScore?: string | undefined; phases?: unknown[] | undefined };
           };
           if (pp?.plan) {
             const sessionId = e.subagentId.split('-').slice(1).join('-') || e.subagentId;
@@ -2403,7 +2413,7 @@ export function App({
         case 'critic.evaluation': {
           if (!state.collabSession) break;
           const ep = e.payload as {
-            evaluation?: { id?: string; verdict?: string; score?: number };
+            evaluation?: { id?: string | undefined; verdict?: string | undefined; score?: number | undefined };
           };
           if (ep?.evaluation) {
             const sessionId = e.subagentId.split('-').slice(1).join('-') || e.subagentId;
@@ -2422,8 +2432,8 @@ export function App({
           if (!state.collabSession) break;
           const dp = e.payload as {
             report?: {
-              sessionId?: string;
-              overallVerdict?: 'approve' | 'needs_revision' | 'reject';
+              sessionId?: string | undefined;
+              overallVerdict?: 'approve' | 'needs_revision' | 'reject' | undefined;
             };
           };
           if (dp?.report) {
@@ -3863,7 +3873,7 @@ export function App({
         // new model.
         const ctxModel = agent.ctx.model;
         if (ctxModel && ctxModel !== liveModel) setLiveModel(ctxModel);
-        const ctxProviderId = (agent.ctx.provider as { id?: string } | undefined)?.id;
+        const ctxProviderId = (agent.ctx.provider as { id?: string | undefined } | undefined)?.id;
         if (ctxProviderId && ctxProviderId !== liveProvider) setLiveProvider(ctxProviderId);
         const ctxMaxContext = agent.ctx.provider.capabilities.maxContext;
         if (ctxMaxContext > 0 && ctxMaxContext !== activeMaxContext) {
@@ -4218,17 +4228,25 @@ export function App({
               hint={state.settingsPicker.hint}
             />
           ) : null}
-          {state.rewindOverlay ? (
-            <CheckpointTimeline
-              checkpoints={state.rewindOverlay.checkpoints}
-              selected={state.rewindOverlay.selected}
-              onSelect={(i) =>
-                dispatch({ type: 'rewindOverlayMove', delta: i - state.rewindOverlay!.selected })
-              }
-              onConfirm={(i) => handleRewindTo(state.rewindOverlay!.checkpoints[i]!.promptIndex)}
-              onClose={() => dispatch({ type: 'rewindOverlayClose' })}
-            />
-          ) : null}
+          {state.rewindOverlay
+            ? (() => {
+                const overlay = state.rewindOverlay;
+                return (
+                  <CheckpointTimeline
+                    checkpoints={overlay.checkpoints}
+                    selected={overlay.selected}
+                    onSelect={(i) =>
+                      dispatch({ type: 'rewindOverlayMove', delta: i - overlay.selected })
+                    }
+                    onConfirm={(i) => {
+                      const checkpoint = overlay.checkpoints[i];
+                      if (checkpoint) handleRewindTo(checkpoint.promptIndex);
+                    }}
+                    onClose={() => dispatch({ type: 'rewindOverlayClose' })}
+                  />
+                );
+              })()
+            : null}
           {state.brainPrompt ? (
             <Box flexDirection="column" marginY={1} flexShrink={0}>
               <BrainDecisionPrompt
@@ -4242,7 +4260,7 @@ export function App({
           ) : null}
           {state.confirmQueue.length > 0 &&
             (() => {
-              const head = state.confirmQueue[0]!;
+              const head = expectDefined(state.confirmQueue[0]);
               let resolved = false;
               const onDecision = (decision: ConfirmDecision) => {
                 if (resolved) return;

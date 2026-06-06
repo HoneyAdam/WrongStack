@@ -5,15 +5,15 @@ import { DefaultTaskStore, TaskTracker } from '../sdd/index.js';
 
 export interface PhaseGraphBuilderOptions {
   title: string;
-  description?: string;
+  description?: string | undefined;
   /** Faz şablonları (sıralı) */
   phases: PhaseTemplate[];
   /** Otonom mod */
-  autonomous?: boolean;
+  autonomous?: boolean | undefined;
   /** Başarısızlıkta dur */
-  stopOnFailure?: boolean;
+  stopOnFailure?: boolean | undefined;
   /** Harici TaskStore (opsiyonel) */
-  externalTaskStore?: TaskStore;
+  externalTaskStore?: TaskStore | undefined;
 }
 
 /**
@@ -42,7 +42,7 @@ export class PhaseGraphBuilder {
 
     // Her faz şablonundan PhaseNode oluştur
     for (let i = 0; i < this.opts.phases.length; i++) {
-      const tmpl = this.opts.phases[i]!;
+      const tmpl = this.opts.phases[i] ?? { name: '', description: '', tasks: [], taskTemplates: [], parallelizable: false, priority: 'medium' as const, estimateHours: 0 };
       const phaseId = crypto.randomUUID();
       phaseIds.push(phaseId);
 
@@ -72,8 +72,8 @@ export class PhaseGraphBuilder {
         description: tmpl.description,
         status: 'pending',
         taskGraph,
-        dependsOn: i > 0 ? [phaseIds[i - 1]!] : [],
-        nextPhases: i < this.opts.phases.length - 1 ? [phaseIds[i + 1]!] : [],
+        dependsOn: i > 0 ? [phaseIds[i - 1] ?? ''] : [],
+        nextPhases: i < this.opts.phases.length - 1 ? [phaseIds[i + 1] ?? ''] : [],
         parallelizable: tmpl.parallelizable,
         priority: tmpl.priority,
         estimateHours: tmpl.estimateHours,
@@ -89,9 +89,10 @@ export class PhaseGraphBuilder {
     // (phase oluşturulurken sonraki fazın ID'si henüz bilinmiyordu)
     const phaseArray = Array.from(phases.values());
     for (let i = 0; i < phaseArray.length; i++) {
-      const phase = phaseArray[i]!;
-      phase.nextPhases = i < phaseArray.length - 1 ? [phaseArray[i + 1]!.id] : [];
-      phase.dependsOn = i > 0 ? [phaseArray[i - 1]!.id] : [];
+      const phase = phaseArray[i];
+      if (!phase) continue;
+      phase.nextPhases = i < phaseArray.length - 1 ? [phaseArray[i + 1]?.id ?? ''] : [];
+      phase.dependsOn = i > 0 ? [phaseArray[i - 1]?.id ?? ''] : [];
     }
 
     const graph: PhaseGraph = {
@@ -99,7 +100,7 @@ export class PhaseGraphBuilder {
       title: this.opts.title,
       description: this.opts.description ?? '',
       phases,
-      rootPhaseIds: phaseIds.length > 0 ? [phaseIds[0]!] : [],
+      rootPhaseIds: phaseIds.length > 0 ? [phaseIds[0] ?? ''] : [],
       activePhaseIds: [],
       completedPhaseIds: [],
       failedPhaseIds: [],
@@ -120,7 +121,7 @@ export class PhaseGraphBuilder {
     taskGraph: TaskGraph,
     options: Omit<PhaseGraphBuilderOptions, 'phases'> & {
       /** Faz başına düşen task sayısı (default: 5) */
-      tasksPerPhase?: number;
+      tasksPerPhase?: number | undefined;
     },
   ): Promise<PhaseGraph> {
     const tasksPerPhase = options.tasksPerPhase ?? 5;

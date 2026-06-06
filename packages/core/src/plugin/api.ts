@@ -36,29 +36,29 @@ export interface PluginAPIInit {
   pipelines: PluginPipelines;
   toolRegistry: ToolRegistry;
   providerRegistry: ProviderRegistry;
-  slashCommandRegistry?: SlashCommandRegistry;
-  mcpRegistry?: MCPRegistryView;
+  slashCommandRegistry?: SlashCommandRegistry | undefined;
+  mcpRegistry?: MCPRegistryView | undefined;
   /**
    * The agent's extension registry. Plugins register AgentExtension
    * instances here to hook into agent lifecycle events.
    */
-  extensions?: ExtensionRegistry;
+  extensions?: ExtensionRegistry | undefined;
   /**
    * The host's lifecycle hook registry. When provided, `api.registerHook`
    * adds in-process hooks here. When absent, `registerHook` is a noop.
    */
-  hookRegistry?: HookRegistry;
+  hookRegistry?: HookRegistry | undefined;
   /**
    * The active session writer. Plugins append custom events here.
    * When not provided, a noop writer is used.
    */
-  sessionWriter?: SessionWriterView;
+  sessionWriter?: SessionWriterView | undefined;
   /**
    * The host's metrics sink. When set, the plugin gets a scoped view
    * that auto-prefixes metric names with `plugin.<pluginName>.`.
    * When not provided, a noop sink is used.
    */
-  metricsSink?: MetricsSinkView;
+  metricsSink?: MetricsSinkView | undefined;
   config: Config;
   /**
    * The host's ConfigStore. Used to wire `api.onConfigChange()`.
@@ -73,7 +73,7 @@ export interface PluginAPIInit {
    * command names and override built-ins; external plugins are namespaced.
    * Defaults to false.
    */
-  official?: boolean;
+  official?: boolean | undefined;
 }
 
 export class DefaultPluginAPI implements PluginAPI {

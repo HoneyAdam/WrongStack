@@ -118,7 +118,7 @@ export function useWebSocket() {
     [client],
   );
   const addProvider = useCallback(
-    (id: string, family: string, baseUrl?: string, apiKey?: string) =>
+    (id: string, family: string, baseUrl?: string | undefined, apiKey?: string) =>
       client.addProvider(id, family, baseUrl, apiKey),
     [client],
   );
@@ -160,7 +160,7 @@ export function useWebSocket() {
     [client],
   );
   const startAutoPhase = useCallback(
-    (title: string, phases?: unknown[], autonomous = true) => { client.send({ type: 'autophase.start', payload: { title, phases, autonomous } }); },
+    (title: string, phases?: unknown[] | undefined, autonomous = true) => { client.send({ type: 'autophase.start', payload: { title, phases, autonomous } }); },
     [client],
   );
   const pauseAutoPhase = useCallback(() => { client.send({ type: 'autophase.pause', payload: {} }); }, [client]);

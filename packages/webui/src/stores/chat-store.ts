@@ -2,6 +2,15 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { ChatMessage } from './types.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 /**
  * Strip immediately-repeated paragraphs/lines from an assistant reply.
  * MiniMax-M2.7 (and other smaller open models) sometimes emit the same
@@ -14,14 +23,14 @@ function dedupeRepeatedBlocks(text: string): string {
   const paraSplit = text.split(/\n{2,}/);
   const paras: string[] = [];
   for (const p of paraSplit) {
-    if (paras.length > 0 && paras[paras.length - 1]!.trim() === p.trim()) continue;
+    if (paras.length > 0 && paras[paras.length - 1]?.trim() === p.trim()) continue;
     paras.push(p);
   }
   const cleaned = paras.map((p) => {
     const lines = p.split('\n');
     const out: string[] = [];
     for (const line of lines) {
-      if (out.length > 0 && line.trim().length > 0 && out[out.length - 1]!.trim() === line.trim()) {
+      if (out.length > 0 && line.trim().length > 0 && out[out.length - 1]?.trim() === line.trim()) {
         continue;
       }
       out.push(line);
@@ -88,12 +97,12 @@ interface ChatState {
 interface ToolExecution {
   id: string;
   name: string;
-  input?: unknown;
-  output?: string;
-  durationMs?: number;
+  input?: unknown | undefined;
+  output?: string | undefined;
+  durationMs?: number | undefined;
   ok: boolean;
   startedAt: number;
-  completedAt?: number;
+  completedAt?: number | undefined;
 }
 
 export const useChatStore = create<ChatState>()(
@@ -213,7 +222,7 @@ export const useChatStore = create<ChatState>()(
         if (queue.length === 0) return null;
         const [next, ...rest] = queue;
         set({ queue: rest });
-        return next!;
+        return expectDefined(next);
       },
       removeQueued: (idx) => set((state) => ({ queue: state.queue.filter((_, i) => i !== idx) })),
       clearQueue: () => set({ queue: [] }),

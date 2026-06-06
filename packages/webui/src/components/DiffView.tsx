@@ -1,11 +1,20 @@
 import { cn } from '@/lib/utils';
 import { memo, useMemo } from 'react';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 interface DiffViewProps {
   oldText: string;
   newText: string;
   /** Optional caption shown above the diff (file path, "write" vs "edit", etc.) */
-  caption?: string;
+  caption?: string | undefined;
 }
 
 /**
@@ -101,8 +110,8 @@ function computeDiff(oldText: string, newText: string): DiffRow[] | null {
   const dp: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
   for (let i = n - 1; i >= 0; i--) {
     for (let j = m - 1; j >= 0; j--) {
-      if (a[i] === b[j]) dp[i]![j] = dp[i + 1]![j + 1]! + 1;
-      else dp[i]![j] = Math.max(dp[i + 1]![j]!, dp[i]![j + 1]!);
+      if (a[i] === b[j]) expectDefined(dp[i])[j] = expectDefined(dp[i + 1]?.[j + 1]) + 1;
+      else expectDefined(dp[i])[j] = Math.max(expectDefined(dp[i + 1]?.[j]), expectDefined(dp[i]?.[j + 1]));
     }
   }
   const rows: DiffRow[] = [];
@@ -110,19 +119,19 @@ function computeDiff(oldText: string, newText: string): DiffRow[] | null {
   let j = 0;
   while (i < n && j < m) {
     if (a[i] === b[j]) {
-      rows.push({ kind: 'ctx', text: a[i]! });
+      rows.push({ kind: 'ctx', text: expectDefined(a[i]) });
       i++;
       j++;
-    } else if (dp[i + 1]![j]! >= dp[i]![j + 1]!) {
-      rows.push({ kind: 'del', text: a[i]! });
+    } else if (expectDefined(dp[i + 1]?.[j]) >= expectDefined(dp[i]?.[j + 1])) {
+      rows.push({ kind: 'del', text: expectDefined(a[i]) });
       i++;
     } else {
-      rows.push({ kind: 'add', text: b[j]! });
+      rows.push({ kind: 'add', text: expectDefined(b[j]) });
       j++;
     }
   }
-  while (i < n) rows.push({ kind: 'del', text: a[i++]! });
-  while (j < m) rows.push({ kind: 'add', text: b[j++]! });
+  while (i < n) rows.push({ kind: 'del', text: expectDefined(a[i++]) });
+  while (j < m) rows.push({ kind: 'add', text: expectDefined(b[j++]) });
   return rows;
 }
 

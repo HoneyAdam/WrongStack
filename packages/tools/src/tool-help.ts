@@ -1,13 +1,13 @@
 import type { Tool } from '@wrongstack/core';
 
 interface ToolHelpInput {
-  tool?: string;
-  format?: 'short' | 'full' | 'markdown';
-  include_examples?: boolean;
+  tool?: string | undefined;
+  format?: 'short' | 'full' | 'markdown' | undefined;
+  include_examples?: boolean | undefined;
 }
 
 interface ToolHelpOutput {
-  tool?: string;
+  tool?: string | undefined;
   help: string;
   tools: {
     name: string;

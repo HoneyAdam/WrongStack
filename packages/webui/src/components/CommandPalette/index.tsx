@@ -38,9 +38,9 @@ interface PaletteItem {
   id: string;
   category: 'Command' | 'Session' | 'Theme' | 'Tool';
   label: string;
-  hint?: string;
+  hint?: string | undefined;
   icon: LucideIcon;
-  keywords?: string[];
+  keywords?: string[] | undefined;
   run: () => void;
 }
 
@@ -271,7 +271,7 @@ function renderGroupedList(
   const groups: Record<string, Array<{ item: PaletteItem; globalIdx: number }>> = {};
   filtered.forEach((it, i) => {
     if (!groups[it.category]) groups[it.category] = [];
-    groups[it.category]!.push({ item: it, globalIdx: i });
+    groups[it.category]?.push({ item: it, globalIdx: i });
   });
   return (
     <div className="p-1">

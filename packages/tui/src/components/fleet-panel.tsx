@@ -9,7 +9,7 @@ export interface FleetPanelProps {
   /** Fleet-wide accumulated cost (from FleetUsageAggregator). */
   totalCost: number;
   /** Optional roster for resolving role ids to display names. */
-  roster?: Record<string, { name: string }>;
+  roster?: Record<string, { name: string }> | undefined;
   /** When set, the LEADER row is always shown (even when idle) with a collab session indicator. */
   collabSession?: {
     sessionId: string | null;

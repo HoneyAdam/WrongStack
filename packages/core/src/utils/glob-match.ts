@@ -1,3 +1,10 @@
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 /**
  * Minimal glob matcher for trust patterns.
  * Supports: *, **, ?, character classes [abc], [a-z], negation [!...] or [^...].
@@ -22,7 +29,7 @@ function getCachedGlob(pattern: string): RegExp {
     // Evict oldest 25% when at capacity
     const keys = [...COMPILED_GLOB_CACHE.keys()];
     for (let i = 0; i < Math.floor(CACHE_MAX_SIZE / 4); i++) {
-      COMPILED_GLOB_CACHE.delete(keys[i]!);
+      COMPILED_GLOB_CACHE.delete(expectDefined(keys[i]));
     }
   }
   const re = compileGlob(pattern);

@@ -11,21 +11,21 @@ export interface TodoItem {
   id: string;
   content: string;
   status: 'pending' | 'in_progress' | 'completed';
-  activeForm?: string;
+  activeForm?: string | undefined;
 }
 
 export interface RunOptions {
-  signal?: AbortSignal;
-  model?: string;
-  executionStrategy?: 'parallel' | 'sequential' | 'smart';
-  maxIterations?: number;
+  signal?: AbortSignal | undefined;
+  model?: string | undefined;
+  executionStrategy?: 'parallel' | 'sequential' | 'smart' | undefined;
+  maxIterations?: number | undefined;
   /**
    * Enable autonomous continue for this specific run. When true, the agent
    * loop re-runs on `[continue]`/`[next step]`/`[proceed]` markers or
    * `continue_to_next_iteration()` tool calls instead of returning.
    * Overrides `AgentInit.autonomousContinue` for this call only.
    */
-  autonomousContinue?: boolean;
+  autonomousContinue?: boolean | undefined;
 }
 
 export interface ContextInit {
@@ -37,7 +37,7 @@ export interface ContextInit {
   cwd: string;
   projectRoot: string;
   model: string;
-  tools?: Tool[];
+  tools?: Tool[] | undefined;
 }
 
 /**

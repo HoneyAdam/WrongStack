@@ -6,31 +6,31 @@ import type { Permission } from './tool.js';
 
 export interface ContextConfig {
   /** Context-window policy mode. Controls compaction thresholds and preservation depth. */
-  mode?: ContextWindowModeId;
+  mode?: ContextWindowModeId | undefined;
   warnThreshold: number;
   softThreshold: number;
   hardThreshold: number;
   /** Enable automatic compaction when thresholds are crossed (default: true). */
-  autoCompact?: boolean;
+  autoCompact?: boolean | undefined;
   /**
    * Model used for LLM-assisted summarization in IntelligentCompactor.
    * Falls back to the main model when omitted.
    */
-  summarizerModel?: string;
+  summarizerModel?: string | undefined;
   /**
    * Override the effective context window size (in tokens). Use this when
    * you want the compactor to trigger earlier than the provider's actual
    * maxContext. Defaults to the provider's reported maxContext.
    */
-  effectiveMaxContext?: number;
-  maxSessionTokens?: number;
-  maxDailyTokens?: number;
+  effectiveMaxContext?: number | undefined;
+  maxSessionTokens?: number | undefined;
+  maxDailyTokens?: number | undefined;
   preserveK: number;
   eliseThreshold: number;
   /** Compactor strategy: 'hybrid' (default, fast rules), 'intelligent' (LLM summarization), 'selective' (LLM-driven selection). */
-  strategy?: 'hybrid' | 'intelligent' | 'selective';
+  strategy?: 'hybrid' | 'intelligent' | 'selective' | undefined;
   /** Enable LLM-driven selective compaction (default: false for backward compat). */
-  llmSelector?: boolean;
+  llmSelector?: boolean | undefined;
 }
 
 export interface ToolsConfig {
@@ -43,7 +43,7 @@ export interface ToolsConfig {
    * When true (default), the agent automatically extends its iteration
    * limit by 100 when hit. Set to false to require user confirmation.
    */
-  autoExtendLimit?: boolean;
+  autoExtendLimit?: boolean | undefined;
 }
 
 export interface ProviderApiKey {
@@ -66,14 +66,14 @@ export interface ProviderConfig {
    * mirrors the active entry into this field so downstream consumers
    * (provider construction, wire adapters) need no changes.
    */
-  apiKey?: string;
+  apiKey?: string | undefined;
   /** Multiple keys for the same provider — pick one with `activeKey`. */
-  apiKeys?: ProviderApiKey[];
+  apiKeys?: ProviderApiKey[] | undefined;
   /** Label of the entry in `apiKeys` to use. Defaults to the first one. */
-  activeKey?: string;
-  baseUrl?: string;
+  activeKey?: string | undefined;
+  baseUrl?: string | undefined;
   headers?: Record<string, string>;
-  model?: string;
+  model?: string | undefined;
   quirks?: Record<string, unknown>;
   capabilities?: Record<string, unknown>;
   /**
@@ -81,11 +81,11 @@ export interface ProviderConfig {
    * constructed without consulting the models.dev catalog — useful for
    * self-hosted endpoints, internal proxies, or for working offline.
    */
-  family?: WireFamily;
+  family?: WireFamily | undefined;
   /** Custom env var names to probe when `apiKey` is missing. */
-  envVars?: string[];
+  envVars?: string[] | undefined;
   /** Optional list of models the user wants visible for this provider. */
-  models?: string[];
+  models?: string[] | undefined;
   /**
    * Provider-relative custom model definitions (maps modelId → definition).
    * Each entry adds/overrides a model for this provider with optional
@@ -103,36 +103,36 @@ export interface ProviderConfig {
 export interface ModelMatrixEntry {
   /** Provider registry id (e.g. "anthropic", "minimax", "zai"). When omitted,
    *  the leader's provider is used with this entry's model. */
-  provider?: string;
+  provider?: string | undefined;
   /** Model id to run for the matched role/phase/default. */
   model: string;
 }
 
 export interface MCPServerConfig {
   /** Human-readable description shown in `wstack mcp list`. */
-  description?: string;
+  description?: string | undefined;
   name: string;
   transport: 'stdio' | 'sse' | 'streamable-http';
-  command?: string;
-  args?: string[];
+  command?: string | undefined;
+  args?: string[] | undefined;
   env?: Record<string, string>;
-  url?: string;
+  url?: string | undefined;
   headers?: Record<string, string>;
-  enabled?: boolean;
-  allowedTools?: string[];
-  permission?: Permission;
-  startupTimeoutMs?: number;
-  requestTimeoutMs?: number;
+  enabled?: boolean | undefined;
+  allowedTools?: string[] | undefined;
+  permission?: Permission | undefined;
+  startupTimeoutMs?: number | undefined;
+  requestTimeoutMs?: number | undefined;
 }
 
 export interface LogConfig {
   level: 'error' | 'warn' | 'info' | 'debug' | 'trace';
-  file?: string;
+  file?: string | undefined;
 }
 
 export interface PluginConfig {
   name: string;
-  enabled?: boolean;
+  enabled?: boolean | undefined;
   options?: Record<string, unknown>;
 }
 
@@ -159,7 +159,7 @@ export interface FeaturesConfig {
 
 export interface AutonomyConfig {
   /** ms to wait before auto-proceeding in 'auto' mode. Default: 45000. */
-  autoProceedDelayMs?: number;
+  autoProceedDelayMs?: number | undefined;
 }
 
 /**
@@ -185,15 +185,15 @@ export interface IndexingConfig {
  */
 export interface LaunchConfig {
   /** Interactive mode: 'tui' (Ink TUI) or 'repl' (readline REPL). */
-  mode?: 'tui' | 'repl';
+  mode?: 'tui' | 'repl' | undefined;
   /** Start with Director mode on (fleet manifest + multi-agent orchestration). */
-  director?: boolean;
+  director?: boolean | undefined;
   /**
    * Launch-time autonomy mode (binary choice from pre-launch prompt).
    * 'off' = stops after each turn; 'auto' = self-driving.
    * Distinct from `AutonomyConfig.defaultMode` which also supports 'suggest'.
    */
-  autonomy?: 'off' | 'auto';
+  autonomy?: 'off' | 'auto' | undefined;
 }
 
 /**
@@ -210,7 +210,7 @@ export interface SessionLoggingConfig {
    * - "full"     → Also persist full request payloads (very large).
    *                Consider enabling a separate replay log instead.
    */
-  auditLevel?: 'minimal' | 'standard' | 'full';
+  auditLevel?: 'minimal' | 'standard' | 'full' | undefined;
 
   /**
    * Sampling configuration for high-volume events (especially relevant at
@@ -224,7 +224,7 @@ export interface SessionLoggingConfig {
        * - 1 = no sampling (every message is logged)
        * - 8 = default (first message + every 8th)
        */
-      sampleRate?: number;
+      sampleRate?: number | undefined;
     };
   };
 }
@@ -237,7 +237,7 @@ export interface SyncConfig {
   /** GitHub token (fine-grained PAT). Encrypted at rest via SecretVault. */
   githubToken: string;
   categories: SyncCategory[];
-  lastSyncedAt?: string;
+  lastSyncedAt?: string | undefined;
 }
 
 /**
@@ -247,31 +247,31 @@ export interface SyncConfig {
  */
 export interface CustomModelDefinition {
   /** Provider this model belongs to. Defaults to the owning ProviderConfig. */
-  provider?: string;
+  provider?: string | undefined;
   /** Optional display name. */
-  name?: string;
+  name?: string | undefined;
   /** Capability overrides — only specified fields are overlaid. */
-  capabilities?: Partial<Capabilities>;
+  capabilities?: Partial<Capabilities> | undefined;
   /**
    * Max output tokens. If not specified, the provider family default
    * or catalog entry is used.
    */
-  maxOutput?: number;
+  maxOutput?: number | undefined;
 }
 
 export interface Config {
   version: 1;
   provider: string;
   model: string;
-  apiKey?: string;
-  baseUrl?: string;
+  apiKey?: string | undefined;
+  baseUrl?: string | undefined;
   /**
    * Maximum number of subagent tasks the fleet coordinator dispatches
    * simultaneously. Extra tasks queue until a slot frees. Default: 4.
    * Overridden by WRONGSTACK_MAX_CONCURRENT env var and --max-concurrent
    * CLI flag. Change at runtime with /fleet concurrency <n>.
    */
-  maxConcurrent?: number;
+  maxConcurrent?: number | undefined;
   providers?: Record<string, ProviderConfig>;
   /**
    * Top-level custom models (maps modelId → definition). Merged with
@@ -297,7 +297,7 @@ export interface Config {
    * provider), `provider/model`, or `provider model`. The primary is always
    * re-tried first at the start of every user turn. See `createFallbackModelExtension`.
    */
-  fallbackModels?: string[];
+  fallbackModels?: string[] | undefined;
   /**
    * Lifecycle shell hooks, keyed by event. Each command receives the hook
    * `HookInput` JSON on stdin; a JSON `HookOutcome` on stdout (and exit code 2
@@ -305,30 +305,32 @@ export interface Config {
    * the plugin API. Disabled entirely under `--bare` / `--no-hooks`.
    */
   hooks?: Partial<Record<HookEvent, ShellHook[]>>;
-  plugins?: (string | PluginConfig)[];
+  plugins?: (string | PluginConfig)[] | undefined;
   log: LogConfig;
   features: FeaturesConfig;
-  yolo?: boolean;
+  yolo?: boolean | undefined;
   /** When true, show lightweight LLM-predicted next steps after each turn (/next). */
-  nextPrediction?: boolean;
-  cwd?: string;
+  nextPrediction?: boolean | undefined;
+  cwd?: string | undefined;
   /** Autonomy mode configuration (auto-proceed delay, etc.). */
-  autonomy?: AutonomyConfig;
+  autonomy?: AutonomyConfig | undefined;
+  /** Show rotating launch hints on startup. Default: true. Set to false to suppress. */
+  hints?: boolean | undefined;
   /** Automatic codebase symbol-index maintenance (session-start + live updates). */
-  indexing?: IndexingConfig;
+  indexing?: IndexingConfig | undefined;
   /** Saved launch preferences — restored on next boot for one-line confirmation. */
-  launch?: LaunchConfig;
+  launch?: LaunchConfig | undefined;
 
   /**
    * Session logging & audit configuration.
    * Controls what gets written to the persistent JSONL transcript.
    */
-  session?: SessionLoggingConfig;
+  session?: SessionLoggingConfig | undefined;
   /**
    * Cloud sync configuration. Stored separately in sync.json to avoid
    * accidentally committing the GitHub token to project configs.
    */
-  sync?: SyncConfig;
+  sync?: SyncConfig | undefined;
   /**
    * Per-plugin namespaced config sections. Each plugin reads its own
    * subtree via `ConfigStore.getExtension(pluginName)`. Plugins should
@@ -345,7 +347,7 @@ export interface Config {
 }
 
 export interface ConfigLoader {
-  load(opts?: { cliFlags?: Partial<Config>; cwd?: string }): Promise<Config>;
+  load(opts?: { cliFlags?: Partial<Config> | undefined; cwd?: string | undefined }): Promise<Config>;
   /** Load and decrypt the sync config from ~/.wrongstack/sync.json. */
   loadSyncConfig(): Promise<SyncConfig | null>;
   /** Persist sync config to ~/.wrongstack/sync.json with encrypted token. */

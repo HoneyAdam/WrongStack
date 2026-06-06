@@ -23,7 +23,7 @@ const silentLog: Logger = {
 class InlineMockMCP {
   private tools: MCPTool[];
   private responses = new Map<string, { content: unknown; isError?: boolean }>();
-  private scriptPath?: string;
+  private scriptPath?: string | undefined;
 
   constructor(tools: MCPTool[] = []) {
     this.tools = tools;

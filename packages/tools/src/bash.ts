@@ -8,16 +8,16 @@ import { getProcessRegistry } from './process-registry.js';
 
 interface BashInput {
   command: string;
-  timeout_ms?: number;
-  background?: boolean;
+  timeout_ms?: number | undefined;
+  background?: boolean | undefined;
 }
 
 interface BashOutput {
   output: string;
   exit_code: number | null;
   timed_out: boolean;
-  pid?: number | null;
-  error?: string;
+  pid?: number | null | undefined;
+  error?: string | undefined;
 }
 
 const MAX_OUTPUT = 32_768;
@@ -75,7 +75,9 @@ export const bashTool: Tool<BashInput, BashOutput> = {
   },
   async execute(input, ctx, opts) {
     let final: BashOutput | undefined;
-    for await (const ev of bashTool.executeStream!(input, ctx, opts)) {
+    const executeStream = bashTool.executeStream;
+    if (!executeStream) throw new Error('bashTool: stream execution unavailable');
+    for await (const ev of executeStream(input, ctx, opts)) {
       if (ev.type === 'final') final = ev.output;
     }
     if (!final) throw new Error('bash: stream ended without final event');

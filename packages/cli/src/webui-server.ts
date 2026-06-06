@@ -19,6 +19,15 @@ import {
 import { WebSocket, WebSocketServer } from 'ws';
 import { maskedKey, normalizeKeys, nowIso, writeKeysBack } from './provider-config-utils.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 // Re-export types from webui for type checking
 // At runtime, the actual types are resolved via workspace resolution
 
@@ -30,7 +39,7 @@ export interface WSServerMessage {
 
 export interface WSClientMessage {
   type: string;
-  payload?: unknown;
+  payload?: unknown | undefined;
 }
 
 interface WebUIOptions {
@@ -38,13 +47,13 @@ interface WebUIOptions {
   events: EventBus;
   session: SessionWriter;
   /** WebSocket backend port. Defaults to 3457 (auto-advances if taken). */
-  port?: number;
+  port?: number | undefined;
   /** HTTP port serving the React frontend. Defaults to 3456 (auto-advances). */
-  httpPort?: number;
+  httpPort?: number | undefined;
   /** Project root — recorded in the running-instance registry. */
-  projectRoot?: string;
+  projectRoot?: string | undefined;
   /** Pop the browser open to the served URL once the frontend is ready. */
-  open?: boolean;
+  open?: boolean | undefined;
   /**
    * Fired once the WebSocket server is accepting connections. Useful for
    * callers (and tests) that must not connect before the server is ready —
@@ -52,8 +61,8 @@ interface WebUIOptions {
    * no longer be assumed.
    */
   onListening?: (info: { httpPort: number; wsPort: number; host: string }) => void;
-  modelsRegistry?: ModelsRegistry;
-  globalConfigPath?: string;
+  modelsRegistry?: ModelsRegistry | undefined;
+  globalConfigPath?: string | undefined;
   /**
    * Subscribe to live per-iteration events from the eternal-autonomy
    * engine. When provided, the WebUI broadcasts each iteration to every
@@ -616,7 +625,7 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
 
       case 'provider.add': {
         const m = msg as {
-          payload: { id: string; family: string; baseUrl?: string; apiKey?: string };
+          payload: { id: string; family: string; baseUrl?: string | undefined; apiKey?: string | undefined };
         };
         await handleProviderAdd(ws, m.payload);
         break;
@@ -809,7 +818,7 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
       // Check if label exists
       const existingIdx = keys.findIndex((k) => k.label === label);
       if (existingIdx >= 0) {
-        keys[existingIdx] = { ...keys[existingIdx]!, apiKey, createdAt: nowIso() };
+        keys[existingIdx] = { ...expectDefined(keys[existingIdx]), apiKey, createdAt: nowIso() };
       } else {
         keys.push({ label, apiKey, createdAt: nowIso() });
       }
@@ -839,7 +848,7 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
       } else {
         writeKeysBack(existing, keys);
         if (existing.activeKey === label) {
-          existing.activeKey = keys[0]!.label;
+          existing.activeKey = keys[0]?.label;
         }
         providers[providerId] = existing;
       }
@@ -874,7 +883,7 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
 
   async function handleProviderAdd(
     ws: WebSocket,
-    payload: { id: string; family: string; baseUrl?: string; apiKey?: string },
+    payload: { id: string; family: string; baseUrl?: string | undefined; apiKey?: string | undefined },
   ): Promise<void> {
     try {
       const providers = await loadSavedProviders();

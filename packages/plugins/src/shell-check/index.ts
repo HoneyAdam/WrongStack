@@ -29,7 +29,7 @@ interface ShellCheckIssue {
 function runShellCheck(
   files: string[],
   severity: 'error' | 'warning' | 'info' | 'style',
-  cwd?: string,
+  cwd?: string | undefined,
 ): ShellCheckIssue[] {
   if (!existsSync('shellcheck')) {
     // Try to find shellcheck in PATH
@@ -65,7 +65,7 @@ function runShellCheck(
     });
   } catch (err: unknown) {
     // shellcheck returns non-zero when issues are found, which is not an error
-    const e = err as { stderr?: string };
+    const e = err as { stderr?: string | undefined };
     if (e.stderr && !e.stderr.includes('shellcheck')) {
       raw = e.stderr;
     } else {
@@ -189,7 +189,7 @@ const plugin: Plugin = {
           if (byFile[issue.file] === undefined) {
             byFile[issue.file] = [];
           }
-          byFile[issue.file]!.push(issue);
+          byFile[issue.file]?.push(issue);
         }
 
         const errorCount = issues.filter((i) => i.level === 'error').length;
@@ -270,7 +270,7 @@ const plugin: Plugin = {
           if (byFile[issue.file] === undefined) {
             byFile[issue.file] = [];
           }
-          byFile[issue.file]!.push(issue);
+          byFile[issue.file]?.push(issue);
         }
 
         return {

@@ -1,7 +1,7 @@
 export interface TextBlock {
   type: 'text';
   text: string;
-  cache_control?: { type: 'ephemeral' };
+  cache_control?: { type: 'ephemeral' | undefined };
 }
 
 export interface ToolUseBlock {
@@ -33,18 +33,18 @@ export interface ToolResultBlock {
    * only a session-local identifier and is not stable across replays.
    * Always set by ToolExecutor; may be absent on manually-constructed blocks.
    */
-  name?: string;
+  name?: string | undefined;
   content: string;
-  is_error?: boolean;
+  is_error?: boolean | undefined;
 }
 
 export interface ImageBlock {
   type: 'image';
   source: {
     type: 'base64' | 'url';
-    media_type?: string;
-    data?: string;
-    url?: string;
+    media_type?: string | undefined;
+    data?: string | undefined;
+    url?: string | undefined;
   };
 }
 
@@ -67,7 +67,7 @@ export interface ImageBlock {
 export interface ThinkingBlock {
   type: 'thinking';
   thinking: string;
-  signature?: string;
+  signature?: string | undefined;
   providerMeta?: Record<string, unknown>;
 }
 

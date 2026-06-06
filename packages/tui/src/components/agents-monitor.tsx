@@ -13,7 +13,7 @@ export interface AgentsMonitorProps {
    * to `totalCost` for a trustworthy grand total. Optional for callers that
    * don't track it (defaults to 0).
    */
-  leaderCost?: number;
+  leaderCost?: number | undefined;
   /** Fleet-wide token totals, when available. */
   totalTokens?: { input: number; output: number };
   /** 1s clock tick so elapsed times + sparklines stay live. */
@@ -90,8 +90,8 @@ function ContextBar({
   maxTokens,
 }: {
   pct: number;
-  tokens?: number;
-  maxTokens?: number;
+  tokens?: number | undefined;
+  maxTokens?: number | undefined;
 }): React.ReactElement {
   const clamped = Math.max(0, Math.min(2, pct)); // cap visual at 200%
   const totalBars = 10;

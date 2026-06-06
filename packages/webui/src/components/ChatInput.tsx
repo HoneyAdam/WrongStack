@@ -10,6 +10,15 @@ import { Button } from './ui/button';
 
 import { type SlashCommandDef, SLASH_COMMANDS, SLASH_CATEGORY_ORDER, matchSlash, detectAtMention } from './ChatInput/slash-commands.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export function ChatInput() {
   const { isLoading, setLoading, addMessage, clearMessages } = useChatStore();
   const queue = useChatStore((s) => s.queue);
@@ -256,7 +265,7 @@ export function ChatInput() {
     setLoading(false);
     const all = useChatStore.getState().messages;
     for (let i = all.length - 1; i >= 0; i--) {
-      const m = all[i]!;
+      const m = expectDefined(all[i]);
       if (m.role === 'user' && m.content) {
         setInput(m.content);
         requestAnimationFrame(() => {
@@ -503,7 +512,7 @@ export function ChatInput() {
             lead.length +
             tokens.slice(0, -1).join(' ').length +
             (tokens.length > 1 ? 1 : 0);
-          const lastBasename = files[files.length - 1]!.name;
+          const lastBasename = files[files.length - 1]?.name;
           requestAnimationFrame(() => {
             if (ta) {
               const cur = before.length + insertion.length - trail.length;
@@ -568,7 +577,7 @@ export function ChatInput() {
               const byCategory: Record<string, Array<{ cmd: SlashCommandDef; idx: number }>> = {};
               slashSuggestions.forEach((cmd, idx) => {
                 if (!byCategory[cmd.category]) byCategory[cmd.category] = [];
-                byCategory[cmd.category]!.push({ cmd, idx });
+                byCategory[cmd.category]?.push({ cmd, idx });
               });
               const orderedCategories = SLASH_CATEGORY_ORDER.filter((c) => byCategory[c]?.length);
               return (
@@ -581,7 +590,7 @@ export function ChatInput() {
                       <div className="px-3 pt-1 pb-0.5 text-[10px] uppercase tracking-wider text-muted-foreground/70 font-semibold">
                         {cat}
                       </div>
-                      {byCategory[cat]!.map(({ cmd, idx }) => (
+                      {byCategory[cat]?.map(({ cmd, idx }) => (
                         <button
                           type="button"
                           key={cmd.name}

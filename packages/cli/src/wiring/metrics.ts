@@ -93,7 +93,7 @@ export function setupMetrics(params: MetricsWiringDeps): MetricsWiringResult {
         healthRegistry,
       }) as unknown as MetricsServerHandle;
       logger.info(
-        `metrics endpoint listening on ${(metricsServerHandle as unknown as { url?: string }).url} (healthz on same port)`,
+        `metrics endpoint listening on ${(metricsServerHandle as unknown as { url?: string | undefined }).url} (healthz on same port)`,
       );
       process.on('exit', () => {
         void metricsServerHandle?.close().catch(() => {});

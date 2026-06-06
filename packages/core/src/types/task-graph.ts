@@ -9,17 +9,17 @@ export interface TaskNode {
   type: TaskType;
   priority: TaskPriority;
   status: TaskStatus;
-  assignee?: string;
-  estimateHours?: number;
-  actualHours?: number;
-  tags?: string[];
-  specRequirementId?: string;
-  parentId?: string;
-  children?: string[];
+  assignee?: string | undefined;
+  estimateHours?: number | undefined;
+  actualHours?: number | undefined;
+  tags?: string[] | undefined;
+  specRequirementId?: string | undefined;
+  parentId?: string | undefined;
+  children?: string[] | undefined;
   createdAt: number;
   updatedAt: number;
-  startedAt?: number;   // set when status → in_progress
-  completedAt?: number;
+  startedAt?: number | undefined;   // set when status → in_progress
+  completedAt?: number | undefined;
   metadata?: Record<string, unknown>;
 }
 
@@ -28,7 +28,7 @@ export interface TaskEdge {
   from: string;
   to: string;
   type: 'blocks' | 'depends_on' | 'relates_to' | 'implements';
-  weight?: number;
+  weight?: number | undefined;
 }
 
 export interface TaskGraph {
@@ -68,12 +68,12 @@ export interface TaskProgress {
 }
 
 export interface TaskFilter {
-  status?: TaskStatus[];
-  priority?: TaskPriority[];
-  type?: TaskType[];
-  assignee?: string[];
-  tags?: string[];
-  specRequirementId?: string;
+  status?: TaskStatus[] | undefined;
+  priority?: TaskPriority[] | undefined;
+  type?: TaskType[] | undefined;
+  assignee?: string[] | undefined;
+  tags?: string[] | undefined;
+  specRequirementId?: string | undefined;
 }
 
 export interface TaskSort {

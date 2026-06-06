@@ -12,7 +12,7 @@ const OPTIONS = [
  * Segmented Light / Dark / System theme control. Instrument-style: a small
  * bezelled track with the active segment lit in signal-amber.
  */
-export function ThemeToggle({ className }: { className?: string }) {
+export function ThemeToggle({ className }: { className?: string | undefined }) {
   const { theme, setTheme } = useTheme();
   return (
     <div
@@ -20,7 +20,6 @@ export function ThemeToggle({ className }: { className?: string }) {
         'inline-flex items-center gap-0.5 rounded-lg border border-border bg-card/70 p-0.5 shadow-sm',
         className,
       )}
-      role="radiogroup"
       aria-label="Theme"
     >
       {OPTIONS.map(({ value, icon: Icon, label }) => {
@@ -29,8 +28,7 @@ export function ThemeToggle({ className }: { className?: string }) {
           <button
             key={value}
             type="button"
-            role="radio"
-            aria-checked={active}
+            aria-pressed={active}
             title={`${label} theme`}
             aria-label={`${label} theme`}
             onClick={() => setTheme(value)}

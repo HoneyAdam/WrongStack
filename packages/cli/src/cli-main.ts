@@ -76,6 +76,15 @@ import { printUpdateNotice } from './cli-update-notice.js';
 import { promptRecovery } from './cli-recovery-prompt.js';
 
 import { launchEternalFromFlag } from './cli-eternal-flag.js';
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export { CLI_VERSION };
 
 type ContainerPromptDelegate = (
@@ -85,7 +94,7 @@ type ContainerPromptDelegate = (
 ) => Promise<'yes' | 'no' | 'always' | 'deny'>;
 
 type SddParallelRunGlobal = typeof globalThis & {
-  __sddParallelRun?: import('@wrongstack/core').SddParallelRun;
+  __sddParallelRun?: import('@wrongstack/core').SddParallelRun | undefined;
 };
 
 export async function main(argv: string[]): Promise<number> {
@@ -193,7 +202,7 @@ export async function main(argv: string[]): Promise<number> {
 
   const memoryStore = container.resolve(TOKENS.MemoryStore);
   const skillLoader = container.resolve(TOKENS.SkillLoader);
-  const sessionRef: { current?: import('@wrongstack/core').SessionWriter } = {};
+  const sessionRef: { current?: import('@wrongstack/core').SessionWriter | undefined } = {};
   // Forward declaration: the autonomy mode state lives later in this
   // function but the SystemPromptBuilder needs a reference to it NOW so
   // the autonomy contributor can read the current mode at build time.
@@ -367,7 +376,9 @@ export async function main(argv: string[]): Promise<number> {
   // Central SessionEventBridge — used for compaction, errors, and future audit events.
   // This ensures consistent auditLevel behavior and a single writer.
   // Sampling configuration (especially for tool_progress) is now read from config.
-  const sessionConfig = resolveSessionLoggingConfig(config as any);
+  const sessionConfig = resolveSessionLoggingConfig(
+    config as unknown as Parameters<typeof resolveSessionLoggingConfig>[0],
+  );
   const sessionBridge: SessionEventBridge = createSessionEventBridge(
     session,
     sessionConfig.auditLevel,
@@ -538,7 +549,7 @@ export async function main(argv: string[]): Promise<number> {
     config,
     provider,
     pipelines,
-    fullConfig: config as any,
+    fullConfig: config as unknown as Parameters<typeof setupCompaction>[0]['fullConfig'],
     sessionBridge, // share the same bridge for consistent audit logging (compaction + errors + future)
   });
   let effectiveMaxContext = compactionSetup.effectiveMaxContext;
@@ -550,7 +561,7 @@ export async function main(argv: string[]): Promise<number> {
   const refreshMaxContext = async (
     providerId: string,
     modelId: string,
-    runtimeProviderConfig?: import('@wrongstack/core').ProviderConfig,
+    runtimeProviderConfig?: import('@wrongstack/core').ProviderConfig | undefined,
   ) => {
     const mc = await resolveRuntimeMaxContext({
       modelsRegistry,
@@ -784,15 +795,15 @@ export async function main(argv: string[]): Promise<number> {
   const manifestPath = directorMode
     ? typeof process.env['WRONGSTACK_FLEET_MANIFEST'] === 'string'
       ? process.env['WRONGSTACK_FLEET_MANIFEST']
-      : path.join(fleetRoot!, 'fleet.json')
+      : path.join(expectDefined(fleetRoot), 'fleet.json')
     : undefined;
-  const sharedScratchpadPath = directorMode ? path.join(fleetRoot!, 'shared') : undefined;
-  const subagentSessionsRoot = directorMode ? path.join(fleetRoot!, 'subagents') : undefined;
+  const sharedScratchpadPath = directorMode ? path.join(expectDefined(fleetRoot), 'shared') : undefined;
+  const subagentSessionsRoot = directorMode ? path.join(expectDefined(fleetRoot), 'subagents') : undefined;
   // Live director state checkpoint — written incrementally to disk on
   // every spawn/assign/complete event so a crashed director leaves a
   // recoverable snapshot. Distinct from manifestPath (final record).
   const stateCheckpointPath = directorMode
-    ? path.join(fleetRoot!, 'director-state.json')
+    ? path.join(expectDefined(fleetRoot), 'director-state.json')
     : undefined;
   // Always derive a fleetRoot for runtime promotion — /director needs
   // a base dir to write manifest + scratchpad + per-subagent JSONLs into.
@@ -1288,7 +1299,7 @@ export async function main(argv: string[]): Promise<number> {
           ...matches.map((m) => `  ${m.subagentId}  (${m.runId})`),
         ].join('\n');
       }
-      const t = matches[0]!;
+      const t = expectDefined(matches[0]);
       const raw = await fs.readFile(t.file, 'utf8');
       if (mode === 'raw') return raw;
 
@@ -1303,7 +1314,7 @@ export async function main(argv: string[]): Promise<number> {
       const toolNames = new Map<string, number>();
       for (const line of lines) {
         try {
-          const ev = JSON.parse(line) as { type: string; content?: unknown; name?: string };
+          const ev = JSON.parse(line) as { type: string; content?: unknown | undefined; name?: string | undefined };
           counts[ev.type] = (counts[ev.type] ?? 0) + 1;
           if (ev.type === 'user_input' && !firstUser) {
             const txt =
@@ -1313,7 +1324,7 @@ export async function main(argv: string[]): Promise<number> {
                   ? ev.content
                       .filter(
                         (b): b is { type: 'text'; text: string } =>
-                          (b as { type?: string }).type === 'text',
+                          (b as { type?: string | undefined }).type === 'text',
                       )
                       .map((b) => b.text)
                       .join(' ')
@@ -1322,7 +1333,7 @@ export async function main(argv: string[]): Promise<number> {
           }
           if (ev.type === 'llm_response') {
             if (Array.isArray(ev.content)) {
-              const txt = (ev.content as Array<{ type?: string; text?: string }>)
+              const txt = (ev.content as Array<{ type?: string | undefined; text?: string | undefined }>)
                 .filter((b) => b.type === 'text')
                 .map((b) => b.text ?? '')
                 .join(' ');
@@ -1551,7 +1562,7 @@ export async function main(argv: string[]): Promise<number> {
       if (effectiveMode === 'eternal-parallel') {
         if (!parallelEngine) {
           const parallelOptions: ConstructorParameters<typeof ParallelEternalEngine>[0] & {
-            onStage?: (stage: AutonomyStage) => void;
+            onStage?: ((stage: AutonomyStage) => void) | undefined;
           } = {
             agent,
             projectRoot,

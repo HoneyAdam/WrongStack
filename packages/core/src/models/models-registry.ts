@@ -23,24 +23,24 @@ interface CacheEnvelope {
 
 export interface DefaultModelsRegistryOptions {
   cacheFile: string;
-  url?: string;
-  ttlSeconds?: number;
-  fetchImpl?: typeof fetch;
+  url?: string | undefined;
+  ttlSeconds?: number | undefined;
+  fetchImpl?: typeof fetch | undefined;
   /** Pre-seeded payload — useful for offline scenarios and tests. */
-  seed?: ModelsDevPayload;
+  seed?: ModelsDevPayload | undefined;
   /**
    * Maximum age in seconds for stale cache fallback when network fails.
    * Defaults to 7 days. Set to `Infinity` for full offline resilience
    * (risk: deprecated models, wrong pricing). Set to `0` to disable
    * stale fallback entirely.
    */
-  maxStaleAgeSeconds?: number;
+  maxStaleAgeSeconds?: number | undefined;
   /**
    * Timeout in milliseconds for the models.dev network fetch. When exceeded,
    * the fetch is aborted and cache/stale fallback is used instead.
    * Defaults to 15 seconds. Set to `0` to disable (infinite wait).
    */
-  refreshTimeoutMs?: number;
+  refreshTimeoutMs?: number | undefined;
   /**
    * Curated override payload deep-merged ON TOP of the models.dev base via
    * `mergeModelsPayload` — adds providers/models the base lacks and overrides
@@ -49,13 +49,13 @@ export interface DefaultModelsRegistryOptions {
    * (bundled, read from disk). A missing/broken overlay degrades to `{}` and
    * never throws, so the base alone still works.
    */
-  overlay?: ModelsDevPayload;
+  overlay?: ModelsDevPayload | undefined;
   /** GitHub-raw (or any) URL serving the curated overlay `providers.json`. */
-  overlayUrl?: string;
+  overlayUrl?: string | undefined;
   /** Path to the bundled overlay `providers.json` (offline floor). */
-  overlayFile?: string;
+  overlayFile?: string | undefined;
   /** Cache file for the fetched `overlayUrl`. Defaults next to `cacheFile`. */
-  overlayCacheFile?: string;
+  overlayCacheFile?: string | undefined;
 }
 
 /**
@@ -91,21 +91,21 @@ export function classifyFamily(npm: string | undefined): WireFamily {
 
 export class DefaultModelsRegistry implements ModelsRegistry {
   /** Merged (base + overlay) payload — what every reader sees. */
-  private payload?: ModelsDevPayload;
+  private payload?: ModelsDevPayload | undefined;
   /** Memoised overlay payload (in-memory / fetched / file). */
-  private overlayPayload?: ModelsDevPayload;
-  private fetchedAt?: Date;
+  private overlayPayload?: ModelsDevPayload | undefined;
+  private fetchedAt?: Date | undefined;
   private readonly cacheFile: string;
   private readonly url: string;
   private readonly ttlMs: number;
   private readonly fetchImpl: typeof fetch;
-  private readonly seed?: ModelsDevPayload;
+  private readonly seed?: ModelsDevPayload | undefined;
   private readonly maxStaleAgeMs: number;
   private readonly refreshTimeoutMs: number;
-  private readonly overlay?: ModelsDevPayload;
-  private readonly overlayUrl?: string;
-  private readonly overlayFile?: string;
-  private readonly overlayCacheFile?: string;
+  private readonly overlay?: ModelsDevPayload | undefined;
+  private readonly overlayUrl?: string | undefined;
+  private readonly overlayFile?: string | undefined;
+  private readonly overlayCacheFile?: string | undefined;
 
   constructor(opts: DefaultModelsRegistryOptions) {
     this.cacheFile = opts.cacheFile;
@@ -127,7 +127,7 @@ export class DefaultModelsRegistry implements ModelsRegistry {
         : undefined);
   }
 
-  async load(opts: { force?: boolean } = {}): Promise<ModelsDevPayload> {
+  async load(opts: { force?: boolean | undefined } = {}): Promise<ModelsDevPayload> {
     if (this.payload && !opts.force) return this.payload;
     // A `seed` is treated as the complete, final payload — used for offline
     // scenarios and tests. It bypasses both the base fetch and the overlay.
@@ -152,7 +152,7 @@ export class DefaultModelsRegistry implements ModelsRegistry {
    * models.dev setups still surface the problem.
    */
   private async loadBase(
-    opts: { force?: boolean } = {},
+    opts: { force?: boolean | undefined } = {},
     overlayAvailable = false,
   ): Promise<ModelsDevPayload> {
     if (!opts.force) {
@@ -221,7 +221,7 @@ export class DefaultModelsRegistry implements ModelsRegistry {
    * fetched `overlayUrl` (cached, same TTL/stale rules) → `overlayFile` on
    * disk. Never throws — a missing/broken overlay yields `{}`.
    */
-  private async loadOverlay(opts: { force?: boolean } = {}): Promise<ModelsDevPayload> {
+  private async loadOverlay(opts: { force?: boolean | undefined } = {}): Promise<ModelsDevPayload> {
     if (this.overlayPayload && !opts.force) return this.overlayPayload;
     if (hasEntries(this.overlay)) {
       this.overlayPayload = this.overlay;
@@ -237,7 +237,7 @@ export class DefaultModelsRegistry implements ModelsRegistry {
     return this.overlayPayload;
   }
 
-  private async loadOverlayFromUrl(opts: { force?: boolean }): Promise<
+  private async loadOverlayFromUrl(opts: { force?: boolean | undefined }): Promise<
     ModelsDevPayload | undefined
   > {
     if (!this.overlayUrl || !this.overlayCacheFile) return undefined;

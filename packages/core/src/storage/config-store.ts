@@ -7,7 +7,7 @@ import type { Config, ConfigStore } from '../types/config.js';
  * WRONGSTACK_API_KEY) from being accidentally written to ~/.wrongstack/config.json.
  */
 function stripEphemeralFields(cfg: Partial<Config>): Partial<Config> {
-  const env = (cfg as Partial<Config & { _envSource?: Set<string>}>)._envSource;
+  const env = (cfg as Partial<Config & { _envSource?: Set<string> | undefined}>)._envSource;
   if (!env?.size) return cfg;
   const out: Partial<Config> = { ...cfg };
   for (const field of env) {

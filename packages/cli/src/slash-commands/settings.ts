@@ -39,7 +39,7 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
 
   function currentView(): string {
     const autonomy = opts.configStore.get().autonomy as
-      | { autoProceedDelayMs?: number; defaultMode?: string }
+      | { autoProceedDelayMs?: number | undefined; defaultMode?: string | undefined }
       | undefined;
     const delay = autonomy?.autoProceedDelayMs ?? 45_000;
     const mode = autonomy?.defaultMode ?? 'off';

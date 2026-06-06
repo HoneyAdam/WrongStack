@@ -11,7 +11,7 @@ export class FleetSpawnBudgetError extends Error {
     kind: 'max_spawns' | 'max_spawn_depth',
     limit: number,
     observed: number,
-    message?: string,
+    message?: string | undefined,
   ) {
     const defaultMsg =
       kind === 'max_spawns'

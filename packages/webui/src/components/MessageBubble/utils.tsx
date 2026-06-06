@@ -63,9 +63,9 @@ export const markdownComponents = {
     children,
     ...props
   }: {
-    inline?: boolean;
-    className?: string;
-    children?: React.ReactNode;
+    inline?: boolean | undefined;
+    className?: string | undefined;
+    children?: React.ReactNode | undefined;
   }) {
     const match = /language-(\w+)/.exec(className ?? '');
     const codeText = String(children ?? '').replace(/\n$/, '');

@@ -22,61 +22,61 @@ export interface RunTuiOptions {
   slashRegistry: SlashCommandRegistry;
   attachments: AttachmentStore;
   events: EventBus;
-  tokenCounter?: TokenCounter;
-  visionAdapters?: VisionAdapters;
+  tokenCounter?: TokenCounter | undefined;
+  visionAdapters?: VisionAdapters | undefined;
   /** Resolve current model vision support. Falls back to provider capability when omitted. */
-  supportsVision?: () => boolean | Promise<boolean>;
+  supportsVision?: (() => boolean | Promise<boolean>) | undefined;
   model: string;
-  banner?: boolean;
+  banner?: boolean | undefined;
   /** Persists the input queue across crashes; if omitted, the queue is in-memory only. */
-  queueStore?: QueueStore;
+  queueStore?: QueueStore | undefined;
   /** Surfaces the "⚠ YOLO" chip in the status bar. */
-  yolo?: boolean;
+  yolo?: boolean | undefined;
   /** Query live YOLO state from the permission policy. */
-  getYolo?: () => boolean;
+  getYolo?: (() => boolean) | undefined;
   /** Query the live autonomy mode. */
-  getAutonomy?: () => 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel';
+  getAutonomy?: (() => 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel') | undefined;
   /**
    * Access the eternal-autonomy engine. When autonomy mode flips to
    * 'eternal' the TUI drives `runOneIteration()` from the post-slash hook
    * so the engine and TUI never race for the shared Context.
    */
-  getEternalEngine?: () => import('@wrongstack/core').EternalAutonomyEngine | null;
+  getEternalEngine?: (() => import('@wrongstack/core').EternalAutonomyEngine | null) | undefined;
   /**
    * Access the parallel-eternal engine. When autonomy mode flips to
    * 'eternal-parallel' the TUI drives `runOneIteration()` from the post-slash
    * hook so the engine and TUI never race for the shared Context.
    */
-  getParallelEngine?: () => import('@wrongstack/core').ParallelEternalEngine | null;
+  getParallelEngine?: (() => import('@wrongstack/core').ParallelEternalEngine | null) | undefined;
   /**
    * Subscribe to live per-iteration events from the eternal engine.
    * Returns an unsubscribe function. TUI uses this to render each
    * iteration as a live timeline entry as it lands.
    */
-  subscribeEternalIteration?: (
+  subscribeEternalIteration?: ((
     fn: (entry: import('@wrongstack/core').JournalEntry) => void,
-  ) => () => void;
+  ) => () => void) | undefined;
   /**
    * Subscribe to per-iteration stage transitions from the autonomy engines.
    * TUI uses this to render live status in the status bar.
    */
-  subscribeEternalStage?: (fn: (stage: AutonomyStage) => void) => () => void;
+  subscribeEternalStage?: ((fn: (stage: AutonomyStage) => void) => () => void) | undefined;
   /** Renders in the startup banner. Read from the CLI's package.json. */
-  appVersion?: string;
+  appVersion?: string | undefined;
   /** Provider id for the startup banner ("openai", "anthropic", ...). */
-  provider?: string;
+  provider?: string | undefined;
   /** Wire family — shown beneath provider in the banner. */
-  family?: string;
+  family?: string | undefined;
   /** Last 3 chars of the active API key — shown in the banner for visual key-pick verification. */
-  keyTail?: string;
+  keyTail?: string | undefined;
   /** Snapshot of keyed providers + their model lists for the `/model` picker. Async — the catalog fetch may need to hit disk/network. */
-  getPickableProviders?: () => Promise<import('./components/model-picker.js').ProviderOption[]>;
+  getPickableProviders?: (() => Promise<import('./components/model-picker.js').ProviderOption[]>) | undefined;
   /** Apply a (provider, model) pair after the picker confirms. Returns an error string on failure. */
-  switchProviderAndModel?: (providerId: string, modelId: string) => string | null;
+  switchProviderAndModel?: ((providerId: string, modelId: string) => string | null) | undefined;
   /** Apply an autonomy mode after the picker confirms. Returns an error string on failure. */
-  switchAutonomy?: (
+  switchAutonomy?: ((
     mode: 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel',
-  ) => string | null;
+  ) => string | null) | undefined;
   /**
    * Model-specific maxContext (tokens), resolved by the CLI via the
    * ModelsRegistry. When omitted, the TUI falls back to the provider
@@ -84,28 +84,28 @@ export interface RunTuiOptions {
    * for variants like the 1M-context Opus build. The status bar's
    * context chip uses this for its progress denominator.
    */
-  effectiveMaxContext?: number;
+  effectiveMaxContext?: number | undefined;
   /** Absolute project root for goal.json loading. */
-  projectRoot?: string;
+  projectRoot?: string | undefined;
 
   /**
    * Terminal title animation on/off. Defaults to true. When false, the
    * OSC-0 window/tab title stays static (the app name only, no spinner).
    * Controlled via /settings → Terminal title animation.
    */
-  titleAnimation?: boolean;
+  titleAnimation?: boolean | undefined;
   /** Play terminal bell (\\x07) when agent run completes. */
-  chime?: boolean;
+  chime?: boolean | undefined;
   /** Show "confirm exit" message on first Ctrl+C instead of "exit". */
-  confirmExit?: boolean;
+  confirmExit?: boolean | undefined;
   /** Active agent mode label shown in the status bar (e.g. "teach", "brief"). */
-  modeLabel?: string;
+  modeLabel?: string | undefined;
   /** Live getter for the agent mode label so the status bar updates after /mode. */
-  getModeLabel?: () => string;
+  getModeLabel?: (() => string) | undefined;
   /** Called from /clear so the TUI can wipe its history entries while agent.ctx + memory are cleared separately. */
-  onClearHistory?: (
+  onClearHistory?: ((
     dispatch: React.Dispatch<{ type: 'clearHistory' } | { type: 'resetContextChip' }>,
-  ) => void;
+  ) => void) | undefined;
 
   // --- Fleet surface (director mode) ---
 
@@ -115,12 +115,12 @@ export interface RunTuiOptions {
    * and runtime cost — updated live from the FleetBus. Pass null or omit
    * when multi-agent / director mode is disabled.
    */
-  director?: Director | null;
+  director?: Director | null | undefined;
   /**
    * Optional roster reference for resolving subagent role ids to
    * human-readable names. Same value passed to director.tools().
    */
-  fleetRoster?: Record<string, { name: string }>;
+  fleetRoster?: Record<string, { name: string }> | undefined;
   /**
    * Shared controller for the `/fleet stream on|off` toggle. The slash
    * command runs in the CLI process and needs to flip TUI reducer state;
@@ -136,7 +136,7 @@ export interface RunTuiOptions {
   fleetStreamController?: {
     enabled: boolean;
     setEnabled: (enabled: boolean) => void;
-  };
+  } | undefined;
   /**
    * Controller for the `/enhance on|off` prompt-refinement toggle. The App
    * installs a dispatch-backed `setEnabled` here on mount so the slash command
@@ -146,7 +146,7 @@ export interface RunTuiOptions {
   enhanceController?: {
     enabled: boolean;
     setEnabled: (enabled: boolean) => void;
-  };
+  } | undefined;
   /**
    * Controller for status bar hidden items. App installs a dispatch-backed
    * setter on mount so the /statusline slash command can update the TUI's
@@ -165,7 +165,7 @@ export interface RunTuiOptions {
   agentsMonitorController?: {
     visible: boolean;
     setVisible: (visible: boolean) => void;
-  };
+  } | undefined;
 
   /**
    * If set, the App boots straight into goal mode — the text is wrapped
@@ -175,58 +175,58 @@ export interface RunTuiOptions {
    * The chat shows a one-line "🎯 Goal locked: …" hint; the actual
    * preamble is hidden from the visible history (same as `/goal`).
    */
-  initialGoal?: string;
+  initialGoal?: string | undefined;
   /**
    * If set, submitted as the first turn verbatim (no preamble). Mainly
    * for scripted shell aliases — `wstack --tui --ask "summarize foo.md"`
    * — that want one turn pre-populated without the goal-mode framing.
    * Ignored when `initialGoal` is also set.
    */
-  initialAsk?: string;
+  initialAsk?: string | undefined;
   /**
    * Directory containing session JSONL files. Required for rewind
    * functionality. When provided the TUI can list checkpoints and
    * trigger a rewind via `/rewind` or Ctrl+R.
    */
-  sessionsDir?: string;
+  sessionsDir?: string | undefined;
   /**
    * SDD session context getter. When an SDD session is active, returns
    * the AI prompt context to inject into user messages.
    */
-  getSDDContext?: () => string | null;
+  getSDDContext?: (() => string | null) | undefined;
   /**
    * Process AI output for SDD auto-detection (spec, tasks, plan).
    * Returns displayable status messages.
    */
-  onSDDOutput?: (output: string) => Promise<string[]>;
+  onSDDOutput?: ((output: string) => Promise<string[]>) | undefined;
   /**
    * Subscribe to AutoPhase phase/graph events from the PhaseOrchestrator.
    * Returns an unsubscribe function. The TUI uses this to drive the
    * PhaseMonitor and PhasePanel live views via dispatch actions.
    */
-  subscribeAutoPhase?: (handler: (event: string, payload: unknown) => void) => () => void;
+  subscribeAutoPhase?: ((handler: (event: string, payload: unknown) => void) => () => void) | undefined;
   /**
    * Read the persisted autonomy settings (defaultMode, autoProceedDelayMs).
    * Used by the SettingsPicker in the TUI on mount and after Ctrl+S toggle.
    */
-  getSettings?: () => import('./app.js').Settings;
+  getSettings?: (() => import('./app.js').Settings) | undefined;
   /**
    * Persist settings changes. Returns null on success, or an
    * error string on failure (so the TUI can display it as a hint).
    */
-  saveSettings?: (s: import('./app.js').Settings) =>
+  saveSettings?: ((s: import('./app.js').Settings) =>
     | string
     | null
-    | Promise<string | null>;
+    | Promise<string | null>) | undefined;
   /**
    * Predict likely next steps after a completed turn. The CLI wires this from
    * the session provider and the `/next` toggle; it returns [] when prediction
    * is disabled or autonomy isn't 'off'. Display-only — never executed.
    */
-  predictNext?: (input: {
+  predictNext?: ((input: {
     userRequest: string;
     assistantSummary: string;
-  }) => Promise<string[]>;
+  }) => Promise<string[]>) | undefined;
 }
 
 // Bracketed paste mode wraps any pasted text with these markers, letting us
@@ -378,7 +378,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
           director: opts.director ?? null,
           fleetRoster: opts.fleetRoster,
           onClearHistory: opts.onClearHistory
-            ? (dispatch) => opts.onClearHistory!(dispatch)
+            ? (dispatch) => opts.onClearHistory?.(dispatch)
             : undefined,
           fleetStreamController: opts.fleetStreamController,
           enhanceController: opts.enhanceController,

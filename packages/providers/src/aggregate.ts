@@ -1,6 +1,15 @@
 import type { ContentBlock, Response, StopReason, StreamEvent, Usage } from '@wrongstack/core';
 import { parseToolInput } from './_tool-input.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 /**
  * Consume an `AsyncIterable<StreamEvent>` and reduce it to a non-streaming
  * `Response`. Used by `Provider.complete()` default impls so that the
@@ -12,7 +21,7 @@ import { parseToolInput } from './_tool-input.js';
  */
 export async function aggregateStream(
   stream: AsyncIterable<StreamEvent>,
-  onEvent?: (e: StreamEvent) => void,
+  onEvent?: ((e: StreamEvent) => void) | undefined,
 ): Promise<Response> {
   let model = '';
   let stopReason: StopReason = 'end_turn';
@@ -21,11 +30,11 @@ export async function aggregateStream(
   let currentTextIndex = -1;
   const toolBuffers = new Map<
     string,
-    { name: string; partial: string; input?: unknown; providerMeta?: Record<string, unknown> }
+    { name: string; partial: string; input?: unknown | undefined; providerMeta?: Record<string, unknown> }
   >();
   const thinkingBuffers: Array<{
     textBuf: string;
-    signature?: string;
+    signature?: string | undefined;
     providerMeta?: Record<string, unknown>;
   }> = [];
   let currentThinkingIndex = -1;
@@ -93,7 +102,7 @@ export async function aggregateStream(
         // Always set providerMeta on the target block (thinking_start may carry
         // metadata even when the prior signature event did not).
         if (ev.providerMeta && currentThinkingIndex >= 0) {
-          thinkingBuffers[currentThinkingIndex]!.providerMeta = ev.providerMeta;
+          expectDefined(thinkingBuffers[currentThinkingIndex]).providerMeta = ev.providerMeta;
         }
         blockOrder.push({ kind: 'thinking', idx: currentThinkingIndex });
         break;
@@ -146,7 +155,7 @@ export async function aggregateStream(
       // Anthropic 400 on the round-trip ("thinking: cannot be empty").
       if (!t || (!t.textBuf && !t.signature)) continue;
       const block: ContentBlock = { type: 'thinking', thinking: t.textBuf };
-      if (t.signature) (block as { signature?: string }).signature = t.signature;
+      if (t.signature) (block as { signature?: string | undefined }).signature = t.signature;
       if (t.providerMeta && Object.keys(t.providerMeta).length > 0) {
         (block as { providerMeta?: Record<string, unknown> }).providerMeta = t.providerMeta;
       }

@@ -33,10 +33,10 @@ export function toolsToOpenAI(tools: Tool[]): OpenAIToolSchema[] {
 
 export interface OpenAIMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content?: string | OpenAIContent[];
-  tool_calls?: OpenAIToolCall[];
-  tool_call_id?: string;
-  name?: string;
+  content?: string | OpenAIContent[] | undefined;
+  tool_calls?: OpenAIToolCall[] | undefined;
+  tool_call_id?: string | undefined;
+  name?: string | undefined;
   /**
    * DeepSeek (and other OpenAI-compatible thinking-mode models) require the
    * previous assistant's chain-of-thought to be echoed back on the next
@@ -46,13 +46,13 @@ export interface OpenAIMessage {
    * back to the API". Vanilla OpenAI ignores this field, so emitting it
    * unconditionally is safe.
    */
-  reasoning_content?: string;
+  reasoning_content?: string | undefined;
 }
 
 export interface OpenAIContent {
   type: 'text' | 'image_url';
-  text?: string;
-  image_url?: { url: string };
+  text?: string | undefined;
+  image_url?: { url: string | undefined };
 }
 
 export interface OpenAIToolCall {
@@ -62,10 +62,10 @@ export interface OpenAIToolCall {
 }
 
 export interface ConvertOptions {
-  flattenContentToString?: boolean;
-  stripCacheControl?: boolean;
-  systemAsMessage?: boolean;
-  emptyToolCallContent?: 'null' | 'empty_string';
+  flattenContentToString?: boolean | undefined;
+  stripCacheControl?: boolean | undefined;
+  systemAsMessage?: boolean | undefined;
+  emptyToolCallContent?: 'null' | 'empty_string' | undefined;
 }
 
 export function messagesToOpenAI(

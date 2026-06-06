@@ -28,7 +28,7 @@ export class InMemoryAgentBridge implements AgentBridge {
   /** Guards request() so concurrent calls on the same id can't silently overwrite. */
   private readonly inflightGuards = new Set<string>();
   /** Stores the transport unsubscribe function so it can be called on stop(). */
-  private _transportUnsubscribe?: () => void;
+  private _transportUnsubscribe?: ((() => void)) | undefined;
 
   constructor(config: AgentBridgeConfig, transport: BridgeTransport) {
     this.agentId = config.agentId;
@@ -147,7 +147,7 @@ export function createMessage<T = unknown>(
   type: BridgeMessage['type'],
   from: string,
   payload: T,
-  to?: string,
+  to?: string | undefined,
 ): BridgeMessage<T> {
   return {
     id: randomUUID(),

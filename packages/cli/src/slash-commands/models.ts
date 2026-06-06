@@ -72,8 +72,8 @@ function safeAt(arr: string[], idx: number): string {
 
 function parseFlags(tokens: string[]): {
   modelId: string;
-  def?: Partial<CustomModelDefinition>;
-  error?: string;
+  def?: Partial<CustomModelDefinition> | undefined;
+  error?: string | undefined;
 } {
   let modelId = '';
   const caps: Record<string, unknown> = {};
@@ -208,7 +208,13 @@ export function buildModelsCommand(opts: SlashCommandContext): SlashCommand {
         return {
           message: [
             `${color.bold('Custom Models')} ${color.dim(`(${ids.length})`)}`,
-            ...ids.sort().map((id) => fmtModel(id, models[id])),
+            ...ids
+              .sort()
+              .map((id) => {
+                const def = models[id];
+                return def ? fmtModel(id, def) : undefined;
+              })
+              .filter((line): line is string => line !== undefined),
           ].join('\n'),
         };
       }

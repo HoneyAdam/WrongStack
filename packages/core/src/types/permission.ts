@@ -3,20 +3,20 @@ import type { Permission, Tool } from './tool.js';
 
 export interface TrustPolicy {
   [toolNameOrPattern: string]: {
-    allow?: string[];
-    deny?: string[];
-    auto?: boolean;
-    trustWorkdir?: boolean;
-    denyPrivate?: boolean;
+    allow?: string[] | undefined;
+    deny?: string[] | undefined;
+    auto?: boolean | undefined;
+    trustWorkdir?: boolean | undefined;
+    denyPrivate?: boolean | undefined;
   };
 }
 
 export interface PermissionDecision {
   permission: Permission;
-  reason?: string;
+  reason?: string | undefined;
   source: 'default' | 'trust' | 'yolo' | 'yolo_destructive' | 'user' | 'deny' | 'context' | 'subagent_guard';
   /** Risk tier of the tool, if classified. */
-  riskTier?: 'safe' | 'standard' | 'destructive';
+  riskTier?: 'safe' | 'standard' | 'destructive' | undefined;
 }
 
 export interface PermissionPolicy {
@@ -49,4 +49,6 @@ export interface PermissionPolicy {
   getConfirmDestructive?(): boolean;
   /** Enable/disable destructive-operation confirmation (only meaningful in yolo mode). */
   setConfirmDestructive?(enabled: boolean): void;
+  /** Set the prompt delegate (optional). */
+  setPromptDelegate?(delegate: ((tool: Tool, input: unknown, suggestedPattern: string) => Promise<'yes' | 'no' | 'always' | 'deny'>) | undefined): void;
 }

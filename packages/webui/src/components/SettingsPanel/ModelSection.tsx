@@ -7,10 +7,10 @@ import { Button } from '../ui/button';
 interface CatalogModel {
   id: string;
   name: string;
-  releaseDate?: string;
-  contextWindow?: number;
-  inputCost?: number;
-  outputCost?: number;
+  releaseDate?: string | undefined;
+  contextWindow?: number | undefined;
+  inputCost?: number | undefined;
+  outputCost?: number | undefined;
   capabilities: string[];
 }
 

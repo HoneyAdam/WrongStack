@@ -30,19 +30,19 @@ import { WireAdapter } from './wire-adapter.js';
 
 export interface GoogleProviderOptions {
   apiKey: string;
-  baseUrl?: string;
-  fetchImpl?: typeof fetch;
-  id?: string;
-  capabilities?: Partial<Capabilities>;
+  baseUrl?: string | undefined;
+  fetchImpl?: typeof fetch | undefined;
+  id?: string | undefined;
+  capabilities?: Partial<Capabilities> | undefined;
 }
 
 const DEFAULT_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 interface GeminiPart {
-  text?: string;
-  functionCall?: { name: string; args: Record<string, unknown> };
-  functionResponse?: { name: string; response: { content?: unknown } };
-  inlineData?: { mimeType: string; data: string };
+  text?: string | undefined;
+  functionCall?: { name: string | undefined; args: Record<string, unknown> };
+  functionResponse?: { name: string | undefined; response: { content?: unknown | undefined } };
+  inlineData?: { mimeType: string | undefined; data: string };
   /**
    * Gemini's signed thought blob — present on functionCall parts when
    * the model is using thinking. Must be echoed back verbatim on the
@@ -50,7 +50,7 @@ interface GeminiPart {
    *   400 "Function call is missing a thought_signature in functionCall
    *   parts. This is required for tools to work correctly".
    */
-  thoughtSignature?: string;
+  thoughtSignature?: string | undefined;
 }
 
 interface GeminiContent {
@@ -59,8 +59,8 @@ interface GeminiContent {
 }
 
 interface GeminiCandidate {
-  content?: GeminiContent;
-  finishReason?: string;
+  content?: GeminiContent | undefined;
+  finishReason?: string | undefined;
 }
 
 export class GoogleProvider extends WireAdapter {
@@ -301,12 +301,12 @@ async function* parseGoogleStream(
   for await (const msg of parseSSE(body)) {
     if (!msg.data || msg.data === '[DONE]') continue;
     const parsed = safeParse<{
-      modelVersion?: string;
-      candidates?: GeminiCandidate[];
+      modelVersion?: string | undefined;
+      candidates?: GeminiCandidate[] | undefined;
       usageMetadata?: {
-        promptTokenCount?: number;
-        candidatesTokenCount?: number;
-        cachedContentTokenCount?: number;
+        promptTokenCount?: number | undefined;
+        candidatesTokenCount?: number | undefined;
+        cachedContentTokenCount?: number | undefined;
       };
     }>(msg.data);
     if (!parsed.ok || !parsed.value) continue;
@@ -323,9 +323,11 @@ async function* parseGoogleStream(
       if (typeof part.text === 'string' && part.text.length > 0) {
         yield { type: 'text_delta', text: part.text };
       } else if (part.functionCall) {
+        const name = part.functionCall.name;
+        if (typeof name !== 'string' || name.length === 0) continue;
         sawFunctionCall = true;
         const id = randomUUID();
-        yield { type: 'tool_use_start', id, name: part.functionCall.name };
+        yield { type: 'tool_use_start', id, name };
         // Stash the opaque thought_signature so it can be echoed back on
         // the next request. Without this the Gemini API rejects with 400
         // "Function call is missing a thought_signature in functionCall

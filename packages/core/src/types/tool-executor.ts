@@ -8,9 +8,9 @@ export interface ToolExecution {
   toolUse: ToolUseBlock;
   result: ToolResultBlock;
   /** True if the tool was not found in the registry. */
-  unknownTool?: boolean;
+  unknownTool?: boolean | undefined;
   /** True if the tool execution threw an exception. */
-  threw?: boolean;
+  threw?: boolean | undefined;
 }
 
 /**
@@ -18,7 +18,7 @@ export interface ToolExecution {
  */
 export interface ToolExecutionOutput {
   result: ToolResultBlock | ToolConfirmPendingResult;
-  tool?: Tool;
+  tool?: Tool | undefined;
   durationMs: number;
 }
 
@@ -60,8 +60,8 @@ export interface ToolExecutorOptions {
    * the callback handles the interactive prompt and returns a decision.
    */
   confirmAwaiter?: ConfirmAwaiter | undefined;
-  iterationTimeoutMs?: number;
-  perIterationOutputCapBytes?: number;
+  iterationTimeoutMs?: number | undefined;
+  perIterationOutputCapBytes?: number | undefined;
   /**
    * Optional lifecycle hook runner. When present, `PreToolUse` hooks run
    * before the permission check (and can block the call or rewrite its input)

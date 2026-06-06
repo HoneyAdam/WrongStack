@@ -4,6 +4,15 @@ import { allServers } from '@wrongstack/core/infrastructure';
 import { serveMcpStdio } from '../../mcp-serve.js';
 import type { SubcommandDeps, SubcommandHandler } from '../index.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 const BUILT_IN_MCP = allServers();
 
 export const mcpCmd: SubcommandHandler = async (args, deps) => {
@@ -48,7 +57,7 @@ export const mcpCmd: SubcommandHandler = async (args, deps) => {
 };
 
 async function addMcpServer(args: string[], deps: SubcommandDeps): Promise<number> {
-  const name = args[1]!;
+  const name = args[1];
   const enable = args.includes('--enable') || args.includes('-e');
   if (!name) {
     deps.renderer.writeError('Usage: wstack mcp add <name>\n');
@@ -57,7 +66,7 @@ async function addMcpServer(args: string[], deps: SubcommandDeps): Promise<numbe
       deps.renderer.write(`  ${sname.padEnd(20)} ${scfg.description ?? scfg.transport}\n`);
     if (Object.keys(deps.config.mcpServers ?? {}).length === 0)
       for (const k of Object.keys(BUILT_IN_MCP)) {
-        const s = BUILT_IN_MCP[k]!;
+        const s = expectDefined(BUILT_IN_MCP[k]);
         deps.renderer.write(`  ${k.padEnd(20)} ${s.description}\n`);
       }
     deps.renderer.write('\nRun `wstack mcp add <name> --enable` to enable immediately.\n');

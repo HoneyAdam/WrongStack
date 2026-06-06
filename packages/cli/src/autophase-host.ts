@@ -124,13 +124,13 @@ export interface AutoPhaseHostDeps {
    * project is a git repo, parallelizable phases run in isolated worktrees and
    * merge back sequentially. Disable with WRONGSTACK_AUTOPHASE_WORKTREES=0.
    */
-  worktrees?: boolean;
+  worktrees?: boolean | undefined;
   /** Max parallel phases when worktrees are active (default 4). */
-  maxConcurrentPhases?: number;
+  maxConcurrentPhases?: number | undefined;
   /** Optional global Brain arbiter for AutoPhase policy decisions. */
-  brain?: BrainArbiter;
+  brain?: BrainArbiter | undefined;
   /** Optional progress logger (rendered to the user during start). */
-  log?: (line: string) => void;
+  log?: ((line: string) => void) | undefined;
 }
 
 /** A live, read-only view of the running AutoPhase, exposed to slash commands. */
@@ -145,7 +145,7 @@ export type AutoPhaseStartResult = { ok: true; graph: PhaseGraph } | { ok: false
 export interface AutoPhaseHostHooks {
   onAutoPhaseStart: (opts: {
     goal: string;
-    projectContext?: string;
+    projectContext?: string | undefined;
   }) => Promise<AutoPhaseStartResult>;
   onAutoPhasePause: () => void;
   onAutoPhaseResume: () => void;
@@ -165,8 +165,8 @@ interface ActiveRun {
 /** Minimal shape of an agent.run result we depend on. */
 interface RunResult {
   status: string;
-  finalText?: string;
-  error?: { message?: string };
+  finalText?: string | undefined;
+  error?: { message?: string | undefined };
 }
 
 export function createAutoPhaseHost(deps: AutoPhaseHostDeps): AutoPhaseHostHooks {
@@ -179,7 +179,7 @@ export function createAutoPhaseHost(deps: AutoPhaseHostDeps): AutoPhaseHostHooks
     prompt: string,
     label: string,
     signal: AbortSignal,
-    cwd?: string,
+    cwd?: string | undefined,
   ): Promise<string> {
     const factory = deps.multiAgentHost.makeSubagentFactory(deps.getConfig());
     const built = await factory({ name: label, cwd });
@@ -258,7 +258,7 @@ export function createAutoPhaseHost(deps: AutoPhaseHostDeps): AutoPhaseHostHooks
    * all pass, or when verification cannot meaningfully run (no deps / no scripts) —
    * the gate never blocks on things it can't actually check.
    */
-  async function runVerify(cwd: string): Promise<{ ok: boolean; output?: string }> {
+  async function runVerify(cwd: string): Promise<{ ok: boolean; output?: string | undefined }> {
     // Script commands need resolvable node_modules. A nested git worktree resolves
     // upward to the repo-root node_modules, so accept either location.
     if (

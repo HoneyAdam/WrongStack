@@ -4,12 +4,21 @@ import { useEffect, useState } from 'react';
 import { fnKey } from '../fn-keys.js';
 import { type InputCell, layoutInputRows } from '../input-tokens.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export interface InputProps {
-  prompt?: string;
+  prompt?: string | undefined;
   value: string;
   cursor: number;
-  disabled?: boolean;
-  hint?: string;
+  disabled?: boolean | undefined;
+  hint?: string | undefined;
   onKey: (input: string, key: KeyEvent) => void;
 }
 
@@ -84,13 +93,13 @@ export interface KeyEvent {
   home: boolean;
   end: boolean;
   /** Mouse wheel scroll: positive = up (away from user), negative = down. */
-  wheelDeltaY?: number;
+  wheelDeltaY?: number | undefined;
   /** Function-key number 1–12 when a plain F-key was pressed, else undefined.
    *  Ink's useInput does not decode F-keys, so these are caught from raw stdin
    *  (same mechanism as Home/End) and surfaced here. F-keys are terminal-safe
    *  aliases for chords some terminals intercept (e.g. Windows Terminal eats
    *  Ctrl+F for "Find"). */
-  fn?: number;
+  fn?: number | undefined;
 }
 
 // Ink 5.x useInput does not expose home/end as boolean flags even though
@@ -127,9 +136,9 @@ function isBackspaceOrDelete(data: string): 'backspace' | 'delete' | null {
  */
 function parseMouseWheel(data: string): number | null {
   // SGR mouse: ESC [ < Cb ; Cx ; Cy (M|m)
-  const m = data.match(/^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/);
+  const m = data.match(new RegExp(`^${String.fromCharCode(27)}\\[<(\\d+);(\\d+);(\\d+)([Mm])$`, 'u'));
   if (!m) return null;
-  const cb = parseInt(m[1]!, 10);
+  const cb = Number.parseInt(expectDefined(m[1]), 10);
   if (cb === 64) return 1;  // wheel up
   if (cb === 65) return -1; // wheel down
   return null;

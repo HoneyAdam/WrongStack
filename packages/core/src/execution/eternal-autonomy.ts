@@ -36,7 +36,7 @@ export interface EternalAutonomyOptions {
    * Per-iteration agent timeout. Defaults to 5 minutes. A single hung
    * provider call should not freeze the whole eternal loop.
    */
-  iterationTimeoutMs?: number;
+  iterationTimeoutMs?: number | undefined;
   /**
    * Maximum number of internal agent.run iterations the engine grants per
    * eternal-loop tick. The engine sets `autonomousContinue: true` so the
@@ -44,18 +44,18 @@ export interface EternalAutonomyOptions {
    * bouncing back to the engine after every single tool call. Default 500.
    * Previous 50 was far too low — agents hit the limit and restart constantly.
    */
-  iterationMaxAgentSteps?: number;
+  iterationMaxAgentSteps?: number | undefined;
   /**
    * Minimum sleep between iterations. Defaults to 1 s — enough for
    * SIGINT handlers to fire mid-loop without pegging a core when the
    * provider is being rate-limited.
    */
-  cycleGapMs?: number;
+  cycleGapMs?: number | undefined;
   /**
    * Maximum consecutive failures before the source rotation forces a
    * brainstorm cycle. Default 3. Acts as a soft-recovery, not a stop.
    */
-  failureBudget?: number;
+  failureBudget?: number | undefined;
   /**
    * Per-todo failed-attempt ceiling. When the engine picks the same todo
    * and the iteration fails this many times in total, the todo is taken
@@ -63,7 +63,7 @@ export interface EternalAutonomyOptions {
    * status. Default 3. Prevents the loop from spinning forever on one
    * stuck task.
    */
-  todoMaxAttempts?: number;
+  todoMaxAttempts?: number | undefined;
   /**
    * Consecutive brainstorm-DONE responses required to consider the goal
    * complete and stop the engine. When the LLM's brainstorm step keeps
@@ -71,26 +71,26 @@ export interface EternalAutonomyOptions {
    * this many in a row, marks the goal as completed instead of sleeping
    * forever. Default 3.
    */
-  brainstormDoneStopThreshold?: number;
+  brainstormDoneStopThreshold?: number | undefined;
   /** Side-channel notifications (logging, UI updates). */
-  onIteration?: (entry: JournalEntry) => void;
-  onError?: (err: Error, iteration: number) => void;
+  onIteration?: (((entry: JournalEntry) => void)) | undefined;
+  onError?: (err: Error | undefined, iteration: number) => void;
   /**
    * Per-iteration phase notifications for live UI updates (TUI status bar,
    * etc.). Fires at each major stage transition: idle → decide → execute →
    * reflect → (sleep | paused | stopped). Fire-and-forget — the engine
    * does not await the callback.
    */
-  onStage?: (stage: IterationStage) => void;
+  onStage?: (((stage: IterationStage) => void)) | undefined;
   /**
    * Optional injected git status reader — production code uses git, tests
    * stub this out so they don't shell out.
    */
-  gitStatusReader?: () => Promise<string>;
+  gitStatusReader?: ((() => Promise<string>)) | undefined;
   /**
    * Optional clock — tests stub for deterministic timestamps.
    */
-  now?: () => Date;
+  now?: ((() => Date)) | undefined;
   /**
    * Optional compactor. When provided, the engine runs compaction every
    * `compactEveryNIterations` iterations to keep the agent's message
@@ -98,22 +98,22 @@ export interface EternalAutonomyOptions {
    * compaction, an infinite loop will eventually overflow the provider's
    * context window and start failing.
    */
-  compactor?: Compactor;
+  compactor?: Compactor | undefined;
   /** How many iterations between compaction calls. Default 25. */
-  compactEveryNIterations?: number;
+  compactEveryNIterations?: number | undefined;
   /**
    * Aggressive compaction threshold. When ctx token usage exceeds this
    * fraction of `maxContextTokens`, compaction runs in aggressive mode
    * regardless of the iteration cadence. 0.85 by default.
    */
-  aggressiveCompactRatio?: number;
+  aggressiveCompactRatio?: number | undefined;
   /**
    * Model's max context window in tokens. When set, the engine watches
    * `currentRequestTokens()` against this and triggers aggressive compact
    * before the next iteration would overflow. Omit to disable threshold
    * checks (iteration cadence still applies).
    */
-  maxContextTokens?: number;
+  maxContextTokens?: number | undefined;
   /**
    * Base delay (ms) for the first transient-error backoff. Subsequent
    * transient failures double this, capped at `transientBackoffMaxMs`.
@@ -125,11 +125,11 @@ export interface EternalAutonomyOptions {
    * backoff and count toward `failureBudget` like before — backing off
    * on a permanent failure is wasted time.
    */
-  transientBackoffBaseMs?: number;
+  transientBackoffBaseMs?: number | undefined;
   /** Ceiling for the exponential backoff. Default 60_000 (60 s). */
-  transientBackoffMaxMs?: number;
+  transientBackoffMaxMs?: number | undefined;
   /** Called when the eternal loop stops for any reason (manual stop, goal complete, etc.). */
-  onEternalStop?: () => void;
+  onEternalStop?: ((() => void)) | undefined;
 }
 
 export type EternalEngineState = 'idle' | 'running' | 'stopped';
@@ -142,7 +142,7 @@ export type IterationStage =
   | { phase: 'idle' }
   | { phase: 'decide'; reason: string }
   | { phase: 'execute'; task: string }
-  | { phase: 'reflect'; status: 'success' | 'failure' | 'aborted' | 'skipped'; note?: string }
+  | { phase: 'reflect'; status: 'success' | 'failure' | 'aborted' | 'skipped'; note?: string | undefined }
   | { phase: 'sleep'; ms: number }
   | { phase: 'paused' }
   | { phase: 'stopped' }
@@ -153,7 +153,7 @@ interface DecidedAction {
   task: string;
   directive: string;
   /** Set when source === 'todo' so the engine can attribute failures. */
-  todoId?: string;
+  todoId?: string | undefined;
 }
 
 /**
@@ -376,7 +376,7 @@ export class EternalAutonomyEngine {
       // result.error) still classify correctly.
       if (
         !isAbort &&
-        typeof (err as { recoverable?: unknown })?.recoverable === 'boolean'
+        typeof (err as { recoverable?: unknown | undefined })?.recoverable === 'boolean'
       ) {
         isTransientFailure = (err as { recoverable: boolean }).recoverable;
       }

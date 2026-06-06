@@ -11,8 +11,8 @@ export type DiffLineKind = 'add' | 'del' | 'hunk' | 'ctx' | 'meta';
 export interface DiffLineRow {
   kind: DiffLineKind;
   text: string;
-  oldLine?: number;
-  newLine?: number;
+  oldLine?: number | undefined;
+  newLine?: number | undefined;
 }
 
 // ── Constants ──
@@ -58,8 +58,13 @@ export function CodeBlock({
           {tokens.length === 0
             ? ' '
             : tokens.map((t, j) => (
-                // biome-ignore lint/suspicious/noArrayIndexKey: token order is stable per line
-                <Text key={j} color={t.color} dimColor={t.dim} bold={t.bold}>
+                <Text
+                  // biome-ignore lint/suspicious/noArrayIndexKey: token order is stable per line
+                  key={j}
+                  dimColor={Boolean(t.dim)}
+                  bold={Boolean(t.bold)}
+                  {...(t.color ? { color: t.color } : {})}
+                >
                   {t.text}
                 </Text>
               ))}

@@ -5,6 +5,15 @@ import { createGunzip } from 'node:zlib';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export interface ParsedRef {
   owner: string;
   repo: string;
@@ -31,7 +40,7 @@ export function parseSkillRef(input: string): ParsedRef {
   if (parts.length < 2) {
     throw new Error(`Invalid skill reference "${input}". Expected format: user/repo or user/repo@ref`);
   }
-  return { owner: parts[0]!, repo: parts[1]!, ref };
+  return { owner: expectDefined(parts[0]), repo: expectDefined(parts[1]), ref };
 }
 
 export interface DownloadResult {

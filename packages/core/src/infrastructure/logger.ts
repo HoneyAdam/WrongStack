@@ -21,9 +21,9 @@ const COLORS: Record<LogLevel, (s: string) => string> = {
 };
 
 export interface DefaultLoggerOptions {
-  level?: LogLevel;
-  file?: string;
-  pretty?: boolean;
+  level?: LogLevel | undefined;
+  file?: string | undefined;
+  pretty?: boolean | undefined;
   bindings?: Record<string, unknown>;
   /**
    * When false, suppress stderr output entirely — only write to the log
@@ -31,12 +31,12 @@ export interface DefaultLoggerOptions {
    * messages don't interleave with Ink's terminal rendering.
    * Default: true (stderr output is enabled).
    */
-  stderr?: boolean;
+  stderr?: boolean | undefined;
 }
 
 export class DefaultLogger implements Logger {
   level: LogLevel;
-  private readonly file?: string;
+  private readonly file?: string | undefined;
   private readonly bindings: Record<string, unknown>;
   private readonly pretty: boolean;
   private readonly stderr: boolean;

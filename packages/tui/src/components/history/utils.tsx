@@ -75,7 +75,7 @@ export function tryParseJson(s: string): unknown {
   }
 }
 
-export function scanNumberedRange(text: string): { first?: number; last?: number; count: number } {
+export function scanNumberedRange(text: string): { first?: number | undefined; last?: number | undefined; count: number } {
   let first: number | undefined;
   let last: number | undefined;
   let count = 0;
@@ -289,8 +289,8 @@ export function formatToolOutput(
   toolName: string,
   output: string | undefined,
   ok: boolean,
-  _outputBytes?: number,
-  outputLines?: number,
+  _outputBytes?: number | undefined,
+  outputLines?: number | undefined,
 ): string[] {
   if (!output) return ok ? [] : ['failed'];
   const text = output.trim();
@@ -687,13 +687,13 @@ export function streamBoxRows(
   text: string,
   maxLines: number,
   contentWidth: number,
-): Array<{ text: string; italic?: boolean }> {
+): Array<{ text: string; italic?: boolean | undefined }> {
   const trunc = (line: string) =>
     line.length > contentWidth ? `${line.slice(0, contentWidth - 1)}…` : line;
   const lines = text.split('\n');
   const totalLines = lines.length;
   const hidden = Math.max(0, totalLines - maxLines);
-  const rows: Array<{ text: string; italic?: boolean }> = [];
+  const rows: Array<{ text: string; italic?: boolean | undefined }> = [];
   if (hidden > 0) {
     rows.push({ text: `  … ${hidden} more line${hidden === 1 ? '' : 's'} above`, italic: true });
     for (const line of lines.slice(totalLines - (maxLines - 1))) rows.push({ text: trunc(line) });
@@ -744,7 +744,7 @@ export const ToolStreamBox = React.memo(function ToolStreamBox({
       <Box flexDirection="column" marginLeft={2}>
         {rows.map((r, i) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: fixed-height block, index is the row
-          <Text key={i} dimColor italic={r.italic}>{r.text || ' '}</Text>
+          <Text key={i} dimColor italic={Boolean(r.italic)}>{r.text || ' '}</Text>
         ))}
       </Box>
     </Box>

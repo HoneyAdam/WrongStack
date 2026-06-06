@@ -25,6 +25,15 @@ import { parseSymbols as parseYaml } from './yaml-parser.js';
 import { loadGitignoreMatcher, type IgnoreMatcher } from './gitignore.js';
 import { _setIndexProgress } from './background-indexer.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 /** Yield the event loop every N files so the main thread stays responsive. */
 const YIELD_EVERY_N = 50;
 
@@ -39,12 +48,12 @@ const DEFAULT_IGNORE = [
 
 interface IndexerOptions {
   projectRoot: string;
-  files?: string[];
-  force?: boolean;
-  langs?: string[];
-  ignore?: string[];
+  files?: string[] | undefined;
+  force?: boolean | undefined;
+  langs?: string[] | undefined;
+  ignore?: string[] | undefined;
   /** Override the index directory (default: the global per-project dir). */
-  indexDir?: string;
+  indexDir?: string | undefined;
 }
 
 async function findSourceFiles(
@@ -175,7 +184,7 @@ export async function runIndexer(
   }
 
   for (let fi = 0; fi < files.length; fi++) {
-    const file = files[fi]!;
+    const file = expectDefined(files[fi]);
 
     // Report progress to the state tracker so UIs can show indexing status.
     _setIndexProgress(fi + 1, files.length);
@@ -252,7 +261,7 @@ export async function runIndexer(
     // Insert cross-references for each symbol
     if (parsed.refs && parsed.refs.length > 0) {
       for (let i = 0; i < symbolsWithIds.length; i++) {
-        const sym = symbolsWithIds[i]!;
+        const sym = expectDefined(symbolsWithIds[i]);
         const symRefs = parsed.refs.filter((r) => r.line === sym.line);
         if (symRefs.length > 0) {
           const refsWithFromId = symRefs.map((r) => ({ ...r, fromId: sym.id }));

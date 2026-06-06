@@ -3,10 +3,10 @@ import { spawnStream } from './_spawn-stream.js';
 import { detectPackageManager, safeResolve } from './_util.js';
 
 interface AuditInput {
-  cwd?: string;
-  level?: 'low' | 'moderate' | 'high' | 'critical';
-  fix?: boolean;
-  packages?: string | string[];
+  cwd?: string | undefined;
+  level?: 'low' | 'moderate' | 'high' | 'critical' | undefined;
+  fix?: boolean | undefined;
+  packages?: string | string[] | undefined;
 }
 
 interface AuditVulnerability {
@@ -54,7 +54,9 @@ export const auditTool: Tool<AuditInput, AuditOutput> = {
   },
   async execute(input, ctx, opts) {
     let final: AuditOutput | undefined;
-    for await (const ev of auditTool.executeStream!(input, ctx, opts)) {
+    const executeStream = auditTool.executeStream;
+    if (!executeStream) throw new Error('auditTool: stream execution unavailable');
+    for await (const ev of executeStream(input, ctx, opts)) {
       if (ev.type === 'final') final = ev.output;
     }
     if (!final) throw new Error('audit: stream ended without final event');

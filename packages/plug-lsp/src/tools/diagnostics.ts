@@ -6,8 +6,8 @@ import { pathToUri, uriToPath } from '../utils/uri.js';
 import { type ToolDeps, requireServer, resolveInputPath, stringifyToolError } from './shared.js';
 
 interface DiagnosticsInput {
-  path?: string;
-  limit?: number;
+  path?: string | undefined;
+  limit?: number | undefined;
 }
 
 export function createDiagnosticsTool(deps: ToolDeps): Tool<DiagnosticsInput, string> {

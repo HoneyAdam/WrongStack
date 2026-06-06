@@ -20,12 +20,12 @@ export interface ContextInfo {
  * how full the model's context window is while waiting for a response.
  */
 export class Spinner {
-  private timer?: NodeJS.Timeout;
+  private timer?: NodeJS.Timeout | undefined;
   private frame = 0;
   private active = false;
   private label = '';
   private startedAt = 0;
-  private context?: ContextInfo;
+  private context?: ContextInfo | undefined;
   private readonly out: NodeJS.WriteStream;
   private readonly enabled: boolean;
 
@@ -38,7 +38,7 @@ export class Spinner {
    *   it leaks the input row into scrollback and paints a stray
    *   "thinking… ctx" tracker at the very bottom). Defaults to TTY detection.
    */
-  constructor(out: NodeJS.WriteStream = process.stderr, opts?: { enabled?: boolean }) {
+  constructor(out: NodeJS.WriteStream = process.stderr, opts?: { enabled?: boolean | undefined }) {
     this.out = out;
     this.enabled = (opts?.enabled ?? Boolean(out.isTTY)) && !process.env.NO_COLOR;
   }

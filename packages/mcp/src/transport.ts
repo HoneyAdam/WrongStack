@@ -8,17 +8,17 @@ import { normalizeMCPTools } from './tool-schema.js';
 
 export type JsonRpcResult = {
   jsonrpc: string;
-  id?: number;
-  result?: unknown;
-  error?: { code: number; message: string; data?: unknown };
+  id?: number | undefined;
+  result?: unknown | undefined;
+  error?: { code: number | undefined; message: string; data?: unknown | undefined } | undefined;
 };
 
 export interface HttpTransportOptions {
   name: string;
   url: string;
-  headers?: Record<string, string>;
-  startupTimeoutMs?: number;
-  requestTimeoutMs?: number;
+  headers?: Record<string, string> | undefined;
+  startupTimeoutMs?: number | undefined;
+  requestTimeoutMs?: number | undefined;
   /**
    * Per-request TLS configuration. When set, an https.Agent is created
    * and passed to fetch via the `dispatch` option. This avoids globally
@@ -30,7 +30,7 @@ export interface HttpTransportOptions {
    * for local development with self-signed certificates; production MCP
    * servers must present a valid certificate.
    */
-  tls?: { ca?: string; rejectUnauthorized?: boolean };
+  tls?: { ca?: string | undefined; rejectUnauthorized?: boolean | undefined };
 }
 
 /**
@@ -129,11 +129,11 @@ export class SSEReader {
   private buffer = '';
   private dataLines: string[] = [];
   private listeners: Array<
-    (event: { jsonrpc?: string; method?: string; params?: unknown; id?: number }) => void
+    (event: { jsonrpc?: string | undefined; method?: string | undefined; params?: unknown | undefined; id?: number | undefined }) => void
   > = [];
 
   onMessage(
-    cb: (data: { jsonrpc?: string; method?: string; params?: unknown; id?: number }) => void,
+    cb: (data: { jsonrpc?: string | undefined; method?: string | undefined; params?: unknown | undefined; id?: number | undefined }) => void,
   ): () => void {
     this.listeners.push(cb);
     return () => {
@@ -199,10 +199,10 @@ export class SSEReader {
     if (!data) return;
     try {
       const parsed = JSON.parse(data) as {
-        jsonrpc?: string;
-        method?: string;
-        params?: unknown;
-        id?: number;
+        jsonrpc?: string | undefined;
+        method?: string | undefined;
+        params?: unknown | undefined;
+        id?: number | undefined;
       };
       this.dispatch(parsed);
     } catch {
@@ -211,10 +211,10 @@ export class SSEReader {
   }
 
   private dispatch(msg: {
-    jsonrpc?: string;
-    method?: string;
-    params?: unknown;
-    id?: number;
+    jsonrpc?: string | undefined;
+    method?: string | undefined;
+    params?: unknown | undefined;
+    id?: number | undefined;
   }): void {
     for (const cb of this.listeners) {
       try {
@@ -339,14 +339,14 @@ export class SSETransport {
   private timeout: number;
   private requestTimeout: number;
   /** Per-request TLS agent — created once from HttpTransportOptions.tls */
-  private tlsAgent?: https.Agent;
+  private tlsAgent?: https.Agent | undefined;
   private nextId = 1;
   private tools: MCPTool[] = [];
-  private abortController?: AbortController;
-  private reader?: globalThis.ReadableStreamDefaultReader<string>;
+  private abortController?: AbortController | undefined;
+  private reader?: globalThis.ReadableStreamDefaultReader<string> | undefined;
   private readerDone = false;
   private disconnectHandlers: Array<() => void> = [];
-  private readLoopAbort?: AbortController;
+  private readLoopAbort?: AbortController | undefined;
   private readonly toolsChangedListeners = new Set<(tools: MCPTool[]) => void>();
 
   constructor(opts: HttpTransportOptions) {
@@ -391,7 +391,7 @@ export class SSETransport {
     try {
       const res = await this.httpPost('tools/list', {});
       if (!res.error) {
-        this.tools = normalizeMCPTools((res.result as { tools?: unknown } | undefined)?.tools);
+        this.tools = normalizeMCPTools((res.result as { tools?: unknown | undefined } | undefined)?.tools);
         for (const cb of this.toolsChangedListeners) {
           try {
             cb([...this.tools]);
@@ -473,7 +473,7 @@ export class SSETransport {
       if (toolsRes.error) {
         this.tools = [];
       } else {
-        const result = toolsRes.result as { tools?: unknown } | undefined;
+        const result = toolsRes.result as { tools?: unknown | undefined } | undefined;
         this.tools = normalizeMCPTools(result?.tools);
       }
 
@@ -581,7 +581,7 @@ export class SSETransport {
     if (res.error) {
       return { content: res.error.message, isError: true };
     }
-    const result = res.result as { content?: unknown; isError?: boolean } | undefined;
+    const result = res.result as { content?: unknown | undefined; isError?: boolean | undefined } | undefined;
     return {
       content: result?.content ?? '',
       isError: Boolean(result?.isError),
@@ -661,11 +661,11 @@ export class StreamableHTTPTransport {
   private timeout: number;
   private requestTimeout: number;
   /** Per-request TLS agent — created once from HttpTransportOptions.tls */
-  private tlsAgent?: https.Agent;
+  private tlsAgent?: https.Agent | undefined;
   private nextId = 1;
   private tools: MCPTool[] = [];
-  private abortController?: AbortController;
-  private sessionId?: string;
+  private abortController?: AbortController | undefined;
+  private sessionId?: string | undefined;
   private disconnectHandlers: Array<() => void> = [];
   private readonly toolsChangedListeners = new Set<(tools: MCPTool[]) => void>();
 
@@ -770,7 +770,7 @@ export class StreamableHTTPTransport {
       if (toolsRes.error) {
         this.tools = [];
       } else {
-        const result = toolsRes.result as { tools?: unknown } | undefined;
+        const result = toolsRes.result as { tools?: unknown | undefined } | undefined;
         this.tools = normalizeMCPTools(result?.tools);
       }
 
@@ -883,7 +883,7 @@ export class StreamableHTTPTransport {
     if (res.error) {
       return { content: res.error.message, isError: true };
     }
-    const result = res.result as { content?: unknown; isError?: boolean } | undefined;
+    const result = res.result as { content?: unknown | undefined; isError?: boolean | undefined } | undefined;
     return {
       content: result?.content ?? '',
       isError: Boolean(result?.isError),

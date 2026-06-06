@@ -6,10 +6,19 @@ import { pathToFileURL } from 'node:url';
 import { buildChildEnv } from '@wrongstack/core';
 import { commandExistsOnPath, resolveServerCommand } from './utils/command-resolver.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 type PackageManager = 'pnpm' | 'npm' | 'yarn' | 'bun';
 
 interface LanguageInstall {
-  npmPackages?: string[];
+  npmPackages?: string[] | undefined;
   binary: string;
   toolchain?: {
     command: string;
@@ -88,7 +97,7 @@ export interface SetupDeps {
   run: (command: string, args: string[], cwd: string) => Promise<void>;
   log: (message: string) => void;
   cwd: () => string;
-  exit?: (code: number) => never;
+  exit?: ((code: number) => never) | undefined;
 }
 
 /* v8 ignore start -- default process-bound deps are covered through injectable deps. */
@@ -114,7 +123,7 @@ export async function runSetup(args: string[], deps: SetupDeps = DEFAULT_DEPS): 
   const toolchainInstalls: Array<NonNullable<LanguageInstall['toolchain']>> = [];
 
   for (const lang of opts.languages) {
-    const install = INSTALLS[lang]!;
+    const install = expectDefined(INSTALLS[lang]);
     if (await deps.resolveServerCommand(install.binary, opts.cwd)) {
       alreadyInstalled.push(lang);
       continue;
@@ -172,7 +181,7 @@ export function parseArgs(
   let toolchains = true;
 
   for (let i = 0; i < args.length; i++) {
-    const arg = args[i]!;
+    const arg = expectDefined(args[i]);
     if (arg === '--cwd') {
       cwd = path.resolve(requiredValue(args, ++i, '--cwd'));
     } else if (arg === '--languages') {

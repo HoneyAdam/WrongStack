@@ -1,6 +1,15 @@
 import type { ContentBlock, ToolResultBlock, ToolUseBlock } from '../types/blocks.js';
 import type { Message } from '../types/messages.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export interface MessageRepairReport {
   changed: boolean;
   removedToolUses: string[];
@@ -30,7 +39,7 @@ export function repairToolUseAdjacency(messages: Message[]): MessageRepairResult
   const out: Message[] = [];
 
   for (let i = 0; i < messages.length; i++) {
-    const original = messages[i]!;
+    const original = expectDefined(messages[i]);
     let msg = original;
 
     if (hasToolUse(msg)) {

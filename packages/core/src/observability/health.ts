@@ -21,7 +21,7 @@ export class DefaultHealthRegistry implements HealthRegistry {
   private checks = new Map<string, HealthCheck>();
   private readonly timeoutMs: number;
 
-  constructor(opts: { timeoutMs?: number } = {}) {
+  constructor(opts: { timeoutMs?: number | undefined } = {}) {
     this.timeoutMs = opts.timeoutMs ?? 5_000;
   }
 

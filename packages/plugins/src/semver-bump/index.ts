@@ -10,6 +10,15 @@ import type { Plugin } from '@wrongstack/core';
 import { execFileSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 const API_VERSION = '^0.1.10';
 
 type BumpType = 'major' | 'minor' | 'patch' | 'auto';
@@ -17,7 +26,7 @@ type BumpType = 'major' | 'minor' | 'patch' | 'auto';
 interface ConventionalCommit {
   hash: string;
   type: string;
-  scope?: string;
+  scope?: string | undefined;
   message: string;
   breaking: boolean;
 }
@@ -31,7 +40,7 @@ function runGit(args: string[], cwd?: string): string {
       timeout: 30_000,
     }).trim();
   } catch (err: unknown) {
-    const e = err as { message?: string; stderr?: string; status?: number };
+    const e = err as { message?: string | undefined; stderr?: string | undefined; status?: number | undefined };
     if (e.status === 128) throw new Error('Not a git repository');
     throw new Error(`git failed: ${e.message ?? e.stderr ?? String(err)}`);
   }
@@ -50,7 +59,7 @@ function getPackageJson(cwd?: string): { version: string } | null {
 function parseVersion(v: string): [number, number, number] {
   const m = v.match(/^v?(\d+)\.(\d+)\.(\d+)/);
   if (!m) return [0, 0, 0];
-  return [Number.parseInt(m[1]!), Number.parseInt(m[2]!), Number.parseInt(m[3]!)];
+  return [Number.parseInt(expectDefined(m[1])), Number.parseInt(expectDefined(m[2])), Number.parseInt(expectDefined(m[3]))];
 }
 
 function bumpVersion(version: string, part: BumpType): string {

@@ -71,9 +71,9 @@ import { FleetSpawnBudgetError, FleetCostCapError, FleetContextOverflowError } f
  */
 export interface DirectorOptions {
   config: MultiAgentConfig;
-  runner?: SubagentRunner;
+  runner?: SubagentRunner | undefined;
   /** Optional Brain arbiter above the director for policy/decision escalation. */
-  brain?: BrainArbiter;
+  brain?: BrainArbiter | undefined;
   /**
    * When set, the director writes a `fleet.json` manifest to this path
    * recording every spawned subagent (id, provider, model, role, task
@@ -81,7 +81,7 @@ export interface DirectorOptions {
    * absolute file path — the directory must already exist (the
    * director-session factory creates it when used together).
    */
-  manifestPath?: string;
+  manifestPath?: string | undefined;
   /**
    * Optional roster used by `leaderSystemPrompt()` to render a roles
    * summary into the leader's preamble. Same shape as the roster passed
@@ -92,12 +92,12 @@ export interface DirectorOptions {
    * Override the built-in fleet preamble (see `DEFAULT_DIRECTOR_PREAMBLE`).
    * Pass an empty string to suppress the preamble entirely.
    */
-  directorPreamble?: string;
+  directorPreamble?: string | undefined;
   /**
    * Override the built-in subagent baseline (see
    * `DEFAULT_SUBAGENT_BASELINE`). Pass an empty string to suppress.
    */
-  subagentBaseline?: string;
+  subagentBaseline?: string | undefined;
   /**
    * Absolute path to a directory the fleet can use as a shared scratchpad
    * (read + write by every subagent). When set, the director creates it on
@@ -109,7 +109,7 @@ export interface DirectorOptions {
    * Convention: under a fleet run rooted at `<sessionsRoot>/<runId>/`,
    * pass `<sessionsRoot>/<runId>/shared/` here.
    */
-  sharedScratchpadPath?: string;
+  sharedScratchpadPath?: string | undefined;
   /**
    * Maximum number of spawns this director can perform across its
    * lifetime. Default: unlimited. Acts as a hard fleet-wide cost cap —
@@ -117,7 +117,7 @@ export interface DirectorOptions {
    * instead of burning provider tokens until the user kills the
    * process. The N+1-th spawn call rejects with a `FleetSpawnBudgetError`.
    */
-  maxSpawns?: number;
+  maxSpawns?: number | undefined;
   /**
    * Maximum nesting depth for spawns. The director constructed by the
    * user is at depth `spawnDepth` (default 0); any subagent that itself
@@ -128,13 +128,13 @@ export interface DirectorOptions {
    * This stops infinite recursive director chains from a hostile or
    * confused prompt.
    */
-  maxSpawnDepth?: number;
+  maxSpawnDepth?: number | undefined;
   /**
    * Current spawn-chain depth for this director instance. Defaults to 0.
    * A nested director should pass `parent.spawnDepth + 1`. Together with
    * `maxSpawnDepth` this bounds the chain.
    */
-  spawnDepth?: number;
+  spawnDepth?: number | undefined;
   /**
    * Absolute path to a director-state checkpoint file. When set, the
    * director writes an incremental snapshot of pending/running/completed
@@ -143,7 +143,7 @@ export interface DirectorOptions {
    * the checkpoint is a live mirror useful for crash recovery and the
    * `wstack resume` "you had N tasks in flight" banner.
    */
-  stateCheckpointPath?: string;
+  stateCheckpointPath?: string | undefined;
   /**
    * Session writer the director should forward task lifecycle events to
    * (`agent_spawned`, `task_created`, `task_completed`, `task_failed`).
@@ -151,13 +151,13 @@ export interface DirectorOptions {
    * lossy in production. Production callers (the CLI) pass the same
    * writer the host Agent uses so all events land in a single JSONL.
    */
-  sessionWriter?: SessionWriter;
+  sessionWriter?: SessionWriter | undefined;
   /**
    * Debounce window for periodic manifest writes triggered by spawn/
    * assign/complete events. Default: 2000ms. Pass 0 to disable periodic
    * writes (the manifest will then only be written on `shutdown()`).
    */
-  manifestDebounceMs?: number;
+  manifestDebounceMs?: number | undefined;
   /**
    * Fleet-wide cost ceiling. When set, `spawn()` refuses any new subagent
    * that would push the fleet's total cost above this limit. The cap
@@ -174,8 +174,8 @@ export interface DirectorOptions {
      * Maximum total USD the fleet may spend across all subagents.
      * Default: Infinity (no cap).
      */
-    maxCostUsd?: number;
-  };
+    maxCostUsd?: number | undefined;
+  } | undefined;
   /**
    * Maximum auto-extensions per subagent per budget kind before the
    * director denies further extensions. A subagent hitting the same
@@ -185,7 +185,7 @@ export interface DirectorOptions {
    * disable the cap (use with caution — a misconfigured subagent
    * could burn unlimited budget).
    */
-  maxBudgetExtensions?: number;
+  maxBudgetExtensions?: number | undefined;
   /**
    * Debounce window for state-checkpoint writes. Default: 250ms.
    * Bursts of spawn/assign/complete events collapse into one disk
@@ -193,19 +193,19 @@ export interface DirectorOptions {
    * lower values improve crash-recovery fidelity (less state lost
    * on sudden process exit).
    */
-  checkpointDebounceMs?: number;
+  checkpointDebounceMs?: number | undefined;
   /**
    * Sessions root directory for per-subagent JSONL transcripts.
    * When set, the director can read subagent transcripts directly for
    * `fleet_session` tool — no bridge round-trip needed. Path convention:
    * `<sessionsRoot>/<directorRunId>/<subagentId>.jsonl`.
    */
-  sessionsRoot?: string;
+  sessionsRoot?: string | undefined;
   /**
    * Director run id — namespaced under `sessionsRoot` to locate per-subagent
    * JSONLs. Defaults to the director's own `id` when omitted.
    */
-  directorRunId?: string;
+  directorRunId?: string | undefined;
   /**
    * Pre-built fleet manager. When provided the Director delegates all
    * fleet-level policy (spawn budgets, manifest assembly, checkpointing)
@@ -216,7 +216,7 @@ export interface DirectorOptions {
    * When omitted the Director creates its own fleet infrastructure
    * (same behavior as before this field was added).
    */
-  fleetManager?: FleetManager;
+  fleetManager?: FleetManager | undefined;
   /**
    * Optional LLM classifier for the smart dispatcher. When set, the
    * `spawn_subagent` tool can accept a free-form `description` field
@@ -227,7 +227,7 @@ export interface DirectorOptions {
    * Build from a `complete(prompt) => string` function using
    * `makeLLMClassifier(complete)` from the dispatcher module.
    */
-  dispatchClassifier?: import('../coordination/dispatcher.js').DispatchClassifier;
+  dispatchClassifier?: import('../coordination/dispatcher.js').DispatchClassifier | undefined;
   /**
    * Maximum context load (as a fraction of maxContext) the leader agent
    * is allowed to reach before a new spawn is rejected. Default: 0.85.
@@ -236,7 +236,7 @@ export interface DirectorOptions {
    * Only used when no `fleetManager` is provided (inline mode).
    * Set to 1.0 to disable this check.
    */
-  maxLeaderContextLoad?: number;
+  maxLeaderContextLoad?: number | undefined;
   /**
    * Provider's max context window in tokens. Used with `maxLeaderContextLoad`
    * to compute the absolute token threshold. Default: 128_000.
@@ -258,7 +258,7 @@ export interface DirectorOptions {
    * mid-session `/setmodel` takes effect on the next spawn. A static record
    * is also accepted for tests and one-shot runs.
    */
-  modelMatrix?: ModelMatrixSource;
+  modelMatrix?: ModelMatrixSource | undefined;
 }
 
 /** Either a static matrix or a live getter (re-read on every spawn). */
@@ -313,7 +313,7 @@ export class Director implements ICoordinator {
     return resolved && resolved > 0 ? resolved : 128_000;
   }
   /** Optional Brain arbiter for director-level policy decisions. */
-  private readonly brain?: BrainArbiter;
+  private readonly brain?: BrainArbiter | undefined;
   /**
    * Optional fleet-level policy container. When provided the Director
    * delegates spawn budgeting, manifest entries, and checkpointing to it
@@ -347,10 +347,10 @@ export class Director implements ICoordinator {
   private static readonly MAX_COMPLETED = 10_000;
   /** Per-subagent provider/model metadata, captured at spawn time so the
    *  FleetUsageAggregator's metaLookup can surface readable rows. */
-  private readonly subagentMeta = new Map<string, { provider?: string; model?: string }>();
+  private readonly subagentMeta = new Map<string, { provider?: string | undefined; model?: string | undefined }>();
   private readonly priceLookups = new Map<
     string,
-    { input?: number; output?: number; cacheRead?: number; cacheWrite?: number }
+    { input?: number | undefined; output?: number | undefined; cacheRead?: number | undefined; cacheWrite?: number | undefined }
   >();
   /** Bridge endpoints we created per subagent (so we can `stop()` them
    *  on shutdown and free transport subscriptions). */
@@ -361,16 +361,16 @@ export class Director implements ICoordinator {
     {
       subagentId: string;
       name: string;
-      role?: string;
-      provider?: string;
-      model?: string;
+      role?: string | undefined;
+      provider?: string | undefined;
+      model?: string | undefined;
       taskIds: string[];
     }
   >();
   /** Tracks assigned nicknames so the same name is never reused in one fleet. */
   private readonly _usedNicknames = new Set<string>();
-  private readonly manifestPath?: string;
-  private readonly roster?: Record<string, SubagentConfig>;
+  private readonly manifestPath?: string | undefined;
+  private readonly roster?: Record<string, SubagentConfig> | undefined;
   private readonly directorPreamble: string;
   private readonly subagentBaseline: string;
   /** Absolute path to the fleet's shared scratchpad directory, or null
@@ -398,7 +398,7 @@ export class Director implements ICoordinator {
   /** Max auto-extensions per subagent per budget kind before denying. */
   private readonly maxBudgetExtensions: number;
   /** Sessions root for direct subagent JSONL reads (fleet_session tool). */
-  private readonly sessionsRoot?: string;
+  private readonly sessionsRoot?: string | undefined;
   /** Director run id for JSONL path resolution. */
   private readonly directorRunId: string;
   /** Resolves task descriptions back from `assign()` so completion events
@@ -421,7 +421,7 @@ export class Director implements ICoordinator {
     | ((payload: { task: TaskSpec; result: TaskResult }) => void)
     | null = null;
   /** Optional LLM classifier for smart dispatch. Passed from options. */
-  readonly dispatchClassifier?: import('../coordination/dispatcher.js').DispatchClassifier;
+  readonly dispatchClassifier?: import('../coordination/dispatcher.js').DispatchClassifier | undefined;
   /** Leader agent's current context pressure (full request tokens). */
   private leaderContextPressure = 0;
   /** Maximum context load fraction before spawn is refused. */
@@ -430,7 +430,7 @@ export class Director implements ICoordinator {
   private readonly maxContext: number | (() => number | undefined);
   /** Per-task model matrix (static record or live getter); resolved
    *  per-spawn when no explicit model is set. */
-  private readonly modelMatrix?: ModelMatrixSource;
+  private readonly modelMatrix?: ModelMatrixSource | undefined;
   /**
    * When set by `workComplete()`, the director stops dispatching new tasks
    * and terminates all running subagents. Used when the director's LLM decides
@@ -965,7 +965,7 @@ export class Director implements ICoordinator {
    */
   async spawn(
     config: SubagentConfig,
-    priceLookup?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number },
+    priceLookup?: { input?: number | undefined; output?: number | undefined; cacheRead?: number | undefined; cacheWrite?: number | undefined },
   ): Promise<string> {
     // workComplete() signal: once the director decides the work is done,
     // refuse to spawn new subagents so the fleet winds down naturally.
@@ -1489,13 +1489,13 @@ export class Director implements ICoordinator {
    */
   async readSession(
     subagentId: string,
-    tail?: number,
+    tail?: number | undefined,
   ): Promise<{
-    lastAssistantText?: string;
-    lastStopReason?: string;
+    lastAssistantText?: string | undefined;
+    lastStopReason?: string | undefined;
     toolUsesObserved: number;
     events: number;
-    path?: string;
+    path?: string | undefined;
   } | null> {
     if (!this.sessionsRoot) return null;
     const filePath = path.join(this.sessionsRoot, this.directorRunId, `${subagentId}.jsonl`);
@@ -1512,7 +1512,7 @@ export class Director implements ICoordinator {
     let toolUses = 0;
     for (const line of targetLines) {
       try {
-        const ev = JSON.parse(line) as { type?: string; text?: string; stopReason?: string };
+        const ev = JSON.parse(line) as { type?: string | undefined; text?: string | undefined; stopReason?: string | undefined };
         if (ev.type === 'assistant' && typeof ev.text === 'string') {
           lastAssistantText = ev.text;
         } else if (ev.type === 'stop' && ev.stopReason) {
@@ -1544,7 +1544,7 @@ export class Director implements ICoordinator {
    * this to render human-readable provider/model tags next to each
    * subagent row without reaching into private state.
    */
-  getSubagentMeta(id: string): { provider?: string; model?: string; name?: string } | undefined {
+  getSubagentMeta(id: string): { provider?: string | undefined; model?: string | undefined; name?: string | undefined } | undefined {
     const usage = this.subagentMeta.get(id);
     const manifest = this.manifestEntries.get(id);
     if (!usage && !manifest) return undefined;

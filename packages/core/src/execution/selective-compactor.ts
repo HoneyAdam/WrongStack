@@ -16,25 +16,25 @@ export interface SelectiveCompactorOptions {
   /** Provider for LLM calls (selector + summarizer). Required. */
   provider: Provider;
   /** Selector for LLM-driven importance analysis. */
-  selector?: MessageSelector;
+  selector?: MessageSelector | undefined;
   /** Fraction of maxContext that triggers a warning (default 0.6). */
-  warnThreshold?: number;
+  warnThreshold?: number | undefined;
   /** Fraction of maxContext that triggers soft compaction (default 0.75). */
-  softThreshold?: number;
+  softThreshold?: number | undefined;
   /** Fraction of maxContext that triggers hard compaction (default 0.9). */
-  hardThreshold?: number;
+  hardThreshold?: number | undefined;
   /** Max context window in tokens (used for threshold fraction math). */
-  maxContext?: number;
+  maxContext?: number | undefined;
   /** How many recent (user+assistant) pairs to always preserve (default 4). */
-  preserveK?: number;
+  preserveK?: number | undefined;
   /** Token threshold below which tool results are not elided (default 500). */
-  eliseThreshold?: number;
+  eliseThreshold?: number | undefined;
   /** Model for selector LLM calls (default: same as provider default). */
-  selectorModel?: string;
+  selectorModel?: string | undefined;
   /** Summarizer model for collapsed ranges (default: same as selectorModel). */
-  summarizerModel?: string;
+  summarizerModel?: string | undefined;
   /** Prompt for the summarizer sub-LLM. */
-  summarizerPrompt?: string;
+  summarizerPrompt?: string | undefined;
 }
 
 /**
@@ -74,7 +74,7 @@ export class SelectiveCompactor implements Compactor {
       'You are a context summarizer. Given a list of messages, produce a concise summary that preserves all factual information, decisions, file changes, and state changes. Do not add commentary or opinions.';
   }
 
-  async compact(ctx: Context, opts: { aggressive?: boolean } = {}): Promise<CompactReport> {
+  async compact(ctx: Context, opts: { aggressive?: boolean | undefined } = {}): Promise<CompactReport> {
     const beforeTokens = this.estimateTokens(ctx.messages);
     const beforeFull = this.estimateFullRequest(ctx);
     const reductions: CompactReport['reductions'] = [];
@@ -251,7 +251,8 @@ export class SelectiveCompactor implements Compactor {
     // Find safe boundary near preserveIdx
     let boundary = preserveIdx;
     for (let i = preserveIdx; i < messages.length && i < preserveIdx + 6; i++) {
-      const m = messages[i]!;
+      const m = messages[i];
+      if (!m) continue;
       if (m.role === 'user' && this.hasTextContent(m)) {
         boundary = i;
         break;

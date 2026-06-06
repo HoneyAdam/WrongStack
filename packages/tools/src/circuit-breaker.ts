@@ -21,32 +21,32 @@ export interface CircuitBreakerConfig {
    * Consecutive failures before trip. Default: 5.
    * A single success resets this counter to 0.
    */
-  maxConsecutiveFailures?: number;
+  maxConsecutiveFailures?: number | undefined;
   /**
    * Slow-call threshold in ms. A call that runs longer than this is
    * counted as "slow". Default: 60_000 (1 minute).
    */
-  slowCallThresholdMs?: number;
+  slowCallThresholdMs?: number | undefined;
   /**
    * Max slow calls before trip (within the sliding window). Default: 3.
    */
-  maxSlowCalls?: number;
+  maxSlowCalls?: number | undefined;
   /**
    * Sliding window for rate-limit and slow-call counting, in ms.
    * Default: 60_000 (1 minute).
    */
-  windowMs?: number;
+  windowMs?: number | undefined;
   /**
    * Max calls within the sliding window. Default: 30.
    * Burst exceeding this trips the breaker immediately.
    */
-  maxCallsPerWindow?: number;
+  maxCallsPerWindow?: number | undefined;
   /**
    * Cooldown before auto-recovery attempt, in ms. Default: 30_000 (30s).
    * After this the breaker enters "half-open" state and allows one call
    * through to test whether the problem is resolved.
    */
-  cooldownMs?: number;
+  cooldownMs?: number | undefined;
 }
 
 interface CallRecord {

@@ -21,6 +21,15 @@ import {
 } from './components/settings-picker.js';
 import type { WorktreeRow } from './components/worktree-panel.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export interface QueueItem {
   id: number;
   displayText: string;
@@ -31,18 +40,18 @@ export interface QueueItem {
 export interface FleetEntry {
   id: string;
   name: string;
-  provider?: string;
-  model?: string;
+  provider?: string | undefined;
+  model?: string | undefined;
   status: 'idle' | 'running' | 'success' | 'failed' | 'timeout' | 'stopped';
   streamingText: string;
   iterations: number;
   toolCalls: number;
   recentTools: Array<{
     name: string;
-    ok?: boolean;
-    durationMs?: number;
-    outputBytes?: number;
-    outputLines?: number;
+    ok?: boolean | undefined;
+    durationMs?: number | undefined;
+    outputBytes?: number | undefined;
+    outputLines?: number | undefined;
     at: number;
   }>;
   recentMessages: Array<{ text: string; at: number }>;
@@ -56,51 +65,51 @@ export interface FleetEntry {
    * mid-flight (between iterations, before the first tool, or after
    * the last tool of a run).
    */
-  currentTool?: { name: string; startedAt: number };
+  currentTool?: { name: string; startedAt: number } | undefined;
   /**
    * Absolute path to the per-subagent JSONL transcript on disk, when
    * one was created. Surfaced so the FleetPanel can render `path:`
    * dim under the entry — users grep / tail the file for full
    * visibility into the subagent's run.
    */
-  transcriptPath?: string;
+  transcriptPath?: string | undefined;
   /**
    * Most recent budget warning: subagent hit a soft limit and the
    * coordinator is auto-extending. Rendered in FleetPanel as:
    * "⚡ hitting tool_calls limit (350/400) — extending"
    * Cleared on the next fleetDone or fleetStart.
    */
-  budgetWarning?: { kind: string; used: number; limit: number; at: number };
+  budgetWarning?: { kind: string; used: number; limit: number; at: number } | undefined;
   /**
    * Cumulative auto-extension grants for this subagent. Surfaced as a
    * persistent "⚡×N" badge in the monitor and 4th status line so the user
    * can see how often never-die kept the agent alive. Survives across tasks
    * within the same subagent entry (unlike `budgetWarning`, which clears).
    */
-  extensions?: number;
+  extensions?: number | undefined;
   /**
    * Latest context window fill percentage (0–1, can exceed 1 when over budget).
    * Emitted on every `iteration.completed` via `ctx.pct` event.
    * Rendered as a colored progress bar in the AgentsMonitor.
    */
-  ctxPct?: number;
+  ctxPct?: number | undefined;
   /** Estimated total tokens in the context window (from ctx.pct event). */
-  ctxTokens?: number;
+  ctxTokens?: number | undefined;
   /** Provider's max context window in tokens (from ctx.pct event). */
-  ctxMaxTokens?: number;
+  ctxMaxTokens?: number | undefined;
   /**
    * Human-readable reason for terminal failure, when known.
    * E.g. "provider_auth", "rate_limit", "timeout", "budget_iterations".
    * Shown in the Fleet timeline and the per-agent card in the agents monitor.
    */
-  failureReason?: string;
+  failureReason?: string | undefined;
 }
 
 /** A registered slash command matched against the user's current / query. */
 export interface SlashCommandMatch {
   name: string;
   description: string;
-  argsHint?: string;
+  argsHint?: string | undefined;
   isBuiltin: boolean;
   category: 'Run' | 'Session' | 'Inspect' | 'Agent' | 'Config' | 'App';
 }
@@ -115,8 +124,8 @@ type GoalSummary = {
   goal: string;
   goalState: 'active' | 'paused' | 'completed' | 'abandoned';
   iterations: number;
-  lastTask?: string;
-  lastStatus?: string;
+  lastTask?: string | undefined;
+  lastStatus?: string | undefined;
 } | null;
 
 export type State = {
@@ -151,31 +160,31 @@ export type State = {
    */
   steerSnapshot: {
     runningTools: string[];
-    subagents: Array<{ label: string; status: string; tool?: string }>;
+    subagents: Array<{ label: string; status: string; tool?: string | undefined }>;
     subagentsTerminated: number;
     partialAssistantText: string;
   } | null;
   hint: string;
   brain: {
     state: 'idle' | 'deciding' | 'answered' | 'ask_human' | 'denied';
-    source?: string;
-    risk?: 'low' | 'medium' | 'high' | 'critical';
-    summary?: string;
-    updatedAt?: number;
+    source?: string | undefined;
+    risk?: 'low' | 'medium' | 'high' | 'critical' | undefined;
+    summary?: string | undefined;
+    updatedAt?: number | undefined;
   };
   brainPrompt: {
     requestId: string;
     source: string;
     risk: 'low' | 'medium' | 'high' | 'critical';
     question: string;
-    context?: string;
+    context?: string | undefined;
     options?: Array<{
       id: string;
       label: string;
-      risk?: string;
-      consequence?: string;
-      recommended?: boolean;
-    }>;
+      risk?: string | undefined;
+      consequence?: string | undefined;
+      recommended?: boolean | undefined;
+    }> | undefined;
   } | null;
   nextId: number;
   picker: { open: boolean; query: string; matches: string[]; selected: number };
@@ -199,8 +208,8 @@ export type State = {
     /** Filtered list shown in step 2 (same as modelOptions when searchQuery is empty). */
     filteredOptions: string[];
     selected: number;
-    pickedProviderId?: string;
-    hint?: string;
+    pickedProviderId?: string | undefined;
+    hint?: string | undefined;
     /** Live search filter in step 2. */
     searchQuery: string;
   };
@@ -209,7 +218,7 @@ export type State = {
     open: boolean;
     options: AutonomyOption[];
     selected: number;
-    hint?: string;
+    hint?: string | undefined;
   };
   /** Settings editor — opened by `/settings` or Ctrl+S. */
   settingsPicker: {
@@ -243,7 +252,7 @@ export type State = {
     indexOnStart: boolean;
     // Tools
     maxIterations: number;
-    hint?: string;
+    hint?: string | undefined;
   };
   /** Pending tool confirmations — queue to handle multiple tools requesting confirmation. */
   confirmQueue: {
@@ -282,18 +291,18 @@ export type State = {
   leader: {
     iterations: number;
     toolCalls: number;
-    recentTools: Array<{ name: string; ok?: boolean; durationMs?: number; at: number }>;
-    currentTool?: { name: string; startedAt: number };
+    recentTools: Array<{ name: string; ok?: boolean | undefined; durationMs?: number | undefined; at: number }>;
+    currentTool?: { name: string; startedAt: number } | undefined;
     startedAt: number;
     lastEventAt: number;
     /** True while inside an iteration (between iteration.started and iteration.completed). */
     iterating: boolean;
     /** Latest context window fill fraction (from ctx.pct event). */
-    ctxPct?: number;
+    ctxPct?: number | undefined;
     /** Estimated total tokens in context window. */
-    ctxTokens?: number;
+    ctxTokens?: number | undefined;
     /** Provider max context in tokens. */
-    ctxMaxTokens?: number;
+    ctxMaxTokens?: number | undefined;
   };
   /** Fleet-wide accumulated cost. */
   fleetCost: number;
@@ -369,7 +378,7 @@ export type State = {
         status: string;
         completedTasks: number;
         totalTasks: number;
-        startedAt?: number;
+        startedAt?: number | undefined;
       }
     >;
     /** Active phase IDs (running phases). */
@@ -380,9 +389,9 @@ export type State = {
     monitorOpen: boolean;
   } | null;
   /** Git-worktree isolation state — rendered by WorktreePanel/WorktreeMonitor. */
-  worktrees: Record<string, WorktreeRow & { baseBranch?: string }>;
+  worktrees: Record<string, WorktreeRow & { baseBranch?: string | undefined }>;
   /** Base branch worktrees fork from (for the monitor header). */
-  worktreeBase?: string;
+  worktreeBase?: string | undefined;
   /** True while the worktree monitor overlay is open (Ctrl+T). */
   worktreeMonitorOpen: boolean;
   /**
@@ -421,9 +430,9 @@ export type Action =
   | {
       type: 'brainStatus';
       state: State['brain']['state'];
-      source?: string;
-      risk?: State['brain']['risk'];
-      summary?: string;
+      source?: string | undefined;
+      risk?: State['brain']['risk'] | undefined;
+      summary?: string | undefined;
     }
   | { type: 'brainPromptSet'; prompt: NonNullable<State['brainPrompt']> }
   | { type: 'brainPromptClear' }
@@ -432,9 +441,9 @@ export type Action =
   | { type: 'pickerSetMatches'; query: string; matches: string[] }
   | { type: 'pickerMove'; delta: number }
   | { type: 'toolStarted'; id: string; name: string }
-  | { type: 'toolEnded'; id?: string; name?: string }
+  | { type: 'toolEnded'; id?: string | undefined; name?: string | undefined }
   | { type: 'toolStreamAppend'; toolUseId: string; name: string; text: string; startedAt: number }
-  | { type: 'toolStreamClear'; toolUseId?: string; name?: string }
+  | { type: 'toolStreamClear'; toolUseId?: string | undefined; name?: string | undefined }
   | { type: 'enqueue'; item: Omit<QueueItem, 'id'> }
   | { type: 'dequeueFirst' }
   | { type: 'queueClear' }
@@ -447,13 +456,13 @@ export type Action =
   | { type: 'modelPickerMove'; delta: number }
   | { type: 'modelPickerPickProvider'; providerId: string; models: string[] }
   | { type: 'modelPickerBack' }
-  | { type: 'modelPickerHint'; text?: string }
+  | { type: 'modelPickerHint'; text?: string | undefined }
   /** Update the search filter in step 2. */
   | { type: 'modelPickerSearch'; query: string }
   | { type: 'autonomyPickerOpen'; options: AutonomyOption[] }
   | { type: 'autonomyPickerClose' }
   | { type: 'autonomyPickerMove'; delta: number }
-  | { type: 'autonomyPickerHint'; text?: string }
+  | { type: 'autonomyPickerHint'; text?: string | undefined }
   | {
       type: 'settingsOpen';
       mode: SettingsMode;
@@ -480,7 +489,7 @@ export type Action =
   | { type: 'settingsFieldMove'; delta: number }
   | { type: 'settingsFieldSet'; field: number }
   | { type: 'settingsValueChange'; delta: number }
-  | { type: 'settingsHint'; text?: string }
+  | { type: 'settingsHint'; text?: string | undefined }
   | { type: 'historyPush'; text: string }
   | { type: 'historyUp' }
   | { type: 'historyDown' }
@@ -496,22 +505,22 @@ export type Action =
   | {
       type: 'fleetSpawn';
       id: string;
-      name?: string;
-      provider?: string;
-      model?: string;
-      transcriptPath?: string;
+      name?: string | undefined;
+      provider?: string | undefined;
+      model?: string | undefined;
+      transcriptPath?: string | undefined;
     }
-  | { type: 'fleetStart'; id: string; taskId?: string }
+  | { type: 'fleetStart'; id: string; taskId?: string | undefined }
   | { type: 'fleetDelta'; id: string; text: string }
   | { type: 'fleetMessage'; id: string; text: string }
   | {
       type: 'fleetTool';
       id: string;
-      name?: string;
-      ok?: boolean;
-      durationMs?: number;
-      outputBytes?: number;
-      outputLines?: number;
+      name?: string | undefined;
+      ok?: boolean | undefined;
+      durationMs?: number | undefined;
+      outputBytes?: number | undefined;
+      outputLines?: number | undefined;
     }
   /** tool.started: pin the current tool name for status display. */
   | { type: 'fleetToolStart'; id: string; name: string }
@@ -532,7 +541,7 @@ export type Action =
       iterations: number;
       toolCalls: number;
       /** Human-readable failure reason, e.g. "provider_auth", "rate_limit", "timeout". */
-      failureReason?: string;
+      failureReason?: string | undefined;
     }
   | {
       type: 'fleetBudgetWarning';
@@ -556,8 +565,8 @@ export type Action =
   | {
       type: 'fleetCost';
       cost: number;
-      input?: number;
-      output?: number;
+      input?: number | undefined;
+      output?: number | undefined;
       /** Per-subagent usage keyed by subagent id (from the director snapshot). */
       perAgent?: Record<string, { cost: number }>;
     }
@@ -566,7 +575,7 @@ export type Action =
   | { type: 'leaderIterStart' }
   | { type: 'leaderIterEnd' }
   | { type: 'leaderToolStart'; name: string }
-  | { type: 'leaderToolEnd'; name: string; ok?: boolean; durationMs?: number }
+  | { type: 'leaderToolEnd'; name: string; ok?: boolean | undefined; durationMs?: number | undefined }
   | { type: 'leaderCtxPct'; load: number; tokens: number; maxContext: number }
   | { type: 'setStreamFleet'; enabled: boolean }
   | { type: 'toggleMonitor' }
@@ -592,7 +601,7 @@ export type Action =
       status: string;
       completedTasks: number;
       totalTasks: number;
-      startedAt?: number;
+      startedAt?: number | undefined;
     }
   | { type: 'autoPhaseRunningPhases'; phaseIds: string[] }
   | { type: 'autoPhaseElapsed'; ms: number }
@@ -601,8 +610,8 @@ export type Action =
   | {
       type: 'worktreeUpsert';
       handleId: string;
-      row: Partial<WorktreeRow & { baseBranch?: string }>;
-      baseBranch?: string;
+      row: Partial<WorktreeRow & { baseBranch?: string | undefined }>;
+      baseBranch?: string | undefined;
     }
   | { type: 'worktreeRemove'; handleId: string }
   | { type: 'worktreeMonitorToggle' }
@@ -1051,14 +1060,14 @@ export function reducer(state: State, action: Action): State {
         const i = SETTINGS_MODES.indexOf(sp.mode);
         const base = i < 0 ? 0 : i;
         const next = (base + action.delta + SETTINGS_MODES.length) % SETTINGS_MODES.length;
-        return { ...state, settingsPicker: { ...sp, mode: SETTINGS_MODES[next]!, hint: undefined } };
+        return { ...state, settingsPicker: { ...sp, mode: expectDefined(SETTINGS_MODES[next]), hint: undefined } };
       }
       // Field 1: delay presets
       if (f === 1) {
         const j = DELAY_PRESETS_MS.indexOf(sp.delayMs);
         const base = j < 0 ? 0 : j;
         const next = (base + action.delta + DELAY_PRESETS_MS.length) % DELAY_PRESETS_MS.length;
-        return { ...state, settingsPicker: { ...sp, delayMs: DELAY_PRESETS_MS[next]!, hint: undefined } };
+        return { ...state, settingsPicker: { ...sp, delayMs: expectDefined(DELAY_PRESETS_MS[next]), hint: undefined } };
       }
       // Field 2–7: UX boolean toggles
       if (f === 2) return { ...state, settingsPicker: { ...sp, titleAnimation: !sp.titleAnimation, hint: undefined } };
@@ -1080,21 +1089,21 @@ export function reducer(state: State, action: Action): State {
         const i = COMPACTOR_STRATEGIES.indexOf(sp.contextStrategy);
         const base = i < 0 ? 0 : i;
         const next = (base + action.delta + COMPACTOR_STRATEGIES.length) % COMPACTOR_STRATEGIES.length;
-        return { ...state, settingsPicker: { ...sp, contextStrategy: COMPACTOR_STRATEGIES[next]!, hint: undefined } };
+        return { ...state, settingsPicker: { ...sp, contextStrategy: expectDefined(COMPACTOR_STRATEGIES[next]), hint: undefined } };
       }
       // Field 15: log level (cycle)
       if (f === 15) {
         const i = LOG_LEVELS.indexOf(sp.logLevel);
         const base = i < 0 ? 0 : i;
         const next = (base + action.delta + LOG_LEVELS.length) % LOG_LEVELS.length;
-        return { ...state, settingsPicker: { ...sp, logLevel: LOG_LEVELS[next]!, hint: undefined } };
+        return { ...state, settingsPicker: { ...sp, logLevel: expectDefined(LOG_LEVELS[next]), hint: undefined } };
       }
       // Field 16: audit level (cycle)
       if (f === 16) {
         const i = AUDIT_LEVELS.indexOf(sp.auditLevel);
         const base = i < 0 ? 0 : i;
         const next = (base + action.delta + AUDIT_LEVELS.length) % AUDIT_LEVELS.length;
-        return { ...state, settingsPicker: { ...sp, auditLevel: AUDIT_LEVELS[next]!, hint: undefined } };
+        return { ...state, settingsPicker: { ...sp, auditLevel: expectDefined(AUDIT_LEVELS[next]), hint: undefined } };
       }
       // Field 17: index on start (boolean)
       if (f === 17) return { ...state, settingsPicker: { ...sp, indexOnStart: !sp.indexOnStart, hint: undefined } };
@@ -1103,7 +1112,7 @@ export function reducer(state: State, action: Action): State {
         const j = MAX_ITERATIONS_PRESETS.indexOf(sp.maxIterations);
         const base = j < 0 ? 0 : j;
         const next = (base + action.delta + MAX_ITERATIONS_PRESETS.length) % MAX_ITERATIONS_PRESETS.length;
-        return { ...state, settingsPicker: { ...sp, maxIterations: MAX_ITERATIONS_PRESETS[next]!, hint: undefined } };
+        return { ...state, settingsPicker: { ...sp, maxIterations: expectDefined(MAX_ITERATIONS_PRESETS[next]), hint: undefined } };
       }
     }
     case 'settingsHint':
@@ -1574,7 +1583,7 @@ export function reducer(state: State, action: Action): State {
     }
     case 'worktreeUpsert': {
       const prev = state.worktrees[action.handleId];
-      const merged: WorktreeRow & { baseBranch?: string } = {
+      const merged: WorktreeRow & { baseBranch?: string | undefined } = {
         branch: '',
         ownerLabel: '',
         status: 'active',

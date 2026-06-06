@@ -1,6 +1,15 @@
 import type { TaskGraph } from '../types/task-graph.js';
 import { topologicalSort } from '../types/task-graph.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 /**
  * Enhanced critical path analysis with bottleneck detection,
  * parallel execution groups, and time estimation.
@@ -48,10 +57,10 @@ export function analyzeCriticalPath(graph: TaskGraph): CriticalPathAnalysis {
     if (edge.type === 'depends_on') {
       // edge.from depends on edge.to
       if (!blockedByMap.has(edge.from)) blockedByMap.set(edge.from, new Set());
-      blockedByMap.get(edge.from)!.add(edge.to);
+      blockedByMap.get(edge.from)?.add(edge.to);
 
       if (!blocksMap.has(edge.to)) blocksMap.set(edge.to, new Set());
-      blocksMap.get(edge.to)!.add(edge.from);
+      blocksMap.get(edge.to)?.add(edge.from);
     }
   }
 
@@ -140,7 +149,7 @@ function getTransitiveBlocked(
   const queue = [taskId];
 
   while (queue.length > 0) {
-    const current = queue.shift()!;
+    const current = expectDefined(queue.shift());
     const blocked = blocksMap.get(current);
     if (!blocked) continue;
     for (const id of blocked) {
@@ -180,7 +189,7 @@ function computeCriticalPath(
   for (const [taskId, blockers] of blockedByMap) {
     for (const blockerId of blockers) {
       if (!blocksMap.has(blockerId)) blocksMap.set(blockerId, new Set());
-      blocksMap.get(blockerId)!.add(taskId);
+      blocksMap.get(blockerId)?.add(taskId);
     }
   }
 
@@ -206,7 +215,7 @@ function computeCriticalPath(
 
   // Find the node with maximum distance (end of critical path)
   let maxDist = 0;
-  let maxId = allIds[0]!;
+  let maxId = expectDefined(allIds[0]);
   for (const id of allIds) {
     const d = dist.get(id) ?? 0;
     if (d > maxDist) {

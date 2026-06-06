@@ -67,7 +67,7 @@ export function createProviderHandlers(deps: ProviderHandlerDeps) {
     }
   }
 
-  async function handleProviderAdd(ws: WebSocket, payload: { id: string; family: string; baseUrl?: string; apiKey?: string }): Promise<void> {
+  async function handleProviderAdd(ws: WebSocket, payload: { id: string; family: string; baseUrl?: string | undefined; apiKey?: string | undefined }): Promise<void> {
     try {
       const providers = await loadConfigProviders();
       const result = addProviderRecord(providers, payload, new Date().toISOString());

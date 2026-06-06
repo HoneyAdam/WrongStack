@@ -56,7 +56,7 @@ export interface MultiAgentDeps {
    * the wrong window per subagent. Optional so callers/tests that don't
    * wire it still build providers (the family default applies).
    */
-  modelsRegistry?: ModelsRegistry;
+  modelsRegistry?: ModelsRegistry | undefined;
   events: EventBus;
   systemPromptBuilder: SystemPromptBuilder;
   session: SessionWriter;
@@ -64,7 +64,7 @@ export interface MultiAgentDeps {
   projectRoot: string;
   cwd: string;
   secretScrubber: import('@wrongstack/core').SecretScrubber;
-  renderer?: import('@wrongstack/core').Renderer;
+  renderer?: import('@wrongstack/core').Renderer | undefined;
 }
 
 /**
@@ -81,13 +81,13 @@ export interface MultiAgentHostOptions {
    * through a `Director` so manifest writing works and the FleetBus is
    * available for future observability hooks.
    */
-  directorMode?: boolean;
+  directorMode?: boolean | undefined;
   /**
    * Absolute file path the director writes its fleet manifest to on
    * shutdown (and on-demand via `manifest()`). Only meaningful when
    * `directorMode` is true; ignored otherwise.
    */
-  manifestPath?: string;
+  manifestPath?: string | undefined;
   /**
    * Absolute path to the fleet's shared scratchpad directory. When set,
    * subagent system prompts are augmented with a "Shared notes" block
@@ -95,7 +95,7 @@ export interface MultiAgentHostOptions {
    * without going through the bridge. Directory is created on first
    * spawn. Only meaningful in director mode.
    */
-  sharedScratchpadPath?: string;
+  sharedScratchpadPath?: string | undefined;
   /**
    * Absolute path to the directory under which per-subagent JSONL
    * transcripts land — typically `<projectSessions>/<sessionId>/subagents/`.
@@ -103,13 +103,13 @@ export interface MultiAgentHostOptions {
    * each spawned subagent gets its own session writer (instead of sharing
    * the parent session). Director mode only.
    */
-  sessionsRoot?: string;
+  sessionsRoot?: string | undefined;
   /**
    * Director run id for namespacing per-subagent JSONLs. Defaults to the
    * coordinator id when omitted. Pass an explicit id when resuming from a
    * prior fleet manifest.
    */
-  directorRunId?: string;
+  directorRunId?: string | undefined;
   /**
    * Base directory for fleet artifacts (manifest, shared scratchpad,
    * subagent sessions). When set and director mode is promoted at runtime
@@ -118,7 +118,7 @@ export interface MultiAgentHostOptions {
    *   <fleetRoot>/shared/           (scratchpad)
    *   <fleetRoot>/subagents/        (per-subagent JSONL)
    */
-  fleetRoot?: string;
+  fleetRoot?: string | undefined;
   /**
    * Absolute path the director writes its live state checkpoint to. Distinct
    * from `manifestPath` (final record) — the checkpoint mirrors pending /
@@ -126,7 +126,7 @@ export interface MultiAgentHostOptions {
    * a "you had N tasks in flight" banner after a crash. Only meaningful in
    * director mode.
    */
-  stateCheckpointPath?: string;
+  stateCheckpointPath?: string | undefined;
   /**
    * Fleet-wide cost ceiling for the director. When set, the director
    * refuses any new spawn that would push total fleet spend above this
@@ -134,16 +134,16 @@ export interface MultiAgentHostOptions {
    * blocked. Only meaningful in director mode.
    */
   directorBudget?: {
-    maxCostUsd?: number;
+    maxCostUsd?: number | undefined;
   };
   /**
    * Maximum auto-extensions per subagent per budget kind before the
    * director denies further extensions. Default: 2. Only meaningful in
    * director mode.
    */
-  maxBudgetExtensions?: number;
+  maxBudgetExtensions?: number | undefined;
   /** Optional global Brain arbiter for director-level policy decisions. */
-  brain?: BrainArbiter;
+  brain?: BrainArbiter | undefined;
   /**
    * Maximum number of subagent tasks that may run concurrently. Extra
    * tasks queue in the coordinator's pending list and dispatch as slots
@@ -151,25 +151,25 @@ export interface MultiAgentHostOptions {
    * at the cost of provider rate-limit pressure (each subagent makes
    * its own API calls).
    */
-  maxConcurrent?: number;
+  maxConcurrent?: number | undefined;
   /**
    * Live max context window for the leader model. Director spawn guards read
    * this lazily so runtime provider/model switches do not leave the fleet
    * using the launch-time family default.
    */
-  getLeaderMaxContext?: () => number | undefined;
+  getLeaderMaxContext?: (() => number) | undefined;
   /**
    * Debounce window for state-checkpoint writes in milliseconds.
    * Default: 250. Only meaningful in director mode.
    */
-  checkpointDebounceMs?: number;
+  checkpointDebounceMs?: number | undefined;
   /**
    * Session writer the director forwards task lifecycle events to
    * (agent_spawned, task_created, task_completed, task_failed). The CLI
    * passes the same writer the host Agent uses so all events land in one
    * JSONL. Optional — when omitted, those events stay in-memory.
    */
-  sessionWriter?: import('@wrongstack/core').SessionWriter;
+  sessionWriter?: import('@wrongstack/core').SessionWriter | undefined;
 }
 
 /**
@@ -177,22 +177,22 @@ export interface MultiAgentHostOptions {
  * so /agents can list everyone running.
  */
 export class MultiAgentHost {
-  private director?: Director;
+  private director?: Director | undefined;
   /** Own FleetManager — created in buildDirector(), used for pending task
    *  tracking so status() can show descriptions without host-side state. */
-  private fleetManager?: import('@wrongstack/core').FleetManager;
+  private fleetManager?: import('@wrongstack/core').FleetManager | undefined;
   /** Own FleetEmitTool — created in buildDirector() so subagents in director
    *  mode can publish structured events (bug.found, refactor.plan,
    *  critic.evaluation) onto the fleet bus without needing the tool registered
    *  in the host's ToolRegistry. */
-  private fleetEmitTool?: import('@wrongstack/core').Tool;
+  private fleetEmitTool?: import('@wrongstack/core').Tool | undefined;
   /** Own FleetStatusTool — created in buildDirector() so subagents in director
    *  mode can read fleet state (subagent statuses, task progress) without the
    *  tool being in the host's ToolRegistry. */
-  private fleetStatusTool?: import('@wrongstack/core').Tool;
+  private fleetStatusTool?: import('@wrongstack/core').Tool | undefined;
   /** Lazily built alongside the director — produces per-subagent JSONL
    *  writers under `<sessionsRoot>/<runId>/`. Null without sessionsRoot. */
-  private sessionFactory?: DirectorSessionFactory;
+  private sessionFactory?: DirectorSessionFactory | undefined;
   private readonly opts: MultiAgentHostOptions;
   /**
    * Populated by `promoteToDirector` when it refuses to promote. The delegate
@@ -343,10 +343,10 @@ export class MultiAgentHost {
       const payload = e.payload as {
         subagentId: string;
         taskId: string;
-        name?: string;
-        role?: string;
-        provider?: string;
-        model?: string;
+        name?: string | undefined;
+        role?: string | undefined;
+        provider?: string | undefined;
+        model?: string | undefined;
       };
       this.deps.events.emit('subagent.spawned', {
         subagentId: payload.subagentId,
@@ -361,7 +361,7 @@ export class MultiAgentHost {
       ({
         task,
         subagentId,
-      }: { task: { id: string; description?: string }; subagentId: string }) => {
+      }: { task: { id: string; description?: string | undefined }; subagentId: string }) => {
         this.deps.events.emit('subagent.task_started', {
           subagentId,
           taskId: task.id,
@@ -619,8 +619,8 @@ export class MultiAgentHost {
    */
   private async buildSubagentProvider(
     config: Config,
-    overrideId?: string,
-    model?: string,
+    overrideId?: string | undefined,
+    model?: string | undefined,
   ): Promise<Provider> {
     const requestedProviderId = overrideId ?? config.provider;
     const providerId =
@@ -722,7 +722,7 @@ export class MultiAgentHost {
    */
   async spawn(
     description: string,
-    opts?: { provider?: string; model?: string; tools?: string[]; name?: string },
+    opts?: { provider?: string | undefined; model?: string | undefined; tools?: string[] | undefined; name?: string | undefined },
   ): Promise<{ subagentId: string; taskId: string }> {
     // Always build a Director (directorMode or not) so that spawn routes
     // through the same code path. The Director handles all orchestration.
@@ -759,15 +759,16 @@ export class MultiAgentHost {
    */
   private async _spawnAndAssign(subagentConfig: {
     name: string;
-    role?: string;
-    provider?: string;
-    model?: string;
-    tools?: string[];
+    role?: string | undefined;
+    provider?: string | undefined;
+    model?: string | undefined;
+    tools?: string[] | undefined;
   }): Promise<{ subagentId: string; taskId: string }> {
     const taskId = randomUUID();
     // Always goes through the Director — single code path after buildDirector()
-    const subagentId = await this.director!.spawn(subagentConfig);
-    await this.director!.assign({ id: taskId, description: '', subagentId });
+    if (!this.director) throw new Error('Director is not initialized');
+    const subagentId = await this.director.spawn(subagentConfig);
+    await this.director.assign({ id: taskId, description: '', subagentId });
     return { subagentId, taskId };
   }
 
@@ -794,11 +795,11 @@ export class MultiAgentHost {
   status(): {
     pending: { taskId: string; description: string; subagentId: string }[];
     completed: TaskResult[];
-    live: { subagentId: string; status: string; task?: string }[];
+    live: { subagentId: string; status: string; task?: string | undefined }[];
     summary: string;
   } {
     const activeSubagentIds = new Set<string>();
-    const live: { subagentId: string; status: string; task?: string }[] = [];
+    const live: { subagentId: string; status: string; task?: string | undefined }[] = [];
     if (this.director) {
       const coord = this.getCoordinator();
       const s = coord.getStatus();
@@ -1014,4 +1015,3 @@ export class MultiAgentHost {
     }
   }
 }
-

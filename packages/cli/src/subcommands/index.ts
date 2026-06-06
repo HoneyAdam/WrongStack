@@ -16,9 +16,9 @@ export interface SubcommandDeps {
   config: Config;
   renderer: TerminalRenderer;
   reader: ReadlineInputReader;
-  sessionStore?: SessionStore;
-  skillLoader?: SkillLoader;
-  toolRegistry?: ToolRegistry;
+  sessionStore?: SessionStore | undefined;
+  skillLoader?: SkillLoader | undefined;
+  toolRegistry?: ToolRegistry | undefined;
   modelsRegistry: ModelsRegistry;
   paths: WstackPaths;
   vault: SecretVault;

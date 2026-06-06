@@ -15,7 +15,7 @@ const API_VERSION = '^0.1.10';
 interface StoredTemplate {
   name: string;
   content: string;
-  description?: string;
+  description?: string | undefined;
   createdAt: string;
   updatedAt: string;
 }

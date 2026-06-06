@@ -11,7 +11,7 @@ export interface AutonomyOption {
 export interface AutonomyPickerProps {
   options: AutonomyOption[];
   selected: number;
-  hint?: string;
+  hint?: string | undefined;
 }
 
 export const AUTONOMY_OPTIONS: AutonomyOption[] = [
@@ -61,8 +61,8 @@ export function AutonomyPicker({
       {options.map((opt, i) => (
         <Text
           key={opt.mode}
-          color={i === selected ? opt.color : undefined}
           inverse={i === selected}
+          {...(i === selected ? { color: opt.color } : {})}
         >
           {i === selected ? '› ' : '  '}
           <Text bold>{opt.label.padEnd(12)}</Text>

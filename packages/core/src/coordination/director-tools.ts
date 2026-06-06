@@ -60,7 +60,7 @@ export function makeSpawnTool(director: Director, roster?: Record<string, Subage
         const dispatchRole = dispatchResult.role;
         // If we have a matching roster entry for the dispatched role, use it
         if (roster?.[dispatchRole]) {
-          cfg = instantiateRosterConfig(dispatchRole, roster[dispatchRole]!);
+          cfg = instantiateRosterConfig(dispatchRole, roster[dispatchRole] ?? {});
         } else {
           // Dispatch found a catalog agent but there's no roster entry — use the
           // catalog definition's config as a base template (role name + defaults).
@@ -131,7 +131,7 @@ export function makeAssignTool(director: Director): Tool {
     mutating: false,
     inputSchema,
     async execute(input: unknown) {
-      const i = input as { subagentId: string; description: string; maxToolCalls?: number; timeoutMs?: number };
+      const i = input as { subagentId: string; description: string; maxToolCalls?: number | undefined; timeoutMs?: number | undefined };
       const task: TaskSpec = { id: randomUUID(), description: i.description, subagentId: i.subagentId, maxToolCalls: i.maxToolCalls, timeoutMs: i.timeoutMs };
       const taskId = await director.assign(task);
       return { taskId, subagentId: i.subagentId };
@@ -170,7 +170,7 @@ export function makeAskTool(director: Director): Tool {
       required: ['subagentId', 'question'],
     },
     async execute(input: unknown) {
-      const i = input as { subagentId: string; question: string; timeoutMs?: number };
+      const i = input as { subagentId: string; question: string; timeoutMs?: number | undefined };
       try {
         const answer = await director.ask(i.subagentId, { question: i.question }, i.timeoutMs);
         // Store large answers out-of-band; return only a summary string in ctx.
@@ -239,7 +239,7 @@ export function makeRollUpTool(director: Director): Tool {
       required: ['taskIds'],
     },
     async execute(input: unknown) {
-      const i = input as { taskIds: string[]; style?: 'markdown' | 'json' };
+      const i = input as { taskIds: string[]; style?: 'markdown' | 'json' | undefined };
       const summary = director.rollUp(i.taskIds, i.style ?? 'markdown');
       return { summary, count: i.taskIds.length };
     },
@@ -337,7 +337,7 @@ export function makeFleetSessionTool(director: Director): Tool {
       required: ['subagentId'],
     },
     async execute(input: unknown) {
-      const i = input as { subagentId: string; tail?: number };
+      const i = input as { subagentId: string; tail?: number | undefined };
       const result = await director.readSession(i.subagentId, i.tail);
       if (!result) {
         return {
@@ -438,7 +438,7 @@ export function makeCollabDebugTool(director: Director): Tool {
       required: ['targetPaths'],
     },
     async execute(input: unknown) {
-      const i = input as { targetPaths?: string[]; timeoutMs?: number; maxTargetFiles?: number; contextWindow?: number };
+      const i = input as { targetPaths?: string[] | undefined; timeoutMs?: number | undefined; maxTargetFiles?: number | undefined; contextWindow?: number | undefined };
       if (!i.targetPaths?.length) {
         return { error: 'collab_debug: targetPaths is required and must be non-empty.' };
       }

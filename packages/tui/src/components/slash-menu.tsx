@@ -39,7 +39,7 @@ export function SlashMenu({ query, matches, selected }: SlashMenuProps): React.R
         }
         const { match: m, index: i } = row;
         return (
-          <Text key={m.name} color={i === selected ? 'cyan' : undefined} inverse={i === selected}>
+          <Text key={m.name} inverse={i === selected} {...(i === selected ? { color: 'cyan' } : {})}>
             {i === selected ? '› ' : '  '}
             <Text bold>{m.name}</Text>
             {m.argsHint ? <Text dimColor> {m.argsHint}</Text> : null}

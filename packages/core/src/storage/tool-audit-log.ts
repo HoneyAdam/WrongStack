@@ -2,6 +2,15 @@ import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 /**
  * ToolAuditLog — idea #9 from IDEAS.md.
  *
@@ -71,7 +80,7 @@ export interface ToolAuditLogOptions {
    * Default 100. Lower values = better crash durability, more I/O overhead.
    * Set to `Infinity` to disable periodic fsync (fastest, but highest data-loss risk).
    */
-  fsyncEvery?: number;
+  fsyncEvery?: number | undefined;
 }
 
 /** Default number of writes between fsync calls. */
@@ -155,7 +164,7 @@ export class ToolAuditLog {
     const entries = await this.readAll(sessionId);
     if (entries.length === 0) return { ok: true, entries: 0 };
     // The first entry's prevHash must be the all-zeros genesis marker.
-    if (entries[0]!.prevHash !== GENESIS_PREV) {
+    if (entries[0]?.prevHash !== GENESIS_PREV) {
       return {
         ok: false,
         brokenAt: 0,
@@ -164,7 +173,7 @@ export class ToolAuditLog {
     }
     let prevHash = GENESIS_PREV;
     for (let i = 0; i < entries.length; i++) {
-      const e = entries[i]!;
+      const e = expectDefined(entries[i]);
       if (e.prevHash !== prevHash) {
         return {
           ok: false,

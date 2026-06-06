@@ -9,11 +9,11 @@ export type MetricLabels = Record<string, string>;
 
 export interface MetricsSink {
   /** Monotonically-increasing counter (e.g. total tool calls). */
-  counter(name: string, value?: number, labels?: MetricLabels): void;
+  counter(name: string, value?: number | undefined, labels?: MetricLabels): void | undefined;
   /** Latency / size distribution (e.g. tool duration). */
-  histogram(name: string, value: number, labels?: MetricLabels): void;
+  histogram(name: string, value: number, labels?: MetricLabels): void | undefined;
   /** Current value (e.g. active subagents, pending tasks). */
-  gauge(name: string, value: number, labels?: MetricLabels): void;
+  gauge(name: string, value: number, labels?: MetricLabels): void | undefined;
   /** Point-in-time export — for /metrics scrape, debug dumps, tests. */
   snapshot(): MetricsSnapshot;
   /** Reset all metrics. Useful for tests; production code should rarely use. */
@@ -37,7 +37,7 @@ export type HealthStatus = 'healthy' | 'degraded' | 'unhealthy';
 
 export interface HealthCheckResult {
   status: HealthStatus;
-  detail?: string;
+  detail?: string | undefined;
   /** Optional structured data (e.g. latency, version) for dashboards. */
   data?: Record<string, unknown>;
 }

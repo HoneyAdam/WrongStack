@@ -11,6 +11,15 @@ import type { Compactor } from '../types/compactor.js';
 import { DefaultMultiAgentCoordinator } from '../coordination/multi-agent-coordinator.js';
 import type { MultiAgentConfig } from '../types/multi-agent.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -42,26 +51,26 @@ export interface ParallelEternalOptions {
    * `goalFilePath(projectRoot)` (a hashed location under the home dir).
    * Primarily for tests that want an isolated goal file under a temp dir.
    */
-  goalPath?: string;
+  goalPath?: string | undefined;
   /**
    * Number of parallel subagent slots per tick.
    * Default: 4. Range 1–16; values >8 are for high-throughput machines.
    */
-  parallelSlots?: number;
+  parallelSlots?: number | undefined;
   /** Per-subagent default timeout in ms. Default: 300_000 (5 min). */
-  iterationTimeoutMs?: number;
-  onIteration?: (entry: JournalEntry) => void;
-  onError?: (err: Error, iteration: number) => void;
+  iterationTimeoutMs?: number | undefined;
+  onIteration?: (((entry: JournalEntry) => void)) | undefined;
+  onError?: (err: Error | undefined, iteration: number) => void;
   /** Per-tick phase notifications for live UI/status updates. */
-  onStage?: (stage: ParallelIterationStage) => void;
-  gitStatusReader?: () => Promise<string>;
-  now?: () => Date;
-  compactor?: Compactor;
-  compactEveryNIterations?: number;
-  aggressiveCompactRatio?: number;
-  maxContextTokens?: number;
+  onStage?: (((stage: ParallelIterationStage) => void)) | undefined;
+  gitStatusReader?: ((() => Promise<string>)) | undefined;
+  now?: ((() => Date)) | undefined;
+  compactor?: Compactor | undefined;
+  compactEveryNIterations?: number | undefined;
+  aggressiveCompactRatio?: number | undefined;
+  maxContextTokens?: number | undefined;
   /** Override the default agent factory (uses main agent if not provided). */
-  subagentFactory?: AgentFactory;
+  subagentFactory?: AgentFactory | undefined;
   /**
    * Route each decomposed slot task to the best-fit catalog agent via the
    * smart dispatcher (heuristic keyword scoring). When enabled (default), each
@@ -69,13 +78,13 @@ export interface ParallelEternalOptions {
    * injected into the task — instead of as a faceless generic worker. Set
    * false to keep the legacy generic spawn.
    */
-  dispatch?: boolean;
+  dispatch?: boolean | undefined;
   /**
    * Optional LLM fallback for ambiguous tasks. Passed straight to
    * `dispatchAgent`; when omitted, routing is pure heuristic (instant, no
    * provider call — preferred for a continuously-ticking autonomous loop).
    */
-  dispatchClassifier?: DispatchClassifier;
+  dispatchClassifier?: DispatchClassifier | undefined;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -112,7 +121,7 @@ export class ParallelEternalEngine {
   private coordinator: DefaultMultiAgentCoordinator | null = null;
   private agentFactory: AgentFactory;
   private readonly dispatchEnabled: boolean;
-  private readonly dispatchClassifier?: DispatchClassifier;
+  private readonly dispatchClassifier?: DispatchClassifier | undefined;
 
   constructor(private readonly opts: ParallelEternalOptions) {
     this.goalPath = opts.goalPath ?? goalFilePath(opts.projectRoot);
@@ -298,7 +307,7 @@ export class ParallelEternalEngine {
     partialOutput: string;
     routes: Array<{ slot: number; task: string; role: string; method: string }>;
   }> {
-    const coordinator = this.coordinator!;
+    const coordinator = expectDefined(this.coordinator);
     const slotCount = Math.min(this.slots, tasks.length);
 
     // Route each slot task to the best-fit catalog agent. Heuristic by default
@@ -345,7 +354,7 @@ export class ParallelEternalEngine {
 
     const spawnPromises: Array<Promise<void>> = [];
     for (let i = 0; i < slotCount; i++) {
-      const task = tasks[i]!;
+      const task = expectDefined(tasks[i]);
       const route = routes[i] ?? null;
       const subagentId = `parallel-${this.iterations}-${i}`;
       const taskId = randomUUID();

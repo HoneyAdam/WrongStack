@@ -10,7 +10,7 @@ export interface CollabPanelProps {
   /** Current session id — the panel joins this session on mount if the user opts in. */
   sessionId: string;
   /** Optional className for layout-level styling. */
-  className?: string;
+  className?: string | undefined;
 }
 
 export interface CollabParticipant {

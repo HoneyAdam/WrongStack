@@ -4,8 +4,8 @@ import type { SlashCommand } from '../index.js';
 import type { HealthRegistry, MetricsSink } from '../types/observability.js';
 
 interface ObservabilityPluginOptions {
-  metricsSink?: MetricsSink;
-  healthRegistry?: HealthRegistry;
+  metricsSink?: MetricsSink | undefined;
+  healthRegistry?: HealthRegistry | undefined;
 }
 
 /**

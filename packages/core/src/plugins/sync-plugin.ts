@@ -6,9 +6,18 @@ import type { WstackPaths } from '../utils/wstack-paths.js';
 import type { ConfigStore } from '../types/config.js';
 import { atomicWrite } from '../utils/atomic-write.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 interface SyncPluginOptions {
-  paths?: WstackPaths;
-  configStore?: ConfigStore;
+  paths?: WstackPaths | undefined;
+  configStore?: ConfigStore | undefined;
   /** Secret vault for encrypting the GitHub token before persisting to disk. */
   vault?: { encrypt(plaintext: string): string; decrypt?(value: string): string };
 }
@@ -49,13 +58,13 @@ export function createSyncPlugin(opts?: SyncPluginOptions): Plugin {
       cloud = new CloudSync(
         paths,
         () => {
-          const cfg = configStore!.get();
+          const cfg = configStore?.get();
           return (cfg as Record<string, unknown>).sync as {
             enabled: boolean; repo: string; githubToken: string; categories: SyncCategory[]
           } | null;
         },
         async (cfg) => {
-          configStore!.update({ sync: cfg } as Parameters<ConfigStore['update']>[0]);
+          configStore?.update({ sync: cfg } as Parameters<ConfigStore['update']>[0]);
         },
       );
 
@@ -113,7 +122,7 @@ function buildSyncCommand(
 
           // Encrypt the token before persisting. The field name "githubToken"
           // matches the secret-vault pattern so auto-decryption works on load.
-          const storedToken = vault ? vault.encrypt(token!) : token!;
+          const storedToken = vault ? vault.encrypt(expectDefined(token)) : expectDefined(token);
           const syncConfig = {
             enabled: true,
             repo,

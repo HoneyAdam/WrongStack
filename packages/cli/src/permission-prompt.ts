@@ -23,7 +23,7 @@ export function makePromptDelegate(reader: InputReader) {
     writeOut(`${color.dim(stringifyInput(input))}\n`);
 
     if (tool.name === 'edit' && hasDiff(input)) {
-      const inp = input as { diff?: unknown };
+      const inp = input as { diff?: unknown | undefined };
       const diff = typeof inp.diff === 'string' ? inp.diff : '';
       if (diff) writeOut(`${renderDiff(diff)}\n`);
     }

@@ -47,7 +47,7 @@ export interface FileSymbols {
   file: string;
   lang: SymbolLang;
   symbols: Symbol[];
-  refs?: Ref[];   // cross-references extracted from this file (optional for back-compat)
+  refs?: Ref[] | undefined;   // cross-references extracted from this file (optional for back-compat)
   mtimeMs: number;
 }
 
@@ -86,7 +86,7 @@ export interface SearchResult {
   score: number;
   snippet: string;
   /** Original LSP SymbolKind number if the result was filtered by an LSP kind. */
-  lspKind?: number;
+  lspKind?: number | undefined;
 }
 
 /** Result of a full reindex. */
@@ -105,10 +105,10 @@ export type CallType = 'call' | 'type_ref' | 'inherit' | 'implement' | 'import';
 
 /** A cross-reference between two symbols (who references whom). */
 export interface Ref {
-  id?: number;
+  id?: number | undefined;
   fromId: number;     // symbol that makes the reference
   toName: string;      // resolved name of the referenced symbol
-  toId?: number;       // resolved target symbol id (filled after index resolution)
+  toId?: number | undefined;       // resolved target symbol id (filled after index resolution)
   callType: CallType;  // kind of reference
   line: number;        // source line where the reference occurs
 }

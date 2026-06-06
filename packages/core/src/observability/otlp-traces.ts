@@ -35,9 +35,9 @@ interface RecordedSpan {
   spanId: string;
   name: string;
   startTimeUnixNano: bigint;
-  endTimeUnixNano?: bigint;
+  endTimeUnixNano?: bigint | undefined;
   attributes: Record<string, SpanAttrValue>;
-  status: { code: number; message?: string };
+  status: { code: number; message?: string | undefined };
 }
 
 function hex(bytes: number): string {
@@ -82,23 +82,23 @@ export interface OtlpTraceExporterOptions {
   /** OTLP HTTP endpoint base URL. `/v1/traces` is appended unless already present. */
   endpoint: string;
   /** Push interval in milliseconds. Defaults to 5s (traces are bursty). */
-  intervalMs?: number;
+  intervalMs?: number | undefined;
   /** Hard cap on buffered spans. When exceeded, oldest are dropped. Defaults to 2048. */
-  maxBufferedSpans?: number;
+  maxBufferedSpans?: number | undefined;
   /** Authorization header. */
-  authorization?: string;
+  authorization?: string | undefined;
   /** Extra request headers. */
   headers?: Record<string, string>;
   /** Resource attributes. Defaults to `service.name=wrongstack`. */
   resourceAttributes?: Record<string, string>;
   /** Instrumentation scope name. Default `wrongstack`. */
-  scopeName?: string;
+  scopeName?: string | undefined;
   /** Per-request timeout in ms. Default 10s. */
-  timeoutMs?: number;
+  timeoutMs?: number | undefined;
   /** Override fetch (for tests). */
-  fetchImpl?: typeof globalThis.fetch;
+  fetchImpl?: typeof globalThis.fetch | undefined;
   /** Called on push failure. Defaults to silent. */
-  onError?: (err: unknown) => void;
+  onError?: ((err: unknown) => void) | undefined;
 }
 
 export interface OtlpTraceExporterHandle {
@@ -148,7 +148,7 @@ interface OtlpSpan {
   startTimeUnixNano: string;
   endTimeUnixNano: string;
   attributes: OtlpAttribute[];
-  status: { code: number; message?: string };
+  status: { code: number; message?: string | undefined };
 }
 
 interface OtlpTracesRequest {
@@ -163,7 +163,7 @@ interface OtlpTracesRequest {
 
 export function buildOtlpTracesRequest(
   spans: readonly RecordedSpan[],
-  opts: { resourceAttributes?: Record<string, string>; scopeName?: string } = {},
+  opts: { resourceAttributes?: Record<string, string>; scopeName?: string | undefined } = {},
 ): OtlpTracesRequest {
   const resourceAttributes = opts.resourceAttributes ?? { 'service.name': 'wrongstack' };
   const scopeName = opts.scopeName ?? 'wrongstack';

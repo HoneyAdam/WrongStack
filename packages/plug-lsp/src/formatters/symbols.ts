@@ -90,9 +90,9 @@ interface CodebaseLspResult {
   file: string;
   line: number;
   source: 'index' | 'lsp';
-  server?: string;
-  score?: number;
-  snippet?: string;
+  server?: string | undefined;
+  score?: number | undefined;
+  snippet?: string | undefined;
 }
 
 interface CodebaseLspSearchOutput {

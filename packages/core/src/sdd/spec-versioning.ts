@@ -5,7 +5,7 @@ export interface SpecVersion {
   version: string;
   spec: Specification;
   timestamp: number;
-  changeDescription?: string;
+  changeDescription?: string | undefined;
 }
 
 export interface SpecDiff {

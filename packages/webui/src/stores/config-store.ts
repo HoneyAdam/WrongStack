@@ -8,8 +8,8 @@ import { persist } from 'zustand/middleware';
 export interface ConfigState {
   provider: string;
   model: string;
-  baseUrl?: string;
-  apiKey?: string;
+  baseUrl?: string | undefined;
+  apiKey?: string | undefined;
   wsUrl: string;
   wsConnected: boolean;
   /** Fine-grained connection state from the WS client. Drives the topbar's
@@ -17,8 +17,8 @@ export interface ConfigState {
   wsStatus:
     | { state: 'connecting' }
     | { state: 'open' }
-    | { state: 'closed'; error?: string }
-    | { state: 'reconnecting'; attempt: number; nextRetryAt: number; lastError?: string };
+    | { state: 'closed'; error?: string | undefined }
+    | { state: 'reconnecting'; attempt: number; nextRetryAt: number; lastError?: string | undefined };
   theme: 'light' | 'dark' | 'system';
   autoConnect: boolean;
   /** Play a soft synthesized chime when run.result lands with status=done.

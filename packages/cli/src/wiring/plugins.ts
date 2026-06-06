@@ -30,15 +30,15 @@ export interface PluginsWiringDeps {
   slashCommandRegistry: SlashCommandRegistry;
   mcpRegistry: MCPRegistry;
   log: Logger;
-  agent: { extensions?: ExtensionRegistry };
+  agent: { extensions?: ExtensionRegistry | undefined };
   /** Lifecycle hook registry — injected so plugins can register in-process hooks. */
-  hookRegistry?: import('@wrongstack/core').HookRegistry;
+  hookRegistry?: import('@wrongstack/core').HookRegistry | undefined;
   sessionWriter: SessionWriter;
-  metricsSink?: MetricsSinkView;
+  metricsSink?: MetricsSinkView | undefined;
   /** Health registry — injected so the observability built-in can run /health. */
-  healthRegistry?: HealthRegistry;
+  healthRegistry?: HealthRegistry | undefined;
   /** Skill loader — injected so the skills built-in can list/read skills. */
-  skillLoader?: SkillLoader;
+  skillLoader?: SkillLoader | undefined;
   configStore: ConfigStore;
   /** Secret vault — injected so sync plugin can encrypt the GitHub token. */
   vault?: { encrypt(plaintext: string): string; decrypt?(value: string): string };
@@ -140,7 +140,7 @@ export async function setupPlugins(params: PluginsWiringDeps): Promise<void> {
   const disabledBuiltins = new Set(
     (config.plugins ?? [])
       .filter(
-        (p): p is { name: string; enabled?: boolean } =>
+        (p): p is { name: string; enabled?: boolean | undefined } =>
           typeof p === 'object' && p.enabled === false,
       )
       .map((p) => p.name),
@@ -168,7 +168,7 @@ export async function setupPlugins(params: PluginsWiringDeps): Promise<void> {
       if (typeof p === 'object' && p.enabled === false) continue;
       const spec = typeof p === 'string' ? p : p.name;
       try {
-        const mod = (await import(spec)) as { default?: Plugin };
+        const mod = (await import(spec)) as { default?: Plugin | undefined };
         if (mod.default) userPlugins.push(mod.default);
       } catch (err) {
         log.warn(`Plugin "${spec}" failed to load`, err);

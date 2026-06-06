@@ -3,6 +3,15 @@ import * as path from 'node:path';
 import * as Core from '@wrongstack/core';
 import type { Context } from '@wrongstack/core';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 /** Detected package manager for a project directory. */
 export type PackageManager = 'pnpm' | 'yarn' | 'npm';
 
@@ -155,9 +164,9 @@ export function collapseConsecutiveDuplicates(text: string, minRun = REPEAT_RUN_
     while (j < lines.length && lines[j] === lines[i]) j++;
     const run = j - i;
     if (run >= minRun) {
-      out.push(lines[i]!, `… ⟨repeated ${run}×⟩`);
+      out.push(expectDefined(lines[i]), `… ⟨repeated ${run}×⟩`);
     } else {
-      for (let k = i; k < j; k++) out.push(lines[k]!);
+      for (let k = i; k < j; k++) out.push(expectDefined(lines[k]));
     }
     i = j;
   }
@@ -218,7 +227,7 @@ export function truncateHeadTail(s: string, maxBytes: number): string {
  */
 export function normalizeCommandOutput(
   raw: string,
-  opts: { maxBytes?: number } = {},
+  opts: { maxBytes?: number | undefined } = {},
 ): string {
   if (!raw) return raw;
   let text = Core.stripAnsi(raw);

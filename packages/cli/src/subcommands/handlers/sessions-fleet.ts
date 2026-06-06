@@ -121,7 +121,7 @@ async function showFleetRun(runId: string, deps: SubcommandDeps): Promise<number
     const manifest = JSON.parse(manifestData);
     const subagents = manifest.subagents ?? [];
     const tasks = manifest.tasks ?? [];
-    const completed = tasks.filter((t: { status?: string }) => t.status === 'completed' || t.status === 'failed' || t.status === 'timeout' || t.status === 'stopped');
+    const completed = tasks.filter((t: { status?: string | undefined }) => t.status === 'completed' || t.status === 'failed' || t.status === 'timeout' || t.status === 'stopped');
     deps.renderer.write(
       `  ${color.green('✓')} fleet.json — ${subagents.length} subagent(s), ${completed.length}/${tasks.length} tasks done\n`,
     );

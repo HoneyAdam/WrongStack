@@ -4,13 +4,22 @@ import { createHash } from 'node:crypto';
 import type { WstackPaths } from '../utils/wstack-paths.js';
 import type { SyncCategory, SyncConfig } from '../types/config.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export const ALL_SYNC_CATEGORIES: SyncCategory[] = ['settings', 'skills', 'prompts', 'memory', 'history'];
 
 export interface SyncResult {
   ok: boolean;
   action: 'push' | 'pull';
   categories: SyncCategory[];
-  committedAt?: string;
+  committedAt?: string | undefined;
   message: string;
 }
 
@@ -74,8 +83,8 @@ export class CloudSync {
     if (!cfg?.enabled) return { ok: false, action: 'push', categories: [], message: 'Not enabled.' };
 
     const parts = cfg.repo.split('/');
-    const owner = parts[0]!;
-    const repoName = parts[1]!;
+    const owner = expectDefined(parts[0]);
+    const repoName = expectDefined(parts[1]);
     const branch = 'main';
     const baseTreeSha = this.state?.sha;
 
@@ -129,8 +138,8 @@ export class CloudSync {
     if (!cfg?.enabled) return { ok: false, action: 'pull', categories: [], message: 'Not enabled.' };
 
     const pullParts = cfg.repo.split('/');
-    const owner = pullParts[0]!;
-    const repoName = pullParts[1]!;
+    const owner = expectDefined(pullParts[0]);
+    const repoName = expectDefined(pullParts[1]);
 
     const branchData = await this.getRef(token, owner, repoName, 'main');
     const currentSha = branchData.object.sha;
@@ -208,10 +217,10 @@ export class CloudSync {
     repo: string,
     method: 'GET' | 'POST' | 'PUT' | 'PATCH',
     pathSegment: string,
-    body?: unknown,
+    body?: unknown | undefined,
   ): Promise<unknown> {
     const url = `https://api.github.com/repos/${owner}/${repo}${pathSegment}`;
-    const res = await fetch(url, {
+    const init: RequestInit = {
       signal: AbortSignal.timeout(15_000),
       method,
       headers: {
@@ -220,8 +229,9 @@ export class CloudSync {
         'X-GitHub-Api-Version': '2022-11-28',
         'Content-Type': 'application/json',
       },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
+    };
+    if (body !== undefined) init.body = JSON.stringify(body);
+    const res = await fetch(url, init);
 
     if (!res.ok) {
       const errText = await res.text();
@@ -262,7 +272,7 @@ export class CloudSync {
 
   private async createCommit(
     token: string, owner: string, repo: string,
-    treeSha: string, parentSha?: string, message = 'sync',
+    treeSha: string, parentSha?: string | undefined, message = 'sync',
   ) {
     const body: Record<string, unknown> = { message, tree: treeSha };
     if (parentSha) body.parents = [parentSha];
@@ -273,7 +283,7 @@ export class CloudSync {
   private async createGitTree(
     token: string, owner: string, repo: string,
     entries: Array<{ path: string; content: string; mode: string }>,
-    baseTreeSha?: string,
+    baseTreeSha?: string | undefined,
   ): Promise<string> {
     const tree = entries.map((e) => ({
       path: e.path,

@@ -53,10 +53,10 @@ export function CheckpointTimeline({
           const label = `[${cp.promptIndex}] ${cp.promptPreview}`;
           return (
             <Box key={cp.promptIndex}>
-              <Text color={isSelected ? 'cyan' : undefined} bold={isSelected}>
+              <Text bold={isSelected} {...(isSelected ? { color: 'cyan' } : {})}>
                 {isSelected ? '▸ ' : '  '}
               </Text>
-              <Text color={isSelected ? 'cyan' : undefined} bold={isSelected}>
+              <Text bold={isSelected} {...(isSelected ? { color: 'cyan' } : {})}>
                 {label}
               </Text>
               <Text dimColor> {new Date(cp.ts).toLocaleTimeString()}</Text>

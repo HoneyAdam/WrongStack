@@ -27,11 +27,11 @@ export interface JournalEntry {
   /** Outcome status. */
   status: 'success' | 'failure' | 'aborted' | 'skipped';
   /** Optional free-form note (error message, summary, etc.). */
-  note?: string;
+  note?: string | undefined;
   /** Optional token usage delta for this iteration. */
-  tokens?: { input: number; output: number };
+  tokens?: { input: number; output: number } | undefined;
   /** Optional USD cost delta for this iteration (provider-estimated). */
-  costUsd?: number;
+  costUsd?: number | undefined;
 }
 
 export interface GoalFile {
@@ -58,7 +58,7 @@ export interface GoalFile {
    * Optional for backward compatibility — pre-existing `goal.json` files
    * without this field load as `active`.
    */
-  goalState?: 'active' | 'paused' | 'completed' | 'abandoned';
+  goalState?: 'active' | 'paused' | 'completed' | 'abandoned' | undefined;
   /**
    * Per-todo attempt counter. Keyed by TodoItem id. Used by the engine
    * to skip a todo that has failed N times rather than spinning on it

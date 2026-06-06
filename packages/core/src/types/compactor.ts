@@ -28,9 +28,9 @@ export interface CompactReport {
    */
   fullRequestTokensAfter: number;
   reductions: { phase: 'elision' | 'summary' | 'selective'; saved: number }[];
-  repaired?: CompactRepairReport;
+  repaired?: CompactRepairReport | undefined;
 }
 
 export interface Compactor {
-  compact(ctx: Context, opts?: { aggressive?: boolean }): Promise<CompactReport>;
+  compact(ctx: Context, opts?: { aggressive?: boolean | undefined }): Promise<CompactReport>;
 }

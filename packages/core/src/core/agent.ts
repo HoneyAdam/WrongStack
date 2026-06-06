@@ -98,16 +98,13 @@ export class Agent {
     return this.container.resolve(TOKENS.PermissionPolicy);
   }
   get renderer(): Renderer | undefined {
-    return this.container.has(TOKENS.Renderer)
-      ? this.container.resolve(TOKENS.Renderer)
-      : undefined;
+    return this.container.safeResolve(TOKENS.Renderer);
   }
 
   disableInteractiveConfirmation(): void {
     this.toolExecutor.clearConfirmAwaiter();
-    const policy = this.permission as unknown as { setPromptDelegate?: (d: undefined) => void };
-    if (typeof policy.setPromptDelegate === 'function') {
-      policy.setPromptDelegate(undefined);
+    if (typeof this.permission.setPromptDelegate === 'function') {
+      this.permission.setPromptDelegate(undefined);
     }
   }
 
@@ -142,6 +139,15 @@ export class Agent {
     this.ctx.signal = signal;
     controller.onAbort(() => this.ctx.drainAbortHooks());
 
+    // Refresh the live context's tool mirror from the registry. The provider
+    // request reads `this.tools.list()` directly, but `ctx.tools` is a separate
+    // convenience snapshot — the one tools introspect (tool_search, tool-help,
+    // vision adapters) and request-token estimation reads. The Context is
+    // constructed before MCP / plugin / fleet tools register, so without this
+    // refresh `ctx.tools` stays empty and tool_search reports zero tools.
+    // Using the agent's own registry keeps filtered subagent rosters correct.
+    this.ctx.tools = this.tools.list();
+
     const span = this.tracer?.startSpan('agent.run', {
       'agent.model': opts.model ?? this.ctx.model,
       'agent.executionStrategy': opts.executionStrategy ?? this.executionStrategy,
@@ -161,7 +167,10 @@ export class Agent {
       return result;
     } catch (err) {
       const wse = err instanceof AgentError ? err : toWrongStackError(err);
-      this.events.emit('error', { err: err instanceof Error ? err : new Error(String(err)), phase: 'agent' });
+      const safeError = err instanceof Error
+        ? new Error(err.message)
+        : new Error(String(err));
+      this.events.emit('error', { err: safeError, phase: 'agent', _original: err instanceof Error ? err : undefined });
       if (err instanceof Error) span?.recordError(err);
       span?.setAttribute('agent.status', 'failed');
       const result: RunResult = {

@@ -65,7 +65,7 @@ export function AssistantBody({
   text: string;
   termWidth: number;
   /** Real inner width of the surrounding panel. Defaults to `termWidth`. */
-  contentWidth?: number;
+  contentWidth?: number | undefined;
 }): React.ReactElement {
   const segments = splitFencedBlocks(text);
   const inner = contentWidth ?? termWidth;

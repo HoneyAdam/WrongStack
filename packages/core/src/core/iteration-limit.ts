@@ -7,7 +7,7 @@ export interface RequestLimitExtensionOptions {
   /** When true (default), auto-grant 100 extra after giving listeners a tick to deny. */
   autoExtend: boolean;
   /** Timeout in ms before falling back to "0 extra" if no listener responds. */
-  timeoutMs?: number;
+  timeoutMs?: number | undefined;
 }
 
 /**

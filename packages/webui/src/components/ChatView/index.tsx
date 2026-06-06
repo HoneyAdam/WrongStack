@@ -30,6 +30,15 @@ import { ScrollArea } from '../ui/scroll-area';
 import { fmtTok } from './utils.js';
 import { ThinkingBubble } from './ThinkingBubble.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export function ChatView() {
   const { messages, isLoading } = useChatStore();
   const setPaletteOpen = useUIStore((s) => s.setPaletteOpen);
@@ -365,7 +374,7 @@ export function ChatView() {
                 | { kind: 'tools'; tools: ChatMessage[]; key: string };
               const groups: Group[] = [];
               for (let i = 0; i < messages.length; i++) {
-                const m = messages[i]!;
+                const m = expectDefined(messages[i]);
                 if (m.role === 'tool') {
                   const last = groups[groups.length - 1];
                   if (last && last.kind === 'tools') {
@@ -419,12 +428,12 @@ export function ChatView() {
               };
               const turnTs = (t: Turn): number => {
                 if (t.kind === 'user') return t.message.timestamp;
-                const first = t.items[0]!;
-                return first.kind === 'msg' ? first.message.timestamp : first.tools[0]!.timestamp;
+                const first = expectDefined(t.items[0]);
+                return first.kind === 'msg' ? first.message.timestamp : first.tools[0]?.timestamp;
               };
               const out: ReactNode[] = [];
               for (let idx = 0; idx < turns.length; idx++) {
-                const t = turns[idx]!;
+                const t = expectDefined(turns[idx]);
                 const ts = turnTs(t);
                 const day = dayKey(ts);
                 if (day !== prevDay) {

@@ -17,7 +17,7 @@ import type { UpdateInfo } from './update-check.js';
 const NOTICE_FMT = `\n  \x1b[33m↑ Update available: v%s → v%s\x1b[0m  Run \`wrongstack update\` to upgrade.\n\n`;
 
 export async function printUpdateNotice(
-  initialUpdateInfo?: UpdateInfo,
+  initialUpdateInfo?: UpdateInfo | undefined,
 ): Promise<UpdateInfo | undefined> {
   let info = initialUpdateInfo;
   if (!info?.outdated) {

@@ -29,7 +29,7 @@ import type { TaskTracker } from './task-tracker.js';
 
 export interface SddTaskDecomposerOptions {
   /** Max tasks per batch. Default: 4. Range 1–16. */
-  parallelSlots?: number;
+  parallelSlots?: number | undefined;
 }
 
 export interface TaskBatch {

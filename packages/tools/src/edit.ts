@@ -19,7 +19,7 @@ interface EditInput {
    * if more than one match exists — use this to ensure you target the
    * right location.
    */
-  replace_all?: boolean;
+  replace_all?: boolean | undefined;
 }
 
 interface EditOutput {

@@ -8,9 +8,9 @@ import { safeResolve } from './_util.js';
 
 interface PatchInput {
   patch: string;
-  directory?: string;
-  strip?: number;
-  dry_run?: boolean;
+  directory?: string | undefined;
+  strip?: number | undefined;
+  dry_run?: boolean | undefined;
 }
 
 interface PatchOutput {

@@ -24,17 +24,17 @@ export interface BridgeMessage<T = unknown> {
   id: string;
   type: BridgeMessageType;
   from: string;
-  to?: string;
+  to?: string | undefined;
   payload: T;
   timestamp: number;
-  priority?: 'low' | 'normal' | 'high' | 'critical';
+  priority?: 'low' | 'normal' | 'high' | 'critical' | undefined;
 }
 
 export interface AgentBridgeConfig {
   agentId: string;
   coordinatorId: string;
-  timeoutMs?: number;
-  bufferSize?: number;
+  timeoutMs?: number | undefined;
+  bufferSize?: number | undefined;
 }
 
 export interface AgentBridge {
@@ -44,7 +44,7 @@ export interface AgentBridge {
   send(msg: BridgeMessage): Promise<void>;
   broadcast(msg: BridgeMessage): Promise<void>;
   subscribe(handler: (msg: BridgeMessage) => void | Promise<void>): () => void;
-  request<T>(msg: BridgeMessage, timeoutMs?: number): Promise<BridgeMessage<T>>;
+  request<T>(msg: BridgeMessage, timeoutMs?: number): Promise<BridgeMessage<T>> | undefined;
   stop(): Promise<void>;
 }
 

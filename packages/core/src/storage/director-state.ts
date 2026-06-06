@@ -12,24 +12,24 @@ import { atomicWrite } from '../utils/atomic-write.js';
  */
 export interface DirectorSubagentState {
   id: string;
-  name?: string;
-  role?: string;
-  provider?: string;
-  model?: string;
+  name?: string | undefined;
+  role?: string | undefined;
+  provider?: string | undefined;
+  model?: string | undefined;
   spawnedAt: string;
 }
 
 export interface DirectorTaskState {
   taskId: string;
-  subagentId?: string;
-  description?: string;
+  subagentId?: string | undefined;
+  description?: string | undefined;
   status: 'pending' | 'running' | 'completed' | 'failed' | 'stopped' | 'timeout';
-  assignedAt?: string;
-  completedAt?: string;
-  iterations?: number;
-  toolCalls?: number;
-  durationMs?: number;
-  error?: string;
+  assignedAt?: string | undefined;
+  completedAt?: string | undefined;
+  iterations?: number | undefined;
+  toolCalls?: number | undefined;
+  durationMs?: number | undefined;
+  error?: string | undefined;
 }
 
 export interface DirectorStateSnapshot {
@@ -37,16 +37,16 @@ export interface DirectorStateSnapshot {
   directorRunId: string;
   updatedAt: string;
   spawnCount: number;
-  maxSpawns?: number;
+  maxSpawns?: number | undefined;
   spawnDepth: number;
   maxSpawnDepth: number;
   directorBudget?: {
-    maxCostUsd?: number;
-  };
+    maxCostUsd?: number | undefined;
+  } | undefined;
   subagents: DirectorSubagentState[];
   tasks: DirectorTaskState[];
   /** Aggregated usage snapshot. Optional — populated by the Director on save when available. */
-  usage?: unknown;
+  usage?: unknown | undefined;
 }
 
 export async function loadDirectorState(filePath: string): Promise<DirectorStateSnapshot | null> {
@@ -154,12 +154,12 @@ export class DirectorStateCheckpoint {
     filePath: string,
     init: {
       directorRunId: string;
-      maxSpawns?: number;
+      maxSpawns?: number | undefined;
       spawnDepth: number;
       maxSpawnDepth: number;
       directorBudget?: {
-        maxCostUsd?: number;
-      };
+        maxCostUsd?: number | undefined;
+      } | undefined;
     },
     debounceMs = 250,
   ) {

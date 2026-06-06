@@ -86,7 +86,7 @@ function renderDiffLine(line: string): React.ReactElement {
         ? 'cyan'
         : undefined;
   return (
-    <Text key={line} color={prefix}>
+    <Text key={line} {...(prefix ? { color: prefix } : {})}>
       {line}
       {'\n'}
     </Text>
@@ -135,7 +135,7 @@ export function ConfirmPrompt({
 
   const inputSummary = stringifyInput(input);
   const showDiff = hasDiff(input);
-  const inp = input as { diff?: unknown };
+  const inp = input as { diff?: unknown | undefined };
   const diff = typeof inp?.diff === 'string' ? inp.diff : '';
 
   // NOTE: no marginY here — the call site wraps this in a measured Box that

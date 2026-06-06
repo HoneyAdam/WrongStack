@@ -9,10 +9,19 @@ import { color } from '@wrongstack/core';
 import type { Config, MCPServerConfig } from '@wrongstack/core';
 import type { MCPRegistry } from '@wrongstack/mcp';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export interface McpParsedArgs {
   action: 'list' | 'add' | 'remove' | 'enable' | 'disable' | 'restart';
   name: string;
-  enable?: boolean;
+  enable?: boolean | undefined;
 }
 
 /** Parse "/mcp add github --enable" style args. Returns null on unknown/missing subcommand. */
@@ -21,7 +30,7 @@ export function parseMcpArgs(args: string): McpParsedArgs | null {
   if (!trimmed || trimmed === 'list') return { action: 'list', name: '' };
 
   const parts = trimmed.split(/\s+/);
-  const action = parts[0]!;
+  const action = expectDefined(parts[0]);
   const name = parts[1] ?? '';
   const enable = parts.includes('--enable') || parts.includes('-e');
 
@@ -216,7 +225,7 @@ async function runEnable(
   const mcpServers: Record<string, MCPServerConfig> = {
     ...((full.mcpServers as Record<string, MCPServerConfig> | undefined) ?? {}),
   };
-  mcpServers[name] = { ...mcpServers[name]!, enabled: true };
+  mcpServers[name] = { ...cfg, ...(mcpServers[name] ?? {}), enabled: true };
   full.mcpServers = mcpServers;
   await writeConfig(configPath, full);
   try {
@@ -242,7 +251,7 @@ async function runDisable(
   const mcpServers: Record<string, MCPServerConfig> = {
     ...((full.mcpServers as Record<string, MCPServerConfig> | undefined) ?? {}),
   };
-  mcpServers[name] = { ...mcpServers[name]!, enabled: false };
+  mcpServers[name] = { ...cfg, ...(mcpServers[name] ?? {}), enabled: false };
   full.mcpServers = mcpServers;
   await writeConfig(configPath, full);
   return `${color.yellow('Disabled')} "${name}" and stopped.`;

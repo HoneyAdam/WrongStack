@@ -8,8 +8,8 @@ interface ToolUseInput {
 interface ToolUseOutput {
   tool: string;
   success: boolean;
-  result?: unknown;
-  error?: string;
+  result?: unknown | undefined;
+  error?: string | undefined;
   executionMs: number;
 }
 

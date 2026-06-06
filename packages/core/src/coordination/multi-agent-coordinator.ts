@@ -24,10 +24,10 @@ interface SubagentEntry {
   config: SubagentConfig;
   context: SubagentContext;
   status: SubagentStatus;
-  currentTask?: string;
+  currentTask?: string | undefined;
   abortController: AbortController;
   /** Lazily created on first dispatch — budget is per-task, not per-subagent. */
-  activeBudget?: SubagentBudget;
+  activeBudget?: SubagentBudget | undefined;
 }
 
 export interface MultiAgentCoordinatorOptions {
@@ -37,14 +37,14 @@ export interface MultiAgentCoordinatorOptions {
    * The coordinator provides per-subagent isolation (own budget, own signal,
    * own bridge) and enforces timeout + concurrency.
    */
-  runner?: SubagentRunner;
+  runner?: SubagentRunner | undefined;
 }
 
 export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiAgentCoordinator {
   readonly coordinatorId: string;
   readonly config: MultiAgentConfig;
-  private runner?: SubagentRunner;
-  private fleetBus?: import('./fleet-bus.js').FleetBus;
+  private runner?: SubagentRunner | undefined;
+  private fleetBus?: import('./fleet-bus.js').FleetBus | undefined;
 
   private readonly subagents = new Map<string, SubagentEntry>();
 
@@ -411,7 +411,8 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
 
   private takeNextDispatchableTask(): { subagentId: string; task: TaskSpec } | null {
     for (let i = 0; i < this.pendingTasks.length; i++) {
-      const task = this.pendingTasks[i]!;
+      const task = this.pendingTasks[i];
+      if (!task) continue;
       const subagentId = task.subagentId
         ? this.isIdleSubagent(task.subagentId)
           ? task.subagentId
@@ -698,7 +699,7 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
         // negotiable; the point of the default is to free a stuck slot.
         if (idleExceeded && !wallExceeded) {
           this.subagents.get(ctx.subagentId)?.abortController.abort();
-          reject(new BudgetExceededError('timeout', idleLimit!, budget.idleMs()));
+          reject(new BudgetExceededError('timeout', idleLimit ?? 0, budget.idleMs()));
           return;
         }
         // Neither deadline actually tripped — we woke early because activity
@@ -711,7 +712,7 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
         // Wall-clock cap hit. This is opt-in and keeps the original
         // soft-warning behaviour: negotiate an extension rather than
         // hard-killing a task solely for running long.
-        const limit = wallLimit!;
+        const limit = wallLimit ?? 0;
         // Without an onThreshold handler the original behaviour stands:
         // abort the signal and hard-reject. This preserves the contract
         // for direct SubagentBudget consumers that don't wire negotiation.

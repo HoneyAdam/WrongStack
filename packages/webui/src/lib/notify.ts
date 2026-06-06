@@ -38,7 +38,7 @@ export async function ensureNotificationPermission(): Promise<
   }
 }
 
-export function notifyIfHidden(title: string, body?: string, tag?: string): void {
+export function notifyIfHidden(title: string, body?: string | undefined, tag?: string): void {
   if (typeof document === 'undefined' || !document.hidden) return;
   if (permissionState !== 'granted') return;
   try {

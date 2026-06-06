@@ -14,10 +14,10 @@ export function PreferenceToggle({
   configKey,
 }: {
   label: string;
-  hint?: string;
+  hint?: string | undefined;
   selector: ((s: ReturnType<typeof useUIStore.getState>) => boolean) | null;
-  onChange?: () => void;
-  configKey?: 'soundOnComplete';
+  onChange?: (() => void) | undefined;
+  configKey?: 'soundOnComplete' | undefined;
 }) {
   const uiVal = useUIStore((s) => (selector ? selector(s) : false));
   const cfgVal = useConfigStore((s) => (configKey ? (s[configKey] as boolean) : false));

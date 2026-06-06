@@ -3,9 +3,18 @@ import type { SlashCommand, Context } from '../index.js';
 import { DefaultPromptStore } from '../storage/prompt-store.js';
 import type { WstackPaths } from '../utils/wstack-paths.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 interface PromptsPluginOptions {
-  store?: DefaultPromptStore;
-  paths?: WstackPaths;
+  store?: DefaultPromptStore | undefined;
+  paths?: WstackPaths | undefined;
 }
 
 /**
@@ -75,7 +84,7 @@ function buildPromptsCommand(store: DefaultPromptStore | null): SlashCommand {
           if (!restJoined) return { message: 'Usage: /prompts view <title>' };
           const matches = await store.find(restJoined);
           if (matches.length === 0) return { message: `No prompt matching "${restJoined}".` };
-          const entry = matches.find((m) => m.title.toLowerCase() === restJoined.toLowerCase()) ?? matches[0]!;
+          const entry = matches.find((m) => m.title.toLowerCase() === restJoined.toLowerCase()) ?? expectDefined(matches[0]);
           const tags = entry.tags.length > 0 ? ` [${entry.tags.join(', ')}]` : '';
           return {
             message: `# ${entry.title}${tags}\n\n${entry.content}\n\n${dim(`id: ${entry.id} | created: ${entry.createdAt}`)}`,
@@ -96,7 +105,7 @@ function buildPromptsCommand(store: DefaultPromptStore | null): SlashCommand {
           if (!restJoined) return { message: 'Usage: /prompts delete <title>' };
           const matches = await store.find(restJoined);
           if (matches.length === 0) return { message: `No prompt matching "${restJoined}".` };
-          const exact = matches.find((m) => m.title.toLowerCase() === restJoined.toLowerCase()) ?? matches[0]!;
+          const exact = matches.find((m) => m.title.toLowerCase() === restJoined.toLowerCase()) ?? expectDefined(matches[0]);
           const deleted = await store.delete(exact.id);
           return { message: deleted ? `Deleted "${exact.title}".` : 'Delete failed.' };
         }
@@ -107,7 +116,7 @@ function buildPromptsCommand(store: DefaultPromptStore | null): SlashCommand {
           if (!parsed.title) return { message: 'Usage: /prompts edit "title" "new content"' };
           const matches = await store.find(parsed.title);
           if (matches.length === 0) return { message: `No prompt matching "${parsed.title}".` };
-          const exact = matches.find((m) => m.title.toLowerCase() === parsed.title!.toLowerCase()) ?? matches[0]!;
+          const exact = matches.find((m) => m.title.toLowerCase() === parsed.title?.toLowerCase()) ?? expectDefined(matches[0]);
           exact.content = parsed.content;
           exact.updatedAt = new Date().toISOString();
           await store.save(exact);
@@ -120,11 +129,11 @@ function buildPromptsCommand(store: DefaultPromptStore | null): SlashCommand {
           if (!parsed.title) return { message: 'Usage: /prompts extend "title" <instructions>' };
           const matches = await store.find(parsed.title);
           if (matches.length === 0) return { message: `No prompt matching "${parsed.title}".` };
-          const exact = matches.find((m) => m.title.toLowerCase() === parsed.title!.toLowerCase()) ?? matches[0]!;
+          const exact = matches.find((m) => m.title.toLowerCase() === parsed.title?.toLowerCase()) ?? expectDefined(matches[0]);
 
           // ctx.provider is the Provider instance. Cast through unknown for the simple text-in/text-out interface.
           const prov = ctx.provider as unknown as {
-            complete?: (model: string, text: string) => Promise<string>;
+            complete?: (model: string | undefined, text: string) => Promise<string>;
           };
           if (!prov?.complete) return { message: 'LLM not available. Configure a provider first.' };
 
@@ -159,9 +168,9 @@ function parseTitleContent(args: string): { title: string; content: string } {
   if (!trimmed) return { title: '', content: '' };
   const doubleMatch =
     /^"([^"]+)"\s+"([^"]+)"$/.exec(trimmed) || /^'([^']+)'\s+'([^']+)'$/.exec(trimmed);
-  if (doubleMatch) return { title: doubleMatch[1]!, content: doubleMatch[2]! };
+  if (doubleMatch) return { title: expectDefined(doubleMatch[1]), content: expectDefined(doubleMatch[2]) };
   const singleMatch = /^'([^']+)'\s+(.+)$/.exec(trimmed);
-  if (singleMatch) return { title: singleMatch[1]!, content: singleMatch[2]! };
+  if (singleMatch) return { title: expectDefined(singleMatch[1]), content: expectDefined(singleMatch[2]) };
   const firstSpace = trimmed.indexOf(' ');
   if (firstSpace === -1) return { title: trimmed, content: '' };
   return { title: trimmed.slice(0, firstSpace), content: trimmed.slice(firstSpace + 1) };

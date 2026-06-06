@@ -30,7 +30,7 @@ const TYPE_ICON: Record<TaskNode['type'], string> = {
 /**
  * Render a task graph as ASCII art for terminal display.
  */
-export function renderTaskGraph(graph: TaskGraph, opts?: { compact?: boolean }): string {
+export function renderTaskGraph(graph: TaskGraph, opts?: { compact?: boolean | undefined }): string {
   const lines: string[] = [];
   const compact = opts?.compact ?? false;
 

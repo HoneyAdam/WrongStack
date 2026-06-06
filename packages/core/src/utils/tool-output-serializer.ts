@@ -4,8 +4,8 @@
  */
 
 export interface ToolOutputSerializerOptions {
-  perIterationOutputCapBytes?: number;
-  estimator?: (text: string) => number;
+  perIterationOutputCapBytes?: number | undefined;
+  estimator?: ((text: string) => number) | undefined;
 }
 
 export function createToolOutputSerializer(opts: ToolOutputSerializerOptions = {}) {

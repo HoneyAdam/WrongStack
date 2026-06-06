@@ -10,7 +10,7 @@ export interface CacheStats {
 }
 
 export interface TokenCounter {
-  account(usage: Usage, model?: string): void;
+  account(usage: Usage, model?: string): void | undefined;
   /**
    * Tokens from the most recently-accounted request (input + cacheRead).
    * Use this for per-request context pressure tracking (e.g. status bar

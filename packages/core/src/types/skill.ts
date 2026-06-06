@@ -1,7 +1,7 @@
 export interface SkillManifest {
   name: string;
   description: string;
-  version?: string;
+  version?: string | undefined;
   path: string;
   source: 'project' | 'user' | 'bundled';
 }

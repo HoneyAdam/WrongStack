@@ -18,6 +18,15 @@ import { ThemeProvider, useTheme } from './components/ThemeProvider';
 import { Toaster } from './components/Toaster';
 import { TodosPanel } from './components/TodosPanel';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 function AppInner() {
   const { theme } = useTheme();
   const { currentView, sidebarOpen, toggleSidebar, setSearchOpen, setSidebarOpen } = useUIStore();
@@ -168,12 +177,12 @@ function AppInner() {
         }
         if (e.key === 'g' && !e.shiftKey) {
           e.preventDefault();
-          focusBubble(bubbles[0]!);
+          focusBubble(expectDefined(bubbles[0]));
           return;
         }
         if (e.key === 'G' || (e.key === 'g' && e.shiftKey)) {
           e.preventDefault();
-          focusBubble(bubbles[bubbles.length - 1]!);
+          focusBubble(expectDefined(bubbles[bubbles.length - 1]));
           return;
         }
         if (e.key === 'Escape' && current) {

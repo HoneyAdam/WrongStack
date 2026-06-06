@@ -16,11 +16,17 @@ function findTodo(
   }
   // Try exact id match
   const byId = todos.findIndex((t) => t.id === query);
-  if (byId >= 0) return { idx: byId, item: todos[byId] };
+  if (byId >= 0) {
+    const item = todos[byId];
+    if (item) return { idx: byId, item };
+  }
   // Fall through to case-insensitive substring
   const q = query.toLowerCase();
   const byContent = todos.findIndex((t) => t.content.toLowerCase().includes(q));
-  if (byContent >= 0) return { idx: byContent, item: todos[byContent] };
+  if (byContent >= 0) {
+    const item = todos[byContent];
+    if (item) return { idx: byContent, item };
+  }
   return null;
 }
 

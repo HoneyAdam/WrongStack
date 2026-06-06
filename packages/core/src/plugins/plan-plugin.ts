@@ -17,7 +17,7 @@ import type { SlashCommand, Context } from '../index.js';
 import type { WstackPaths } from '../utils/wstack-paths.js';
 
 interface PlanPluginOptions {
-  paths?: WstackPaths;
+  paths?: WstackPaths | undefined;
 }
 
 /**

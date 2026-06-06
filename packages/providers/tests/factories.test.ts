@@ -79,6 +79,19 @@ describe('buildProviderFactoriesFromRegistry', () => {
     expect(provider.id).toBe('groq');
   });
 
+  it('rejects invalid compatibility quirks', async () => {
+    const registry = makeRegistry();
+    const factories = await buildProviderFactoriesFromRegistry({ registry });
+    const f = factories.find((x) => x.type === 'groq');
+    expect(() =>
+      f!.create({
+        type: 'groq',
+        apiKey: 'gsk-test',
+        quirks: { unknownField: true },
+      }),
+    ).toThrow(/Invalid quirks/);
+  });
+
   it('google factory builds a GoogleProvider', async () => {
     const registry = makeRegistry();
     const factories = await buildProviderFactoriesFromRegistry({ registry });

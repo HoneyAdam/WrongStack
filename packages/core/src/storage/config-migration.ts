@@ -32,7 +32,7 @@ export interface ConfigMigration {
   /** Pure transform — no I/O. */
   migrate(input: Record<string, unknown>, ctx: MigrationContext): Record<string, unknown>;
   /** Optional human-readable description for migration logs / banners. */
-  describe?: string;
+  describe?: string | undefined;
 }
 
 export interface MigrationResult {

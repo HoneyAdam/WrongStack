@@ -19,7 +19,7 @@ export interface RuntimeHost {
   providers: ProviderRegistry;
   slashCommands: SlashCommandRegistry;
   session: SessionWriter;
-  extensions?: ExtensionRegistry;
+  extensions?: ExtensionRegistry | undefined;
   shutdown(): Promise<void>;
 }
 
@@ -31,8 +31,8 @@ export interface RuntimeHostParts {
   providers: ProviderRegistry;
   slashCommands: SlashCommandRegistry;
   session: SessionWriter;
-  extensions?: ExtensionRegistry;
-  shutdown?: () => void | Promise<void>;
+  extensions?: ExtensionRegistry | undefined;
+  shutdown?: (() => void | Promise<void>) | undefined;
 }
 
 export function createRuntimeHostFromParts(parts: RuntimeHostParts): RuntimeHost {
@@ -52,8 +52,8 @@ export function createRuntimeHostFromParts(parts: RuntimeHostParts): RuntimeHost
 }
 
 export interface ApplyPackOptions {
-  owner?: string;
-  api?: PluginAPI;
+  owner?: string | undefined;
+  api?: PluginAPI | undefined;
 }
 
 export interface AppliedPack {
@@ -64,7 +64,7 @@ export interface AppliedPack {
 
 export async function applyWrongStackPack(
   host: Pick<RuntimeHost, 'tools' | 'providers' | 'slashCommands'> & {
-    extensions?: ExtensionRegistry;
+    extensions?: ExtensionRegistry | undefined;
   },
   pack: WrongStackPack,
   opts: ApplyPackOptions = {},
@@ -112,7 +112,7 @@ export async function applyWrongStackPack(
 
 export async function applyWrongStackPacks(
   host: Pick<RuntimeHost, 'tools' | 'providers' | 'slashCommands'> & {
-    extensions?: ExtensionRegistry;
+    extensions?: ExtensionRegistry | undefined;
   },
   packs: readonly WrongStackPack[],
   opts: ApplyPackOptions = {},

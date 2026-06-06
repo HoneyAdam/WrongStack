@@ -28,7 +28,7 @@ function runGit(args: string[], cwd?: string): string {
       maxBuffer: 10 * 1024 * 1024,
     }).trim();
   } catch (err: unknown) {
-    const e = err as { message?: string; stderr?: string };
+    const e = err as { message?: string | undefined; stderr?: string | undefined };
     throw new Error(`git command failed: ${e.message ?? e.stderr ?? String(err)}`);
   }
 }
@@ -61,7 +61,7 @@ function commitWithMessage(message: string, cwd?: string): string {
   return runGit(['commit', '-m', message], cwd);
 }
 
-function getCommitHistory(since?: string, cwd?: string): Array<{ hash: string; message: string; type: ConventionalType }> {
+function getCommitHistory(since?: string, cwd?: string): Array<{ hash: string | undefined; message: string; type: ConventionalType }> {
   const range = since ? `${since}..HEAD` : '-10';
   const output = runGit(['log', range, '--format=%H %s'], cwd);
   if (!output) return [];
@@ -84,7 +84,7 @@ function generateCommitMessage(
   type: ConventionalType,
   scope: string | undefined,
   summary: string,
-  body?: string,
+  body?: string | undefined,
 ): string {
   const scopePart = scope ? `(${scope})` : '';
   const footer = body ? `\n\n${body}` : '';
@@ -311,7 +311,7 @@ const plugin: Plugin = {
         try { changed = getChangedFiles(); } catch { /* ignore */ }
         try { staged = getStagedFiles(); } catch { /* ignore */ }
         try { aheadBehind = runGit(['status', '-sb']).split('\n')[0] ?? ''; } catch { /* ignore */ }
-        try { recentCommits.push(...getCommitHistory('-3', undefined).map((c) => ({ hash: c.hash.slice(0, 7), message: c.message }))); } catch { /* ignore */ }
+        try { recentCommits.push(...getCommitHistory('-3', undefined).map((c) => ({ hash: (c.hash ?? '').slice(0, 7), message: c.message }))); } catch { /* ignore */ }
 
         return {
           ok: true,

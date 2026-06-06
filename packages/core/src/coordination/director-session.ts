@@ -30,14 +30,14 @@ export interface DirectorSessionFactoryOptions {
    * director run directory. Tests pass an in-memory store for isolation;
    * production code passes the path under `~/.wrongstack/sessions/`.
    */
-  store?: SessionStore;
-  sessionsRoot?: string;
+  store?: SessionStore | undefined;
+  sessionsRoot?: string | undefined;
   /**
    * Director run id — namespaces all subagent JSONLs under one folder.
    * Defaults to a timestamped id; supplied explicitly when resuming a
    * prior fleet manifest.
    */
-  directorRunId?: string;
+  directorRunId?: string | undefined;
 }
 
 export interface DirectorSessionFactory {
@@ -52,9 +52,9 @@ export interface DirectorSessionFactory {
    */
   createSubagentSession(args: {
     subagentId: string;
-    provider?: string;
-    model?: string;
-    title?: string;
+    provider?: string | undefined;
+    model?: string | undefined;
+    title?: string | undefined;
   }): Promise<SessionWriter>;
 }
 

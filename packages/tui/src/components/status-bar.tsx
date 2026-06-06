@@ -5,6 +5,15 @@ import { useEffect, useState } from 'react';
 import type { GitInfo } from '../git-info.js';
 import { theme } from '../theme.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 // ─── Mode icon map ───────────────────────────────────────────────────────────
 
 /** Map mode ids to compact icons for the status bar chip. */
@@ -85,16 +94,16 @@ export interface FleetAgentDetail {
   /** True when the subagent is actively iterating. */
   running: boolean;
   /** Current/last tool the subagent invoked, shown as its live action. */
-  tool?: string;
+  tool?: string | undefined;
   /** Cumulative budget auto-extensions granted — rendered as "⚡×N". */
-  extensions?: number;
+  extensions?: number | undefined;
 }
 
 export interface BrainStatusChip {
   state: 'idle' | 'deciding' | 'answered' | 'ask_human' | 'denied';
-  source?: string;
-  risk?: 'low' | 'medium' | 'high' | 'critical';
-  summary?: string;
+  source?: string | undefined;
+  risk?: 'low' | 'medium' | 'high' | 'critical' | undefined;
+  summary?: string | undefined;
 }
 
 export interface ContextWindow {
@@ -111,80 +120,80 @@ export interface StatusBarProps {
    * `WS v0.7.0` chip at the head of line 1 so the running build is always
    * visible, not just in the startup banner.
    */
-  version?: string;
+  version?: string | undefined;
   state: 'idle' | 'running' | 'streaming' | 'aborting';
-  tokenCounter?: TokenCounter;
-  hint?: string;
-  queueCount?: number;
-  yolo?: boolean;
+  tokenCounter?: TokenCounter | undefined;
+  hint?: string | undefined;
+  queueCount?: number | undefined;
+  yolo?: boolean | undefined;
   /** Session start timestamp (ms). Elapsed time is computed internally on
    *  the same interval as the spinner so the display stays live without
    *  forcing a full App tree re-render every second. */
-  startedAt?: number;
-  todos?: TodoCounts;
+  startedAt?: number | undefined;
+  todos?: TodoCounts | undefined;
   /**
    * Plan board counts surfaced as a chip on line 2. Distinct from
    * `todos` — plans are higher-level and persist across resume; the
    * chip uses a different glyph (📋) so the user can tell them apart
    * at a glance.
    */
-  plan?: PlanCounts;
+  plan?: PlanCounts | undefined;
   /**
    * Per-status fleet breakdown. When provided, takes precedence over
    * `subagentCount` for chip rendering. `subagentCount` is kept for
    * backwards compatibility when callers haven't wired the richer
    * breakdown yet.
    */
-  fleet?: FleetCounts;
+  fleet?: FleetCounts | undefined;
   /**
    * Optional per-agent detail row (up to ~4 agents). Renders below the
    * aggregate fleet chip on a dedicated 4th line so the user can see
    * which specific agent is burning time/tools right now without
    * scrolling history.
    */
-  fleetAgents?: FleetAgentDetail[];
-  git?: GitInfo | null;
-  subagentCount?: number;
+  fleetAgents?: FleetAgentDetail[] | undefined;
+  git?: GitInfo | null | undefined;
+  subagentCount?: number | undefined;
   /** Renders the "ctx ████░░ 42%" chip on line 1 when present. */
-  context?: ContextWindow;
+  context?: ContextWindow | undefined;
   /** Live Brain arbiter state, shown as a compact work chip when active/recent. */
-  brain?: BrainStatusChip;
+  brain?: BrainStatusChip | undefined;
   /**
    * Project / working-folder name. Rendered on line 2 just before the git
    * branch so users running multiple WrongStack windows can tell at a
    * glance which repo each one is pinned to. Usually the basename of
    * `agent.ctx.projectRoot`.
    */
-  projectName?: string;
+  projectName?: string | undefined;
   /** Autonomy mode chip: 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel'. */
-  autonomy?: 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel';
+  autonomy?: 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel' | undefined;
   /** Number of tracked bash/exec processes from the process registry. */
-  processCount?: number;
+  processCount?: number | undefined;
   /** Items to hide from the status bar. */
-  hiddenItems?: Array<'todos' | 'plan' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost'>;
+  hiddenItems?: Array<'todos' | 'plan' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost'> | undefined;
   /**
    * Live iteration stage from the active autonomy engine. When set, renders
    * a chip like `⏸ decide` or `▶ execute(todo:fix-auth)` next to the
    * autonomy chip on line 2.
    */
-  eternalStage?: AutonomyStage | null;
+  eternalStage?: AutonomyStage | null | undefined;
   /** Active goal summary for startup banner display. */
   goalSummary?: {
     goal: string;
     goalState: 'active' | 'paused' | 'completed' | 'abandoned';
     iterations: number;
-    lastTask?: string;
-    lastStatus?: string;
+    lastTask?: string | undefined;
+    lastStatus?: string | undefined;
   } | null;
   /**
    * Seconds remaining in the auto-proceed countdown. null = not counting.
    * Rendered as a chip on line 2 when non-null.
    */
-  autoProceedCountdown?: number | null;
+  autoProceedCountdown?: number | null | undefined;
   /** Codebase indexing state — rendered as a chip on line 1 when indexing. */
   indexState?: { ready: boolean; indexing: boolean; currentFile: number; totalFiles: number };
   /** Active agent mode label with icon (e.g. "🧑‍🏫 teach", "⚡ brief"). Rendered on line 2. */
-  modeLabel?: string;
+  modeLabel?: string | undefined;
 }
 
 /**
@@ -261,7 +270,7 @@ export function StatusBar({
     );
     return () => clearInterval(t);
   }, [state]);
-  const spinner = SPINNER_FRAMES[spinnerIdx]!;
+  const spinner = expectDefined(SPINNER_FRAMES[spinnerIdx]);
 
   const { label: stateLabel, color: stateColor } = stateChip(state, fleet?.running ?? 0);
   // Animated spinner for thinking/streaming; static ● for idle/aborting.
@@ -395,7 +404,7 @@ export function StatusBar({
                 <Text dimColor>{hint}</Text>
               </>
             ) : null}
-            {indexState && indexState.indexing ? (
+            {indexState?.indexing ? (
               <>
                 <Text dimColor>│</Text>
                 <Text color="yellow">
@@ -586,7 +595,7 @@ export function StatusBar({
                 {a.label}
               </Text>
               <Text dimColor> </Text>
-              <Text color={a.running ? 'yellow' : undefined} dimColor={!a.running}>
+              <Text dimColor={!a.running} {...(a.running ? { color: 'yellow' } : {})}>
                 {a.running ? '▶' : '·'}
               </Text>
               <Text dimColor> </Text>
@@ -732,9 +741,9 @@ const SB_PADX = 1;
  * `● {stateLabel}` + `│`, then the model.
  */
 export function statusBarModelSpan(opts: {
-  version?: string;
+  version?: string | undefined;
   state: 'idle' | 'running' | 'streaming' | 'aborting';
-  fleetRunning?: number;
+  fleetRunning?: number | undefined;
   model: string;
 }): { start: number; len: number } {
   let col = SB_PADX;
@@ -754,8 +763,8 @@ export function statusBarModelSpan(opts: {
  * the autonomy chip (plus a `│` separator), so the span shifts right.
  */
 export function statusBarAutonomySpan(opts: {
-  yolo?: boolean;
-  autonomy?: 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel';
+  yolo?: boolean | undefined;
+  autonomy?: 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel' | undefined;
 }): { start: number; len: number } | null {
   if (!opts.autonomy || opts.autonomy === 'off') return null;
   let col = SB_PADX;

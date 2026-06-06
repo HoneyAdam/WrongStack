@@ -16,13 +16,21 @@ export function useBrainEvents(events: EventBus, dispatch: React.Dispatch<Action
       payload: unknown,
     ) => {
       const p = payload as {
-        request: { id: string; source: string; risk: Extract<HistoryEntry, { kind: 'brain' }>['risk']; question: string; context?: string; options?: NonNullable<State['brainPrompt']>['options'] };
-        decision: { type: string; optionId?: string; text?: string; prompt?: string; reason?: string; rationale?: string };
+        request: { id: string; source: string; risk: Extract<HistoryEntry, { kind: 'brain' }>['risk']; question: string; context?: string | undefined; options?: NonNullable<State['brainPrompt']>['options'] | undefined };
+        decision: { type: string; optionId?: string | undefined; text?: string | undefined; prompt?: string | undefined; reason?: string | undefined; rationale?: string | undefined };
       };
       const decision = p.decision.optionId ?? p.decision.text ?? p.decision.reason ?? p.decision.prompt ?? p.decision.type;
       dispatch({ type: 'brainStatus', state: status, source: p.request.source, risk: p.request.risk, summary: decision });
       if (status === 'ask_human') {
-        dispatch({ type: 'brainPromptSet', prompt: { requestId: p.request.id, source: p.request.source, risk: p.request.risk, question: p.request.question, context: p.request.context, options: p.request.options } });
+        const prompt: NonNullable<State['brainPrompt']> = {
+          requestId: p.request.id,
+          source: p.request.source,
+          risk: p.request.risk,
+          question: p.request.question,
+        };
+        if (p.request.context !== undefined) prompt.context = p.request.context;
+        if (p.request.options !== undefined) prompt.options = p.request.options;
+        dispatch({ type: 'brainPromptSet', prompt });
       } else {
         dispatch({ type: 'brainPromptClear' });
       }

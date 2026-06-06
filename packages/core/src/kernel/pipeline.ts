@@ -19,7 +19,7 @@ export type PipelineErrorPolicy = 'rethrow' | 'swallow';
 
 export interface PipelineErrorEvent {
   middleware: string;
-  owner?: string;
+  owner?: string | undefined;
   err: unknown;
 }
 
@@ -30,12 +30,12 @@ export type PipelineErrorHandler = (
 export interface Middleware<T> {
   name: string;
   handler: MiddlewareHandler<T>;
-  owner?: string;
+  owner?: string | undefined;
 }
 
 export interface PipelineOptions {
   /** When true and the target middleware is not found, operations silently no-op instead of throwing. */
-  optional?: boolean;
+  optional?: boolean | undefined;
 }
 
 /**
@@ -50,7 +50,7 @@ export interface ReadonlyPipeline<T> {
 
 export class Pipeline<T> {
   private readonly chain: Middleware<T>[] = [];
-  private errorHandler?: PipelineErrorHandler;
+  private errorHandler?: PipelineErrorHandler | undefined;
 
   /**
    * Install an error boundary. When a middleware throws or rejects, the

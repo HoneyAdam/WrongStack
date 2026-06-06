@@ -34,7 +34,7 @@ export interface ServerContext {
   rootPath: string;
   log: Logger;
   events: EventBus;
-  onCrash?: (server: LSPServer) => void;
+  onCrash?: ((server: LSPServer) => void) | undefined;
 }
 
 export class LSPServer {
@@ -101,7 +101,7 @@ export class LSPServer {
 
     this.connection = new Connection(child.stdin, child.stdout);
     this.connection.onNotification('textDocument/publishDiagnostics', (params) => {
-      const p = params as { uri?: string; diagnostics?: Diagnostic[] };
+      const p = params as { uri?: string | undefined; diagnostics?: Diagnostic[] | undefined };
       if (!p.uri || !Array.isArray(p.diagnostics)) return;
       this.diagnostics.set(p.uri, p.diagnostics);
       this.ctx.events.emit('lsp.diagnostics.updated', {
@@ -210,7 +210,7 @@ export class LSPServer {
     timeoutMs: number,
     signal: AbortSignal,
   ): Promise<
-    { range: unknown; placeholder?: string } | import('vscode-languageserver-protocol').Range | null
+    { range: unknown; placeholder?: string | undefined } | import('vscode-languageserver-protocol').Range | null
   > {
     return await this.request('textDocument/prepareRename', params, timeoutMs, signal);
   }
@@ -244,7 +244,7 @@ export class LSPServer {
     timeoutMs: number,
     signal: AbortSignal,
   ): Promise<Diagnostic[]> {
-    const result = await this.request<{ items?: Diagnostic[] }>(
+    const result = await this.request<{ items?: Diagnostic[] | undefined }>(
       'textDocument/diagnostic',
       { textDocument: { uri } },
       timeoutMs,

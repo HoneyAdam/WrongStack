@@ -63,11 +63,11 @@ export const DANGEROUS_FOR_SUBAGENTS: readonly ToolCapability[] = [
  * for subagent execution.
  */
 export function hasDangerousCapabilityForSubagents(
-  toolOrCaps: { capabilities?: readonly string[] } | readonly string[] | undefined,
+  toolOrCaps: { capabilities?: readonly string[] | undefined } | readonly string[] | undefined,
 ): boolean {
   if (!toolOrCaps) return false;
   // Use `as unknown as ...` to allow accessing .capabilities on the union type
-  const input = toolOrCaps as unknown as { capabilities?: readonly string[] };
+  const input = toolOrCaps as unknown as { capabilities?: readonly string[] | undefined };
   const caps: readonly string[] = Array.isArray(toolOrCaps) ? toolOrCaps : (input.capabilities ?? []);
   return caps.some((c) => DANGEROUS_FOR_SUBAGENTS.includes(c as ToolCapability));
 }
@@ -76,12 +76,12 @@ export function hasDangerousCapabilityForSubagents(
  * Check if a tool declares a specific capability (or any of the provided ones).
  */
 export function hasCapability(
-  toolOrCaps: { capabilities?: readonly string[] } | readonly string[] | undefined,
+  toolOrCaps: { capabilities?: readonly string[] | undefined } | readonly string[] | undefined,
   capability: ToolCapability | ToolCapability[],
 ): boolean {
   if (!toolOrCaps) return false;
   // Use `as unknown as ...` to allow accessing .capabilities on the union type
-  const input = toolOrCaps as unknown as { capabilities?: readonly string[] };
+  const input = toolOrCaps as unknown as { capabilities?: readonly string[] | undefined };
   const caps: readonly string[] = Array.isArray(toolOrCaps) ? toolOrCaps : (input.capabilities ?? []);
   const toCheck = Array.isArray(capability) ? capability : [capability];
   return toCheck.some((c) => caps.includes(c));
@@ -92,11 +92,11 @@ export function hasCapability(
  * Useful for logging and audit trails.
  */
 export function getDangerousCapabilities(
-  toolOrCaps: { capabilities?: readonly string[] } | readonly string[] | undefined,
+  toolOrCaps: { capabilities?: readonly string[] | undefined } | readonly string[] | undefined,
 ): ToolCapability[] {
   if (!toolOrCaps) return [];
   // Use `as unknown as ...` to allow accessing .capabilities on the union type
-  const input = toolOrCaps as unknown as { capabilities?: readonly string[] };
+  const input = toolOrCaps as unknown as { capabilities?: readonly string[] | undefined };
   const caps: readonly string[] = Array.isArray(toolOrCaps) ? toolOrCaps : (input.capabilities ?? []);
   return caps.filter((c): c is ToolCapability =>
     DANGEROUS_FOR_SUBAGENTS.includes(c as ToolCapability),

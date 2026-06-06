@@ -31,7 +31,7 @@
         "useNodejsImportProtocol": "error",
         "useImportType": "error",
         "useTemplate": "off",
-        "noNonNullAssertion": "off",
+        "noNonNullAssertion": "error",
         "noUnusedTemplateLiteral": "off"
       },
       "performance": {
@@ -57,6 +57,9 @@
         "rules": {
           "suspicious": {
             "noExplicitAny": "off"
+          },
+          "style": {
+            "noNonNullAssertion": "off"
           }
         }
       }

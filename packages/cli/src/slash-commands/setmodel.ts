@@ -14,6 +14,15 @@ import {
 } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 /** No-op vault: round-trips already-encrypted fields untouched. We never
  *  read or write secrets here (the matrix holds none), so we must NOT
  *  decrypt/re-encrypt the providers block — that would mangle stored keys. */
@@ -139,7 +148,7 @@ export function buildSetModelCommand(opts: SlashCommandContext): SlashCommand {
       for (const k of keys.sort()) {
         const kind = matrixKeyKind(k);
         const tag = kind === 'unknown' ? color.red('?') : color.dim(kind);
-        lines.push(`    ${color.amber(k.padEnd(22))} → ${fmtEntry(matrix[k]!)}   ${tag}`);
+        lines.push(`    ${color.amber(k.padEnd(22))} → ${fmtEntry(expectDefined(matrix[k]))}   ${tag}`);
       }
     }
     lines.push('', color.dim('  /setmodel list for valid keys · /setmodel help for usage'));

@@ -8,6 +8,15 @@
  */
 import type { Plugin } from '@wrongstack/core';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 const API_VERSION = '^0.1.10';
 
 interface TokenUsage {
@@ -16,7 +25,7 @@ interface TokenUsage {
   totalTokens: number;
   model: string;
   timestamp: string;
-  costUsd?: number;
+  costUsd?: number | undefined;
 }
 
 interface SessionCost {
@@ -115,7 +124,7 @@ const plugin: Plugin = {
       if (sessionCost.byModel[model] === undefined) {
         sessionCost.byModel[model] = { tokens: 0, costUsd: 0, requests: 0 };
       }
-      const slot = sessionCost.byModel[model]!;
+      const slot = expectDefined(sessionCost.byModel[model]);
       slot.tokens += totalTokens;
       slot.costUsd += costUsd;
       slot.requests += 1;

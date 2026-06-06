@@ -5,8 +5,8 @@ import { theme } from '../theme.js';
 /** Which interactive context is active — drives which shortcuts the bar shows.
  *  Ordered by priority (a confirm prompt overrides a picker, etc.). */
 export interface KeyHintContext {
-  confirm?: boolean;
-  picker?: boolean; // file / slash / model / autonomy picker, or rewind overlay
+  confirm?: boolean | undefined;
+  picker?: boolean | undefined; // file / slash / model / autonomy picker, or rewind overlay
   monitor?: boolean; // any full-screen monitor overlay open
   managed?: boolean; // managed viewport active (in-app scroll)
 }

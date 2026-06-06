@@ -8,7 +8,7 @@ export interface ReportOptions {
   format: 'markdown' | 'json' | 'html';
   includeRemediation: boolean;
   groupBySeverity: boolean;
-  maxFindingsPerCategory?: number;
+  maxFindingsPerCategory?: number | undefined;
 }
 
 const DEFAULT_REPORT_OPTIONS: ReportOptions = {
@@ -195,7 +195,7 @@ export class ReportGenerator {
       if (groups[finding.category] === undefined) {
         groups[finding.category] = [];
       }
-      groups[finding.category]!.push(finding);
+      groups[finding.category]?.push(finding);
     }
 
     return groups;

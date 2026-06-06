@@ -16,9 +16,18 @@ import {
   loadTodosCheckpoint,
 } from '@wrongstack/core';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export interface SessionResult {
   session: SessionWriter;
-  sessionRef: { current?: SessionWriter };
+  sessionRef: { current?: SessionWriter | undefined };
   context: Context;
   restoredMessages: import('@wrongstack/core').Message[];
   attachments: DefaultAttachmentStore;
@@ -27,7 +36,7 @@ export interface SessionResult {
   planPath: string;
   detachTodosCheckpoint: () => void;
   /** Director state checkpoint from the prior run — null if this is not a resume. */
-  priorFleetState?: import('@wrongstack/core').DirectorStateSnapshot;
+  priorFleetState?: import('@wrongstack/core').DirectorStateSnapshot | undefined;
 }
 
 export async function setupSession(params: {
@@ -86,17 +95,17 @@ export async function setupSession(params: {
     session = await sessionStore.create({ id: '', title: '', model: config.model, provider: config.provider });
   }
 
-  const sessionRef: { current?: SessionWriter } = { current: session };
-  await recoveryLock.write(session!.id).catch(() => undefined);
+  const sessionRef: { current?: SessionWriter | undefined } = { current: session };
+  await recoveryLock.write(session?.id).catch(() => undefined);
 
-  const attachments = new DefaultAttachmentStore({ spoolDir: path.join(wpaths.projectSessions, session!.id, 'attachments') });
-  const queueStore = new QueueStore({ dir: path.join(wpaths.projectSessions, session!.id) });
+  const attachments = new DefaultAttachmentStore({ spoolDir: path.join(wpaths.projectSessions, session?.id, 'attachments') });
+  const queueStore = new QueueStore({ dir: path.join(wpaths.projectSessions, session?.id) });
 
   const ctxSignal = new AbortController().signal;
-  const context = new Context({ systemPrompt, provider, session: session!, signal: ctxSignal, tokenCounter, cwd, projectRoot, model: config.model });
+  const context = new Context({ systemPrompt, provider, session: expectDefined(session), signal: ctxSignal, tokenCounter, cwd, projectRoot, model: config.model });
   if (restoredMessages.length > 0) context.state.replaceMessages(restoredMessages);
 
-  const todosCheckpointPath = path.join(wpaths.projectSessions, `${session!.id}.todos.json`);
+  const todosCheckpointPath = path.join(wpaths.projectSessions, `${session?.id}.todos.json`);
   if (resumeId) {
     try {
       const restoredTodos = await loadTodosCheckpoint(todosCheckpointPath);
@@ -106,15 +115,15 @@ export async function setupSession(params: {
       }
     } catch { /* best-effort */ }
   }
-  const detachTodosCheckpoint = attachTodosCheckpoint(context.state, todosCheckpointPath, session!.id);
+  const detachTodosCheckpoint = attachTodosCheckpoint(context.state, todosCheckpointPath, session?.id);
 
-  const planPath = path.join(wpaths.projectSessions, `${session!.id}.plan.json`);
+  const planPath = path.join(wpaths.projectSessions, `${session?.id}.plan.json`);
   context.state.setMeta('plan.path', planPath);
 
   let dirState;
   if (resumeId) {
     try {
-      const fleetRoot = path.join(wpaths.projectSessions, session!.id);
+      const fleetRoot = path.join(wpaths.projectSessions, session?.id);
       dirState = await loadDirectorState(path.join(fleetRoot, 'director-state.json'));
       if (dirState) {
         const tCounts: Record<string, number> = {};
@@ -133,7 +142,7 @@ export async function setupSession(params: {
     } catch { /* ignore */ }
   }
 
-  return { session: session!, sessionRef, context, restoredMessages, attachments, recoveryLock, queueStore, planPath, detachTodosCheckpoint, priorFleetState: dirState ?? undefined };
+  return { session: expectDefined(session), sessionRef, context, restoredMessages, attachments, recoveryLock, queueStore, planPath, detachTodosCheckpoint, priorFleetState: dirState ?? undefined };
 }
 
 // Future (Phase 1+): when emitting richer audit events, resolve via:

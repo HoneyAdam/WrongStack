@@ -81,19 +81,19 @@ export interface EnhanceUserPromptOptions {
    * the conversation and can only refine self-contained prompts. Build with
    * `recentTextTurns(ctx.messages)`.
    */
-  history?: ConversationTurn[];
+  history?: ConversationTurn[] | undefined;
   /** Parent abort signal (e.g. the run controller / Esc). */
-  signal?: AbortSignal;
+  signal?: AbortSignal | undefined;
   /** Hard cap on how long to wait for the refiner before giving up. Default 90s. */
-  timeoutMs?: number;
+  timeoutMs?: number | undefined;
   /** Max tokens for the refined output. Default 2048. */
-  maxTokens?: number;
+  maxTokens?: number | undefined;
   /**
    * Called with a short reason when refinement fails (provider error, timeout,
    * empty response). NOT called when the caller cancels via `signal`. Lets the
    * UI surface *why* a refine fell through instead of a generic message.
    */
-  onError?: (reason: string) => void;
+  onError?: ((reason: string) => void) | undefined;
 }
 
 /**

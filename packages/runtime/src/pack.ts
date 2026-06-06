@@ -10,15 +10,15 @@ export interface WrongStackPack {
   /** Stable package/pack id, e.g. "builtin-tools" or "mcp". */
   name: string;
   /** Human-readable one-line description for diagnostics and package lists. */
-  description?: string;
+  description?: string | undefined;
   /** Tools to register into the host ToolRegistry. */
-  tools?: readonly Tool[];
+  tools?: readonly Tool[] | undefined;
   /** Provider factories to register into the host ProviderRegistry. */
-  providers?: readonly ProviderFactory[];
+  providers?: readonly ProviderFactory[] | undefined;
   /** Slash commands to register into REPL/TUI surfaces. */
-  slashCommands?: readonly SlashCommand[];
+  slashCommands?: readonly SlashCommand[] | undefined;
   /** Agent lifecycle extensions to register. */
-  extensions?: readonly AgentExtension[];
+  extensions?: readonly AgentExtension[] | undefined;
   /** Optional imperative setup for packs that need host APIs. */
   setup?(api: PluginAPI): void | Promise<void>;
   /** Optional best-effort teardown for resources started by setup(). */

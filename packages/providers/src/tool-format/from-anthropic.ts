@@ -2,20 +2,20 @@ import type { ContentBlock } from '@wrongstack/core';
 
 interface AnthropicBlock {
   type: string;
-  text?: string;
-  id?: string;
-  name?: string;
-  input?: unknown;
-  content?: unknown;
-  tool_use_id?: string;
-  is_error?: boolean;
-  thinking?: string;
-  signature?: string;
+  text?: string | undefined;
+  id?: string | undefined;
+  name?: string | undefined;
+  input?: unknown | undefined;
+  content?: unknown | undefined;
+  tool_use_id?: string | undefined;
+  is_error?: boolean | undefined;
+  thinking?: string | undefined;
+  signature?: string | undefined;
   source?: {
-    type?: 'base64' | 'url';
-    media_type?: string;
-    data?: string;
-    url?: string;
+    type?: 'base64' | 'url' | undefined;
+    media_type?: string | undefined;
+    data?: string | undefined;
+    url?: string | undefined;
   };
 }
 

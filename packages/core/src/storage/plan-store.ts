@@ -17,7 +17,7 @@ export interface PlanItem {
   id: string;
   title: string;
   /** Optional longer-form context or rationale. */
-  details?: string;
+  details?: string | undefined;
   status: 'open' | 'in_progress' | 'done';
   createdAt: string;
   updatedAt: string;
@@ -26,7 +26,7 @@ export interface PlanItem {
 export interface PlanFile {
   version: 1;
   sessionId: string;
-  title?: string;
+  title?: string | undefined;
   updatedAt: string;
   items: PlanItem[];
 }
@@ -72,7 +72,7 @@ export function emptyPlan(sessionId: string, title?: string): PlanFile {
 export function addPlanItem(
   plan: PlanFile,
   title: string,
-  details?: string,
+  details?: string | undefined,
 ): { plan: PlanFile; item: PlanItem } {
   const now = new Date().toISOString();
   const item: PlanItem = {
@@ -151,8 +151,8 @@ function matchIndex(plan: PlanFile, idOrIndex: string): number {
 export function deriveTodosFromPlanItem(
   plan: PlanFile,
   idOrIndex: string,
-  subtasks?: string[],
-): { plan: PlanFile; todos: Array<{ id: string; content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string }> } | null {
+  subtasks?: string[] | undefined,
+): { plan: PlanFile; todos: Array<{ id: string; content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string | undefined }> } | null {
   const idx = matchIndex(plan, idOrIndex);
   if (idx === -1) return null;
 
@@ -165,7 +165,7 @@ export function deriveTodosFromPlanItem(
     updatedPlan = setPlanItemStatus(plan, idOrIndex, 'in_progress');
   }
 
-  const todos: Array<{ id: string; content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string }> = [];
+  const todos: Array<{ id: string; content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string | undefined }> = [];
 
   // First todo from the plan item itself
   todos.push({

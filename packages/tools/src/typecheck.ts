@@ -4,10 +4,10 @@ import { spawnStream } from './_spawn-stream.js';
 import { normalizeCommandOutput, safeResolve } from './_util.js';
 
 interface TypecheckInput {
-  project?: string;
-  cwd?: string;
-  strict?: boolean;
-  all?: boolean;
+  project?: string | undefined;
+  cwd?: string | undefined;
+  strict?: boolean | undefined;
+  all?: boolean | undefined;
 }
 
 interface TypecheckOutput {
@@ -50,7 +50,9 @@ export const typecheckTool: Tool<TypecheckInput, TypecheckOutput> = {
   },
   async execute(input, ctx, opts) {
     let final: TypecheckOutput | undefined;
-    for await (const ev of typecheckTool.executeStream!(input, ctx, opts)) {
+    const executeStream = typecheckTool.executeStream;
+    if (!executeStream) throw new Error('typecheckTool: stream execution unavailable');
+    for await (const ev of executeStream(input, ctx, opts)) {
       if (ev.type === 'final') final = ev.output;
     }
     if (!final) throw new Error('typecheck: stream ended without final event');

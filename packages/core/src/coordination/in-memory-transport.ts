@@ -37,7 +37,7 @@ export class InMemoryBridgeTransport implements BridgeTransport {
 
   subscribe(agentId: string, handler: (msg: BridgeMessage) => void): () => void {
     if (!this.subs.has(agentId)) this.subs.set(agentId, new Set());
-    this.subs.get(agentId)!.add(handler);
+    this.subs.get(agentId)?.add(handler);
     return () => this.subs.get(agentId)?.delete(handler);
   }
 

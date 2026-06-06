@@ -8,19 +8,19 @@ export interface AutoExecutorOptions {
   tracker: TaskTracker;
   events: EventBus;
   /** Maximum concurrent tasks. Defaults to 1 (sequential). */
-  maxConcurrent?: number;
+  maxConcurrent?: number | undefined;
   /** Maximum retry attempts for failed tasks. */
-  maxRetries?: number;
+  maxRetries?: number | undefined;
   /** Custom task executor function. */
   executeTask: (task: TaskNode, context: TaskExecutionContext) => Promise<TaskExecutionResult>;
   /** Called before each task starts. */
-  onTaskStart?: (task: TaskNode) => void;
+  onTaskStart?: (((task: TaskNode) => void)) | undefined;
   /** Called after each task completes. */
   onTaskComplete?: (task: TaskNode, result: TaskExecutionResult) => void;
   /** Called when a task fails. */
   onTaskFail?: (task: TaskNode, error: Error, retryCount: number) => void;
   /** Called when all tasks are done or no more can execute. */
-  onDone?: (summary: ExecutionSummary) => void;
+  onDone?: (((summary: ExecutionSummary) => void)) | undefined;
 }
 
 export interface TaskExecutionContext {
@@ -40,10 +40,10 @@ export interface TaskExecutionContext {
 
 export interface TaskExecutionResult {
   success: boolean;
-  output?: string;
-  error?: string;
+  output?: string | undefined;
+  error?: string | undefined;
   /** If true, the task will be retried. */
-  retry?: boolean;
+  retry?: boolean | undefined;
 }
 
 export interface ExecutionSummary {
@@ -286,8 +286,8 @@ export function createAutoExecutor(opts: {
   tracker: TaskTracker;
   events: EventBus;
   executeTask: AutoExecutorOptions['executeTask'];
-  maxConcurrent?: number;
-  maxRetries?: number;
+  maxConcurrent?: number | undefined;
+  maxRetries?: number | undefined;
 }): AutoExecutor {
   return new AutoExecutor({
     tracker: opts.tracker,

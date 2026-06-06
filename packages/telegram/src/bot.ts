@@ -16,35 +16,35 @@ interface TgUser {
   id: number;
   is_bot: boolean;
   first_name: string;
-  username?: string;
+  username?: string | undefined;
 }
 
 interface TgChat {
   id: number;
   type: 'private' | 'group' | 'supergroup' | 'channel';
-  title?: string;
-  username?: string;
+  title?: string | undefined;
+  username?: string | undefined;
 }
 
 interface TgMessage {
   message_id: number;
-  from?: TgUser;
+  from?: TgUser | undefined;
   chat: TgChat;
   date: number;
-  text?: string;
+  text?: string | undefined;
 }
 
 interface TgUpdate {
   update_id: number;
-  message?: TgMessage;
-  edited_message?: TgMessage;
+  message?: TgMessage | undefined;
+  edited_message?: TgMessage | undefined;
 }
 
 interface TgResponse<T> {
   ok: boolean;
-  result?: T;
-  description?: string;
-  error_code?: number;
+  result?: T | undefined;
+  description?: string | undefined;
+  error_code?: number | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -55,8 +55,8 @@ export interface TelegramIncomingMessage {
   messageId: number;
   chatId: number;
   chatType: string;
-  userId?: number;
-  userName?: string;
+  userId?: number | undefined;
+  userName?: string | undefined;
   text: string;
   timestamp: number;
 }
@@ -80,7 +80,7 @@ export interface TelegramBotOptions {
    * the offset is persisted on every successful poll and restored on startup,
    * preventing message replay after crashes or restarts.
    */
-  offsetStoragePath?: string;
+  offsetStoragePath?: string | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -100,7 +100,7 @@ export class TelegramBot {
   private offset = 0;
   private _startedAt: number | null = null;
   /** If set, the offset is persisted here after each successful poll. */
-  private readonly offsetStoragePath?: string;
+  private readonly offsetStoragePath?: string | undefined;
 
   // Circular buffer for incoming messages
   private readonly bufferMax: number;
@@ -159,7 +159,7 @@ export class TelegramBot {
   // ------------------------------------------------------------------
 
   /** Return buffered messages, newest first. Optionally filter by chat. */
-  getMessages(opts?: { chatId?: string | number; limit?: number }): TelegramIncomingMessage[] {
+  getMessages(opts?: { chatId?: string | number | undefined; limit?: number | undefined }): TelegramIncomingMessage[] {
     let msgs = [...this.buffer].reverse();
     if (opts?.chatId) {
       const cid = String(opts.chatId);
@@ -174,7 +174,8 @@ export class TelegramBot {
     const before = this.buffer.length;
     let i = this.buffer.length;
     while (i-- > 0) {
-      if (this.buffer[i]!.messageId <= lastMessageId) {
+      const buffered = this.buffer[i];
+      if (buffered && buffered.messageId <= lastMessageId) {
         this.buffer.splice(0, i + 1);
         break;
       }
@@ -229,7 +230,7 @@ export class TelegramBot {
   // Health
   // ------------------------------------------------------------------
 
-  async health(): Promise<{ ok: boolean; username?: string; error?: string }> {
+  async health(): Promise<{ ok: boolean; username?: string | undefined; error?: string | undefined }> {
     try {
       const url = `${this.baseUrl}/getMe`;
       const res = await fetch(url, { signal: AbortSignal.timeout(5000) });

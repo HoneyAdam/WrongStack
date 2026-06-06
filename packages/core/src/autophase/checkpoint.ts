@@ -10,13 +10,13 @@ export interface Checkpoint {
   phaseStatus: PhaseNode['status'];
   taskStatuses: Array<{ taskId: string; status: string; title: string }>;
   timestamp: number;
-  label?: string;
+  label?: string | undefined;
 }
 
 export interface CheckpointManagerOptions {
   store: PhaseStore;
-  maxCheckpoints?: number;
-  baseDir?: string;
+  maxCheckpoints?: number | undefined;
+  baseDir?: string | undefined;
 }
 
 interface SerializedCheckpoint {
@@ -26,7 +26,7 @@ interface SerializedCheckpoint {
   phaseStatus: PhaseNode['status'];
   taskStatuses: Array<{ taskId: string; status: string; title: string }>;
   timestamp: number;
-  label?: string;
+  label?: string | undefined;
 }
 
 /**

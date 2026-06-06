@@ -6,29 +6,29 @@
 export interface ModelsDevModel {
   id: string;
   name: string;
-  family?: string;
-  attachment?: boolean;
-  reasoning?: boolean;
-  tool_call?: boolean;
-  temperature?: boolean;
-  knowledge?: string;
-  release_date?: string;
-  last_updated?: string;
-  open_weights?: boolean;
+  family?: string | undefined;
+  attachment?: boolean | undefined;
+  reasoning?: boolean | undefined;
+  tool_call?: boolean | undefined;
+  temperature?: boolean | undefined;
+  knowledge?: string | undefined;
+  release_date?: string | undefined;
+  last_updated?: string | undefined;
+  open_weights?: boolean | undefined;
   modalities?: {
-    input?: string[];
-    output?: string[];
+    input?: string[] | undefined;
+    output?: string[] | undefined;
   };
   cost?: {
-    input?: number;
-    output?: number;
-    cache_read?: number;
-    cache_write?: number;
+    input?: number | undefined;
+    output?: number | undefined;
+    cache_read?: number | undefined;
+    cache_write?: number | undefined;
     [k: string]: number | undefined;
   };
   limit?: {
-    context?: number;
-    output?: number;
+    context?: number | undefined;
+    output?: number | undefined;
   };
   [k: string]: unknown;
 }
@@ -37,13 +37,13 @@ export interface ModelsDevProvider {
   id: string;
   name: string;
   /** Env vars that hold the API key, in priority order. */
-  env?: string[];
+  env?: string[] | undefined;
   /** Identifies the wire format family (e.g. @ai-sdk/anthropic). */
-  npm?: string;
+  npm?: string | undefined;
   /** Default base URL when not provided by SDK defaults. */
-  api?: string;
+  api?: string | undefined;
   /** Documentation URL. */
-  doc?: string;
+  doc?: string | undefined;
   models: Record<string, ModelsDevModel>;
 }
 
@@ -59,11 +59,11 @@ export interface ResolvedProvider {
   id: string;
   name: string;
   family: WireFamily;
-  apiBase?: string;
+  apiBase?: string | undefined;
   envVars: string[];
-  doc?: string;
+  doc?: string | undefined;
   models: ModelsDevModel[];
-  npm?: string;
+  npm?: string | undefined;
 }
 
 export interface ResolvedModel {
@@ -74,15 +74,15 @@ export interface ResolvedModel {
     vision: boolean;
     reasoning: boolean;
     maxContext: number;
-    maxOutput?: number;
-    knowledge?: string;
+    maxOutput?: number | undefined;
+    knowledge?: string | undefined;
   };
-  cost?: ModelsDevModel['cost'];
+  cost?: ModelsDevModel['cost'] | undefined;
 }
 
 export interface ModelsRegistry {
   /** Load (from cache or network). Idempotent; second call returns cached value. */
-  load(opts?: { force?: boolean }): Promise<ModelsDevPayload>;
+  load(opts?: { force?: boolean | undefined }): Promise<ModelsDevPayload>;
   /** Force-refresh from network and overwrite cache. */
   refresh(): Promise<ModelsDevPayload>;
   /** All providers, classified by wire family. */

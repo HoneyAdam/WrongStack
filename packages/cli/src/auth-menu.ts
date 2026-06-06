@@ -20,6 +20,15 @@ import {
 } from './provider-config-utils.js';
 import type { TerminalRenderer } from './renderer.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export interface AuthMenuDeps {
   renderer: TerminalRenderer;
   reader: ReadlineInputReader;
@@ -64,7 +73,7 @@ export async function runAuthMenu(deps: AuthMenuDeps): Promise<number> {
 
     const idx = Number.parseInt(choice, 10);
     if (!Number.isNaN(idx) && idx >= 1 && idx <= ids.length) {
-      const pid = ids[idx - 1]!;
+      const pid = expectDefined(ids[idx - 1]);
       await manageProvider(pid, deps);
       continue;
     }
@@ -92,15 +101,17 @@ function renderTopMenu(
     renderer.write(`  ${color.dim('Saved providers:')}\n`);
     let idx = 1;
     for (const id of ids) {
-      const cfg = providers[id]!;
+      const cfg = providers[id];
+      if (!cfg) continue;
       const keys = normalizeKeys(cfg);
       const active = activeLabel(cfg, keys);
+      const firstKey = keys[0];
       const summary =
         keys.length === 0
           ? color.dim('(no keys)')
           : keys.length === 1
-            ? maskedKey(keys[0]!.apiKey)
-            : `${color.dim(`${keys.length} keys`)} ${color.dim('active:')} ${color.bold(active ?? '?')} ${maskedKey(keys.find((k) => k.label === active)?.apiKey ?? keys[0]!.apiKey)}`;
+            ? maskedKey(firstKey?.apiKey ?? '')
+            : `${color.dim(`${keys.length} keys`)} ${color.dim('active:')} ${color.bold(active ?? '?')} ${maskedKey(keys.find((k) => k.label === active)?.apiKey ?? firstKey?.apiKey ?? '')}`;
       const fam = cfg.family ? color.dim(`[${cfg.family}]`) : '';
       const aliasHint = cfg.type && cfg.type !== id ? color.dim(`→ ${cfg.type}`) : '';
       renderer.write(
@@ -149,7 +160,7 @@ async function manageProvider(providerId: string, deps: AuthMenuDeps): Promise<v
       deps.renderer.write(color.dim('  (no keys saved)\n'));
     } else {
       for (let i = 0; i < keys.length; i++) {
-        const k = keys[i]!;
+        const k = expectDefined(keys[i]);
         const marker = k.label === active ? color.green('●') : color.dim('○');
         deps.renderer.write(
           `  ${color.dim(`${i + 1}.`.padStart(4))} ${marker} ${k.label.padEnd(20)} ${maskedKey(k.apiKey)}  ${color.dim(k.createdAt)}\n`,
@@ -204,7 +215,7 @@ async function manageProvider(providerId: string, deps: AuthMenuDeps): Promise<v
         deps.renderer.writeError(`Usage: u <1-${keys.length}>`);
         continue;
       }
-      const target = keys[arg - 1]!;
+      const target = expectDefined(keys[arg - 1]);
       const newKey = await readKeyInput(deps, `Updated key for ${target.label}`);
       if (!newKey) continue;
       await mutateProviders(deps, (all) => {
@@ -223,7 +234,7 @@ async function manageProvider(providerId: string, deps: AuthMenuDeps): Promise<v
         deps.renderer.writeError(`Usage: d <1-${keys.length}>`);
         continue;
       }
-      const target = keys[arg - 1]!;
+      const target = expectDefined(keys[arg - 1]);
       const confirm = (
         await deps.reader.readLine(
           `  ${color.amber('?')} Delete key "${target.label}" (${maskedKey(target.apiKey)})? ${color.dim('[y/N/q]')} `,
@@ -310,7 +321,7 @@ async function manageProvider(providerId: string, deps: AuthMenuDeps): Promise<v
         deps.renderer.writeError(`Usage: s <1-${keys.length}>`);
         continue;
       }
-      const target = keys[arg - 1]!;
+      const target = expectDefined(keys[arg - 1]);
       await mutateProviders(deps, (all) => {
         const p = all[providerId];
         if (!p) return;
@@ -676,10 +687,10 @@ export async function runAuthDirect(
   deps: AuthMenuDeps,
   opts: {
     providerId: string;
-    label?: string;
-    family?: WireFamily;
-    baseUrl?: string;
-    envVars?: string[];
+    label?: string | undefined;
+    family?: WireFamily | undefined;
+    baseUrl?: string | undefined;
+    envVars?: string[] | undefined;
   },
 ): Promise<number> {
   const { providerId } = opts;

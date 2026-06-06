@@ -53,7 +53,7 @@ export async function runSettingsMenu(deps: SettingsMenuDeps): Promise<number> {
   }
 }
 
-function renderSettingsTopMenu(renderer: TerminalRenderer, config: { autonomy?: { autoProceedDelayMs?: number; defaultMode?: string } }): void {
+function renderSettingsTopMenu(renderer: TerminalRenderer, config: { autonomy?: { autoProceedDelayMs?: number | undefined; defaultMode?: string | undefined } }): void {
   const delay = config.autonomy?.autoProceedDelayMs ?? 45_000;
   const defMode = config.autonomy?.defaultMode ?? 'off';
   renderer.write(`\n${color.bold('WrongStack')} ${color.dim('— Settings')}\n\n`);
@@ -143,7 +143,7 @@ export interface PersistSettingDeps {
  */
 export async function persistAutonomySetting(
   deps: PersistSettingDeps,
-  mutator: (autonomy: { autoProceedDelayMs?: number; defaultMode?: string }) => void,
+  mutator: (autonomy: { autoProceedDelayMs?: number | undefined; defaultMode?: string | undefined }) => void,
 ): Promise<void> {
   let raw: string;
   let fileExists = true;
@@ -169,7 +169,7 @@ export async function persistAutonomySetting(
 
   const decrypted = decryptConfigSecrets(parsed, deps.vault) as Record<string, unknown>;
   const autonomy = (decrypted.autonomy as Record<string, unknown>) ?? {};
-  mutator(autonomy as { autoProceedDelayMs?: number; defaultMode?: string });
+  mutator(autonomy as { autoProceedDelayMs?: number | undefined; defaultMode?: string | undefined });
   decrypted.autonomy = autonomy;
 
   const encrypted = encryptConfigSecrets(decrypted, deps.vault);
@@ -177,6 +177,45 @@ export async function persistAutonomySetting(
 
   // Also update the in-memory config store so changes are immediately visible
   deps.configStore.update({ autonomy: decrypted.autonomy as Parameters<typeof deps.configStore.update>[0]['autonomy'] });
+}
+
+/**
+ * Read the config file, apply `mutator` to the full decrypted object, and
+ * write it back atomically. This is used for small top-level settings that do
+ * not warrant a dedicated helper.
+ */
+export async function persistConfigSetting(
+  deps: PersistSettingDeps,
+  mutator: (config: Record<string, unknown>) => void,
+): Promise<void> {
+  let raw: string;
+  let fileExists = true;
+  try {
+    raw = await fs.readFile(deps.globalConfigPath, 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw new Error(`Could not read ${deps.globalConfigPath}: ${(err as Error).message}`);
+    }
+    fileExists = false;
+    raw = '{}';
+  }
+
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(raw) as Record<string, unknown>;
+  } catch (err) {
+    if (fileExists) {
+      throw new Error(`Config at ${deps.globalConfigPath} is not valid JSON: ${(err as Error).message}`);
+    }
+    parsed = {};
+  }
+
+  const decrypted = decryptConfigSecrets(parsed, deps.vault) as Record<string, unknown>;
+  mutator(decrypted);
+
+  const encrypted = encryptConfigSecrets(decrypted, deps.vault);
+  await atomicWrite(deps.globalConfigPath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
+  deps.configStore.update(decrypted as Parameters<typeof deps.configStore.update>[0]);
 }
 
 /**
@@ -227,7 +266,7 @@ export async function persistTelegramConfig(
 /** Interactive-menu adapter over {@link persistAutonomySetting}. */
 function mutateAutonomyConfig(
   deps: SettingsMenuDeps,
-  mutator: (autonomy: { autoProceedDelayMs?: number; defaultMode?: string }) => void,
+  mutator: (autonomy: { autoProceedDelayMs?: number | undefined; defaultMode?: string | undefined }) => void,
 ): Promise<void> {
   return persistAutonomySetting(deps, mutator);
 }

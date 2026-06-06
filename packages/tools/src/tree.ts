@@ -3,6 +3,15 @@ import * as path from 'node:path';
 import type { Tool, ToolProgressEvent, ToolStreamEvent } from '@wrongstack/core';
 import { safeResolve } from './_util.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 const DEFAULT_IGNORE = [
   'node_modules',
   '.git',
@@ -18,13 +27,13 @@ const DEFAULT_IGNORE = [
 ];
 
 interface TreeInput {
-  path?: string;
-  depth?: number;
-  glob?: string;
-  exclude?: string[];
-  show_files?: boolean;
-  show_dirs?: boolean;
-  show_hidden?: boolean;
+  path?: string | undefined;
+  depth?: number | undefined;
+  glob?: string | undefined;
+  exclude?: string[] | undefined;
+  show_files?: boolean | undefined;
+  show_dirs?: boolean | undefined;
+  show_hidden?: boolean | undefined;
 }
 
 interface TreeOutput {
@@ -88,7 +97,9 @@ export const treeTool: Tool<TreeInput, TreeOutput> = {
   },
   async execute(input, ctx, opts) {
     let final: TreeOutput | undefined;
-    for await (const ev of treeTool.executeStream!(input, ctx, opts)) {
+    const executeStream = treeTool.executeStream;
+    if (!executeStream) throw new Error('treeTool: stream execution unavailable');
+    for await (const ev of executeStream(input, ctx, opts)) {
       if (ev.type === 'final') final = ev.output;
     }
     if (!final) throw new Error('tree: stream ended without final event');
@@ -146,7 +157,7 @@ export const treeTool: Tool<TreeInput, TreeOutput> = {
 
     while (!walkDone || queue.length > 0) {
       if (queue.length > 0) {
-        yield queue.shift()!;
+        yield expectDefined(queue.shift());
       } else {
         // Race the walk completion against a short tick so we don't busy-
         // spin while the producer fills the queue. Previously the
@@ -184,13 +195,13 @@ interface WalkOptions {
   showFiles: boolean;
   showDirs: boolean;
   showHidden: boolean;
-  filterGlob?: string;
+  filterGlob?: string | undefined;
   lines: string[];
   prefix: string;
   isLast: boolean;
   totalFiles: { value: number };
   totalDirs: { value: number };
-  onProgress?: () => void;
+  onProgress?: (() => void) | undefined;
 }
 
 async function walkDir(dir: string, depth: number, opts: WalkOptions): Promise<void> {

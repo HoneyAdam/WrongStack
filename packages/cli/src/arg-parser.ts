@@ -85,10 +85,10 @@ export function parseArgs(argv: string[]): ParsedArgs {
 
 export interface AuthFlags {
   positional: string[];
-  label?: string;
-  family?: import('@wrongstack/core').WireFamily;
-  baseUrl?: string;
-  envVars?: string[];
+  label?: string | undefined;
+  family?: import('@wrongstack/core').WireFamily | undefined;
+  baseUrl?: string | undefined;
+  envVars?: string[] | undefined;
 }
 
 /** Parse `wstack auth <provider> [--label ...] [--family ...] [...]` flags. */
@@ -123,7 +123,7 @@ export function parseAuthFlags(args: string[]): AuthFlags {
 
 export interface SpawnFlags {
   description: string;
-  opts: { provider?: string; model?: string; tools?: string[]; name?: string };
+  opts: { provider?: string | undefined; model?: string | undefined; tools?: string[] | undefined; name?: string | undefined };
 }
 
 /**
@@ -159,8 +159,7 @@ export function parseSpawnFlags(input: string): SpawnFlags {
         else {
           m = consume(/^--tools=(\S+)\s*/);
           if (m)
-            opts.tools = m[1]!
-              .split(',')
+            opts.tools = m[1]?.split(',')
               .map((t) => t.trim())
               .filter(Boolean);
           else {

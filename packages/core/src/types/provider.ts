@@ -27,8 +27,8 @@ import type { Tool } from './tool.js';
 export interface Usage {
   input: number;
   output: number;
-  cacheRead?: number;
-  cacheWrite?: number;
+  cacheRead?: number | undefined;
+  cacheWrite?: number | undefined;
 }
 
 export interface Capabilities {
@@ -46,14 +46,14 @@ export interface Capabilities {
 
 export interface Request {
   model: string;
-  system?: TextBlock[];
+  system?: TextBlock[] | undefined;
   messages: Message[];
-  tools?: Tool[];
+  tools?: Tool[] | undefined;
   maxTokens: number;
-  temperature?: number;
-  topP?: number;
-  stopSequences?: string[];
-  toolChoice?: 'auto' | 'required' | 'none' | { type: 'tool'; name: string };
+  temperature?: number | undefined;
+  topP?: number | undefined;
+  stopSequences?: string[] | undefined;
+  toolChoice?: 'auto' | 'required' | 'none' | { type: 'tool' | undefined; name: string };
 }
 
 export type StopReason = 'end_turn' | 'tool_use' | 'max_tokens' | 'stop_sequence' | 'refusal';
@@ -70,8 +70,8 @@ export type StreamEvent =
   | {
       type: 'content_block_start';
       kind: 'text' | 'tool_use' | 'thinking';
-      id?: string;
-      name?: string;
+      id?: string | undefined;
+      name?: string | undefined;
     }
   | { type: 'content_block_stop'; index: number }
   | { type: 'text_delta'; text: string }
@@ -102,33 +102,33 @@ export interface Provider {
  */
 export interface ProviderErrorBody {
   /** Provider-specific kind, e.g. "overloaded_error", "rate_limit_error", "invalid_request_error". */
-  type?: string;
+  type?: string | undefined;
   /** Human-readable explanation from the provider. */
-  message?: string;
+  message?: string | undefined;
   /** Provider request id, when present in the body or headers. */
-  requestId?: string;
+  requestId?: string | undefined;
   /** Parsed Retry-After header (or equivalent body hint) in milliseconds. */
-  retryAfterMs?: number;
+  retryAfterMs?: number | undefined;
   /** The raw response body (truncated to ~2 KB), kept for debugging. */
-  raw?: string;
+  raw?: string | undefined;
   /** True when `raw` was truncated; check `rawLength` for the original size. */
-  truncated?: boolean;
+  truncated?: boolean | undefined;
   /** Original length of the response body in bytes, when `truncated` is true. */
-  rawLength?: number;
+  rawLength?: number | undefined;
 }
 
 export class ProviderError extends WrongStackError {
   public readonly status: number;
   public readonly retryable: boolean;
   public readonly providerId: string;
-  public readonly body?: ProviderErrorBody;
+  public readonly body?: ProviderErrorBody | undefined;
 
   constructor(
     message: string,
     status: number,
     retryable: boolean,
     providerId: string,
-    opts: { body?: ProviderErrorBody; cause?: unknown } = {},
+    opts: { body?: ProviderErrorBody | undefined; cause?: unknown | undefined } = {},
   ) {
     super({
       message,

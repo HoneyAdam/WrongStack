@@ -18,21 +18,23 @@ import {
   type Config,
   EternalAutonomyEngine,
   color,
+  type JournalEntry,
 } from '@wrongstack/core';
+import type { Token } from '@wrongstack/core/kernel';
 import { patchConfig } from './utils.js';
 import type { Agent } from '@wrongstack/core';
 import type { TerminalRenderer } from './renderer.js';
 import type { AutonomyMode } from './slash-commands/autonomy.js';
 
 /**
- * The container type is `any` because `@wrongstack/runtime`'s `Container`
+ * The container type is structural because `@wrongstack/runtime`'s `Container`
  * is not part of the public re-export surface, and pulling the full type
  * in from `core/kernel/container` would create an awkward cross-package
  * import. The container's structural contract (`.resolve(token)`) is the
  * only thing this helper actually needs; runtime callers pass a real
  * `Container` and the cast inside the helper handles the rest.
  */
-type ContainerLike = { resolve: (token: any) => any };
+type ContainerLike = { resolve: <T>(token: Token<T>) => T };
 
 export interface EternalFlagDeps {
   /** The `--eternal` flag value (already trimmed). Empty string = no-op. */
@@ -42,12 +44,12 @@ export interface EternalFlagDeps {
   container: ContainerLike;
   renderer: TerminalRenderer;
   /**
-   * Broadcast hook for engine iteration events. Typed as `any` rather
+   * Broadcast hook for engine iteration events. Typed as `unknown` rather
    * than `unknown` so callers can pass a JournalEntry-typed function
    * without contravariance noise (the engine forwards whatever it
    * produces; the caller chooses the right shape for its listener).
    */
-  broadcastEternalIteration: (iter: any) => void;
+  broadcastEternalIteration: (iter: JournalEntry) => void;
   /** Resolved max context tokens (0 = unknown; engine decides its own cap). */
   effectiveMaxContext: number;
   // Mutable references the caller owns. We update them in place and the

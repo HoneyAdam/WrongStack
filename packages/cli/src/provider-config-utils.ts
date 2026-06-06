@@ -9,6 +9,15 @@
 import type { ProviderApiKey, ProviderConfig } from '@wrongstack/core';
 import { color } from '@wrongstack/core';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 /**
  * Normalize a ProviderConfig to the canonical `apiKeys[]` form.
  * Migrates the legacy single-key `apiKey` field on the fly so every
@@ -37,7 +46,7 @@ export function writeKeysBack(cfg: ProviderConfig, keys: ProviderApiKey[]): void
     return;
   }
   cfg.apiKeys = keys;
-  const active = keys.find((k) => k.label === cfg.activeKey) ?? keys[0]!;
+  const active = keys.find((k) => k.label === cfg.activeKey) ?? expectDefined(keys[0]);
   cfg.apiKey = active.apiKey;
   if (!cfg.activeKey || !keys.some((k) => k.label === cfg.activeKey)) {
     cfg.activeKey = active.label;

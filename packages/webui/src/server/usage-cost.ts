@@ -25,7 +25,7 @@ export interface CostRates {
 export interface TokenUsage {
   input: number;
   output: number;
-  cacheRead?: number;
+  cacheRead?: number | undefined;
 }
 
 /**
@@ -35,7 +35,7 @@ export interface TokenUsage {
  */
 export function getCostRates(model: unknown): CostRates {
   const cost = (
-    model as { cost?: { input?: number; output?: number; cache_read?: number } } | null | undefined
+    model as { cost?: { input?: number | undefined; output?: number | undefined; cache_read?: number | undefined } } | null | undefined
   )?.cost;
   return {
     input: cost?.input ?? 0,

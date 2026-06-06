@@ -1,6 +1,15 @@
 import type { Specification, SpecRequirement, SpecSection } from '../types/spec.js';
 import type { SpecStore } from './spec-store.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 // ─── Session Types ────────────────────────────────────────────────────────────
 
 export type AISpecPhase =
@@ -25,9 +34,9 @@ export interface AISpecSession {
   projectContext: string;
   answers: CollectedAnswer[];
   questionCount: number;
-  spec?: Specification;
-  implementation?: string;
-  taskGraphId?: string;
+  spec?: Specification | undefined;
+  implementation?: string | undefined;
+  taskGraphId?: string | undefined;
   approved: boolean;
   createdAt: number;
   updatedAt: number;
@@ -38,13 +47,13 @@ export interface AISpecSession {
 export interface AISpecBuilderOptions {
   store: SpecStore;
   /** Minimum questions the AI should ask. Default: 2 */
-  minQuestions?: number;
+  minQuestions?: number | undefined;
   /** Maximum questions before forcing spec generation. Default: 10 */
-  maxQuestions?: number;
+  maxQuestions?: number | undefined;
   /** Project context string (package.json, file structure, etc.) */
-  projectContext?: string;
+  projectContext?: string | undefined;
   /** Path to persist session state. If set, session survives process restarts. */
-  sessionPath?: string;
+  sessionPath?: string | undefined;
 }
 
 // ─── AI Prompts ───────────────────────────────────────────────────────────────
@@ -99,7 +108,7 @@ function buildQuestioningPrompt(session: AISpecSession, min: number, max: number
   if (answered > 0) {
     lines.push('', '**Conversation so far:**');
     for (let i = 0; i < answered; i++) {
-      const a = session.answers[i]!;
+      const a = expectDefined(session.answers[i]);
       lines.push(``, `Q${i + 1}: ${a.question}`, `A${i + 1}: ${a.answer}`);
     }
   }
@@ -255,7 +264,7 @@ export class AISpecBuilder {
   private readonly store: SpecStore;
   private readonly minQuestions: number;
   private readonly maxQuestions: number;
-  private readonly sessionPath?: string;
+  private readonly sessionPath?: string | undefined;
 
   constructor(opts: AISpecBuilderOptions) {
     this.store = opts.store;

@@ -17,6 +17,15 @@ import {
 } from '@/stores';
 import type { WorktreeHandleView, WSServerMessage } from '@/types';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 // ── Session handlers ──
 
 export function handleSessionStart(msg: WSServerMessage) {
@@ -24,15 +33,15 @@ export function handleSessionStart(msg: WSServerMessage) {
     sessionId: string;
     model: string;
     provider: string;
-    maxContext?: number;
-    projectName?: string;
-    cwd?: string;
-    mode?: string;
-    contextMode?: string;
-    inputCost?: number;
-    outputCost?: number;
-    cacheReadCost?: number;
-    reset?: boolean;
+    maxContext?: number | undefined;
+    projectName?: string | undefined;
+    cwd?: string | undefined;
+    mode?: string | undefined;
+    contextMode?: string | undefined;
+    inputCost?: number | undefined;
+    outputCost?: number | undefined;
+    cacheReadCost?: number | undefined;
+    reset?: boolean | undefined;
   };
   const prev = useSessionStore.getState().session?.id;
   const isNew = !prev || prev !== payload.sessionId;
@@ -60,7 +69,7 @@ export function handleSessionStart(msg: WSServerMessage) {
     useFleetStore.getState().clear();
   }
   // Resume hydration
-  const replay = (payload as { replayMessages?: Array<{ role: string; content: unknown }> }).replayMessages;
+  const replay = (payload as { replayMessages?: Array<{ role: string | undefined; content: unknown }> }).replayMessages;
   if (replay && replay.length > 0) {
     const chat = useChatStore.getState();
     for (const m of replay) {
@@ -79,7 +88,7 @@ export function handleSessionStart(msg: WSServerMessage) {
               const all = useChatStore.getState().messages;
               let last: { id: string } | undefined;
               for (let i = all.length - 1; i >= 0; i--) {
-                if (all[i]!.toolUseId === String(b.tool_use_id ?? '')) { last = all[i]!; break; }
+                if (all[i]?.toolUseId === String(b.tool_use_id ?? '')) { last = expectDefined(all[i]); break; }
               }
               if (last) { chat.setToolResult(last.id, typeof b.content === 'string' ? b.content : JSON.stringify(b.content), !b.is_error); }
             }
@@ -127,16 +136,16 @@ export function handleContextCompacted(msg: WSServerMessage) {
   const payload = msg.payload as {
     before: number; after: number; saved: number;
     reductions: Array<{ phase: string; saved: number }>;
-    repaired?: { removedToolUses: string[]; removedToolResults: string[]; removedMessages: number };
+    repaired?: { removedToolUses: string[] | undefined; removedToolResults: string[]; removedMessages: number };
   };
   let summary = payload.reductions.length ? payload.reductions.map((r) => `${r.phase}: ${r.saved}`).join(', ') : 'no-op';
-  if (payload.repaired) summary += `; repaired ${payload.repaired.removedToolUses.length} tool_use, ${payload.repaired.removedToolResults.length} tool_result, ${payload.repaired.removedMessages} empty messages`;
+  if (payload.repaired) summary += `; repaired ${payload.repaired.removedToolUses?.length ?? 0} tool_use, ${payload.repaired.removedToolResults?.length ?? 0} tool_result, ${payload.repaired.removedMessages} empty messages`;
   useChatStore.getState().addMessage({ role: 'assistant', content: `🗜️ Context compacted: ${payload.before} → ${payload.after} tokens (saved ~${payload.saved}). ${summary}` });
   useSessionStore.setState({ lastInputTokens: payload.after });
 }
 
 export function handleProviderResponse(msg: WSServerMessage) {
-  const payload = msg.payload as { usage: { input: number; output: number; cacheRead?: number; cacheWrite?: number }; stopReason: string; messageId: string };
+  const payload = msg.payload as { usage: { input: number; output: number; cacheRead?: number | undefined; cacheWrite?: number | undefined }; stopReason: string; messageId: string };
 
   // Update lastInputTokens from usage delta (was a separate handler)
   const u = payload.usage;
@@ -159,7 +168,7 @@ export function handleProviderResponse(msg: WSServerMessage) {
 }
 
 export function handleContextRepaired(msg: WSServerMessage) {
-  const payload = msg.payload as { removedToolUses: string[]; removedToolResults: string[]; removedMessages: number; beforeMessages?: number; afterMessages?: number };
+  const payload = msg.payload as { removedToolUses: string[]; removedToolResults: string[]; removedMessages: number; beforeMessages?: number | undefined; afterMessages?: number | undefined };
   const removed = payload.removedToolUses.length + payload.removedToolResults.length + payload.removedMessages;
   const msgCount = payload.beforeMessages !== undefined && payload.afterMessages !== undefined ? ` Messages: ${payload.beforeMessages} -> ${payload.afterMessages}.` : '';
   useChatStore.getState().addMessage({ role: 'assistant', content: `Context repaired: removed ${removed} orphan protocol item(s).${msgCount} tool_use ${payload.removedToolUses.length}, tool_result ${payload.removedToolResults.length}.` });
@@ -172,7 +181,7 @@ export function handleSessionEnd() {
 }
 
 export function handleIterationStarted(msg: WSServerMessage) {
-  const payload = msg.payload as { index: number; maxIterations?: number };
+  const payload = msg.payload as { index: number; maxIterations?: number | undefined };
   useSessionStore.getState().setIteration({ index: payload.index, max: payload.maxIterations ?? 0 });
   useChatStore.getState().setLoading(true);
   if (typeof document !== 'undefined' && document.hidden) setFaviconStatus('running');
@@ -200,7 +209,7 @@ export function handleThinkingDelta(msg: WSServerMessage) {
 }
 
 export function handleToolStarted(msg: WSServerMessage) {
-  const payload = msg.payload as { id: string; name: string; input?: unknown; messageId: string };
+  const payload = msg.payload as { id: string; name: string; input?: unknown | undefined; messageId: string };
   const existing = useChatStore.getState().messages.find((m) => m.toolUseId === payload.id);
   if (existing) { useChatStore.getState().setCurrentToolId(existing.id); return; }
   useChatStore.getState().clearThinking();
@@ -211,7 +220,7 @@ export function handleToolStarted(msg: WSServerMessage) {
 }
 
 export function handleToolProgress(msg: WSServerMessage) {
-  const payload = msg.payload as { id: string; name: string; event: { type: string; text?: string } };
+  const payload = msg.payload as { id: string; name: string; event: { type: string; text?: string | undefined } };
   const text = (payload.event?.text ?? '').trim();
   if (!text) return;
   const messages = useChatStore.getState().messages;
@@ -222,7 +231,7 @@ export function handleToolProgress(msg: WSServerMessage) {
 }
 
 export function handleToolExecuted(msg: WSServerMessage) {
-  const payload = msg.payload as { id?: string; name: string; durationMs: number; ok: boolean; input?: unknown; output?: string };
+  const payload = msg.payload as { id?: string | undefined; name: string; durationMs: number; ok: boolean; input?: unknown | undefined; output?: string | undefined };
   const { messages, currentToolId } = useChatStore.getState();
   const owner = payload.id ? messages.find((m) => m.toolUseId === payload.id) : currentToolId ? messages.find((m) => m.id === currentToolId) : undefined;
   if (owner?.toolResult !== undefined) return;
@@ -244,7 +253,7 @@ export function handleToolConfirmNeeded(msg: WSServerMessage) {
 }
 
 export function handleRunResult(msg: WSServerMessage) {
-  const payload = msg.payload as { status: string; iterations: number; finalText?: string; error?: { code: string; message: string; recoverable: boolean } };
+  const payload = msg.payload as { status: string; iterations: number; finalText?: string | undefined; error?: { code: string | undefined; message: string; recoverable: boolean } };
   useSessionStore.getState().setIteration(null);
   useChatStore.getState().setLoading(false);
   useChatStore.getState().setCurrentAssistantMessage(null);
@@ -255,14 +264,14 @@ export function handleRunResult(msg: WSServerMessage) {
     let lastAssistantIdx = -1;
     let toolCount = 0;
     for (let i = all.length - 1; i >= 0; i--) {
-      const m = all[i]!;
+      const m = expectDefined(all[i]);
       if (m.role === 'assistant' && lastAssistantIdx === -1 && m.content) lastAssistantIdx = i;
       if (m.role === 'tool' && m.timestamp >= runStart.at) toolCount += 1;
       if (m.role === 'user' && m.timestamp <= runStart.at) break;
     }
     if (lastAssistantIdx !== -1) {
       const sessionCost = useSessionStore.getState().cost;
-      useChatStore.getState().updateMessage(all[lastAssistantIdx]!.id, { runSummary: { iterations: payload.iterations, tools: toolCount, durationMs: Date.now() - runStart.at, costDelta: Math.max(0, sessionCost - runStart.cost) } });
+      useChatStore.getState().updateMessage(all[lastAssistantIdx]?.id, { runSummary: { iterations: payload.iterations, tools: toolCount, durationMs: Date.now() - runStart.at, costDelta: Math.max(0, sessionCost - runStart.cost) } });
     }
   }
   useChatStore.getState().setRunStart(null);
@@ -302,13 +311,13 @@ export function handleToolsList(msg: WSServerMessage) {
 }
 
 export function handleMemoryList(msg: WSServerMessage) {
-  const p = msg.payload as { text: string; error?: string };
+  const p = msg.payload as { text: string; error?: string | undefined };
   const body = p.text?.trim();
   useChatStore.getState().addMessage({ role: 'assistant', content: p.error ? `Memory read failed: ${p.error}` : body ? `🧠 **Memory** \n\n${body}` : '🧠 **Memory** \n\n_empty — nothing remembered yet_' });
 }
 
 export function handleSkillsList(msg: WSServerMessage) {
-  const p = msg.payload as { enabled: boolean; error?: string; skills: Array<{ name: string; description: string; version: string; source: string; path: string; trigger: string; scope: string[] }> };
+  const p = msg.payload as { enabled: boolean; error?: string | undefined; skills: Array<{ name: string; description: string; version: string; source: string; path: string; trigger: string; scope: string[] }> };
   if (!p.enabled) { useChatStore.getState().addMessage({ role: 'assistant', content: '🎯 **Skills** \n\n_disabled (config.features.skills = false)_' }); return; }
   const lines = [`🎯 **Skills** (${p.skills.length})`, '', ...(p.skills.length === 0 ? ['_none registered_'] : p.skills.map((s) => `• \`${s.name}\`${s.version ? ` v${s.version}` : ''} _(${s.source})_ — ${s.description || s.trigger || '_no description_'}`))];
   if (p.error) lines.push('', `⚠ ${p.error}`);
@@ -316,7 +325,7 @@ export function handleSkillsList(msg: WSServerMessage) {
 }
 
 export function handleDiagGet(msg: WSServerMessage) {
-  const p = msg.payload as { provider: string; model: string; cwd: string; sessionId: string; tools: { count: number; names: string[] }; features: { memory: boolean; skills: boolean; modelsRegistry: boolean }; mode: string; usage: { input: number; output: number; cacheRead?: number }; messages: number; todos: number };
+  const p = msg.payload as { provider: string; model: string; cwd: string; sessionId: string; tools: { count: number; names: string[] }; features: { memory: boolean; skills: boolean; modelsRegistry: boolean }; mode: string; usage: { input: number; output: number; cacheRead?: number | undefined }; messages: number; todos: number };
   useChatStore.getState().addMessage({ role: 'assistant', content: [
     '🩺 **Runtime diagnostics**', '',
     `**Provider:** \`${p.provider}\` / \`${p.model}\``,
@@ -328,7 +337,7 @@ export function handleDiagGet(msg: WSServerMessage) {
 }
 
 export function handleStatsGet(msg: WSServerMessage) {
-  const p = msg.payload as { sessionId: string; provider: string; model: string; usage: { input: number; output: number; cacheRead?: number; cacheWrite?: number }; cache: { readTokens: number; writeTokens: number; hitRatio: number } | null; cost: number; messages: number; readFiles: number; tools: number; elapsedMs: number };
+  const p = msg.payload as { sessionId: string; provider: string; model: string; usage: { input: number; output: number; cacheRead?: number | undefined; cacheWrite?: number | undefined }; cache: { readTokens: number; writeTokens: number; hitRatio: number } | null; cost: number; messages: number; readFiles: number; tools: number; elapsedMs: number };
   const elapsedSec = Math.floor(p.elapsedMs / 1000);
   const elapsed = elapsedSec < 60 ? `${elapsedSec}s` : elapsedSec < 3600 ? `${Math.floor(elapsedSec / 60)}m ${elapsedSec % 60}s` : `${Math.floor(elapsedSec / 3600)}h ${Math.floor((elapsedSec % 3600) / 60)}m`;
   useChatStore.getState().addMessage({ role: 'assistant', content: [
@@ -342,7 +351,7 @@ export function handleStatsGet(msg: WSServerMessage) {
 }
 
 export function handleTodosUpdated(msg: WSServerMessage) {
-  const p = msg.payload as { todos: Array<{ id: string; content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string }> };
+  const p = msg.payload as { todos: Array<{ id: string; content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string | undefined }> };
   useSessionStore.getState().setTodos(p.todos ?? []);
 }
 
@@ -353,18 +362,18 @@ export function handleModesList(msg: WSServerMessage) {
 }
 
 export function handleContextModesList(msg: WSServerMessage) {
-  const p = msg.payload as { activeId: string; modes: Array<{ id: string; name: string; description: string; isActive: boolean; thresholds?: { warn: number; soft: number; hard: number }; preserveK?: number; eliseThreshold?: number }> };
+  const p = msg.payload as { activeId: string; modes: Array<{ id: string; name: string; description: string; isActive: boolean; thresholds?: { warn: number | undefined; soft: number; hard: number }; preserveK?: number | undefined; eliseThreshold?: number | undefined }> };
   useSessionStore.getState().setContextModes(p.modes.map((m) => ({ id: m.id, name: m.name, description: m.description, thresholds: m.thresholds, preserveK: m.preserveK, eliseThreshold: m.eliseThreshold })));
   useSessionStore.getState().setEnv({ contextMode: p.activeId });
 }
 
 export function handleContextModeChanged(msg: WSServerMessage) {
-  const p = msg.payload as { id: string; name?: string };
+  const p = msg.payload as { id: string; name?: string | undefined };
   useSessionStore.getState().setEnv({ contextMode: p.id });
 }
 
 export function handleSessionsList(msg: WSServerMessage) {
-  const payload = msg.payload as { sessions: SessionHistoryEntry[]; error?: string };
+  const payload = msg.payload as { sessions: SessionHistoryEntry[]; error?: string | undefined };
   useHistoryStore.getState().setEntries(payload.sessions ?? [], payload.error ?? null);
 }
 

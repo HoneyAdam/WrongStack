@@ -60,7 +60,7 @@ function updateWebsite(version) {
       const json = JSON.parse(readFileSync(p, 'utf8'));
       json.version = version;
       // package-lock.json mirrors the version under packages[""].
-      if (json.packages && json.packages['']) json.packages[''].version = version;
+      if (json.packages?.['']) json.packages[''].version = version;
       writeFileSync(p, `${JSON.stringify(json, null, 2)}\n`);
       updated++;
     } catch {

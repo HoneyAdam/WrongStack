@@ -49,7 +49,7 @@ export interface CreateDelegateToolOptions {
    * without being killed for being slow — the orchestrator must
    * decide per-call when a task needs to be cut short.
    */
-  defaultTimeoutMs?: number;
+  defaultTimeoutMs?: number | undefined;
   /**
    * Absolute directory under which per-subagent JSONL transcripts live —
    * matches `MultiAgentHostOptions.sessionsRoot`. When set, the delegate
@@ -57,13 +57,13 @@ export interface CreateDelegateToolOptions {
    * to extract partial output, so the host LLM gets *something* useful
    * back instead of just an error.
    */
-  sessionsRoot?: string;
+  sessionsRoot?: string | undefined;
   /**
    * The directorRunId used to namespace transcripts (typically the host
    * session id). Combined with `sessionsRoot` to locate per-subagent
    * JSONLs at `<sessionsRoot>/<runId>/<subagentId>.jsonl`.
    */
-  directorRunId?: string;
+  directorRunId?: string | undefined;
   /**
    * Buffer subtracted from the caller's `timeoutMs` before passing it
    * to the subagent. Gives the host a window to detect a subagent that
@@ -71,7 +71,7 @@ export interface CreateDelegateToolOptions {
    * timeout. Default: 60_000 ms (raised from 30s to give subagents
    * more headroom before the host kills them).
    */
-  subagentTimeoutBufferMs?: number;
+  subagentTimeoutBufferMs?: number | undefined;
   /**
    * Host EventBus. When supplied, `delegate` emits `delegate.started`
    * (before it blocks on the subagent) and `delegate.completed` (once the
@@ -80,7 +80,7 @@ export interface CreateDelegateToolOptions {
    * `tool.executed` JSON preview. Optional — emits are best-effort and a
    * missing bus never affects delegation behaviour.
    */
-  events?: EventBus;
+  events?: EventBus | undefined;
 }
 
 /**
@@ -189,18 +189,18 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
     inputSchema,
     async execute(input: unknown) {
       const i = (input ?? {}) as {
-        task?: string;
-        role?: string;
-        name?: string;
-        provider?: string;
-        model?: string;
-        systemPromptOverride?: string;
-        timeoutMs?: number;
-        maxIterations?: number;
-        maxToolCalls?: number;
-        idleTimeoutMs?: number;
-        maxTokens?: number;
-        maxCostUsd?: number;
+        task?: string | undefined;
+        role?: string | undefined;
+        name?: string | undefined;
+        provider?: string | undefined;
+        model?: string | undefined;
+        systemPromptOverride?: string | undefined;
+        timeoutMs?: number | undefined;
+        maxIterations?: number | undefined;
+        maxToolCalls?: number | undefined;
+        idleTimeoutMs?: number | undefined;
+        maxTokens?: number | undefined;
+        maxCostUsd?: number | undefined;
       };
 
       if (typeof i.task !== 'string' || !i.task.trim()) {
@@ -480,7 +480,7 @@ export function hintForKind(
   kind: string | undefined,
   retryable: boolean | undefined,
   backoffMs: number | undefined,
-  partial?: { lastAssistantText?: string },
+  partial?: { lastAssistantText?: string | undefined } | undefined,
 ): string | undefined {
   if (!kind) return undefined;
   switch (kind) {
@@ -572,8 +572,8 @@ async function readSubagentPartial(
   subagentId: string,
 ): Promise<
   | {
-      lastAssistantText?: string;
-      lastStopReason?: string;
+      lastAssistantText?: string | undefined;
+      lastStopReason?: string | undefined;
       toolUsesObserved: number;
       events: number;
     }
@@ -613,15 +613,15 @@ async function readSubagentPartial(
       try {
         const ev = JSON.parse(line) as {
           type: string;
-          content?: unknown;
-          stopReason?: string;
-          name?: string;
+          content?: unknown | undefined;
+          stopReason?: string | undefined;
+          name?: string | undefined;
         };
         if (ev.type === 'tool_use') toolUses += 1;
         if (ev.type === 'llm_response') {
           if (typeof ev.stopReason === 'string') lastStopReason = ev.stopReason;
           if (Array.isArray(ev.content)) {
-            const txt = (ev.content as Array<{ type?: string; text?: string }>)
+            const txt = (ev.content as Array<{ type?: string | undefined; text?: string | undefined }>)
               .filter((b) => b.type === 'text')
               .map((b) => b.text ?? '')
               .join('\n')

@@ -8,8 +8,8 @@ export interface AgentPhaseAssignment {
   agentStatus: 'idle' | 'running' | 'paused' | 'error';
   phaseId: string;
   phaseName: string;
-  taskId?: string;
-  taskTitle?: string;
+  taskId?: string | undefined;
+  taskTitle?: string | undefined;
   startedAt: number;
 }
 
@@ -25,7 +25,7 @@ export interface PhaseAgentsMonitorProps {
   onReleaseAgent?: (agentId: string, phaseId: string) => void;
   /** Agent faza ata */
   onAssignAgent?: (agentId: string, phaseId: string) => void;
-  className?: string;
+  className?: string | undefined;
 }
 
 const AGENT_STATUS_CONFIG: Record<

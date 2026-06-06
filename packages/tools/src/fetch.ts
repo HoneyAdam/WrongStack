@@ -6,7 +6,7 @@ import { truncateMiddle } from './_util.js';
 
 interface FetchInput {
   url: string;
-  format?: 'markdown' | 'text' | 'raw';
+  format?: 'markdown' | 'text' | 'raw' | undefined;
 }
 
 interface FetchOutput {
@@ -23,8 +23,8 @@ const ALLOW_PRIVATE = process.env['WRONGSTACK_FETCH_ALLOW_PRIVATE'] === '1';
 
 type LookupCallback = (
   err: NodeJS.ErrnoException | null,
-  address?: string | Array<{ address: string; family: number }>,
-  family?: number,
+  address?: string | Array<{ address: string | undefined; family: number }>,
+  family?: number | undefined,
 ) => void;
 
 /**
@@ -39,7 +39,7 @@ type LookupCallback = (
  */
 function guardedLookup(
   hostname: string,
-  options: { all?: boolean; family?: number },
+  options: { all?: boolean | undefined; family?: number | undefined },
   callback: LookupCallback,
 ): void {
   dns
@@ -192,7 +192,9 @@ export const fetchTool: Tool<FetchInput, FetchOutput> = {
   },
   async execute(input, ctx, opts) {
     let final: FetchOutput | undefined;
-    for await (const ev of fetchTool.executeStream!(input, ctx, opts)) {
+    const executeStream = fetchTool.executeStream;
+    if (!executeStream) throw new Error('fetchTool: stream execution unavailable');
+    for await (const ev of executeStream(input, ctx, opts)) {
       if (ev.type === 'final') final = ev.output;
     }
     if (!final) throw new Error('fetch: stream ended without final event');

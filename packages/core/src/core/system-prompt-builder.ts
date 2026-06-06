@@ -19,16 +19,16 @@ import type { Tool } from '../types/tool.js';
 export const LAYER_1_IDENTITY = DEFAULT_PROMPT;
 
 export interface DefaultSystemPromptBuilderOptions {
-  memoryStore?: MemoryStore;
-  skillLoader?: SkillLoader;
-  modeStore?: ModeStore;
+  memoryStore?: MemoryStore | undefined;
+  skillLoader?: SkillLoader | undefined;
+  modeStore?: ModeStore | undefined;
   /** Pre-resolved active mode id — shown in environment block. */
-  modeId?: string;
+  modeId?: string | undefined;
   /** Pre-resolved mode prompt — avoids redundant modeStore.getActiveMode() call. */
-  modePrompt?: string;
+  modePrompt?: string | undefined;
   /** Pre-resolved model capabilities — enables adaptive context thresholds. */
-  modelCapabilities?: ModelCapabilities;
-  todayIso?: string;
+  modelCapabilities?: ModelCapabilities | undefined;
+  todayIso?: string | undefined;
   /**
    * Path to the session's plan JSON, or a getter that returns it. When
    * set, the builder reads the file on every `build()` call and injects
@@ -49,7 +49,7 @@ export interface DefaultSystemPromptBuilderOptions {
    * or pass a plain array. Contributors are called in order; a throwing
    * contributor is caught and logged without aborting the build.
    */
-  contributors?: readonly SystemPromptContributor[];
+  contributors?: readonly SystemPromptContributor[] | undefined;
 }
 
 export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
@@ -61,9 +61,9 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
    * state into a later call against an unrelated project.
    */
   private envCacheByRoot = new Map<string, string>();
-  private skillCache?: string;
+  private skillCache?: string | undefined;
   /** Cached full skill bodies (after frontmatter), built once per session. */
-  private skillBodyCache?: string;
+  private skillBodyCache?: string | undefined;
   constructor(private readonly opts: DefaultSystemPromptBuilderOptions = {}) {}
 
   async build(ctx: BuildContext): Promise<TextBlock[]> {
@@ -182,7 +182,7 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
     } catch {
       return ''; // no plan yet — silent
     }
-    let parsed: { items?: Array<{ status?: string; title?: string }>; title?: string };
+    let parsed: { items?: Array<{ status?: string | undefined; title?: string | undefined }>; title?: string | undefined };
     try {
       parsed = JSON.parse(raw);
     } catch {
@@ -266,7 +266,7 @@ When unsure about a file's current state, read it first rather than assuming.`);
       const enumValues = (() => {
         const role = (
           delegateTool?.inputSchema as
-            | { properties?: { role?: { enum?: unknown } } }
+            | { properties?: { role?: { enum?: unknown | undefined } } }
             | undefined
         )?.properties?.role?.enum;
         return Array.isArray(role) ? (role.filter((r) => typeof r === 'string') as string[]) : [];

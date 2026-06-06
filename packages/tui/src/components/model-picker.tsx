@@ -7,7 +7,7 @@ export interface ProviderOption {
   /** Model ids the picker offers in step 2 for this provider. */
   models: string[];
   /** Optional dim hint shown next to the model list (e.g. "from saved config"). */
-  modelsLabel?: string;
+  modelsLabel?: string | undefined;
 }
 
 export interface ModelPickerProps {
@@ -18,11 +18,11 @@ export interface ModelPickerProps {
   /** Filtered/searched model options (may differ when searchQuery is active). */
   filteredOptions: string[];
   selected: number;
-  pickedProviderId?: string;
+  pickedProviderId?: string | undefined;
   /** Current search query (step 2 only). */
-  searchQuery?: string;
+  searchQuery?: string | undefined;
   /** Status hint (e.g. error from a failed switch attempt) shown at the bottom. */
-  hint?: string;
+  hint?: string | undefined;
 }
 
 const MAX_VISIBLE = 10;
@@ -64,7 +64,7 @@ export function ModelPicker({
           <Text dimColor>(no providers with keys — add one via `wstack auth`)</Text>
         ) : (
           providerOptions.map((p, i) => (
-            <Text key={p.id} color={i === selected ? 'cyan' : undefined} inverse={i === selected}>
+            <Text key={p.id} inverse={i === selected} {...(i === selected ? { color: 'cyan' } : {})}>
               {i === selected ? '› ' : '  '}
               <Text bold>{p.id.padEnd(28)}</Text>
               <Text dimColor> [{p.family}]</Text>
@@ -112,8 +112,8 @@ export function ModelPicker({
             return (
               <Text
                 key={id}
-                color={absoluteIndex === selected ? 'cyan' : undefined}
                 inverse={absoluteIndex === selected}
+                {...(absoluteIndex === selected ? { color: 'cyan' } : {})}
               >
                 {absoluteIndex === selected ? '› ' : '  '}
                 {id}

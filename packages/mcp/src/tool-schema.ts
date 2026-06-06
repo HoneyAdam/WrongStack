@@ -5,7 +5,7 @@ export function normalizeMCPTools(value: unknown): MCPTool[] {
   const tools: MCPTool[] = [];
   for (const raw of value) {
     if (!raw || typeof raw !== 'object') continue;
-    const t = raw as { name?: unknown; description?: unknown; inputSchema?: unknown };
+    const t = raw as { name?: unknown | undefined; description?: unknown | undefined; inputSchema?: unknown | undefined };
     if (typeof t.name !== 'string' || t.name.trim().length === 0) continue;
     const inputSchema =
       t.inputSchema && typeof t.inputSchema === 'object' && !Array.isArray(t.inputSchema)

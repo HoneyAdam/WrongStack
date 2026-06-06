@@ -7,13 +7,13 @@ export interface TaskGeneratorOptions {
 }
 
 export interface GeneratedTask {
-  specRequirementId?: string;
+  specRequirementId?: string | undefined;
   title: string;
   description: string;
   type: TaskType;
   priority: TaskPriority;
-  estimateHours?: number;
-  tags?: string[];
+  estimateHours?: number | undefined;
+  tags?: string[] | undefined;
 }
 
 export class TaskGenerator {

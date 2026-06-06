@@ -43,7 +43,7 @@ export interface DetectedDependency {
   name: string;
   version: string;
   isDev: boolean;
-  hasSecurityIssue?: boolean;
+  hasSecurityIssue?: boolean | undefined;
 }
 
 export interface TechStackInfo {
@@ -59,7 +59,7 @@ export interface DetectionResult {
   projectRoot: string;
   detectedStacks: TechStackInfo[];
   isMonorepo: boolean;
-  workspaceConfigs?: string[];
+  workspaceConfigs?: string[] | undefined;
 }
 
 export interface SkillGenerationContext {

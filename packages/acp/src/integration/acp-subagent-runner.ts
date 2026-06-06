@@ -17,12 +17,12 @@ import type {ToolTranslatorOptions} from '../client/tool-translator.js';
 export interface ACPSubagentRunnerOptions {
   /** ACP agent command or npm package (e.g. 'npx', 'gemini', 'gh') */
   command: string;
-  args?: string[];
+  args?: string[] | undefined;
   env?: Record<string, string>;
-  cwd?: string;
+  cwd?: string | undefined;
   /** Subagent role — used for protocol negotiation and prompt overrides */
-  role?: string;
-  toolTranslatorOpts?: ToolTranslatorOptions;
+  role?: string | undefined;
+  toolTranslatorOpts?: ToolTranslatorOptions | undefined;
 }
 
 /** Map WrongStack ACP agent role → how to spawn it. */
@@ -57,13 +57,7 @@ export const ACP_AGENT_COMMANDS: Record<string, ACPSubagentRunnerOptions> = {
 export async function makeACPSubagentRunner(
   options: ACPSubagentRunnerOptions,
 ): Promise<SubagentRunner> {
-  const transport = new ClientTransport({
-    command: options.command,
-    args: options.args,
-    env: options.env,
-    cwd: options.cwd,
-    handshakeTimeoutMs: 30_000,
-  });
+  const transport = new ClientTransport(clientTransportOptions(options));
 
   const translator = new ToolTranslator(options.toolTranslatorOpts);
   const activeAbort = new AbortController();
@@ -100,7 +94,7 @@ export async function makeACPSubagentRunner(
   const runner: SubagentRunner = async (
     task: TaskSpec,
     ctx: SubagentRunContext,
-  ): Promise<{result?: unknown; iterations: number; toolCalls: number}> => {
+  ): Promise<{result?: unknown | undefined; iterations: number; toolCalls: number}> => {
     ctx.signal.addEventListener('abort', () => {
       activeAbort.abort();
       transport.stop();
@@ -174,13 +168,7 @@ export async function makeACPSubagentRunner(
 export async function makeACPSubagentRunnerWithStop(
   options: ACPSubagentRunnerOptions,
 ): Promise<{runner: SubagentRunner; stop: () => void}> {
-  const transport = new ClientTransport({
-    command: options.command,
-    args: options.args,
-    env: options.env,
-    cwd: options.cwd,
-    handshakeTimeoutMs: 30_000,
-  });
+  const transport = new ClientTransport(clientTransportOptions(options));
 
   const translator = new ToolTranslator(options.toolTranslatorOpts);
   const activeAbort = new AbortController();
@@ -222,7 +210,7 @@ export async function makeACPSubagentRunnerWithStop(
   const runner: SubagentRunner = async (
     task: TaskSpec,
     ctx: SubagentRunContext,
-  ): Promise<{result?: unknown; iterations: number; toolCalls: number}> => {
+  ): Promise<{result?: unknown | undefined; iterations: number; toolCalls: number}> => {
     ctx.signal.addEventListener('abort', () => {
       activeAbort.abort();
       transport.stop();
@@ -286,4 +274,15 @@ export async function makeACPSubagentRunnerWithStop(
   };
 
   return {runner, stop};
+}
+
+function clientTransportOptions(options: ACPSubagentRunnerOptions): ConstructorParameters<typeof ClientTransport>[0] {
+  const out: ConstructorParameters<typeof ClientTransport>[0] = {
+    command: options.command,
+    handshakeTimeoutMs: 30_000,
+  };
+  if (options.args !== undefined) out.args = options.args;
+  if (options.env !== undefined) out.env = options.env;
+  if (options.cwd !== undefined) out.cwd = options.cwd;
+  return out;
 }

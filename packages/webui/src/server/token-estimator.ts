@@ -27,19 +27,19 @@ export function stringifyContent(c: unknown): string {
 }
 
 interface PromptBlock {
-  text?: string;
+  text?: string | undefined;
 }
 interface ToolLike {
   name: string;
-  inputSchema?: unknown;
-  description?: string;
+  inputSchema?: unknown | undefined;
+  description?: string | undefined;
 }
 interface ContentBlock {
-  type?: string;
-  text?: string;
-  input?: unknown;
-  content?: unknown;
-  name?: string;
+  type?: string | undefined;
+  text?: string | undefined;
+  input?: unknown | undefined;
+  content?: unknown | undefined;
+  name?: string | undefined;
 }
 interface MessageLike {
   role: string;

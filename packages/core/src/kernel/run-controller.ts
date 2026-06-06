@@ -16,7 +16,7 @@
  */
 export interface RunControllerOptions {
   /** Optional parent signal — abort propagates from parent → this. */
-  parentSignal?: AbortSignal;
+  parentSignal?: AbortSignal | undefined;
   /** Receives errors thrown by cleanup hooks. Defaults to console.warn. */
   errorSink?: (err: unknown, where: string) => void;
 }

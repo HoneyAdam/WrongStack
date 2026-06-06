@@ -10,7 +10,7 @@ export interface FleetMonitorProps {
   /** Fleet-wide token totals, when available. */
   totalTokens?: { input: number; output: number };
   /** Concurrency ceiling for the gauge. */
-  maxConcurrent?: number;
+  maxConcurrent?: number | undefined;
   /** 1s clock tick so elapsed times + sparklines stay live. */
   nowTick: number;
   /** Active or completed collaborative debugging session. */
@@ -55,7 +55,7 @@ export function bucketActivity(
     let idx = Math.floor((t.at - windowStart) / binMs);
     if (idx < 0) idx = 0;
     if (idx >= bins) idx = bins - 1;
-    out[idx]!++;
+    out[idx] = (out[idx] ?? 0) + 1;
   }
   return out;
 }
@@ -215,7 +215,7 @@ export function FleetMonitor({
                   <Text dimColor>
                     {`${fmtElapsed(Math.max(0, nowTick - ev.at))} ago`.padEnd(10)}
                   </Text>
-                  <Text color={ev.color}>{ev.icon}</Text>
+                  <Text {...(ev.color ? { color: ev.color } : {})}>{ev.icon}</Text>
                   <Text dimColor>{ev.text}</Text>
                 </Box>
               ))}

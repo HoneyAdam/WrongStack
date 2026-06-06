@@ -82,7 +82,7 @@ export function SessionList({
     }
     const favSet = new Set(favoriteSessionIds);
     const favorites = filtered.filter((e) => favSet.has(e.id));
-    const out: Array<{ label: string; rows: typeof historyEntries; star?: boolean }> = [];
+    const out: Array<{ label: string; rows: typeof historyEntries; star?: boolean | undefined }> = [];
     if (favorites.length) out.push({ label: 'Favorites', rows: favorites, star: true });
     const dedupe = (arr: typeof historyEntries) => arr.filter((e) => !favSet.has(e.id));
     const today = dedupe(buckets.today);

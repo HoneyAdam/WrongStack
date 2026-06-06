@@ -2,10 +2,19 @@ import { cn } from '@/lib/utils';
 import type React from 'react';
 import { useState } from 'react';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 function detectStackBoundary(text: string): number {
   const lines = text.split('\n');
   for (let i = 0; i < lines.length; i++) {
-    const ln = lines[i]!;
+    const ln = expectDefined(lines[i]);
     if (/^\s*at\s+\S+.*\(.*:\d+:\d+\)\s*$/.test(ln)) return i;
     if (/^\s*at\s+\S+\.\S+\(\S+\.java:\d+\)\s*$/.test(ln)) return i;
     if (/^\s+File "[^"]+", line \d+/.test(ln)) return i;

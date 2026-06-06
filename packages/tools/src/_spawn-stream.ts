@@ -2,12 +2,21 @@ import { spawn } from 'node:child_process';
 import { buildChildEnv } from '@wrongstack/core';
 import type { ToolProgressEvent } from '@wrongstack/core';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export interface SpawnStreamResult {
   stdout: string;
   stderr: string;
   exitCode: number;
   truncated: boolean;
-  error?: string;
+  error?: string | undefined;
 }
 
 export interface SpawnStreamOptions {
@@ -15,9 +24,9 @@ export interface SpawnStreamOptions {
   args: string[];
   cwd: string;
   signal: AbortSignal;
-  maxBytes?: number;
+  maxBytes?: number | undefined;
   /** Bytes of new stdout/stderr to accumulate before yielding a `partial_output` event. */
-  flushBytes?: number;
+  flushBytes?: number | undefined;
 }
 
 /**
@@ -44,7 +53,7 @@ export async function* spawnStream(
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
-  type Chunk = { kind: 'out' | 'err' | 'close' | 'error'; data: string; code?: number };
+  type Chunk = { kind: 'out' | 'err' | 'close' | 'error'; data: string; code?: number | undefined };
   const queue: Chunk[] = [];
   let waiter: (() => void) | undefined;
   const wake = () => {
@@ -85,7 +94,7 @@ export async function* spawnStream(
         waiter = resolve;
       });
     }
-    const chunk = queue.shift()!;
+    const chunk = expectDefined(queue.shift());
     if (chunk.kind === 'close') {
       // If we already saw a spawn error (ENOENT etc.), keep exitCode=1
       // rather than the negative platform code Node fabricates.

@@ -14,10 +14,10 @@ import { theme } from './theme.js';
 
 export interface InlineToken {
   text: string;
-  bold?: boolean;
-  italic?: boolean;
-  code?: boolean;
-  strike?: boolean;
+  bold?: boolean | undefined;
+  italic?: boolean | undefined;
+  code?: boolean | undefined;
+  strike?: boolean | undefined;
 }
 
 /**
@@ -87,7 +87,7 @@ export function parseInline(text: string): InlineToken[] {
   return tokens;
 }
 
-function InlineLine({ tokens, dim }: { tokens: InlineToken[]; dim?: boolean }): React.ReactElement {
+function InlineLine({ tokens, dim }: { tokens: InlineToken[]; dim?: boolean | undefined }): React.ReactElement {
   if (tokens.length === 0) return <Text> </Text>;
   return (
     <Text>
@@ -96,10 +96,10 @@ function InlineLine({ tokens, dim }: { tokens: InlineToken[]; dim?: boolean }): 
           // biome-ignore lint/suspicious/noArrayIndexKey: token order is stable per line
           key={j}
           color={t.code ? theme.accent : 'white'}
-          bold={t.bold}
-          italic={t.italic}
-          strikethrough={t.strike}
-          dimColor={dim}
+          bold={Boolean(t.bold)}
+          italic={Boolean(t.italic)}
+          strikethrough={Boolean(t.strike)}
+          dimColor={Boolean(dim)}
         >
           {t.text}
         </Text>
@@ -132,7 +132,7 @@ export function MarkdownView({
   text: string;
   termWidth: number;
   /** Real inner width of the surrounding panel. Defaults to `termWidth`. */
-  contentWidth?: number;
+  contentWidth?: number | undefined;
 }): React.ReactElement {
   const lines = text.split('\n');
   const rows: React.ReactNode[] = [];

@@ -54,7 +54,7 @@ function isIgnored(rel: string): boolean {
 }
 
 export interface CodebaseIndexingDeps {
-  config: { indexing?: IndexingConfig };
+  config: { indexing?: IndexingConfig | undefined };
   context: Context;
   pipelines: AgentPipelines;
   projectRoot: string;
@@ -105,7 +105,7 @@ export async function setupCodebaseIndexing(deps: CodebaseIndexingDeps): Promise
         try {
           const tool = payload.tool;
           if (tool?.mutating && FILE_EDIT_TOOLS.has(tool.name)) {
-            const fp = (payload.toolUse.input as { file_path?: unknown })?.file_path;
+            const fp = (payload.toolUse.input as { file_path?: unknown | undefined })?.file_path;
             if (typeof fp === 'string' && fp.length > 0) {
               const abs = path.resolve(payload.ctx.cwd, fp);
               if (isIndexableFile(abs)) {

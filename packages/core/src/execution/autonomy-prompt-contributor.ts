@@ -32,7 +32,7 @@ export interface AutonomyPromptContributorOptions {
    */
   enabled: () => boolean;
   /** Number of journal entries to include in the recent-tail block. Default 5. */
-  journalTailSize?: number;
+  journalTailSize?: number | undefined;
 }
 
 /**

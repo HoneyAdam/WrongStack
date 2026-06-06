@@ -34,7 +34,7 @@ export const KERNEL_API_VERSION = '0.1.10';
 export interface LoadPluginsOptions {
   apiFactory: (plugin: Plugin) => PluginAPI;
   log: Logger;
-  kernelApiVersion?: string;
+  kernelApiVersion?: string | undefined;
   /**
    * Per-plugin options keyed by plugin name. When a plugin declares
    * `configSchema`, the loader validates `pluginOptions[plugin.name]`
@@ -48,7 +48,7 @@ export interface LoadPluginsOptions {
    * just logging a warning. Use in CI/strict deployments to enforce
    * manifest honesty. Default: false (log-only, backward-compatible).
    */
-  enforceCapabilities?: boolean;
+  enforceCapabilities?: boolean | undefined;
 }
 
 function parseSemver(v: string): [number, number, number] {
@@ -304,9 +304,9 @@ function wrapApiForCapabilityCheck(
   plugin: Plugin,
   api: PluginAPI,
   log: {
-    error(msg: string, ctx?: unknown): void;
-    warn?(msg: string, ctx?: unknown): void;
-    info?(msg: string, ctx?: unknown): void;
+    error(msg: string, ctx?: unknown): void | undefined;
+    warn?(msg: string, ctx?: unknown): void | undefined;
+    info?(msg: string, ctx?: unknown): void | undefined;
   },
   enforce = false,
 ): PluginAPI {
@@ -333,7 +333,7 @@ function wrapApiForCapabilityCheck(
           get(target, prop, receiver) {
             if (prop === 'register') {
               return (t: unknown) => {
-                violate('tools', `register(${(t as { name?: string })?.name ?? '<unknown>'})`);
+                violate('tools', `register(${(t as { name?: string | undefined })?.name ?? '<unknown>'})`);
                 return (target.register as (x: unknown) => unknown)(t);
               };
             }
@@ -348,7 +348,7 @@ function wrapApiForCapabilityCheck(
           get(target, prop, receiver) {
             if (prop === 'register') {
               return (f: unknown) => {
-                violate('providers', `register(${(f as { type?: string })?.type ?? '<unknown>'})`);
+                violate('providers', `register(${(f as { type?: string | undefined })?.type ?? '<unknown>'})`);
                 return (target.register as (x: unknown) => unknown)(f);
               };
             }
@@ -365,7 +365,7 @@ function wrapApiForCapabilityCheck(
               return (c: unknown) => {
                 violate(
                   'slashCommands',
-                  `register(${(c as { name?: string })?.name ?? '<unknown>'})`,
+                  `register(${(c as { name?: string | undefined })?.name ?? '<unknown>'})`,
                 );
                 return (target.register as (x: unknown) => unknown)(c);
               };
@@ -381,7 +381,7 @@ function wrapApiForCapabilityCheck(
           get(target, prop, receiver) {
             if (prop === 'start') {
               return (cfg: unknown) => {
-                violate('mcp', `start(${(cfg as { name?: string })?.name ?? '<unknown>'})`);
+                violate('mcp', `start(${(cfg as { name?: string | undefined })?.name ?? '<unknown>'})`);
                 return (target.start as (x: unknown) => unknown)(cfg);
               };
             }

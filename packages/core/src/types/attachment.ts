@@ -4,11 +4,11 @@ export type AttachmentKind = 'text' | 'image' | 'file';
 
 export interface AttachmentMeta {
   /** Display label for the placeholder e.g. "123 lines" or "PNG 412 KB". */
-  label?: string;
+  label?: string | undefined;
   /** Original filename if known. */
-  filename?: string;
+  filename?: string | undefined;
   /** MIME type if known. Required for images. */
-  mediaType?: string;
+  mediaType?: string | undefined;
 }
 
 export interface Attachment {
@@ -16,9 +16,9 @@ export interface Attachment {
   readonly kind: AttachmentKind;
   readonly meta: AttachmentMeta;
   /** In-memory payload. For images this is base64; for text/file it's the raw text. */
-  readonly data?: string;
+  readonly data?: string | undefined;
   /** Disk location if spooled. Mutually exclusive with `data` for large payloads. */
-  readonly path?: string;
+  readonly path?: string | undefined;
   readonly bytes: number;
   readonly createdAt: string;
 }
@@ -34,7 +34,7 @@ export interface AttachmentRef {
 export interface AddAttachmentInput {
   kind: AttachmentKind;
   data: string;
-  meta?: AttachmentMeta;
+  meta?: AttachmentMeta | undefined;
 }
 
 /**

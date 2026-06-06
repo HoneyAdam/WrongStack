@@ -85,9 +85,9 @@ function looksSecret(name: string): boolean {
 
 export interface BuildChildEnvOptions {
   /** Session ID to inject as WRONGSTACK_SESSION_ID. */
-  sessionId?: string;
+  sessionId?: string | undefined;
   /** Additional env vars to merge (takes priority over filtered parent env). */
-  extra?: NodeJS.ProcessEnv;
+  extra?: NodeJS.ProcessEnv | undefined;
 }
 
 /**

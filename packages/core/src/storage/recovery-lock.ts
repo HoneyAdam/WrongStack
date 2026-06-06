@@ -20,19 +20,19 @@ export interface RecoveryLockOptions {
   /** Directory the lockfile lives in. Usually `wpaths.projectSessions`. */
   dir: string;
   /** This process's PID. Default: `process.pid`. */
-  pid?: number;
+  pid?: number | undefined;
   /** Hostname recorded for the lock. Default: `os.hostname()`. */
-  hostname?: string;
+  hostname?: string | undefined;
   /** Locks older than this are considered orphaned (disk wiped, etc.). Default 24h. */
-  maxAgeMs?: number;
+  maxAgeMs?: number | undefined;
   /** Used to check whether the abandoned session was actually closed cleanly. */
-  sessionStore?: SessionStore;
+  sessionStore?: SessionStore | undefined;
   /**
    * Override the PID-liveness probe. Default: `process.kill(pid, 0)` —
    * succeeds (or throws EPERM) when the PID is alive, throws ESRCH when
    * it is gone. Tests inject a deterministic stub.
    */
-  isPidAlive?: (pid: number) => boolean;
+  isPidAlive?: (((pid: number) => boolean)) | undefined;
 }
 
 export interface AbandonedSession {
@@ -61,7 +61,7 @@ export class RecoveryLock {
   private readonly pid: number;
   private readonly hostname: string;
   private readonly maxAgeMs: number;
-  private readonly sessionStore?: SessionStore;
+  private readonly sessionStore?: SessionStore | undefined;
   private readonly probe: (pid: number) => boolean;
 
   constructor(opts: RecoveryLockOptions) {

@@ -8,7 +8,7 @@ import type { SlashCommand, Context } from '../index.js';
 import type { SkillLoader } from '../types/skill.js';
 
 interface SkillsPluginOptions {
-  skillLoader?: SkillLoader;
+  skillLoader?: SkillLoader | undefined;
 }
 
 /**

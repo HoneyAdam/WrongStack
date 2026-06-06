@@ -10,8 +10,8 @@ interface PendingConfirm {
 export type WsStatus =
   | { state: 'connecting' }
   | { state: 'open' }
-  | { state: 'closed'; error?: string }
-  | { state: 'reconnecting'; attempt: number; nextRetryAt: number; lastError?: string };
+  | { state: 'closed'; error?: string | undefined }
+  | { state: 'reconnecting'; attempt: number; nextRetryAt: number; lastError?: string | undefined };
 
 const WS_TOKEN_KEY = 'ws_token';
 
@@ -246,7 +246,7 @@ export class WrongStackWebSocketClient {
     }
 
     if (msg.type === 'session.start') {
-      const payload = msg.payload as { sessionId: string; wsToken?: string };
+      const payload = msg.payload as { sessionId: string; wsToken?: string | undefined };
       this.sessionId = payload.sessionId;
       if (payload.wsToken) {
         setStoredToken(payload.wsToken);
@@ -360,7 +360,7 @@ export class WrongStackWebSocketClient {
     this.send({ type: 'key.set_active', payload: { providerId, label } });
   }
 
-  addProvider(id: string, family: string, baseUrl?: string, apiKey?: string) {
+  addProvider(id: string, family: string, baseUrl?: string | undefined, apiKey?: string) {
     this.send({ type: 'provider.add', payload: { id, family, baseUrl, apiKey } });
   }
 

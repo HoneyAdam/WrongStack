@@ -7,6 +7,15 @@ import {
 } from '../../config-history.js';
 import type { SubcommandHandler } from '../index.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 /**
  * `wrongstack config history` — list history entries or show details.
  */
@@ -92,7 +101,7 @@ export const restoreCmd: SubcommandHandler = async (args, deps) => {
 /** Extract `--key value` from args, returning value or null */
 function extractArg(args: string[], key: string): string | null {
   const idx = args.indexOf(key);
-  if (idx !== -1 && args[idx + 1] !== undefined) return args[idx + 1]!;
+  if (idx !== -1 && args[idx + 1] !== undefined) return expectDefined(args[idx + 1]);
   // Support --key=value
   const eq = key.startsWith('--') ? args.find((a) => a.startsWith(`${key}=`)) : null;
   if (eq) return eq.slice(eq.indexOf('=') + 1);

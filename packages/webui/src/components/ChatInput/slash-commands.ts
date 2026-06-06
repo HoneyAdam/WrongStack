@@ -1,10 +1,17 @@
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 // Slash command registry and matching utilities for ChatInput
 
 export type SlashCategory = 'Run' | 'Session' | 'Inspect' | 'Agent' | 'Config' | 'App';
 
 export interface SlashCommandDef {
   name: string;
-  aliases?: string[];
+  aliases?: string[] | undefined;
   description: string;
   category: SlashCategory;
 }
@@ -79,7 +86,7 @@ export function matchSlash(query: string): SlashCommandDef[] {
 export function detectAtMention(value: string, cursor: number): { start: number; query: string } | null {
   let i = cursor - 1;
   while (i >= 0) {
-    const c = value[i]!;
+    const c = expectDefined(value[i]);
     if (c === '@') {
       const prev = i > 0 ? value[i - 1] : '';
       if (i === 0 || /\s/.test(prev ?? '')) {

@@ -4,15 +4,15 @@ import type { SlashCommandContext } from './index.js';
 import { classifyError, needsSubagent, isSimpleFix, type Classification } from './fix-classifier.js';
 
 interface FixResult {
-  message?: string;
+  message?: string | undefined;
   /** Text to inject as the next user message in the REPL. */
-  runText?: string;
+  runText?: string | undefined;
   /** Extra metadata for the REPL / coordinator. */
   metadata?: {
-    skillHints?: string[];
-    delegateRequested?: boolean;
-    delegateRole?: string;
-    delegateTask?: string;
+    skillHints?: string[] | undefined;
+    delegateRequested?: boolean | undefined;
+    delegateRole?: string | undefined;
+    delegateTask?: string | undefined;
   };
 }
 

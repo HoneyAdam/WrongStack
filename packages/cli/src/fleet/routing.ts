@@ -7,6 +7,15 @@ import {
 } from '@wrongstack/core';
 import type { MultiAgentHost } from './host.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 /**
  * Routing runner — dispatches tasks to standard or ACP runner based on provider.
  */
@@ -19,7 +28,7 @@ export function buildRoutingRunner(config: Config, host: MultiAgentHost): Subage
   return async (task: TaskSpec, ctx: SubagentRunContext) => {
     const subCfg = ctx.config;
     if (subCfg.provider === 'acp') {
-      const cacheKey = subCfg.role ?? subCfg.name ?? subCfg.id!;
+      const cacheKey = subCfg.role ?? subCfg.name ?? expectDefined(subCfg.id);
       return host.buildACPRunner(cacheKey).then((r) => r(task, ctx));
     }
     return standardRunner(task, ctx);

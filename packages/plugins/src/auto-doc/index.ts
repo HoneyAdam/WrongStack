@@ -15,14 +15,14 @@ const AUTO_DOC_API_VERSION = '^0.1.10';
 
 interface AutoDocInput {
   files: string[];
-  style?: 'jsdoc' | 'tsdoc';
-  force?: boolean;
-  dryRun?: boolean;
+  style?: 'jsdoc' | 'tsdoc' | undefined;
+  force?: boolean | undefined;
+  dryRun?: boolean | undefined;
 }
 
 interface AutoDocPreviewInput {
   files: string[];
-  style?: 'jsdoc' | 'tsdoc';
+  style?: 'jsdoc' | 'tsdoc' | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -30,7 +30,7 @@ interface AutoDocPreviewInput {
 // ---------------------------------------------------------------------------
 
 type ParsedEntity =
-  | { kind: 'function'; name: string; startLine: number; params: string[]; returnType?: string }
+  | { kind: 'function'; name: string; startLine: number; params: string[]; returnType?: string | undefined }
   | { kind: 'class'; name: string; startLine: number }
   | { kind: 'type'; name: string; startLine: number }
   | { kind: 'interface'; name: string; startLine: number };
@@ -45,36 +45,37 @@ function parseSource(content: string): ParsedEntity[] {
   const reInterface = /^(?:export\s+)?interface\s+(\w+)/;
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!.trim();
+    const line = lines[i]?.trim();
+    if (!line) continue;
 
     let m = line.match(reFunction);
-    if (m) {
+    if (m?.[1]) {
       entities.push({
-        kind: 'function', name: m[1]!, startLine: i + 1,
-        params: m[2] ? m[2].split(',').map((p) => p.trim().split(':')[0]!.trim()) : [],
+        kind: 'function', name: m[1], startLine: i + 1,
+        params: m[2] ? m[2].split(',').map((p) => p.trim().split(':')[0]?.trim()).filter((p): p is string => Boolean(p)) : [],
         returnType: m[3]?.trim(),
       });
       continue;
     }
 
     m = line.match(reArrowFn);
-    if (m) {
+    if (m?.[1]) {
       entities.push({
-        kind: 'function', name: m[1]!, startLine: i + 1,
-        params: m[2] ? m[2].split(',').map((p) => p.trim().split(':')[0]!.trim()) : [],
+        kind: 'function', name: m[1], startLine: i + 1,
+        params: m[2] ? m[2].split(',').map((p) => p.trim().split(':')[0]?.trim()).filter((p): p is string => Boolean(p)) : [],
         returnType: m[3]?.trim(),
       });
       continue;
     }
 
     m = line.match(reClass);
-    if (m) { entities.push({ kind: 'class', name: m[1]!, startLine: i + 1 }); continue; }
+    if (m?.[1]) { entities.push({ kind: 'class', name: m[1], startLine: i + 1 }); continue; }
 
     m = line.match(reType);
-    if (m) { entities.push({ kind: 'type', name: m[1]!, startLine: i + 1 }); continue; }
+    if (m?.[1]) { entities.push({ kind: 'type', name: m[1], startLine: i + 1 }); continue; }
 
     m = line.match(reInterface);
-    if (m) { entities.push({ kind: 'interface', name: m[1]!, startLine: i + 1 }); }
+    if (m?.[1]) { entities.push({ kind: 'interface', name: m[1], startLine: i + 1 }); }
   }
 
   return entities;

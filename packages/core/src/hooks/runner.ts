@@ -10,27 +10,27 @@ export interface HookRunEnv {
 
 export interface HookRunnerOptions {
   registry: HookRegistry;
-  logger?: Logger;
+  logger?: Logger | undefined;
   /**
    * When false, shell hooks are skipped entirely (in-process hooks still run).
    * Set by the boot path under `--bare` / `--no-hooks` / untrusted sessions.
    */
-  allowShell?: boolean;
+  allowShell?: boolean | undefined;
   /** Resolves the active session id for the `HookInput` payload. */
-  sessionId?: () => string | undefined;
+  sessionId?: ((() => string)) | undefined;
 }
 
 export interface PreToolUseResult {
-  block?: boolean;
-  reason?: string;
+  block?: boolean | undefined;
+  reason?: string | undefined;
   /** Present only when a hook replaced the tool input. */
   input?: Record<string, unknown>;
 }
 
 export interface PromptResult {
-  block?: boolean;
-  reason?: string;
-  additionalContext?: string;
+  block?: boolean | undefined;
+  reason?: string | undefined;
+  additionalContext?: string | undefined;
 }
 
 /**
@@ -85,7 +85,7 @@ export class HookRunner {
     toolInput: unknown,
     result: { content: string; isError: boolean },
     env: HookRunEnv,
-  ): Promise<{ additionalContext?: string }> {
+  ): Promise<{ additionalContext?: string | undefined }> {
     const payload: HookInput = {
       event: 'PostToolUse',
       toolName,
@@ -112,7 +112,7 @@ export class HookRunner {
     return parts.length ? { additionalContext: parts.join('\n') } : {};
   }
 
-  async sessionStart(env: HookRunEnv): Promise<{ additionalContext?: string }> {
+  async sessionStart(env: HookRunEnv): Promise<{ additionalContext?: string | undefined }> {
     const payload: HookInput = { event: 'SessionStart', ...this.base(env) };
     return { additionalContext: await this.collectContext('SessionStart', undefined, payload) };
   }
@@ -124,7 +124,7 @@ export class HookRunner {
 
   // ── internals ──────────────────────────────────────────────────────
 
-  private base(env: HookRunEnv): { cwd: string; sessionId?: string } {
+  private base(env: HookRunEnv): { cwd: string; sessionId?: string | undefined } {
     const sessionId = this.opts.sessionId?.();
     return sessionId ? { cwd: env.cwd, sessionId } : { cwd: env.cwd };
   }

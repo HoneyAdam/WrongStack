@@ -13,15 +13,15 @@ const LEVEL_RANK: Record<PressureLevel, number> = { warn: 0, soft: 1, hard: 2 };
 export type CompactionFailureMode = 'throw' | 'throw_on_hard' | 'continue';
 
 export interface AutoCompactionOptions {
-  aggressiveOn?: ContextWindowAggressiveOn;
-  events?: EventBus;
-  failureMode?: CompactionFailureMode;
+  aggressiveOn?: ContextWindowAggressiveOn | undefined;
+  events?: EventBus | undefined;
+  failureMode?: CompactionFailureMode | undefined;
   policyProvider?: (ctx: Context) => Pick<
     ContextWindowPolicy,
     'thresholds' | 'aggressiveOn'
   > | null | undefined;
   /** Optional bridge for writing compaction events into the persistent session log. */
-  sessionBridge?: SessionEventBridge;
+  sessionBridge?: SessionEventBridge | undefined;
 }
 
 /**
@@ -38,17 +38,17 @@ export class AutoCompactionMiddleware {
 
   private readonly compactor: Compactor;
   /** Deprecated. Kept for backward compat with tests that pass simpleEstimator. */
-  private readonly _estimator?: (ctx: Context) => number;
+  private readonly _estimator?: (((ctx: Context) => number)) | undefined;
   private readonly warnThreshold: number;
   private readonly softThreshold: number;
   private readonly hardThreshold: number;
   /** Writable so model-switch can update the denominator without re-registering the middleware. */
   private _maxContext: number;
   private readonly aggressiveOn: ContextWindowAggressiveOn;
-  private readonly events?: EventBus;
+  private readonly events?: EventBus | undefined;
   private readonly failureMode: CompactionFailureMode;
-  private readonly policyProvider?: AutoCompactionOptions['policyProvider'];
-  private readonly sessionBridge?: SessionEventBridge;
+  private readonly policyProvider?: AutoCompactionOptions['policyProvider'] | undefined;
+  private readonly sessionBridge?: SessionEventBridge | undefined;
 
   /**
    * Once a compaction attempt reduces nothing (preserveK protects everything,
@@ -82,7 +82,7 @@ export class AutoCompactionMiddleware {
     _estimator: (ctx: Context) => number,
     thresholds: { warn: number; soft: number; hard: number },
     optsOrAggressiveOn: AutoCompactionOptions | ContextWindowAggressiveOn = {},
-    events?: EventBus,
+    events?: EventBus | undefined,
   ) {
     const opts =
       typeof optsOrAggressiveOn === 'string'

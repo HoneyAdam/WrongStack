@@ -9,6 +9,15 @@
  */
 import type { Plugin } from '@wrongstack/core';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 const API_VERSION = '^0.1.10';
 
 // ---------------------------------------------------------------------------
@@ -25,7 +34,7 @@ function jmespathSearch(data: unknown, query: string): unknown {
   // Dot notation: foo.bar
   const dotMatch = query.match(/^([a-zA-Z_][a-zA-Z0-9_]*)(?:\.(.+))?$/);
   if (dotMatch) {
-    const key = dotMatch[1]!;
+    const key = expectDefined(dotMatch[1]);
     const rest = dotMatch[2];
     const val = (data as Record<string, unknown>)?.[key];
     if (rest === undefined) return val;
@@ -35,7 +44,7 @@ function jmespathSearch(data: unknown, query: string): unknown {
   // Array access: [0]
   const arrMatch = query.match(/^\[(\d+)\](?:\.(.+))?$/);
   if (arrMatch) {
-    const idx = Number.parseInt(arrMatch[1]!, 10);
+    const idx = Number.parseInt(expectDefined(arrMatch[1]), 10);
     const rest = arrMatch[2];
     const arr = data as unknown[];
     const val = arr?.[idx];
@@ -54,7 +63,7 @@ function jmespathSearch(data: unknown, query: string): unknown {
   // Multi-select: foo.bar[*].baz
   const multiMatch = query.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[\*\](?:\.(.+))?$/);
   if (multiMatch) {
-    const key = multiMatch[1]!;
+    const key = expectDefined(multiMatch[1]);
     const rest = multiMatch[2];
     const arr = (data as Record<string, unknown[]>)?.[key];
     if (!Array.isArray(arr)) return [];
@@ -65,9 +74,9 @@ function jmespathSearch(data: unknown, query: string): unknown {
   // Filter: [?foo==`bar`]
   const filterMatch = query.match(/^\[\\?([a-zA-Z_][a-zA-Z0-9_]*)(==|!=|<|>|<=|>=)(`[^`]+`|'[^']*')\](?:\.(.+))?$/);
   if (filterMatch) {
-    const field = filterMatch[1]!;
-    const op = filterMatch[2]!;
-    const rawVal = filterMatch[3]!;
+    const field = expectDefined(filterMatch[1]);
+    const op = expectDefined(filterMatch[2]);
+    const rawVal = expectDefined(filterMatch[3]);
     const rest = filterMatch[4];
     const cmpVal = JSON.parse(rawVal.slice(1, -1));
     const arr = data as Record<string, unknown>[];
@@ -91,7 +100,7 @@ function jmespathSearch(data: unknown, query: string): unknown {
   // Function calls: length(@)
   const fnMatch = query.match(/^(length|keys|values|type)\(@\)$/);
   if (fnMatch) {
-    const fn = fnMatch[1]!;
+    const fn = expectDefined(fnMatch[1]);
     switch (fn) {
       case 'length':
         if (Array.isArray(data)) return data.length;

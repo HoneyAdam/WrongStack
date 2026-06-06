@@ -4,8 +4,8 @@ import { renderDiff } from './diff-renderer.js';
 import { theme } from './theme.js';
 
 export interface TerminalRendererOptions {
-  out?: NodeJS.WriteStream;
-  err?: NodeJS.WriteStream;
+  out?: NodeJS.WriteStream | undefined;
+  err?: NodeJS.WriteStream | undefined;
 }
 
 export class TerminalRenderer implements Renderer {
@@ -206,11 +206,12 @@ export class TerminalRenderer implements Renderer {
    * Uses `delegateSummaries` when available (populated by delegate tool),
    * otherwise falls back to scanning message history.
    */
-  writeDelegateSummaries(result: { delegateSummaries?: Array<{ summary: string; ok: boolean }>; messages?: Array<unknown> }): void {
+  writeDelegateSummaries(result: { delegateSummaries?: Array<{ summary: string | undefined; ok: boolean }>; messages?: Array<unknown> | undefined }): void {
     if (this.silent) return;
     // Prefer the structured field from delegate tool.
     if (result.delegateSummaries) {
       for (const { summary, ok } of result.delegateSummaries) {
+        if (!summary) continue;
         this.writeAgentSummary(summary, ok);
       }
       return;
@@ -218,10 +219,10 @@ export class TerminalRenderer implements Renderer {
     // Fallback: scan message history for delegate tool_result blocks.
     if (!result.messages) return;
     for (const msg of result.messages) {
-      const m = msg as { content?: Array<unknown> };
+      const m = msg as { content?: Array<unknown> | undefined };
       if (!Array.isArray(m.content)) continue;
       for (const block of m.content) {
-        const b = block as { type?: string; name?: string; content?: unknown };
+        const b = block as { type?: string | undefined; name?: string | undefined; content?: unknown | undefined };
         if (b.type !== 'tool_result' || b.name !== 'delegate') continue;
         let obj: unknown;
         try {
@@ -229,7 +230,7 @@ export class TerminalRenderer implements Renderer {
         } catch {
           continue;
         }
-        const o = obj as { summary?: string; ok?: boolean };
+        const o = obj as { summary?: string | undefined; ok?: boolean | undefined };
         if (o.summary) {
           this.writeAgentSummary(o.summary, o.ok ?? true);
         }
@@ -290,7 +291,7 @@ function safeStringify(value: unknown): string {
  */
 function extractDiff(value: unknown): string | null {
   if (typeof value === 'object' && value !== null) {
-    const d = (value as { diff?: unknown }).diff;
+    const d = (value as { diff?: unknown | undefined }).diff;
     if (typeof d === 'string' && d.length > 0) return d;
   }
   if (typeof value === 'string') {
@@ -299,7 +300,7 @@ function extractDiff(value: unknown): string | null {
     const trimmed = value.trimStart();
     if (trimmed.startsWith('{')) {
       try {
-        const parsed = JSON.parse(value) as { diff?: unknown };
+        const parsed = JSON.parse(value) as { diff?: unknown | undefined };
         if (typeof parsed.diff === 'string' && parsed.diff.length > 0) {
           return parsed.diff;
         }

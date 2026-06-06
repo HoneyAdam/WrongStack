@@ -19,7 +19,7 @@ export interface CatalogProvider {
   id: string;
   name: string;
   family: string;
-  apiBase?: string;
+  apiBase?: string | undefined;
   envVars: string[];
   modelCount: number;
   hasApiKey: boolean;
@@ -27,8 +27,8 @@ export interface CatalogProvider {
 
 export interface SavedProvider {
   id: string;
-  family?: string;
-  baseUrl?: string;
+  family?: string | undefined;
+  baseUrl?: string | undefined;
   apiKeys: Array<{
     label: string;
     maskedKey: string;
@@ -66,7 +66,7 @@ export interface ProviderSectionProps {
   /** Called to set a key as active. */
   onSetActiveKey: (providerId: string, label: string) => void;
   /** Called to add a custom provider. */
-  onAddProvider: (id: string, family: string, baseUrl?: string, apiKey?: string) => void;
+  onAddProvider: (id: string, family: string, baseUrl?: string | undefined, apiKey?: string) => void;
   /** Called to remove a saved provider. */
   onRemoveProvider: (providerId: string) => void;
   /** Search filter text. */
@@ -143,7 +143,7 @@ export function ProviderSection({
   const catalogByFamily = filteredCatalog.reduce(
     (acc, p) => {
       if (!acc[p.family]) acc[p.family] = [];
-      acc[p.family]!.push(p);
+      acc[p.family]?.push(p);
       return acc;
     },
     {} as Record<string, CatalogProvider[]>,

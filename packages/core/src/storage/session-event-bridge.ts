@@ -13,17 +13,17 @@ export interface ToolProgressSamplingOptions {
    * - 1 = every message (no sampling)
    * - 8 = keep the first message + every 8th after that (default)
    */
-  sampleRate?: number;
+  sampleRate?: number | undefined;
 }
 
 export interface SessionSamplingOptions {
   /** Controls sampling behavior for `tool_progress` events (only relevant at auditLevel 'full'). */
-  toolProgress?: ToolProgressSamplingOptions;
+  toolProgress?: ToolProgressSamplingOptions | undefined;
 }
 
 export interface SessionEventBridgeOptions {
   /** Sampling rules for high-volume audit events. */
-  sampling?: SessionSamplingOptions;
+  sampling?: SessionSamplingOptions | undefined;
 }
 
 /**
@@ -192,7 +192,7 @@ export { CORE_RECONSTRUCT_EVENTS, STANDARD_AUDIT_EVENTS };
  * Falls back to 'standard' if not present or invalid.
  */
 export function resolveAuditLevel(
-  cfg?: { session?: { auditLevel?: AuditLevel } } | null,
+  cfg?: { session?: { auditLevel?: AuditLevel | undefined } } | null,
 ): AuditLevel {
   const raw = cfg?.session?.auditLevel;
   if (raw === 'minimal' || raw === 'standard' || raw === 'full') {
@@ -208,9 +208,9 @@ export function resolveAuditLevel(
 export function resolveSessionLoggingConfig(
   cfg?: {
     session?: {
-      auditLevel?: AuditLevel;
+      auditLevel?: AuditLevel | undefined;
       sampling?: {
-        toolProgress?: { sampleRate?: number };
+        toolProgress?: { sampleRate?: number | undefined };
       };
     };
   } | null,

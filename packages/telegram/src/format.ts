@@ -10,13 +10,13 @@ export interface DelegateCompletedLike {
   target: string;
   task: string;
   ok: boolean;
-  status?: string;
+  status?: string | undefined;
   summary: string;
   durationMs: number;
   iterations: number;
   toolCalls: number;
-  costUsd?: number;
-  subagentId?: string;
+  costUsd?: number | undefined;
+  subagentId?: string | undefined;
 }
 
 /** Compact human duration: `42s`, `3m`, `1.5h`. */

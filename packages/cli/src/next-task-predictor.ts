@@ -29,9 +29,9 @@ export interface PredictOpts {
   provider: PredictLLMProvider;
   model: string;
   /** Max predictions to return. Default 3. */
-  maxPredictions?: number;
+  maxPredictions?: number | undefined;
   /** Abort signal — when omitted, an internal 12s timeout is used. */
-  signal?: AbortSignal;
+  signal?: AbortSignal | undefined;
 }
 
 const SYSTEM_PROMPT =
@@ -101,10 +101,10 @@ export function parsePredictions(raw: string, max = 3): string[] {
 
 function extractText(content: unknown): string {
   if (Array.isArray(content)) {
-    return (content[0] as { text?: string } | undefined)?.text ?? '';
+    return (content[0] as { text?: string | undefined } | undefined)?.text ?? '';
   }
   if (content && typeof content === 'object') {
-    return (content as { text?: string }).text ?? '';
+    return (content as { text?: string | undefined }).text ?? '';
   }
   return typeof content === 'string' ? content : '';
 }

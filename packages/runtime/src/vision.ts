@@ -5,7 +5,7 @@ import type { ContentBlock, Context, ImageBlock, Tool, ToolRegistry } from '@wro
 
 export interface VisionAdapterInput {
   image: ImageBlock;
-  prompt?: string;
+  prompt?: string | undefined;
   ctx: Context;
   signal: AbortSignal;
 }
@@ -21,23 +21,23 @@ export type VisionAdapters =
 
 export interface VisionRoutingOptions {
   supportsVision: boolean;
-  adapters?: VisionAdapters;
+  adapters?: VisionAdapters | undefined;
   ctx: Context;
   signal: AbortSignal;
-  prompt?: string;
-  providerId?: string;
-  model?: string;
+  prompt?: string | undefined;
+  providerId?: string | undefined;
+  model?: string | undefined;
 }
 
 export interface VisionRoutingResult {
   blocks: ContentBlock[];
   route: 'native' | 'adapter' | 'none';
   convertedImages: number;
-  adapterName?: string;
+  adapterName?: string | undefined;
 }
 
 export class ImageInputUnsupportedError extends Error {
-  constructor(opts: { providerId?: string; model?: string; imageCount: number }) {
+  constructor(opts: { providerId?: string | undefined; model?: string | undefined; imageCount: number }) {
     const target = [opts.providerId, opts.model].filter(Boolean).join('/') || 'current model';
     super(
       `${target} does not support image input, and no image-understanding adapter is available for ${opts.imageCount} image${opts.imageCount === 1 ? '' : 's'}. Switch to a vision model or enable an MCP/tool adapter that can describe images.`,
@@ -112,7 +112,7 @@ async function resolveAdapters(adapters: VisionAdapters | undefined): Promise<re
 }
 
 export interface ToolVisionAdapterOptions {
-  prompt?: string;
+  prompt?: string | undefined;
 }
 
 export function createToolVisionAdapters(
@@ -227,7 +227,9 @@ async function buildToolPayload(
   if ('prompt' in props) payload.prompt = prompt;
   if ('query' in props) payload.query = prompt;
   if ('instruction' in props) payload.instruction = prompt;
-  return { payload, cleanup };
+  const built: { payload: Record<string, unknown>; cleanup?: () => Promise<void> } = { payload };
+  if (cleanup !== undefined) built.cleanup = cleanup;
+  return built;
 }
 
 function firstPresent(props: Record<string, unknown>, keys: string[]): string | undefined {
@@ -245,7 +247,7 @@ async function writeTempImage(data: string, mediaType: string): Promise<string> 
 function schemaProperties(tool: Tool): Record<string, unknown> {
   const schema = tool.inputSchema;
   if (!schema || typeof schema !== 'object') return {};
-  const props = (schema as { properties?: unknown }).properties;
+  const props = (schema as { properties?: unknown | undefined }).properties;
   return props && typeof props === 'object' ? (props as Record<string, unknown>) : {};
 }
 
@@ -255,14 +257,14 @@ function stringifyToolResult(value: unknown): string {
     return value
       .map((item) => {
         if (item && typeof item === 'object' && 'text' in item) {
-          return String((item as { text?: unknown }).text ?? '');
+          return String((item as { text?: unknown | undefined }).text ?? '');
         }
         return typeof item === 'string' ? item : JSON.stringify(item);
       })
       .join('\n');
   }
   if (value && typeof value === 'object' && 'text' in value) {
-    return String((value as { text?: unknown }).text ?? '');
+    return String((value as { text?: unknown | undefined }).text ?? '');
   }
   return JSON.stringify(value);
 }

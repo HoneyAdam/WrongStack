@@ -2,26 +2,26 @@ import type { SubagentBudget } from '../coordination/subagent-budget.js';
 import type { AgentBridge, BridgeMessage } from './agent-bridge.js';
 
 export interface SubagentConfig {
-  id?: string;
+  id?: string | undefined;
   name: string;
-  role?: string;
-  prompt?: string;
-  maxIterations?: number;
-  maxToolCalls?: number;
-  maxTokens?: number;
-  maxCostUsd?: number;
+  role?: string | undefined;
+  prompt?: string | undefined;
+  maxIterations?: number | undefined;
+  maxToolCalls?: number | undefined;
+  maxTokens?: number | undefined;
+  maxCostUsd?: number | undefined;
   /** Hard wall-clock cap (ms) from start. Opt-in; prefer `idleTimeoutMs`. */
-  timeoutMs?: number;
+  timeoutMs?: number | undefined;
   /**
    * Idle timeout (ms): reap the subagent only after this long with no
    * activity. Resets on every iteration / tool call / streamed progress, so
    * an actively-working agent runs until its task naturally ends. This is the
    * default reaper for delegated subagents (see `applyRosterBudget`).
    */
-  idleTimeoutMs?: number;
-  tools?: string[];
-  model?: string;
-  priority?: number;
+  idleTimeoutMs?: number | undefined;
+  tools?: string[] | undefined;
+  model?: string | undefined;
+  priority?: number | undefined;
 
   /**
    * Working directory for this subagent's tools. Defaults to the factory's
@@ -30,7 +30,7 @@ export interface SubagentConfig {
    * `projectRoot` is intentionally left unchanged — tools resolve the
    * worktree's `.git` gitlink from `cwd` while staying bounded to the repo.
    */
-  cwd?: string;
+  cwd?: string | undefined;
 
   // --- Director orchestration extensions ---
 
@@ -41,7 +41,7 @@ export interface SubagentConfig {
    * factory's default provider when omitted, which is the legacy
    * single-provider behavior.
    */
-  provider?: string;
+  provider?: string | undefined;
 
   /**
    * Per-subagent session JSONL path. When omitted the orchestrator-
@@ -49,14 +49,14 @@ export interface SubagentConfig {
    * Override to redirect the transcript elsewhere (long-term storage,
    * a different filesystem, etc.).
    */
-  sessionPath?: string;
+  sessionPath?: string | undefined;
 
   /**
    * Additional text appended to the role's base system prompt. Does not
    * replace it. Useful for last-mile guidance like "you may only call
    * read tools, never write" or "respond in JSON only".
    */
-  systemPromptOverride?: string;
+  systemPromptOverride?: string | undefined;
 
   /**
    * Domain-specific knowledge injected into the subagent's system prompt
@@ -65,7 +65,7 @@ export interface SubagentConfig {
    * bug-hunter skill body for a bug-hunter subagent). Keeps subagents
    * informed of same domain patterns the host agent knows.
    */
-  skillContent?: string;
+  skillContent?: string | undefined;
 
   /**
    * Routing for streaming output. `'director'` (default) forwards
@@ -75,8 +75,8 @@ export interface SubagentConfig {
    * direct to the user-facing renderer (gate this behind an explicit
    * config flag — it can confuse the chat surface).
    */
-  textStream?: 'director' | 'silent' | 'user';
-  toolStream?: 'director' | 'silent' | 'user';
+  textStream?: 'director' | 'silent' | 'user' | undefined;
+  toolStream?: 'director' | 'silent' | 'user' | undefined;
 }
 
 /**
@@ -136,21 +136,21 @@ export interface SubagentError {
   /** True if the operation can be retried as-is (possibly with backoff). */
   retryable: boolean;
   /** Suggested backoff before retry, in ms. Set for `provider_rate_limit` and `provider_5xx`. */
-  backoffMs?: number;
+  backoffMs?: number | undefined;
   /** Original cause snapshot for diagnostics — never used for control flow. */
-  cause?: { name: string; message: string; stack?: string };
+  cause?: { name: string; message: string; stack?: string | undefined } | undefined;
 }
 
 export interface TaskResult<T = unknown> {
   subagentId: string;
   taskId: string;
   status: 'success' | 'failed' | 'timeout' | 'stopped';
-  result?: T;
+  result?: T | undefined;
   /**
    * Structured failure envelope. Populated whenever `status !== 'success'`.
    * Prefer reading `error.kind` over substring-matching `error.message`.
    */
-  error?: SubagentError;
+  error?: SubagentError | undefined;
   iterations: number;
   toolCalls: number;
   durationMs: number;
@@ -159,19 +159,19 @@ export interface TaskResult<T = unknown> {
 export interface TaskSpec {
   id: string;
   description: string;
-  subagentId?: string;
-  priority?: number;
-  maxToolCalls?: number;
-  timeoutMs?: number;
+  subagentId?: string | undefined;
+  priority?: number | undefined;
+  maxToolCalls?: number | undefined;
+  timeoutMs?: number | undefined;
   context?: Record<string, unknown>;
 }
 
 export interface DoneCondition {
   type: 'iterations' | 'tool_calls' | 'output_match' | 'custom' | 'all_tasks_done' | 'directive';
-  maxIterations?: number;
-  maxToolCalls?: number;
-  pattern?: string;
-  predicate?: string;
+  maxIterations?: number | undefined;
+  maxToolCalls?: number | undefined;
+  pattern?: string | undefined;
+  predicate?: string | undefined;
   /**
    * For `directive` type — stop when model emits [done] and keep going
    * on [continue]/[next step]/[proceed] WITHOUT returning to the outer runner.
@@ -179,28 +179,28 @@ export interface DoneCondition {
    * When true, the runner passes `autonomousContinue: true` to the agent and
    * re-runs internally when the model signals continue.
    */
-  autonomous?: boolean;
+  autonomous?: boolean | undefined;
 }
 
 export interface MultiAgentConfig {
   coordinatorId: string;
-  leaderSystemPrompt?: string;
-  subagents?: SubagentConfig[];
-  maxConcurrent?: number;
+  leaderSystemPrompt?: string | undefined;
+  subagents?: SubagentConfig[] | undefined;
+  maxConcurrent?: number | undefined;
   doneCondition: DoneCondition;
-  timeoutMs?: number;
+  timeoutMs?: number | undefined;
   /**
    * Optional default budget applied to every spawned subagent. Per-subagent
    * fields in `SubagentConfig` override these. Coordinator enforces them by
    * constructing a `SubagentBudget` per spawn — see `SubagentRunContext.budget`.
    */
   defaultBudget?: {
-    maxIterations?: number;
-    maxToolCalls?: number;
-    maxTokens?: number;
-    maxCostUsd?: number;
-    timeoutMs?: number;
-    idleTimeoutMs?: number;
+    maxIterations?: number | undefined;
+    maxToolCalls?: number | undefined;
+    maxTokens?: number | undefined;
+    maxCostUsd?: number | undefined;
+    timeoutMs?: number | undefined;
+    idleTimeoutMs?: number | undefined;
   };
 }
 
@@ -270,7 +270,7 @@ export interface SubagentRunContext {
 }
 
 export interface SubagentRunOutcome {
-  result?: unknown;
+  result?: unknown | undefined;
   iterations: number;
   toolCalls: number;
 }
@@ -281,10 +281,10 @@ export interface CoordinatorStatus {
     id: string;
     name: string;
     status: 'running' | 'idle' | 'stopped' | 'error';
-    currentTask?: string;
+    currentTask?: string | undefined;
     /** Cumulative budget auto-extensions granted to this subagent, when the
      *  status is produced by a Director that tracks them. */
-    extensions?: number;
+    extensions?: number | undefined;
   }[];
   pendingTasks: number;
   completedTasks: number;

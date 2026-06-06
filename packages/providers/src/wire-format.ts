@@ -73,7 +73,7 @@ export class WireFormatProvider<S = Record<string, unknown>> extends WireAdapter
 
   constructor(
     cfg: WireFormatConfig<S>,
-    opts: { apiKey: string; baseUrl?: string; fetchImpl?: typeof fetch },
+    opts: { apiKey: string; baseUrl?: string | undefined; fetchImpl?: typeof fetch | undefined },
   ) {
     super(opts.apiKey, opts.baseUrl ?? cfg.defaultBaseUrl, opts.fetchImpl);
     this.id = cfg.id;
@@ -150,9 +150,9 @@ export interface WireFactoryOptions {
    * reads `cfg.apiKey` (passed in at create time by the registry / config
    * loader). Setting this here is useful in tests.
    */
-  apiKey?: string;
+  apiKey?: string | undefined;
   /** Override the base URL at factory build time. */
-  baseUrl?: string;
+  baseUrl?: string | undefined;
 }
 
 /**
@@ -168,7 +168,7 @@ export function createWireFormatFactory(
     type: cfg.id,
     family: cfg.family,
     create: (rawCfg: unknown): Provider => {
-      const c = rawCfg as { apiKey?: string; baseUrl?: string };
+      const c = rawCfg as { apiKey?: string | undefined; baseUrl?: string | undefined };
       const apiKey = opts.apiKey ?? c.apiKey;
       if (!apiKey) {
         throw new Error(`Provider "${cfg.id}" requires an apiKey.`);

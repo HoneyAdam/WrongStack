@@ -196,7 +196,7 @@ function summariseEvent(ev: import('@wrongstack/core').SessionEvent): string {
       const text =
         'text' in ev && typeof ev.text === 'string'
           ? ev.text
-          : Array.isArray((ev as { content?: unknown }).content)
+          : Array.isArray((ev as { content?: unknown | undefined }).content)
             ? '…'
             : '';
       return color.dim(text.length > 60 ? text.slice(0, 59) + '…' : text);
@@ -204,21 +204,21 @@ function summariseEvent(ev: import('@wrongstack/core').SessionEvent): string {
     case 'llm_response':
       return color.dim('(model reply)');
     case 'tool_use':
-      return color.dim(`name=${(ev as { name?: string }).name ?? '?'}`);
+      return color.dim(`name=${(ev as { name?: string | undefined }).name ?? '?'}`);
     case 'tool_result':
-      return color.dim(`name=${(ev as { name?: string }).name ?? '?'}`);
+      return color.dim(`name=${(ev as { name?: string | undefined }).name ?? '?'}`);
     case 'in_flight_start':
-      return color.dim(`context="${(ev as { context?: string }).context ?? ''}"`);
+      return color.dim(`context="${(ev as { context?: string | undefined }).context ?? ''}"`);
     case 'in_flight_end':
-      return color.dim(`reason=${(ev as { reason?: string }).reason ?? '?'}`);
+      return color.dim(`reason=${(ev as { reason?: string | undefined }).reason ?? '?'}`);
     case 'checkpoint':
       return color.dim(
-        `promptIndex=${(ev as { promptIndex?: number }).promptIndex ?? '?'}`,
+        `promptIndex=${(ev as { promptIndex?: number | undefined }).promptIndex ?? '?'}`,
       );
     case 'compaction':
       return color.dim('(compaction)');
     case 'error':
-      return color.red(String((ev as { message?: string }).message ?? ''));
+      return color.red(String((ev as { message?: string | undefined }).message ?? ''));
     default:
       return color.dim('…');
   }

@@ -82,7 +82,7 @@ export function createAgentLoopHandler(
     hasHardLimit: boolean,
     currentIterations: number,
     delegateSummaries: Array<{ summary: string; ok: boolean }>,
-  ): Promise<{ limit: number; exit?: RunResult }> {
+  ): Promise<{ limit: number; exit?: RunResult | undefined }> {
     if (hasHardLimit && iterationIndex >= limit) {
       const extendBy = await requestLimitExtension({
         events: a.events,

@@ -41,22 +41,22 @@ export interface WorktreeHandle {
   insertions: number;
   deletions: number;
   files: number;
-  sha?: string;
-  lastError?: string;
-  conflictFiles?: string[];
+  sha?: string | undefined;
+  lastError?: string | undefined;
+  conflictFiles?: string[] | undefined;
 }
 
 export interface AllocateOpts {
   /** Friendly basis for the slug/branch (e.g. the phase name). */
-  slugHint?: string;
-  ownerLabel?: string;
+  slugHint?: string | undefined;
+  ownerLabel?: string | undefined;
   /** Override the detected base branch. */
-  baseBranch?: string;
+  baseBranch?: string | undefined;
 }
 
 export interface MergeOpts {
-  squash?: boolean;
-  message?: string;
+  squash?: boolean | undefined;
+  message?: string | undefined;
   /**
    * Optional conflict resolver. Invoked when the squash-merge conflicts, with
    * the conflicted paths and the base working tree (`cwd`). It must resolve the
@@ -71,11 +71,11 @@ export interface MergeOpts {
 
 export interface MergeResult {
   ok: boolean;
-  conflict?: boolean;
-  conflictFiles?: string[];
-  stderr?: string;
+  conflict?: boolean | undefined;
+  conflictFiles?: string[] | undefined;
+  stderr?: string | undefined;
   /** True when an initial conflict was successfully resolved by `opts.resolve`. */
-  resolved?: boolean;
+  resolved?: boolean | undefined;
 }
 
 export interface RunResult {
@@ -86,8 +86,8 @@ export interface RunResult {
 
 export interface WorktreeManagerOptions {
   projectRoot: string;
-  events?: EventBus;
-  gitBin?: string;
+  events?: EventBus | undefined;
+  gitBin?: string | undefined;
   /**
    * Test seam. When provided, replaces the real `git` spawn so the manager's
    * sequencing/arg vectors can be asserted without touching a repo.
@@ -105,7 +105,7 @@ const MAX_SLUG = 40;
  */
 export class WorktreeManager {
   private readonly projectRoot: string;
-  private readonly events?: EventBus;
+  private readonly events?: EventBus | undefined;
   private readonly gitBin: string;
   private readonly runGit: (args: string[], cwd: string) => Promise<RunResult>;
   /** Keyed by ownerId. */
@@ -298,7 +298,7 @@ export class WorktreeManager {
   ): Promise<MergeResult | null> {
     let resolved = false;
     try {
-      resolved = await opts.resolve!({ conflictFiles, cwd: this.projectRoot });
+      resolved = opts.resolve ? await opts.resolve({ conflictFiles, cwd: this.projectRoot }) : false;
     } catch {
       resolved = false;
     }
@@ -344,7 +344,7 @@ export class WorktreeManager {
    * Remove the worktree + branch. Conflicted/failed handles (or `keep:true`)
    * are left on disk for inspection.
    */
-  async release(handle: WorktreeHandle, opts: { keep?: boolean } = {}): Promise<void> {
+  async release(handle: WorktreeHandle, opts: { keep?: boolean | undefined } = {}): Promise<void> {
     const keep = opts.keep || handle.status === 'needs-review' || handle.status === 'failed';
     if (!keep) {
       await this.runGit(['worktree', 'remove', '--force', handle.dir], this.projectRoot);
@@ -472,7 +472,7 @@ export class WorktreeManager {
   private setStatus(
     handle: WorktreeHandle,
     status: WorktreeStatus,
-    patch?: Partial<WorktreeHandle>,
+    patch?: Partial<WorktreeHandle> | undefined,
   ): void {
     handle.status = status;
     handle.updatedAt = Date.now();

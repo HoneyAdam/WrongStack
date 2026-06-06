@@ -17,10 +17,10 @@ import { WireAdapter } from './wire-adapter.js';
 
 export interface AnthropicProviderOptions {
   apiKey: string;
-  baseUrl?: string;
-  apiVersion?: string;
-  beta?: string[];
-  fetchImpl?: typeof fetch;
+  baseUrl?: string | undefined;
+  apiVersion?: string | undefined;
+  beta?: string[] | undefined;
+  fetchImpl?: typeof fetch | undefined;
 }
 
 const DEFAULT_BASE = 'https://api.anthropic.com';
@@ -129,7 +129,7 @@ async function* parseAnthropicStream(
   type BlockKind = 'text' | 'tool_use' | 'thinking' | 'unknown';
   const blocks = new Map<
     number,
-    { kind: BlockKind; id?: string; name?: string; partial: string }
+    { kind: BlockKind; id?: string | undefined; name?: string | undefined; partial: string }
   >();
   let model = fallbackModel;
   let usage: Usage = { input: 0, output: 0 };
@@ -148,11 +148,11 @@ async function* parseAnthropicStream(
       case 'message_start': {
         const message = ev['message'] as
           | {
-              model?: string;
+              model?: string | undefined;
               usage?: {
-                input_tokens?: number;
-                cache_read_input_tokens?: number;
-                cache_creation_input_tokens?: number;
+                input_tokens?: number | undefined;
+                cache_read_input_tokens?: number | undefined;
+                cache_creation_input_tokens?: number | undefined;
               };
             }
           | undefined;
@@ -171,7 +171,7 @@ async function* parseAnthropicStream(
       }
       case 'content_block_start': {
         const index = Number(ev['index'] ?? 0);
-        const cb = ev['content_block'] as { type?: string; id?: string; name?: string } | undefined;
+        const cb = ev['content_block'] as { type?: string | undefined; id?: string | undefined; name?: string | undefined } | undefined;
         if (cb?.type === 'tool_use') {
           blocks.set(index, { kind: 'tool_use', id: cb.id, name: cb.name, partial: '' });
           if (cb.id && cb.name) {
@@ -197,12 +197,12 @@ async function* parseAnthropicStream(
         const index = Number(ev['index'] ?? 0);
         const delta = ev['delta'] as
           | {
-              type?: string;
-              text?: string;
-              partial_json?: string;
-              thinking?: string;
-              signature?: string;
-              data?: string;
+              type?: string | undefined;
+              text?: string | undefined;
+              partial_json?: string | undefined;
+              thinking?: string | undefined;
+              signature?: string | undefined;
+              data?: string | undefined;
             }
           | undefined;
         const block = blocks.get(index);
@@ -233,8 +233,8 @@ async function* parseAnthropicStream(
         break;
       }
       case 'message_delta': {
-        const delta = ev['delta'] as { stop_reason?: string | null } | undefined;
-        const u = ev['usage'] as { output_tokens?: number } | undefined;
+        const delta = ev['delta'] as { stop_reason?: string | null | undefined } | undefined;
+        const u = ev['usage'] as { output_tokens?: number | undefined } | undefined;
         if (delta?.stop_reason !== undefined) {
           stopReason = normalizeAnthropic(delta.stop_reason);
         }
@@ -246,7 +246,7 @@ async function* parseAnthropicStream(
         yield { type: 'message_stop', stopReason, usage };
         break;
       case 'error': {
-        const err = ev['error'] as { message?: string; type?: string } | undefined;
+        const err = ev['error'] as { message?: string | undefined; type?: string | undefined } | undefined;
         throw new ProviderError(err?.message ?? 'Anthropic stream error', 0, false, 'anthropic', {
           body: { type: err?.type, message: err?.message },
         });

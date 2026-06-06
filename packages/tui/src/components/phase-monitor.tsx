@@ -19,7 +19,7 @@ export interface PhaseMonitorProps {
       status: string;
       completedTasks: number;
       totalTasks: number;
-      startedAt?: number;
+      startedAt?: number | undefined;
     }
   >;
   /** IDs of currently running phases. */

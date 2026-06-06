@@ -18,6 +18,15 @@ import { buildBm25Index, buildIndexableText, tokenise } from './bm25.js';
 import type { SearchResult, SymbolKind, SymbolLang } from './schema.js';
 import { getIndexState } from './background-indexer.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export const codebaseSearchTool: Tool<CodebaseSearchInput, CodebaseSearchOutput> = {
   name: 'codebase-search',
   category: 'Project',
@@ -132,7 +141,7 @@ export const codebaseSearchTool: Tool<CodebaseSearchInput, CodebaseSearchOutput>
       const qTokens = tokenise(input.query);
 
       const results: SearchResult[] = top.map(({ id, score }) => {
-        const c = candidates.find((c) => c.id === id)!;
+        const c = expectDefined(candidates.find((c) => c.id === id));
         const snippet = bm25.extractSnippet(id, qTokens);
         return {
           ...c,
@@ -156,11 +165,11 @@ export const codebaseSearchTool: Tool<CodebaseSearchInput, CodebaseSearchOutput>
 
 interface CodebaseSearchInput {
   query: string;
-  kind?: string;
-  lang?: string;
-  file?: string;
-  limit?: number;
-  lspKind?: number;
+  kind?: string | undefined;
+  lang?: string | undefined;
+  file?: string | undefined;
+  limit?: number | undefined;
+  lspKind?: number | undefined;
 }
 
 interface CodebaseSearchOutput {
@@ -168,5 +177,5 @@ interface CodebaseSearchOutput {
   total: number;  // total candidates before limit
   query: string;
   /** Non-empty when the index blocked the search (not ready, indexing, failed). */
-  indexStatus?: string;
+  indexStatus?: string | undefined;
 }

@@ -40,7 +40,7 @@ export function buildPruneCommand(opts: SlashCommandContext): SlashCommand {
       let maxAgeDays = 30;
       const numPart = parts.find((p) => /^\d+$/.test(p));
       if (numPart) {
-        maxAgeDays = Math.max(1, Math.min(365, parseInt(numPart, 10)));
+        maxAgeDays = Math.max(1, Math.min(365, Number.parseInt(numPart, 10)));
       }
 
       if (dryRun) {

@@ -4,13 +4,13 @@ import type { Usage } from './provider.js';
 
 export interface SessionMetadata {
   id: string;
-  title?: string;
-  model?: string;
-  provider?: string;
+  title?: string | undefined;
+  model?: string | undefined;
+  provider?: string | undefined;
   startedAt: string;
-  endedAt?: string;
+  endedAt?: string | undefined;
   /** Set when a session is closed with open tool calls — used to restore pending state on resume. */
-  pendingToolUses?: string[];
+  pendingToolUses?: string[] | undefined;
 }
 
 /**
@@ -59,9 +59,9 @@ export type SessionEvent =
       model: string;
       messageCount: number;
       /** Estimated total input tokens for this request (messages + tools + system). */
-      estimatedInputTokens?: number;
+      estimatedInputTokens?: number | undefined;
       /** Number of tools offered to the model in this request. */
-      toolCount?: number;
+      toolCount?: number | undefined;
     }
   | {
       type: 'llm_response';
@@ -78,13 +78,13 @@ export type SessionEvent =
       before: number;
       after: number;
       /** Pressure level that triggered the compaction. */
-      level?: 'warn' | 'soft' | 'hard';
-      aggressive?: boolean;
+      level?: 'warn' | 'soft' | 'hard' | undefined;
+      aggressive?: boolean | undefined;
       /** Summary of token savings per phase (elision, summary, selective). */
       reductions?: Array<{ phase: string; saved: number }>;
     }
   | { type: 'error'; ts: string; message: string; phase: string }
-  | { type: 'session_end'; ts: string; usage: Usage; pendingToolUses?: string[] }
+  | { type: 'session_end'; ts: string; usage: Usage; pendingToolUses?: string[] | undefined }
   | { type: 'mode_changed'; ts: string; from: string; to: string }
   | { type: 'task_created'; ts: string; taskId: string; title: string }
   | { type: 'task_updated'; ts: string; taskId: string; status: string }
@@ -106,10 +106,10 @@ export type SessionEvent =
       durationMs: number;
       /** Legacy field kept for backward compatibility. Prefer outputBytes. */
       outputSize: number;
-      ok?: boolean;
-      outputBytes?: number;
-      outputTokens?: number;
-      outputLines?: number;
+      ok?: boolean | undefined;
+      outputBytes?: number | undefined;
+      outputTokens?: number | undefined;
+      outputLines?: number | undefined;
     }
   | {
       /** Lightweight sampled progress from Tool.executeStream (only at auditLevel 'full'). */
@@ -119,7 +119,7 @@ export type SessionEvent =
       id: string;
       event: {
         type: 'log' | 'warning' | 'metric' | 'file_changed' | 'partial_output';
-        text?: string;
+        text?: string | undefined;
         data?: Record<string, unknown>;
       };
     }
@@ -130,14 +130,14 @@ export type SessionEvent =
       providerId: string;
       attempt: number;
       delayMs: number;
-      status?: number;
+      status?: number | undefined;
       description: string;
     }
   | {
       type: 'provider_error';
       ts: string;
       providerId: string;
-      status?: number;
+      status?: number | undefined;
       description: string;
       retryable: boolean;
     }
@@ -178,24 +178,24 @@ export interface SessionSummary {
   title: string;
   startedAt: string;
   /** When the session finished (null if still running / crashed). */
-  endedAt?: string;
+  endedAt?: string | undefined;
   model: string;
   provider: string;
   tokenTotal: number;
   /** Number of LLM iterations (turn cycles). */
-  iterationCount?: number;
+  iterationCount?: number | undefined;
   /** Number of tool calls executed. */
-  toolCallCount?: number;
+  toolCallCount?: number | undefined;
   /** Number of tool calls that returned an error. */
-  toolErrorCount?: number;
+  toolErrorCount?: number | undefined;
   /** Number of files changed (created + modified + deleted). */
-  fileChangeCount?: number;
+  fileChangeCount?: number | undefined;
   /** Per-tool breakdown: tool name → call count. */
   toolBreakdown?: Record<string, number>;
   /** Number of compaction events. */
-  compactionCount?: number;
+  compactionCount?: number | undefined;
   /** Session outcome: 'completed', 'error', 'timeout', 'aborted', or undefined. */
-  outcome?: 'completed' | 'error' | 'timeout' | 'aborted';
+  outcome?: 'completed' | 'error' | 'timeout' | 'aborted' | undefined;
 }
 
 export interface SessionData {
@@ -252,7 +252,7 @@ export interface SessionWriter {
    * this to tell the user *where* the transcript lives without
    * having to recompute the path from session metadata.
    */
-  readonly transcriptPath?: string;
+  readonly transcriptPath?: string | undefined;
   /** IDs of tool_use blocks that have been sent but not yet received a tool_result.
    * Used by the REPL to serialize pending state into `session_end` for proper resume. */
   readonly pendingToolUses: string[];

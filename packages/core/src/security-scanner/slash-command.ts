@@ -59,14 +59,14 @@ Show a previous security report.
   };
 }
 
-function getProviderFromContext(ctx: Context): { provider: Provider; model?: string } | null {
+function getProviderFromContext(ctx: Context): { provider: Provider; model?: string | undefined } | null {
   if (ctx.provider && typeof ctx.provider.complete === 'function') {
     return { provider: ctx.provider, model: ctx.model };
   }
   return null;
 }
 
-async function handleScan(args: string, ctx: Context): Promise<{ message?: string; metadata?: Record<string, unknown> }> {
+async function handleScan(args: string, ctx: Context): Promise<{ message?: string | undefined; metadata?: Record<string, unknown> }> {
   const options = parseArgs(args);
   const projectRoot = ctx.projectRoot || ctx.cwd || process.cwd();
 
@@ -127,7 +127,7 @@ async function handleScan(args: string, ctx: Context): Promise<{ message?: strin
   }
 }
 
-async function handleAudit(ctx: Context): Promise<{ message?: string; metadata?: Record<string, unknown> }> {
+async function handleAudit(ctx: Context): Promise<{ message?: string | undefined; metadata?: Record<string, unknown> }> {
   const projectRoot = ctx.projectRoot || ctx.cwd || process.cwd();
 
   try {
@@ -176,7 +176,7 @@ ${depIssues === 0 ? '✅ No known vulnerabilities detected' : `⚠️ ${depIssue
   }
 }
 
-async function handleReport(reportId: string): Promise<{ message?: string }> {
+async function handleReport(reportId: string): Promise<{ message?: string | undefined }> {
   const reportsDir = 'security-reports';
 
   try {

@@ -26,6 +26,13 @@ import {
 /** Default agent used when nothing else matches — the generalist builder. */
 export const DEFAULT_DISPATCH_ROLE = 'executor';
 
+/** Fallback agent definition for catalog lookup failures. */
+const FALLBACK_DEFINITION: AgentDefinition = {
+  config: { role: 'unknown', name: 'Unknown Agent' },
+  budget: {},
+  capability: { phase: 'meta', summary: '', keywords: [] },
+};
+
 export interface DispatchCandidate {
   role: string;
   name: string;
@@ -56,17 +63,17 @@ export interface DispatchResult {
 export type DispatchClassifier = (
   task: string,
   candidates: { role: string; name: string; summary: string }[],
-) => Promise<{ role: string; reason?: string } | null>;
+) => Promise<{ role: string; reason?: string | undefined } | null>;
 
 export interface DispatchOptions {
   /** Optional LLM fallback for ambiguous tasks. */
-  classifier?: DispatchClassifier;
+  classifier?: DispatchClassifier | undefined;
   /** Heuristic confidence below this triggers the classifier. Default 0.4. */
-  confidenceThreshold?: number;
+  confidenceThreshold?: number | undefined;
   /** How many top candidates to offer the classifier. Default 6. */
-  maxCandidates?: number;
+  maxCandidates?: number | undefined;
   /** Override the catalog (testing). Defaults to the full `AGENT_CATALOG`. */
-  catalog?: Record<string, AgentDefinition>;
+  catalog?: Record<string, AgentDefinition> | undefined;
 }
 
 function normalize(text: string): string {
@@ -111,7 +118,7 @@ export function scoreAgents(
  */
 function heuristicConfidence(candidates: DispatchCandidate[]): number {
   if (candidates.length === 0) return 0;
-  const top = candidates[0]!.score;
+  const top = candidates[0]?.score ?? 0;
   const second = candidates[1]?.score ?? 0;
   // Strength factor: a single weak match (score 1) shouldn't read as confident.
   const strength = Math.min(1, top / 3);
@@ -139,7 +146,7 @@ export async function dispatchAgent(
   if (top && confidence >= threshold) {
     return {
       role: top.role,
-      definition: catalog[top.role]!,
+      definition: catalog[top.role] ?? FALLBACK_DEFINITION,
       confidence,
       method: 'heuristic',
       reason: `Matched keywords: ${top.matched.slice(0, 4).join(', ')}`,
@@ -152,7 +159,7 @@ export async function dispatchAgent(
     // Offer the classifier the top heuristic candidates; if there were none,
     // offer the whole catalog so it can still choose.
     const pool = (candidates.length > 0
-      ? candidates.slice(0, maxCandidates).map((c) => catalog[c.role]!)
+      ? candidates.slice(0, maxCandidates).map((c) => catalog[c.role] ?? FALLBACK_DEFINITION)
       : ALL_AGENT_DEFINITIONS
     ).map((d) => ({
       role: d.config.role as string,
@@ -164,7 +171,7 @@ export async function dispatchAgent(
       if (choice && catalog[choice.role]) {
         return {
           role: choice.role,
-          definition: catalog[choice.role]!,
+          definition: catalog[choice.role] ?? FALLBACK_DEFINITION,
           confidence: 1,
           method: 'llm',
           reason: choice.reason ?? 'Selected by LLM classifier',
@@ -180,7 +187,7 @@ export async function dispatchAgent(
   if (top) {
     return {
       role: top.role,
-      definition: catalog[top.role]!,
+      definition: catalog[top.role] ?? FALLBACK_DEFINITION,
       confidence,
       method: 'heuristic',
       reason: `Weak match (${top.matched.slice(0, 3).join(', ') || 'low signal'})`,
@@ -189,10 +196,10 @@ export async function dispatchAgent(
   }
   const fallbackRole = catalog[DEFAULT_DISPATCH_ROLE]
     ? DEFAULT_DISPATCH_ROLE
-    : Object.keys(catalog)[0]!;
+    : Object.keys(catalog)[0] ?? DEFAULT_DISPATCH_ROLE;
   return {
     role: fallbackRole,
-    definition: catalog[fallbackRole]!,
+    definition: catalog[fallbackRole] ?? FALLBACK_DEFINITION,
     confidence: 0,
     method: 'fallback',
     reason: 'No keyword signal; defaulting to the generalist Executor',
@@ -225,7 +232,7 @@ Do not add prose, markdown, or code fences.`;
     const match = raw.match(/\{[\s\S]*\}/);
     if (!match) return null;
     try {
-      const parsed = JSON.parse(match[0]) as { role?: unknown; reason?: unknown };
+      const parsed = JSON.parse(match[0]) as { role?: unknown | undefined; reason?: unknown | undefined };
       if (typeof parsed.role !== 'string') return null;
       const role = parsed.role.trim();
       const valid = candidates.some((c) => c.role === role);

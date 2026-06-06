@@ -90,5 +90,5 @@ interface CodebaseStatsOutput {
   indexPath: string;
   version: number;
   /** Non-empty when the index is not ready or is still building. */
-  indexStatus?: string;
+  indexStatus?: string | undefined;
 }

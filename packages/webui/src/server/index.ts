@@ -57,6 +57,15 @@ import { maskedKey, normalizeKeys } from './provider-keys.js';
 import { send, broadcast, sendResult, errMessage, generateAuthToken } from './ws-utils.js';
 import { estimateContextBreakdown } from './token-estimator.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 // Re-export types — shared message shapes and options used by both the
 // standalone server and the CLI's `--webui` embedded mode.
 export type { WebUIOptions, BackendServices } from './types.js';
@@ -128,7 +137,7 @@ export {
 import type { ConnectedClient, WSClientMessage, WSServerMessage } from './types.js';
 
 export async function startWebUI(
-  opts: { wsPort?: number; wsHost?: string; open?: boolean } = {},
+  opts: { wsPort?: number | undefined; wsHost?: string | undefined; open?: boolean | undefined } = {},
 ): Promise<void> {
   const requestedWsPort = opts.wsPort ?? 3457;
   // Bind to loopback IP by default (not the string "localhost", which on some
@@ -184,7 +193,7 @@ export async function startWebUI(
     !Array.isArray(config.providers) &&
     Object.keys(config.providers).length > 0
   ) {
-    const firstKey = Object.keys(config.providers)[0]!;
+    const firstKey = expectDefined(Object.keys(config.providers)[0]);
     config = patchConfig(config, { provider: firstKey });
     console.log('[WebUI] No active provider — auto-selected:', firstKey);
   }
@@ -327,7 +336,7 @@ export async function startWebUI(
     const savedProviders = config.providers ?? {};
     const firstKey = Object.keys(savedProviders)[0];
     if (firstKey) {
-      const firstProvider = savedProviders[firstKey]!;
+      const firstProvider = expectDefined(savedProviders[firstKey]);
       try {
         provider = makeProviderFromConfig(firstKey, {
           ...firstProvider,
@@ -775,7 +784,7 @@ export async function startWebUI(
       case 'collab.leave':
       case 'collab.annotate':
       case 'collab.resolve': {
-        collabHandler.handleMessage(ws, msg as { type: string; payload?: unknown });
+        collabHandler.handleMessage(ws, msg as { type: string; payload?: unknown | undefined });
         return;
       }
       case 'user_message': {
@@ -919,7 +928,7 @@ export async function startWebUI(
       }
 
       case 'context.compact': {
-        const aggressive = !!(msg as { payload?: { aggressive?: boolean } }).payload?.aggressive;
+        const aggressive = !!(msg as { payload?: { aggressive?: boolean | undefined } }).payload?.aggressive;
         try {
           const report = await compactor.compact(context, { aggressive });
           send(ws, {
@@ -1066,13 +1075,13 @@ export async function startWebUI(
               models: provider.models.map((m) => ({
                 id: m.id,
                 name: m.name,
-                releaseDate: (m as { release_date?: string }).release_date,
-                contextWindow: (m as { limit?: { context?: number } }).limit?.context,
-                inputCost: (m as { cost?: { input?: number } }).cost?.input,
-                outputCost: (m as { cost?: { output?: number } }).cost?.output,
+                releaseDate: (m as { release_date?: string | undefined }).release_date,
+                contextWindow: (m as { limit?: { context?: number | undefined } }).limit?.context,
+                inputCost: (m as { cost?: { input?: number | undefined } }).cost?.input,
+                outputCost: (m as { cost?: { output?: number | undefined } }).cost?.output,
                 capabilities: [
-                  ...((m as { tool_call?: boolean }).tool_call ? ['tools'] : []),
-                  ...((m as { reasoning?: boolean }).reasoning ? ['reasoning'] : []),
+                  ...((m as { tool_call?: boolean | undefined }).tool_call ? ['tools'] : []),
+                  ...((m as { reasoning?: boolean | undefined }).reasoning ? ['reasoning'] : []),
                 ],
               })),
             },
@@ -1164,7 +1173,7 @@ export async function startWebUI(
 
       case 'provider.add': {
         const p = (
-          msg as { payload: { id: string; family: string; baseUrl?: string; apiKey?: string } }
+          msg as { payload: { id: string; family: string; baseUrl?: string | undefined; apiKey?: string | undefined } }
         ).payload;
         await providerHandlers.handleProviderAdd(ws, p);
         break;
@@ -1179,7 +1188,7 @@ export async function startWebUI(
       case 'sessions.list': {
         // Per-project history. Sessions live under .wrongstack/sessions/ for
         // this project; we never enumerate cross-project state.
-        const limit = (msg as { payload?: { limit?: number } }).payload?.limit ?? 50;
+        const limit = (msg as { payload?: { limit?: number | undefined } }).payload?.limit ?? 50;
         try {
           const list = await sessionStore.list(limit);
           send(ws, {
@@ -1282,7 +1291,7 @@ export async function startWebUI(
           const params = schema.properties ? Object.keys(schema.properties) : [];
           return {
             name: t.name,
-            description: (t as { description?: string }).description ?? '',
+            description: (t as { description?: string | undefined }).description ?? '',
             params,
           };
         });
@@ -1309,7 +1318,7 @@ export async function startWebUI(
       case 'memory.remember': {
         const { text, scope } = (
           msg as {
-            payload: { text: string; scope?: 'project-agents' | 'project-memory' | 'user-memory' };
+            payload: { text: string; scope?: 'project-agents' | 'project-memory' | 'user-memory' | undefined };
           }
         ).payload;
         try {
@@ -1324,7 +1333,7 @@ export async function startWebUI(
       case 'memory.forget': {
         const { text, scope } = (
           msg as {
-            payload: { text: string; scope?: 'project-agents' | 'project-memory' | 'user-memory' };
+            payload: { text: string; scope?: 'project-agents' | 'project-memory' | 'user-memory' | undefined };
           }
         ).payload;
         try {
@@ -1432,7 +1441,7 @@ export async function startWebUI(
 
       case 'todos.remove': {
         // Remove a single todo item by id or 1-based index.
-        const payload = msg.payload as { id?: string; index?: number } | undefined;
+        const payload = msg.payload as { id?: string | undefined; index?: number | undefined } | undefined;
         if (!payload) { sendResult(ws, false, 'Missing id or index'); break; }
         const { id, index } = payload;
         let targetIdx = -1;
@@ -1445,7 +1454,7 @@ export async function startWebUI(
           sendResult(ws, false, 'Todo not found');
           break;
         }
-        const removed = context.todos[targetIdx]!;
+        const removed = expectDefined(context.todos[targetIdx]);
         const next = [
           ...context.todos.slice(0, targetIdx),
           ...context.todos.slice(targetIdx + 1),
@@ -1520,7 +1529,7 @@ export async function startWebUI(
         // dirs that would blow up the response on a real project. Applies
         // a fuzzy substring match against the (lowercased) query and caps
         // the result so the popup never has to paginate.
-        const payload = (msg as { payload?: { query?: string; limit?: number } }).payload ?? {};
+        const payload = (msg as { payload?: { query?: string | undefined; limit?: number | undefined } }).payload ?? {};
         const limit = payload.limit ?? 50;
         // Filtering (isHiddenEntry/SKIP_DIRS) and ranking (rankFiles) live in
         // ./file-picker.ts; the walk itself stays here since it's disk I/O.

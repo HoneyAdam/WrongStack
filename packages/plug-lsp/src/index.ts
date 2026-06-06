@@ -6,6 +6,15 @@ import { LSPRegistry } from './registry.js';
 import { registerSlashCommands } from './slash-commands/index.js';
 import { makeLSPTools } from './tools/index.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export type {
   AutoStartMode,
   DiagnosticsAfterEdit,
@@ -38,8 +47,8 @@ const plugin: Plugin = {
     if (cfg.autoDiscover) {
       cfg.servers = await autoDiscoverServers(cfg.servers, cwd);
     }
-    const holder: { registry?: LSPRegistry } = {};
-    const tracker = new DocumentTracker(() => holder.registry!, api.log, cwd, api.events);
+    const holder: { registry?: LSPRegistry | undefined } = {};
+    const tracker = new DocumentTracker(() => expectDefined(holder.registry), api.log, cwd, api.events);
     const registry = new LSPRegistry(cfg, tracker, { cwd, log: api.log, events: api.events });
     holder.registry = registry;
     await registry.bind(cwd, cfg.autoStart);

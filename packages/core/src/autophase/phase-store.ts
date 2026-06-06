@@ -20,8 +20,8 @@ interface SerializedPhaseGraph {
   stopOnComplete: boolean;
   createdAt: number;
   updatedAt: number;
-  startedAt?: number;
-  completedAt?: number;
+  startedAt?: number | undefined;
+  completedAt?: number | undefined;
 }
 
 interface SerializedPhaseNode {
@@ -35,11 +35,11 @@ interface SerializedPhaseNode {
   parallelizable: boolean;
   priority: PhaseNode['priority'];
   estimateHours: number;
-  actualDurationMs?: number;
-  startedAt?: number;
-  completedAt?: number;
+  actualDurationMs?: number | undefined;
+  startedAt?: number | undefined;
+  completedAt?: number | undefined;
   assignedAgents: string[];
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, unknown> | undefined;
   createdAt: number;
   updatedAt: number;
 }
@@ -62,18 +62,18 @@ interface SerializedTaskNode {
   type: TaskNode['type'];
   priority: TaskNode['priority'];
   status: TaskNode['status'];
-  assignee?: string;
-  estimateHours?: number;
-  actualHours?: number;
-  tags?: string[];
-  specRequirementId?: string;
-  parentId?: string;
-  children?: string[];
+  assignee?: string | undefined;
+  estimateHours?: number | undefined;
+  actualHours?: number | undefined;
+  tags?: string[] | undefined;
+  specRequirementId?: string | undefined;
+  parentId?: string | undefined;
+  children?: string[] | undefined;
   createdAt: number;
   updatedAt: number;
-  startedAt?: number;
-  completedAt?: number;
-  metadata?: Record<string, unknown>;
+  startedAt?: number | undefined;
+  completedAt?: number | undefined;
+  metadata?: Record<string, unknown> | undefined;
 }
 
 /**

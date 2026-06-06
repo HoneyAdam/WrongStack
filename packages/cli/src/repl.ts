@@ -20,48 +20,57 @@ import { theme } from './theme.js';
 import { fmtTok } from './utils.js';
 import { CLI_VERSION } from './version.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export interface ReplOptions {
   agent: Agent;
   renderer: TerminalRenderer;
   reader: ReadlineInputReader;
   slashRegistry: SlashCommandRegistry;
   attachments: AttachmentStore;
-  banner?: boolean;
-  tokenCounter?: TokenCounter;
-  visionAdapters?: VisionAdapters;
+  banner?: boolean | undefined;
+  tokenCounter?: TokenCounter | undefined;
+  visionAdapters?: VisionAdapters | undefined;
   /** Autonomy mode state getter. */
-  getAutonomy?: () => import('./slash-commands/autonomy.js').AutonomyMode;
+  getAutonomy?: (() => import('./slash-commands/autonomy.js').AutonomyMode) | undefined;
   /** Set autonomy mode (used by SIGINT handler to flip back to 'off'). */
-  onAutonomy?: (mode: import('./slash-commands/autonomy.js').AutonomyMode) => void;
+  onAutonomy?: ((mode: import('./slash-commands/autonomy.js').AutonomyMode) => void) | undefined;
   /**
    * Whether next-task prediction is enabled. When true, the REPL runs a
    * lightweight single-shot prediction after each completed turn and shows
    * the likely next steps (display-only). Toggled via `/next`.
    */
-  getNextPredict?: () => boolean;
+  getNextPredict?: (() => boolean) | undefined;
   /**
    * Access the eternal-autonomy engine. When autonomy mode is 'eternal'
    * the REPL skips reading user input and instead drives engine
    * iterations from this loop — so the engine and the REPL never compete
    * for the shared Context. Returns null until /autonomy eternal primes it.
    */
-  getEternalEngine?: () => import('@wrongstack/core').EternalAutonomyEngine | null;
+  getEternalEngine?: (() => import('@wrongstack/core').EternalAutonomyEngine | null) | undefined;
   /**
    * Access the parallel-eternal engine. When autonomy mode is 'eternal-parallel'
    * the REPL drives this engine instead of reading user input.
    * Returns null until /autonomy parallel primes it.
    */
-  getParallelEngine?: () => import('@wrongstack/core').ParallelEternalEngine | null;
+  getParallelEngine?: (() => import('@wrongstack/core').ParallelEternalEngine | null) | undefined;
   /** Model-specific max context window (tokens). Used for the context bar in turn summaries. */
-  effectiveMaxContext?: number;
+  effectiveMaxContext?: number | undefined;
   /** Project / folder name shown in the banner. Usually `path.basename(projectRoot)`. */
-  projectName?: string;
+  projectName?: string | undefined;
   /** Absolute project root — used to locate .wrongstack/goal.json for the goal banner. */
-  projectRoot?: string;
+  projectRoot?: string | undefined;
   /** Resolve current model vision support. Falls back to provider capability when omitted. */
-  supportsVision?: () => boolean | Promise<boolean>;
+  supportsVision?: (() => boolean | Promise<boolean>) | undefined;
   /** Skill loader for the skill generator wizard. */
-  skillLoader?: import('@wrongstack/core').SkillLoader;
+  skillLoader?: import('@wrongstack/core').SkillLoader | undefined;
   /** Controller for the agents monitor overlay. */
   agentsMonitorController?: {
     visible: boolean;
@@ -77,7 +86,7 @@ export interface ReplOptions {
    * report context pressure to the Director (for spawn pre-checks) or
    * other systems that track token usage across the session.
    */
-  onAgentIterationComplete?: (estimatedTokens: number) => void;
+  onAgentIterationComplete?: ((estimatedTokens: number) => void) | undefined;
 }
 
 export async function runRepl(opts: ReplOptions): Promise<number> {
@@ -685,7 +694,7 @@ async function renderGoalBanner(opts: ReplOptions): Promise<void> {
 
   // Show journal summary if there are recent entries
   if (goal.journal.length > 0) {
-    const lastEntry = goal.journal[goal.journal.length - 1]!;
+    const lastEntry = expectDefined(goal.journal[goal.journal.length - 1]);
     const statusIcon = lastEntry.status === 'success' ? '✓'
       : lastEntry.status === 'failure' ? '✗'
       : lastEntry.status === 'aborted' ? '⊘'

@@ -9,34 +9,34 @@ export interface TelegramPluginConfig {
    * Default chat ID for outgoing notifications.
    * The agent's `telegram_send` tool can override per-call.
    */
-  notifyChatId?: string | number;
+  notifyChatId?: string | number | undefined;
   /**
    * List of user/chat IDs allowed to interact with the bot.
    * Empty = allow all. Recommended to set in production.
    */
-  allowedUsers?: Array<string | number>;
+  allowedUsers?: Array<string | number> | undefined;
   /**
    * List of group/chat IDs the bot is allowed to read from.
    * Empty = allow all. Narrow this to prevent noise.
    */
-  allowedChats?: Array<string | number>;
+  allowedChats?: Array<string | number> | undefined;
   /** Polling interval in seconds (default: 2). */
-  pollIntervalSec?: number;
+  pollIntervalSec?: number | undefined;
   /** Notify on Telegram when a session ends. */
-  notifyOnSessionEnd?: boolean;
+  notifyOnSessionEnd?: boolean | undefined;
   /** Notify when a tool runs longer than this threshold (ms). Set 0 to disable. */
-  longToolThresholdMs?: number;
+  longToolThresholdMs?: number | undefined;
   /** Notify (humanized) when a `delegate` subagent finishes. Default: true. */
-  notifyOnDelegate?: boolean;
+  notifyOnDelegate?: boolean | undefined;
   /** Maximum message length for Telegram (Telegram caps at 4096). */
-  maxMessageLength?: number;
+  maxMessageLength?: number | undefined;
   /**
    * Path to a file that stores the Telegram polling offset. When set,
    * the offset is persisted on every successful poll and restored on startup,
    * preventing message replay after crashes or restarts.
    * The directory must already exist and be writable.
    */
-  offsetStoragePath?: string;
+  offsetStoragePath?: string | undefined;
 }
 
 export const DEFAULT_CONFIG: Required<Omit<TelegramPluginConfig, 'botToken' | 'notifyChatId' | 'offsetStoragePath'>> = {
@@ -109,9 +109,9 @@ function pluginOptionsFromEntries(entries: unknown): TelegramPluginConfig | unde
       typeof entry === 'object' &&
       entry !== null &&
       'name' in entry &&
-      ((entry as { name?: unknown }).name === '@wrongstack/telegram' ||
-        (entry as { name?: unknown }).name === PLUGIN_NAME),
-  ) as { name?: unknown; options?: unknown } | undefined;
+      ((entry as { name?: unknown | undefined }).name === '@wrongstack/telegram' ||
+        (entry as { name?: unknown | undefined }).name === PLUGIN_NAME),
+  ) as { name?: unknown | undefined; options?: unknown | undefined } | undefined;
   return found?.options && typeof found.options === 'object'
     ? (found.options as TelegramPluginConfig)
     : undefined;

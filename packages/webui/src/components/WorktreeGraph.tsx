@@ -1,5 +1,14 @@
 import type { WorktreeHandleView } from '@/types';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 const LANE_COLORS = ['#3b82f6', '#06b6d4', '#22c55e', '#eab308', '#f97316', '#a855f7', '#ec4899'];
 
 const shortBranch = (b: string) => b.replace(/^wstack\/ap\//, '');
@@ -63,7 +72,7 @@ export function WorktreeGraph({
         <circle cx={trunkX} cy={20} r={5} fill="#F93951" />
 
         {nodes.map((n) => {
-          const e = EDGE_STATE[n.handle.status] ?? EDGE_STATE.active!;
+          const e = EDGE_STATE[n.handle.status] ?? expectDefined(EDGE_STATE.active);
           const merged = n.handle.status === 'merged';
           const conflict = n.handle.status === 'needs-review' || n.handle.status === 'failed';
           return (

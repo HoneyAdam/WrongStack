@@ -9,9 +9,9 @@ export interface PhaseItem {
   status: 'pending' | 'ready' | 'running' | 'paused' | 'completed' | 'failed' | 'skipped';
   priority: 'critical' | 'high' | 'medium' | 'low';
   estimateHours: number;
-  actualDurationMs?: number;
-  startedAt?: number;
-  completedAt?: number;
+  actualDurationMs?: number | undefined;
+  startedAt?: number | undefined;
+  completedAt?: number | undefined;
   progressPercent: number;
   taskCount: number;
   completedTasks: number;
@@ -22,16 +22,16 @@ export interface PhaseItem {
 export interface PhasePanelProps {
   phases: PhaseItem[];
   /** Aktif faz ID'si */
-  activePhaseId?: string;
+  activePhaseId?: string | undefined;
   /** Faz seçildiğinde */
-  onPhaseClick?: (phaseId: string) => void;
+  onPhaseClick?: ((phaseId: string) => void) | undefined;
   /** Genel progress (0-100) */
   overallPercent: number;
   /** Otonom mod aktif mi */
   autonomous: boolean;
   /** Duraklat/Devam et */
-  onToggleAutonomous?: () => void;
-  className?: string;
+  onToggleAutonomous?: (() => void) | undefined;
+  className?: string | undefined;
 }
 
 const STATUS_CONFIG: Record<

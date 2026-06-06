@@ -14,6 +14,15 @@ import type { ChildProcess } from 'node:child_process';
 import * as os from 'node:os';
 import { CircuitBreaker, type CircuitBreakerSnapshot, type CircuitBreakerConfig } from './circuit-breaker.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export type { CircuitBreakerSnapshot, CircuitBreakerConfig } from './circuit-breaker.js';
 
 export interface TrackedProcess {
@@ -23,7 +32,7 @@ export interface TrackedProcess {
    *  Contains [REDACTED] in place of sensitive flag values. */
   command: string;
   startedAt: number;
-  sessionId?: string;
+  sessionId?: string | undefined;
   /** The raw ChildProcess handle. Never call .kill() directly on this —
    *  use `kill()` below which handles process groups correctly on POSIX
    *  and degrades gracefully on Windows. */
@@ -63,7 +72,7 @@ export function redactCommand(cmd: string): string {
       const sp = match.search(/\s/);
       const delim = eq !== -1 ? '=' : sp !== -1 ? match[sp] : null;
       if (delim !== null) {
-        const flag = match.slice(0, match.indexOf(delim!) + 1);
+        const flag = match.slice(0, match.indexOf(expectDefined(delim)) + 1);
         return `${flag}[REDACTED]`;
       }
       // Nothing delimitable found; replace the whole token silently.
@@ -77,9 +86,9 @@ export function redactCommand(cmd: string): string {
 
 interface KillOpts {
   /** SIGKILL instead of SIGTERM. Default: false (SIGTERM first). */
-  force?: boolean;
+  force?: boolean | undefined;
   /** MS to wait between SIGTERM and SIGKILL on POSIX. Default: 2000. */
-  graceMs?: number;
+  graceMs?: number | undefined;
 }
 
 export interface RegistryStats {

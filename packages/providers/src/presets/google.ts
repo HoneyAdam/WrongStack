@@ -12,11 +12,11 @@ import { normalizeGemini } from '../stop-reason.js';
 import { defineWireFormat } from '../wire-format.js';
 
 interface GeminiPart {
-  text?: string;
-  functionCall?: { name: string; args: Record<string, unknown> };
-  functionResponse?: { name: string; response: { content?: unknown } };
-  inlineData?: { mimeType: string; data: string };
-  thoughtSignature?: string;
+  text?: string | undefined;
+  functionCall?: { name: string | undefined; args: Record<string, unknown> };
+  functionResponse?: { name: string | undefined; response: { content?: unknown | undefined } };
+  inlineData?: { mimeType: string | undefined; data: string };
+  thoughtSignature?: string | undefined;
 }
 
 interface GeminiContent {
@@ -25,8 +25,8 @@ interface GeminiContent {
 }
 
 interface GeminiCandidate {
-  content?: GeminiContent;
-  finishReason?: string;
+  content?: GeminiContent | undefined;
+  finishReason?: string | undefined;
 }
 
 interface GoogleStreamState {
@@ -72,12 +72,12 @@ export const googleWireFormat = defineWireFormat<GoogleStreamState>({
   parseStreamEvent: (msg, state): StreamEvent[] => {
     if (!msg.data || msg.data === '[DONE]') return [];
     const parsed = safeParse<{
-      modelVersion?: string;
-      candidates?: GeminiCandidate[];
+      modelVersion?: string | undefined;
+      candidates?: GeminiCandidate[] | undefined;
       usageMetadata?: {
-        promptTokenCount?: number;
-        candidatesTokenCount?: number;
-        cachedContentTokenCount?: number;
+        promptTokenCount?: number | undefined;
+        candidatesTokenCount?: number | undefined;
+        cachedContentTokenCount?: number | undefined;
       };
     }>(msg.data);
     if (!parsed.ok || !parsed.value) return [];
@@ -95,9 +95,11 @@ export const googleWireFormat = defineWireFormat<GoogleStreamState>({
       if (typeof part.text === 'string' && part.text.length > 0) {
         out.push({ type: 'text_delta', text: part.text });
       } else if (part.functionCall) {
+        const name = part.functionCall.name;
+        if (typeof name !== 'string' || name.length === 0) continue;
         state.sawFunctionCall = true;
-        const id = `${part.functionCall.name}_${randomUUID().slice(0, 8)}`;
-        out.push({ type: 'tool_use_start', id, name: part.functionCall.name });
+        const id = `${name}_${randomUUID().slice(0, 8)}`;
+        out.push({ type: 'tool_use_start', id, name });
         const providerMeta =
           typeof part.thoughtSignature === 'string'
             ? { 'google.thoughtSignature': part.thoughtSignature }

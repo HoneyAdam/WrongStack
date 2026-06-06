@@ -1,6 +1,15 @@
 import { type IncomingMessage, type ServerResponse, createServer } from 'node:http';
 import { MCP_CONSTANTS } from './constants.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 /**
  * Server-side MCP. The mirror image of `MCPClient`: instead of consuming a
  * remote MCP server, this lets WrongStack *be* an MCP server — exposing its
@@ -16,7 +25,7 @@ import { MCP_CONSTANTS } from './constants.js';
 /** A tool descriptor advertised over `tools/list`. */
 export interface MCPServerTool {
   name: string;
-  description?: string;
+  description?: string | undefined;
   inputSchema: Record<string, unknown>;
 }
 
@@ -45,14 +54,14 @@ export interface MCPServerOptions {
   host: MCPServerToolHost;
   /** Advertised in the `initialize` handshake. Defaults to the wrongstack identity. */
   serverInfo?: { name: string; version: string };
-  logger?: MCPServerLogger;
+  logger?: MCPServerLogger | undefined;
 }
 
 interface JsonRpcRequest {
-  jsonrpc?: string;
-  id?: number | string | null;
-  method?: string;
-  params?: unknown;
+  jsonrpc?: string | undefined;
+  id?: number | string | null | undefined;
+  method?: string | undefined;
+  params?: unknown | undefined;
 }
 
 // JSON-RPC 2.0 reserved error codes.
@@ -64,7 +73,7 @@ const INTERNAL_ERROR = -32603;
 export class MCPServer {
   private readonly host: MCPServerToolHost;
   private readonly serverInfo: { name: string; version: string };
-  private readonly logger?: MCPServerLogger;
+  private readonly logger?: MCPServerLogger | undefined;
 
   constructor(opts: MCPServerOptions) {
     this.host = opts.host;
@@ -107,13 +116,13 @@ export class MCPServer {
     try {
       const result = await this.dispatch(msg.method, msg.params);
       if (result === METHOD_NOT_FOUND_SENTINEL) {
-        return this.encodeError(msg.id!, METHOD_NOT_FOUND, `Method not found: ${msg.method}`);
+        return this.encodeError(expectDefined(msg.id), METHOD_NOT_FOUND, `Method not found: ${msg.method}`);
       }
       return JSON.stringify({ jsonrpc: '2.0', id: msg.id, result });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger?.warn?.(`MCP server: method "${msg.method}" threw: ${message}`);
-      return this.encodeError(msg.id!, INTERNAL_ERROR, message);
+      return this.encodeError(expectDefined(msg.id), INTERNAL_ERROR, message);
     }
   }
 
@@ -132,7 +141,7 @@ export class MCPServer {
         return { tools };
       }
       case 'tools/call': {
-        const p = (params ?? {}) as { name?: unknown; arguments?: unknown };
+        const p = (params ?? {}) as { name?: unknown | undefined; arguments?: unknown | undefined };
         if (typeof p.name !== 'string') {
           throw new Error('tools/call requires a string "name"');
         }
@@ -161,7 +170,7 @@ export function toContentBlocks(content: unknown): Array<{ type: 'text'; text: s
   if (Array.isArray(content)) {
     // Already-shaped content blocks pass through; otherwise stringify each item.
     const allBlocks = content.every(
-      (c) => c && typeof c === 'object' && (c as { type?: unknown }).type === 'text',
+      (c) => c && typeof c === 'object' && (c as { type?: unknown | undefined }).type === 'text',
     );
     if (allBlocks) return content as Array<{ type: 'text'; text: string }>;
     return [{ type: 'text', text: content.map((c) => stringifyItem(c)).join('\n') }];
@@ -187,8 +196,8 @@ export interface ServeStdioHandle {
 }
 
 export interface ServeStdioOptions {
-  stdin?: NodeJS.ReadableStream;
-  stdout?: NodeJS.WritableStream;
+  stdin?: NodeJS.ReadableStream | undefined;
+  stdout?: NodeJS.WritableStream | undefined;
 }
 
 /**
@@ -260,16 +269,16 @@ const HTTP_BODY_CAP = 4 * 1024 * 1024; // 4 MiB
 
 export interface ServeHttpOptions {
   /** TCP port. 0 picks an ephemeral port (resolved in the handle). Default 0. */
-  port?: number;
+  port?: number | undefined;
   /** Bind address. Default '127.0.0.1' (loopback only). */
-  host?: string;
+  host?: string | undefined;
   /**
    * Bearer token required on every request (`Authorization: Bearer <token>`).
    * REQUIRED when binding to a non-loopback host — `serveHttp` refuses to
    * expose tools to the network without one.
    */
-  token?: string;
-  logger?: MCPServerLogger;
+  token?: string | undefined;
+  logger?: MCPServerLogger | undefined;
 }
 
 export interface ServeHttpHandle {

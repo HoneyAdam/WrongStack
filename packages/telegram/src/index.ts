@@ -8,6 +8,15 @@ import { registerSlashCommands } from './slash-commands/index.js';
 import { makeTelegramReadTool } from './tools/telegram-read.js';
 import { makeTelegramSendTool } from './tools/telegram-send.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 // ---------------------------------------------------------------------------
 // Teardown state
 // ---------------------------------------------------------------------------
@@ -50,7 +59,7 @@ const plugin: Plugin = {
     // ---- Bot ----
     const bot = new TelegramBot({
       token: cfg.botToken,
-      pollIntervalSec: cfg.pollIntervalSec,
+      pollIntervalSec: cfg.pollIntervalSec ?? 2,
       allowedUsers: new Set((cfg.allowedUsers ?? []).map(String)),
       allowedChats: new Set((cfg.allowedChats ?? []).map(String)),
       bufferSize: 50,
@@ -71,7 +80,7 @@ const plugin: Plugin = {
     const sendTool = makeTelegramSendTool({
       bot,
       defaultChatId: cfg.notifyChatId,
-      maxMessageLength: cfg.maxMessageLength,
+      maxMessageLength: cfg.maxMessageLength ?? 4000,
       log,
     });
     const readTool = makeTelegramReadTool({ bot });
@@ -127,7 +136,7 @@ const plugin: Plugin = {
             `Total:  ${totalTokens} tokens`,
           ].join('\n');
 
-          void bot.sendMessage(cfg.notifyChatId!, msg).catch((err) => {
+          void bot.sendMessage(expectDefined(cfg.notifyChatId), msg).catch((err) => {
             log.warn(`Failed to send session end notification: ${(err as Error).message}`);
           });
         }),
@@ -138,7 +147,7 @@ const plugin: Plugin = {
     if (cfg.longToolThresholdMs && cfg.longToolThresholdMs > 0 && cfg.notifyChatId) {
       offs.push(
         api.events.on('tool.executed', (event) => {
-          if (event.durationMs < cfg.longToolThresholdMs!) return;
+          if (event.durationMs < expectDefined(cfg.longToolThresholdMs)) return;
           const sec = (event.durationMs / 1000).toFixed(1);
           const status = event.ok ? '✅' : '❌';
           const preview = event.output
@@ -151,7 +160,7 @@ const plugin: Plugin = {
             preview,
           ].join('\n');
 
-          void bot.sendMessage(cfg.notifyChatId!, msg).catch((err) => {
+          void bot.sendMessage(expectDefined(cfg.notifyChatId), msg).catch((err) => {
             log.warn(`Failed to send tool notification: ${(err as Error).message}`);
           });
         }),
@@ -168,7 +177,7 @@ const plugin: Plugin = {
             formatDelegateCompleted(event),
             cfg.maxMessageLength,
           );
-          void bot.sendMessage(cfg.notifyChatId!, msg).catch((err) => {
+          void bot.sendMessage(expectDefined(cfg.notifyChatId), msg).catch((err) => {
             log.warn(`Failed to send delegate notification: ${(err as Error).message}`);
           });
         }),

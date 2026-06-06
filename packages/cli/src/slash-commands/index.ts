@@ -21,73 +21,73 @@ export interface SlashCommandContext {
   toolRegistry: ToolRegistry;
   /** Resolved path helpers — use instead of constructing paths inline.
    *  Optional for unit tests that don't exercise commands requiring paths. */
-  paths?: WstackPaths;
+  paths?: WstackPaths | undefined;
   compactor?: {
-    compact(ctx: Context, opts?: { aggressive?: boolean }): Promise<CompactReport>;
+    compact(ctx: Context, opts?: { aggressive?: boolean | undefined }): Promise<CompactReport>;
   };
-  sessionStore?: SessionStore;
-  skillLoader?: SkillLoader;
+  sessionStore?: SessionStore | undefined;
+  skillLoader?: SkillLoader | undefined;
   tokenCounter: TokenCounter;
   renderer: Renderer;
   /** App-level EventBus — used by AutoPhaseRunner to emit phase/graph events to the TUI. */
   events: EventBus;
-  memoryStore?: MemoryStore;
-  context?: Context;
+  memoryStore?: MemoryStore | undefined;
+  context?: Context | undefined;
   /** Working directory for the current session. */
   cwd: string;
   /** Project root (typically resolved from cwd). */
   projectRoot: string;
-  metricsSink?: MetricsSink;
-  healthRegistry?: HealthRegistry;
-  modeStore?: ModeStore;
+  metricsSink?: MetricsSink | undefined;
+  healthRegistry?: HealthRegistry | undefined;
+  modeStore?: ModeStore | undefined;
   /** Input reader for interactive pickers (arrow key navigation etc.). */
-  inputReader?: import('@wrongstack/core').InputReader;
-  onExit?: () => void;
-  onBeforeExit?: () => Promise<{ abort?: boolean; message?: string } | void>;
-  onClear?: () => void;
-  onDiag?: () => string;
-  onStats?: () => string | null;
+  inputReader?: import('@wrongstack/core').InputReader | undefined;
+  onExit?: (() => void) | undefined;
+  onBeforeExit?: () => Promise<{ abort?: boolean; message?: string | undefined } | void>;
+  onClear?: (() => void) | undefined;
+  onDiag?: (() => string) | undefined;
+  onStats?: (() => string | null) | undefined;
   /**
    * Generate a commit message by calling the LLM with the git diff.
    * Receives the raw diff, returns a commit message string.
    * When omitted /commit falls back to heuristics-only messages.
    */
-  generateCommitMessage?: (diff: string) => Promise<string>;
+  generateCommitMessage?: ((diff: string) => Promise<string>) | undefined;
   onSpawn?: (
     description: string,
-    opts?: { provider?: string; model?: string; tools?: string[]; name?: string },
+    opts?: { provider?: string | undefined; model?: string | undefined; tools?: string[] | undefined; name?: string | undefined },
   ) => Promise<string>;
-  onAgents?: (subagentId?: string) => string;
+  onAgents?: ((subagentId?: string) => string) | undefined;
   onFleet?: (
     action: 'status' | 'usage' | 'kill' | 'manifest' | 'concurrency' | 'retry' | 'log',
-    target?: string,
+    target?: string | undefined,
   ) => Promise<string>;
   /**
    * Get live coordinator status for /fleet. Returns null when no fleet is active.
    */
-  onFleetStatus?: () => import('@wrongstack/core').CoordinatorStatus | null;
+  onFleetStatus?: (() => import('@wrongstack/core').CoordinatorStatus | null) | undefined;
   /**
    * Get fleet usage summary for /fleet usage.
    */
-  onFleetUsage?: () => import('@wrongstack/core').FleetUsage | null;
+  onFleetUsage?: (() => import('@wrongstack/core').FleetUsage | null) | undefined;
   /**
    * Kill all running subagents. Returns count of killed subagents.
    */
-  onFleetKill?: () => number;
+  onFleetKill?: (() => number) | undefined;
   /**
    * Terminate a specific subagent by id. Returns true if terminated.
    */
-  onFleetTerminate?: (subagentId: string) => boolean;
+  onFleetTerminate?: ((subagentId: string) => boolean) | undefined;
   /**
    * Spawn a subagent of a given role. Returns the new subagent id.
    */
-  onFleetSpawn?: (role: string) => Promise<string>;
+  onFleetSpawn?: ((role: string) => Promise<string>) | undefined;
   /**
    * Optional LLM classifier for `/fleet dispatch`. When wired, the smart
    * dispatcher uses it to resolve ambiguous routing decisions; without it the
    * dispatcher is heuristic-only. Built from the session provider in the host.
    */
-  onDispatchClassify?: import('@wrongstack/core').DispatchClassifier;
+  onDispatchClassify?: import('@wrongstack/core').DispatchClassifier | undefined;
   /**
    * Toggle subagent activity streaming into the leader's history. The
    * TUI installs the actual setter on mount via a shared controller;
@@ -116,7 +116,7 @@ export interface SlashCommandContext {
    * interrupted task. Returns a human-readable summary. Only wired when
    * director mode is enabled.
    */
-  onFleetRetry?: (taskId?: string) => Promise<string>;
+  onFleetRetry?: ((taskId?: string) => Promise<string>) | undefined;
   /**
    * Inspect per-subagent JSONL transcripts under `<fleetRoot>/subagents/`.
    * Pass `undefined` to list available transcripts, a subagent id to show
@@ -125,37 +125,37 @@ export interface SlashCommandContext {
    */
   onFleetLog?: (subagentId: string | undefined, mode: 'summary' | 'raw') => Promise<string>;
   /** Promote to director mode at runtime. Returns success message or null on failure. */
-  onDirector?: () => Promise<string | null>;
+  onDirector?: (() => Promise<string | null>) | undefined;
   /** Manage plugin config from the interactive slash menu. */
-  onPlugin?: (args: string) => Promise<string>;
+  onPlugin?: ((args: string) => Promise<string>) | undefined;
   /** Set/query the effective context window for this session. */
-  onContextLimit?: (tokens?: number) => number;
+  onContextLimit?: ((tokens?: number) => number) | undefined;
   /** Toggle or query YOLO mode at runtime. Pass undefined to query, boolean to set. */
-  onYolo?: (setTo?: boolean) => boolean;
+  onYolo?: ((setTo?: boolean) => boolean) | undefined;
   /** Toggle or query next-task prediction. Pass undefined to query, boolean to set. */
-  onNextPredict?: (setTo?: boolean) => boolean;
+  onNextPredict?: ((setTo?: boolean) => boolean) | undefined;
   /** Toggle or query autonomy mode. Pass undefined to query, AutonomyMode to set. */
   onAutonomy?: (
-    setTo?: import('./autonomy.js').AutonomyMode,
+    setTo?: import('./autonomy.js').AutonomyMode | undefined,
   ) => import('./autonomy.js').AutonomyMode;
   /**
    * Access the (possibly null) eternal-autonomy engine. The REPL drives
    * `runOneIteration()` from its main loop when autonomy is 'eternal'.
    */
-  getEternalEngine?: () => import('@wrongstack/core').EternalAutonomyEngine | null;
+  getEternalEngine?: (() => import('@wrongstack/core').EternalAutonomyEngine | null) | undefined;
   /**
    * Access the (possibly null) parallel-eternal engine. The REPL drives
    * `runOneIteration()` from its main loop when autonomy is 'eternal-parallel'.
    */
-  getParallelEngine?: () => import('@wrongstack/core').ParallelEternalEngine | null;
+  getParallelEngine?: (() => import('@wrongstack/core').ParallelEternalEngine | null) | undefined;
   /**
    * Start the eternal/parallel autonomy engine. Called after `/autonomy eternal`
    * or `/autonomy parallel` confirms a goal exists and YOLO has been forced on.
    * Pass the mode so the REPL knows which engine to construct and drive.
    */
-  onEternalStart?: (mode?: import('./autonomy.js').AutonomyMode) => void;
+  onEternalStart?: ((mode?: import('./autonomy.js').AutonomyMode) => void) | undefined;
   /** Stop the eternal/parallel autonomy engine (mid-iteration abort + flag flip). */
-  onEternalStop?: () => void;
+  onEternalStop?: (() => void) | undefined;
   /**
    * Ask the user a yes/no question on the REPL. Returns `true`/`false` for
    * Y/N answers, `null` when the user cancels (q). Resolves to `defaultYes`
@@ -169,10 +169,10 @@ export interface SlashCommandContext {
    * `/plan` slash command. Optional — when omitted, `/plan` short-circuits
    * with a "not configured" message instead of crashing.
    */
-  planPath?: string;
+  planPath?: string | undefined;
   /** Direct access to the session's LLM provider and model, available even before the first agent run. */
-  llmProvider?: import('@wrongstack/core').Provider;
-  llmModel?: string;
+  llmProvider?: import('@wrongstack/core').Provider | undefined;
+  llmModel?: string | undefined;
   /** StatusBar visibility config — loaded from ~/.wrongstack/statusline.json */
   statuslineConfig?: {
     get: () => Promise<import('./statusline.js').StatuslineConfig>;
@@ -200,32 +200,32 @@ export interface SlashCommandContext {
     setVisible: (visible: boolean) => void;
   };
   /** Manage MCP servers: add, remove, enable, disable, restart. */
-  onMcp?: (args: string) => Promise<string>;
+  onMcp?: ((args: string) => Promise<string>) | undefined;
   /**
    * Fix a reported error or bug. Pass the error message or problem description.
    * Returns a structured diagnosis + fix plan, and sets up the next agent turn
    * with the appropriate skill (bug-hunter, typescript-strict, security-scanner).
    */
-  onFix?: (errorText: string) => Promise<{ message?: string; runText?: string }>;
+  onFix?: (errorText: string) => Promise<{ message?: string | undefined; runText?: string | undefined }>;
   /**
    * Start an SDD parallel fan-out run. Requires an active SDD session with
    * an approved spec and generated task graph.
    */
-  onSddParallelRun?: (opts?: { parallelSlots?: number }) => Promise<string>;
+  onSddParallelRun?: (opts?: { parallelSlots?: number | undefined }) => Promise<string>;
   /** Stop the currently running SDD parallel fan-out. */
-  onSddParallelStop?: () => void;
+  onSddParallelStop?: (() => void) | undefined;
   /**
    * Start a real, LLM-driven AutoPhase run from a free-text goal. The host
    * plans phases (each holding many todos), persists the phase-graph as
    * per-project JSON, and drives the orchestrator — one subagent per task —
    * in the background. Returns the built graph or an error.
    */
-  onAutoPhaseStart?: (opts: { goal: string; projectContext?: string }) => Promise<
+  onAutoPhaseStart?: (opts: { goal: string; projectContext?: string | undefined }) => Promise<
     { ok: true; graph: import('@wrongstack/core').PhaseGraph } | { ok: false; error: string }
   >;
-  onAutoPhasePause?: () => void;
-  onAutoPhaseResume?: () => void;
-  onAutoPhaseStop?: () => void;
+  onAutoPhasePause?: (() => void) | undefined;
+  onAutoPhaseResume?: (() => void) | undefined;
+  onAutoPhaseStop?: (() => void) | undefined;
   /** Live, read-only view of the running AutoPhase (null when idle). */
   getAutoPhaseRunner?: () => {
     graph: import('@wrongstack/core').PhaseGraph;

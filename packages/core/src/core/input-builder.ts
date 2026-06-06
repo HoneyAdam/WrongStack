@@ -7,12 +7,12 @@ export interface InputBuilderOptions {
    * Pastes ≥ this many lines collapse to a `[pasted #N]` placeholder.
    * Default: 8 lines.
    */
-  pasteLineThreshold?: number;
+  pasteLineThreshold?: number | undefined;
   /**
    * Pastes ≥ this many characters collapse to a placeholder regardless of
    * line count. Default: 2000 chars.
    */
-  pasteCharThreshold?: number;
+  pasteCharThreshold?: number | undefined;
 }
 
 export interface InputBuilderEvent {

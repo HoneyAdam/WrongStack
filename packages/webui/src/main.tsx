@@ -10,7 +10,16 @@ import '@fontsource/ibm-plex-mono/600.css';
 import { App } from './App';
 import './index.css';
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
+ReactDOM.createRoot(expectDefined(document.getElementById('root'))).render(
   <React.StrictMode>
     <App />
   </React.StrictMode>,

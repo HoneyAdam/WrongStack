@@ -3,7 +3,7 @@ import { LSPError, LSPErrorCode } from '../types.js';
 export async function promiseWithTimeout<T>(
   promise: Promise<T>,
   ms: number,
-  signal?: AbortSignal,
+  signal?: AbortSignal | undefined,
 ): Promise<T> {
   if (signal?.aborted) throw abortError(signal);
   let timer: NodeJS.Timeout | undefined;

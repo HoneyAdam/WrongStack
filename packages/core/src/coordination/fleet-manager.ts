@@ -13,17 +13,17 @@ import type { DefaultMultiAgentCoordinator } from './multi-agent-coordinator.js'
 
 /** Options for constructing a FleetManager. */
 export interface FleetManagerOptions {
-  manifestPath?: string;
-  sessionsRoot?: string;
-  directorRunId?: string;
-  maxSpawns?: number;
-  maxSpawnDepth?: number;
-  spawnDepth?: number;
-  stateCheckpointPath?: string;
-  sessionWriter?: SessionWriter;
-  manifestDebounceMs?: number;
-  checkpointDebounceMs?: number;
-  directorBudget?: { maxCostUsd?: number };
+  manifestPath?: string | undefined;
+  sessionsRoot?: string | undefined;
+  directorRunId?: string | undefined;
+  maxSpawns?: number | undefined;
+  maxSpawnDepth?: number | undefined;
+  spawnDepth?: number | undefined;
+  stateCheckpointPath?: string | undefined;
+  sessionWriter?: SessionWriter | undefined;
+  manifestDebounceMs?: number | undefined;
+  checkpointDebounceMs?: number | undefined;
+  directorBudget?: { maxCostUsd?: number | undefined };
   /**
    * Maximum context load (as a fraction of maxContext) the leader agent
    * is allowed to reach before a new spawn is rejected. Default: 0.85.
@@ -31,7 +31,7 @@ export interface FleetManagerOptions {
    * a new subagent is refused — the leader must compact first.
    * Set to 1.0 to disable this check.
    */
-  maxLeaderContextLoad?: number;
+  maxLeaderContextLoad?: number | undefined;
   /**
    * Provider's max context window in tokens. Used with `maxLeaderContextLoad`
    * to compute the absolute token threshold. Default: 128_000.
@@ -67,7 +67,7 @@ export class FleetManager implements IFleetManager {
   /** Usage rollup across all subagents. */
   readonly usage: FleetUsageAggregator;
 
-  private readonly manifestPath?: string;
+  private readonly manifestPath?: string | undefined;
   private readonly directorRunId: string;
   /** Spawn cap (lifetime total). Infinity means unlimited. */
   readonly maxSpawns: number;
@@ -86,14 +86,14 @@ export class FleetManager implements IFleetManager {
   private readonly maxFleetCostUsd: number;
   private readonly manifestEntries = new Map<
     string,
-    { subagentId: string; name: string; role?: string; provider?: string; model?: string; taskIds: string[] }
+    { subagentId: string; name: string; role?: string | undefined; provider?: string | undefined; model?: string | undefined; taskIds: string[] }
   >();
   /** Pending tasks with their descriptions — populated by `addPendingTask`
    *  and cleared by `removePendingTask`. Replaces the host-side `pending`
    *  Map so task descriptions live in one place (FleetManager). */
   private readonly pendingTasks = new Map<string, { subagentId: string; description: string }>();
-  private readonly subagentMeta = new Map<string, { provider?: string; model?: string }>();
-  private readonly priceLookups = new Map<string, { input?: number; output?: number; cacheRead?: number; cacheWrite?: number }>();
+  private readonly subagentMeta = new Map<string, { provider?: string | undefined; model?: string | undefined }>();
+  private readonly priceLookups = new Map<string, { input?: number | undefined; output?: number | undefined; cacheRead?: number | undefined; cacheWrite?: number | undefined }>();
   /** Tracks which nickname keys are already assigned — prevents collisions. */
   private readonly _usedNicknames = new Set<string>();
   /** The coordinator (wired via setCoordinator by Director after construction). */
@@ -162,7 +162,7 @@ export class FleetManager implements IFleetManager {
     return this.usage.snapshot();
   }
 
-  getSubagentMeta(id: string): { provider?: string; model?: string; name?: string } | undefined {
+  getSubagentMeta(id: string): { provider?: string | undefined; model?: string | undefined; name?: string | undefined } | undefined {
     const meta = this.subagentMeta.get(id);
     const manifest = this.manifestEntries.get(id);
     if (!meta && !manifest) return undefined;
@@ -263,7 +263,7 @@ export class FleetManager implements IFleetManager {
   recordSpawn(
     subagentId: string,
     config: SubagentConfig,
-    priceLookup?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number },
+    priceLookup?: { input?: number | undefined; output?: number | undefined; cacheRead?: number | undefined; cacheWrite?: number | undefined },
   ): void {
     this.spawnCount += 1;
     this.subagentMeta.set(subagentId, {
@@ -438,7 +438,7 @@ export class FleetManager implements IFleetManager {
 
   getFleetStatus(): {
     pending: { taskId: string; description: string; subagentId: string }[];
-    live: { subagentId: string; status: string; task?: string }[];
+    live: { subagentId: string; status: string; task?: string | undefined }[];
   } {
     const pending = Array.from(this.pendingTasks.entries()).map(([taskId, v]) => ({
       taskId,

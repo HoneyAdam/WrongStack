@@ -2,20 +2,20 @@ import * as fs from 'node:fs/promises';
 import type { Tool } from '@wrongstack/core';
 
 interface JsonInput {
-  file?: string;
-  data?: string;
-  query?: string;
-  format?: 'json' | 'json5' | 'yaml';
-  validate?: boolean;
+  file?: string | undefined;
+  data?: string | undefined;
+  query?: string | undefined;
+  format?: 'json' | 'json5' | 'yaml' | undefined;
+  validate?: boolean | undefined;
 }
 
 interface JsonOutput {
   data: unknown;
   formatted: string;
   type: string;
-  keys?: string[];
-  query_result?: unknown;
-  error?: string;
+  keys?: string[] | undefined;
+  query_result?: unknown | undefined;
+  error?: string | undefined;
 }
 
 export const jsonTool: Tool<JsonInput, JsonOutput> = {

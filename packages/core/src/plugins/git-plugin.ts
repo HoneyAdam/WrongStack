@@ -104,13 +104,13 @@ interface CommitLLMProvider {
   complete(
     req: {
       model: string;
-      system?: { type: 'text'; text: string }[];
+      system?: { type: 'text' | undefined; text: string }[];
       messages: { role: string; content: { type: 'text'; text: string }[] }[];
       maxTokens: number;
-      temperature?: number;
+      temperature?: number | undefined;
     },
     opts: { signal: AbortSignal },
-  ): Promise<{ content: unknown; model?: string }>;
+  ): Promise<{ content: unknown; model?: string | undefined }>;
 }
 
 function asLLMProvider(provider: unknown): CommitLLMProvider | null {
@@ -155,9 +155,9 @@ async function generateCommitMessageWithLLM(
 
     const raw = resp.content;
     const text = Array.isArray(raw)
-      ? ((raw[0] as { type: string; text?: string })?.text ?? '')
+      ? ((raw[0] as { type: string; text?: string | undefined })?.text ?? '')
       : typeof raw === 'object' && raw !== null
-        ? ((raw as { type: string; text?: string }).text ?? '')
+        ? ((raw as { type: string; text?: string | undefined }).text ?? '')
         : String(raw ?? '');
     const message = text.trim().split('\n')[0] ?? '';
     if (message.length > 0 && message.length < 200) return message;
@@ -195,7 +195,7 @@ async function generateCommitMessageHeuristics(cwd: string): Promise<string> {
 
   let scope = '';
   if (files.length > 0) {
-    const primary = files[0]!.split('/')[0];
+    const primary = files[0]?.split('/')[0];
     if (primary && primary !== 'packages' && primary !== 'apps' && primary !== 'node_modules') {
       scope = `(${primary})`;
     }

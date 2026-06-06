@@ -14,7 +14,7 @@ export interface ProcessResponseResult {
   finalText: string;
   aborted: boolean;
   done: boolean;
-  directive?: ContinueDirective;
+  directive?: ContinueDirective | undefined;
 }
 
 export interface AgentResponseHandler {

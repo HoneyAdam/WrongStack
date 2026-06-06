@@ -20,7 +20,7 @@ interface MistralStreamState {
   // OpenAI-style tool_call accumulators keyed by `index`
   toolCalls: Map<
     number,
-    { id?: string; name?: string; partial: string; emittedStart: boolean; emittedArgLength: number }
+    { id?: string | undefined; name?: string | undefined; partial: string; emittedStart: boolean; emittedArgLength: number }
   >;
 }
 
@@ -67,19 +67,19 @@ export const mistralWireFormat = defineWireFormat<MistralStreamState>({
   parseStreamEvent: (msg, state): StreamEvent[] => {
     if (!msg.data || msg.data === '[DONE]') return [];
     const parsed = safeParse<{
-      model?: string;
+      model?: string | undefined;
       choices?: {
         delta?: {
-          content?: string;
+          content?: string | undefined;
           tool_calls?: {
             index: number;
-            id?: string;
-            function?: { name?: string; arguments?: string };
+            id?: string | undefined;
+            function?: { name?: string | undefined; arguments?: string | undefined };
           }[];
         };
-        finish_reason?: string;
+        finish_reason?: string | undefined;
       }[];
-      usage?: { prompt_tokens?: number; completion_tokens?: number };
+      usage?: { prompt_tokens?: number | undefined; completion_tokens?: number | undefined };
     }>(msg.data);
     if (!parsed.ok || !parsed.value) return [];
     const ev = parsed.value;

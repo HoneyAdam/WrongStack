@@ -23,22 +23,22 @@ export interface FleetAgentState {
   status: 'running' | 'done' | 'failed';
   iterations: number;
   toolCalls: number;
-  lastTool?: string;
+  lastTool?: string | undefined;
   startedAt: number;
-  endedAt?: number;
+  endedAt?: number | undefined;
   /** Cumulative budget auto-extensions — rendered as a "⚡N" suffix. */
-  extensions?: number;
+  extensions?: number | undefined;
 }
 
 export interface FleetStatusLineOptions {
   events: EventBus;
-  out?: NodeJS.WriteStream;
+  out?: NodeJS.WriteStream | undefined;
   /** Minimum ms between repaints. Default 150. */
-  throttleMs?: number;
+  throttleMs?: number | undefined;
   /** Inject a clock for tests. */
-  now?: () => number;
+  now?: (() => number) | undefined;
   /** App version (e.g. "0.7.0") prefixed as a `WS v…` chip on the pinned line. */
-  version?: string;
+  version?: string | undefined;
 }
 
 function fmtElapsed(ms: number): string {
@@ -60,7 +60,7 @@ export function renderFleetLine(
   states: Map<string, FleetAgentState>,
   now: number,
   columns: number,
-  version?: string,
+  version?: string | undefined,
 ): string {
   const all = [...states.values()];
   if (all.length === 0) return '';
@@ -129,7 +129,7 @@ export class FleetStatusLine {
   private readonly out: NodeJS.WriteStream;
   private readonly throttleMs: number;
   private readonly now: () => number;
-  private readonly version?: string;
+  private readonly version?: string | undefined;
   private readonly states = new Map<string, FleetAgentState>();
   private readonly unsubs: Array<() => void> = [];
   private active = false;

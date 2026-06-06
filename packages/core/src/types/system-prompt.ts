@@ -14,9 +14,9 @@ export interface BuildContext {
   projectRoot: string;
   tools: Tool[];
   /** Provider id (e.g. "anthropic", "minimax-coding-plan"). */
-  provider?: string;
+  provider?: string | undefined;
   /** Model id (e.g. "claude-sonnet-4-6", "MiniMax-M2.7"). */
-  model?: string;
+  model?: string | undefined;
   /**
    * True when the prompt is being built for a SUBAGENT, not the host
    * agent. Subagents are scoped to a single task — they should NOT see
@@ -24,7 +24,7 @@ export interface BuildContext {
    * turns, not steering individual subtasks). The plan-injection
    * layer short-circuits when this flag is set.
    */
-  subagent?: boolean;
+  subagent?: boolean | undefined;
 }
 
 export interface SystemPromptBuilder {

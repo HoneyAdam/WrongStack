@@ -10,8 +10,8 @@ export interface Finding {
   title: string;
   description: string;
   file: string;
-  line?: number;
-  snippet?: string;
+  line?: number | undefined;
+  snippet?: string | undefined;
   remediation: string;
   patternId: string;
   confidence: 'high' | 'medium' | 'low';

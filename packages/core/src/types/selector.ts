@@ -15,7 +15,7 @@ export interface SelectorResult {
    * Collapsed ranges — either replaced by the compactor or omitted.
    * Each entry may carry a summary text produced by the LLM.
    */
-  collapsed: Array<{ from: number; to: number; summary?: string }>;
+  collapsed: Array<{ from: number; to: number; summary?: string | undefined }>;
   /**
    * Raw reasoning from the selector LLM (for debugging / audit).
    */

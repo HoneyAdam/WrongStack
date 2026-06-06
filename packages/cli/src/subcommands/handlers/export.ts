@@ -3,6 +3,15 @@ import * as path from 'node:path';
 import { DefaultSessionReader } from '@wrongstack/core';
 import type { SubcommandHandler } from '../index.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export const exportCmd: SubcommandHandler = async (args, deps) => {
   if (!deps.sessionStore) {
     deps.renderer.writeError('No session store configured.');
@@ -14,7 +23,7 @@ export const exportCmd: SubcommandHandler = async (args, deps) => {
   let includeDiagnostics = true;
   let sessionId: string | undefined;
   for (let i = 0; i < args.length; i++) {
-    const a = args[i]!;
+    const a = expectDefined(args[i]);
     if (a === '--format' || a === '-f') {
       const v = args[++i];
       if (v !== 'markdown' && v !== 'json' && v !== 'text') {

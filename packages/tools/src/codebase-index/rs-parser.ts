@@ -11,6 +11,15 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import * as path from 'node:path';
 import type { FileSymbols, Symbol as IndexSymbol, SymbolLang } from './schema.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 // ─── Public API ─────────────────────────────────────────────────────────────
 
 export function parseSymbols(opts: {
@@ -125,7 +134,7 @@ function regexParse(opts: { file: string; content: string; lang: SymbolLang }): 
   // Build line offset map
   const lineOffsets: number[] = [0];
   for (let i = 0; i < lines.length; i++) {
-    lineOffsets.push(lineOffsets[i]! + lines[i]!.length + 1);
+    lineOffsets.push((lineOffsets[i] ?? 0) + (lines[i]?.length ?? 0) + 1);
   }
 
   function lineFromOffset(offset: number): number {
@@ -133,7 +142,7 @@ function regexParse(opts: { file: string; content: string; lang: SymbolLang }): 
     let hi = lineOffsets.length - 1;
     while (lo < hi) {
       const mid = (lo + hi + 1) >>> 1;
-      if (lineOffsets[mid]! <= offset) lo = mid;
+      if (expectDefined(lineOffsets[mid]) <= offset) lo = mid;
       else hi = mid - 1;
     }
     return lo + 1; // 1-based
@@ -151,8 +160,8 @@ function regexParse(opts: { file: string; content: string; lang: SymbolLang }): 
       match !== null;
       match = pattern.regex.exec(content)
     ) {
-      const name = match[1]!;
-      const offset = match.index!;
+      const name = expectDefined(match[1]);
+      const offset = (match.index ?? 0);
       const line = lineFromOffset(offset);
       const col = offset - (lineOffsets[line - 1] ?? 0);
       const lineIdx = line - 1;

@@ -11,7 +11,7 @@ import type { EventBus } from '../kernel/events.js';
  */
 export interface FleetEvent {
   subagentId: string;
-  taskId?: string;
+  taskId?: string | undefined;
   ts: number;
   type: string;
   payload: unknown;
@@ -75,7 +75,7 @@ export class FleetBus {
     }
     set.add(handler);
     return () => {
-      set!.delete(handler);
+      set.delete(handler);
     };
   }
 
@@ -88,7 +88,7 @@ export class FleetBus {
     }
     set.add(handler);
     return () => {
-      set!.delete(handler);
+      set.delete(handler);
     };
   }
 
@@ -151,8 +151,8 @@ export interface FleetUsage {
 
 export interface SubagentUsageSnapshot {
   subagentId: string;
-  provider?: string;
-  model?: string;
+  provider?: string | undefined;
+  model?: string | undefined;
   input: number;
   output: number;
   cacheRead: number;
@@ -180,12 +180,12 @@ export class FleetUsageAggregator {
     bus: FleetBus,
     private readonly priceLookup?: (
       subagentId: string,
-      provider?: string,
-      model?: string,
-    ) => { input?: number; output?: number; cacheRead?: number; cacheWrite?: number } | undefined,
+      provider?: string | undefined,
+      model?: string | undefined,
+    ) => { input?: number | undefined; output?: number | undefined; cacheRead?: number | undefined; cacheWrite?: number | undefined } | undefined,
     private readonly metaLookup?: (
       subagentId: string,
-    ) => { provider?: string; model?: string } | undefined,
+    ) => { provider?: string | undefined; model?: string | undefined } | undefined,
   ) {
     this.unsub.push(bus.filter('provider.response', (e) => this.onProviderResponse(e)));
     this.unsub.push(bus.filter('tool.executed', (e) => this.onToolExecuted(e)));
@@ -251,7 +251,7 @@ export class FleetUsageAggregator {
   private onProviderResponse(e: FleetEvent): void {
     const snap = this.ensure(e.subagentId);
     const p = e.payload as {
-      usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
+      usage?: { input?: number | undefined; output?: number | undefined; cacheRead?: number | undefined; cacheWrite?: number | undefined };
     };
     const usage = p?.usage;
     if (!usage) return;

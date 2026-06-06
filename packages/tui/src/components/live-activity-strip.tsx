@@ -12,7 +12,7 @@ export interface LiveActivityStripProps {
   nowTick: number;
   /** Optional cap on rows so a 20-subagent fleet doesn't push the
    *  input off-screen. Default 4 — matches the status bar's 4th line. */
-  maxRows?: number;
+  maxRows?: number | undefined;
 }
 
 function fmtElapsed(ms: number): string {
@@ -79,8 +79,8 @@ export const LiveActivityStrip = React.memo(function LiveActivityStrip({
     if (Object.keys(entries).length === 0) return null;
     return (
       <Box flexDirection="column" paddingX={1}>
-        {Array.from({ length: maxRows }, (_, i) => (
-          <Box key={`empty-${i}`} height={1}>
+        {Array.from({ length: maxRows }, (_, slot) => slot).map((slot) => (
+          <Box key={`empty-${slot}`} height={1}>
             <Text> </Text>
           </Box>
         ))}

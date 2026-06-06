@@ -16,9 +16,9 @@ interface TelegramGetMeResponse {
     id: number;
     is_bot: boolean;
     first_name: string;
-    username?: string;
+    username?: string | undefined;
   };
-  description?: string;
+  description?: string | undefined;
 }
 
 const HELP = [

@@ -19,25 +19,25 @@ export interface IntelligentCompactorOptions {
   /** Provider to use for LLM-assisted summarization. Required. */
   provider: Provider;
   /** Fraction of maxContext that triggers a warning (default 0.6). */
-  warnThreshold?: number;
+  warnThreshold?: number | undefined;
   /** Fraction of maxContext that triggers soft compaction (default 0.75). */
-  softThreshold?: number;
+  softThreshold?: number | undefined;
   /** Fraction of maxContext that triggers hard compaction (default 0.9). */
-  hardThreshold?: number;
+  hardThreshold?: number | undefined;
   /** Max context window in tokens (used only for threshold fraction math). */
-  maxContext?: number;
+  maxContext?: number | undefined;
   /** How many recent (user+assistant) pairs to always preserve (default 4). */
-  preserveK?: number;
+  preserveK?: number | undefined;
   /** Token threshold below which tool results are not elided (default 500). */
-  eliseThreshold?: number;
+  eliseThreshold?: number | undefined;
   /** System prompt for the summarizer sub-LLM. */
-  summarizerPrompt?: string;
+  summarizerPrompt?: string | undefined;
   /**
    * Model ID to use for summarization. When not set, the same model as the
    * agent is used (which risks cascading failure on context overflow). Set to
    * a fast/cheap model like `claude-3-5-haiku-20240620` for resilience.
    */
-  summarizerModel?: string;
+  summarizerModel?: string | undefined;
 }
 
 /**
@@ -70,7 +70,7 @@ export class IntelligentCompactor implements Compactor {
   private readonly preserveK: number;
   private readonly eliseThreshold: number;
   private readonly summarizerPrompt: string;
-  private readonly summarizerModel?: string;
+  private readonly summarizerModel?: string | undefined;
 
   constructor(opts: IntelligentCompactorOptions) {
     this.provider = opts.provider;
@@ -86,7 +86,7 @@ export class IntelligentCompactor implements Compactor {
     this.summarizerModel = opts.summarizerModel;
   }
 
-  async compact(ctx: Context, opts: { aggressive?: boolean } = {}): Promise<CompactReport> {
+  async compact(ctx: Context, opts: { aggressive?: boolean | undefined } = {}): Promise<CompactReport> {
     const beforeTokens = this.estimateTokens(ctx.messages);
     const beforeFull = this.estimateFullRequest(ctx);
     const reductions: CompactReport['reductions'] = [];
@@ -260,7 +260,7 @@ export class IntelligentCompactor implements Compactor {
     // `?? new AbortController().signal` created a controller that was never
     // connected to anything, making cancellation a no-op).
     const ac = ctx.signal ? undefined : new AbortController();
-    const signal = ctx.signal ?? ac!.signal;
+    const signal = ctx.signal ?? ac?.signal;
     const res = await this.provider.complete(req, { signal });
 
     const textBlocks = res.content.filter(isTextBlock);

@@ -5,11 +5,11 @@ import { promiseWithTimeout } from '../utils/timeout.js';
 
 interface JsonRpcMessage {
   jsonrpc: '2.0';
-  id?: number | string | null;
-  method?: string;
-  params?: unknown;
-  result?: unknown;
-  error?: { code: number; message: string; data?: unknown };
+  id?: number | string | null | undefined;
+  method?: string | undefined;
+  params?: unknown | undefined;
+  result?: unknown | undefined;
+  error?: { code: number | undefined; message: string; data?: unknown | undefined };
 }
 
 interface Pending {

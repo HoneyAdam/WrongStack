@@ -109,6 +109,44 @@ describe('Agent', () => {
     expect(provider.calls).toBe(1);
   });
 
+  it('syncs ctx.tools from the registry on run (tool_search sees the catalog)', async () => {
+    const echo: Tool = {
+      name: 'echo',
+      description: 'echo input',
+      inputSchema: { type: 'object' },
+      permission: 'auto',
+      mutating: false,
+      async execute() {
+        return '';
+      },
+    };
+    const provider = new MockProvider([
+      { content: [{ type: 'text', text: 'ok' }], stopReason: 'end_turn' },
+    ]);
+    const { agent, ctx, tools, tmp } = await buildAgent(provider, [echo]);
+    cleanupDirs.push(tmp);
+    // The Context is constructed without a tools list (mirrors setupSession),
+    // so the convenience mirror tool_search reads starts empty.
+    expect(ctx.tools).toEqual([]);
+    // A tool registered after Context construction but before the run — the
+    // MCP / plugin / fleet timing that left ctx.tools empty in the field.
+    const late: Tool = {
+      name: 'late',
+      description: 'registered after context build',
+      inputSchema: { type: 'object' },
+      permission: 'auto',
+      mutating: false,
+      async execute() {
+        return '';
+      },
+    };
+    tools.register(late);
+    await agent.run('hi');
+    // run() refreshes the mirror from the agent's own registry, so both the
+    // boot-time and the late-registered tool are now discoverable.
+    expect(ctx.tools.map((t) => t.name).sort()).toEqual(['echo', 'late']);
+  });
+
   it('repairs broken tool-call adjacency before provider requests', async () => {
     const provider = new MockProvider([
       { content: [{ type: 'text', text: 'recovered' }], stopReason: 'end_turn' },

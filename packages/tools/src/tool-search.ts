@@ -1,11 +1,11 @@
 import type { Tool } from '@wrongstack/core';
 
 interface ToolSearchInput {
-  query?: string;
-  tags?: string[];
-  permission?: 'auto' | 'confirm' | 'deny';
-  mutating?: boolean;
-  limit?: number;
+  query?: string | undefined;
+  tags?: string[] | undefined;
+  permission?: 'auto' | 'confirm' | 'deny' | undefined;
+  mutating?: boolean | undefined;
+  limit?: number | undefined;
 }
 
 interface ToolSearchOutput {

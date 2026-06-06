@@ -15,30 +15,39 @@ import { join, relative } from 'node:path';
 import { atomicWrite } from '../utils/atomic-write.js';
 import { sanitizeJsonString } from '../utils/safe-json.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export interface SecurityScannerOptions {
   projectRoot: string;
   scanOptions?: {
-    depth?: 'quick' | 'standard' | 'deep';
-    includeSecrets?: boolean;
-    includeInjection?: boolean;
-    includeConfig?: boolean;
+    depth?: 'quick' | 'standard' | 'deep' | undefined;
+    includeSecrets?: boolean | undefined;
+    includeInjection?: boolean | undefined;
+    includeConfig?: boolean | undefined;
   };
-  reportOptions?: Partial<ReportOptions>;
-  skipGitignore?: boolean;
+  reportOptions?: Partial<ReportOptions> | undefined;
+  skipGitignore?: boolean | undefined;
   /** Optional model name to pass to the LLM provider (defaults to the provider's default). */
-  model?: string;
+  model?: string | undefined;
 }
 
 /** Accepts a full Context or just the provider+model needed for LLM calls. */
-export type SecurityScannerContext = Context | { provider: Provider; model?: string };
+export type SecurityScannerContext = Context | { provider: Provider; model?: string | undefined };
 
 export interface FullScanResult {
   detectionResult: Awaited<ReturnType<typeof defaultTechStackDetector.detect>>;
   generatedSkill: GeneratedSkill;
   scanResult: ScanResult;
   reportPath: string;
-  synthesizedReport?: string;
-  gitignoreResult?: Awaited<ReturnType<typeof defaultGitignoreUpdater.update>>;
+  synthesizedReport?: string | undefined;
+  gitignoreResult?: Awaited<ReturnType<typeof defaultGitignoreUpdater.update>> | undefined;
 }
 
 /**
@@ -116,7 +125,7 @@ export class SecurityScannerOrchestrator {
       throw new Error(`No supported tech stack detected in ${projectRoot}`);
     }
     // Non-null assertion is intentional — guard above guarantees non-empty array.
-    const techStack = detectionResult.detectedStacks[0]!;
+    const techStack = expectDefined(detectionResult.detectedStacks[0]);
 
     // Step 2: Generate project-specific security skill via LLM
     const generatedSkill = await this.generateSkillLLM(provider, model, projectRoot, techStack);
@@ -220,7 +229,7 @@ Return ONLY the JSON object, no markdown, no explanation.`;
       // Parse JSON from response
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
-        const sanitized = sanitizeJsonString(jsonMatch[0]!) || jsonMatch[0]!;
+        const sanitized = sanitizeJsonString(expectDefined(jsonMatch[0])) || expectDefined(jsonMatch[0]);
         const skillData = JSON.parse(sanitized);
         return {
           name: skillData.name || `security-scanner-${techStack.stack}`,
@@ -369,15 +378,15 @@ Return ONLY the JSON array. If no issues found, return [].`;
       
       const jsonMatch = text.match(/\[[\s\S]*\]/);
       if (jsonMatch) {
-        const sanitized = sanitizeJsonString(jsonMatch[0]!) || jsonMatch[0]!;
+        const sanitized = sanitizeJsonString(expectDefined(jsonMatch[0])) || expectDefined(jsonMatch[0]);
         const parsed = JSON.parse(sanitized) as Array<{
           file: string;
-          line?: number;
+          line?: number | undefined;
           severity: 'critical' | 'high' | 'medium' | 'low';
-          category?: string;
+          category?: string | undefined;
           title: string;
           description: string;
-          snippet?: string;
+          snippet?: string | undefined;
           remediation: string;
         }>;
         
@@ -660,7 +669,7 @@ Be specific about the vulnerabilities found and how to fix them.`;
     if (detectionResult.detectedStacks.length === 0) {
       throw new Error(`No supported tech stack detected in ${projectRoot}`);
     }
-    const techStack = detectionResult.detectedStacks[0]!;
+    const techStack = expectDefined(detectionResult.detectedStacks[0]);
 
     // Return minimal result - actual scanning requires LLM context
     return {

@@ -9,6 +9,15 @@ import {
   restoreLast,
 } from '../../config-history.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export const sessionsCmd: SubcommandHandler = async (args, deps) => {
   const sub = args[0];
   // `wrongstack sessions fleet [runId]` — fleet run inspection
@@ -54,7 +63,7 @@ export const configCmd: SubcommandHandler = async (args, deps) => {
 
 function extractArg(args: string[], key: string): string | null {
   const idx = args.indexOf(key);
-  if (idx !== -1 && args[idx + 1] !== undefined) return args[idx + 1]!;
+  if (idx !== -1 && args[idx + 1] !== undefined) return expectDefined(args[idx + 1]);
   const eq = key.startsWith('--') ? args.find((a) => a.startsWith(`${key}=`)) : null;
   if (eq) return eq.slice(eq.indexOf('=') + 1);
   return null;
@@ -107,7 +116,7 @@ async function runHistory(args: string[], deps: SubcommandDeps): Promise<number>
 
 async function runRestore(args: string[], deps: SubcommandDeps): Promise<number> {
   const latest = args.includes('--latest') || args.includes('-l');
-  const id = extractArg(args, '--id') ?? (args[0] && !args[0]!.startsWith('-') ? args[0] : null);
+  const id = extractArg(args, '--id') ?? (args[0] && !args[0]?.startsWith('-') ? args[0] : null);
 
   if (latest) {
     const result = await restoreLast();

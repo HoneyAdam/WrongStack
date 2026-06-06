@@ -90,13 +90,13 @@ Bridge contract:
 export interface DirectorPromptParts {
   /** The user's existing leader system prompt — typically what was passed
    *  via `MultiAgentConfig.leaderSystemPrompt`. */
-  basePrompt?: string;
+  basePrompt?: string | undefined;
   /** Override the built-in fleet preamble. Pass empty string to suppress. */
-  directorPreamble?: string;
+  directorPreamble?: string | undefined;
   /** Optional roster summary block — a short list of pre-configured roles
    *  the director can spawn (e.g. "researcher, coder, reviewer"). Helps
    *  small models discover the available shapes without scanning tools. */
-  rosterSummary?: string;
+  rosterSummary?: string | undefined;
 }
 
 /**
@@ -126,13 +126,13 @@ export function composeDirectorPrompt(parts: DirectorPromptParts = {}): string {
 export interface SubagentPromptParts {
   /** Base persona/identity for *every* subagent. Defaults to the bridge
    *  contract baseline. Pass empty string to suppress. */
-  baseline?: string;
+  baseline?: string | undefined;
   /** Role-specific block, e.g. "You are a code reviewer. Focus on…". */
-  role?: string;
+  role?: string | undefined;
   /** Task brief — usually the same string the runner passes as user input,
    *  but exposed here in case the factory wants it duplicated in the
    *  system prompt for reinforcement. */
-  task?: string;
+  task?: string | undefined;
   /**
    * Absolute path to a shared scratchpad directory the whole fleet can
    * read/write. When set, the composer adds a "Shared notes" block that
@@ -142,18 +142,18 @@ export interface SubagentPromptParts {
    * conclusions. Falls between `task` and `override` so the override
    * can still narrow or replace it.
    */
-  sharedScratchpad?: string;
+  sharedScratchpad?: string | undefined;
   /**
    * Optional skill body content injected into the subagent's system prompt.
    * Use this to provide domain-specific knowledge (SKILL.md bodies) to
    * subagents that need it. Placed after `sharedScratchpad` and before
    * `override` so the override can still narrow or replace it.
    */
-  skills?: string;
+  skills?: string | undefined;
   /** Final per-spawn override from `SubagentConfig.systemPromptOverride`.
    *  Added last so it wins on conflict — that's by design: the spawn site
    *  knows the most about what this specific subagent should do. */
-  override?: string;
+  override?: string | undefined;
 }
 
 /**
@@ -216,7 +216,7 @@ export function composeSubagentPrompt(parts: SubagentPromptParts = {}): string {
 export function rosterSummaryFromConfigs(
   roster: Record<
     string,
-    { name: string; provider?: string; model?: string; prompt?: string; role?: string }
+    { name: string; provider?: string | undefined; model?: string | undefined; prompt?: string | undefined; role?: string | undefined }
   >,
 ): string {
   const lines: string[] = [];

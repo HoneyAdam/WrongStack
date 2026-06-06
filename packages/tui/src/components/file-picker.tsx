@@ -19,7 +19,7 @@ export function FilePicker({ query, matches, selected }: FilePickerProps): React
     <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
       <Text dimColor>@{query || '…'} — ↑/↓ select, Enter attach, Esc cancel</Text>
       {matches.map((m, i) => (
-        <Text key={m} color={i === selected ? 'cyan' : undefined} inverse={i === selected}>
+        <Text key={m} inverse={i === selected} {...(i === selected ? { color: 'cyan' } : {})}>
           {i === selected ? '› ' : '  '}
           {highlight(m, query)}
         </Text>

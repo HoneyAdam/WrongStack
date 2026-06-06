@@ -28,11 +28,11 @@ export interface LifecycleResources {
    * (e.g. removing this process from the running-instance registry). Errors are
    * logged, never thrown — cleanup must not block a clean shutdown.
    */
-  onShutdown?: () => Promise<void> | void;
+  onShutdown?: (() => Promise<void> | void) | undefined;
   /** Output sink. Defaults to `console.log`. */
-  log?: (msg: string) => void;
+  log?: ((msg: string) => void) | undefined;
   /** Process exit. Defaults to `process.exit`. Injectable for tests. */
-  exit?: (code: number) => void;
+  exit?: ((code: number) => void) | undefined;
 }
 
 /**

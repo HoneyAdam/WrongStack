@@ -13,7 +13,7 @@ interface StackSignature {
   packageManager: PackageManager;
   manifestFiles: string[];
   lockFiles: string[];
-  secondarySignatures?: SignatureMatcher;
+  secondarySignatures?: SignatureMatcher | undefined;
 }
 
 const MATCHERS = {

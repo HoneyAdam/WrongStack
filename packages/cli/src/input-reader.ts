@@ -11,12 +11,12 @@ import {
 } from '@wrongstack/core';
 
 export interface ReadlineInputReaderOptions {
-  historyFile?: string;
-  prompt?: string;
+  historyFile?: string | undefined;
+  prompt?: string | undefined;
 }
 
 export class ReadlineInputReader implements InputReader {
-  private rl?: readline.Interface;
+  private rl?: readline.Interface | undefined;
   private readonly historyFile: string;
   private history: string[] = [];
   private pending = false;
@@ -75,7 +75,7 @@ export class ReadlineInputReader implements InputReader {
           // If the interface is already closed/closing the 'close' event
           // may fire synchronously or on the next tick — the promise
           // handles both.
-          if ((old as unknown as { closed?: boolean }).closed) {
+          if ((old as unknown as { closed?: boolean | undefined }).closed) {
             resolve();
           } else {
             old.once('close', resolve);

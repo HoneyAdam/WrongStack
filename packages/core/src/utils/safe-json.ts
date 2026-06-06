@@ -1,7 +1,7 @@
 export interface SafeParseResult<T> {
   ok: boolean;
-  value?: T;
-  error?: string;
+  value?: T | undefined;
+  error?: string | undefined;
 }
 
 export function safeParse<T = unknown>(input: string, maxBytes = 5_000_000): SafeParseResult<T> {
@@ -89,7 +89,7 @@ function escapeControlCharsInStrings(s: string): string {
   let inString = false;
   let out = '';
   for (let i = 0; i < s.length; i++) {
-    const c = s[i]!;
+    const c = s.charAt(i);
     if (c === '"' && (i === 0 || s[i - 1] !== '\\')) {
       inString = !inString;
       out += c;
@@ -128,13 +128,13 @@ function stripSingleLineComments(s: string): string {
   const chars: string[] = [];
   let i = 0;
   while (i < s.length) {
-    const c = s[i]!;
-    if (c === '"' && (i === 0 || s[i - 1] !== '\\')) {
+    const c = s.charAt(i);
+    if (c === '"' && (i === 0 || s.charAt(i - 1) !== '\\')) {
       inString = !inString;
       chars.push(c);
-    } else if (c === '/' && s[i + 1] === '/' && !inString) {
+    } else if (c === '/' && s.charAt(i + 1) === '/' && !inString) {
       // skip to end of line
-      while (i < s.length && s[i] !== '\n') i++;
+      while (i < s.length && s.charAt(i) !== '\n') i++;
     } else {
       chars.push(c);
     }

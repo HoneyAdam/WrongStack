@@ -1,10 +1,19 @@
 import type { Tool, ToolStreamEvent } from '@wrongstack/core';
 import { guardedFetch } from './fetch.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 interface SearchInput {
   query: string;
-  num_results?: number;
-  source?: 'duckduckgo' | 'google' | 'bing';
+  num_results?: number | undefined;
+  source?: 'duckduckgo' | 'google' | 'bing' | undefined;
 }
 
 interface SearchOutput {
@@ -52,7 +61,9 @@ export const searchTool: Tool<SearchInput, SearchOutput> = {
   },
   async execute(input, ctx, opts) {
     let final: SearchOutput | undefined;
-    for await (const ev of searchTool.executeStream!(input, ctx, opts)) {
+    const executeStream = searchTool.executeStream;
+    if (!executeStream) throw new Error('searchTool: stream execution unavailable');
+    for await (const ev of executeStream(input, ctx, opts)) {
       if (ev.type === 'final') final = ev.output;
     }
     if (!final) throw new Error('search: stream ended without final event');
@@ -132,12 +143,12 @@ function parseDuckDuckGo(html: string, num: number): SearchOutput['results'] {
   const linkMatches = takeFrom(
     [...html.matchAll(snippetRegex)]
       .filter((m) => m[1] && m[2])
-      .map((m) => ({ url: m[1]!, title: stripTags(m[2]!) })),
+      .map((m) => ({ url: expectDefined(m[1]), title: stripTags(expectDefined(m[2])) })),
     num,
   );
 
   const snippetMatches = takeFrom(
-    [...html.matchAll(snippet2Regex)].filter((m) => m[1]).map((m) => stripTags(m[1]!)),
+    [...html.matchAll(snippet2Regex)].filter((m) => m[1]).map((m) => stripTags(expectDefined(m[1]))),
     num,
   );
 
@@ -182,20 +193,20 @@ function parseGoogleResults(html: string, num: number): SearchOutput['results'] 
   const snippetRegex = /<span[^>]*class="[^"]*aXCZ0b[^>]*>([^<]+)<\/span>/gi;
 
   const titles = takeFrom(
-    [...html.matchAll(titleRegex)].filter((m) => m[1]).map((m) => stripTags(m[1]!)),
+    [...html.matchAll(titleRegex)].filter((m) => m[1]).map((m) => stripTags(expectDefined(m[1]))),
     num,
   );
 
   const urls = takeFrom(
     [...html.matchAll(urlRegex)]
       .filter((m) => m[1])
-      .map((m) => stripTags(m[1]!).replace(/^\*(https?:\/\/[^\s]+).*$/, '$1'))
+      .map((m) => stripTags(expectDefined(m[1])).replace(/^\*(https?:\/\/[^\s]+).*$/, '$1'))
       .filter((u) => u.startsWith('http')),
     num,
   );
 
   const snippets = takeFrom(
-    [...html.matchAll(snippetRegex)].filter((m) => m[1]).map((m) => stripTags(m[1]!)),
+    [...html.matchAll(snippetRegex)].filter((m) => m[1]).map((m) => stripTags(expectDefined(m[1]))),
     num,
   );
 
@@ -236,12 +247,12 @@ function parseBingResults(html: string, num: number): SearchOutput['results'] {
   const entries = takeFrom(
     [...html.matchAll(titleRegex)]
       .filter((m) => m[1] && m[2])
-      .map((m) => ({ url: m[1]!, title: stripTags(m[2]!) })),
+      .map((m) => ({ url: expectDefined(m[1]), title: stripTags(expectDefined(m[2])) })),
     num,
   );
 
   const snippets = takeFrom(
-    [...html.matchAll(snippetRegex)].filter((m) => m[1]).map((m) => stripTags(m[1]!)),
+    [...html.matchAll(snippetRegex)].filter((m) => m[1]).map((m) => stripTags(expectDefined(m[1]))),
     num,
   );
 

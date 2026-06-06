@@ -32,7 +32,7 @@ export interface WrongStackACPServerOptions {
    * Owner label for tool metadata. Passed to ACPToolsRegistry.
    * @default 'wrongstack'
    */
-  owner?: string;
+  owner?: string | undefined;
 }
 
 export class WrongStackACPServer {

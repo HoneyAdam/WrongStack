@@ -3,21 +3,30 @@ import type { Message } from '../types/messages.js';
 import type { Provider, Request } from '../types/provider.js';
 import type { MessageSelector, SelectorResult } from '../types/selector.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export interface LLMSelectorOptions {
   /** Provider used for the selector LLM call. Required. */
   provider: Provider;
   /** Model for the selector. Defaults to the provider's default model. */
-  model?: string;
+  model?: string | undefined;
   /**
    * Maximum tokens to keep in context (target budget).
    * Selector will aim to keep total content below this.
    */
-  maxContextTokens?: number;
+  maxContextTokens?: number | undefined;
   /**
    * Prompt instructing the selector how to behave.
    * Should guide the LLM on importance tiers and output format.
    */
-  systemPrompt?: string;
+  systemPrompt?: string | undefined;
 }
 
 const DEFAULT_SYSTEM_PROMPT = `You are a context pruning assistant. Given a conversation history and a token budget, decide which message ranges are worth keeping verbatim and which should be collapsed into summaries.
@@ -64,7 +73,7 @@ function formatMessages(messages: Message[], maxChars = 8000): string {
   const lines: string[] = [];
   let used = 0;
   for (let i = 0; i < messages.length; i++) {
-    const m = messages[i]!;
+    const m = expectDefined(messages[i]);
     const role = m.role.padEnd(10, ' ');
     let text: string;
     if (typeof m.content === 'string') {
@@ -158,7 +167,7 @@ export class LLMSelector implements MessageSelector {
 
     // Scan from the end backwards
     for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i]!;
+      const m = expectDefined(messages[i]);
       const cost =
         typeof m.content === 'string'
           ? Math.ceil(m.content.length / 4)
@@ -217,7 +226,7 @@ export class LLMSelector implements MessageSelector {
     const kept =
       (obj.kept as Array<{ from: number; to: number; importance: string }> | undefined) ?? [];
     const collapsed =
-      (obj.collapsed as Array<{ from: number; to: number; summary?: string }> | undefined) ?? [];
+      (obj.collapsed as Array<{ from: number; to: number; summary?: string | undefined }> | undefined) ?? [];
 
     return {
       kept: kept.map((k) => ({

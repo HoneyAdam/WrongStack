@@ -4,16 +4,16 @@
  */
 export interface ACPMessage {
   method: string;
-  id?: string | number;
-  params?: unknown;
-  result?: unknown;
-  error?: ACPError;
+  id?: string | number | undefined;
+  params?: unknown | undefined;
+  result?: unknown | undefined;
+  error?: ACPError | undefined;
 }
 
 export interface ACPError {
   code: number;
   message: string;
-  data?: unknown;
+  data?: unknown | undefined;
 }
 
 export type ACPRequest = RequiredPick<ACPMessage, 'id' | 'params' | 'method'>;
@@ -22,13 +22,13 @@ export type ACPNotification = Omit<ACPMessage, 'id'> & { method: string };
 
 // --- Initialization ---
 export interface ACPInitializeParams {
-  capabilities?: string[];
-  protocolVersion?: string;
-  sessionId?: string;
-  authToken?: string;
-  sessionPath?: string;
-  workspaceRoots?: string[];
-  mcpServers?: unknown[];
+  capabilities?: string[] | undefined;
+  protocolVersion?: string | undefined;
+  sessionId?: string | undefined;
+  authToken?: string | undefined;
+  sessionPath?: string | undefined;
+  workspaceRoots?: string[] | undefined;
+  mcpServers?: unknown[] | undefined;
   [key: string]: unknown;
 }
 
@@ -36,7 +36,7 @@ export interface ACPCapabilities {
   capabilities: string[];
   agentName: string;
   agentVersion: string;
-  tools?: ACPToolList;
+  tools?: ACPToolList | undefined;
   protocolVersion: string;
 }
 
@@ -47,26 +47,26 @@ export interface ACPToolList {
 // --- Tools ---
 export interface ACPToolDefinition {
   name: string;
-  description?: string;
+  description?: string | undefined;
   inputSchema: ACPInputSchema;
   annotations?: {
-    title?: string;
-    description?: string;
-    priority?: 'high' | 'medium' | 'low';
-    alwaysAccept?: boolean;
+    title?: string | undefined;
+    description?: string | undefined;
+    priority?: 'high' | 'medium' | 'low' | undefined;
+    alwaysAccept?: boolean | undefined;
   };
 }
 
 export type ACPInputSchema = {
-  type?: string;
+  type?: string | undefined;
   properties?: Record<string, ACPInputSchema>;
-  required?: string[];
-  items?: ACPInputSchema;
-  enum?: unknown[];
-  description?: string;
-  default?: unknown;
-  minimum?: number;
-  maximum?: number;
+  required?: string[] | undefined;
+  items?: ACPInputSchema | undefined;
+  enum?: unknown[] | undefined;
+  description?: string | undefined;
+  default?: unknown | undefined;
+  minimum?: number | undefined;
+  maximum?: number | undefined;
   [key: string]: unknown;
 };
 
@@ -87,23 +87,23 @@ export interface ACPResourceContent {
   resource: {
     type: string;
     uri: string;
-    data?: string;
-    mimeType?: string;
+    data?: string | undefined;
+    mimeType?: string | undefined;
   };
 }
 
 export interface ACPImageContent {
   type: 'image';
   data: string; // base64
-  mimeType?: string;
+  mimeType?: string | undefined;
 }
 
 export interface ACPProgressContent {
   type: 'progress';
   id: string;
-  label?: string;
-  message?: string;
-  messages?: string[];
+  label?: string | undefined;
+  message?: string | undefined;
+  messages?: string[] | undefined;
 }
 
 // --- Tool calls ---
@@ -118,7 +118,7 @@ export interface ACPToolCallRequest {
 
 export interface ACPToolResult {
   content: ContentBlock[];
-  isError?: boolean;
+  isError?: boolean | undefined;
 }
 
 export type ACPToolCallResponse = {
@@ -131,8 +131,8 @@ export type ACPToolCallResponse = {
 export interface ACPSessionInfo {
   sessionId: string;
   path: string;
-  title?: string;
-  modelId?: string;
+  title?: string | undefined;
+  modelId?: string | undefined;
   createdAt: string;
   lastActiveAt: string;
 }
@@ -141,7 +141,7 @@ export interface ACPSessionInfo {
 export interface ACPPlanStep {
   id: string;
   description: string;
-  status?: 'pending' | 'running' | 'completed' | 'skipped';
+  status?: 'pending' | 'running' | 'completed' | 'skipped' | undefined;
 }
 
 export interface ACPPlanContent {
@@ -156,7 +156,7 @@ export type ACPSessionMode = 'agent' | 'chat' | 'edit' | 'preview';
 
 // --- Cancels ---
 export interface ACPCancelParams {
-  reason?: string;
+  reason?: string | undefined;
 }
 
 // --- Type utilities ---

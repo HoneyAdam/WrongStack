@@ -153,8 +153,8 @@ export const Entry = React.memo(function Entry({
             <Text key={i}>
               <Text dimColor>{i === outLines.length - 1 && !diff ? '  └─ ' : '  ├─ '}</Text>
               <Text
-                color={!entry.ok || line.startsWith('!') ? 'red' : undefined}
                 dimColor={entry.ok && !line.startsWith('!')}
+                {...(!entry.ok || line.startsWith('!') ? { color: 'red' } : {})}
               >
                 {line}
               </Text>

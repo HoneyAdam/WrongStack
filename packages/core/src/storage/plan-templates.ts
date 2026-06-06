@@ -13,7 +13,7 @@ export interface PlanTemplate {
   category: 'development' | 'release' | 'maintenance' | 'infrastructure';
   items: Array<{
     title: string;
-    details?: string;
+    details?: string | undefined;
   }>;
 }
 

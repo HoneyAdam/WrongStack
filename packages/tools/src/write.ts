@@ -12,7 +12,7 @@ interface WriteOutput {
   path: string;
   bytes_written: number;
   created: boolean;
-  diff?: string;
+  diff?: string | undefined;
 }
 
 export const writeTool: Tool<WriteInput, WriteOutput> = {

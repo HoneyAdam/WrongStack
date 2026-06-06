@@ -13,7 +13,7 @@ export interface RecoveryStrategy {
   /** Human-readable label for logs. */
   label: string;
   /** Optional compactor for context_overflow recovery. */
-  compactor?: Compactor;
+  compactor?: Compactor | undefined;
   /** Returns an explicit recovery decision, or null to fall through. */
   attempt: (err: unknown, ctx: Context) => Promise<RecoveryDecision | null>;
 }
@@ -26,8 +26,8 @@ const CONTEXT_OVERFLOW_RE = /context|too long|tokens|exceeds the context window|
  * Exported so callers can customise or extend the strategy chain.
  */
 export function buildRecoveryStrategies(opts?: {
-  compactor?: Compactor;
-  modelsRegistry?: ModelsRegistry;
+  compactor?: Compactor | undefined;
+  modelsRegistry?: ModelsRegistry | undefined;
 }): RecoveryStrategy[] {
   return [
     {

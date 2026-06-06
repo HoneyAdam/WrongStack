@@ -17,14 +17,23 @@
 import type {ACPMessage, ACPToolDefinition, ACPToolCallResponse, ContentBlock} from '../types/acp-messages.js';
 import type {TaskSpec, TaskResult} from '@wrongstack/core';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export interface ToolTranslatorOptions {
   /**
    * If true (default), wrap tool calls in an async poll loop that waits
    * for progress notifications until a final result arrives.
    */
-  asyncTools?: boolean;
-  pollIntervalMs?: number;
-  totalTimeoutMs?: number;
+  asyncTools?: boolean | undefined;
+  pollIntervalMs?: number | undefined;
+  totalTimeoutMs?: number | undefined;
 }
 
 const DEFAULT_OPTIONS: Required<ToolTranslatorOptions> = {
@@ -57,7 +66,7 @@ export function extractTextFromContent(blocks: ContentBlock[]): string {
 export function buildTaskSpec(payload: {
   taskId: string;
   task: string;
-  subagentId?: string;
+  subagentId?: string | undefined;
 }): TaskSpec {
   return {
     id: payload.taskId,
@@ -116,7 +125,7 @@ export class ToolTranslator {
         const pending = this.pending.get(msg.id);
         if (pending) {
           clearTimeout(pending.timeout);
-          this.pending.delete(msg.id!);
+          this.pending.delete(expectDefined(msg.id));
           pending.resolve(msg as unknown as ACPToolCallResponse);
         }
       }
@@ -126,7 +135,7 @@ export class ToolTranslator {
         const pending = this.pending.get(msg.id);
         if (pending) {
           clearTimeout(pending.timeout);
-          this.pending.delete(msg.id!);
+          this.pending.delete(expectDefined(msg.id));
           pending.reject(new Error('Call cancelled by client'));
         }
       }

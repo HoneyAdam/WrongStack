@@ -5,13 +5,13 @@ import { atomicWrite, FsError, ERROR_CODES, type SlashCommand } from '@wrongstac
 const CONFIG_ENV = 'WRONGSTACK_STATUSLINE_CONFIG';
 
 export interface StatuslineConfig {
-  todos?: boolean;
-  plan?: boolean;
-  fleet?: boolean;
-  git?: boolean;
-  elapsed?: boolean;
-  context?: boolean;
-  cost?: boolean;
+  todos?: boolean | undefined;
+  plan?: boolean | undefined;
+  fleet?: boolean | undefined;
+  git?: boolean | undefined;
+  elapsed?: boolean | undefined;
+  context?: boolean | undefined;
+  cost?: boolean | undefined;
 }
 
 const DEFAULTS: StatuslineConfig = {

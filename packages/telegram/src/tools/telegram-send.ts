@@ -5,14 +5,14 @@ import { truncateForTelegram } from '../bot.js';
 
 interface TelegramSendInput {
   /** Chat or user ID to send the message to. Falls back to config.notifyChatId when omitted. */
-  chat_id?: string | number;
+  chat_id?: string | number | undefined;
   /** Message text. */
   message: string;
 }
 
 export function makeTelegramSendTool(opts: {
   bot: TelegramBot;
-  defaultChatId?: string | number;
+  defaultChatId?: string | number | undefined;
   maxMessageLength: number;
   log: Logger;
 }): Tool<TelegramSendInput> {

@@ -11,26 +11,26 @@ export interface SlashCommand {
   /** Unique command name. For plugins: `pluginName:commandName`. */
   name: string;
   /** Short aliases — also prefixed automatically: `pluginName:alias`. */
-  aliases?: string[];
+  aliases?: string[] | undefined;
   description: string;
   /**
    * Category used to group commands in the slash picker. Defaults to 'App'
    * when omitted.
    */
-  category?: 'Run' | 'Session' | 'Inspect' | 'Agent' | 'Config' | 'App';
+  category?: 'Run' | 'Session' | 'Inspect' | 'Agent' | 'Config' | 'App' | undefined;
   /**
    * Optional compact argument hint for interactive menus. This is not parsed
    * by the registry; it only helps TUI/REPL surfaces show the expected shape,
    * for example `[list|install <alias>|disable <name>]`.
    */
-  argsHint?: string;
+  argsHint?: string | undefined;
   /**
    * Optional detailed help shown by `/help <name>`. Use this for usage,
    * arguments, examples, side-effects — anything that doesn't fit in
    * `description`. Renders verbatim, so format with line breaks.
    * If absent, `/help <name>` falls back to `description`.
    */
-  help?: string;
+  help?: string | undefined;
   /**
    * Execute the command.
    * @param args Everything after the command name (trimmed by dispatch).
@@ -46,5 +46,5 @@ export interface SlashCommand {
   run(
     args: string,
     ctx: Context,
-  ): Promise<{ exit?: boolean; message?: string; runText?: string; metadata?: Record<string, unknown> } | void>;
+  ): Promise<{ exit?: boolean | undefined; message?: string | undefined; runText?: string | undefined; metadata?: Record<string, unknown> } | void>;
 }

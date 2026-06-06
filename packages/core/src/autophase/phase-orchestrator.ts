@@ -19,6 +19,28 @@ export interface PhaseOrchestratorOptions extends AutoPhaseOptions {
   ctx: PhaseExecutionContext;
 }
 
+type NormalizedAutoPhaseOptions = Omit<
+  AutoPhaseOptions,
+  | 'maxConcurrentPhases'
+  | 'maxConcurrentTasks'
+  | 'maxRetries'
+  | 'maxVerifyAttempts'
+  | 'autonomous'
+  | 'phaseDelayMs'
+  | 'stopOnFailure'
+  | 'events'
+  | 'worktrees'
+> & {
+  maxConcurrentPhases: number;
+  maxConcurrentTasks: number;
+  maxRetries: number;
+  maxVerifyAttempts: number;
+  autonomous: boolean;
+  phaseDelayMs: number;
+  stopOnFailure: boolean;
+  events: EventBus;
+};
+
 /**
  * PhaseOrchestrator — Fazları dependency-aware, otonom olarak çalıştıran motor.
  *
@@ -32,7 +54,7 @@ export interface PhaseOrchestratorOptions extends AutoPhaseOptions {
 export class PhaseOrchestrator {
   private graph: PhaseGraph;
   private ctx: PhaseExecutionContext;
-  private opts: Required<Omit<AutoPhaseOptions, 'worktrees'>>;
+  private opts: NormalizedAutoPhaseOptions;
   private events: EventBus;
   private stopped = false;
   private paused = false;
@@ -42,7 +64,7 @@ export class PhaseOrchestrator {
   private taskRetryCounts = new Map<string, number>();
 
   // ── Git-worktree isolation (optional) ──────────────────────────────────────
-  private readonly worktrees?: WorktreeManager;
+  private readonly worktrees?: WorktreeManager | undefined;
   /** Per-phase worktree handles, keyed by phase id. */
   private readonly phaseWorktrees = new Map<string, WorktreeHandle>();
   /** Serializes all merges back to the base branch (one at a time). */
@@ -188,7 +210,7 @@ export class PhaseOrchestrator {
 
     // Bir faz failed ve stopOnFailure?
     if (this.opts.stopOnFailure && this.graph.failedPhaseIds.length > 0) {
-      const failedPhase = this.graph.phases.get(this.graph.failedPhaseIds[0]!);
+      const failedPhase = this.graph.phases.get(this.graph.failedPhaseIds[0] ?? '');
       if (failedPhase) {
         this.onGraphFailed(failedPhase);
       }
@@ -291,7 +313,7 @@ export class PhaseOrchestrator {
    * `maxVerifyAttempts` repairs. Returns the final verdict. When no `verifyPhase`
    * callback is wired the gate is a no-op and always passes.
    */
-  private async runVerifyGate(phase: PhaseNode): Promise<{ ok: boolean; output?: string }> {
+  private async runVerifyGate(phase: PhaseNode): Promise<{ ok: boolean; output?: string | undefined }> {
     if (!this.ctx.verifyPhase) return { ok: true };
     const env = this.worktreeEnv(phase);
 
@@ -299,7 +321,7 @@ export class PhaseOrchestrator {
       if (this.stopped) return { ok: false, output: 'stopped before verification completed' };
 
       this.emit('phase.verifying', { phaseId: phase.id, name: phase.name, attempt });
-      let verdict: { ok: boolean; output?: string };
+      let verdict: { ok: boolean; output?: string | undefined };
       try {
         verdict = await this.ctx.verifyPhase(phase, env);
       } catch (err) {
@@ -336,7 +358,7 @@ export class PhaseOrchestrator {
   }
 
   /** Worktree env (cwd/branch) for a phase, or undefined if it runs on the shared tree. */
-  private worktreeEnv(phase: PhaseNode): { cwd?: string; branch?: string } | undefined {
+  private worktreeEnv(phase: PhaseNode): { cwd?: string | undefined; branch?: string | undefined } | undefined {
     const handle = this.phaseWorktrees.get(phase.id);
     return handle ? { cwd: handle.dir, branch: handle.branch } : undefined;
   }
@@ -407,10 +429,15 @@ export class PhaseOrchestrator {
               name: phase.name,
               files: info.conflictFiles,
             });
-            return this.ctx.resolveConflict!(phase, info);
+            const resolved = await this.ctx.resolveConflict?.(phase, info);
+            return resolved ?? false;
           }
         : undefined;
-      const result = await this.worktrees.merge(handle, { squash: true, resolve });
+      const mergeOpts: { squash: true; resolve?: (info: { conflictFiles: string[]; cwd: string }) => Promise<boolean> } = {
+        squash: true,
+      };
+      if (resolve !== undefined) mergeOpts.resolve = resolve;
+      const result = await this.worktrees.merge(handle, mergeOpts);
       if (result.resolved) {
         this.emit('phase.conflictResolved', { phaseId: phase.id, name: phase.name });
       }
@@ -484,10 +511,10 @@ export class PhaseOrchestrator {
     phase: PhaseNode,
     status: 'merged' | 'needs_review' | 'merge_failed' | 'not_merged_failed_phase',
     details: {
-      branch?: string;
-      worktreeDir?: string;
-      conflictFiles?: string[];
-      error?: string;
+      branch?: string | undefined;
+      worktreeDir?: string | undefined;
+      conflictFiles?: string[] | undefined;
+      error?: string | undefined;
     } = {},
   ): void {
     phase.metadata = {
@@ -639,7 +666,7 @@ export class PhaseOrchestrator {
 
   private getTrackerForPhase(phase: PhaseNode): TaskTracker {
     if (this.trackerCache.has(phase.id)) {
-      return this.trackerCache.get(phase.id)!;
+      return this.trackerCache.get(phase.id) as TaskTracker;
     }
 
     const store = new DefaultTaskStore();

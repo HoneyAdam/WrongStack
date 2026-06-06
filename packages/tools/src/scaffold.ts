@@ -7,9 +7,9 @@ import { safeResolve } from './_util.js';
 interface ScaffoldInput {
   template: string;
   name: string;
-  cwd?: string;
+  cwd?: string | undefined;
   vars?: Record<string, string>;
-  dry_run?: boolean;
+  dry_run?: boolean | undefined;
 }
 
 interface ScaffoldOutput {

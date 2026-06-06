@@ -11,19 +11,19 @@ export type SessionEventType = SessionEvent['type'];
 
 export interface SessionQuery {
   /** Filter by start timestamp (ISO). Sessions started before this are excluded. */
-  since?: string;
+  since?: string | undefined;
   /** Filter by start timestamp (ISO). Sessions started after this are excluded. */
-  until?: string;
+  until?: string | undefined;
   /** Substring match against title (case-insensitive). */
-  titleContains?: string;
+  titleContains?: string | undefined;
   /** Filter by provider id. */
-  provider?: string;
+  provider?: string | undefined;
   /** Filter by model id. */
-  model?: string;
+  model?: string | undefined;
   /** Minimum total tokens (input+output) to keep. */
-  minTokens?: number;
+  minTokens?: number | undefined;
   /** Limit result count. Defaults to no limit. */
-  limit?: number;
+  limit?: number | undefined;
 }
 
 export interface SessionSearchHit {
@@ -39,29 +39,29 @@ export interface SessionSearchQuery {
   /** Plain text or regex pattern. */
   query: string;
   /** Treat `query` as a regex. Defaults to false (literal substring). */
-  regex?: boolean;
+  regex?: boolean | undefined;
   /** Case-insensitive match. Defaults to true. */
-  caseInsensitive?: boolean;
+  caseInsensitive?: boolean | undefined;
   /** Limit only to these event types. Defaults to all event types. */
-  types?: SessionEventType[];
+  types?: SessionEventType[] | undefined;
   /** Limit hit count. Defaults to 100. */
-  limit?: number;
+  limit?: number | undefined;
 }
 
 export interface SessionExportOptions {
   /** "markdown" produces a human-readable chat log; "json" passes through raw events. */
   format: 'markdown' | 'json' | 'text';
   /** Include tool_use/tool_result blocks. Defaults to true. */
-  includeTools?: boolean;
+  includeTools?: boolean | undefined;
   /** Include system/diagnostic events (errors, compaction). Defaults to true. */
-  includeDiagnostics?: boolean;
+  includeDiagnostics?: boolean | undefined;
 }
 
 export interface SessionSummaryLite {
   id: string;
   title: string;
   startedAt: string;
-  endedAt?: string;
+  endedAt?: string | undefined;
   provider: string;
   model: string;
   tokenTotal: number;
@@ -77,7 +77,7 @@ export interface SessionReader {
    * @param sessionQuery - Optional filter to apply to sessions before searching events.
    *                       Reduces I/O by loading events only from matching sessions.
    */
-  search(q: SessionSearchQuery, sessionId?: string, sessionQuery?: SessionQuery): Promise<SessionSearchHit[]>;
+  search(q: SessionSearchQuery, sessionId?: string | undefined, sessionQuery?: SessionQuery): Promise<SessionSearchHit[]> | undefined;
   /** Render a session for human or downstream-tool consumption. */
   export(sessionId: string, opts: SessionExportOptions): Promise<string>;
   /** Read the metadata header without loading the full event stream. */

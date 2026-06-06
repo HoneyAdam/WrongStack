@@ -36,7 +36,7 @@ export interface BindReplayOptions {
   wpaths: WstackPaths;
   sessionId: string;
   mode: ReplayMode;
-  logger?: Logger;
+  logger?: Logger | undefined;
 }
 
 export function bindReplayToContainer(opts: BindReplayOptions): void {

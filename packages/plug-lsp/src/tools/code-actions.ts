@@ -17,11 +17,11 @@ import { applyWorkspaceEdit } from './workspace-edit.js';
 interface CodeActionsInput {
   path: string;
   line: number;
-  character?: number;
-  end_line?: number;
-  end_character?: number;
-  apply?: number;
-  kind_filter?: string;
+  character?: number | undefined;
+  end_line?: number | undefined;
+  end_character?: number | undefined;
+  apply?: number | undefined;
+  kind_filter?: string | undefined;
 }
 
 export function createCodeActionsTool(deps: ToolDeps): Tool<CodeActionsInput, string> {

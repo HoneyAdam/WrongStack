@@ -76,13 +76,13 @@ export function hostHeaderOk(input: { hostHeader: string | undefined; wsHost: st
 
 export interface VerifyClientInput {
   /** Browser `Origin` header, or undefined for non-browser clients. */
-  origin?: string;
+  origin?: string | undefined;
   /** Request URL (`req.url`) — carries the `?token=…` query param. */
   url: string;
   /** `Host` header (`req.headers.host`). */
-  hostHeader?: string;
+  hostHeader?: string | undefined;
   /** Peer address (`req.socket.remoteAddress`). */
-  remoteAddress?: string;
+  remoteAddress?: string | undefined;
   /** Host/interface the WS server is bound to. */
   wsHost: string;
   /** The server's generated auth token. */

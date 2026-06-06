@@ -24,12 +24,21 @@ import { formatCodebaseLspResults } from '../formatters/symbols.js';
 import { supportsWorkspaceSymbol } from '../server/capabilities.js';
 import { type ToolDeps, stringifyToolError } from './shared.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 // ─── Input / Output types ───────────────────────────────────────────────────────
 
 interface CodebaseLspSearchInput {
   query: string;
-  limit?: number;
-  preferLsp?: boolean;
+  limit?: number | undefined;
+  preferLsp?: boolean | undefined;
 }
 
 interface CodebaseLspResult {
@@ -39,9 +48,9 @@ interface CodebaseLspResult {
   file: string;
   line: number;
   source: 'index' | 'lsp';
-  server?: string;
-  score?: number;
-  snippet?: string;
+  server?: string | undefined;
+  score?: number | undefined;
+  snippet?: string | undefined;
 }
 
 interface CodebaseLspSearchOutput {
@@ -147,7 +156,7 @@ async function searchIndex(
   projectRoot: string,
   query: string,
   limit: number,
-  indexDir?: string,
+  indexDir?: string | undefined,
 ): Promise<{ results: CodebaseLspResult[]; total: number }> {
   const store = new IndexStore(projectRoot, { indexDir });
   try {
@@ -171,7 +180,7 @@ async function searchIndex(
     const qTokens = tokenise(query);
 
     const results: CodebaseLspResult[] = top.map(({ id, score }) => {
-      const c = candidates.find((c) => c.id === id)!;
+      const c = expectDefined(candidates.find((c) => c.id === id));
       const lspKind = internalKindToLspKind(c.kind) ?? 0;
       const snippet = bm25.extractSnippet(id, qTokens);
       return {
@@ -255,7 +264,7 @@ function serverNameFromConfig(deps: ToolDeps, sym: SymbolInformation): string {
   // Try to find which server owns this file by its language
   // Heuristic: look at file extension
   const file = sym.location.uri;
-  const ext = file.includes('.') ? file.split('.').pop()!.toLowerCase() : '';
+  const ext = file.includes('.') ? (file.split('.').pop()?.toLowerCase() ?? '') : '';
 
   const langMap: Record<string, string[]> = {
     ts: ['typescript', 'tsserver'],

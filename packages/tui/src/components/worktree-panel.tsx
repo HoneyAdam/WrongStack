@@ -18,7 +18,7 @@ export interface WorktreeRow {
   deletions: number;
   files: number;
   allocatedAt: number;
-  conflictFiles?: string[];
+  conflictFiles?: string[] | undefined;
 }
 
 const STATUS: Record<string, { icon: string; color: string }> = {

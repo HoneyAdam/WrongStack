@@ -3,6 +3,15 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { atomicWrite } from '../utils/atomic-write.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 /**
  * L2-B: AnnotationsStore — sidecar storage for collaboration annotations
  * (Phase 2 of idea #13 from IDEAS.md).
@@ -49,9 +58,9 @@ export interface Annotation {
   /** Resolved state. Annotations start unresolved. */
   resolved: boolean;
   /** ISO timestamp when resolved (if resolved). */
-  resolvedAt?: string;
+  resolvedAt?: string | undefined;
   /** Participant id of the resolver (if resolved). */
-  resolvedBy?: string;
+  resolvedBy?: string | undefined;
 }
 
 interface AnnotationsFile {
@@ -180,7 +189,7 @@ export class AnnotationsStore {
         return;
       }
       const next: Annotation = {
-        ...all[idx]!,
+        ...expectDefined(all[idx]),
         resolved: true,
         resolvedAt: new Date().toISOString(),
         resolvedBy: input.resolvedBy,

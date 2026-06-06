@@ -6,7 +6,7 @@ export interface SetupEventsDeps {
   events: EventBus;
   broadcast: (clients: Map<WebSocket, ConnectedClient>, msg: WSServerMessage) => void;
   clients: Map<WebSocket, ConnectedClient>;
-  config: { tools?: { maxIterations?: number } };
+  config: { tools?: { maxIterations?: number | undefined } };
   context: Context;
   pendingConfirms: Map<string, (d: 'yes' | 'no' | 'always' | 'deny') => void>;
 }

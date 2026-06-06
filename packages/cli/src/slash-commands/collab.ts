@@ -136,7 +136,7 @@ async function historyCommand(
     '',
   ];
   for (const raw of tail) {
-    const ev = raw as { type?: string; ts?: string; [k: string]: unknown };
+    const ev = raw as { type?: string | undefined; ts?: string | undefined; [k: string]: unknown };
     const t = ev.ts ? color.dim(ev.ts.slice(11, 19)) : color.dim('--:--:--');
     const kind = color.cyan((ev.type ?? 'unknown').padEnd(16));
     const summary = summarise(ev);
@@ -169,7 +169,7 @@ async function annotationsCommand(
   // SessionStore interface doesn't expose `dir` directly, so we
   // probe via a private cast — AnnotationsStore expects a path
   // string and the SessionStore dir is set in the same boot config.
-  const storeDir = (opts.sessionStore as unknown as { dir?: string }).dir;
+  const storeDir = (opts.sessionStore as unknown as { dir?: string | undefined }).dir;
   if (!storeDir) {
     return {
       message: color.yellow(

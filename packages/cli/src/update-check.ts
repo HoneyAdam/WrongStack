@@ -24,7 +24,7 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 interface CacheEntry {
   timestamp: number;
   latestVersion: string;
-  error?: string;
+  error?: string | undefined;
 }
 
 /** Mevcut CLI versiyonunu package.json'den oku */
@@ -33,7 +33,7 @@ export function currentVersion(): string {
   const candidates = ['../package.json', '../../package.json'];
   for (const rel of candidates) {
     try {
-      const pkg = req(rel) as { version?: unknown };
+      const pkg = req(rel) as { version?: unknown | undefined };
       if (typeof pkg.version === 'string' && pkg.version.length > 0) return pkg.version;
     } catch {
       // try next
@@ -95,7 +95,7 @@ async function fetchLatestFromNpm(timeoutMs = 3000): Promise<string> {
     clearTimeout(timer);
 
     if (!res.ok) throw new Error(`npm registry responded ${res.status}`);
-    const data = await res.json() as { version?: unknown };
+    const data = await res.json() as { version?: unknown | undefined };
     if (typeof data.version === 'string') return data.version;
     throw new Error('No version field in npm response');
   } finally {
@@ -105,8 +105,8 @@ async function fetchLatestFromNpm(timeoutMs = 3000): Promise<string> {
 
 /** Update bilgisini döner — cache-first, network fallback */
 export async function checkForUpdate(
-  signal?: AbortSignal,
-  homeFn?: HomeDirFn,
+  signal?: AbortSignal | undefined,
+  homeFn?: HomeDirFn | undefined,
 ): Promise<UpdateInfo> {
   const current = currentVersion();
   const aborted = () => signal?.aborted ?? false;
@@ -161,8 +161,8 @@ export async function checkForUpdate(
 
 /** Update varsa notification string'i döner, yoksa null */
 export async function getUpdateNotification(
-  signal?: AbortSignal,
-  homeFn?: HomeDirFn,
+  signal?: AbortSignal | undefined,
+  homeFn?: HomeDirFn | undefined,
 ): Promise<string | null> {
   const info = await checkForUpdate(signal, homeFn);
   if (info.outdated) {

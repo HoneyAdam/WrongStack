@@ -4,9 +4,9 @@ import type React from 'react';
 export interface BrainDecisionPromptOption {
   id: string;
   label: string;
-  risk?: 'low' | 'medium' | 'high' | 'critical' | string;
-  consequence?: string;
-  recommended?: boolean;
+  risk?: 'low' | 'medium' | 'high' | 'critical' | string | undefined;
+  consequence?: string | undefined;
+  recommended?: boolean | undefined;
 }
 
 export interface BrainDecisionPromptProps {
@@ -14,9 +14,9 @@ export interface BrainDecisionPromptProps {
   source: string;
   risk: 'low' | 'medium' | 'high' | 'critical' | string;
   question: string;
-  context?: string;
-  options?: BrainDecisionPromptOption[];
-  onAnswer?: (answer: { id: string; optionId?: string; deny?: boolean; text?: string }) => void;
+  context?: string | undefined;
+  options?: BrainDecisionPromptOption[] | undefined;
+  onAnswer?: (answer: { id: string; optionId?: string | undefined; deny?: boolean | undefined; text?: string | undefined }) => void;
 }
 
 function riskColor(risk: string): string {

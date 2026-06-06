@@ -14,6 +14,15 @@
 import * as path from 'node:path';
 import type { FileSymbols, Symbol as IndexSymbol, SymbolLang } from './schema.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 // ─── Public API ─────────────────────────────────────────────────────────────
 
 export function parseSymbols(opts: {
@@ -55,7 +64,7 @@ function regexParse(opts: { file: string; content: string; lang: SymbolLang }): 
   // Build line offset map
   const lineOffsets: number[] = [0];
   for (let i = 0; i < lines.length; i++) {
-    lineOffsets.push(lineOffsets[i]! + lines[i]!.length + 1);
+    lineOffsets.push((lineOffsets[i] ?? 0) + (lines[i]?.length ?? 0) + 1);
   }
 
   function lineFromOffset(offset: number): number {
@@ -63,7 +72,7 @@ function regexParse(opts: { file: string; content: string; lang: SymbolLang }): 
     let hi = lineOffsets.length - 1;
     while (lo < hi) {
       const mid = (lo + hi + 1) >>> 1;
-      if (lineOffsets[mid]! <= offset) lo = mid;
+      if (expectDefined(lineOffsets[mid]) <= offset) lo = mid;
       else hi = mid - 1;
     }
     return lo + 1;
@@ -72,7 +81,7 @@ function regexParse(opts: { file: string; content: string; lang: SymbolLang }): 
   // Root object symbol
   const rootMatch = content.match(/^\s*\{/m);
   if (rootMatch) {
-    const offset = rootMatch.index!;
+    const offset = expectDefined(rootMatch.index);
     const line = lineFromOffset(offset);
     symbols.push(
       makeSymbol({
@@ -94,8 +103,8 @@ function regexParse(opts: { file: string; content: string; lang: SymbolLang }): 
     match !== null;
     match = topLevelKeyRegex.exec(content)
   ) {
-    const key = match[1]!;
-    const offset = match.index!;
+    const key = expectDefined(match[1]);
+    const offset = (match.index ?? 0);
     const line = lineFromOffset(offset);
     const col = offset - (lineOffsets[line - 1] ?? 0);
 
@@ -159,7 +168,7 @@ function regexParse(opts: { file: string; content: string; lang: SymbolLang }): 
   const defsRegex = /"\$defs"\s*:|"\$defs"\s*:/g;
   const defsMatch = defsRegex.exec(content);
   if (defsMatch !== null) {
-    const offset = defsMatch.index!;
+    const offset = expectDefined(defsMatch.index);
     const line = lineFromOffset(offset);
     symbols.push(
       makeSymbol({
@@ -184,9 +193,9 @@ function regexParse(opts: { file: string; content: string; lang: SymbolLang }): 
   for (const pat of defsPatterns) {
     pat.lastIndex = 0;
     for (let match = pat.exec(content); match !== null; match = pat.exec(content)) {
-      const offset = match.index!;
+      const offset = (match.index ?? 0);
       const line = lineFromOffset(offset);
-      const key = match[0]!.match(/"([^"]+)"/)?.[1] ?? match[0]!;
+      const key = match[0]?.match(/"([^"]+)"/)?.[1] ?? expectDefined(match[0]);
       symbols.push(
         makeSymbol({
           name: key,
@@ -219,8 +228,8 @@ function extractPackageScripts(
     match !== null;
     match = scriptsBlockRegex.exec(content)
   ) {
-    const blockContent = match[0]!;
-    const blockOffset = match.index!;
+    const blockContent = expectDefined(match[0]);
+    const blockOffset = (match.index ?? 0);
 
     // Extract each "key" inside the block (simple approach)
     const scriptKeyRegex = /"(\w[\w-]*)"\s*:/g;
@@ -229,8 +238,8 @@ function extractPackageScripts(
       scriptMatch !== null;
       scriptMatch = scriptKeyRegex.exec(blockContent)
     ) {
-      const key = scriptMatch[1]!;
-      const keyOffset = blockOffset + scriptMatch.index!;
+      const key = expectDefined(scriptMatch[1]);
+      const keyOffset = blockOffset + expectDefined(scriptMatch.index);
       const line = lineFromOffset(keyOffset);
       symbols.push(
         makeSymbol({
@@ -263,8 +272,8 @@ function extractCompilerOptions(
     match !== null;
     match = optsBlockRegex.exec(content)
   ) {
-    const blockContent = match[0]!;
-    const blockOffset = match.index!;
+    const blockContent = expectDefined(match[0]);
+    const blockOffset = (match.index ?? 0);
 
     // Extract nested key inside compilerOptions (up to depth 1)
     const optKeyRegex = /"(\w[\w]*)"\s*:/g;
@@ -273,8 +282,8 @@ function extractCompilerOptions(
       optMatch !== null;
       optMatch = optKeyRegex.exec(blockContent)
     ) {
-      const key = optMatch[1]!;
-      const keyOffset = blockOffset + optMatch.index!;
+      const key = expectDefined(optMatch[1]);
+      const keyOffset = blockOffset + expectDefined(optMatch.index);
       const line = lineFromOffset(keyOffset);
       if (line <= parentLine) continue; // Skip top-level (already captured)
       symbols.push(

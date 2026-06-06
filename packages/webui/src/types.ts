@@ -13,17 +13,17 @@ export interface WSSessionStart {
     sessionId: string;
     model: string;
     provider: string;
-    maxContext?: number;
-    projectName?: string;
-    cwd?: string;
-    mode?: string;
-    contextMode?: string;
-    inputCost?: number;
-    outputCost?: number;
-    cacheReadCost?: number;
-    reset?: boolean;
-    replayMessages?: Array<{ role: string; content: unknown }>;
-    replayUsage?: Usage;
+    maxContext?: number | undefined;
+    projectName?: string | undefined;
+    cwd?: string | undefined;
+    mode?: string | undefined;
+    contextMode?: string | undefined;
+    inputCost?: number | undefined;
+    outputCost?: number | undefined;
+    cacheReadCost?: number | undefined;
+    reset?: boolean | undefined;
+    replayMessages?: Array<{ role: string | undefined; content: unknown }>;
+    replayUsage?: Usage | undefined;
   };
 }
 
@@ -65,7 +65,7 @@ export interface WSToolUseStart {
   payload: {
     id: string;
     name: string;
-    input?: unknown;
+    input?: unknown | undefined;
     messageId: string;
   };
 }
@@ -77,7 +77,7 @@ export interface WSToolProgress {
     id: string;
     event: {
       type: 'log' | 'warning' | 'metric' | 'file_changed' | 'partial_output';
-      text?: string;
+      text?: string | undefined;
       data?: Record<string, unknown>;
     };
   };
@@ -90,8 +90,8 @@ export interface WSToolExecuted {
     name: string;
     durationMs: number;
     ok: boolean;
-    input?: unknown;
-    output?: string;
+    input?: unknown | undefined;
+    output?: string | undefined;
   };
 }
 
@@ -99,7 +99,7 @@ export interface WSIterationStarted {
   type: 'iteration.started';
   payload: {
     index: number;
-    maxIterations?: number;
+    maxIterations?: number | undefined;
   };
 }
 
@@ -125,7 +125,7 @@ export interface WSRunResult {
   payload: {
     status: 'done' | 'failed' | 'max_iterations' | 'aborted';
     iterations: number;
-    finalText?: string;
+    finalText?: string | undefined;
     error?: {
       code: string;
       message: string;
@@ -187,8 +187,8 @@ export interface WSContextDebug {
   type: 'context.debug';
   payload: {
     total: number;
-    mode?: string;
-    policy?: unknown;
+    mode?: string | undefined;
+    policy?: unknown | undefined;
     systemPrompt: number;
     tools: {
       total: number;
@@ -224,8 +224,8 @@ export interface WSContextRepaired {
     removedToolUses: string[];
     removedToolResults: string[];
     removedMessages: number;
-    beforeMessages?: number;
-    afterMessages?: number;
+    beforeMessages?: number | undefined;
+    afterMessages?: number | undefined;
   };
 }
 
@@ -265,7 +265,7 @@ export interface WSMemoryList {
   type: 'memory.list';
   payload: {
     text: string;
-    error?: string;
+    error?: string | undefined;
   };
 }
 
@@ -273,7 +273,7 @@ export interface WSSkillsList {
   type: 'skills.list';
   payload: {
     enabled: boolean;
-    error?: string;
+    error?: string | undefined;
     skills: Array<{
       name: string;
       description: string;
@@ -296,7 +296,7 @@ export interface WSDiagGet {
     tools: { count: number; names: string[] };
     features: { memory: boolean; skills: boolean; modelsRegistry: boolean };
     mode: string;
-    usage: { input: number; output: number; cacheRead?: number };
+    usage: { input: number; output: number; cacheRead?: number | undefined };
     messages: number;
     todos: number;
   };
@@ -308,7 +308,7 @@ export interface WSStatsGet {
     sessionId: string;
     provider: string;
     model: string;
-    usage: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
+    usage: { input: number; output: number; cacheRead?: number | undefined; cacheWrite?: number | undefined };
     cache: { readTokens: number; writeTokens: number; hitRatio: number } | null;
     cost: number;
     messages: number;
@@ -330,7 +330,7 @@ export interface WSSessionsList {
       tokenTotal: number;
       isCurrent: boolean;
     }>;
-    error?: string;
+    error?: string | undefined;
   };
 }
 
@@ -343,7 +343,7 @@ export interface WSProviderCatalog {
       id: string;
       name: string;
       family: string;
-      apiBase?: string;
+      apiBase?: string | undefined;
       envVars: string[];
       modelCount: number;
       hasApiKey: boolean;
@@ -358,10 +358,10 @@ export interface WSProviderModels {
     models: Array<{
       id: string;
       name: string;
-      releaseDate?: string;
-      contextWindow?: number;
-      inputCost?: number;
-      outputCost?: number;
+      releaseDate?: string | undefined;
+      contextWindow?: number | undefined;
+      inputCost?: number | undefined;
+      outputCost?: number | undefined;
       capabilities: string[];
     }>;
   };
@@ -372,8 +372,8 @@ export interface WSSavedProviders {
   payload: {
     providers: Array<{
       id: string;
-      family?: string;
-      baseUrl?: string;
+      family?: string | undefined;
+      baseUrl?: string | undefined;
       apiKeys: Array<{
         label: string;
         maskedKey: string;
@@ -406,7 +406,7 @@ export interface WSTodosUpdated {
       id: string;
       content: string;
       status: 'pending' | 'in_progress' | 'completed';
-      activeForm?: string;
+      activeForm?: string | undefined;
     }>;
   };
 }
@@ -448,7 +448,7 @@ export interface WorktreeHandleView {
   insertions: number;
   deletions: number;
   files: number;
-  conflictFiles?: string[];
+  conflictFiles?: string[] | undefined;
   allocatedAt: number;
   lastEventAt: number;
   recentActivity: Array<{ kind: string; text: string; at: number }>;
@@ -469,11 +469,11 @@ export interface WSWorktreeEvent {
 export type WSClientMessage =
   | WSUserMessage
   | WSToolConfirmResult
-  | { type: 'autophase.start'; payload: { title: string; phases?: unknown[]; autonomous?: boolean } }
+  | { type: 'autophase.start'; payload: { title: string; phases?: unknown[] | undefined; autonomous?: boolean | undefined } }
   | { type: 'autophase.pause'; payload: Record<string, never> }
   | { type: 'autophase.resume'; payload: Record<string, never> }
   | { type: 'autophase.stop'; payload: Record<string, never> }
-  | { type: 'autophase.toggleAutonomous'; payload: { autonomous?: boolean } }
+  | { type: 'autophase.toggleAutonomous'; payload: { autonomous?: boolean | undefined } }
   | { type: 'autophase.selectPhase'; payload: { phaseId: string } }
   | { type: 'autophase.taskStatus'; payload: { taskId: string; status: string } }
   | { type: 'abort'; payload: Record<string, never> }
@@ -495,13 +495,13 @@ export type WSClientMessage =
   | { type: 'key.set_active'; payload: { providerId: string; label: string } }
   | {
       type: 'provider.add';
-      payload: { id: string; family: string; baseUrl?: string; apiKey?: string };
+      payload: { id: string; family: string; baseUrl?: string | undefined; apiKey?: string | undefined };
     }
   | { type: 'provider.remove'; payload: { providerId: string } }
   | { type: 'tools.list' }
   | { type: 'memory.list' }
-  | { type: 'memory.remember'; payload: { text: string; scope?: MemoryScope } }
-  | { type: 'memory.forget'; payload: { text: string; scope?: MemoryScope } }
+  | { type: 'memory.remember'; payload: { text: string; scope?: MemoryScope | undefined } }
+  | { type: 'memory.forget'; payload: { text: string; scope?: MemoryScope | undefined } }
   | { type: 'skills.list' }
   | { type: 'diag.get' }
   | { type: 'stats.get' }
@@ -510,10 +510,10 @@ export type WSClientMessage =
   | { type: 'session.delete'; payload: { id: string } }
   | { type: 'modes.list' }
   | { type: 'mode.switch'; payload: { id: string } }
-  | { type: 'files.list'; payload: { query?: string; limit?: number } }
+  | { type: 'files.list'; payload: { query?: string | undefined; limit?: number | undefined } }
   | { type: 'todos.get' }
   | { type: 'todos.clear' }
-  | { type: 'todos.remove'; payload: { id?: string; index?: number } }
+  | { type: 'todos.remove'; payload: { id?: string | undefined; index?: number | undefined } }
   | { type: 'ping' }
   | WSCollabJoin
   | WSCollabLeave
@@ -755,7 +755,7 @@ export interface WSCollabPauseReleased {
  */
 export interface WSCollabEvent {
   type: 'collab.event';
-  payload: { kind: string; payload: unknown; at: string; replay?: boolean };
+  payload: { kind: string; payload: unknown; at: string; replay?: boolean | undefined };
 }
 
 // ── Phase 4: manual tool-call injection (controller only) ───────────────────

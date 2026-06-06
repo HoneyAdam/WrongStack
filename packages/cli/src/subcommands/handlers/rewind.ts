@@ -7,12 +7,21 @@ import {
 } from '@wrongstack/core';
 import type { SubcommandHandler } from '../index.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 interface RewindFlags {
-  all?: boolean;
-  last?: string;
-  to?: string;
-  list?: boolean;
-  resume?: boolean;
+  all?: boolean | undefined;
+  last?: string | undefined;
+  to?: string | undefined;
+  list?: boolean | undefined;
+  resume?: boolean | undefined;
 }
 
 function parseRewindFlags(args: string[]): RewindFlags {
@@ -35,7 +44,7 @@ function parseRewindFlags(args: string[]): RewindFlags {
  */
 function findSessionId(args: string[]): string | undefined {
   for (let i = 0; i < args.length; i++) {
-    const a = args[i]!;
+    const a = expectDefined(args[i]);
     if (a === '--last' || a === '--to') {
       i++; // skip the next token (the flag's value)
       continue;
@@ -66,13 +75,18 @@ export const rewindCmd: SubcommandHandler = async (args, deps) => {
       deps.renderer.writeError('No sessions found.');
       return 1;
     }
-    sessionId = sessions[0]!.id;
+    sessionId = sessions[0]?.id;
   }
+  if (!sessionId) {
+    deps.renderer.writeError('No sessions found.');
+    return 1;
+  }
+  const targetSessionId = sessionId;
 
   // List checkpoints
   if (flags.list) {
-    deps.renderer.write(`Session: ${color.bold(sessionId)}\n\n`);
-    const checkpoints = await rewind.listCheckpoints(sessionId);
+    deps.renderer.write(`Session: ${color.bold(targetSessionId)}\n\n`);
+    const checkpoints = await rewind.listCheckpoints(targetSessionId);
     if (checkpoints.length === 0) {
       deps.renderer.write('No checkpoints in this session.\n');
       return 0;
@@ -90,7 +104,7 @@ export const rewindCmd: SubcommandHandler = async (args, deps) => {
     let result;
     if (flags.all) {
       deps.renderer.write('Rewinding to session start...\n');
-      result = await rewind.rewindToStart(sessionId);
+      result = await rewind.rewindToStart(targetSessionId);
     } else if (flags.last) {
       const n = Number.parseInt(flags.last, 10);
       if (Number.isNaN(n) || n < 1) {
@@ -98,7 +112,7 @@ export const rewindCmd: SubcommandHandler = async (args, deps) => {
         return 1;
       }
       deps.renderer.write(`Rewinding last ${n} prompt(s)...\n`);
-      result = await rewind.rewindLastN(sessionId, n);
+      result = await rewind.rewindLastN(targetSessionId, n);
     } else if (flags.to) {
       const idx = Number.parseInt(flags.to, 10);
       if (Number.isNaN(idx) || idx < 0) {
@@ -106,7 +120,7 @@ export const rewindCmd: SubcommandHandler = async (args, deps) => {
         return 1;
       }
       deps.renderer.write(`Rewinding to checkpoint ${idx}...\n`);
-      result = await rewind.rewindToCheckpoint(sessionId, idx);
+      result = await rewind.rewindToCheckpoint(targetSessionId, idx);
     } else {
       deps.renderer.write('Usage: ws rewind --all | --last N | --to <index> [--list] [--resume]\n');
       deps.renderer.write('  --all      Rewind to session start\n');
@@ -122,7 +136,7 @@ export const rewindCmd: SubcommandHandler = async (args, deps) => {
       if (flags.resume) {
         // Still truncate even if no files changed
         const store = new DefaultSessionStore({ dir: sessionsDir });
-        const resumed = await store.resume(sessionId);
+        const resumed = await store.resume(targetSessionId);
         const toIdx = (result as unknown as { toPromptIndex: number }).toPromptIndex;
         await (resumed.writer as unknown as { truncateToCheckpoint(n: number): Promise<number> }).truncateToCheckpoint(toIdx);
         await resumed.writer.close();
@@ -138,7 +152,7 @@ export const rewindCmd: SubcommandHandler = async (args, deps) => {
 
     if (flags.resume) {
       const store = new DefaultSessionStore({ dir: sessionsDir });
-      const resumed = await store.resume(sessionId);
+      const resumed = await store.resume(targetSessionId);
       const toIdx = (result as unknown as { toPromptIndex: number }).toPromptIndex;
       const removed = await (resumed.writer as unknown as { truncateToCheckpoint(n: number): Promise<number> }).truncateToCheckpoint(toIdx);
       await resumed.writer.close();

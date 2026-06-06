@@ -18,9 +18,9 @@ export interface EventMap {
   };
   'brain.human_answered': {
     id: string;
-    optionId?: string;
-    deny?: boolean;
-    text?: string;
+    optionId?: string | undefined;
+    deny?: boolean | undefined;
+    text?: string | undefined;
     at: number;
   };
   'brain.decision_denied': { request: BrainDecisionRequest; decision: BrainDecision; at: number };
@@ -81,7 +81,7 @@ export interface EventMap {
     status: number;
     providerSwitched: boolean;
   };
-  'tool.started': { name: string; id: string; input?: unknown };
+  'tool.started': { name: string; id: string; input?: unknown | undefined };
   /**
    * Fired for each ToolProgressEvent yielded by `Tool.executeStream`. UIs
    * subscribe to render incremental progress (streaming bash output, file
@@ -124,12 +124,12 @@ export interface EventMap {
      * inputs. Optional only for legacy emit sites — new code should always
      * set it.
      */
-    id?: string;
+    id?: string | undefined;
     name: string;
     durationMs: number;
     ok: boolean;
-    input?: unknown;
-    output?: string;
+    input?: unknown | undefined;
+    output?: string | undefined;
     /**
      * Full UTF-8 byte length of the serialized tool result that the model
      * actually sees (post-cap, post-scrub). The `output` preview is capped
@@ -137,19 +137,19 @@ export interface EventMap {
      * model is really paying tokens for. Optional only for legacy emit
      * sites that may not yet populate it.
      */
-    outputBytes?: number;
+    outputBytes?: number | undefined;
     /**
      * Estimated token count for the full result body the model sees.
      * Computed from `outputBytes` with the standard ~3.5 chars/token
      * heuristic. Cheap to show in the TUI; not authoritative — the real
      * provider count lives in `provider.response.usage`. */
-    outputTokens?: number;
+    outputTokens?: number | undefined;
     /**
      * For tools whose output has a clear "line" notion (file reads with
      * numbered prefixes, grep hits, bash stdout), the agent counts the
      * actual lines the model received and forwards it here. Undefined
      * for tools without a meaningful line count. */
-    outputLines?: number;
+    outputLines?: number | undefined;
   };
   /**
    * Fired by the `delegate` tool right before it hands work to a subagent
@@ -178,15 +178,15 @@ export interface EventMap {
     /** True only when the subagent finished its task cleanly. */
     ok: boolean;
     /** Task status — 'success' | 'timeout' | 'host_timeout' | 'stopped' | ... */
-    status?: string;
+    status?: string | undefined;
     /** One-line human summary (from `buildDelegateSummary`), untruncated. */
     summary: string;
     durationMs: number;
     iterations: number;
     toolCalls: number;
     /** Estimated subagent cost in USD, from the director usage snapshot when known. */
-    costUsd?: number;
-    subagentId?: string;
+    costUsd?: number | undefined;
+    subagentId?: string | undefined;
   };
   /**
    * Fired on every `iteration.completed`. UIs subscribe to render a live
@@ -286,10 +286,10 @@ export interface EventMap {
   'subagent.spawned': {
     subagentId: string;
     taskId: string;
-    name?: string;
-    provider?: string;
-    model?: string;
-    description?: string;
+    name?: string | undefined;
+    provider?: string | undefined;
+    model?: string | undefined;
+    description?: string | undefined;
     /**
      * Absolute path to the per-subagent JSONL transcript on disk, when
      * one was created. Undefined when the subagent shares the parent
@@ -297,12 +297,12 @@ export interface EventMap {
      * Surfaced so the TUI (FleetPanel) and `/fleet log` can show the
      * user *where* to look without computing it from the run id.
      */
-    transcriptPath?: string;
+    transcriptPath?: string | undefined;
   };
   'subagent.task_started': {
     subagentId: string;
     taskId: string;
-    description?: string;
+    description?: string | undefined;
   };
   /**
    * Fired by `MultiAgentHost` when a subagent hits a soft budget limit
@@ -342,12 +342,12 @@ export interface EventMap {
    */
   'subagent.tool_executed': {
     subagentId: string;
-    taskId?: string;
+    taskId?: string | undefined;
     name: string;
     durationMs: number;
     ok: boolean;
-    input?: unknown;
-    outputBytes?: number;
+    input?: unknown | undefined;
+    outputBytes?: number | undefined;
   };
   /**
    * Periodic progress snapshot emitted by the subagent runner every ~25
@@ -362,8 +362,8 @@ export interface EventMap {
     iteration: number;
     toolCalls: number;
     costUsd: number;
-    currentTool?: string;
-    partialText?: string;
+    currentTool?: string | undefined;
+    partialText?: string | undefined;
   };
   'subagent.task_completed': {
     subagentId: string;
@@ -384,8 +384,8 @@ export interface EventMap {
       kind: string;
       message: string;
       retryable: boolean;
-      backoffMs?: number;
-      cause?: { name: string; message: string; stack?: string };
+      backoffMs?: number | undefined;
+      cause?: { name: string | undefined; message: string; stack?: string | undefined };
     };
   };
   /**
@@ -475,7 +475,7 @@ export interface EventMap {
     insertions: number;
     deletions: number;
     files: number;
-    sha?: string;
+    sha?: string | undefined;
   };
   'worktree.merged': {
     handleId: string;
@@ -491,15 +491,15 @@ export interface EventMap {
     conflictFiles: string[];
   };
   'worktree.released': { handleId: string; ownerId: string; branch: string; kept: boolean };
-  'worktree.failed': { handleId: string; ownerId: string; branch?: string; error: string };
-  error: { err: Error; phase: string };
+  'worktree.failed': { handleId: string; ownerId: string; branch?: string | undefined; error: string };
+  error: { err: Error; phase: string; _original?: Error | undefined };
 }
 
 export type EventName = keyof EventMap;
 export type Listener<E extends EventName> = (payload: EventMap[E]) => void;
 
 export interface EventLogger {
-  error(msg: string, ctx?: unknown): void;
+  error(msg: string, ctx?: unknown): void | undefined;
 }
 
 export class EventBus {
@@ -508,7 +508,7 @@ export class EventBus {
     match: (event: string) => boolean;
     fn: (event: string, payload: unknown) => void;
   }> = [];
-  private logger?: EventLogger;
+  private logger?: EventLogger | undefined;
 
   setLogger(logger: EventLogger): void {
     this.logger = logger;

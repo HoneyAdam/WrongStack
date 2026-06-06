@@ -30,10 +30,10 @@ import { ModelSection } from './ModelSection';
 interface CatalogModel {
   id: string;
   name: string;
-  releaseDate?: string;
-  contextWindow?: number;
-  inputCost?: number;
-  outputCost?: number;
+  releaseDate?: string | undefined;
+  contextWindow?: number | undefined;
+  inputCost?: number | undefined;
+  outputCost?: number | undefined;
   capabilities: string[];
 }
 
@@ -149,7 +149,7 @@ export function SettingsPanel() {
   );
 
   const handleAddProvider = useCallback(
-    (id: string, family: string, baseUrl?: string, apiKey?: string) => {
+    (id: string, family: string, baseUrl?: string | undefined, apiKey?: string) => {
       ws.addProvider?.(id, family, baseUrl, apiKey);
     },
     [ws],

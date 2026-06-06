@@ -6,7 +6,7 @@ import { completePartialObject } from '../utils/json-repair.js';
 
 interface ThinkingEntry {
   textBuf: string;
-  signature?: string;
+  signature?: string | undefined;
   providerMeta?: Record<string, unknown>;
 }
 
@@ -18,7 +18,7 @@ interface StreamingState {
   currentTextIndex: number;
   tools: Map<
     string,
-    { name: string; partial: string; input?: unknown; providerMeta?: Record<string, unknown> }
+    { name: string; partial: string; input?: unknown | undefined; providerMeta?: Record<string, unknown> }
   >;
   thinking: ThinkingEntry[];
   currentThinkingIndex: number;
@@ -86,7 +86,7 @@ export function handleMessageStart(state: StreamingState, model: string): void {
 
 export function handleContentBlockStart(
   state: StreamingState,
-  ev: { kind?: string; id?: string; name?: string; providerMeta?: Record<string, unknown> },
+  ev: { kind?: string | undefined; id?: string | undefined; name?: string | undefined; providerMeta?: Record<string, unknown> },
 ): void {
   const kind = ev.kind ?? 'text';
   if (kind === 'text') {
@@ -109,7 +109,7 @@ export function handleContentBlockStart(
   }
 }
 
-export function handleContentBlockStop(state: StreamingState, ev: { index?: number }): void {
+export function handleContentBlockStop(state: StreamingState, ev: { index?: number | undefined }): void {
   // No-op for now, but tracks block boundaries for providers that need it
   void state;
   void ev;
@@ -158,7 +158,7 @@ export function safeJsonOrRaw(s: string): unknown {
 
 export function handleToolUseStop(
   state: StreamingState,
-  ev: { id: string; input?: unknown; providerMeta?: Record<string, unknown> },
+  ev: { id: string; input?: unknown | undefined; providerMeta?: Record<string, unknown> },
 ): void {
   const t = state.tools.get(ev.id);
   if (t) {
@@ -207,7 +207,7 @@ export function handleThinkingStop(state: StreamingState): void {
 
 export function handleMessageStop(
   state: StreamingState,
-  ev: { stopReason?: Response['stopReason']; usage?: Response['usage'] },
+  ev: { stopReason?: Response['stopReason'] | undefined; usage?: Response['usage'] | undefined },
 ): void {
   state.stopReason = ev.stopReason ?? 'end_turn';
   state.usage = ev.usage ?? { input: 0, output: 0 };

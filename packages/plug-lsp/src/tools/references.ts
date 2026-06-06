@@ -16,8 +16,8 @@ interface ReferencesInput {
   path: string;
   line: number;
   character: number;
-  include_declaration?: boolean;
-  limit?: number;
+  include_declaration?: boolean | undefined;
+  limit?: number | undefined;
 }
 
 export function createReferencesTool(deps: ToolDeps): Tool<ReferencesInput, string> {

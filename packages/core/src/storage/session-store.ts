@@ -18,6 +18,15 @@ import type {
 import { atomicWrite, ensureDir } from '../utils/atomic-write.js';
 import { repairToolUseAdjacency } from '../utils/message-invariants.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 // ─── Session ID naming ───────────────────────────────────────────────────────
 
 /** Sanitize a model name for use in filenames: alphanumeric + dash + underscore. */
@@ -53,7 +62,7 @@ function generateSessionId(startedAt: string, model?: string): string {
 export interface SessionStoreOptions {
   dir: string;
   /** Optional EventBus for emitting session diagnostics. */
-  events?: EventBus;
+  events?: EventBus | undefined;
   /**
    * Optional secret scrubber. When set, `user_input` and `llm_response` event
    * content is scrubbed before being persisted to the JSONL log and the
@@ -62,13 +71,13 @@ export interface SessionStoreOptions {
    * Tool output is already scrubbed upstream by the executor; this closes the
    * conversation-turn gap (finding F-06).
    */
-  secretScrubber?: SecretScrubber;
+  secretScrubber?: SecretScrubber | undefined;
 }
 
 export class DefaultSessionStore implements SessionStore {
   private readonly dir: string;
-  private readonly events?: EventBus;
-  private readonly secretScrubber?: SecretScrubber;
+  private readonly events?: EventBus | undefined;
+  private readonly secretScrubber?: SecretScrubber | undefined;
 
   constructor(opts: SessionStoreOptions) {
     this.dir = opts.dir;
@@ -170,8 +179,8 @@ export class DefaultSessionStore implements SessionStore {
         if (
           parsed !== null &&
           typeof parsed === 'object' &&
-          typeof (parsed as { type?: unknown }).type === 'string' &&
-          typeof (parsed as { ts?: unknown }).ts === 'string'
+          typeof (parsed as { type?: unknown | undefined }).type === 'string' &&
+          typeof (parsed as { ts?: unknown | undefined }).ts === 'string'
         ) {
           events.push(parsed as SessionEvent);
         }
@@ -285,7 +294,7 @@ export class DefaultSessionStore implements SessionStore {
     for (const line of raw.split('\n')) {
       if (!line.trim()) continue;
       try {
-        const entry = JSON.parse(line) as { action?: string; id?: string } & SessionSummary;
+        const entry = JSON.parse(line) as { action?: string | undefined; id?: string | undefined } & SessionSummary;
         if (entry.action === 'delete' && entry.id) {
           deleted.add(entry.id);
           seen.delete(entry.id);
@@ -408,7 +417,7 @@ export class DefaultSessionStore implements SessionStore {
     let activeSessionId: string | null = null;
     try {
       const raw = await fsp.readFile(path.join(this.dir, 'active.json'), 'utf8');
-      const active = JSON.parse(raw) as { sessionId?: string };
+      const active = JSON.parse(raw) as { sessionId?: string | undefined };
       activeSessionId = active.sessionId ?? null;
     } catch {
       // no active.json — nothing to protect
@@ -635,8 +644,8 @@ class FileSessionWriter implements SessionWriter {
   private readonly resumed: boolean;
   private appendFailCount = 0;
   private lastAppendWarnAt = 0;
-  private readonly secretScrubber?: SecretScrubber;
-  private readonly onCloseCb?: (summary: SessionSummary) => void;
+  private readonly secretScrubber?: SecretScrubber | undefined;
+  private readonly onCloseCb?: (((summary: SessionSummary) => void)) | undefined;
 
   // ── Enriched summary tracking ──────────────────────────────────────────
   private iterationCount = 0;
@@ -694,14 +703,14 @@ class FileSessionWriter implements SessionWriter {
     private handle: fsp.FileHandle,
     private readonly startedAt: string,
     private readonly meta: Omit<SessionMetadata, 'startedAt'>,
-    private readonly events?: EventBus,
+    private readonly events?: EventBus | undefined,
     opts: {
-      resumed?: boolean;
-      dir?: string;
-      filePath?: string;
-      secretScrubber?: SecretScrubber;
+      resumed?: boolean | undefined;
+      dir?: string | undefined;
+      filePath?: string | undefined;
+      secretScrubber?: SecretScrubber | undefined;
       /** Called on close() with the finalized summary for index/sidecar writes. */
-      onClose?: (summary: SessionSummary) => void;
+      onClose?: (((summary: SessionSummary) => void)) | undefined;
     } = {},
   ) {
     this.resumed = opts.resumed ?? false;
@@ -889,10 +898,10 @@ class FileSessionWriter implements SessionWriter {
     let afterTarget = false;
 
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i]!;
+      const line = expectDefined(lines[i]);
       if (!line.trim()) continue;
 
-      let event: { type?: string; promptIndex?: number };
+      let event: { type?: string | undefined; promptIndex?: number | undefined };
       try {
         event = JSON.parse(line);
       } catch {

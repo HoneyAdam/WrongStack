@@ -64,8 +64,8 @@ export const codebaseIndexTool: Tool<CodebaseIndexInput, CodebaseIndexOutput> = 
 // ─── Types for tool I/O ────────────────────────────────────────────────────────
 
 interface CodebaseIndexInput {
-  force?: boolean;
-  langs?: string[];
+  force?: boolean | undefined;
+  langs?: string[] | undefined;
 }
 
 interface CodebaseIndexOutput {
@@ -75,5 +75,5 @@ interface CodebaseIndexOutput {
   durationMs: number;
   errors: string[];
   /** Advisory note when the indexer was skipped (e.g. another index in progress). */
-  note?: string;
+  note?: string | undefined;
 }

@@ -25,11 +25,11 @@ function marquee(text: string, offset: number, width: number): string {
 export interface TerminalTitleOptions {
   stdout: NodeJS.WriteStream;
   events: EventBus;
-  model?: string;
-  appName?: string;
-  intervalMs?: number;
+  model?: string | undefined;
+  appName?: string | undefined;
+  intervalMs?: number | undefined;
   /** ms of silence before the title falls back to the idle marquee. */
-  idleAfterMs?: number;
+  idleAfterMs?: number | undefined;
 }
 
 export function startTerminalTitle(opts: TerminalTitleOptions): () => void {
@@ -58,7 +58,7 @@ export function startTerminalTitle(opts: TerminalTitleOptions): () => void {
     events.on('iteration.started', () => touch('thinking')),
     events.on('provider.text_delta', () => touch('thinking')),
     events.on('provider.thinking_delta', () => touch('thinking')),
-    events.on('tool.started', (e) => touch('tool', (e as { name?: string }).name ?? 'tool')),
+    events.on('tool.started', (e) => touch('tool', (e as { name?: string | undefined }).name ?? 'tool')),
     events.on('tool.executed', () => touch('thinking')),
   ];
 

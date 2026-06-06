@@ -17,13 +17,13 @@ interface Entry<T = unknown> {
   factory: Factory<T>;
   singleton: boolean;
   decorators: Decorator<T>[];
-  cache?: T;
+  cache?: T | undefined;
   owner: string;
 }
 
 export interface BindOptions {
-  singleton?: boolean;
-  owner?: string;
+  singleton?: boolean | undefined;
+  owner?: string | undefined;
 }
 
 export class Container {
@@ -144,6 +144,14 @@ export class Container {
 
   has<T>(token: Token<T>): boolean {
     return this.entries.has(token);
+  }
+
+  /**
+   * Resolve a token if it is bound, otherwise return undefined.
+   * Unlike resolve(), this does not throw if the token is unbound.
+   */
+  safeResolve<T>(token: Token<T>): T | undefined {
+    return this.has(token) ? this.resolve(token) : undefined;
   }
 
   ownerOf<T>(token: Token<T>): string | undefined {

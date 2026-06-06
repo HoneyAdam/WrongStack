@@ -6,14 +6,23 @@ import { buildChildEnv, compileGlob } from '@wrongstack/core';
 import { capSubject, compileUserRegex } from './_regex.js';
 import { isBinaryBuffer, safeResolve } from './_util.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 interface GrepInput {
   pattern: string;
-  path?: string;
-  glob?: string;
-  output_mode?: 'content' | 'files_with_matches' | 'count';
-  context_lines?: number;
-  case_insensitive?: boolean;
-  limit?: number;
+  path?: string | undefined;
+  glob?: string | undefined;
+  output_mode?: 'content' | 'files_with_matches' | 'count' | undefined;
+  context_lines?: number | undefined;
+  case_insensitive?: boolean | undefined;
+  limit?: number | undefined;
 }
 
 interface GrepOutput {
@@ -81,7 +90,9 @@ export const grepTool: Tool<GrepInput, GrepOutput> = {
   },
   async execute(input, ctx, opts) {
     let final: GrepOutput | undefined;
-    for await (const ev of grepTool.executeStream!(input, ctx, opts)) {
+    const executeStream = grepTool.executeStream;
+    if (!executeStream) throw new Error('grepTool: stream execution unavailable');
+    for await (const ev of executeStream(input, ctx, opts)) {
       if (ev.type === 'final') final = ev.output;
     }
     if (!final) throw new Error('grep: stream ended without final event');
@@ -191,7 +202,7 @@ async function* runRgStream(
         waiter = r;
       });
     }
-    const c = queue.shift()!;
+    const c = expectDefined(queue.shift());
     if (c.kind === 'error') {
       errored = true;
       continue;

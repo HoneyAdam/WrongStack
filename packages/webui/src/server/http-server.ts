@@ -25,7 +25,7 @@ import * as path from 'node:path';
 
 export interface CreateHttpServerOptions {
   /** Port to listen on. Defaults to 3456 (or the `PORT` env var). */
-  port?: number;
+  port?: number | undefined;
   /** Host/interface to bind. Typically the loopback for the WebUI. */
   host: string;
   /** Resolved path to the directory containing the built React assets. */

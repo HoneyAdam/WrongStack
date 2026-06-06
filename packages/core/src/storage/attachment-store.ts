@@ -16,8 +16,8 @@ export interface AttachmentStoreOptions {
    * Directory for spooling payloads larger than `spoolThresholdBytes`.
    * When omitted, all payloads stay in memory.
    */
-  spoolDir?: string;
-  spoolThresholdBytes?: number;
+  spoolDir?: string | undefined;
+  spoolThresholdBytes?: number | undefined;
 }
 
 const DEFAULT_SPOOL_THRESHOLD = 256 * 1024; // 256 KB

@@ -14,7 +14,7 @@ import { TaskTracker } from './task-tracker.js';
 export interface TaskFlowEventMap {
   'phase.change': { from: TaskFlowPhase; to: TaskFlowPhase };
   'task.started': { taskId: string };
-  'task.completed': { taskId: string; result?: unknown };
+  'task.completed': { taskId: string; result?: unknown | undefined };
   'task.failed': { taskId: string; error: string };
   'task.review': { taskId: string };
   'spec.analyzed': { analysis: SpecAnalysis };
@@ -39,14 +39,14 @@ export type TaskFlowEventName = keyof TaskFlowEventMap;
 export interface TaskFlowOptions {
   tracker: TaskTracker;
   events: EventBus;
-  doneCondition?: DoneCondition;
-  maxConcurrent?: number;
+  doneCondition?: DoneCondition | undefined;
+  maxConcurrent?: number | undefined;
 }
 
 export interface TaskFlowExecutionContext {
   executeTask: (task: TaskNode) => Promise<unknown>;
-  onTaskComplete?: (task: TaskNode, result: unknown) => void;
-  onTaskFail?: (task: TaskNode, error: Error) => void;
+  onTaskComplete?: (task: TaskNode | undefined, result: unknown) => void;
+  onTaskFail?: (task: TaskNode | undefined, error: Error) => void;
 }
 
 export class TaskFlow {
@@ -226,7 +226,7 @@ export class TaskFlow {
 export interface SpecDrivenDevOptions {
   workingDirectory: string;
   events: EventBus;
-  doneCondition?: DoneCondition;
+  doneCondition?: DoneCondition | undefined;
 }
 
 export class SpecDrivenDev {

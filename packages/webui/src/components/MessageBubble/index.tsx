@@ -30,10 +30,19 @@ import { ErrorBodyWithStack } from './ErrorBody.js';
 import { ToolInputView } from './ToolInputView.js';
 import { downloadTextFile, fileExtensionFor, formatToolDuration, markdownComponents } from './utils.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 interface MessageBubbleProps {
   message: ChatMessage;
-  isFirst?: boolean;
-  isContinuation?: boolean;
+  isFirst?: boolean | undefined;
+  isContinuation?: boolean | undefined;
 }
 
 export const MessageBubble = memo(function MessageBubble({
@@ -66,7 +75,7 @@ export const MessageBubble = memo(function MessageBubble({
     if (message.role !== 'assistant' || isLoading) return false;
     const all = useChatStore.getState().messages;
     for (let i = all.length - 1; i >= 0; i--) {
-      const m = all[i]!;
+      const m = expectDefined(all[i]);
       if (m.role === 'assistant') return m.id === message.id;
     }
     return false;
@@ -78,13 +87,13 @@ export const MessageBubble = memo(function MessageBubble({
     if (idx === -1) return;
     let userIdx = -1;
     for (let i = idx - 1; i >= 0; i--) {
-      if (all[i]!.role === 'user') {
+      if (all[i]?.role === 'user') {
         userIdx = i;
         break;
       }
     }
     if (userIdx === -1) return;
-    const userMsg = all[userIdx]!;
+    const userMsg = expectDefined(all[userIdx]);
     truncateAfter(userMsg.id);
     addMessage({ role: 'user', content: userMsg.content });
     setLoading(true);
@@ -169,7 +178,14 @@ export const MessageBubble = memo(function MessageBubble({
                 {inputSummary && !expanded && <div className="text-xs text-muted-foreground font-mono truncate">{inputSummary}</div>}
                 {message.toolResult === undefined && message.progressLines && message.progressLines.length > 0 && (
                   <div className="mt-1 rounded-md border border-amber-500/20 bg-amber-500/5 p-1.5 text-[11px] font-mono leading-snug max-h-32 overflow-auto">
-                    {message.progressLines.slice(-6).map((line, i) => (<div key={i} className="truncate text-muted-foreground">{line}</div>))}
+                    {(() => {
+                      const seen = new Map<string, number>();
+                      return message.progressLines.slice(-6).map((line) => {
+                        const occurrence = seen.get(line) ?? 0;
+                        seen.set(line, occurrence + 1);
+                        return (<div key={`${line}-${occurrence}`} className="truncate text-muted-foreground">{line}</div>);
+                      });
+                    })()}
                   </div>
                 )}
                 {expanded && message.toolInput !== undefined && (() => {

@@ -13,40 +13,40 @@ export interface MessageContent {
 export interface ToolExecution {
   id: string;
   name: string;
-  input?: unknown;
-  output?: string;
-  durationMs?: number;
+  input?: unknown | undefined;
+  output?: string | undefined;
+  durationMs?: number | undefined;
   ok: boolean;
   startedAt: number;
-  completedAt?: number;
+  completedAt?: number | undefined;
 }
 
 export interface ChatMessage {
   id: string;
   content: string;
   role: 'user' | 'assistant' | 'system' | 'tool';
-  toolName?: string;
-  toolInput?: unknown;
-  toolResult?: string;
+  toolName?: string | undefined;
+  toolInput?: unknown | undefined;
+  toolResult?: string | undefined;
   /** Wall-clock ms reported by the backend in tool.executed; rendered next
    *  to the tool name so the user can spot slow tools at a glance. */
-  toolDurationMs?: number;
+  toolDurationMs?: number | undefined;
   /** Backend's tool_use id (e.g. "toolu_..." from Anthropic). Used to map
    *  tool.executed events back to the right bubble when the model fires
    *  multiple tools in parallel — currentToolId alone only points at the
    *  most recent start and would leave earlier ones stuck on "Running...". */
-  toolUseId?: string;
-  isError?: boolean;
+  toolUseId?: string | undefined;
+  isError?: boolean | undefined;
   timestamp: number;
-  usage?: Usage;
-  streaming?: boolean;
-  parentId?: string;
+  usage?: Usage | undefined;
+  streaming?: boolean | undefined;
+  parentId?: string | undefined;
   /** Live progress lines for an in-flight tool, populated from
    *  tool.progress WS events. Each line is shown in chronological order
    *  inside the tool bubble while it's still running, and cleared once the
    *  final tool.executed lands (toolResult takes over). Capped to the last
    *  ~30 lines so a chatty bash command can't grow this unbounded. */
-  progressLines?: string[];
+  progressLines?: string[] | undefined;
   /** End-of-run summary attached to the last assistant message of a turn
    *  after run.result lands. Populated by the run.result handler in
    *  useWebSocket — gives the user a single-line readout of what just
@@ -64,7 +64,7 @@ export interface SessionInfo {
   startedAt: number;
   provider: string;
   model: string;
-  title?: string;
+  title?: string | undefined;
 }
 
 /** A row in the sidebar's History tab. Mirrors core's SessionSummary +
@@ -87,10 +87,10 @@ export interface SubagentView {
    *  "Von Neumann"). Falls back to the raw id until `spawned` names it. */
   name: string;
   status: 'running' | 'completed' | 'failed' | 'timeout' | 'stopped';
-  provider?: string;
-  model?: string;
-  description?: string;
-  taskId?: string;
+  provider?: string | undefined;
+  model?: string | undefined;
+  description?: string | undefined;
+  taskId?: string | undefined;
   /** Latest iteration index from iteration_summary. */
   iteration: number;
   /** Cumulative tool calls (authoritative from iteration_summary, live-bumped
@@ -98,18 +98,18 @@ export interface SubagentView {
   toolCalls: number;
   costUsd: number;
   /** Tool the agent says it's running right now (iteration_summary). */
-  currentTool?: string;
+  currentTool?: string | undefined;
   /** Most-recent completed tool name (tool_executed). */
-  lastTool?: string;
+  lastTool?: string | undefined;
   /** Context-window load 0–100. */
   ctxPct: number;
   ctxTokens: number;
   maxContext: number;
   /** How many times this agent self-extended its budget. */
   extensions: number;
-  error?: { kind: string; message: string };
+  error?: { kind: string | undefined; message: string };
   startedAt: number;
-  completedAt?: number;
+  completedAt?: number | undefined;
 }
 
 /** Discriminated payload mirroring the subagent.* events the backend forwards. */
@@ -123,21 +123,21 @@ export interface SubagentEvent {
     | 'ctx_pct'
     | 'task_completed';
   subagentId: string;
-  name?: string;
-  provider?: string;
-  model?: string;
-  description?: string;
-  taskId?: string;
-  toolName?: string;
-  iteration?: number;
-  toolCalls?: number;
-  costUsd?: number;
-  currentTool?: string;
-  load?: number;
-  tokens?: number;
-  maxContext?: number;
-  totalExtensions?: number;
-  status?: 'success' | 'failed' | 'timeout' | 'stopped';
-  iterations?: number;
-  error?: { kind: string; message: string };
+  name?: string | undefined;
+  provider?: string | undefined;
+  model?: string | undefined;
+  description?: string | undefined;
+  taskId?: string | undefined;
+  toolName?: string | undefined;
+  iteration?: number | undefined;
+  toolCalls?: number | undefined;
+  costUsd?: number | undefined;
+  currentTool?: string | undefined;
+  load?: number | undefined;
+  tokens?: number | undefined;
+  maxContext?: number | undefined;
+  totalExtensions?: number | undefined;
+  status?: 'success' | 'failed' | 'timeout' | 'stopped' | undefined;
+  iterations?: number | undefined;
+  error?: { kind: string | undefined; message: string };
 }

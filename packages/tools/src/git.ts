@@ -21,24 +21,24 @@ type GitSubcommand =
 
 interface GitInput {
   command: GitSubcommand;
-  files?: string | string[];
-  dry_run?: boolean;
+  files?: string | string[] | undefined;
+  dry_run?: boolean | undefined;
   /** commit message for `commit` subcommand */
-  message?: string;
+  message?: string | undefined;
   /** branch name for `checkout` / `branch` */
-  branch?: string;
+  branch?: string | undefined;
   /** pass --graph, --oneline, --stat for `log` */
-  format?: 'short' | 'oneline' | 'stat' | 'graph';
+  format?: 'short' | 'oneline' | 'stat' | 'graph' | undefined;
   /** limit for `log` */
-  limit?: number;
+  limit?: number | undefined;
   /** worktree action: list, add, remove, prune */
-  worktreeAction?: 'list' | 'add' | 'remove' | 'prune';
+  worktreeAction?: 'list' | 'add' | 'remove' | 'prune' | undefined;
   /** path for worktree add/remove (e.g. "../wt-feature-xyz") */
-  worktreePath?: string;
+  worktreePath?: string | undefined;
   /** create new branch when adding worktree */
-  newBranch?: boolean;
+  newBranch?: boolean | undefined;
   /** force operation (e.g. worktree remove --force) */
-  force?: boolean;
+  force?: boolean | undefined;
 }
 
 interface GitOutput {

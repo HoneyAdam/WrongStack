@@ -4,6 +4,15 @@ import { atomicWrite } from '@wrongstack/core';
 import type { DefaultSecretVault } from '@wrongstack/core';
 import type { ProviderApiKey, ProviderConfig } from '@wrongstack/core';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export interface ProviderStoreDeps {
   globalConfigPath: string;
   vault: DefaultSecretVault;
@@ -19,9 +28,9 @@ export function createConfigWriteLock() {
     get current() { return lock; },
     acquire() {
       const prev = lock;
-      let release: () => void;
+      let release: () => void = () => undefined;
       lock = new Promise<void>((resolve) => { release = resolve; });
-      return { prev, release: release! };
+      return { prev, release };
     },
   };
 }
@@ -86,7 +95,7 @@ export function createProviderStore(deps: ProviderStoreDeps): ProviderStore {
       return;
     }
     cfg.apiKeys = keys;
-    const active = keys.find((k) => k.label === cfg.activeKey) ?? keys[0]!;
+    const active = keys.find((k) => k.label === cfg.activeKey) ?? expectDefined(keys[0]);
     cfg.apiKey = active.apiKey;
     if (!cfg.activeKey || !keys.some((k) => k.label === cfg.activeKey)) {
       cfg.activeKey = active.label;

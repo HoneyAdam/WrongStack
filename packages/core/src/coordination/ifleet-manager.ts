@@ -27,7 +27,7 @@ export interface IFleetManager {
    * Per-subagent metadata captured at spawn time (provider/model/name).
    * Returns undefined if the subagent is not known to this manager.
    */
-  getSubagentMeta(id: string): { provider?: string; model?: string; name?: string } | undefined;
+  getSubagentMeta(id: string): { provider?: string | undefined; model?: string | undefined; name?: string | undefined } | undefined;
 
   /**
    * Called before a spawn is recorded. Returns a reason string if the
@@ -91,7 +91,7 @@ export interface IFleetManager {
    */
   getFleetStatus(): {
     pending: { taskId: string; description: string; subagentId: string }[];
-    live: { subagentId: string; status: string; task?: string }[];
+    live: { subagentId: string; status: string; task?: string | undefined }[];
   };
 
   /**

@@ -20,7 +20,7 @@ interface OpenAIStreamState {
   thinkingOpen: boolean;
   toolByIndex: Map<
     number,
-    { id?: string; name?: string; argBuf: string; emittedStart: boolean; emittedArgLength: number }
+    { id?: string | undefined; name?: string | undefined; argBuf: string; emittedStart: boolean; emittedArgLength: number }
   >;
   finalEmitted: boolean;
 }
@@ -91,16 +91,16 @@ export const openaiWireFormat = defineWireFormat<OpenAIStreamState>({
     const choices = obj['choices'] as
       | Array<{
           delta?: {
-            content?: string | null;
-            reasoning_content?: string;
-            reasoning?: string;
+            content?: string | null | undefined;
+            reasoning_content?: string | undefined;
+            reasoning?: string | undefined;
             tool_calls?: Array<{
-              index?: number;
-              id?: string;
-              function?: { name?: string; arguments?: string };
+              index?: number | undefined;
+              id?: string | undefined;
+              function?: { name?: string | undefined; arguments?: string | undefined };
             }>;
           };
-          finish_reason?: string | null;
+          finish_reason?: string | null | undefined;
         }>
       | undefined;
     const choice = choices?.[0];
@@ -179,11 +179,11 @@ export const openaiWireFormat = defineWireFormat<OpenAIStreamState>({
 
     const u = obj['usage'] as
       | {
-          prompt_tokens?: number;
-          completion_tokens?: number;
-          prompt_tokens_details?: { cached_tokens?: number };
-          prompt_cache_hit_tokens?: number;
-          prompt_cache_miss_tokens?: number;
+          prompt_tokens?: number | undefined;
+          completion_tokens?: number | undefined;
+          prompt_tokens_details?: { cached_tokens?: number | undefined };
+          prompt_cache_hit_tokens?: number | undefined;
+          prompt_cache_miss_tokens?: number | undefined;
         }
       | undefined;
     if (u) {

@@ -66,13 +66,13 @@ export interface DirectorAlert {
   /** Human-readable message for UI/logs */
   message: string;
   /** Budget kind that triggered this alert, if any */
-  budgetKind?: 'timeout' | 'idle_timeout' | 'iterations' | 'tool_calls' | 'tokens' | 'cost';
+  budgetKind?: 'timeout' | 'idle_timeout' | 'iterations' | 'tool_calls' | 'tokens' | 'cost' | undefined;
   /** Elapsed ms at time of alert */
-  elapsedMs?: number;
+  elapsedMs?: number | undefined;
   /** Limit that was hit */
-  limit?: number;
+  limit?: number | undefined;
   /** /btw notes the director has collected (may be empty) */
-  btwNotes?: string[];
+  btwNotes?: string[] | undefined;
 }
 
 /**
@@ -88,7 +88,7 @@ export interface SharedFileSnapshot {
 export interface SharedFileEntry {
   path: string;
   content: string;
-  language?: string;
+  language?: string | undefined;
 }
 
 /**
@@ -100,7 +100,7 @@ export interface BugFinding {
   severity: 'critical' | 'high' | 'medium' | 'low';
   location: { file: string; line: number };
   description: string;
-  suggestedFix?: string;
+  suggestedFix?: string | undefined;
 }
 
 /**
@@ -139,7 +139,7 @@ export interface CriticEvaluation {
 
 export interface CriticConcern {
   description: string;
-  location?: { file: string; line: number };
+  location?: { file: string | undefined; line: number };
   severity: 'blocking' | 'advisory';
 }
 
@@ -211,7 +211,7 @@ export interface CollabBudgetWarningPayload {
   kind: 'timeout' | 'idle_timeout' | 'iterations' | 'tool_calls' | 'tokens' | 'cost';
   used: number;
   limit: number;
-  timeoutMs?: number;
+  timeoutMs?: number | undefined;
   elapsedMs: number;
 }
 
@@ -233,29 +233,29 @@ export interface CollabSessionOptions {
   /** Paths to scan — used to build the SharedFileSnapshot. */
   targetPaths: string[];
   /** Files already read and snapshot. When provided, snapshot is skipped. */
-  prebuiltSnapshot?: SharedFileSnapshot;
+  prebuiltSnapshot?: SharedFileSnapshot | undefined;
   /** Max time to wait for the session to resolve (ms). Default: 10 min. */
-  timeoutMs?: number;
+  timeoutMs?: number | undefined;
   /**
    * Maximum number of files to include in the snapshot.
    * - If set explicitly: use this value (hard override).
    * - If `contextWindow` is set: calculate dynamically from estimated token budget.
    * - If neither: use `DEFAULT_MAX_TARGET_FILES` (30).
    */
-  maxTargetFiles?: number;
+  maxTargetFiles?: number | undefined;
   /**
    * Context window size (in tokens) of the model running the subagents.
    * When provided and `maxTargetFiles` is not set, the limit is computed
    * dynamically: `floor((contextWindow * 0.4) / AVG_TOKENS_PER_FILE)`.
    * If not provided, `DEFAULT_MAX_TARGET_FILES` is used as the fallback.
    */
-  contextWindow?: number;
+  contextWindow?: number | undefined;
   /**
    * Budget overrides per role. When provided, these override the hard-coded
    * defaults so the Director can enforce fleet-wide budget policy.
    * Keys must match role names: 'bug-hunter', 'refactor-planner', 'critic'.
    */
-  budgetOverrides?: CollabBudgetOverrides;
+  budgetOverrides?: CollabBudgetOverrides | undefined;
   /**
    * Called by the Director when a collab agent hits a soft budget limit.
    * The Director uses this to decide whether to cancel the session or extend.
@@ -263,7 +263,7 @@ export interface CollabSessionOptions {
    * with the agent's proposed new limits; 'ignore' to let the default
    * auto-extend logic handle it.
    */
-  onBudgetWarning?: (alert: DirectorAlert) => 'cancel' | 'extend' | 'ignore';
+  onBudgetWarning?: (((alert: DirectorAlert) => 'cancel' | 'extend' | 'ignore')) | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -292,7 +292,7 @@ export class CollabSession extends EventEmitter {
   /** Last tool call count when a timeout warning was handled. */
   private readonly lastTimeoutProgress = new Map<string, number>();
   /** Session-level timeout timer handle (cleared on cancel or natural completion). */
-  private _timeoutTimer?: NodeJS.Timeout;
+  private _timeoutTimer?: NodeJS.Timeout | undefined;
 
   constructor(
     director: import('./director.js').Director,
@@ -467,7 +467,7 @@ export class CollabSession extends EventEmitter {
     // If we are here, Promise.race resolved (not rejected) — results were assigned.
     // Guard with non-null assertion since TypeScript doesn't know the try/catch
     // guarantees this when we reach this line.
-    for (const result of results!.flat()) {
+    for (const result of results?.flat() ?? []) {
       await this.parseAndEmit(result);
     }
 
@@ -542,7 +542,7 @@ export class CollabSession extends EventEmitter {
 
   private budgetForRole(role: string): { maxIterations: number; maxToolCalls: number; timeoutMs: number } {
     if (this.options.budgetOverrides?.[role]) {
-      return this.options.budgetOverrides[role]!;
+      return this.options.budgetOverrides[role] ?? { maxIterations: 0, maxToolCalls: 0, timeoutMs: 0 };
     }
     const defaults: Record<string, { maxIterations: number; maxToolCalls: number; timeoutMs: number }> = {
       'bug-hunter': { maxIterations: 2000, maxToolCalls: 5000, timeoutMs: 10 * 60 * 1000 },
@@ -643,7 +643,7 @@ export class CollabSession extends EventEmitter {
         kind: 'timeout' | 'idle_timeout' | 'iterations' | 'tool_calls' | 'tokens' | 'cost';
         used: number;
         limit: number;
-        timeoutMs?: number;
+        timeoutMs?: number | undefined;
         extend: (extra: Record<string, unknown>) => void;
         deny: () => void;
       };

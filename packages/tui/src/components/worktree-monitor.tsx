@@ -36,8 +36,8 @@ export function WorktreeMonitor({
   nowTick,
   onClose,
 }: {
-  worktrees: Record<string, WorktreeRow & { baseBranch?: string }>;
-  baseBranch?: string;
+  worktrees: Record<string, WorktreeRow & { baseBranch?: string | undefined }>;
+  baseBranch?: string | undefined;
   nowTick: number;
   onClose: () => void;
 }): React.ReactElement {

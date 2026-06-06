@@ -4,11 +4,11 @@ import { safeResolve } from './_util.js';
 
 interface DocumentInput {
   target: 'file' | 'function' | 'class' | 'type' | 'all';
-  path?: string;
-  files?: string | string[];
-  style?: 'jsdoc' | 'tsdoc' | 'block';
-  overwrite?: boolean;
-  cwd?: string;
+  path?: string | undefined;
+  files?: string | string[] | undefined;
+  style?: 'jsdoc' | 'tsdoc' | 'block' | undefined;
+  overwrite?: boolean | undefined;
+  cwd?: string | undefined;
 }
 
 interface DocumentedItem {
@@ -17,7 +17,7 @@ interface DocumentedItem {
   signature: string;
   docstring: string;
   status: 'documented' | 'skipped' | 'error';
-  error?: string;
+  error?: string | undefined;
 }
 
 interface DocumentOutput {

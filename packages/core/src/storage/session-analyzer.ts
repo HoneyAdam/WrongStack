@@ -1,17 +1,17 @@
 import type { SessionEvent } from '../types/session.js';
 
 export interface QueryFilter {
-  eventTypes?: string[];
-  toolNames?: string[];
-  timeRange?: { start: string; end: string };
+  eventTypes?: string[] | undefined;
+  toolNames?: string[] | undefined;
+  timeRange?: { start: string; end: string } | undefined;
 }
 
 export interface ToolInvocation {
   ts: string;
   name: string;
   input: unknown;
-  output?: unknown;
-  error?: string;
+  output?: unknown | undefined;
+  error?: string | undefined;
   durationMs: number;
 }
 
@@ -32,7 +32,7 @@ export interface TaskSummary {
   title: string;
   status: string;
   createdAt: string;
-  completedAt?: string;
+  completedAt?: string | undefined;
 }
 
 export interface SessionAnalysis {
@@ -139,8 +139,11 @@ export class SessionAnalyzer {
 
   private calcDuration(events: SessionEvent[]): number {
     if (events.length < 2) return 0;
-    const first = new Date(events[0]!.ts).getTime();
-    const last = new Date(events[events.length - 1]!.ts).getTime();
+    const firstEvent = events[0];
+    const lastEvent = events[events.length - 1];
+    if (!firstEvent || !lastEvent) return 0;
+    const first = new Date(firstEvent.ts).getTime();
+    const last = new Date(lastEvent.ts).getTime();
     return last - first;
   }
 }

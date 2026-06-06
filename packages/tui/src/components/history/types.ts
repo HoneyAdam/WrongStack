@@ -5,7 +5,7 @@ import type { Lang } from '../../highlight.js';
 // ============================================
 
 export type HistoryEntry =
-  | { id: number; kind: 'user'; text: string; queued?: boolean; pasteContent?: string }
+  | { id: number; kind: 'user'; text: string; queued?: boolean | undefined; pasteContent?: string | undefined }
   | { id: number; kind: 'assistant'; text: string }
   | {
       id: number;
@@ -13,19 +13,19 @@ export type HistoryEntry =
       name: string;
       durationMs: number;
       ok: boolean;
-      input?: unknown;
-      output?: string;
+      input?: unknown | undefined;
+      output?: string | undefined;
       /** Full byte length of the result body the model actually received
        *  (post-cap, post-scrub). Carried separately because `output` is a
        *  ~400-char preview — `outputBytes` is what the model paid for. */
-      outputBytes?: number;
+      outputBytes?: number | undefined;
       /** ~3.5 chars/token estimate over `outputBytes`. Cheap to render in
        *  the chip; the authoritative count lives in provider.response.usage. */
-      outputTokens?: number;
+      outputTokens?: number | undefined;
       /** Real line count for tools that have a meaningful one — read counts
        *  numbered prefixes, shell/grep/logs count newlines. Undefined for
        *  tools without a line notion (json, fetch, …). */
-      outputLines?: number;
+      outputLines?: number | undefined;
     }
   | { id: number; kind: 'info'; text: string }
   | { id: number; kind: 'warn'; text: string }
@@ -38,8 +38,8 @@ export type HistoryEntry =
       source: string;
       risk: 'low' | 'medium' | 'high' | 'critical';
       question: string;
-      decision?: string;
-      rationale?: string;
+      decision?: string | undefined;
+      rationale?: string | undefined;
     }
   | {
       id: number;
@@ -48,8 +48,8 @@ export type HistoryEntry =
       provider: string;
       model: string;
       cwd: string;
-      family?: string;
-      keyTail?: string;
+      family?: string | undefined;
+      keyTail?: string | undefined;
     }
   | { id: number; kind: 'confirm'; toolName: string; input: unknown; suggestedPattern: string }
   | {
@@ -59,12 +59,12 @@ export type HistoryEntry =
       agentColor: string;
       icon: string;
       text: string;
-      detail?: string;
+      detail?: string | undefined;
     };
 
 export interface HistoryProps {
   entries: HistoryEntry[];
-  streamingText?: string;
+  streamingText?: string | undefined;
   /**
    * Optional live tail of the currently streaming tool. Rendered below the
    * assistant tail so the user sees both at once: model thinking and tool
@@ -77,5 +77,5 @@ export interface HistoryProps {
 export interface BodySegment {
   type: 'prose' | 'code';
   text: string;
-  lang?: Lang;
+  lang?: Lang | undefined;
 }

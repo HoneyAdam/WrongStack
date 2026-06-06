@@ -4,10 +4,10 @@ import type { Tool } from '@wrongstack/core';
 import { detectPackageManager, safeResolve } from './_util.js';
 
 interface OutdatedInput {
-  cwd?: string;
-  format?: 'list' | 'table';
-  include_deprecated?: boolean;
-  check?: string | string[];
+  cwd?: string | undefined;
+  format?: 'list' | 'table' | undefined;
+  include_deprecated?: boolean | undefined;
+  check?: string | string[] | undefined;
 }
 
 interface OutdatedPackage {

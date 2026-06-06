@@ -337,7 +337,7 @@ export async function getHistoryEntry(id: string, homeFn: HomeDirFn = defaultHom
 export async function restoreFromHistory(
   id: string,
   homeFn: HomeDirFn = defaultHomeDir,
-): Promise<{ ok: boolean; backupId: string | null; error?: string }> {
+): Promise<{ ok: boolean; backupId: string | null; error?: string | undefined }> {
   const entry = await getHistoryEntry(id, homeFn);
   if (!entry) return { ok: false, backupId: null, error: 'History entry not found' };
 
@@ -377,7 +377,7 @@ export async function restoreFromHistory(
 /**
  * Restore config.json to the .last backup.
  */
-export async function restoreLast(homeFn: HomeDirFn = defaultHomeDir): Promise<{ ok: boolean; error?: string }> {
+export async function restoreLast(homeFn: HomeDirFn = defaultHomeDir): Promise<{ ok: boolean; error?: string | undefined }> {
   const last = backupLastPath(homeFn);
   const cfg = configPath(homeFn);
 

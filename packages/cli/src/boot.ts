@@ -68,7 +68,7 @@ export interface BootContext {
   reader: ReadlineInputReader;
   logger: DefaultLogger;
   /** Set by background update check — if outdated, index.ts shows notification */
-  updateInfo?: UpdateInfo;
+  updateInfo?: UpdateInfo | undefined;
 }
 
 function resolveBundledSkillsDir(): string | undefined {
@@ -190,7 +190,7 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
       [...(builtinToolsPack.tools ?? [])],
       builtinToolsPack.name,
     );
-    const code = await subcommands[first]!(positional.slice(1), {
+    const code = await subcommands[first]?.(positional.slice(1), {
       config,
       renderer,
       reader,

@@ -7,7 +7,7 @@ export interface OpenAIChoice {
   message: {
     role: string;
     content: string | null;
-    tool_calls?: OpenAIToolCall[];
+    tool_calls?: OpenAIToolCall[] | undefined;
   };
   finish_reason: string | null;
 }
@@ -18,7 +18,7 @@ export interface FromOpenAIOptions {
    * backward compatibility; the value is ignored.
    * TODO(breaking): remove in next major release.
    */
-  jsonArgumentsBuggy?: boolean;
+  jsonArgumentsBuggy?: boolean | undefined;
   /**
    * Called when a tool call's `arguments` field can't be parsed even after
    * the sanitizer pass. Callers can use this to emit a structured event,

@@ -4,8 +4,8 @@ import { isBinaryBuffer, safeResolveReal } from './_util.js';
 
 interface ReadInput {
   path: string;
-  offset?: number;
-  limit?: number;
+  offset?: number | undefined;
+  limit?: number | undefined;
 }
 
 interface ReadOutput {

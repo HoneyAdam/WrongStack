@@ -6,7 +6,7 @@ interface TodoItem {
   id: string;
   content: string;
   status: 'pending' | 'in_progress' | 'completed';
-  activeForm?: string;
+  activeForm?: string | undefined;
 }
 
 /**
@@ -28,7 +28,7 @@ export function TodosPanel(): React.ReactElement {
 
     // Listen for live updates
     offRef.current = ws.on('todos.updated', (msg: unknown) => {
-      const payload = (msg as { payload?: { todos?: TodoItem[] } })?.payload;
+      const payload = (msg as { payload?: { todos?: TodoItem[] | undefined } })?.payload;
       if (payload?.todos) setTodos(payload.todos);
     });
 

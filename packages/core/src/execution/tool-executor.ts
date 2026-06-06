@@ -15,6 +15,15 @@ import {
 import { validateAgainstSchema } from '../utils/json-schema-validate.js';
 import { createToolOutputSerializer } from '../utils/tool-output-serializer.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export class ToolExecutor {
   private readonly serializer;
   private readonly iterationTimeoutMs: number;
@@ -352,7 +361,7 @@ export class ToolExecutor {
     input: unknown,
     parentSignal: AbortSignal,
     ctx: Context,
-    toolUseId?: string,
+    toolUseId?: string | undefined,
   ): Promise<unknown> {
     if (parentSignal.aborted) {
       // Re-throw the original abort reason, whether it's an Error, string, or undefined.
@@ -419,7 +428,10 @@ export class ToolExecutor {
   ): Promise<unknown> {
     let finalOutput: unknown;
     let sawFinal = false;
-    const stream = tool.executeStream!(input, ctx, { signal });
+    if (!tool.executeStream) {
+      throw new Error(`Tool "${tool.name}" does not support streaming execution`);
+    }
+    const stream = tool.executeStream(input, ctx, { signal });
     for await (const ev of stream) {
       if (ev.type === 'final') {
         finalOutput = ev.output;
@@ -571,7 +583,7 @@ function hasMalformedArguments(input: unknown): boolean {
 function extractMalformedRaw(input: unknown): string | undefined {
   if (!hasMalformedArguments(input)) return undefined;
   const obj = input as Record<string, unknown>;
-  const value = obj[Object.keys(obj)[0]!];
+  const value = obj[expectDefined(Object.keys(obj)[0])];
   if (value === undefined || value === null) return undefined;
   if (typeof value === 'string') return value;
   try {

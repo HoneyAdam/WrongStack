@@ -24,10 +24,10 @@ export interface PluginManagementResult {
   level: 'output' | 'info' | 'error';
   message: string;
   patch?: {
-    plugins?: (string | PluginConfig)[];
+    plugins?: (string | PluginConfig)[] | undefined;
     features?: Record<string, unknown>;
   };
-  restartRequired?: boolean;
+  restartRequired?: boolean | undefined;
 }
 
 const OFFICIAL_ALIASES = new Map<string, string>(

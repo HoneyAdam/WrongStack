@@ -95,9 +95,9 @@ function backtrack(
 }
 
 export interface UnifiedDiffOptions {
-  context?: number;
-  fromFile?: string;
-  toFile?: string;
+  context?: number | undefined;
+  fromFile?: string | undefined;
+  toFile?: string | undefined;
 }
 
 export function unifiedDiff(

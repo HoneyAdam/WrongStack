@@ -58,7 +58,7 @@ export interface SlashCommandRegistryView {
  * event types are persisted verbatim next to the built-in events.
  */
 export interface SessionWriterView {
-  readonly transcriptPath?: string;
+  readonly transcriptPath?: string | undefined;
   append(event: Record<string, unknown> & { type: string; ts: string }): Promise<void>;
 }
 
@@ -69,7 +69,7 @@ export interface SessionWriterView {
  * flow to the host's MetricsSink (Prometheus, OTLP, or noop).
  */
 export interface MetricsSinkView {
-  counter(name: string, value?: number, labels?: Record<string, string>): void;
+  counter(name: string, value?: number | undefined, labels?: Record<string, string>): void;
   histogram(name: string, value: number, labels?: Record<string, string>): void;
   gauge(name: string, value: number, labels?: Record<string, string>): void;
 }
@@ -158,19 +158,19 @@ export interface PluginAPI {
  */
 export interface PluginCapabilities {
   /** Will register tools via `api.tools.register()`. */
-  tools?: boolean;
+  tools?: boolean | undefined;
   /** Will register provider factories via `api.providers.register()`. */
-  providers?: boolean;
+  providers?: boolean | undefined;
   /**
    * Pipelines the plugin hooks into. Use the standard names
    * (`request | response | toolCall | userInput | assistantOutput | contextWindow`)
    * or custom pipeline names exposed by other plugins.
    */
-  pipelines?: string[];
+  pipelines?: string[] | undefined;
   /** Will register slash commands via `api.slashCommands.register()`. */
-  slashCommands?: boolean;
+  slashCommands?: boolean | undefined;
   /** Will start MCP servers via `api.mcp.start()`. */
-  mcp?: boolean;
+  mcp?: boolean | undefined;
 }
 
 /**
@@ -183,14 +183,14 @@ export interface PluginCapabilities {
 export interface PluginDependency {
   name: string;
   /** npm-style semver range. Supports `^`, `~`, exact, and unprefixed. */
-  version?: string;
+  version?: string | undefined;
 }
 
 export interface Plugin {
   name: string;
-  version?: string;
+  version?: string | undefined;
   /** One-line summary for `wstack plugins list` and error messages. */
-  description?: string;
+  description?: string | undefined;
   /** Semver range against the kernel API version (KERNEL_API_VERSION). */
   apiVersion: string;
   /**
@@ -198,22 +198,22 @@ export interface Plugin {
    * Optional; provided for diagnostics and UX. The loader does not enforce
    * these, but mismatch is surfaced via logger at warn level.
    */
-  capabilities?: PluginCapabilities;
+  capabilities?: PluginCapabilities | undefined;
   /**
    * JSON Schema for the options under `Config.plugins[<name>].options`.
    * When present, the loader validates that section before calling `setup`
    * and rejects the plugin with a clear error path on failure.
    */
-  configSchema?: JSONSchema;
+  configSchema?: JSONSchema | undefined;
   /**
    * Mandatory plugin dependencies — loading fails if any are absent or
    * version-incompatible. Accepts both the legacy string-array form and
    * the structured form with version constraints.
    */
-  dependsOn?: (string | PluginDependency)[];
+  dependsOn?: (string | PluginDependency)[] | undefined;
   /** Optional plugin dependencies — silently skipped if absent. */
-  optionalDeps?: (string | PluginDependency)[];
-  conflictsWith?: string[];
+  optionalDeps?: (string | PluginDependency)[] | undefined;
+  conflictsWith?: string[] | undefined;
   /**
    * Default configuration values, deep-merged under the plugin's options
    * key before `configSchema` validation. User-provided values take
@@ -230,5 +230,5 @@ export interface Plugin {
    * command or health endpoint) to surface plugin status. Return
    * `{ ok: false, message: '...' }` when the plugin is degraded.
    */
-  health?(): Promise<{ ok: boolean; message?: string }>;
+  health?(): Promise<{ ok: boolean; message?: string | undefined }>;
 }

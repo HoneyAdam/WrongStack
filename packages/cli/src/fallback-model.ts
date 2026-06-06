@@ -27,7 +27,7 @@ export interface FallbackModelDeps {
 }
 
 interface ModelRef {
-  provider?: string;
+  provider?: string | undefined;
   model: string;
 }
 

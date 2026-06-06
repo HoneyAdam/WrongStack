@@ -2599,14 +2599,6 @@ commands and CLI flags work unchanged.
   the rich preamble. Backwards compatible — existing commands
   return `{ exit?, message? }` as before.
 
-- **TUI alt-screen by default.** `runTui({ altScreen })` now defaults
-  to `true`, taking over the alternate screen buffer (vim/less/htop
-  style) so every keystroke — Ctrl+S, Ctrl+Q, Ctrl+Z, Ctrl+\\ — reaches
-  Ink instead of being eaten by the terminal driver. `--no-alt-screen`
-  is the new opt-out flag for users who want completed chat to survive
-  after exit. `runTui` additionally installs no-op handlers for
-  `SIGTSTP`/`SIGQUIT`/`SIGTTIN`/`SIGTTOU` as belt-and-suspenders.
-
 ### Fixed
 
 - **TUI TDZ crash on first subagent spawn.** The `fleetAgents`
@@ -3365,7 +3357,7 @@ something useful: `core`, `cli`, `providers`, `tools`, `tui`, `mcp`,
 
 ### Added
 
-- **TUI (React/Ink)** — full-screen terminal UI with alternate screen buffer, streaming text, slash command picker, file picker (`@` token), message queue, and crash recovery
+- **TUI (React/Ink)** — full-screen terminal UI with streaming text, slash command picker, file picker (`@` token), message queue, and crash recovery
 - **Slash command picker** — type `/` to open a fuzzy-filtered dropdown of all commands; navigate with `↑/↓`, accept with `Enter` or `Tab`
 - **History scroll** — `PageUp`/`PageDown` (or `Ctrl+K`/`Ctrl+J`) navigate history; `Ctrl+G` jumps to top; auto-scrolls to newest entry unless user scrolled up
 - **Streaming throttle** — `provider.text_delta` events buffered at 100ms (~10fps) to eliminate per-character flicker during streaming

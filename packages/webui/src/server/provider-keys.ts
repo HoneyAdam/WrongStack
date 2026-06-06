@@ -15,6 +15,15 @@
  */
 import type { ProviderApiKey, ProviderConfig } from '@wrongstack/core';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 export type ProvidersRecord = Record<string, ProviderConfig>;
 
 export interface KeyOpResult {
@@ -50,7 +59,7 @@ export function writeKeysBack(cfg: ProviderConfig, keys: ProviderApiKey[]): void
     return;
   }
   cfg.apiKeys = keys;
-  const active = keys.find((k) => k.label === cfg.activeKey) ?? keys[0]!;
+  const active = keys.find((k) => k.label === cfg.activeKey) ?? expectDefined(keys[0]);
   cfg.apiKey = active.apiKey;
   if (!cfg.activeKey || !keys.some((k) => k.label === cfg.activeKey)) {
     cfg.activeKey = active.label;
@@ -76,7 +85,7 @@ export function upsertKey(
   const keys = normalizeKeys(existing);
   const idx = keys.findIndex((k) => k.label === label);
   if (idx >= 0) {
-    keys[idx] = { ...keys[idx]!, apiKey, createdAt: nowIso };
+    keys[idx] = { ...expectDefined(keys[idx]), apiKey, createdAt: nowIso };
   } else {
     keys.push({ label, apiKey, createdAt: nowIso });
   }
@@ -101,7 +110,7 @@ export function deleteKey(
     delete providers[providerId];
   } else {
     writeKeysBack(existing, keys);
-    if (existing.activeKey === label) existing.activeKey = keys[0]!.label;
+    if (existing.activeKey === label) existing.activeKey = keys[0]?.label;
     providers[providerId] = existing;
   }
   return { ok: true, message: `Key "${label}" deleted from ${providerId}` };
@@ -126,7 +135,7 @@ export function setActiveKey(
 /** Register a brand-new provider (optionally with an initial `default` key). */
 export function addProvider(
   providers: ProvidersRecord,
-  payload: { id: string; family: string; baseUrl?: string; apiKey?: string },
+  payload: { id: string; family: string; baseUrl?: string | undefined; apiKey?: string | undefined },
   nowIso: string,
 ): KeyOpResult {
   if (providers[payload.id]) {

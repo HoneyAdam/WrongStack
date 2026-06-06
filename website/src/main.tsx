@@ -4,7 +4,9 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
+const rootEl = document.getElementById('root');
+if (!rootEl) throw new Error('root element not found');
+ReactDOM.createRoot(rootEl).render(
   <React.StrictMode>
     <ThemeProvider
       attribute="class"

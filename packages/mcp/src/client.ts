@@ -9,13 +9,13 @@ export type Transport = 'stdio' | 'sse' | 'streamable-http';
 export interface MCPClientOptions {
   name: string;
   transport: Transport;
-  command?: string;
-  args?: string[];
-  env?: Record<string, string>;
-  url?: string;
-  headers?: Record<string, string>;
-  startupTimeoutMs?: number;
-  requestTimeoutMs?: number;
+  command?: string | undefined;
+  args?: string[] | undefined;
+  env?: Record<string, string> | undefined;
+  url?: string | undefined;
+  headers?: Record<string, string> | undefined;
+  startupTimeoutMs?: number | undefined;
+  requestTimeoutMs?: number | undefined;
 }
 
 export type ConnectionState =
@@ -28,7 +28,7 @@ export type ConnectionState =
 
 export interface MCPTool {
   name: string;
-  description?: string;
+  description?: string | undefined;
   inputSchema: Record<string, unknown>;
 }
 
@@ -41,14 +41,14 @@ interface JsonRpcRequest {
   jsonrpc: '2.0';
   id: number;
   method: string;
-  params?: unknown;
+  params?: unknown | undefined;
 }
 
 export interface JsonRpcResponse {
   jsonrpc: '2.0';
   id: number;
-  result?: unknown;
-  error?: { code: number; message: string; data?: unknown };
+  result?: unknown | undefined;
+  error?: { code: number | undefined; message: string; data?: unknown | undefined } | undefined;
 }
 
 type ExitListener = (name: string, code: number | null, signal: string | null) => void;
@@ -67,7 +67,7 @@ type ToolsChangedListener = (name: string, tools: MCPTool[]) => void;
  */
 export class MCPClient {
   private state: ConnectionState = 'idle';
-  private child?: ChildProcess;
+  private child?: ChildProcess | undefined;
   private nextId = 1;
   /**
    * In-flight JSON-RPC calls keyed by id. `resolve` settles the call; `reject`
@@ -81,12 +81,12 @@ export class MCPClient {
   private rxBuffer = '';
   private _tools: MCPTool[] = [];
   /** Cached tool list — survives reconnects so the registry can re-register without re-discovering. */
-  private _toolsCache?: MCPTool[];
+  private _toolsCache?: MCPTool[] | undefined;
   private _drainPending = false;
   private _lastNotifySkipped = false;
   // HTTP transports
-  private sseTransport?: SSETransport;
-  private httpTransport?: StreamableHTTPTransport;
+  private sseTransport?: SSETransport | undefined;
+  private httpTransport?: StreamableHTTPTransport | undefined;
   /** Notified when the stdio child process exits so the registry can attempt reconnect. */
   private readonly exitListeners = new Set<ExitListener>();
   /** Notified when the server announces a tools/list_changed notification. */
@@ -237,7 +237,7 @@ export class MCPClient {
     if (toolsRes.error) {
       this._tools = [];
     } else {
-      const result = toolsRes.result as { tools?: MCPTool[] } | undefined;
+      const result = toolsRes.result as { tools?: MCPTool[] | undefined } | undefined;
       this._tools = normalizeMCPTools(result?.tools);
     }
     // Cache tools so reconnect can re-register without re-discovering
@@ -359,7 +359,7 @@ export class MCPClient {
     if (res.error) {
       return { content: res.error.message, isError: true };
     }
-    const result = res.result as { content?: unknown; isError?: boolean } | undefined;
+    const result = res.result as { content?: unknown | undefined; isError?: boolean | undefined } | undefined;
     return {
       content: result?.content ?? '',
       isError: Boolean(result?.isError),
@@ -545,9 +545,9 @@ export class MCPClient {
   }
 
   private onLine(line: string): void {
-    let msg: JsonRpcResponse & { method?: string; params?: unknown };
+    let msg: JsonRpcResponse & { method?: string | undefined; params?: unknown | undefined };
     try {
-      msg = JSON.parse(line) as JsonRpcResponse & { method?: string; params?: unknown };
+      msg = JSON.parse(line) as JsonRpcResponse & { method?: string | undefined; params?: unknown | undefined };
     } catch {
       return;
     }
@@ -575,7 +575,7 @@ export class MCPClient {
   private async handleToolsListChanged(): Promise<void> {
     try {
       const toolsRes = await this.request('tools/list', {});
-      const tools = normalizeMCPTools((toolsRes.result as { tools?: unknown } | undefined)?.tools);
+      const tools = normalizeMCPTools((toolsRes.result as { tools?: unknown | undefined } | undefined)?.tools);
       this._tools = tools;
       this._toolsCache = tools;
       for (const listener of this.toolsChangedListeners) {

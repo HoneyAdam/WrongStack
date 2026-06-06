@@ -2,6 +2,15 @@ import type { PluginAPI, SlashCommand } from '@wrongstack/core';
 import type { TelegramBot } from '../bot.js';
 import type { TelegramPluginConfig } from '../config.js';
 
+
+
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 // ---------------------------------------------------------------------------
 // /telegram:status
 // ---------------------------------------------------------------------------
@@ -24,7 +33,7 @@ allowlist status, and notification settings.`,
         `Running:   ${bot.running ? 'yes' : 'no'}`,
         `Started:   ${bot.startedAt ? new Date(bot.startedAt).toLocaleTimeString() : 'N/A'}`,
         `Poll:      every ${cfg.pollIntervalSec ?? 2}s`,
-        `Allowed:   ${(cfg.allowedUsers?.length ?? 0) > 0 ? `${cfg.allowedUsers!.length} users` : 'everyone (users)'} / ${(cfg.allowedChats?.length ?? 0) > 0 ? `${cfg.allowedChats!.length} chats` : 'everyone (chats)'}`,
+        `Allowed:   ${(cfg.allowedUsers?.length ?? 0) > 0 ? `${cfg.allowedUsers?.length} users` : 'everyone (users)'} / ${(cfg.allowedChats?.length ?? 0) > 0 ? `${cfg.allowedChats?.length} chats` : 'everyone (chats)'}`,
         `Notify:    sessionEnd=${cfg.notifyOnSessionEnd ?? false}, longTool=${cfg.longToolThresholdMs ? `${cfg.longToolThresholdMs}ms` : 'off'}`,
       ];
 
@@ -64,8 +73,8 @@ Examples:
       // First token might be a numeric chat_id
       const parts = args.trim().split(/\s+/);
       const maybeId = parts[0];
-      if (/^\d+$/.test(maybeId!) && parts.length > 1) {
-        chatId = maybeId!;
+      if (/^\d+$/.test(expectDefined(maybeId)) && parts.length > 1) {
+        chatId = expectDefined(maybeId);
         text = parts.slice(1).join(' ');
       } else if (defaultChatId) {
         chatId = defaultChatId;

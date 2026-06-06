@@ -18,18 +18,18 @@ export class BudgetExceededError extends Error {
 }
 
 export interface BudgetLimits {
-  maxIterations?: number;
-  maxToolCalls?: number;
-  maxTokens?: number;
+  maxIterations?: number | undefined;
+  maxToolCalls?: number | undefined;
+  maxTokens?: number | undefined;
   /** Estimated USD cost ceiling. */
-  maxCostUsd?: number;
+  maxCostUsd?: number | undefined;
   /**
    * Hard wall-clock timeout measured from `start()`. Off by default — set it
    * explicitly only when a task must finish within an absolute window. For
    * the everyday "don't kill an agent that's still working" guard, prefer
    * `idleTimeoutMs`, which resets on activity.
    */
-  timeoutMs?: number;
+  timeoutMs?: number | undefined;
   /**
    * Idle timeout: the maximum gap (ms) between activity signals (iterations,
    * tool calls, token usage, streamed progress) before the subagent is
@@ -37,7 +37,7 @@ export interface BudgetLimits {
    * agent continuously resets this clock via `markActivity()`, so it never
    * trips on a long-but-productive run — only on a genuine stall.
    */
-  idleTimeoutMs?: number;
+  idleTimeoutMs?: number | undefined;
 }
 
 /**
@@ -158,7 +158,7 @@ export class SubagentBudget {
    * Injected by the runner when wiring the budget to its EventBus.
    * Used to emit `budget.threshold_reached` events in `'auto'` mode.
    */
-  _events?: EventBus;
+  _events?: EventBus | undefined;
 
   /**
    * Negotiation mode — controls whether a threshold hit tries to emit
@@ -290,17 +290,17 @@ export class SubagentBudget {
 
     if (!this._onThreshold) {
       // Hard stop — throw on the first exceeded kind.
-      const first = exceeded[0]!;
+      const first = exceeded[0] ?? { kind: 'iterations', limit: 0, used: 0 };
       throw new BudgetExceededError(first.kind, first.limit, first.used);
     }
     if (this._mode === 'sync') {
       // Hard stop in sync mode.
-      const first = exceeded[0]!;
+      const first = exceeded[0] ?? { kind: 'iterations', limit: 0, used: 0 };
       throw new BudgetExceededError(first.kind, first.limit, first.used);
     }
     const bus = this._events;
     if (!bus || !bus.hasListenerFor('budget.threshold_reached')) {
-      const first = exceeded[0]!;
+      const first = exceeded[0] ?? { kind: 'iterations', limit: 0, used: 0 };
       throw new BudgetExceededError(first.kind, first.limit, first.used);
     }
 
@@ -314,8 +314,9 @@ export class SubagentBudget {
       this._pendingNegotiations.set(entry.kind, decision);
     }
 
-    const first = exceeded[0]!;
-    const decision = this._pendingNegotiations.get(first.kind)!;
+    const first = exceeded[0] ?? { kind: 'iterations', limit: 0, used: 0 };
+    const decision = this._pendingNegotiations.get(first.kind);
+    if (!decision) throw new Error(`No pending negotiation for ${first.kind}`);
     throw new BudgetThresholdSignal(first.kind, first.limit, first.used, decision);
   }
 
@@ -342,10 +343,14 @@ export class SubagentBudget {
     kind: BudgetKind,
     exceeded: { kind: BudgetKind; used: number; limit: number }[],
   ): Promise<BudgetThresholdDecision> {
+    if (!this._onThreshold) {
+      // Should never reach here — caller should have thrown already
+      return 'stop';
+    }
     try {
       // Use the first exceeded kind for the handler call.
-      const first = exceeded[0]!;
-      const result = this._onThreshold!({
+      const first = exceeded[0] ?? { kind: 'iterations', limit: 0, used: 0 };
+      const result = this._onThreshold({
         kind: first.kind,
         used: first.used,
         limit: first.limit,

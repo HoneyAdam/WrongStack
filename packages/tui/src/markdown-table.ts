@@ -1,3 +1,10 @@
+function expectDefined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('Expected value to be defined');
+  }
+  return value;
+}
+
 /**
  * Scan a body of prose for GitHub-flavoured markdown tables and replace
  * each one with a Unicode box-drawing rendering that fits the terminal
@@ -136,7 +143,7 @@ function computeWidths(
   allRows: string[][],
   cols: number,
   maxWidth: number,
-  sepWidths?: (number | null)[],
+  sepWidths?: (number | null)[] | undefined,
 ): number[] {
   // Each column adds `│ … ` of overhead (2 padding + 1 separator); the
   // very first column also gets an opening `│`. Net overhead = 3*cols + 1.
@@ -150,7 +157,7 @@ function computeWidths(
       const stripped = stripInlineMarkers(cell);
       const w = longestWord(stripped);
       const total = strWidth(stripped);
-      natural[c] = Math.max(natural[c]!, w, total);
+      natural[c] = Math.max(expectDefined(natural[c]), w, total);
     }
   }
   // Apply separator widths as minimums (markdown separator defines column widths).
@@ -158,7 +165,7 @@ function computeWidths(
     for (let c = 0; c < cols && c < sepWidths.length; c++) {
       const sepW = sepWidths[c];
       if (sepW != null) {
-        natural[c] = Math.max(natural[c]!, sepW);
+        natural[c] = Math.max(expectDefined(natural[c]), sepW);
       }
     }
   }
@@ -172,14 +179,14 @@ function computeWidths(
     let maxIdx = -1;
     let maxVal = MIN_COL_WIDTH;
     for (let i = 0; i < cols; i++) {
-      const w = widths[i]!;
+      const w = expectDefined(widths[i]);
       if (w > maxVal) {
         maxVal = w;
         maxIdx = i;
       }
     }
     if (maxIdx < 0) break; // every column is at MIN_COL_WIDTH; give up
-    widths[maxIdx]!--;
+    widths[maxIdx] = (widths[maxIdx] ?? 0) - 1;
     sum--;
   }
   return widths;
@@ -267,7 +274,7 @@ export function strWidth(s: string): number {
       continue;
     }
 
-    const code = s.codePointAt(i)!;
+    const code = expectDefined(s.codePointAt(i));
     const cpLen = code > 0xffff ? 2 : 1; // surrogate pair = single code point
 
     // Zero-width characters — contribute nothing to visual width.
