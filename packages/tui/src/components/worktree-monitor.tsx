@@ -29,6 +29,9 @@ function fmt(s: string) {
  * Full-screen Worktree monitor overlay (Ctrl+T to open, Ctrl+T/Esc to close).
  * Shows each AutoPhase worktree: branch, base→branch, owner phase, diff stats,
  * and conflict files for any worktree left in needs-review.
+ *
+ * Prunes merged/failed worktrees older than TERMINAL_TTL_MS to prevent
+ * accumulation in long-running sessions.
  */
 export function WorktreeMonitor({
   worktrees,
@@ -45,10 +48,22 @@ export function WorktreeMonitor({
     if (key.escape || (key.ctrl && input === 'w')) onClose();
   });
 
+  /** Terminal worktrees older than this are pruned from the view. */
+  const TERMINAL_TTL_MS = 5 * 60_000; // 5 minutes
+
   const list = Object.values(worktrees);
+
+  // Show live worktrees + recently-terminated ones only.
+  const recent = list.filter((w) => {
+    if (['active', 'committing', 'merging', 'needs-review'].includes(w.status)) return true;
+    return nowTick - (w.allocatedAt ?? nowTick) < TERMINAL_TTL_MS;
+  });
+
+  // Counts from ALL entries (accurate), display from recent only.
   const active = list.filter((w) => ['active', 'committing', 'merging'].includes(w.status)).length;
   const merged = list.filter((w) => w.status === 'merged').length;
   const failed = list.filter((w) => w.status === 'failed' || w.status === 'needs-review').length;
+  const staleTerminal = list.length - recent.length;
 
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="green" paddingX={1}>
@@ -71,10 +86,10 @@ export function WorktreeMonitor({
         <Text dimColor>│ Ctrl+T / F4 / Esc to close</Text>
       </Box>
 
-      {list.length === 0 ? (
+      {recent.length === 0 ? (
         <Text dimColor>No worktrees. They appear when AutoPhase runs with isolation on.</Text>
       ) : (
-        list.map((w) => {
+        recent.map((w) => {
           const s = fmt(w.status);
           const short = w.branch.replace(/^wstack\/ap\//, '');
           const elapsed = w.allocatedAt ? fmtElapsed(nowTick - w.allocatedAt) : '—';
@@ -112,6 +127,7 @@ export function WorktreeMonitor({
 
       <Box marginTop={1}>
         <Text dimColor>Esc close · merge conflicts with /worktree merge &lt;branch&gt;</Text>
+        {staleTerminal > 0 ? <Text dimColor>{` · ${staleTerminal} terminal pruned`}</Text> : null}
       </Box>
     </Box>
   );
