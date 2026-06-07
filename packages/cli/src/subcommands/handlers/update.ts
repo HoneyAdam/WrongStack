@@ -34,6 +34,7 @@ export const updateCmd: SubcommandHandler = async (args, deps) => {
       const child = spawn(npmCommand, ['install', '-g', 'wrongstack@latest'], {
         cwd,
         stdio: 'pipe',
+        signal: AbortSignal.timeout(120_000),
       });
       let _stderr = '';
       child.stderr?.on('data', (d) => { _stderr += d; });

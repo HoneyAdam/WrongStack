@@ -28,7 +28,12 @@ export function createProviderHandlers(deps: ProviderHandlerDeps) {
   }
 
   async function saveConfigProviders(providers: Record<string, ProviderConfig>): Promise<void> {
-    const next = configWriteLock.then(() => saveProviders(globalConfigPath, vault, providers));
+    const next = configWriteLock
+      .then(() => saveProviders(globalConfigPath, vault, providers))
+      .catch((err) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[ProviderHandlers] saveProviders failed: ${msg}`);
+      });
     configWriteLock = next;
     deps.setConfigWriteLock(next);
     await next;

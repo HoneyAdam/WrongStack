@@ -214,12 +214,17 @@ export function serveStdio(server: MCPServer, opts: ServeStdioOptions = {}): Ser
   let writeChain: Promise<void> = Promise.resolve();
 
   const writeLine = (s: string) => {
-    writeChain = writeChain.then(
-      () =>
-        new Promise<void>((resolve) => {
-          stdout.write(`${s}\n`, () => resolve());
-        }),
-    );
+    writeChain = writeChain
+      .then(
+        () =>
+          new Promise<void>((resolve) => {
+            stdout.write(`${s}\n`, () => resolve());
+          }),
+      )
+      .catch((err) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[mcp:Server] stdout write failed: ${msg}`);
+      });
   };
 
   const onData = (chunk: Buffer | string) => {

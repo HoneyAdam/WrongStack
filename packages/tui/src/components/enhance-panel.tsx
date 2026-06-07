@@ -1,13 +1,15 @@
 import { Box, Text, useInput } from 'ink';
 import React from 'react';
 
-export type EnhanceDecision = 'refined' | 'original' | 'edit';
+export type EnhanceDecision = 'refined' | 'english' | 'original' | 'edit';
 
 export interface EnhancePanelProps {
   /** The user's original message. */
   original: string;
-  /** The refiner's rewritten version. */
+  /** Refined in the user's original language. */
   refined: string;
+  /** Refined in English. */
+  english: string;
   /** Auto-send countdown in milliseconds. */
   delayMs: number;
   /** Called once with the chosen action (by key press or countdown expiry). */
@@ -16,9 +18,13 @@ export interface EnhancePanelProps {
 
 /**
  * Prompt-refinement preview ("did you mean this?"). Shows the refined request
- * with a live countdown; auto-sends the refined version when the countdown
- * expires unless the user intervenes:
- *   Enter → send refined now · Esc → use original · e → edit refined
+ * in both the user's language and English with a live countdown; auto-sends
+ * the original-language refined version when the countdown expires unless the
+ * user intervenes:
+ *   Enter → send original-lang refined now
+ *   e     → send English refined
+ *   Esc   → use original
+ *   t     → edit the original-lang refined version
  *
  * Self-contained like ConfirmPrompt: owns its keys via `useInput` and its
  * timer via `useEffect`. `onDecision` is guarded by the caller so only the
@@ -27,6 +33,7 @@ export interface EnhancePanelProps {
 export function EnhancePanel({
   original,
   refined,
+  english,
   delayMs,
   onDecision,
 }: EnhancePanelProps): React.ReactElement {
@@ -57,6 +64,8 @@ export function EnhancePanel({
     } else if (key.escape) {
       onDecision('original');
     } else if (input?.toLowerCase() === 'e') {
+      onDecision('english');
+    } else if (input?.toLowerCase() === 't') {
       onDecision('edit');
     }
   });
@@ -75,24 +84,32 @@ export function EnhancePanel({
         <Text dimColor>{original}</Text>
       </Box>
       <Box flexDirection="row">
-        <Text color="green">refined:  </Text>
+        <Text color="yellow">refined:  </Text>
         <Text color="white">{refined}</Text>
+      </Box>
+      <Box flexDirection="row">
+        <Text color="green">english:  </Text>
+        <Text color="white">{english}</Text>
       </Box>
       <Text dimColor>─────────────────</Text>
       <Box flexDirection="row">
         <Text>
-          <Text bold color="green">
+          <Text bold color="yellow">
             [Enter]
           </Text>
-          <Text dimColor> send · </Text>
-          <Text bold color="yellow">
-            [Esc]
-          </Text>
-          <Text dimColor> use original · </Text>
-          <Text bold color="cyan">
+          <Text dimColor> refined · </Text>
+          <Text bold color="green">
             [e]
           </Text>
-          <Text dimColor>dit</Text>
+          <Text dimColor> english · </Text>
+          <Text bold color="cyan">
+            [t]
+          </Text>
+          <Text dimColor> düzenle · </Text>
+          <Text bold color="red">
+            [Esc]
+          </Text>
+          <Text dimColor> orijinal</Text>
         </Text>
       </Box>
     </Box>

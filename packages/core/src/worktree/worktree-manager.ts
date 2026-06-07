@@ -494,6 +494,7 @@ export class WorktreeManager {
         cwd,
         env: buildChildEnv(),
         stdio: ['ignore', 'pipe', 'pipe'],
+        signal: AbortSignal.timeout(30_000),
       });
       child.stdout?.on('data', (c: Buffer) => {
         stdout += c.toString();

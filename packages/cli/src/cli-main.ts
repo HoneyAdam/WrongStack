@@ -278,32 +278,43 @@ export async function main(argv: string[]): Promise<number> {
   // Track the latest provider request's input-token count so the spinner
   // can render a live context-window fullness bar (TUI parity).
   let lastInputTokens = 0;
-  events.on('provider.response', (e) => {
+
+  // Collect unsubscriber handles so we can detach on process exit. In the
+  // default single-shot flow the process exits right after agent.run(), but
+  // REPL/TUI modes keep the EventBus alive across multiple runs — stale
+  // handlers from a re-entrant main() would otherwise accumulate.
+  const teardownHandlers: Array<() => void> = [];
+  const evOn = (event: string, handler: (...args: any[]) => void) => {
+    (events.on as (event: string, handler: (...args: any[]) => void) => void)(event, handler);
+    teardownHandlers.push(() => (events.off as (event: string, handler: (...args: any[]) => void) => void)(event, handler));
+  };
+
+  evOn('provider.response', (e) => {
     lastInputTokens = e.usage?.input ?? 0;
     updateSpinnerContext();
   });
-  events.on('iteration.started', () => {
+  evOn('iteration.started', () => {
     updateSpinnerContext();
     spinner.start(color.dim(`${config.provider}/${config.model} thinking…`));
   });
-  events.on('provider.response', () => {
+  evOn('provider.response', () => {
     spinner.stop();
   });
-  events.on('error', () => {
+  evOn('error', () => {
     spinner.stop();
   });
 
   // Live streaming output: first text_delta stops the spinner and starts
   // writing tokens directly so the user sees the model "type".
   let streamingActive = false;
-  events.on('provider.text_delta', (p) => {
+  evOn('provider.text_delta', (p) => {
     if (!streamingActive) {
       spinner.stop();
       streamingActive = true;
     }
     renderer.write(p.text);
   });
-  events.on('iteration.completed', () => {
+  evOn('iteration.completed', () => {
     if (streamingActive) {
       renderer.write('\n');
       streamingActive = false;
@@ -313,7 +324,7 @@ export async function main(argv: string[]): Promise<number> {
   // Provider hiccups — render a single friendly line instead of leaving the
   // raw JSON body in logger output. retry events show a countdown; error
   // events surface a final failure that won't be retried.
-  events.on('provider.retry', (p) => {
+  evOn('provider.retry', (p) => {
     spinner.stop();
     if (streamingActive) {
       renderer.write('\n');
@@ -323,7 +334,7 @@ export async function main(argv: string[]): Promise<number> {
     writeErr(color.yellow(`  ⟳ retry ${p.attempt} in ${secs}s — ${p.description}\n`));
     spinner.start(color.dim(`${config.provider}/${config.model} thinking…`));
   });
-  events.on('provider.error', (p) => {
+  evOn('provider.error', (p) => {
     spinner.stop();
     if (streamingActive) {
       renderer.write('\n');
@@ -388,7 +399,7 @@ export async function main(argv: string[]): Promise<number> {
 
   // Last-N error ring buffer surfaced by /diag.
   const errorRing: { ts: string; phase: string; code: string; message: string }[] = [];
-  events.on('error', (e) => {
+  evOn('error', (e) => {
     const err = e.err as unknown;
     const code =
       err &&
@@ -419,7 +430,7 @@ export async function main(argv: string[]): Promise<number> {
 
   // Persist tool execution start/end to the session log for audit + timing forensics.
   // Uses the same central bridge (respects auditLevel).
-  events.on('tool.started', (e) => {
+  evOn('tool.started', (e) => {
     sessionBridge
       .append({
         type: 'tool_call_start',
@@ -433,7 +444,7 @@ export async function main(argv: string[]): Promise<number> {
       });
   });
 
-  events.on('tool.executed', (e) => {
+  evOn('tool.executed', (e) => {
     sessionBridge
       .append({
         type: 'tool_call_end',
@@ -456,11 +467,11 @@ export async function main(argv: string[]): Promise<number> {
   // Ink TUI renders its own delegate history entries, so skip these when it
   // owns the screen to avoid double-printing.
   if (!tuiOwnsScreen) {
-    events.on('delegate.started', (e) => {
+    evOn('delegate.started', (e) => {
       const task = e.task.length > 100 ? `${e.task.slice(0, 99)}…` : e.task;
       renderer.writeInfo(`🤝 Delegating → ${e.target}: ${task}`);
     });
-    events.on('delegate.completed', (e) => {
+    evOn('delegate.completed', (e) => {
       const cost = e.costUsd && e.costUsd > 0 ? ` · $${e.costUsd.toFixed(4)}` : '';
       renderer.writeInfo(`${e.ok ? '✅' : '❌'} ${e.summary}${cost}`);
     });
@@ -469,7 +480,7 @@ export async function main(argv: string[]): Promise<number> {
   // Forward tool progress events.
   // Sampling + "full" level filtering is now handled inside the SessionEventBridge
   // for consistency and reusability across CLI / TUI / WebUI etc.
-  events.on('tool.progress', (e) => {
+  evOn('tool.progress', (e) => {
     sessionBridge
       .append({
         type: 'tool_progress',
@@ -484,7 +495,7 @@ export async function main(argv: string[]): Promise<number> {
   });
 
   // Provider visibility — very valuable for debugging retry storms and provider failures.
-  events.on('provider.retry', (e) => {
+  evOn('provider.retry', (e) => {
     sessionBridge
       .append({
         type: 'provider_retry',
@@ -500,7 +511,7 @@ export async function main(argv: string[]): Promise<number> {
       });
   });
 
-  events.on('provider.error', (e) => {
+  evOn('provider.error', (e) => {
     sessionBridge
       .append({
         type: 'provider_error',
@@ -1604,6 +1615,8 @@ export async function main(argv: string[]): Promise<number> {
       parallelEngine?.stop();
     },
     onExit: () => {
+      for (const teardown of teardownHandlers) teardown();
+      teardownHandlers.length = 0;
       brainQueue.dispose();
       void mcpRegistry.stopAll();
     },
@@ -1616,6 +1629,7 @@ export async function main(argv: string[]): Promise<number> {
           const child = spawn('git', ['status', '--porcelain'], {
             cwd,
             stdio: ['ignore', 'pipe', 'pipe'],
+            signal: AbortSignal.timeout(5000),
           });
           let stdout = '';
           child.stdout?.on('data', (d) => {

@@ -1084,13 +1084,13 @@ export function App({
   }, [eraseLiveRegion]);
 
   // While the prompt-refinement flow is active, the EnhancePanel's countdown
-  // re-renders the live region. In inline mode each redraw can bleed the
-  // region's top rows into native scrollback, so the preview "clones" itself.
-  // Erase the stale region before each paint (layout effect runs pre-flush)
-  // so nothing accumulates. Gated on the flow being active.
+  // re-renders the live region every second. In inline mode each redraw can
+  // bleed the region's top rows into native scrollback, so the preview
+  // "clones" itself. Erase the stale region before every paint — no dep
+  // array so this runs pre-flush on *every* render, not just state transitions.
   React.useLayoutEffect(() => {
     if (state.enhanceBusy || state.enhance != null) eraseLiveRegion();
-  }, [state.enhanceBusy, state.enhance, eraseLiveRegion]);
+  });
 
   // Detect an active `@<query>` token at the cursor and drive the picker.
   // Reruns whenever buffer/cursor changes — guards against stale results.
@@ -2027,21 +2027,39 @@ export function App({
   // lines]` chip in the editable row — the content lives in the AttachmentStore
   // and is expanded from the buffer at submit. A short single-line paste is
   // inserted straight into the row as raw text so the user can see and edit it.
+  //
+  // Exception: when the buffer starts with `/` (slash command), the paste
+  // content is the command's argument — collapsing it to a chip would make
+  // commands like `/fix` classify the placeholder text instead of the actual
+  // error. Still collapse only truly massive pastes (>collapse threshold)
+  // since they won't fit a CLI command line anyway.
   const commitPaste = async (full: string): Promise<void> => {
     const builder = builderRef.current;
     if (!builder || !full) return;
-    if (builder.wouldCollapse(full) || full.includes('\n')) {
+    const { buffer, cursor } = draftRef.current;
+    const isSlashCmd = buffer.trimStart().startsWith('/');
+    const mustCollapse = builder.wouldCollapse(full);
+    const multiLine = full.includes('\n');
+
+    if (isSlashCmd && !mustCollapse) {
+      // Slash command: inline the paste so the command handler sees the real
+      // content instead of a `[pasted #N]` placeholder. Multi-line content is
+      // fine — slash command args span the rest of the line, newlines included.
+      const next = buffer.slice(0, cursor) + full + buffer.slice(cursor);
+      setDraft(next, cursor + full.length);
+      return;
+    }
+
+    if (mustCollapse || multiLine) {
       // Register-only: store the paste, get back the inline token. The token
       // goes into the buffer (single source of truth); nothing is appended to
       // the builder's own display, so there's no double-expansion at submit.
       const token = await builder.registerPaste(full);
       tokenPreviewsRef.current.set(token, truncatePastePreview(full, 6));
-      const { buffer, cursor } = draftRef.current;
       const next = buffer.slice(0, cursor) + token + buffer.slice(cursor);
       setDraft(next, cursor + token.length);
       return;
     }
-    const { buffer, cursor } = draftRef.current;
     const next = buffer.slice(0, cursor) + full + buffer.slice(cursor);
     setDraft(next, cursor + full.length);
   };
@@ -3388,10 +3406,10 @@ export function App({
       // this controller, the call rejects → null → we send the original.
       const ac = new AbortController();
       enhanceAbortRef.current = ac;
-      let refined: string | null = null;
+      let result: { refined: string; english: string } | null = null;
       let enhanceErr: string | null = null;
       try {
-        refined = await enhanceUserPrompt({
+        result = await enhanceUserPrompt({
           provider: agent.ctx.provider,
           model: agent.ctx.model,
           text: trimmed,
@@ -3402,7 +3420,7 @@ export function App({
           // Feed recent conversation so follow-ups ("do the same", "that file")
           // resolve against context instead of being refined blind.
           history: recentTextTurns(agent.ctx.messages),
-        });
+        }) as { refined: string; english: string } | null;
       } finally {
         enhanceAbortRef.current = null;
         dispatch({ type: 'enhanceBusy', on: false });
@@ -3410,7 +3428,7 @@ export function App({
       // Surface WHY a refine fell through (provider rejected it, timed out, no
       // text) — otherwise "refining…" vanishing with no panel is confusing.
       // Skipped when the user cancelled it themselves.
-      if (refined === null && !ac.signal.aborted) {
+      if (result === null && !ac.signal.aborted) {
         dispatch({
           type: 'addEntry',
           entry: {
@@ -3421,18 +3439,30 @@ export function App({
           },
         });
       }
-      if (refined && !normalizedEqual(refined, trimmed)) {
-        const decision = await new Promise<'refined' | 'original' | 'edit'>((resolve) => {
-          dispatch({ type: 'enhanceOpen', info: { original: trimmed, refined, resolve } });
+      if (result && !normalizedEqual(result.refined, trimmed)) {
+        const decision = await new Promise<'refined' | 'english' | 'original' | 'edit'>((resolve) => {
+          dispatch({
+            type: 'enhanceOpen',
+            info: {
+              original: trimmed,
+              refined: result.refined,
+              english: result.english,
+              resolve,
+            },
+          });
         });
         dispatch({ type: 'enhanceClose' });
         if (decision === 'edit') {
           // Load the refined text back into the input so the user can tweak
           // it and re-submit. Nothing is sent this round.
-          setDraft(refined, refined.length);
+          setDraft(result.refined, result.refined.length);
           return;
         }
-        effectiveText = decision === 'refined' ? refined : trimmed;
+        if (decision === 'english') {
+          effectiveText = result.english;
+        } else {
+          effectiveText = decision === 'refined' ? result.refined : trimmed;
+        }
       }
     }
 
@@ -3749,7 +3779,7 @@ export function App({
             ? (() => {
                 const info = state.enhance;
                 let resolved = false;
-                const onDecision = (decision: 'refined' | 'original' | 'edit') => {
+                const onDecision = (decision: 'refined' | 'english' | 'original' | 'edit') => {
                   if (resolved) return;
                   resolved = true;
                   info.resolve(decision);
@@ -3758,6 +3788,7 @@ export function App({
                   <EnhancePanel
                     original={info.original}
                     refined={info.refined}
+                    english={info.english}
                     delayMs={enhanceDelayMs}
                     onDecision={onDecision}
                   />

@@ -164,6 +164,7 @@ export {
   enhanceUserPrompt,
   recentTextTurns,
   type ConversationTurn,
+  type EnhanceResult,
   type EnhanceUserPromptOptions,
 } from './execution/prompt-enhancer.js';
 export {

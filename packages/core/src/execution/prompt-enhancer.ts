@@ -17,20 +17,28 @@ import type { Provider, Request } from '../types/provider.js';
  * free of React / TUI dependencies so it can be unit-tested in isolation.
  */
 
-export const ENHANCER_SYSTEM_PROMPT = `You are a request refiner embedded in a coding agent. Your ONLY job is to rewrite the user's message into a single, clearer, unambiguous instruction that the coding agent can act on confidently.
+export const ENHANCER_SYSTEM_PROMPT = `You are a request refiner embedded in a coding agent. Your ONLY job is to rewrite the user's message into clearer, unambiguous instructions that the coding agent can act on confidently.
 
 Rules:
 - Preserve the user's intent and scope EXACTLY. Do not add new requirements, features, constraints, or steps the user did not ask for. Do not remove anything they did ask for.
 - Do NOT answer, solve, or perform the request. Only restate it more clearly.
 - Keep all concrete details verbatim: file paths, identifiers, code, error text, numbers, names, URLs.
 - Resolve obvious ambiguity by making the implied subject explicit, not by inventing specifics. If something is genuinely unspecified, leave it general rather than guessing.
-- Be concise: one tight instruction (a few sentences at most). No preamble, no explanation, no quotes, no markdown headers.
+- Be concise: one tight instruction per version (a few sentences at most). No preamble, no explanation, no quotes, no markdown headers.
 - If the message is already clear and complete, return it essentially unchanged.
-- Preserve the user's language (if they wrote in Turkish, refine in Turkish).
+
+You MUST output TWO versions of the refined request, separated by a line containing only "---".
+- First version: refined in the SAME LANGUAGE the user wrote in (if Turkish → Turkish, if Spanish → Spanish, etc.).
+- Second version: refined in ENGLISH (translate the intent into clear English while preserving all concrete details).
+
+Output format:
+<refined in user's language>
+---
+<refined in English>
 
 When earlier conversation turns are provided, they are CONTEXT ONLY. Use them to resolve references in the user's latest message — "it", "that", "the same", "the other one", "this file", "again" — so the refined instruction is self-contained. Refine ONLY the user's latest message; do not answer it, do not act on or restate earlier turns, and do not summarize the conversation.
 
-Output ONLY the refined request text — nothing else.`;
+Output ONLY the two versions separated by "---" — nothing else.`;
 
 /** Words/phrases that are control answers, not refinable requests. */
 const AFFIRMATION_RE =
@@ -68,6 +76,17 @@ export function normalizedEqual(a: string, b: string): boolean {
 export interface ConversationTurn {
   role: 'user' | 'assistant';
   text: string;
+}
+
+/**
+ * Result of a successful prompt refinement. Contains both the
+ * original-language and English versions so the UI can offer both.
+ */
+export interface EnhanceResult {
+  /** Refined in the user's original language. */
+  refined: string;
+  /** Refined in English. */
+  english: string;
 }
 
 export interface EnhanceUserPromptOptions {
@@ -121,7 +140,7 @@ function buildRefinerInput(text: string, history?: ConversationTurn[]): string {
  */
 export async function enhanceUserPrompt(
   opts: EnhanceUserPromptOptions,
-): Promise<string | null> {
+): Promise<EnhanceResult | null> {
   const { provider, model, text } = opts;
   // Reasoning models ("thinking" models like DeepSeek reasoner / o1) take
   // longer to first token, so give a generous default window.
@@ -152,16 +171,32 @@ export async function enhanceUserPrompt(
 
   try {
     const res = await provider.complete(req, { signal });
-    const refined = res.content
+    const raw = res.content
       .filter(isTextBlock)
       .map((b) => b.text)
       .join('\n')
       .trim();
-    if (!refined) {
+    if (!raw) {
       opts.onError?.('model returned no text');
       return null;
     }
-    return refined;
+
+    // The model outputs two versions separated by a line with only "---".
+    // Split on the first occurrence so the delimiter can appear in the text.
+    const sepIdx = raw.indexOf('\n---\n');
+    if (sepIdx === -1) {
+      // Model didn't follow the format — treat the whole response as a
+      // single refined version (best-effort fallback).
+      opts.onError?.('model did not produce two versions');
+      return { refined: raw, english: raw };
+    }
+    const refined = raw.slice(0, sepIdx).trim();
+    const english = raw.slice(sepIdx + 5).trim(); // skip "\n---\n"
+    if (!refined || !english) {
+      opts.onError?.('one or both versions empty');
+      return null;
+    }
+    return { refined, english };
   } catch (err) {
     // User-initiated cancel → stay silent (they chose to send the original).
     if (opts.signal?.aborted) return null;

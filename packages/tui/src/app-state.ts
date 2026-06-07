@@ -252,8 +252,11 @@ export type State = {
    */
   enhance: {
     original: string;
+    /** Refined in the user's original language. */
     refined: string;
-    resolve: (decision: 'refined' | 'original' | 'edit') => void;
+    /** Refined in English. */
+    english: string;
+    resolve: (decision: 'refined' | 'english' | 'original' | 'edit') => void;
   } | null;
   /** When true, free-text submits are run through the prompt refiner first. Toggled by `/enhance`. */
   enhanceEnabled: boolean;

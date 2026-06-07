@@ -74,7 +74,10 @@ describe('enhanceUserPrompt', () => {
       textResponse('Fix the null-deref in auth.ts login() when the token is missing.'),
     );
     const out = await enhanceUserPrompt({ provider, model: 'm', text: 'fix the bug' });
-    expect(out).toBe('Fix the null-deref in auth.ts login() when the token is missing.');
+    expect(out).toEqual({
+      refined: 'Fix the null-deref in auth.ts login() when the token is missing.',
+      english: 'Fix the null-deref in auth.ts login() when the token is missing.',
+    });
   });
 
   it('sends the enhancer system prompt and the raw text as a user message', async () => {
