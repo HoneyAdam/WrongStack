@@ -59,6 +59,7 @@ import { buildSteeringPreamble } from './steering-preamble.js';
 // Types imported from app-reducer.ts (single source of truth for reducer + State types)
 import {
   type FleetEntry,
+  type Settings,
   type SlashCommandMatch,
   type State,
   reducer,
@@ -77,6 +78,7 @@ export {
   type Action,
   type FleetEntry,
   type QueueItem,
+  type Settings,
   type SlashCommandMatch,
   type State,
 } from './app-reducer.js';
@@ -84,28 +86,6 @@ export {
 /** Input prompt — mirrors the <Input> default so click-to-position-cursor maps
  *  columns the same way the input renders them. */
 const INPUT_PROMPT = '› ';
-
-export interface Settings {
-  mode: 'off' | 'suggest' | 'auto';
-  delayMs: number;
-  titleAnimation: boolean;
-  yolo: boolean;
-  streamFleet: boolean;
-  chime: boolean;
-  confirmExit: boolean;
-  nextPrediction: boolean;
-  featureMcp: boolean;
-  featurePlugins: boolean;
-  featureMemory: boolean;
-  featureSkills: boolean;
-  featureModelsRegistry: boolean;
-  contextAutoCompact: boolean;
-  contextStrategy: 'hybrid' | 'intelligent' | 'selective';
-  logLevel: 'error' | 'warn' | 'info' | 'debug' | 'trace';
-  auditLevel: 'minimal' | 'standard' | 'full';
-  indexOnStart: boolean;
-  maxIterations: number;
-}
 
 export function selectedSlashCommandLine(picker: {
   open: boolean;

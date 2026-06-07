@@ -209,12 +209,12 @@ export interface RunTuiOptions {
    * Read the persisted autonomy settings (defaultMode, autoProceedDelayMs).
    * Used by the SettingsPicker in the TUI on mount and after Ctrl+S toggle.
    */
-  getSettings?: (() => import('./app.js').Settings) | undefined;
+  getSettings?: (() => import('./app-state.js').Settings) | undefined;
   /**
    * Persist settings changes. Returns null on success, or an
    * error string on failure (so the TUI can display it as a hint).
    */
-  saveSettings?: ((s: import('./app.js').Settings) =>
+  saveSettings?: ((s: import('./app-state.js').Settings) =>
     | string
     | null
     | Promise<string | null>) | undefined;

@@ -402,6 +402,28 @@ export type State = {
   pendingNewLines: number;
 };
 
+export type Settings = {
+  mode: 'off' | 'suggest' | 'auto';
+  delayMs: number;
+  titleAnimation: boolean;
+  yolo: boolean;
+  streamFleet: boolean;
+  chime: boolean;
+  confirmExit: boolean;
+  nextPrediction: boolean;
+  featureMcp: boolean;
+  featurePlugins: boolean;
+  featureMemory: boolean;
+  featureSkills: boolean;
+  featureModelsRegistry: boolean;
+  contextAutoCompact: boolean;
+  contextStrategy: 'hybrid' | 'intelligent' | 'selective';
+  logLevel: 'error' | 'warn' | 'info' | 'debug' | 'trace';
+  auditLevel: 'minimal' | 'standard' | 'full';
+  indexOnStart: boolean;
+  maxIterations: number;
+};
+
 export type Action =
   | { type: 'addEntry'; entry: DraftEntry }
   | { type: 'setBuffer'; buffer: string; cursor: number }

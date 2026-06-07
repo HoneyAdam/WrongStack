@@ -33,6 +33,7 @@ export type {
   FleetEntry,
   GoalSummary,
   QueueItem,
+  Settings,
   SlashCommandMatch,
   State,
 } from './app-state.js';
