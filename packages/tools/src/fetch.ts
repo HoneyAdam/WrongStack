@@ -21,6 +21,26 @@ const TIMEOUT_MS = 20_000;
 
 const ALLOW_PRIVATE = process.env['WRONGSTACK_FETCH_ALLOW_PRIVATE'] === '1';
 
+/**
+ * Combine multiple AbortSignals into one. Prefers the native `AbortSignal.any`
+ * when available, falling back to a manual controller for older runtimes that
+ * lack it. The combined signal aborts as soon as any input signal aborts.
+ */
+function combineSignals(signals: AbortSignal[]): AbortSignal {
+  const anyFn = (AbortSignal as { any?: (s: AbortSignal[]) => AbortSignal }).any;
+  if (typeof anyFn === 'function') return anyFn(signals);
+
+  const ctrl = new AbortController();
+  for (const sig of signals) {
+    if (sig.aborted) {
+      ctrl.abort(sig.reason);
+      return ctrl.signal;
+    }
+    sig.addEventListener('abort', () => ctrl.abort(sig.reason), { once: true });
+  }
+  return ctrl.signal;
+}
+
 type LookupCallback = (
   err: NodeJS.ErrnoException | null,
   address?: string | Array<{ address: string | undefined; family: number }>,
@@ -223,7 +243,7 @@ export const fetchTool: Tool<FetchInput, FetchOutput> = {
 
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(new Error('fetch timeout')), TIMEOUT_MS);
-    const combined = AbortSignal.any([opts.signal, ctrl.signal]);
+    const combined = combineSignals([opts.signal, ctrl.signal]);
 
     try {
       const res = await guardedFetch(input.url, 5, combined);
