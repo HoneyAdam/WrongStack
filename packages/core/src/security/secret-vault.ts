@@ -65,6 +65,13 @@ export class DefaultSecretVault implements SecretVault {
   }
 
   private loadOrCreateKey(): Buffer {
+    // readFileSync blocks the event loop, but this is a one-time cost per
+    // process: the key is cached after the first load and reused for every
+    // subsequent encrypt/decrypt. For CLI usage (single run → exit) this is
+    // negligible. For server contexts (eternal autonomy, MCP server mode),
+    // the first encrypt/decrypt call causes a brief (<1ms) event loop stall.
+    // Prefer calling vault.encrypt('') during boot to warm the cache if this
+    // is a concern in your deployment.
     if (this.key) return this.key;
     try {
       const buf = fs.readFileSync(this.keyFile);
@@ -117,8 +124,17 @@ export class DefaultSecretVault implements SecretVault {
  * Walk a Config-shaped object and decrypt any apiKey-like fields in place,
  * returning a new object. Used by the config loader so the rest of the
  * system never has to know about the wire format.
+ *
+ * @param warn — callback for decryption warnings. Defaults to `console.warn`
+ *   for backward compatibility; pass `logger.warn` when a structured logger
+ *   is available (preferred in long-running/server contexts).
  */
-export function decryptConfigSecrets<T>(cfg: T, vault: SecretVault): T {
+export function decryptConfigSecrets<T>(
+  cfg: T,
+  vault: SecretVault,
+  opts?: { warn?: (msg: string) => void },
+): T {
+  const warn = opts?.warn ?? ((msg: string) => console.warn(msg));
   // A single corrupted/malformed encrypted field should not kill the entire
   // config load. Swallow per-field decrypt errors (zero the field so callers
   // see "missing key" instead of holding ciphertext) and surface a warning.
@@ -126,16 +142,19 @@ export function decryptConfigSecrets<T>(cfg: T, vault: SecretVault): T {
     try {
       return vault.decrypt(v);
     } catch (err) {
-      console.warn(
-        `[secret-vault] Failed to decrypt "${key}":`,
-        err instanceof Error ? err.message : err,
+      warn(
+        `[secret-vault] Failed to decrypt "${key}": ${err instanceof Error ? err.message : err}`,
       );
       return '';
     }
   });
 }
 
-export function encryptConfigSecrets<T>(cfg: T, vault: SecretVault): T {
+export function encryptConfigSecrets<T>(
+  cfg: T,
+  vault: SecretVault,
+  _opts?: { warn?: (msg: string) => void },
+): T {
   return walk(cfg, vault, (v) => vault.encrypt(v));
 }
 
@@ -241,7 +260,11 @@ export async function migratePlaintextSecrets(
  * permissions and grant only the current user. Failures are logged
  * but not thrown so callers are not blocked on unsupported platforms.
  */
-async function restrictFilePermissions(filePath: string): Promise<void> {
+async function restrictFilePermissions(
+  filePath: string,
+  opts?: { warn?: (msg: string) => void },
+): Promise<void> {
+  const warn = opts?.warn ?? ((msg: string) => console.warn(msg));
   if (process.platform === 'win32') {
     try {
       const { execFile } = await import('node:child_process');
@@ -251,7 +274,7 @@ async function restrictFilePermissions(filePath: string): Promise<void> {
       await execFileAsync('icacls', [filePath, '/inheritance:r', '/grant:r', `${process.env.USERNAME}:(F)`]);
     } catch {
       // Best-effort: icacls may not be available in all environments.
-      console.warn(`[secret-vault] Could not restrict permissions on ${filePath} — config file may be readable by other users on this system.`);
+      warn(`[secret-vault] Could not restrict permissions on ${filePath} — config file may be readable by other users on this system.`);
     }
   } else {
     try {

@@ -8,6 +8,8 @@ export * from './glob-match.js';
 export * from './diff.js';
 export * from './wstack-paths.js';
 export * from './child-env.js';
+export * from './sleep.js';
+export * from './expect-defined.js';
 export {
   createToolOutputSerializer,
   type ToolOutputSerializerOptions,

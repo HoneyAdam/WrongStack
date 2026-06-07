@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { EventBus } from '../kernel/events.js';
 import type { ContentBlock, ThinkingBlock, ToolUseBlock } from '../types/blocks.js';
 import type { Provider, Request, Response } from '../types/provider.js';
@@ -94,7 +95,7 @@ export function handleContentBlockStart(
     state.textBuffers.push('');
     state.blockOrder.push({ kind: 'text', idx: state.currentTextIndex });
   } else if (kind === 'tool_use') {
-    const id = ev.id ?? crypto.randomUUID();
+    const id = ev.id ?? randomUUID();
     state.tools.set(id, { name: ev.name ?? 'unknown', partial: '' });
     state.blockOrder.push({ kind: 'tool', id });
     state.currentTextIndex = -1;
@@ -110,7 +111,9 @@ export function handleContentBlockStart(
 }
 
 export function handleContentBlockStop(state: StreamingState, ev: { index?: number | undefined }): void {
-  // No-op for now, but tracks block boundaries for providers that need it
+  // TODO: implement for providers that emit content_block_stop with metadata
+  // (e.g. tool use result, thinking signature). Currently a no-op — every
+  // content_block_stop event is consumed but produces no side effects.
   void state;
   void ev;
 }

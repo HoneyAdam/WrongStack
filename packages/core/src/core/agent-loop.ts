@@ -159,7 +159,7 @@ export function createAgentLoopHandler(
         await a.ctx.session
           .writeInFlightMarker(`iteration ${i} / max ${a.maxIterations}`)
           .catch((err) => {
-            a.logger.debug?.(
+            (a.logger.debug ?? a.logger.warn)?.(
               `in-flight marker write failed: ${err instanceof Error ? err.message : String(err)}`,
             );
           });
@@ -302,7 +302,7 @@ export function createAgentLoopHandler(
       await a.ctx.session
         .clearInFlightMarker(reason)
         .catch((err) => {
-          a.logger.debug?.(
+          (a.logger.debug ?? a.logger.warn)?.(
             `in-flight marker clear failed: ${err instanceof Error ? err.message : String(err)}`,
           );
         });

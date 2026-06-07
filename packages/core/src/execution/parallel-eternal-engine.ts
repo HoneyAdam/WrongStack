@@ -10,6 +10,7 @@ import { loadGoal, saveGoal, appendJournal, goalFilePath } from '../storage/goal
 import type { Compactor } from '../types/compactor.js';
 import { DefaultMultiAgentCoordinator } from '../coordination/multi-agent-coordinator.js';
 import type { MultiAgentConfig } from '../types/multi-agent.js';
+import { sleep } from '../utils/sleep.js';
 
 
 
@@ -85,10 +86,6 @@ export interface ParallelEternalOptions {
    * provider call — preferred for a continuously-ticking autonomous loop).
    */
   dispatchClassifier?: DispatchClassifier | undefined;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 const GOAL_COMPLETE_MARKER = /^\s*\[goal[_\s-]?complete\]\s*$/im;

@@ -84,6 +84,8 @@ function guardedLookup(
 // Reused across requests; guardedLookup re-validates on every new connection,
 // so connection pooling is safe. Literal-IP targets bypass lookup entirely and
 // are caught by assertNotPrivate's pre-check instead.
+// Destroyed on process exit so long-running processes (eternal autonomy,
+// MCP server mode) don't let the connection pool grow unboundedly.
 let pinnedAgent: Agent | undefined;
 function getPinnedDispatcher(): Agent {
   if (!pinnedAgent) {
@@ -91,6 +93,12 @@ function getPinnedDispatcher(): Agent {
   }
   return pinnedAgent;
 }
+// Clean up the global dispatcher on exit — undici Agents maintain connection
+// pools and DNS caches that should be torn down in long-running processes.
+process.on('beforeExit', () => {
+  pinnedAgent?.destroy();
+  pinnedAgent = undefined;
+});
 
 /**
  * SSRF-guarded fetch with manual, per-hop-revalidated redirects, exported so
@@ -215,7 +223,7 @@ export const fetchTool: Tool<FetchInput, FetchOutput> = {
 
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(new Error('fetch timeout')), TIMEOUT_MS);
-    const combined = combineSignals(opts.signal, ctrl.signal);
+    const combined = AbortSignal.any([opts.signal, ctrl.signal]);
 
     try {
       const res = await guardedFetch(input.url, 5, combined);
@@ -409,39 +417,6 @@ function expandIPv6(addr: string): number[] | null {
   return [...head, ...new Array<number>(fill).fill(0), ...tail];
 }
 
-function combineSignals(...sigs: AbortSignal[]): AbortSignal {
-  // Check for AbortSignal.any() static method (may not exist in older runtimes)
-  // AbortSignal.any() takes an iterable (array), not rest parameters
-  const anyFn = (AbortSignal as unknown as { any?: (signals: Iterable<AbortSignal>) => AbortSignal }).any;
-  if (typeof anyFn === 'function') {
-    return anyFn(sigs);
-  }
-  // Fallback for older runtimes. We register listeners on the parent signals
-  // and clean them up once any of them fires (or once ctrl itself aborts) to
-  // avoid accumulating handlers on long-lived signals across many fetches.
-  const ctrl = new AbortController();
-  const cleanups: Array<() => void> = [];
-  const detach = () => {
-    for (const fn of cleanups) fn();
-    cleanups.length = 0;
-  };
-  for (const s of sigs) {
-    if (s.aborted) {
-      detach();
-      ctrl.abort(s.reason);
-      return ctrl.signal;
-    }
-    const onAbort = () => {
-      detach();
-      ctrl.abort(s.reason);
-    };
-    s.addEventListener('abort', onAbort, { once: true });
-    cleanups.push(() => s.removeEventListener('abort', onAbort));
-  }
-  ctrl.signal.addEventListener('abort', detach, { once: true });
-  return ctrl.signal;
-}
-
 function prettyJson(s: string): string {
   try {
     return JSON.stringify(JSON.parse(s), null, 2);
@@ -450,6 +425,15 @@ function prettyJson(s: string): string {
   }
 }
 
+/**
+ * Simplified regex-based HTML-to-Markdown converter. Handles the common
+ * case (headings, bold/italic, links, code blocks, lists) adequately for
+ * LLM context consumption. Known limitations: nested tags, attributes
+ * containing `>`, malformed HTML, or unusual markup may produce incorrect
+ * output. This is acceptable — the result is fed to LLM context, not
+ * rendered in a browser. For strict correctness, replace with a dedicated
+ * converter library (e.g. turndown, marked).
+ */
 function htmlToMarkdown(html: string): string {
   let s = html;
   // Strip scripts/styles

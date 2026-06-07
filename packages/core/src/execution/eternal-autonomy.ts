@@ -11,6 +11,7 @@ import {
   type GoalFile,
   type JournalEntry,
 } from '../storage/goal-store.js';
+import { sleep } from '../utils/sleep.js';
 
 const execFileP = promisify(execFile);
 
@@ -877,8 +878,4 @@ export class EternalAutonomyEngine {
     if (current.engineState === state) return;
     await saveGoal(this.goalPath, { ...current, engineState: state });
   }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

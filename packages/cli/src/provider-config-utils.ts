@@ -1,17 +1,17 @@
 /**
  * Pure helpers for ProviderConfig shape normalisation, key masking, and
- * timestamp generation. Shared between auth-menu.ts, webui-server.ts, and
- * any future code that touches the config `providers` map.
- *
- * These are intentionally side-effect-free — config I/O (vault encrypt/decrypt,
- * atomic writes) lives closer to the call sites where the vault is available.
+ * timestamp generation — plus config file I/O (load/mutate providers).
+ * Shared between auth-menu.ts, webui-server.ts, and any future code that
+ * touches the config `providers` map.
  */
-import type { ProviderApiKey, ProviderConfig } from '@wrongstack/core';
-import { color } from '@wrongstack/core';
+import * as fs from 'node:fs/promises';
+import type { ProviderApiKey, ProviderConfig, SecretVault } from '@wrongstack/core';
+import { atomicWrite, color } from '@wrongstack/core';
+import { decryptConfigSecrets, encryptConfigSecrets } from '@wrongstack/core/security';
 
 
 
-function expectDefined<T>(value: T | null | undefined): T {
+export function expectDefined<T>(value: T | null | undefined): T {
   if (value === null || value === undefined) {
     throw new Error('Expected value to be defined');
   }
@@ -74,4 +74,84 @@ export function maskedKey(key: string): string {
 /** ISO-8601 timestamp for key `createdAt` fields. */
 export function nowIso(): string {
   return new Date().toISOString();
+}
+
+/* ------------------------------------------------------------------ */
+/*  Config file I/O — load / mutate `providers` atomically            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Read the on-disk config file and return its `providers` map, fully
+ * decrypted. Returns `{}` on ENOENT or corrupt JSON (surfacing the error
+ * via the optional `warn` callback when provided).
+ */
+export async function loadConfigProviders(
+  configPath: string,
+  vault: SecretVault,
+  opts?: { warn?: (msg: string) => void },
+): Promise<Record<string, ProviderConfig>> {
+  const warn = opts?.warn;
+  let raw: string;
+  try {
+    raw = await fs.readFile(configPath, 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      warn?.(`Could not read ${configPath}: ${(err as Error).message}. Treating as empty.`);
+    }
+    return {};
+  }
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(raw) as Record<string, unknown>;
+  } catch (err) {
+    warn?.(`Config at ${configPath} is not valid JSON: ${(err as Error).message}`);
+    return {};
+  }
+  const decrypted = decryptConfigSecrets(parsed, vault);
+  return (decrypted as { providers?: Record<string, ProviderConfig> }).providers ?? {};
+}
+
+/**
+ * Load → mutate → encrypt → atomic-write. Operates on the FULL config file
+ * so non-provider keys are preserved. Refuses to overwrite a corrupt-but-
+ * existing config (the user may still have salvageable data).
+ */
+export async function mutateConfigProviders(
+  configPath: string,
+  vault: SecretVault,
+  mutator: (providers: Record<string, ProviderConfig>) => void,
+): Promise<void> {
+  let raw: string;
+  let fileExists = true;
+  try {
+    raw = await fs.readFile(configPath, 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw new Error(
+        `Refusing to mutate ${configPath}: ${(err as Error).message}`,
+        { cause: err },
+      );
+    }
+    fileExists = false;
+    raw = '{}';
+  }
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(raw) as Record<string, unknown>;
+  } catch (err) {
+    if (fileExists) {
+      throw new Error(
+        `Refusing to overwrite corrupt config at ${configPath} ` +
+          `(${(err as Error).message}). Fix or move the file aside before retrying.`,
+        { cause: err },
+      );
+    }
+    parsed = {};
+  }
+  const decrypted = decryptConfigSecrets(parsed, vault) as Record<string, unknown>;
+  const providers = (decrypted.providers as Record<string, ProviderConfig>) ?? {};
+  mutator(providers);
+  decrypted.providers = providers;
+  const encrypted = encryptConfigSecrets(decrypted, vault);
+  await atomicWrite(configPath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
 }

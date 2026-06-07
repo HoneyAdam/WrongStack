@@ -1,9 +1,4 @@
-function expectDefined<T>(value: T | null | undefined): T {
-  if (value === null || value === undefined) {
-    throw new Error('Expected value to be defined');
-  }
-  return value;
-}
+import { expectDefined } from '@wrongstack/core/utils';
 
 /**
  * Scan a body of prose for GitHub-flavoured markdown tables and replace
@@ -313,13 +308,15 @@ export function strWidth(s: string): number {
     }
 
     // Emoji: Most emoji render as double-width in terminals.
+    // NOTE: Arrows (U+2190–U+21FF) are deliberately NOT included here —
+    // characters like ←↑→↓ (U+2190–U+2193) are "Ambiguous" East Asian
+    // Width and render as 1 column in virtually all terminal fonts.
     if (
       code >= 0x1f000 || // Supplementary Pictographs (U+1F000-U+1FFFF)
       (code >= 0x2600 && code <= 0x27bf) || // Miscellaneous Symbols, Dingbats
       (code >= 0x2300 && code <= 0x23ff) || // Miscellaneous Technical
       (code >= 0x2b50 && code <= 0x2b55) || // Stars and similar
       (code >= 0x2934 && code <= 0x2935) || // Arrow forms
-      (code >= 0x2190 && code <= 0x21ff) || // Arrows
       (code >= 0x25a0 && code <= 0x25ff) || // Geometric Shapes
       (code >= 0x25c0 && code <= 0x25fe) || // More Geometric Shapes (includes ▶)
       (code >= 0x2700 && code <= 0x27bf) // Dingbats (includes ✅ ❌)

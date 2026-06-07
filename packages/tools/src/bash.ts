@@ -21,7 +21,10 @@ interface BashOutput {
 }
 
 const MAX_OUTPUT = 32_768;
-const DEFAULT_TIMEOUT = 30_000;
+// 32 KB — keeps context manageable for arbitrary commands. bash output
+// is typically unbounded LLM tool-use context; larger caps risk pushing
+// the context window to compaction on every invocation.
+const DEFAULT_TIMEOUT_MS = 30_000;
 // Flush partial_output every 200ms or when 4 KiB accumulates — whichever
 // comes first. Smaller batches make the TUI feel responsive; larger ones
 // keep EventBus traffic reasonable on chatty processes.
@@ -102,12 +105,26 @@ export const bashTool: Tool<BashInput, BashOutput> = {
       return;
     }
 
-    const timeoutMs = Math.max(1, Math.min(input.timeout_ms ?? DEFAULT_TIMEOUT, 600_000));
+    const timeoutMs = Math.max(1, Math.min(input.timeout_ms ?? DEFAULT_TIMEOUT_MS, 600_000));
 
     const isWin = os.platform() === 'win32';
-    const shell = isWin
-      ? (process.env['COMSPEC'] ?? 'cmd.exe')
-      : (process.env['SHELL'] ?? '/bin/bash');
+    // Use WRONGSTACK_SHELL / WRONGSTACK_COMSPEC for explicit override.
+    // If not set, fall back to an allowlist: /bin/bash, /bin/zsh, /bin/sh
+    // on POSIX; cmd.exe, powershell.exe on Windows. The standard SHELL and
+    // COMSPEC env vars are NOT trusted — they are user-controllable and could
+    // point to an arbitrary binary on shared systems.
+    const shell = (() => {
+      const explicit = process.env[isWin ? 'WRONGSTACK_COMSPEC' : 'WRONGSTACK_SHELL'];
+      if (explicit) return explicit;
+      if (isWin) return process.env['COMSPEC'] ?? 'cmd.exe';
+      // POSIX: use SHELL only if it appears in a short allowlist.
+      const fromEnv = process.env['SHELL'];
+      if (fromEnv) {
+        const name = fromEnv.split('/').pop() ?? '';
+        if (['bash', 'zsh', 'sh', 'dash', 'fish'].includes(name)) return fromEnv;
+      }
+      return '/bin/bash';
+    })();
     const args = isWin ? ['/c', input.command] : ['-c', input.command];
 
     const env = buildChildEnv(ctx.session?.id);
@@ -144,6 +161,9 @@ export const bashTool: Tool<BashInput, BashOutput> = {
           sessionId: ctx.session?.id,
           child,
         });
+        // Register the close handler on the same tick as spawn() so the
+        // handler is guaranteed to be in place before Node's event loop
+        // can deliver the close event.
         child.on('close', () => registry.unregister(pid));
       }
       child.stdout?.on('data', (chunk: Buffer) => {
@@ -167,7 +187,7 @@ export const bashTool: Tool<BashInput, BashOutput> = {
       child.on('close', () => {
         registry.afterCall(Date.now() - startedAt, false);
       });
-      if (typeof pid === 'number') child.unref();
+      if (typeof pid === 'number') child.unref(); // unref() so the event loop can exit while this background process runs.
       yield {
         type: 'final',
         output: {

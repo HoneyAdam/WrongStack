@@ -1,12 +1,13 @@
 import type { Logger } from '@wrongstack/core';
+import { sleep } from '@wrongstack/core/utils';
 
 // ---------------------------------------------------------------------------
-// Redaction helpers (for future use)
+// Redaction helpers
 // ---------------------------------------------------------------------------
-// If logging URLs that contain the bot token in the future, use:
-// function redactToken(url: string, token: string): string {
-//   return url.replace(token, '[REDACTED]');
-// }
+/** Redact the bot token from a URL for safe logging. */
+function redactToken(url: string, token: string): string {
+  return url.replace(token, '[REDACTED]');
+}
 
 // ---------------------------------------------------------------------------
 // Telegram Bot API types (subset used by this plugin)
@@ -89,6 +90,8 @@ export interface TelegramBotOptions {
 
 export class TelegramBot {
   private readonly baseUrl: string;
+  /** Base URL with token redacted, safe to use in log calls. */
+  private readonly safeBaseUrl: string;
   private readonly pollIntervalMs: number;
   private readonly allowedUsers: Set<string>;
   private readonly allowedChats: Set<string>;
@@ -108,6 +111,7 @@ export class TelegramBot {
 
   constructor(opts: TelegramBotOptions) {
     this.baseUrl = `https://api.telegram.org/bot${opts.token}`;
+    this.safeBaseUrl = redactToken(this.baseUrl, opts.token);
     this.pollIntervalMs = opts.pollIntervalSec * 1000;
     this.allowedUsers = opts.allowedUsers;
     this.allowedChats = opts.allowedChats;
@@ -131,7 +135,7 @@ export class TelegramBot {
     if (this.pollActive) return;
     this.pollActive = true;
     this._startedAt = Date.now();
-    this.log.info('Telegram bot polling started');
+    this.log.info(`Telegram bot polling started (${this.safeBaseUrl})`);
     this.schedulePoll();
   }
 
@@ -348,10 +352,6 @@ export class TelegramBot {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
 
 /**
  * Truncate text to fit Telegram's 4096-char message limit.

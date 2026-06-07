@@ -50,8 +50,12 @@ const ALLOWED_COMMANDS: Record<string, string[]> = {
 };
 
 const MAX_ARGS = 20;
+// 200 KB — larger than bash's 32 KB cap. exec commands produce structured,
+// predictable output (build logs, test results, git diffs) that the agent
+// needs in full. 200 KB is safe for context windows ≥200K tokens while
+// still preventing a rogue build from filling the context.
 const MAX_OUTPUT = 200_000;
-const TIMEOUT_MS = 30_000;
+const DEFAULT_TIMEOUT_MS = 30_000;
 
 // Per-command argument validation. Each entry is a list of regex patterns
 // that, if matched against any argument, will reject the invocation.
@@ -148,7 +152,7 @@ export const execTool: Tool<ExecInput, ExecOutput> = {
   permission: 'confirm',
   mutating: true,
   riskTier: 'standard',
-  timeoutMs: TIMEOUT_MS,
+  timeoutMs: DEFAULT_TIMEOUT_MS,
   capabilities: ['shell.restricted'],
   inputSchema: {
     type: 'object',
@@ -212,7 +216,7 @@ export const execTool: Tool<ExecInput, ExecOutput> = {
     }
 
     const args = (input.args ?? []).slice(0, MAX_ARGS);
-    const timeout = Math.max(1, Math.min(input.timeout ?? TIMEOUT_MS, TIMEOUT_MS));
+    const timeout = Math.max(1, Math.min(input.timeout ?? DEFAULT_TIMEOUT_MS, DEFAULT_TIMEOUT_MS));
 
     // Validate args against per-command security patterns
     const argError = validateArgs(cmd, args);

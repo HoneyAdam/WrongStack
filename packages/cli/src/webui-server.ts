@@ -1,5 +1,4 @@
 import * as crypto from 'node:crypto';
-import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { createRequire } from 'node:module';
 import {
@@ -10,23 +9,12 @@ import {
   unregisterInstance,
 } from '@wrongstack/webui/server';
 import type { Agent, EventBus, ModelsRegistry, SessionWriter } from '@wrongstack/core';
-import { DefaultSecretScrubber, type ProviderConfig, atomicWrite } from '@wrongstack/core';
-import {
-  DefaultSecretVault,
-  decryptConfigSecrets,
-  encryptConfigSecrets,
-} from '@wrongstack/core/security';
+import { DefaultSecretScrubber, type ProviderConfig } from '@wrongstack/core';
+import { DefaultSecretVault } from '@wrongstack/core/security';
 import { WebSocket, WebSocketServer } from 'ws';
-import { maskedKey, normalizeKeys, nowIso, writeKeysBack } from './provider-config-utils.js';
+import { expectDefined, loadConfigProviders, maskedKey, mutateConfigProviders, normalizeKeys, nowIso, writeKeysBack } from './provider-config-utils.js';
 
 
-
-function expectDefined<T>(value: T | null | undefined): T {
-  if (value === null || value === undefined) {
-    throw new Error('Expected value to be defined');
-  }
-  return value;
-}
 
 // Re-export types from webui for type checking
 // At runtime, the actual types are resolved via workspace resolution
@@ -923,66 +911,25 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
     }
   }
 
-  // ---- Config I/O helpers (mirrors auth-menu.ts patterns) ----
+  // ---- Config I/O helpers (delegated to shared provider-config-utils) ----
+
+  function getVault(): DefaultSecretVault {
+    const keyFile = path.join(path.dirname(opts.globalConfigPath ?? ''), '.key');
+    return new DefaultSecretVault({ keyFile });
+  }
 
   async function loadSavedProviders(): Promise<Record<string, ProviderConfig>> {
     if (!opts.globalConfigPath) return {};
-    let raw: string;
-    try {
-      raw = await fs.readFile(opts.globalConfigPath, 'utf8');
-    } catch {
-      return {};
-    }
-    let parsed: { providers?: Record<string, ProviderConfig> } = {};
-    try {
-      parsed = JSON.parse(raw) as { providers?: Record<string, ProviderConfig> };
-    } catch {
-      return {};
-    }
-    if (!parsed.providers) return {};
-    // Decrypt encrypted secret-bearing fields so callers operate on plaintext.
-    const keyFile = path.join(path.dirname(opts.globalConfigPath), '.key');
-    const vault = new DefaultSecretVault({ keyFile });
-    return decryptConfigSecrets(parsed.providers, vault);
+    return loadConfigProviders(opts.globalConfigPath, getVault());
   }
 
   async function saveProviders(providers: Record<string, ProviderConfig>): Promise<void> {
     if (!opts.globalConfigPath) return;
-    let raw: string;
-    let fileExists = true;
-    try {
-      raw = await fs.readFile(opts.globalConfigPath, 'utf8');
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-        // Permissions / IO error — refuse to overwrite blindly.
-        throw new Error(
-          `Refusing to mutate ${opts.globalConfigPath}: ${(err as Error).message}`,
-          { cause: err },
-        );
-      }
-      fileExists = false;
-      raw = '{}';
-    }
-    let parsed: Record<string, unknown>;
-    try {
-      parsed = JSON.parse(raw) as Record<string, unknown>;
-    } catch (err) {
-      // Refuse to clobber a corrupt-but-existing config (mirrors auth-menu.ts).
-      if (fileExists) {
-        throw new Error(
-          `Refusing to overwrite corrupt config at ${opts.globalConfigPath} ` +
-            `(${(err as Error).message}). Fix or move the file aside before retrying.`,
-          { cause: err },
-        );
-      }
-      parsed = {};
-    }
-    parsed.providers = providers;
-    // Encrypt any plaintext secret-bearing fields before writing to disk.
-    const keyFile = path.join(path.dirname(opts.globalConfigPath), '.key');
-    const vault = new DefaultSecretVault({ keyFile });
-    const encrypted = encryptConfigSecrets(parsed, vault);
-    await atomicWrite(opts.globalConfigPath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
+    await mutateConfigProviders(opts.globalConfigPath, getVault(), (existing) => {
+      // Replace the entire providers map.
+      for (const key of Object.keys(existing)) delete existing[key];
+      Object.assign(existing, providers);
+    });
   }
 
   function sendResult(ws: WebSocket, success: boolean, message: string): void {
