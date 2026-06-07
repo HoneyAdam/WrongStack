@@ -210,9 +210,23 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: '0.87.0',
+    date: '2026-06-07',
+    latest: true,
+    tagline: 'Session lifecycle & type safety',
+    consolidated: true,
+    highlights: [
+      '/prune session housekeeping — delete old sessions by age, --dry-run preview, --rebuild-index',
+      'Analytics-grade session summaries: iteration/tool/error/file-change counts, per-tool breakdown, outcome',
+      'Categorized slash-command discovery — grouped TUI picker, WebUI command list 19 → 39',
+      'Non-modal TUI monitor overlays — chat input stays live while monitors are open',
+      'fetch undici dispatcher torn down on exit; session-store teardown race fixed (Windows ENOTEMPTY)',
+      'Monorepo-wide type-safety hardening (exactOptionalPropertyTypes), MCP undici@7 type conflict resolved',
+    ],
+  },
+  {
     version: '0.77.0',
     date: '2026-06-06',
-    latest: true,
     tagline: 'Prompt refinement & hardening',
     highlights: [
       'LLM-driven /enhance prompt refinement with countdown auto-send preview in the TUI',
