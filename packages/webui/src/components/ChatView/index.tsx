@@ -161,7 +161,7 @@ export function ChatView() {
     (maxContext > 0 && lastInputTokens > 0) || totalTokens.input > 0 || !!startTime;
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col flex-1 min-h-0">
       {/* Header */}
       <header className="flex flex-col border-b bg-card shrink-0">
         <div className="flex items-center justify-between gap-2 px-3 py-2">
