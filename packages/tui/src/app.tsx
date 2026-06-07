@@ -977,11 +977,106 @@ export function App({
     eraseLiveRegion,
   ]);
 
-  // Erase stale live-region content on terminal resize. Without this, Ink
-  // re-renders the live region at the new dimensions but leaves visual
-  // artifacts from the previous size that bleed into scrollback.
+  // ── Terminal resize: close panels, let terminal settle, restore ──
+  // When the terminal resizes, the terminal itself reflows visible text
+  // BEFORE Ink can react. This reflow corrupts rendered content (Unicode
+  // borders, ANSI-styled text, wrapped input) in a way that scrolls into
+  // the terminal's native scrollback before Ink's next render can fix it.
+  // By closing all overlays BEFORE the reflow, the live region shrinks to
+  // its minimal height (input + status bar), which resizes cleanly. After
+  // a short debounce the panels are restored at the new dimensions.
+  const resizeGateRef = useRef(0);
+  const preResizePanelsRef = useRef<{
+    settings: boolean;
+    help: boolean;
+    monitor: boolean;
+    agents: boolean;
+    worktree: boolean;
+    todos: boolean;
+    queue: boolean;
+    processList: boolean;
+  } | null>(null);
+
   useEffect(() => {
-    const handleResize = () => eraseLiveRegion();
+    const handleResize = () => {
+      // Debounce: terminal emitters often fire 2-3 resize events in quick
+      // succession during a drag. Gate to one "close" cycle per burst, plus
+      // one final "restore" at the end.
+      const seq = ++resizeGateRef.current;
+
+      // Capture current panel state from the latest render.
+      preResizePanelsRef.current = {
+        settings: stateRef.current.settingsPicker.open,
+        help: stateRef.current.helpOpen,
+        monitor: stateRef.current.monitorOpen,
+        agents: stateRef.current.agentsMonitorOpen,
+        worktree: stateRef.current.worktreeMonitorOpen,
+        todos: stateRef.current.todosMonitorOpen,
+        queue: stateRef.current.queuePanelOpen,
+        processList: stateRef.current.processListOpen,
+      };
+
+      // Close all open panels so the live region shrinks to input+statusbar.
+      if (stateRef.current.settingsPicker.open) dispatch({ type: 'settingsClose' });
+      if (stateRef.current.modelPicker.open) dispatch({ type: 'modelPickerClose' });
+      if (stateRef.current.autonomyPicker.open) dispatch({ type: 'autonomyPickerClose' });
+      if (stateRef.current.slashPicker.open) dispatch({ type: 'slashPickerClose' });
+      if (stateRef.current.picker.open) dispatch({ type: 'pickerClose' });
+      if (stateRef.current.rewindOverlay) dispatch({ type: 'rewindOverlayClose' });
+      if (stateRef.current.helpOpen) dispatch({ type: 'toggleHelp' });
+      if (stateRef.current.monitorOpen) dispatch({ type: 'toggleMonitor' });
+      if (stateRef.current.agentsMonitorOpen) dispatch({ type: 'toggleAgentsMonitor' });
+      if (stateRef.current.worktreeMonitorOpen) dispatch({ type: 'worktreeMonitorToggle' });
+      if (stateRef.current.todosMonitorOpen) dispatch({ type: 'toggleTodosMonitor' });
+      if (stateRef.current.queuePanelOpen) dispatch({ type: 'toggleQueuePanel' });
+      if (stateRef.current.processListOpen) dispatch({ type: 'toggleProcessList' });
+
+      eraseLiveRegion();
+
+      // After the terminal settles at the new size, restore panels that
+      // were open. The 300ms delay gives Ink time to re-render the minimal
+      // live region at the new width before we grow it again.
+      setTimeout(() => {
+        // If another resize happened while we waited, discard this restore.
+        if (resizeGateRef.current !== seq) return;
+        const prev = preResizePanelsRef.current;
+        if (!prev) return;
+        if (prev.settings) {
+          const sp = stateRef.current.settingsPicker;
+          dispatch({
+            type: 'settingsOpen',
+            mode: sp.mode,
+            delayMs: sp.delayMs,
+            titleAnimation: sp.titleAnimation,
+            yolo: sp.yolo,
+            streamFleet: sp.streamFleet,
+            chime: sp.chime,
+            confirmExit: sp.confirmExit,
+            nextPrediction: sp.nextPrediction,
+            featureMcp: sp.featureMcp,
+            featurePlugins: sp.featurePlugins,
+            featureMemory: sp.featureMemory,
+            featureSkills: sp.featureSkills,
+            featureModelsRegistry: sp.featureModelsRegistry,
+            contextAutoCompact: sp.contextAutoCompact,
+            contextStrategy: sp.contextStrategy,
+            logLevel: sp.logLevel,
+            auditLevel: sp.auditLevel,
+            indexOnStart: sp.indexOnStart,
+            maxIterations: sp.maxIterations,
+          });
+        }
+        if (prev.help) dispatch({ type: 'toggleHelp' });
+        if (prev.monitor) dispatch({ type: 'toggleMonitor' });
+        if (prev.agents) dispatch({ type: 'toggleAgentsMonitor' });
+        if (prev.worktree) dispatch({ type: 'worktreeMonitorToggle' });
+        if (prev.todos) dispatch({ type: 'toggleTodosMonitor' });
+        if (prev.queue) dispatch({ type: 'toggleQueuePanel' });
+        if (prev.processList) dispatch({ type: 'toggleProcessList' });
+        preResizePanelsRef.current = null;
+      }, 300);
+    };
+
     process.stdout.on('resize', handleResize);
     return () => {
       process.stdout.off('resize', handleResize);
