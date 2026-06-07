@@ -77,6 +77,102 @@ function getCommitHistory(since?: string, cwd?: string): Array<{ hash: string | 
 }
 
 // ---------------------------------------------------------------------------
+// Worktree / simultaneous-edit detection
+// ---------------------------------------------------------------------------
+
+interface WorktreeInfo {
+  path: string;
+  head: string;
+  branch: string;
+}
+
+/** Parse `git worktree list --porcelain` into structured entries. */
+function getWorktrees(cwd?: string): WorktreeInfo[] {
+  try {
+    const out = runGit(['worktree', 'list', '--porcelain'], cwd);
+    if (!out) return [];
+    const entries: WorktreeInfo[] = [];
+    let current: Partial<WorktreeInfo> = {};
+    for (const line of out.split('\n')) {
+      if (line === '') {
+        if (current.path) entries.push(current as WorktreeInfo);
+        current = {};
+        continue;
+      }
+      if (line.startsWith('worktree ')) current.path = line.slice(9);
+      else if (line.startsWith('HEAD ')) current.head = line.slice(5);
+      else if (line.startsWith('branch ')) current.branch = line.slice(7);
+    }
+    if (current.path) entries.push(current as WorktreeInfo);
+    return entries;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Return a warning string when other worktrees exist besides the main one.
+ * Multiple worktrees mean other agents may be making simultaneous changes.
+ */
+function simultaneousEditWarning(cwd?: string): string | null {
+  const worktrees = getWorktrees(cwd);
+  if (worktrees.length > 1) {
+    const otherBranches = worktrees
+      .filter((wt) => wt.branch)
+      .map((wt) => wt.branch.replace('refs/heads/', ''));
+    return (
+      `⚠ Simultaneous edits detected: ${worktrees.length} active worktrees ` +
+      `(${otherBranches.join(', ')}). Changes from other agents may mix ` +
+      'into this commit. Consider using worktree isolation or verifying ' +
+      'the diff below before committing.'
+    );
+  }
+  return null;
+}
+
+/** Run git diff --cached and return both stat and full diff. */
+function getStagedDiff(cwd?: string): { stat: string; diff: string } {
+  try {
+    const stat = runGit(['diff', '--cached', '--stat'], cwd);
+    // Limit full diff to prevent blowing up tool output
+    const diff = runGit(['diff', '--cached'], cwd);
+    const MAX_DIFF = 20_000;
+    const truncated = diff.length > MAX_DIFF ? diff.slice(0, MAX_DIFF) + '\n\n... (diff truncated)' : diff;
+    return { stat: stat || '(no stat)', diff: truncated || '(clean)' };
+  } catch {
+    return { stat: '(unavailable)', diff: '(unavailable)' };
+  }
+}
+
+/**
+ * Check for files modified by external agents AFTER staging but BEFORE commit.
+ * Runs `git status --porcelain`; flags any unstaged changes (modified or
+ * untracked files) that appeared since the last `git add`. This catches
+ * simultaneous edits from agents working in the same directory without
+ * worktree isolation.
+ */
+function externalChangesSinceStage(cwd?: string): string[] | null {
+  try {
+    const out = runGit(['status', '--porcelain'], cwd);
+    if (!out) return null;
+    const unstaged = out
+      .split('\n')
+      .filter((l) => l.trim())
+      .filter((l) => {
+        // index column = ' ' or '?' means the change is NOT staged
+        const idx = l[0] ?? ' ';
+        // ' M' = modified in worktree, not staged
+        // '??' = untracked
+        return idx === ' ' || idx === '?';
+      })
+      .map((l) => l.slice(3).trim());
+    return unstaged.length > 0 ? unstaged : null;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Commit message generation
 // ---------------------------------------------------------------------------
 
@@ -210,6 +306,45 @@ const plugin: Plugin = {
           return { ok: false, error: 'Nothing staged. Add files with git add or provide files input.' };
         }
 
+        // Build warning and diff before committing
+        const worktreeWarn = simultaneousEditWarning();
+
+        // Detect files modified by other agents since staging
+        const externalChanges = externalChangesSinceStage();
+        let externalWarning: string | null = null;
+        if (externalChanges && externalChanges.length > 0) {
+          const preview = externalChanges.slice(0, 10).join(', ');
+          const suffix = externalChanges.length > 10 ? ` and ${externalChanges.length - 10} more` : '';
+          externalWarning =
+            `⚠ External changes detected since staging: ${preview}${suffix}. ` +
+            'Another agent may be modifying files concurrently. ' +
+            'These unstaged changes will NOT be included in this commit, ' +
+            'but they indicate simultaneous edits. Review carefully.';
+        }
+
+        const warning = [worktreeWarn, externalWarning].filter(Boolean).join('\n') || undefined;
+        const { stat, diff: stagedDiff } = getStagedDiff();
+
+        // Return early in dry run with the diff visible
+        if (dryRun) {
+          return {
+            ok: true,
+            dryRun: true,
+            message: `Would create: ${msg}`,
+            warning: warning ?? undefined,
+            stagedDiff: `\n## Staged changes (dry run)\n\n${stat}\n\n\`\`\`diff\n${stagedDiff}\n\`\`\``,
+          };
+        }
+
+        // Check if we need to stage before diff (if nothing was staged yet)
+        let preCommitDiff = stagedDiff;
+        let preCommitStat = stat;
+        if (staged.length === 0) {
+          const fresh = getStagedDiff();
+          preCommitDiff = fresh.diff;
+          preCommitStat = fresh.stat;
+        }
+
         // Commit
         let hash = '';
         try { hash = commitWithMessage(msg); }
@@ -224,6 +359,7 @@ const plugin: Plugin = {
             commitType: type,
             scope: String(scope ?? ''),
             files: Array.isArray(staged) ? staged : [],
+            warning: warning ?? null,
           });
         } catch (_err) {
           // Session append is best-effort; ignore errors
@@ -236,6 +372,8 @@ const plugin: Plugin = {
           stagedFiles: staged,
           type,
           scope: scope ?? null,
+          warning: warning ?? undefined,
+          diff: `\n## Staged diff\n\n${preCommitStat}\n\n\`\`\`diff\n${preCommitDiff}\n\`\`\``,
         };
         } catch (err: unknown) {
           return { ok: false, error: `Uncaught error in git_autocommit: ${err instanceof Error ? err.message : String(err)}` };
@@ -306,12 +444,33 @@ const plugin: Plugin = {
         let staged: string[] = [];
         let aheadBehind = '';
         const recentCommits: Array<{ hash: string; message: string }> = [];
+        let worktrees: WorktreeInfo[] = [];
+        let worktreeWarn: string | null = null;
+        let externalChanges: string[] | null = null;
 
         try { branch = runGit(['branch', '--show-current']); } catch { /* ignore */ }
         try { changed = getChangedFiles(); } catch { /* ignore */ }
         try { staged = getStagedFiles(); } catch { /* ignore */ }
         try { aheadBehind = runGit(['status', '-sb']).split('\n')[0] ?? ''; } catch { /* ignore */ }
         try { recentCommits.push(...getCommitHistory('-3', undefined).map((c) => ({ hash: (c.hash ?? '').slice(0, 7), message: c.message }))); } catch { /* ignore */ }
+
+        // Worktree detection for simultaneous edit visibility
+        try { worktrees = getWorktrees(); } catch { /* ignore */ }
+        try { worktreeWarn = simultaneousEditWarning(); } catch { /* ignore */ }
+
+        // Check for unstaged changes that may come from other agents
+        try {
+          const out = runGit(['status', '--porcelain']);
+          const unstaged = out
+            .split('\n')
+            .filter((l) => {
+              const idx = l[0] ?? ' ';
+              return idx === ' ' || idx === '?';
+            })
+            .map((l) => l.slice(3).trim())
+            .filter(Boolean);
+          externalChanges = unstaged.length > 0 ? unstaged : null;
+        } catch { /* ignore */ }
 
         return {
           ok: true,
@@ -320,6 +479,12 @@ const plugin: Plugin = {
           stagedFiles: staged,
           aheadBehind,
           recentCommits,
+          worktrees: worktrees.length > 0 ? worktrees.map((w) => ({
+            path: w.path,
+            branch: w.branch.replace('refs/heads/', ''),
+          })) : [],
+          worktreeWarning: worktreeWarn ?? undefined,
+          externalChanges: externalChanges ?? undefined,
         };
       },
     });

@@ -33,3 +33,6 @@ export const DEFAULT_SESSION_LOGGING_CONFIG = Object.freeze({
     },
   },
 });
+
+/** Default retention window for local session pruning. */
+export const DEFAULT_SESSION_PRUNE_DAYS = 30;

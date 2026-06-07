@@ -192,8 +192,7 @@ export class DefaultPluginAPI implements PluginAPI {
   }
 
   emitCustom(event: string, payload: unknown): void {
-    // biome-ignore lint/suspicious/noExplicitAny: custom events bypass the typed EventMap
-    (this.events as any).emit(event, payload);
+    this.events.emitCustom(event, payload);
   }
 
   onConfigChange(handler: (next: Readonly<Config>, prev: Readonly<Config>) => void): () => void {

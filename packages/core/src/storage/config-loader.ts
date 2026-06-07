@@ -64,6 +64,16 @@ function envBool(v: string): boolean {
   return !/^(0|false|no|off)$/i.test(v.trim());
 }
 
+function envBoolOptional(v: string | undefined): boolean {
+  return v !== undefined && envBool(v);
+}
+
+const LOG_LEVELS = new Set<Config['log']['level']>(['error', 'warn', 'info', 'debug', 'trace']);
+
+function envLogLevel(v: string): Config['log']['level'] {
+  return LOG_LEVELS.has(v as Config['log']['level']) ? (v as Config['log']['level']) : 'info';
+}
+
 const ENV_MAP: Record<string, (cfg: PartialConfig, val: string) => void> = {
   WRONGSTACK_PROVIDER: (c, v) => {
     c.provider = v;
@@ -87,7 +97,7 @@ const ENV_MAP: Record<string, (cfg: PartialConfig, val: string) => void> = {
   },
   WRONGSTACK_LOG_LEVEL: (c, v) => {
     if (!c.log) c.log = { level: 'info' };
-    c.log.level = v as Config['log']['level'];
+    c.log.level = envLogLevel(v);
   },
   WRONGSTACK_INDEX_ON_START: (c, v) => {
     c.indexing = { ...defaultIndexing, ...c.indexing, onSessionStart: envBool(v) };
@@ -108,7 +118,10 @@ const defaultIndexing = {
 } as const;
 
 type PartialConfig = Partial<Config> & {
-  providers?: Record<string, { apiKey?: string | undefined; baseUrl?: string | undefined; type?: string | undefined }>;
+  providers?: Record<
+    string,
+    { apiKey?: string | undefined; baseUrl?: string | undefined; type?: string | undefined }
+  >;
   /** Fields that came from environment variables — must not be persisted. */
   _envSource?: Set<string> | undefined;
 };
@@ -144,7 +157,7 @@ function deepMerge<T>(base: T, patch: Partial<T>): T {
         out[k] = [...new Set([...existing, ...v])];
       } else {
         out[k] = v;
-        if (process.env.WRONGSTACK_DEBUG_CONFIG) {
+        if (envBoolOptional(process.env.WRONGSTACK_DEBUG_CONFIG)) {
           console.warn(
             `[config] Non-primitive array for "${k}" replaced (global + local config merge). ` +
               `Global entries: ${(existing as unknown[] | undefined)?.length ?? 0}, local entries: ${v.length}.`,
@@ -203,7 +216,9 @@ export class DefaultConfigLoader implements ConfigLoader {
     this.extraSources = opts.sources ?? [];
   }
 
-  async load(opts: { cliFlags?: Partial<Config> | undefined; cwd?: string | undefined } = {}): Promise<Config> {
+  async load(
+    opts: { cliFlags?: Partial<Config> | undefined; cwd?: string | undefined } = {},
+  ): Promise<Config> {
     let cfg: PartialConfig = { ...BEHAVIOR_DEFAULTS } as PartialConfig;
 
     // Layer 2 & 3: global + project-local config — read in parallel
@@ -385,7 +400,9 @@ export class DefaultConfigLoader implements ConfigLoader {
       // An unknown mode (typo or value from an older/renamed scheme) should not
       // brick the CLI — unlike the numeric thresholds above there is a safe
       // default. Warn and fall back rather than throwing.
-      const known = listContextWindowModes().map((m) => m.id).join(', ');
+      const known = listContextWindowModes()
+        .map((m) => m.id)
+        .join(', ');
       console.warn(
         `[config] Ignoring unknown context.mode "${c.mode}" (expected one of: ${known}); ` +
           `falling back to "${DEFAULT_CONTEXT_WINDOW_MODE_ID}".`,

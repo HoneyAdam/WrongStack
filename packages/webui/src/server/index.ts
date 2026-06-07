@@ -30,6 +30,7 @@ import {
   atomicWrite,
   createDefaultPipelines,
   DEFAULT_CONTEXT_WINDOW_MODE_ID,
+  DEFAULT_SESSION_PRUNE_DAYS,
   DEFAULT_TOOLS_CONFIG,
   listContextWindowModes,
   repairToolUseAdjacency,
@@ -41,7 +42,7 @@ import { buildProviderFactoriesFromRegistry, makeProviderFromConfig } from '@wro
 import { builtinToolsPack, forgetTool, rememberTool } from '@wrongstack/tools';
 import { type WebSocket, WebSocketServer } from 'ws';
 import { createDefaultContainer } from '../../../runtime/src/container.js';
-import { bootConfig, patchConfig, } from './boot.js';
+import { bootConfig, patchConfig } from './boot.js';
 import { AutoPhaseWebSocketHandler } from './autophase-ws-handler.js';
 import { CollaborationWebSocketHandler } from './collaboration-ws-handler.js';
 import { WorktreeWebSocketHandler } from './worktree-ws-handler.js';
@@ -56,8 +57,6 @@ import { setupEvents } from './setup-events.js';
 import { maskedKey, normalizeKeys } from './provider-keys.js';
 import { send, broadcast, sendResult, errMessage, generateAuthToken } from './ws-utils.js';
 import { estimateContextBreakdown } from './token-estimator.js';
-
-
 
 function expectDefined<T>(value: T | null | undefined): T {
   if (value === null || value === undefined) {
@@ -137,7 +136,11 @@ export {
 import type { ConnectedClient, WSClientMessage, WSServerMessage } from './types.js';
 
 export async function startWebUI(
-  opts: { wsPort?: number | undefined; wsHost?: string | undefined; open?: boolean | undefined } = {},
+  opts: {
+    wsPort?: number | undefined;
+    wsHost?: string | undefined;
+    open?: boolean | undefined;
+  } = {},
 ): Promise<void> {
   const requestedWsPort = opts.wsPort ?? 3457;
   // Bind to loopback IP by default (not the string "localhost", which on some
@@ -244,9 +247,12 @@ export async function startWebUI(
   // Session store
   const sessionStore = new DefaultSessionStore({ dir: wpaths.projectSessions });
   // Prune old sessions on server start (non-blocking).
-  sessionStore.prune(30).then((count) => {
-    if (count > 0) logger.info(`Pruned ${count} old session${count === 1 ? '' : 's'}.`);
-  }).catch(() => undefined);
+  sessionStore
+    .prune(DEFAULT_SESSION_PRUNE_DAYS)
+    .then((count) => {
+      if (count > 0) logger.info(`Pruned ${count} old session${count === 1 ? '' : 's'}.`);
+    })
+    .catch(() => undefined);
   // Session reader — same on-disk store, read-only access. Used by the
   // collaboration handler to replay the last N events to late-joining
   // observers (Phase 1.5 of idea #13).
@@ -420,7 +426,8 @@ export async function startWebUI(
     autoCompactor = new AutoCompactionMiddleware(
       compactor,
       effectiveMaxContext,
-      (ctx) => estimateRequestTokensCalibrated(ctx.messages, ctx.systemPrompt, ctx.tools ?? []).total,
+      (ctx) =>
+        estimateRequestTokensCalibrated(ctx.messages, ctx.systemPrompt, ctx.tools ?? []).total,
       {
         warn: initialContextPolicy.thresholds.warn,
         soft: initialContextPolicy.thresholds.soft,
@@ -455,9 +462,7 @@ export async function startWebUI(
 
   // Agent
   const secretScrubber = container.resolve(TOKENS.SecretScrubber);
-  const renderer = container.has(TOKENS.Renderer)
-    ? container.resolve(TOKENS.Renderer)
-    : undefined;
+  const renderer = container.has(TOKENS.Renderer) ? container.resolve(TOKENS.Renderer) : undefined;
   const toolExecutor = new ToolExecutor(toolRegistry, {
     permissionPolicy: container.resolve(TOKENS.PermissionPolicy),
     secretScrubber,
@@ -465,7 +470,8 @@ export async function startWebUI(
     events,
     confirmAwaiter: undefined,
     iterationTimeoutMs: config.tools?.iterationTimeoutMs ?? DEFAULT_TOOLS_CONFIG.iterationTimeoutMs,
-    perIterationOutputCapBytes: config.tools?.perIterationOutputCapBytes ?? DEFAULT_TOOLS_CONFIG.perIterationOutputCapBytes,
+    perIterationOutputCapBytes:
+      config.tools?.perIterationOutputCapBytes ?? DEFAULT_TOOLS_CONFIG.perIterationOutputCapBytes,
     tracer: undefined,
   });
 
@@ -478,8 +484,10 @@ export async function startWebUI(
     context,
     maxIterations: config.tools?.maxIterations ?? DEFAULT_TOOLS_CONFIG.maxIterations,
     iterationTimeoutMs: config.tools?.iterationTimeoutMs ?? DEFAULT_TOOLS_CONFIG.iterationTimeoutMs,
-    executionStrategy: config.tools?.defaultExecutionStrategy ?? DEFAULT_TOOLS_CONFIG.defaultExecutionStrategy,
-    perIterationOutputCapBytes: config.tools?.perIterationOutputCapBytes ?? DEFAULT_TOOLS_CONFIG.perIterationOutputCapBytes,
+    executionStrategy:
+      config.tools?.defaultExecutionStrategy ?? DEFAULT_TOOLS_CONFIG.defaultExecutionStrategy,
+    perIterationOutputCapBytes:
+      config.tools?.perIterationOutputCapBytes ?? DEFAULT_TOOLS_CONFIG.perIterationOutputCapBytes,
     confirmAwaiter: undefined,
     toolExecutor,
   });
@@ -709,7 +717,10 @@ export async function startWebUI(
         if (typeof rawObj === 'object' && rawObj !== null) {
           const obj = rawObj as Record<string, unknown>;
           if ('__proto__' in obj || 'constructor' in obj || 'prototype' in obj) {
-            send(ws, { type: 'error', payload: { phase: 'parse', message: 'Invalid message object' } });
+            send(ws, {
+              type: 'error',
+              payload: { phase: 'parse', message: 'Invalid message object' },
+            });
           } else {
             await handleMessage(ws, client, rawObj as WSClientMessage);
           }
@@ -848,7 +859,9 @@ export async function startWebUI(
       }
 
       case 'tool.confirm_result': {
-        const { id, decision } = (msg as { payload: { id: string; decision: 'yes' | 'no' | 'always' | 'deny' } }).payload;
+        const { id, decision } = (
+          msg as { payload: { id: string; decision: 'yes' | 'no' | 'always' | 'deny' } }
+        ).payload;
         const resolve = pendingConfirms.get(id);
         if (resolve) {
           pendingConfirms.delete(id);
@@ -928,7 +941,8 @@ export async function startWebUI(
       }
 
       case 'context.compact': {
-        const aggressive = !!(msg as { payload?: { aggressive?: boolean | undefined } }).payload?.aggressive;
+        const aggressive = !!(msg as { payload?: { aggressive?: boolean | undefined } }).payload
+          ?.aggressive;
         try {
           const report = await compactor.compact(context, { aggressive });
           send(ws, {
@@ -1040,29 +1054,29 @@ export async function startWebUI(
         break;
       }
 
-    case 'providers.saved': {
-      const saved = await providerHandlers.loadConfigProviders();
-      send(ws, {
-        type: 'providers.saved',
-        payload: {
-          providers: Object.entries(saved).map(([id, cfg]) => {
-            const keys = normalizeKeys(cfg);
-            return {
-              id,
-              family: cfg.family ?? id,
-              baseUrl: cfg.baseUrl,
-              apiKeys: keys.map((k) => ({
-                label: k.label,
-                maskedKey: maskedKey(k.apiKey),
-                isActive: k.label === cfg.activeKey,
-                createdAt: k.createdAt,
-              })),
-            };
-          }),
-        },
-      });
-      break;
-    }
+      case 'providers.saved': {
+        const saved = await providerHandlers.loadConfigProviders();
+        send(ws, {
+          type: 'providers.saved',
+          payload: {
+            providers: Object.entries(saved).map(([id, cfg]) => {
+              const keys = normalizeKeys(cfg);
+              return {
+                id,
+                family: cfg.family ?? id,
+                baseUrl: cfg.baseUrl,
+                apiKeys: keys.map((k) => ({
+                  label: k.label,
+                  maskedKey: maskedKey(k.apiKey),
+                  isActive: k.label === cfg.activeKey,
+                  createdAt: k.createdAt,
+                })),
+              };
+            }),
+          },
+        });
+        break;
+      }
 
       case 'provider.models': {
         const providerId = (msg as { payload: { providerId: string } }).payload.providerId;
@@ -1173,7 +1187,14 @@ export async function startWebUI(
 
       case 'provider.add': {
         const p = (
-          msg as { payload: { id: string; family: string; baseUrl?: string | undefined; apiKey?: string | undefined } }
+          msg as {
+            payload: {
+              id: string;
+              family: string;
+              baseUrl?: string | undefined;
+              apiKey?: string | undefined;
+            };
+          }
         ).payload;
         await providerHandlers.handleProviderAdd(ws, p);
         break;
@@ -1318,7 +1339,10 @@ export async function startWebUI(
       case 'memory.remember': {
         const { text, scope } = (
           msg as {
-            payload: { text: string; scope?: 'project-agents' | 'project-memory' | 'user-memory' | undefined };
+            payload: {
+              text: string;
+              scope?: 'project-agents' | 'project-memory' | 'user-memory' | undefined;
+            };
           }
         ).payload;
         try {
@@ -1333,7 +1357,10 @@ export async function startWebUI(
       case 'memory.forget': {
         const { text, scope } = (
           msg as {
-            payload: { text: string; scope?: 'project-agents' | 'project-memory' | 'user-memory' | undefined };
+            payload: {
+              text: string;
+              scope?: 'project-agents' | 'project-memory' | 'user-memory' | undefined;
+            };
           }
         ).payload;
         try {
@@ -1441,8 +1468,13 @@ export async function startWebUI(
 
       case 'todos.remove': {
         // Remove a single todo item by id or 1-based index.
-        const payload = msg.payload as { id?: string | undefined; index?: number | undefined } | undefined;
-        if (!payload) { sendResult(ws, false, 'Missing id or index'); break; }
+        const payload = msg.payload as
+          | { id?: string | undefined; index?: number | undefined }
+          | undefined;
+        if (!payload) {
+          sendResult(ws, false, 'Missing id or index');
+          break;
+        }
         const { id, index } = payload;
         let targetIdx = -1;
         if (typeof id === 'string') {
@@ -1455,10 +1487,7 @@ export async function startWebUI(
           break;
         }
         const removed = expectDefined(context.todos[targetIdx]);
-        const next = [
-          ...context.todos.slice(0, targetIdx),
-          ...context.todos.slice(targetIdx + 1),
-        ];
+        const next = [...context.todos.slice(0, targetIdx), ...context.todos.slice(targetIdx + 1)];
         context.state.replaceTodos(next);
         sendResult(ws, true, `Removed: ${removed.content}`);
         broadcast(clients, { type: 'todos.updated', payload: { todos: next } });
@@ -1476,12 +1505,26 @@ export async function startWebUI(
             const plan = await loadPlan(planPath);
             send(ws, {
               type: 'plan.updated',
-              payload: { plan: plan ?? { version: 1, sessionId: session.id, updatedAt: new Date().toISOString(), items: [] } },
+              payload: {
+                plan: plan ?? {
+                  version: 1,
+                  sessionId: session.id,
+                  updatedAt: new Date().toISOString(),
+                  items: [],
+                },
+              },
             });
           } catch {
             send(ws, {
               type: 'plan.updated',
-              payload: { plan: { version: 1, sessionId: session.id, updatedAt: new Date().toISOString(), items: [] } },
+              payload: {
+                plan: {
+                  version: 1,
+                  sessionId: session.id,
+                  updatedAt: new Date().toISOString(),
+                  items: [],
+                },
+              },
             });
           }
         } else {
@@ -1501,7 +1544,9 @@ export async function startWebUI(
           break;
         }
         try {
-          const { getPlanTemplate, loadPlan, savePlan, emptyPlan, addPlanItem } = await import('@wrongstack/core');
+          const { getPlanTemplate, loadPlan, savePlan, emptyPlan, addPlanItem } = await import(
+            '@wrongstack/core'
+          );
           const tpl = getPlanTemplate(template);
           if (!tpl) {
             sendResult(ws, false, `Unknown template "${template}".`);
@@ -1529,7 +1574,9 @@ export async function startWebUI(
         // dirs that would blow up the response on a real project. Applies
         // a fuzzy substring match against the (lowercased) query and caps
         // the result so the popup never has to paginate.
-        const payload = (msg as { payload?: { query?: string | undefined; limit?: number | undefined } }).payload ?? {};
+        const payload =
+          (msg as { payload?: { query?: string | undefined; limit?: number | undefined } })
+            .payload ?? {};
         const limit = payload.limit ?? 50;
         // Filtering (isHiddenEntry/SKIP_DIRS) and ranking (rankFiles) live in
         // ./file-picker.ts; the walk itself stays here since it's disk I/O.
@@ -1665,9 +1712,14 @@ export async function startWebUI(
       default:
         if (msg.type.startsWith('autophase.')) {
           // Delegate all AutoPhase lifecycle messages to the handler
-          await autoPhaseHandler.handleMessage(msg as { type: string; payload?: Record<string, unknown> });
+          await autoPhaseHandler.handleMessage(
+            msg as { type: string; payload?: Record<string, unknown> },
+          );
         } else {
-          send(ws, { type: 'error', payload: { phase: 'handleMessage', message: `Unknown message type: ${msg.type}` } });
+          send(ws, {
+            type: 'error',
+            payload: { phase: 'handleMessage', message: `Unknown message type: ${msg.type}` },
+          });
         }
     }
   }
@@ -1677,7 +1729,9 @@ export async function startWebUI(
     globalConfigPath,
     vault,
     getConfigWriteLock: () => configWriteLock,
-    setConfigWriteLock: (p) => { configWriteLock = p; },
+    setConfigWriteLock: (p) => {
+      configWriteLock = p;
+    },
   });
 
   // HTTP server for the React frontend (port 3456) — see `http-server.ts`

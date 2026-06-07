@@ -3,6 +3,17 @@ import type { EventBus } from '../kernel/events.js';
 
 export type BudgetKind = 'tool_calls' | 'iterations' | 'tokens' | 'timeout' | 'idle_timeout' | 'cost';
 
+/**
+ * Fraction of the wall-clock `timeoutMs` window at which a PROACTIVE extension
+ * is negotiated — BEFORE the deadline is actually crossed. The coordinator
+ * watchdog (`executeWithTimeout`) arms at `timeoutMs * TIMEOUT_PREEMPT_FRACTION`
+ * so a still-progressing subagent gets its ceiling raised while it is below the
+ * limit, and never enters a "timed out" state. Reactive enforcement at the real
+ * deadline still stands for the no-progress / denied case. Shared so the asking
+ * side and any future caller agree on the same lead point.
+ */
+export const TIMEOUT_PREEMPT_FRACTION = 0.85;
+
 export class BudgetExceededError extends Error {
   readonly kind: BudgetKind;
   readonly limit: number;

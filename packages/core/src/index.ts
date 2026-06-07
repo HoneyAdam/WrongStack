@@ -181,6 +181,7 @@ export {
   type ContextWindowPolicy,
   type ContextWindowThresholds,
 } from './types/context-window.js';
+export { DEFAULT_SESSION_PRUNE_DAYS } from './types/default-config.js';
 
 // ─── AutoPhase — Otonom faz tabanlı iş akışı ────────────────────────────────
 export {

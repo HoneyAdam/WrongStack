@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-
-
+import { atomicWrite, withFileLock } from '../utils/atomic-write.js';
+import { safeParse } from '../utils/safe-json.js';
 
 function expectDefined<T>(value: T | null | undefined): T {
   if (value === null || value === undefined) {
@@ -118,40 +118,43 @@ export class ToolAuditLog {
   }): Promise<AuditEntry> {
     let entry: AuditEntry = null as never; // assigned in enqueue
     await this.enqueue(input.sessionId, async () => {
-      const prevHash = this.tailHash.get(input.sessionId) ?? GENESIS_PREV;
-      const index = this.tailIndex.get(input.sessionId) ?? 0;
-      const id = randomUUID();
-      const ts = new Date().toISOString();
-      // Compute the hash with index included so the hash covers the index.
-      const content = {
-        id,
-        ts,
-        prevHash,
-        toolName: input.toolName,
-        toolUseId: input.toolUseId,
-        input: input.input,
-        output: input.output,
-        isError: input.isError,
-        index,
-      };
-      const hash = createHash('sha256')
-        .update(stableStringify(content), 'utf8')
-        .digest('hex');
-      entry = {
-        id,
-        ts,
-        prevHash,
-        hash,
-        toolName: input.toolName,
-        toolUseId: input.toolUseId,
-        input: input.input,
-        output: input.output,
-        isError: input.isError,
-        index,
-      };
-      await this.appendLine(input.sessionId, entry);
-      this.tailHash.set(input.sessionId, hash);
-      this.tailIndex.set(input.sessionId, index + 1);
+      await withFileLock(this.filePath(input.sessionId), async () => {
+        const entries = await this.readAll(input.sessionId);
+        const prev = entries.at(-1);
+        const prevHash = prev?.hash ?? GENESIS_PREV;
+        const index = prev ? prev.index + 1 : 0;
+        const id = randomUUID();
+        const ts = new Date().toISOString();
+        // Compute the hash with index included so the hash covers the index.
+        const content = {
+          id,
+          ts,
+          prevHash,
+          toolName: input.toolName,
+          toolUseId: input.toolUseId,
+          input: input.input,
+          output: input.output,
+          isError: input.isError,
+          index,
+        };
+        const hash = createHash('sha256').update(stableStringify(content), 'utf8').digest('hex');
+        entry = {
+          id,
+          ts,
+          prevHash,
+          hash,
+          toolName: input.toolName,
+          toolUseId: input.toolUseId,
+          input: input.input,
+          output: input.output,
+          isError: input.isError,
+          index,
+        };
+        entries.push(entry);
+        await this.writeAll(input.sessionId, entries);
+        this.tailHash.set(input.sessionId, hash);
+        this.tailIndex.set(input.sessionId, index + 1);
+      });
     });
     return entry;
   }
@@ -236,7 +239,8 @@ export class ToolAuditLog {
       for (const line of raw.split('\n')) {
         if (!line.trim()) continue;
         try {
-          out.push(JSON.parse(line) as AuditEntry);
+          const parsed = safeParse<AuditEntry>(line);
+          if (parsed.ok && parsed.value) out.push(parsed.value);
         } catch {
           // Skip corrupt lines — audit data is meta, not fatal.
         }
@@ -248,13 +252,13 @@ export class ToolAuditLog {
     }
   }
 
-  private async appendLine(sessionId: string, entry: AuditEntry): Promise<void> {
+  private async writeAll(sessionId: string, entries: AuditEntry[]): Promise<void> {
     const fp = this.filePath(sessionId);
-    const line = JSON.stringify(entry) + '\n';
+    const line = entries.map((e) => JSON.stringify(e)).join('\n') + (entries.length ? '\n' : '');
     // Real append — O(1) per write. The write chain ensures serial
     // ordering per session. On crash a partial line may appear;
     // readAll skips unparseable lines so the chain stays verifiable.
-    await fs.appendFile(fp, line, 'utf8');
+    await atomicWrite(fp, line, { mode: 0o600 });
     // Periodic fsync: every fsyncEvery writes, open the file and sync it.
     // This limits data loss to at most fsyncEvery entries on crash.
     const count = (this.unSyncedWrites.get(sessionId) ?? 0) + 1;

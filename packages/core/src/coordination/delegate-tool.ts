@@ -6,6 +6,7 @@ import type { SubagentConfig, TaskResult } from '../types/multi-agent.js';
 import type { JSONSchema, Tool } from '../types/tool.js';
 import type { Director } from './director.js';
 import { applyRosterBudget } from './fleet.js';
+import { safeParse } from '../utils/safe-json.js';
 
 /**
  * Opaque host interface so this factory doesn't have to depend on the
@@ -212,238 +213,264 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
       // than echoing an opaque generated id.
       const target = i.role ?? i.name ?? 'subagent';
 
-        try {
-          let director = await opts.host.ensureDirector();
-          if (!director) {
-            director = await opts.host.promoteToDirector();
-          }
-          if (!director) {
-            const reason = opts.host.getPromotionBlockReason?.();
-            return {
-              ok: false,
-              error:
-                reason ??
-                'Director could not be activated — multi-agent host already running in legacy non-director mode. Restart with `--director` for fleet support.',
-            };
-          }
-
-          const timeoutMs = i.timeoutMs ?? defaultTimeoutMs;
-
-          let cfg: SubagentConfig;
-          if (i.role) {
-            const base = opts.roster?.[i.role];
-            if (!base) {
-              return {
-                ok: false,
-                error: `Unknown role "${i.role}". Available: ${rosterIds.join(', ') || '(no roster configured)'}.`,
-              };
-            }
-            cfg = instantiateRosterConfig(i.role, base);
-            if (i.systemPromptOverride) cfg.systemPromptOverride = i.systemPromptOverride;
-            if (i.provider) cfg.provider = i.provider;
-            if (i.model) cfg.model = i.model;
-          } else {
-            if (!i.name) {
-              return {
-                ok: false,
-                error: 'Either `role` (from the roster) or `name` is required.',
-              };
-            }
-            cfg = {
-              name: i.name,
-              provider: i.provider,
-              model: i.model,
-              systemPromptOverride: i.systemPromptOverride,
-            };
-            // Apply generic budget so free-form subagents get the x10
-            // budget even without a roster role.
-            cfg = applyRosterBudget({ ...cfg, name: i.name });
-          }
-
-          if (typeof i.maxIterations === 'number') {
-            cfg.maxIterations = i.maxIterations;
-          }
-          if (typeof i.maxToolCalls === 'number') {
-            cfg.maxToolCalls = i.maxToolCalls;
-          }
-          if (typeof i.idleTimeoutMs === 'number') {
-            cfg.idleTimeoutMs = i.idleTimeoutMs;
-          }
-          if (typeof i.maxTokens === 'number') {
-            cfg.maxTokens = i.maxTokens;
-          }
-          if (typeof i.maxCostUsd === 'number') {
-            cfg.maxCostUsd = i.maxCostUsd;
-          }
-
-          const SUBAGENT_TIMEOUT_BUFFER_MS = opts.subagentTimeoutBufferMs ?? 60_000;
-          // Only FILL IN a budget timeout when the config has none — never
-          // clamp a generous roster/generic budget DOWN to the host's await
-          // window. The old `cfg.timeoutMs > desiredSubTimeout` clamp is what
-          // capped 10h roster agents at ~4 minutes. The host await below is
-          // heartbeat-based, so the subagent's own (auto-extending) budget is
-          // the real ceiling.
-          if (!cfg.timeoutMs) {
-            cfg.timeoutMs = Math.max(30_000, timeoutMs - SUBAGENT_TIMEOUT_BUFFER_MS);
-          }
-
-          // Announce the delegation before we block — UIs render a
-          // "started" line immediately so the (often minutes-long) wait
-          // doesn't look idle.
-          opts.events?.emit('delegate.started', { target, task: i.task });
-
-          const subagentId = await director.spawn(cfg);
-          const taskId = await director.assign({
-            id: `${randomUUID()}`,
-            description: i.task,
-            subagentId,
-          });
-          // Heartbeat-aware host await: `timeoutMs` is treated as a SILENCE
-          // tolerance, not a hard wall-clock cap. The deadline resets every
-          // time the subagent emits a tool/iteration event, so a subagent
-          // that keeps making progress is never killed for being slow —
-          // only a genuinely stalled one (no events for `timeoutMs`) trips
-          // the host timeout. Mirrors the budget's heartbeat auto-extend.
-          const dir = director;
-          const result = await new Promise<TaskResult | { __timeout: true }>((resolve) => {
-            let settled = false;
-            let timer: ReturnType<typeof setTimeout> | undefined;
-            const finish = (value: TaskResult | { __timeout: true }) => {
-              if (settled) return;
-              settled = true;
-              if (timer) clearTimeout(timer);
-              offTool();
-              offIter();
-              offProgress();
-              resolve(value);
-            };
-            const arm = () => {
-              if (timer) clearTimeout(timer);
-              timer = setTimeout(() => finish({ __timeout: true }), timeoutMs);
-            };
-            const bump = (e: { subagentId: string }) => {
-              if (e.subagentId === subagentId) arm();
-            };
-            const offTool = dir.fleet.filter('tool.executed', bump);
-            const offIter = dir.fleet.filter('iteration.started', bump);
-            // tool.progress fires for streamed bash output, fetch byte progress,
-            // and other long-duration tools — these are forward motion events
-            // that should reset the idle timer just like iteration.started does.
-            const offProgress = dir.fleet.filter('tool.progress', bump);
-            arm();
-            dir
-              .awaitTasks([taskId])
-              .then((r) => finish(r[0] ?? { __timeout: true }))
-              .catch(() => finish({ __timeout: true }));
-          });
-
-          if ('__timeout' in result) {
-            const partial = await readSubagentPartial(opts, subagentId);
-            opts.events?.emit('delegate.completed', {
-              target,
-              task: i.task,
-              ok: false,
-              status: 'host_timeout',
-              summary: `[${target}] timed out — no result within ${Math.round(timeoutMs / 1000)}s`,
-              durationMs: timeoutMs,
-              iterations: partial?.events ?? 0,
-              toolCalls: partial?.toolUsesObserved ?? 0,
-              subagentId,
-            });
-            return {
-              ok: false,
-              stopReason: 'host_timeout',
-              error: `Subagent did not finish within ${timeoutMs}ms.`,
-              hint: 'Reduce scope of the next delegate, raise timeoutMs, or use spawn_subagent + await_tasks for long-running work.',
-              subagentId,
-              taskId,
-              partial,
-            };
-          }
-
-          const baseStopReason: StopReason =
-            result.status === 'success'
-              ? 'end_turn'
-              : result.status === 'timeout'
-                ? 'subagent_timeout'
-                : result.status === 'stopped'
-                  ? 'aborted'
-                  : 'budget_exhausted';
-          const partial =
-            result.status === 'success' ? undefined : await readSubagentPartial(opts, subagentId);
-
-          const errorKind = result.error?.kind;
-          const retryable = result.error?.retryable;
-          const backoffMs = result.error?.backoffMs;
-
-          // Build a short summary for the chat history so the user sees
-          // what the subagent accomplished without digging into the full result.
-          const summary = buildDelegateSummary(i.role, result);
-
-          // Per-subagent cost from the director's usage aggregator, when it
-          // tracks one. Best-effort: undefined if pricing isn't wired.
-          let costUsd: number | undefined;
-          try {
-            costUsd = dir.snapshot().perSubagent[result.subagentId]?.cost;
-          } catch {
-            costUsd = undefined;
-          }
-          opts.events?.emit('delegate.completed', {
-            target,
-            task: i.task,
-            ok: result.status === 'success',
-            status: result.status,
-            summary,
-            durationMs: result.durationMs,
-            iterations: result.iterations,
-            toolCalls: result.toolCalls,
-            costUsd,
-            subagentId: result.subagentId,
-          });
-
+      try {
+        let director = await opts.host.ensureDirector();
+        if (!director) {
+          director = await opts.host.promoteToDirector();
+        }
+        if (!director) {
+          const reason = opts.host.getPromotionBlockReason?.();
           return {
-            ok: result.status === 'success',
-            status: result.status,
-            stopReason: baseStopReason,
-            errorKind,
-            retryable,
-            backoffMs,
-            subagentId: result.subagentId,
-            taskId: result.taskId,
-            result: result.result,
-            error: result.error,
-            iterations: result.iterations,
-            toolCalls: result.toolCalls,
-            durationMs: result.durationMs,
-            ...(partial ? { partial } : {}),
-            ...(hintForKind(errorKind, retryable, backoffMs, partial)
-              ? { hint: hintForKind(errorKind, retryable, backoffMs, partial) }
-              : {}),
-            // Summary is included so callers (TUI, CLI renderer) can surface
-            // it as a chat history line — the LLM also sees it for continuity.
-            summary,
+            ok: false,
+            error:
+              reason ??
+              'Director could not be activated — multi-agent host already running in legacy non-director mode. Restart with `--director` for fleet support.',
           };
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          // Resolve any "started" line the UI is showing — without this a
-          // spawn/assign failure after delegate.started would leave a
-          // dangling "Delegating…" entry with no outcome.
+        }
+
+        const timeoutMs = i.timeoutMs ?? defaultTimeoutMs;
+
+        let cfg: SubagentConfig;
+        if (i.role) {
+          const base = opts.roster?.[i.role];
+          if (!base) {
+            return {
+              ok: false,
+              error: `Unknown role "${i.role}". Available: ${rosterIds.join(', ') || '(no roster configured)'}.`,
+            };
+          }
+          cfg = instantiateRosterConfig(i.role, base);
+          if (i.systemPromptOverride) cfg.systemPromptOverride = i.systemPromptOverride;
+          if (i.provider) cfg.provider = i.provider;
+          if (i.model) cfg.model = i.model;
+        } else {
+          if (!i.name) {
+            return {
+              ok: false,
+              error: 'Either `role` (from the roster) or `name` is required.',
+            };
+          }
+          cfg = {
+            name: i.name,
+            provider: i.provider,
+            model: i.model,
+            systemPromptOverride: i.systemPromptOverride,
+          };
+          // Apply generic budget so free-form subagents get the x10
+          // budget even without a roster role.
+          cfg = applyRosterBudget({ ...cfg, name: i.name });
+        }
+
+        if (typeof i.maxIterations === 'number') {
+          cfg.maxIterations = i.maxIterations;
+        }
+        if (typeof i.maxToolCalls === 'number') {
+          cfg.maxToolCalls = i.maxToolCalls;
+        }
+        if (typeof i.idleTimeoutMs === 'number') {
+          cfg.idleTimeoutMs = i.idleTimeoutMs;
+        }
+        if (typeof i.maxTokens === 'number') {
+          cfg.maxTokens = i.maxTokens;
+        }
+        if (typeof i.maxCostUsd === 'number') {
+          cfg.maxCostUsd = i.maxCostUsd;
+        }
+
+        const SUBAGENT_TIMEOUT_BUFFER_MS = opts.subagentTimeoutBufferMs ?? 60_000;
+        // Only FILL IN a budget timeout when the config has none — never
+        // clamp a generous roster/generic budget DOWN to the host's await
+        // window. The old `cfg.timeoutMs > desiredSubTimeout` clamp is what
+        // capped 10h roster agents at ~4 minutes. The host await below is
+        // heartbeat-based, so the subagent's own (auto-extending) budget is
+        // the real ceiling.
+        if (!cfg.timeoutMs) {
+          cfg.timeoutMs = Math.max(30_000, timeoutMs - SUBAGENT_TIMEOUT_BUFFER_MS);
+        }
+
+        // Announce the delegation before we block — UIs render a
+        // "started" line immediately so the (often minutes-long) wait
+        // doesn't look idle.
+        opts.events?.emit('delegate.started', { target, task: i.task });
+
+        const subagentId = await director.spawn(cfg);
+        const taskId = await director.assign({
+          id: `${randomUUID()}`,
+          description: i.task,
+          subagentId,
+        });
+        // Heartbeat-aware host await: `timeoutMs` is treated as a SILENCE
+        // tolerance, not a hard wall-clock cap. The deadline resets every
+        // time the subagent emits a tool/iteration event, so a subagent
+        // that keeps making progress is never killed for being slow —
+        // only a genuinely stalled one (no events for `timeoutMs`) trips
+        // the host timeout. Mirrors the budget's heartbeat auto-extend.
+        const dir = director;
+        const result = await new Promise<
+          TaskResult | { __timeout: true } | { __emptyResult: true }
+        >((resolve) => {
+          let settled = false;
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const finish = (value: TaskResult | { __timeout: true } | { __emptyResult: true }) => {
+            if (settled) return;
+            settled = true;
+            if (timer) clearTimeout(timer);
+            offTool();
+            offIter();
+            offProgress();
+            resolve(value);
+          };
+          const arm = () => {
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(() => finish({ __timeout: true }), timeoutMs);
+          };
+          const bump = (e: { subagentId: string }) => {
+            if (e.subagentId === subagentId) arm();
+          };
+          const offTool = dir.fleet.filter('tool.executed', bump);
+          const offIter = dir.fleet.filter('iteration.started', bump);
+          // tool.progress fires for streamed bash output, fetch byte progress,
+          // and other long-duration tools — these are forward motion events
+          // that should reset the idle timer just like iteration.started does.
+          const offProgress = dir.fleet.filter('tool.progress', bump);
+          arm();
+          dir
+            .awaitTasks([taskId])
+            .then((r) => finish(r[0] ?? { __emptyResult: true }))
+            .catch(() => finish({ __timeout: true }));
+        });
+
+        if ('__timeout' in result) {
+          const partial = await readSubagentPartial(opts, subagentId);
           opts.events?.emit('delegate.completed', {
             target,
             task: i.task,
             ok: false,
-            status: 'error',
-            summary: `[${target}] failed — ${message}`,
+            status: 'host_timeout',
+            summary: `[${target}] timed out — no result within ${Math.round(timeoutMs / 1000)}s`,
+            durationMs: timeoutMs,
+            iterations: partial?.events ?? 0,
+            toolCalls: partial?.toolUsesObserved ?? 0,
+            subagentId,
+          });
+          return {
+            ok: false,
+            stopReason: 'host_timeout',
+            error: `Subagent did not finish within ${timeoutMs}ms.`,
+            hint: 'Reduce scope of the next delegate, raise timeoutMs, or use spawn_subagent + await_tasks for long-running work.',
+            subagentId,
+            taskId,
+            partial,
+          };
+        }
+
+        if ('__emptyResult' in result) {
+          const partial = await readSubagentPartial(opts, subagentId);
+          opts.events?.emit('delegate.completed', {
+            target,
+            task: i.task,
+            ok: false,
+            status: 'empty_result',
+            summary: `[${target}] completed without a task result`,
             durationMs: 0,
-            iterations: 0,
-            toolCalls: 0,
+            iterations: partial?.events ?? 0,
+            toolCalls: partial?.toolUsesObserved ?? 0,
+            subagentId,
           });
           return {
             ok: false,
             stopReason: 'error' as const,
-            error: message,
+            error: 'Director returned no task result for the delegated task.',
+            hint: 'Check fleet state with /fleet status, then retry or reassign the task.',
+            subagentId,
+            taskId,
+            partial,
           };
         }
+
+        const baseStopReason: StopReason =
+          result.status === 'success'
+            ? 'end_turn'
+            : result.status === 'timeout'
+              ? 'subagent_timeout'
+              : result.status === 'stopped'
+                ? 'aborted'
+                : 'budget_exhausted';
+        const partial =
+          result.status === 'success' ? undefined : await readSubagentPartial(opts, subagentId);
+
+        const errorKind = result.error?.kind;
+        const retryable = result.error?.retryable;
+        const backoffMs = result.error?.backoffMs;
+
+        // Build a short summary for the chat history so the user sees
+        // what the subagent accomplished without digging into the full result.
+        const summary = buildDelegateSummary(i.role, result);
+
+        // Per-subagent cost from the director's usage aggregator, when it
+        // tracks one. Best-effort: undefined if pricing isn't wired.
+        let costUsd: number | undefined;
+        try {
+          costUsd = dir.snapshot().perSubagent[result.subagentId]?.cost;
+        } catch {
+          costUsd = undefined;
+        }
+        opts.events?.emit('delegate.completed', {
+          target,
+          task: i.task,
+          ok: result.status === 'success',
+          status: result.status,
+          summary,
+          durationMs: result.durationMs,
+          iterations: result.iterations,
+          toolCalls: result.toolCalls,
+          costUsd,
+          subagentId: result.subagentId,
+        });
+
+        return {
+          ok: result.status === 'success',
+          status: result.status,
+          stopReason: baseStopReason,
+          errorKind,
+          retryable,
+          backoffMs,
+          subagentId: result.subagentId,
+          taskId: result.taskId,
+          result: result.result,
+          error: result.error,
+          iterations: result.iterations,
+          toolCalls: result.toolCalls,
+          durationMs: result.durationMs,
+          ...(partial ? { partial } : {}),
+          ...(hintForKind(errorKind, retryable, backoffMs, partial)
+            ? { hint: hintForKind(errorKind, retryable, backoffMs, partial) }
+            : {}),
+          // Summary is included so callers (TUI, CLI renderer) can surface
+          // it as a chat history line — the LLM also sees it for continuity.
+          summary,
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        // Resolve any "started" line the UI is showing — without this a
+        // spawn/assign failure after delegate.started would leave a
+        // dangling "Delegating…" entry with no outcome.
+        opts.events?.emit('delegate.completed', {
+          target,
+          task: i.task,
+          ok: false,
+          status: 'error',
+          summary: `[${target}] failed — ${message}`,
+          durationMs: 0,
+          iterations: 0,
+          toolCalls: 0,
+        });
+        return {
+          ok: false,
+          stopReason: 'error' as const,
+          error: message,
+        };
+      }
     },
   };
 }
@@ -498,14 +525,16 @@ export function hintForKind(
     case 'budget_tool_calls':
     case 'budget_tokens':
     case 'budget_cost': {
-      const base = 'Subagent exhausted its budget. The coordinator may auto-extend; otherwise raise the matching `max*` field (e.g. maxToolCalls: 600) on the next delegate, or split the task.';
+      const base =
+        'Subagent exhausted its budget. The coordinator may auto-extend; otherwise raise the matching `max*` field (e.g. maxToolCalls: 600) on the next delegate, or split the task.';
       if (partial?.lastAssistantText) {
         return `${base}\n\nPartial output produced before budget hit:\n${partial.lastAssistantText}`;
       }
       return base;
     }
     case 'budget_timeout': {
-      const base = 'Subagent hit its wall-clock budget. Raise `timeoutMs` on the next delegate or split the task.';
+      const base =
+        'Subagent hit its wall-clock budget. Raise `timeoutMs` on the next delegate or split the task.';
       if (partial?.lastAssistantText) {
         return `${base}\n\nPartial output produced before timeout:\n${partial.lastAssistantText}`;
       }
@@ -535,22 +564,21 @@ export function hintForKind(
  * Compact summary of what a subagent did — shown in chat history so
  * the user immediately sees the outcome without parsing the full result.
  */
-function buildDelegateSummary(
-  role: string | undefined,
-  result: TaskResult,
-): string {
+function buildDelegateSummary(role: string | undefined, result: TaskResult): string {
   const roleLabel = role ?? 'subagent';
   const ms = result.durationMs;
-  const duration = ms < 60_000
-    ? `${Math.round(ms / 1000)}s`
-    : ms < 3_600_000
-      ? `${Math.round(ms / 60_000)}m`
-      : `${(ms / 3_600_000).toFixed(1)}h`;
+  const duration =
+    ms < 60_000
+      ? `${Math.round(ms / 1000)}s`
+      : ms < 3_600_000
+        ? `${Math.round(ms / 60_000)}m`
+        : `${(ms / 3_600_000).toFixed(1)}h`;
 
   if (result.status === 'success') {
-    const preview = typeof result.result === 'string'
-      ? result.result.trim().slice(0, 120).replace(/\n+/g, ' ')
-      : null;
+    const preview =
+      typeof result.result === 'string'
+        ? result.result.trim().slice(0, 120).replace(/\n+/g, ' ')
+        : null;
     const tail = preview ? ` — ${preview}` : '';
     return `[${roleLabel}] done in ${duration} (${result.iterations} iter, ${result.toolCalls} tools)${tail}`;
   }
@@ -611,17 +639,21 @@ async function readSubagentPartial(
     let toolUses = 0;
     for (const line of lines) {
       try {
-        const ev = JSON.parse(line) as {
+        const parsed = safeParse<{
           type: string;
           content?: unknown | undefined;
           stopReason?: string | undefined;
           name?: string | undefined;
-        };
+        }>(line);
+        if (!parsed.ok || !parsed.value) continue;
+        const ev = parsed.value;
         if (ev.type === 'tool_use') toolUses += 1;
         if (ev.type === 'llm_response') {
           if (typeof ev.stopReason === 'string') lastStopReason = ev.stopReason;
           if (Array.isArray(ev.content)) {
-            const txt = (ev.content as Array<{ type?: string | undefined; text?: string | undefined }>)
+            const txt = (
+              ev.content as Array<{ type?: string | undefined; text?: string | undefined }>
+            )
               .filter((b) => b.type === 'text')
               .map((b) => b.text ?? '')
               .join('\n')
@@ -629,8 +661,7 @@ async function readSubagentPartial(
             if (txt) lastAssistantText = txt;
           }
         }
-      } catch {
-      }
+      } catch {}
     }
     return {
       lastAssistantText,

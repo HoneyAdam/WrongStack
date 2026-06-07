@@ -15,8 +15,6 @@ import {
 import { validateAgainstSchema } from '../utils/json-schema-validate.js';
 import { createToolOutputSerializer } from '../utils/tool-output-serializer.js';
 
-
-
 function expectDefined<T>(value: T | null | undefined): T {
   if (value === null || value === undefined) {
     throw new Error('Expected value to be defined');
@@ -27,12 +25,14 @@ function expectDefined<T>(value: T | null | undefined): T {
 export class ToolExecutor {
   private readonly serializer;
   private readonly iterationTimeoutMs: number;
+  private readonly maxToolTimeoutMs: number;
 
   constructor(
     private readonly registry: { get(name: string): Tool | undefined; list(): Tool[] },
     private opts: ToolExecutorOptions,
   ) {
     this.iterationTimeoutMs = opts.iterationTimeoutMs ?? 300_000;
+    this.maxToolTimeoutMs = opts.maxToolTimeoutMs ?? 300_000;
     this.serializer = createToolOutputSerializer({
       perIterationOutputCapBytes: opts.perIterationOutputCapBytes ?? 100_000,
     });
@@ -171,9 +171,7 @@ export class ToolExecutor {
       // Detected via optional methods so policies without them (AutoApprove,
       // test mocks) keep the stricter default.
       const policy = this.opts.permissionPolicy;
-      const yolo =
-        policy.getYolo?.() === true ||
-        policy.getYoloDestructive?.() === true;
+      const yolo = policy.getYolo?.() === true || policy.getYoloDestructive?.() === true;
 
       if (toolDangerousCaps.length > 0 && effectivePermission === 'auto' && !yolo) {
         // Outside yolo we force at least 'confirm' for dangerous-capability tools.
@@ -216,7 +214,9 @@ export class ToolExecutor {
 
       // effectivePermission === 'auto' (after all safety layers)
       // Capability audit for observability.
-      const toolCapsForAudit = hasDangerousCapabilityForSubagents(tool) ? (tool.capabilities ?? []) : [];
+      const toolCapsForAudit = hasDangerousCapabilityForSubagents(tool)
+        ? (tool.capabilities ?? [])
+        : [];
 
       // L1-C: trace each tool execution. Span is a no-op unless an OTel
       // adapter or other Tracer is bound — zero overhead by default.
@@ -368,7 +368,10 @@ export class ToolExecutor {
       if (parentSignal.reason instanceof Error) throw parentSignal.reason;
       throw new Error(typeof parentSignal.reason === 'string' ? parentSignal.reason : 'aborted');
     }
-    const timeoutMs = tool.timeoutMs ?? this.iterationTimeoutMs;
+    const timeoutMs = clampTimeoutMs(
+      tool.timeoutMs ?? this.iterationTimeoutMs,
+      this.maxToolTimeoutMs,
+    );
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(new Error('tool timeout')), timeoutMs);
     const combined = AbortSignal.any([parentSignal, ctrl.signal]);
@@ -410,9 +413,10 @@ export class ToolExecutor {
             /* swallow */
           }
         }
-        const reason = combined.reason instanceof Error
-          ? combined.reason
-          : new Error(typeof combined.reason === 'string' ? combined.reason : 'aborted');
+        const reason =
+          combined.reason instanceof Error
+            ? combined.reason
+            : new Error(typeof combined.reason === 'string' ? combined.reason : 'aborted');
         // biome-ignore lint/correctness/noUnsafeFinally: guarded by `!caught` — only runs when the tool returned cleanly but the signal aborted, so there is no in-flight exception to override.
         throw reason;
       }
@@ -473,7 +477,8 @@ export class ToolExecutor {
     // arguments being truncated mid-stream.
     if (raw) {
       const max = 800;
-      const excerpt = raw.length > max ? `${raw.slice(0, max)}… (truncated, ${raw.length} chars total)` : raw;
+      const excerpt =
+        raw.length > max ? `${raw.slice(0, max)}… (truncated, ${raw.length} chars total)` : raw;
       content +=
         ` Common cause: a string field (e.g. code in old_string/new_string) ` +
         `contains literal newlines, quotes, or backslashes that must be JSON-escaped, ` +
@@ -549,6 +554,13 @@ export class ToolExecutor {
     }
     return undefined;
   }
+}
+
+function clampTimeoutMs(timeoutMs: number, maxTimeoutMs: number): number {
+  const fallback = 300_000;
+  const finiteTimeout = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : fallback;
+  const finiteMax = Number.isFinite(maxTimeoutMs) && maxTimeoutMs > 0 ? maxTimeoutMs : fallback;
+  return Math.max(1, Math.min(finiteTimeout, finiteMax));
 }
 
 /**

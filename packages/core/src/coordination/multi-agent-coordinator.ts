@@ -13,7 +13,7 @@ import type {
   TaskResult,
   TaskSpec,
 } from '../types/multi-agent.js';
-import { BudgetExceededError, SubagentBudget } from './subagent-budget.js';
+import { BudgetExceededError, SubagentBudget, TIMEOUT_PREEMPT_FRACTION } from './subagent-budget.js';
 import { classifySubagentError } from './coordinator/error-classifier.js';
 import { applyRosterBudget } from './fleet.js';
 import { assignNickname } from './subagent-nicknames.js';
@@ -662,6 +662,11 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
     // re-arms rather than hard-killing a task solely for running long.
     const start = Date.now();
     let timer: ReturnType<typeof setTimeout> | null = null;
+    // The wall-clock limit value for which we've already run a PROACTIVE
+    // pre-empt negotiation. Set to the current `timeoutMs` once we've asked
+    // ahead of the deadline for that window (so we don't re-ask every tick);
+    // reset to null when the limit is extended, which opens a fresh window.
+    let preemptedForLimit: number | null = null;
 
     const timeoutPromise = new Promise<never>((_, reject) => {
       const armFor = (ms: number) => {
@@ -669,20 +674,57 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
         timer = setTimeout(onTick, Math.max(0, ms));
       };
       // Re-arm for whichever deadline is sooner — the idle window (counted
-      // from last activity) or the explicit wall-clock cap. Either being
-      // unset drops out of the min, so single-limit configs behave exactly
-      // as that limit alone.
+      // from last activity), the explicit wall-clock cap, or the PROACTIVE
+      // pre-empt point (a fraction of the wall cap, see TIMEOUT_PREEMPT_FRACTION)
+      // at which we negotiate an extension BEFORE the deadline is crossed. Any
+      // being unset/already-asked drops out of the min, so single-limit configs
+      // behave exactly as that limit alone.
       const scheduleNext = () => {
+        const wallLimit = budget.limits.timeoutMs ?? initialTimeoutMs;
         const wallRemaining =
           initialTimeoutMs === undefined
             ? Number.POSITIVE_INFINITY
-            : (budget.limits.timeoutMs ?? initialTimeoutMs) - (Date.now() - start);
+            : (wallLimit as number) - (Date.now() - start);
         const idleRemaining =
           idleLimitMs === undefined
             ? Number.POSITIVE_INFINITY
             : (budget.limits.idleTimeoutMs ?? idleLimitMs) - budget.idleMs();
+        const preemptRemaining =
+          initialTimeoutMs === undefined || preemptedForLimit === wallLimit
+            ? Number.POSITIVE_INFINITY
+            : (wallLimit as number) * TIMEOUT_PREEMPT_FRACTION - (Date.now() - start);
         // Floor at a small positive so a near-zero remainder can't busy-loop.
-        armFor(Math.max(25, Math.min(wallRemaining, idleRemaining)));
+        armFor(Math.max(25, Math.min(wallRemaining, idleRemaining, preemptRemaining)));
+      };
+
+      // Drive a timeout extension negotiation (used by BOTH the proactive
+      // pre-empt and the at-deadline path). Resolves to the coordinator's
+      // verdict: `{ extend: { timeoutMs } }` to grant, or a string to decline.
+      // The budget's requestDecision falls back to 'stop' on no response, so
+      // this never hangs.
+      const negotiateTimeout = async (
+        used: number,
+        limit: number,
+      ): Promise<'stop' | 'continue' | 'throw' | { extend: { timeoutMs?: number } }> => {
+        const handler = budget.onThreshold;
+        if (!handler) return 'stop';
+        const result = handler({
+          kind: 'timeout',
+          used,
+          limit,
+          requestDecision: () =>
+            new Promise<'stop' | { extend: { timeoutMs?: number } }>((resolveDecision) => {
+              budget._events?.emit('budget.threshold_reached', {
+                kind: 'timeout',
+                used,
+                limit,
+                timeoutMs: 60_000,
+                extend: (extra) => resolveDecision({ extend: extra }),
+                deny: () => resolveDecision('stop'),
+              });
+            }),
+        });
+        return typeof result === 'string' ? result : await result;
       };
 
       const onTick = async () => {
@@ -702,8 +744,44 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
           reject(new BudgetExceededError('timeout', idleLimit ?? 0, budget.idleMs()));
           return;
         }
+
+        // PROACTIVE pre-empt: we've passed TIMEOUT_PREEMPT_FRACTION of the wall
+        // window but NOT the deadline itself. Negotiate an extension now, while
+        // the agent is still under its limit, so a progressing subagent gets its
+        // ceiling raised and never enters a timed-out state. Heartbeat-gated on
+        // the granting side (director / attachAutoExtend): no progress ⇒ decline,
+        // and we fall through to the real-deadline behaviour below at the cap.
+        // Asked at most once per window (preemptedForLimit).
+        if (
+          wallLimit !== undefined &&
+          !wallExceeded &&
+          budget.onThreshold &&
+          preemptedForLimit !== wallLimit &&
+          elapsed >= wallLimit * TIMEOUT_PREEMPT_FRACTION
+        ) {
+          try {
+            const decision = await negotiateTimeout(elapsed, wallLimit);
+            if (typeof decision !== 'string' && decision.extend.timeoutMs !== undefined) {
+              // Granted ahead of the deadline — raise the ceiling and open a
+              // fresh window (a later pre-empt becomes eligible again).
+              (budget.limits as Record<string, unknown>).timeoutMs = decision.extend.timeoutMs;
+              preemptedForLimit = null;
+            } else {
+              // Declined proactively (no progress / no listener). Don't re-ask
+              // until the real deadline — the wallExceeded path below handles the
+              // at-cap behaviour (warn+continue or hard stop).
+              preemptedForLimit = wallLimit;
+            }
+          } catch {
+            preemptedForLimit = wallLimit;
+          }
+          scheduleNext();
+          return;
+        }
+
         // Neither deadline actually tripped — we woke early because activity
-        // pushed the idle deadline out. Re-arm for the new soonest deadline.
+        // pushed the idle deadline out (or a pre-empt was just resolved).
+        // Re-arm for the new soonest deadline.
         if (!wallExceeded) {
           scheduleNext();
           return;
@@ -721,38 +799,21 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
           reject(new BudgetExceededError('timeout', limit, elapsed));
           return;
         }
-        // With a handler, ask for an extension. The budget's
-        // requestDecision returns 'stop' on no response (decision
-        // fallback timer inside SubagentBudget), so this never hangs.
         try {
-          const result = budget.onThreshold({
-            kind: 'timeout',
-            used: elapsed,
-            limit,
-            requestDecision: () =>
-              new Promise((resolveDecision) => {
-                budget._events?.emit('budget.threshold_reached', {
-                  kind: 'timeout',
-                  used: elapsed,
-                  limit,
-                  timeoutMs: 60_000,
-                  extend: (extra) => resolveDecision({ extend: extra }),
-                  deny: () => resolveDecision('stop'),
-                });
-              }),
-          });
-          const decision = typeof result === 'string' ? result : await result;
+          const decision = await negotiateTimeout(elapsed, limit);
           if (decision === 'continue' || decision === 'throw' || decision === 'stop') {
             // Timeout denied / no-op — re-arm for another full wall window so
             // we ask again later. This makes wall-clock timeout a pure warning
             // event: the subagent keeps running until it naturally finishes or
             // the user stops it. No task is hard-killed solely for running long.
+            preemptedForLimit = null;
             armFor(Math.max(1_000, limit));
             return;
           }
           // 'extend' — patch budget and re-arm for the new remainder.
           if (decision.extend.timeoutMs !== undefined) {
             (budget.limits as Record<string, unknown>).timeoutMs = decision.extend.timeoutMs;
+            preemptedForLimit = null;
             scheduleNext();
             return;
           }
@@ -768,7 +829,7 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
           );
         }
       };
-      // First arm: whichever of the idle window / wall-clock cap is sooner.
+      // First arm: whichever of the idle window / pre-empt point / wall cap is sooner.
       scheduleNext();
     });
 

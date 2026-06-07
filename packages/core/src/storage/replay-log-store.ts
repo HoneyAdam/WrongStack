@@ -1,8 +1,9 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { atomicWrite } from '../utils/atomic-write.js';
+import { atomicWrite, withFileLock } from '../utils/atomic-write.js';
 import { hashRequest } from '../replay/hash.js';
 import type { Request, Response } from '../types/provider.js';
+import { safeParse } from '../utils/safe-json.js';
 
 /**
  * ReplayLogStore — sidecar store for deterministic-replay support
@@ -82,25 +83,24 @@ export class ReplayLogStore {
   }): Promise<string> {
     const hash = hashRequest(input.request);
     await this.enqueue(input.sessionId, async () => {
-      const cache = await this.ensureCache(input.sessionId);
-      if (cache.has(hash)) return; // already recorded
-      const entry: ReplayEntry = {
-        hash,
-        ts: new Date().toISOString(),
-        request: input.request,
-        response: input.response,
-      };
-      // True append — O(1) per write. Only compact (full rewrite) when
-      // we exceed maxEntries and need to evict oldest entries.
-      cache.set(hash, entry);
-      const count = (this.diskCount.get(input.sessionId) ?? 0) + 1;
-      if (count > this.maxEntries) {
-        // Need to compact: keep only the most recent maxEntries.
-        await this.compact(input.sessionId, cache);
-      } else {
-        await fs.appendFile(this.filePath(input.sessionId), JSON.stringify(entry) + '\n', 'utf8');
-        this.diskCount.set(input.sessionId, count);
-      }
+      await withFileLock(this.filePath(input.sessionId), async () => {
+        const entries = await this.readAll(input.sessionId);
+        if (entries.some((entry) => entry.hash === hash)) return; // already recorded
+        const entry: ReplayEntry = {
+          hash,
+          ts: new Date().toISOString(),
+          request: input.request,
+          response: input.response,
+        };
+        // True append — O(1) per write. Only compact (full rewrite) when
+        // we exceed maxEntries and need to evict oldest entries.
+        entries.push(entry);
+        const keep = entries.slice(-this.maxEntries);
+        const cache = new Map<string, ReplayEntry>();
+        for (const e of keep) cache.set(e.hash, e);
+        this.cache.set(input.sessionId, cache);
+        await this.rewriteCache(input.sessionId, cache);
+      });
     });
     return hash;
   }
@@ -110,7 +110,7 @@ export class ReplayLogStore {
    * Called when entry count exceeds the cap. Rewrites the entire file
    * but only happens O(n / maxEntries) times per session.
    */
-  private async compact(sessionId: string, cache: Map<string, ReplayEntry>): Promise<void> {
+  private async rewriteCache(sessionId: string, cache: Map<string, ReplayEntry>): Promise<void> {
     // Map.values() preserves insertion order — take the last maxEntries.
     const all = [...cache.values()];
     const keep = all.slice(-this.maxEntries);
@@ -168,7 +168,12 @@ export class ReplayLogStore {
   // ── Internals ───────────────────────────────────────────────────────────
 
   private filePath(sessionId: string): string {
-    if (!sessionId || sessionId.includes('/') || sessionId.includes('\\') || sessionId.includes('..')) {
+    if (
+      !sessionId ||
+      sessionId.includes('/') ||
+      sessionId.includes('\\') ||
+      sessionId.includes('..')
+    ) {
       throw new Error(`Invalid sessionId: ${sessionId}`);
     }
     return path.join(this.dir, `${sessionId}.replay.jsonl`);
@@ -182,14 +187,17 @@ export class ReplayLogStore {
       for (const line of raw.split('\n')) {
         if (!line.trim()) continue;
         try {
-          const parsed = JSON.parse(line) as { version?: number | undefined; entry?: ReplayEntry | undefined } & ReplayEntry;
+          const parsed = safeParse<
+            { version?: number | undefined; entry?: ReplayEntry | undefined } & ReplayEntry
+          >(line);
+          if (!parsed.ok || !parsed.value) continue;
           // Forward-compat: v1 stores entries one per line, no envelope.
           // A future "v2" could wrap with `{version, entries:[...]}`;
           // the loader would then branch on `parsed.version`.
-          if ('entry' in parsed && parsed.entry) {
-            out.push(parsed.entry);
+          if ('entry' in parsed.value && parsed.value.entry) {
+            out.push(parsed.value.entry);
           } else {
-            out.push(parsed);
+            out.push(parsed.value);
           }
         } catch {
           // Skip a corrupt line — annotations-store and other sidecar

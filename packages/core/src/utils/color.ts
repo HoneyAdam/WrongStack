@@ -1,10 +1,16 @@
 import { isStdoutTTY } from './term.js';
 
 const isColorTty = (): boolean => {
-  if (process.env.NO_COLOR) return false;
-  if (process.env.FORCE_COLOR) return true;
+  if (envFlag(process.env.NO_COLOR)) return false;
+  if (envFlag(process.env.FORCE_COLOR)) return true;
   return isStdoutTTY();
 };
+
+function envFlag(value: string | undefined): boolean {
+  if (value === undefined) return false;
+  if (value.trim() === '') return false;
+  return !/^(0|false|no|off)$/i.test(value.trim());
+}
 
 const COLOR = isColorTty();
 

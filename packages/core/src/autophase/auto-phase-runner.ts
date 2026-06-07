@@ -27,15 +27,17 @@ export interface AutoPhaseRunnerOptions extends AutoPhaseOptions {
   /** Opsiyonel Brain arbiter */
   brain?: PhaseExecutionContext['brain'] | undefined;
   /** Faz tamamlandığında */
-  onPhaseComplete?: (((phase: PhaseNode) => void)) | undefined;
+  onPhaseComplete?: ((phase: PhaseNode) => void) | undefined;
   /** Faz başarısız olduğunda */
   onPhaseFail?: (phase: PhaseNode, error: Error) => void;
   /** Her tick'te */
   onTick?: (ctx: { activePhases: PhaseNode[]; readyPhases: PhaseNode[] }) => void;
   /** Progress değiştiğinde */
-  onProgress?: (((progress: PhaseProgress) => void)) | undefined;
+  onProgress?: ((progress: PhaseProgress) => void) | undefined;
+  /** Safety net that stops a phase graph if cleanup is bypassed. Default: 24h. */
+  maxRunDurationMs?: number | undefined;
   /** Graph tamamlandığında */
-  onComplete?: (((graph: PhaseGraph) => void)) | undefined;
+  onComplete?: ((graph: PhaseGraph) => void) | undefined;
   /** Graph başarısız olduğunda */
   onFail?: (graph: PhaseGraph, failedPhase: PhaseNode, error: Error) => void;
 }
@@ -57,6 +59,7 @@ export class AutoPhaseRunner {
   private orchestrator: PhaseOrchestrator | null = null;
   private opts: AutoPhaseRunnerOptions;
   private progressInterval: ReturnType<typeof setInterval> | null = null;
+  private maxRunTimer: ReturnType<typeof setTimeout> | null = null;
 
   private readonly graphCompletedHandler = (payload: unknown) => {
     const p = payload as { graphId: string; durationMs: number };
@@ -138,6 +141,12 @@ export class AutoPhaseRunner {
       }, 2000);
     }
 
+    this.maxRunTimer = setTimeout(
+      () => this.stop(),
+      this.opts.maxRunDurationMs ?? 24 * 60 * 60_000,
+    );
+    this.maxRunTimer.unref?.();
+
     // Register event listeners using the untyped surface to handle custom events
     if (this.opts.events) {
       const events = this.opts.events as EventBus;
@@ -196,6 +205,10 @@ export class AutoPhaseRunner {
     if (this.progressInterval) {
       clearInterval(this.progressInterval);
       this.progressInterval = null;
+    }
+    if (this.maxRunTimer) {
+      clearTimeout(this.maxRunTimer);
+      this.maxRunTimer = null;
     }
     // Use the unsubscribe functions returned by EventBus.on() instead of .off()
     this.unsubscribeCompleted?.();

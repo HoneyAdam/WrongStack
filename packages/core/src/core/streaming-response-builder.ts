@@ -5,6 +5,8 @@ import type { Provider, Request, Response } from '../types/provider.js';
 import type { Context } from './context.js';
 import { completePartialObject } from '../utils/json-repair.js';
 
+const STREAM_DRAIN_TIMEOUT_MS = 500;
+
 interface ThinkingEntry {
   textBuf: string;
   signature?: string | undefined;
@@ -19,7 +21,12 @@ interface StreamingState {
   currentTextIndex: number;
   tools: Map<
     string,
-    { name: string; partial: string; input?: unknown | undefined; providerMeta?: Record<string, unknown> }
+    {
+      name: string;
+      partial: string;
+      input?: unknown | undefined;
+      providerMeta?: Record<string, unknown>;
+    }
   >;
   thinking: ThinkingEntry[];
   currentThinkingIndex: number;
@@ -87,7 +94,12 @@ export function handleMessageStart(state: StreamingState, model: string): void {
 
 export function handleContentBlockStart(
   state: StreamingState,
-  ev: { kind?: string | undefined; id?: string | undefined; name?: string | undefined; providerMeta?: Record<string, unknown> },
+  ev: {
+    kind?: string | undefined;
+    id?: string | undefined;
+    name?: string | undefined;
+    providerMeta?: Record<string, unknown>;
+  },
 ): void {
   const kind = ev.kind ?? 'text';
   if (kind === 'text') {
@@ -110,8 +122,11 @@ export function handleContentBlockStart(
   }
 }
 
-export function handleContentBlockStop(state: StreamingState, ev: { index?: number | undefined }): void {
-  // TODO: implement for providers that emit content_block_stop with metadata
+export function handleContentBlockStop(
+  state: StreamingState,
+  ev: { index?: number | undefined },
+): void {
+  // Currently no provider adapter sends stop-only metadata.
   // (e.g. tool use result, thinking signature). Currently a no-op — every
   // content_block_stop event is consumed but produces no side effects.
   void state;
@@ -299,13 +314,15 @@ export async function streamProviderToResponse(
   } finally {
     try {
       // Race the drain against a short deadline so a non-cooperative
-      // provider stream can't pin shutdown.
+      // provider stream can't pin shutdown. 500ms is long enough for
+      // cooperative SDK iterators to release network resources without
+      // making abort/exit paths feel stuck.
       let drainTimer: ReturnType<typeof setTimeout> | null = null;
       try {
         await Promise.race([
           Promise.resolve(iter.return?.()),
           new Promise<void>((resolve) => {
-            drainTimer = setTimeout(resolve, 500);
+            drainTimer = setTimeout(resolve, STREAM_DRAIN_TIMEOUT_MS);
           }),
         ]);
       } finally {

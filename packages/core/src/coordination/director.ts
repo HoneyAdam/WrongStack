@@ -16,6 +16,7 @@ import type {
 import type { SessionWriter } from '../types/session.js';
 import type { Tool } from '../types/tool.js';
 import { atomicWrite } from '../utils/atomic-write.js';
+import { safeParse } from '../utils/safe-json.js';
 import { InMemoryAgentBridge } from './agent-bridge.js';
 import {
   type CollabDebugReport,
@@ -54,7 +55,11 @@ import { LargeAnswerStore } from './large-answer-store.js';
 import { resolveModelMatrix } from './model-matrix.js';
 import { DefaultMultiAgentCoordinator } from './multi-agent-coordinator.js';
 import { assignNickname, nicknameKeyFromDisplay } from './subagent-nicknames.js';
-import { FleetSpawnBudgetError, FleetCostCapError, FleetContextOverflowError } from './director/director-errors.js';
+import {
+  FleetSpawnBudgetError,
+  FleetCostCapError,
+  FleetContextOverflowError,
+} from './director/director-errors.js';
 
 /**
  * Director — high-level orchestrator that owns a `MultiAgentCoordinator`,
@@ -169,13 +174,15 @@ export interface DirectorOptions {
    * Distinct from SubagentBudget.maxCostUsd (per-subagent spend) — this
    * field caps the *entire fleet* total.
    */
-  directorBudget?: {
-    /**
-     * Maximum total USD the fleet may spend across all subagents.
-     * Default: Infinity (no cap).
-     */
-    maxCostUsd?: number | undefined;
-  } | undefined;
+  directorBudget?:
+    | {
+        /**
+         * Maximum total USD the fleet may spend across all subagents.
+         * Default: Infinity (no cap).
+         */
+        maxCostUsd?: number | undefined;
+      }
+    | undefined;
   /**
    * Maximum auto-extensions per subagent per budget kind before the
    * director denies further extensions. A subagent hitting the same
@@ -267,7 +274,11 @@ export type ModelMatrixSource =
   | (() => Record<string, ModelMatrixEntry> | undefined);
 
 // Re-exported from director-errors.ts for backward compatibility
-export { FleetSpawnBudgetError, FleetCostCapError, FleetContextOverflowError } from './director/director-errors.js';
+export {
+  FleetSpawnBudgetError,
+  FleetCostCapError,
+  FleetContextOverflowError,
+} from './director/director-errors.js';
 
 export class Director implements ICoordinator {
   /** Alias for the ICoordinator contract. `id` is retained for backward compatibility. */
@@ -347,10 +358,18 @@ export class Director implements ICoordinator {
   private static readonly MAX_COMPLETED = 10_000;
   /** Per-subagent provider/model metadata, captured at spawn time so the
    *  FleetUsageAggregator's metaLookup can surface readable rows. */
-  private readonly subagentMeta = new Map<string, { provider?: string | undefined; model?: string | undefined }>();
+  private readonly subagentMeta = new Map<
+    string,
+    { provider?: string | undefined; model?: string | undefined }
+  >();
   private readonly priceLookups = new Map<
     string,
-    { input?: number | undefined; output?: number | undefined; cacheRead?: number | undefined; cacheWrite?: number | undefined }
+    {
+      input?: number | undefined;
+      output?: number | undefined;
+      cacheRead?: number | undefined;
+      cacheWrite?: number | undefined;
+    }
   >();
   /** Bridge endpoints we created per subagent (so we can `stop()` them
    *  on shutdown and free transport subscriptions). */
@@ -421,7 +440,9 @@ export class Director implements ICoordinator {
     | ((payload: { task: TaskSpec; result: TaskResult }) => void)
     | null = null;
   /** Optional LLM classifier for smart dispatch. Passed from options. */
-  readonly dispatchClassifier?: import('../coordination/dispatcher.js').DispatchClassifier | undefined;
+  readonly dispatchClassifier?:
+    | import('../coordination/dispatcher.js').DispatchClassifier
+    | undefined;
   /** Leader agent's current context pressure (full request tokens). */
   private leaderContextPressure = 0;
   /** Maximum context load fraction before spawn is refused. */
@@ -965,7 +986,12 @@ export class Director implements ICoordinator {
    */
   async spawn(
     config: SubagentConfig,
-    priceLookup?: { input?: number | undefined; output?: number | undefined; cacheRead?: number | undefined; cacheWrite?: number | undefined },
+    priceLookup?: {
+      input?: number | undefined;
+      output?: number | undefined;
+      cacheRead?: number | undefined;
+      cacheWrite?: number | undefined;
+    },
   ): Promise<string> {
     // workComplete() signal: once the director decides the work is done,
     // refuse to spawn new subagents so the fleet winds down naturally.
@@ -1512,7 +1538,13 @@ export class Director implements ICoordinator {
     let toolUses = 0;
     for (const line of targetLines) {
       try {
-        const ev = JSON.parse(line) as { type?: string | undefined; text?: string | undefined; stopReason?: string | undefined };
+        const parsed = safeParse<{
+          type?: string | undefined;
+          text?: string | undefined;
+          stopReason?: string | undefined;
+        }>(line);
+        if (!parsed.ok || !parsed.value) continue;
+        const ev = parsed.value;
         if (ev.type === 'assistant' && typeof ev.text === 'string') {
           lastAssistantText = ev.text;
         } else if (ev.type === 'stop' && ev.stopReason) {
@@ -1544,7 +1576,11 @@ export class Director implements ICoordinator {
    * this to render human-readable provider/model tags next to each
    * subagent row without reaching into private state.
    */
-  getSubagentMeta(id: string): { provider?: string | undefined; model?: string | undefined; name?: string | undefined } | undefined {
+  getSubagentMeta(
+    id: string,
+  ):
+    | { provider?: string | undefined; model?: string | undefined; name?: string | undefined }
+    | undefined {
     const usage = this.subagentMeta.get(id);
     const manifest = this.manifestEntries.get(id);
     if (!usage && !manifest) return undefined;

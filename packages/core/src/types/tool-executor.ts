@@ -61,6 +61,8 @@ export interface ToolExecutorOptions {
    */
   confirmAwaiter?: ConfirmAwaiter | undefined;
   iterationTimeoutMs?: number | undefined;
+  /** Hard upper bound for a single tool call timeout. Defaults to 5 minutes. */
+  maxToolTimeoutMs?: number | undefined;
   perIterationOutputCapBytes?: number | undefined;
   /**
    * Optional lifecycle hook runner. When present, `PreToolUse` hooks run

@@ -491,7 +491,12 @@ export interface EventMap {
     conflictFiles: string[];
   };
   'worktree.released': { handleId: string; ownerId: string; branch: string; kept: boolean };
-  'worktree.failed': { handleId: string; ownerId: string; branch?: string | undefined; error: string };
+  'worktree.failed': {
+    handleId: string;
+    ownerId: string;
+    branch?: string | undefined;
+    error: string;
+  };
   error: { err: Error; phase: string; _original?: Error | undefined };
 }
 
@@ -612,6 +617,24 @@ export class EventBus {
         } catch (err) {
           this.logger?.error(`EventBus wildcard listener for "${name}" threw`, err);
         }
+      }
+    }
+  }
+
+  /**
+   * Emit a plugin-defined event that is intentionally outside EventMap.
+   * Custom events are delivered to wildcard/pattern listeners only; typed
+   * listeners remain reserved for core EventMap keys.
+   */
+  emitCustom(event: string, payload: unknown): void {
+    if (this.wildcards.length === 0) return;
+    const snapshot = this.wildcards.slice();
+    for (const { match, fn } of snapshot) {
+      if (!match(event)) continue;
+      try {
+        fn(event, payload);
+      } catch (err) {
+        this.logger?.error(`EventBus wildcard listener for "${event}" threw`, err);
       }
     }
   }

@@ -47,6 +47,8 @@ interface GitOutput {
   stderr: string;
   exitCode: number;
   truncated: boolean;
+  /** Staged diff shown for commit commands so the caller can verify. */
+  diff?: string | undefined;
 }
 
 const TIMEOUT_MS = 30_000;
@@ -162,7 +164,28 @@ export const gitTool: Tool<GitInput, GitOutput> = {
     }
 
     const args = buildArgs(input);
-    return await runGit(args, gitDir, opts.signal);
+
+    // For commits, capture the staged diff BEFORE committing so the caller
+    // can verify what is about to land without another tool call.
+    let stagedDiff: string | undefined;
+    if (input.command === 'commit' && !input.dry_run) {
+      try {
+        const diffResult = await runGit(['diff', '--cached'], gitDir, opts.signal);
+        if (diffResult.exitCode === 0) {
+          const MAX_DIFF = 20_000;
+          stagedDiff =
+            diffResult.stdout.length > MAX_DIFF
+              ? diffResult.stdout.slice(0, MAX_DIFF) + '\n\n... (diff truncated)'
+              : diffResult.stdout;
+        }
+      } catch {
+        // Diff capture is best-effort; don't fail the whole operation
+      }
+    }
+
+    const result = await runGit(args, gitDir, opts.signal);
+    if (stagedDiff !== undefined) result.diff = stagedDiff;
+    return result;
   },
 };
 

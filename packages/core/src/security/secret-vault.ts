@@ -82,7 +82,7 @@ export class DefaultSecretVault implements SecretVault {
         // can remove the file manually to generate a fresh key.
         throw new Error(
           `SecretVault: key file ${this.keyFile} is ${buf.length} bytes ` +
-          `(expected ${KEY_BYTES}). Remove it manually to generate a new key.`,
+            `(expected ${KEY_BYTES}). Remove it manually to generate a new key.`,
         );
       }
       this.key = buf;
@@ -109,7 +109,7 @@ export class DefaultSecretVault implements SecretVault {
         // can remove the file manually to generate a fresh key.
         throw new Error(
           `SecretVault: key file ${this.keyFile} is ${buf.length} bytes ` +
-          `(expected ${KEY_BYTES}). Remove it manually to generate a new key.`,
+            `(expected ${KEY_BYTES}). Remove it manually to generate a new key.`,
         );
       }
       this.key = buf;
@@ -270,11 +270,20 @@ async function restrictFilePermissions(
       const { execFile } = await import('node:child_process');
       const { promisify } = await import('node:util');
       const execFileAsync = promisify(execFile);
+      const user = windowsAccountName();
+      if (!user) {
+        warn(
+          `[secret-vault] Could not determine the current Windows user for ${filePath}; skipping icacls hardening.`,
+        );
+        return;
+      }
       // Remove inherited ACEs, grant full control only to current user.
-      await execFileAsync('icacls', [filePath, '/inheritance:r', '/grant:r', `${process.env.USERNAME}:(F)`]);
+      await execFileAsync('icacls', [filePath, '/inheritance:r', '/grant:r', `${user}:(F)`]);
     } catch {
       // Best-effort: icacls may not be available in all environments.
-      warn(`[secret-vault] Could not restrict permissions on ${filePath} — config file may be readable by other users on this system.`);
+      warn(
+        `[secret-vault] Could not restrict permissions on ${filePath} — config file may be readable by other users on this system.`,
+      );
     }
   } else {
     try {
@@ -283,6 +292,14 @@ async function restrictFilePermissions(
       // Best-effort
     }
   }
+}
+
+function windowsAccountName(): string | undefined {
+  const username = process.env.USERNAME || process.env.USER;
+  if (!username || username.includes('\0')) return undefined;
+  const domain = process.env.USERDOMAIN;
+  if (domain && !domain.includes('\0')) return `${domain}\\${username}`;
+  return username;
 }
 
 function walkCount<T>(node: T, vault: SecretVault, counter: { n: number }): T {

@@ -17,11 +17,8 @@
  * If neither stage yields a confident pick, the dispatcher falls back to the
  * `executor` generalist rather than failing.
  */
-import {
-  AGENT_CATALOG,
-  ALL_AGENT_DEFINITIONS,
-  type AgentDefinition,
-} from './agents/index.js';
+import { AGENT_CATALOG, ALL_AGENT_DEFINITIONS, type AgentDefinition } from './agents/index.js';
+import { safeParse } from '../utils/safe-json.js';
 
 /** Default agent used when nothing else matches — the generalist builder. */
 export const DEFAULT_DISPATCH_ROLE = 'executor';
@@ -77,7 +74,10 @@ export interface DispatchOptions {
 }
 
 function normalize(text: string): string {
-  return ` ${text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()} `;
+  return ` ${text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()} `;
 }
 
 /**
@@ -158,9 +158,10 @@ export async function dispatchAgent(
   if (opts.classifier) {
     // Offer the classifier the top heuristic candidates; if there were none,
     // offer the whole catalog so it can still choose.
-    const pool = (candidates.length > 0
-      ? candidates.slice(0, maxCandidates).map((c) => catalog[c.role] ?? FALLBACK_DEFINITION)
-      : ALL_AGENT_DEFINITIONS
+    const pool = (
+      candidates.length > 0
+        ? candidates.slice(0, maxCandidates).map((c) => catalog[c.role] ?? FALLBACK_DEFINITION)
+        : ALL_AGENT_DEFINITIONS
     ).map((d) => ({
       role: d.config.role as string,
       name: d.config.name,
@@ -196,7 +197,7 @@ export async function dispatchAgent(
   }
   const fallbackRole = catalog[DEFAULT_DISPATCH_ROLE]
     ? DEFAULT_DISPATCH_ROLE
-    : Object.keys(catalog)[0] ?? DEFAULT_DISPATCH_ROLE;
+    : (Object.keys(catalog)[0] ?? DEFAULT_DISPATCH_ROLE);
   return {
     role: fallbackRole,
     definition: catalog[fallbackRole] ?? FALLBACK_DEFINITION,
@@ -231,15 +232,16 @@ Do not add prose, markdown, or code fences.`;
     // Tolerate accidental code fences / surrounding text — extract first {...}.
     const match = raw.match(/\{[\s\S]*\}/);
     if (!match) return null;
-    try {
-      const parsed = JSON.parse(match[0]) as { role?: unknown | undefined; reason?: unknown | undefined };
-      if (typeof parsed.role !== 'string') return null;
-      const role = parsed.role.trim();
-      const valid = candidates.some((c) => c.role === role);
-      if (!valid) return null;
-      return { role, reason: typeof parsed.reason === 'string' ? parsed.reason : undefined };
-    } catch {
-      return null;
-    }
+    const parsed = safeParse<{ role?: unknown | undefined; reason?: unknown | undefined }>(
+      match[0],
+    );
+    if (!parsed.ok || !parsed.value || typeof parsed.value.role !== 'string') return null;
+    const role = parsed.value.role.trim();
+    const valid = candidates.some((c) => c.role === role);
+    if (!valid) return null;
+    return {
+      role,
+      reason: typeof parsed.value.reason === 'string' ? parsed.value.reason : undefined,
+    };
   };
 }

@@ -231,6 +231,29 @@ export function buildCommitCommand(): SlashCommand {
       const dryRun = args.includes('--dry-run') || args.includes('-n');
       const noLlm = args.includes('--no-llm');
 
+      // ═══ Simultaneous-edit detection ═══
+      let worktreeWarning = '';
+      try {
+        const wtResult = await runGit(['worktree', 'list', '--porcelain'], cwd);
+        const worktrees = wtResult.stdout
+          .split('\n\n')
+          .filter((b) => b.trim().startsWith('worktree '));
+        if (worktrees.length > 1) {
+          const branches = worktrees
+            .map((b) => {
+              const branchLine = b.split('\n').find((l) => l.startsWith('branch '));
+              return branchLine ? branchLine.slice(7).replace('refs/heads/', '') : '?';
+            })
+            .filter(Boolean);
+          worktreeWarning =
+            `\n${color.yellow('⚠')} ${color.dim('Simultaneous edits:')} ${worktrees.length} worktrees active ` +
+            `(${branches.join(', ')}). ` +
+            `${color.dim('Changes from other agents may be captured. Review the diff below.')}\n`;
+        }
+      } catch {
+        // worktree detection is best-effort; ignore failures
+      }
+
       // Draft message — LLM from the session provider first, heuristics on any
       // failure (no provider, timeout, empty result).
       let message: string | null = null;
@@ -242,23 +265,52 @@ export function buildCommitCommand(): SlashCommand {
       if (!message) message = await generateCommitMessageHeuristics(cwd);
 
       if (dryRun) {
+        const diffStat = (await runGit(['diff', '--stat'], cwd)).stdout || '(no changes)';
         return {
-          message: `Would commit:\n\n  ${color.green(message)}\n\n${color.dim('(dry-run — no actual commit)')}`,
+          message: [
+            worktreeWarning,
+            `${color.dim('Would commit:')}`,
+            `  ${color.green(message)}`,
+            '',
+            `${color.dim(diffStat)}`,
+            `${color.dim('(dry-run — no actual commit)')}`,
+          ]
+            .filter(Boolean)
+            .join('\n'),
         };
       }
 
       const stageResult = await runGit(['add', '.'], cwd);
       if (stageResult.code !== 0) return { message: `Stage failed: ${stageResult.stderr}` };
 
+      // Show staged diff before committing
+      const diffStat = (await runGit(['diff', '--cached', '--stat'], cwd)).stdout || '';
+      const fullDiff = (await runGit(['diff', '--cached'], cwd)).stdout || '';
+      const diffPreview =
+        fullDiff.length > 8000
+          ? fullDiff.slice(0, 8000) + '\n\n... (diff truncated, showing first 8KB)'
+          : fullDiff;
+
       const commitResult = await runGit(['commit', '-m', message], cwd);
       if (commitResult.code !== 0) return { message: `Commit failed: ${commitResult.stderr}` };
 
       const hash = (await runGit(['rev-parse', '--short', 'HEAD'], cwd)).stdout.trim();
       const hasRemote = (await runGit(['remote'], cwd)).stdout.trim().length > 0;
-      const pushMsg = hasRemote ? `\n\n${color.dim('Tip: Run /push to push to remote')}` : '';
+      const pushMsg = hasRemote ? `\n${color.dim('Tip: Run /push to push to remote')}` : '';
 
       return {
-        message: `${color.green('✓')} Committed: ${color.bold(message)}\n  ${color.dim(hash)}${pushMsg}`,
+        message: [
+          worktreeWarning,
+          `${color.green('✓')} Committed: ${color.bold(message)}`,
+          `  ${color.dim(hash)}`,
+          '',
+          color.dim('─── Staged diff ───────────────────────────────────────────────'),
+          color.dim(diffStat),
+          diffPreview ? color.dim(diffPreview) : '',
+          pushMsg,
+        ]
+          .filter(Boolean)
+          .join('\n'),
       };
     },
   };

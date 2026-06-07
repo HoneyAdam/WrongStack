@@ -20,6 +20,8 @@ const COLORS: Record<LogLevel, (s: string) => string> = {
   trace: color.dim,
 };
 
+const LOG_LEVELS = new Set<LogLevel>(['error', 'warn', 'info', 'debug', 'trace']);
+
 export interface DefaultLoggerOptions {
   level?: LogLevel | undefined;
   file?: string | undefined;
@@ -42,7 +44,7 @@ export class DefaultLogger implements Logger {
   private readonly stderr: boolean;
 
   constructor(opts: DefaultLoggerOptions = {}) {
-    this.level = opts.level ?? (process.env.WRONGSTACK_LOG_LEVEL as LogLevel) ?? 'info';
+    this.level = opts.level ?? parseLogLevel(process.env.WRONGSTACK_LOG_LEVEL);
     this.file = opts.file;
     this.bindings = opts.bindings ?? {};
     this.pretty = opts.pretty ?? true;
@@ -111,6 +113,10 @@ export class DefaultLogger implements Logger {
       }
     }
   }
+}
+
+function parseLogLevel(raw: string | undefined): LogLevel {
+  return raw && LOG_LEVELS.has(raw as LogLevel) ? (raw as LogLevel) : 'info';
 }
 
 function formatCtx(ctx: unknown): string {

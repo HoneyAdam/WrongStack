@@ -7,6 +7,11 @@ export interface AtomicWriteOptions {
   encoding?: BufferEncoding | undefined;
 }
 
+export interface FileLockOptions {
+  timeoutMs?: number | undefined;
+  staleMs?: number | undefined;
+}
+
 export async function atomicWrite(
   targetPath: string,
   content: string | Uint8Array,
@@ -59,6 +64,58 @@ export async function atomicWrite(
 
 export async function ensureDir(dir: string): Promise<void> {
   await fs.mkdir(dir, { recursive: true });
+}
+
+export async function withFileLock<T>(
+  targetPath: string,
+  fn: () => Promise<T>,
+  opts: FileLockOptions = {},
+): Promise<T> {
+  const dir = path.dirname(targetPath);
+  await fs.mkdir(dir, { recursive: true });
+  const lockPath = path.join(dir, `.${path.basename(targetPath)}.lock`);
+  const timeoutMs = opts.timeoutMs ?? 5_000;
+  const staleMs = opts.staleMs ?? 30_000;
+  const started = Date.now();
+  let handle: fs.FileHandle | undefined;
+
+  for (;;) {
+    try {
+      handle = await fs.open(lockPath, 'wx');
+      await handle.writeFile(`${process.pid}:${Date.now()}`);
+      break;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+      try {
+        const stat = await fs.stat(lockPath);
+        if (Date.now() - stat.mtimeMs > staleMs) {
+          await fs.unlink(lockPath);
+          continue;
+        }
+      } catch {
+        continue;
+      }
+      if (Date.now() - started >= timeoutMs) {
+        throw new Error(`Timed out waiting for file lock: ${targetPath}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
+
+  try {
+    return await fn();
+  } finally {
+    try {
+      await handle?.close();
+    } catch {
+      // ignore
+    }
+    try {
+      await fs.unlink(lockPath);
+    } catch {
+      // ignore
+    }
+  }
 }
 
 // On Windows, fs.rename over an existing file can fail with EPERM/EBUSY/EACCES

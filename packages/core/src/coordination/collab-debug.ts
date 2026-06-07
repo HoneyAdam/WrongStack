@@ -66,7 +66,14 @@ export interface DirectorAlert {
   /** Human-readable message for UI/logs */
   message: string;
   /** Budget kind that triggered this alert, if any */
-  budgetKind?: 'timeout' | 'idle_timeout' | 'iterations' | 'tool_calls' | 'tokens' | 'cost' | undefined;
+  budgetKind?:
+    | 'timeout'
+    | 'idle_timeout'
+    | 'iterations'
+    | 'tool_calls'
+    | 'tokens'
+    | 'cost'
+    | undefined;
   /** Elapsed ms at time of alert */
   elapsedMs?: number | undefined;
   /** Limit that was hit */
@@ -89,6 +96,8 @@ export interface SharedFileEntry {
   path: string;
   content: string;
   language?: string | undefined;
+  snapshotMtimeMs?: number | undefined;
+  snapshotSizeBytes?: number | undefined;
 }
 
 /**
@@ -162,6 +171,8 @@ export interface CollabDebugReport {
   evaluations: CriticEvaluation[];
   /** Alerts that were raised during the session (may be empty). */
   alerts: DirectorAlert[];
+  /** Files modified after the initial static snapshot was captured. */
+  snapshotWarnings?: string[] | undefined;
   /** Overall verdict from the Critic across all evaluated subjects. */
   overallVerdict: 'approve' | 'needs_revision' | 'reject';
   /** Markdown-formatted summary for the director's context window. */
@@ -263,7 +274,7 @@ export interface CollabSessionOptions {
    * with the agent's proposed new limits; 'ignore' to let the default
    * auto-extend logic handle it.
    */
-  onBudgetWarning?: (((alert: DirectorAlert) => 'cancel' | 'extend' | 'ignore')) | undefined;
+  onBudgetWarning?: ((alert: DirectorAlert) => 'cancel' | 'extend' | 'ignore') | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -286,6 +297,7 @@ export class CollabSession extends EventEmitter {
   private readonly timeoutMs: number;
   private cancelled = false;
   private readonly alerts: DirectorAlert[] = [];
+  private snapshotWarnings: string[] = [];
 
   /** Tracks tool call counts per subagent for progress-based timeout decisions. */
   private readonly progressBySubagent = new Map<string, number>();
@@ -317,7 +329,9 @@ export class CollabSession extends EventEmitter {
     }
   }
 
-  get id(): string { return this.sessionId; }
+  get id(): string {
+    return this.sessionId;
+  }
 
   getSessionAlerts(): DirectorAlert[] {
     return [...this.alerts];
@@ -366,21 +380,35 @@ export class CollabSession extends EventEmitter {
         : `default limit=${DEFAULT_MAX_TARGET_FILES}`;
       throw new Error(
         `[collab_debug] Target has ${allFiles.length} files, which exceeds the ` +
-        `limit (${hint}). Narrow the target or pass maxTargetFiles / contextWindow ` +
-        `to override. For large codebases, run package-by-package or ` +
-        `module-by-module sessions instead of targeting the entire repo.`,
+          `limit (${hint}). Narrow the target or pass maxTargetFiles / contextWindow ` +
+          `to override. For large codebases, run package-by-package or ` +
+          `module-by-module sessions instead of targeting the entire repo.`,
       );
     }
     for (const filePath of allFiles) {
       try {
-        const content = await fsp.readFile(filePath, 'utf8');
+        const [content, stat] = await Promise.all([
+          fsp.readFile(filePath, 'utf8'),
+          fsp.stat(filePath),
+        ]);
         const ext = filePath.split('.').pop() ?? '';
-        const language = ext === 'ts' || ext === 'tsx' ? 'typescript'
-          : ext === 'js' || ext === 'jsx' ? 'javascript'
-          : ext === 'md' ? 'markdown'
-          : ext === 'json' ? 'json'
-          : undefined;
-        this.snapshot.files.push({ path: filePath, content, language });
+        const language =
+          ext === 'ts' || ext === 'tsx'
+            ? 'typescript'
+            : ext === 'js' || ext === 'jsx'
+              ? 'javascript'
+              : ext === 'md'
+                ? 'markdown'
+                : ext === 'json'
+                  ? 'json'
+                  : undefined;
+        this.snapshot.files.push({
+          path: filePath,
+          content,
+          language,
+          snapshotMtimeMs: stat.mtimeMs,
+          snapshotSizeBytes: stat.size,
+        });
       } catch {
         this.snapshot.files.push({ path: filePath, content: '', language: undefined });
       }
@@ -404,7 +432,11 @@ export class CollabSession extends EventEmitter {
       subagentId: this.director.id,
       ts: Date.now(),
       type: 'director.cancel_collab',
-      payload: { sessionId: this.sessionId, reason, cancelledAt: new Date().toISOString() } as DirectorCancelCollabPayload,
+      payload: {
+        sessionId: this.sessionId,
+        reason,
+        cancelledAt: new Date().toISOString(),
+      } as DirectorCancelCollabPayload,
     });
     this.fleetBus.emit({
       subagentId: this.director.id,
@@ -471,6 +503,7 @@ export class CollabSession extends EventEmitter {
       await this.parseAndEmit(result);
     }
 
+    this.snapshotWarnings = await this.checkSnapshotFreshness();
     const report = this.assembleReport();
     this.cleanup();
     this.emit('session.done', report);
@@ -479,8 +512,7 @@ export class CollabSession extends EventEmitter {
 
   private async parseAndEmit(result: TaskResult): Promise<void> {
     if (result.status !== 'success' || result.result == null) return;
-    const text =
-      typeof result.result === 'string' ? result.result : JSON.stringify(result.result);
+    const text = typeof result.result === 'string' ? result.result : JSON.stringify(result.result);
 
     for (const obj of this.extractJsonObjects(text)) {
       const type =
@@ -540,14 +572,23 @@ export class CollabSession extends EventEmitter {
     return objects;
   }
 
-  private budgetForRole(role: string): { maxIterations: number; maxToolCalls: number; timeoutMs: number } {
+  private budgetForRole(role: string): {
+    maxIterations: number;
+    maxToolCalls: number;
+    timeoutMs: number;
+  } {
     if (this.options.budgetOverrides?.[role]) {
-      return this.options.budgetOverrides[role] ?? { maxIterations: 0, maxToolCalls: 0, timeoutMs: 0 };
+      return (
+        this.options.budgetOverrides[role] ?? { maxIterations: 0, maxToolCalls: 0, timeoutMs: 0 }
+      );
     }
-    const defaults: Record<string, { maxIterations: number; maxToolCalls: number; timeoutMs: number }> = {
+    const defaults: Record<
+      string,
+      { maxIterations: number; maxToolCalls: number; timeoutMs: number }
+    > = {
       'bug-hunter': { maxIterations: 2000, maxToolCalls: 5000, timeoutMs: 10 * 60 * 1000 },
       'refactor-planner': { maxIterations: 1500, maxToolCalls: 4000, timeoutMs: 8 * 60 * 1000 },
-      'critic': { maxIterations: 1000, maxToolCalls: 3000, timeoutMs: 6 * 60 * 1000 },
+      critic: { maxIterations: 1000, maxToolCalls: 3000, timeoutMs: 6 * 60 * 1000 },
     };
     return defaults[role] ?? { maxIterations: 1500, maxToolCalls: 4000, timeoutMs: 8 * 60 * 1000 };
   }
@@ -633,7 +674,10 @@ export class CollabSession extends EventEmitter {
   private wireFleetBus(): void {
     // Track tool executions for progress-based timeout decisions
     const dTool = this.fleetBus.filter('tool.executed', (e) => {
-      this.progressBySubagent.set(e.subagentId, (this.progressBySubagent.get(e.subagentId) ?? 0) + 1);
+      this.progressBySubagent.set(
+        e.subagentId,
+        (this.progressBySubagent.get(e.subagentId) ?? 0) + 1,
+      );
     });
     this.disposers.push(dTool);
 
@@ -692,7 +736,10 @@ export class CollabSession extends EventEmitter {
           return;
         }
         this.lastTimeoutProgress.set(e.subagentId, progress);
-        const newLimit = Math.min(Math.ceil((payload.timeoutMs ?? payload.limit) * 2), 24 * 60 * 60_000);
+        const newLimit = Math.min(
+          Math.ceil((payload.timeoutMs ?? payload.limit) * 2),
+          24 * 60 * 60_000,
+        );
         setImmediate(() => {
           payload.extend({ timeoutMs: newLimit });
         });
@@ -704,10 +751,18 @@ export class CollabSession extends EventEmitter {
           const base = Math.max(payload.limit, payload.used);
           const extra: Record<string, unknown> = {};
           switch (payload.kind) {
-            case 'iterations': extra.maxIterations = Math.min(Math.ceil(base * 1.5), 50_000); break;
-            case 'tool_calls': extra.maxToolCalls = Math.min(Math.ceil(base * 1.5), 100_000); break;
-            case 'tokens': extra.maxTokens = Math.min(Math.ceil(base * 1.5), 5_000_000); break;
-            case 'cost': extra.maxCostUsd = Math.min(base * 1.5, 100); break;
+            case 'iterations':
+              extra.maxIterations = Math.min(Math.ceil(base * 1.5), 50_000);
+              break;
+            case 'tool_calls':
+              extra.maxToolCalls = Math.min(Math.ceil(base * 1.5), 100_000);
+              break;
+            case 'tokens':
+              extra.maxTokens = Math.min(Math.ceil(base * 1.5), 5_000_000);
+              break;
+            case 'cost':
+              extra.maxCostUsd = Math.min(base * 1.5, 100);
+              break;
           }
           payload.extend(extra);
         });
@@ -725,10 +780,18 @@ export class CollabSession extends EventEmitter {
           const base = Math.max(payload.limit, payload.used);
           const extra: Record<string, unknown> = {};
           switch (payload.kind) {
-            case 'iterations': extra.maxIterations = Math.min(Math.ceil(base * 1.25), 50_000); break;
-            case 'tool_calls': extra.maxToolCalls = Math.min(Math.ceil(base * 1.25), 100_000); break;
-            case 'tokens': extra.maxTokens = Math.min(Math.ceil(base * 1.25), 5_000_000); break;
-            case 'cost': extra.maxCostUsd = Math.min(base * 1.25, 100); break;
+            case 'iterations':
+              extra.maxIterations = Math.min(Math.ceil(base * 1.25), 50_000);
+              break;
+            case 'tool_calls':
+              extra.maxToolCalls = Math.min(Math.ceil(base * 1.25), 100_000);
+              break;
+            case 'tokens':
+              extra.maxTokens = Math.min(Math.ceil(base * 1.25), 5_000_000);
+              break;
+            case 'cost':
+              extra.maxCostUsd = Math.min(base * 1.25, 100);
+              break;
           }
           payload.extend(extra);
         });
@@ -806,18 +869,23 @@ export class CollabSession extends EventEmitter {
     if (this.cancelled) disposition = 'cancelled';
 
     const verdictOrder: Record<CollabDebugReport['overallVerdict'], number> = {
-      approve: 0, needs_revision: 1, reject: 2,
+      approve: 0,
+      needs_revision: 1,
+      reject: 2,
     };
-    const overallVerdict = evalList.reduce<CollabDebugReport['overallVerdict']>(
-      (worst, eval_) => {
-        const w = verdictOrder[worst];
-        const c = verdictOrder[eval_.verdict];
-        return c > w ? eval_.verdict : worst;
-      },
-      'approve',
-    );
+    const overallVerdict = evalList.reduce<CollabDebugReport['overallVerdict']>((worst, eval_) => {
+      const w = verdictOrder[worst];
+      const c = verdictOrder[eval_.verdict];
+      return c > w ? eval_.verdict : worst;
+    }, 'approve');
 
-    const summary = this.buildMarkdownSummary(bugList, planList, evalList, overallVerdict, disposition);
+    const summary = this.buildMarkdownSummary(
+      bugList,
+      planList,
+      evalList,
+      overallVerdict,
+      disposition,
+    );
 
     return {
       sessionId: this.sessionId,
@@ -829,9 +897,30 @@ export class CollabSession extends EventEmitter {
       refactorPlans: planList,
       evaluations: evalList,
       alerts: [...this.alerts],
+      ...(this.snapshotWarnings.length > 0 ? { snapshotWarnings: this.snapshotWarnings } : {}),
       overallVerdict,
       summary,
     };
+  }
+
+  private async checkSnapshotFreshness(): Promise<string[]> {
+    const warnings: string[] = [];
+    for (const file of this.snapshot.files) {
+      if (file.snapshotMtimeMs === undefined && file.snapshotSizeBytes === undefined) continue;
+      try {
+        const stat = await fsp.stat(file.path);
+        const mtimeChanged =
+          file.snapshotMtimeMs !== undefined && stat.mtimeMs > file.snapshotMtimeMs + 1;
+        const sizeChanged =
+          file.snapshotSizeBytes !== undefined && stat.size !== file.snapshotSizeBytes;
+        if (mtimeChanged || sizeChanged) {
+          warnings.push(`${file.path} changed after the collab snapshot was captured.`);
+        }
+      } catch {
+        warnings.push(`${file.path} could not be checked after the collab snapshot was captured.`);
+      }
+    }
+    return warnings;
   }
 
   private buildMarkdownSummary(
@@ -858,10 +947,20 @@ export class CollabSession extends EventEmitter {
       lines.push('');
     }
 
+    if (this.snapshotWarnings.length > 0) {
+      lines.push('### Snapshot Warnings', '');
+      for (const warning of this.snapshotWarnings) {
+        lines.push(`- ${warning}`);
+      }
+      lines.push('');
+    }
+
     if (bugs.length > 0) {
       lines.push('### Bugs Found', '');
       for (const b of bugs) {
-        lines.push(`- **[${b.severity.toUpperCase()}]** \`${b.location.file}:${b.location.line}\` — ${b.description}`);
+        lines.push(
+          `- **[${b.severity.toUpperCase()}]** \`${b.location.file}:${b.location.line}\` — ${b.description}`,
+        );
       }
       lines.push('');
     }

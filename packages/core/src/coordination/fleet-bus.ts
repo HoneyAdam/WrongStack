@@ -76,6 +76,7 @@ export class FleetBus {
     set.add(handler);
     return () => {
       set.delete(handler);
+      if (set.size === 0) this.byId.delete(subagentId);
     };
   }
 
@@ -89,6 +90,7 @@ export class FleetBus {
     set.add(handler);
     return () => {
       set.delete(handler);
+      if (set.size === 0) this.byType.delete(type);
     };
   }
 
@@ -129,6 +131,12 @@ export class FleetBus {
         /* ignore */
       }
     }
+  }
+
+  clear(): void {
+    this.byId.clear();
+    this.byType.clear();
+    this.any.clear();
   }
 }
 
@@ -182,7 +190,14 @@ export class FleetUsageAggregator {
       subagentId: string,
       provider?: string | undefined,
       model?: string | undefined,
-    ) => { input?: number | undefined; output?: number | undefined; cacheRead?: number | undefined; cacheWrite?: number | undefined } | undefined,
+    ) =>
+      | {
+          input?: number | undefined;
+          output?: number | undefined;
+          cacheRead?: number | undefined;
+          cacheWrite?: number | undefined;
+        }
+      | undefined,
     private readonly metaLookup?: (
       subagentId: string,
     ) => { provider?: string | undefined; model?: string | undefined } | undefined,
@@ -251,7 +266,12 @@ export class FleetUsageAggregator {
   private onProviderResponse(e: FleetEvent): void {
     const snap = this.ensure(e.subagentId);
     const p = e.payload as {
-      usage?: { input?: number | undefined; output?: number | undefined; cacheRead?: number | undefined; cacheWrite?: number | undefined };
+      usage?: {
+        input?: number | undefined;
+        output?: number | undefined;
+        cacheRead?: number | undefined;
+        cacheWrite?: number | undefined;
+      };
     };
     const usage = p?.usage;
     if (!usage) return;

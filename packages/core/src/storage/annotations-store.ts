@@ -1,9 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { atomicWrite } from '../utils/atomic-write.js';
-
-
+import { atomicWrite, withFileLock } from '../utils/atomic-write.js';
 
 function expectDefined<T>(value: T | null | undefined): T {
   if (value === null || value === undefined) {
@@ -129,9 +127,7 @@ export class AnnotationsStore {
       throw new Error('Annotation text must be non-empty');
     }
     if (text.length > MAX_TEXT_LENGTH) {
-      throw new Error(
-        `Annotation text exceeds ${MAX_TEXT_LENGTH} chars (got ${text.length})`,
-      );
+      throw new Error(`Annotation text exceeds ${MAX_TEXT_LENGTH} chars (got ${text.length})`);
     }
     if (!Number.isInteger(input.atEventIndex) || input.atEventIndex < 0) {
       throw new Error('atEventIndex must be a non-negative integer');
@@ -147,24 +143,26 @@ export class AnnotationsStore {
       resolved: false,
     };
     await this.enqueue(input.sessionId, async () => {
-      const all = await this.list(input.sessionId);
-      all.push(annotation);
-      // Evict oldest if we crossed the cap. Resolved first, then oldest.
-      if (all.length > MAX_ANNOTATIONS) {
-        const sorted = all
-          .map((a, i) => ({ a, i }))
-          .sort((x, y) => {
-            // resolved=false wins (keep unresolved); among same resolved state, oldest first.
-            if (x.a.resolved !== y.a.resolved) return x.a.resolved ? 1 : -1;
-            return x.a.createdAt.localeCompare(y.a.createdAt);
-          });
-        const evictCount = all.length - MAX_ANNOTATIONS;
-        const toEvict = new Set(sorted.slice(0, evictCount).map((s) => s.a.id));
-        const kept = all.filter((a) => !toEvict.has(a.id));
-        await this.writeFile(input.sessionId, { version: FILE_VERSION, annotations: kept });
-      } else {
-        await this.writeFile(input.sessionId, { version: FILE_VERSION, annotations: all });
-      }
+      await withFileLock(this.filePath(input.sessionId), async () => {
+        const all = await this.list(input.sessionId);
+        all.push(annotation);
+        // Evict oldest if we crossed the cap. Resolved first, then oldest.
+        if (all.length > MAX_ANNOTATIONS) {
+          const sorted = all
+            .map((a, i) => ({ a, i }))
+            .sort((x, y) => {
+              // resolved=false wins (keep unresolved); among same resolved state, oldest first.
+              if (x.a.resolved !== y.a.resolved) return x.a.resolved ? 1 : -1;
+              return x.a.createdAt.localeCompare(y.a.createdAt);
+            });
+          const evictCount = all.length - MAX_ANNOTATIONS;
+          const toEvict = new Set(sorted.slice(0, evictCount).map((s) => s.a.id));
+          const kept = all.filter((a) => !toEvict.has(a.id));
+          await this.writeFile(input.sessionId, { version: FILE_VERSION, annotations: kept });
+        } else {
+          await this.writeFile(input.sessionId, { version: FILE_VERSION, annotations: all });
+        }
+      });
     });
     return annotation;
   }
@@ -182,21 +180,23 @@ export class AnnotationsStore {
   }): Promise<Annotation | null> {
     let updated: Annotation | null = null;
     await this.enqueue(input.sessionId, async () => {
-      const all = await this.list(input.sessionId);
-      const idx = all.findIndex((a) => a.id === input.annotationId);
-      if (idx === -1) {
-        updated = null;
-        return;
-      }
-      const next: Annotation = {
-        ...expectDefined(all[idx]),
-        resolved: true,
-        resolvedAt: new Date().toISOString(),
-        resolvedBy: input.resolvedBy,
-      };
-      all[idx] = next;
-      await this.writeFile(input.sessionId, { version: FILE_VERSION, annotations: all });
-      updated = next;
+      await withFileLock(this.filePath(input.sessionId), async () => {
+        const all = await this.list(input.sessionId);
+        const idx = all.findIndex((a) => a.id === input.annotationId);
+        if (idx === -1) {
+          updated = null;
+          return;
+        }
+        const next: Annotation = {
+          ...expectDefined(all[idx]),
+          resolved: true,
+          resolvedAt: new Date().toISOString(),
+          resolvedBy: input.resolvedBy,
+        };
+        all[idx] = next;
+        await this.writeFile(input.sessionId, { version: FILE_VERSION, annotations: all });
+        updated = next;
+      });
     });
     return updated;
   }
@@ -204,7 +204,12 @@ export class AnnotationsStore {
   // ── Internals ──────────────────────────────────────────────────────────
 
   private filePath(sessionId: string): string {
-    if (!sessionId || sessionId.includes('/') || sessionId.includes('\\') || sessionId.includes('..')) {
+    if (
+      !sessionId ||
+      sessionId.includes('/') ||
+      sessionId.includes('\\') ||
+      sessionId.includes('..')
+    ) {
       throw new Error(`Invalid sessionId: ${sessionId}`);
     }
     return path.join(this.dir, `${sessionId}.annotations.json`);
