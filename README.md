@@ -283,7 +283,7 @@ When the active model lacks native vision, WrongStack writes clipboard images to
 
 ### Session persistence + resume
 
-Every run writes a `<id>.jsonl` append-only event log under `~/.wrongstack/projects/<sha256>/sessions/`. On close, a tiny `<id>.summary.json` manifest (title, model, provider, tokenTotal) is written alongside — `wrongstack sessions` lists hundreds of past runs without re-parsing each JSONL (O(N) stats, not O(N) full parses). `session_resumed` marker written on resume. Orphan `tool_result` events (missing matching `tool_use`) emit `session.damaged` event so the session can be flagged for repair.
+Every run writes a `<id>.jsonl` append-only event log under `~/.wrongstack/projects/<sha256>/sessions/`. On close, a tiny `<id>.summary.json` manifest is written alongside — now analytics-grade: title, model, provider, tokenTotal, `endedAt`, `iterationCount`, `toolCallCount`, `toolErrorCount`, `fileChangeCount`, `compactionCount`, a per-tool `toolBreakdown`, and an `outcome` (`completed` / `error` / `timeout` / `aborted`). `wrongstack sessions` lists hundreds of past runs without re-parsing each JSONL (O(N) stats, not O(N) full parses). `session_resumed` marker written on resume. Orphan `tool_result` events (missing matching `tool_use`) emit `session.damaged` event so the session can be flagged for repair. Housekeeping: `/prune` deletes stale sessions (and their summary / plan / todos sidecars) by age, and `/prune --rebuild-index` rebuilds the session index from disk.
 
 ### Encrypted secrets
 
@@ -420,7 +420,9 @@ wrongstack --provider openrouter --model anthropic/claude-opus-4-7
 
 ## Slash commands
 
-**Core** (both the plain REPL and the TUI): `/init` `/help` `/clear` `/compact` `/context` `/diag` `/stats` `/tools` `/plugin` `/mcp` `/memory` `/todos` `/mode` `/yolo` `/autonomy` `/btw` `/fix` `/autophase` `/worktree` `/settings` `/sdd` `/image` `/save` `/resume` `/exit`
+**Core** (both the plain REPL and the TUI): `/init` `/help` `/clear` `/compact` `/context` `/diag` `/stats` `/tools` `/plugin` `/mcp` `/memory` `/todos` `/mode` `/yolo` `/autonomy` `/btw` `/fix` `/autophase` `/worktree` `/settings` `/sdd` `/image` `/save` `/resume` `/prune` `/exit`
+
+Every built-in command is tagged with a category (`Run` · `Session` · `Inspect` · `Agent` · `Config` · `App`); the TUI slash picker groups matches under category headers, and the WebUI surfaces 39 commands in its slash list.
 
 **Multi-agent:** `/spawn` `/fleet` `/agents` `/goal` `/director` `/collab` `/setmodel`
 
@@ -452,6 +454,7 @@ wrongstack --provider openrouter --model anthropic/claude-opus-4-7
 | `/telegram send\|read\|chat\|attach` | Telegram plugin (enable with `wstack plugin install telegram`): `send <chatId> <message>`, `read <chatId> [limit]`, `chat` list recent, `attach <file>` send file |
 | `/sdd <path-to-spec.md>` | Spec-Driven Development workflow: `parse → analyze → generate → track → execute`. Built on `SpecParser`, `TaskTracker`, `TaskGenerator`, `TaskFlow` |
 | `/settings` | View or change settings (non-blocking, works in REPL + TUI): `/settings` (show), `/settings delay <seconds>`, `/settings mode <off\|suggest\|auto>`, `/settings defaults`; persists to `~/.wrongstack/config.json` |
+| `/prune [days] [--dry-run] [--rebuild-index]` | Delete sessions older than N days (default 30, clamped 1–365). `--dry-run` previews; `--rebuild-index` rebuilds the session index from disk. Sessions referenced by `active.json` are never pruned |
 | `/compact`, `/tools`, `/skill`, `/save`, `/resume`, `/help`, `/clear`, `/stats`, `/diag`, `/exit` | Compact context, list tools/skills, save/resume session, help, clear, token+cost stats, diagnostics, exit |
 
 ### Mid-flight controls
@@ -583,7 +586,7 @@ For the full walk-through — including the L1-A reactive `ConversationState`, h
 
 ## Status
 
-- **5494+ tests passing** across 408+ test files in the 0.77.0 release gate
+- **5500+ tests passing** across 412+ test files in the 0.87.0 release gate
 - Coverage thresholds: ≥85 % lines / ≥85 % functions / ≥70 % branches / ≥82 % statements
 - All workspace packages build clean with TypeScript strict + `noUncheckedIndexedAccess`
 - Node 22+ only, ESM-only, no CommonJS bundles

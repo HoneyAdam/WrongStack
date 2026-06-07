@@ -5,6 +5,109 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.87.0] - 2026-06-07
+
+> The session-lifecycle & type-safety release. Consolidates everything since the
+> `0.77.0` prompt-refinement release. The headlines are a **`/prune` session
+> housekeeping command** backed by a richer `SessionStore` (analytics-grade
+> summaries, on-demand index rebuild), **categorized slash-command discovery**
+> that groups commands in the TUI picker and triples the WebUI command list, a
+> **non-modal TUI overlay** pass so the chat input stays live while monitors are
+> open, and a **monorepo-wide type-safety hardening** sweep (explicit
+> `| undefined` under `exactOptionalPropertyTypes`). Additive only; no breaking
+> changes.
+>
+> **Version consolidation.** The intermediate `0.78.0`–`0.86.0` bumps shipped as
+> mechanical `chore: bump version` / `feat: update code` commits without their own
+> changelog sections; their substantive changes are folded into this entry. All 15
+> workspace manifests — and the marketing site (`website/`) — are aligned to
+> `0.87.0` in lockstep. (A stray `0.88.0` bump on the root manifest only was
+> corrected back to `0.87.0` to restore lockstep.)
+
+### Added
+
+- **`/prune` — session housekeeping.** A new `Session`-category slash command
+  deletes old sessions: `/prune` (default 30 days), `/prune 14` (custom age,
+  clamped 1–365), `/prune --dry-run` (preview what would be deleted), and
+  `/prune --rebuild-index` (rebuild `_index.jsonl` from disk). Backed by two new
+  `SessionStore` methods — `prune(maxAgeDays?)` removes stale JSONL files plus
+  their summary/plan/todos sidecars and session directories (never touching
+  sessions referenced by `active.json`), and `rebuildIndex()` rescans every
+  session directory and rewrites a fresh index. Returns deletion / index counts.
+- **Analytics-grade `SessionSummary`.** The per-session summary sidecar now
+  records `endedAt`, `iterationCount`, `toolCallCount`, `toolErrorCount`,
+  `fileChangeCount`, `compactionCount`, a per-tool `toolBreakdown`
+  (`tool name → call count`), and an `outcome`
+  (`completed` / `error` / `timeout` / `aborted`) — so `wstack sessions` and the
+  `/prune --dry-run` listing can summarize a run without re-parsing its JSONL.
+- **Categorized slash-command discovery.** `SlashCommand` gained an optional
+  `category` field (`Run` · `Session` · `Inspect` · `Agent` · `Config` · `App`),
+  and every built-in command is now tagged. The TUI slash picker drops its
+  12-item cap, shows all matches, and renders category headers for scannable
+  grouping. The WebUI `SLASH_COMMANDS` list grew from **19 to 39** commands,
+  surfacing agent, fleet, autonomy, SDD, config, and inspection commands that
+  were previously hidden.
+- **TUI exit-confirmation prompt.** A new `EscConfirmPrompt` renders the
+  confirm-exit state as a dedicated panel (instead of an inline hint), wired
+  through a reducer `escConfirm` slice.
+- **New core utilities.** `expect-defined` (assert-non-null helper), `sleep`,
+  and a `term` helper module (`@wrongstack/core/utils`, with tests) consolidate
+  patterns that were duplicated across packages.
+
+### Changed
+
+- **Non-modal TUI monitor overlays.** When the fleet / agents / worktree /
+  todos / queue / autophase monitor overlays were open, the key handler
+  swallowed every keystroke except the F-key toggles and `Esc`, silently
+  freezing the always-mounted chat input. The swallow-everything guard is gone:
+  overlays stay visible in the lower region while typing, paste, cursor
+  movement, backspace, and Enter flow into the input as usual. `F2`–`F7` still
+  toggle their overlay and `Esc` still closes the open one; dedicated modal
+  pickers (enhance, model, autonomy, settings, rewind, help, confirm-queue) keep
+  their own guards.
+- **Fixed-height live-tail in TUI history.** The streaming tool/subagent tail
+  now renders at a stable height, eliminating scrollback churn during long runs
+  (covered by `live-tail-fixed-height.test.ts`).
+- **`fetch` connection-pool teardown.** The SSRF-guarded `fetch` tool now
+  destroys its pinned `undici` dispatcher on `beforeExit`, so long-running
+  processes (eternal autonomy, MCP server mode) don't leak connection pools or
+  DNS caches. `combineSignals` was refactored to take a signal array and prefer
+  native `AbortSignal.any`.
+- **Injectable secret-vault warnings.** `decryptConfigSecrets` /
+  `encryptConfigSecrets` / `restrictFilePermissions` accept an optional `warn`
+  callback (defaulting to `console.warn`) so server contexts can route
+  decryption and permission-restriction notices through a structured logger.
+- **Removed the `/altscreen` runtime command.** The alt-screen escape valve was
+  dropped from the TUI command set during the `app.tsx` / `run-tui` refactor.
+
+### Fixed
+
+- **Session-store teardown race (Windows `ENOTEMPTY`).** `FileSessionWriter`'s
+  `onClose` callback was fire-and-forget, so the session-index write could race
+  callers that immediately tore down the session directory. `close()` now awaits
+  the (async-capable) callback before resolving.
+- **MCP `undici@7` type conflict.** Resolved the `undici@7` / `undici-types`
+  type clash with a scoped `@ts-expect-error` and an `undici-types` override, so
+  the MCP package type-checks clean again.
+
+### Changed — type safety
+
+- **Monorepo-wide `exactOptionalPropertyTypes` hardening.** Optional fields
+  across `core`, `cli`, `tools`, `tui`, `webui`, `providers`, and `telegram`
+  were made explicit (`field?: T | undefined`), non-null assertions on
+  `executeStream` were replaced with guarded throws, and several latent
+  optional-vs-undefined mismatches were closed — a pure type-safety pass with no
+  behaviour change.
+
+### Changed — versions
+
+- **All workspace packages bumped to 0.87.0**: `wrongstack`, `@wrongstack/cli`,
+  `@wrongstack/core`, `@wrongstack/mcp`, `@wrongstack/plug-lsp`, `@wrongstack/plugins`,
+  `@wrongstack/providers`, `@wrongstack/runtime`, `@wrongstack/skills`,
+  `@wrongstack/telegram`, `@wrongstack/tools`, `@wrongstack/tui`, `@wrongstack/webui`.
+  `@wrongstack/acp` tracks the same version, and the marketing site (`website/`) is
+  bumped in lockstep.
+
 ## [0.77.0] - 2026-06-06
 
 > The prompt-refinement & hardening release. Consolidates everything since the
