@@ -6,7 +6,6 @@ import type {
   ContentBlock,
   Director,
   EventBus,
-  FleetEvent,
   Message,
   QueueStore,
   SlashCommandRegistry,
@@ -38,6 +37,7 @@ import { ModelPicker, type ProviderOption } from './components/model-picker.js';
 import { PhaseMonitor } from './components/phase-monitor.js';
 import { PhasePanel } from './components/phase-panel.js';
 import { QueuePanel } from './components/queue-panel.js';
+import { ProcessListMonitor } from './components/process-list.js';
 import { SettingsPicker } from './components/settings-picker.js';
 import { SlashMenu } from './components/slash-menu.js';
 import { StatusBar } from './components/status-bar.js';
@@ -46,8 +46,9 @@ import { WorktreeMonitor } from './components/worktree-monitor.js';
 import { WorktreePanel } from './components/worktree-panel.js';
 import { searchFiles } from './file-search.js';
 import { type GitInfo, readGitInfo } from './git-info.js';
-import { useBrainEvents } from './hooks/use-brain-events.js';
-import { useSubagentEvents } from './hooks/use-subagent-events.js';
+import { useDirectorFleetBridge } from './hooks/use-director-fleet-bridge.js';
+import { useTuiControllers } from './hooks/use-tui-controllers.js';
+import { useTuiEventBridge } from './hooks/use-tui-event-bridge.js';
 import { INLINE_TOKEN_SRC, deleteTokenBackward, tokenLengthForward } from './input-tokens.js';
 import { createKillSlashCommand } from './kill-slash.js';
 import { feedPaste } from './paste-accumulator.js';
@@ -57,7 +58,6 @@ import { buildSteeringPreamble } from './steering-preamble.js';
 
 // Types imported from app-reducer.ts (single source of truth for reducer + State types)
 import {
-  type Action,
   type FleetEntry,
   type SlashCommandMatch,
   type State,
@@ -584,6 +584,7 @@ export function App({
     helpOpen: false,
     todosMonitorOpen: false,
     queuePanelOpen: false,
+    processListOpen: false,
     collabSession: null,
     checkpoints: [],
     rewindOverlay: null,
@@ -861,22 +862,6 @@ export function App({
     };
     return { leader: leaderEntry, ...state.fleet };
   }, [state.fleet, state.leader, state.status, provider, model, effectiveMaxContext, tokenCounter]);
-
-  // Stable per-subagent label + color assigned on first sighting.
-  const STREAM_COLORS = ['cyan', 'magenta', 'yellow', 'green', 'blue'];
-  const labelsRef = useRef<Map<string, { label: string; color: string }>>(new Map());
-  const labelFor = (id: string, name?: string): { label: string; color: string } => {
-    const m = labelsRef.current;
-    const existing = m.get(id);
-    if (existing) return existing;
-    const n = m.size + 1;
-    const v = {
-      label: name && name !== id ? name : `AGENT#${n}`,
-      color: STREAM_COLORS[(n - 1) % STREAM_COLORS.length] ?? 'cyan',
-    };
-    m.set(id, v);
-    return v;
-  };
 
   // Plan counts come from `<sessionId>.plan.json` on disk, not React
   // state. We poll lazily every few ticks so the chip stays current
@@ -1723,15 +1708,6 @@ export function App({
     };
   }, [events, agent.ctx.todos]);
 
-  // Live mirror of `streamFleet` for the FleetBus listener below. The
-  // listener is wired in a single mount-time effect so it doesn't tear
-  // down per-state-change; a ref lets it read the current toggle value
-  // on every event without re-subscribing.
-  const streamFleetRef = useRef(state.streamFleet);
-  useEffect(() => {
-    streamFleetRef.current = state.streamFleet;
-  }, [state.streamFleet]);
-
   // Live mirror of the prompt-refinement toggle, read synchronously inside
   // submit() (which can't see the latest reducer state through its closure).
   const enhanceEnabledRef = useRef(state.enhanceEnabled);
@@ -1739,763 +1715,38 @@ export function App({
     enhanceEnabledRef.current = state.enhanceEnabled;
   }, [state.enhanceEnabled]);
   // Abort handle for the in-flight refiner call, so Esc can cancel a slow
-  // "refining…" and send the original immediately.
+  // "refining..." and send the original immediately.
   const enhanceAbortRef = useRef<AbortController | null>(null);
 
-  // --- Subagent lifecycle events (extracted to use-subagent-events.ts) ---
-  useSubagentEvents(events, dispatch, setActiveMaxContext);
+  useTuiEventBridge({
+    events,
+    dispatch,
+    stateRef,
+    setActiveMaxContext,
+    subscribeAutoPhase,
+    onClearHistory,
+  });
 
-  // Checkpoint and session rewind event listeners — no director required.
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- onClearHistory is stable
-  useEffect(() => {
-    const offCheckpoint = events.on('checkpoint.written', (e) => {
-      dispatch({
-        type: 'checkpointReceived',
-        cp: {
-          promptIndex: e.promptIndex,
-          promptPreview: e.promptPreview,
-          ts: e.ts,
-          fileCount: e.fileCount,
-        },
-      });
-    });
-    const offRewound = events.on('session.rewound', (_e) => {
-      dispatch({ type: 'sessionRewound', toPromptIndex: 0 });
-      dispatch({ type: 'clearHistory' });
-      if (onClearHistory) {
-        onClearHistory(dispatch);
-      }
-    });
-    return () => {
-      offCheckpoint();
-      offRewound();
-    };
-  }, [events, onClearHistory]);
-
-  // --- Brain decision events (extracted to use-brain-events.ts) ---
-  useBrainEvents(events, dispatch);
-
-  // --- AutoPhase phase/task events → PhaseMonitor ---
-  useEffect(() => {
-    if (!subscribeAutoPhase) return;
-
-    const handler = (event: string, payload: unknown) => {
-      switch (event) {
-        case 'phase.started': {
-          const p = payload as { phaseId: string; name: string };
-          dispatch({
-            type: 'autoPhasePhaseUpdate',
-            phaseId: p.phaseId,
-            name: p.name,
-            status: 'running',
-            completedTasks: 0,
-            totalTasks: 0,
-            startedAt: Date.now(),
-          });
-          break;
-        }
-        case 'phase.completed': {
-          const p = payload as { phaseId: string; name: string; durationMs: number };
-          dispatch({
-            type: 'autoPhasePhaseUpdate',
-            phaseId: p.phaseId,
-            name: p.name,
-            status: 'completed',
-            completedTasks: 0,
-            totalTasks: 0,
-          });
-          break;
-        }
-        case 'phase.failed': {
-          const p = payload as { phaseId: string; name: string; error?: string | undefined };
-          dispatch({
-            type: 'autoPhasePhaseUpdate',
-            phaseId: p.phaseId,
-            name: p.name,
-            status: 'failed',
-            completedTasks: 0,
-            totalTasks: 0,
-          });
-          break;
-        }
-        case 'phase.statusChange': {
-          const p = payload as { phaseId: string; name: string; from: string; to: string };
-          const status = p.to === 'running' ? 'running' : p.to;
-          dispatch({
-            type: 'autoPhasePhaseUpdate',
-            phaseId: p.phaseId,
-            name: p.name,
-            status,
-            completedTasks: 0,
-            totalTasks: 0,
-          });
-          break;
-        }
-        case 'phase.taskCompleted': {
-          const p = payload as { phaseId: string; taskId: string; taskTitle: string };
-          const existing = stateRef.current.autoPhase?.phases[p.phaseId];
-          if (existing) {
-            dispatch({
-              type: 'autoPhasePhaseUpdate',
-              phaseId: p.phaseId,
-              name: existing.name,
-              status: existing.status,
-              completedTasks: existing.completedTasks + 1,
-              totalTasks: existing.totalTasks,
-            });
-          }
-          break;
-        }
-        case 'autonomous.tick': {
-          const p = payload as {
-            activePhases: Array<{ id: string }>;
-            queuedPhases: Array<{ id: string }>;
-          };
-          dispatch({ type: 'autoPhaseRunningPhases', phaseIds: p.activePhases.map((ph) => ph.id) });
-          // Update elapsed time
-          const ap = stateRef.current.autoPhase;
-          if (ap) {
-            const firstPhase = ap.phases[Object.keys(ap.phases)[0] ?? ''];
-            const elapsed =
-              ap.elapsedMs > 0
-                ? ap.elapsedMs + 1000
-                : Date.now() - (firstPhase?.startedAt ?? Date.now());
-            dispatch({ type: 'autoPhaseElapsed', ms: elapsed });
-          }
-          break;
-        }
-        case 'graph.completed': {
-          dispatch({ type: 'autoPhaseReset' });
-          break;
-        }
-        case 'graph.failed': {
-          dispatch({ type: 'autoPhaseReset' });
-          break;
-        }
-        case 'worktree.allocated': {
-          const p = payload as {
-            handleId: string;
-            ownerLabel: string;
-            branch: string;
-            baseBranch: string;
-          };
-          dispatch({
-            type: 'worktreeUpsert',
-            handleId: p.handleId,
-            baseBranch: p.baseBranch,
-            row: {
-              branch: p.branch,
-              ownerLabel: p.ownerLabel,
-              baseBranch: p.baseBranch,
-              status: 'active',
-              allocatedAt: Date.now(),
-            },
-          });
-          break;
-        }
-        case 'worktree.committed': {
-          const p = payload as {
-            handleId: string;
-            insertions: number;
-            deletions: number;
-            files: number;
-          };
-          dispatch({
-            type: 'worktreeUpsert',
-            handleId: p.handleId,
-            row: {
-              insertions: p.insertions,
-              deletions: p.deletions,
-              files: p.files,
-              status: 'committing',
-            },
-          });
-          break;
-        }
-        case 'worktree.merged': {
-          const p = payload as { handleId: string };
-          dispatch({ type: 'worktreeUpsert', handleId: p.handleId, row: { status: 'merged' } });
-          break;
-        }
-        case 'worktree.conflict': {
-          const p = payload as { handleId: string; conflictFiles: string[] };
-          dispatch({
-            type: 'worktreeUpsert',
-            handleId: p.handleId,
-            row: { status: 'needs-review', conflictFiles: p.conflictFiles },
-          });
-          break;
-        }
-        case 'worktree.failed': {
-          const p = payload as { handleId: string };
-          dispatch({ type: 'worktreeUpsert', handleId: p.handleId, row: { status: 'failed' } });
-          break;
-        }
-        case 'worktree.released': {
-          const p = payload as { handleId: string; kept: boolean };
-          // Keep conflicted/failed (kept) worktrees visible; drop clean ones.
-          if (!p.kept) dispatch({ type: 'worktreeRemove', handleId: p.handleId });
-          break;
-        }
-      }
-    };
-
-    return subscribeAutoPhase(handler);
-  }, [subscribeAutoPhase]);
-
-  // --- Leader agent compaction events → chat history ---
-  useEffect(() => {
-    const offFired = events.on('compaction.fired', (e) => {
-      const { level, tokens, load, maxContext, report } = e as {
-        level: string;
-        tokens: number;
-        load: number;
-        maxContext: number;
-        report: { before: number; after: number; reductions: { phase: string; saved: number }[] };
-        aggressive: boolean;
-      };
-      const pct = (load * 100).toFixed(0);
-      const before = report.before;
-      const after = report.after;
-      const saved = before - after;
-      // `tokens` / `load` come from the middleware's full-request estimator
-      // (messages + system + tools); `report.before` is the compactor's
-      // message-only count. They are different views of the same moment, so
-      // label them explicitly to avoid the "98k tokens but 73% load?" confusion.
-      if (saved <= 0) {
-        dispatch({
-          type: 'addEntry',
-          entry: {
-            kind: 'info',
-            text: `▸ compaction skipped at ${level} — load ${pct}% (${tokens.toLocaleString()} of ${maxContext.toLocaleString()} tok). preserveK protects recent turns; nothing to elide.`,
-          },
-        });
-        return;
-      }
-      const table = [
-        `▸ context compacted at ${level} — load ${pct}% (${tokens.toLocaleString()} of ${maxContext.toLocaleString()} tok, full request)`,
-        `  msg tokens before ${before.toLocaleString().padStart(8)}`,
-        `  msg tokens after  ${after.toLocaleString().padStart(8)}`,
-        `  saved            ${saved.toLocaleString().padStart(8)}  (${((saved / before) * 100).toFixed(1)}%)`,
-      ];
-      for (const line of table) {
-        dispatch({ type: 'addEntry', entry: { kind: 'info', text: line } });
-      }
-    });
-    const offFailed = events.on('compaction.failed', (e) => {
-      const { level, load, maxContext, fatal } = e as {
-        level: string;
-        load: number;
-        maxContext: number;
-        fatal: boolean;
-      };
-      const pct = (load * 100).toFixed(0);
-      const text = fatal
-        ? `✗ compaction failed at ${level} — load ${pct}% of ${maxContext.toLocaleString()} tok — FATAL`
-        : `⚠ compaction failed at ${level} — load ${pct}% of ${maxContext.toLocaleString()} tok — continuing`;
-      dispatch({ type: 'addEntry', entry: { kind: fatal ? 'error' : 'warn', text } });
-    });
-    return () => {
-      offFired();
-      offFailed();
-    };
-  }, [events]);
-
-  // Install a dispatch-backed setter into the shared controller so the
-  // `/fleet stream on|off` slash command can flip our reducer flag.
-  // Restored to a noop on unmount so a late-arriving slash callback
-  // doesn't dispatch into a torn-down React tree.
-  useEffect(() => {
-    if (!fleetStreamController) return;
-    fleetStreamController.enabled = state.streamFleet;
-    fleetStreamController.setEnabled = (enabled: boolean) => {
-      dispatch({ type: 'setStreamFleet', enabled });
-    };
-    return () => {
-      fleetStreamController.setEnabled = (enabled: boolean) => {
-        fleetStreamController.enabled = enabled;
-      };
-    };
-  }, [fleetStreamController, state.streamFleet]);
-
-  // Keep the controller's mirror of `enabled` in sync when the toggle is
-  // flipped from a TUI-side path (not the slash command).
-  useEffect(() => {
-    if (fleetStreamController) fleetStreamController.enabled = state.streamFleet;
-  }, [state.streamFleet, fleetStreamController]);
-
-  // Install a dispatch-backed setter into the prompt-refinement controller so
-  // the `/enhance on|off` slash command (handled in the CLI) flips our reducer
-  // flag. Restored to a plain mirror on unmount.
-  useEffect(() => {
-    if (!enhanceController) return;
-    enhanceController.enabled = state.enhanceEnabled;
-    enhanceController.setEnabled = (enabled: boolean) => {
-      dispatch({ type: 'enhanceSet', enabled });
-    };
-    return () => {
-      enhanceController.setEnabled = (enabled: boolean) => {
-        enhanceController.enabled = enabled;
-      };
-    };
-  }, [enhanceController, state.enhanceEnabled]);
-
-  // Install a dispatch-backed setter into the shared controller so the
-  // `/agents on|off` slash command can toggle our overlay flag.
-  // Restored to a noop on unmount so a late-arriving slash callback
-  // doesn't dispatch into a torn-down React tree.
-  useEffect(() => {
-    if (!agentsMonitorController) return;
-    agentsMonitorController.visible = state.agentsMonitorOpen;
-    agentsMonitorController.setVisible = (visible: boolean) => {
-      if (visible !== state.agentsMonitorOpen) {
-        dispatch({ type: 'toggleAgentsMonitor' });
-      }
-    };
-    return () => {
-      agentsMonitorController.setVisible = (visible: boolean) => {
-        agentsMonitorController.visible = visible;
-      };
-    };
-  }, [agentsMonitorController, state.agentsMonitorOpen]);
-
-  // Keep the controller's mirror of `visible` in sync when the toggle is
-  // flipped from a TUI-side path (not the slash command).
-  useEffect(() => {
-    if (agentsMonitorController) agentsMonitorController.visible = state.agentsMonitorOpen;
-  }, [state.agentsMonitorOpen, agentsMonitorController]);
+  useTuiControllers({
+    dispatch,
+    streamFleet: state.streamFleet,
+    enhanceEnabled: state.enhanceEnabled,
+    agentsMonitorOpen: state.agentsMonitorOpen,
+    fleetStreamController,
+    enhanceController,
+    agentsMonitorController,
+  });
 
   // Track double-Esc for input buffer clearing.
   const lastEscAtRef = useRef(0);
   const ESC_DOUBLE_PRESS_MS = 1000;
 
-  // --- FleetBus → TUI dispatch bridge ---
-  // Subscribes to every event on the director's FleetBus and dispatches
-  // fleet state actions. Text deltas are throttled (FLUSH_MS) to avoid
-  // flooding React re-renders; other events dispatch immediately.
-  // Seeds initial fleet state from director.status() on mount so the
-  // panel reflects subagents spawned before the TUI attached.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: labelFor is ref-stable
-  useEffect(() => {
-    const d = director;
-    if (!d) return;
-    const FLUSH_MS = 150;
-
-    // Coalesce high-frequency subagent display events. Instead of dispatching
-    // (and re-rendering) once per event, queue them and flush as ONE
-    // `fleetBatch` every ~150ms. During a multi-agent run this turns hundreds
-    // of renders/sec into ~6/sec. Correctness-sensitive events (task.completed
-    // on offDone, and the one-time mount seed) keep the real `dispatch`.
-    const batch: Action[] = [];
-    let batchTimer: ReturnType<typeof setTimeout> | null = null;
-    const flushBatch = () => {
-      batchTimer = null;
-      if (batch.length === 0) return;
-      dispatch({ type: 'fleetBatch', actions: batch.splice(0, batch.length) });
-    };
-    const enq = (a: Action) => {
-      batch.push(a);
-      // Cap so a 20-agent burst can't grow an unbounded array before the timer.
-      if (batch.length >= 256) {
-        if (batchTimer) clearTimeout(batchTimer);
-        flushBatch();
-        return;
-      }
-      if (!batchTimer) batchTimer = setTimeout(flushBatch, FLUSH_MS);
-    };
-
-    // Per-agent buffered assistant text. Flushed as one `subagent`
-    // history entry when the agent stops emitting deltas for FLUSH_MS,
-    // so we don't fire a fresh history entry on every token.
-    const streamBuf = new Map<string, string>();
-    let streamFlushTimer: ReturnType<typeof setTimeout> | null = null;
-    const flushStreamBufs = () => {
-      for (const [id, text] of streamBuf) {
-        const trimmed = text.trim();
-        if (!trimmed) continue;
-        const lbl = labelFor(id);
-        enq({ type: 'fleetMessage', id, text: trimmed });
-        if (streamFleetRef.current) {
-          enq({
-            type: 'addEntry',
-            entry: {
-              kind: 'subagent',
-              agentLabel: lbl.label,
-              agentColor: lbl.color,
-              icon: '💬',
-              text: trimmed,
-            },
-          });
-        }
-      }
-      streamBuf.clear();
-      streamFlushTimer = null;
-    };
-
-    // Seed: discover already-spawned subagents from the coordinator.
-    const status = d.status();
-    for (const s of status.subagents) {
-      const meta = d.getSubagentMeta(s.id);
-      dispatch({
-        type: 'fleetSpawn',
-        id: s.id,
-        name: meta?.name ?? s.name,
-        provider: meta?.provider,
-        model: meta?.model,
-      });
-      // Seed a stable label so subagents spawned before TUI mount still
-      // show up by name in the status bar's per-agent detail line.
-      labelFor(s.id, meta?.name ?? s.name);
-    }
-    // Also seed cost from the usage aggregator.
-    dispatch({
-      type: 'fleetCost',
-      cost: d.snapshot().total.cost,
-      input: d.snapshot().total.input,
-      output: d.snapshot().total.output,
-      perAgent: d.snapshot().perSubagent,
-    });
-
-    // Discover new subagents on first FleetBus event for an unknown id.
-    const seen = new Set(Object.keys(status.subagents));
-
-    // Throttled delta accumulator per subagent.
-    const pending = new Map<string, string>();
-    let flushTimer: ReturnType<typeof setTimeout> | null = null;
-    const doFlush = () => {
-      for (const [id, text] of pending) {
-        if (text) enq({ type: 'fleetDelta', id, text });
-      }
-      pending.clear();
-      flushTimer = null;
-    };
-
-    const offFleet = d.fleet.onAny((e: FleetEvent) => {
-      // All dispatches in this handler go through the 150ms batch: shadow
-      // `dispatch` with `enq` for the whole callback so every switch case
-      // below queues instead of rendering immediately.
-      const dispatch = enq;
-      // Discover new subagents.
-      const fresh = !seen.has(e.subagentId);
-      if (fresh) {
-        seen.add(e.subagentId);
-        const meta = d.getSubagentMeta(e.subagentId);
-        dispatch({
-          type: 'fleetSpawn',
-          id: e.subagentId,
-          name: meta?.name,
-          provider: meta?.provider,
-          model: meta?.model,
-        });
-        // Always assign a label on first sighting so the status bar's
-        // 4th line has stable AGENT#N names even when history streaming
-        // is disabled. The history `spawned` entry below is gated on
-        // streamFleet; label assignment itself is unconditional.
-        const lbl = labelFor(e.subagentId, meta?.name);
-        if (streamFleetRef.current) {
-          const where =
-            meta?.provider && meta?.model ? `${meta.provider}/${meta.model}` : 'spawned';
-          dispatch({
-            type: 'addEntry',
-            entry: {
-              kind: 'subagent',
-              agentLabel: lbl.label,
-              agentColor: lbl.color,
-              icon: '▶',
-              text: where,
-            },
-          });
-        }
-      }
-
-      switch (e.type) {
-        case 'iteration.started':
-          dispatch({ type: 'fleetStart', id: e.subagentId });
-          break;
-        case 'session.started':
-          // First event a subagent emits — treat as start so the fleet
-          // panel is populated even if no iteration.started fires yet.
-          dispatch({ type: 'fleetStart', id: e.subagentId });
-          break;
-        case 'provider.text_delta': {
-          const p = e.payload as { text?: string | undefined };
-          if (p?.text) {
-            const cur = pending.get(e.subagentId) ?? '';
-            pending.set(e.subagentId, cur + p.text);
-            if (!flushTimer) flushTimer = setTimeout(doFlush, FLUSH_MS);
-            streamBuf.set(e.subagentId, (streamBuf.get(e.subagentId) ?? '') + p.text);
-            if (streamFlushTimer) clearTimeout(streamFlushTimer);
-            streamFlushTimer = setTimeout(flushStreamBufs, FLUSH_MS * 4);
-          }
-          break;
-        }
-        case 'provider.thinking_delta': {
-          // Extended thinking output — same buffering as text_delta so
-          // it gets flushed into recentMessages and (when streaming is
-          // on) injected into leader history.
-          const p = e.payload as { text?: string | undefined };
-          if (p?.text) {
-            streamBuf.set(e.subagentId, (streamBuf.get(e.subagentId) ?? '') + p.text);
-            if (streamFlushTimer) clearTimeout(streamFlushTimer);
-            streamFlushTimer = setTimeout(flushStreamBufs, FLUSH_MS * 4);
-          }
-          break;
-        }
-        case 'provider.retry': {
-          const p = e.payload as { attempt?: number | undefined; delayMs?: number | undefined };
-          dispatch({
-            type: 'addEntry',
-            entry: {
-              kind: 'warn',
-              text: `subagent retry ${p?.attempt ?? '?'}${p?.delayMs ? ` (${p.delayMs}ms)` : ''}`,
-            },
-          });
-          break;
-        }
-        case 'provider.error': {
-          const p = e.payload as { description?: string | undefined };
-          dispatch({
-            type: 'addEntry',
-            entry: {
-              kind: 'error',
-              text: `subagent error${p?.description ? `: ${p.description}` : ''}`,
-            },
-          });
-          break;
-        }
-        case 'tool.started': {
-          const p = e.payload as { name?: string | undefined };
-          if (p?.name) {
-            dispatch({ type: 'fleetToolStart', id: e.subagentId, name: p.name });
-          }
-          break;
-        }
-        case 'tool.executed': {
-          const p = e.payload as {
-            name?: string | undefined;
-            ok?: boolean | undefined;
-            durationMs?: number | undefined;
-            outputBytes?: number | undefined;
-            outputLines?: number | undefined;
-          };
-          dispatch({
-            type: 'fleetTool',
-            id: e.subagentId,
-            name: p?.name,
-            ok: p?.ok,
-            durationMs: p?.durationMs,
-            outputBytes: p?.outputBytes,
-            outputLines: p?.outputLines,
-          });
-          dispatch({ type: 'fleetToolEnd', id: e.subagentId });
-          // Also inject into leader chat history when stream is enabled.
-          if (streamFleetRef.current && p?.name) {
-            const lbl = labelFor(e.subagentId);
-            dispatch({
-              type: 'addEntry',
-              entry: {
-                kind: 'subagent',
-                agentLabel: lbl.label,
-                agentColor: lbl.color,
-                icon: '🔧',
-                text: `→ ${p.name} ${p.ok === false ? '✗' : '✓'}${p.durationMs != null ? ` (${p.durationMs}ms)` : ''}`,
-              },
-            });
-          }
-          break;
-        }
-        case 'provider.response': {
-          // Surface live cost from the aggregator (already computed with
-          // per-model pricing).
-          dispatch({
-            type: 'fleetCost',
-            cost: d.snapshot().total.cost,
-            input: d.snapshot().total.input,
-            output: d.snapshot().total.output,
-            perAgent: d.snapshot().perSubagent,
-          });
-          break;
-        }
-        case 'session.ended':
-          // Subagent finished — leave status update to task.completed.
-          break;
-        case 'compaction.fired':
-          dispatch({
-            type: 'addEntry',
-            entry: { kind: 'info', text: 'subagent compaction triggered' },
-          });
-          break;
-        case 'compaction.failed':
-          dispatch({
-            type: 'addEntry',
-            entry: { kind: 'warn', text: 'subagent compaction failed' },
-          });
-          break;
-        case 'token.threshold':
-          dispatch({
-            type: 'addEntry',
-            entry: { kind: 'info', text: 'subagent token threshold reached' },
-          });
-          break;
-        case 'budget.threshold_reached': {
-          const p = e.payload as { kind?: string | undefined; used?: number | undefined; limit?: number | undefined };
-          dispatch({
-            type: 'fleetBudgetWarning',
-            id: e.subagentId,
-            kind: p?.kind ?? 'unknown',
-            used: p?.used ?? 0,
-            limit: p?.limit ?? 0,
-          });
-          break;
-        }
-        case 'budget.extended': {
-          const p = e.payload as { totalExtensions?: number | undefined };
-          if (p?.totalExtensions !== undefined) {
-            dispatch({
-              type: 'fleetBudgetExtended',
-              id: e.subagentId,
-              totalExtensions: p.totalExtensions,
-            });
-          }
-          break;
-        }
-        // --- Collab session events ---
-        case 'bug.found': {
-          // Detect collab subagent role from subagentId: bug-hunter-<sid>,
-          // refactor-planner-<sid>, critic-<sid>
-          const role = e.subagentId.includes('bug-hunter')
-            ? 'bug-hunter'
-            : e.subagentId.includes('refactor-planner')
-              ? 'refactor-planner'
-              : e.subagentId.includes('critic')
-                ? 'critic'
-                : null;
-          if (!role && !state.collabSession) {
-            // Not a collab subagent — ignore.
-            break;
-          }
-          if (!state.collabSession) {
-            // First collab event we've seen — bootstrap state lazily.
-            dispatch({
-              type: 'collabSubagentSpawned',
-              subagentId: e.subagentId,
-              role: role ?? 'unknown',
-            });
-          }
-          const bp = e.payload as {
-            finding?: { id?: string | undefined; severity?: string | undefined; description?: string | undefined };
-          };
-          if (bp?.finding) {
-            const sessionId = e.subagentId.split('-').slice(1).join('-') || e.subagentId;
-            dispatch({
-              type: 'collabBugFound',
-              sessionId,
-              bugId: bp.finding.id ?? 'unknown',
-              severity: bp.finding.severity ?? 'unknown',
-              description: bp.finding.description ?? '',
-            });
-          }
-          break;
-        }
-        case 'refactor.plan': {
-          if (!state.collabSession) break;
-          const pp = e.payload as {
-            plan?: { id?: string | undefined; riskScore?: string | undefined; phases?: unknown[] | undefined };
-          };
-          if (pp?.plan) {
-            const sessionId = e.subagentId.split('-').slice(1).join('-') || e.subagentId;
-            dispatch({
-              type: 'collabPlanEmitted',
-              sessionId,
-              planId: pp.plan.id ?? 'unknown',
-              riskScore: pp.plan.riskScore ?? 'unknown',
-              phaseCount: pp.plan.phases?.length ?? 0,
-            });
-          }
-          break;
-        }
-        case 'critic.evaluation': {
-          if (!state.collabSession) break;
-          const ep = e.payload as {
-            evaluation?: { id?: string | undefined; verdict?: string | undefined; score?: number | undefined };
-          };
-          if (ep?.evaluation) {
-            const sessionId = e.subagentId.split('-').slice(1).join('-') || e.subagentId;
-            dispatch({
-              type: 'collabEvalComplete',
-              sessionId,
-              evalId: ep.evaluation.id ?? 'unknown',
-              verdict: ep.evaluation.verdict ?? 'unknown',
-              score: ep.evaluation.score ?? 0,
-            });
-          }
-          break;
-        }
-        case 'collab.session_done': {
-          // Emitted by the CollabSession itself (EventEmitter 'session.done').
-          if (!state.collabSession) break;
-          const dp = e.payload as {
-            report?: {
-              sessionId?: string | undefined;
-              overallVerdict?: 'approve' | 'needs_revision' | 'reject' | undefined;
-            };
-          };
-          if (dp?.report) {
-            dispatch({
-              type: 'collabSessionDone',
-              sessionId: dp.report.sessionId ?? state.collabSession.sessionId ?? 'unknown',
-              verdict: dp.report.overallVerdict ?? 'needs_revision',
-            });
-          }
-          break;
-        }
-      }
-    });
-
-    // Task completions arrive on the director's bus too, but the
-    // history entry is now produced by the `subagent.task_completed`
-    // EventBus listener (which fires uniformly for director and
-    // non-director paths). Here we only update fleet panel state +
-    // running cost — the chat-side entry would otherwise duplicate.
-    const offDone = d.on('task.completed', (payload) => {
-      dispatch({
-        type: 'fleetDone',
-        id: payload.result.subagentId,
-        status: payload.result.status,
-        iterations: payload.result.iterations,
-        toolCalls: payload.result.toolCalls,
-      });
-      dispatch({
-        type: 'fleetCost',
-        cost: d.snapshot().total.cost,
-        input: d.snapshot().total.input,
-        output: d.snapshot().total.output,
-        perAgent: d.snapshot().perSubagent,
-      });
-      // Drain any pending streaming text right before the completion
-      // entry is committed by the EventBus listener so the order
-      // "chat → done line" stays correct. flushStreamBufs queues into the
-      // batch, so flush the batch synchronously here to commit those chat
-      // lines before the done entry lands.
-      if (streamFlushTimer) {
-        clearTimeout(streamFlushTimer);
-        flushStreamBufs();
-      }
-      if (batchTimer) clearTimeout(batchTimer);
-      flushBatch();
-    });
-
-    return () => {
-      offFleet();
-      offDone();
-      if (flushTimer) clearTimeout(flushTimer);
-      doFlush(); // queues any pending deltas
-      if (streamFlushTimer) clearTimeout(streamFlushTimer);
-      flushStreamBufs(); // queues any pending messages
-      if (batchTimer) clearTimeout(batchTimer);
-      flushBatch(); // commit the queued batch before teardown
-    };
-  }, [director]);
+  useDirectorFleetBridge({
+    director,
+    dispatch,
+    stateRef,
+    streamFleet: state.streamFleet,
+  });
 
   // Handle SIGINT as a three-stage escalation:
   //   1st press — stop work and stay at the prompt: cancel the foreground
@@ -3265,6 +2516,23 @@ export function App({
       }
       return;
     }
+    // F8 → process list overlay. Opening closes any other overlay or panel.
+    if (key.fn === 8) {
+      if (state.processListOpen) {
+        dispatch({ type: 'toggleProcessList' });
+      } else {
+        if (state.agentsMonitorOpen) dispatch({ type: 'toggleAgentsMonitor' });
+        if (state.monitorOpen) dispatch({ type: 'toggleMonitor' });
+        if (state.worktreeMonitorOpen) dispatch({ type: 'worktreeMonitorToggle' });
+        if (state.todosMonitorOpen) dispatch({ type: 'toggleTodosMonitor' });
+        if (state.autoPhase?.monitorOpen) dispatch({ type: 'autoPhaseMonitorToggle' });
+        if (state.settingsPicker.open) dispatch({ type: 'settingsClose' });
+        if (state.queuePanelOpen) dispatch({ type: 'toggleQueuePanel' });
+        if (state.helpOpen) dispatch({ type: 'toggleHelp' });
+        dispatch({ type: 'toggleProcessList' });
+      }
+      return;
+    }
     // Ctrl+S toggles the autonomy settings editor (also openable via
     // F5 and `/settings`). Opening closes any other overlay or panel.
     if (key.ctrl && input === 's') {
@@ -3333,6 +2601,10 @@ export function App({
       }
       if (state.queuePanelOpen) {
         dispatch({ type: 'toggleQueuePanel' });
+        return;
+      }
+      if (state.processListOpen) {
+        dispatch({ type: 'toggleProcessList' });
         return;
       }
     }
@@ -4458,6 +3730,8 @@ export function App({
           ) : null}
           {/* Queue panel — renders as full-width panel at the bottom. */}
           {state.queuePanelOpen ? <QueuePanel items={state.queue} /> : null}
+          {/* Process list overlay (F8) — shows background bash/exec processes. */}
+          {state.processListOpen ? <ProcessListMonitor /> : null}
         </Box>
       </Box>
     </Box>

@@ -337,6 +337,8 @@ export type State = {
   todosMonitorOpen: boolean;
   /** When true, the queue panel is shown (F7). */
   queuePanelOpen: boolean;
+  /** When true, the process list overlay is shown (F8). */
+  processListOpen: boolean;
   /**
    * Active or completed collaborative debugging session state.
    * Null when no collab session has run. Tracks counts + the event timeline
@@ -686,7 +688,9 @@ export type Action =
       verdict: 'approve' | 'needs_revision' | 'reject';
     }
   /** A collab subagent (bug-hunter / refactor-planner / critic) was spawned. */
-  | { type: 'collabSubagentSpawned'; subagentId: string; role: string };
+  | { type: 'collabSubagentSpawned'; subagentId: string; role: string }
+  /** Toggle the process list overlay (F8). */
+  | { type: 'toggleProcessList' };
 
 export function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -1509,6 +1513,9 @@ export function reducer(state: State, action: Action): State {
     }
     case 'toggleQueuePanel': {
       return { ...state, queuePanelOpen: !state.queuePanelOpen };
+    }
+    case 'toggleProcessList': {
+      return { ...state, processListOpen: !state.processListOpen };
     }
     case 'checkpointReceived': {
       const existing = state.checkpoints.find((c) => c.promptIndex === action.cp.promptIndex);
