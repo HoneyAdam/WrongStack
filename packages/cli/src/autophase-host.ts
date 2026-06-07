@@ -46,6 +46,7 @@ function gitText(args: string[], cwd: string): Promise<{ code: number; out: stri
       cwd,
       env: buildChildEnv(),
       stdio: ['ignore', 'pipe', 'pipe'],
+      signal: AbortSignal.timeout(10_000),
     });
     child.stdout?.on('data', (c: Buffer) => {
       out += c.toString();
@@ -77,6 +78,7 @@ function runCmd(
       env: buildChildEnv(),
       stdio: ['ignore', 'pipe', 'pipe'],
       shell: shell || process.platform === 'win32',
+      signal: AbortSignal.timeout(30_000),
     });
     child.stdout?.on('data', (c: Buffer) => {
       out += c.toString();

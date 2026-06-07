@@ -24,7 +24,6 @@ import {
   type IndexingConfig,
   type Logger,
   type ToolCallPipelinePayload,
-  color,
 } from '@wrongstack/core';
 import {
   cancelPendingReindexes,
@@ -75,14 +74,18 @@ export async function setupCodebaseIndexing(deps: CodebaseIndexingDeps): Promise
   const onError = (err: unknown) =>
     logger.debug(`codebase auto-index failed: ${err instanceof Error ? err.message : String(err)}`);
 
-  // 1. Background startup index. The prompt is available immediately; when the
-  //    index finishes we print a one-line "ready" summary to the screen.
+  // 1. Background startup index. The prompt is available immediately; the
+  //    index runs asynchronously and the TUI already tracks progress via
+  //    getIndexState()/onIndexStateChange() — the status bar chip "⚙ indexing
+  //    N/M" appears during the build and disappears when it finishes.
+  //    We must NOT write directly to stderr here because it bypasses Ink's
+  //    rendering and pushes the input area into native scrollback history.
   if (idx.onSessionStart) {
     void runStartupIndex({ projectRoot })
       .then((r) => {
-        const summary = `${color.green('✓')} codebase index ready ${color.dim(`— ${r.symbolsIndexed} symbols · ${r.filesIndexed} files · ${r.durationMs}ms`)}`;
-        // Write directly so the line lands even while the REPL is at a prompt.
-        process.stderr.write(`\n${summary}\n`);
+        logger.info(
+          `codebase index ready: ${r.symbolsIndexed} symbols · ${r.filesIndexed} files · ${r.durationMs}ms`,
+        );
       })
       .catch((err) => {
         logger.warn(

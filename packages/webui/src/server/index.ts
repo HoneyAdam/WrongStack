@@ -39,7 +39,7 @@ import {
 import { ToolExecutor } from '@wrongstack/core/execution';
 import { decryptConfigSecrets, encryptConfigSecrets } from '@wrongstack/core/security';
 import { buildProviderFactoriesFromRegistry, makeProviderFromConfig } from '@wrongstack/providers';
-import { builtinToolsPack, forgetTool, rememberTool } from '@wrongstack/tools';
+import { builtinToolsPack, forgetTool, rememberTool, searchMemoryTool, relatedMemoryTool } from '@wrongstack/tools';
 import { type WebSocket, WebSocketServer } from 'ws';
 import { createDefaultContainer } from '../../../runtime/src/container.js';
 import { bootConfig, patchConfig } from './boot.js';
@@ -237,6 +237,8 @@ export async function startWebUI(
   if (config.features.memory) {
     toolRegistry.register(rememberTool(memoryStore));
     toolRegistry.register(forgetTool(memoryStore));
+    toolRegistry.register(searchMemoryTool(memoryStore));
+    toolRegistry.register(relatedMemoryTool(memoryStore));
   }
   console.log('[WebUI] Tool registry loaded:', toolRegistry.list().length, 'tools');
 

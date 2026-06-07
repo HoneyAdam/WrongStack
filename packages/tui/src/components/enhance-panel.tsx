@@ -105,11 +105,11 @@ export function EnhancePanel({
           <Text bold color="cyan">
             [t]
           </Text>
-          <Text dimColor> düzenle · </Text>
+          <Text dimColor> edit · </Text>
           <Text bold color="red">
             [Esc]
           </Text>
-          <Text dimColor> orijinal</Text>
+          <Text dimColor> original</Text>
         </Text>
       </Box>
     </Box>

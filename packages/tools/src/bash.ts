@@ -24,7 +24,15 @@ const MAX_OUTPUT = 32_768;
 // 32 KB — keeps context manageable for arbitrary commands. bash output
 // is typically unbounded LLM tool-use context; larger caps risk pushing
 // the context window to compaction on every invocation.
-const DEFAULT_TIMEOUT_MS = 30_000;
+
+// 5 minutes — generous enough for most real-world commands (npm install,
+// docker build, etc.) without letting a hung process consume the session.
+// The per-call timeout_ms parameter still allows precise overrides.
+// The circuit breaker's slow-call threshold (180s) sits below this so
+// commands that run >3min still count as "slow" and can trip the breaker
+// after 3 occurrences.
+const DEFAULT_TIMEOUT_MS = 300_000;
+
 // Flush partial_output every 200ms or when 4 KiB accumulates — whichever
 // comes first. Smaller batches make the TUI feel responsive; larger ones
 // keep EventBus traffic reasonable on chatty processes.
@@ -55,9 +63,9 @@ export const bashTool: Tool<BashInput, BashOutput> = {
   // explicitly removes the implicit cross-tool aliasing.
   subjectKey: 'command',
   capabilities: ['shell.arbitrary'],
-  timeoutMs: 30_000,
+  timeoutMs: 300_000,
   maxOutputBytes: MAX_OUTPUT,
-  estimatedDurationMs: 3_000,
+  estimatedDurationMs: 30_000,
   inputSchema: {
     type: 'object',
     properties: {

@@ -5,6 +5,12 @@
 
 import type { BrainDecision, BrainDecisionRequest } from '../coordination/brain.js';
 import type { Context } from '../core/context.js';
+import type {
+  MemoryClearedPayload,
+  MemoryConsolidatedPayload,
+  MemoryForgottenPayload,
+  MemoryRememberedPayload,
+} from '../types/memory.js';
 import type { Usage } from '../types/provider.js';
 import type { Tool, ToolProgressEvent } from '../types/tool.js';
 
@@ -497,6 +503,11 @@ export interface EventMap {
     branch?: string | undefined;
     error: string;
   };
+  // ── Memory store events — emitted by DefaultMemoryStore so plugins can react ──
+  'memory.remembered': MemoryRememberedPayload;
+  'memory.forgotten': MemoryForgottenPayload;
+  'memory.cleared': MemoryClearedPayload;
+  'memory.consolidated': MemoryConsolidatedPayload;
   error: { err: Error; phase: string; _original?: Error | undefined };
 }
 

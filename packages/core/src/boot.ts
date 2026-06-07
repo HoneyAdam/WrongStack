@@ -81,6 +81,7 @@ export async function bootConfig(options: BootConfigOptions = {}): Promise<BootC
   await fs.mkdir(wpaths.projectDir, { recursive: true });
   await fs.mkdir(wpaths.projectSessions, { recursive: true });
   await writeProjectMeta(wpaths, projectRoot);
+  await ensureGitignore(projectRoot);
 
   // Clean up stale project directories left behind by tests or deleted
   // working directories.  Best-effort — never blocks boot.
@@ -182,6 +183,35 @@ async function writeProjectMeta(paths: WstackPaths, projectRoot: string): Promis
     await fs.writeFile(paths.projectMeta, JSON.stringify(meta, null, 2));
   } catch {
     // best-effort
+  }
+}
+
+const GITIGNORE_ENTRY = '.wrongstack/\n';
+
+/**
+ * Ensure `.gitignore` exists in the project root and contains `.wrongstack/`.
+ * Idempotent — skips if the entry is already present. Best-effort — failures
+ * are silently ignored so boot never blocks on gitignore maintenance.
+ */
+async function ensureGitignore(projectRoot: string): Promise<void> {
+  const gitignorePath = path.join(projectRoot, '.gitignore');
+  try {
+    let content = '';
+    try {
+      content = await fs.readFile(gitignorePath, 'utf8');
+    } catch {
+      // file doesn't exist — that's fine, we'll create it
+    }
+    if (!content.includes('.wrongstack')) {
+      const updated = content
+        ? content.endsWith('\n')
+          ? content + GITIGNORE_ENTRY
+          : content + '\n' + GITIGNORE_ENTRY
+        : GITIGNORE_ENTRY;
+      await fs.writeFile(gitignorePath, updated, 'utf8');
+    }
+  } catch {
+    // best-effort — never blocks boot
   }
 }
 

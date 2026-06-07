@@ -64,9 +64,12 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
   private skillCache?: string | undefined;
   /** Cached full skill bodies (after frontmatter), built once per session. */
   private skillBodyCache?: string | undefined;
+  /** Tools from last build — used for memory relevance scoring. */
+  private _lastBuildTools?: Tool[] | undefined;
   constructor(private readonly opts: DefaultSystemPromptBuilderOptions = {}) {}
 
   async build(ctx: BuildContext): Promise<TextBlock[]> {
+    this._lastBuildTools = ctx.tools;
     // Pre-load skill entries so we can include them in the environment block
     // (which is cached). Skills are static per-session, so this is safe.
     if (this.opts.skillLoader && !this.skillCache) {
@@ -422,8 +425,32 @@ summarize it, and let the tool result hold only the summary.`);
     const parts: string[] = [];
     if (this.opts.memoryStore) {
       try {
-        const mem = await this.opts.memoryStore.readAll();
-        if (mem.trim()) parts.push(`# Project Memory\n\n${mem}`);
+        // Use relevance scoring when available, fall back to full dump.
+        if (this.opts.memoryStore.scoreRelevant) {
+          const toolNames = this._lastBuildTools?.map((t) => t.name) ?? [];
+          const scored = await this.opts.memoryStore.scoreRelevant(
+            {
+              currentTask: '',
+              toolNames,
+            },
+            'project-memory',
+            8,
+          );
+          if (scored.length > 0) {
+            const lines: string[] = ['# Relevant Memory'];
+            for (const e of scored) {
+              const badge = e.type
+                ? `[\`${e.type.replace('_', '-')}\`] `
+                : '';
+              const priorityMark = e.priority === 'critical' ? '⚡' : e.priority === 'high' ? '▲' : '';
+              lines.push(`- ${priorityMark}${badge}${e.text}${e.tags ? ` \`#${e.tags.join(' #')}\`` : ''}`);
+            }
+            parts.push(lines.join('\n'));
+          }
+        } else {
+          const mem = await this.opts.memoryStore.readAll();
+          if (mem.trim()) parts.push(`# Project Memory\n\n${mem}`);
+        }
       } catch {
         // skip
       }

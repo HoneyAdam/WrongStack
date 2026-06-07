@@ -12,6 +12,7 @@ import {
   DefaultSkillLoader,
   DefaultSystemPromptBuilder,
   DefaultTokenCounter,
+  EventBus,
   HybridCompactor,
   type Logger,
   type ModelsRegistry,
@@ -26,6 +27,11 @@ export interface CreateContainerOptions {
   wpaths: WstackPaths;
   logger: Logger;
   modelsRegistry: ModelsRegistry;
+  /**
+   * Optional event bus — passed to DefaultMemoryStore so plugins and
+   * subsystems can react to memory mutations in real time.
+   */
+  events?: EventBus | undefined;
   permission?: {
     yolo?: boolean | undefined;
     yoloDestructive?: boolean | undefined;
@@ -78,7 +84,7 @@ export function createDefaultContainer(opts: CreateContainerOptions): Container 
       }),
   );
 
-  const memoryStore = new DefaultMemoryStore({ paths: wpaths });
+  const memoryStore = new DefaultMemoryStore({ paths: wpaths, events: opts.events });
   container.bind(TOKENS.MemoryStore, () => memoryStore);
 
   const skillLoader = new DefaultSkillLoader({ paths: wpaths, bundledDir: opts.bundledSkillsDir });

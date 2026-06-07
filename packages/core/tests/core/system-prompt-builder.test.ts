@@ -74,6 +74,9 @@ describe('DefaultSystemPromptBuilder', () => {
       remember: async () => undefined,
       forget: async () => 0,
       consolidate: async () => undefined,
+      clear: async () => undefined,
+      list: async () => [],
+      search: async () => [],
     };
     const skills: SkillLoader = {
       listEntries: async () => [
@@ -111,6 +114,9 @@ describe('DefaultSystemPromptBuilder', () => {
       remember: async () => undefined,
       forget: async () => 0,
       consolidate: async () => undefined,
+      clear: async () => undefined,
+      list: async () => [],
+      search: async () => [],
     };
     const b = new DefaultSystemPromptBuilder({ memoryStore: memory });
     const blocks = await b.build({ cwd: tmp, projectRoot: tmp, tools: [] });
@@ -126,6 +132,9 @@ describe('DefaultSystemPromptBuilder', () => {
       remember: async () => undefined,
       forget: async () => 0,
       consolidate: async () => undefined,
+      clear: async () => undefined,
+      list: async () => [],
+      search: async () => [],
     };
     const b = new DefaultSystemPromptBuilder({ memoryStore: memory });
     const blocks = await b.build({ cwd: tmp, projectRoot: tmp, tools: [] });

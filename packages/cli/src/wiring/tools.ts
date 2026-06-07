@@ -14,6 +14,8 @@ import {
   builtinToolsPack,
   forgetTool,
   rememberTool,
+  searchMemoryTool,
+  relatedMemoryTool,
 } from '@wrongstack/tools';
 import type { TextBlock } from '@wrongstack/core';
 import { resolveBundledSkillsDir } from '../cli-bundled-skills.js';
@@ -49,6 +51,8 @@ export async function setupTools(params: ToolsWiringDeps): Promise<ToolsWiringRe
   if (config.features.memory) {
     toolRegistry.register(rememberTool(memoryStore));
     toolRegistry.register(forgetTool(memoryStore));
+    toolRegistry.register(searchMemoryTool(memoryStore));
+    toolRegistry.register(relatedMemoryTool(memoryStore));
   }
 
   // Mode store

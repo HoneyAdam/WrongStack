@@ -15,6 +15,21 @@ export {
   DefaultMemoryStore,
   type MemoryStoreOptions,
 } from './memory-store.js';
+export {
+  FileMemoryBackend,
+  type FileMemoryBackendOptions,
+  type MemoryBackend,
+  parseEntries,
+} from './memory-backend.js';
+export {
+  GraphMemoryBackend,
+  type GraphMemoryBackendOptions,
+} from './memory-graph-backend.js';
+export {
+  SessionMemoryConsolidator,
+  type MemoryConsolidatorOptions,
+  type ConsolidationOp,
+} from './memory-consolidator.js';
 export { DefaultConfigStore } from './config-store.js';
 export {
   DefaultConfigLoader,

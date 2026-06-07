@@ -39,12 +39,13 @@ import {
   resolveSessionLoggingConfig,
   type SessionEventBridge,
   type AutonomyStage,
+  SessionMemoryConsolidator,
 } from '@wrongstack/core';
 import { MCPRegistry } from '@wrongstack/mcp';
 import { capabilitiesFor, makeProviderFromConfig } from '@wrongstack/providers';
 import { resolveRuntimeMaxContext } from './context-limit.js';
 import { createDefaultContainer } from '@wrongstack/runtime';
-import { builtinToolsPack, forgetTool, rememberTool } from '@wrongstack/tools';
+import { builtinToolsPack, forgetTool, rememberTool, searchMemoryTool, relatedMemoryTool } from '@wrongstack/tools';
 import { boot } from './boot.js';
 import { type ExecutionDeps, execute } from './execution.js';
 import { MultiAgentHost } from './multi-agent.js';
@@ -117,12 +118,16 @@ export async function main(argv: string[]): Promise<number> {
   // PathResolver is created from the resolved projectRoot
   const pathResolver = new DefaultPathResolver(cwd);
 
+  const events = new EventBus();
+  events.setLogger(logger);
+
   // Build container via shared factory
   const container = createDefaultContainer({
     config,
     wpaths,
     logger,
     modelsRegistry,
+    events,
     permission: {
       yolo: config.yolo,
       yoloDestructive: flags['yolo-destructive'] === true || flags['force-all-yolo'] === true,
@@ -247,10 +252,9 @@ export async function main(argv: string[]): Promise<number> {
   if (config.features.memory) {
     toolRegistry.register(rememberTool(memoryStore));
     toolRegistry.register(forgetTool(memoryStore));
+    toolRegistry.register(searchMemoryTool(memoryStore));
+    toolRegistry.register(relatedMemoryTool(memoryStore));
   }
-
-  const events = new EventBus();
-  events.setLogger(logger);
 
   // Metrics wiring — extracted to wiring/metrics.ts
   const { metricsSink, healthRegistry } = (() => {
@@ -691,6 +695,16 @@ export async function main(argv: string[]): Promise<number> {
     logger,
   });
   if (fallbackExtension) agent.extensions.register(fallbackExtension);
+
+  // Session-end memory consolidation — extracts key learnings from the
+  // completed session and persists them as memory entries.
+  if (config.features.memory && config.features.memoryConsolidation !== false) {
+    agent.extensions.register(
+      new SessionMemoryConsolidator({
+        memoryStore,
+      }),
+    );
+  }
 
   // Build provider+model switch as a single callback. The TUI picker
   // calls this after the user confirms a (provider, model) pair; we

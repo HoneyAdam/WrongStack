@@ -33,7 +33,7 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   // Inspect
   { name: '/debug', category: 'Inspect', aliases: ['/context'], description: 'Per-section context size breakdown' },
   { name: '/tools', category: 'Inspect', description: 'List every registered tool the model can call' },
-  { name: '/memory', category: 'Inspect', description: 'Show all remembered notes (project + user scope)' },
+  { name: '/memory', category: 'Inspect', description: 'Manage memory: show, remember, forget, clear, compact, stats' },
   { name: '/skill', category: 'Inspect', aliases: ['/skills'], description: 'List active skills' },
   { name: '/diag', category: 'Inspect', description: 'Runtime diagnostics (provider, tools, features, mode, usage)' },
   { name: '/stats', category: 'Inspect', description: 'Session stats: tokens, cache hit ratio, cost, elapsed' },

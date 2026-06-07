@@ -8,7 +8,7 @@ function fakeStore() {
   const store: MemoryStore = {
     readAll: vi.fn(async () => ''),
     read: vi.fn(async () => ''),
-    remember: vi.fn(async (text: string, scope?: string) => {
+    remember: vi.fn(async (text: string, scope?: string, _meta?: Record<string, unknown>) => {
       calls.push({ method: 'remember', args: [text, scope] });
     }),
     forget: vi.fn(async (query: string, scope?: string) => {
@@ -16,6 +16,10 @@ function fakeStore() {
       return 2;
     }),
     consolidate: vi.fn(async () => undefined),
+    clear: vi.fn(async () => undefined),
+    list: vi.fn(async () => []),
+    search: vi.fn(async () => []),
+    findRelated: vi.fn(async () => []),
   };
   return { store, calls };
 }

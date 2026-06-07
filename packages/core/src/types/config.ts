@@ -150,6 +150,13 @@ export interface FeaturesConfig {
   plugins: boolean;
   /** Register `remember` / `forget` tools backed by memory store. */
   memory: boolean;
+  /**
+   * Automatically consolidate session learnings into long-term memory
+   * after each completed run. The agent extracts key facts, conventions,
+   * and decisions via a lightweight LLM call and persists them.
+   * Enabled by default when `memory` is on; set to false to opt out.
+   */
+  memoryConsolidation?: boolean | undefined;
   /** Fetch the models.dev catalog at startup. When false, the provider
    *  must declare its `family` explicitly in `providers[<id>]`. */
   modelsRegistry: boolean;

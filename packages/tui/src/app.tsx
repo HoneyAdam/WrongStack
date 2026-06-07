@@ -1517,6 +1517,77 @@ export function App({
     });
   }, [getSettings]);
 
+  // ── Auto-save settings on value change (←/→ arrow keys) ──
+  // Gate ref: skip the first effect fire when settings just opened (all fields
+  // were populated from getSettings(), so saving would be a no-op double-write).
+  const settingsAutoSaveGateRef = useRef(true);
+
+  // Reset the gate when settings opens.
+  useEffect(() => {
+    if (state.settingsPicker.open) {
+      settingsAutoSaveGateRef.current = true;
+    }
+  }, [state.settingsPicker.open]);
+
+  // Persist settings whenever a value field changes (mode, delayMs, toggles, …).
+  // Does NOT fire on field-navigation (↑/↓) — only on value mutation (←/→).
+  useEffect(() => {
+    const sp = state.settingsPicker;
+    const save = saveSettings;
+    if (!sp.open || !save) return;
+
+    if (settingsAutoSaveGateRef.current) {
+      settingsAutoSaveGateRef.current = false;
+      return;
+    }
+
+    Promise.resolve(save({
+      mode: sp.mode,
+      delayMs: sp.delayMs,
+      titleAnimation: sp.titleAnimation,
+      yolo: sp.yolo,
+      streamFleet: sp.streamFleet,
+      chime: sp.chime,
+      confirmExit: sp.confirmExit,
+      nextPrediction: sp.nextPrediction,
+      featureMcp: sp.featureMcp,
+      featurePlugins: sp.featurePlugins,
+      featureMemory: sp.featureMemory,
+      featureSkills: sp.featureSkills,
+      featureModelsRegistry: sp.featureModelsRegistry,
+      contextAutoCompact: sp.contextAutoCompact,
+      contextStrategy: sp.contextStrategy,
+      logLevel: sp.logLevel,
+      auditLevel: sp.auditLevel,
+      indexOnStart: sp.indexOnStart,
+      maxIterations: sp.maxIterations,
+    })).then((err: string | null) => {
+      if (err) dispatch({ type: 'settingsHint', text: err });
+    });
+  }, [
+    state.settingsPicker.open,
+    state.settingsPicker.mode,
+    state.settingsPicker.delayMs,
+    state.settingsPicker.titleAnimation,
+    state.settingsPicker.yolo,
+    state.settingsPicker.streamFleet,
+    state.settingsPicker.chime,
+    state.settingsPicker.confirmExit,
+    state.settingsPicker.nextPrediction,
+    state.settingsPicker.featureMcp,
+    state.settingsPicker.featurePlugins,
+    state.settingsPicker.featureMemory,
+    state.settingsPicker.featureSkills,
+    state.settingsPicker.featureModelsRegistry,
+    state.settingsPicker.contextAutoCompact,
+    state.settingsPicker.contextStrategy,
+    state.settingsPicker.logLevel,
+    state.settingsPicker.auditLevel,
+    state.settingsPicker.indexOnStart,
+    state.settingsPicker.maxIterations,
+    saveSettings,
+  ]);
+
   // Register the TUI-only `/model` command — opens a two-step picker
   // (provider → model). All work is local state mutation; the actual
   // switch fires only after the user confirms a model in step 2.
@@ -2307,12 +2378,7 @@ export function App({
         const now = Date.now();
         if (now - lastEnterAtRef.current < 50) return;
         lastEnterAtRef.current = now;
-        const { mode, delayMs, titleAnimation, yolo, streamFleet, chime, confirmExit, nextPrediction, featureMcp, featurePlugins, featureMemory, featureSkills, featureModelsRegistry, contextAutoCompact, contextStrategy, logLevel, auditLevel, indexOnStart, maxIterations } = state.settingsPicker;
-        const err = await saveSettings?.({ mode, delayMs, titleAnimation, yolo, streamFleet, chime, confirmExit, nextPrediction, featureMcp, featurePlugins, featureMemory, featureSkills, featureModelsRegistry, contextAutoCompact, contextStrategy, logLevel, auditLevel, indexOnStart, maxIterations });
-        if (err) {
-          dispatch({ type: 'settingsHint', text: err });
-          return;
-        }
+        // Changes are auto-saved by the useEffect on each ←/→ press.
         dispatch({ type: 'settingsClose' });
         return;
       }
@@ -3763,16 +3829,16 @@ export function App({
             </Box>
           ) : null}
           {state.enhanceBusy && !state.enhance ? (
-            <Box paddingX={1} flexDirection="column">
+            <Box paddingX={1}>
               <Text dimColor>
-                ✨ refining:{' '}
+                ✨ refining{' '}
                 <Text color="cyan">
                   {state.buffer.length > 100
                     ? `${state.buffer.slice(0, 97)}…`
                     : state.buffer}
                 </Text>
+                <Text color="cyan"> {'.'.repeat(enhanceDots) || '\u00A0'}</Text>
               </Text>
-              <Text color="cyan">{'.'.repeat(enhanceDots)}</Text>
             </Box>
           ) : null}
           {state.enhance

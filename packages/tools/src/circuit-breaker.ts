@@ -60,7 +60,10 @@ interface CallRecord {
 type BreakerState = 'closed' | 'open' | 'half-open';
 
 const DEFAULT_MAX_CONSECUTIVE_FAILURES = 5;
-const DEFAULT_SLOW_CALL_THRESHOLD_MS = 60_000;
+const DEFAULT_SLOW_CALL_THRESHOLD_MS = 180_000;
+// 3 minutes — balanced against the 5-minute bash timeout. Commands
+// running <3min are normal; 3-5min are "slow" and count toward the
+// breaker. 3 consecutive slow calls trip the circuit.
 const DEFAULT_MAX_SLOW_CALLS = 3;
 const DEFAULT_WINDOW_MS = 60_000;
 const DEFAULT_MAX_CALLS_PER_WINDOW = 30;

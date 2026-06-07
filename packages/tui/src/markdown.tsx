@@ -166,10 +166,19 @@ export function MarkdownView({
     }
     const quote = line.match(QUOTE_RE);
     if (quote && line.startsWith('>')) {
+      const qContent = quote[1] ?? '';
       rows.push(
         <Box key={`q${key++}`} flexDirection="row">
           <Text dimColor>{'  '}</Text>
-          <InlineLine tokens={parseInline(quote[1] ?? '')} dim />
+          {/[\u2500-\u257F]/.test(qContent) ? (
+            <Box flexDirection="row">
+              {[...qContent].slice(0, (contentWidth ?? termWidth) - 2).map((ch, ci) => (
+                <Text key={ci} dimColor>{ch}</Text>
+              ))}
+            </Box>
+          ) : (
+            <InlineLine tokens={parseInline(qContent)} dim />
+          )}
         </Box>,
       );
       continue;
@@ -194,6 +203,24 @@ export function MarkdownView({
       );
       continue;
     }
+
+    // Box-drawing characters (U+2500–U+257F) have East Asian Width
+    // "Ambiguous" and are often measured as 2-column by terminal width
+    // libraries (including Ink's internal measurement). Rendering them
+    // character-by-character inside a row prevents incorrect wrapping.
+    if (/[\u2500-\u257F]/.test(line)) {
+      const maxW = contentWidth ?? termWidth;
+      const chars = [...line].slice(0, maxW);
+      rows.push(
+        <Box key={`bx${key++}`} flexDirection="row">
+          {chars.map((ch, ci) => (
+            <Text key={ci}>{ch}</Text>
+          ))}
+        </Box>,
+      );
+      continue;
+    }
+
     rows.push(<InlineLine key={`p${key++}`} tokens={parseInline(line)} />);
   }
   return <Box flexDirection="column">{rows}</Box>;

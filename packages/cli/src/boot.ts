@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module';
+import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 /**
@@ -213,6 +214,11 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
   const isInteractiveTTY = isStdinTTY() && !isSingleShot;
 
   if (isInteractiveTTY) {
+    // If the current working directory has no .git repository, prompt the
+    // user before proceeding — this lets them initialize one here instead
+    // of the path resolver discovering a .git in a parent directory.
+    await checkGitInCwd({ cwd, renderer, reader });
+
     const cont = await runProjectCheck({ projectRoot, cwd, renderer, reader });
     if (!cont) {
       await reader.close();
@@ -398,4 +404,74 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
     logger,
     updateInfo,
   };
+}
+
+/**
+ * Check whether the current working directory has a `.git` repository.
+ * If not, prompt the user before the path resolver walks up to a parent.
+ * When the parent directory contains a `.git`, also inform the user so
+ * they know why the project root was resolved to a different directory.
+ */
+async function checkGitInCwd(opts: {
+  cwd: string;
+  renderer: TerminalRenderer;
+  reader: ReadlineInputReader;
+}): Promise<void> {
+  const { cwd, renderer, reader } = opts;
+  const cwdGit = path.join(cwd, '.git');
+
+  let hasCwdGit = false;
+  try {
+    await fs.access(cwdGit);
+    hasCwdGit = true;
+  } catch {
+    // no .git in cwd
+  }
+
+  if (!hasCwdGit) {
+    renderer.write(
+      `\n  ${color.amber('○')} This folder has no ${color.bold('.git')} repository.\n`,
+    );
+    const answer = (
+      await reader.readLine(
+        `  ${color.amber('?')} Initialize one here? ${color.dim('[y/N]')} `,
+      )
+    )
+      .trim()
+      .toLowerCase();
+    if (answer === 'y' || answer === 'yes') {
+      try {
+        const { spawn } = await import('node:child_process');
+        await new Promise<void>((resolve, reject) => {
+          const child = spawn('git', ['init'], {
+            cwd,
+            signal: AbortSignal.timeout(10_000),
+          });
+          child.on('error', reject);
+          child.on('close', (code) =>
+            code === 0 ? resolve() : reject(new Error(`git init failed with ${code}`)),
+          );
+        });
+        renderer.write(`  ${color.green('✓')} Git repository initialized\n`);
+        hasCwdGit = true;
+      } catch (err) {
+        renderer.writeError(
+          `git init failed: ${err instanceof Error ? err.message : String(err)}\n`,
+        );
+      }
+    }
+  }
+
+  // Check only the immediate parent — inform the user if .git exists there.
+  const parentDir = path.dirname(cwd);
+  if (parentDir !== cwd) {
+    try {
+      await fs.access(path.join(parentDir, '.git'));
+      renderer.write(
+        `  ${color.dim('ℹ')} A ${color.bold('.git')} repo exists in the parent directory: ${color.dim(parentDir)}\n`,
+      );
+    } catch {
+      // parent has no .git — nothing to report
+    }
+  }
 }
