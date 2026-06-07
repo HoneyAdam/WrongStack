@@ -240,7 +240,7 @@ export interface AppProps {
    * the AI prompt context to inject into user messages so the model
    * knows it's in a spec-building conversation.
    */
-  getSDDContext?: (() => string | null) | undefined;
+  getSDDContext?: (() => Promise<string | null>) | undefined;
   /**
    * Process AI output for SDD auto-detection (spec, tasks, plan).
    * Called after every agent.run() completes. Returns displayable
@@ -3439,7 +3439,7 @@ export function App({
     // ── SDD Context Injection ──────────────────────────────────────────
     // When an SDD session is active, prepend the session context so the
     // model knows it's in a spec-building conversation.
-    const sddContext = getSDDContext?.();
+    const sddContext = await getSDDContext?.();
     if (sddContext && trimmed) {
       builder.appendText(`[SDD SESSION ACTIVE]\n${sddContext}\n\n---\nUser message:\n`);
     }

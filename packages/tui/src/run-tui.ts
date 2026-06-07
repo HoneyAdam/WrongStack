@@ -193,7 +193,7 @@ export interface RunTuiOptions {
    * SDD session context getter. When an SDD session is active, returns
    * the AI prompt context to inject into user messages.
    */
-  getSDDContext?: (() => string | null) | undefined;
+  getSDDContext?: (() => Promise<string | null>) | undefined;
   /**
    * Process AI output for SDD auto-detection (spec, tasks, plan).
    * Returns displayable status messages.

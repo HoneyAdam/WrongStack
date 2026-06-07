@@ -296,6 +296,7 @@ export class CollabSession extends EventEmitter {
   private settled = false;
   private readonly timeoutMs: number;
   private cancelled = false;
+  private _raceResolved = false;
   private readonly alerts: DirectorAlert[] = [];
   private snapshotWarnings: string[] = [];
 
@@ -422,7 +423,7 @@ export class CollabSession extends EventEmitter {
    * Safe to call multiple times (idempotent after first call).
    */
   cancel(reason = 'Director cancelled collab session'): void {
-    if (this.settled) return;
+    if (this.cancelled) return;
     this.cancelled = true;
     if (this._timeoutTimer) {
       clearTimeout(this._timeoutTimer);
@@ -465,6 +466,7 @@ export class CollabSession extends EventEmitter {
 
     const timeout = new Promise<never>((_, reject) => {
       this._timeoutTimer = setTimeout(() => {
+        if (this._raceResolved) return;
         this.cancel('Session-level timeout reached');
         reject(new Error(`CollabSession timed out after ${this.timeoutMs}ms`));
       }, this.timeoutMs);
@@ -486,6 +488,7 @@ export class CollabSession extends EventEmitter {
       // timer if the timeout won the race, always clean up, then re-throw.
       // NOTE: we cannot distinguish timeout from awaitTasks failure here
       // without additional state. Both are treated as session failure.
+      this._raceResolved = true;
       if (this._timeoutTimer) {
         clearTimeout(this._timeoutTimer);
         this._timeoutTimer = undefined;
@@ -505,6 +508,7 @@ export class CollabSession extends EventEmitter {
 
     this.snapshotWarnings = await this.checkSnapshotFreshness();
     const report = this.assembleReport();
+    this._raceResolved = true;
     this.cleanup();
     this.emit('session.done', report);
     return report;

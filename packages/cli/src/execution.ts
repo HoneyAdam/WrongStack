@@ -3,7 +3,6 @@
  * Extracted from index.ts so the main() function focuses on
  * boot + wiring; this file owns the three run modes and cleanup.
  */
-import { createRequire } from 'node:module';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type {
@@ -34,9 +33,6 @@ import { runRepl } from './repl.js';
 import type { SessionStats } from './session-stats.js';
 import { fmtTok } from './utils.js';
 import { CLI_VERSION } from './version.js';
-
-// Lazy-load CJS-compatible modules via createRequire for circular-dep avoidance.
-const require = createRequire(import.meta.url);
 
 export interface ExecutionDeps {
   agent: Agent;
@@ -620,8 +616,8 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
           initialGoal: goalFlag,
           initialAsk: askFlag,
           projectRoot,
-          getSDDContext: () => {
-            const { getActiveSDDContext } = require('./slash-commands/sdd.js');
+          getSDDContext: async () => {
+            const { getActiveSDDContext } = await import('./slash-commands/sdd.js');
             return getActiveSDDContext();
           },
           onSDDOutput: async (output: string) => {
@@ -632,7 +628,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
               autoDetectTaskCompletion,
               getTaskProgress,
               getActiveSDDPhase,
-            } = require('./slash-commands/sdd.js');
+            } = await import('./slash-commands/sdd.js');
             const messages: string[] = [];
             const specSaved = await trySaveSpecFromAIOutput(output);
             if (specSaved)

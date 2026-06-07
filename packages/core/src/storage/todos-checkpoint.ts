@@ -91,7 +91,14 @@ export function attachTodosCheckpoint(
   let writeChain: Promise<void> = Promise.resolve();
 
   const enqueueWrite = (todos: readonly TodoItem[]) => {
-    writeChain = writeChain.then(() => saveTodosCheckpoint(filePath, sessionId, todos));
+    writeChain = writeChain
+      .then(() => saveTodosCheckpoint(filePath, sessionId, todos))
+      .catch((err) => {
+        // Log and keep the chain alive — a failed write must not
+        // poison the chain and silently stop all subsequent writes.
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[TodosCheckpoint] save failed for session ${sessionId}: ${msg}`);
+      });
     return writeChain;
   };
 

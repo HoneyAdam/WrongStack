@@ -111,23 +111,12 @@ export function makeAgentSubagentRunner(opts: AgentRunnerOptions): SubagentRunne
      */
     const onBudgetError = (err: unknown): void => {
       if (err instanceof BudgetThresholdSignal) {
-        // Await the coordinator's verdict before deciding whether to abort.
-        err.decision
-          .then((decision) => {
-            if (decision === 'stop') {
-              budgetError = new BudgetExceededError(err.kind, err.limit, err.used);
-              aborter.abort();
-            }
-            // If 'extend': the budget limits were already patched by the
-            // BudgetThresholdSignal handler (checkLimit → onThreshold →
-            // coordinator extend → budget patched). Do NOT abort.
-            // The tool call that triggered the signal will be retried.
-          })
-          .catch(() => {
-            // If the decision promise rejects, treat as hard stop.
-            budgetError = new BudgetExceededError(err.kind, err.limit, err.used);
-            aborter.abort();
-          });
+        // Defer the stop/extend decision to the post-finally block below.
+        // The coordinator's verdict may arrive after agent.run() returns;
+        // awaiting it there (rather than in this fire-and-forget handler)
+        // avoids a race where both this callback and the post-finally
+        // block try to mutate `budgetError` concurrently.
+        budgetError = err;
         return;
       }
       // Hard stop (BudgetExceededError or other)
@@ -287,15 +276,24 @@ export function makeAgentSubagentRunner(opts: AgentRunnerOptions): SubagentRunne
       // instanceof check on Error subtypes requires 'any' intersection
       // on the union — use a property guard instead.
       if ('decision' in budgetError) {
-        const decision = await (budgetError as BudgetThresholdSignal).decision;
-        if (decision === 'stop') {
+        try {
+          const decision = await (budgetError as BudgetThresholdSignal).decision;
+          if (decision === 'stop') {
+            budgetError = new BudgetExceededError(
+              (budgetError as BudgetThresholdSignal).kind,
+              (budgetError as BudgetThresholdSignal).limit,
+              (budgetError as BudgetThresholdSignal).used,
+            );
+          } else {
+            budgetError = null;
+          }
+        } catch {
+          // Decision promise rejected — treat as hard stop.
           budgetError = new BudgetExceededError(
             (budgetError as BudgetThresholdSignal).kind,
             (budgetError as BudgetThresholdSignal).limit,
             (budgetError as BudgetThresholdSignal).used,
           );
-        } else {
-          budgetError = null;
         }
       }
       if (budgetError) throw budgetError;

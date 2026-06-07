@@ -406,7 +406,14 @@ export class PhaseOrchestrator {
     const merged = (async () => {
       await Promise.allSettled(depPromises); // dependency-ordered
       // Chain onto the global queue so only one merge touches base at a time.
-      this.mergeQueue = this.mergeQueue.then(() => this.mergeOne(phase, handle));
+      this.mergeQueue = this.mergeQueue
+        .then(() => this.mergeOne(phase, handle))
+        .catch((err) => {
+          // Log and keep the queue alive — a failed merge must not
+          // poison the chain and silently stop all subsequent merges.
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(`[PhaseOrchestrator] mergeOne failed for phase ${phase.id}: ${msg}`);
+        });
       await this.mergeQueue;
     })();
     this.phaseMergePromise.set(phase.id, merged);

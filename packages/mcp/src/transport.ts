@@ -356,6 +356,12 @@ export class SSETransport {
     this.timeout = opts.startupTimeoutMs ?? 10_000;
     this.requestTimeout = opts.requestTimeoutMs ?? 60_000;
     if (opts.tls) {
+      if (opts.tls.rejectUnauthorized === false) {
+        console.warn(
+          `[mcp:SSETransport] TLS verification disabled for ${this.url}. ` +
+          `This is insecure — only use for localhost or trusted networks.`,
+        );
+      }
       this.tlsAgent = new https.Agent({
         ca: opts.tls.ca,
         rejectUnauthorized: opts.tls.rejectUnauthorized,
@@ -676,6 +682,12 @@ export class StreamableHTTPTransport {
     this.timeout = opts.startupTimeoutMs ?? 10_000;
     this.requestTimeout = opts.requestTimeoutMs ?? 60_000;
     if (opts.tls) {
+      if (opts.tls.rejectUnauthorized === false) {
+        console.warn(
+          `[mcp:StreamableHTTP] TLS verification disabled for ${this.url}. ` +
+          `This is insecure — only use for localhost or trusted networks.`,
+        );
+      }
       this.tlsAgent = new https.Agent({
         ca: opts.tls.ca,
         rejectUnauthorized: opts.tls.rejectUnauthorized,
