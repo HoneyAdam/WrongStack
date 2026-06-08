@@ -1,6 +1,7 @@
 import { expectDefined } from '@wrongstack/core';
 import { cn } from '@/lib/utils';
-import { useChatStore, useSessionStore, useUIStore } from '@/stores';
+import { getWSClient } from '@/lib/ws-client';
+import { useChatStore, useFleetStore, useGoalStore, useSessionStore, useUIStore } from '@/stores';
 import type { ChatMessage } from '@/stores';
 import { useConfigStore } from '@/stores';
 import {
@@ -8,20 +9,28 @@ import {
   ArrowDown,
   ArrowUp,
   Bot,
+  CheckCircle2,
+  Clock,
   Command,
   Cpu,
   FolderOpen,
+  History,
   PanelLeftOpen,
   Settings,
+  Terminal,
+  Users,
   Zap,
 } from 'lucide-react';
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+import { AutonomyPicker } from '../AutonomyPicker';
 import { ChatInput } from '../ChatInput';
+import { CheckpointTimeline } from '../CheckpointTimeline';
 import { ConnectionChip } from '../ConnectionChip';
 import { ContextModePicker } from '../ContextModePicker';
 import { CostChip } from '../CostChip';
 import { MessageBubble } from '../MessageBubble';
 import { ModePicker } from '../ModePicker';
+import { ProcessMonitor } from '../ProcessMonitor';
 import { SearchOverlay } from '../SearchOverlay';
 import { ThemeToggle } from '../ThemeToggle';
 import { ToolGroup } from '../ToolGroup';
@@ -37,11 +46,37 @@ export function ChatView() {
   const sidebarOpen = useUIStore((s) => s.sidebarOpen);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
   const compactMode = useUIStore((s) => s.compactMode);
-  const { totalTokens, startTime, lastInputTokens, maxContext, projectName, iteration } =
+  const { totalTokens, startTime, lastInputTokens, maxContext, projectName, iteration, todos, mode } =
     useSessionStore();
   const { wsConnected, wsStatus, provider, model } = useConfigStore();
   const { setCurrentView } = useUIStore();
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Fleet counts for header chip
+  const fleetAgents = useFleetStore((s) => s.agents);
+  const fleetRunning = Object.values(fleetAgents).filter((a) => a.status === 'running').length;
+  const fleetTotal = Object.values(fleetAgents).length;
+
+  // Goal state
+  const goal = useGoalStore((s) => s.goal);
+
+  // Todo breakdown
+  const pendingCount = todos.filter((t) => t.status === 'pending').length;
+  const inProgressCount = todos.filter((t) => t.status === 'in_progress').length;
+  const completedCount = todos.filter((t) => t.status === 'completed').length;
+
+  // Autonomy mode
+  const [autonomy, setAutonomy] = useState<'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel'>('off');
+
+  const handleAutonomyChange = useCallback((mode: 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel') => {
+    setAutonomy(mode);
+    const ws = getWSClient();
+    ws?.send?.({ type: 'autonomy.switch', payload: { mode } });
+  }, []);
+
+  // Overlay toggles — triggered by header buttons
+  const [processOpen, setProcessOpen] = useState(false);
+  const [checkpointOpen, setCheckpointOpen] = useState(false);
 
   // Context window usage
   const ctxPct =
@@ -222,9 +257,68 @@ export function ChatView() {
                 {iteration.max > 0 ? `/${iteration.max}` : ''}
               </span>
             )}
+            {/* Todo chip */}
+            {(pendingCount > 0 || inProgressCount > 0) && (
+              <span
+                className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 shrink-0"
+                title={`Todos: ${completedCount}/${todos.length} done`}
+              >
+                <CheckCircle2 className="h-3 w-3" />
+                {completedCount}/{todos.length}
+              </span>
+            )}
+            {/* Fleet chip */}
+            {fleetTotal > 0 && (
+              <span
+                className={cn(
+                  'flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-medium shrink-0',
+                  fleetRunning > 0
+                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                    : 'bg-muted text-muted-foreground',
+                )}
+                title={`Fleet: ${fleetRunning}/${fleetTotal} running`}
+              >
+                <Users className="h-3 w-3" />
+                {fleetRunning}/{fleetTotal}
+              </span>
+            )}
+            {/* Goal chip */}
+            {goal && (
+              <span
+                className={cn(
+                  'flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-medium shrink-0',
+                  goal.goalState === 'active'
+                    ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
+                    : 'bg-muted text-muted-foreground',
+                )}
+                title={`Goal: ${goal.progress}% — ${goal.goal.slice(0, 60)}`}
+              >
+                <Activity className="h-3 w-3" />
+                {goal.progress}%
+              </span>
+            )}
+            <AutonomyPicker value={autonomy} onChange={handleAutonomyChange} compact />
           </div>
 
           <div className="flex items-center gap-0.5 shrink-0">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => setProcessOpen((v) => !v)}
+              title="Running processes"
+            >
+              <Terminal className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => setCheckpointOpen((v) => !v)}
+              title="Session checkpoints — rewind"
+            >
+              <History className="h-4 w-4" />
+            </Button>
             <Button
               variant="ghost"
               size="icon"
@@ -583,6 +677,10 @@ export function ChatView() {
           </p>
         </div>
       </div>
+
+      {/* Overlays — triggered by header buttons */}
+      {processOpen && <ProcessMonitor />}
+      {checkpointOpen && <CheckpointTimeline />}
     </div>
   );
 }

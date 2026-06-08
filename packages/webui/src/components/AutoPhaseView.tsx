@@ -1,130 +1,160 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useWebSocket } from '@/hooks/useWebSocket';
-import { useWorktreeStore } from '@/stores';
+import { useAutoPhaseStore, useWorktreeStore } from '@/stores';
+import { cn } from '@/lib/utils';
 import { PhasePanel } from './PhasePanel';
 import { TaskBoard } from './TaskBoard';
-import { WorktreeLanes } from './WorktreeLanes';
 import { WorktreeGraph } from './WorktreeGraph';
-import type { PhaseItem } from './PhasePanel';
-import type { TaskItem } from './TaskBoard';
-import type { WSServerMessage } from '@/types';
-
-interface AutoPhaseState {
-  phases: PhaseItem[];
-  tasks: TaskItem[];
-  activePhaseId: string;
-  overallPercent: number;
-  autonomous: boolean;
-  title: string;
-}
+import { WorktreeLanes } from './WorktreeLanes';
+import { X } from 'lucide-react';
+import { Button } from './ui/button';
 
 /**
- * AutoPhaseView — Solda faz paneli, sağda görev listesi olan ana AutoPhase ekranı.
+ * AutoPhaseView — Full-screen phase planning view.
+ * Left: phase list with progress. Right: task board for selected phase.
+ * Bottom: worktree visualization when worktrees are active.
  *
- * WebSocket üzerinden gerçek zamanlı güncelleme alır.
+ * Uses the shared useAutoPhaseStore (synced via autophase.state WS events)
+ * so phase data stays consistent between this view and the chat-area PhasePanel.
  */
-export function AutoPhaseView(): React.ReactElement {
-  const { client, selectAutoPhase } = useWebSocket();
-  const [state, setState] = useState<AutoPhaseState>({
-    phases: [],
-    tasks: [],
-    activePhaseId: '',
-    overallPercent: 0,
-    autonomous: true,
-    title: '',
-  });
+export function AutoPhaseView({ onClose }: { onClose: () => void }): React.ReactElement {
+  const { client } = useWebSocket();
+  const phases = useAutoPhaseStore((s) => s.phases);
+  const activePhaseId = useAutoPhaseStore((s) => s.activePhaseId);
+  const overallPercent = useAutoPhaseStore((s) => s.overallPercent);
+  const autonomous = useAutoPhaseStore((s) => s.autonomous);
+  const title = useAutoPhaseStore((s) => s.title);
 
-  // WebSocket'ten AutoPhase state güncellemelerini dinle
-  useEffect(() => {
-    const handleMessage = (msg: WSServerMessage) => {
-      if (msg.type === 'autophase.state' && msg.payload) {
-        setState(msg.payload as unknown as AutoPhaseState);
-      }
-    };
+  const worktrees = useWorktreeStore((s) => s.worktrees);
+  const baseBranch = useWorktreeStore((s) => s.baseBranch);
 
-    client.on('autophase.state', handleMessage);
-    return () => client.off('autophase.state', handleMessage);
-  }, [client]);
+  // Tasks from autophase state — extracted from phases
+  const [showGraph, setShowGraph] = useState(false);
 
   const handlePhaseClick = useCallback(
-    (phaseId: string) => selectAutoPhase(phaseId),
-    [selectAutoPhase],
-  );
-
-  const handleToggleAutonomous = useCallback(() => {
-    client.send({ type: 'autophase.toggleAutonomous', payload: {} });
-  }, [client]);
-
-  const handleTaskStatusChange = useCallback(
-    (taskId: string, status: string) => {
-      client.send({ type: 'autophase.taskStatus', payload: { taskId, status } });
+    (phaseId: string) => {
+      client?.send?.({ type: 'autophase.selectPhase', payload: { phaseId } });
     },
     [client],
   );
 
-  const activePhase = state.phases.find((p) => p.id === state.activePhaseId);
-  const worktrees = useWorktreeStore((s) => s.worktrees);
-  const baseBranch = useWorktreeStore((s) => s.baseBranch);
-  const [showGraph, setShowGraph] = useState(false);
+  const handleToggleAutonomous = useCallback(() => {
+    client?.send?.({ type: 'autophase.toggleAutonomous', payload: {} });
+  }, [client]);
+
+  const handleTaskStatusChange = useCallback(
+    (taskId: string, status: string) => {
+      client?.send?.({ type: 'autophase.taskStatus', payload: { taskId, status } });
+    },
+    [client],
+  );
+
+  const activePhase = phases.find((p) => p.id === activePhaseId);
+
+  // Extract tasks from the active phase or all phases
+  const tasks = activePhase
+    ? (activePhase as unknown as { tasks?: Array<{ id: string; title: string; description: string; status: string; priority: string; type: string; estimateHours?: number; assignee?: string; tags?: string[] }> }).tasks ?? []
+    : [];
 
   return (
-    <div className="flex h-full w-full flex-col">
+    <div className="flex flex-col h-full bg-background">
+      {/* Header */}
+      <header className="flex items-center justify-between px-4 py-2 border-b bg-card shrink-0">
+        <div>
+          <h1 className="text-lg font-semibold">
+            {title || 'AutoPhase'}
+          </h1>
+          {phases.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {phases.length} phase{phases.length === 1 ? '' : 's'} · {overallPercent}% complete
+            </p>
+          )}
+        </div>
+        <Button variant="ghost" size="icon" onClick={onClose}>
+          <X className="h-4 w-4" />
+        </Button>
+      </header>
+
       <div className="flex min-h-0 flex-1">
-        {/* Sol Panel — Fazlar */}
+        {/* Left: Phase list */}
         <PhasePanel
-          phases={state.phases}
-          activePhaseId={state.activePhaseId}
+          phases={phases}
+          activePhaseId={activePhaseId ?? undefined}
           onPhaseClick={handlePhaseClick}
-          overallPercent={state.overallPercent}
-          autonomous={state.autonomous}
+          overallPercent={overallPercent}
+          autonomous={autonomous}
           onToggleAutonomous={handleToggleAutonomous}
+          className="w-72 shrink-0"
         />
 
-        {/* Sağ Panel — Görevler */}
+        {/* Right: Task board for selected phase */}
         <div className="flex min-w-0 flex-1 flex-col">
           {activePhase ? (
             <TaskBoard
               phaseName={activePhase.name}
               phaseStatus={activePhase.status}
-              tasks={state.tasks}
+              tasks={tasks.map((t) => ({
+                id: t.id,
+                title: t.title,
+                description: t.description,
+                status: t.status as TaskBoardProps['tasks'][0]['status'],
+                priority: (t.priority as TaskBoardProps['tasks'][0]['priority']) || 'medium',
+                type: (t.type as TaskBoardProps['tasks'][0]['type']) || 'feature',
+                estimateHours: t.estimateHours,
+                assignee: t.assignee,
+                tags: t.tags ?? [],
+              }))}
               onTaskStatusChange={handleTaskStatusChange}
             />
           ) : (
             <div className="flex h-full items-center justify-center text-muted-foreground">
-              <p>Bir faz seçin</p>
+              <p className="text-sm">Select a phase from the left panel to view its tasks.</p>
             </div>
           )}
         </div>
       </div>
 
-      {/* Alt bant — git worktree izolasyon kulvarları / DAG */}
-      {worktrees.length > 0 ? (
-        <div>
+      {/* Bottom: Worktree visualization */}
+      {worktrees.length > 0 && (
+        <div className="border-t bg-card/50 shrink-0">
           <div className="flex items-center justify-end gap-2 px-4 pt-2 text-xs">
             <button
               type="button"
               onClick={() => setShowGraph(false)}
-              className={`rounded px-2 py-0.5 ${!showGraph ? 'bg-[--color-primary]/20 text-[--color-primary]' : 'text-[--color-text-dark-secondary]'}`}
+              className={cn(
+                'rounded px-2 py-0.5 border transition-colors',
+                !showGraph
+                  ? 'bg-primary/10 border-primary/30 text-primary'
+                  : 'border-border text-muted-foreground hover:text-foreground',
+              )}
             >
               Lanes
             </button>
             <button
               type="button"
               onClick={() => setShowGraph(true)}
-              className={`rounded px-2 py-0.5 ${showGraph ? 'bg-[--color-primary]/20 text-[--color-primary]' : 'text-[--color-text-dark-secondary]'}`}
+              className={cn(
+                'rounded px-2 py-0.5 border transition-colors',
+                showGraph
+                  ? 'bg-primary/10 border-primary/30 text-primary'
+                  : 'border-border text-muted-foreground hover:text-foreground',
+              )}
             >
               Graph
             </button>
           </div>
-          {showGraph ? (
-            <div className="px-4 pb-3">
+          <div className="px-4 pb-3">
+            {showGraph ? (
               <WorktreeGraph worktrees={worktrees} baseBranch={baseBranch} />
-            </div>
-          ) : (
-            <WorktreeLanes worktrees={worktrees} baseBranch={baseBranch} />
-          )}
+            ) : (
+              <WorktreeLanes worktrees={worktrees} baseBranch={baseBranch} />
+            )}
+          </div>
         </div>
-      ) : null}
+      )}
     </div>
   );
 }
+
+// Re-import needed types from TaskBoard
+import type { TaskBoardProps } from './TaskBoard';

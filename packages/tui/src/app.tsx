@@ -17,7 +17,7 @@ import { InputBuilder, buildGoalPreamble, formatTodosList, writeOut } from '@wro
 import { enhanceUserPrompt, normalizedEqual, recentTextTurns, shouldEnhance } from '@wrongstack/core';
 import { type VisionAdapters, routeImagesForModel } from '@wrongstack/runtime/vision';
 import { getProcessRegistry, getIndexState, onIndexStateChange } from '@wrongstack/tools';
-import { Box, Text, useApp } from 'ink';
+import { Box, Text, useApp, useStdout } from 'ink';
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { readClipboardImage } from './clipboard.js';
 import { AgentsMonitor } from './components/agents-monitor.js';
@@ -51,7 +51,7 @@ import { type GitInfo, readGitInfo } from './git-info.js';
 import { useDirectorFleetBridge } from './hooks/use-director-fleet-bridge.js';
 import { useTuiControllers } from './hooks/use-tui-controllers.js';
 import { useTuiEventBridge } from './hooks/use-tui-event-bridge.js';
-import { INLINE_TOKEN_SRC, deleteTokenBackward, tokenLengthForward } from './input-tokens.js';
+import { INLINE_TOKEN_SRC, deleteTokenBackward, layoutInputRows, tokenLengthForward } from './input-tokens.js';
 import { createKillSlashCommand } from './kill-slash.js';
 import { feedPaste } from './paste-accumulator.js';
 import { createPsSlashCommand } from './ps-slash.js';
@@ -404,6 +404,7 @@ export function App({
   getModeLabel,
 }: AppProps): React.ReactElement {
   const { exit } = useApp();
+  const { stdout } = useStdout();
   // Reactive mirrors of agent.ctx.{model,provider.id} so the status bar
   // re-renders when /model or /use mutate them. The banner is `Static`
   // and never re-renders — the user gets the textual confirmation from
@@ -903,8 +904,8 @@ export function App({
   // log-update's clear-and-rewrite leaves the extra visual rows behind.
   // Those extras then slide into native scrollback as the next render
   // commits new Static items above the live region — looking to the user
-  // like an extra echo of the input ("Enter ile boş input da history'e
-  // sıyrılıyor").
+  // like an extra echo of the input (the empty input sliding into
+  // scrollback when Enter is pressed without text).
   //
   // We can't reach log-update directly, but we can issue an erase-below-
   // cursor (\x1b[J) at the moments most likely to leak: when a picker /
@@ -3695,6 +3696,34 @@ export function App({
   // into scrollback) and to drive the per-tick live-region erase below.
   const enhanceActive = state.enhanceBusy || state.enhance != null;
 
+  // Pre-compute how many visual rows the current input buffer occupies.
+  // Used as the placeholder height when the Input is hidden (enhance panel,
+  // monitor overlays) so the bottom region never changes height — preventing
+  // Ink's log-update from bleeding the live region into native scrollback.
+  const inputCellRows = layoutInputRows(
+    INPUT_PROMPT,
+    state.buffer,
+    state.cursor,
+    stdout?.columns ?? 80,
+  );
+  const inputHeight = Math.max(1, inputCellRows.length);
+
+  // Monitor overlays that replace the bottom region. While any of these is
+  // open the input must be hidden so its characters can't bleed into the
+  // Static history above (Ink redraws the live region on every render, and
+  // an open overlay pushes the input down into the scrollback area).
+  const monitorOpen =
+    state.monitorOpen ||
+    state.agentsMonitorOpen ||
+    state.worktreeMonitorOpen ||
+    state.todosMonitorOpen ||
+    state.queuePanelOpen ||
+    state.processListOpen ||
+    state.goalPanelOpen ||
+    state.helpOpen;
+
+  const hideInput = enhanceActive || monitorOpen;
+
   return (
     <Box flexDirection="column">
       <Box flexDirection="column" flexGrow={1} flexShrink={0}>
@@ -3705,12 +3734,13 @@ export function App({
         />
         <Box flexDirection="column" flexShrink={0}>
           <LiveActivityStrip entries={state.fleet} nowTick={nowTick} />
-          {/* While enhance is active (refining… or panel countdown), don't render
-              the Input at all — even an empty-prompt render redraws every tick
-              and the Ink inline-mode log-update bleeds it into native scrollback.
-              The draft buffer is preserved in state for the [e]dit / Esc paths. */}
-          {enhanceActive ? (
-            <Box height={1} />
+          {/* While enhance is active or a monitor overlay is open, hide the Input
+              and replace it with a placeholder of matching height. This prevents
+              the live region from changing height (which Ink's log-update would
+              bleed into static scrollback) and stops input characters from
+              polluting the history area when overlays are open. */}
+          {hideInput ? (
+            <Box height={inputHeight} />
           ) : (
             <Input
               prompt={INPUT_PROMPT}

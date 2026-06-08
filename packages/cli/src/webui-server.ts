@@ -119,7 +119,7 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
     const distDir = path.resolve(path.dirname(serverEntry), '..'); // .../dist
     httpServer = createHttpServer({ host, distDir, wsPort });
     const openUrl = `http://${host}:${httpPort}`;
-    httpServer.listen(httpPort, host, () => {
+    httpServer?.listen(httpPort, host, () => {
       console.log(
         `\n  ▸ WebUI ready — open \x1b[1m${openUrl}\x1b[0m in your browser` +
           `\n    (same agent as this terminal · ws:${wsPort})\n`,

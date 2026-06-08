@@ -54,11 +54,12 @@ describe('renderMarkdownTables', () => {
   it('honours alignment markers (left, right, center)', () => {
     const input = ['| L | C | R |', '|:--|:-:|--:|', '| 1 | 2 | 3 |'].join('\n');
     const out = renderMarkdownTables(input, 80);
-    const row = out.split('\n').find((l) => l.includes('1'))!;
-    // Left col: "1   ", center: " 2 ", right: "   3"
-    // We just check the right column ends with the digit + ` │` (no trailing spaces).
+    // Strip ANSI escape codes so regex assertions only see visible text.
+    const stripAnsi = (s: string) => s.replace(/\x1b\[\d*m/g, '');
+    const row = stripAnsi(out.split('\n').find((l) => l.includes('1'))!);
+    // Right column ends with the digit + ` │` (no trailing spaces).
     expect(row).toMatch(/\s3 │$/);
-    expect(row).toMatch(/^│ 1\s/); // left aligned starts immediately after the gutter
+    expect(row).toMatch(/^│ 1\s/);
   });
 
   it('wraps long cell contents over multiple lines, keeping borders aligned', () => {
@@ -66,8 +67,9 @@ describe('renderMarkdownTables', () => {
     const input = ['| short | wide |', '|-------|------|', `| a     | ${long} |`].join('\n');
     const out = renderMarkdownTables(input, 40);
     const lines = out.split('\n');
-    // Border lines all the same width.
-    const widths = new Set(lines.map((l) => [...l].length));
+    // Border lines all the same visual width (use strWidth, not .length,
+    // because ANSI escape codes add string bytes but zero visual width).
+    const widths = new Set(lines.map((l) => strWidth(l)));
     expect(widths.size).toBe(1);
     // The wide cell must have produced at least one additional row line.
     const dataLines = lines.filter((l) => l.startsWith('│ '));
@@ -154,8 +156,8 @@ describe('renderMarkdownTables', () => {
     ].join('\n');
     const out = renderMarkdownTables(input, 50);
     const lines = out.split('\n');
-    // All lines must have the same character width.
-    const widths = new Set(lines.map((l) => l.length));
+    // All lines must have the same visual width (strWidth, not string length).
+    const widths = new Set(lines.map((l) => strWidth(l)));
     expect(widths.size).toBe(1);
   });
 

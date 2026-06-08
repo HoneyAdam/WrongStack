@@ -26,7 +26,7 @@ export const heroStats = [
   { value: '10', label: 'official plugins' },
 ] as const;
 
-/** 16 bundled skills — README / bundled catalog canonical list. */
+/** 17 bundled skills — README / bundled catalog canonical list. */
 export const skills = [
   { name: 'api-design', description: 'REST conventions, pagination, auth, and error taxonomy' },
   { name: 'audit-log', description: 'Analyze session logs and event streams' },
@@ -47,7 +47,7 @@ export const skills = [
   { name: 'typescript-strict', description: 'Strict TypeScript for bulletproof code' },
 ] as const;
 
-/** The 36 built-in tools, grouped. */
+/** The 37 built-in tools, grouped. */
 export const toolGroups = [
   {
     label: 'Files',
@@ -212,9 +212,25 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
-    version: '0.89.4',
+    version: '0.104.0',
     date: '2026-06-08',
     latest: true,
+    consolidated: true,
+    tagline: 'Autonomy control & release realignment',
+    highlights: [
+      'Goal auto-refinement — /goal set now extracts concrete deliverables and stores original + refined missions',
+      'Goal progress tracking — percent, notes, history, trend, lifecycle state, and bounded journal persistence',
+      'TUI F9 goal panel — mission, checklist, progress bar, trend, state, iterations, and last task',
+      'AutonomyBrain — bounded unattended decisions for blocked autonomous workflows',
+      '/auth slash command — non-blocking credential dashboard inside REPL and TUI sessions',
+      'Auth menu split into focused modules with a backward-compatible shim',
+      '/setmodel resolve + doctor — model matrix explanation and diagnostics',
+      'README, CHANGELOG, and marketing site realigned to 0.104.0',
+    ],
+  },
+  {
+    version: '0.89.4',
+    date: '2026-06-08',
     tagline: 'Task system & agent enhancements',
     highlights: [
       'New task tool — structured work items with dependencies, types, priorities, and agent assignment',

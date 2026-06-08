@@ -21,15 +21,15 @@ export interface PhaseItem {
 
 export interface PhasePanelProps {
   phases: PhaseItem[];
-  /** Aktif faz ID'si */
+  /** Active phase ID */
   activePhaseId?: string | undefined;
-  /** Faz seçildiğinde */
+  /** Called when a phase is clicked */
   onPhaseClick?: ((phaseId: string) => void) | undefined;
-  /** Genel progress (0-100) */
+  /** Overall progress (0-100) */
   overallPercent: number;
-  /** Otonom mod aktif mi */
+  /** Whether autonomous mode is active */
   autonomous: boolean;
-  /** Duraklat/Devam et */
+  /** Pause / Resume toggle */
   onToggleAutonomous?: (() => void) | undefined;
   className?: string | undefined;
 }
@@ -38,13 +38,13 @@ const STATUS_CONFIG: Record<
   PhaseItem['status'],
   { icon: React.ReactNode; color: string; bg: string; label: string }
 > = {
-  pending: { icon: <Circle className="w-4 h-4" />, color: 'text-slate-400', bg: 'bg-slate-100 dark:bg-slate-800', label: 'Bekliyor' },
-  ready: { icon: <Play className="w-4 h-4" />, color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-950', label: 'Hazır' },
-  running: { icon: <Clock className="w-4 h-4 animate-spin" />, color: 'text-amber-500', bg: 'bg-amber-50 dark:bg-amber-950', label: 'Çalışıyor' },
-  paused: { icon: <Pause className="w-4 h-4" />, color: 'text-orange-500', bg: 'bg-orange-50 dark:bg-orange-950', label: 'Duraklatıldı' },
-  completed: { icon: <CheckCircle2 className="w-4 h-4" />, color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-950', label: 'Tamamlandı' },
-  failed: { icon: <XCircle className="w-4 h-4" />, color: 'text-red-500', bg: 'bg-red-50 dark:bg-red-950', label: 'Başarısız' },
-  skipped: { icon: <SkipForward className="w-4 h-4" />, color: 'text-slate-400', bg: 'bg-slate-100 dark:bg-slate-800', label: 'Atlandı' },
+  pending: { icon: <Circle className="w-4 h-4" />, color: 'text-slate-400', bg: 'bg-slate-100 dark:bg-slate-800', label: 'Pending' },
+  ready: { icon: <Play className="w-4 h-4" />, color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-950', label: 'Ready' },
+  running: { icon: <Clock className="w-4 h-4 animate-spin" />, color: 'text-amber-500', bg: 'bg-amber-50 dark:bg-amber-950', label: 'Running' },
+  paused: { icon: <Pause className="w-4 h-4" />, color: 'text-orange-500', bg: 'bg-orange-50 dark:bg-orange-950', label: 'Paused' },
+  completed: { icon: <CheckCircle2 className="w-4 h-4" />, color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-950', label: 'Completed' },
+  failed: { icon: <XCircle className="w-4 h-4" />, color: 'text-red-500', bg: 'bg-red-50 dark:bg-red-950', label: 'Failed' },
+  skipped: { icon: <SkipForward className="w-4 h-4" />, color: 'text-slate-400', bg: 'bg-slate-100 dark:bg-slate-800', label: 'Skipped' },
 };
 
 const PRIORITY_DOT: Record<PhaseItem['priority'], string> = {
@@ -64,10 +64,10 @@ function formatDuration(ms?: number): string {
 }
 
 /**
- * PhasePanel — Solda duran faz listesi.
+ * PhasePanel — Left-side phase list panel.
  *
- * Her faz bir kart olarak gösterilir. Aktif faz vurgulanır.
- * Üstte genel progress bar ve otonom mod toggle'ı vardır.
+ * Each phase is shown as a card. The active phase is highlighted.
+ * A global progress bar and autonomous mode toggle sit at the top.
  */
 export function PhasePanel({
   phases,
@@ -83,7 +83,7 @@ export function PhasePanel({
       {/* Header */}
       <div className="p-4 border-b border-border">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-foreground">Fazlar</h2>
+          <h2 className="text-sm font-semibold text-foreground">Phases</h2>
           <button
             type="button"
             onClick={onToggleAutonomous}
@@ -93,16 +93,16 @@ export function PhasePanel({
                 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300'
                 : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400',
             )}
-            title={autonomous ? 'Otonom mod aktif — duraklat' : 'Otonom mod pasif — başlat'}
+            title={autonomous ? 'Autonomous mode active — pause' : 'Autonomous mode inactive — start'}
           >
-            {autonomous ? '● Otonom' : '○ Manuel'}
+            {autonomous ? '● Auto' : '○ Manual'}
           </button>
         </div>
 
         {/* Overall Progress */}
         <div className="space-y-1">
           <div className="flex justify-between text-xs text-muted-foreground">
-            <span>Genel İlerleme</span>
+            <span>Overall Progress</span>
             <span>{overallPercent}%</span>
           </div>
           <div className="h-2 bg-muted rounded-full overflow-hidden">
@@ -148,7 +148,7 @@ export function PhasePanel({
               <div className="mt-2 space-y-1">
                 <div className="flex justify-between text-xs">
                   <span className="text-muted-foreground">
-                    {phase.completedTasks}/{phase.taskCount} görev
+                    {phase.completedTasks}/{phase.taskCount} tasks
                   </span>
                   <span className="text-muted-foreground">
                     {phase.progressPercent}%
@@ -173,10 +173,10 @@ export function PhasePanel({
               <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
                 <span>~{phase.estimateHours}h</span>
                 {phase.actualDurationMs && (
-                  <span>• {formatDuration(phase.actualDurationMs)}</span>
+                  <span>· {formatDuration(phase.actualDurationMs)}</span>
                 )}
                 {phase.assignedAgents.length > 0 && (
-                  <span>• {phase.assignedAgents.length} agent</span>
+                  <span>· {phase.assignedAgents.length} agent{phase.assignedAgents.length === 1 ? '' : 's'}</span>
                 )}
               </div>
             </button>

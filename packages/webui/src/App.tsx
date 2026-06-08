@@ -2,8 +2,10 @@ import { expectDefined } from '@wrongstack/core';
 import { useWebSocketBootstrap } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';
 import { getWSClient } from '@/lib/ws-client';
-import { useChatStore, useConfigStore, useSessionStore, useUIStore } from '@/stores';
-import { useEffect } from 'react';
+import { useChatStore, useConfigStore, useGoalStore, useSessionStore, useUIStore, useWorktreeStore, useAutoPhaseStore } from '@/stores';
+import { useEffect, useState } from 'react';
+import { AutoPhaseView } from './components/AutoPhaseView';
+import { AutonomyPicker } from './components/AutonomyPicker';
 import { ChatView } from './components/ChatView';
 import { CollabPanel } from './components/CollabPanel';
 import { CommandPalette, downloadChatAsMarkdown } from './components/CommandPalette';
@@ -11,6 +13,8 @@ import { ConfirmDialog } from './components/ConfirmDialog';
 import { ConnectionBanner } from './components/ConnectionBanner';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { FleetPanel } from './components/FleetPanel';
+import { GoalPanel } from './components/GoalPanel';
+import { PhasePanel } from './components/PhasePanel';
 import { QuickModelSwitcher } from './components/QuickModelSwitcher';
 import { SettingsPanel } from './components/SettingsPanel';
 import { ShortcutsOverlay } from './components/ShortcutsOverlay';
@@ -18,17 +22,26 @@ import { Sidebar } from './components/Sidebar';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
 import { Toaster } from './components/Toaster';
 import { TodosPanel } from './components/TodosPanel';
+import { WorktreeGraph } from './components/WorktreeGraph';
+import { WorktreeLanes } from './components/WorktreeLanes';
 function AppInner() {
   const { theme } = useTheme();
-  const { currentView, sidebarOpen, toggleSidebar, setSearchOpen, setSidebarOpen } = useUIStore();
+  const { currentView, sidebarOpen, toggleSidebar, setSearchOpen, setSidebarOpen, setCurrentView } = useUIStore();
   const isLoading = useChatStore((s) => s.isLoading);
   const iteration = useSessionStore((s) => s.iteration);
   const projectName = useSessionStore((s) => s.projectName);
   const sessionTitle = useSessionStore((s) => s.session?.title);
   const sessionId = useSessionStore((s) => s.session?.id);
-  // User-set local nickname for the current session — takes precedence
-  // over the backend title in the tab strip and topbar.
   const nickname = useUIStore((s) => (sessionId ? s.sessionNicknames[sessionId] : undefined));
+
+  // Panel state — read from stores so GoalPanel / WorktreeGraph re-render
+  const goal = useGoalStore((s) => s.goal);
+  const worktrees = useWorktreeStore((s) => s.worktrees);
+  const baseBranch = useWorktreeStore((s) => s.baseBranch);
+  const autoPhase = useAutoPhaseStore((s) => s);
+
+  // Worktree view toggle
+  const [worktreeView, setWorktreeView] = useState<'graph' | 'lanes'>('graph');
 
   // Mobile-friendly: collapse the sidebar automatically below the md
   // breakpoint (768px). Tracks viewport changes so a window resize behaves
@@ -209,16 +222,65 @@ function AppInner() {
             {sessionId && (
               <div className="px-4 pt-2 space-y-2">
                 <CollabPanel sessionId={sessionId} />
+                <GoalPanel goal={goal} />
+                {/* AutoPhase panel — self-hides when no phases */}
+                {autoPhase.phases.length > 0 && (
+                  <PhasePanel
+                    phases={autoPhase.phases}
+                    activePhaseId={autoPhase.activePhaseId ?? undefined}
+                    overallPercent={autoPhase.overallPercent}
+                    autonomous={autoPhase.autonomous}
+                  />
+                )}
                 {/* Live subagent roster — self-hides when no fleet is running. */}
                 <FleetPanel />
                 {/* Live agent todo list — self-hides when empty. */}
                 <TodosPanel />
+                {/* Worktree graph — only when active. Toggle between graph and lanes view. */}
+                {worktrees.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setWorktreeView('graph')}
+                        className={cn(
+                          'text-[10px] px-2 py-0.5 rounded-full border transition-colors',
+                          worktreeView === 'graph'
+                            ? 'bg-primary/10 border-primary/30 text-primary'
+                            : 'border-border text-muted-foreground hover:text-foreground',
+                        )}
+                      >
+                        Graph
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setWorktreeView('lanes')}
+                        className={cn(
+                          'text-[10px] px-2 py-0.5 rounded-full border transition-colors',
+                          worktreeView === 'lanes'
+                            ? 'bg-primary/10 border-primary/30 text-primary'
+                            : 'border-border text-muted-foreground hover:text-foreground',
+                        )}
+                      >
+                        Lanes
+                      </button>
+                    </div>
+                    {worktreeView === 'graph' ? (
+                      <WorktreeGraph worktrees={worktrees} baseBranch={baseBranch || 'HEAD'} />
+                    ) : (
+                      <WorktreeLanes worktrees={worktrees} baseBranch={baseBranch || 'HEAD'} />
+                    )}
+                  </div>
+                )}
               </div>
             )}
             <ChatView />
           </>
         )}
         {currentView === 'settings' && <SettingsPanel />}
+        {currentView === 'autophase' && (
+          <AutoPhaseView onClose={() => setCurrentView('chat')} />
+        )}
       </main>
 
       {/* Global overlays */}

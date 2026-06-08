@@ -4,7 +4,7 @@ import { theme } from '../../theme.js';
 import { Banner } from './banner.js';
 import { DiffBlock, extractDiffPreview } from './code-block.js';
 import type { HistoryEntry } from './types.js';
-import { MESSAGE_PANEL_CHROME_WIDTH, AssistantBody } from './assistant.js';
+import { MESSAGE_PANEL_MARGIN, AssistantBody, assistantContentWidth } from './assistant.js';
 import {
   fmtBytes,
   fmtDuration,
@@ -44,13 +44,6 @@ function brainRiskColor(risk: Extract<HistoryEntry, { kind: 'brain' }>['risk']):
   }
 }
 
-/**
- * Compute the real inner content width of an assistant panel.
- */
-export function assistantContentWidth(termWidth: number): number {
-  return Math.max(20, termWidth - MESSAGE_PANEL_CHROME_WIDTH);
-}
-
 // ── Entry ──
 
 export const Entry = React.memo(function Entry({
@@ -61,6 +54,7 @@ export const Entry = React.memo(function Entry({
     case 'user':
       return (
         <Box
+          marginX={MESSAGE_PANEL_MARGIN}
           borderStyle="single"
           borderTop={false}
           borderRight={false}
@@ -91,6 +85,7 @@ export const Entry = React.memo(function Entry({
       return (
         <Box
           flexDirection="column"
+          marginX={MESSAGE_PANEL_MARGIN}
           marginY={1}
           borderStyle="single"
           borderTop={false}
@@ -169,6 +164,7 @@ export const Entry = React.memo(function Entry({
     case 'warn':
       return (
         <Box
+          marginX={MESSAGE_PANEL_MARGIN}
           borderStyle="single"
           borderTop={false}
           borderRight={false}
@@ -182,6 +178,7 @@ export const Entry = React.memo(function Entry({
     case 'error':
       return (
         <Box
+          marginX={MESSAGE_PANEL_MARGIN}
           borderStyle="single"
           borderTop={false}
           borderRight={false}
@@ -200,6 +197,7 @@ export const Entry = React.memo(function Entry({
       return (
         <Box
           flexDirection="column"
+          marginX={MESSAGE_PANEL_MARGIN}
           marginY={1}
           borderStyle="single"
           borderTop={false}

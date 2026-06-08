@@ -20,7 +20,7 @@ export function Skills() {
             <div className="h-full rounded-2xl border border-line bg-card p-6 sm:p-7">
               <header className="flex items-baseline justify-between">
                 <h3 className="text-lg font-bold tracking-tight">Bundled skills</h3>
-                <span className="font-mono text-xs text-faint">16</span>
+                <span className="font-mono text-xs text-faint">17</span>
               </header>
               <ul className="mt-5 grid gap-2 sm:grid-cols-2">
                 {skills.map((s) => (
@@ -41,7 +41,7 @@ export function Skills() {
             <div className="h-full rounded-2xl border border-line bg-card p-6 sm:p-7">
               <header className="flex items-baseline justify-between">
                 <h3 className="text-lg font-bold tracking-tight">Built-in tools</h3>
-                <span className="font-mono text-xs text-faint">36</span>
+                <span className="font-mono text-xs text-faint">37</span>
               </header>
               <div className="mt-5 space-y-3.5">
                 {toolGroups.map((g) => (

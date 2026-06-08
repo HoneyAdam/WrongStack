@@ -7,13 +7,26 @@ import { CodeBlock } from './code-block.js';
 import type { BodySegment } from './types.js';
 
 /**
- * Horizontal columns consumed by every bordered message panel.
- * Exported so the regression test can assert against the same number
- * the Entry uses — drift between the two would silently re-introduce a bug.
+ * Horizontal columns consumed by every bordered message panel
+ * (border glyph + paddingLeft). Exported so tests can assert consistency.
  */
 export const MESSAGE_PANEL_CHROME_WIDTH = 2;
 
-/** Max code-block lines rendered before a "+N more" footer (mirrors ToolStreamBox). */
+/**
+ * Margin on each side of bordered panels, in columns. Prevents the
+ * last character of a full-width line from wrapping at the terminal edge
+ * and leaking into scrollback. Content inside the panel is narrower by
+ * twice this value (left + right).
+ */
+export const MESSAGE_PANEL_MARGIN = 2;
+
+/**
+ * Compute the real inner content width of an assistant panel.
+ * termWidth - chrome (border+padding) - margin*2.
+ */
+export function assistantContentWidth(termWidth: number): number {
+  return Math.max(20, termWidth - MESSAGE_PANEL_CHROME_WIDTH - MESSAGE_PANEL_MARGIN * 2);
+}
 
 /**
  * Split assistant text into prose and ```fenced``` code segments, in order.

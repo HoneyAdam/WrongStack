@@ -1,16 +1,23 @@
 import { toast } from '@/components/Toaster';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useConfigStore, useUIStore } from '@/stores';
+import { useLocalPrefs } from '@/stores/local-prefs';
 import type { WSServerMessage } from '@/types';
 import {
+  Activity,
+  Bot,
   Cpu,
   Globe,
+  Layers,
   Monitor,
   Moon,
   Network,
   Palette,
+  Puzzle,
+  Shield,
   Sun,
   X,
+  Zap,
 } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 import { useTheme } from '../ThemeProvider';
@@ -19,6 +26,7 @@ import { Input } from '../ui/input';
 import { ScrollArea } from '../ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { PreferenceToggle } from './PreferenceToggle';
+import { PreferenceSelect, PreferenceSlider } from './PreferenceControls';
 import {
   ProviderSection,
   type CatalogProvider,
@@ -43,18 +51,17 @@ export function SettingsPanel() {
   const { theme, setTheme } = useTheme();
   const ws = useWebSocket();
   const wsClient = ws.client;
+  const localPrefs = useLocalPrefs();
 
-  // Catalog data
+  // Catalog data (unchanged)
   const [catalogProviders, setCatalogProviders] = useState<CatalogProvider[]>([]);
   const [catalogModels, setCatalogModels] = useState<Record<string, CatalogModel[]>>({});
   const [savedProviders, setSavedProviders] = useState<SavedProvider[]>([]);
   const [isLoadingCatalog, setIsLoadingCatalog] = useState(false);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [isLoadingSaved, setIsLoadingSaved] = useState(false);
-
   const [providerTab, setProviderTab] = useState<ProviderTab>('catalog');
   const [catalogQuery, setCatalogQuery] = useState('');
-
   const currentCatalogProvider = catalogProviders.find((p) => p.id === provider);
 
   // WS event subscriptions
@@ -176,22 +183,30 @@ export function SettingsPanel() {
       <ScrollArea className="flex-1">
         <div className="p-6 max-w-2xl mx-auto">
           <Tabs defaultValue="provider">
-            <TabsList className="w-full justify-start mb-6 grid grid-cols-4">
-              <TabsTrigger value="provider" className="gap-2">
-                <Network className="h-4 w-4" />
+            <TabsList className="w-full justify-start mb-6 grid grid-cols-6">
+              <TabsTrigger value="provider" className="gap-1 text-xs">
+                <Network className="h-3.5 w-3.5" />
                 Provider
               </TabsTrigger>
-              <TabsTrigger value="model" className="gap-2">
-                <Cpu className="h-4 w-4" />
+              <TabsTrigger value="model" className="gap-1 text-xs">
+                <Cpu className="h-3.5 w-3.5" />
                 Model
               </TabsTrigger>
-              <TabsTrigger value="connection" className="gap-2">
-                <Globe className="h-4 w-4" />
-                Connection
+              <TabsTrigger value="connection" className="gap-1 text-xs">
+                <Globe className="h-3.5 w-3.5" />
+                Connect
               </TabsTrigger>
-              <TabsTrigger value="appearance" className="gap-2">
-                <Palette className="h-4 w-4" />
-                Appearance
+              <TabsTrigger value="appearance" className="gap-1 text-xs">
+                <Palette className="h-3.5 w-3.5" />
+                Look
+              </TabsTrigger>
+              <TabsTrigger value="agent" className="gap-1 text-xs">
+                <Bot className="h-3.5 w-3.5" />
+                Agent
+              </TabsTrigger>
+              <TabsTrigger value="features" className="gap-1 text-xs">
+                <Puzzle className="h-3.5 w-3.5" />
+                Feat.
               </TabsTrigger>
             </TabsList>
 
@@ -265,7 +280,7 @@ export function SettingsPanel() {
               </div>
             </TabsContent>
 
-            {/* Appearance Tab */}
+            {/* Appearance Tab — unchanged */}
             <TabsContent value="appearance" className="space-y-4">
               <div>
                 <h3 className="text-sm font-semibold mb-3">Theme</h3>
@@ -304,15 +319,195 @@ export function SettingsPanel() {
                 <h3 className="text-sm font-semibold mb-3 mt-3">Preferences</h3>
                 <PreferenceToggle
                   label="Compact density"
-                  hint="Tighter spacing throughout the chat. Toggle anywhere with Ctrl+Shift+D."
+                  hint="Tighter spacing throughout the chat."
                   selector={(s) => s.compactMode}
                   onChange={() => useUIStore.getState().toggleCompactMode()}
                 />
                 <PreferenceToggle
                   label="Sound on completion"
-                  hint="Play a soft chime when a run finishes — useful when working in another tab."
+                  hint="Play a soft chime when a run finishes."
                   selector={null}
                   configKey="soundOnComplete"
+                />
+              </div>
+            </TabsContent>
+
+            {/* Agent Tab */}
+            <TabsContent value="agent" className="space-y-4">
+              <div>
+                <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                  <Activity className="h-4 w-4 text-muted-foreground" />
+                  Autonomy & Behavior
+                </h3>
+                <PreferenceSelect
+                  label="Autonomy mode"
+                  hint="How independently the agent proceeds between turns."
+                  value={localPrefs.autonomy}
+                  options={[
+                    { value: 'off' as const, label: 'Off — full manual control' },
+                    { value: 'suggest' as const, label: 'Suggest — suggests next steps' },
+                    { value: 'auto' as const, label: 'Auto — brief confirmation delay' },
+                    { value: 'eternal' as const, label: 'Eternal — autonomous until goal done' },
+                    { value: 'eternal-parallel' as const, label: 'Eternal Parallel — multi-agent fleet' },
+                  ]}
+                  onChange={(v) => localPrefs.set({ autonomy: v })}
+                />
+                <PreferenceSlider
+                  label="Auto-proceed delay"
+                  hint="Milliseconds before the agent auto-proceeds in Auto mode. 0 = immediate."
+                  value={localPrefs.autonomyDelayMs}
+                  min={0}
+                  max={10000}
+                  step={500}
+                  unit="ms"
+                  onChange={(v) => localPrefs.set({ autonomyDelayMs: v })}
+                />
+                <PreferenceToggle
+                  label="YOLO mode"
+                  hint="Bypass tool confirmation prompts — the agent runs without asking."
+                  selector={null}
+                  onChange={() => localPrefs.set({ yolo: !localPrefs.yolo })}
+                />
+              </div>
+
+              <div className="pt-2 border-t">
+                <h3 className="text-sm font-semibold mb-3 mt-3 flex items-center gap-2">
+                  <Zap className="h-4 w-4 text-muted-foreground" />
+                  Execution
+                </h3>
+                <PreferenceSlider
+                  label="Max iterations per run"
+                  hint="Hard cap on LLM turns per agent.run()."
+                  value={localPrefs.maxIterations}
+                  min={10}
+                  max={2000}
+                  step={10}
+                  onChange={(v) => localPrefs.set({ maxIterations: v })}
+                />
+                <PreferenceToggle
+                  label="Confirm before exit"
+                  hint="First Ctrl+C aborts work, second confirms exit."
+                  selector={null}
+                  onChange={() => localPrefs.set({ confirmExit: !localPrefs.confirmExit })}
+                />
+                <PreferenceToggle
+                  label="Chime on completion"
+                  hint="Terminal bell when an agent run finishes."
+                  selector={null}
+                  onChange={() => localPrefs.set({ chime: !localPrefs.chime })}
+                />
+              </div>
+
+              <div className="pt-2 border-t">
+                <h3 className="text-sm font-semibold mb-3 mt-3 flex items-center gap-2">
+                  <Layers className="h-4 w-4 text-muted-foreground" />
+                  Fleet & Streaming
+                </h3>
+                <PreferenceToggle
+                  label="Stream fleet events"
+                  hint="Show live subagent activity in the fleet panel."
+                  selector={null}
+                  onChange={() => localPrefs.set({ streamFleet: !localPrefs.streamFleet })}
+                />
+                <PreferenceToggle
+                  label="Next-step prediction"
+                  hint="After a turn completes, predict likely next steps."
+                  selector={null}
+                  onChange={() => localPrefs.set({ nextPrediction: !localPrefs.nextPrediction })}
+                />
+              </div>
+            </TabsContent>
+
+            {/* Features Tab */}
+            <TabsContent value="features" className="space-y-4">
+              <div>
+                <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                  <Puzzle className="h-4 w-4 text-muted-foreground" />
+                  Feature Flags
+                </h3>
+                <PreferenceToggle
+                  label="MCP servers"
+                  hint="Enable Model Context Protocol integrations."
+                  selector={null}
+                  onChange={() => localPrefs.set({ featureMcp: !localPrefs.featureMcp })}
+                />
+                <PreferenceToggle
+                  label="Plugins"
+                  hint="Load and run user-installed plugins."
+                  selector={null}
+                  onChange={() => localPrefs.set({ featurePlugins: !localPrefs.featurePlugins })}
+                />
+                <PreferenceToggle
+                  label="Memory"
+                  hint="Persist and recall facts across sessions."
+                  selector={null}
+                  onChange={() => localPrefs.set({ featureMemory: !localPrefs.featureMemory })}
+                />
+                <PreferenceToggle
+                  label="Skills"
+                  hint="Load domain-specific skill prompts."
+                  selector={null}
+                  onChange={() => localPrefs.set({ featureSkills: !localPrefs.featureSkills })}
+                />
+                <PreferenceToggle
+                  label="Models registry"
+                  hint="Use the models.dev catalog for provider discovery."
+                  selector={null}
+                  onChange={() => localPrefs.set({ featureModelsRegistry: !localPrefs.featureModelsRegistry })}
+                />
+                <PreferenceToggle
+                  label="Index on start"
+                  hint="Build the codebase symbol index at session start."
+                  selector={null}
+                  onChange={() => localPrefs.set({ indexOnStart: !localPrefs.indexOnStart })}
+                />
+              </div>
+
+              <div className="pt-2 border-t">
+                <h3 className="text-sm font-semibold mb-3 mt-3 flex items-center gap-2">
+                  <Shield className="h-4 w-4 text-muted-foreground" />
+                  Context & Debug
+                </h3>
+                <PreferenceToggle
+                  label="Auto-compact context"
+                  hint="Automatically trim the context window when near limits."
+                  selector={null}
+                  onChange={() => localPrefs.set({ contextAutoCompact: !localPrefs.contextAutoCompact })}
+                />
+                <PreferenceSelect
+                  label="Context strategy"
+                  hint="How aggressively the context window is managed."
+                  value={localPrefs.contextStrategy}
+                  options={[
+                    { value: 'frugal' as const, label: 'Frugal — tight budget, compact early' },
+                    { value: 'balanced' as const, label: 'Balanced — moderate trimming' },
+                    { value: 'deep' as const, label: 'Deep — keep more history' },
+                    { value: 'archival' as const, label: 'Archival — maximum context retention' },
+                  ]}
+                  onChange={(v) => localPrefs.set({ contextStrategy: v })}
+                />
+                <PreferenceSelect
+                  label="Log level"
+                  hint="Minimum severity for server-side logging."
+                  value={localPrefs.logLevel}
+                  options={[
+                    { value: 'debug' as const, label: 'Debug — everything' },
+                    { value: 'info' as const, label: 'Info — normal flow' },
+                    { value: 'warn' as const, label: 'Warn — problems only' },
+                    { value: 'error' as const, label: 'Error — failures only' },
+                  ]}
+                  onChange={(v) => localPrefs.set({ logLevel: v })}
+                />
+                <PreferenceSelect
+                  label="Audit level"
+                  hint="Detail level for session audit logs."
+                  value={localPrefs.auditLevel}
+                  options={[
+                    { value: 'minimal' as const, label: 'Minimal — errors only' },
+                    { value: 'standard' as const, label: 'Standard — tool calls + errors' },
+                    { value: 'verbose' as const, label: 'Verbose — every event' },
+                  ]}
+                  onChange={(v) => localPrefs.set({ auditLevel: v })}
                 />
               </div>
             </TabsContent>

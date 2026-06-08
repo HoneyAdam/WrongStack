@@ -178,7 +178,7 @@ BEGIN.]
 
 Architecture: Host EventBus (always-on bridge) → Leader Agent (Director) + FleetBus (director-only fan-in) → `DefaultMultiAgentCoordinator` → `AgentSubagentRunner` per task (fresh Agent + Context + EventBus, full isolation) → per-subagent JSONL transcripts on disk.
 
-**47-agent roster + smart dispatcher.** The Director draws from a 46-role agent catalog; a smart dispatcher routes each task to the best-matching role instead of spawning generic clones. The TUI fleet monitor (**Ctrl+F**) shows per-subagent status and a fleet-wide token gauge, and auto-extended budgets surface as a `⚡ extended ×N` badge across all fleet UIs. Spawned subagents take a memorable scientist nickname (Turing, Shannon, Gauss, …) so you can track them across the fleet at a glance.
+**47-agent roster + smart dispatcher.** The Director draws from a 47-role agent catalog; a smart dispatcher routes each task to the best-matching role instead of spawning generic clones. The TUI fleet monitor (**Ctrl+F**) shows per-subagent status and a fleet-wide token gauge, and auto-extended budgets surface as a `⚡ extended ×N` badge across all fleet UIs. Spawned subagents take a memorable scientist nickname (Turing, Shannon, Gauss, …) so you can track them across the fleet at a glance.
 
 **Collaborative debugging.** `Director.spawnCollab()` runs **BugHunter, RefactorPlanner, and Critic in parallel on one shared, immutable file snapshot**. Findings flow through the FleetBus as structured events (`bug.found → refactor.plan → critic.evaluation`); the Director routes each output to its dependents through a shared scratchpad — so agents build on each other's conclusions without exchanging full transcripts — and returns a single structured `CollabDebugReport`. Subagents signal upward with the `fleet_emit` tool.
 
@@ -345,8 +345,14 @@ Flips off MCP, plugins, memory tools, models.dev fetch, and skill discovery. Wha
 
 ## Recent changes
 
-WrongStack ships frequently. Rather than mirror release notes here, see
-**[CHANGELOG.md](CHANGELOG.md)** for the full, versioned history.
+**Current release: 0.104.0.** Goal mode now auto-refines missions into
+deliverables, tracks progress/trends, and gets a TUI F9 goal panel. The autonomy
+engine has an `AutonomyBrain` for bounded unattended decisions, active sessions
+gain a non-blocking `/auth` credential dashboard, and the task / `/tasks`,
+`/setmodel doctor`, tech-stack validator, and Telegram notification work is
+documented as part of the 0.104.0 line.
+
+See **[CHANGELOG.md](CHANGELOG.md)** for the full, versioned history.
 
 ## Quick start
 
@@ -421,11 +427,11 @@ wrongstack --provider openrouter --model anthropic/claude-opus-4-7
 
 ## Slash commands
 
-**Core** (both the plain REPL and the TUI): `/init` `/help` `/clear` `/compact` `/context` `/diag` `/stats` `/tools` `/plugin` `/mcp` `/memory` `/todos` `/tasks` `/mode` `/yolo` `/autonomy` `/btw` `/fix` `/autophase` `/worktree` `/settings` `/sdd` `/image` `/save` `/resume` `/prune` `/exit`
+**Core** (both the plain REPL and the TUI): `/init` `/help` `/clear` `/compact` `/context` `/codebase-reindex` `/diag` `/stats` `/tools` `/plugin` `/mcp` `/auth` `/memory` `/todos` `/tasks` `/mode` `/yolo` `/autonomy` `/btw` `/next` `/enhance` `/fix` `/autophase` `/worktree` `/settings` `/sdd` `/save` `/load` `/prune` `/exit`
 
-Every built-in command is tagged with a category (`Run` · `Session` · `Inspect` · `Agent` · `Config` · `App`); the TUI slash picker groups matches under category headers, and the WebUI surfaces 39 commands in its slash list.
+Every built-in command is tagged with a category (`Run` · `Session` · `Inspect` · `Agent` · `Config` · `App`); the TUI slash picker groups matches under category headers, and the WebUI surfaces 55 commands in its slash list.
 
-**Multi-agent:** `/spawn` `/fleet` `/agents` `/goal` `/director` `/collab` `/setmodel`
+**Multi-agent:** `/spawn` `/fleet` `/agents` `/goal` `/director` `/collab` `/setmodel` `/models`
 
 **TUI-only** (need `--tui`): `/model` (provider → model picker) · `/steer` (mid-flight redirect — the plain REPL uses **Esc** instead) · `/queue`
 
@@ -441,14 +447,16 @@ Every built-in command is tagged with a category (`Run` · `Session` · `Inspect
 | `/fleet status\|usage\|kill\|manifest\|retry\|log\|stream on\|off\|journal\|spawn\|terminate` | Inspect and control the subagent fleet. `log <id>` summarises; `log <id> raw` dumps full JSONL |
 | `/agents` | Print fleet roster (running, idle, completed) with kind chips for failures |
 | `/steer <text>` | _(TUI; in the plain REPL use **Esc**)_ Mid-flight redirect — aborts iteration, terminates fleet, drops queue, prepends STEERING preamble |
-| `/goal <text>` | Lock in a goal — persists to `~/.wrongstack/projects/<hash>/goal.json` and injects full-autonomy preamble. Subcommands: `/goal` (status + journal), `/goal clear` (stop engine), `/goal pause` (pause at end of iteration), `/goal resume` (resume), `/goal journal [N]` |
+| `/goal <text>` | Lock in a goal — auto-refines it into deliverables, persists to `~/.wrongstack/projects/<hash>/goal.json`, tracks progress/trends, and injects the full-autonomy preamble. Subcommands: `/goal` (status + journal), `/goal refine`, `/goal clear`, `/goal pause`, `/goal resume`, `/goal journal [N]` |
+| `/tasks add\|start\|done\|fail\|status\|depends\|assign\|promote\|clear` | Structured task management between `/plan` and `/todos`: dependencies, types, priorities, estimates, agent assignment, and promote-to-todos flow |
 | `/queue` | _(TUI)_ Show, clear, or delete entries from the in-flight message queue |
 | `/plan show\|add\|start\|done\|remove\|clear` | Per-session plan JSON. Mirrored to disk; surfaces `📋 ⌛N ☐N ✓N` chip in TUI status bar |
 | `/autonomy off\|suggest\|on\|eternal\|parallel\|stop\|toggle` | Self-driving mode. `suggest` shows next steps without executing; `on` auto-continues; `eternal` runs goal-driven loop; `parallel` fans out 4-8 subagents per tick. TUI shows `∞ AUTO` / `∞ SUGGEST` / `ETERNAL` / `⟳ PARALLEL` chip |
 | `/yolo on\|off\|toggle` | Flip YOLO mode (auto-approve all tool calls). `/yolo` alone shows status. TUI shows `⚠ YOLO` chip |
 | `/mode` | Switch persona: `default`, `code-reviewer`, `code-auditor`, `architect`, `debugger`, `tester`, `devops`, `refactorer`. Custom modes in `~/.wrongstack/modes/` |
 | `/model` | _(TUI)_ Two-step provider → model picker. In the plain REPL, relaunch with `--provider` / `--model` |
-| `/setmodel <key> <provider/model>` | Set per-role or per-phase model in the model matrix (e.g. `/setmodel security-scanner openai/gpt-4o`). Keys: catalog role, phase name, or `*` (default). Persists to config |
+| `/setmodel <key> <provider/model>` | Set per-role or per-phase model in the model matrix (e.g. `/setmodel security-scanner openai/gpt-4o`). Also supports `resolve <role>` and `doctor` for matrix diagnostics |
+| `/auth [status <provider>\|open\|help]` | In-session credential dashboard. Shows saved provider/key status without blocking the REPL/TUI; run `wstack auth` for the full interactive key manager |
 | `/image` or `/paste-image` | Attach clipboard PNG. TUI also `Alt+V` |
 | `/context mode <policy>` | Switch context-window mode: `balanced`, `frugal`, `deep`, `archival`. `repair` fixes damaged tool-call adjacency |
 | `/plugin install\|disable\|enable\|remove\|official [name]` | Manage plugins. `install` adds bundled package to config (no npm). Restart to load/unload |
@@ -470,6 +478,7 @@ Every built-in command is tagged with a category (`Run` · `Session` · `Inspect
 | **Ctrl+C** × 3 | Hard `process.exit(130)` |
 | **Ctrl+F** | Toggle the fleet monitor — per-subagent status + fleet-wide token gauge |
 | **Ctrl+G** | Toggle the agents monitor — live per-agent context (current tool, streaming tail, sparkline) |
+| **F9** | Toggle the goal panel — refined mission, deliverables checklist, progress bar, trend, state, and last task |
 | **Ctrl+T** | Toggle the worktree monitor — AutoPhase isolation branches |
 | **Ctrl+P** | Toggle the phase monitor — active AutoPhase phases and tasks |
 | **Ctrl+T** | Close worktree monitor (when open); otherwise delete word before cursor |
@@ -587,7 +596,7 @@ For the full walk-through — including the L1-A reactive `ConversationState`, h
 
 ## Status
 
-- **5530+ tests passing** across 412+ test files in the 0.89.3 release gate
+- **5530+ tests passing** across 412+ test files in the 0.104.0 release gate
 - Coverage thresholds: ≥85 % lines / ≥85 % functions / ≥70 % branches / ≥82 % statements
 - All workspace packages build clean with TypeScript strict + `noUncheckedIndexedAccess`
 - Node 22+ only, ESM-only, no CommonJS bundles

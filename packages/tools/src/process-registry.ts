@@ -32,6 +32,10 @@ export interface TrackedProcess {
    *  We keep it in the registry until 'close' fires so callers can
    *  distinguish "still running" from "just exited". */
   killed: boolean;
+  /** If true, kill() and killAll() will refuse to kill this process.
+   *  Used for infrastructure processes (browser, dev servers, …) that
+   *  must outlive the agent session. */
+  protected: boolean;
 }
 
 // Sensitive CLI flag patterns that may appear in process command lines.
@@ -98,8 +102,8 @@ class ProcessRegistryImpl {
     this.breaker = new CircuitBreaker(breakerConfig);
   }
 
-  register(info: Omit<TrackedProcess, 'killed'>): void {
-    this.processes.set(info.pid, { ...info, killed: false });
+  register(info: Omit<TrackedProcess, 'killed' | 'protected'> & { protected?: boolean | undefined }): void {
+    this.processes.set(info.pid, { ...info, killed: false, protected: info.protected ?? false });
   }
 
   /** Unregister a process by PID. Called on 'close' / 'exit' events. */
@@ -198,6 +202,7 @@ class ProcessRegistryImpl {
     const p = this.processes.get(pid);
     if (!p) return false;
     if (p.killed) return true; // already kill()ed, don't double-send
+    if (p.protected) return false; // protected processes are never kill()ed
 
     const { force = false, graceMs = DEFAULT_GRACE_MS } = opts;
     const isWin = os.platform() === 'win32';
@@ -259,7 +264,8 @@ class ProcessRegistryImpl {
     const pids = Array.from(this.processes.keys());
     const killed: number[] = [];
     for (const pid of pids) {
-      if (this.kill(pid, opts)) killed.push(pid);
+      const p = this.processes.get(pid);
+      if (p && !p.protected && this.kill(pid, opts)) killed.push(pid);
     }
     return killed;
   }

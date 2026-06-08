@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { renderMarkdownTables } from '../src/markdown-table.js';
+import { renderMarkdownTables, strWidth } from '../src/markdown-table.js';
 import {
   MESSAGE_PANEL_CHROME_WIDTH,
+  MESSAGE_PANEL_MARGIN,
   assistantContentWidth,
-} from '../src/components/history.js';
+} from '../src/components/history/assistant.js';
 
 /**
  * Regression test for the bug introduced by commit 0f37c5f
@@ -27,7 +28,7 @@ import {
  * the bug can't sneak back in unnoticed.
  */
 
-const visibleLen = (s: string) => [...s].length;
+const visibleLen = (s: string) => strWidth(s);
 
 // Sized so the natural column width (24) lands at exactly `termWidth`
 // after `computeWidths` finishes shrinking. 3 columns × 24 chars = 72
@@ -76,9 +77,10 @@ describe('assistant panel — table width budget', () => {
 describe('assistantContentWidth (the helper)', () => {
   // The assistant Entry render and these tests share this helper, so
   // any drift between them is a TypeScript error or a test failure.
-  it('subtracts the chrome from termWidth and floors at 20', () => {
-    expect(assistantContentWidth(80)).toBe(78);
-    expect(assistantContentWidth(120)).toBe(118);
+  it('subtracts the chrome + margins from termWidth and floors at 20', () => {
+    // chrome(2) + margin*2(4) = 6 columns subtracted
+    expect(assistantContentWidth(80)).toBe(74);
+    expect(assistantContentWidth(120)).toBe(114);
   });
 
   it('clamps to 20 at very small terminal widths', () => {

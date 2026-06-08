@@ -1704,6 +1704,123 @@ export async function startWebUI(
         break;
       }
 
+      case 'process.list': {
+        // Return tracked process list from the process registry.
+        try {
+          const { getProcessRegistry } = await import('@wrongstack/tools');
+          const procs = getProcessRegistry().list();
+          send(ws, {
+            type: 'process.list',
+            payload: {
+              processes: procs.map((p) => ({
+                pid: p.pid,
+                command: p.command,
+                tool: p.name,
+                startedAt: p.startedAt,
+                status: p.killed ? ('killed' as const) : ('running' as const),
+                protected: p.protected,
+              })),
+            },
+          });
+        } catch {
+          send(ws, { type: 'process.list', payload: { processes: [] } });
+        }
+        break;
+      }
+
+      case 'process.kill': {
+        const { pid } = (msg as { payload: { pid: number } }).payload;
+        try {
+          const { getProcessRegistry } = await import('@wrongstack/tools');
+          const proc = getProcessRegistry().get(pid);
+          if (proc?.protected) {
+            sendResult(ws, false, `Cannot kill protected process (PID ${pid})`);
+            break;
+          }
+          getProcessRegistry().kill(pid);
+          sendResult(ws, true, `Killed PID ${pid}`);
+        } catch (err) {
+          sendResult(ws, false, errMessage(err));
+        }
+        break;
+      }
+
+      case 'process.killAll': {
+        try {
+          const { getProcessRegistry } = await import('@wrongstack/tools');
+          getProcessRegistry().killAll();
+          sendResult(ws, true, 'All processes killed');
+        } catch (err) {
+          sendResult(ws, false, errMessage(err));
+        }
+        break;
+      }
+
+      case 'goal.get': {
+        // Read goal.json from disk and broadcast.
+        try {
+          const goalPath = path.join(projectRoot, '.wrongstack', 'goal.json');
+          const raw = await fs.readFile(goalPath, 'utf8');
+          const goal = JSON.parse(raw);
+          send(ws, { type: 'goal.updated', payload: goal });
+        } catch {
+          send(ws, { type: 'goal.updated', payload: null });
+        }
+        break;
+      }
+
+      case 'autonomy.switch': {
+        // Autonomy mode switch — forwarded to the agent context.
+        // The mode is stored in context.meta for the permission policy to read.
+        const { mode } = (msg as { payload: { mode: string } }).payload;
+        context.meta['autonomy'] = mode;
+        sendResult(ws, true, `Autonomy mode set to "${mode}"`);
+        break;
+      }
+
+      case 'session.checkpoints': {
+        // Return session checkpoints for the rewind timeline.
+        try {
+          const { DefaultSessionRewinder } = await import('@wrongstack/core');
+          const rewinder = new DefaultSessionRewinder(
+            path.join(projectRoot, '.wrongstack', 'sessions'),
+            projectRoot,
+          );
+          const checkpoints = await rewinder.listCheckpoints(session.id);
+          send(ws, {
+            type: 'session.checkpoints',
+            payload: { checkpoints },
+          });
+        } catch (err) {
+          send(ws, {
+            type: 'session.checkpoints',
+            payload: { checkpoints: [] },
+          });
+        }
+        break;
+      }
+
+      case 'session.rewind': {
+        const { checkpointIndex } = (msg as { payload: { checkpointIndex: number } }).payload;
+        try {
+          const { DefaultSessionRewinder } = await import('@wrongstack/core');
+          const rewinder = new DefaultSessionRewinder(
+            path.join(projectRoot, '.wrongstack', 'sessions'),
+            projectRoot,
+          );
+          await rewinder.rewindToCheckpoint(session.id, checkpointIndex);
+          await context.session.truncateToCheckpoint(checkpointIndex);
+          sendResult(ws, true, `Rewound to checkpoint ${checkpointIndex}`);
+          broadcast(clients, {
+            type: 'session.start',
+            payload: { ...(await sessionStartPayload()), reset: true },
+          });
+        } catch (err) {
+          sendResult(ws, false, errMessage(err));
+        }
+        break;
+      }
+
       default:
         if (msg.type.startsWith('autophase.')) {
           // Delegate all AutoPhase lifecycle messages to the handler

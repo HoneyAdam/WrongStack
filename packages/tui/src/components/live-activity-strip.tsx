@@ -114,14 +114,14 @@ export const LiveActivityStrip = React.memo(function LiveActivityStrip({
   // paddingX={1} on the container eats 2 columns.
   const width = Math.max(10, (stdout?.columns ?? 80) - 2);
 
-  // When the fleet table is empty there's nothing to show — collapse the
-  // region entirely so the Input sits flush against history.
-  if (Object.keys(entries).length === 0) return null;
-
-  // Reference nowTick so React knows we depend on it — otherwise the
-  // ticker won't re-render the elapsed values.
+  // When the fleet table is empty there's nothing to show, but we must
+  // still render `maxRows` blank rows to keep the bottom region at a
+  // constant height. Returning null would shrink the live region, and
+  // Ink's log-update would bleed the reclaimed rows into scrollback —
+  // the same class of bug as the enhance/todos input-height shift.
   void nowTick;
-  const rows = activityStripRows(entries, Date.now(), maxRows, width);
+  const hasEntries = Object.keys(entries).length > 0;
+  const rows = hasEntries ? activityStripRows(entries, Date.now(), maxRows, width) : new Array<string>(maxRows).fill('');
 
   return (
     <Box flexDirection="column" paddingX={1}>

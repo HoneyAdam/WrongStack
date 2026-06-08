@@ -271,7 +271,7 @@ export type State = {
    * Pending ESC-interrupt confirmation. Null when none is pending.
    * When `confirmExit` is enabled and Esc is pressed mid-iteration, the
    * snapshot is captured and `escConfirm` opens instead of immediately
-   * aborting. The prompt shows "Süreci durdurup yeni yön mü vereceksin?"
+   * aborting. The prompt shows "Abort work and redirect?"
    * (or similar) and waits for y/n/Esc.
    */
   escConfirm: {

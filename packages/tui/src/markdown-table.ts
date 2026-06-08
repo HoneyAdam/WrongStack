@@ -149,10 +149,12 @@ function computeWidths(
     for (let c = 0; c < cols; c++) {
       const cell = row[c] ?? '';
       // Use visible width (stripped markers) so **bold** contributes 4, not 8.
+      // Only measure total content width — wrapCell will hard-break long words
+      // when the column shrinks below a word's length. This lets narrow terminals
+      // still render wide tables by wrapping cells across multiple rows.
       const stripped = stripInlineMarkers(cell);
-      const w = longestWord(stripped);
       const total = strWidth(stripped);
-      natural[c] = Math.max(expectDefined(natural[c]), w, total);
+      natural[c] = Math.max(expectDefined(natural[c]), total);
     }
   }
   // Apply separator widths as minimums (markdown separator defines column widths).
@@ -167,7 +169,8 @@ function computeWidths(
   const sumNatural = natural.reduce((s, n) => s + n, 0);
   if (sumNatural <= avail) return natural;
   // Need to shrink. Repeatedly steal a char from the widest column above
-  // MIN_COL_WIDTH until we fit. Cheap; cols is small.
+  // MIN_COL_WIDTH until we fit. Columns can shrink below word boundaries —
+  // wrapCell handles hard-breaking mid-word when forced.
   const widths = natural.slice();
   let sum = sumNatural;
   while (sum > avail) {
@@ -344,20 +347,20 @@ export function strWidth(s: string): number {
       i += cpLen;
       continue;
     }
+    // Box-drawing characters (U+2500–U+257F) — render as 1 column in
+    // virtually all modern terminal emulators. Explicitly listed here
+    // rather than falling through to default to prevent ambiguity.
+    if (code >= 0x2500 && code <= 0x257f) {
+      width += 1;
+      i += cpLen;
+      continue;
+    }
+
     // ASCII and most other printable characters: 1 column
     width += 1;
     i += cpLen;
   }
   return width;
-}
-
-function longestWord(s: string): number {
-  let max = 0;
-  for (const w of s.split(/\s+/)) {
-    const visualWidth = strWidth(w);
-    if (visualWidth > max) max = visualWidth;
-  }
-  return max;
 }
 
 function border(left: string, mid: string, right: string, widths: number[]): string {
@@ -381,7 +384,6 @@ function stripInlineMarkers(text: string): string {
 
 // ANSI SGR codes for terminal text styling inside <Text> strings.
 const ANSI_BOLD = '\x1b[1m';
-const ANSI_RESET = '\x1b[22m';
 const ANSI_DIM = '\x1b[2m';
 const ANSI_CYAN = '\x1b[36m';
 const ANSI_STRIKE = '\x1b[9m';
@@ -395,7 +397,7 @@ const ANSI_RESET_ALL = '\x1b[0m';
  */
 function applyInlineAnsi(text: string): string {
   return text
-    .replace(/\*\*(.+?)\*\*/g, `${ANSI_BOLD}$1${ANSI_RESET}`)
+    .replace(/\*\*(.+?)\*\*/g, `${ANSI_BOLD}$1${ANSI_RESET_ALL}`)
     .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, `${ANSI_DIM}$1${ANSI_RESET_ALL}`)
     .replace(/`(.+?)`/g, `${ANSI_CYAN}$1${ANSI_RESET_ALL}`)
     .replace(/~~(.+?)~~/g, `${ANSI_STRIKE}$1${ANSI_RESET_ALL}`);
@@ -414,7 +416,11 @@ function renderRow(cells: string[], widths: number[], aligns: Align[]): string[]
     for (let c = 0; c < widths.length; c++) {
       const w = widths[c] ?? MIN_COL_WIDTH;
       const text = wrapped[c]?.[line] ?? '';
-      parts.push(padCell(text, w, aligns[c] ?? 'left'));
+      // Append full ANSI reset after the cell content so the │ border
+      // between cells never inherits styling from the cell text.
+      // The reset (ANSI_RESET_ALL = \x1b[0m) has zero visual width,
+      // so `padCell`'s measurement stays correct.
+      parts.push(padCell(text, w, aligns[c] ?? 'left') + ANSI_RESET_ALL);
     }
     out.push('│ ' + parts.join(' │ ') + ' │');
   }

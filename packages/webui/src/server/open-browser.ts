@@ -24,7 +24,8 @@ export function browserOpenCommand(
   return { command: 'xdg-open', args: [url] };
 }
 
-/** Spawn the OS browser-opener for `url`. Never throws. */
+/** Spawn the OS browser-opener for `url` and register it as a protected
+ *  process so it survives kill/killAll. Never throws. */
 export function openBrowser(url: string, platform: NodeJS.Platform = process.platform): void {
   try {
     const { command, args } = browserOpenCommand(url, platform);
@@ -33,6 +34,35 @@ export function openBrowser(url: string, platform: NodeJS.Platform = process.pla
     // async 'error' event — swallow it so it doesn't crash the process.
     child.on('error', () => {});
     child.unref();
+
+    // Register the browser process as protected so process.kill / killAll
+    // never accidentally terminates it — that would crash the webui session.
+    // The registry is imported lazily to avoid a circular dependency with
+    // @wrongstack/tools (which the webui server does not directly depend on).
+    if (child.pid) {
+      try {
+        // Dynamic import to avoid hard dependency on @wrongstack/tools from
+        // this module (the webui server may not have tools installed).
+        import('@wrongstack/tools').then(({ getProcessRegistry }) => {
+          getProcessRegistry().register({
+            pid: child.pid!,
+            name: 'browser',
+            command: `${command} ${args.join(' ')}`,
+            startedAt: Date.now(),
+            child,
+            protected: true,
+          });
+          // Auto-unregister on exit so the process list stays accurate.
+          child.on('exit', () => {
+            getProcessRegistry().unregister(child.pid!);
+          });
+        }).catch(() => {
+          // @wrongstack/tools may not be available — silently skip registration.
+        });
+      } catch {
+        // Module resolution failure — silently skip.
+      }
+    }
   } catch {
     // Synchronous spawn failure — best-effort, ignore.
   }

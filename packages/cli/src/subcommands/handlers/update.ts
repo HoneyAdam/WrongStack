@@ -2,11 +2,11 @@ import { spawn } from 'node:child_process';
 import { checkForUpdate } from '../../update-check.js';
 import type { SubcommandHandler } from '../index.js';
 
-/** `wrongstack update` — CLI'yi npm üzerinden günceller */
+/** `wrongstack update` — Update the CLI via npm */
 export const updateCmd: SubcommandHandler = async (args, deps) => {
   const cwd = deps.cwd;
 
-  // --check-only: sadece kontrol et, indirme
+  // --check-only: check only, don't install
   const checkOnly = args.includes('--check-only') || args.includes('-c');
 
   const info = await checkForUpdate();

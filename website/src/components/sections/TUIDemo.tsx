@@ -13,7 +13,7 @@ const script: Line[] = [
   {
     id: 'roster',
     delay: 500,
-    node: <Out tone="blue">▸ Director mode — fleet roster loaded (46 roles)</Out>,
+    node: <Out tone="blue">▸ Director mode — fleet roster loaded (47 roles)</Out>,
   },
   {
     id: 'spawn-1',

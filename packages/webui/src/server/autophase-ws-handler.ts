@@ -31,9 +31,9 @@ interface AutoPhaseWSMessage {
 }
 
 /**
- * AutoPhaseWebSocketHandler — WebSocket üzerinden AutoPhase kontrolü.
+ * AutoPhaseWebSocketHandler — WebSocket-based AutoPhase control.
  *
- * Mesaj tipleri:
+ * Message types:
  *   autophase.start   → { title, phases?, autonomous? }
  *   autophase.pause   → {}
  *   autophase.resume  → {}
@@ -71,7 +71,7 @@ export class AutoPhaseWebSocketHandler {
     ws.on('close', () => this.clients.delete(client));
     ws.on('error', () => this.clients.delete(client));
 
-    // Anlık durum gönder
+    // Send current state
     this.sendState(client);
   }
 
@@ -283,7 +283,7 @@ export class AutoPhaseWebSocketHandler {
     phaseId: string,
     env?: { cwd?: string | undefined; branch?: string | undefined },
   ): Promise<unknown> {
-    // Task'ı agent'a çalıştır
+    // Execute task with agent
     const prompt = `Execute task: ${task.title}\n\nDescription: ${task.description}\nPhase: ${phaseId}\nPriority: ${task.priority}\nType: ${task.type}`;
     const signal = this.abort?.signal ?? new AbortController().signal;
     // Redirect the shared context's cwd at the phase worktree for the duration

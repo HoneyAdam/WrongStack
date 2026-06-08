@@ -15,15 +15,15 @@ export interface AgentPhaseAssignment {
 
 export interface PhaseAgentsMonitorProps {
   assignments: AgentPhaseAssignment[];
-  /** Her fazda kaç agent var */
+  /** Agent counts per phase */
   phaseAgentCounts: Array<{ phaseId: string; phaseName: string; count: number; status: string }>;
-  /** Toplam agent sayısı */
+  /** Total agent count */
   totalAgents: number;
-  /** Aktif çalışan agent sayısı */
+  /** Active running agent count */
   activeAgents: number;
-  /** Agent fazdan çıkar */
+  /** Remove agent from phase */
   onReleaseAgent?: (agentId: string, phaseId: string) => void;
-  /** Agent faza ata */
+  /** Assign agent to phase */
   onAssignAgent?: (agentId: string, phaseId: string) => void;
   className?: string | undefined;
 }
@@ -32,10 +32,10 @@ const AGENT_STATUS_CONFIG: Record<
   AgentPhaseAssignment['agentStatus'],
   { icon: React.ReactNode; color: string; label: string }
 > = {
-  idle: { icon: <Pause className="w-3 h-3" />, color: 'text-muted-foreground', label: 'Bekliyor' },
-  running: { icon: <Activity className="w-3 h-3" />, color: 'text-[hsl(var(--success))]', label: 'Çalışıyor' },
-  paused: { icon: <Pause className="w-3 h-3" />, color: 'text-[hsl(var(--warning))]', label: 'Duraklatıldı' },
-  error: { icon: <Cpu className="w-3 h-3" />, color: 'text-destructive', label: 'Hata' },
+  idle: { icon: <Pause className="w-3 h-3" />, color: 'text-muted-foreground', label: 'Idle' },
+  running: { icon: <Activity className="w-3 h-3" />, color: 'text-[hsl(var(--success))]', label: 'Running' },
+  paused: { icon: <Pause className="w-3 h-3" />, color: 'text-[hsl(var(--warning))]', label: 'Paused' },
+  error: { icon: <Cpu className="w-3 h-3" />, color: 'text-destructive', label: 'Error' },
 };
 
 function formatDuration(ms: number): string {
@@ -47,9 +47,9 @@ function formatDuration(ms: number): string {
 }
 
 /**
- * PhaseAgentsMonitor — Her fazda hangi agent'ların çalıştığını gösteren panel.
+ * PhaseAgentsMonitor — Shows which agents are working on each phase.
  *
- * Fleet monitor'dan farkı: faz bazlı gruplama ve agent atama/çıkarma.
+ * Differs from the fleet monitor: phase-based grouping and agent assignment/release.
  */
 export function PhaseAgentsMonitor({
   assignments,
@@ -66,16 +66,16 @@ export function PhaseAgentsMonitor({
         <div className="flex items-center justify-between mb-2">
           <h2 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
             <Bot className="w-4 h-4" />
-            Agent'lar
+            Agents
           </h2>
         </div>
         <div className="flex gap-3 text-xs">
           <div>
-            <span className="text-muted-foreground">Toplam:</span>{' '}
+            <span className="text-muted-foreground">Total:</span>{' '}
             <span className="font-medium">{totalAgents}</span>
           </div>
           <div>
-            <span className="text-muted-foreground">Aktif:</span>{' '}
+            <span className="text-muted-foreground">Active:</span>{' '}
             <span className="font-medium text-[hsl(var(--success))]">{activeAgents}</span>
           </div>
         </div>
@@ -84,7 +84,7 @@ export function PhaseAgentsMonitor({
       {/* Phase Agent Counts */}
       <div className="p-3 border-b border-border">
         <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-          Fazlara Göre
+          By Phase
         </h3>
         <div className="space-y-1.5">
           {phaseAgentCounts.map((pac) => (
@@ -112,7 +112,7 @@ export function PhaseAgentsMonitor({
       {/* Active Assignments */}
       <div className="flex-1 overflow-y-auto p-3">
         <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-          Aktif Atamalar
+          Active Assignments
         </h3>
         <div className="space-y-2">
           {assignments.map((a) => {
@@ -152,7 +152,7 @@ export function PhaseAgentsMonitor({
                       className="flex items-center gap-1 px-2 py-0.5 text-[10px] rounded bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors"
                     >
                       <UserX className="w-3 h-3" />
-                      Çıkar
+                      Release
                     </button>
                   )}
                 </div>
@@ -162,7 +162,7 @@ export function PhaseAgentsMonitor({
 
           {assignments.length === 0 && (
             <div className="text-center text-xs text-muted-foreground py-4">
-              Aktif agent ataması yok
+              No active agent assignments
             </div>
           )}
         </div>

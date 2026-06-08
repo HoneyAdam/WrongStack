@@ -5,12 +5,15 @@ import { setFaviconStatus } from '@/lib/favicon';
 import { ensureNotificationPermission, notifyIfHidden } from '@/lib/notify';
 import { getWSClient } from '@/lib/ws-client';
 import type { WrongStackWebSocketClient } from '@/lib/ws-client';
+import type { PhaseItem } from '@/components/PhasePanel';
 import {
   type SessionHistoryEntry,
   type SubagentEvent,
+  useAutoPhaseStore,
   useChatStore,
   useConfigStore,
   useFleetStore,
+  useGoalStore,
   useHistoryStore,
   useSessionStore,
   useUIStore,
@@ -390,6 +393,26 @@ export function handleSubagentEvent(msg: WSServerMessage) {
   useFleetStore.getState().applyEvent(msg.payload as SubagentEvent);
 }
 
+// ── AutoPhase handler ──
+
+export function handleAutoPhaseState(msg: WSServerMessage) {
+  const p = msg.payload as Record<string, unknown>;
+  useAutoPhaseStore.getState().setState({
+    phases: Array.isArray(p.phases) ? (p.phases as PhaseItem[]) : undefined,
+    activePhaseId: typeof p.activePhaseId === 'string' ? p.activePhaseId : undefined,
+    overallPercent: typeof p.overallPercent === 'number' ? p.overallPercent : undefined,
+    autonomous: typeof p.autonomous === 'boolean' ? p.autonomous : undefined,
+    title: typeof p.title === 'string' ? p.title : undefined,
+  });
+}
+
+// ── Goal handler ──
+
+export function handleGoalUpdated(msg: WSServerMessage) {
+  const p = msg.payload as Record<string, unknown> | null;
+  useGoalStore.getState().setGoal(p);
+}
+
 // ── Handler registry: maps message types to handler functions ──
 
 export const WS_HANDLERS: Record<string, (msg: WSServerMessage) => void> = {
@@ -422,4 +445,12 @@ export const WS_HANDLERS: Record<string, (msg: WSServerMessage) => void> = {
   'worktree.state': handleWorktreeState,
   'worktree.event': handleWorktreeEvent,
   'subagent.event': handleSubagentEvent,
+  'goal.updated': handleGoalUpdated,
+  'autophase.state': handleAutoPhaseState,
+  'session.checkpoints': (msg: WSServerMessage) => {
+    // Handled directly by CheckpointTimeline component via WS client.on()
+  },
+  'process.list': (msg: WSServerMessage) => {
+    // Handled directly by ProcessMonitor component via WS client.on()
+  },
 };

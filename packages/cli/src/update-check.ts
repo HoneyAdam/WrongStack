@@ -13,12 +13,12 @@ export interface UpdateInfo {
 type HomeDirFn = () => string;
 const defaultHomeDir: HomeDirFn = () => os.homedir();
 
-/** Cache dosyasının path'i — test için inject edilebilir homeFn */
+/** Cache file path — homeFn is injectable for testing */
 export function cachePath(homeFn: HomeDirFn = defaultHomeDir): string {
   return path.join(homeFn(), '.wrongstack', 'update-cache.json');
 }
 
-/** 24 saat TTL */
+/** 24-hour TTL */
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 interface CacheEntry {
@@ -27,7 +27,7 @@ interface CacheEntry {
   error?: string | undefined;
 }
 
-/** Mevcut CLI versiyonunu package.json'den oku */
+/** Read the current CLI version from package.json */
 export function currentVersion(): string {
   const req = createRequire(import.meta.url);
   const candidates = ['../package.json', '../../package.json'];
@@ -59,7 +59,7 @@ function isNewer(a: string, b: string): boolean {
   return false;
 }
 
-/** Cache oku — süresi geçmişse null döner */
+/** Read cache — returns null if expired */
 async function readCache(homeFn: HomeDirFn = defaultHomeDir): Promise<CacheEntry | null> {
   try {
     const raw = await fs.readFile(cachePath(homeFn), 'utf8');
@@ -71,7 +71,7 @@ async function readCache(homeFn: HomeDirFn = defaultHomeDir): Promise<CacheEntry
   }
 }
 
-/** Cache yaz */
+/** Write cache */
 async function writeCache(entry: CacheEntry, homeFn: HomeDirFn = defaultHomeDir): Promise<void> {
   try {
     const dir = path.dirname(cachePath(homeFn));
@@ -82,7 +82,7 @@ async function writeCache(entry: CacheEntry, homeFn: HomeDirFn = defaultHomeDir)
   }
 }
 
-/** npm registry'den latest versiyonu çek */
+/** Fetch latest version from npm registry */
 async function fetchLatestFromNpm(timeoutMs = 3000): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -103,7 +103,7 @@ async function fetchLatestFromNpm(timeoutMs = 3000): Promise<string> {
   }
 }
 
-/** Update bilgisini döner — cache-first, network fallback */
+/** Return update info — cache-first, network fallback */
 export async function checkForUpdate(
   signal?: AbortSignal | undefined,
   homeFn?: HomeDirFn | undefined,
@@ -117,7 +117,7 @@ export async function checkForUpdate(
     return { current, latest: current, outdated: false, checkFailed: true };
   }
 
-  // Cache'e bak
+  // Check cache
   const cached = await readCache(hf);
   if (cached && !cached.error) {
     return {
@@ -128,7 +128,7 @@ export async function checkForUpdate(
     };
   }
 
-  // Network kontrolü
+  // Check network
   try {
     const latest = await fetchLatestFromNpm();
     await writeCache({ timestamp: Date.now(), latestVersion: latest }, hf);
@@ -140,12 +140,12 @@ export async function checkForUpdate(
       checkFailed: false,
     };
   } catch (_err) {
-    // Network hatası — sessiz devam, cache'e yazma
+    // Network error — continue silently, don't write to cache
     if (aborted()) {
       return { current, latest: current, outdated: false, checkFailed: true };
     }
 
-    // Prior cache varsa onu kullan (eski data ama en azından birşey var)
+    // Use prior cache if available (stale data, but better than nothing)
     if (cached?.latestVersion) {
       return {
         current,
@@ -159,7 +159,7 @@ export async function checkForUpdate(
   }
 }
 
-/** Update varsa notification string'i döner, yoksa null */
+/** Return update notification string if available, null otherwise */
 export async function getUpdateNotification(
   signal?: AbortSignal | undefined,
   homeFn?: HomeDirFn | undefined,

@@ -3,6 +3,7 @@ import { cn } from '@/lib/utils';
 import { useConfigStore, useHistoryStore, useSessionStore, useUIStore } from '@/stores';
 import {
   History,
+  Layers,
   MessageSquare,
   PanelLeftClose,
   Settings as SettingsIcon,
@@ -98,7 +99,7 @@ export function Sidebar() {
         </Button>
       </div>
 
-      <Tabs value={currentView === 'settings' ? 'chat' : currentView} onValueChange={(v) => setCurrentView(v as 'chat' | 'history')} className="flex-1 flex flex-col">
+      <Tabs value={currentView === 'settings' || currentView === 'autophase' ? 'chat' : currentView} onValueChange={(v) => setCurrentView(v as 'chat' | 'history')} className="flex-1 flex flex-col">
         <TabsList className="w-full rounded-none bg-transparent p-2 h-auto grid grid-cols-2">
           <TabsTrigger value="chat" className="flex-col gap-1.5 py-2 data-[state=active]:bg-primary/10">
             <MessageSquare className="h-4 w-4" /><span className="text-xs">Chat</span>
@@ -112,9 +113,12 @@ export function Sidebar() {
           <ConfigSection formatDuration={formatDuration} />
           <SessionActions wsConnected={wsConnected} />
           <div className="flex-1" />
-          <div className="px-3 py-3 border-t">
+          <div className="px-3 py-3 border-t space-y-1">
             <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setCurrentView('settings')}>
               <SettingsIcon className="h-4 w-4 mr-2" />Settings
+            </Button>
+            <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setCurrentView('autophase')}>
+              <Layers className="h-4 w-4 mr-2" />Phases
             </Button>
           </div>
         </TabsContent>

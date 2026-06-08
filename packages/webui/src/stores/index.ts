@@ -18,3 +18,6 @@ export { useUIStore } from './ui-store.js';
 export { useHistoryStore } from './history-store.js';
 export { useWorktreeStore } from './worktree-store.js';
 export { useFleetStore } from './fleet-store.js';
+export { useGoalStore } from './goal-store.js';
+export { useAutoPhaseStore } from './autophase-store.js';
+export { useLocalPrefs } from './local-prefs.js';

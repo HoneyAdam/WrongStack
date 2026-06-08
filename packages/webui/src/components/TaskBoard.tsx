@@ -21,9 +21,9 @@ export interface TaskBoardProps {
   phaseName: string;
   phaseStatus: string;
   tasks: TaskItem[];
-  /** Task tıklandığında */
+  /** Called when a task is clicked */
   onTaskClick?: ((taskId: string) => void) | undefined;
-  /** Task durumunu değiştir */
+  /** Change task status */
   onTaskStatusChange?: (taskId: string, status: TaskItem['status']) => void;
   className?: string | undefined;
 }
@@ -35,12 +35,12 @@ const TASK_STATUS_CONFIG: Record<
   TaskItem['status'],
   { icon: React.ReactNode; color: string; label: string }
 > = {
-  pending: { icon: <Circle className="w-4 h-4" />, color: 'text-muted-foreground', label: 'Bekliyor' },
-  in_progress: { icon: <Clock className="w-4 h-4 animate-spin" />, color: 'text-primary', label: 'Çalışıyor' },
-  blocked: { icon: <Pause className="w-4 h-4" />, color: 'text-[hsl(var(--warning))]', label: 'Bloklu' },
-  failed: { icon: <XCircle className="w-4 h-4" />, color: 'text-destructive', label: 'Başarısız' },
-  review: { icon: <RotateCcw className="w-4 h-4" />, color: 'text-[hsl(var(--info))]', label: 'İncelemede' },
-  completed: { icon: <CheckCircle2 className="w-4 h-4" />, color: 'text-[hsl(var(--success))]', label: 'Tamamlandı' },
+  pending: { icon: <Circle className="w-4 h-4" />, color: 'text-muted-foreground', label: 'Pending' },
+  in_progress: { icon: <Clock className="w-4 h-4 animate-spin" />, color: 'text-primary', label: 'In Progress' },
+  blocked: { icon: <Pause className="w-4 h-4" />, color: 'text-[hsl(var(--warning))]', label: 'Blocked' },
+  failed: { icon: <XCircle className="w-4 h-4" />, color: 'text-destructive', label: 'Failed' },
+  review: { icon: <RotateCcw className="w-4 h-4" />, color: 'text-[hsl(var(--info))]', label: 'Review' },
+  completed: { icon: <CheckCircle2 className="w-4 h-4" />, color: 'text-[hsl(var(--success))]', label: 'Done' },
 };
 
 const PRIORITY_BADGE: Record<TaskItem['priority'], string> = {
@@ -69,10 +69,10 @@ function formatTime(ms?: number): string {
 }
 
 /**
- * TaskBoard — Sağda duran görev listesi.
+ * TaskBoard — Task list panel.
  *
- * Seçili fazın tüm görevlerini kartlar halinde gösterir.
- * Her görevde: durum, öncelik, tip, tahmini süre, agent atanması.
+ * Shows all tasks for the selected phase as cards.
+ * Each task displays: status, priority, type, estimated time, agent assignment.
  */
 export function TaskBoard({
   phaseName,
@@ -82,7 +82,7 @@ export function TaskBoard({
   onTaskStatusChange,
   className,
 }: TaskBoardProps): React.ReactElement {
-  // Task'ları duruma göre grupla
+  // Group tasks by status
   const grouped = {
     in_progress: tasks.filter((t) => t.status === 'in_progress'),
     pending: tasks.filter((t) => t.status === 'pending' || t.status === 'blocked'),
@@ -101,8 +101,8 @@ export function TaskBoard({
           <div>
             <h2 className="text-lg font-semibold text-foreground">{phaseName}</h2>
             <p className="text-sm text-muted-foreground mt-0.5">
-              {tasks.length} görev • {tasks.filter((t) => t.status === 'completed').length} tamamlandı
-            </p>
+                {tasks.length} tasks · {tasks.filter((t) => t.status === 'completed').length} completed
+              </p>
           </div>
           <div className={cn(
             'px-3 py-1 rounded-full text-xs font-medium',
@@ -111,11 +111,11 @@ export function TaskBoard({
             phaseStatus === 'failed' ? 'bg-destructive/15 text-destructive' :
             'bg-muted text-muted-foreground',
           )}>
-            {phaseStatus === 'running' ? 'Çalışıyor' :
-             phaseStatus === 'completed' ? 'Tamamlandı' :
-             phaseStatus === 'failed' ? 'Başarısız' :
-             phaseStatus === 'paused' ? 'Duraklatıldı' :
-             phaseStatus === 'ready' ? 'Hazır' : 'Bekliyor'}
+            {phaseStatus === 'running' ? 'Running' :
+             phaseStatus === 'completed' ? 'Completed' :
+             phaseStatus === 'failed' ? 'Failed' :
+             phaseStatus === 'paused' ? 'Paused' :
+             phaseStatus === 'ready' ? 'Ready' : 'Pending'}
           </div>
         </div>
       </div>
@@ -127,11 +127,11 @@ export function TaskBoard({
           if (groupTasks.length === 0) return null;
 
           const groupLabel = {
-            in_progress: 'Çalışıyor',
-            pending: 'Bekliyor',
-            review: 'İncelemede',
-            failed: 'Başarısız',
-            completed: 'Tamamlandı',
+            in_progress: 'In Progress',
+            pending: 'Pending',
+            review: 'Review',
+            failed: 'Failed',
+            completed: 'Completed',
           }[groupKey];
 
           return (
@@ -220,7 +220,7 @@ export function TaskBoard({
                               }}
                               className="px-2 py-0.5 text-[10px] rounded bg-primary/15 text-primary hover:bg-primary/25 transition-colors"
                             >
-                              Başlat
+                              Start
                             </button>
                           )}
                           {task.status === 'in_progress' && (
@@ -232,7 +232,7 @@ export function TaskBoard({
                               }}
                               className="px-2 py-0.5 text-[10px] rounded bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success))] hover:bg-[hsl(var(--success)/0.25)] transition-colors"
                             >
-                              Tamamla
+                              Complete
                             </button>
                           )}
                           {task.status !== 'failed' && (
@@ -244,7 +244,7 @@ export function TaskBoard({
                               }}
                               className="px-2 py-0.5 text-[10px] rounded bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors"
                             >
-                              Başarısız
+                              Fail
                             </button>
                           )}
                         </div>

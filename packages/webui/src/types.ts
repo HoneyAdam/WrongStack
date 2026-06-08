@@ -479,6 +479,8 @@ export type WSClientMessage =
   | { type: 'abort'; payload: Record<string, never> }
   | { type: 'session.resume'; payload: { id: string } }
   | { type: 'session.new' }
+  | { type: 'session.checkpoints' }
+  | { type: 'session.rewind'; payload: { checkpointIndex: number } }
   | { type: 'context.clear' }
   | { type: 'context.compact'; payload: { aggressive: boolean } }
   | { type: 'context.repair' }
@@ -515,6 +517,11 @@ export type WSClientMessage =
   | { type: 'todos.clear' }
   | { type: 'todos.remove'; payload: { id?: string | undefined; index?: number | undefined } }
   | { type: 'ping' }
+  | { type: 'process.list' }
+  | { type: 'process.kill'; payload: { pid: number } }
+  | { type: 'process.killAll' }
+  | { type: 'goal.get' }
+  | { type: 'autonomy.switch'; payload: { mode: string } }
   | WSCollabJoin
   | WSCollabLeave
   | WSCollabAnnotate
@@ -568,7 +575,10 @@ export type WSServerMessage =
   | WSCollabAnnotationResolved
   | WSCollabPauseGranted
   | WSCollabPauseReleased
-  | WSCollabInjectionGranted;
+  | WSCollabInjectionGranted
+  | { type: 'session.checkpoints'; payload: { checkpoints: Array<{ index: number; iteration: number; timestamp: string; label: string; messageCount: number; tokens: number }> } }
+  | { type: 'goal.updated'; payload: Record<string, unknown> | null }
+  | { type: 'process.list'; payload: { processes: Array<{ pid: number; command: string; tool: string; startedAt: number; status: 'running' | 'exited' | 'killed'; protected?: boolean | undefined }> } };
 
 // Helper to broadcast to all clients
 export type BroadcastFn = (msg: WSServerMessage) => void;
