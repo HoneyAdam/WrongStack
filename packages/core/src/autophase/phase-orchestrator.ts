@@ -84,7 +84,7 @@ export class PhaseOrchestrator {
       maxVerifyAttempts: opts.maxVerifyAttempts ?? 2,
       autonomous: opts.autonomous ?? true,
       phaseDelayMs: opts.phaseDelayMs ?? 0,
-      stopOnFailure: opts.stopOnFailure ?? true,
+      stopOnFailure: opts.stopOnFailure ?? false,
       events: this.events,
     };
   }
@@ -642,7 +642,7 @@ export class PhaseOrchestrator {
 
       const depsDone = phase.dependsOn.every((depId) => {
         const dep = this.graph.phases.get(depId);
-        return dep?.status === 'completed' || dep?.status === 'skipped';
+        return dep?.status === 'completed' || dep?.status === 'skipped' || dep?.status === 'failed';
       });
 
       if (depsDone || phase.parallelizable) {

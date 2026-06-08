@@ -76,7 +76,11 @@ export class AutoPhaseRunner {
       if (failedPhase) {
         this.opts.onFail?.(this.graph, failedPhase, new Error(p.error));
       }
-      this.cleanup();
+      // Only cleanup on failure when stopOnFailure is explicitly true.
+      // When false (default), the orchestrator continues with remaining phases.
+      if (this.opts.stopOnFailure) {
+        this.cleanup();
+      }
     }
   };
 
@@ -142,10 +146,22 @@ export class AutoPhaseRunner {
     }
 
     this.maxRunTimer = setTimeout(
-      () => this.stop(),
-      this.opts.maxRunDurationMs ?? 24 * 60 * 60_000,
+      () => {
+        this.opts.onProgress?.({
+          totalPhases: 0, pending: 0, ready: 0, running: 0, paused: 0,
+          completed: 0, failed: 0, skipped: 0, percentComplete: 0,
+          totalTasks: 0, completedTasks: 0, failedTasks: 0,
+          estimatedHours: 0, actualHours: 0,
+        });
+        this.stop();
+      },
+      this.opts.maxRunDurationMs ?? 7 * 24 * 60 * 60_000,
     );
-    this.maxRunTimer.unref?.();
+    if (this.opts.maxRunDurationMs !== undefined && this.opts.maxRunDurationMs <= 0) {
+      clearTimeout(this.maxRunTimer);
+      this.maxRunTimer = null;
+    }
+    this.maxRunTimer?.unref?.();
 
     // Register event listeners using the untyped surface to handle custom events
     if (this.opts.events) {
