@@ -260,11 +260,13 @@ export function AgentsMonitor({
   // Clamp selection when the list shrinks
   const safeIndex = Math.min(selectedIndex, Math.max(0, live.length - 1));
 
-  // Keyboard navigation
-  useInput((input, key) => {
-    if (key.upArrow || input === 'k') {
+  // Keyboard navigation. Arrow keys ONLY — the chat input stays live beneath
+  // this panel, so j/k are left free to type into the message buffer rather
+  // than being captured here as navigation.
+  useInput((_input, key) => {
+    if (key.upArrow) {
       setSelectedIndex((prev) => Math.max(0, prev - 1));
-    } else if (key.downArrow || input === 'j') {
+    } else if (key.downArrow) {
       setSelectedIndex((prev) => Math.min(live.length - 1, prev + 1));
     }
   });

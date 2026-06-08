@@ -10,6 +10,18 @@ export interface InputProps {
   cursor: number;
   disabled?: boolean | undefined;
   hint?: string | undefined;
+  /**
+   * When true the visible prompt rows are replaced by an empty placeholder of
+   * `placeholderHeight` rows, but BOTH keyboard listeners (the Ink `useInput`
+   * and the raw-stdin parser that produces F-keys / Home / End / wheel) stay
+   * mounted. This is what keeps the central `handleKey` router — and therefore
+   * the F-key/Esc toggles that open and CLOSE the monitor overlays — alive
+   * while an overlay occupies the bottom region. Unmounting the Input here is
+   * what previously left overlays (e.g. the F3 agents monitor) un-closable.
+   */
+  hidden?: boolean | undefined;
+  /** Row count for the hidden placeholder so the bottom region never resizes. */
+  placeholderHeight?: number | undefined;
   onKey: (input: string, key: KeyEvent) => void;
 }
 
@@ -160,6 +172,8 @@ export const Input = memo(function Input({
   cursor,
   disabled,
   hint,
+  hidden,
+  placeholderHeight,
   onKey,
 }: InputProps): React.ReactElement {
   useInput((input, key) => {
@@ -239,6 +253,14 @@ export const Input = memo(function Input({
   // input area a correct, line-count-driven height instead of clipping or
   // overflowing. layoutInputRows keeps the cursor on the right row/column.
   const rows = layoutInputRows(prompt, value, cursor, cols);
+
+  // Hidden mode: keep the listeners above mounted, but render only an empty
+  // placeholder of the same height the visible input would occupy. The bottom
+  // region stays a constant height (so Ink's log-update never bleeds the live
+  // region into native scrollback) while keyboard handling stays alive.
+  if (hidden) {
+    return <Box height={Math.max(1, placeholderHeight ?? rows.length)} />;
+  }
 
   return (
     <Box flexDirection="column">

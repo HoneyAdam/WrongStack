@@ -86,10 +86,24 @@ function topoSort(metas) {
 function runBuild(pkgDir, script) {
   const shell = process.env.ComSpec || 'cmd.exe';
   console.log(`\n> ${pkgDir} > ${script}`);
+  // node_modules/.bin must be on PATH so tsup, tsc, etc. resolve when
+  // spawned via cmd.exe — the Node process inherits npm's path resolution
+  // but cmd.exe /c does not. Prepend both the root bin dir and the
+  // package-local bin dir (pnpm isolates bins per-package) to be safe.
+  const rootBin = join(root, 'node_modules', '.bin');
+  const pkgBin = join(root, pkgDir, 'node_modules', '.bin');
+  const pathSep = process.platform === 'win32' ? ';' : ':';
+  const envPath = [rootBin, pkgBin, process.env.PATH || process.env.Path || ''].join(pathSep);
+  const env = {
+    ...process.env,
+    PATH: envPath,
+    Path: envPath,
+    NODE_OPTIONS: '--max-old-space-size=4096',
+  };
   const result = spawnSync(shell, ['/c', script], {
     cwd: join(root, pkgDir),
     stdio: 'inherit',
-    env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=4096' },
+    env,
   });
   if (result.status !== 0) {
     console.error(`\nBuild failed in ${pkgDir} (exit ${result.status})`);
