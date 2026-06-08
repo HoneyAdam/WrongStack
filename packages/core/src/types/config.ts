@@ -323,6 +323,14 @@ export interface Config {
   autonomy?: AutonomyConfig | undefined;
   /** Show rotating launch hints on startup. Default: true. Set to false to suppress. */
   hints?: boolean | undefined;
+  /** Raw SSE stream debugging — hex-dump every byte received from providers to stderr. */
+  debugStream?: boolean | undefined;
+  /**
+   * Where settings are persisted. 'global' → ~/.wrongstack/config.json
+   * (default). 'project' → ~/.wrongstack/projects/<slug>/config.local.json.
+   * When 'project', provider/model/autonomy/ux settings are saved per-project.
+   */
+  configScope?: 'global' | 'project' | undefined;
   /** Automatic codebase symbol-index maintenance (session-start + live updates). */
   indexing?: IndexingConfig | undefined;
   /** Saved launch preferences — restored on next boot for one-line confirmation. */

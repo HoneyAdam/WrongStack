@@ -24,6 +24,14 @@ function toError(err: unknown): Error {
   return err instanceof Error ? err : new Error(String(err));
 }
 
+/** Extract a human-readable reason from an AbortSignal. */
+export function signalAbortReason(signal: AbortSignal): string {
+  const r = signal.reason;
+  if (r instanceof Error) return r.message || r.name;
+  if (typeof r === 'string' && r.length > 0) return r;
+  return 'aborted';
+}
+
 interface LoopHandlers {
   tools: AgentToolHandler;
   response: AgentResponseHandler;
@@ -153,7 +161,7 @@ export function createAgentLoopHandler(
       for (let i = 0; ; i++) {
         iterations = i + 1;
         if (controller.signal.aborted) {
-          return { status: 'aborted', iterations };
+          return { status: 'aborted', iterations, abortReason: signalAbortReason(controller.signal) };
         }
 
         await a.ctx.session
@@ -201,7 +209,7 @@ export function createAgentLoopHandler(
         } catch (err) {
           if (controller.signal.aborted) {
             a.events.emit('error', { err: toError(err), phase: 'provider' });
-            return { status: 'aborted', iterations, error: toWrongStackError(err, 'AGENT_ABORTED') };
+            return { status: 'aborted', iterations, error: toWrongStackError(err, 'AGENT_ABORTED'), abortReason: signalAbortReason(controller.signal) };
           }
 
           const extDecision = await a.extensions.runOnError(a.ctx, err, 'provider', i);
@@ -251,7 +259,7 @@ export function createAgentLoopHandler(
 
         const responseResult = await handlers.response.processResponse(res, req);
         if (responseResult.aborted) {
-          return { status: 'aborted', iterations, finalText: responseResult.finalText, delegateSummaries };
+          return { status: 'aborted', iterations, finalText: responseResult.finalText, delegateSummaries, abortReason: signalAbortReason(controller.signal) };
         }
         if (responseResult.done) {
           return { status: 'done', iterations, finalText: responseResult.finalText, delegateSummaries };
@@ -274,7 +282,16 @@ export function createAgentLoopHandler(
           return { status: 'done', iterations, finalText, delegateSummaries };
         }
 
-        await handlers.tools.executeTools(toolUses);
+        // Wrap tool execution so an abort mid-tool surfaces as 'aborted'
+        // rather than AGENT_RUN_FAILED in the outer agent.run() catch block.
+        try {
+          await handlers.tools.executeTools(toolUses);
+        } catch (toolErr) {
+          if (controller.signal.aborted) {
+            return { status: 'aborted', iterations, finalText, delegateSummaries, abortReason: signalAbortReason(controller.signal) };
+          }
+          throw toolErr;
+        }
 
         if (autonomousContinue && consumeAutonomousContinue(a.ctx)) {
           emitContextPct();

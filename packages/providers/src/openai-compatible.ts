@@ -2,6 +2,7 @@ import type { Request } from '@wrongstack/core';
 import type { Capabilities } from '@wrongstack/core';
 import { capabilitiesForFamily } from './family-capabilities.js';
 import { OpenAIProvider } from './openai.js';
+import type { WireAdapterStreamOptions } from './wire-adapter.js';
 
 export interface CompatibilityQuirks {
   stripCacheControl?: boolean | undefined;
@@ -53,6 +54,8 @@ export interface OpenAICompatibleOptions {
    * URL structures (e.g. Google with model-in-path, Anthropic with /v1/messages).
    */
   urlOverride?: ((baseUrl: string, req: Request) => string) | undefined;
+  /** Raw stream debugging and hang-detection options. */
+  streamOpts?: WireAdapterStreamOptions | undefined;
 }
 
 export class OpenAICompatibleProvider extends OpenAIProvider {
@@ -71,6 +74,7 @@ export class OpenAICompatibleProvider extends OpenAIProvider {
         ...opts.capabilities,
       }),
       quirks: opts.quirks,
+      streamOpts: opts.streamOpts,
     });
     this.extraHeaders = opts.headers;
     this.urlOverride = opts.urlOverride;

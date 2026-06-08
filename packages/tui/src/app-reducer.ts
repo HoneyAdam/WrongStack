@@ -7,6 +7,7 @@ import type { WorktreeRow } from './components/worktree-panel.js';
 import {
   AUDIT_LEVELS,
   COMPACTOR_STRATEGIES,
+  CONFIG_SCOPES,
   DELAY_PRESETS_MS,
   ENHANCE_DELAY_PRESETS,
   LOG_LEVELS,
@@ -39,6 +40,19 @@ export function reducer(state: State, action: Action): State {
       // which forbids removals or reordering — old items live on in the
       // terminal's native scrollback. Memory growth is bounded by the
       // terminal's own scrollback limits in practice.
+      //
+      // Guard: skip entries with empty text for text-bearing kinds.
+      // During the enhance/refine countdown, re-renders combined with
+      // live-region erasure can produce blank entries that pollute the
+      // chat and desync the scrollback.
+      const e = action.entry;
+      if (
+        (e.kind === 'user' || e.kind === 'assistant' || e.kind === 'info' ||
+         e.kind === 'warn' || e.kind === 'error' || e.kind === 'turn-summary') &&
+        !(e as { text?: string | undefined }).text?.trim()
+      ) {
+        return state;
+      }
       const appended = [...state.entries, { ...action.entry, id: state.nextId } as HistoryEntry];
       return { ...state, entries: appended, nextId: state.nextId + 1 };
     }
@@ -396,6 +410,8 @@ export function reducer(state: State, action: Action): State {
           indexOnStart: action.indexOnStart,
           maxIterations: action.maxIterations,
           enhanceDelayMs: action.enhanceDelayMs,
+          debugStream: action.debugStream,
+          configScope: action.configScope,
           hint: undefined,
         },
       };
@@ -472,17 +488,29 @@ export function reducer(state: State, action: Action): State {
       // Field 17: index on start (boolean)
       if (f === 17) return { ...state, settingsPicker: { ...sp, indexOnStart: !sp.indexOnStart, hint: undefined } };
       // Field 18: max iterations (cycle presets)
-      {
+      if (f === 18) {
         const j = MAX_ITERATIONS_PRESETS.indexOf(sp.maxIterations);
         const base = j < 0 ? 0 : j;
         const next = (base + action.delta + MAX_ITERATIONS_PRESETS.length) % MAX_ITERATIONS_PRESETS.length;
         return { ...state, settingsPicker: { ...sp, maxIterations: expectDefined(MAX_ITERATIONS_PRESETS[next]), hint: undefined } };
       }
       // Field 19: enhance delay (cycle presets)
-      const ej = ENHANCE_DELAY_PRESETS.indexOf(sp.enhanceDelayMs);
-      const ebase = ej < 0 ? 0 : ej;
-      const enext = (ebase + (action as { delta: number }).delta + ENHANCE_DELAY_PRESETS.length) % ENHANCE_DELAY_PRESETS.length;
-      return { ...state, settingsPicker: { ...sp, enhanceDelayMs: expectDefined(ENHANCE_DELAY_PRESETS[enext]), hint: undefined } };
+      if (f === 19) {
+        const ej = ENHANCE_DELAY_PRESETS.indexOf(sp.enhanceDelayMs);
+        const ebase = ej < 0 ? 0 : ej;
+        const enext = (ebase + action.delta + ENHANCE_DELAY_PRESETS.length) % ENHANCE_DELAY_PRESETS.length;
+        return { ...state, settingsPicker: { ...sp, enhanceDelayMs: expectDefined(ENHANCE_DELAY_PRESETS[enext]), hint: undefined } };
+      }
+      // Field 20: debug stream (boolean toggle)
+      if (f === 20) return { ...state, settingsPicker: { ...sp, debugStream: !sp.debugStream, hint: undefined } };
+      // Field 21: config scope (cycle global/project)
+      if (f === 21) {
+        const i = CONFIG_SCOPES.indexOf(sp.configScope);
+        const base = i < 0 ? 0 : i;
+        const next = (base + action.delta + CONFIG_SCOPES.length) % CONFIG_SCOPES.length;
+        return { ...state, settingsPicker: { ...sp, configScope: expectDefined(CONFIG_SCOPES[next]), hint: undefined } };
+      }
+      return state;
     }
     case 'settingsHint':
       return { ...state, settingsPicker: { ...state.settingsPicker, hint: action.text } };

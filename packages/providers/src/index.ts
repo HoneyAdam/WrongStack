@@ -25,7 +25,8 @@ export {
   type CompatibilityQuirks,
 } from './openai-compatible.js';
 export { GoogleProvider, type GoogleProviderOptions } from './google.js';
-export { WireAdapter } from './wire-adapter.js';
+export { WireAdapter, type WireAdapterStreamOptions } from './wire-adapter.js';
+export { isDebugStreamEnabled, setDebugStreamEnabled } from './stream-debug-state.js';
 export {
   WireFormatProvider,
   defineWireFormat,

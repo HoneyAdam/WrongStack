@@ -190,6 +190,57 @@ function truncate(s: string, n: number): string {
   return s.length <= n ? s : `${s.slice(0, n - 1)}…`;
 }
 
+/**
+ * Thrown when the provider stream stops delivering data mid-response.
+ * This is distinct from a network error (TCP reset, DNS failure) — the
+ * connection is established and the response started, but chunks stopped
+ * arriving before the stream completed.
+ *
+ * Status 599 is used as a sentinel to distinguish stream hangs from
+ * regular HTTP errors while still flowing through ProviderError-based
+ * retry and fallback infrastructure.
+ */
+export class StreamHangError extends ProviderError {
+  /** Name of the provider that hung, e.g. "zai", "anthropic". */
+  public readonly hungProviderId: string;
+  /** Model that was being called when the hang occurred. */
+  public readonly hungModel: string;
+  /** How long (ms) we waited for the next chunk before declaring a hang. */
+  public readonly hangTimeoutMs: number;
+  /** How many bytes were received before the hang. */
+  public readonly bytesReceived: number;
+  /** Elapsed time (ms) from the start of the stream until the hang. */
+  public readonly elapsedMs: number;
+
+  constructor(opts: {
+    providerId: string;
+    model: string;
+    hangTimeoutMs: number;
+    bytesReceived: number;
+    elapsedMs: number;
+    cause?: unknown | undefined;
+  }) {
+    super(
+      `Stream hang: ${opts.providerId}/${opts.model} — no data for ${opts.hangTimeoutMs}ms after ${opts.bytesReceived} bytes (${opts.elapsedMs}ms elapsed)`,
+      599,
+      true, // always retryable
+      opts.providerId,
+      {
+        body: {
+          message: `Stream stalled after ${opts.elapsedMs}ms, ${opts.bytesReceived} bytes received`,
+        },
+        cause: opts.cause,
+      },
+    );
+    this.name = 'StreamHangError';
+    this.hungProviderId = opts.providerId;
+    this.hungModel = opts.model;
+    this.hangTimeoutMs = opts.hangTimeoutMs;
+    this.bytesReceived = opts.bytesReceived;
+    this.elapsedMs = opts.elapsedMs;
+  }
+}
+
 function providerStatusToCode(status: number, type?: string): ErrorCode {
   if (status === 0) return ERROR_CODES.PROVIDER_NETWORK_ERROR;
   if (type === 'rate_limit_error' || status === 429) return ERROR_CODES.PROVIDER_RATE_LIMITED;

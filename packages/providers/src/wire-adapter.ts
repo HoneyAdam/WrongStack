@@ -1,6 +1,8 @@
 import type { Capabilities, Provider, Request, Response, StreamEvent } from '@wrongstack/core';
-import { ProviderError } from '@wrongstack/core';
+import { ProviderError, StreamHangError } from '@wrongstack/core';
 import { parseProviderHttpError } from './error-parse.js';
+import { isDebugStreamEnabled } from './stream-debug-state.js';
+import { Readable } from 'node:stream';
 
 type Response2 = {
   ok: boolean;
@@ -8,6 +10,24 @@ type Response2 = {
   text(): Promise<string>;
   body: ReadableStream<Uint8Array> | NodeJS.ReadableStream | null;
 };
+
+/** Configuration for WireAdapter stream-level debugging and hang detection. */
+export interface WireAdapterStreamOptions {
+  /**
+   * When true, log every raw byte chunk received from the provider's SSE
+   * stream to stderr. Shows hex dump and UTF-8 decode side by side so you
+   * can spot truncated JSON, missing fields, or mid-stream cutoffs.
+   * Controlled by WRONGSTACK_DEBUG_STREAM=1 env var.
+   */
+  debugStream?: boolean | undefined;
+  /**
+   * Maximum time (ms) to wait for the next chunk of data before declaring
+   * a stream hang. Default: 60_000 (60 seconds). Set to 0 to disable.
+   * When a hang is detected, a StreamHangError is thrown so the agent
+   * loop can retry the iteration.
+   */
+  streamHangTimeoutMs?: number | undefined;
+}
 
 /** Validate fetchImpl response has required fields; normalize missing body to null. */
 function validateResponse(res: unknown): asserts res is Response2 {
@@ -35,12 +55,43 @@ async function safeText(res: Response2): Promise<string> {
   }
 }
 
+/** Log a raw byte chunk in hex-dump format to stderr. */
+function logRawChunk(
+  providerId: string,
+  chunkIndex: number,
+  bytes: Uint8Array,
+  elapsedMs: number,
+): void {
+  const ts = new Date().toISOString();
+  const decoder = new TextDecoder('utf-8', { fatal: false });
+  const header = `[DEBUG-STREAM ${providerId}] chunk #${chunkIndex} (${bytes.length}B, +${elapsedMs}ms) ${ts}`;
+  process.stderr.write(`${header}\n`);
+
+  // Hex dump: 16 bytes per row, hex on left, ASCII on right
+  for (let offset = 0; offset < bytes.length; offset += 16) {
+    const slice = bytes.slice(offset, offset + 16);
+    const hex = Array.from(slice)
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join(' ');
+    const ascii = Array.from(slice)
+      .map((b) => (b >= 0x20 && b < 0x7f ? String.fromCodePoint(b) : '.'))
+      .join('');
+    const addr = offset.toString(16).padStart(6, '0');
+    process.stderr.write(`  ${addr}  ${hex.padEnd(48)} |${ascii}|\n`);
+  }
+  process.stderr.write(`  --- decoded (UTF-8): ${decoder.decode(bytes).slice(0, 500)}${bytes.length > 500 ? '…' : ''}\n`);
+}
+
+const DEFAULT_STREAM_HANG_TIMEOUT_MS = 60_000;
+
 /**
  * Shared HTTP mechanics for streaming providers.
  * Providers extend this to get:
  *   - canonical error handling (ProviderError with retryable flag)
  *   - SSE body parsing via parseSSE()
  *   - abort signal wiring
+ *   - optional raw-stream debug logging
+ *   - optional stream hang detection
  *
  * Subclasses implement the abstract members to provide their specific wire format.
  */
@@ -48,12 +99,18 @@ export abstract class WireAdapter implements Provider {
   abstract readonly id: string;
   abstract readonly capabilities: Capabilities;
 
+  protected readonly debugStream: boolean;
+  protected readonly streamHangTimeoutMs: number;
+
   constructor(
     protected readonly apiKey: string,
     protected readonly baseUrl: string,
     public readonly fetchImpl: typeof fetch = fetch,
+    streamOpts: WireAdapterStreamOptions = {},
   ) {
     if (!apiKey) throw new Error(`${this.constructor.name}: apiKey required`);
+    this.debugStream = streamOpts.debugStream ?? false;
+    this.streamHangTimeoutMs = streamOpts.streamHangTimeoutMs ?? DEFAULT_STREAM_HANG_TIMEOUT_MS;
   }
 
   async complete(req: Request, opts: { signal: AbortSignal }): Promise<Response> {
@@ -89,7 +146,167 @@ export abstract class WireAdapter implements Provider {
       throw this.translateError(httpRes.status, text);
     }
 
-    yield* this.parseStream(httpRes.body, req.model);
+    let sseBody = httpRes.body;
+    if (!sseBody) {
+      // No body — emit nothing
+      return;
+    }
+
+    // Layer 1: debug logging — wrap the stream to log raw bytes.
+    // Checks both the instance-level option (set at construction) AND the
+    // runtime singleton (flipped via /settings or setDebugStreamEnabled) so
+    // toggles take effect on the next request without recreating providers.
+    if (this.debugStream || isDebugStreamEnabled()) {
+      sseBody = this.wrapDebugStream(sseBody);
+    }
+
+    // Layer 2: hang detection — wrap with timeout-aware reader
+    if (this.streamHangTimeoutMs > 0) {
+      sseBody = this.wrapWithHangDetection(sseBody, req.model);
+    }
+
+    yield* this.parseStream(sseBody, req.model);
+  }
+
+  /**
+   * Wrap a readable stream body to log every incoming byte chunk as a
+   * hex dump + UTF-8 decode to stderr. This is a diagnostic tool for
+   * detecting when API endpoints cut off mid-stream, send malformed
+   * JSON, or stop producing data.
+   */
+  private wrapDebugStream(
+    body: ReadableStream<Uint8Array> | NodeJS.ReadableStream,
+  ): ReadableStream<Uint8Array> | NodeJS.ReadableStream {
+    // Node.js Readable stream — use async iterator
+    if (isNodeReadable(body)) {
+      return this.wrapDebugNodeStream(body as NodeJS.ReadableStream) as NodeJS.ReadableStream;
+    }
+    // Web ReadableStream — wrap reader
+    return this.wrapDebugWebStream(body as ReadableStream<Uint8Array>);
+  }
+
+  private wrapDebugNodeStream(body: NodeJS.ReadableStream): NodeJS.ReadableStream {
+    const startTime = Date.now();
+    let chunkIndex = 0;
+    const providerId = this.id;
+
+    return Readable.from(
+      (async function* () {
+        for await (const chunk of body) {
+          // Normalize to Uint8Array: string → encode, Buffer → view
+          const bytes: Uint8Array =
+            typeof chunk === 'string'
+              ? new TextEncoder().encode(chunk)
+              : new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+          logRawChunk(providerId, chunkIndex++, bytes, Date.now() - startTime);
+          yield chunk;
+        }
+      })(),
+    );
+  }
+
+  private wrapDebugWebStream(
+    body: ReadableStream<Uint8Array>,
+  ): ReadableStream<Uint8Array> {
+    const startTime = Date.now();
+    let chunkIndex = 0;
+    const self = this;
+    const reader = body.getReader();
+
+    return new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        const { done, value } = await reader.read();
+        if (done) {
+          controller.close();
+          return;
+        }
+        if (value) {
+          logRawChunk(self.id, chunkIndex++, value, Date.now() - startTime);
+        }
+        controller.enqueue(value);
+      },
+      cancel(reason) {
+        reader.cancel(reason);
+      },
+    });
+  }
+
+  /**
+   * Wrap a readable stream to detect hangs — when no data arrives for
+   * longer than `streamHangTimeoutMs`. When a hang is detected, throws
+   * `StreamHangError` so the caller can retry or fall back.
+   */
+  private wrapWithHangDetection(
+    body: ReadableStream<Uint8Array> | NodeJS.ReadableStream,
+    model: string,
+  ): ReadableStream<Uint8Array> | NodeJS.ReadableStream {
+    if (isNodeReadable(body)) {
+      return this.wrapHangNodeStream(body as NodeJS.ReadableStream, model);
+    }
+    return this.wrapHangWebStream(body as ReadableStream<Uint8Array>, model);
+  }
+
+  private wrapHangNodeStream(
+    body: NodeJS.ReadableStream,
+    model: string,
+  ): NodeJS.ReadableStream {
+    // Node Readable → Web ReadableStream, then use the race-based
+    // web wrapper that properly detects hangs even when no chunks arrive.
+    // The for-await approach only checks BETWEEN chunks — a stalled stream
+    // that never yields another chunk would freeze indefinitely.
+    const webStream = Readable.toWeb(body as Readable);
+    const wrappedWeb = this.wrapHangWebStream(webStream as ReadableStream<Uint8Array>, model);
+    return Readable.fromWeb(wrappedWeb as unknown as ReadableStream) as NodeJS.ReadableStream;
+  }
+
+  private wrapHangWebStream(
+    body: ReadableStream<Uint8Array>,
+    model: string,
+  ): ReadableStream<Uint8Array> {
+    const startTime = Date.now();
+    let bytesReceived = 0;
+    const timeout = this.streamHangTimeoutMs;
+    const providerId = this.id;
+    const reader = body.getReader();
+
+    return new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        // Race the read against a hang timeout
+        const readPromise = reader.read();
+        const timeoutPromise = new Promise<{ timedOut: true }>((resolve) => {
+          setTimeout(() => resolve({ timedOut: true }), timeout);
+        });
+
+        const result = await Promise.race([readPromise, timeoutPromise]);
+
+        if ('timedOut' in result && result.timedOut) {
+          // The read is still pending — this is a hang.
+          // Cancel the reader and throw.
+          reader.cancel('stream hang detected').catch(() => {});
+          const elapsedMs = Date.now() - startTime;
+          throw new StreamHangError({
+            providerId,
+            model,
+            hangTimeoutMs: timeout,
+            bytesReceived,
+            elapsedMs,
+          });
+        }
+
+        const { done, value } = result as Awaited<ReturnType<typeof reader.read>>;
+        if (done) {
+          controller.close();
+          return;
+        }
+        if (value) {
+          bytesReceived += value.length;
+        }
+        controller.enqueue(value);
+      },
+      cancel(reason) {
+        reader.cancel(reason);
+      },
+    });
   }
 
   // ─── Abstract / overridable ───────────────────────────────────────────────
@@ -118,4 +335,13 @@ export abstract class WireAdapter implements Provider {
   protected translateError(status: number, body: string): ProviderError {
     return parseProviderHttpError(this.id, status, body);
   }
+}
+
+function isNodeReadable(b: unknown): boolean {
+  return (
+    !!b &&
+    typeof b === 'object' &&
+    typeof (b as { pipe?: unknown | undefined }).pipe === 'function' &&
+    typeof (b as { on?: unknown | undefined }).on === 'function'
+  );
 }

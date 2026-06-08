@@ -91,7 +91,24 @@ export function buildModelCapsCommand(opts: SlashCommandContext): SlashCommand {
       let providers: CacheProvider[];
       try {
         const raw = await fs.readFile(cachePath, 'utf8');
-        providers = JSON.parse(raw) as CacheProvider[];
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        // The cache file is a CacheEnvelope: { fetchedAt, url, payload: Record<id, ModelsDevProvider> }.
+        // Extract the payload (if enveloped) and convert the provider-object to an array.
+        const payload = ((parsed.payload ?? parsed) as Record<string, Record<string, unknown>>);
+        providers = Object.entries(payload).map(([id, p]) => ({
+          id: (p.id as string) ?? id,
+          name: (p.name as string) ?? id,
+          family: (p.npm as string) ?? id,
+          models: Object.values((p.models as Record<string, Record<string, unknown>>) ?? {}).map((m) => ({
+            id: m.id as string,
+            name: m.name as string | undefined,
+            capabilities: {
+              contextWindow: (m.limit as { context?: number } | undefined)?.context,
+              maxOutputTokens: (m.limit as { output?: number } | undefined)?.output,
+            },
+            pricing: m.cost as { input?: number; output?: number } | undefined,
+          })),
+        }));
       } catch {
         return {
           message: [

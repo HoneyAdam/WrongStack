@@ -1,7 +1,7 @@
 import { expectDefined } from '@wrongstack/core';
 import { Box, Text, useInput, useStdin, useStdout } from 'ink';
 import type React from 'react';
-import { memo, useEffect, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { fnKey } from '../fn-keys.js';
 import { type InputCell, layoutInputRows } from '../input-tokens.js';
 export interface InputProps {
@@ -124,8 +124,13 @@ function isHomeEnd(data: string): 'home' | 'end' | null {
  * regardless of terminal configuration. Delete sends the escape sequence
  * `\x1b[3~` which Ink usually handles, but we include it here for completeness
  * and to avoid relying on Ink internals.
+ *
+ * Also aliases `\x1b\x7f` and `\x1b\x08` (ESC+Backspace / Meta+Backspace) to
+ * Ctrl+Backspace behaviour — delete the previous word. On macOS, Opt+Backspace
+ * sends this sequence, and on Linux, Alt+Backspace does as well.
  */
-function isBackspaceOrDelete(data: string): 'backspace' | 'delete' | null {
+function isBackspaceOrDelete(data: string): 'backspace' | 'delete' | 'metaBackspace' | null {
+  if (data === '\x1b\x7f' || data === '\x1b\x08') return 'metaBackspace';
   if (data === '\x7f' || data === '\x08') return 'backspace';
   if (data === '\x1b[3~') return 'delete';
   return null;
@@ -176,18 +181,57 @@ export const Input = memo(function Input({
   placeholderHeight,
   onKey,
 }: InputProps): React.ReactElement {
+  // Suppress duplicate Esc events: when our raw-stdin ESC buffer fires,
+  // Ink's useInput also saw the `\x1b` byte and will emit its own escape
+  // event. This ref prevents the double-emit from triggering the
+  // double-Esc clear-buffer feature unintentionally.
+  const suppressInkEscRef = useRef(false);
+
   useInput((input, key) => {
     if (disabled) return;
+    if (key.escape && suppressInkEscRef.current) {
+      suppressInkEscRef.current = false;
+      return;
+    }
     onKey(input, key as KeyEvent);
   });
 
   // Catch Home/End/Backspace/Delete that Ink's useInput may not surface
   // (especially on Windows Terminal where Backspace sends \x08 not \x7f).
+  //
+  // Also buffers a bare ESC for 10ms: if Backspace follows immediately,
+  // it's ALT+Backspace / Opt+Backspace (delete previous word). Arrow keys,
+  // Home, End, and other CSI sequences arrive within microseconds of the
+  // ESC byte so the 10ms window is wide enough to catch split sequences
+  // without introducing perceptible Esc latency. After 10ms with no
+  // follow-up, a real Esc press is emitted.
   const { stdin } = useStdin();
   useEffect(() => {
     if (!stdin || disabled) return;
+    let escTimer: ReturnType<typeof setTimeout> | null = null;
+
     const handleData = (data: Buffer) => {
       const s = data.toString();
+
+      // ESC buffering: see comment block above.
+      if (s === '\x1b') {
+        escTimer = setTimeout(() => {
+          escTimer = null;
+          suppressInkEscRef.current = true;
+          onKey('', { ...EMPTY_KEY, escape: true });
+        }, 10);
+        return;
+      }
+      if (escTimer !== null) {
+        clearTimeout(escTimer);
+        escTimer = null;
+        if (s === '\x7f' || s === '\x08') {
+          onKey('', { ...EMPTY_KEY, backspace: true, ctrl: true });
+          return;
+        }
+        // Not Backspace — let Ink handle the full sequence.
+        return;
+      }
 
       // Home / End
       const homeEnd = isHomeEnd(s);
@@ -211,6 +255,13 @@ export const Input = memo(function Input({
         onKey('', { ...EMPTY_KEY, delete: true });
         return;
       }
+      if (bsdel === 'metaBackspace') {
+        // ALT+Backspace / Opt+Backspace — delete previous word.
+        // Translate to Ctrl+Backspace which the handleKey router already
+        // handles by slicing from the last space to the cursor.
+        onKey('', { ...EMPTY_KEY, backspace: true, ctrl: true });
+        return;
+      }
 
       // Mouse wheel (SGR protocol — terminal must have \x1b[?1000h + \x1b[?1006h set).
       // Wheel events scroll the chat viewport; button events are ignored here.
@@ -226,6 +277,7 @@ export const Input = memo(function Input({
     };
     stdin.on('data', handleData);
     return () => {
+      if (escTimer !== null) clearTimeout(escTimer);
       stdin.off('data', handleData);
     };
   }, [stdin, disabled, onKey]);

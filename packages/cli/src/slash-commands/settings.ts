@@ -32,6 +32,8 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
     '  /settings delay <seconds>     Auto-proceed delay in auto mode (0 disables)',
     '  /settings mode <off|suggest|auto>   Default autonomy mode at startup',
     '  /settings hints on|off        Show or suppress rotating launch hints',
+    '  /settings debug-stream on|off   Raw SSE hex-dump to stderr for debugging',
+    '  /settings config-scope global|project   Save settings globally or per-project',
     '  /settings defaults            Show built-in default values',
     '',
     'Settings are persisted to ~/.wrongstack/config.json.',
@@ -44,12 +46,16 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
     const delay = autonomy?.autoProceedDelayMs ?? 45_000;
     const mode = autonomy?.defaultMode ?? 'off';
     const hints = opts.configStore.get().hints !== false; // default true
+    const debugStream = opts.configStore.get().debugStream === true;
+    const configScope = opts.configStore.get().configScope ?? 'global';
     return [
       `${color.bold('WrongStack')} ${color.dim('— Settings')}`,
       '',
       `  auto-proceed delay:    ${color.cyan(formatDelay(delay))}   ${color.dim('change: /settings delay <seconds>')}`,
       `  default autonomy mode: ${color.cyan(mode)}   ${color.dim('change: /settings mode off|suggest|auto')}`,
       `  launch hints:          ${hints ? color.cyan('on') : color.dim('off')}   ${color.dim('change: /settings hints on|off')}`,
+      `  debug stream:         ${debugStream ? color.cyan('on') : color.dim('off')}   ${color.dim('change: /settings debug-stream on|off')}`,
+      `  config scope:         ${color.cyan(configScope)}   ${color.dim('change: /settings config-scope global|project')}`,
       '',
       color.dim('  Persisted to ~/.wrongstack/config.json · /settings help for more'),
     ].join('\n');
@@ -95,6 +101,7 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
       const persistDeps = {
         configStore: opts.configStore,
         globalConfigPath: opts.paths.globalConfig,
+        inProjectConfigPath: opts.paths.inProjectConfig,
         vault: noOpVault,
       };
 
@@ -143,8 +150,39 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
           return { message: `${color.green('✓')} launch hints → ${on ? color.cyan('on') : color.dim('off')}` };
         }
 
+        if (sub === 'debug-stream') {
+          const raw = (parts[1] ?? '').toLowerCase();
+          if (!['on', 'off'].includes(raw)) {
+            return { message: `${color.amber('Usage:')} /settings debug-stream on|off` };
+          }
+          const on = raw === 'on';
+          // Flip the runtime singleton — WireAdapter checks this on every
+          // stream() call, so the toggle takes effect on the next request.
+          const { setDebugStreamEnabled } = await import('@wrongstack/providers');
+          setDebugStreamEnabled(on);
+          // Persist to config so it survives restarts
+          await persistConfigSetting(persistDeps, (cfg) => {
+            (cfg as Record<string, unknown>).debugStream = on;
+          });
+          return { message: `${color.green('✓')} debug stream → ${on ? color.cyan('on') : color.dim('off')}   ${color.dim('raw SSE hex-dump to stderr')}` };
+        }
+
+        if (sub === 'config-scope') {
+          const raw = (parts[1] ?? '').toLowerCase();
+          if (!['global', 'project'].includes(raw)) {
+            return { message: `${color.amber('Usage:')} /settings config-scope global|project` };
+          }
+          await persistConfigSetting(persistDeps, (cfg) => {
+            cfg.configScope = raw;
+          });
+          const label = raw === 'project'
+            ? `${color.cyan('project')} — settings saved to <project>/.wrongstack/config.json`
+            : `${color.cyan('global')} — settings saved to ~/.wrongstack/config.json`;
+          return { message: `${color.green('✓')} config scope → ${label}` };
+        }
+
         return {
-          message: `${color.red('Unknown setting')} "${sub}". Try ${color.dim('/settings')}, ${color.dim('/settings delay <s>')}, ${color.dim('/settings mode <m>')}, or ${color.dim('/settings hints on|off')}.`,
+          message: `${color.red('Unknown setting')} "${sub}". Try ${color.dim('/settings')}, ${color.dim('/settings delay <s>')}, ${color.dim('/settings mode <m>')}, ${color.dim('/settings hints on|off')}, ${color.dim('/settings debug-stream on|off')}, or ${color.dim('/settings config-scope global|project')}.`,
         };
       } catch (err) {
         return {

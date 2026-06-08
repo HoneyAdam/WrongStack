@@ -13,7 +13,7 @@ import { capabilitiesForFamily } from './family-capabilities.js';
 import { parseSSE } from './sse.js';
 import { normalizeAnthropic } from './stop-reason.js';
 import { toolsToAnthropic } from './tool-format/to-anthropic.js';
-import { WireAdapter } from './wire-adapter.js';
+import { WireAdapter, type WireAdapterStreamOptions } from './wire-adapter.js';
 
 export interface AnthropicProviderOptions {
   apiKey: string;
@@ -21,6 +21,8 @@ export interface AnthropicProviderOptions {
   apiVersion?: string | undefined;
   beta?: string[] | undefined;
   fetchImpl?: typeof fetch | undefined;
+  /** Raw stream debugging and hang-detection options. */
+  streamOpts?: WireAdapterStreamOptions | undefined;
 }
 
 const DEFAULT_BASE = 'https://api.anthropic.com';
@@ -42,7 +44,7 @@ export class AnthropicProvider extends WireAdapter {
   private readonly opts: AnthropicProviderOptions;
 
   constructor(opts: AnthropicProviderOptions) {
-    super(opts.apiKey, opts.baseUrl ?? DEFAULT_BASE, opts.fetchImpl);
+    super(opts.apiKey, opts.baseUrl ?? DEFAULT_BASE, opts.fetchImpl, opts.streamOpts);
     this.opts = opts;
   }
 

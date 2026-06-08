@@ -5,6 +5,7 @@ import {
   type Logger,
   type Provider,
   ProviderError,
+  StreamHangError,
 } from '@wrongstack/core';
 
 export interface FallbackModelDeps {
@@ -50,9 +51,28 @@ export function parseModelRef(ref: string): ModelRef {
   return { model: trimmed };
 }
 
-function overloadStatus(err: unknown): number | null {
+/**
+ * Check if an error should trigger a fallback. Returns the status for
+ * logging, or null if the error doesn't warrant a fallback attempt.
+ *
+ * Triggers on:
+ *   - StreamHangError (always — the upstream endpoint stalled mid-response)
+ *   - HTTP 429 (rate limited)
+ *   - HTTP 529 (overloaded)
+ *   - HTTP 5xx (server error)
+ *   - HTTP 0 / network error (connection failure, DNS failure, etc.)
+ */
+function shouldFallback(err: unknown): number | null {
+  if (err instanceof StreamHangError) {
+    // Stream hangs are always worth falling back — the endpoint is
+    // likely overloaded or has a routing issue.
+    return 599;
+  }
   if (!(err instanceof ProviderError)) return null;
   const s = err.status;
+  // Network errors (status 0) — connection couldn't be established
+  if (s === 0) return s;
+  // Rate limits, overload, and server errors
   if (s === 429 || s === 529 || s >= 500) return s;
   return null;
 }
@@ -105,8 +125,8 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
         const chain = cfg.fallbackModels ?? [];
 
         for (const ref of chain) {
-          const status = overloadStatus(lastErr);
-          if (status === null) break; // not an overload — stop falling back
+          const status = shouldFallback(lastErr);
+          if (status === null) break; // not a fallback-worthy error
 
           const parsed = parseModelRef(ref);
           if (!parsed.model) continue;

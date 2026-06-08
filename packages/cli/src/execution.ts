@@ -19,7 +19,7 @@ import type {
   TokenCounter,
 } from '@wrongstack/core';
 import { color, mergeCustomModelDefs, writeOut, type AutonomyStage, decryptConfigSecrets, encryptConfigSecrets, atomicWrite } from '@wrongstack/core';
-import { persistAutonomySetting } from './settings-menu.js';
+import { filterSafeForProject, persistAutonomySetting } from './settings-menu.js';
 import type { ProviderConfig, ResolvedProvider, WstackPaths } from '@wrongstack/core';
 import type { MCPRegistry } from '@wrongstack/mcp';
 import { createToolVisionAdapters } from '@wrongstack/runtime/vision';
@@ -456,6 +456,9 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
               auditLevel: cfg.session?.auditLevel ?? 'standard',
               indexOnStart: cfg.indexing?.onSessionStart !== false,
               maxIterations: cfg.tools?.maxIterations ?? 500,
+              debugStream: cfg.debugStream ?? false,
+              configScope: cfg.configScope ?? 'global',
+              enhanceDelayMs: (cfg.autonomy as Record<string, unknown> | undefined)?.enhanceDelayMs as number ?? 60_000,
             };
           },
           async saveSettings(s: {
@@ -478,6 +481,9 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
             auditLevel?: string | undefined;
             indexOnStart?: boolean | undefined;
             maxIterations?: number | undefined;
+            debugStream?: boolean | undefined;
+            configScope?: 'global' | 'project' | undefined;
+            enhanceDelayMs?: number | undefined;
           }) {
             try {
               // Persist autonomy section (existing behaviour).
@@ -485,6 +491,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
                 {
                   configStore,
                   globalConfigPath: wpaths.globalConfig,
+                  inProjectConfigPath: wpaths.inProjectConfig,
                   vault: { encrypt: (v) => v, decrypt: (v) => v, isEncrypted: () => false },
                 },
                 (autonomy) => {
@@ -514,9 +521,20 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
                 s.auditLevel !== undefined ||
                 s.indexOnStart !== undefined ||
                 s.maxIterations !== undefined ||
-                s.nextPrediction !== undefined
+                s.nextPrediction !== undefined ||
+                s.debugStream !== undefined ||
+                s.configScope !== undefined ||
+                s.enhanceDelayMs !== undefined
               ) {
-                const raw = await fs.readFile(wpaths.globalConfig, 'utf8').catch(() => '{}');
+                // Resolve target config path based on scope.
+                // When scope is 'project', write to projectLocalConfig
+                // so provider/model/ux settings live in the project folder.
+                const configScope = s.configScope ?? (configStore.get().configScope ?? 'global');
+                const targetPath =
+                  configScope === 'project' && wpaths.inProjectConfig
+                    ? wpaths.inProjectConfig
+                    : wpaths.globalConfig;
+                const raw = await fs.readFile(targetPath, 'utf8').catch(() => '{}');
                 const parsed = JSON.parse(raw) as Record<string, unknown>;
                 const vault = { encrypt: (v: string) => v, decrypt: (v: string) => v, isEncrypted: () => false };
                 const decrypted = decryptConfigSecrets(parsed, vault) as Record<string, unknown>;
@@ -565,8 +583,31 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
                   tools.maxIterations = s.maxIterations;
                   decrypted.tools = tools;
                 }
-                const encrypted = encryptConfigSecrets(decrypted, vault);
-                await atomicWrite(wpaths.globalConfig, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
+                if (s.debugStream !== undefined) {
+                  decrypted.debugStream = s.debugStream;
+                  // Flip the runtime singleton so the toggle takes effect
+                  // on the next provider request without a restart.
+                  const { setDebugStreamEnabled } = await import('@wrongstack/providers');
+                  setDebugStreamEnabled(s.debugStream);
+                }
+                if (s.configScope !== undefined) {
+                  decrypted.configScope = s.configScope;
+                }
+                if (s.enhanceDelayMs !== undefined) {
+                  const autonomy = (decrypted.autonomy as Record<string, unknown>) ?? {};
+                  autonomy.enhanceDelayMs = s.enhanceDelayMs;
+                  decrypted.autonomy = autonomy;
+                }
+                // When writing to the project-local config, strip credentials
+                // so apiKey / providers / sync never leak into a per-project file.
+                const toWrite =
+                  targetPath === wpaths.globalConfig ? decrypted : filterSafeForProject(decrypted);
+                const encrypted = encryptConfigSecrets(toWrite, vault);
+                // Ensure the project directory exists before writing
+                if (targetPath !== wpaths.globalConfig) {
+                  await fs.mkdir(path.dirname(targetPath), { recursive: true }).catch(() => {});
+                }
+                await atomicWrite(targetPath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
 
                 // Sync in-memory config store.
                 configStore.update({
@@ -581,6 +622,11 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
                   ...(s.auditLevel !== undefined ? { session: decrypted.session as Config['session'] } : {}),
                   ...(s.indexOnStart !== undefined ? { indexing: decrypted.indexing as Config['indexing'] } : {}),
                   ...(s.maxIterations !== undefined ? { tools: decrypted.tools as Config['tools'] } : {}),
+                  ...(s.debugStream !== undefined ? { debugStream: s.debugStream } : {}),
+                  ...(s.configScope !== undefined ? { configScope: s.configScope as 'global' | 'project' } : {}),
+                  ...(s.enhanceDelayMs !== undefined
+                    ? { autonomy: { ...((configStore.get().autonomy as Record<string, unknown>) ?? {}), enhanceDelayMs: s.enhanceDelayMs } as Config['autonomy'] }
+                    : {}),
                 });
               }
 

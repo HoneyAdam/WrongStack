@@ -552,7 +552,7 @@ export function App({
       searchQuery: '',
     },
     autonomyPicker: { open: false, options: [], selected: 0 },
-    settingsPicker: { open: false, field: 0, mode: 'off', delayMs: 0, titleAnimation: true, yolo: false, streamFleet: true, chime: false, confirmExit: true, nextPrediction: false, featureMcp: true, featurePlugins: true, featureMemory: true, featureSkills: true, featureModelsRegistry: true, contextAutoCompact: true, contextStrategy: 'hybrid', logLevel: 'info', auditLevel: 'standard', indexOnStart: true, maxIterations: 500, enhanceDelayMs: 60_000 },
+    settingsPicker: { open: false, field: 0, mode: 'off', delayMs: 0, titleAnimation: true, yolo: false, streamFleet: true, chime: false, confirmExit: true, nextPrediction: false, featureMcp: true, featurePlugins: true, featureMemory: true, featureSkills: true, featureModelsRegistry: true, contextAutoCompact: true, contextStrategy: 'hybrid', logLevel: 'info', auditLevel: 'standard', indexOnStart: true, maxIterations: 500, enhanceDelayMs: 60_000, debugStream: false, configScope: 'global' },
     confirmQueue: [],
     enhance: null,
     enhanceEnabled,
@@ -1129,6 +1129,8 @@ export function App({
             indexOnStart: sp.indexOnStart,
             maxIterations: sp.maxIterations,
             enhanceDelayMs: sp.enhanceDelayMs,
+            debugStream: sp.debugStream,
+            configScope: sp.configScope,
           });
         }
         if (prev.help) dispatch({ type: 'toggleHelp' });
@@ -1433,7 +1435,7 @@ export function App({
         const subagentsTerminated = subagents.length;
         const partialAssistantText = streamingTextRef.current.slice(-1500);
 
-        activeCtrlRef.current?.abort();
+        activeCtrlRef.current?.abort('user interrupt (/steer)');
         dispatch({
           type: 'steerStart',
           snapshot: { runningTools, subagents, subagentsTerminated, partialAssistantText },
@@ -1580,6 +1582,8 @@ export function App({
       indexOnStart: s.indexOnStart ?? true,
       maxIterations: s.maxIterations ?? 500,
       enhanceDelayMs: s.enhanceDelayMs ?? 60_000,
+      debugStream: s.debugStream ?? false,
+      configScope: s.configScope ?? 'global',
     });
   }, [getSettings]);
 
@@ -1629,6 +1633,8 @@ export function App({
       indexOnStart: sp.indexOnStart,
       maxIterations: sp.maxIterations,
       enhanceDelayMs: sp.enhanceDelayMs,
+      debugStream: sp.debugStream,
+      configScope: sp.configScope,
     })).then((err: string | null) => {
       if (err) dispatch({ type: 'settingsHint', text: err });
     });
@@ -2043,7 +2049,7 @@ export function App({
       }
 
       if (activeCtrlRef.current) {
-        activeCtrlRef.current.abort();
+        activeCtrlRef.current.abort('user interrupt (Ctrl+C)');
         dispatch({ type: 'status', status: 'aborting' });
         // Kill every running subagent on the first interrupt — without
         // this the parent agent.run() stays parked in `await delegate
@@ -2728,6 +2734,8 @@ export function App({
           indexOnStart: cfg.indexOnStart ?? true,
           maxIterations: cfg.maxIterations ?? 500,
           enhanceDelayMs: cfg.enhanceDelayMs ?? 60_000,
+          debugStream: cfg.debugStream ?? false,
+          configScope: cfg.configScope ?? 'global',
         });
       }
       return;
@@ -2826,6 +2834,8 @@ export function App({
           indexOnStart: cfg.indexOnStart ?? true,
           maxIterations: cfg.maxIterations ?? 500,
           enhanceDelayMs: cfg.enhanceDelayMs ?? 60_000,
+          debugStream: cfg.debugStream ?? false,
+          configScope: cfg.configScope ?? 'global',
         });
       }
       return;
@@ -3187,7 +3197,10 @@ export function App({
       dispatch({ type: 'streamReset' });
 
       if (result.status === 'aborted') {
-        dispatch({ type: 'addEntry', entry: { kind: 'warn', text: 'Aborted.' } });
+        const reason = result.abortReason
+          ? `Aborted (${result.abortReason}).`
+          : 'Aborted.';
+        dispatch({ type: 'addEntry', entry: { kind: 'warn', text: reason } });
       } else if (result.status === 'failed') {
         const err = result.error;
         const text = err
@@ -3889,6 +3902,8 @@ export function App({
               indexOnStart={state.settingsPicker.indexOnStart}
               maxIterations={state.settingsPicker.maxIterations}
               enhanceDelayMs={state.settingsPicker.enhanceDelayMs}
+              debugStream={state.settingsPicker.debugStream}
+              configScope={state.settingsPicker.configScope}
               hint={state.settingsPicker.hint}
             />
           ) : null}
@@ -3950,7 +3965,7 @@ export function App({
                   const escConfirm = state.escConfirm;
                   if (!escConfirm) return;
                   const { snapshot } = escConfirm;
-                  activeCtrlRef.current?.abort();
+                  activeCtrlRef.current?.abort('user interrupt (Esc)');
                   dispatch({ type: 'status', status: 'aborting' });
                   dispatch({ type: 'steerStart', snapshot });
                   if (director && snapshot.subagentsTerminated > 0) {

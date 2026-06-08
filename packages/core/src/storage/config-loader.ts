@@ -221,13 +221,17 @@ export class DefaultConfigLoader implements ConfigLoader {
   ): Promise<Config> {
     let cfg: PartialConfig = { ...BEHAVIOR_DEFAULTS } as PartialConfig;
 
-    // Layer 2 & 3: global + project-local config — read in parallel
-    const [global, local] = await Promise.all([
+    // Layer 2, 3 & 3b: global + project-local + in-project config — read in parallel.
+    // inProjectConfig (<project>/.wrongstack/config.json) merges AFTER
+    // projectLocalConfig so it takes priority (user-intended > auto-cached).
+    const [global, local, inProject] = await Promise.all([
       this.readJson(this.paths.globalConfig),
       this.readJson(this.paths.projectLocalConfig),
+      this.readJson(this.paths.inProjectConfig),
     ]);
     cfg = deepMerge(cfg, global);
     cfg = deepMerge(cfg, local);
+    cfg = deepMerge(cfg, inProject);
 
     // Layer 4: env vars
     for (const [key, fn] of Object.entries(ENV_MAP)) {

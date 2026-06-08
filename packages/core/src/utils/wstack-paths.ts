@@ -59,6 +59,9 @@ export interface WstackPaths {
   projectMeta: string;
   /** ~/.wrongstack/projects/<hash>/config.local.json — optional override */
   projectLocalConfig: string;
+  /** <project>/.wrongstack/config.json — per-project settings (safe fields only).
+   *  This lives inside the project root so it can be gitignored or shared. */
+  inProjectConfig: string;
   /** <project>/.wrongstack/AGENTS.md — committed project memory. */
   inProjectAgentsFile: string;
   /** <project>/.wrongstack/skills — committed project skills. */
@@ -144,6 +147,7 @@ export function resolveWstackPaths(opts: WstackPathOptions): WstackPaths {
     projectTrust: path.join(projectDir, 'trust.json'),
     projectMeta: path.join(projectDir, 'meta.json'),
     projectLocalConfig: path.join(projectDir, 'config.local.json'),
+    inProjectConfig: path.join(opts.projectRoot, '.wrongstack', 'config.json'),
     inProjectAgentsFile: path.join(opts.projectRoot, '.wrongstack', 'AGENTS.md'),
     inProjectSkills: path.join(opts.projectRoot, '.wrongstack', 'skills'),
     inProjectWorktrees: path.join(opts.projectRoot, '.wrongstack', 'worktrees'),

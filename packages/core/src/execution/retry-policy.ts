@@ -18,6 +18,7 @@ export class DefaultRetryPolicy implements RetryPolicy {
     if (err instanceof ProviderError) {
       if (err.status === 429) return 5;
       if (err.status === 529) return 3;
+      if (err.status === 599) return 5; // stream hang — transient, worth retrying aggressively
       if (err.status >= 500) return 3;
       return 0;
     }

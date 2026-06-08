@@ -13,7 +13,7 @@ import { parseProviderHttpError } from './error-parse.js';
 import { capabilitiesForFamily } from './family-capabilities.js';
 import { parseSSE } from './sse.js';
 import { normalizeGemini } from './stop-reason.js';
-import { WireAdapter } from './wire-adapter.js';
+import { WireAdapter, type WireAdapterStreamOptions } from './wire-adapter.js';
 
 /**
  * Google Gemini wire format (generativelanguage.googleapis.com).
@@ -34,6 +34,8 @@ export interface GoogleProviderOptions {
   fetchImpl?: typeof fetch | undefined;
   id?: string | undefined;
   capabilities?: Partial<Capabilities> | undefined;
+  /** Raw stream debugging and hang-detection options. */
+  streamOpts?: WireAdapterStreamOptions | undefined;
 }
 
 const DEFAULT_BASE = 'https://generativelanguage.googleapis.com/v1beta';
@@ -69,7 +71,7 @@ export class GoogleProvider extends WireAdapter {
 
 
   constructor(opts: GoogleProviderOptions) {
-    super(opts.apiKey, opts.baseUrl ?? DEFAULT_BASE, opts.fetchImpl);
+    super(opts.apiKey, opts.baseUrl ?? DEFAULT_BASE, opts.fetchImpl, opts.streamOpts);
     this.id = opts.id ?? 'google';
     this.capabilities = capabilitiesForFamily('google', {
       ...opts.capabilities,

@@ -9,7 +9,7 @@ import type {
 import type { ProviderError } from '@wrongstack/core';
 import { parseProviderHttpError } from './error-parse.js';
 import { type SSEMessage, parseSSE } from './sse.js';
-import { WireAdapter } from './wire-adapter.js';
+import { WireAdapter, type WireAdapterStreamOptions } from './wire-adapter.js';
 
 /**
  * Declarative wire-format definition. Sufficient to add a new HTTP+SSE
@@ -73,9 +73,14 @@ export class WireFormatProvider<S = Record<string, unknown>> extends WireAdapter
 
   constructor(
     cfg: WireFormatConfig<S>,
-    opts: { apiKey: string; baseUrl?: string | undefined; fetchImpl?: typeof fetch | undefined },
+    opts: {
+      apiKey: string;
+      baseUrl?: string | undefined;
+      fetchImpl?: typeof fetch | undefined;
+      streamOpts?: WireAdapterStreamOptions | undefined;
+    },
   ) {
-    super(opts.apiKey, opts.baseUrl ?? cfg.defaultBaseUrl, opts.fetchImpl);
+    super(opts.apiKey, opts.baseUrl ?? cfg.defaultBaseUrl, opts.fetchImpl, opts.streamOpts);
     this.id = cfg.id;
     this.capabilities = cfg.capabilities;
     this.cfg = cfg;

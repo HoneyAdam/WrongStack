@@ -75,11 +75,18 @@ export interface SettingsPickerProps {
   maxIterations: number;
   /** Prompt refinement preview countdown (ms). Cycled via ENHANCE_DELAY_PRESETS. */
   enhanceDelayMs: number;
+  /** Raw SSE stream debugging toggle — hex-dump every byte received from providers. */
+  debugStream: boolean;
+  /** Where settings are persisted. */
+  configScope: ConfigScope;
   hint?: string | undefined;
 }
 
 /** Total number of settings rows (used for wrap-around navigation). */
-export const SETTINGS_FIELD_COUNT = 20;
+export const SETTINGS_FIELD_COUNT = 22;
+
+export const CONFIG_SCOPES = ['global', 'project'] as const;
+export type ConfigScope = (typeof CONFIG_SCOPES)[number];
 
 export function SettingsPicker({
   field,
@@ -103,6 +110,8 @@ export function SettingsPicker({
   indexOnStart,
   maxIterations,
   enhanceDelayMs,
+  debugStream,
+  configScope,
   hint,
 }: SettingsPickerProps): React.ReactElement {
   const boolVal = (v: boolean) => (v ? 'on' : 'off');
@@ -226,6 +235,18 @@ export function SettingsPicker({
       label: 'Refine preview countdown',
       value: formatEnhanceDelay(enhanceDelayMs),
       detail: 'Timeout for prompt refinement preview (30s–120s)',
+    },
+    // ── Debug ──
+    { section: 'Debug' },
+    {
+      label: 'Stream debug logging',
+      value: boolVal(debugStream),
+      detail: 'Hex-dump raw SSE bytes to stderr',
+    },
+    {
+      label: 'Config scope',
+      value: configScope,
+      detail: 'global (~/.wrongstack/) or project (.wrongstack/)',
     },
   ];
 

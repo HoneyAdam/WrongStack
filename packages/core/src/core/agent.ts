@@ -5,7 +5,7 @@ import { RunController } from '../kernel/run-controller.js';
 import { TOKENS } from '../kernel/tokens.js';
 import { createAgentToolHandler, type AgentToolHandler } from './agent-tools.js';
 import { createAgentResponseHandler, type AgentResponseHandler } from './agent-response.js';
-import { createAgentLoopHandler, type AgentLoopHandler } from './agent-loop.js';
+import { createAgentLoopHandler, signalAbortReason, type AgentLoopHandler } from './agent-loop.js';
 import type { ProviderRegistry } from '../registry/provider-registry.js';
 import type { ToolRegistry } from '../registry/tool-registry.js';
 import type { ErrorHandler } from '../types/error-handler.js';
@@ -177,6 +177,7 @@ export class Agent {
         status: signal.aborted ? 'aborted' : 'failed',
         iterations: 0,
         error: wse,
+        abortReason: signal.aborted ? signalAbortReason(signal) : undefined,
       };
       await this.extensions.runAfterRun(this.ctx, result);
       return result;

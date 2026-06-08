@@ -173,6 +173,15 @@ export interface SlashCommandContext {
   /** Direct access to the session's LLM provider and model, available even before the first agent run. */
   llmProvider?: import('@wrongstack/core').Provider | undefined;
   llmModel?: string | undefined;
+  /**
+   * Create a Provider instance for any configured provider by its id.
+   * Uses that provider's own API key (from config). Returns undefined
+   * when the provider is not configured or has no valid key.
+   *
+   * This enables slash commands like /modeldiag eval to test models
+   * across multiple providers, not just the currently active one.
+   */
+  createProvider?: ((providerId: string) => import('@wrongstack/core').Provider | undefined) | undefined;
   /** StatusBar visibility config — loaded from ~/.wrongstack/statusline.json */
   statuslineConfig?: {
     get: () => Promise<import('./statusline.js').StatuslineConfig>;
@@ -278,6 +287,8 @@ import { buildSddCommand } from './sdd.js';
 import { buildExitCommand, buildLoadCommand, buildSaveCommand } from './session.js';
 import { buildSetModelCommand } from './setmodel.js';
 import { buildModelCapsCommand } from './modelcaps.js';
+// modeldiag is now a CLI subcommand (wstack modeldiag), not a slash command.
+
 import { buildSettingsCommand } from './settings.js';
 import { buildTelegramSetupCommand } from './telegram-setup.js';
 import { buildAgentsCommand, buildDirectorCommand, buildSpawnCommand } from './spawn-agents.js';

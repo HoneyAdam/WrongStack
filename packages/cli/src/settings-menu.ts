@@ -1,4 +1,5 @@
 import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import {
   type ConfigStore,
   type SecretVault,
@@ -132,7 +133,73 @@ async function showDefaults(deps: SettingsMenuDeps): Promise<void> {
 export interface PersistSettingDeps {
   configStore: ConfigStore;
   globalConfigPath: string;
+  /** Per-project config path (<project>/.wrongstack/config.json).
+   *  Used when configScope === 'project'. Lives inside the project
+   *  root so it can be gitignored or team-shared. */
+  inProjectConfigPath?: string | undefined;
   vault: SecretVault;
+}
+
+function resolvePersistPath(deps: PersistSettingDeps): string {
+  const scope = (deps.configStore.get() as { configScope?: string | undefined }).configScope;
+  if (scope === 'project' && deps.inProjectConfigPath) {
+    return deps.inProjectConfigPath;
+  }
+  return deps.globalConfigPath;
+}
+
+async function ensureProjectDir(filePath: string): Promise<void> {
+  const dir = path.dirname(filePath);
+  try {
+    await fs.mkdir(dir, { recursive: true });
+  } catch {
+    // Directory already exists or is inaccessible — the write will surface the real error.
+  }
+}
+
+/**
+ * Fields that are safe to persist in a per-project `config.local.json`.
+ * Credential-bearing fields (apiKey, providers, sync) MUST NOT appear here —
+ * they stay in the global config only. The global config always gets the
+ * full unfiltered object.
+ *
+ * When adding a field here, ask: "Would I commit this to a shared repo?"
+ * If the answer is no, it doesn't belong on this list.
+ */
+const PROJECT_SAFE_FIELDS = new Set([
+  'provider',
+  'model',
+  'fallbackModels',
+  'modelMatrix',
+  'maxConcurrent',
+  'autonomy',
+  'hints',
+  'nextPrediction',
+  'debugStream',
+  'configScope',
+  'yolo',
+  'features',
+  'context',
+  'log',
+  'session',
+  'indexing',
+  'tools',
+  'launch',
+]);
+
+/**
+ * Strip credential-bearing and machine-specific fields from a config object
+ * so it is safe to write into a per-project `config.local.json` file.
+ * Returns a new object — the original is not mutated.
+ */
+export function filterSafeForProject(cfg: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(cfg)) {
+    if (PROJECT_SAFE_FIELDS.has(key)) {
+      out[key] = value;
+    }
+  }
+  return out;
 }
 
 /**
@@ -145,13 +212,16 @@ export async function persistAutonomySetting(
   deps: PersistSettingDeps,
   mutator: (autonomy: { autoProceedDelayMs?: number | undefined; defaultMode?: string | undefined }) => void,
 ): Promise<void> {
+  const targetPath = resolvePersistPath(deps);
+  await ensureProjectDir(targetPath);
+
   let raw: string;
   let fileExists = true;
   try {
-    raw = await fs.readFile(deps.globalConfigPath, 'utf8');
+    raw = await fs.readFile(targetPath, 'utf8');
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-      throw new Error(`Could not read ${deps.globalConfigPath}: ${(err as Error).message}`);
+      throw new Error(`Could not read ${targetPath}: ${(err as Error).message}`);
     }
     fileExists = false;
     raw = '{}';
@@ -162,7 +232,7 @@ export async function persistAutonomySetting(
     parsed = JSON.parse(raw) as Record<string, unknown>;
   } catch (err) {
     if (fileExists) {
-      throw new Error(`Config at ${deps.globalConfigPath} is not valid JSON: ${(err as Error).message}`);
+      throw new Error(`Config at ${targetPath} is not valid JSON: ${(err as Error).message}`);
     }
     parsed = {};
   }
@@ -172,8 +242,24 @@ export async function persistAutonomySetting(
   mutator(autonomy as { autoProceedDelayMs?: number | undefined; defaultMode?: string | undefined });
   decrypted.autonomy = autonomy;
 
-  const encrypted = encryptConfigSecrets(decrypted, deps.vault);
-  await atomicWrite(deps.globalConfigPath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
+  // Re-resolve path — the mutator might have changed configScope.
+  const newScope = decrypted.configScope as string | undefined;
+  const actualTarget =
+    newScope === 'project' && deps.inProjectConfigPath
+      ? deps.inProjectConfigPath
+      : newScope === 'global'
+        ? deps.globalConfigPath
+        : targetPath;
+  if (actualTarget !== targetPath) {
+    await ensureProjectDir(actualTarget);
+  }
+
+  // When writing to the project-local config, strip credentials so
+  // apiKey / providers / sync never leak into a per-project file.
+  const toWrite = actualTarget === deps.globalConfigPath ? decrypted : filterSafeForProject(decrypted);
+
+  const encrypted = encryptConfigSecrets(toWrite, deps.vault);
+  await atomicWrite(actualTarget, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
 
   // Also update the in-memory config store so changes are immediately visible
   deps.configStore.update({ autonomy: decrypted.autonomy as Parameters<typeof deps.configStore.update>[0]['autonomy'] });
@@ -188,13 +274,16 @@ export async function persistConfigSetting(
   deps: PersistSettingDeps,
   mutator: (config: Record<string, unknown>) => void,
 ): Promise<void> {
+  const targetPath = resolvePersistPath(deps);
+  await ensureProjectDir(targetPath);
+
   let raw: string;
   let fileExists = true;
   try {
-    raw = await fs.readFile(deps.globalConfigPath, 'utf8');
+    raw = await fs.readFile(targetPath, 'utf8');
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-      throw new Error(`Could not read ${deps.globalConfigPath}: ${(err as Error).message}`);
+      throw new Error(`Could not read ${targetPath}: ${(err as Error).message}`);
     }
     fileExists = false;
     raw = '{}';
@@ -205,7 +294,7 @@ export async function persistConfigSetting(
     parsed = JSON.parse(raw) as Record<string, unknown>;
   } catch (err) {
     if (fileExists) {
-      throw new Error(`Config at ${deps.globalConfigPath} is not valid JSON: ${(err as Error).message}`);
+      throw new Error(`Config at ${targetPath} is not valid JSON: ${(err as Error).message}`);
     }
     parsed = {};
   }
@@ -213,8 +302,28 @@ export async function persistConfigSetting(
   const decrypted = decryptConfigSecrets(parsed, deps.vault) as Record<string, unknown>;
   mutator(decrypted);
 
-  const encrypted = encryptConfigSecrets(decrypted, deps.vault);
-  await atomicWrite(deps.globalConfigPath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
+  // If the mutator changed configScope, re-resolve the target path.
+  // Without this, a scope change from 'project' → 'global' would write
+  // to the old project path instead of the new global one.
+  const newScope = decrypted.configScope as string | undefined;
+  const actualTarget =
+    newScope === 'project' && deps.inProjectConfigPath
+      ? deps.inProjectConfigPath
+      : newScope === 'global'
+        ? deps.globalConfigPath
+        : targetPath;
+
+  // Ensure the directory exists if we're writing to a new path
+  if (actualTarget !== targetPath) {
+    await ensureProjectDir(actualTarget);
+  }
+
+  // When writing to the project-local config, strip credentials so
+  // apiKey / providers / sync never leak into a per-project file.
+  const toWrite = actualTarget === deps.globalConfigPath ? decrypted : filterSafeForProject(decrypted);
+
+  const encrypted = encryptConfigSecrets(toWrite, deps.vault);
+  await atomicWrite(actualTarget, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
   deps.configStore.update(decrypted as Parameters<typeof deps.configStore.update>[0]);
 }
 

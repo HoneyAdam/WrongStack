@@ -27,6 +27,8 @@ export interface RunResult {
   finalText?: string | undefined;
   iterations: number;
   delegateSummaries?: Array<{ summary: string | undefined; ok: boolean }>;
+  /** Human-readable reason for abort (e.g. "user interrupt", "tool timeout", "stream hang"). */
+  abortReason?: string | undefined;
 }
 
 export interface AgentInit {

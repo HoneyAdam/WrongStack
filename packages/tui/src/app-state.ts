@@ -247,6 +247,10 @@ export type State = {
     maxIterations: number;
     /** Prompt refinement preview countdown (ms). */
     enhanceDelayMs: number;
+    /** Raw SSE stream debugging toggle. */
+    debugStream: boolean;
+    /** Where to persist settings: 'global' or 'project'. */
+    configScope: 'global' | 'project';
     hint?: string | undefined;
   };
   /** Pending tool confirmations — queue to handle multiple tools requesting confirmation. */
@@ -442,6 +446,10 @@ export type Settings = {
   maxIterations: number;
   /** Prompt refinement preview countdown (ms). */
   enhanceDelayMs: number;
+  /** Raw SSE stream debugging — hex-dump every byte received from providers. */
+  debugStream: boolean;
+  /** Where to persist settings: 'global' or 'project'. */
+  configScope: 'global' | 'project';
 };
 
 export type Action =
@@ -521,6 +529,8 @@ export type Action =
       indexOnStart: boolean;
       maxIterations: number;
       enhanceDelayMs: number;
+      debugStream: boolean;
+      configScope: 'global' | 'project';
     }
   | { type: 'settingsClose' }
   | { type: 'settingsFieldMove'; delta: number }
