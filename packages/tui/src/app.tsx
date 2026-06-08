@@ -745,6 +745,47 @@ export function App({
     return () => clearInterval(t);
   }, [agent.ctx.todos]);
 
+  // ── Status-bar live sync: autonomy, yolo, mode, model, provider ──
+  // These values are mutated inside the CLI (slash commands, engine
+  // callbacks, /model picks), but the TUI only picks them up on mount
+  // + slash-command dispatch. Without a poll, every other path that
+  // changes them (programmatic engine state flip, external /autonomy
+  // toggle, yolo toggle via hotkey) leaves the status bar stale.
+  //
+  // Polling every 2s with a ref gate keeps the cost near zero — each
+  // check is a synchronous property/function read; no filesystem, no
+  // subprocess. Only a state setter fires when the value actually changed.
+  const staleGuardRef = useRef(JSON.stringify({ a: '', y: false, m: '', model: '', provider: '' }));
+  useEffect(() => {
+    const poll = () => {
+      const a = getAutonomy?.() ?? 'off';
+      const y = getYolo?.() ?? false;
+      const m = getModeLabel?.() ?? '';
+      const curModel = agent.ctx.model;
+      const curProvider = (agent.ctx.provider as { id?: string | undefined } | undefined)?.id ?? '';
+      const snap = JSON.stringify({ a, y, m, model: curModel, provider: curProvider });
+      if (snap !== staleGuardRef.current) {
+        staleGuardRef.current = snap;
+        if (a !== autonomyLive) setAutonomyLive(a);
+        if (y !== yoloLive) setYoloLive(y);
+        if (m !== liveModeLabel) setLiveModeLabel(m);
+        if (curModel !== liveModel) setLiveModel(curModel);
+        if (curProvider !== liveProvider) setLiveProvider(curProvider);
+        // Kick off autonomy loops when the mode enters eternal/eternal-parallel
+        // outside of a slash command (e.g. programmatic launch).
+        if (a === 'eternal' && getEternalEngine) void runEternalLoopRef.current();
+        if (a === 'eternal-parallel' && getParallelEngine) void runParallelLoopRef.current();
+      }
+    };
+    const t = setInterval(poll, 2000);
+    return () => clearInterval(t);
+  }, [
+    getAutonomy, getYolo, getModeLabel,
+    getEternalEngine, getParallelEngine,
+    autonomyLive, yoloLive, liveModeLabel, liveModel, liveProvider,
+    agent.ctx.model, agent.ctx.provider,
+  ]);
+
   // Git branch + change counts. Polled every 5s (cheap, two short-lived
   // `git` subprocesses). Skipped silently when the cwd isn't a repo or
   // git isn't installed — the chip just doesn't render.
