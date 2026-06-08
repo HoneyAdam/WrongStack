@@ -108,6 +108,17 @@ export async function main(argv: string[]): Promise<number> {
 
   // Show update notification (best-effort, never blocks boot).
   updateInfo = await printUpdateNotice(updateInfo);
+
+  // Seed the stream-debug singleton from persisted config so WireAdapter
+  // picks it up on construction. Runtime toggles update this singleton
+  // directly; the config file is the source of truth for restarts.
+  const { setDebugStreamEnabled, setDebugStreamCallback, defaultDebugStreamCallback } =
+    await import('@wrongstack/providers');
+  if (config.debugStream) setDebugStreamEnabled(true);
+  // Default: write debug stats to stderr. The TUI overrides this later
+  // with a reducer-bound callback that renders inside Ink's StatusBar.
+  setDebugStreamCallback(defaultDebugStreamCallback);
+
   // PathResolver is created from the resolved projectRoot
   const pathResolver = new DefaultPathResolver(cwd);
 
@@ -1019,6 +1030,10 @@ export async function main(argv: string[]): Promise<number> {
     enhanceController,
     llmProvider: provider,
     llmModel: config.model,
+    createProvider: (pid: string) => {
+      try { return buildProviderForId(pid); }
+      catch { return undefined; }
+    },
     statuslineConfig: statuslineConfigDeps,
     statuslineHiddenItems: [...currentHiddenItems],
     setStatuslineHiddenItems,

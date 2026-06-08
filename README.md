@@ -347,7 +347,7 @@ Flips off MCP, plugins, memory tools, models.dev fetch, and skill discovery. Wha
 
 ## Recent changes
 
-**Current release: 0.109.1.** TUI monitor overlays now keep keyboard routing
+**Current release: 0.118.1.** TUI monitor overlays now keep keyboard routing
 alive while preserving a live chat input underneath non-modal panels. The F9
 goal panel reads the same canonical per-project `goal.json` as `/goal` and the
 autonomy engines, refreshes while open, and code blocks clamp their frame width
@@ -598,7 +598,7 @@ For the full walk-through — including the L1-A reactive `ConversationState`, h
 
 ## Status
 
-- **5530+ tests passing** across 412+ test files in the 0.109.1 release gate
+- **5796+ tests passing** across 412+ test files in the 0.118.1 release gate
 - Coverage thresholds: ≥85 % lines / ≥85 % functions / ≥70 % branches / ≥82 % statements
 - All workspace packages build clean with TypeScript strict + `noUncheckedIndexedAccess`
 - Node 22+ only, ESM-only, no CommonJS bundles
