@@ -1,5 +1,5 @@
 import * as fsp from 'node:fs/promises';
-import { atomicWrite } from '../utils/atomic-write.js';
+import { atomicWrite, withFileLock } from '../utils/atomic-write.js';
 import { color } from '../utils/color.js';
 import { resolveWstackPaths } from '../utils/wstack-paths.js';
 import { FsError, ERROR_CODES } from '../types/errors.js';
@@ -108,16 +108,20 @@ export async function loadGoal(filePath: string): Promise<GoalFile | null> {
   let raw: string;
   try {
     raw = await fsp.readFile(filePath, 'utf8');
-  } catch {
-    return null;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') return null; // file doesn't exist — not an error
+    throw err; // permission errors etc. should surface
   }
   try {
     const parsed = JSON.parse(raw) as GoalFile;
     if (parsed?.version !== 1 || typeof parsed.goal !== 'string' || !Array.isArray(parsed.journal)) {
+      console.warn(`[goal-store] Corrupt goal.json at ${filePath} — invalid schema. Consider deleting it and re-creating.`);
       return null;
     }
     return parsed;
   } catch {
+    console.warn(`[goal-store] Corrupt goal.json at ${filePath} — JSON parse failed. Consider deleting it and re-creating.`);
     return null;
   }
 }
@@ -133,6 +137,33 @@ export async function saveGoal(filePath: string, goal: GoalFile): Promise<void> 
       cause: err,
     });
   }
+}
+
+/**
+ * Atomically load, modify, and save a goal file under a file lock.
+ * Prevents lost-update races when the autonomy engine and CLI /goal commands
+ * write concurrently (both eternal and parallel engines may run simultaneously).
+ *
+ * `fn` receives the current GoalFile (or `null` if no goal exists yet)
+ * and must return the updated GoalFile (or `null` to delete).
+ */
+export async function updateGoal(
+  filePath: string,
+  fn: (current: GoalFile | null) => GoalFile | null,
+): Promise<void> {
+  await withFileLock(filePath, async () => {
+    const current = await loadGoal(filePath);
+    const next = fn(current);
+    if (next) {
+      await saveGoal(filePath, next);
+    } else {
+      try {
+        await fsp.unlink(filePath);
+      } catch {
+        // best-effort — file may not exist
+      }
+    }
+  });
 }
 
 export function emptyGoal(goal: string): GoalFile {
