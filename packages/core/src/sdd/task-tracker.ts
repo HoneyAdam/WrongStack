@@ -211,7 +211,9 @@ export class TaskTracker {
     const blockers = this.getBlockers(taskId);
     return blockers.every((id) => {
       const node = this.graph?.nodes.get(id);
-      return node?.status === 'completed';
+      // A task can start when all blockers are either completed or failed.
+      // Failed blockers should not permanently deadlock dependent tasks.
+      return node?.status === 'completed' || node?.status === 'failed';
     });
   }
 
@@ -247,7 +249,7 @@ export class TaskTracker {
         const remainingBlockers = this.getBlockers(depId);
         const allUnblocked = remainingBlockers.every((id) => {
           const blocker = this.graph?.nodes.get(id);
-          return blocker?.status === 'completed';
+          return blocker?.status === 'completed' || blocker?.status === 'failed';
         });
         if (allUnblocked) {
           dep.status = 'pending';
@@ -262,7 +264,9 @@ export class TaskTracker {
     const blockers = this.getBlockers(taskId);
     const someBlocked = blockers.some((id) => {
       const blocker = this.graph?.nodes.get(id);
-      return blocker?.status !== 'completed';
+      // A task is only blocked by incomplete blockers that haven't failed.
+      // Failed tasks should not block their dependents.
+      return blocker?.status !== 'completed' && blocker?.status !== 'failed';
     });
     if (someBlocked) {
       const node = this.graph.nodes.get(taskId);

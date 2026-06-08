@@ -43,6 +43,8 @@ export interface SddParallelRunOptions {
   parallelSlots?: number | undefined;
   /** Per-task timeout in ms. Default: 300_000 (5 min). */
   taskTimeoutMs?: number | undefined;
+  /** Maximum retry attempts for failed tasks. Default: 2. */
+  maxRetries?: number | undefined;
   /** Override the default agent factory. */
   subagentFactory?: AgentFactory | undefined;
   /** Called after each wave completes. */
@@ -86,13 +88,16 @@ export interface RunResult {
 export class SddParallelRun {
   private readonly slots: number;
   private readonly timeoutMs: number;
+  private readonly maxRetries: number;
   private decomposer: SddTaskDecomposer;
   private coordinator: DefaultMultiAgentCoordinator | null = null;
   private stopRequested = false;
+  private retryMap = new Map<string, number>();
 
   constructor(private readonly opts: SddParallelRunOptions) {
     this.slots = Math.min(16, Math.max(1, opts.parallelSlots ?? 4));
     this.timeoutMs = opts.taskTimeoutMs ?? 300_000;
+    this.maxRetries = Math.max(0, opts.maxRetries ?? 2);
     this.decomposer = new SddTaskDecomposer(opts.tracker, opts.graph, { parallelSlots: this.slots });
   }
 
@@ -109,6 +114,7 @@ export class SddParallelRun {
   /** Execute all waves until completion or deadlock. Returns final summary. */
   async run(): Promise<RunResult> {
     this.stopRequested = false;
+    this.retryMap.clear();
     const startTime = Date.now();
     let totalCompleted = 0;
     let totalFailed = 0;
@@ -265,17 +271,29 @@ export class SddParallelRun {
     const successCount = results.filter((r) => r.status === 'success').length;
     const failCount = results.length - successCount;
 
-    // Phase 4: update tracker status for each result
+    // Phase 4: update tracker status for each result, with retry support
     for (let i = 0; i < results.length; i++) {
       const result = expectDefined(results[i]);
       const taskId = expectDefined(taskIds[i]);
       if (result.status === 'success') {
         this.opts.tracker.updateNodeStatus(taskId, 'completed');
+        this.retryMap.delete(taskId);
       } else {
         const errMsg = result.error?.kind
           ? `${result.error.kind}: ${result.error.message}`
           : result.error?.message ?? 'unknown error';
-        this.opts.tracker.updateNodeStatus(taskId, 'failed', errMsg);
+        // Retry: re-mark as pending if retries remain
+        const currentRetries = this.retryMap.get(taskId) ?? 0;
+        if (currentRetries < this.maxRetries) {
+          this.retryMap.set(taskId, currentRetries + 1);
+          this.opts.tracker.updateNodeStatus(
+            taskId,
+            'pending',
+            `Retry ${currentRetries + 1}/${this.maxRetries}: ${errMsg}`,
+          );
+        } else {
+          this.opts.tracker.updateNodeStatus(taskId, 'failed', errMsg);
+        }
       }
     }
 
@@ -292,6 +310,8 @@ export class SddParallelRun {
 
   private buildProgress(): SddProgress {
     const gp = this.opts.tracker.getProgress();
+    const isDeadlocked = !this.decomposer.isDone() &&
+      this.decomposer.nextBatch().deadlocked;
     return {
       wave: this.decomposer.getWaveCount(),
       total: gp.total,
@@ -301,7 +321,7 @@ export class SddParallelRun {
       blocked: gp.blocked,
       pending: gp.pending,
       percent: gp.percentComplete,
-      deadlocked: false,
+      deadlocked: isDeadlocked,
     };
   }
 }
