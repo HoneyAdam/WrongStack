@@ -5,6 +5,91 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.89.3] - 2026-06-08
+
+> The TUI-hardening & code-consolidation release. Consolidates everything since
+> the `0.87.0` session-lifecycle release. The headlines are a **new F8 process
+> list overlay** with live process view and kill actions, **TUI arrow-key
+> navigation fixes** across all overlays, **terminal worktree pruning** in the
+> F4 monitor with a 5-minute TTL, a **compact agents monitor** with fleet stale
+> pruning, **stale worktree auto-cleanup**, and a **code-consolidation pass** that
+> deduplicates the `expectDefined` helper across ACP and WebUI into the core
+> `@wrongstack/core/utils/expect-defined` export. Additive only; no breaking
+> changes.
+>
+> **Version consolidation.** The intermediate `0.87.1`–`0.89.2` bumps shipped as
+> mechanical `chore: bump version` / `feat: update code` commits without their own
+> changelog sections; their substantive changes are folded into this entry. All 15
+> workspace manifests — and the marketing site (`website/`) — are aligned to
+> `0.89.3` in lockstep. Root manifest corrected from a stray `0.99.4` back to the
+> lockstep version.
+
+### Added
+
+- **F8 process list overlay (TUI).** A new `F8` hotkey opens a live process
+  list overlay showing every running bash/exec child process with PID, name,
+  command, and session ID. From the overlay you can kill individual processes
+  (`k` + enter PID) without leaving the TUI. Backed by the singleton
+  `ProcessRegistry` and the existing `/kill` slash command primitives.
+
+### Changed
+
+- **TUI overlay keyboard navigation hardened.** The previous escape guard only
+  covered a specific overlay; arrow keys and other navigation keystrokes now
+  gate on a generic `overlayOpen` check that covers the process list, agents
+  monitor, fleet monitor, worktree monitor, phase monitor, and queue panel —
+  so keyboard navigation through chat history no longer bleeds into overlay
+  state when any monitor is open.
+- **TUI stale terminal worktrees auto-pruned.** The F4 worktree monitor now
+  prunes stale entries (no heartbeat for >5 minutes) from the display, keeping
+  the monitor scannable during long AutoPhase runs.
+- **TUI agents monitor compacted + fleet stale pruning.** The agents panel is
+  tighter, stale fleet entries are removed after a visibility threshold, and
+  cost precision is displayed at 4 decimal places across all fleet surfaces.
+- **TUI app-state extracted.** The `State`/`Action` types and the `Settings`
+  type moved from `app-reducer.ts` and `app.tsx` into a new `app-state.ts`
+  module, shortening the reducer and making types importable without dragging
+  in React. The director fleet bridge, controllers, and event bridge were also
+  extracted into dedicated hook files.
+- **`expectDefined` deduplicated into `@wrongstack/core`.** The ACP
+  `stdio-transport.ts` and the WebUI `expect-defined.ts` each had a local copy
+  of the same assert-non-null helper. Both now import from
+  `@wrongstack/core/utils/expect-defined` (shipped in 0.87.0). The WebUI copy
+  is deleted.
+
+### Fixed
+
+- **TUI enhance-countdown space artifact.** During the `/enhance` prompt
+  refinement countdown, the live region erase left a trailing space character
+  in the History anchor row — gone.
+- **WebUI TodosPanel / ChatView layout overlap.** The sidebar todos panel no
+  longer overlaps the chat viewport scrollbar or the input area on narrow
+  viewports.
+- **Terminal resize corruption.** Resizing the terminal during an active
+  monitor overlay previously corrupted the render; panels now close before the
+  Ink reflow so the TUI surface stays clean.
+- **SettingsPicker ghost text after Esc.** The settings overlay now anchors a
+  `flexGrow` region in the History component so dismissing the picker with Esc
+  clears the ghosted inline text immediately.
+- **Activity strip fixed-height rendering.** The live subagent activity strip
+  now renders at a stable height regardless of content length, preventing
+  scrollback churn.
+- **Telegram log levels demoted.** Verbose Telegram plugin log messages were
+  downgraded from INFO to DEBUG so they don't spam the console during normal
+  operation.
+- **ACP ESM import.** A `require()` call in the ACP agent module was replaced
+  with a standard ESM `import` and a `@ts-expect-error` annotation for the
+  type-only import path.
+
+### Changed — versions
+
+- **All workspace packages bumped to 0.89.3**: `wrongstack`, `@wrongstack/cli`,
+  `@wrongstack/core`, `@wrongstack/mcp`, `@wrongstack/plug-lsp`, `@wrongstack/plugins`,
+  `@wrongstack/providers`, `@wrongstack/runtime`, `@wrongstack/skills`,
+  `@wrongstack/telegram`, `@wrongstack/tools`, `@wrongstack/tui`, `@wrongstack/webui`.
+  `@wrongstack/acp` tracks the same version, and the marketing site (`website/`) is
+  bumped in lockstep. Root manifest corrected from a stray `0.99.4` back to lockstep.
+
 ## [0.87.0] - 2026-06-07
 
 > The session-lifecycle & type-safety release. Consolidates everything since the

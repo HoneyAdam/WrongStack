@@ -8,18 +8,8 @@
  * Start message: clients look for the `[wstack-acp]` marker on stdout before
  * treating subsequent lines as protocol messages.
  */
-import { writeErr } from '@wrongstack/core';
+import { expectDefined, writeErr } from '@wrongstack/core';
 import type { ACPMessage } from '../types/acp-messages.js';
-
-
-
-function expectDefined<T>(value: T | null | undefined): T {
-  if (value === null || value === undefined) {
-    throw new Error('Expected value to be defined');
-  }
-  return value;
-}
-
 export interface AgentServerTransport {
   send(msg: ACPMessage): Promise<void>;
   sendRaw(chunk: string): void;

@@ -11,7 +11,7 @@ export function cn(...inputs: ClassValue[]) {
    ========================================================================= */
 
 export const META = {
-  version: '0.89.1',
+  version: '0.89.3',
   repo: 'https://github.com/WrongStack/WrongStack',
   npm: 'wrongstack',
   node: '22',
@@ -210,9 +210,23 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: '0.89.3',
+    date: '2026-06-08',
+    latest: true,
+    tagline: 'TUI hardening & code consolidation',
+    consolidated: true,
+    highlights: [
+      'F8 process list overlay — live process view with kill actions in the TUI',
+      'Arrow-key navigation hardened across all TUI overlays — generic overlayOpen guard',
+      'Stale terminal worktrees auto-pruned in F4 monitor with 5-minute TTL',
+      'Compact agents monitor + fleet stale pruning + cost precision 4dp',
+      'expectDefined deduplicated from ACP & WebUI into @wrongstack/core/utils/expect-defined',
+      'WebUI layout overlap fix, terminal resize corruption fix, SettingsPicker ghost text fix',
+    ],
+  },
+  {
     version: '0.87.0',
     date: '2026-06-07',
-    latest: true,
     tagline: 'Session lifecycle & type safety',
     consolidated: true,
     highlights: [
