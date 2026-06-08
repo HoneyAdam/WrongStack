@@ -8,6 +8,7 @@ import {
   type GoalFile,
 } from '@wrongstack/core';
 import type { SlashCommand } from '@wrongstack/core';
+import { refineGoal, refineGoalHeuristic, type RefinedGoal } from './goal-refiner.js';
 import type { SlashCommandContext } from './index.js';
 
 const KNOWN_VERBS = new Set([
@@ -22,6 +23,7 @@ const KNOWN_VERBS = new Set([
   'log',
   'pause',
   'resume',
+  'refine',
 ]);
 
 export function buildGoalCommand(opts: SlashCommandContext): SlashCommand {
@@ -29,19 +31,24 @@ export function buildGoalCommand(opts: SlashCommandContext): SlashCommand {
     name: 'goal',
     category: 'Agent',
     description:
-      'Set, inspect, or clear the long-running autonomous mission used by /autonomy eternal.',
+      'Set, inspect, or clear the long-running autonomous mission. Auto-refines goals for clarity.',
     help: [
       'Usage:',
-      '  /goal                     Show current goal + recent journal',
-      '  /goal set <text>          Set a new goal (overwrites previous)',
+      '  /goal                     Show current goal + progress + recent journal',
+      '  /goal set <text>          Set a new goal (auto-refined for clarity)',
+      '  /goal refine              Re-refine the current goal',
       '  /goal clear               Clear the goal (stops eternal mode if running)',
-      '  /goal pause               Pause at end of current iteration (no-op if already paused)',
-      '  /goal resume              Resume a paused goal (no-op if not paused)',
-      '  /goal status              Same as /goal (alias)',
+      '  /goal pause               Pause at end of current iteration',
+      '  /goal resume              Resume a paused goal',
       '  /goal journal [N]         Show last N journal entries (default 25)',
       '',
+      'When a goal is set, WrongStack auto-refines it using the LLM to:',
+      '  • Make it unambiguous and concrete',
+      '  • Extract verifiable deliverables with acceptance criteria',
+      '  • Estimate completion progress (shown as a progress bar)',
+      '',
       'Stage flow: decide → execute → reflect → sleep | paused | stopped',
-      'Pausing stops after current iteration completes. Resume continues from next iteration.',
+      'The engine updates progress after each iteration toward the deliverable list.',
       '',
       'Goals live in ~/.wrongstack/projects/<hash>/goal.json and persist across sessions.',
       'A goal is the prerequisite for /autonomy eternal — the engine consults it on',
@@ -56,11 +63,10 @@ export function buildGoalCommand(opts: SlashCommandContext): SlashCommand {
       const goalPath = opts.paths.projectGoal;
 
       // If the first token isn't a known verb, treat the entire args
-      // string as the goal text — `/goal rewrite the auth module` should
-      // work the same as `/goal set rewrite the auth module`. This makes
-      // the merged /goal compatible with the TUI's former plain-text form.
+      // string as the goal text — `/goal rewrite the auth module` works.
       const verbForDispatch = verb && !KNOWN_VERBS.has(verb) ? 'set' : verb;
-      const setText = verbForDispatch === 'set' && !KNOWN_VERBS.has(verb) ? trimmed : restJoined;
+      const setText =
+        verbForDispatch === 'set' && !KNOWN_VERBS.has(verb) ? trimmed : restJoined;
 
       switch (verbForDispatch) {
         case '':
@@ -84,35 +90,104 @@ export function buildGoalCommand(opts: SlashCommandContext): SlashCommand {
             opts.renderer.writeWarning(msg);
             return { message: msg };
           }
+
+          // Try LLM refinement
+          let refined: RefinedGoal | null = null;
+          if (opts.llmProvider && opts.llmModel) {
+            opts.renderer.write(color.dim('Refining goal with LLM…'));
+            refined = await refineGoal(setText, opts.llmProvider, opts.llmModel);
+          }
+          if (!refined) {
+            refined = refineGoalHeuristic(setText);
+          }
+
           const existing = await loadGoal(goalPath);
-          // Preserve journal across goal replacement — useful as audit trail.
-          // The new mission gets a fresh setAt but keeps the prior iterations
-          // count so journal entries remain sequentially numbered.
-          const next = existing
-            ? { ...existing, goal: setText, setAt: new Date().toISOString(), lastActivityAt: new Date().toISOString() }
-            : emptyGoal(setText);
+          const now = new Date().toISOString();
+          const next: GoalFile = existing
+            ? {
+                ...existing,
+                goal: setText,
+                refinedGoal: refined.refinedGoal,
+                deliverables: refined.deliverables,
+                setAt: now,
+                lastActivityAt: now,
+                progress: undefined, // reset progress
+                progressNote: undefined,
+              }
+            : {
+                ...emptyGoal(setText),
+                refinedGoal: refined.refinedGoal,
+                deliverables: refined.deliverables,
+              };
+
           await saveGoal(goalPath, next);
-          const shortGoal = setText.length > 80 ? `${setText.slice(0, 80)}…` : setText;
-          const msg = `🎯 ${color.green('Goal locked:')} ${shortGoal}\n${color.dim(`Stored in ${goalPath} — Esc / /steer to redirect, Ctrl+C to stop.`)}`;
+
+          // Show summary
+          const lines: string[] = [];
+          lines.push(
+            `🎯 ${color.green('Goal locked:')} ${color.bold(refined.refinedGoal)}`,
+          );
+          if (refined.refinedGoal !== setText) {
+            lines.push(color.dim(`  (original: "${setText.length > 60 ? setText.slice(0, 60) + '…' : setText}")`));
+          }
+          if (refined.deliverables.length > 0) {
+            lines.push('');
+            lines.push(`${color.bold('Deliverables')} (${refined.deliverables.length}):`);
+            for (const d of refined.deliverables) {
+              lines.push(`  ${color.dim('○')} ${d}`);
+            }
+          }
+          lines.push('');
+          lines.push(
+            color.dim(`Stored in ${goalPath} — progress tracked automatically.`),
+          );
+
+          const msg = lines.join('\n');
           opts.renderer.write(msg);
-          // Inject the lock-in preamble so the next turn runs with full-
-          // autonomy framing — same behavior the TUI's former /goal had.
-          return { message: msg, runText: buildGoalPreamble(setText) };
+          return {
+            message: msg,
+            runText: buildGoalPreamble(refined.refinedGoal, refined.deliverables),
+          };
+        }
+
+        case 'refine': {
+          const current = await loadGoal(goalPath);
+          if (!current) {
+            const msg = 'No goal set to refine. Use /goal set <text> first.';
+            opts.renderer.writeWarning(msg);
+            return { message: msg };
+          }
+
+          let refined: RefinedGoal | null = null;
+          if (opts.llmProvider && opts.llmModel) {
+            opts.renderer.write(color.dim('Re-refining goal with LLM…'));
+            refined = await refineGoal(current.goal, opts.llmProvider, opts.llmModel);
+          }
+          if (!refined) {
+            refined = refineGoalHeuristic(current.goal);
+          }
+
+          const updated: GoalFile = {
+            ...current,
+            refinedGoal: refined.refinedGoal,
+            deliverables: refined.deliverables,
+          };
+          await saveGoal(goalPath, updated);
+
+          const msg = `${color.green('✓')} Goal re-refined with ${refined.deliverables.length} deliverables.`;
+          opts.renderer.write(msg);
+          return { message: `${msg}\n\n${formatGoal(updated)}` };
         }
 
         case 'clear':
         case 'reset': {
-          const existing = await loadGoal(goalPath);
-          if (!existing) {
+          const current = await loadGoal(goalPath);
+          if (!current) {
             const msg = 'No goal to clear.';
             opts.renderer.write(msg);
             return { message: msg };
           }
-          // Mark abandoned first and persist — if the engine is mid-iteration
-          // it will see this state on its next runOneIteration() check and stop.
-          // Only then unlink the file so loadGoal() returns null and the
-          // engine exits immediately rather than waiting for the next cycle.
-          const abandoned: GoalFile = { ...existing, goalState: 'abandoned' };
+          const abandoned: GoalFile = { ...current, goalState: 'abandoned' };
           await saveGoal(goalPath, abandoned);
           const { unlink } = await import('node:fs/promises');
           try {
@@ -134,7 +209,9 @@ export function buildGoalCommand(opts: SlashCommandContext): SlashCommand {
             opts.renderer.write(msg);
             return { message: msg };
           }
-          const n = restJoined ? Math.max(1, Number.parseInt(restJoined, 10) || 25) : 25;
+          const n = restJoined
+            ? Math.max(1, Number.parseInt(restJoined, 10) || 25)
+            : 25;
           if (current.journal.length === 0) {
             const msg = 'Journal is empty.';
             opts.renderer.write(msg);
@@ -142,7 +219,14 @@ export function buildGoalCommand(opts: SlashCommandContext): SlashCommand {
           }
           const tail = current.journal.slice(-n);
           const lines = tail.map((e) => {
-            const mark = e.status === 'success' ? color.green('✓') : e.status === 'failure' ? color.red('✗') : e.status === 'aborted' ? color.amber('⊘') : color.dim('·');
+            const mark =
+              e.status === 'success'
+                ? color.green('✓')
+                : e.status === 'failure'
+                  ? color.red('✗')
+                  : e.status === 'aborted'
+                    ? color.amber('⊘')
+                    : color.dim('·');
             const note = e.note ? color.dim(` — ${e.note}`) : '';
             return `${color.dim(`#${e.iteration}`)} ${mark} ${color.dim(`[${e.source}]`)} ${e.task}${note}`;
           });
@@ -191,9 +275,7 @@ export function buildGoalCommand(opts: SlashCommandContext): SlashCommand {
         }
 
         default: {
-          // Unreachable — verbForDispatch is either '' (show), a known
-          // verb, or 'set' (when the first token isn't a known verb).
-          const msg = `Unknown subcommand "${verb}". Try: show | set <text> | clear | journal [N]`;
+          const msg = `Unknown subcommand "${verb}". Try: show | set <text> | refine | clear | journal [N]`;
           opts.renderer.writeWarning(msg);
           return { message: msg };
         }

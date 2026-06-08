@@ -26,7 +26,20 @@
  * callers and the WebUI can issue `/goal set` without dragging the TUI
  * package in. The tui re-exports this for backward compatibility.
  */
-export function buildGoalPreamble(goal: string): string {
+export function buildGoalPreamble(goal: string, deliverables?: string[]): string {
+  const deliverableBlock = deliverables && deliverables.length > 0
+    ? [
+        '',
+        'CONCRETE DELIVERABLES (check these off as you go):',
+        ...deliverables.map((d, i) => `  ${i + 1}. ${d}`),
+        '',
+        'After EACH iteration, estimate your completion percentage (0–100)',
+        'against this deliverable list. Output it as:',
+        '  [PROGRESS: N%] — <1-sentence status>',
+        'The eternal engine reads this to update the progress bar.',
+      ].join('\n')
+    : '';
+
   return [
     '[GOAL — LOCKED IN. You will work on this until it is verifiably done.',
     'The user granted you full autonomy. Read these constraints once, then act.',
@@ -35,6 +48,7 @@ export function buildGoalPreamble(goal: string): string {
     '---',
     goal,
     '---',
+    deliverableBlock,
     '',
     'AUTHORITY YOU HAVE:',
     '- Spawn as many subagents as the work needs (delegate / spawn_subagent).',
@@ -56,6 +70,7 @@ export function buildGoalPreamble(goal: string): string {
     '- You can tell the user HOW to verify it themselves in 10 seconds.',
     '- You have NOT hedged. None of: "looks like it should work", "I',
     '  believe this fixes it", "the changes appear correct".',
+    `- Progress bar shows 100%. All deliverables checked off.`,
     '',
     'WHAT IS NOT DONE — never report any of these as completion:',
     "- An error message you didn't recover from.",
@@ -69,6 +84,13 @@ export function buildGoalPreamble(goal: string): string {
     "- A subagent's failed/timeout/stopped TaskResult that you didn't",
     '  respond to with a fresh attempt (different role, different model,',
     '  tighter prompt).',
+    '',
+    'PROGRESS REPORTING — MANDATORY every iteration:',
+    '- End every response with exactly: [PROGRESS: N%] — <status note>',
+    '  where N is your honest estimate (0-100) of how much of the goal',
+    '  is done. The engine tracks this and shows a live progress bar.',
+    '- Example: [PROGRESS: 45%] — Auth module refactored, 3/5 tests pass,',
+    '  remaining: test coverage + docs update.',
     '',
     'PERSISTENCE PROTOCOL:',
     '- If blocked, try at least 3 different angles before reporting the',

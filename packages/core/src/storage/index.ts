@@ -116,6 +116,7 @@ export {
   emptyGoal,
   appendJournal,
   formatGoal,
+  setProgress,
   goalFilePath,
   summarizeUsage,
   MAX_JOURNAL_ENTRIES,

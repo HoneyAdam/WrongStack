@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { createHash } from 'node:crypto';
 import * as os from 'node:os';
 import { atomicWrite } from '../utils/atomic-write.js';
+import { color } from '../utils/color.js';
 import { FsError, ERROR_CODES } from '../types/errors.js';
 
 /**
@@ -36,8 +37,24 @@ export interface JournalEntry {
 
 export interface GoalFile {
   version: 1;
-  /** The mission statement. */
+  /** The raw mission statement as entered by the user. */
   goal: string;
+  /**
+   * LLM-refined version of the goal — unambiguous, with concrete
+   * deliverables and acceptance criteria.
+   */
+  refinedGoal?: string | undefined;
+  /**
+   * Concrete, verifiable deliverables extracted from the refined goal.
+   */
+  deliverables?: string[] | undefined;
+  /**
+   * Estimated completion 0-100. Updated by the engine after each
+   * iteration. Null means "not yet assessed".
+   */
+  progress?: number | undefined;
+  /** Human-readable note explaining the current progress estimate. */
+  progressNote?: string | undefined;
   /** When the goal was first set or last replaced. */
   setAt: string;
   /** Updated on every iteration completion. */
@@ -47,23 +64,11 @@ export interface GoalFile {
   /** Engine lifecycle state — 'running' means another process owns this goal. */
   engineState: 'idle' | 'running' | 'stopped';
   /**
-   * Mission-level lifecycle. `active` is the default; `completed` is set
-   * when the engine detects `[GOAL_COMPLETE]` in a successful iteration's
-   * final text AND a verification pass agrees; `abandoned` is set by the
-   * user (e.g. `/goal abandon`) or when the engine exceeds a configured
-   * failure ceiling. Once not `active`, the engine refuses to run further
-   * iterations against this goal — protects against accidental restarts
-   * burning through API quota after the work is done.
-   *
-   * Optional for backward compatibility — pre-existing `goal.json` files
-   * without this field load as `active`.
+   * Mission-level lifecycle.
    */
   goalState?: 'active' | 'paused' | 'completed' | 'abandoned' | undefined;
   /**
-   * Per-todo attempt counter. Keyed by TodoItem id. Used by the engine
-   * to skip a todo that has failed N times rather than spinning on it
-   * forever. Persisted so attempt counts survive restarts (`/autonomy
-   * stop` + resume should not reset progress against a stuck task).
+   * Per-todo attempt counter.
    */
   todoAttempts?: Record<string, number>;
   /** Bounded ring buffer of recent iterations (newest last). */
@@ -75,12 +80,8 @@ export const MAX_JOURNAL_ENTRIES = 500;
 
 /**
  * Resolve the goal file path for a given project root.
- * Exposed so the engine and CLI use one canonical path.
- * Uses `~/.wrongstack/projects/<hash>/goal.json` .<hash>/`.
  */
 export function goalFilePath(projectRoot: string): string {
-  // Now resolves to ~/.wrongstack/projects/<hash>/goal.json for consistency
-  // with WstackPaths.projectGoal.
   const hash = createHash('sha256').update(path.resolve(projectRoot)).digest('hex').slice(0, 12);
   return path.join(os.homedir(), '.wrongstack', 'projects', hash, 'goal.json');
 }
@@ -132,6 +133,23 @@ export function emptyGoal(goal: string): GoalFile {
 }
 
 /**
+ * Set progress estimate on a goal. Returns a new GoalFile.
+ * Clamps progress to 0-100.
+ */
+export function setProgress(
+  goal: GoalFile,
+  progress: number,
+  note?: string,
+): GoalFile {
+  const clamped = Math.min(100, Math.max(0, progress));
+  return {
+    ...goal,
+    progress: clamped,
+    progressNote: note ?? clamped + '% complete',
+  };
+}
+
+/**
  * Append a journal entry, bumping iteration counters and trimming the
  * ring buffer. Returns a new GoalFile — does not mutate the argument.
  */
@@ -140,7 +158,6 @@ export function appendJournal(goal: GoalFile, entry: Omit<JournalEntry, 'iterati
   const at = new Date().toISOString();
   const full: JournalEntry = { ...entry, iteration, at };
   const journal = [...goal.journal, full];
-  // Trim FIFO if over cap. Slice from the tail so the *newest* MAX entries survive.
   const trimmed = journal.length > MAX_JOURNAL_ENTRIES
     ? journal.slice(journal.length - MAX_JOURNAL_ENTRIES)
     : journal;
@@ -153,9 +170,7 @@ export function appendJournal(goal: GoalFile, entry: Omit<JournalEntry, 'iterati
 }
 
 /**
- * Aggregate cumulative cost + tokens across all journal entries. Entries
- * without telemetry are skipped (legacy entries from before the field
- * was added still load cleanly).
+ * Aggregate cumulative cost + tokens across all journal entries.
  */
 export function summarizeUsage(goal: GoalFile): {
   totalCostUsd: number;
@@ -178,31 +193,66 @@ export function summarizeUsage(goal: GoalFile): {
   return { totalCostUsd, totalInputTokens, totalOutputTokens, iterationsWithUsage };
 }
 
+const DOLLAR = '\u0024';
+
 /** Format the goal + recent journal as a human-readable status block. */
 export function formatGoal(goal: GoalFile, journalLimit = 10): string {
   const lines: string[] = [];
-  lines.push(`Goal: ${goal.goal}`);
-  lines.push(`Set: ${goal.setAt}`);
-  lines.push(`Last activity: ${goal.lastActivityAt}`);
-  lines.push(`Iterations: ${goal.iterations}`);
+
+  // Header — show refined goal, with original as annotation if different
+  const displayGoal = goal.refinedGoal || goal.goal;
+  lines.push(color.bold('Goal') + ': ' + displayGoal);
+  if (goal.refinedGoal && goal.refinedGoal !== goal.goal) {
+    const snippet = goal.goal.length > 60 ? goal.goal.slice(0, 60) + '…' : goal.goal;
+    lines.push(color.dim('  (original: "' + snippet + '")'));
+  }
+
+  // Progress bar (20-segment)
+  if (typeof goal.progress === 'number') {
+    const pct = Math.min(100, Math.max(0, Math.round(goal.progress)));
+    const filled = Math.round(pct / 5);
+    const empty = 20 - filled;
+    const bar = color.green('█'.repeat(filled)) + color.dim('░'.repeat(empty));
+    lines.push('Progress: ' + bar + ' ' + color.bold(pct + '%'));
+    if (goal.progressNote) {
+      lines.push('  ' + color.dim(goal.progressNote));
+    }
+  }
+
+  // Deliverables checklist
+  if (goal.deliverables && goal.deliverables.length > 0) {
+    lines.push('');
+    lines.push(color.bold('Deliverables:'));
+    for (const d of goal.deliverables) {
+      const done = /^\[[x✓]\]|✅|\(done\)/i.test(d);
+      const marker = done ? color.green('✓') : color.dim('○');
+      lines.push('  ' + marker + ' ' + d);
+    }
+  }
+
+  lines.push('');
+  lines.push('Set: ' + goal.setAt);
+  lines.push('Last activity: ' + goal.lastActivityAt);
+  lines.push('Iterations: ' + goal.iterations);
   const stateLabel = goal.goalState ?? 'active';
-  lines.push(`State: ${stateLabel}${goal.iterations > 0 ? ` (iteration #${goal.iterations})` : ''}`);
-  lines.push(`Engine: ${goal.engineState}`);
+  lines.push('State: ' + stateLabel + (goal.iterations > 0 ? ' (iteration #' + goal.iterations + ')' : ''));
+  lines.push('Engine: ' + goal.engineState);
   const usage = summarizeUsage(goal);
   if (usage.iterationsWithUsage > 0) {
-    lines.push(
-      `Spent: $${usage.totalCostUsd.toFixed(4)}  (in ${usage.totalInputTokens} / out ${usage.totalOutputTokens} tokens across ${usage.iterationsWithUsage} iterations)`,
-    );
+    const spent = 'Spent: ' + DOLLAR + usage.totalCostUsd.toFixed(4)
+      + '  (in ' + usage.totalInputTokens + ' / out ' + usage.totalOutputTokens
+      + ' tokens across ' + usage.iterationsWithUsage + ' iterations)';
+    lines.push(spent);
   }
   if (goal.journal.length > 0) {
     lines.push('');
-    lines.push(`Recent journal (last ${Math.min(journalLimit, goal.journal.length)}):`);
+    lines.push('Recent journal (last ' + Math.min(journalLimit, goal.journal.length) + '):');
     const tail = goal.journal.slice(-journalLimit);
     for (const e of tail) {
       const mark = e.status === 'success' ? '✓' : e.status === 'failure' ? '✗' : e.status === 'aborted' ? '⊘' : '·';
-      const note = e.note ? ` — ${e.note}` : '';
-      const cost = typeof e.costUsd === 'number' ? ` ($${e.costUsd.toFixed(4)})` : '';
-      lines.push(`  #${e.iteration} ${mark} [${e.source}] ${e.task}${cost}${note}`);
+      const note = e.note ? ' — ' + e.note : '';
+      const cost = typeof e.costUsd === 'number' ? ' (' + DOLLAR + e.costUsd.toFixed(4) + ')' : '';
+      lines.push('  #' + e.iteration + ' ' + mark + ' [' + e.source + '] ' + e.task + cost + note);
     }
   }
   return lines.join('\n');
