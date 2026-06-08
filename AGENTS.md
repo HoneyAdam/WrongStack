@@ -200,15 +200,17 @@ A **CollabSession** (triggered by `/collab <paths>` or `collab_debug` tool) runs
 
 ### Compactors
 
-Three strategies compose in `HybridCompactor`:
+`config.context.strategy` selects the compactor through `createStrategyCompactor` (`execution/strategy-compactor.ts`); `TOKENS.Compactor` binds to it in both the CLI container and the WebUI server (one wiring, two surfaces):
 
-| Compactor | Strategy |
-|---|---|
-| `SelectiveCompactor` | Preserves task-critical messages, elides the rest |
-| `IntelligentCompactor` | LLM-assisted summarization of ancient turns |
-| `LLMSelector` | Picks best model for context reduction decisions |
+| `strategy` | Compactor | Behavior |
+|---|---|---|
+| `hybrid` *(default)* | `HybridCompactor` | Lossless rule-based — no LLM. Elides oversized old tool results, then collapses ancient turns into one digest that **preserves all text** (instructions/decisions) and drops only raw tool I/O (still in the session log). |
+| `intelligent` | `IntelligentCompactor` | LLM summarization of ancient turns; falls back to the lossless digest if the summarizer call fails. |
+| `selective` | `SelectiveCompactor` | LLM-driven keep/collapse selection (`LLMSelector`) + summarization. |
 
-`AutoCompactionMiddleware` wraps the `contextWindow` pipeline and fires automatically when token thresholds are crossed. `repairToolUseAdjacency()` removes orphan `tool_use`/`tool_result` blocks after context surgery or compaction.
+The LLM strategies resolve their `provider` from `ctx` at `compact()`-time (so binding before `context.provider` exists is safe) and degrade to lossless hybrid when no provider is available. Shared primitives — token estimate, tool-result elision *with `tool_use`/`tool_result` pair preservation*, lossless digest, safe-cut boundary — live in `execution/compaction-core.ts`. The single canonical message-token estimator is `utils/token-estimate.ts:estimateMessageTokens` (chars/3.5), with per-`(provider,model)` calibration fed by `recordActualUsage` after each API call.
+
+`AutoCompactionMiddleware` wraps the `contextWindow` pipeline and fires automatically when token thresholds are crossed; it writes a `compaction` session event carrying the collapse digest. `repairToolUseAdjacency()` removes orphan `tool_use`/`tool_result` blocks after context surgery or compaction.
 
 Context modes: `balanced` (default), `frugal` (compacts early), `deep` (delays compaction), `archival` (keeps summaries prominent).
 
