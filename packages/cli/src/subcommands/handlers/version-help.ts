@@ -21,6 +21,8 @@ export const helpCmd: SubcommandHandler = async (_args, deps) => {
     '  wstack sessions              List recent sessions',
     '  wstack init                  Pick provider + model from models.dev',
     '  wstack auth                  Interactive key manager (list/add/update/delete)',
+    '  wstack auth list             Quick listing of saved providers and keys',
+    '  wstack auth <provider>       Add a key for a provider (--label, --family, …)',
     '  wstack config [show|edit]    Show or edit effective config',
     '  wstack tools                 List registered tools',
     '  wstack skills                List discovered skills',

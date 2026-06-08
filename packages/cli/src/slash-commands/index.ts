@@ -249,8 +249,9 @@ export interface SlashCommandContext {
 export type { ProjectFacts } from './helpers.js';
 export { detectProjectFacts, renderAgentsTemplate } from './helpers.js';
 
-import { buildAutonomyCommand } from './autonomy.js';
+import { buildAuthCommand } from './auth.js';
 import { buildAutoPhaseCommand } from './autophase.js';
+import { buildAutonomyCommand } from './autonomy.js';
 import { buildBtwCommand } from './btw.js';
 import { buildClearCommand } from './clear.js';
 import { buildCodebaseReindexCommand } from './codebase-reindex.js';
@@ -295,6 +296,7 @@ export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashComma
     buildPluginCommand(opts),
     buildPruneCommand(opts),
     buildMcpSlashCommand(opts),
+    buildAuthCommand(opts),
     buildDiagCommand(opts),
     buildStatsCommand(opts),
     buildSpawnCommand(opts),
