@@ -1,9 +1,7 @@
 import * as fsp from 'node:fs/promises';
-import * as path from 'node:path';
-import { createHash } from 'node:crypto';
-import * as os from 'node:os';
 import { atomicWrite } from '../utils/atomic-write.js';
 import { color } from '../utils/color.js';
+import { resolveWstackPaths } from '../utils/wstack-paths.js';
 import { FsError, ERROR_CODES } from '../types/errors.js';
 
 /**
@@ -90,10 +88,20 @@ export const MAX_JOURNAL_ENTRIES = 500;
 
 /**
  * Resolve the goal file path for a given project root.
+ *
+ * SINGLE canonical location: the per-project directory that
+ * `resolveWstackPaths()` uses for everything else (sessions, memory, specs) —
+ * `~/.wrongstack/projects/<slug>/goal.json`. This is the same path the `/goal`
+ * slash command writes via `opts.paths.projectGoal`, so every reader/writer
+ * (the eternal/parallel autonomy engines, the CLI autonomy commands, the TUI
+ * F9 panel, and `/goal` itself) now agree on one file.
+ *
+ * Previously this returned a SEPARATE hash-based dir (`projects/<hash>/`), which
+ * disagreed with `/goal` and littered the home dir with thousands of stray
+ * `<hash>/goal.json` directories that held nothing else.
  */
 export function goalFilePath(projectRoot: string): string {
-  const hash = createHash('sha256').update(path.resolve(projectRoot)).digest('hex').slice(0, 12);
-  return path.join(os.homedir(), '.wrongstack', 'projects', hash, 'goal.json');
+  return resolveWstackPaths({ projectRoot }).projectGoal;
 }
 
 export async function loadGoal(filePath: string): Promise<GoalFile | null> {

@@ -1,7 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   appendJournal,
@@ -13,6 +12,7 @@ import {
   saveGoal,
   summarizeUsage,
 } from '../../src/storage/goal-store.js';
+import { resolveWstackPaths } from '../../src/utils/wstack-paths.js';
 
 async function tmpDir(): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), 'wstack-goal-'));
@@ -115,12 +115,12 @@ describe('goal-store', () => {
     expect(out).toContain('tests red');
   });
 
-  it('goalFilePath resolves to ~/.wrongstack/projects/<hash>/goal.json', () => {
+  it('goalFilePath resolves to the canonical per-project goal path (same as resolveWstackPaths.projectGoal)', () => {
     const p = goalFilePath('/projects/foo');
-    const expected = path.join(os.homedir(), '.wrongstack', 'projects',
-      createHash('sha256').update(path.resolve('/projects/foo')).digest('hex').slice(0, 12),
-      'goal.json');
-    expect(p.replace(/\\/g, '/')).toBe(expected.replace(/\\/g, '/'));
+    const expected = resolveWstackPaths({ projectRoot: '/projects/foo' }).projectGoal;
+    expect(p).toBe(expected);
+    // Single source of truth: lives under ~/.wrongstack/projects/, NOT the repo.
+    expect(p.replace(/\\/g, '/')).toContain('/.wrongstack/projects/');
   });
 
   it('summarizeUsage aggregates tokens + cost across the journal', () => {

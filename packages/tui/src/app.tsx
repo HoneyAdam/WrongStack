@@ -13,6 +13,7 @@ import type {
   TokenCounter,
 } from '@wrongstack/core';
 import { type AutonomyStage, DefaultSessionRewinder } from '@wrongstack/core';
+import { loadGoal, resolveWstackPaths } from '@wrongstack/core';
 import { InputBuilder, buildGoalPreamble, formatTodosList, writeOut } from '@wrongstack/core';
 import { enhanceUserPrompt, normalizedEqual, recentTextTurns, shouldEnhance } from '@wrongstack/core';
 import { type VisionAdapters, routeImagesForModel } from '@wrongstack/runtime/vision';
@@ -444,36 +445,45 @@ export function App({
 
   const projectRoot = agent.ctx.projectRoot;
 
-  // Load goal.json on mount to show startup banner with goal state
-  useEffect(() => {
+  // Read the single canonical goal.json — the per-project file under
+  // ~/.wrongstack/projects/<slug>/ (resolveWstackPaths → projectGoal), the SAME
+  // file `/goal` and the autonomy engines write (they all go through
+  // goalFilePath, which now delegates here). The old code read
+  // <projectRoot>/.wrongstack/goal.json — a repo-local path nothing writes — so
+  // the F9 panel always showed "No goal set".
+  const refreshGoalSummary = useCallback(() => {
     if (!projectRoot) return;
-    const goalPath = path.join(projectRoot, '.wrongstack', 'goal.json');
-    fs.readFile(goalPath, 'utf8')
-      .then((raw) => {
-        const goal = JSON.parse(raw);
-        if (goal?.goal && typeof goal.iterations === 'number') {
-          const lastEntry = goal.journal?.[goal.journal.length - 1];
-          dispatch({
-            type: 'goalSummary',
-            summary: {
-              goal: goal.goal,
-              refinedGoal: goal.refinedGoal,
-              goalState: goal.goalState ?? 'active',
-              iterations: goal.iterations,
-              progress: goal.progress,
-              progressNote: goal.progressNote,
-              progressTrend: goal.progressTrend,
-              deliverables: goal.deliverables,
-              lastTask: lastEntry?.task,
-              lastStatus: lastEntry?.status,
-            },
-          });
-        }
+    const goalPath = resolveWstackPaths({ projectRoot }).projectGoal;
+    loadGoal(goalPath)
+      .then((goal) => {
+        if (!goal) return; // no goal file yet — that's fine
+        const lastEntry = goal.journal?.[goal.journal.length - 1];
+        dispatch({
+          type: 'goalSummary',
+          summary: {
+            goal: goal.goal,
+            refinedGoal: goal.refinedGoal,
+            goalState: goal.goalState ?? 'active',
+            iterations: goal.iterations,
+            progress: goal.progress,
+            progressNote: goal.progressNote,
+            progressTrend: goal.progressTrend,
+            deliverables: goal.deliverables,
+            lastTask: lastEntry?.task,
+            lastStatus: lastEntry?.status,
+          },
+        });
       })
       .catch(() => {
-        // No goal file yet — that's fine
+        // Unreadable/partial file — leave the previous summary in place.
       });
   }, [projectRoot]);
+
+  // Load once on mount (startup banner / initial F9 state). The live-while-open
+  // refresh lives further down, after `nowTick` is declared.
+  useEffect(() => {
+    refreshGoalSummary();
+  }, [refreshGoalSummary]);
 
   // Rehydrate TUI chat history from restored messages (session resume).
   // agent.ctx.messages is populated by setupSession → context.state.replaceMessages()
@@ -696,6 +706,13 @@ export function App({
     const t = setInterval(() => setNowTick(Date.now()), 10000);
     return () => clearInterval(t);
   }, []);
+
+  // Keep the F9 goal panel live: refresh the moment it opens and on every tick
+  // while it stays open, so a goal set mid-session via `/goal` — or progress
+  // updated by the autonomy engine — appears without restarting the TUI.
+  useEffect(() => {
+    if (state.goalPanelOpen) refreshGoalSummary();
+  }, [state.goalPanelOpen, nowTick, refreshGoalSummary]);
 
   // Animated dot indicator for the refine-in-progress bar. Cycles 0..3
   // while `enhanceBusy` is true so the user sees a live "still working" cue.
