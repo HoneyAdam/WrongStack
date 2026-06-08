@@ -143,6 +143,7 @@ export function createDefaultContainer(opts: CreateContainerOptions): Container 
         preserveK: opts.compactor?.preserveK ?? 10,
         eliseThreshold: opts.compactor?.eliseThreshold ?? 2000,
         summarizerModel: config.context?.summarizerModel,
+        llmSelector: config.context?.llmSelector,
       }),
   );
 

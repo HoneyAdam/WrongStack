@@ -402,6 +402,7 @@ export async function startWebUI(
     preserveK: config.context?.preserveK ?? 10,
     eliseThreshold: config.context?.eliseThreshold ?? 2000,
     summarizerModel: config.context?.summarizerModel,
+    llmSelector: config.context?.llmSelector,
   });
 
   // Auto-compaction

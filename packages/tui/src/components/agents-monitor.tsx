@@ -189,6 +189,7 @@ function AgentDetail({
   const lastTool = entry.recentTools[entry.recentTools.length - 1];
   const lastMessage = entry.recentMessages[entry.recentMessages.length - 1];
   const streamTail = entry.streamingText ? snippet(entry.streamingText.slice(-160)) : '';
+  const modelLabel = fmtModelLabel(entry.provider, entry.model);
 
   return (
     <Box flexDirection="column" paddingLeft={4} borderStyle="single" borderColor="magenta" borderLeft>

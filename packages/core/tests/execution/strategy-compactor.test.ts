@@ -101,4 +101,15 @@ describe('createStrategyCompactor', () => {
     expect(report).toBeDefined();
     expect(Array.isArray(report.reductions)).toBe(true);
   });
+
+  it('llmSelector: true is a shortcut for the selective strategy (needs provider)', async () => {
+    const provider = makeProvider();
+    const messages = manyTurns();
+    const ctx = fakeContext(messages, provider);
+    const compactor = createStrategyCompactor({ llmSelector: true, preserveK: 2 });
+    const report = await compactor.compact(ctx, { aggressive: true });
+    // Selective path invokes the provider (selector and/or summarizer).
+    expect(provider.complete).toHaveBeenCalled();
+    expect(report).toBeDefined();
+  });
 });

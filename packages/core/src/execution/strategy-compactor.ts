@@ -16,6 +16,12 @@ export interface StrategyCompactorOptions {
   eliseThreshold?: number | undefined;
   /** Model used by the LLM-backed strategies for summarization/selection. */
   summarizerModel?: string | undefined;
+  /**
+   * Legacy shortcut for `strategy: 'selective'`. When `strategy` is unset (or
+   * 'hybrid') and this is true, the selective (LLM-driven) compactor is used.
+   * An explicit `strategy` always wins.
+   */
+  llmSelector?: boolean | undefined;
 }
 
 /**
@@ -32,7 +38,8 @@ export interface StrategyCompactorOptions {
  *   rather than failing.
  */
 export function createStrategyCompactor(opts: StrategyCompactorOptions = {}): Compactor {
-  const strategy = (opts.strategy ?? 'hybrid') as CompactorStrategy;
+  const requested = opts.strategy ?? (opts.llmSelector ? 'selective' : 'hybrid');
+  const strategy = requested as CompactorStrategy;
   if (strategy === 'intelligent' || strategy === 'selective') {
     return new ProviderBackedCompactor(strategy, opts);
   }
