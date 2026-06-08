@@ -40,7 +40,8 @@ export interface ParallelEternalOptions {
   projectRoot: string;
   /**
    * Override the resolved goal.json path. Defaults to
-   * `goalFilePath(projectRoot)` (a hashed location under the home dir).
+   * `goalFilePath(projectRoot)` — the canonical per-project goal file under
+   * `~/.wrongstack/projects/<slug>/`, shared with `/goal` and the TUI.
    * Primarily for tests that want an isolated goal file under a temp dir.
    */
   goalPath?: string | undefined;
