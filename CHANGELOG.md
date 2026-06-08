@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.118.1] - 2026-06-08
+
+> The test-suite maintenance release. Aligns the agent-catalog test assertions with
+> the current 47-role fleet roster (updated from 43), ensuring `pnpm release:check`
+> passes cleanly. All other behavior is unchanged. Additive only; no breaking changes.
+
+### Fixed - Test suite
+
+- **Agent catalog count assertions corrected.** `agent-catalog.test.ts` and
+  `dispatcher.test.ts` now assert `47` catalog agents instead of `43`, matching
+  the current `ALL_AGENT_DEFINITIONS.length` and `FLEET_ROSTER` size.
+
+### Changed - versions
+
+- **All workspace packages aligned to 0.118.1**: `wrongstack`, `@wrongstack/cli`,
+  `@wrongstack/core`, `@wrongstack/mcp`, `@wrongstack/plug-lsp`,
+  `@wrongstack/plugins`, `@wrongstack/providers`, `@wrongstack/runtime`,
+  `@wrongstack/skills`, `@wrongstack/telegram`, `@wrongstack/tools`,
+  `@wrongstack/tui`, `@wrongstack/webui`, and `@wrongstack/acp`.
+
 ## [0.109.1] - 2026-06-08
 
 > The TUI monitor-control & goal-path cleanup release. Consolidates the
