@@ -80,6 +80,12 @@ export interface FleetEntry {
   /** Provider's max context window in tokens (from ctx.pct event). */
   ctxMaxTokens?: number | undefined;
   /**
+   * Estimated USD cost of the current context tokens. Derived from
+   * ctxTokens × provider-specific input pricing when available.
+   * Shown in the agents monitor as a per-agent cost breakdown.
+   */
+  ctxCost?: number | undefined;
+  /**
    * Human-readable reason for terminal failure, when known.
    * E.g. "provider_auth", "rate_limit", "timeout", "budget_iterations".
    * Shown in the Fleet timeline and the per-agent card in the agents monitor.
@@ -596,6 +602,8 @@ export type Action =
       load: number;
       tokens: number;
       maxContext: number;
+      /** Estimated USD cost of the context tokens (optional — computed when pricing known). */
+      ctxCost?: number | undefined;
     }
   | {
       type: 'fleetCost';

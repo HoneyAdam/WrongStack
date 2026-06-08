@@ -740,6 +740,7 @@ export function reducer(state: State, action: Action): State {
             ctxPct: action.load,
             ctxTokens: action.tokens,
             ctxMaxTokens: action.maxContext,
+            ctxCost: action.ctxCost,
             lastEventAt: Date.now(),
           },
         },

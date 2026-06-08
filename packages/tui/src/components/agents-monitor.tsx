@@ -127,6 +127,9 @@ function AgentRow({
   const elapsed =
     entry.status === 'running' ? fmtElapsed(Math.max(0, now - entry.startedAt)) : entry.status;
   const modelLabel = fmtModelLabel(entry.provider, entry.model);
+  const ctxCostStr = entry.ctxCost !== undefined && entry.ctxCost > 0
+    ? ` ctx ${entry.ctxCost.toFixed(4)}`
+    : '';
 
   return (
     <Box flexDirection="row" gap={1}>
@@ -140,8 +143,13 @@ function AgentRow({
       <Text bold={selected} color={selected ? 'magenta' : undefined}>
         {entry.name}
       </Text>
-      {/* Model */}
+      {/* Provider / Model */}
       {modelLabel ? <Text dimColor>{modelLabel}</Text> : null}
+      {entry.provider || entry.model ? (
+        <Text color="blue">
+          {entry.provider ? `${entry.provider}/` : ''}{entry.model ?? ''}
+        </Text>
+      ) : null}
       {/* Iterations / tool calls */}
       <Text dimColor>
         L{entry.iterations} {entry.toolCalls}t
@@ -150,6 +158,8 @@ function AgentRow({
       {entry.ctxPct !== undefined ? (
         <ContextBar pct={entry.ctxPct} tokens={entry.ctxTokens} maxTokens={entry.ctxMaxTokens} />
       ) : null}
+      {/* Context cost */}
+      {ctxCostStr ? <Text color="yellow">{ctxCostStr}</Text> : null}
       {/* Current tool (inline) */}
       {entry.status === 'running' && entry.currentTool ? (
         <Text color="cyan">
@@ -197,6 +207,27 @@ function AgentDetail({
               {typeof lastTool.durationMs === 'number' ? ` ${lastTool.durationMs}ms` : ''}
               {lastTool.ok === false ? ' ✗' : ''}
             </Text>
+          ) : null}
+        </Box>
+      ) : null}
+
+      {/* Provider + Model info */}
+      {(entry.provider || entry.model) ? (
+        <Box>
+          <Text dimColor>
+            provider: {entry.provider || '(leader)'}  ·  model: {entry.model || '—'}
+          </Text>
+        </Box>
+      ) : null}
+
+      {/* Cost breakdown */}
+      {(entry.cost > 0 || (entry.ctxCost && entry.ctxCost > 0)) ? (
+        <Box>
+          <Text dimColor>cost: </Text>
+          {entry.cost > 0 ? <Text color="green">${entry.cost.toFixed(4)} total</Text> : null}
+          {entry.cost > 0 && entry.ctxCost && entry.ctxCost > 0 ? <Text dimColor>  ·  </Text> : null}
+          {entry.ctxCost && entry.ctxCost > 0 ? (
+            <Text color="yellow">${entry.ctxCost.toFixed(4)} ctx</Text>
           ) : null}
         </Box>
       ) : null}
@@ -297,6 +328,22 @@ export function AgentsMonitor({
         {totalFailed > 0 ? <Text color="red">✗{totalFailed}</Text> : null}
         <Text dimColor>· ↑↓ nav · Ctrl+G / F3 close</Text>
       </Box>
+
+      {/* Agent-type → model mapping (compact one-liner) */}
+      {live.length > 0 ? (
+        <Box flexDirection="row" gap={1}>
+          <Text dimColor>models</Text>
+          {(() => {
+            const seen = new Map<string, string>();
+            for (const e of live) {
+              if (e.model) seen.set(e.name ?? e.id, `${e.provider ?? '?'}/${e.model}`);
+            }
+            return [...seen.entries()].slice(0, 4).map(([name, mod]) => (
+              <Text key={name} dimColor>{name}:{mod}</Text>
+            ));
+          })()}
+        </Box>
+      ) : null}
 
       {/* Token + cost row */}
       <Box flexDirection="row" gap={1}>
