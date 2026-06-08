@@ -14,10 +14,10 @@ type Response2 = {
 /** Configuration for WireAdapter stream-level debugging and hang detection. */
 export interface WireAdapterStreamOptions {
   /**
-   * When true, log every raw byte chunk received from the provider's SSE
-   * stream to stderr. Shows hex dump and UTF-8 decode side by side so you
-   * can spot truncated JSON, missing fields, or mid-stream cutoffs.
-   * Controlled by WRONGSTACK_DEBUG_STREAM=1 env var.
+   * When true, log a compact status line per chunk to stderr:
+   * `[DEBUG-STREAM <provider>] chunk #<num> (<size>B, +<delta>ms) <iso8601>`
+   * Does NOT log chunk bodies. Controlled by WRONGSTACK_DEBUG_STREAM=1 env var
+   * or the runtime /settings debug-stream toggle.
    */
   debugStream?: boolean | undefined;
   /**
@@ -55,31 +55,17 @@ async function safeText(res: Response2): Promise<string> {
   }
 }
 
-/** Log a raw byte chunk in hex-dump format to stderr. */
+/** Log a single compact status line per chunk to stderr. */
 function logRawChunk(
   providerId: string,
   chunkIndex: number,
   bytes: Uint8Array,
-  elapsedMs: number,
+  deltaMs: number,
 ): void {
   const ts = new Date().toISOString();
-  const decoder = new TextDecoder('utf-8', { fatal: false });
-  const header = `[DEBUG-STREAM ${providerId}] chunk #${chunkIndex} (${bytes.length}B, +${elapsedMs}ms) ${ts}`;
-  process.stderr.write(`${header}\n`);
-
-  // Hex dump: 16 bytes per row, hex on left, ASCII on right
-  for (let offset = 0; offset < bytes.length; offset += 16) {
-    const slice = bytes.slice(offset, offset + 16);
-    const hex = Array.from(slice)
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join(' ');
-    const ascii = Array.from(slice)
-      .map((b) => (b >= 0x20 && b < 0x7f ? String.fromCodePoint(b) : '.'))
-      .join('');
-    const addr = offset.toString(16).padStart(6, '0');
-    process.stderr.write(`  ${addr}  ${hex.padEnd(48)} |${ascii}|\n`);
-  }
-  process.stderr.write(`  --- decoded (UTF-8): ${decoder.decode(bytes).slice(0, 500)}${bytes.length > 500 ? '…' : ''}\n`);
+  process.stderr.write(
+    `[DEBUG-STREAM ${providerId}] chunk #${chunkIndex} (${bytes.length}B, +${deltaMs}ms) ${ts}\n`,
+  );
 }
 
 const DEFAULT_STREAM_HANG_TIMEOUT_MS = 60_000;
@@ -169,10 +155,10 @@ export abstract class WireAdapter implements Provider {
   }
 
   /**
-   * Wrap a readable stream body to log every incoming byte chunk as a
-   * hex dump + UTF-8 decode to stderr. This is a diagnostic tool for
-   * detecting when API endpoints cut off mid-stream, send malformed
-   * JSON, or stop producing data.
+   * Wrap a readable stream body to log a compact status line per incoming
+   * byte chunk to stderr. This is a diagnostic tool for tracking stream
+   * activity — chunk count, sizes, and inter-chunk deltas — without
+   * printing payload contents.
    */
   private wrapDebugStream(
     body: ReadableStream<Uint8Array> | NodeJS.ReadableStream,
@@ -186,19 +172,20 @@ export abstract class WireAdapter implements Provider {
   }
 
   private wrapDebugNodeStream(body: NodeJS.ReadableStream): NodeJS.ReadableStream {
-    const startTime = Date.now();
+    let lastChunkTime = Date.now();
     let chunkIndex = 0;
     const providerId = this.id;
 
     return Readable.from(
       (async function* () {
         for await (const chunk of body) {
-          // Normalize to Uint8Array: string → encode, Buffer → view
           const bytes: Uint8Array =
             typeof chunk === 'string'
               ? new TextEncoder().encode(chunk)
               : new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
-          logRawChunk(providerId, chunkIndex++, bytes, Date.now() - startTime);
+          const now = Date.now();
+          logRawChunk(providerId, chunkIndex++, bytes, now - lastChunkTime);
+          lastChunkTime = now;
           yield chunk;
         }
       })(),
@@ -208,7 +195,7 @@ export abstract class WireAdapter implements Provider {
   private wrapDebugWebStream(
     body: ReadableStream<Uint8Array>,
   ): ReadableStream<Uint8Array> {
-    const startTime = Date.now();
+    let lastChunkTime = Date.now();
     let chunkIndex = 0;
     const self = this;
     const reader = body.getReader();
@@ -221,7 +208,9 @@ export abstract class WireAdapter implements Provider {
           return;
         }
         if (value) {
-          logRawChunk(self.id, chunkIndex++, value, Date.now() - startTime);
+          const now = Date.now();
+          logRawChunk(self.id, chunkIndex++, value, now - lastChunkTime);
+          lastChunkTime = now;
         }
         controller.enqueue(value);
       },

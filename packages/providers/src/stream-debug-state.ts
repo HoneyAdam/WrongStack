@@ -5,6 +5,9 @@
  * (via /settings debug-stream on|off) take effect on the next request
  * without recreating provider instances.
  *
+ * When enabled, WireAdapter logs a compact per-chunk status line to
+ * stderr without printing chunk bodies.
+ *
  * The CLI boot path seeds this from config.debugStream at startup.
  */
 let _debugStreamEnabled = false;
