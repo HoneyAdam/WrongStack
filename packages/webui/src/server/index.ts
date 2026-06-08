@@ -396,8 +396,11 @@ export async function startWebUI(
   pipelines.toolCall.prepend(collabInject as never);
   // Compactor
   const compactor = new HybridCompactor({
-    preserveK: config.context?.preserveK ?? 20,
-    eliseThreshold: config.context?.eliseThreshold ?? 0.7,
+    // eliseThreshold is a TOKEN COUNT (not a fraction); 0.7 elided every
+    // tool_result. Mirror the 'balanced' mode defaults — the policy in
+    // ctx.meta overrides these at runtime.
+    preserveK: config.context?.preserveK ?? 10,
+    eliseThreshold: config.context?.eliseThreshold ?? 2000,
   });
 
   // Auto-compaction

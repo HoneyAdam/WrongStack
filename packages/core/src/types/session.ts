@@ -82,6 +82,13 @@ export type SessionEvent =
       aggressive?: boolean | undefined;
       /** Summary of token savings per phase (elision, summary, selective). */
       reductions?: Array<{ phase: string; saved: number }>;
+      /**
+       * Lossless digest of the range collapsed during this compaction (text
+       * content preserved; raw tool I/O omitted). Captures *what* was collapsed
+       * for forensics. May be truncated for log size. Absent when nothing was
+       * collapsed (e.g. elision-only passes).
+       */
+      digest?: string | undefined;
     }
   | { type: 'error'; ts: string; message: string; phase: string }
   | { type: 'session_end'; ts: string; usage: Usage; pendingToolUses?: string[] | undefined }

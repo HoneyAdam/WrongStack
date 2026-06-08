@@ -14,6 +14,7 @@ import {
   DefaultTokenCounter,
   type EventBus,
   HybridCompactor,
+  buildRecoveryStrategies,
   type Logger,
   type ModelsRegistry,
   TOKENS,
@@ -64,7 +65,20 @@ export function createDefaultContainer(opts: CreateContainerOptions): Container 
   container.bind(TOKENS.Logger, () => logger);
   container.bind(TOKENS.SecretScrubber, () => new DefaultSecretScrubber());
   container.bind(TOKENS.RetryPolicy, () => new DefaultRetryPolicy());
-  container.bind(TOKENS.ErrorHandler, () => new DefaultErrorHandler());
+  // Wire the compactor into the recovery chain so a 413 / context-overflow
+  // response can shed tokens and retry. Without an explicit compactor the
+  // default `context_overflow_reduce` strategy is a no-op. The Compactor
+  // binding is resolved lazily (it is registered further below).
+  container.bind(
+    TOKENS.ErrorHandler,
+    () =>
+      new DefaultErrorHandler(
+        buildRecoveryStrategies({
+          compactor: container.resolve(TOKENS.Compactor),
+          modelsRegistry,
+        }),
+      ),
+  );
   container.bind(TOKENS.ModelsRegistry, () => modelsRegistry);
   container.bind(
     TOKENS.TokenCounter,
@@ -117,8 +131,14 @@ export function createDefaultContainer(opts: CreateContainerOptions): Container 
     TOKENS.Compactor,
     () =>
       new HybridCompactor({
-        preserveK: opts.compactor?.preserveK ?? 20,
-        eliseThreshold: opts.compactor?.eliseThreshold ?? 0.7,
+        // preserveK / eliseThreshold here are class-level fallbacks; the active
+        // ContextWindowPolicy in ctx.meta normally overrides both at runtime.
+        // Keep them consistent with the 'balanced' mode defaults so any path
+        // that compacts WITHOUT a policy (tests, future callers) behaves sanely.
+        // eliseThreshold is a TOKEN COUNT — a previous value of 0.7 elided
+        // essentially every tool_result (anything > 1 token).
+        preserveK: opts.compactor?.preserveK ?? 10,
+        eliseThreshold: opts.compactor?.eliseThreshold ?? 2000,
       }),
   );
 

@@ -1,5 +1,6 @@
 import type { Context } from '../core/context.js';
 import type { ContentBlock, ToolResultBlock } from '../types/blocks.js';
+import { isTextBlock } from '../types/blocks.js';
 import type { CompactReport, Compactor } from '../types/compactor.js';
 import type { ContextWindowPolicy } from '../types/context-window.js';
 import type { Message } from '../types/messages.js';
@@ -50,10 +51,15 @@ export class HybridCompactor implements Compactor {
     const phase1Saved = this.eliseOldToolResults(ctx, preserveK, eliseThreshold);
     if (phase1Saved > 0) reductions.push({ phase: 'elision', saved: phase1Saved });
 
-    // Phase 2: summary (placeholder; in production calls sub-LLM)
+    // Phase 2: lossless collapse of ancient turns into a single digest.
+    // Unlike the previous placeholder behavior, this preserves ALL textual
+    // content (instructions, decisions, conclusions); only raw tool I/O is
+    // dropped (it remains in the session log). No sub-LLM call — fully rule-based.
+    let collapsedDigest: string | undefined;
     if (opts.aggressive) {
-      const phase2Saved = this.collapseAncientTurns(ctx, preserveK);
-      if (phase2Saved > 0) reductions.push({ phase: 'summary', saved: phase2Saved });
+      const phase2 = this.collapseAncientTurns(ctx, preserveK);
+      if (phase2.saved > 0) reductions.push({ phase: 'summary', saved: phase2.saved });
+      collapsedDigest = phase2.digest;
     }
 
     const repaired = repairToolUseAdjacency(ctx.messages);
@@ -69,6 +75,7 @@ export class HybridCompactor implements Compactor {
       fullRequestTokensBefore: beforeFull,
       fullRequestTokensAfter: afterFull,
       reductions,
+      collapsedDigest,
       repaired: repaired.report.changed
         ? {
             removedToolUses: repaired.report.removedToolUses,
@@ -174,10 +181,24 @@ export class HybridCompactor implements Compactor {
     return saved;
   }
 
-  private collapseAncientTurns(ctx: Context, preserveK = this.preserveK): number {
+  /**
+   * Lossless rule-based collapse of ancient turns into a single digest message.
+   *
+   * Preserves ALL textual content of the collapsed range — user instructions,
+   * assistant decisions/conclusions, and any prior digests (chained forward so
+   * the digest stays lossless across repeated compactions). Only `tool_use` /
+   * `tool_result` protocol blocks are dropped and replaced with a count marker;
+   * their full payload already lives in the session log. No sub-LLM call.
+   *
+   * Returns the token savings and the digest text (for audit logging).
+   */
+  private collapseAncientTurns(
+    ctx: Context,
+    preserveK = this.preserveK,
+  ): { saved: number; digest?: string | undefined } {
     const messages = ctx.messages;
     const cutTarget = Math.max(0, messages.length - preserveK * 2);
-    if (cutTarget <= 0) return 0;
+    if (cutTarget <= 0) return { saved: 0 };
 
     // Find a safe boundary: nearest user-message-with-text at or after cutTarget
     let boundary = -1;
@@ -189,23 +210,27 @@ export class HybridCompactor implements Compactor {
         break;
       }
     }
-    if (boundary <= 0) return 0;
+    if (boundary <= 0) return { saved: 0 };
 
     const removed = messages.slice(0, boundary);
     const removedTokens = this.estimateMessages(removed);
 
-    const summary: Message[] = [
-      {
-        role: 'user',
-        content: `[previous_session_summary: ${removed.length} earlier turns compacted. Todo state preserved in context.]`,
-      },
-      { role: 'assistant', content: 'Continuing from compacted context.' },
-    ];
+    const digest =
+      buildLosslessDigest(removed) ||
+      `${removed.length} earlier turns (no textual content; tool I/O omitted — see session log)`;
+
+    const summaryMsg: Message = {
+      role: 'system',
+      content: `[prior_turns_digest: ${digest}]`,
+    };
 
     // L1-A: route through ConversationState so subscribers see the rewrite.
     const tail = ctx.messages.slice(boundary);
-    ctx.state.replaceMessages([...summary, ...tail]);
-    return Math.max(0, removedTokens - this.estimateMessages(summary));
+    ctx.state.replaceMessages([summaryMsg, ...tail]);
+    return {
+      saved: Math.max(0, removedTokens - this.estimateMessages([summaryMsg])),
+      digest,
+    };
   }
 
   private estimateMessages(messages: Message[]): number {
@@ -241,4 +266,33 @@ function readContextWindowPolicy(ctx: Context): ContextWindowPolicy | null {
 function hasTextContent(m: Message): boolean {
   if (typeof m.content === 'string') return m.content.trim().length > 0;
   return m.content.some((b) => b.type === 'text' && b.text.trim().length > 0);
+}
+
+/**
+ * Render a message range as a lossless textual digest. Every text block is
+ * kept verbatim (across all roles, so prior `system` digests fold forward and
+ * nothing accumulates as loss). `tool_use` / `tool_result` blocks are counted
+ * and replaced with a marker rather than serialized — their payload is already
+ * persisted in the session log. Empty/tool-only messages are skipped.
+ */
+function buildLosslessDigest(messages: Message[]): string {
+  const lines: string[] = [];
+  for (const m of messages) {
+    let text: string;
+    let omitted = 0;
+    if (typeof m.content === 'string') {
+      text = m.content;
+    } else {
+      const parts: string[] = [];
+      for (const b of m.content) {
+        if (isTextBlock(b)) parts.push(b.text);
+        else if (b.type === 'tool_use' || b.type === 'tool_result') omitted++;
+      }
+      text = parts.join(' ');
+    }
+    if (text.trim().length === 0 && omitted === 0) continue;
+    const marker = omitted > 0 ? ` [${omitted} tool call(s) omitted — see session log]` : '';
+    lines.push(`[${m.role}]: ${text}${marker}`);
+  }
+  return lines.join('\n');
 }

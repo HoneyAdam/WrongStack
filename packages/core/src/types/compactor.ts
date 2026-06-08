@@ -29,6 +29,14 @@ export interface CompactReport {
   fullRequestTokensAfter: number;
   reductions: { phase: 'elision' | 'summary' | 'selective'; saved: number }[];
   repaired?: CompactRepairReport | undefined;
+  /**
+   * When a compactor collapses a range of ancient turns into a single digest,
+   * this carries the digest text so callers (e.g. the audit/session log) can
+   * record exactly what was collapsed. Lossless compactors preserve all
+   * textual content here; only raw tool I/O is dropped (it stays in the
+   * session log). Undefined when no range was collapsed this pass.
+   */
+  collapsedDigest?: string | undefined;
 }
 
 export interface Compactor {

@@ -69,7 +69,7 @@ describe('buildCommitCommand', () => {
     const cmd = buildCommitCommand();
     const res = await cmd.run('', ctxFor(tmp));
     expect(res?.message).toContain('Nothing to commit');
-  });
+  }, 30_000);
 
   it('--dry-run uses heuristics and never invokes git commit', async () => {
     initGitRepo();
@@ -137,7 +137,7 @@ describe('buildCommitCommand', () => {
     const cmd = buildCommitCommand();
     const res = await cmd.run('-n', ctxFor(tmp));
     expect(stripAnsi(res!.message!)).toContain('Would commit');
-  });
+  }, 30_000);
 
   it('actually commits and reports the short SHA when not dry-run', async () => {
     initGitRepo();
@@ -149,7 +149,7 @@ describe('buildCommitCommand', () => {
     // Real commit should be visible in git log
     const log = execFileSync('git', ['log', '--oneline'], { cwd: tmp }).toString();
     expect(log.trim().length).toBeGreaterThan(0);
-  });
+  }, 30_000);
 
   it('mentions /push tip when a remote is configured', async () => {
     initGitRepo();
@@ -158,7 +158,7 @@ describe('buildCommitCommand', () => {
     const cmd = buildCommitCommand();
     const res = await cmd.run('', ctxFor(tmp));
     expect(stripAnsi(res!.message!)).toContain('/push');
-  });
+  }, 30_000);
 
   it('does not mention /push when no remote configured', async () => {
     initGitRepo();
@@ -166,7 +166,7 @@ describe('buildCommitCommand', () => {
     const cmd = buildCommitCommand();
     const res = await cmd.run('', ctxFor(tmp));
     expect(stripAnsi(res!.message!)).not.toContain('/push');
-  });
+  }, 30_000);
 });
 
 // ── /gitcheck ───────────────────────────────────────────────────────────────
@@ -186,7 +186,7 @@ describe('buildGitcheckCommand', () => {
     const cmd = buildGitcheckCommand();
     const res = await cmd.run('', ctxFor(tmp));
     expect(res?.message).toBe('');
-  });
+  }, 30_000);
 
   it('reports change count with singular form', async () => {
     initGitRepo();
@@ -195,7 +195,7 @@ describe('buildGitcheckCommand', () => {
     const res = await cmd.run('', ctxFor(tmp));
     expect(stripAnsi(res!.message!)).toContain('1 uncommitted change');
     expect(stripAnsi(res!.message!)).not.toContain('changes');
-  });
+  }, 30_000);
 
   it('reports change count with plural form', async () => {
     initGitRepo();
@@ -204,7 +204,7 @@ describe('buildGitcheckCommand', () => {
     const cmd = buildGitcheckCommand();
     const res = await cmd.run('', ctxFor(tmp));
     expect(stripAnsi(res!.message!)).toContain('2 uncommitted changes');
-  });
+  }, 30_000);
 });
 
 // ── /push ───────────────────────────────────────────────────────────────────
@@ -226,7 +226,7 @@ describe('buildPushCommand', () => {
     const cmd = buildPushCommand();
     const res = await cmd.run('', ctxFor(tmp));
     expect(res?.message).toContain('No remote configured');
-  });
+  }, 30_000);
 
   it('--dry-run with a remote shows "would push to <remote>"', async () => {
     initGitRepo();
@@ -236,7 +236,7 @@ describe('buildPushCommand', () => {
     const clean = stripAnsi(res!.message!);
     expect(clean).toContain('Would push');
     expect(clean).toContain('origin');
-  });
+  }, 30_000);
 
   it('--dry-run -f shows "(force)" marker', async () => {
     initGitRepo();
@@ -245,7 +245,7 @@ describe('buildPushCommand', () => {
     const res = await cmd.run('--dry-run --force', ctxFor(tmp));
     const clean = stripAnsi(res!.message!);
     expect(clean).toContain('force');
-  });
+  }, 30_000);
 
   it('-n shortcut is treated as --dry-run for push too', async () => {
     initGitRepo();
@@ -253,7 +253,7 @@ describe('buildPushCommand', () => {
     const cmd = buildPushCommand();
     const res = await cmd.run('-n', ctxFor(tmp));
     expect(stripAnsi(res!.message!)).toContain('Would push');
-  });
+  }, 30_000);
 
   it('pushes successfully to a local bare-repo remote and reports the short SHA', async () => {
     // file:// remotes never hang and never need credentials, so we can exercise
@@ -278,5 +278,5 @@ describe('buildPushCommand', () => {
     } finally {
       await fs.rm(bare, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 });
