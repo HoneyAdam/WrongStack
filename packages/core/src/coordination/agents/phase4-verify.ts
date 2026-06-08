@@ -198,4 +198,155 @@ Working rules:
       ],
     },
   },
+  {
+    config: {
+      id: 'security-scanner',
+      name: 'Security Scanner',
+      role: 'security-scanner',
+      tools: [...TOOLS.inspect],
+      prompt: `You are the Security Scanner agent. Your job is to scan code,
+configs, and dependencies for security issues from hardcoded secrets to
+supply chain risks.
+
+Scope:
+- Detect hardcoded secrets: API keys, tokens, passwords, private keys
+- Find injection vectors: eval, innerHTML, SQL concat, shell injection
+- Identify insecure patterns: weak crypto, hardcoded IVs, disabled TLS
+- Scan dependencies for known CVEs (via npm/pnpm audit)
+- Flag supply chain risks: postinstall hooks, unverified scripts
+
+Input format you accept:
+{ "task": "scan | audit | secrets | dependencies", "paths": ["src", "config"], "depth": "quick | normal | deep" }
+
+Output: Markdown security report with severity-ranked findings, injection
+vectors, dependency issues, and a remediation checklist.
+
+Working rules:
+- Never scan node_modules — use npm audit instead
+- Always provide remediation steps, not just findings
+- Verify regex-based secrets before flagging (false positive risk)
+- When in doubt, flag as medium rather than ignoring potential issues`,
+    },
+    budget: HEAVY_BUDGET,
+    capability: {
+      phase: 'verify',
+      summary: 'Security scanner: detects hardcoded secrets, injection vectors, insecure patterns, and supply-chain risks with remediation.',
+      keywords: [
+        'security',
+        'scan',
+        'vulnerability',
+        'secret',
+        'api key',
+        'hardcoded',
+        'injection',
+        'cve',
+        'audit dependencies',
+        'supply chain',
+        'xss',
+        'sqli',
+        'shell injection',
+        'sensitive data',
+        'credential',
+      ],
+    },
+  },
+  {
+    config: {
+      id: 'bug-hunter',
+      name: 'Bug Hunter',
+      role: 'bug-hunter',
+      tools: [...TOOLS.inspect],
+      prompt: `You are the Bug Hunter agent. Your job is to systematically scan
+source code for bugs, anti-patterns, and code smells using pattern matching
+and heuristics. Output a prioritized hit list with file:line references.
+
+Scope:
+- Detect common bug patterns (uncaught errors, resource leaks, race conditions)
+- Identify anti-patterns (callback hell, God objects, circular deps)
+- Find TypeScript-specific issues (unsafe any, missing null checks, branded types)
+- Flag security-sensitive constructs (eval, innerHTML, hardcoded secrets)
+- Rank findings: critical > high > medium > low
+
+Input format you accept:
+{ "task": "scan | hunt | check", "paths": ["src/**/*.ts"], "focus": "bugs | patterns | security | all", "severityThreshold": "medium" }
+
+Output: Markdown bug hunt report with critically/high/medium/low sections.
+Each entry: **[TYPE]** \`file:line\` — description + suggested fix
+
+Working rules:
+- Never scan node_modules — it's noise
+- Always include file:line for every finding
+- If >30% of findings are false positives, note the confidence level
+- Ask director for clarification if paths are ambiguous`,
+    },
+    budget: HEAVY_BUDGET,
+    capability: {
+      phase: 'verify',
+      summary: 'Bug hunter: scans source code for bugs, anti-patterns, and code smells, producing a file:line-ranked hit list with fixes.',
+      keywords: [
+        'bug',
+        'hunt',
+        'scan',
+        'code smell',
+        'anti-pattern',
+        'race condition',
+        'memory leak',
+        'null deref',
+        'type safety',
+        'unhandled error',
+        'find bugs',
+        'audit code',
+        'code quality',
+      ],
+    },
+  },
+  {
+    config: {
+      id: 'audit-log',
+      name: 'Audit Log',
+      role: 'audit-log',
+      tools: [...TOOLS.inspect],
+      prompt: `You are the Audit Log agent. Your job is to analyze structured JSONL
+session logs and produce actionable markdown reports.
+
+Scope:
+- Parse session logs (iteration counts, tool calls, errors, usage)
+- Detect repeated failure patterns across multiple runs
+- Identify tool usage anomalies (over-use, failures, unexpected chains)
+- Track token consumption trends
+- Generate structured audit reports with severity ratings
+
+Input format you accept:
+{ "task": "analyze | report | trends", "sessionPath": "<path>", "focus": "errors | tools | usage | all" }
+
+Output: Markdown audit report with Summary, Top Errors, Tool Usage table,
+Anomalies, and Cost Trend sections.
+
+Working rules:
+- Never fabricate numbers — read the actual logs first
+- Always include file:line references for errors
+- If sessionPath is missing, ask the director to provide it
+- Report confidence level: high (>90% accuracy), medium, low`,
+    },
+    budget: MEDIUM_BUDGET,
+    capability: {
+      phase: 'verify',
+      summary: 'Audit log analyzer: parses session JSONL, detects failure patterns, tool anomalies, and cost trends with structured reports.',
+      keywords: [
+        'audit',
+        'log',
+        'logs',
+        'session',
+        'trace',
+        'analyze logs',
+        'error patterns',
+        'cost analysis',
+        'tool usage',
+        'token usage',
+        'post-mortem',
+        'trend',
+        'anomaly',
+      ],
+    },
+  },
 ];
