@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`/dev` slash command — run shell commands from chat.** A new `Run`-category
+  slash command executes arbitrary shell commands from the chat input and
+  displays the output as a display-only history entry. The LLM does not see the
+  result — this is a developer convenience shortcut, not a tool invocation.
+  Commands run in the current working directory, timeout after 60 s, and cap
+  output at 500 lines. Built on `node:child_process.exec` with `shell: true`.
+  (`packages/cli/src/slash-commands/dev.ts`, `docs/slash/dev.md`)
+
+### Fixed
+
+- **`test` tool: fall back to vitest when no config file is detected.** When
+  `runner: 'auto'` is specified and `detectRunner()` finds no config file
+  (`vitest.config.ts`, `jest.config.js`, `.mocharc.json`), the tool now falls
+  back to `'vitest'` as the default runner instead of returning `'none'`. This
+  matches the test's stated expectation ("falls back to vitest when no config
+  file found") and the project's convention of vitest as the primary test
+  runner. (`packages/tools/src/test.ts`)
+
 ## [0.118.1] - 2026-06-08
 
 > The test-suite maintenance release. Aligns the agent-catalog test assertions with
