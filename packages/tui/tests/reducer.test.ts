@@ -396,6 +396,48 @@ describe('TUI reducer', () => {
     s = reducer(s, { type: 'queueDelete', positions: [99, 0, -5] });
     expect(s).toBe(before);
   });
+
+  it('steerConsume clears steeringPending, steerSnapshot, and interrupts', () => {
+    let s = initial();
+    s = { ...s, steeringPending: true, steerSnapshot: { runningTools: ['read'], subagents: [], subagentsTerminated: 0, partialAssistantText: '' }, interrupts: 2 };
+    s = reducer(s, { type: 'steerConsume' });
+    expect(s.steeringPending).toBe(false);
+    expect(s.steerSnapshot).toBeNull();
+    expect(s.interrupts).toBe(0);
+  });
+
+  it('steerStart sets steeringPending + steerSnapshot, steerConsume clears them back', () => {
+    const snapshot = { runningTools: ['bash'], subagents: [{ label: 'w', status: 'running' as const, tool: 'grep' }], subagentsTerminated: 1, partialAssistantText: '...' };
+    let s = reducer(initial(), { type: 'steerStart', snapshot });
+    expect(s.steeringPending).toBe(true);
+    expect(s.steerSnapshot).toEqual(snapshot);
+    s = reducer(s, { type: 'steerConsume' });
+    expect(s.steeringPending).toBe(false);
+    expect(s.steerSnapshot).toBeNull();
+  });
+
+  it('addEntry rejects empty/whitespace text for user, assistant, info, warn, error kinds', () => {
+    const emptyKinds = ['user', 'assistant', 'info', 'warn', 'error'] as const;
+    for (const kind of emptyKinds) {
+      let s = initial();
+      // Whitespace-only
+      s = reducer(s, { type: 'addEntry', entry: { kind, text: '   ' } as any });
+      expect(s.entries).toHaveLength(0);
+      // Empty string
+      s = reducer(s, { type: 'addEntry', entry: { kind, text: '' } as any });
+      expect(s.entries).toHaveLength(0);
+    }
+  });
+
+  it('addEntry accepts non-empty text for user, assistant, info kinds', () => {
+    let s = initial();
+    s = reducer(s, { type: 'addEntry', entry: { kind: 'user', text: 'hello' } });
+    expect(s.entries).toHaveLength(1);
+    s = reducer(s, { type: 'addEntry', entry: { kind: 'assistant', text: 'hi' } });
+    expect(s.entries).toHaveLength(2);
+    s = reducer(s, { type: 'addEntry', entry: { kind: 'info', text: 'ok' } });
+    expect(s.entries).toHaveLength(3);
+  });
 });
 
 describe('selectedSlashCommandLine', () => {
