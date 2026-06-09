@@ -3,12 +3,10 @@ import {
   addPlanItem,
   clearPlan,
   deriveTodosFromPlanItem,
-  emptyPlan,
   formatPlan,
   getPlanTemplate,
-  loadPlan,
+  mutatePlan,
   removePlanItem,
-  savePlan,
   setPlanItemStatus,
 } from '@wrongstack/core';
 import {
@@ -144,141 +142,168 @@ export const planTool: Tool<PlanInput, PlanOutput> = {
       };
     }
     const sessionId = ctx.session?.id ?? 'unknown';
-    let plan: PlanFile = (await loadPlan(planPath)) ?? emptyPlan(sessionId);
 
-    switch (input.action) {
-      case 'show':
-        break;
-      case 'add': {
-        const title = input.title?.trim();
-        if (!title) {
-          return mkResult(plan, false, 'add requires `title`.');
-        }
-        ({ plan } = addPlanItem(plan, title, input.details?.trim() || undefined));
-        await savePlan(planPath, plan);
-        break;
-      }
-      case 'start':
-      case 'done': {
-        if (!input.target) {
-          return mkResult(plan, false, `${input.action} requires \`target\` (id|index|substring).`);
-        }
-        const next = setPlanItemStatus(
-          plan,
-          input.target,
-          input.action === 'start' ? 'in_progress' : 'done',
-        );
-        if (next === plan) {
-          return mkResult(plan, false, `No plan item matched "${input.target}".`);
-        }
-        plan = next;
-        await savePlan(planPath, plan);
-        break;
-      }
-      case 'remove': {
-        if (!input.target) {
-          return mkResult(plan, false, 'remove requires `target` (id|index|substring).');
-        }
-        const next = removePlanItem(plan, input.target);
-        if (next === plan) {
-          return mkResult(plan, false, `No plan item matched "${input.target}".`);
-        }
-        plan = next;
-        await savePlan(planPath, plan);
-        break;
-      }
-      case 'promote': {
-        if (!input.target) {
-          return mkResult(plan, false, `${input.action} requires \`target\` (id|index|substring).`);
-        }
-        const derived = deriveTodosFromPlanItem(plan, input.target, input.subtasks);
-        if (!derived) {
-          return mkResult(plan, false, `No plan item matched "${input.target}".`);
-        }
-        plan = derived.plan;
-        await savePlan(planPath, plan);
-        // Replace todos with the derived list
-        ctx.state.replaceTodos(derived.todos);
-        return mkResult(
-          plan,
-          true,
-          `${input.action} ok — ${derived.todos.length} todo(s) created.`,
-          derived.todos,
-        );
-      }
-      case 'template_use': {
-        const templateName = input.template?.trim();
-        if (!templateName) {
-          return mkResult(plan, false, 'template_use requires `template` name.');
-        }
-        const template = getPlanTemplate(templateName);
-        if (!template) {
-          return mkResult(plan, false, `Unknown template "${templateName}".`);
-        }
-        for (const item of template.items) {
-          ({ plan } = addPlanItem(plan, item.title, item.details));
-        }
-        await savePlan(planPath, plan);
-        return mkResult(
-          plan,
-          true,
-          `Applied template "${template.name}" — ${template.items.length} items added.`,
-        );
-      }
-      case 'clear':
-        plan = clearPlan(plan);
-        await savePlan(planPath, plan);
-        break;
+    let early: PlanOutput | null = null;
+    // Track taskify data — task write happens after the plan lock releases
+    const taskifyMeta = { title: '', details: '' };
+    let didTaskify = false;
 
-      case 'taskify': {
-        if (!input.target) {
-          return mkResult(plan, false, 'taskify requires `target` (plan item id|index|substring).');
-        }
-        // Find plan item by 1-based index, exact id, or title substring
-        let itemIdx = -1;
-        const asNum = Number.parseInt(input.target, 10);
-        if (!Number.isNaN(asNum) && asNum >= 1 && asNum <= plan.items.length) {
-          itemIdx = asNum - 1;
-        } else {
-          itemIdx = plan.items.findIndex((it) => it.id === input.target);
-          if (itemIdx === -1) {
-            const lower = input.target.toLowerCase();
-            itemIdx = plan.items.findIndex((it) => it.title.toLowerCase().includes(lower));
+    const plan = await mutatePlan(planPath, sessionId, async (p) => {
+      switch (input.action) {
+        case 'show':
+          break;
+
+        case 'add': {
+          const title = input.title?.trim();
+          if (!title) {
+            early = mkResult(p, false, 'add requires `title`.');
+            return p;
           }
-        }
-        if (itemIdx === -1 || !plan.items[itemIdx]) {
-          return mkResult(plan, false, `No plan item matched "${input.target}".`);
-        }
-        const item = plan.items[itemIdx]!;
-
-        const taskPath = (ctx.meta as Record<string, unknown>)['task.path'];
-        if (typeof taskPath !== 'string' || !taskPath) {
-          return mkResult(plan, false, 'Task storage path not configured — cannot taskify.');
+          const { plan: updated } = addPlanItem(p, title, input.details?.trim() || undefined);
+          return updated;
         }
 
-        const taskFile: TaskFile = (await loadTasks(taskPath)) ?? emptyTaskFile(sessionId);
-        const now = new Date().toISOString();
-        taskFile.tasks.push({
-          id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-          title: item.title,
-          description: item.details,
-          type: 'feature',
-          priority: 'medium',
-          status: 'pending',
-          createdAt: now,
-          updatedAt: now,
-        });
-        await saveTasks(taskPath, taskFile);
+        case 'start':
+        case 'done': {
+          if (!input.target) {
+            early = mkResult(p, false, `${input.action} requires \`target\` (id|index|substring).`);
+            return p;
+          }
+          const next = setPlanItemStatus(
+            p,
+            input.target,
+            input.action === 'start' ? 'in_progress' : 'done',
+          );
+          if (next === p) {
+            early = mkResult(p, false, `No plan item matched "${input.target}".`);
+            return p;
+          }
+          return next;
+        }
 
-        return mkResult(
-          plan,
-          true,
-          `taskify ok — added "${item.title}" to tasks.\n${formatTaskList(taskFile.tasks)}`,
-        );
+        case 'remove': {
+          if (!input.target) {
+            early = mkResult(p, false, 'remove requires `target` (id|index|substring).');
+            return p;
+          }
+          const next = removePlanItem(p, input.target);
+          if (next === p) {
+            early = mkResult(p, false, `No plan item matched "${input.target}".`);
+            return p;
+          }
+          return next;
+        }
+
+        case 'promote': {
+          if (!input.target) {
+            early = mkResult(p, false, `${input.action} requires \`target\` (id|index|substring).`);
+            return p;
+          }
+          const derived = deriveTodosFromPlanItem(p, input.target, input.subtasks);
+          if (!derived) {
+            early = mkResult(p, false, `No plan item matched "${input.target}".`);
+            return p;
+          }
+          ctx.state.replaceTodos(derived.todos);
+          early = mkResult(
+            derived.plan,
+            true,
+            `${input.action} ok — ${derived.todos.length} todo(s) created.`,
+            derived.todos,
+          );
+          return derived.plan;
+        }
+
+        case 'template_use': {
+          const templateName = input.template?.trim();
+          if (!templateName) {
+            early = mkResult(p, false, 'template_use requires `template` name.');
+            return p;
+          }
+          const template = getPlanTemplate(templateName);
+          if (!template) {
+            early = mkResult(p, false, `Unknown template "${templateName}".`);
+            return p;
+          }
+          let updated = p;
+          for (const item of template.items) {
+            ({ plan: updated } = addPlanItem(updated, item.title, item.details));
+          }
+          early = mkResult(
+            updated,
+            true,
+            `Applied template "${template.name}" — ${template.items.length} items added.`,
+          );
+          return updated;
+        }
+
+        case 'clear':
+          return clearPlan(p);
+
+        case 'taskify': {
+          if (!input.target) {
+            early = mkResult(p, false, 'taskify requires `target` (plan item id|index|substring).');
+            return p;
+          }
+          // Find plan item by 1-based index, exact id, or title substring
+          let itemIdx = -1;
+          const asNum = Number.parseInt(input.target, 10);
+          if (!Number.isNaN(asNum) && asNum >= 1 && asNum <= p.items.length) {
+            itemIdx = asNum - 1;
+          } else {
+            itemIdx = p.items.findIndex((it) => it.id === input.target);
+            if (itemIdx === -1) {
+              const lower = input.target.toLowerCase();
+              itemIdx = p.items.findIndex((it) => it.title.toLowerCase().includes(lower));
+            }
+          }
+          if (itemIdx === -1 || !p.items[itemIdx]) {
+            early = mkResult(p, false, `No plan item matched "${input.target}".`);
+            return p;
+          }
+          const item = p.items[itemIdx]!;
+          // Extract data — task write happens after the plan lock releases
+          taskifyMeta.title = item.title;
+          taskifyMeta.details = item.details ?? '';
+          didTaskify = true;
+          break;
+        }
+
+        default:
+          early = mkResult(p, false, `Unknown action "${(input as { action: string }).action}".`);
+          return p;
       }
 
-      default:
-        return mkResult(plan, false, `Unknown action "${(input as { action: string }).action}".`);
+      return p;
+    });
+
+    // If the callback set an early-return result, use it
+    if (early) return early;
+
+    // If taskify copied plan item data, write it to the task file now
+    if (didTaskify) {
+      const taskPath = (ctx.meta as Record<string, unknown>)['task.path'];
+      if (typeof taskPath !== 'string' || !taskPath) {
+        return mkResult(plan, false, 'Task storage path not configured — cannot taskify.');
+      }
+      const taskFile: TaskFile = (await loadTasks(taskPath)) ?? emptyTaskFile(sessionId);
+      const now = new Date().toISOString();
+      taskFile.tasks.push({
+        id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        title: taskifyMeta.title,
+        description: taskifyMeta.details || undefined,
+        type: 'feature',
+        priority: 'medium',
+        status: 'pending',
+        createdAt: now,
+        updatedAt: now,
+      });
+      await saveTasks(taskPath, taskFile);
+      return mkResult(
+        plan,
+        true,
+        `taskify ok — added "${taskifyMeta.title}" to tasks.\n${formatTaskList(taskFile.tasks)}`,
+      );
     }
 
     return mkResult(plan, true, `Plan ${input.action} ok.`);

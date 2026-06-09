@@ -10,6 +10,14 @@ import {
   loadTasks,
   saveTasks,
 } from '@wrongstack/core';
+import {
+  type PlanFile,
+  addPlanItem,
+  emptyPlan,
+  formatPlan,
+  loadPlan,
+  savePlan,
+} from '@wrongstack/core';
 import type { SlashCommand } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
 import { parseSubcommand, unknownSubcommand } from './helpers.js';
@@ -55,7 +63,7 @@ export function buildTasksCommand(_opts: SlashCommandContext): SlashCommand {
     name: 'tasks',
     category: 'Inspect',
     description:
-      'Manage structured tasks with dependencies, types, and priorities: /tasks [show|add <title>|start|done|fail|status <id> <status>|promote <id>|clear]',
+      'Manage structured tasks with dependencies, types, and priorities: /tasks [show|add <title>|start|done|fail|status <id> <status>|promote <id>|planify <id>|clear]',
     help: [
       'Usage:',
       '  /tasks                            Show task progress + list',
@@ -68,6 +76,7 @@ export function buildTasksCommand(_opts: SlashCommandContext): SlashCommand {
       '  /tasks depends <id> <depId...>    Set dependencies for a task',
       '  /tasks assign <id> <agent>        Assign task to an agent/subagent',
       '  /tasks promote <id>               Promote task to todo items',
+      '  /tasks planify <id>               Promote task to a plan item',
       '  /tasks clear                      Remove all tasks',
       '',
       'Types: feature, bugfix, refactor, docs, test, chore',
@@ -204,6 +213,25 @@ export function buildTasksCommand(_opts: SlashCommandContext): SlashCommand {
           };
         }
 
+        case 'planify': {
+          if (!restJoined) return { message: 'Usage: /tasks planify <id|index>' };
+          const found = findTask(file.tasks, restJoined);
+          if (!found) return { message: `No task matched "${restJoined}".` };
+
+          const planPath = (ctx.meta as Record<string, unknown>)?.['plan.path'];
+          if (typeof planPath !== 'string' || !planPath) {
+            return { message: 'Plan storage is not configured for this session.' };
+          }
+
+          const planCfg: PlanFile = (await loadPlan(planPath)) ?? emptyPlan(sessionId);
+          const { plan: updated, item: planItem } = addPlanItem(planCfg, found.item.title, found.item.description);
+          await savePlan(planPath, updated);
+
+          return {
+            message: `Planified "${found.item.title}" → plan item.\n${formatPlan(updated)}`,
+          };
+        }
+
         case 'clear': {
           const n = file.tasks.length;
           if (n === 0) return { message: 'Tasks were already empty.' };
@@ -214,7 +242,7 @@ export function buildTasksCommand(_opts: SlashCommandContext): SlashCommand {
 
         default:
           return {
-            message: unknownSubcommand(cmd, ['show', 'add', 'start', 'done', 'fail', 'status', 'depends', 'assign', 'promote', 'clear'], 'tasks'),
+            message: unknownSubcommand(cmd, ['show', 'add', 'start', 'done', 'fail', 'status', 'depends', 'assign', 'promote', 'planify', 'clear'], 'tasks'),
           };
       }
     },

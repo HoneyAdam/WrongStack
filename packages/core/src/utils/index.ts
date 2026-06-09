@@ -21,6 +21,7 @@ export {
   estimateToolInputTokens,
   estimateToolResultTokens,
   estimateTextTokens,
+  computeMessageTokens,
   estimateMessageTokens,
   estimateToolDefTokens,
   estimateRequestTokens,

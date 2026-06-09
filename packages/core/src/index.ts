@@ -67,6 +67,18 @@ export {
   type ShellHookSpec,
 } from './hooks/index.js';
 export {
+  eliseOldToolResults,
+  estimateMessages,
+  buildLosslessDigest,
+  buildSmartDigest,
+  hasTextContent,
+  findPreserveStart,
+  scoreMessage,
+  extractText,
+  type EliseResult,
+  type ContentScore,
+} from './execution/compaction-core.js';
+export {
   bootConfig,
   flagsToConfigPatch,
   type BootConfigOptions,
