@@ -208,7 +208,7 @@ const plugin: Plugin = {
         properties: {
           cwd: { type: 'string', description: 'Working directory (defaults to project root)' },
           dryRun: { type: 'boolean', default: false },
-          part: { type: 'string', enum: ['major', 'minor', 'patch', 'auto'], default: 'auto', description: 'Version part to bump (auto = infer from commits)' },
+          part: { type: 'string', enum: ['major', 'minor', 'patch', 'auto'], default: 'patch', description: 'Version part to bump (defaults to patch; use auto to infer from commits)' },
         },
       },
       permission: 'confirm',
