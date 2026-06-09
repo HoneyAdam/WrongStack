@@ -23,9 +23,9 @@ export function buildSaveCommand(opts: SlashCommandContext): SlashCommand {
 
 export function buildLoadCommand(opts: SlashCommandContext): SlashCommand {
   return {
-    name: 'resume',
+    name: 'sessions',
     category: 'Session',
-    aliases: ['load', 'sessions'],
+    aliases: ['resume', 'load'],
     description: 'List recent sessions, show incomplete ones (--incomplete), or plan a recovery (--recover <id>).',
     async run(args) {
       const parts = args.split(/\s+/).filter(Boolean);

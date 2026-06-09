@@ -30,13 +30,13 @@ describe('buildSaveCommand', () => {
   });
 });
 
-// ── /resume (load) ───────────────────────────────────────────────────────────
+// ── /sessions (resume/load) ──────────────────────────────────────────────────
 
 describe('buildLoadCommand', () => {
-  it('exposes name "resume" with aliases', () => {
+  it('exposes name "sessions" with backward-compat aliases', () => {
     const cmd = buildLoadCommand({} as never);
-    expect(cmd.name).toBe('resume');
-    expect(cmd.aliases).toEqual(expect.arrayContaining(['load', 'sessions']));
+    expect(cmd.name).toBe('sessions');
+    expect(cmd.aliases).toEqual(expect.arrayContaining(['resume', 'load']));
   });
 
   it('returns "no session store" when undefined', async () => {
