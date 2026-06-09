@@ -32,6 +32,8 @@ import { contextOverflowHint } from './context-overflow-diagnostic.js';
 import { FleetStatusLine } from './fleet-statusline.js';
 import { type PredictLLMProvider, predictNextTasks } from './next-task-predictor.js';
 import { runRepl } from './repl.js';
+import { parseSuggestionsFromOutput } from './repl.js';
+import { setSuggestions } from './slash-commands/suggestion-store.js';
 import type { SessionStats } from './session-stats.js';
 import { fmtTok } from './utils.js';
 import { CLI_VERSION } from './version.js';
@@ -447,6 +449,13 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
                 model: context.model,
               },
             );
+          },
+          // Parse 💡 Next steps from assistant output and store them in the
+          // shared suggestion store so `/next 1`, `/next 1 2 3` work without
+          // requiring `/suggest` first. Called unconditionally on every done turn.
+          onSuggestionsParsed: (finalText: string) => {
+            const parsed = parseSuggestionsFromOutput(finalText);
+            setSuggestions(parsed ?? []);
           },
           getEternalEngine,
           subscribeEternalIteration,
