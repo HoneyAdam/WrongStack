@@ -418,10 +418,9 @@ describe('AutoCompactionMiddleware', () => {
     expect(typeof event.ts).toBe('string');
   });
 
-  it('skips token estimation when context has not changed (idle loop elision)', async () => {
-    // When messages and tools haven't changed since the last invocation,
-    // the handler should reuse the cached token estimate instead of calling
-    // the estimator or estimateRequestTokensCalibrated() again.
+  it('calls the custom estimator on every invocation (no caching for custom estimators)', async () => {
+    // Custom estimators own their own semantics — the middleware must NOT
+    // cache their result. Each handler() call invokes the estimator fresh.
     let estimatorCalls = 0;
     const countingEstimator = () => {
       estimatorCalls++;
@@ -437,20 +436,18 @@ describe('AutoCompactionMiddleware', () => {
 
     const ctx = mockContext(0);
 
-    // First call: estimator should be invoked (cache miss)
+    // Three back-to-back calls with identical context — estimator called every time.
     await mw.handler()(ctx, async (c) => c);
     expect(estimatorCalls).toBe(1);
 
-    // Second call with same context: cache hit — estimator skipped
     await mw.handler()(ctx, async (c) => c);
-    expect(estimatorCalls).toBe(1); // still 1 — reused cache
+    expect(estimatorCalls).toBe(2);
 
-    // Third call with same context: cache still hit
     await mw.handler()(ctx, async (c) => c);
-    expect(estimatorCalls).toBe(1); // still 1 — reused cache
+    expect(estimatorCalls).toBe(3);
   });
 
-  it('recomputes token estimate when context changes (cache invalidation)', async () => {
+  it('calls the custom estimator fresh when context changes', async () => {
     let estimatorCalls = 0;
     const countingEstimator = () => {
       estimatorCalls++;
@@ -464,23 +461,23 @@ describe('AutoCompactionMiddleware', () => {
       { warn: 0.5, soft: 0.75, hard: 0.9 },
     );
 
-    // First call: cache miss
+    // First call
     const ctx1 = mockContext(0);
     await mw.handler()(ctx1, async (c) => c);
     expect(estimatorCalls).toBe(1);
 
-    // Same context: cache hit
+    // Same context — custom estimators are never cached, called again
     await mw.handler()(ctx1, async (c) => c);
-    expect(estimatorCalls).toBe(1);
+    expect(estimatorCalls).toBe(2);
 
-    // DIFFERENT context (messages changed): cache miss → recompute
+    // DIFFERENT context — called again
     const ctx2 = mockContext(0);
     ctx2.messages = [{ role: 'user', content: 'new message' } as any];
     await mw.handler()(ctx2, async (c) => c);
-    expect(estimatorCalls).toBe(2);
+    expect(estimatorCalls).toBe(3);
 
-    // Back to same context as before: cache hit (counts match ctx2 now)
+    // Same context again — still called fresh
     await mw.handler()(ctx2, async (c) => c);
-    expect(estimatorCalls).toBe(2);
+    expect(estimatorCalls).toBe(4);
   });
 });
