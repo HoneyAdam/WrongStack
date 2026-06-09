@@ -175,7 +175,7 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
         }
 
         return {
-          message: `${color.red('Unknown setting')} "${sub}". Try ${color.dim('/settings')}, ${color.dim('/settings delay <s>')}, ${color.dim('/settings mode <m>')}, ${color.dim('/settings hints on|off')}, ${color.dim('/settings debug-stream on|off')}, or ${color.dim('/settings config-scope global|project')}.`,
+          message: `${color.red('Unknown setting')} "${sub}". ${unknownSubcommand(sub, ['delay', 'mode', 'hints', 'debug-stream', 'config-scope', 'defaults'], 'settings')}`,
         };
       } catch (err) {
         return {
