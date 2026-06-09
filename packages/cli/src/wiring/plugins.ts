@@ -85,6 +85,10 @@ export const BUILTIN_PLUGIN_FACTORIES: (() => Promise<Plugin>)[] = [
     return createSecurityPlugin();
   },
   async () => {
+    const { createChimeraPlugin } = await import('@wrongstack/core');
+    return createChimeraPlugin();
+  },
+  async () => {
     const { createSkillsPlugin } = await import('@wrongstack/core');
     return createSkillsPlugin();
   },

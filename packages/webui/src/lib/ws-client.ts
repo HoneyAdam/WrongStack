@@ -473,6 +473,14 @@ export class WrongStackWebSocketClient {
     this.send({ type: 'todos.remove', payload });
   }
 
+  getTasks() {
+    this.send({ type: 'tasks.get' });
+  }
+
+  getPlan() {
+    this.send({ type: 'plan.get' });
+  }
+
   listSessions(limit = 50) {
     this.send({ type: 'sessions.list', payload: { limit } });
   }

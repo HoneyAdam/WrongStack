@@ -1,17 +1,14 @@
 import {
-  type TaskFile,
   type TaskItem,
   type TaskStatus,
   type TaskType,
   type TaskPriority,
-  emptyTaskFile,
   formatTaskList,
   formatTaskProgress,
   loadTasks,
-  saveTasks,
+  mutateTasks,
 } from '@wrongstack/core';
 import {
-  type PlanFile,
   addPlanItem,
   emptyPlan,
   formatPlan,
@@ -88,163 +85,136 @@ export function buildTasksCommand(_opts: SlashCommandContext): SlashCommand {
         return { message: 'Task storage is not configured for this session.' };
       }
       const sessionId = ctx.session?.id ?? 'unknown';
-      const file: TaskFile = (await loadTasks(taskPath)) ?? emptyTaskFile(sessionId);
       const { cmd, rest } = parseSubcommand(args);
       const restJoined = rest.join(' ').trim();
 
-      switch (cmd) {
-        case '':
-        case 'show':
-        case 'list':
-          return { message: formatTaskList(file.tasks) };
-
-        case 'progress':
-        case 'statusline':
-          return { message: formatTaskProgress(file.tasks) };
-
-        case 'add': {
-          if (!restJoined) return { message: 'Usage: /tasks add <title> [type] [priority]' };
-          const parts = restJoined.split(/\s+/);
-          const title = parts[0] ?? '';
-          const type = validateType(parts[1] ?? '') ?? 'feature';
-          const priority = validatePriority(parts[2] ?? '') ?? 'medium';
-          const now = new Date().toISOString();
-          const task: TaskItem = {
-            id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-            title,
-            type,
-            priority,
-            status: 'pending',
-            createdAt: now,
-            updatedAt: now,
-          };
-          file.tasks.push(task);
-          await saveTasks(taskPath, file);
-          return { message: `Added: ${task.title}\n\n${formatTaskProgress(file.tasks)}` };
-        }
-
-        case 'start':
-        case 'done':
-        case 'fail': {
-          if (!restJoined) return { message: `Usage: /tasks ${cmd} <id|index>` };
-          const found = findTask(file.tasks, restJoined);
-          if (!found) return { message: `No task matched "${restJoined}".` };
-          const statusMap: Record<string, TaskStatus> = {
-            start: 'in_progress',
-            done: 'completed',
-            fail: 'failed',
-          };
-          const verbMap: Record<string, string> = {
-            start: 'Started',
-            done: 'Completed',
-            fail: 'Failed',
-          };
-          const verb = verbMap[cmd] ?? cmd;
-          found.item.status = statusMap[cmd] ?? 'pending';
-          found.item.updatedAt = new Date().toISOString();
-          await saveTasks(taskPath, file);
-          return { message: `Marked ${verb}: ${found.item.title}\n\n${formatTaskProgress(file.tasks)}` };
-        }
-
-        case 'status': {
-          if (rest.length < 2) return { message: 'Usage: /tasks status <id> <pending|in_progress|blocked|review|completed|failed>' };
-          const targetId = rest[0] ?? '';
-          const newStatus = validateStatus(rest[1] ?? '');
-          if (!newStatus) return { message: `Invalid status "${rest[1]}". Use: pending, in_progress, blocked, review, completed, failed.` };
-          const found = findTask(file.tasks, targetId);
-          if (!found) return { message: `No task matched "${targetId}".` };
-          found.item.status = newStatus;
-          found.item.updatedAt = new Date().toISOString();
-          await saveTasks(taskPath, file);
-          return { message: `Status → ${newStatus}: ${found.item.title}\n\n${formatTaskProgress(file.tasks)}` };
-        }
-
-        case 'depends':
-        case 'deps': {
-          if (rest.length < 2) return { message: 'Usage: /tasks depends <id> <depId1> [depId2 ...]' };
-          const targetId = rest[0] ?? '';
-          const depIds = rest.slice(1);
-          const found = findTask(file.tasks, targetId);
-          if (!found) return { message: `No task matched "${targetId}".` };
-          found.item.dependsOn = depIds;
-          found.item.updatedAt = new Date().toISOString();
-          await saveTasks(taskPath, file);
-          return { message: `Dependencies set for "${found.item.title}": ${depIds.join(', ')}` };
-        }
-
-        case 'assign': {
-          if (rest.length < 2) return { message: 'Usage: /tasks assign <id> <agent>' };
-          const targetId = rest[0] ?? '';
-          const agent = rest.slice(1).join(' ');
-          const found = findTask(file.tasks, targetId);
-          if (!found) return { message: `No task matched "${targetId}".` };
-          found.item.assignee = agent;
-          found.item.updatedAt = new Date().toISOString();
-          await saveTasks(taskPath, file);
-          return { message: `Assigned to ${agent}: "${found.item.title}"` };
-        }
-
-        case 'promote': {
-          if (!restJoined) return { message: 'Usage: /tasks promote <id|index>' };
-          const found = findTask(file.tasks, restJoined);
-          if (!found) return { message: `No task matched "${restJoined}".` };
-          found.item.status = 'in_progress';
-          found.item.updatedAt = new Date().toISOString();
-          // Create a todo from this task
-          const todos: Array<{ id: string; content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string }> = [
-            {
-              id: `todo_${Date.now()}_task`,
-              content: found.item.title,
-              status: 'in_progress' as const,
-              activeForm: found.item.title,
-            },
-          ];
-          if (found.item.description) {
-            todos.push({
-              id: `todo_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-              content: found.item.description.slice(0, 200),
-              status: 'pending',
-            });
-          }
-          ctx.state.replaceTodos(todos);
-          await saveTasks(taskPath, file);
-          return {
-            message: `Promoted to ${todos.length} todo(s): "${found.item.title}"\n\n${formatTaskProgress(file.tasks)}`,
-          };
-        }
-
-        case 'planify': {
-          if (!restJoined) return { message: 'Usage: /tasks planify <id|index>' };
-          const found = findTask(file.tasks, restJoined);
-          if (!found) return { message: `No task matched "${restJoined}".` };
-
-          const planPath = (ctx.meta as Record<string, unknown>)?.['plan.path'];
-          if (typeof planPath !== 'string' || !planPath) {
-            return { message: 'Plan storage is not configured for this session.' };
-          }
-
-          const planCfg: PlanFile = (await loadPlan(planPath)) ?? emptyPlan(sessionId);
-          const { plan: updated, item: planItem } = addPlanItem(planCfg, found.item.title, found.item.description);
-          await savePlan(planPath, updated);
-
-          return {
-            message: `Planified "${found.item.title}" → plan item.\n${formatPlan(updated)}`,
-          };
-        }
-
-        case 'clear': {
-          const n = file.tasks.length;
-          if (n === 0) return { message: 'Tasks were already empty.' };
-          file.tasks = [];
-          await saveTasks(taskPath, file);
-          return { message: `Cleared ${n} task${n === 1 ? '' : 's'}.` };
-        }
-
-        default:
-          return {
-            message: unknownSubcommand(cmd, ['show', 'add', 'start', 'done', 'fail', 'status', 'depends', 'assign', 'promote', 'planify', 'clear'], 'tasks'),
-          };
+      // Read-only ops — no lock overhead
+      if (cmd === '' || cmd === 'show' || cmd === 'list') {
+        const file = await loadTasks(taskPath);
+        return { message: formatTaskList(file?.tasks ?? []) };
       }
+      if (cmd === 'progress' || cmd === 'statusline') {
+        const file = await loadTasks(taskPath);
+        return { message: formatTaskProgress(file?.tasks ?? []) };
+      }
+
+      // planify: reads tasks, writes plan — handled outside the task lock
+      if (cmd === 'planify') {
+        if (!restJoined) return { message: 'Usage: /tasks planify <id|index>' };
+        const file = await loadTasks(taskPath);
+        const found = findTask(file?.tasks ?? [], restJoined);
+        if (!found) return { message: `No task matched "${restJoined}".` };
+
+        const planPath = (ctx.meta as Record<string, unknown>)?.['plan.path'];
+        if (typeof planPath !== 'string' || !planPath) {
+          return { message: 'Plan storage is not configured for this session.' };
+        }
+        const planCfg = (await loadPlan(planPath)) ?? emptyPlan(sessionId);
+        const { plan: updated } = addPlanItem(planCfg, found.item.title, found.item.description);
+        await savePlan(planPath, updated);
+        return { message: `Planified "${found.item.title}" → plan item.\n${formatPlan(updated)}` };
+      }
+
+      // Mutating ops — locked via mutateTasks
+      let outputMessage = '';
+      await mutateTasks(taskPath, sessionId, async (file) => {
+        switch (cmd) {
+          case 'add': {
+            if (!restJoined) { outputMessage = 'Usage: /tasks add <title> [type] [priority]'; return file; }
+            const parts = restJoined.split(/\s+/);
+            const title = parts[0] ?? '';
+            const type = validateType(parts[1] ?? '') ?? 'feature';
+            const priority = validatePriority(parts[2] ?? '') ?? 'medium';
+            const now = new Date().toISOString();
+            file.tasks.push({
+              id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+              title, type, priority,
+              status: 'pending',
+              createdAt: now,
+              updatedAt: now,
+            });
+            outputMessage = `Added: ${title}\n\n${formatTaskProgress(file.tasks)}`;
+            break;
+          }
+          case 'start':
+          case 'done':
+          case 'fail': {
+            if (!restJoined) { outputMessage = `Usage: /tasks ${cmd} <id|index>`; return file; }
+            const found = findTask(file.tasks, restJoined);
+            if (!found) { outputMessage = `No task matched "${restJoined}".`; return file; }
+            const statusMap: Record<string, TaskStatus> = { start: 'in_progress', done: 'completed', fail: 'failed' };
+            const verbMap: Record<string, string> = { start: 'Started', done: 'Completed', fail: 'Failed' };
+            found.item.status = statusMap[cmd] ?? 'pending';
+            found.item.updatedAt = new Date().toISOString();
+            outputMessage = `Marked ${verbMap[cmd] ?? cmd}: ${found.item.title}\n\n${formatTaskProgress(file.tasks)}`;
+            break;
+          }
+          case 'status': {
+            if (rest.length < 2) { outputMessage = 'Usage: /tasks status <id> <status>'; return file; }
+            const targetId = rest[0] ?? '';
+            const newStatus = validateStatus(rest[1] ?? '');
+            if (!newStatus) { outputMessage = `Invalid status "${rest[1]}".`; return file; }
+            const found = findTask(file.tasks, targetId);
+            if (!found) { outputMessage = `No task matched "${targetId}".`; return file; }
+            found.item.status = newStatus;
+            found.item.updatedAt = new Date().toISOString();
+            outputMessage = `Status → ${newStatus}: ${found.item.title}\n\n${formatTaskProgress(file.tasks)}`;
+            break;
+          }
+          case 'depends':
+          case 'deps': {
+            if (rest.length < 2) { outputMessage = 'Usage: /tasks depends <id> <depId1> [depId2 ...]'; return file; }
+            const targetId = rest[0] ?? '';
+            const depIds = rest.slice(1);
+            const found = findTask(file.tasks, targetId);
+            if (!found) { outputMessage = `No task matched "${targetId}".`; return file; }
+            found.item.dependsOn = depIds;
+            found.item.updatedAt = new Date().toISOString();
+            outputMessage = `Dependencies set for "${found.item.title}": ${depIds.join(', ')}`;
+            break;
+          }
+          case 'assign': {
+            if (rest.length < 2) { outputMessage = 'Usage: /tasks assign <id> <agent>'; return file; }
+            const targetId = rest[0] ?? '';
+            const agent = rest.slice(1).join(' ');
+            const found = findTask(file.tasks, targetId);
+            if (!found) { outputMessage = `No task matched "${targetId}".`; return file; }
+            found.item.assignee = agent;
+            found.item.updatedAt = new Date().toISOString();
+            outputMessage = `Assigned to ${agent}: "${found.item.title}"`;
+            break;
+          }
+          case 'promote': {
+            if (!restJoined) { outputMessage = 'Usage: /tasks promote <id|index>'; return file; }
+            const found = findTask(file.tasks, restJoined);
+            if (!found) { outputMessage = `No task matched "${restJoined}".`; return file; }
+            found.item.status = 'in_progress';
+            found.item.updatedAt = new Date().toISOString();
+            const todos: Array<{ id: string; content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string; promotedFromTask?: string }> = [
+              { id: `todo_${Date.now()}_task`, content: found.item.title, status: 'in_progress', activeForm: found.item.title, promotedFromTask: found.item.id },
+            ];
+            if (found.item.description) {
+              todos.push({ id: `todo_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, content: found.item.description.slice(0, 200), status: 'pending', promotedFromTask: found.item.id });
+            }
+            ctx.state.replaceTodos(todos);
+            outputMessage = `Promoted to ${todos.length} todo(s): "${found.item.title}"\n\n${formatTaskProgress(file.tasks)}`;
+            break;
+          }
+          case 'clear': {
+            const n = file.tasks.length;
+            if (n === 0) { outputMessage = 'Tasks were already empty.'; return file; }
+            file.tasks = [];
+            outputMessage = `Cleared ${n} task${n === 1 ? '' : 's'}.`;
+            break;
+          }
+          default:
+            outputMessage = unknownSubcommand(cmd, ['show', 'add', 'start', 'done', 'fail', 'status', 'depends', 'assign', 'promote', 'planify', 'clear'], 'tasks');
+            return file;
+        }
+        return file;
+      });
+
+      return { message: outputMessage };
     },
   };
 }

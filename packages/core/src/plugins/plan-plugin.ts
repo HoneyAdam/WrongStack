@@ -37,7 +37,7 @@ export function createPlanPlugin(opts?: PlanPluginOptions): Plugin {
   return {
     name: 'wstack-plan',
     version: '1.0.0',
-    description: 'Strategic plan board: /plan show | add | start | done | promote | template | clear',
+    description: 'Strategic plan board: /plan show | add | start | done | promote | taskify | template | clear',
     apiVersion: '^0.1',
     capabilities: { slashCommands: true },
     defaultConfig: {},

@@ -522,6 +522,8 @@ export type WSClientMessage =
   | { type: 'todos.get' }
   | { type: 'todos.clear' }
   | { type: 'todos.remove'; payload: { id?: string | undefined; index?: number | undefined } }
+  | { type: 'tasks.get' }
+  | { type: 'plan.get' }
   | { type: 'ping' }
   | { type: 'process.list' }
   | { type: 'process.kill'; payload: { pid: number } }

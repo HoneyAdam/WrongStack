@@ -12,6 +12,10 @@ export interface TodoItem {
   content: string;
   status: 'pending' | 'in_progress' | 'completed';
   activeForm?: string | undefined;
+  /** When promoted from a plan item, stores the plan item's id. */
+  promotedFromPlan?: string | undefined;
+  /** When promoted from a task, stores the task's id. */
+  promotedFromTask?: string | undefined;
 }
 
 export interface RunOptions {

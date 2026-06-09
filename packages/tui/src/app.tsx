@@ -979,6 +979,45 @@ export function App({
     };
   }, [agent.ctx.meta]);
 
+  // Task counts — polled from <sessionId>.tasks.json, same 3s cadence.
+  const [taskCounts, setTaskCounts] = useState<{
+    pending: number;
+    inProgress: number;
+    completed: number;
+    blocked: number;
+    failed: number;
+  } | null>(null);
+  useEffect(() => {
+    const taskPath = (agent.ctx.meta as Record<string, unknown>)['task.path'];
+    if (typeof taskPath !== 'string' || !taskPath) return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const data = await fs.readFile(taskPath, 'utf8');
+        const parsed = JSON.parse(data) as {
+          tasks?: Array<{ status?: string | undefined }>;
+        };
+        if (cancelled) return;
+        if (!Array.isArray(parsed.tasks)) { setTaskCounts(null); return; }
+        let pending = 0, inProgress = 0, completed = 0, blocked = 0, failed = 0;
+        for (const t of parsed.tasks) {
+          switch (t?.status) {
+            case 'completed': completed++; break;
+            case 'in_progress': inProgress++; break;
+            case 'blocked': blocked++; break;
+            case 'failed': failed++; break;
+            default: pending++; break;
+          }
+        }
+        const total = pending + inProgress + completed + blocked + failed;
+        setTaskCounts(total > 0 ? { pending, inProgress, completed, blocked, failed } : null);
+      } catch { if (!cancelled) setTaskCounts(null); }
+    };
+    void poll();
+    const id = setInterval(poll, 3000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [agent.ctx.meta]);
+
   // Live-region shrink mitigation. Ink's log-update tracks the previous
   // render's logical line count; when content visually wraps past the
   // terminal width, the visual-row count exceeds the logical count and
@@ -4191,6 +4230,7 @@ export function App({
             startedAt={startedAtRef.current}
             todos={todos}
             plan={planCounts ?? undefined}
+            tasks={taskCounts ?? undefined}
             fleet={fleetCounts}
             git={gitInfo}
             context={contextWindow}

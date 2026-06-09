@@ -312,6 +312,7 @@ export const taskTool: Tool<TaskInput, TaskOutput> = {
             content: match.title,
             status: 'in_progress',
             activeForm: match.title,
+            promotedFromTask: match.id,
           });
 
           if (match.description) {
@@ -319,6 +320,7 @@ export const taskTool: Tool<TaskInput, TaskOutput> = {
               id: `todo_${ts}_${randomUUID().slice(0, 6)}`,
               content: match.description.slice(0, 200),
               status: 'pending',
+              promotedFromTask: match.id,
             });
           }
 
@@ -328,6 +330,7 @@ export const taskTool: Tool<TaskInput, TaskOutput> = {
                 id: `todo_${ts}_${randomUUID().slice(0, 6)}`,
                 content: st,
                 status: 'pending',
+                promotedFromTask: match.id,
               });
             }
           }

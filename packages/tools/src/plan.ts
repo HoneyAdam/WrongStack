@@ -64,7 +64,7 @@ interface PlanOutput {
   /** Number of items not in 'done' status. */
   open: number;
   /** When promote/derive succeed, the generated todo items so the caller can inspect them. */
-  todos?: Array<{ id: string; content: string; status: string; activeForm?: string | undefined }>;
+  todos?: Array<{ id: string; content: string; status: string; activeForm?: string | undefined; promotedFromPlan?: string | undefined }>;
 }
 
 export const planTool: Tool<PlanInput, PlanOutput> = {

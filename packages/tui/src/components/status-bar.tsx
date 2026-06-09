@@ -48,6 +48,14 @@ export interface PlanCounts {
   done: number;
 }
 
+export interface TaskCounts {
+  pending: number;
+  inProgress: number;
+  completed: number;
+  blocked: number;
+  failed: number;
+}
+
 /**
  * Fleet activity breakdown surfaced on the work-in-flight line. Derived
  * from `director.status()` in the host app and refreshed alongside the
@@ -129,6 +137,12 @@ export interface StatusBarProps {
    */
   plan?: PlanCounts | undefined;
   /**
+   * Task board counts surfaced as a chip on line 3. Shows structured
+   * work items (from the `task` tool) with type/priority/deps.
+   * Distinct from `plan` (strategic) and `todos` (tactical).
+   */
+  tasks?: TaskCounts | undefined;
+  /**
    * Per-status fleet breakdown. When provided, takes precedence over
    * `subagentCount` for chip rendering. `subagentCount` is kept for
    * backwards compatibility when callers haven't wired the richer
@@ -160,7 +174,7 @@ export interface StatusBarProps {
   /** Number of tracked bash/exec processes from the process registry. */
   processCount?: number | undefined;
   /** Items to hide from the status bar. */
-  hiddenItems?: Array<'todos' | 'plan' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost'> | undefined;
+  hiddenItems?: Array<'todos' | 'plan' | 'tasks' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost'> | undefined;
   /**
    * Live iteration stage from the active autonomy engine. When set, renders
    * a chip like `⏸ decide` or `▶ execute(todo:fix-auth)` next to the
@@ -225,6 +239,7 @@ export function StatusBar({
   startedAt,
   todos,
   plan,
+  tasks,
   fleet,
   fleetAgents,
   git,
@@ -316,9 +331,11 @@ export function StatusBar({
   const hasBrainActivity = !!brain && brain.state !== 'idle';
   const hasDebugStream = !!debugStreamStats;
   const hasEnhanceCountdown = enhanceCountdown != null && enhanceCountdown > 0;
+  const hasTaskActivity = tasks && (tasks.pending > 0 || tasks.inProgress > 0 || tasks.completed > 0 || tasks.blocked > 0 || tasks.failed > 0);
   const hasThirdLine =
     (todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0)) ||
     (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0)) ||
+    hasTaskActivity ||
     fleetHasActivity ||
     hasBrainActivity ||
     hasDebugStream ||
@@ -573,6 +590,26 @@ export function StatusBar({
                 {plan.open > 0 ? <Text dimColor>☐{plan.open}</Text> : null}
                 {plan.open > 0 && plan.done > 0 ? ' ' : ''}
                 {plan.done > 0 ? <Text color="green">✓{plan.done}</Text> : null}
+              </Text>
+            </>
+          ) : null}
+          {hasTaskActivity ? (
+            <>
+              {(todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0)) ||
+              (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0)) ? (
+                <Text dimColor>│</Text>
+              ) : null}
+              <Text>
+                <Text color="magenta">⚡ </Text>
+                {tasks!.inProgress > 0 ? <Text color="yellow">⌛{tasks!.inProgress}</Text> : null}
+                {tasks!.inProgress > 0 && (tasks!.pending > 0 || tasks!.blocked > 0) ? ' ' : ''}
+                {tasks!.pending > 0 ? <Text dimColor>☐{tasks!.pending}</Text> : null}
+                {tasks!.pending > 0 && tasks!.blocked > 0 ? ' ' : ''}
+                {tasks!.blocked > 0 ? <Text color="red">⊘{tasks!.blocked}</Text> : null}
+                {(tasks!.pending > 0 || tasks!.blocked > 0) && (tasks!.completed > 0 || tasks!.failed > 0) ? ' ' : ''}
+                {tasks!.completed > 0 ? <Text color="green">✓{tasks!.completed}</Text> : null}
+                {tasks!.completed > 0 && tasks!.failed > 0 ? ' ' : ''}
+                {tasks!.failed > 0 ? <Text color="red">✗{tasks!.failed}</Text> : null}
               </Text>
             </>
           ) : null}

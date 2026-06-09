@@ -1540,6 +1540,26 @@ export async function startWebUI(
         break;
       }
 
+      case 'tasks.get': {
+        // On-demand task snapshot — loads from <sessionId>.tasks.json
+        const taskPath = (context.meta as Record<string, unknown>)['task.path'];
+        if (typeof taskPath === 'string' && taskPath) {
+          try {
+            const { loadTasks } = await import('@wrongstack/core');
+            const file = await loadTasks(taskPath);
+            send(ws, {
+              type: 'tasks.updated',
+              payload: { tasks: file?.tasks ?? [] },
+            });
+          } catch {
+            send(ws, { type: 'tasks.updated', payload: { tasks: [] } });
+          }
+        } else {
+          send(ws, { type: 'tasks.updated', payload: { tasks: [], error: 'Task storage not configured.' } });
+        }
+        break;
+      }
+
       case 'plan.get': {
         // On-demand plan snapshot — used when a UI surface first mounts
         // and needs to render the live plan without waiting for the next

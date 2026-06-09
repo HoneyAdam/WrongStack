@@ -26,6 +26,8 @@ import { Sidebar } from './components/Sidebar';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
 import { Toaster } from './components/Toaster';
 import { TodosPanel } from './components/TodosPanel';
+import { TasksPanel } from './components/TasksPanel';
+import { PlanPanel } from './components/PlanPanel';
 import { WorktreeGraph } from './components/WorktreeGraph';
 import { WorktreeLanes } from './components/WorktreeLanes';
 function AppInner() {
@@ -340,6 +342,10 @@ function AppInner() {
                 <div id="panel-fleet"><FleetPanel /></div>
                 {/* Live agent todo list — self-hides when empty. */}
                 <div id="panel-todos"><TodosPanel /></div>
+                {/* Live task board — self-hides when empty. */}
+                <div id="panel-tasks"><TasksPanel /></div>
+                {/* Live plan board — self-hides when empty. */}
+                <div id="panel-plan"><PlanPanel /></div>
                 {/* Worktree graph — only when active. Toggle between graph and lanes view. */}
                 {worktrees.length > 0 && (
                   <div id="panel-worktree" className="space-y-2">

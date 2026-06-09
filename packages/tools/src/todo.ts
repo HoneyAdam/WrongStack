@@ -1,4 +1,6 @@
 import type { TodoItem, Tool } from '@wrongstack/core';
+import { loadPlan, savePlan, setPlanItemStatus } from '@wrongstack/core';
+import { loadTasks, saveTasks } from '@wrongstack/core';
 
 interface TodoInput {
   todos: TodoItem[];
@@ -77,6 +79,56 @@ export const todoTool: Tool<TodoInput, TodoOutput> = {
       }
     }
     ctx.state.replaceTodos(items);
+
+    // Auto-complete parent plan items / tasks when all their promoted
+    // todos are done. Runs after state mutation so the UI sees the new
+    // todo list before we touch the plan/task files.
+    const completedPlanIds = new Set<string>();
+    const completedTaskIds = new Set<string>();
+    const pendingPlanIds = new Set<string>();
+    const pendingTaskIds = new Set<string>();
+
+    for (const item of items) {
+      if (item.promotedFromPlan) {
+        (item.status === 'completed' ? completedPlanIds : pendingPlanIds).add(item.promotedFromPlan);
+      }
+      if (item.promotedFromTask) {
+        (item.status === 'completed' ? completedTaskIds : pendingTaskIds).add(item.promotedFromTask);
+      }
+    }
+
+    // Mark fully-completed plan items as done
+    for (const planId of completedPlanIds) {
+      if (pendingPlanIds.has(planId)) continue; // not all done yet
+      const planPath = (ctx.meta as Record<string, unknown>)['plan.path'];
+      if (typeof planPath !== 'string' || !planPath) continue;
+      try {
+        const plan = await loadPlan(planPath);
+        if (plan) {
+          const updated = setPlanItemStatus(plan, planId, 'done');
+          await savePlan(planPath, updated);
+        }
+      } catch { /* best-effort */ }
+    }
+
+    // Mark fully-completed tasks as completed
+    for (const taskId of completedTaskIds) {
+      if (pendingTaskIds.has(taskId)) continue; // not all done yet
+      const taskPath = (ctx.meta as Record<string, unknown>)['task.path'];
+      if (typeof taskPath !== 'string' || !taskPath) continue;
+      try {
+        const file = await loadTasks(taskPath);
+        if (file) {
+          const task = file.tasks.find((t) => t.id === taskId);
+          if (task && task.status !== 'completed') {
+            task.status = 'completed';
+            task.updatedAt = new Date().toISOString();
+            await saveTasks(taskPath, file);
+          }
+        }
+      } catch { /* best-effort */ }
+    }
+
     return {
       count: items.length,
       in_progress: items.filter((t) => t.status === 'in_progress').length,

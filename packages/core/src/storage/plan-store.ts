@@ -152,7 +152,7 @@ export function deriveTodosFromPlanItem(
   plan: PlanFile,
   idOrIndex: string,
   subtasks?: string[] | undefined,
-): { plan: PlanFile; todos: Array<{ id: string; content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string | undefined }> } | null {
+): { plan: PlanFile; todos: Array<{ id: string; content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string | undefined; promotedFromPlan?: string | undefined }> } | null {
   const idx = matchIndex(plan, idOrIndex);
   if (idx === -1) return null;
 
@@ -165,7 +165,7 @@ export function deriveTodosFromPlanItem(
     updatedPlan = setPlanItemStatus(plan, idOrIndex, 'in_progress');
   }
 
-  const todos: Array<{ id: string; content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string | undefined }> = [];
+  const todos: Array<{ id: string; content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string | undefined; promotedFromPlan?: string | undefined }> = [];
 
   // First todo from the plan item itself
   todos.push({
@@ -173,6 +173,7 @@ export function deriveTodosFromPlanItem(
     content: item.title,
     status: 'in_progress',
     activeForm: item.title,
+    promotedFromPlan: item.id,
   });
 
   // Optional subtasks
@@ -182,6 +183,7 @@ export function deriveTodosFromPlanItem(
         id: `todo_${Date.now()}_${randomUUID().slice(0, 6)}`,
         content: st,
         status: 'pending',
+        promotedFromPlan: item.id,
       });
     }
   }
