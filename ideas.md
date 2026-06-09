@@ -831,4 +831,548 @@ These items can be completed in **1 day or less** each:
 
 ---
 
-*End of report.*
+---
+
+## 11. Deep Scan — Additional Findings
+
+These items come from a second-pass deep scan of plugins, tools internals, providers, SDD, autophase, worktree, ACP, website, and examples.
+
+---
+
+### 11.1 Plugin System Gaps
+
+#### P-1: Plugin State Sharing Between `setup` and `teardown`
+
+**What:** The cron and file-watcher plugins both use module-level state with explicit comments explaining why:
+
+> *"The Plugin interface in @wrongstack/core does not currently thread state from `setup` → `teardown`. The previous implementation kept `state` as a `const` inside the setup closure, which made it inaccessible from teardown — so the teardown function fell through to a default and silently leaked every setTimeout timer."*
+
+This is a **systemic issue** with the Plugin interface, not just these two plugins. Any plugin that manages resources (timers, file watchers, child processes, WebSocket connections) has the same problem.
+
+**Fix:** Extend the Plugin interface to support state threading:
+
+```typescript
+interface Plugin {
+  // ... existing fields ...
+  setup(api: PluginAPI): Promise<PluginState>;
+  teardown(state: PluginState): Promise<void>;
+}
+```
+
+Or use a `Symbol`-keyed state bag on the PluginAPI:
+
+```typescript
+// In setup:
+const state = api.setState('cron', { jobs: new Map(), timers: new Map() });
+// In teardown:
+const state = api.getState<CronState>('cron');
+```
+
+**Impact:** All 10 bundled plugins + any community plugins that manage resources.
+
+**Estimated effort:** 1–2 days for the interface change + migration.
+
+---
+
+#### P-2: Plugin `auto-doc` Uses Regex Parsing Instead of AST
+
+**What:** The `auto-doc` plugin (`packages/plugins/src/auto-doc/index.ts`) parses TypeScript source with regex to extract function signatures, classes, types, and interfaces:
+
+```typescript
+const reFunction = /^(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\((.*?)\)(?:\s*:\s*(.+?))\s*\{/;
+const reArrowFn = /^(?:export\s+)?const\s+(\w+)\s*=\s*(?:async\s+)?\((.*?)\)\s*(?::\s*(.+?))\s*=>/;
+```
+
+**Why it matters:** Regex parsing of TypeScript is fragile. It misses:
+- Generic parameters `<T extends Foo>`
+- Destructured parameters `{ name, age }: Person`
+- Default parameters `timeout = 5000`
+- Overloaded signatures
+- Methods inside classes
+- Computed property names
+- Type-only exports
+
+The codebase already has a proper TypeScript parser in `packages/tools/src/codebase-index/ts-parser.ts`.
+
+**Fix:** Either:
+1. Use the existing `ts-parser.ts` from the codebase index
+2. Use TypeScript's compiler API directly (`ts.createSourceFile`)
+3. Use `ts-morph` for a higher-level API
+
+**Estimated effort:** 2–3 days to rewrite with AST-based parsing.
+
+---
+
+#### P-3: No Plugin Discovery or Dependency Resolution
+
+**What:** The plugin loader sorts by `dependsOn` and `optionalDeps`, but there's no way for users to discover available plugins or for plugins to declare compatibility with specific WrongStack versions beyond `apiVersion`.
+
+**What's missing:**
+- Plugin marketplace or registry (separate from the skill marketplace idea N-3)
+- Plugin compatibility matrix (which versions work with which WrongStack versions)
+- Plugin dependency resolution (if plugin A requires plugin B)
+- Plugin health check endpoint (does this plugin still work?)
+
+**Estimated effort:** 5–7 days for a basic discovery system.
+
+---
+
+### 11.2 Tools & Codebase Intelligence
+
+#### T-5: Codebase Index Language Support Expansion
+
+**What:** The codebase indexer (`packages/tools/src/codebase-index/`) supports TypeScript, Go, Python, Rust, JSON, and YAML. Notable missing languages:
+
+| Language | Parser | Why it matters |
+|----------|--------|----------------|
+| **Java** | Missing | Enterprise codebases |
+| **C/C++** | Missing | Systems programming |
+| **C#** | Missing | .NET ecosystem |
+| **Ruby** | Missing | Rails projects |
+| **PHP** | Missing | WordPress/Laravel |
+| **Swift** | Missing | iOS/macOS |
+| **Kotlin** | Missing | Android/server |
+
+**Building blocks:** The indexer has a clean parser interface — each language is a `parseSymbols(content, filePath)` function. Adding a new language is ~100–200 lines for a regex-based parser or more for an AST-based one.
+
+**Estimated effort:** 1–3 days per language (regex-based), 3–5 days per language (AST-based).
+
+---
+
+#### T-6: Background Indexer Should Be Incremental
+
+**What:** The `background-indexer.ts` exists but the indexer currently re-parses all files on each run. For large codebases (>10K files), full reindexing is slow.
+
+**Fix:**
+1. Track file hashes (MTimes are already tracked in `Context.fileMtimes`)
+2. Only re-parse changed files
+3. Persist the index database across sessions
+4. Use `fs.watch` for real-time incremental updates
+
+**Estimated effort:** 3–5 days.
+
+---
+
+#### T-7: Circuit Breaker — Only Used for Bash/Exec
+
+**What:** The `CircuitBreaker` (`packages/tools/src/circuit-breaker.ts`) is a sophisticated tool with failure thresholds, slow-call detection, rate limiting, and auto-recovery. But it's only wired into the ProcessRegistry for bash/exec tools.
+
+**Other tools that could benefit:**
+- `fetch` — network calls can hang or fail repeatedly
+- `test` — flaky tests cause false failure signals
+- `grep` / `glob` — filesystem scans on large directories can be slow
+- MCP tool wrappers — external MCP servers can be unreliable
+
+**Fix:** Make the CircuitBreaker a generic middleware that any tool can opt into. Add a `circuitBreaker` option to the Tool interface.
+
+**Estimated effort:** 2–3 days.
+
+---
+
+#### T-8: Tool Output Streaming Progress for All Tools
+
+**What:** Only some tools implement `executeStream`. The `read`, `grep`, `glob`, and `tree` tools return their full output at once, which causes long waits for large results.
+
+**Why it matters:** Large file reads or grep results can produce 10K+ lines. Streaming would let the agent start processing partial results immediately.
+
+**Fix:** Add `executeStream` to:
+- `read` — stream file contents line by line
+- `grep` — stream matches as they're found
+- `glob` — stream file paths as they're discovered
+- `tree` — stream directory entries as they're walked
+
+**Estimated effort:** 2–3 days per tool.
+
+---
+
+### 11.3 Autonomy & Goal System
+
+#### A-6: Eternal Autonomy — No Persistent State Across Restarts
+
+**What:** `EternalAutonomy` (`packages/core/src/execution/eternal-autonomy.ts`) is a 990-line sense-decide-execute-reflect loop. It journals decisions to `goal.json` but doesn't persist its internal state (current source rotation, failure counts, sleep schedule) across restarts.
+
+**Why it matters:** If WrongStack crashes during eternal mode, it restarts from scratch — re-reading the goal but losing track of what it was doing, what was failing, and how long it had been running.
+
+**Fix:** Persist a small state file (`eternal-state.json`) alongside `goal.json`:
+```json
+{
+  "iteration": 47,
+  "lastSource": "git",
+  "consecutiveFailures": 0,
+  "totalCost": 12.34,
+  "startedAt": "2026-06-09T10:00:00Z"
+}
+```
+
+**Estimated effort:** 1–2 days.
+
+---
+
+#### A-7: Parallel Eternal Engine — Stub File in Coordination
+
+**What:** There's a stub file at `packages/core/src/coordination/parallel-eternal-engine.ts` that says:
+
+> *"This file is intentionally empty — the ParallelEternalEngine lives in `packages/core/src/execution/parallel-eternal-engine.ts`. This stub exists because a prior implementation attempt wrote a partial file here."*
+
+The actual implementation is 606 lines and lives in `execution/`. The stub should be deleted — it's dead code that could confuse contributors.
+
+**Fix:** Delete `packages/core/src/coordination/parallel-eternal-engine.ts`.
+
+**Estimated effort:** 5 minutes.
+
+---
+
+#### A-8: AutoPhase — No Cost/Time Estimation Feedback
+
+**What:** `AutoPhasePlanner` generates phases with `taskTemplates` that include `estimatedHours` fields, but the system doesn't:
+1. Track actual time per phase
+2. Compare estimated vs. actual time
+3. Adjust future estimates based on historical data
+4. Warn when cost is trending over budget
+
+**Why it matters:** Multi-hour autonomous runs need progress tracking that includes cost and time predictions, not just task completion counts.
+
+**Fix:**
+1. Record `startedAt` and `completedAt` per phase
+2. Compare with estimates and log variance
+3. Use historical data to calibrate future estimates
+4. Add cost-per-phase tracking with budget alerts
+
+**Estimated effort:** 3–5 days.
+
+---
+
+### 11.4 SDD (Spec-Driven Development)
+
+#### S-5: SDD Spec Versioning — No Diff View
+
+**What:** `spec-versioning.ts` exists and versions specs, but there's no way to view what changed between spec versions. When a spec evolves from v1 to v2, users can't see the diff.
+
+**Fix:** Add a `/sdd diff [v1] [v2]` command that renders a markdown diff between two spec versions. The `diff` tool already exists in `packages/tools/src/diff.ts`.
+
+**Estimated effort:** 1–2 days.
+
+---
+
+#### S-6: SDD Task Graph — No WebUI Visualization
+
+**What:** `task-visualizer.ts` and `task-graph-store.ts` exist but visualization is text-only (ASCII/Mermaid). The WebUI has no SDD integration at all.
+
+**Fix:** Add an SDD dashboard to the WebUI showing:
+- Task graph as an interactive DAG (not just Mermaid)
+- Progress bars per phase
+- Critical path highlighting
+- Click-to-expand task details
+
+**Estimated effort:** 5–7 days.
+
+---
+
+### 11.5 Cloud Sync & Cross-Device
+
+#### C-6: Cloud Sync — No Conflict Resolution
+
+**What:** `CloudSync` (`packages/core/src/storage/cloud-sync.ts`) pushes/pulls to a private GitHub repo. It uses SHA-based state tracking but has no conflict resolution for concurrent edits from multiple devices.
+
+**Why it matters:** If a user edits their config on two machines and both sync, the last-write-wins behavior silently drops changes.
+
+**Fix:**
+1. Detect concurrent modifications (both have unsynced changes)
+2. Present a merge conflict UI (CLI prompt or WebUI dialog)
+3. Keep a conflict history for manual resolution
+
+**Estimated effort:** 3–5 days.
+
+---
+
+#### C-7: Cloud Sync — Only GitHub, Not GitLab/Bitbucket/Self-Hosted
+
+**What:** Cloud sync only works with GitHub REST API. Users on GitLab, Bitbucket, or self-hosted Git servers can't sync.
+
+**Fix:** Abstract the sync backend:
+```typescript
+interface SyncBackend {
+  push(category: SyncCategory, content: Buffer): Promise<void>;
+  pull(category: SyncCategory): Promise<Buffer | null>;
+  list(): Promise<SyncCategory[]>;
+}
+```
+
+Implement GitHub, GitLab, and generic Git (via CLI) backends.
+
+**Estimated effort:** 3–5 days per backend.
+
+---
+
+### 11.6 Provider & Model System
+
+#### P-4: No Provider Health Monitoring
+
+**What:** The provider system has no built-in health monitoring. Users don't know if a provider is:
+- Experiencing elevated latency
+- Rate-limiting
+- Returning errors at a higher rate
+- About to deprecate a model
+
+**Why it matters:** WrongStack runs for hours in autonomous mode. A degraded provider wastes tokens and time.
+
+**Fix:**
+1. Track per-provider metrics (latency p50/p95, error rate, rate limit hits)
+2. Expose via `/models health` command
+3. Auto-switch to fallback when primary is degraded (builds on existing `fallbackModels`)
+4. Show provider status in TUI statusline and WebUI sidebar
+
+**Estimated effort:** 3–5 days.
+
+---
+
+#### P-5: Model Cost Estimation — No Pre-Flight Check
+
+**What:** Before starting a long autonomous run, there's no way to estimate how much it will cost. Users find out after the fact via `/stats`.
+
+**Fix:** Add a `wstack estimate` command that:
+1. Takes a task description
+2. Estimates tokens needed (based on codebase size, task complexity)
+3. Multiplies by the current model's cost per token
+4. Shows a range (best case / worst case)
+
+**Building blocks:** The cost tracker plugin already tracks real costs. Historical session data provides calibration.
+
+**Estimated effort:** 2–3 days for a basic estimator.
+
+---
+
+#### P-6: Provider Presets — Missing Popular Providers
+
+**What:** The provider presets directory (`packages/providers/src/presets/`) has 4 providers: Anthropic, Google, Mistral, OpenAI. Missing popular providers:
+
+| Provider | Why it matters |
+|----------|----------------|
+| **Groq** | Ultra-fast inference, popular for YOLO mode |
+| **Cohere** | Enterprise NLP |
+| **DeepSeek** | Cost-effective reasoning |
+| **Fireworks** | Fast open-source model hosting |
+| **Together AI** | Open-source model hosting |
+| **Azure OpenAI** | Enterprise compliance |
+| **AWS Bedrock** | Enterprise compliance |
+| **Ollama** | Local model hosting |
+
+**Fix:** Add preset definitions (each is ~50–100 lines following the existing pattern). Most are `openai-compatible` with custom base URLs.
+
+**Estimated effort:** 0.5–1 day per preset.
+
+---
+
+### 11.7 Website & Marketing
+
+#### W-1: Website Uses ESLint + Prettier Instead of Biome
+
+**What:** The website (`website/`) uses ESLint and Prettier, while the rest of the monorepo uses Biome. This creates:
+- Two formatting configurations to maintain
+- Different lint rules for website vs. main codebase
+- `package-lock.json` for the website vs. `pnpm-lock.yaml` for the rest
+
+**Fix:** Migrate the website to Biome and pnpm to match the monorepo.
+
+**Estimated effort:** 1–2 days.
+
+---
+
+#### W-2: No Interactive Demo on Website
+
+**What:** The website has a `TUIDemo.tsx` component, but it's a static mock. A real interactive demo where users can type a prompt and see WrongStack's output (simulated) would be much more compelling.
+
+**Fix:** Create an animated terminal simulator that replays a pre-recorded session with realistic typing animation, showing tool calls, code edits, and streaming output.
+
+**Estimated effort:** 3–5 days.
+
+---
+
+#### W-3: No Comparison Page
+
+**What:** The website doesn't compare WrongStack with alternatives (Cursor, Claude Code, Aider, GitHub Copilot CLI, etc.). Users coming from those tools need a clear "why WrongStack?" answer.
+
+**Fix:** Add a comparison page with honest, specific feature comparisons:
+- Multi-agent orchestration (unique to WrongStack)
+- Skill system
+- Plugin ecosystem
+- MCP support
+- Autonomous mode
+- Privacy/security model
+
+**Estimated effort:** 2–3 days.
+
+---
+
+### 11.8 Examples & Learning
+
+#### X-1: Examples Don't Cover SDD, Autophase, or Collab Debug
+
+**What:** The `examples/` directory has 6 categories (basic, tools, providers, MCP, multi-agent, real-world). Missing examples for:
+- SDD workflow (spec → tasks → execution)
+- AutoPhase autonomous workflow
+- Collab debug (`/collab`)
+- Telegram integration
+- Hooks (PreToolUse, PostToolUse, etc.)
+- Custom plugin creation
+
+**Fix:** Add 3–4 new example directories covering these features.
+
+**Estimated effort:** 1–2 days per example.
+
+---
+
+#### X-2: No Video Walkthroughs
+
+**What:** The README and docs are text-only. No animated demos, video walkthroughs, or asciinema recordings.
+
+**Fix:** Record asciinema sessions for common workflows and embed them in the README and website.
+
+**Estimated effort:** 1–2 days to record and edit 5–10 sessions.
+
+---
+
+### 11.9 Miscellaneous
+
+#### M-1: SpecParser Uses `crypto.randomUUID()` Instead of Project-Standard ULIDs
+
+**What:** `packages/core/src/sdd/spec-parser.ts` line 17 uses `crypto.randomUUID()`, but the project convention is ULIDs (see AGENTS.md: "IDs are ULIDs not UUIDs"). This makes specs inconsistent with sessions, goals, plans, and everything else.
+
+**Fix:** Replace with the project's ULID generator:
+```typescript
+import { ulid } from '../utils/ulid.js';
+// ...
+id: ulid(),
+```
+
+**Estimated effort:** 5 minutes.
+
+---
+
+#### M-2: Shell Hook Executor — No Timeout Configuration in Config
+
+**What:** The shell hook executor (`packages/core/src/hooks/shell-executor.ts`) has a hardcoded 5-second default timeout. Users can configure individual hook timeouts but there's no global config option.
+
+**Why it matters:** Some hooks (linting, formatting, type checking) may need more than 5 seconds on large codebases.
+
+**Fix:** Add a `hooks.defaultTimeoutMs` config option.
+
+**Estimated effort:** 0.5 days.
+
+---
+
+#### M-3: Worktree Manager — No Pruning of Stale Worktrees
+
+**What:** The `WorktreeManager` allocates worktrees for AutoPhase but has no mechanism to prune stale worktrees from failed or abandoned phases. Over time, `git worktree list` can accumulate zombie entries.
+
+**Fix:** Add a `prune(maxAgeMs?)` method and a `/worktree prune` slash command.
+
+**Estimated effort:** 1 day.
+
+---
+
+#### M-4: No Graceful Degradation When SQLite Is Unavailable
+
+**What:** The codebase index uses SQLite (`packages/tools/src/shim/node-sqlite.ts`). If `node:sqlite` is not available (older Node versions, restricted environments), the tools fail with no fallback.
+
+**Fix:** Add a graceful fallback:
+1. Try `node:sqlite`
+2. Fall back to `better-sqlite3` if installed
+3. Fall back to in-memory JSON-based search if neither is available
+4. Warn the user about degraded functionality
+
+**Estimated effort:** 2–3 days.
+
+---
+
+#### M-5: No Telemetry / Anonymous Usage Statistics
+
+**What:** WrongStack collects no usage data. This makes it hard to:
+- Prioritize features based on actual usage
+- Identify common failure patterns
+- Track adoption growth
+- Compare model popularity
+
+**Why add it:** Every major developer tool (VS Code, npm, Rust) has opt-in telemetry. It's essential for data-driven development.
+
+**Implementation principles:**
+- **Opt-in only** — default off, explicit consent required
+- **Local-first** — aggregate locally, send only summary statistics
+- **Transparent** — users can see exactly what's collected
+- **No secrets** — never include API keys, file contents, or project names
+- **GDPR-compliant** — clear privacy policy, easy opt-out
+
+**Data points to collect:**
+- Tool usage frequency (which tools are used most)
+- Provider/model popularity
+- Session duration and iteration counts
+- Error rates by category
+- Feature adoption (SDD, autophase, multi-agent, etc.)
+
+**Estimated effort:** 5–7 days for a working opt-in system with dashboard.
+
+---
+
+## 12. Revised Quick-Win Checklist
+
+Updated to include findings from the deep scan:
+
+| # | Item | Impact | Time |
+|---|------|--------|------|
+| 1 | Delete stub `coordination/parallel-eternal-engine.ts` | Dead code removal | 5 min |
+| 2 | Replace `crypto.randomUUID()` with `ulid()` in spec-parser.ts | Consistency | 5 min |
+| 3 | Translate Turkish comments in autophase (8 files) | Code quality | 0.5 day |
+| 4 | Add `'session.close'` to EventMap or remove `as any` workaround | Type safety | 0.5 day |
+| 5 | Set `mutating: true` on `cost_reset` tool | Permission correctness | 5 min |
+| 6 | Add explicit re-export of `expectDefined` in core barrel | Discoverability | 5 min |
+| 7 | Add unit test for canonical `expectDefined` | Test coverage | 0.5 day |
+| 8 | Remove orphan docs for unimplemented slash commands | Doc accuracy | 1 day |
+| 9 | Add `hooks.defaultTimeoutMs` config option | DX | 0.5 day |
+| 10 | Add `/worktree prune` command | Ops hygiene | 1 day |
+| 11 | Add provider presets for Groq, DeepSeek, Ollama | Coverage | 1 day |
+| 12 | Migrate website from ESLint+Prettier to Biome | Consistency | 1 day |
+
+---
+
+## 13. Theme-Based Roadmap
+
+For strategic planning, here are the findings grouped by theme with rough effort estimates:
+
+### 🛡️ Security & Reliability (15–20 days)
+- S-1: Complete capability migration (3–5 days)
+- S-2: Secret rotation helpers (1–2 days)
+- S-3: MCP server sandboxing (5–7 days)
+- S-4: Audit log integrity (2–3 days)
+- A-6: Eternal autonomy persistent state (1–2 days)
+- T-7: Circuit breaker for all tools (2–3 days)
+
+### 🧪 Testing & Quality (20–30 days)
+- E-2: WebUI test coverage (5–7 days)
+- E-3: CLI test coverage (5–7 days)
+- T-1: Integration test suite (7–10 days)
+- T-2: Property-based testing for kernel (3–5 days)
+- A-1: File decomposition (11–13 days)
+
+### 🚀 Developer Experience (15–20 days)
+- D-1: `wstack doctor` command (2–3 days)
+- D-2: Interactive onboarding wizard (3–5 days)
+- D-3: Better Windows support (2–3 days)
+- E-8: Better error messages (2–3 days)
+- E-10: Session export formats (2–3 days per format)
+- P-1: Plugin state threading (1–2 days)
+
+### 🤖 AI & Intelligence (15–20 days)
+- N-5: Semantic code search (7–10 days)
+- N-9: Smart context budgeting (5–7 days)
+- N-4: Compaction preview (3–5 days)
+- P-4: Provider health monitoring (3–5 days)
+
+### 🌐 Ecosystem & Community (15–20 days)
+- N-3: Skill marketplace (5–7 days)
+- D-4: VS Code extension (10–15 days)
+- C-3: Contributing guide (2–3 days)
+- X-1: Missing examples (3–8 days)
+
+---
+
+*End of report. Total findings: 10 new features + 10 existing improvements + 23 deep-scan findings + 12 quick wins.*
