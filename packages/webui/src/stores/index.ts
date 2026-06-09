@@ -21,3 +21,5 @@ export { useFleetStore } from './fleet-store.js';
 export { useGoalStore } from './goal-store.js';
 export { useAutoPhaseStore } from './autophase-store.js';
 export { useLocalPrefs } from './local-prefs.js';
+export { useFileStore } from './file-store.js';
+export type { TreeNode, OpenFile } from './file-store.js';

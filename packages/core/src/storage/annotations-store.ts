@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { atomicWrite, withFileLock } from '../utils/atomic-write.js';
+import { FsError, WrongStackError, ERROR_CODES } from '../types/errors.js';
 /**
  * L2-B: AnnotationsStore — sidecar storage for collaboration annotations
  * (Phase 2 of idea #13 from IDEAS.md).
@@ -117,13 +118,28 @@ export class AnnotationsStore {
   }): Promise<Annotation> {
     const text = input.text.trim();
     if (text.length === 0) {
-      throw new Error('Annotation text must be non-empty');
+      throw new WrongStackError({
+        message: 'Annotation text must be non-empty',
+        code: ERROR_CODES.VALIDATION_ERROR,
+        subsystem: 'general',
+        context: { field: 'text', sessionId: input.sessionId },
+      });
     }
     if (text.length > MAX_TEXT_LENGTH) {
-      throw new Error(`Annotation text exceeds ${MAX_TEXT_LENGTH} chars (got ${text.length})`);
+      throw new WrongStackError({
+        message: `Annotation text exceeds ${MAX_TEXT_LENGTH} chars (got ${text.length})`,
+        code: ERROR_CODES.VALIDATION_ERROR,
+        subsystem: 'general',
+        context: { field: 'text', maxLength: MAX_TEXT_LENGTH, actualLength: text.length },
+      });
     }
     if (!Number.isInteger(input.atEventIndex) || input.atEventIndex < 0) {
-      throw new Error('atEventIndex must be a non-negative integer');
+      throw new WrongStackError({
+        message: 'atEventIndex must be a non-negative integer',
+        code: ERROR_CODES.VALIDATION_ERROR,
+        subsystem: 'general',
+        context: { field: 'atEventIndex', value: input.atEventIndex },
+      });
     }
     const annotation: Annotation = {
       id: randomUUID(),
@@ -203,7 +219,12 @@ export class AnnotationsStore {
       sessionId.includes('\\') ||
       sessionId.includes('..')
     ) {
-      throw new Error(`Invalid sessionId: ${sessionId}`);
+      throw new FsError({
+        message: `Invalid sessionId: ${sessionId}`,
+        code: ERROR_CODES.FS_DELETE_FAILED,
+        path: sessionId,
+        context: { reason: 'path_traversal' },
+      });
     }
     return path.join(this.dir, `${sessionId}.annotations.json`);
   }

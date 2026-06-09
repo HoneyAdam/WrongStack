@@ -37,6 +37,8 @@ export default defineConfig({
         "style-src 'self' 'unsafe-inline'",
         "img-src 'self' data: https:",
         "connect-src 'self' ws://127.0.0.1:3457 wss://127.0.0.1:3457 ws://[::1]:3457 wss://[::1]:3457",
+        "worker-src 'self' blob:",
+        "font-src 'self' data:",
       "object-src 'none'",
         "frame-ancestors 'none'",
       ].join('; '),

@@ -8,6 +8,7 @@ import {
   ChevronRight,
   Clock,
   Cpu,
+  FolderOpen,
   History,
   Layers,
   MessageSquare,
@@ -206,8 +207,8 @@ export function Sidebar() {
         </Button>
       </div>
 
-      <Tabs value={currentView === 'chat' || currentView === 'history' || currentView === 'agents' ? currentView : '__none__'} onValueChange={(v) => setCurrentView(v as 'chat' | 'history' | 'agents')} className="flex-1 flex flex-col">
-        <TabsList className="w-full rounded-none bg-transparent p-2 h-auto grid grid-cols-3">
+      <Tabs value={currentView === 'chat' || currentView === 'history' || currentView === 'agents' || currentView === 'files' ? currentView : '__none__'} onValueChange={(v) => setCurrentView(v as 'chat' | 'history' | 'agents' | 'files')} className="flex-1 flex flex-col">
+        <TabsList className="w-full rounded-none bg-transparent p-2 h-auto grid grid-cols-4">
           <TabsTrigger value="chat" className="flex-col gap-1.5 py-2 data-[state=active]:bg-primary/10">
             <MessageSquare className="h-4 w-4" /><span className="text-xs">Chat</span>
           </TabsTrigger>
@@ -217,6 +218,9 @@ export function Sidebar() {
           </TabsTrigger>
           <TabsTrigger value="history" className="flex-col gap-1.5 py-2 data-[state=active]:bg-primary/10">
             <History className="h-4 w-4" /><span className="text-xs">History</span>
+          </TabsTrigger>
+          <TabsTrigger value="files" className="flex-col gap-1.5 py-2 data-[state=active]:bg-primary/10">
+            <FolderOpen className="h-4 w-4" /><span className="text-xs">Files</span>
           </TabsTrigger>
         </TabsList>
 
@@ -269,6 +273,8 @@ export function Sidebar() {
             </div>
           )}
         </TabsContent>
+
+        <TabsContent value="files" className="flex-1 m-0 flex flex-col overflow-hidden" />
       </Tabs>
 
       {/* Agent detail overlay */}

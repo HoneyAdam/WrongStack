@@ -8,6 +8,7 @@ import {
 } from '../types/context-window.js';
 import type { Config, ConfigLoader, SyncConfig } from '../types/config.js';
 import type { SecretVault } from '../types/secret-vault.js';
+import { ConfigError, ERROR_CODES } from '../types/errors.js';
 import { safeParse } from '../utils/safe-json.js';
 import { deepMerge as deepMergeCore, type DeepMergeOptions } from '../utils/deep-merge.js';
 import type { WstackPaths } from '../utils/wstack-paths.js';
@@ -348,10 +349,22 @@ export class DefaultConfigLoader implements ConfigLoader {
   }
 
   private validateBehavior(cfg: PartialConfig): void {
-    if (cfg.version === undefined) throw new Error('Config: missing version field');
-    if (cfg.version !== 1) throw new Error(`Config: unsupported version ${cfg.version}`);
+    if (cfg.version === undefined) throw new ConfigError({
+      message: 'Config: missing version field',
+      code: ERROR_CODES.CONFIG_INVALID,
+      context: { field: 'version' },
+    });
+    if (cfg.version !== 1) throw new ConfigError({
+      message: `Config: unsupported version ${cfg.version}`,
+      code: ERROR_CODES.CONFIG_INVALID,
+      context: { field: 'version', actual: cfg.version },
+    });
     const c = cfg.context;
-    if (!c) throw new Error('Config: missing context section');
+    if (!c) throw new ConfigError({
+      message: 'Config: missing context section',
+      code: ERROR_CODES.CONFIG_INVALID,
+      context: { field: 'context' },
+    });
     // A user-edited config.json can land strings here ("0.6") and slip past
     // truthiness checks; the `>=` comparison then coerces silently and the
     // threshold ordering check passes for nonsense values. Validate types
@@ -361,11 +374,19 @@ export class DefaultConfigLoader implements ConfigLoader {
     for (const f of fields) {
       const v = c[f];
       if (typeof v !== 'number' || !Number.isFinite(v)) {
-        throw new Error(`Config: context.${String(f)} must be a finite number (got ${typeof v})`);
+        throw new ConfigError({
+          message: `Config: context.${String(f)} must be a finite number (got ${typeof v})`,
+          code: ERROR_CODES.CONFIG_INVALID,
+          context: { field: `context.${String(f)}`, actualType: typeof v },
+        });
       }
     }
     if (c.warnThreshold >= c.softThreshold || c.softThreshold >= c.hardThreshold) {
-      throw new Error('Config: context thresholds must satisfy warn < soft < hard');
+      throw new ConfigError({
+        message: 'Config: context thresholds must satisfy warn < soft < hard',
+        code: ERROR_CODES.CONFIG_INVALID,
+        context: { warn: c.warnThreshold, soft: c.softThreshold, hard: c.hardThreshold },
+      });
     }
     if (c.mode !== undefined && !isContextWindowModeId(c.mode)) {
       // An unknown mode (typo or value from an older/renamed scheme) should not
@@ -384,12 +405,18 @@ export class DefaultConfigLoader implements ConfigLoader {
 
   private validateIdentity(cfg: PartialConfig): void {
     if (!cfg.provider) {
-      throw new Error(
-        'Config: no provider configured. Run `wstack init` or set WRONGSTACK_PROVIDER.',
-      );
+      throw new ConfigError({
+        message: 'Config: no provider configured. Run `wstack init` or set WRONGSTACK_PROVIDER.',
+        code: ERROR_CODES.CONFIG_INVALID,
+        context: { field: 'provider' },
+      });
     }
     if (!cfg.model) {
-      throw new Error('Config: no model configured. Run `wstack init` or set WRONGSTACK_MODEL.');
+      throw new ConfigError({
+        message: 'Config: no model configured. Run `wstack init` or set WRONGSTACK_MODEL.',
+        code: ERROR_CODES.CONFIG_INVALID,
+        context: { field: 'model' },
+      });
     }
   }
 }

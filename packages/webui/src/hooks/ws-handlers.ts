@@ -414,6 +414,37 @@ export function handleGoalUpdated(msg: WSServerMessage) {
   useGoalStore.getState().setGoal(p);
 }
 
+// ── File operation handlers ──
+
+import { useFileStore } from '@/stores/file-store';
+
+export function handleFilesTree(msg: WSServerMessage) {
+  const p = msg.payload as { root: string; tree: import('@/stores/file-store').TreeNode[]; error?: string | undefined };
+  if (p.error) {
+    useFileStore.getState().setError(p.error);
+    return;
+  }
+  useFileStore.getState().setTree(p.root, p.tree);
+}
+
+export function handleFilesRead(msg: WSServerMessage) {
+  const p = msg.payload as { filePath: string; content: string; error?: string | undefined };
+  if (p.error) {
+    useFileStore.getState().setError(p.error);
+    return;
+  }
+  useFileStore.getState().openFile(p.filePath, p.content);
+}
+
+export function handleFilesWritten(msg: WSServerMessage) {
+  const p = msg.payload as { filePath: string; success: boolean; error?: string | undefined };
+  if (p.success) {
+    useFileStore.getState().markSaved(p.filePath);
+  } else if (p.error) {
+    useFileStore.getState().setError(`Save failed: ${p.error}`);
+  }
+}
+
 // ── Handler registry: maps message types to handler functions ──
 
 export const WS_HANDLERS: Record<string, (msg: WSServerMessage) => void> = {
@@ -447,6 +478,9 @@ export const WS_HANDLERS: Record<string, (msg: WSServerMessage) => void> = {
   'worktree.event': handleWorktreeEvent,
   'subagent.event': handleSubagentEvent,
   'goal.updated': handleGoalUpdated,
+  'files.tree': handleFilesTree,
+  'files.read': handleFilesRead,
+  'files.written': handleFilesWritten,
   'autophase.state': handleAutoPhaseState,
   'session.checkpoints': (msg: WSServerMessage) => {
     // Handled directly by CheckpointTimeline component via WS client.on()

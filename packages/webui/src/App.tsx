@@ -2,16 +2,18 @@ import { expectDefined } from '@wrongstack/core';
 import { useWebSocketBootstrap } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';
 import { getWSClient } from '@/lib/ws-client';
-import { useChatStore, useConfigStore, useGoalStore, useSessionStore, useUIStore, useWorktreeStore, useAutoPhaseStore } from '@/stores';
-import { useEffect, useState } from 'react';
+import { useChatStore, useConfigStore, useFileStore, useGoalStore, useSessionStore, useUIStore, useWorktreeStore, useAutoPhaseStore } from '@/stores';
+import { useEffect, useState, useCallback } from 'react';
 import { AutoPhaseView } from './components/AutoPhaseView';
 import { AutonomyPicker } from './components/AutonomyPicker';
 import { ChatView } from './components/ChatView';
+import { CodeEditor } from './components/CodeEditor';
 import { CollabPanel } from './components/CollabPanel';
 import { CommandPalette, downloadChatAsMarkdown } from './components/CommandPalette';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { ConnectionBanner } from './components/ConnectionBanner';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { FileExplorer } from './components/FileExplorer';
 import { FleetPanel } from './components/FleetPanel';
 import { GoalPanel } from './components/GoalPanel';
 import { PhasePanel } from './components/PhasePanel';
@@ -42,6 +44,73 @@ function AppInner() {
 
   // Worktree view toggle
   const [worktreeView, setWorktreeView] = useState<'graph' | 'lanes'>('graph');
+
+  // ── IDE file explorer ────────────────────────────────────────────────
+  const fileExplorerWidth = useUIStore((s) => s.fileExplorerWidth);
+  const setFileExplorerWidth = useUIStore((s) => s.setFileExplorerWidth);
+
+  // Load file tree when entering Files view
+  useEffect(() => {
+    if (currentView !== 'files') return;
+    const ws = getWSClient(useConfigStore.getState().wsUrl);
+    if (!ws) return;
+    useFileStore.getState().setTreeLoading(true);
+    ws.send({ type: 'files.tree', payload: {} });
+  }, [currentView]);
+
+  // Handle file open requests from FileExplorer
+  useEffect(() => {
+    const onOpenFile = (e: Event) => {
+      const { filePath } = (e as CustomEvent<{ filePath: string }>).detail;
+      const ws = getWSClient(useConfigStore.getState().wsUrl);
+      if (ws) {
+        ws.send({ type: 'files.read', payload: { filePath } });
+      }
+    };
+    window.addEventListener('wrongstack:open-file', onOpenFile);
+    return () => window.removeEventListener('wrongstack:open-file', onOpenFile);
+  }, []);
+
+  // Handle file save requests from CodeEditor (Ctrl+S)
+  useEffect(() => {
+    const onSaveFile = (e: Event) => {
+      const { filePath } = (e as CustomEvent<{ filePath: string }>).detail;
+      const file = useFileStore.getState().openFiles.find((f) => f.path === filePath);
+      if (!file) return;
+      const ws = getWSClient(useConfigStore.getState().wsUrl);
+      if (ws) {
+        ws.send({
+          type: 'files.write',
+          payload: { filePath, content: file.content },
+        });
+      }
+    };
+    window.addEventListener('wrongstack:save-file', onSaveFile);
+    return () => window.removeEventListener('wrongstack:save-file', onSaveFile);
+  }, []);
+
+  // File explorer resize drag
+  const startFileDrag = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startWidth = fileExplorerWidth;
+      const onMove = (ev: MouseEvent) => {
+        setFileExplorerWidth(startWidth + (ev.clientX - startX));
+      };
+      const onUp = () => {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    },
+    [fileExplorerWidth, setFileExplorerWidth],
+  );
 
   // Mobile-friendly: collapse the sidebar automatically below the md
   // breakpoint (768px). Tracks viewport changes so a window resize behaves
@@ -215,6 +284,39 @@ function AppInner() {
   return (
     <div className={cn('flex h-screen', theme)}>
       {sidebarOpen && <Sidebar />}
+
+      {/* ── File Explorer panel (only in Files view) ── */}
+      {currentView === 'files' && sidebarOpen && (
+        <aside
+          style={{ width: `${fileExplorerWidth}px` }}
+          className="relative border-r bg-card flex flex-col shrink-0 overflow-hidden"
+        >
+          {/* Header */}
+          <div className="flex items-center gap-2 px-3 py-2 border-b text-[11px] font-semibold text-muted-foreground uppercase tracking-wider shrink-0">
+            Explorer
+          </div>
+          {/* Tree */}
+          <div className="flex-1 overflow-y-auto">
+            <FileExplorer />
+          </div>
+          {/* Drag handle */}
+          <div
+            onMouseDown={startFileDrag}
+            onDoubleClick={() => setFileExplorerWidth(220)}
+            className="group/handle absolute top-0 right-0 h-full w-2 cursor-col-resize z-10 flex items-center justify-end"
+            title="Drag to resize · double-click to reset"
+          >
+            <div className="h-full w-px bg-border group-hover/handle:bg-primary/60 group-hover/handle:w-0.5 transition-all" />
+            <div className="absolute right-0 top-1/2 -translate-y-1/2 flex flex-col gap-0.5 opacity-0 group-hover/handle:opacity-100 transition-opacity pr-0.5">
+              <span className="h-1 w-1 rounded-full bg-primary/70" />
+              <span className="h-1 w-1 rounded-full bg-primary/70" />
+              <span className="h-1 w-1 rounded-full bg-primary/70" />
+            </div>
+          </div>
+        </aside>
+      )}
+
+      {/* ── Main area ── */}
       <main className="flex-1 flex flex-col overflow-hidden">
         <ConnectionBanner />
         {(currentView === 'chat' || currentView === 'agents') && (
@@ -281,6 +383,8 @@ function AppInner() {
         {currentView === 'autophase' && (
           <AutoPhaseView onClose={() => setCurrentView('chat')} />
         )}
+        {/* ── IDE Code Editor (only in Files view) ── */}
+        {currentView === 'files' && <CodeEditor />}
       </main>
 
       {/* Global overlays */}

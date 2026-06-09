@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import type { SecretVault } from '../types/secret-vault.js';
+import { ConfigError, ERROR_CODES } from '../types/errors.js';
 import { ENCRYPTED_PREFIX } from '../types/secret-vault.js';
 import { atomicWrite } from '../utils/atomic-write.js';
 
@@ -49,14 +50,26 @@ export class DefaultSecretVault implements SecretVault {
     const rest = value.slice(ENCRYPTED_PREFIX.length);
     const parts = rest.split(':');
     if (parts.length !== 3) {
-      throw new Error('SecretVault: malformed encrypted value');
+      throw new ConfigError({
+        message: 'SecretVault: malformed encrypted value',
+        code: ERROR_CODES.CONFIG_PARSE_FAILED,
+        context: { field: 'encrypted_value' },
+      });
     }
     const [ivB64, tagB64, ctB64] = parts as [string, string, string];
     const iv = Buffer.from(ivB64, 'base64');
     const tag = Buffer.from(tagB64, 'base64');
     const ct = Buffer.from(ctB64, 'base64');
-    if (iv.length !== IV_BYTES) throw new Error('SecretVault: bad IV length');
-    if (tag.length !== TAG_BYTES) throw new Error('SecretVault: bad tag length');
+    if (iv.length !== IV_BYTES) throw new ConfigError({
+      message: 'SecretVault: bad IV length',
+      code: ERROR_CODES.CONFIG_PARSE_FAILED,
+      context: { expected: IV_BYTES, actual: iv.length },
+    });
+    if (tag.length !== TAG_BYTES) throw new ConfigError({
+      message: 'SecretVault: bad tag length',
+      code: ERROR_CODES.CONFIG_PARSE_FAILED,
+      context: { expected: TAG_BYTES, actual: tag.length },
+    });
     const key = this.loadOrCreateKey();
     const decipher = createDecipheriv(ALGO, key, iv);
     decipher.setAuthTag(tag);
@@ -80,10 +93,13 @@ export class DefaultSecretVault implements SecretVault {
         // tampered with. Throwing instead of falling through to create a
         // new key protects all secrets encrypted under this key; the user
         // can remove the file manually to generate a fresh key.
-        throw new Error(
-          `SecretVault: key file ${this.keyFile} is ${buf.length} bytes ` +
+        throw new ConfigError({
+          message:
+            `SecretVault: key file ${this.keyFile} is ${buf.length} bytes ` +
             `(expected ${KEY_BYTES}). Remove it manually to generate a new key.`,
-        );
+          code: ERROR_CODES.CONFIG_INVALID,
+          context: { keyFile: this.keyFile, expectedBytes: KEY_BYTES, actualBytes: buf.length },
+        });
       }
       this.key = buf;
       return this.key;
@@ -107,10 +123,13 @@ export class DefaultSecretVault implements SecretVault {
         // tampered with. Throwing instead of falling through to create a
         // new key protects all secrets encrypted under this key; the user
         // can remove the file manually to generate a fresh key.
-        throw new Error(
-          `SecretVault: key file ${this.keyFile} is ${buf.length} bytes ` +
+        throw new ConfigError({
+          message:
+            `SecretVault: key file ${this.keyFile} is ${buf.length} bytes ` +
             `(expected ${KEY_BYTES}). Remove it manually to generate a new key.`,
-        );
+          code: ERROR_CODES.CONFIG_INVALID,
+          context: { keyFile: this.keyFile, expectedBytes: KEY_BYTES, actualBytes: buf.length },
+        });
       }
       this.key = buf;
       return this.key;

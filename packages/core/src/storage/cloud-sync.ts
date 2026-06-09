@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { createHash } from 'node:crypto';
 import type { WstackPaths } from '../utils/wstack-paths.js';
 import type { SyncCategory, SyncConfig } from '../types/config.js';
+import { FsError, WrongStackError, ERROR_CODES } from '../types/errors.js';
 export const ALL_SYNC_CATEGORIES: SyncCategory[] = ['settings', 'skills', 'prompts', 'memory', 'history'];
 
 export interface SyncResult {
@@ -226,7 +227,12 @@ export class CloudSync {
 
     if (!res.ok) {
       const errText = await res.text();
-      throw new Error(`GitHub API ${method} ${pathSegment} failed (${res.status}): ${errText}`);
+      throw new WrongStackError({
+        message: `GitHub API ${method} ${pathSegment} failed (${res.status}): ${errText}`,
+        code: ERROR_CODES.UNKNOWN,
+        subsystem: 'general',
+        context: { method, pathSegment, status: res.status, repo: `${owner}/${repo}` },
+      });
     }
 
     const text = await res.text();
@@ -387,7 +393,12 @@ function resolvePulledCategoryPath(
 ): string {
   const directoryBacked = cat === 'skills' || cat === 'prompts';
   if (!directoryBacked) {
-    if (rel) throw new Error(`Refusing nested CloudSync path for file category: ${remotePath}`);
+    if (rel) throw new FsError({
+      message: `Refusing nested CloudSync path for file category: ${remotePath}`,
+      code: ERROR_CODES.FS_DELETE_FAILED,
+      path: remotePath,
+      context: { reason: 'nested_file_category', category: cat },
+    });
     return localPath;
   }
 
@@ -395,14 +406,24 @@ function resolvePulledCategoryPath(
   const normalizedRel = path.normalize(rel);
   const traversesUp = normalizedRel === '..' || normalizedRel.startsWith(`..${path.sep}`);
   if (path.isAbsolute(normalizedRel) || traversesUp) {
-    throw new Error(`Refusing CloudSync path traversal: ${remotePath}`);
+    throw new FsError({
+      message: `Refusing CloudSync path traversal: ${remotePath}`,
+      code: ERROR_CODES.FS_DELETE_FAILED,
+      path: remotePath,
+      context: { reason: 'path_traversal', normalizedRel },
+    });
   }
 
   const dest = path.resolve(localPath, normalizedRel);
   const root = path.resolve(localPath);
   const relative = path.relative(root, dest);
   if (relative.startsWith('..') || path.isAbsolute(relative)) {
-    throw new Error(`Refusing CloudSync path outside category root: ${remotePath}`);
+    throw new FsError({
+      message: `Refusing CloudSync path outside category root: ${remotePath}`,
+      code: ERROR_CODES.FS_DELETE_FAILED,
+      path: remotePath,
+      context: { reason: 'outside_category_root', category: cat },
+    });
   }
   return dest;
 }

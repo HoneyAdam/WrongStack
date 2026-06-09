@@ -1614,6 +1614,87 @@ export async function startWebUI(
         break;
       }
 
+      // ── IDE file operations ──────────────────────────────────────────
+      // files.tree: returns a nested directory tree for the File Explorer.
+      // files.read: returns file content for the Monaco editor.
+      // files.write: writes file content back to disk (atomic write).
+      case 'files.tree': {
+        interface TreeNode {
+          name: string;
+          path: string;
+          type: 'file' | 'directory';
+          children?: TreeNode[];
+        }
+        async function buildTree(dir: string, rel: string, depth: number): Promise<TreeNode[]> {
+          if (depth > 10) return [];
+          let entries: import('node:fs').Dirent[] = [];
+          try {
+            entries = await fs.readdir(dir, { withFileTypes: true });
+          } catch {
+            return [];
+          }
+          // Sort: directories first, then alphabetical
+          entries.sort((a, b) => {
+            if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1;
+            return a.name.localeCompare(b.name);
+          });
+          const nodes: TreeNode[] = [];
+          for (const e of entries) {
+            if (isHiddenEntry(e.name)) continue;
+            const childRel = rel ? `${rel}/${e.name}` : e.name;
+            const childAbs = path.join(dir, e.name);
+            if (e.isDirectory()) {
+              if (SKIP_DIRS.has(e.name)) continue;
+              const children = await buildTree(childAbs, childRel, depth + 1);
+              nodes.push({ name: e.name, path: childRel, type: 'directory', children });
+            } else if (e.isFile()) {
+              nodes.push({ name: e.name, path: childRel, type: 'file' });
+            }
+          }
+          return nodes;
+        }
+        try {
+          const tree = await buildTree(projectRoot, '', 0);
+          send(ws, { type: 'files.tree', payload: { root: projectRoot, tree } });
+        } catch (err) {
+          send(ws, { type: 'files.tree', payload: { root: projectRoot, tree: [], error: errMessage(err) } });
+        }
+        break;
+      }
+
+      case 'files.read': {
+        const { filePath } = (msg as { payload: { filePath: string } }).payload;
+        // Path traversal guard: resolve and verify the file stays inside projectRoot.
+        const resolved = path.resolve(projectRoot, filePath);
+        if (!resolved.startsWith(projectRoot + path.sep) && resolved !== projectRoot) {
+          send(ws, { type: 'files.read', payload: { filePath, content: '', error: 'Forbidden' } });
+          break;
+        }
+        try {
+          const content = await fs.readFile(resolved, 'utf8');
+          send(ws, { type: 'files.read', payload: { filePath, content } });
+        } catch (err) {
+          send(ws, { type: 'files.read', payload: { filePath, content: '', error: errMessage(err) } });
+        }
+        break;
+      }
+
+      case 'files.write': {
+        const { filePath, content } = (msg as { payload: { filePath: string; content: string } }).payload;
+        const resolved = path.resolve(projectRoot, filePath);
+        if (!resolved.startsWith(projectRoot + path.sep) && resolved !== projectRoot) {
+          send(ws, { type: 'files.written', payload: { filePath, success: false, error: 'Forbidden' } });
+          break;
+        }
+        try {
+          await atomicWrite(resolved, content);
+          send(ws, { type: 'files.written', payload: { filePath, success: true } });
+        } catch (err) {
+          send(ws, { type: 'files.written', payload: { filePath, success: false, error: errMessage(err) } });
+        }
+        break;
+      }
+
       case 'modes.list': {
         try {
           const modes = await modeStore.listModes();

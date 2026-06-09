@@ -513,6 +513,9 @@ export type WSClientMessage =
   | { type: 'modes.list' }
   | { type: 'mode.switch'; payload: { id: string } }
   | { type: 'files.list'; payload: { query?: string | undefined; limit?: number | undefined } }
+  | { type: 'files.tree'; payload: Record<string, never> }
+  | { type: 'files.read'; payload: { filePath: string } }
+  | { type: 'files.write'; payload: { filePath: string; content: string } }
   | { type: 'todos.get' }
   | { type: 'todos.clear' }
   | { type: 'todos.remove'; payload: { id?: string | undefined; index?: number | undefined } }
@@ -562,6 +565,9 @@ export type WSServerMessage =
   | WSSavedProviders
   | WSKeyOperationResult
   | WSFilesList
+  | { type: 'files.tree'; payload: { root: string; tree: unknown[]; error?: string | undefined } }
+  | { type: 'files.read'; payload: { filePath: string; content: string; error?: string | undefined } }
+  | { type: 'files.written'; payload: { filePath: string; success: boolean; error?: string | undefined } }
   | WSTodosUpdated
   | WSModesList
   | WSAutoPhaseState

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { EventBus } from '../kernel/events.js';
+import type { Logger } from '../types/logger.js';
 import type { ContentBlock, ThinkingBlock, ToolUseBlock } from '../types/blocks.js';
 import type { Provider, Request, Response } from '../types/provider.js';
 import type { Context } from './context.js';
@@ -237,8 +238,10 @@ export async function streamProviderToResponse(
   signal: AbortSignal,
   ctx: Context,
   events: EventBus,
+  logger: Logger,
 ): Promise<Response> {
   const state = createStreamingState(req.model);
+  logger.debug('Stream started', { providerId: provider.id, model: req.model });
 
   const iter = provider.stream(req, { signal })[Symbol.asyncIterator]();
   try {
@@ -295,16 +298,28 @@ export async function streamProviderToResponse(
             handleMessageStop(state, ev as Parameters<typeof handleMessageStop>[1]);
             break;
           default:
-            // Unknown SSE event type — silently skip
+            // Unknown SSE event type — log for observability
+            logger.warn(`Stream received unknown event type: "${String(ev.type)}"`, {
+              providerId: provider.id,
+              model: req.model,
+              eventType: String(ev.type),
+            });
             break;
         }
       } catch (handlerErr) {
         // Best-effort: a single malformed event should not abort the entire
         // stream. The partial response built from earlier events is preserved.
+        const errMsg = handlerErr instanceof Error ? handlerErr.message : String(handlerErr);
+        logger.warn(`Stream handler error for event type "${String(ev.type)}": ${errMsg}`, {
+          providerId: provider.id,
+          model: req.model,
+          eventType: String(ev.type),
+          errorMessage: errMsg,
+        });
         events.emit('provider.stream_error', {
           ctx,
           eventType: ev.type,
-          msg: handlerErr instanceof Error ? handlerErr.message : String(handlerErr),
+          msg: errMsg,
         });
       }
     }
@@ -321,6 +336,13 @@ export async function streamProviderToResponse(
       // `max_tokens`, which corrupted telemetry and broke retry logic
       // that branches on max_tokens specifically).
       state.stopReason = 'end_turn';
+      logger.debug('Stream aborted — returning partial state', {
+        providerId: provider.id,
+        model: req.model,
+        textBlockCount: state.textBuffers.length,
+        toolBlockCount: state.tools.size,
+        thinkingBlockCount: state.thinking.length,
+      });
       return buildResponse(state);
     }
     throw err;
@@ -350,5 +372,15 @@ export async function streamProviderToResponse(
       // best-effort
     }
   }
+  logger.debug('Stream completed', {
+    providerId: provider.id,
+    model: req.model,
+    stopReason: state.stopReason,
+    textBlockCount: state.textBuffers.length,
+    toolBlockCount: state.tools.size,
+    thinkingBlockCount: state.thinking.length,
+    usageInput: state.usage.input,
+    usageOutput: state.usage.output,
+  });
   return buildResponse(state);
 }

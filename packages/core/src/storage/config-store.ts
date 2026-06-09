@@ -1,4 +1,5 @@
 import type { Config, ConfigStore } from '../types/config.js';
+import { ConfigError, ERROR_CODES } from '../types/errors.js';
 
 
 /**
@@ -59,7 +60,11 @@ export class DefaultConfigStore implements ConfigStore {
     const next = deepFreeze(structuredClone({ ...this.current, ...scrubbed })) as Readonly<Config>;
 
     if (next.version !== 1) {
-      throw new Error(`ConfigStore.update: version must remain 1, got ${String(next.version)}`);
+      throw new ConfigError({
+        message: `ConfigStore.update: version must remain 1, got ${String(next.version)}`,
+        code: ERROR_CODES.CONFIG_INVALID,
+        context: { field: 'version', actual: next.version },
+      });
     }
 
     const prev = this.current;
@@ -75,7 +80,12 @@ export class DefaultConfigStore implements ConfigStore {
         // otherwise leave the system in a quietly-inconsistent state. We
         // still don't propagate (one bad subscriber must not break the
         // others), but we surface the error so it's discoverable.
-        console.error('[config-store] watcher threw:', err);
+        console.error(JSON.stringify({
+          level: 'error',
+          event: 'config_store.watcher_threw',
+          message: err instanceof Error ? err.message : String(err),
+          timestamp: new Date().toISOString(),
+        }));
       }
     }
     return next;

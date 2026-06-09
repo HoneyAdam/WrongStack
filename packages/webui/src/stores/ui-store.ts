@@ -8,7 +8,7 @@ import { persist } from 'zustand/middleware';
 interface UIState {
   sidebarOpen: boolean;
   settingsOpen: boolean;
-  currentView: 'chat' | 'history' | 'settings' | 'autophase' | 'agents';
+  currentView: 'chat' | 'history' | 'settings' | 'autophase' | 'agents' | 'files';
   showConfirmDialog: boolean;
   confirmInfo: {
     id: string;
@@ -27,11 +27,12 @@ interface UIState {
   modelSwitcherOpen: boolean;
   favoriteSessionIds: string[];
   sessionNicknames: Record<string, string>;
+  fileExplorerWidth: number;
 
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
-  setCurrentView: (view: 'chat' | 'history' | 'settings' | 'autophase' | 'agents') => void;
+  setCurrentView: (view: 'chat' | 'history' | 'settings' | 'autophase' | 'agents' | 'files') => void;
   showConfirm: (info: UIState['confirmInfo']) => void;
   hideConfirm: () => void;
   setPaletteOpen: (open: boolean) => void;
@@ -46,6 +47,7 @@ interface UIState {
   setModelSwitcherOpen: (open: boolean) => void;
   toggleFavoriteSession: (id: string) => void;
   setSessionNickname: (id: string, nickname: string) => void;
+  setFileExplorerWidth: (px: number) => void;
 }
 
 export const useUIStore = create<UIState>()(
@@ -67,6 +69,7 @@ export const useUIStore = create<UIState>()(
       modelSwitcherOpen: false,
       favoriteSessionIds: [],
       sessionNicknames: {},
+      fileExplorerWidth: 220,
 
       toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
       setSidebarOpen: (open) => set({ sidebarOpen: open }),
@@ -113,6 +116,8 @@ export const useUIStore = create<UIState>()(
           else delete next[id];
           return { sessionNicknames: next };
         }),
+      setFileExplorerWidth: (px) =>
+        set({ fileExplorerWidth: Math.max(160, Math.min(400, Math.round(px))) }),
     }),
     {
       name: 'wrongstack-ui',
@@ -124,6 +129,7 @@ export const useUIStore = create<UIState>()(
         compactMode: s.compactMode,
         favoriteSessionIds: s.favoriteSessionIds,
         sessionNicknames: s.sessionNicknames,
+        fileExplorerWidth: s.fileExplorerWidth,
       }),
     },
   ),

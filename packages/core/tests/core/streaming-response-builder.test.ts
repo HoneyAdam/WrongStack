@@ -23,6 +23,16 @@ import type { Provider, Request } from '../../src/types/provider.js';
 
 const fakeCtx = { messages: [] } as unknown as Context;
 
+const noopLogger = {
+  level: 'info' as const,
+  error() {},
+  warn() {},
+  info() {},
+  debug() {},
+  trace() {},
+  child() { return noopLogger; },
+};
+
 function fakeProvider(events: Array<Record<string, unknown>>): Provider {
   return {
     id: 'fake',
@@ -283,7 +293,7 @@ describe('streamProviderToResponse', () => {
       { type: 'message_stop', stopReason: 'end_turn', usage: { input: 10, output: 5 } },
     ];
     const ctrl = new AbortController();
-    const r = await streamProviderToResponse(fakeProvider(events), req, ctrl.signal, fakeCtx, new EventBus());
+    const r = await streamProviderToResponse(fakeProvider(events), req, ctrl.signal, fakeCtx, new EventBus(), noopLogger);
     const textBlock = r.content.find((b) => b.type === 'text');
     expect(textBlock).toEqual({ type: 'text', text: 'hello world' });
     const toolBlock = r.content.find((b) => b.type === 'tool_use');
@@ -301,7 +311,7 @@ describe('streamProviderToResponse', () => {
       { type: 'message_stop' },
     ];
     const ctrl = new AbortController();
-    const r = await streamProviderToResponse(fakeProvider(events), req, ctrl.signal, fakeCtx, new EventBus());
+    const r = await streamProviderToResponse(fakeProvider(events), req, ctrl.signal, fakeCtx, new EventBus(), noopLogger);
     const thinkBlock = r.content.find((b) => b.type === 'thinking');
     expect(thinkBlock).toMatchObject({
       type: 'thinking',
@@ -327,7 +337,7 @@ describe('streamProviderToResponse', () => {
         throw new Error('aborted');
       },
     };
-    const r = await streamProviderToResponse(provider, req, ctrl.signal, fakeCtx, new EventBus());
+    const r = await streamProviderToResponse(provider, req, ctrl.signal, fakeCtx, new EventBus(), noopLogger);
     // Partial text was preserved even though stream threw
     const text = r.content.find((b) => b.type === 'text');
     expect(text).toEqual({ type: 'text', text: 'partial-text' });
@@ -348,7 +358,7 @@ describe('streamProviderToResponse', () => {
     };
     const ctrl = new AbortController();
     await expect(
-      streamProviderToResponse(provider, req, ctrl.signal, fakeCtx, new EventBus()),
+      streamProviderToResponse(provider, req, ctrl.signal, fakeCtx, new EventBus(), noopLogger),
     ).rejects.toThrow(/upstream-failure/);
   });
 
@@ -368,7 +378,7 @@ describe('streamProviderToResponse', () => {
     bus.on('provider.tool_use_stop', () => seen.push('tool_stop'));
     bus.on('provider.thinking_delta', () => seen.push('think'));
     const ctrl = new AbortController();
-    await streamProviderToResponse(fakeProvider(events), req, ctrl.signal, fakeCtx, bus);
+    await streamProviderToResponse(fakeProvider(events), req, ctrl.signal, fakeCtx, bus, noopLogger);
     expect(seen).toEqual(['text', 'tool_start', 'tool_stop', 'think']);
   });
 });

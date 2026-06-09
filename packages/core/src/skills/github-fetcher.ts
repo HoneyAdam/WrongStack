@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { createGunzip } from 'node:zlib';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { WrongStackError, ERROR_CODES } from '../types/errors.js';
 export interface ParsedRef {
   owner: string;
   repo: string;
@@ -29,7 +30,12 @@ export function parseSkillRef(input: string): ParsedRef {
   }
   const parts = refPath.split('/').filter(Boolean);
   if (parts.length < 2) {
-    throw new Error(`Invalid skill reference "${input}". Expected format: user/repo or user/repo@ref`);
+    throw new WrongStackError({
+      message: `Invalid skill reference "${input}". Expected format: user/repo or user/repo@ref`,
+      code: ERROR_CODES.UNKNOWN,
+      subsystem: 'general',
+      context: { input },
+    });
   }
   return { owner: expectDefined(parts[0]), repo: expectDefined(parts[1]), ref };
 }
@@ -60,31 +66,58 @@ export async function downloadGitHubTarball(parsed: ParsedRef): Promise<Download
 
   if (!response.ok) {
     if (response.status === 404) {
-      throw new Error(
-        `Repository not found: ${parsed.owner}/${parsed.repo}` +
+      throw new WrongStackError({
+        message:
+          `Repository not found: ${parsed.owner}/${parsed.repo}` +
           (parsed.ref !== 'main' ? ` (ref: ${parsed.ref})` : ''),
-      );
+        code: ERROR_CODES.UNKNOWN,
+        subsystem: 'general',
+        context: { owner: parsed.owner, repo: parsed.repo, ref: parsed.ref, status: 404 },
+      });
     }
     if (response.status === 403) {
-      throw new Error(
-        `Access denied: ${parsed.owner}/${parsed.repo}. The repository may be private or rate-limited.`,
-      );
+      throw new WrongStackError({
+        message: `Access denied: ${parsed.owner}/${parsed.repo}. The repository may be private or rate-limited.`,
+        code: ERROR_CODES.UNKNOWN,
+        subsystem: 'general',
+        context: { owner: parsed.owner, repo: parsed.repo, status: 403 },
+      });
     }
-    throw new Error(`GitHub API error (${response.status}): ${response.statusText}`);
+    throw new WrongStackError({
+      message: `GitHub API error (${response.status}): ${response.statusText}`,
+      code: ERROR_CODES.UNKNOWN,
+      subsystem: 'general',
+      context: { owner: parsed.owner, repo: parsed.repo, status: response.status },
+    });
   }
 
   const contentLength = response.headers.get('content-length');
   if (contentLength && Number.parseInt(contentLength, 10) > MAX_TARBALL_SIZE) {
-    throw new Error(
-      `Tarball too large (${(Number.parseInt(contentLength, 10) / 1024 / 1024).toFixed(1)}MB). Max: ${MAX_TARBALL_SIZE / 1024 / 1024}MB`,
-    );
+    throw new WrongStackError({
+      message:
+        `Tarball too large (${(Number.parseInt(contentLength, 10) / 1024 / 1024).toFixed(1)}MB). ` +
+        `Max: ${MAX_TARBALL_SIZE / 1024 / 1024}MB`,
+      code: ERROR_CODES.UNKNOWN,
+      subsystem: 'general',
+      context: {
+        owner: parsed.owner,
+        repo: parsed.repo,
+        contentLengthBytes: Number.parseInt(contentLength, 10),
+        maxBytes: MAX_TARBALL_SIZE,
+      },
+    });
   }
 
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wskill-'));
 
   try {
     if (!response.body) {
-      throw new Error('Empty response body from GitHub API');
+      throw new WrongStackError({
+        message: 'Empty response body from GitHub API',
+        code: ERROR_CODES.UNKNOWN,
+        subsystem: 'general',
+        context: { owner: parsed.owner, repo: parsed.repo },
+      });
     }
 
     // Gunzip the response body, then extract the tar stream

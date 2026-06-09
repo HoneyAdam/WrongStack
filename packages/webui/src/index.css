@@ -277,3 +277,38 @@
   box-shadow: 0 0 10px 0 hsl(var(--primary) / 0.6);
   pointer-events: none;
 }
+
+/* ── IDE layout: file explorer & code editor ── */
+
+/* File tree — compact, VS Code-style indentation */
+.ide-tree-item {
+  @apply flex items-center gap-1 w-full text-left px-1 py-0.5 text-[11px] rounded;
+  @apply hover:bg-muted/60 transition-colors cursor-pointer;
+}
+
+/* Editor tab bar — VS Code-style active indicator */
+.editor-tab {
+  @apply flex items-center gap-1.5 px-3 py-1.5 text-[11px] border-r whitespace-nowrap min-w-0 max-w-[180px] transition-colors;
+}
+
+/* Monaco editor container — fill available space */
+.monaco-editor-container {
+  @apply flex-1 relative;
+}
+
+/* Monaco overrides — match the WrongStack theme */
+.monaco-editor .margin,
+.monaco-editor .monaco-editor-background {
+  background-color: hsl(var(--background)) !important;
+}
+
+/* Dirty file indicator dot */
+.dirty-dot {
+  @apply h-2 w-2 rounded-full bg-primary shrink-0;
+  box-shadow: 0 0 4px 0 hsl(var(--primary) / 0.6);
+}
+
+/* kbds in editor shortcuts bar */
+kbd {
+  @apply px-1 py-0.5 rounded bg-muted text-[9px] font-mono border;
+}

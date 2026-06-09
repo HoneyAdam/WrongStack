@@ -66,10 +66,12 @@ export async function saveTodosCheckpoint(
   try {
     await atomicWrite(filePath, JSON.stringify(payload, null, 2), { mode: 0o600 });
   } catch (err) {
-    console.warn(
-      '[todos-checkpoint] save failed:',
-      err instanceof Error ? err.message : String(err),
-    );
+    console.warn(JSON.stringify({
+      level: 'warn',
+      event: 'todos_checkpoint.save_failed',
+      message: err instanceof Error ? err.message : String(err),
+      timestamp: new Date().toISOString(),
+    }));
   }
 }
 
@@ -97,7 +99,13 @@ export function attachTodosCheckpoint(
         // Log and keep the chain alive — a failed write must not
         // poison the chain and silently stop all subsequent writes.
         const msg = err instanceof Error ? err.message : String(err);
-        console.error(`[TodosCheckpoint] save failed for session ${sessionId}: ${msg}`);
+        console.error(JSON.stringify({
+          level: 'error',
+          event: 'todos_checkpoint.write_chain_failed',
+          sessionId,
+          message: msg,
+          timestamp: new Date().toISOString(),
+        }));
       });
     return writeChain;
   };

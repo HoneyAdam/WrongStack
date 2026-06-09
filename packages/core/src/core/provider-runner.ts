@@ -7,6 +7,17 @@ import type { RetryPolicy } from '../types/retry-policy.js';
 import type { Context } from './context.js';
 import { streamProviderToResponse } from './streaming-response-builder.js';
 
+/** Fields worth including in every provider-run log for cross-correlation. */
+function providerLogCtx(p: Provider, r: Request): Record<string, unknown> {
+  return {
+    providerId: p.id,
+    model: r.model,
+    streaming: p.capabilities.streaming,
+    msgCount: r.messages.length,
+    toolCount: r.tools?.length ?? 0,
+  };
+}
+
 export interface RunProviderOptions {
   provider: Provider;
   request: Request;
@@ -34,14 +45,24 @@ export async function runProviderWithRetry(opts: RunProviderOptions): Promise<Re
       'provider.streaming': provider.capabilities.streaming,
       'provider.attempt': attempt,
     });
+    logger.debug(`Provider attempt ${attempt + 1} starting`, providerLogCtx(provider, request));
     try {
       const res = provider.capabilities.streaming
-        ? await streamProviderToResponse(provider, request, signal, ctx, events)
+        ? await streamProviderToResponse(provider, request, signal, ctx, events, logger)
         : await provider.complete(request, { signal });
       span?.setAttribute('provider.stopReason', res.stopReason);
       span?.setAttribute('provider.usage_in', res.usage.input);
       span?.setAttribute('provider.usage_out', res.usage.output);
       span?.end();
+      logger.info('Provider call succeeded', {
+        ...providerLogCtx(provider, request),
+        stopReason: res.stopReason,
+        usageInput: res.usage.input,
+        usageOutput: res.usage.output,
+        cacheRead: res.usage.cacheRead,
+        cacheWrite: res.usage.cacheWrite,
+        attempts: attempt + 1,
+      });
       return res;
     } catch (err) {
       if (err instanceof Error) span?.recordError(err);
@@ -60,11 +81,27 @@ export async function runProviderWithRetry(opts: RunProviderOptions): Promise<Re
             retryable: false,
           });
         }
+        logger.error(`Provider call failed after ${attempt + 1} attempt(s) — ${description}`, {
+          ...providerLogCtx(provider, request),
+          attempts: attempt + 1,
+          errorDescription: description,
+          status: isProviderErr ? (err as ProviderError).status : undefined,
+          errorName: err instanceof Error ? err.name : undefined,
+          errorStack: err instanceof Error ? err.stack?.split('\n').slice(0, 3).join('\n') : undefined,
+        });
         throw err;
       }
       const delay = Math.round(retry.delayMs(attempt));
       const attemptNum = attempt + 1;
-      logger.warn(`Provider retry ${attemptNum} in ${delay}ms — ${description}`);
+      const maxAttempts = retry.maxAttempts(isProviderErr ? (err as ProviderError) : errAsErr);
+      logger.warn(`Provider retry ${attemptNum}/${maxAttempts} in ${delay}ms — ${description}`, {
+        ...providerLogCtx(provider, request),
+        attempt: attemptNum,
+        maxAttempts,
+        delayMs: delay,
+        errorDescription: description,
+        status: isProviderErr ? (err as ProviderError).status : undefined,
+      });
       if (isProviderErr) {
         events.emit('provider.retry', {
           providerId: (err as ProviderError).providerId,

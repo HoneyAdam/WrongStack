@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import type { CheckpointInfo, RewindResult, RewindResultExtended, SessionRewinder } from '../types/session-rewinder.js';
 import type { SessionEvent, FileSnapshot } from '../types/session.js';
 import { atomicWrite } from '../utils/atomic-write.js';
+import { SessionError, ERROR_CODES } from '../types/errors.js';
 
 export interface SessionRewinderOptions {
   sessionsDir: string;
@@ -69,7 +70,11 @@ export class DefaultSessionRewinder implements SessionRewinder {
     }
 
     if (targetIdx === -1) {
-      throw new Error(`Checkpoint ${checkpointIndex} not found`);
+      throw new SessionError({
+        message: `Checkpoint ${checkpointIndex} not found`,
+        code: ERROR_CODES.SESSION_NOT_FOUND,
+        context: { checkpointIndex },
+      });
     }
 
     const snapshotsToRevert: Array<{ promptIndex: number; files: FileSnapshot[] }> = [];

@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import type { SkillLoader } from '../types/skill.js';
 import { downloadGitHubTarball, parseSkillRef } from './github-fetcher.js';
 import { type InstalledSkillEntry, SkillManifestStore } from './manifest-store.js';
+import { FsError, WrongStackError, ERROR_CODES } from '../types/errors.js';
 export interface SkillInstallerOptions {
   /** Path to the manifest file (~/.wrongstack/installed-skills.json) */
   manifestPath: string;
@@ -64,9 +65,12 @@ export class SkillInstaller {
       const skills = await this.detectSkills(tempDir);
 
       if (skills.length === 0) {
-        throw new Error(
-          'No skills found in repository. Expected SKILL.md at root or skills/ subdirectory.',
-        );
+        throw new WrongStackError({
+          message: 'No skills found in repository. Expected SKILL.md at root or skills/ subdirectory.',
+          code: ERROR_CODES.VALIDATION_ERROR,
+          subsystem: 'general',
+          context: { owner: parsed.owner, repo: parsed.repo, ref: parsed.ref },
+        });
       }
 
       const results: InstallResult[] = [];
@@ -92,15 +96,25 @@ export class SkillInstaller {
           // Path traversal check
           const resolved = path.resolve(destPath);
           if (!resolved.startsWith(path.resolve(destDir))) {
-            throw new Error(`Path traversal detected in skill file: ${file}`);
+            throw new FsError({
+              message: `Path traversal detected in skill file: ${file}`,
+              code: ERROR_CODES.FS_DELETE_FAILED,
+              path: destPath,
+              context: { reason: 'path_traversal', skillName: skill.name },
+            });
           }
 
           // Size check
           const stat = await fs.stat(srcPath);
           if (stat.size > MAX_SKILL_FILE_SIZE) {
-            throw new Error(
-              `Skill file "${file}" is too large (${(stat.size / 1024).toFixed(1)}KB). Max: ${MAX_SKILL_FILE_SIZE / 1024}KB`,
-            );
+            throw new FsError({
+              message:
+                `Skill file "${file}" is too large (${(stat.size / 1024).toFixed(1)}KB). ` +
+                `Max: ${MAX_SKILL_FILE_SIZE / 1024}KB`,
+              code: ERROR_CODES.FS_WRITE_FAILED,
+              path: srcPath,
+              context: { skillName: skill.name, fileSize: stat.size, maxSize: MAX_SKILL_FILE_SIZE },
+            });
           }
 
           await fs.mkdir(path.dirname(destPath), { recursive: true });
@@ -240,7 +254,12 @@ export class SkillInstaller {
     const entry = entries.find((e) => e.scope === scope);
 
     if (!entry) {
-      throw new Error(`Skill "${name}" is not installed${scope === 'user' ? ' (global)' : ''}.`);
+      throw new WrongStackError({
+        message: `Skill "${name}" is not installed${scope === 'user' ? ' (global)' : ''}.`,
+        code: ERROR_CODES.VALIDATION_ERROR,
+        subsystem: 'general',
+        context: { skillName: name, scope },
+      });
     }
 
     // Remove files

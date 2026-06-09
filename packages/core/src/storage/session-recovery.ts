@@ -2,6 +2,7 @@ import { expectDefined } from '../utils/expect-defined.js';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { SessionEvent } from '../types/session.js';
+import { FsError, ERROR_CODES } from '../types/errors.js';
 /**
  * Idea #1 from IDEAS.md — Stateful Session Recovery.
  *
@@ -216,7 +217,12 @@ export class SessionRecovery {
       sessionId.includes('\\') ||
       sessionId.includes('..')
     ) {
-      throw new Error(`Invalid sessionId: ${sessionId}`);
+      throw new FsError({
+        message: `Invalid sessionId: ${sessionId}`,
+        code: ERROR_CODES.FS_DELETE_FAILED,
+        path: sessionId,
+        context: { reason: 'path_traversal' },
+      });
     }
     return path.join(this.dir, `${sessionId}.jsonl`);
   }
