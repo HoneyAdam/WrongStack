@@ -1316,6 +1316,9 @@ export function App({
         data,
         meta: { filename: picked, label: picked },
       });
+      // Store the full file content so slash commands like /fix can resolve
+      // @-mention tokens to their actual text instead of just the placeholder.
+      tokenPreviewsRef.current.set(token, data);
       const before = draft.buffer.slice(0, tok.start);
       const after = draft.buffer.slice(tok.end);
       const next = `${before}${token}${after}`;
@@ -2222,14 +2225,6 @@ export function App({
     };
   }, [director, getEternalEngine, getParallelEngine, switchAutonomy, onExit, exit]);
 
-  /** Truncate pasted content for history preview: first `lines` lines + "..." line if truncated. */
-  const truncatePastePreview = (text: string, lines: number): string => {
-    const all = text.split('\n');
-    if (all.length <= lines) return text;
-    const head = all.slice(0, lines).join('\n');
-    return `${head}\n... (${all.length - lines} more lines)`;
-  };
-
   // Finalize a fully-assembled paste payload. A collapse-worthy paste (long
   // or many-lined) or any multi-line paste becomes an inline `[pasted #N, L
   // lines]` chip in the editable row — the content lives in the AttachmentStore
@@ -2263,7 +2258,9 @@ export function App({
       // goes into the buffer (single source of truth); nothing is appended to
       // the builder's own display, so there's no double-expansion at submit.
       const token = await builder.registerPaste(full);
-      tokenPreviewsRef.current.set(token, truncatePastePreview(full, 6));
+      // Store the full paste so slash commands like /fix can see the entire
+      // content. Display truncation (6-line preview) happens at render time.
+      tokenPreviewsRef.current.set(token, full);
       const next = buffer.slice(0, cursor) + token + buffer.slice(cursor);
       setDraft(next, cursor + token.length);
       return;
@@ -3501,7 +3498,17 @@ export function App({
     const trimmed = raw.trim();
     // Attachment chips live inline in the buffer now, so a paste/file-only
     // message is already non-empty here — a single `!trimmed` guard suffices.
-    if (!trimmed) return;
+    if (!trimmed) {
+      // If the user pressed Esc to steer and now hits Enter with an empty
+      // buffer, consume the steering state — otherwise the *next* non-empty
+      // message picks up a stale STEERING preamble and injects it into a
+      // completely unrelated new message. Consuming here gives the user a
+      // way to silently cancel steering by pressing Enter on a blank line.
+      if (state.steeringPending) {
+        dispatch({ type: 'steerConsume' });
+      }
+      return;
+    }
 
     dispatch({ type: 'resetInterrupts' });
     const pushSubmittedHistory = () => {
@@ -3517,11 +3524,30 @@ export function App({
     // Slash commands always dispatch immediately, even mid-iteration —
     // they don't conflict with a running agent.
     if (trimmed.startsWith('/')) {
-      dispatch({ type: 'addEntry', entry: { kind: 'user', text: trimmed } });
+      // Resolve inline chip tokens (pasted content, files, images) to their
+      // actual stored content so slash commands like /fix can see the full
+      // error text / build output instead of just placeholder tokens.
+      let resolvedForDispatch = trimmed;
+      const pasteParts: string[] = [];
+      for (const m of trimmed.matchAll(new RegExp(INLINE_TOKEN_SRC, 'g'))) {
+        const token = m[0];
+        const content = tokenPreviewsRef.current.get(token);
+        if (content) {
+          resolvedForDispatch = resolvedForDispatch.replace(
+            token,
+            `\n<pasted>\n${content}\n</pasted>`,
+          );
+        }
+        pasteParts.push(token);
+        if (content) pasteParts.push(`  ${content.split('\n').slice(0, 6).join('\n  ')}`);
+      }
+      const pasteContent = pasteParts.length > 0 ? pasteParts.join('\n') : undefined;
+
+      dispatch({ type: 'addEntry', entry: { kind: 'user', text: trimmed, pasteContent } });
       pushSubmittedHistory();
       clearDraft();
       try {
-        const res = await slashRegistry.dispatch(trimmed, agent.ctx);
+        const res = await slashRegistry.dispatch(resolvedForDispatch, agent.ctx);
         if (res?.message) {
           dispatch({ type: 'addEntry', entry: { kind: 'info', text: res.message } });
         }
@@ -3751,11 +3777,7 @@ export function App({
     // The user sees their original text + a visual ↯ marker when
     // steering, not the full preamble — keeps the chat readable while
     // the model still gets the explicit instruction.
-    const displayText = trimmed
-      ? steering
-        ? `↯ ${effectiveText}`
-        : effectiveText
-      : '(attachments only)';
+    const displayText = steering ? `↯ ${effectiveText}` : effectiveText;
     // Build the history preview by scanning the message for inline chip tokens
     // and pulling each one's stored preview. Each chip becomes a label line
     // followed by an indented snippet of its collapsed content.
