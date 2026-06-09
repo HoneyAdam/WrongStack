@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { type TodoItem, formatTodosList } from '@wrongstack/core';
 import type { SlashCommand } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
+import { parseSubcommand, unknownSubcommand } from './helpers.js';
 
 /** Find a todo by 1-based index, exact id, or case-insensitive substring. */
 function findTodo(
@@ -39,9 +40,9 @@ export function buildTodosCommand(opts: SlashCommandContext): SlashCommand {
     async run(args) {
       const ctx = opts.context;
       if (!ctx) return { message: 'No active context.' };
-      const [verb, ...rest] = args.trim().split(/\s+/);
+      const { cmd, rest } = parseSubcommand(args);
       const restJoined = rest.join(' ').trim();
-      switch (verb) {
+      switch (cmd) {
         case '':
         case 'show':
         case 'list': {
@@ -92,7 +93,7 @@ export function buildTodosCommand(opts: SlashCommandContext): SlashCommand {
         }
         default:
           return {
-            message: `Unknown subcommand "${verb}". Try: show | clear | add <text> | done <id|index> | remove <id|index>`,
+            message: unknownSubcommand(cmd, ['show', 'clear', 'add', 'done', 'remove'], 'todos'),
           };
       }
     },

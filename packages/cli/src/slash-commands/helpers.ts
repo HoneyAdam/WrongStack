@@ -15,6 +15,35 @@ export const noOpVault: SecretVault = {
   isEncrypted: () => false,
 };
 
+/**
+ * Parse a slash command's args string into subcommand + rest tokens.
+ *
+ *   /fleet spawn bug-hunter 2  →  { cmd: 'spawn', rest: ['bug-hunter', '2'] }
+ *   /mcp                      →  { cmd: '', rest: [] }
+ *   /goal set build the API   →  { cmd: 'set', rest: ['build', 'the', 'API'] }
+ *
+ * Used by ~20 multi-subcommand slash commands to replace the repetitive
+ * `args.trim().split(/\s+/)` preamble.
+ */
+export function parseSubcommand(args: string): { cmd: string; rest: string[] } {
+  const parts = args.trim().split(/\s+/);
+  return { cmd: (parts[0] ?? '').toLowerCase(), rest: parts.slice(1) };
+}
+
+/**
+ * Generate a consistent "unknown subcommand" message for the `default` branch
+ * of a subcommand switch.
+ *
+ *   unknownSubcommand('frobulate', ['status', 'kill', 'usage'], 'fleet')
+ *   // → 'Unknown subcommand "frobulate" for /fleet. Valid: status, kill, usage.'
+ */
+export function unknownSubcommand(cmd: string, valid: string[], name?: string): string {
+  const list = valid.join(', ');
+  return name
+    ? `Unknown subcommand "${cmd}" for /${name}. Valid: ${list}.`
+    : `Unknown subcommand "${cmd}". Valid: ${list}.`;
+}
+
 export interface ProjectFacts {
   build?: string | undefined;
   test?: string | undefined;

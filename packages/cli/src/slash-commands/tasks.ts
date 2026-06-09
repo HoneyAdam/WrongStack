@@ -12,6 +12,7 @@ import {
 } from '@wrongstack/core';
 import type { SlashCommand } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
+import { parseSubcommand, unknownSubcommand } from './helpers.js';
 
 function findTask(tasks: TaskItem[], query: string): { idx: number; item: TaskItem } | null {
   const asIndex = Number.parseInt(query, 10);
@@ -79,10 +80,10 @@ export function buildTasksCommand(_opts: SlashCommandContext): SlashCommand {
       }
       const sessionId = ctx.session?.id ?? 'unknown';
       const file: TaskFile = (await loadTasks(taskPath)) ?? emptyTaskFile(sessionId);
-      const [verb, ...rest] = args.trim().split(/\s+/);
+      const { cmd, rest } = parseSubcommand(args);
       const restJoined = rest.join(' ').trim();
 
-      switch (verb) {
+      switch (cmd) {
         case '':
         case 'show':
         case 'list':
@@ -207,7 +208,7 @@ export function buildTasksCommand(_opts: SlashCommandContext): SlashCommand {
 
         default:
           return {
-            message: `Unknown subcommand "${verb}". Try: show | add <title> | start <id> | done <id> | fail <id> | status <id> <s> | depends <id> <deps> | assign <id> <agent> | promote <id> | clear`,
+            message: unknownSubcommand(cmd, ['show', 'add', 'start', 'done', 'fail', 'status', 'depends', 'assign', 'promote', 'clear'], 'tasks'),
           };
       }
     },

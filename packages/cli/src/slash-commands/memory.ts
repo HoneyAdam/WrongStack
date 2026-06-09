@@ -1,5 +1,6 @@
 import type { SlashCommand } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
+import { parseSubcommand, unknownSubcommand } from './helpers.js';
 
 export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
   return {
@@ -10,9 +11,9 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
     async run(args) {
       const store = opts.memoryStore;
       if (!store) return { message: 'No memory store configured.' };
-      const [verb, ...rest] = args.trim().split(/\s+/);
+      const { cmd, rest } = parseSubcommand(args);
       const restJoined = rest.join(' ').trim();
-      switch (verb) {
+      switch (cmd) {
         case '':
         case 'show':
         case 'list': {
@@ -50,7 +51,7 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
         }
         default:
           return {
-            message: `Unknown subcommand "${verb}". Try: show | remember <text> | forget <query> | clear | compact | stats`,
+            message: unknownSubcommand(cmd, ['show', 'remember', 'forget', 'clear', 'compact', 'stats'], 'memory'),
           };
       }
     },
