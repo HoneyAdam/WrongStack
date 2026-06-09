@@ -130,24 +130,35 @@ export class AutoCompactionMiddleware {
       // Reuse the last token estimate when the context hasn't grown since
       // the previous check — common in autonomous idle loops. The cached
       // value is invalidated whenever messages or tools change.
+      //
+      // IMPORTANT: the cache is only valid for the deterministic
+      // estimateRequestTokensCalibrated path (messages+system+tools → fixed
+      // output). When a custom _estimator is provided (e.g. in tests with
+      // a mutable closure, or a dynamic policy provider), always call it
+      // fresh — the estimator owns its own semantics and the middleware
+      // cannot safely cache its result across calls.
       const msgCount = ctx.messages.length;
       const toolCount = (ctx.tools ?? []).length;
-      const tokens =
-        msgCount === this._cachedMsgCount && toolCount === this._cachedToolCount && this._cachedTokens >= 0
-          ? this._cachedTokens
-          : this._estimator
-            ? this._estimator(ctx)
-            : estimateRequestTokensCalibrated(
-                ctx.messages,
-                ctx.systemPrompt,
-                ctx.tools ?? [],
-                `${ctx.provider?.id ?? 'unknown'}/${ctx.model}`,
-              ).total;
 
-      // Update the cache whenever we compute a fresh estimate or when
-      // the message/tool counts change (they match now since we either
-      // just computed or reused).
-      if (this._cachedMsgCount !== msgCount || this._cachedToolCount !== toolCount) {
+      let tokens: number;
+      if (this._estimator) {
+        // Custom estimator — never cache; call fresh every invocation.
+        tokens = this._estimator(ctx);
+      } else if (
+        msgCount === this._cachedMsgCount &&
+        toolCount === this._cachedToolCount &&
+        this._cachedTokens >= 0
+      ) {
+        // Default estimator, context unchanged — reuse cached value.
+        tokens = this._cachedTokens;
+      } else {
+        // Default estimator, context changed — compute fresh and cache.
+        tokens = estimateRequestTokensCalibrated(
+          ctx.messages,
+          ctx.systemPrompt,
+          ctx.tools ?? [],
+          `${ctx.provider?.id ?? 'unknown'}/${ctx.model}`,
+        ).total;
         this._cachedTokens = tokens;
         this._cachedMsgCount = msgCount;
         this._cachedToolCount = toolCount;
