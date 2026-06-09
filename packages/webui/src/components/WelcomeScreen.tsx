@@ -33,9 +33,9 @@ const CARDS: PromptCard[] = [
     hint: 'Understand the code before changing it',
     tone: 'text-blue-600 dark:text-blue-400 bg-blue-500/10 border-blue-500/20',
     prompts: [
-      'Walk me through this codebase: list the top-level packages, the role of each, and how they depend on one another. Highlight any cross-cutting abstractions I should understand first.',
-      "Find every place where the WebSocket protocol is defined or consumed (server handlers, client send/receive, type contracts). Show me the message-type table and any gaps where the type isn't enforced.",
-      'Locate the entrypoint that boots the agent for normal runs. Trace the call chain from CLI launch all the way to the first model call — what middleware, hooks, and tools are wired along the way?',
+      'Walk me through this codebase: what are the top-level packages or modules, what does each do, and how do they depend on one another? What cross-cutting patterns or abstractions should I understand first?',
+      'Find the public API surface of this project — all exported functions, classes, and types that external consumers rely on. Flag any that lack documentation or have unclear contracts.',
+      'Map the data flow for a single user action from entry point to persistence. Where does validation happen? Where are side effects triggered? Show me the call chain and any middleware involved.',
     ],
   },
   {
@@ -44,9 +44,9 @@ const CARDS: PromptCard[] = [
     hint: 'Add a feature end-to-end',
     tone: 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
     prompts: [
-      "Add a slash command `/export` that dumps the current chat (messages + tool calls + usage) as a markdown file to ~/.wrongstack/exports/ and surfaces a 'saved to X' toast. Wire backend + ws-client + slash menu entry.",
-      'Create a notification toast system (Zustand store + portal-rendered <Toast/> component) and migrate every existing `key.operation_result` success/failure message to use it instead of dropping into chat.',
-      'Add structured JSON logging to the WebSocket server: each handler logs `{ts, level, type, payload}` to ~/.wrongstack/logs/webui.jsonl. Make it tail-friendly and respect the existing log.level config.',
+      'Add a new end-to-end feature. Walk through the layers: data model, API/serialization, business logic, UI (if applicable), and tests. Use existing patterns in this codebase rather than inventing new ones.',
+      'Write comprehensive tests for an existing module that has low coverage. Cover happy paths, edge cases, and error states. Use whatever test runner and patterns this project already uses.',
+      'Add structured logging or observability to a critical code path. Use the project’s existing logging conventions. Make sure errors carry enough context to debug without re-running.',
     ],
   },
   {
@@ -55,9 +55,9 @@ const CARDS: PromptCard[] = [
     hint: 'Track a problem to its root cause',
     tone: 'text-amber-600 dark:text-amber-400 bg-amber-500/10 border-amber-500/20',
     prompts: [
-      'Something feels off with token accounting — the cost chip and the per-message tally drift apart over a long session. Reproduce locally if you can, then propose a fix. Start by reading the TokenCounter + provider.response handler.',
-      'The WebSocket sometimes silently stops streaming text mid-response on lossy networks. Check the reconnect logic, message queue, and how we handle a half-completed text_delta stream after a reconnect.',
-      'I want to know why ctx % climbs so fast in long sessions. Use the existing /debug context breakdown to identify the largest contributors and propose three concrete pruning strategies (with token savings estimates).',
+      "Something isn't behaving as expected — data looks wrong, a feature silently fails, or state drifts over time. Help me trace it: start from the symptom, follow the code path, and identify where the logic diverges from intent.",
+      'The app works fine locally but breaks in production or CI. Check for environment differences, missing config, race conditions, or infrastructure-level assumptions that might explain the gap.',
+      'Performance degrades under load or over time. Profile the hot path, identify bottlenecks (N+1 queries, blocking I/O, large allocations, expensive renders), and propose targeted fixes with measurable impact.',
     ],
   },
   {
@@ -66,9 +66,9 @@ const CARDS: PromptCard[] = [
     hint: 'Clean up without breaking behavior',
     tone: 'text-violet-600 dark:text-violet-400 bg-violet-500/10 border-violet-500/20',
     prompts: [
-      'Find duplicated logic between packages/cli/src/webui-server.ts and packages/webui/src/server/index.ts. Extract the shared bits into a single source of truth (likely the webui package) and update the CLI to import it.',
-      "Look at the Zustand stores in packages/webui/src/stores/index.ts — anything that should be a derived selector instead of stored state? Anything persisted that shouldn't be? Propose a leaner shape and migration plan.",
-      "Audit the slash command dispatcher: pull each command's run logic into its own module under packages/webui/src/commands/, make the registry data-driven, and ensure /help auto-generates from the registry (not a hardcoded list).",
+      'Find duplicated or near-duplicated logic across the codebase. Extract the shared pieces into a single module or utility, update call sites, and ensure the existing tests still pass.',
+      'Identify modules that have grown too large or have too many responsibilities. Propose a split that respects the project’s existing structure, keeps the public API stable, and can be done incrementally.',
+      'Audit error handling across the codebase: are errors propagated consistently? Are they wrapped with enough context? Are there swallowed errors or bare panics? Propose a uniform approach and apply it to the worst offenders.',
     ],
   },
 ];
@@ -167,10 +167,10 @@ export function WelcomeScreen() {
             ?
           </h2>
           <p className="text-sm text-muted-foreground mt-2 max-w-2xl mx-auto leading-relaxed">
-            WrongStack is connected to your project and ready to read, edit, run commands, search
-            the codebase, track todos, and remember context across sessions. Pick a starting prompt
-            below, write your own, or type <span className="font-mono text-foreground/80">/</span>{' '}
-            for the full command palette.
+            The agent is connected to your project and ready to read, edit, run commands,
+            search the codebase, track todos, and remember context across sessions. Pick a
+            starting prompt below, write your own, or type{' '}
+            <span className="font-mono text-foreground/80">/</span> for the full command palette.
           </p>
           {provider && model && (
             <p className="text-xs text-muted-foreground/70 mt-2 font-mono">

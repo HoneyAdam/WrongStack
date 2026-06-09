@@ -1,4 +1,5 @@
 import { Box, Text } from 'ink';
+import * as path from 'node:path';
 import type React from 'react';
 import type { HistoryEntry } from './types.js';
 import { shortenPath } from './utils.js';
@@ -14,6 +15,7 @@ export function Banner({
   entry: Extract<HistoryEntry, { kind: 'banner' }>;
 }): React.ReactElement {
   const cwdShort = shortenPath(entry.cwd, 48);
+  const projectLabel = path.basename(entry.cwd);
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="magenta" paddingX={2} paddingY={0}>
       <Text>
@@ -21,7 +23,7 @@ export function Banner({
           {'  ▟▛  '}
         </Text>
         <Text color="magenta" bold>
-          WrongStack
+          {projectLabel}
         </Text>
         <Text dimColor>{'  v'}</Text>
         <Text>{entry.version}</Text>

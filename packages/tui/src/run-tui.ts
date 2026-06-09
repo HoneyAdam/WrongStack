@@ -10,6 +10,7 @@ import type {
 import { writeErr, type AutonomyStage } from '@wrongstack/core';
 import type { VisionAdapters } from '@wrongstack/runtime/vision';
 import { render } from 'ink';
+import * as path from 'node:path';
 import React from 'react';
 import { App } from './app.js';
 import { startTerminalTitle } from './terminal-title.js';
@@ -288,7 +289,12 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
   // cleanup(). Disabled when WRONGSTACK_NO_TITLE=1 or titleAnimation is false.
   const stopTitle =
     opts.titleAnimation !== false
-      ? startTerminalTitle({ stdout, events: opts.events, model: opts.model })
+      ? startTerminalTitle({
+          stdout,
+          events: opts.events,
+          model: opts.model,
+          appName: opts.projectRoot ? path.basename(opts.projectRoot) : undefined,
+        })
       : (() => {});
 
   // Take over EVERY keystroke. Raw mode (Ink turns this on when render

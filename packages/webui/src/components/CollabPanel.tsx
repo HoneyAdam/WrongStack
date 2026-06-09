@@ -89,11 +89,7 @@ export function CollabPanel({ sessionId, className }: CollabPanelProps): React.R
       }),
     );
 
-    // Suppress unhandled collab.event messages in the central dispatcher
-    // (they're consumed by whoever renders the live activity strip).
-    offs.push(client.on('collab.event', () => {}));
-
-    // Phase 2: annotation count. We just track the local count of
+    // Annotation count. We just track the local count of
     // unresolved annotations for a quick "X notes" indicator. The
     // full annotation timeline UI is a follow-up; the count gives
     // immediate visibility ("are people reviewing this?").

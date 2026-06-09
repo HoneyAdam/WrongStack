@@ -649,7 +649,7 @@ export function ChatInput() {
                 ? 'Connect to server first…'
                 : isLoading
                   ? 'Agent is running — type to queue a follow-up…'
-                  : 'Message WrongStack… (type / for commands, @ for files)'
+                  : 'Message the agent… (type / for commands, @ for files)'
             }
             className={cn(
               'flex min-h-[44px] w-full resize-none rounded-lg border border-input bg-background px-4 py-3 pr-12',

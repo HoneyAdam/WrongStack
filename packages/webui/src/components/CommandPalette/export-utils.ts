@@ -7,7 +7,10 @@ export function downloadChatAsMarkdown(): void {
   const messages = useChatStore.getState().messages;
   const lines: string[] = [];
   const now = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-  lines.push('# WrongStack chat export');
+  const projectName = useSessionStore.getState().projectName || 'chat';
+  const sessionTitle = useSessionStore.getState().session?.title;
+  const displayName = sessionTitle || projectName;
+  lines.push(`# ${displayName} — chat export`);
   lines.push(`*Exported: ${new Date().toISOString()}*`);
   lines.push('');
   for (const m of messages) {
@@ -44,7 +47,7 @@ export function downloadChatAsMarkdown(): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `wrongstack-chat-${now}.md`;
+  a.download = `${projectName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-chat-${now}.md`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -58,6 +61,8 @@ export function downloadChatAsMarkdown(): void {
 export function downloadChatAsHtml(): void {
   const messages = useChatStore.getState().messages;
   const session = useSessionStore.getState();
+  const projectName = session.projectName || 'chat';
+  const safeTitle = escape(session.session?.title || projectName);
   const now = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
   const escapeHtml = (s: string) =>
     s
@@ -98,7 +103,7 @@ export function downloadChatAsHtml(): void {
   const html = `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
-<title>WrongStack chat — ${escape(session.session?.title || session.projectName || 'export')}</title>
+<title>${safeTitle} — chat export</title>
 <style>
   :root { color-scheme: light dark; }
   body { font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 920px; margin: 24px auto; padding: 0 16px; }
@@ -126,7 +131,7 @@ export function downloadChatAsHtml(): void {
   }
 </style>
 </head><body>
-<h1>WrongStack chat — ${escape(session.session?.title || session.projectName || 'export')}</h1>
+<h1>${safeTitle} — chat export</h1>
 <div class="meta">
   Exported ${new Date().toISOString()}${session.session?.provider ? ` · ${escape(session.session.provider)}/${escape(session.session.model)}` : ''} · ${messages.length} message${messages.length === 1 ? '' : 's'}
 </div>
@@ -136,7 +141,7 @@ ${turns.join('')}
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `wrongstack-chat-${now}.html`;
+  a.download = `${projectName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-chat-${now}.html`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

@@ -83,11 +83,11 @@ function AppInner() {
     const projectLabel = projectName?.trim();
     if (sessionLabel) parts.push(sessionLabel);
     if (projectLabel) parts.push(projectLabel);
-    parts.push('WrongStack');
+    if (parts.length === 0) parts.push(projectLabel || 'AI Agent');
     const title = parts.filter(Boolean).join(' · ');
     document.title = title;
     return () => {
-      document.title = 'WrongStack';
+      document.title = projectName || 'AI Agent';
     };
   }, [isLoading, iteration, projectName, sessionTitle, nickname]);
 

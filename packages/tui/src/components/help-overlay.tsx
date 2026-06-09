@@ -80,7 +80,7 @@ export function HelpOverlay(): React.ReactElement {
     <Box flexDirection="column" borderStyle="round" borderColor={theme.accent} paddingX={1}>
       <Box flexDirection="row" gap={1}>
         <Text bold color={theme.accent}>
-          WrongStack — keys &amp; commands
+          Keyboard shortcuts
         </Text>
         <Text dimColor>· Esc to close</Text>
       </Box>

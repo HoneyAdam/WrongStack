@@ -242,7 +242,8 @@ export function handleToolConfirmNeeded(msg: WSServerMessage) {
   useUIStore.getState().showConfirm({ id: payload.id, toolName: payload.toolName, input: payload.input, suggestedPattern: payload.suggestedPattern });
   try { playPermissionChime(); } catch { /* audio policy */ }
   void ensureNotificationPermission();
-  notifyIfHidden('WrongStack needs approval', `Tool "${payload.toolName}" is waiting for your decision.`, 'wrongstack-confirm');
+  const label = useSessionStore.getState().projectName || 'Agent';
+  notifyIfHidden(`${label} needs approval`, `Tool "${payload.toolName}" is waiting for your decision.`, 'agent-confirm');
   if (typeof document !== 'undefined' && document.hidden) setFaviconStatus('attention');
 }
 
@@ -272,12 +273,12 @@ export function handleRunResult(msg: WSServerMessage) {
   if (payload.status !== 'done' && payload.error) {
     useChatStore.getState().addMessage({ role: 'assistant', content: `Error: ${payload.error.message}`, isError: true });
     toast.error(`Run ended: ${payload.error.message}`);
-    notifyIfHidden('WrongStack run failed', payload.error.message);
+    notifyIfHidden(`${useSessionStore.getState().projectName || 'Agent'} run failed`, payload.error.message);
     if (typeof document !== 'undefined' && document.hidden) setFaviconStatus('error');
   } else if (payload.status === 'done') {
     if (typeof document !== 'undefined' && document.hidden) {
       toast.success(`Run completed in ${payload.iterations} iteration${payload.iterations === 1 ? '' : 's'}`);
-      notifyIfHidden('WrongStack run finished', `Completed in ${payload.iterations} iteration${payload.iterations === 1 ? '' : 's'}.`);
+      notifyIfHidden(`${useSessionStore.getState().projectName || 'Agent'} run finished`, `Completed in ${payload.iterations} iteration${payload.iterations === 1 ? '' : 's'}.`);
       setFaviconStatus('ready');
     }
     void ensureNotificationPermission();

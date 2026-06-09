@@ -262,7 +262,7 @@ export function SettingsPanel() {
                   className="font-mono text-sm"
                 />
                 <p className="text-xs text-muted-foreground">
-                  URL of the WrongStack WebSocket server. The server runs alongside the CLI.
+                  URL of the agent WebSocket server. The server runs alongside the CLI.
                 </p>
               </div>
 

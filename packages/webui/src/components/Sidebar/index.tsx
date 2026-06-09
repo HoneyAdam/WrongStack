@@ -24,6 +24,7 @@ export function Sidebar() {
   const { entries: historyEntries, loading: historyLoading, error: historyError } = useHistoryStore();
   const { listSessions, deleteSession, resumeSession, client } = useWebSocket();
   const session = useSessionStore((s) => s.session);
+  const projectName = useSessionStore((s) => s.projectName);
 
   const [historyQuery, setHistoryQuery] = useState('');
   const activeSessionId = session?.id;
@@ -36,6 +37,11 @@ export function Sidebar() {
     void activeSessionId;
     if (currentView === 'history' && wsConnected) listSessions(50);
   }, [currentView, wsConnected, activeSessionId, listSessions]);
+
+  // Auto-refresh session list when session changes (new, resume, clear)
+  useEffect(() => {
+    if (wsConnected) listSessions(50);
+  }, [wsConnected, activeSessionId, listSessions]);
 
   const formatDuration = (start: number | null) => {
     if (!start) return '--';
@@ -87,7 +93,7 @@ export function Sidebar() {
             <Zap className="h-4 w-4 text-primary-foreground" strokeWidth={2.4} />
           </div>
           <div className="flex flex-col leading-none">
-            <span className="text-sm font-semibold tracking-tight">WrongStack</span>
+            <span className="text-sm font-semibold tracking-tight">{projectName || 'Agent'}</span>
             <span className="flex items-center gap-1 text-[10px] text-muted-foreground mt-0.5">
               <span className={cn('led', wsConnected ? 'text-[hsl(var(--success))] led-pulse' : 'text-[hsl(var(--warning))]')} />
               <span className="tabular font-medium uppercase tracking-wider">{wsConnected ? 'online' : 'offline'}</span>
@@ -99,7 +105,7 @@ export function Sidebar() {
         </Button>
       </div>
 
-      <Tabs value={currentView === 'settings' || currentView === 'autophase' ? 'chat' : currentView} onValueChange={(v) => setCurrentView(v as 'chat' | 'history')} className="flex-1 flex flex-col">
+      <Tabs value={currentView === 'chat' || currentView === 'history' ? currentView : '__none__'} onValueChange={(v) => setCurrentView(v as 'chat' | 'history')} className="flex-1 flex flex-col">
         <TabsList className="w-full rounded-none bg-transparent p-2 h-auto grid grid-cols-2">
           <TabsTrigger value="chat" className="flex-col gap-1.5 py-2 data-[state=active]:bg-primary/10">
             <MessageSquare className="h-4 w-4" /><span className="text-xs">Chat</span>
