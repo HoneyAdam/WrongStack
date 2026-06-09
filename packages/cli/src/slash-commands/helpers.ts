@@ -2,18 +2,6 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { Context } from '@wrongstack/core';
 import { color, estimateMessageTokens } from '@wrongstack/core';
-import type { SecretVault } from '@wrongstack/core';
-
-/**
- * No-op SecretVault that passes values through unchanged.
- * Used by commands that read/write config files without encrypted fields
- * (models, enhance, settings, setmodel, telegram-setup).
- */
-export const noOpVault: SecretVault = {
-  encrypt: (v) => v,
-  decrypt: (v) => v,
-  isEncrypted: () => false,
-};
 
 /**
  * Parse a slash command's args string into subcommand + rest tokens.

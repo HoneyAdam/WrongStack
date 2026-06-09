@@ -13,11 +13,11 @@ import {
   decryptConfigSecrets,
   encryptConfigSecrets,
   matrixKeyKind,
+  noOpVault,
   phaseForRole,
   resolveModelMatrix,
 } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
-import { noOpVault } from './helpers.js';
 
 /** A provider is selectable when it has a stored key, a key list, or a
  *  populated env var. Mirrors `hasApiKey` but config-only (no registry). */

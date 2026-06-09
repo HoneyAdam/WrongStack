@@ -1,8 +1,8 @@
 import { color } from '@wrongstack/core';
 import type { SlashCommand } from '@wrongstack/core';
+import { noOpVault } from '@wrongstack/core';
 import { persistAutonomySetting } from '../settings-menu.js';
 import type { SlashCommandContext } from './index.js';
-import { noOpVault } from './helpers.js';
 
 /**
  * `/enhance` — toggle prompt refinement ("did you mean this?").

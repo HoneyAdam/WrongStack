@@ -1,8 +1,8 @@
-import { color } from '@wrongstack/core';
+import { color, noOpVault } from '@wrongstack/core';
 import type { SlashCommand } from '@wrongstack/core';
 import { persistAutonomySetting, persistConfigSetting } from '../settings-menu.js';
 import type { SlashCommandContext } from './index.js';
-import { noOpVault, parseSubcommand, unknownSubcommand } from './helpers.js';
+import { parseSubcommand, unknownSubcommand } from './helpers.js';
 
 function formatDelay(ms: number): string {
   if (ms >= 60_000) return `${Math.round(ms / 60_000)}m`;

@@ -146,6 +146,7 @@ export type { Logger, LogLevel } from './types/logger.js';
 export type { TokenCounter } from './types/token-counter.js';
 export type { ProviderRunner, RunProviderOptions } from './types/provider-runner.js';
 export type { SecretVault } from './types/secret-vault.js';
+export { noOpVault } from './types/secret-vault.js';
 export type { Compactor, CompactReport } from './types/compactor.js';
 export { DefaultSecretScrubber } from './security/secret-scrubber.js';
 export type { SecretScrubber } from './types/secret-scrubber.js';

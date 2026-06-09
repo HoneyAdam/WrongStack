@@ -6,9 +6,10 @@ import {
   color,
   decryptConfigSecrets,
   encryptConfigSecrets,
+  noOpVault,
 } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
-import { noOpVault, parseSubcommand, unknownSubcommand } from './helpers.js';
+import { parseSubcommand, unknownSubcommand } from './helpers.js';
 
 async function patchGlobalConfig(
   globalConfigPath: string,

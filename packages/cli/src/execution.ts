@@ -20,9 +20,8 @@ import type {
   TokenCounter,
 } from '@wrongstack/core';
 import type { MemoryStore, ModeStore } from '@wrongstack/core';
-import { color, mergeCustomModelDefs, writeOut, type AutonomyStage, decryptConfigSecrets, encryptConfigSecrets, atomicWrite } from '@wrongstack/core';
+import { color, mergeCustomModelDefs, writeOut, type AutonomyStage, decryptConfigSecrets, encryptConfigSecrets, atomicWrite, noOpVault } from '@wrongstack/core';
 import { filterSafeForProject, persistAutonomySetting } from './settings-menu.js';
-import { noOpVault } from './slash-commands/helpers.js';
 import type { ProviderConfig, ResolvedProvider, WstackPaths } from '@wrongstack/core';
 import type { MCPRegistry } from '@wrongstack/mcp';
 import { createToolVisionAdapters } from '@wrongstack/runtime/vision';

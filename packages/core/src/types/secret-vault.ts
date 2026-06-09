@@ -17,3 +17,14 @@ export interface SecretVault {
 }
 
 export const ENCRYPTED_PREFIX = 'enc:v1:';
+
+/**
+ * No-op SecretVault that passes values through unchanged.
+ * Used in contexts where encryption is not needed — e.g. reading/writing
+ * config sections that contain no secret fields (models, settings, etc.).
+ */
+export const noOpVault: SecretVault = {
+  encrypt: (v) => v,
+  decrypt: (v) => v,
+  isEncrypted: () => false,
+};
