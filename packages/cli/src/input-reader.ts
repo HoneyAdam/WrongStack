@@ -109,7 +109,6 @@ export class ReadlineInputReader implements InputReader {
         fresh.once('close', () => settle(''));
         // Handle any unexpected throw inside the executor by settling to
         // empty string so callers treat it as cancel rather than crashing.
-        // biome-ignore lint/suspicious/noExplicitAny: safe forward-compat fallback
         fresh.on && fresh.on('error', (_e: unknown) => settle(''));
       }).then((result) => {
         // Close the interface so the next readLine call tears it down

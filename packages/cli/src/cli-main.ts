@@ -784,6 +784,9 @@ export async function main(argv: string[]): Promise<number> {
   // Next-task prediction toggle — persisted in config so it survives restarts.
   // Read/written via `onNextPredict`, read by the REPL via `getNextPredict`.
   let nextPredictEnabled = config.nextPrediction === true;
+  // Suggestion list for /next selection — ephemeral, cleared each cycle.
+  // Read/written via `onSuggestions`.
+  let currentSuggestions: string[] = [];
   // Eternal-autonomy engine instance — lazy, created when /autonomy eternal is invoked.
   // Lives at function scope so /autonomy stop and SIGINT handlers can reach it.
   let eternalEngine: import('@wrongstack/core').EternalAutonomyEngine | null = null;
@@ -1610,6 +1613,12 @@ export async function main(argv: string[]): Promise<number> {
       }
       return nextPredictEnabled;
     },
+    onSuggestions: (suggestions?: string[]) => {
+      if (suggestions !== undefined) {
+        currentSuggestions = suggestions;
+      }
+      return currentSuggestions;
+    },
     onAutonomy: (setTo?) => {
       if (setTo !== undefined) {
         autonomyMode = setTo;
@@ -1893,6 +1902,59 @@ export async function main(argv: string[]): Promise<number> {
       return autonomyMode;
     },
     getNextPredict: () => nextPredictEnabled,
+    onSuggestionsParsed: (suggestions) => {
+      // Always update — null means "no suggestions found", which must
+      // clear the list so the auto-proceed loop doesn't get stuck
+      // re-feeding stale suggestions.
+      currentSuggestions = suggestions ?? [];
+    },
+    getSuggestions: () => currentSuggestions,
+    autoProceedDelayMs:
+      ((config.autonomy as Record<string, unknown> | undefined)?.autoProceedDelayMs as number) ??
+      45_000,
+    autoProceedMaxIterations:
+      ((config.autonomy as Record<string, unknown> | undefined)?.autoProceedMaxIterations as number) ??
+      50,
+    onValidateAutoProceed: async (suggestion, lastOutput) => {
+      try {
+        const resp = await context.provider.complete(
+          {
+            model: context.model,
+            system: [
+              {
+                type: 'text',
+                text: 'You are a safety validator for an autonomous coding agent. Your ONLY job is to decide whether the agent should auto-proceed with a suggested next step, or whether a human should review first. Reply with exactly one word: YES or NO.',
+              },
+            ],
+            messages: [
+              {
+                role: 'user',
+                content: [
+                  {
+                    type: 'text',
+                    text: `The autonomous agent just completed a turn and generated this top-ranked next-step suggestion:\n\n"${suggestion}"\n\n${lastOutput ? `Recent agent output:\n${lastOutput.slice(0, 500)}\n\n` : ''}Should the agent auto-proceed with this suggestion, or should a human review first?\n\nReply YES to auto-proceed, NO to wait for human input.`,
+                  },
+                ],
+              },
+            ],
+            maxTokens: 5,
+            temperature: 0,
+          },
+          { signal: AbortSignal.timeout(10_000) },
+        );
+        const text = resp.content
+          .filter((b) => b.type === 'text')
+          .map((b) => ('text' in b ? b.text : ''))
+          .join('')
+          .trim()
+          .toUpperCase();
+        return text.startsWith('YES');
+      } catch {
+        // On any error (network, provider, timeout), err on the side
+        // of safety — do NOT auto-proceed.
+        return false;
+      }
+    },
     getEternalEngine: () => eternalEngine,
     getParallelEngine: () => parallelEngine,
     subscribeEternalIteration: (fn) => {

@@ -98,6 +98,22 @@ export interface ExecutionDeps {
   onAutonomy?: ((mode: import('./slash-commands/autonomy.js').AutonomyMode) => void) | undefined;
   /** Whether next-task prediction is enabled (toggled via /next). */
   getNextPredict?: (() => boolean) | undefined;
+  /** Receive suggestions parsed from the assistant turn (null clears them). */
+  onSuggestionsParsed?: ((suggestions: string[] | null) => void) | undefined;
+  /** Read current suggestions (for auto-proceed in 'auto' autonomy mode). */
+  getSuggestions?: (() => string[]) | undefined;
+  /** Delay before auto-proceeding with a suggestion in 'auto' mode (ms). */
+  autoProceedDelayMs?: number | undefined;
+  /** Maximum auto-proceed iterations before stopping. Default 50. 0 = unlimited. */
+  autoProceedMaxIterations?: number | undefined;
+  /**
+   * Validate a suggestion before auto-proceeding. Called in 'auto' mode
+   * before the countdown starts. Should make a lightweight LLM call.
+   * Returns `true` to proceed, `false` to hold for user input.
+   */
+  onValidateAutoProceed?:
+    | ((suggestion: string, lastOutput: string) => Promise<boolean>)
+    | undefined;
   /**
    * Access the (possibly null) eternal-autonomy engine. The REPL drives
    * `runOneIteration()` from its main loop when autonomy is 'eternal'.
@@ -168,6 +184,11 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
     getAutonomy,
     onAutonomy,
     getNextPredict,
+    onSuggestionsParsed,
+    getSuggestions,
+    autoProceedDelayMs,
+    autoProceedMaxIterations,
+    onValidateAutoProceed,
     getEternalEngine,
     getParallelEngine,
     subscribeEternalIteration,
@@ -763,6 +784,11 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
           getAutonomy,
           onAutonomy,
           getNextPredict,
+          onSuggestionsParsed,
+          getSuggestions,
+          autoProceedDelayMs,
+          autoProceedMaxIterations,
+          onValidateAutoProceed,
           getEternalEngine,
           getParallelEngine,
           skillLoader,
@@ -794,6 +820,11 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
         getAutonomy,
         onAutonomy,
         getNextPredict,
+        onSuggestionsParsed,
+        getSuggestions,
+        autoProceedDelayMs,
+        onValidateAutoProceed,
+        autoProceedMaxIterations,
         getEternalEngine,
         getParallelEngine,
         skillLoader,

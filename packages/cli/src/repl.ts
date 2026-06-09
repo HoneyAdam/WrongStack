@@ -22,6 +22,33 @@ import { theme } from './theme.js';
 import { fmtTok } from './utils.js';
 import { CLI_VERSION } from './version.js';
 
+/**
+ * Extract "💡 Next steps" suggestions from the agent's final output.
+ * Looks for numbered lines under a "Next steps" or "💡 Next steps" heading.
+ * Returns null when no suggestions are found.
+ */
+function parseSuggestionsFromOutput(finalText: string): string[] | null {
+  // Find the "Next steps" section — look for heading patterns
+  const patterns = [
+    /💡\s*Next\s+steps?\s*\n((?:\d+\.\s+.+\n?)+)/i,
+    /##?\s*Next\s+steps?\s*\n((?:\d+\.\s+.+\n?)+)/i,
+    /Next\s+steps?\s*\n((?:\d+\.\s+.+\n?)+)/i,
+  ];
+
+  for (const pat of patterns) {
+    const m = pat.exec(finalText);
+    if (m && m[1]) {
+      const block = m[1].trim();
+      const lines = block.split('\n').filter(Boolean);
+      const suggestions = lines
+        .map((l) => l.replace(/^\d+\.\s*/, '').trim())
+        .filter((s) => s.length > 3);
+      if (suggestions.length > 0) return suggestions.slice(0, 5);
+    }
+  }
+  return null;
+}
+
 export interface ReplOptions {
   agent: Agent;
   renderer: TerminalRenderer;
@@ -41,6 +68,37 @@ export interface ReplOptions {
    * the likely next steps (display-only). Toggled via `/next`.
    */
   getNextPredict?: (() => boolean) | undefined;
+  /**
+   * Called after each agent turn with parsed "💡 Next steps" suggestions
+   * extracted from the final response text. The host stores these so
+   * `/next 1`, `/next 1 2 3` can select and execute them.
+   * Passed `null` when no suggestions were found in the output.
+   */
+  onSuggestionsParsed?: ((suggestions: string[] | null) => void) | undefined;
+  /**
+   * Read the current suggestion list. Used by the auto-proceed loop to
+   * check whether there are suggestions to feed when autonomy is 'auto'.
+   */
+  getSuggestions?: (() => string[]) | undefined;
+  /**
+   * Delay in milliseconds before auto-proceeding with the top suggestion
+   * when autonomy mode is 'auto'. Default 45 seconds.
+   */
+  autoProceedDelayMs?: number | undefined;
+  /**
+   * Maximum auto-proceed iterations before stopping to prevent infinite
+   * loops. Default 50. 0 means unlimited.
+   */
+  autoProceedMaxIterations?: number | undefined;
+  /**
+   * LLM validation gate called before starting the auto-proceed countdown.
+   * Receives the top suggestion and the last agent output text. Should
+   * return `true` if auto-proceeding is safe, `false` if user review is
+   * needed. The countdown only starts when this returns `true`.
+   */
+  onValidateAutoProceed?:
+    | ((suggestion: string, lastOutput: string) => Promise<boolean>)
+    | undefined;
   /**
    * Access the eternal-autonomy engine. When autonomy mode is 'eternal'
    * the REPL skips reading user input and instead drives engine
@@ -97,6 +155,7 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
   // before each agent.run so the SIGINT handler can target it.
   let activeCtrl: AbortController | undefined;
   let interrupts = 0;
+  let autoIterCount = 0;
   let exiting = false;
   const onSigint = () => {
     interrupts++;
@@ -296,6 +355,99 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
         }
       }
 
+      // ── Auto-proceed / suggest: autonomy-driven next-step flow ──
+      // After every agent turn, suggestions are parsed and stored in
+      // currentSuggestions via onSuggestionsParsed.  Here at the top of
+      // the loop (before reading user input) we check the autonomy mode:
+      //
+      //   'auto'    — validate with LLM, countdown, auto-feed suggestion#1
+      //   'suggest' — display suggestions prominently, wait for user input
+      //
+      // Both modes stop when suggestions are exhausted.  Ctrl+C interrupts
+      // the countdown (reuses the existing activeCtrl SIGINT pattern).
+      {
+        const mode = opts.getAutonomy?.() ?? 'off';
+        const suggestions = opts.getSuggestions?.() ?? [];
+
+        // ── 'suggest' mode: display-only ────────────────────────────
+        if (mode === 'suggest' && suggestions.length > 0) {
+          const lines = suggestions.map(
+            (s, i) => `  ${color.bold(`${i + 1}.`)} ${color.dim(s)}`,
+          );
+          opts.renderer.write(
+            `\n${color.cyan('  💡 Suggested next steps')}  ${color.dim('(use /next 1, /next 2, or /next 1 2 3)')}\n${lines.join('\n')}\n\n`,
+          );
+        }
+
+        // ── 'auto' mode: validate → countdown → feed ───────────────
+        if (mode === 'auto' && suggestions.length > 0) {
+          const maxIter = opts.autoProceedMaxIterations ?? 50;
+          if (maxIter > 0 && autoIterCount >= maxIter) {
+            opts.renderer.write(
+              `\n${color.amber('  ⚠ Auto-proceed limit reached')} — ${color.dim(`${autoIterCount} iterations. Waiting for input.`)}\n\n`,
+            );
+            autoIterCount = 0;
+            // Fall through to normal input reading
+          } else {
+            const top = suggestions[0] ?? '';
+            const delay = opts.autoProceedDelayMs ?? 45_000;
+
+            // ── LLM validation gate ─────────────────────────────────
+            if (opts.onValidateAutoProceed) {
+              try {
+                const lastOutput = /* last known agent output — use the stored suggestions
+                  and any recent context the host can provide */ '';
+                const ok = await opts.onValidateAutoProceed(top, lastOutput);
+                if (!ok) {
+                  opts.renderer.write(
+                    `\n${color.amber('  ⚠ Auto-proceed held')} — ${color.dim('suggestions need review. Waiting for input.')}\n\n`,
+                  );
+                  // Show suggestions so the user can pick
+                  const lines = suggestions.map(
+                    (s, i) => `  ${color.bold(`${i + 1}.`)} ${color.dim(s)}`,
+                  );
+                  opts.renderer.write(
+                    `${color.dim('  Next steps:')}\n${lines.join('\n')}\n\n`,
+                  );
+                  autoIterCount = 0;
+                  // Fall through to normal input reading
+                } else {
+                  // Validation passed — proceed to countdown
+                  const ctrl = new AbortController();
+                  activeCtrl = ctrl;
+                  try {
+                    autoIterCount++;
+                    await runAutoProceed(opts, top, delay, ctrl);
+                  } finally {
+                    activeCtrl = undefined;
+                  }
+                  continue;
+                }
+              } catch {
+                // Validation call failed (network, provider error) —
+                // err on the side of caution and wait for user input.
+                opts.renderer.write(
+                  color.dim('  Auto-proceed validation unavailable — waiting for input.\n'),
+                );
+                autoIterCount = 0;
+                // Fall through to normal input reading
+              }
+            } else {
+              // No validator configured — proceed directly
+              const ctrl = new AbortController();
+              activeCtrl = ctrl;
+              try {
+                autoIterCount++;
+                await runAutoProceed(opts, top, delay, ctrl);
+              } finally {
+                activeCtrl = undefined;
+              }
+              continue;
+            }
+          } // end maxIter guard
+        }
+      }
+
       let raw: string;
       try {
         raw = await readPossiblyMultiline(opts);
@@ -388,6 +540,16 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
                       opts.renderer.write(`\n${color.dim(taskList)}\n`);
                     }
                   }
+                }
+
+                // ── Suggestion auto-parsing (from runText-triggered turn) ──
+                // When a slash command like /next triggers an agent turn,
+                // parse "💡 Next steps" from the agent's output so
+                // subsequent /next 1 calls use the latest suggestions,
+                // not stale ones from a prior /suggest.
+                if (opts.onSuggestionsParsed) {
+                  const parsed = parseSuggestionsFromOutput(runResult.finalText);
+                  opts.onSuggestionsParsed(parsed);
                 }
               }
             } catch (_runErr) {
@@ -559,6 +721,15 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
             }
           }
         }
+
+        // ── Suggestion auto-parsing ─────────────────────────────────────
+        // Extract "💡 Next steps" from the agent's final output and store
+        // them so the user can select with /next 1, /next 1 2 3.
+        if (result.status === 'done' && result.finalText && opts.onSuggestionsParsed) {
+          const parsed = parseSuggestionsFromOutput(result.finalText);
+          opts.onSuggestionsParsed(parsed);
+        }
+
         if (opts.tokenCounter && before) {
           const after = opts.tokenCounter.total();
           const costAfter = opts.tokenCounter.estimateCost().total;
@@ -635,6 +806,11 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
                 opts.renderer.write(
                   `\n${color.cyan('  Suggested next steps:')}\n${suggestResult.finalText}\n`,
                 );
+                // Parse and store the autonomy-generated suggestions too
+                if (opts.onSuggestionsParsed) {
+                  const parsed = parseSuggestionsFromOutput(suggestResult.finalText);
+                  opts.onSuggestionsParsed(parsed);
+                }
               }
             } catch {
               // Silently skip suggestion errors
@@ -813,6 +989,92 @@ async function renderGoalBanner(opts: ReplOptions): Promise<void> {
     );
   }
   opts.renderer.write('\n');
+}
+
+/**
+ * Run the full auto-proceed cycle: countdown, feed suggestion to agent,
+ * parse new suggestions from the response.  Returns normally when the
+ * agent turn completes, throws on abort (Ctrl+C).
+ *
+ * The caller must set `activeCtrl` before calling and clear it after.
+ */
+async function runAutoProceed(
+  opts: ReplOptions,
+  suggestion: string,
+  delayMs: number,
+  ctrl: AbortController,
+): Promise<void> {
+  try {
+    await autoProceedCountdown(opts, delayMs, suggestion, ctrl.signal);
+    // ── Feed the suggestion as if it were runText ──────────────────
+    const runBlocks = [{ type: 'text' as const, text: suggestion }];
+    const runResult = await opts.agent.run(runBlocks, { signal: ctrl.signal });
+    opts.onAgentIterationComplete?.(
+      estimateRequestTokensCalibrated(
+        opts.agent.ctx.messages,
+        opts.agent.ctx.systemPrompt,
+        opts.agent.ctx.tools ?? [],
+      ).total,
+    );
+    // Parse suggestions from the auto-triggered turn
+    if (runResult.status === 'done' && runResult.finalText && opts.onSuggestionsParsed) {
+      const parsed = parseSuggestionsFromOutput(runResult.finalText);
+      opts.onSuggestionsParsed(parsed);
+    }
+  } finally {
+    // activeCtrl cleanup is handled by the caller
+  }
+}
+/**
+ * Show a countdown and return when it expires. Aborts immediately if the
+ * given signal fires (Ctrl+C). Purely visual — the caller feeds the
+ * suggestion to the agent after this returns.
+ */
+async function autoProceedCountdown(
+  opts: ReplOptions,
+  delayMs: number,
+  suggestion: string,
+  signal: AbortSignal,
+): Promise<void> {
+  const sec = Math.ceil(delayMs / 1000);
+  const truncated = suggestion.length > 100 ? `${suggestion.slice(0, 97)}…` : suggestion;
+
+  opts.renderer.write(
+    `\n${color.cyan('⏳ Auto-proceeding')} in ${sec}s… ${color.dim('(Ctrl+C to cancel)')}\n`,
+  );
+  opts.renderer.write(`${color.dim('  ▸')} ${color.dim(truncated)}\n`);
+
+  const start = Date.now();
+  let lastSec = sec;
+
+  return new Promise<void>((resolve, reject) => {
+    const onAbort = (): void => {
+      clearInterval(interval);
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+
+    const interval = setInterval(() => {
+      if (signal.aborted) return;
+      const elapsed = Date.now() - start;
+      const remaining = Math.max(0, Math.ceil((delayMs - elapsed) / 1000));
+      if (remaining <= 0) {
+        clearInterval(interval);
+        signal.removeEventListener('abort', onAbort);
+        opts.renderer.write(color.dim(`  ↳ Proceeding with: ${truncated}\n`));
+        resolve();
+        return;
+      }
+      if (remaining !== lastSec) {
+        lastSec = remaining;
+        // Update the countdown line (overwrite in place is complex
+        // with a terminal renderer, so we append a new line)
+        opts.renderer.write(
+          color.dim(`  ⏳ ${remaining}s remaining…  (Ctrl+C to cancel)\n`),
+        );
+      }
+    }, 500);
+  });
 }
 
 /**
