@@ -66,6 +66,11 @@ export const ERROR_CODES = {
   FS_MKDIR_FAILED: 'FS_MKDIR_FAILED',
   FS_DELETE_FAILED: 'FS_DELETE_FAILED',
   FS_ATOMIC_WRITE_FAILED: 'FS_ATOMIC_WRITE_FAILED',
+  // SDD (Spec-Driven Development)
+  SDD_VALIDATION_FAILED: 'SDD_VALIDATION_FAILED',
+  SDD_PARSE_FAILED: 'SDD_PARSE_FAILED',
+  SDD_INVALID_STATE: 'SDD_INVALID_STATE',
+  SDD_NOT_READY: 'SDD_NOT_READY',
   // General
   UNKNOWN: 'UNKNOWN',
 } as const;
@@ -84,6 +89,7 @@ export type ErrorSubsystem =
   | 'plugin'
   | 'agent'
   | 'session'
+  | 'sdd'
   | 'container'
   | 'fs'
   | 'general';
@@ -297,6 +303,33 @@ export class SessionError extends WrongStackError {
     });
     this.name = 'SessionError';
     this.sessionId = opts.sessionId;
+  }
+}
+
+/**
+ * SDD (Spec-Driven Development) errors — spec validation, parsing, and
+ * state machine violations in the AISpecBuilder, TaskFlow, and TaskTracker.
+ */
+export class SddError extends WrongStackError {
+  constructor(opts: {
+    message: string;
+    code: Extract<
+      ErrorCode,
+      'SDD_VALIDATION_FAILED' | 'SDD_PARSE_FAILED' | 'SDD_INVALID_STATE' | 'SDD_NOT_READY'
+    >;
+    context?: Record<string, unknown> | undefined;
+    cause?: unknown | undefined;
+  }) {
+    super({
+      message: opts.message,
+      code: opts.code,
+      subsystem: 'sdd',
+      severity: opts.code === ERROR_CODES.SDD_PARSE_FAILED ? 'warning' : 'error',
+      recoverable: opts.code === ERROR_CODES.SDD_NOT_READY,
+      context: opts.context,
+      cause: opts.cause,
+    });
+    this.name = 'SddError';
   }
 }
 
