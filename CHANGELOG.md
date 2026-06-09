@@ -5,7 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.148.0] - 2026-06-09
+
+> The developer-experience & release-consolidation release. Ships a **`/dev`
+> slash command** for running shell commands from the chat without LLM
+> involvement, fixes a **vitest fallback** in the `test` tool, and consolidates
+> ~30 intermediate version bumps (0.118.1 → 0.148.0) into a single documented
+> release line. All 15 workspace packages and the marketing site are aligned to
+> 0.148.0 in lockstep. Additive only; no breaking changes.
 
 ### Added
 
@@ -26,6 +33,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   matches the test's stated expectation ("falls back to vitest when no config
   file found") and the project's convention of vitest as the primary test
   runner. (`packages/tools/src/test.ts`)
+
+### Changed — versions
+
+- **All workspace packages aligned to 0.148.0**: `wrongstack`,
+  `@wrongstack/cli`, `@wrongstack/core`, `@wrongstack/mcp`,
+  `@wrongstack/plug-lsp`, `@wrongstack/plugins`, `@wrongstack/providers`,
+  `@wrongstack/runtime`, `@wrongstack/skills`, `@wrongstack/telegram`,
+  `@wrongstack/tools`, `@wrongstack/tui`, `@wrongstack/webui`, and
+  `@wrongstack/acp`. The marketing site (`website/`) is aligned in lockstep.
 
 ## [0.118.1] - 2026-06-08
 
