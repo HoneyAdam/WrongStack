@@ -185,7 +185,7 @@ function skillLabel(skillHints: string[]): string {
 }
 
 function categoryLabel(cli: Classification): string {
-  if (cli.language !== 'unknown' && cli.language !== 'unknown') {
+  if (cli.language !== 'unknown') {
     return `${cli.subcategory} (${cli.category}, ${cli.language})`;
   }
   return `${cli.subcategory} (${cli.category})`;

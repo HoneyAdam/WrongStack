@@ -2,13 +2,7 @@ import { color } from '@wrongstack/core';
 import type { SlashCommand } from '@wrongstack/core';
 import { persistTelegramConfig } from '../settings-menu.js';
 import type { SlashCommandContext } from './index.js';
-
-/** No-op vault that passes values through unchanged. */
-const noOpVault = {
-  encrypt: (v: string) => v,
-  decrypt: (v: string) => v,
-  isEncrypted: () => false,
-};
+import { noOpVault } from './helpers.js';
 
 interface TelegramGetMeResponse {
   ok: boolean;

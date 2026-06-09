@@ -5,6 +5,22 @@ import type { SlashCommandContext } from './index.js';
 
 export type AutonomyMode = 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel';
 
+const MODE_LABELS: Record<AutonomyMode, string> = {
+  off: `${color.green('OFF')} ${color.dim('(agent stops after each turn)')}`,
+  suggest: `${color.cyan('SUGGEST')} ${color.dim('(shows next-step suggestions)')}`,
+  auto: `${color.yellow('AUTO')} ${color.dim('(self-driving — Esc to redirect, Ctrl+C to stop)')}`,
+  eternal: `${color.red('ETERNAL')} ${color.dim('(goal-driven loop — YOLO, until /autonomy stop)')}`,
+  'eternal-parallel': `${color.magenta('PARALLEL')} ${color.dim('(4-8 subagents per tick — fan-out, until /autonomy stop)')}`,
+};
+
+const MODE_LABELS_SHORT: Record<AutonomyMode, string> = {
+  off: `${color.green('OFF')} — agent stops after each turn`,
+  suggest: `${color.cyan('SUGGEST')} — shows next-step suggestions after each turn`,
+  auto: `${color.yellow('AUTO')} — self-driving, agent continues automatically`,
+  eternal: `${color.red('ETERNAL')} — goal-driven sittin-sene loop`,
+  'eternal-parallel': `${color.magenta('PARALLEL')} — fan-out 4-8 subagents per tick`,
+};
+
 export function buildAutonomyCommand(opts: SlashCommandContext): SlashCommand {
   return {
     name: 'autonomy',
@@ -59,14 +75,7 @@ export function buildAutonomyCommand(opts: SlashCommandContext): SlashCommand {
       // No argument — show current status (mode + engine + goal snapshot)
       if (!arg || arg === 'status') {
         const current = opts.onAutonomy();
-        const labels: Record<AutonomyMode, string> = {
-          off: `${color.green('OFF')} ${color.dim('(agent stops after each turn)')}`,
-          suggest: `${color.cyan('SUGGEST')} ${color.dim('(shows next-step suggestions)')}`,
-          auto: `${color.yellow('AUTO')} ${color.dim('(self-driving — Esc to redirect, Ctrl+C to stop)')}`,
-          eternal: `${color.red('ETERNAL')} ${color.dim('(goal-driven loop — YOLO, until /autonomy stop)')}`,
-          'eternal-parallel': `${color.magenta('PARALLEL')} ${color.dim('(4-8 subagents per tick — fan-out, until /autonomy stop)')}`,
-        };
-        const lines: string[] = [`Autonomy mode: ${labels[current] ?? current}`];
+        const lines: string[] = [`Autonomy mode: ${MODE_LABELS[current] ?? current}`];
         try {
           const goal = await loadGoal(goalFilePath(opts.projectRoot));
           if (goal) {
@@ -255,14 +264,7 @@ export function buildAutonomyCommand(opts: SlashCommandContext): SlashCommand {
       }
 
       opts.onAutonomy(newMode);
-      const labels: Record<AutonomyMode, string> = {
-        off: `${color.green('OFF')} — agent stops after each turn`,
-        suggest: `${color.cyan('SUGGEST')} — shows next-step suggestions after each turn`,
-        auto: `${color.yellow('AUTO')} — self-driving, agent continues automatically`,
-        eternal: `${color.red('ETERNAL')} — goal-driven sittin-sene loop`,
-        'eternal-parallel': `${color.magenta('PARALLEL')} — fan-out 4-8 subagents per tick`,
-      };
-      const msg = `Autonomy mode: ${labels[newMode]}`;
+      const msg = `Autonomy mode: ${MODE_LABELS_SHORT[newMode]}`;
       opts.renderer.write(msg);
       return { message: msg };
     },

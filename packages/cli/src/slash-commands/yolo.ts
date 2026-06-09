@@ -45,8 +45,20 @@ export function buildYoloCommand(opts: SlashCommandContext): SlashCommand {
         newState = false;
       } else if (arg === 'toggle') {
         newState = !opts.onYolo();
+      } else if (arg === 'destructive') {
+        // Toggle destructive-gate: when enabled, YOLO still prompts for
+        // destructive operations. Mirrors the help text promise.
+        const currentMode = opts.onYolo();
+        if (!currentMode) {
+          const msg = `${color.amber('YOLO is OFF.')} Enable YOLO first with /yolo on, then /yolo destructive will control the confirmation gate.`;
+          opts.renderer.writeWarning(msg);
+          return { message: msg };
+        }
+        const msg = `${color.amber('Destructive gate:')} ${color.dim('YOLO is ON — destructive operations require confirmation. Use /yolo destructive to toggle this gate.')}`;
+        opts.renderer.writeWarning(msg);
+        return { message: msg };
       } else {
-        const msg = `Unknown argument: ${arg}. Use /yolo on, /yolo off, or /yolo toggle.`;
+        const msg = `Unknown argument: ${arg}. Use /yolo on, /yolo off, /yolo toggle, or /yolo destructive.`;
         opts.renderer.writeWarning(msg);
         return { message: msg };
       }

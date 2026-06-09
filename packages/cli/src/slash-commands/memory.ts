@@ -76,24 +76,18 @@ interface CompactResponse {
 }
 
 /**
- * Build the system prompt for the memory compact LLM call.
- * This is a dedicated, isolated context — no chat history, no tools.
+ * System prompt template for the memory compact LLM call.
+ * `__ENTRIES__` is replaced with the formatted entry list at call time.
+ * Kept as a module-level constant so the prompt text can be reviewed and
+ * iterated on independently of the call logic.
  */
-function buildCompactPrompt(entries: CompactEntry[]): string {
-  const entriesBlock = entries
-    .map(
-      (e, i) =>
-        `${i + 1}. [${e.ts.slice(0, 10)}] ${e.id}\n   ${e.text}${e.tags ? `\n   tags: ${e.tags.join(', ')}` : ''}${e.type ? `\n   type: ${e.type}` : ''}${e.priority ? `\n   priority: ${e.priority}` : ''}`,
-    )
-    .join('\n\n');
-
-  return `You are a memory curator. Your task is to review, deduplicate, and improve a set of long-term memory entries.
+const COMPACT_SYSTEM_PROMPT = `You are a memory curator. Your task is to review, deduplicate, and improve a set of long-term memory entries.
 
 These entries are injected into the context of an AI coding agent. Every token counts. The memory must be concise, accurate, and free of noise.
 
 ## Current Memory Entries
 
-${entriesBlock}
+__ENTRIES__
 
 ## Your Task
 
@@ -131,6 +125,20 @@ Return ONLY valid JSON with this structure:
 }
 
 Use the EXACT entry IDs from the list above for "targets". No markdown, no explanation outside the JSON.`;
+
+/**
+ * Build the system prompt for the memory compact LLM call.
+ * Interpolates the entry list into the shared template.
+ */
+function buildCompactPrompt(entries: CompactEntry[]): string {
+  const entriesBlock = entries
+    .map(
+      (e, i) =>
+        `${i + 1}. [${e.ts.slice(0, 10)}] ${e.id}\n   ${e.text}${e.tags ? `\n   tags: ${e.tags.join(', ')}` : ''}${e.type ? `\n   type: ${e.type}` : ''}${e.priority ? `\n   priority: ${e.priority}` : ''}`,
+    )
+    .join('\n\n');
+
+  return COMPACT_SYSTEM_PROMPT.replace('__ENTRIES__', entriesBlock);
 }
 
 interface CompactEntry {

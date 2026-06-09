@@ -1,7 +1,6 @@
 import * as fs from 'node:fs/promises';
 import {
   type CustomModelDefinition,
-  type SecretVault,
   type SlashCommand,
   atomicWrite,
   color,
@@ -9,13 +8,7 @@ import {
   encryptConfigSecrets,
 } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
-
-/** No-op vault: round-trips already-encrypted fields untouched. */
-const noOpVault: SecretVault = {
-  encrypt: (v) => v,
-  decrypt: (v) => v,
-  isEncrypted: () => false,
-};
+import { noOpVault } from './helpers.js';
 
 async function patchGlobalConfig(
   globalConfigPath: string,

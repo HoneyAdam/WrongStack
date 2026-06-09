@@ -1,13 +1,8 @@
-import { type SecretVault, color } from '@wrongstack/core';
+import { color } from '@wrongstack/core';
 import type { SlashCommand } from '@wrongstack/core';
 import { persistAutonomySetting } from '../settings-menu.js';
 import type { SlashCommandContext } from './index.js';
-
-const noOpVault: SecretVault = {
-  encrypt: (v) => v,
-  decrypt: (v) => v,
-  isEncrypted: () => false,
-};
+import { noOpVault } from './helpers.js';
 
 /**
  * `/enhance` — toggle prompt refinement ("did you mean this?").

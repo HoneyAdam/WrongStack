@@ -7,12 +7,32 @@ export function buildSpawnCommand(opts: SlashCommandContext): SlashCommand {
     name: 'spawn',
     category: 'Agent',
     description: 'Spawn an isolated subagent to handle a task.',
+    argsHint: '[--name=<label>] [--model=<id>] <task description>',
+    help: [
+      'Fire-and-forget subagent spawn. The subagent runs independently; check',
+      'its status with /agents or /fleet.',
+      '',
+      'Usage:',
+      '  /spawn <task description>',
+      '  /spawn --name=<label> --model=<id> <task description>',
+      '',
+      'Flags:',
+      '  --name=<label>   Display name for the subagent',
+      '  --provider=<id>  Override the provider (defaults to leader provider)',
+      '  --model=<id>     Override the model (defaults to leader model)',
+      '  --tools=a,b,c    Comma-separated list of tool names to grant',
+      '',
+      'For smart routing (auto-picking the right agent role), use /fleet dispatch.',
+      'For explicit role assignment, use /fleet spawn <role>.',
+      '',
+      'Requires director mode. Run /director first.',
+    ].join('\n'),
     async run(args) {
       const { description, opts: parsed } = parseSpawnFlags(args.trim());
       if (!description)
         return {
           message:
-            'Usage: /spawn [--provider=<id>] [--model=<id>] [--name=<label>] [--tools=a,b,c] <task description>',
+            'Usage: /spawn [--name=<label>] [--model=<id>] <task description>\n\nExamples:\n  /spawn "fix the auth bug in session.ts"\n  /spawn --name=fixer "audit core for null-deref bugs"\n\nRequires director mode. Run /director first.',
         };
       if (!opts.onSpawn) return { message: 'Multi-agent is not enabled in this session.' };
       try {
@@ -76,6 +96,19 @@ export function buildDirectorCommand(opts: SlashCommandContext): SlashCommand {
     category: 'Agent',
     description:
       'Promote this session to director mode, enabling fleet orchestration tools. Only works before any subagents are spawned.',
+    help: [
+      'Promotes the current session to director mode, which unlocks:',
+      '',
+      '  /fleet             — fleet status, spawn, dispatch, kill, usage',
+      '  /spawn             — fire-and-forget subagent spawns',
+      '  /agents            — subagent status dashboard',
+      '',
+      'Director mode must be activated BEFORE any subagents are spawned.',
+      'Alternatively, start a session with --director:  wstack --director',
+      '',
+      'Director mode is a prerequisite for /fleet dispatch, /fleet spawn,',
+      'and /spawn. Without it, those commands will report "not wired."',
+    ].join('\n'),
     async run() {
       if (!opts.onDirector) return { message: 'Director promotion is not available in this session.' };
       const result = await opts.onDirector();

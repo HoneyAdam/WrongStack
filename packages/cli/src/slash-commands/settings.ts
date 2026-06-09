@@ -1,15 +1,8 @@
-import { type SecretVault, color } from '@wrongstack/core';
+import { color } from '@wrongstack/core';
 import type { SlashCommand } from '@wrongstack/core';
 import { persistAutonomySetting, persistConfigSetting } from '../settings-menu.js';
 import type { SlashCommandContext } from './index.js';
-
-/** No-op vault that passes values through unchanged.
- *  Used when the config file has no encrypted fields yet. */
-const noOpVault: SecretVault = {
-  encrypt: (v) => v,
-  decrypt: (v) => v,
-  isEncrypted: () => false,
-};
+import { noOpVault } from './helpers.js';
 
 function formatDelay(ms: number): string {
   if (ms >= 60_000) return `${Math.round(ms / 60_000)}m`;

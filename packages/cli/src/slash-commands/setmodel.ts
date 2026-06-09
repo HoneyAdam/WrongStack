@@ -7,7 +7,6 @@ import {
   type AgentPhase,
   type ModelMatrixEntry,
   type ProviderConfig,
-  type SecretVault,
   type SlashCommand,
   atomicWrite,
   color,
@@ -18,14 +17,7 @@ import {
   resolveModelMatrix,
 } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
-/** No-op vault: round-trips already-encrypted fields untouched. We never
- *  read or write secrets here (the matrix holds none), so we must NOT
- *  decrypt/re-encrypt the providers block — that would mangle stored keys. */
-const noOpVault: SecretVault = {
-  encrypt: (v) => v,
-  decrypt: (v) => v,
-  isEncrypted: () => false,
-};
+import { noOpVault } from './helpers.js';
 
 /** A provider is selectable when it has a stored key, a key list, or a
  *  populated env var. Mirrors `hasApiKey` but config-only (no registry). */

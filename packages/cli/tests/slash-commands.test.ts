@@ -736,7 +736,7 @@ describe('built-in slash commands', () => {
       const { registry } = makeDirectorRig(async () => 'ok');
       const r = await registry.dispatch('/help director', fakeCtx);
       expect(r?.message).toContain('/director');
-      expect(r?.message).toContain('fleet orchestration');
+      expect(r?.message).toContain('fleet status, spawn');
     });
   });
 
