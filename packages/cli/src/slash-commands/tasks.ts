@@ -125,6 +125,12 @@ export function buildTasksCommand(_opts: SlashCommandContext): SlashCommand {
             done: 'completed',
             fail: 'failed',
           };
+          const verbMap: Record<string, string> = {
+            start: 'Started',
+            done: 'Completed',
+            fail: 'Failed',
+          };
+          const verb = verbMap[cmd] ?? cmd;
           found.item.status = statusMap[cmd] ?? 'pending';
           found.item.updatedAt = new Date().toISOString();
           await saveTasks(taskPath, file);

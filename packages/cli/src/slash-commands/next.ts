@@ -1,6 +1,7 @@
 import { color } from '@wrongstack/core';
 import type { SlashCommand } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
+import { clearSuggestions, getSuggestions } from './suggestion-store.js';
 
 /**
  * `/next` — toggle next-task prediction AND select stored suggestions.
@@ -58,6 +59,7 @@ export function buildNextCommand(opts: SlashCommandContext): SlashCommand {
 
       // ── Clear: reset suggestion list ─────────────────────────────────
       if (arg === 'clear' || arg === 'reset') {
+        clearSuggestions();
         opts.onSuggestions?.([]);
         return { message: color.dim('Suggestion list cleared.') };
       }
@@ -78,7 +80,8 @@ export function buildNextCommand(opts: SlashCommandContext): SlashCommand {
 
       // No argument — report status.
       if (!arg || arg === 'status') {
-        const suggestions = opts.onSuggestions?.() ?? [];
+        const stored = getSuggestions();
+        const suggestions = stored.length > 0 ? stored : (opts.onSuggestions?.() ?? []);
         const msg = [
           `Next-task prediction: ${label(current)}`,
           suggestions.length > 0
@@ -127,7 +130,11 @@ function handleSelection(
     return { message: color.amber('No valid suggestion numbers found. Use /next 1, /next 1 2 3, etc.') };
   }
 
-  const suggestions = opts.onSuggestions?.() ?? [];
+  // Use shared module-level store first (bypasses callback indirection);
+  // fall back to opts.onSuggestions for backward compatibility.
+  const suggestions = getSuggestions().length > 0
+    ? getSuggestions()
+    : (opts.onSuggestions?.() ?? []);
 
   if (suggestions.length === 0) {
     return {
@@ -177,7 +184,10 @@ function handleSelection(
  * Display the current suggestion list.
  */
 function handleList(opts: SlashCommandContext): { message: string } {
-  const suggestions = opts.onSuggestions?.() ?? [];
+  // Use shared module-level store first; fall back to opts.onSuggestions
+  const suggestions = getSuggestions().length > 0
+    ? getSuggestions()
+    : (opts.onSuggestions?.() ?? []);
 
   if (suggestions.length === 0) {
     return {

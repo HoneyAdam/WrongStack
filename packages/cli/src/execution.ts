@@ -640,7 +640,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
                 // so apiKey / providers / sync never leak into a per-project file.
                 const toWrite =
                   targetPath === wpaths.globalConfig ? decrypted : filterSafeForProject(decrypted);
-                const encrypted = encryptConfigSecrets(toWrite, vault);
+                const encrypted = encryptConfigSecrets(toWrite, noOpVault);
                 // Ensure the project directory exists before writing
                 if (targetPath !== wpaths.globalConfig) {
                   await fs.mkdir(path.dirname(targetPath), { recursive: true }).catch((err) => console.debug(`[execution] mkdir failed: ${err}`));

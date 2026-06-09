@@ -2,6 +2,7 @@ import { color } from '@wrongstack/core';
 import type { Context, SlashCommand } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
 import { execFileSync } from 'node:child_process';
+import { setSuggestions } from './suggestion-store.js';
 
 /**
  * Collect project context for the suggestion subagent.
@@ -85,6 +86,7 @@ export function buildSuggestCommand(opts: SlashCommandContext): SlashCommand {
       // ── Fast path: heuristic suggestions (no subagent) ──────────────────
       if (fast) {
         const suggestions = generateHeuristicSuggestions(opts);
+        setSuggestions(suggestions);
         opts.onSuggestions?.(suggestions);
         const display = formatSuggestions(suggestions);
         return { message: display };
@@ -94,6 +96,7 @@ export function buildSuggestCommand(opts: SlashCommandContext): SlashCommand {
       if (!opts.onSpawnAndWait) {
         // Fall back to heuristic if subagent not available
         const suggestions = generateHeuristicSuggestions(opts);
+        setSuggestions(suggestions);
         opts.onSuggestions?.(suggestions);
         const display = formatSuggestions(suggestions) + '\n' +
           color.dim('(Heuristic fallback — multi-agent not enabled)');
@@ -118,10 +121,12 @@ export function buildSuggestCommand(opts: SlashCommandContext): SlashCommand {
         const suggestions = parseSuggestions(raw);
         if (suggestions.length === 0) {
           const fallback = ['No pending actions — everything is up to date.'];
+          setSuggestions(fallback);
           opts.onSuggestions?.(fallback);
           return { message: formatSuggestions(fallback) };
         }
 
+        setSuggestions(suggestions);
         opts.onSuggestions?.(suggestions);
         return { message: formatSuggestions(suggestions) };
       } catch (err) {

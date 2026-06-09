@@ -151,8 +151,8 @@ export function buildDelegateCommand(opts: SlashCommandContext): SlashCommand {
 async function spawnAgent(
   opts: SlashCommandContext,
   role: string,
-  task: string,
-  name: string,
+  _task: string,
+  _name: string,
   header: string,
 ): Promise<{ message: string }> {
   if (!opts.onFleetSpawn) {
