@@ -1,7 +1,7 @@
 import { expectDefined } from '@wrongstack/core';
 import { cn } from '@/lib/utils';
 import { getWSClient } from '@/lib/ws-client';
-import { useChatStore, useFleetStore, useGoalStore, useSessionStore, useUIStore } from '@/stores';
+import { useChatStore, useFleetStore, useGoalStore, useHistoryStore, useSessionStore, useUIStore, useWorktreeStore } from '@/stores';
 import type { ChatMessage } from '@/stores';
 import { useConfigStore } from '@/stores';
 import {
@@ -10,13 +10,17 @@ import {
   ArrowUp,
   Bot,
   CheckCircle2,
+  ChevronDown,
   Clock,
   Command,
   Cpu,
   FolderOpen,
+  GitBranch,
   History,
   PanelLeftOpen,
+  Pencil,
   Settings,
+  Shrink,
   Terminal,
   Users,
   Zap,
@@ -48,6 +52,29 @@ export function ChatView() {
   const compactMode = useUIStore((s) => s.compactMode);
   const { totalTokens, startTime, lastInputTokens, maxContext, projectName, iteration, todos, mode } =
     useSessionStore();
+  const session = useSessionStore((s) => s.session);
+  const sessionId = session?.id;
+  const nickname = useUIStore((s) => (sessionId ? s.sessionNicknames[sessionId] : undefined));
+  const setSessionNickname = useUIStore((s) => s.setSessionNickname);
+  const sessionTitle = session?.title;
+  const [renamingTitle, setRenamingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState('');
+
+  // Session switcher state
+  const historyEntries = useHistoryStore((s) => s.entries);
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const switcherRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!switcherOpen) return;
+    const onClick = (e: MouseEvent) => {
+      if (!switcherRef.current?.contains(e.target as Node)) setSwitcherOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setSwitcherOpen(false); };
+    document.addEventListener('mousedown', onClick);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onClick); document.removeEventListener('keydown', onKey); };
+  }, [switcherOpen]);
+
   const { wsConnected, wsStatus, provider, model } = useConfigStore();
   const { setCurrentView } = useUIStore();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -59,6 +86,10 @@ export function ChatView() {
 
   // Goal state
   const goal = useGoalStore((s) => s.goal);
+
+  // Worktree state
+  const worktrees = useWorktreeStore((s) => s.worktrees);
+  const baseBranch = useWorktreeStore((s) => s.baseBranch);
 
   // Todo breakdown
   const pendingCount = todos.filter((t) => t.status === 'pending').length;
@@ -189,7 +220,7 @@ export function ChatView() {
   return (
     <div className="flex flex-col flex-1 min-h-0">
       {/* Header */}
-      <header className="flex flex-col border-b bg-card shrink-0">
+      <header className="flex flex-col border-b bg-card/95 backdrop-blur-sm supports-[backdrop-filter]:bg-card/80 shrink-0 sticky top-0 z-20">
         <div className="flex items-center justify-between gap-2 px-3 py-2">
           <div className="flex items-center gap-1.5 min-w-0 flex-1">
             {!sidebarOpen && (
@@ -229,8 +260,68 @@ export function ChatView() {
                 title={`Project: ${projectName}`}
               >
                 <FolderOpen className="h-3 w-3 shrink-0" />
-                <span className="truncate max-w-[12rem]">{projectName}</span>
+                <span className="truncate max-w-[8rem]">{projectName}</span>
               </span>
+            )}
+            {/* Session title — click to rename, shows nickname if set */}
+            {sessionId && (
+              renamingTitle ? (
+                <input
+                  value={titleDraft}
+                  onChange={(e) => setTitleDraft(e.target.value)}
+                  onBlur={() => { if (titleDraft.trim()) setSessionNickname(sessionId, titleDraft); setRenamingTitle(false); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (titleDraft.trim()) setSessionNickname(sessionId, titleDraft); setRenamingTitle(false); } else if (e.key === 'Escape') { e.preventDefault(); setRenamingTitle(false); } }}
+                  placeholder="Session name…"
+                  className="h-5 px-1.5 text-[11px] bg-background border border-primary/40 rounded focus:outline-none focus:ring-1 focus:ring-ring shrink-0 w-32"
+                  autoFocus
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => { setTitleDraft(nickname || sessionTitle || ''); setRenamingTitle(true); }}
+                  className="flex items-center gap-1 text-[11px] font-medium text-foreground/80 hover:text-foreground truncate max-w-[12rem] shrink-0 px-1 -mx-1 rounded hover:bg-muted/50 transition-colors"
+                  title="Click to rename session"
+                >
+                  <Pencil className="h-2.5 w-2.5 text-muted-foreground shrink-0" />
+                  <span className="truncate">{nickname || sessionTitle || 'Untitled'}</span>
+                </button>
+              )
+            )}
+            {/* Session switcher — quick dropdown to jump between recent sessions */}
+            {historyEntries.length > 1 && (
+              <div ref={switcherRef} className="relative shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setSwitcherOpen((v) => !v)}
+                  className="flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                  title="Switch session"
+                >
+                  <History className="h-3 w-3" />
+                  <ChevronDown className="h-2.5 w-2.5" />
+                </button>
+                {switcherOpen && (
+                  <div className="absolute left-0 top-full mt-1 z-40 w-64 rounded-md border bg-popover shadow-lg p-1 max-h-60 overflow-y-auto">
+                    {historyEntries.slice(0, 15).map((e) => (
+                      <button
+                        key={e.id}
+                        type="button"
+                        onClick={() => {
+                          const ws = getWSClient();
+                          ws?.resumeSession?.(e.id);
+                          setSwitcherOpen(false);
+                        }}
+                        className={cn(
+                          'w-full text-left px-2 py-1.5 rounded text-xs hover:bg-accent transition-colors',
+                          e.isCurrent && 'bg-primary/10',
+                        )}
+                      >
+                        <div className="font-medium truncate">{e.title || '(empty)'}</div>
+                        <div className="text-[10px] text-muted-foreground font-mono truncate">{e.provider}/{e.model} · {e.tokenTotal.toLocaleString()} tok</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
             <button
               type="button"
@@ -297,6 +388,16 @@ export function ChatView() {
                 {goal.progress}%
               </span>
             )}
+            {/* Worktree chip */}
+            {baseBranch && (
+              <span
+                className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-medium bg-violet-500/10 text-violet-600 dark:text-violet-400 shrink-0"
+                title={`Branch: ${baseBranch}${worktrees.length > 0 ? ` · ${worktrees.length} worktree${worktrees.length === 1 ? '' : 's'}` : ''}`}
+              >
+                <GitBranch className="h-3 w-3" />
+                {baseBranch}
+              </span>
+            )}
             <AutonomyPicker value={autonomy} onChange={handleAutonomyChange} compact />
           </div>
 
@@ -305,19 +406,34 @@ export function ChatView() {
               variant="ghost"
               size="icon"
               className="h-7 w-7"
+              onClick={() => useUIStore.getState().toggleCompactMode()}
+              title="Toggle compact mode (Ctrl+Shift+D)"
+            >
+              <Shrink className="h-4 w-4" />
+            </Button>
+            <Button
+              variant={processOpen ? 'secondary' : 'ghost'}
+              size="icon"
+              className={cn('h-7 w-7 relative', processOpen && 'bg-amber-500/10 text-amber-600 dark:text-amber-400')}
               onClick={() => setProcessOpen((v) => !v)}
               title="Running processes"
             >
               <Terminal className="h-4 w-4" />
+              {processOpen && (
+                <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-amber-500" />
+              )}
             </Button>
             <Button
-              variant="ghost"
+              variant={checkpointOpen ? 'secondary' : 'ghost'}
               size="icon"
-              className="h-7 w-7"
+              className={cn('h-7 w-7 relative', checkpointOpen && 'bg-violet-500/10 text-violet-600 dark:text-violet-400')}
               onClick={() => setCheckpointOpen((v) => !v)}
               title="Session checkpoints — rewind"
             >
               <History className="h-4 w-4" />
+              {checkpointOpen && (
+                <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-violet-500" />
+              )}
             </Button>
             <Button
               variant="ghost"
@@ -679,8 +795,8 @@ export function ChatView() {
       </div>
 
       {/* Overlays — triggered by header buttons */}
-      {processOpen && <ProcessMonitor />}
-      {checkpointOpen && <CheckpointTimeline />}
+      <ProcessMonitor open={processOpen} onClose={() => setProcessOpen(false)} />
+      <CheckpointTimeline open={checkpointOpen} onClose={() => setCheckpointOpen(false)} />
     </div>
   );
 }
