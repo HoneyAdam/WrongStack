@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.156.1] - 2026-06-09
+## [0.166.1] - 2026-06-09
 
 > The WebUI-fleet & slash-command-polish release. Consolidates the
 > `0.148.2`–`0.156.0` line into a single documented release. The headlines are
@@ -107,7 +107,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed — versions
 
-- **All workspace packages aligned to 0.156.1**: `wrongstack`,
+- **All workspace packages aligned to 0.166.1**: `wrongstack`,
   `@wrongstack/cli`, `@wrongstack/core`, `@wrongstack/mcp`,
   `@wrongstack/plug-lsp`, `@wrongstack/plugins`, `@wrongstack/providers`,
   `@wrongstack/runtime`, `@wrongstack/skills`, `@wrongstack/telegram`,
