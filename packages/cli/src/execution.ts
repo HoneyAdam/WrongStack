@@ -17,10 +17,13 @@ import type {
   SessionStore,
   SessionWriter,
   SlashCommandRegistry,
+  SubagentConfig,
   TokenCounter,
 } from '@wrongstack/core';
 import type { MemoryStore, ModeStore } from '@wrongstack/core';
 import { color, mergeCustomModelDefs, writeOut, type AutonomyStage, decryptConfigSecrets, encryptConfigSecrets, atomicWrite, noOpVault } from '@wrongstack/core';
+import type { ChimeraReviewNeededPayload } from '@wrongstack/core';
+import { CHIMERA_REVIEW_PROMPT } from '@wrongstack/core';
 import { filterSafeForProject, persistAutonomySetting } from './settings-menu.js';
 import type { ProviderConfig, ResolvedProvider, WstackPaths } from '@wrongstack/core';
 import type { MCPRegistry } from '@wrongstack/mcp';
@@ -209,6 +212,95 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
     memoryStore,
     modeStore,
   } = deps;
+
+  // ── Chimera post-session review: spawns subagent on chimera.review_needed ──
+  events.onPattern('chimera.review_needed', (_event, payload) => {
+    const p = payload as ChimeraReviewNeededPayload;
+    const dir = director;
+    if (!dir) {
+      // Director not active — review skipped. Chimera needs --director flag.
+      return;
+    }
+    if (p.files.length === 0) return;
+
+    // Fire-and-forget: spawn subagent, append result when done.
+    // Don't block session.close() — the subagent runs in background.
+    void (async () => {
+      try {
+        const fileList = p.files
+          .map((f) => `- [${f.status.toUpperCase()}] ${f.path}`)
+          .join('\n');
+
+        const taskDesc = [
+          `Review the following ${p.files.length} file(s) changed in this session at ${p.cwd}.`,
+          '',
+          fileList,
+          '',
+          '---',
+          '',
+          'Read each file using the read tool. Check for bugs, type issues,',
+          'security problems, and produce a structured review report.',
+        ].join('\n');
+
+        const cfg: SubagentConfig = {
+          name: 'chimera-review',
+          provider: p.config.provider,
+          model: p.config.model,
+          systemPromptOverride: CHIMERA_REVIEW_PROMPT,
+          maxIterations: 10,
+          maxToolCalls: 60,
+          timeoutMs: 300_000,
+        };
+
+        const subagentId = await dir.spawn(cfg);
+        const { randomUUID } = await import('node:crypto');
+        const taskId = randomUUID();
+        await dir.assign({
+          id: taskId,
+          description: taskDesc,
+          subagentId,
+        });
+
+        const results = await dir.awaitTasks([taskId]);
+        const result = results[0];
+        if (!result || result.status !== 'success') {
+          try {
+            await session.append({
+              type: 'error',
+              ts: new Date().toISOString(),
+              message: `🦂 Chimera review subagent ${result?.status ?? 'unknown'}: ${result?.error?.message ?? 'no result'}`,
+              phase: 'agent',
+            });
+          } catch { /* best-effort */ }
+          return;
+        }
+
+        const reviewText = typeof result.result === 'string'
+          ? result.result.trim()
+          : JSON.stringify(result.result);
+
+        if (reviewText) {
+          await session.append({
+            type: 'llm_response',
+            ts: new Date().toISOString(),
+            content: [{ type: 'text', text: reviewText }],
+            stopReason: 'end_turn' as import('@wrongstack/core').StopReason,
+            usage: { input: 0, output: 0 },
+          });
+        }
+      } catch (err) {
+        // Subagent spawn/assign failed — log and ignore
+        try {
+          await session.append({
+            type: 'error',
+            ts: new Date().toISOString(),
+            message: `🦂 Chimera review failed: ${err instanceof Error ? err.message : String(err)}`,
+            phase: 'agent',
+          });
+        } catch { /* best-effort */ }
+      }
+    })();
+  });
 
   let code = 0;
   let fleetStatusLine: FleetStatusLine | null = null;

@@ -425,8 +425,10 @@ const DEFAULT_INDEX_QUESTION_THRESHOLD = 500;
 /**
  * Resolve the indexing question threshold from the env var
  * `WRONGSTACK_INDEX_QUESTION_THRESHOLD`. Falls back to 500 when unset or invalid.
+ *
+ * Exported for testing only — callers should use {@link maybeAskAboutIndexing}.
  */
-function resolveIndexThreshold(): number {
+export function resolveIndexThreshold(): number {
   const raw = process.env['WRONGSTACK_INDEX_QUESTION_THRESHOLD'];
   if (raw === undefined || raw === '') return DEFAULT_INDEX_QUESTION_THRESHOLD;
   const n = Number(raw);

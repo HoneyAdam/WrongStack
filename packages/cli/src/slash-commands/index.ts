@@ -322,6 +322,7 @@ import { buildToolsCommand } from './tools.js';
 import { buildWorktreeCommand } from './worktree.js';
 import { buildTechStackCommand } from './techstack.js';
 import { buildYoloCommand } from './yolo.js';
+import { buildReviewCommand } from './review.js';
 
 export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashCommand[] {
   return [
@@ -369,6 +370,7 @@ export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashComma
     buildModelCapsCommand(opts),
     buildModelsCommand(opts),
     buildCollabCommand(opts),
+    buildReviewCommand(opts),
     buildStatuslineCommand({
       cwd: opts.cwd,
       hiddenItems: opts.statuslineHiddenItems ?? [],

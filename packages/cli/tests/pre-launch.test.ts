@@ -3,7 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReadlineInputReader } from '../src/input-reader.js';
-import { detectProjectKind, LaunchAbortedError, maybeAskAboutIndexing, persistLaunchChoices, runLaunchPrompts, runProjectCheck } from '../src/pre-launch.js';
+import { detectProjectKind, LaunchAbortedError, maybeAskAboutIndexing, persistLaunchChoices, resolveIndexThreshold, runLaunchPrompts, runProjectCheck } from '../src/pre-launch.js';
 import type { TerminalRenderer } from '../src/renderer.js';
 
 /**
@@ -15,7 +15,7 @@ import type { TerminalRenderer } from '../src/renderer.js';
  */
 
 async function mkTempDir(prefix = 'wstack-prelaunch-'): Promise<string> {
-  return fs.mkdtemp(path.join(os.tmpdir(), prefix));
+  return fs.mkdtemp(path.join(os.tmpdir(), prefix + 'XXXXXX'));
 }
 
 function makeRenderer(): TerminalRenderer {
@@ -435,6 +435,70 @@ function stubReaddir(tree: Record<string, fs.Dirent[]>) {
     },
   );
 }
+
+describe('resolveIndexThreshold', () => {
+  const envKey = 'WRONGSTACK_INDEX_QUESTION_THRESHOLD';
+  const original = process.env[envKey];
+
+  afterEach(() => {
+    // Restore the original env value (or delete if it was unset).
+    if (original === undefined) {
+      delete process.env[envKey];
+    } else {
+      process.env[envKey] = original;
+    }
+  });
+
+  it('returns 500 when env var is unset', () => {
+    delete process.env[envKey];
+    expect(resolveIndexThreshold()).toBe(500);
+  });
+
+  it('returns 500 when env var is empty string', () => {
+    process.env[envKey] = '';
+    expect(resolveIndexThreshold()).toBe(500);
+  });
+
+  it('returns the parsed number for a valid positive integer', () => {
+    process.env[envKey] = '200';
+    expect(resolveIndexThreshold()).toBe(200);
+  });
+
+  it('handles large values (e.g. to suppress the question)', () => {
+    process.env[envKey] = '999999';
+    expect(resolveIndexThreshold()).toBe(999999);
+  });
+
+  it('handles the value "1" (most aggressive)', () => {
+    process.env[envKey] = '1';
+    expect(resolveIndexThreshold()).toBe(1);
+  });
+
+  it('falls back to 500 for non-numeric strings', () => {
+    process.env[envKey] = 'not-a-number';
+    expect(resolveIndexThreshold()).toBe(500);
+  });
+
+  it('falls back to 500 for zero', () => {
+    process.env[envKey] = '0';
+    expect(resolveIndexThreshold()).toBe(500);
+  });
+
+  it('falls back to 500 for negative numbers', () => {
+    process.env[envKey] = '-100';
+    expect(resolveIndexThreshold()).toBe(500);
+  });
+
+  it('falls back to 500 for Infinity', () => {
+    process.env[envKey] = 'Infinity';
+    expect(resolveIndexThreshold()).toBe(500);
+  });
+
+  it('falls back to 500 for NaN', () => {
+    process.env[envKey] = 'NaN';
+    expect(resolveIndexThreshold()).toBe(500);
+  });
+});
 
 describe('maybeAskAboutIndexing', () => {
   let renderer: TerminalRenderer;
