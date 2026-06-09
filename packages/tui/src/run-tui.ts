@@ -306,6 +306,9 @@ function silenceTerminal(): void {
   console.warn = consoleNoop;
   console.error = consoleNoop;
   console.debug = consoleNoop;
+  console.info = consoleNoop;
+  console.table = consoleNoop;
+  console.trace = consoleNoop;
   process.stderr.write = stderrNoop as typeof process.stderr.write;
   process.on('warning', warningNoop);
 }
@@ -315,6 +318,9 @@ function unsilenceTerminal(): void {
   console.warn = origConsoleWarn;
   console.error = origConsoleError;
   console.debug = origConsoleDebug;
+  console.info = origConsoleInfo;
+  console.table = origConsoleTable;
+  console.trace = origConsoleTrace;
   process.stderr.write = origStderrWrite;
   process.off('warning', warningNoop);
 }
