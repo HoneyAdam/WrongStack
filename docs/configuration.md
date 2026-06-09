@@ -449,6 +449,7 @@ Each key is a plugin name. The value is a free-form object validated by the plug
 | `WRONGSTACK_FETCH_ALLOW_PRIVATE` | Set `1` to allow localhost/private IPs in the `fetch` tool. |
 | `WRONGSTACK_BASH_ENV_PASSTHROUGH` | Set `1` to disable the bash-tool env allowlist (legacy unsafe mode). |
 | `WRONGSTACK_CHILD_ENV_PASSTHROUGH` | Set `1` to opt back to old child-process env behavior. |
+| `WRONGSTACK_INDEX_QUESTION_THRESHOLD` | File-count threshold for the "Run codebase indexing now?" pre-launch prompt. Default `500`. Set to a high number to suppress the question. |
 | `METRICS_HOST` | Prometheus metrics bind address (default `127.0.0.1`). |
 | `NO_COLOR` | Disable ANSI color output. |
 
