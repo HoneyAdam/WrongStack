@@ -19,7 +19,7 @@ describe('/next slash command', () => {
     it('reports name and help text', () => {
       const cmd = buildNextCommand(makeCtx());
       expect(cmd.name).toBe('next');
-      expect(cmd.description).toMatch(/next-task prediction/i);
+      expect(cmd.description).toMatch(/next-step suggestion/i);
       expect(cmd.help).toContain('/next on');
       expect(cmd.help).toContain('/next off');
       expect(cmd.help).toContain('/next toggle');

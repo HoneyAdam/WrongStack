@@ -119,7 +119,7 @@ async function detectRunner(cwd: string): Promise<string | null> {
       // continue
     }
   }
-  return 'vitest';
+  return null;
 }
 
 function buildArgs(runner: string, input: TestInput): string[] {
