@@ -114,16 +114,14 @@ export class DefaultLogger implements Logger {
     // Stderr: pretty or json. Suppressed when this.stderr is false (TUI mode)
     // so plugin/library log messages don't interleave with Ink's rendering.
     if (!this.stderr) return;
-    if (r <= LEVEL_RANK.warn || this.level === 'debug' || this.level === 'trace') {
-      if (this.format === 'json') {
-        writeErr(`${JSON.stringify(entry)}\n`);
+    if (this.format === 'json') {
+      writeErr(`${JSON.stringify(entry)}\n`);
+    } else {
+      const head = `${color.dim(ts)} ${COLORS[level](level.toUpperCase().padEnd(5))} ${msg}`;
+      if (ctx !== undefined) {
+        writeErr(`${head} ${formatCtx(ctx)}\n`);
       } else {
-        const head = `${color.dim(ts)} ${COLORS[level](level.toUpperCase().padEnd(5))} ${msg}`;
-        if (ctx !== undefined) {
-          writeErr(`${head} ${formatCtx(ctx)}\n`);
-        } else {
-          writeErr(`${head}\n`);
-        }
+        writeErr(`${head}\n`);
       }
     }
   }
