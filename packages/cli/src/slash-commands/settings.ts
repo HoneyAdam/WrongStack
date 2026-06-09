@@ -2,7 +2,7 @@ import { color } from '@wrongstack/core';
 import type { SlashCommand } from '@wrongstack/core';
 import { persistAutonomySetting, persistConfigSetting } from '../settings-menu.js';
 import type { SlashCommandContext } from './index.js';
-import { noOpVault } from './helpers.js';
+import { noOpVault, parseSubcommand, unknownSubcommand } from './helpers.js';
 
 function formatDelay(ms: number): string {
   if (ms >= 60_000) return `${Math.round(ms / 60_000)}m`;
@@ -60,8 +60,8 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
     description: 'View or change settings (auto-proceed delay, default autonomy mode, launch hints).',
     help,
     async run(args) {
-      const parts = args.trim().split(/\s+/).filter(Boolean);
-      const sub = (parts[0] ?? '').toLowerCase();
+      const { cmd, rest } = parseSubcommand(args);
+      const sub = cmd;
 
       if (sub === 'help' || sub === '--help') {
         return { message: this.help ?? '' };
@@ -100,7 +100,7 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
 
       try {
         if (sub === 'delay') {
-          const raw = parts[1];
+          const raw = rest[0];
           if (raw === undefined) {
             return {
               message: `${color.amber('Usage:')} /settings delay <seconds>   ${color.dim('(0 disables)')}`,
@@ -120,7 +120,7 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
         }
 
         if (sub === 'mode') {
-          const raw = (parts[1] ?? '').toLowerCase();
+          const raw = (rest[0] ?? '').toLowerCase();
           const modes = ['off', 'suggest', 'auto'];
           if (!modes.includes(raw)) {
             return { message: `${color.amber('Usage:')} /settings mode off|suggest|auto` };
@@ -132,7 +132,7 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
         }
 
         if (sub === 'hints') {
-          const raw = (parts[1] ?? '').toLowerCase();
+          const raw = (rest[0] ?? '').toLowerCase();
           if (!['on', 'off'].includes(raw)) {
             return { message: `${color.amber('Usage:')} /settings hints on|off` };
           }
@@ -144,7 +144,7 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
         }
 
         if (sub === 'debug-stream') {
-          const raw = (parts[1] ?? '').toLowerCase();
+          const raw = (rest[0] ?? '').toLowerCase();
           if (!['on', 'off'].includes(raw)) {
             return { message: `${color.amber('Usage:')} /settings debug-stream on|off` };
           }
@@ -161,7 +161,7 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
         }
 
         if (sub === 'config-scope') {
-          const raw = (parts[1] ?? '').toLowerCase();
+          const raw = (rest[0] ?? '').toLowerCase();
           if (!['global', 'project'].includes(raw)) {
             return { message: `${color.amber('Usage:')} /settings config-scope global|project` };
           }
