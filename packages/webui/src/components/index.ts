@@ -21,4 +21,5 @@ export { AutoPhaseView } from './AutoPhaseView';
 export { TaskBoard, type TaskItem } from './TaskBoard';
 export { ContextBar, ContextFillBar } from './ContextBar';
 export { ContextPanel } from './ContextPanel';
+export { ContextSidebar } from './ContextSidebar';
 export { AgentsPage } from './AgentsPage';

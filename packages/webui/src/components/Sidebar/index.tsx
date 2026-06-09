@@ -22,7 +22,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Button } from '../ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { AgentDetail } from '../FleetPanel';
-import { ContextPanel } from '../ContextPanel';
+import { ContextSidebar } from '../ContextSidebar';
 import { ConfigSection } from './ConfigSection.js';
 import { SessionActions } from './SessionActions.js';
 import { SessionList } from './SessionList.js';
@@ -282,7 +282,7 @@ export function Sidebar() {
 
         <TabsContent value="context" className="flex-1 m-0 flex flex-col overflow-hidden">
           <div className="flex-1 overflow-y-auto p-3">
-            <ContextPanel />
+            <ContextSidebar />
           </div>
         </TabsContent>
 
