@@ -114,7 +114,7 @@ export function buildChildEnv(optsOrSessionId?: BuildChildEnvOptions | string): 
     || (legacyHasOwn && process.env['WRONGSTACK_BASH_ENV_PASSTHROUGH'] === '1');
   if (passthrough && !process.env['CI']) {
     console.warn(
-      '[WrongStack] WARNING: WRONGSTACK_*_ENV_PASSTHROUGH=1 is active —\n' +
+      '[agent] WARNING: WRONGSTACK_*_ENV_PASSTHROUGH=1 is active —\n' +
       '  all parent env vars (including API keys) forwarded to child processes.\n' +
       '  Do not use on shared or multi-tenant systems.'
     );

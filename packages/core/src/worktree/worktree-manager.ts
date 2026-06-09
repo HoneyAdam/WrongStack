@@ -431,9 +431,9 @@ export class WorktreeManager {
     if (name && email) return [];
     return [
       '-c',
-      `user.name=${name || 'WrongStack AutoPhase'}`,
+      `user.name=${name || 'AutoPhase'}`,
       '-c',
-      `user.email=${email || 'autophase@wrongstack.local'}`,
+      `user.email=${email || 'autophase@agent.local'}`,
     ];
   }
 

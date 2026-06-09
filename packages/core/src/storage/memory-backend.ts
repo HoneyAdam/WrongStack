@@ -151,7 +151,7 @@ export class FileMemoryBackend implements MemoryBackend {
     const line = `\n- [${entry.ts}] ${id}${meta} ${entry.text.replace(/\n/g, ' ')}\n`;
     const next = existing.trim()
       ? existing.replace(/\n+$/, '') + line
-      : `# WrongStack Memory\n${line}`;
+      : `# Agent Memory\n${line}`;
     await atomicWrite(file, next);
   }
 
