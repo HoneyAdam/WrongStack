@@ -9,6 +9,7 @@ import {
 import type { Config, ConfigLoader, SyncConfig } from '../types/config.js';
 import type { SecretVault } from '../types/secret-vault.js';
 import { safeParse } from '../utils/safe-json.js';
+import { deepMerge as deepMergeCore, type DeepMergeOptions } from '../utils/deep-merge.js';
 import type { WstackPaths } from '../utils/wstack-paths.js';
 import {
   DEFAULT_TOOLS_CONFIG,
@@ -126,56 +127,22 @@ type PartialConfig = Partial<Config> & {
   _envSource?: Set<string> | undefined;
 };
 
-function isPrimitiveArray(a: unknown[]): boolean {
-  return a.every((v) => v === null || typeof v !== 'object');
-}
-
-const FORBIDDEN_PROTO_KEYS = new Set([
-  '__proto__',
-  'constructor',
-  'prototype',
-  '__defineGetter__',
-  '__defineSetter__',
-  '__lookupGetter__',
-  '__lookupSetter__',
-]);
-
+/**
+ * Config-layer deep merge — delegates to the shared utility with
+ * `arrayMode: 'concat-primitives'` and optional debug logging for
+ * non-primitive array replacements.
+ */
 function deepMerge<T>(base: T, patch: Partial<T>): T {
-  if (typeof base !== 'object' || base === null) return (patch as T) ?? base;
-  if (typeof patch !== 'object' || patch === null) return base;
-  const out: Record<string, unknown> = { ...(base as Record<string, unknown>) };
-  for (const [k, v] of Object.entries(patch as Record<string, unknown>)) {
-    // Defense in depth — user config is parsed from JSON and merged
-    // recursively; blocking these keys eliminates prototype-pollution
-    // gadgets regardless of where else they might be touched.
-    if (FORBIDDEN_PROTO_KEYS.has(k)) continue;
-    const existing = out[k];
-    // Primitive arrays (plugins, tools, etc.) are merged by concatenation.
-    // Object arrays (MCP servers, etc.) are replaced wholesale.
-    if (Array.isArray(v)) {
-      if (Array.isArray(existing) && isPrimitiveArray(v) && isPrimitiveArray(existing)) {
-        out[k] = [...new Set([...existing, ...v])];
-      } else {
-        out[k] = v;
-        if (envBoolOptional(process.env.WRONGSTACK_DEBUG_CONFIG)) {
-          console.warn(
-            `[config] Non-primitive array for "${k}" replaced (global + local config merge). ` +
-              `Global entries: ${(existing as unknown[] | undefined)?.length ?? 0}, local entries: ${v.length}.`,
-          );
-        }
-      }
-    } else if (
-      typeof v === 'object' &&
-      v !== null &&
-      typeof existing === 'object' &&
-      existing !== null
-    ) {
-      out[k] = deepMerge(existing, v as Record<string, unknown>);
-    } else if (v !== undefined) {
-      out[k] = v;
-    }
+  const opts: DeepMergeOptions = { arrayMode: 'concat-primitives' };
+  if (envBoolOptional(process.env.WRONGSTACK_DEBUG_CONFIG)) {
+    opts.onNonPrimitiveArrayReplace = (key, existingLen, patchLen) => {
+      console.warn(
+        `[config] Non-primitive array for "${key}" replaced (global + local config merge). ` +
+          `Global entries: ${existingLen}, local entries: ${patchLen}.`,
+      );
+    };
   }
-  return out as T;
+  return deepMergeCore(base as Record<string, unknown>, patch as Record<string, unknown>, opts) as T;
 }
 
 /**

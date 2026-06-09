@@ -1,4 +1,4 @@
-import { expectDefined } from '@wrongstack/core';
+import { expectDefined, deepMerge as deepMergeCore } from '@wrongstack/core';
 /**
  * json-path plugin — JMESPath query, validate, and transform JSON/YAML.
  *
@@ -176,46 +176,11 @@ function validateJsonSchema(data: unknown, schema: Record<string, unknown>): { v
 }
 
 // ---------------------------------------------------------------------------
-// Deep merge
+// Deep merge — delegates to @wrongstack/core's shared utility.
 // ---------------------------------------------------------------------------
 
 function deepMerge(base: unknown, patch: unknown, conflictResolution: 'prefer-base' | 'prefer-patch' = 'prefer-patch'): unknown {
-  if (typeof base !== 'object' || base === null || typeof patch !== 'object' || patch === null) {
-    return conflictResolution === 'prefer-patch' ? patch : base;
-  }
-
-  if (Array.isArray(base) && Array.isArray(patch)) {
-    return conflictResolution === 'prefer-patch' ? patch : base;
-  }
-
-  const result: Record<string, unknown> = {};
-  const baseObj = base as Record<string, unknown>;
-  const patchObj = patch as Record<string, unknown>;
-
-  const allKeys = new Set([...Object.keys(baseObj), ...Object.keys(patchObj)]);
-
-  for (const key of allKeys) {
-    const baseVal = baseObj[key];
-    const patchVal = patchObj[key];
-
-    if (key in baseObj && key in patchObj) {
-      if (
-        typeof baseVal === 'object' && baseVal !== null &&
-        typeof patchVal === 'object' && patchVal !== null &&
-        !Array.isArray(baseVal) && !Array.isArray(patchVal)
-      ) {
-        result[key] = deepMerge(baseVal, patchVal, conflictResolution);
-      } else {
-        result[key] = conflictResolution === 'prefer-patch' ? patchVal : baseVal;
-      }
-    } else if (key in baseObj) {
-      result[key] = baseVal;
-    } else {
-      result[key] = patchVal;
-    }
-  }
-
-  return result;
+  return deepMergeCore(base, patch, { conflictResolution });
 }
 
 // ---------------------------------------------------------------------------

@@ -4,10 +4,15 @@
  * the full plugin infrastructure.
  */
 import { describe, expect, it } from 'vitest';
+import { deepMerge as deepMergeCore } from '@wrongstack/core';
 
-// ---------------------------------------------------------------------------
-// Pure function implementations (mirrors production code)
-// ---------------------------------------------------------------------------
+function deepMerge(
+  base: unknown,
+  patch: unknown,
+  conflictResolution: 'prefer-base' | 'prefer-patch' = 'prefer-patch',
+): unknown {
+  return deepMergeCore(base, patch, { conflictResolution });
+}
 
 function jmespathSearch(data: unknown, query: string): unknown {
   if (!query || query === '@') return data;
@@ -141,43 +146,6 @@ function validateJsonSchema(data: unknown, schema: Record<string, unknown>): { v
   }
   check(data, schema, '$');
   return { valid: errors.length === 0, errors };
-}
-
-function deepMerge(
-  base: unknown,
-  patch: unknown,
-  conflictResolution: 'prefer-base' | 'prefer-patch' = 'prefer-patch',
-): unknown {
-  if (typeof base !== 'object' || base === null || typeof patch !== 'object' || patch === null) {
-    return conflictResolution === 'prefer-patch' ? patch : base;
-  }
-  if (Array.isArray(base) && Array.isArray(patch)) {
-    return conflictResolution === 'prefer-patch' ? patch : base;
-  }
-  const result: Record<string, unknown> = {};
-  const baseObj = base as Record<string, unknown>;
-  const patchObj = patch as Record<string, unknown>;
-  const allKeys = new Set([...Object.keys(baseObj), ...Object.keys(patchObj)]);
-  for (const key of allKeys) {
-    const baseVal = baseObj[key];
-    const patchVal = patchObj[key];
-    if (key in baseObj && key in patchObj) {
-      if (
-        typeof baseVal === 'object' && baseVal !== null &&
-        typeof patchVal === 'object' && patchVal !== null &&
-        !Array.isArray(baseVal) && !Array.isArray(patchVal)
-      ) {
-        result[key] = deepMerge(baseVal, patchVal, conflictResolution);
-      } else {
-        result[key] = conflictResolution === 'prefer-patch' ? patchVal : baseVal;
-      }
-    } else if (key in baseObj) {
-      result[key] = baseVal;
-    } else {
-      result[key] = patchVal;
-    }
-  }
-  return result;
 }
 
 // ---------------------------------------------------------------------------
