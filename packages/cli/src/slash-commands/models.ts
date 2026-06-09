@@ -245,7 +245,7 @@ export function buildModelsCommand(opts: SlashCommandContext): SlashCommand {
 
         // ---- REMOVE ----
         if (sub === 'remove' || sub === 'rm') {
-          const modelId = rest;
+          const modelId = rest[0];
           if (!modelId) {
             return { message: `${color.amber('Usage:')} /models remove <id>` };
           }
@@ -265,7 +265,7 @@ export function buildModelsCommand(opts: SlashCommandContext): SlashCommand {
         }
 
         return {
-          message: `${color.red('Unknown subcommand')} "${sub}". Try ${color.dim('/models')}, ${color.dim('/models add')}, or ${color.dim('/models help')}.`,
+          message: `${color.red('Unknown subcommand')} "${sub}". ${unknownSubcommand(sub, ['add', 'remove'], 'models')}`,
         };
       } catch (err) {
         return {

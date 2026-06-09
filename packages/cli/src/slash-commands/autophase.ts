@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import type { SlashCommand, PhaseGraph, PhaseProgress } from '@wrongstack/core';
 import { PhaseStore } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
+import { parseSubcommand, unknownSubcommand } from './helpers.js';
 
 function getStore(opts: SlashCommandContext): PhaseStore {
   // Per-project: ~/.wrongstack/projects/<hash>/autophase
@@ -87,13 +88,13 @@ export function buildAutoPhaseCommand(opts: SlashCommandContext): SlashCommand {
       '',
     ].join('\n'),
     async run(args) {
-      const parts = args.trim().split(/\s+/).filter(Boolean);
-      const sub = parts[0] ?? 'status';
+      const { cmd, rest } = parseSubcommand(args);
+      const sub = cmd || 'status';
       const store = getStore(opts);
 
       switch (sub) {
         case 'start': {
-          const goal = parts.slice(1).join(' ').trim();
+          const goal = rest.join(' ').trim();
           if (!goal) {
             return { message: 'Usage: /autophase start <goal>  — describe what to build.' };
           }
@@ -145,7 +146,7 @@ export function buildAutoPhaseCommand(opts: SlashCommandContext): SlashCommand {
         }
 
         case 'load': {
-          const title = parts.slice(1).join(' ').trim();
+          const title = rest.join(' ').trim();
           const graphs = await store.list();
           if (graphs.length === 0) return { message: '❌ No saved projects.' };
           const entry = title
@@ -186,7 +187,7 @@ export function buildAutoPhaseCommand(opts: SlashCommandContext): SlashCommand {
           };
         }
       }
-      return { message: `Unknown subcommand "${sub}". Run \`/autophase\` for usage.` };
+      return { message: unknownSubcommand(sub, ['start', 'pause', 'resume', 'stop', 'save', 'load', 'list', 'status'], 'autophase') };
     },
   };
 }
