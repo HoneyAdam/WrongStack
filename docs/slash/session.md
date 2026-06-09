@@ -1,4 +1,4 @@
-# /save · /resume · /exit — Session Management
+# /save · /sessions · /exit — Session Management
 
 ## /save
 
@@ -12,13 +12,15 @@ await ctx.session.append({
 });
 ```
 
-## /resume (aliases: `/load`, `/sessions`)
+## /sessions (aliases: `/resume`, `/load`)
 
 Lists the 10 most recent sessions from `DefaultSessionStore`. Shows id, startedAt, tokenTotal, and title. To resume a specific session:
 
 ```bash
 wstack resume <session-id>
 ```
+
+**Note:** The command was renamed from `/resume` to `/sessions` to match its behavior (it lists sessions, it doesn't actually resume them). The old aliases `/resume` and `/load` still work for backward compatibility.
 
 ## /exit (aliases: `/quit`, `/q`)
 

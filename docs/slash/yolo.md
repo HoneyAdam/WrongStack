@@ -21,8 +21,15 @@ active.
 | `/yolo on` | Enable YOLO mode |
 | `/yolo off` | Disable YOLO mode and restore permission prompts |
 | `/yolo toggle` | Toggle current state |
+| `/yolo destructive` | Toggle destructive gate (YOLO must be ON first) |
 
 The command also accepts `enable`, `true`, `1`, `disable`, `false`, and `0`.
+
+### /yolo destructive
+
+When YOLO is enabled, `/yolo destructive` controls whether destructive
+operations (file deletion, shell commands with side effects) still prompt
+for confirmation. This is equivalent to the `--confirm-destructive` CLI flag.
 
 ## Security Model Interaction
 

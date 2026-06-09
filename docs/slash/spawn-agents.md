@@ -4,17 +4,22 @@
 
 Spawns an isolated subagent to handle a specific task. The subagent gets its own fresh `Context`, `Agent`, `EventBus`, and session JSONL — completely isolated from the leader's state.
 
+Requires director mode. Run `/director` first or start with `wstack --director`.
+
 **Flags:**
 ```
-/spawn [--provider=<id>] [--model=<id>] [--name=<label>] [--tools=a,b,c] <task description>
+/spawn [--name=<label>] [--model=<id>] <task description>
 ```
 
 | Flag | Effect |
 |---|---|
-| `--provider` | Use a specific provider for this subagent |
-| `--model` | Use a specific model for this subagent |
-| `--name` | Label for the subagent in fleet status |
-| `--tools` | Whitelist of tool names the subagent can use |
+| `--name` | Display name for the subagent in fleet status |
+| `--provider` | Override the provider (defaults to leader provider) |
+| `--model` | Override the model (defaults to leader model) |
+| `--tools` | Comma-separated list of tool names the subagent can use |
+
+For smart routing (auto-picking the right agent role), use `/fleet dispatch`.
+For explicit role assignment, use `/fleet spawn <role>`.
 
 Returns a summary of what was spawned.
 
