@@ -571,8 +571,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
                     : wpaths.globalConfig;
                 const raw = await fs.readFile(targetPath, 'utf8').catch(() => '{}');
                 const parsed = JSON.parse(raw) as Record<string, unknown>;
-                const vault = { encrypt: (v: string) => v, decrypt: (v: string) => v, isEncrypted: () => false };
-                const decrypted = decryptConfigSecrets(parsed, vault) as Record<string, unknown>;
+                const decrypted = decryptConfigSecrets(parsed, noOpVault) as Record<string, unknown>;
 
                 if (s.nextPrediction !== undefined) {
                   decrypted.nextPrediction = s.nextPrediction;
