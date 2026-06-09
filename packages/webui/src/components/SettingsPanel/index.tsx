@@ -375,7 +375,7 @@ export function SettingsPanel() {
                   max={10000}
                   step={500}
                   unit="ms"
-                  onChange={(v) => localPrefs.set({ autonomyDelayMs: v })}
+                  onChange={(v) => syncPref('autonomyDelayMs', v)}
                 />
                 <PreferenceToggle
                   label="YOLO mode"
@@ -421,14 +421,14 @@ export function SettingsPanel() {
                 <PreferenceToggle
                   label="Stream fleet events"
                   hint="Show live subagent activity in the fleet panel."
-                  selector={null}
-                  onChange={() => localPrefs.set({ streamFleet: !localPrefs.streamFleet })}
+                  value={localPrefs.streamFleet}
+                  onChange={() => syncPref('streamFleet', !localPrefs.streamFleet)}
                 />
                 <PreferenceToggle
                   label="Next-step prediction"
                   hint="After a turn completes, predict likely next steps."
-                  selector={null}
-                  onChange={() => localPrefs.set({ nextPrediction: !localPrefs.nextPrediction })}
+                  value={localPrefs.nextPrediction}
+                  onChange={() => syncPref('nextPrediction', !localPrefs.nextPrediction)}
                 />
               </div>
             </TabsContent>
@@ -443,38 +443,38 @@ export function SettingsPanel() {
                 <PreferenceToggle
                   label="MCP servers"
                   hint="Enable Model Context Protocol integrations."
-                  selector={null}
-                  onChange={() => localPrefs.set({ featureMcp: !localPrefs.featureMcp })}
+                  value={localPrefs.featureMcp}
+                  onChange={() => syncPref('featureMcp', !localPrefs.featureMcp)}
                 />
                 <PreferenceToggle
                   label="Plugins"
                   hint="Load and run user-installed plugins."
-                  selector={null}
-                  onChange={() => localPrefs.set({ featurePlugins: !localPrefs.featurePlugins })}
+                  value={localPrefs.featurePlugins}
+                  onChange={() => syncPref('featurePlugins', !localPrefs.featurePlugins)}
                 />
                 <PreferenceToggle
                   label="Memory"
                   hint="Persist and recall facts across sessions."
-                  selector={null}
-                  onChange={() => localPrefs.set({ featureMemory: !localPrefs.featureMemory })}
+                  value={localPrefs.featureMemory}
+                  onChange={() => syncPref('featureMemory', !localPrefs.featureMemory)}
                 />
                 <PreferenceToggle
                   label="Skills"
                   hint="Load domain-specific skill prompts."
-                  selector={null}
-                  onChange={() => localPrefs.set({ featureSkills: !localPrefs.featureSkills })}
+                  value={localPrefs.featureSkills}
+                  onChange={() => syncPref('featureSkills', !localPrefs.featureSkills)}
                 />
                 <PreferenceToggle
                   label="Models registry"
                   hint="Use the models.dev catalog for provider discovery."
-                  selector={null}
-                  onChange={() => localPrefs.set({ featureModelsRegistry: !localPrefs.featureModelsRegistry })}
+                  value={localPrefs.featureModelsRegistry}
+                  onChange={() => syncPref('featureModelsRegistry', !localPrefs.featureModelsRegistry)}
                 />
                 <PreferenceToggle
                   label="Index on start"
                   hint="Build the codebase symbol index at session start."
-                  selector={null}
-                  onChange={() => localPrefs.set({ indexOnStart: !localPrefs.indexOnStart })}
+                  value={localPrefs.indexOnStart}
+                  onChange={() => syncPref('indexOnStart', !localPrefs.indexOnStart)}
                 />
               </div>
 
@@ -486,8 +486,8 @@ export function SettingsPanel() {
                 <PreferenceToggle
                   label="Auto-compact context"
                   hint="Automatically trim the context window when near limits."
-                  selector={null}
-                  onChange={() => localPrefs.set({ contextAutoCompact: !localPrefs.contextAutoCompact })}
+                  value={localPrefs.contextAutoCompact}
+                  onChange={() => syncPref('contextAutoCompact', !localPrefs.contextAutoCompact)}
                 />
                 <PreferenceSelect
                   label="Context strategy"
@@ -499,7 +499,7 @@ export function SettingsPanel() {
                     { value: 'deep' as const, label: 'Deep — keep more history' },
                     { value: 'archival' as const, label: 'Archival — maximum context retention' },
                   ]}
-                  onChange={(v) => localPrefs.set({ contextStrategy: v })}
+                  onChange={(v) => syncPref('contextStrategy', v)}
                 />
                 <PreferenceSelect
                   label="Log level"
@@ -511,7 +511,7 @@ export function SettingsPanel() {
                     { value: 'warn' as const, label: 'Warn — problems only' },
                     { value: 'error' as const, label: 'Error — failures only' },
                   ]}
-                  onChange={(v) => localPrefs.set({ logLevel: v })}
+                  onChange={(v) => syncPref('logLevel', v)}
                 />
                 <PreferenceSelect
                   label="Audit level"
@@ -522,7 +522,7 @@ export function SettingsPanel() {
                     { value: 'standard' as const, label: 'Standard — tool calls + errors' },
                     { value: 'verbose' as const, label: 'Verbose — every event' },
                   ]}
-                  onChange={(v) => localPrefs.set({ auditLevel: v })}
+                  onChange={(v) => syncPref('auditLevel', v)}
                 />
               </div>
             </TabsContent>

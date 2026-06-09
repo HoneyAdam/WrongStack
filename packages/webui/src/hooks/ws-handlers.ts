@@ -422,10 +422,9 @@ export function handleGoalUpdated(msg: WSServerMessage) {
 
 export function handlePrefsUpdated(msg: WSServerMessage) {
   const p = msg.payload as Record<string, unknown>;
-  // The payload is a partial LocalPrefs snapshot from the server.
-  // Cast through unknown because Record<string, unknown> doesn't
-  // directly match Partial<LocalPrefs> at the type level.
-  useLocalPrefs.getState().set(p as unknown as Parameters<typeof useLocalPrefs.getState>['set']>[0]);
+  // Server sends a partial LocalPrefs snapshot. Merge it into the
+  // local-prefs store so every browser tab stays in sync.
+  (useLocalPrefs.getState().set as (patch: Record<string, unknown>) => void)(p);
 }
 
 // ── File operation handlers ──

@@ -1848,8 +1848,6 @@ export async function startWebUI(
           config.features.skills = payload['featureSkills'];
         if (typeof payload['featureModelsRegistry'] === 'boolean')
           config.features.modelsRegistry = payload['featureModelsRegistry'];
-        if (typeof payload['indexOnStart'] === 'boolean')
-          config.features.indexOnStart = payload['indexOnStart'];
 
         // Broadcast the full current prefs snapshot to ALL clients.
         // Build the snapshot from context.meta (only the pref keys we care about).
