@@ -15,9 +15,14 @@ export function setupEvents(deps: SetupEventsDeps): void {
   const { events, broadcast, clients, config, context, pendingConfirms } = deps;
 
   events.on('iteration.started', (e) => {
+    // Read maxIterations from context.meta so the UI reflects the
+    // webui setting, falling back to the startup config default.
+    const maxIt = typeof context.meta['maxIterations'] === 'number'
+      ? context.meta['maxIterations']
+      : config.tools?.maxIterations ?? 100;
     broadcast(clients, {
       type: 'iteration.started',
-      payload: { index: e.index, maxIterations: config.tools?.maxIterations ?? 100 },
+      payload: { index: e.index, maxIterations: maxIt },
     });
   });
 

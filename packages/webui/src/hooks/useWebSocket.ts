@@ -45,10 +45,17 @@ export function useWebSocketBootstrap(): void {
 
     const offStatus = ws.onStatus((s) => setWsStatus(s));
 
-    ws.connect().catch((err) => {
-      // eslint-disable-next-line no-console
-      console.error('[WS] Connection failed:', err);
-    });
+    ws.connect()
+      .then(() => {
+        // Pull the current preference snapshot from the server so the
+        // client starts with the server's truth — surviving a page refresh
+        // without losing any settings changed in another tab.
+        ws.getPrefs();
+      })
+      .catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error('[WS] Connection failed:', err);
+      });
 
     if (installed.current) {
       return () => { offStatus(); };

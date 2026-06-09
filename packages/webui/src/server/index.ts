@@ -504,8 +504,9 @@ export async function startWebUI(
   // Agent
   const secretScrubber = container.resolve(TOKENS.SecretScrubber);
   const renderer = container.has(TOKENS.Renderer) ? container.resolve(TOKENS.Renderer) : undefined;
+  const permissionPolicy = container.resolve(TOKENS.PermissionPolicy);
   const toolExecutor = new ToolExecutor(toolRegistry, {
-    permissionPolicy: container.resolve(TOKENS.PermissionPolicy),
+    permissionPolicy,
     secretScrubber,
     renderer,
     events,
@@ -865,7 +866,12 @@ export async function startWebUI(
         const thisRun = runLock;
 
         try {
-          const result = await agent.run(content, { signal: thisRun.signal });
+          // Read maxIterations from context.meta so the webui settings
+          // panel can adjust the cap dynamically without restarting.
+          const maxIt = typeof context.meta['maxIterations'] === 'number'
+            ? context.meta['maxIterations']
+            : undefined;
+          const result = await agent.run(content, { signal: thisRun.signal, maxIterations: maxIt });
           send(ws, {
             type: 'run.result',
             payload: {
@@ -1835,6 +1841,12 @@ export async function startWebUI(
         for (const [key, val] of Object.entries(payload)) {
           context.meta[key] = val;
         }
+        // YOLO mode: toggle the permission policy so tool confirmations
+        // are auto-approved instead of prompting the user. Uses the live
+        // reference resolved from the container at startup.
+        if (typeof payload['yolo'] === 'boolean') {
+          permissionPolicy.setYolo?.(payload['yolo']);
+        }
         // Also update config.features for feature flags that affect tool/skill
         // initialisation (these were read at startup but can be changed at runtime
         // by the agent's permission middleware or tool guards).
@@ -1848,6 +1860,34 @@ export async function startWebUI(
           config.features.skills = payload['featureSkills'];
         if (typeof payload['featureModelsRegistry'] === 'boolean')
           config.features.modelsRegistry = payload['featureModelsRegistry'];
+
+        // Runtime effects: apply prefs that change server behaviour immediately.
+
+        // contextAutoCompact — toggle AutoCompactionMiddleware in/out of the
+        // contextWindow pipeline. When off, the pipeline skips the compaction
+        // step entirely (zero overhead). When on, re-adds the middleware.
+        if (typeof payload['contextAutoCompact'] === 'boolean') {
+          if (payload['contextAutoCompact'] && autoCompactor) {
+            // Re-add: remove first (idempotent via optional), then insert.
+            pipelines.contextWindow.remove('AutoCompaction', { optional: true });
+            pipelines.contextWindow.use({ name: 'AutoCompaction', handler: autoCompactor.handler() });
+          } else {
+            pipelines.contextWindow.remove('AutoCompaction', { optional: true });
+          }
+        }
+
+        // logLevel — the DefaultLogger.level property is a public mutable
+        // field. Setting it at runtime changes the log threshold immediately
+        // (the log() method checks LEVEL_RANK on every call).
+        if (typeof payload['logLevel'] === 'string') {
+          const valid = ['debug', 'info', 'warn', 'error'] as const;
+          if ((valid as readonly string[]).includes(payload['logLevel'])) {
+            logger.level = payload['logLevel'] as typeof valid[number];
+          }
+        }
+
+        // auditLevel — stored in context.meta by the generic loop above.
+        // Consumed by the session audit log system at session-close time.
 
         // Broadcast the full current prefs snapshot to ALL clients.
         // Build the snapshot from context.meta (only the pref keys we care about).
