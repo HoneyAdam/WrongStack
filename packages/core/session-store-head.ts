@@ -806,13 +806,12 @@ class FileSessionWriter implements SessionWriter {
    */
   private async flushBuffer(): Promise<void> {
     if (this.writeBuffer.length === 0) return;
-    const eventCount = this.writeBuffer.length;
     const batch = this.writeBuffer.map((e) => JSON.stringify(e)).join('\n') + '\n';
     this.writeBuffer = [];
     try {
       await this.handle.appendFile(batch, 'utf8');
     } catch (err) {
-      this.appendFailCount += eventCount;
+      this.appendFailCount += batch.length; // count each lost event
       const now = Date.now();
       if (now - this.lastAppendWarnAt > 5000) {
         const suppressed = this.appendFailCount - 1;

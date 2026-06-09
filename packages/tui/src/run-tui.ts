@@ -301,7 +301,7 @@ const stderrNoop = ((_chunk: string | Uint8Array, _encodingOrCb?: BufferEncoding
 }) as typeof process.stderr.write;
 const warningNoop = (_warning: Error): void => {};
 
-function silenceTerminal(): void {
+export function silenceTerminal(): void {
   console.log = consoleNoop;
   console.warn = consoleNoop;
   console.error = consoleNoop;
@@ -313,7 +313,7 @@ function silenceTerminal(): void {
   process.on('warning', warningNoop);
 }
 
-function unsilenceTerminal(): void {
+export function unsilenceTerminal(): void {
   console.log = origConsoleLog;
   console.warn = origConsoleWarn;
   console.error = origConsoleError;
