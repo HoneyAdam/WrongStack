@@ -31,6 +31,7 @@ WrongStack's REPL supports core slash commands plus commands registered by built
 | `/spawn` | `packages/cli/src/slash-commands/spawn-agents.ts` | Spawn an isolated subagent |
 | `/agents` | `packages/cli/src/slash-commands/spawn-agents.ts` | Show subagents or toggle the agents monitor |
 | `/director` | `packages/cli/src/slash-commands/spawn-agents.ts` | Promote to director mode |
+| `/delegate` | `packages/cli/src/slash-commands/delegate.ts` | Hand a task to a specialist subagent; `/delegate list` for roles |
 | `/fleet` | `packages/cli/src/slash-commands/fleet.ts` | Fleet status, usage, kill, manifest, retry, log, stream |
 | `/sdd` | `packages/cli/src/slash-commands/sdd.ts` | Spec-driven development workflow |
 | `/btw` | `packages/cli/src/slash-commands/btw.ts` | Quick side-note workflow |
