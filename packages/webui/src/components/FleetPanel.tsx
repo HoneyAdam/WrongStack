@@ -1,7 +1,7 @@
 import { cn } from '@/lib/utils';
 import { type SubagentView, useFleetStore } from '@/stores';
-import { Bot, ChevronDown, ChevronRight, Clock, Cpu, Wrench, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { Bot, Check, ChevronDown, ChevronRight, Clock, Copy, Cpu, Wrench, X } from 'lucide-react';
+import { useCallback, useMemo, useState } from 'react';
 
 /** Status → LED color + label. */
 const STATUS_META: Record<
@@ -47,6 +47,17 @@ export function AgentDetail({
   const active = agent.status === 'running';
   const tool = agent.currentTool ?? agent.lastTool;
   const elapsed = Date.now() - agent.startedAt;
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard unavailable — silently ignore
+    }
+  }, []);
   const ctxTone =
     agent.ctxPct >= 85
       ? 'bg-red-500/15 text-red-600 dark:text-red-400'
@@ -197,19 +208,41 @@ export function AgentDetail({
           {/* Output — partial text from subagent streaming, or final text on completion */}
           {agent.finalText ? (
             <div className="rounded-lg border bg-muted/20 p-3">
-              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                Final Output
-              </span>
-              <pre className="text-xs mt-1.5 whitespace-pre-wrap font-mono text-foreground/80 leading-relaxed max-h-64 overflow-y-auto">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                  Final Output
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleCopy(agent.finalText!)}
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  title="Copy output"
+                >
+                  {copied ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
+                  {copied ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+              <pre className="text-xs whitespace-pre-wrap font-mono text-foreground/80 leading-relaxed max-h-64 overflow-y-auto">
                 {agent.finalText}
               </pre>
             </div>
           ) : agent.partialText ? (
             <div className="rounded-lg border bg-muted/20 p-3">
-              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                Live Output
-              </span>
-              <pre className="text-xs mt-1.5 whitespace-pre-wrap font-mono text-foreground/80 leading-relaxed max-h-48 overflow-y-auto">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                  Live Output
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleCopy(agent.partialText!)}
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  title="Copy output"
+                >
+                  {copied ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
+                  {copied ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+              <pre className="text-xs whitespace-pre-wrap font-mono text-foreground/80 leading-relaxed max-h-48 overflow-y-auto">
                 {agent.partialText}
               </pre>
             </div>
