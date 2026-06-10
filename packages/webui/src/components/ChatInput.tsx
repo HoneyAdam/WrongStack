@@ -358,10 +358,10 @@ export function ChatInput({
             sendMessage(content);
           }
         } else {
-          console.error('WebSocket not connected');
+          console.warn(JSON.stringify({ level: 'warn', event: 'ws_send_failed', reason: 'not_connected', timestamp: new Date().toISOString() }));
         }
       } catch (err) {
-        console.error('Failed to send:', err);
+        console.warn(JSON.stringify({ level: 'warn', event: 'ws_send_error', error: err instanceof Error ? err.message : String(err), timestamp: new Date().toISOString() }));
         setLoading(false);
       }
     },

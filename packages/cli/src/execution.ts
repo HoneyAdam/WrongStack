@@ -90,7 +90,7 @@ export interface ExecutionDeps {
   /** Status bar hidden items controller (passed to TUI). */
   statuslineHiddenItems: Array<'todos' | 'plan' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost'>;
   setStatuslineHiddenItems: (
-    items: Array<'todos' | 'plan' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost'>,
+    items: Array<'todos' | 'plan' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost' | 'working_dir'>,
   ) => void;
   /** Agents monitor overlay controller (passed to TUI). */
   agentsMonitorController?: {

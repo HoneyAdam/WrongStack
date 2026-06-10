@@ -96,7 +96,9 @@ export function buildMailboxBlock(messages: MailboxMessage[]): { type: 'text'; t
 export function attachMailboxChecker(a: AgentInternals): () => Promise<MailboxMessage[]> {
   const home = os.homedir();
   const projectDir = resolveProjectDir(a.ctx.projectRoot, path.join(home, '.wrongstack'));
-  const mailbox: Mailbox = new GlobalMailbox(projectDir);
+  // Pass the agent's EventBus so GlobalMailbox can emit real-time events
+  // (agent_registered, agent_heartbeat, etc.) for TUI/WebUI display.
+  const mailbox: Mailbox = new GlobalMailbox(projectDir, a.events);
   const agentId = (a.ctx.meta['agentId'] as string) ?? 'leader';
   return createMailboxChecker({ mailbox, agentId });
 }

@@ -1068,7 +1068,10 @@ async function runContextCompaction(
   _signal: AbortSignal,
 ): Promise<void> {
   try {
-    const ctx = opts.agent.ctx as unknown as { compactor?: { compact(ctx: unknown, opts: { aggressive: boolean }): Promise<void> } };
+    const ctx = opts.agent.ctx as unknown as {
+      messages?: Array<unknown>;
+      compactor?: { compact(ctx: unknown, opts: { aggressive: boolean }): Promise<void> };
+    };
     if (!ctx?.compactor) return;
     // Quick check: only compact if we've added meaningful message volume
     // since the last compaction (heuristic: >50 messages).

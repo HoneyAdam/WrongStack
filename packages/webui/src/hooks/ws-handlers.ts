@@ -1,4 +1,4 @@
-import { expectDefined } from '@wrongstack/core';
+import { expectDefined, normalizedEqual } from '@wrongstack/core';
 import { toast } from '@/components/Toaster';
 import { playCompletionChime, playPermissionChime } from '@/lib/chime';
 import { setFaviconStatus } from '@/lib/favicon';
@@ -628,7 +628,7 @@ export const WS_HANDLERS: Record<string, (msg: WSServerMessage) => void> = {
       error: p.error,
       refinedLength: p.refined?.length,
       englishLength: p.english?.length,
-      refinedPreview: p.refined?.slice(0, 50),
+      refinedPreview: p.refined?.slice(0, 100),
     }));
     const refinePanel = useUIStore.getState().refinePanel;
     console.log('[WS] refinePanel exists:', !!refinePanel);
@@ -636,7 +636,23 @@ export const WS_HANDLERS: Record<string, (msg: WSServerMessage) => void> = {
     if (p.error) {
       // Refinement failed — fall back to original
       toast.error(`Refinement failed: ${p.error}`);
+      // Send the original message since refinement failed
+      const { original } = refinePanel;
       useUIStore.getState().setRefinePanel(null);
+      useChatStore.getState().addMessage({ role: 'user', content: original });
+      useUIStore.getState().setLoading(true);
+      getWSClient().send({ type: 'user_message', payload: { id: `msg_${Date.now()}`, content: original, timestamp: Date.now() } });
+      return;
+    }
+    // TUI behavior: only show refine panel if result is actually different from original
+    // If the model returned essentially the same text, send directly without showing panel
+    const original = refinePanel.original;
+    if (normalizedEqual(p.refined, original)) {
+      console.log('[WS] Refinement returned same text — sending directly without panel');
+      useUIStore.getState().setRefinePanel(null);
+      useChatStore.getState().addMessage({ role: 'user', content: original });
+      useUIStore.getState().setLoading(true);
+      getWSClient().send({ type: 'user_message', payload: { id: `msg_${Date.now()}`, content: original, timestamp: Date.now() } });
       return;
     }
     // Update the refine panel with the actual refined and english text

@@ -18,6 +18,8 @@ export interface SpawnStreamOptions {
   maxBytes?: number | undefined;
   /** Bytes of new stdout/stderr to accumulate before yielding a `partial_output` event. */
   flushBytes?: number | undefined;
+  /** Maximum chunks to buffer before applying backpressure to the child. Default 500. */
+  maxQueueSize?: number | undefined;
 }
 
 /**
@@ -32,6 +34,7 @@ export async function* spawnStream(
 ): AsyncGenerator<ToolProgressEvent, SpawnStreamResult> {
   const max = opts.maxBytes ?? 200_000;
   const flushAt = opts.flushBytes ?? 4 * 1024;
+  const maxQueue = opts.maxQueueSize ?? 500;
   let stdout = '';
   let stderr = '';
   let pending = '';
@@ -51,6 +54,7 @@ export async function* spawnStream(
   type Chunk = { kind: 'out' | 'err' | 'close' | 'error'; data: string; code?: number | undefined };
   const queue: Chunk[] = [];
   let waiter: (() => void) | undefined;
+  let paused = false;
   const wake = () => {
     if (waiter) {
       const w = waiter;
@@ -59,17 +63,39 @@ export async function* spawnStream(
     }
   };
 
+  // Resume the stream when there's room in the queue
+  const resume = () => {
+    if (paused && queue.length < maxQueue) {
+      paused = false;
+      child.stdout?.resume();
+      child.stderr?.resume();
+    }
+  };
+
   child.stdout?.on('data', (c) => {
+    if (paused) return;
     const s = c.toString();
     if (stdout.length < max) stdout += s;
     queue.push({ kind: 'out', data: s });
     wake();
+    // Apply backpressure if queue is growing faster than we consume
+    if (queue.length >= maxQueue) {
+      paused = true;
+      child.stdout?.pause();
+      child.stderr?.pause();
+    }
   });
   child.stderr?.on('data', (c) => {
+    if (paused) return;
     const s = c.toString();
     if (stderr.length < max) stderr += s;
     queue.push({ kind: 'err', data: s });
     wake();
+    if (queue.length >= maxQueue) {
+      paused = true;
+      child.stdout?.pause();
+      child.stderr?.pause();
+    }
   });
   child.on('error', (e) => {
     error = e.message;
@@ -90,6 +116,8 @@ export async function* spawnStream(
       });
     }
     const chunk = queue.shift()!;
+    // Resume reading after consuming a chunk
+    resume();
     if (chunk.kind === 'close') {
       // If we already saw a spawn error (ENOENT etc.), keep exitCode=1
       // rather than the negative platform code Node fabricates.

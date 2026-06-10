@@ -142,6 +142,7 @@ export async function enhanceUserPrompt(
   opts: EnhanceUserPromptOptions,
 ): Promise<EnhanceResult | null> {
   const { provider, model, text } = opts;
+  console.log('[enhanceUserPrompt] Called with model:', model, 'text length:', text.length);
   // Reasoning models ("thinking" models like DeepSeek reasoner / o1) take
   // longer to first token, so give a generous default window.
   const timeoutMs = opts.timeoutMs ?? 90000;
@@ -170,12 +171,15 @@ export async function enhanceUserPrompt(
     : timer.signal;
 
   try {
+    console.log('[enhanceUserPrompt] Calling provider.complete for model:', model);
     const res = await provider.complete(req, { signal });
+    console.log('[enhanceUserPrompt] Response received, content length:', res.content?.length);
     const raw = res.content
       .filter(isTextBlock)
       .map((b) => b.text)
       .join('\n')
       .trim();
+    console.log('[enhanceUserPrompt] Raw response:', raw.slice(0, 200));
     if (!raw) {
       opts.onError?.('model returned no text');
       return null;
@@ -184,6 +188,7 @@ export async function enhanceUserPrompt(
     // The model outputs two versions separated by a line with only "---".
     // Split on the first occurrence so the delimiter can appear in the text.
     const sepIdx = raw.indexOf('\n---\n');
+    console.log('[enhanceUserPrompt] Separator index:', sepIdx);
     if (sepIdx === -1) {
       // Model didn't follow the format — treat the whole response as a
       // single refined version (best-effort fallback).
@@ -192,12 +197,15 @@ export async function enhanceUserPrompt(
     }
     const refined = raw.slice(0, sepIdx).trim();
     const english = raw.slice(sepIdx + 5).trim(); // skip "\n---\n"
+    console.log('[enhanceUserPrompt] Parsed refined:', refined.slice(0, 100));
+    console.log('[enhanceUserPrompt] Parsed english:', english.slice(0, 100));
     if (!refined || !english) {
       opts.onError?.('one or both versions empty');
       return null;
     }
     return { refined, english };
   } catch (err) {
+    console.error('[enhanceUserPrompt] Error:', err instanceof Error ? err.message : String(err));
     // User-initiated cancel → stay silent (they chose to send the original).
     if (opts.signal?.aborted) return null;
     if (timer.signal.aborted) {
