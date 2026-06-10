@@ -21,6 +21,23 @@ export function attachMailboxChecker(
   a: AgentInternals,
   source?: 'cli' | 'webui',
 ): () => Promise<MailboxMessage[]> {
+  // Mailbox integration is best-effort — it must NEVER be the reason Agent
+  // construction fails. Ephemeral/test contexts without a projectRoot get a
+  // no-op checker, and any setup error degrades to the same.
+  if (!a.ctx.projectRoot) {
+    return async () => [];
+  }
+  try {
+    return attachMailboxCheckerInner(a, source);
+  } catch {
+    return async () => [];
+  }
+}
+
+function attachMailboxCheckerInner(
+  a: AgentInternals,
+  source?: 'cli' | 'webui',
+): () => Promise<MailboxMessage[]> {
   const home = os.homedir();
   const projectDir = resolveProjectDir(a.ctx.projectRoot, path.join(home, '.wrongstack'));
   // Pass the agent's EventBus so GlobalMailbox can emit real-time events

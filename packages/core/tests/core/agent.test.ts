@@ -180,9 +180,12 @@ describe('Agent', () => {
     expect(result.status).toBe('done');
     expect(repairs).toEqual([{ removedToolUses: ['dangling'], removedMessages: 1 }]);
     expect(JSON.stringify(requestSnapshots[0])).not.toContain('tool_use');
+    // Messages carry the internal `_estTokens` annotation (stripped by the
+    // provider adapters' normalizeMessage before hitting the wire) — match
+    // the semantic shape, not exact object identity.
     expect(requestSnapshots[0]).toEqual([
-      { role: 'assistant', content: 'still useful' },
-      { role: 'user', content: [{ type: 'text', text: 'continue' }] },
+      expect.objectContaining({ role: 'assistant', content: 'still useful' }),
+      expect.objectContaining({ role: 'user', content: [{ type: 'text', text: 'continue' }] }),
     ]);
   });
 

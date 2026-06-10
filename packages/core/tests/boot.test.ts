@@ -47,6 +47,10 @@ vi.mock('../src/infrastructure/logger.js', () => ({
   DefaultLogger: vi.fn().mockImplementation(function (this: any, opts: { level: string }) {
     this.level = opts?.level;
   }),
+  // boot.ts passes noOpLogger into migratePlaintextSecrets. A missing export
+  // on a vitest module mock THROWS on access — which the migration loop's
+  // best-effort catch silently swallows, making migrate look "never called".
+  noOpLogger: { debug() {}, info() {}, warn() {}, error() {}, child() { return this; } },
 }));
 vi.mock('../src/infrastructure/path-resolver.js', () => ({
   DefaultPathResolver: vi.fn().mockImplementation(function (this: any) {

@@ -627,31 +627,26 @@ export class DefaultSessionStore implements SessionStore {
           continue;
         }
         openToolUses.delete(e.id);
-        // Append the tool_result block to the most recent assistant message's
-        // content — not to a new user message. This matches how the live
-        // context structures tool_use/tool_result pairs and avoids corrupting
-        // the chronological message order (assistant → user → assistant → user).
-        const lastAssistantIdx = messages.findLastIndex((m) => m.role === 'assistant');
+        // Provider protocol: tool_result blocks live in a USER message that
+        // follows the assistant's tool_use turn — never inside the assistant
+        // message itself (repairToolUseAdjacency would treat that as broken
+        // adjacency and strip the tool_use blocks, silently dropping the
+        // assistant turn on resume). Consecutive results from one turn are
+        // grouped into a single user message.
         const resultBlock: ContentBlock = {
           type: 'tool_result',
           tool_use_id: e.id,
           content: typeof e.content === 'string' ? e.content : JSON.stringify(e.content),
           is_error: e.isError,
         };
-        if (lastAssistantIdx >= 0) {
-          const lastAssistant = messages[lastAssistantIdx]!;
-          if (Array.isArray(lastAssistant.content)) {
-            lastAssistant.content.push(resultBlock);
-          } else {
-            lastAssistant.content = [resultBlock];
-          }
+        const last = messages[messages.length - 1];
+        const lastIsToolResultUser =
+          last?.role === 'user' &&
+          Array.isArray(last.content) &&
+          last.content.every((b) => (b as ContentBlock).type === 'tool_result');
+        if (lastIsToolResultUser && Array.isArray(last.content)) {
+          last.content.push(resultBlock);
         } else {
-          // No assistant message yet — emit a session.damaged warning and
-          // create a placeholder user message so the result isn't silently lost.
-          this.events?.emit('session.damaged', {
-            sessionId,
-            detail: `tool_result "${e.id}" arrived with no preceding assistant message`,
-          });
           messages.push({ role: 'user', content: [resultBlock], ts: e.ts });
         }
       }

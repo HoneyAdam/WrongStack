@@ -12,8 +12,11 @@ const MAX_OUTPUT_BYTES = 64 * 1024;
 //   1. Use absolute paths to trusted executables
 //   2. Create wrapper scripts under .wrongstack/hooks/ and reference them by absolute path
 const ALLOWED_SHELL_COMMANDS = new Set([
-  // POSIX shells
-  'bash', 'sh', 'dash', 'zsh', 'fish',
+  // POSIX shells + Windows shells
+  'bash', 'sh', 'dash', 'zsh', 'fish', 'pwsh', 'powershell', 'cmd',
+  // Script interpreters — hooks are routinely small node/python scripts
+  'node', 'deno', 'bun', 'npx', 'npm', 'pnpm', 'yarn',
+  'python', 'python3', 'perl', 'ruby',
   // Utilities
   'echo', 'cat', 'grep', 'sed', 'awk', 'find', 'sort', 'uniq', 'wc', 'head', 'tail', 'cut',
   'tr', 'tee', 'xargs', 'printf', 'test', 'expr',
@@ -31,12 +34,21 @@ const ALLOWED_SHELL_COMMANDS = new Set([
   'uname', 'hostname', 'whoami', 'date',
 ]);
 
+/** Absolute path on either platform (POSIX `/...` or Windows `C:\...` / `C:/...`). */
+function isAbsoluteCommandPath(p: string): boolean {
+  return p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p);
+}
+
 function isCommandAllowed(command: string): boolean {
   // Extract the base command (first word) for allowlist check
   const baseCommand = command.trim().split(/\s+/)[0] ?? '';
-  // Handle absolute paths - extract the filename
-  const commandName = baseCommand.includes('/')
-    ? baseCommand.split('/').pop() ?? baseCommand
+  // Documented escape hatch #1: absolute paths reference operator-authored
+  // trusted executables (incl. wrapper scripts under .wrongstack/hooks/) and
+  // are allowed as-is — on both POSIX and Windows path syntax.
+  if (isAbsoluteCommandPath(baseCommand)) return true;
+  // Relative path with separators (e.g. ./scripts/hook.sh) — judge by filename.
+  const commandName = /[\\/]/.test(baseCommand)
+    ? baseCommand.split(/[\\/]/).pop() ?? baseCommand
     : baseCommand;
 
   return ALLOWED_SHELL_COMMANDS.has(commandName);

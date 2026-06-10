@@ -103,7 +103,8 @@ describe('DefaultSessionStore', () => {
     expect(data.metadata.id).toBe('s1');
     expect(data.metadata.model).toBe('m');
     expect(data.messages).toHaveLength(2);
-    expect(data.messages[0]).toEqual({ role: 'user', content: 'hello' });
+    // Replayed messages also carry the event's `ts` — match the core shape.
+    expect(data.messages[0]).toMatchObject({ role: 'user', content: 'hello' });
     expect(data.usage.input).toBe(10);
     expect(data.usage.output).toBe(5);
   });
@@ -266,7 +267,10 @@ describe('DefaultSessionStore', () => {
       for (let i = 0; i < 25; i++) {
         await w.append({ type: 'user_input', ts: new Date().toISOString(), content: `m${i}` });
       }
-      // Despite 25 failed appends, the debounce folds them into a single
+      // Appends are buffered (FLUSH_SIZE 50 / inactivity timer) — force the
+      // flush so the failure path runs inside the test instead of on a timer.
+      await (w as unknown as { flushBuffer: () => Promise<void> }).flushBuffer();
+      // Despite 25 failed events, the throttle folds them into a single
       // warning (the 5-second window hasn't elapsed within the test).
       expect(warn).toHaveBeenCalledTimes(1);
     } finally {
@@ -284,19 +288,23 @@ describe('DefaultSessionStore', () => {
       const stub = vi.spyOn(handle, 'appendFile').mockRejectedValue(new Error('ENOSPC'));
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
       try {
-        // First batch: one warn fires, the rest are debounced.
+        const flush = () =>
+          (w as unknown as { flushBuffer: () => Promise<void> }).flushBuffer();
+        // First batch: one failing flush of 5 events → one warn that folds
+        // the other 4 events into a "+4 suppressed" tail.
         for (let i = 0; i < 5; i++) {
           await w.append({ type: 'user_input', ts: new Date().toISOString(), content: `m${i}` });
         }
+        await flush();
         expect(warn).toHaveBeenCalledTimes(1);
-        // Advance past the 5-second debounce window and fail one more.
+        const firstCall = warn.mock.calls[0]!;
+        expect(firstCall.some((arg) => /\+\d+ suppressed/.test(String(arg)))).toBe(true);
+        // Advance past the 5-second throttle window and fail one more —
+        // a fresh warn fires instead of being suppressed.
         vi.setSystemTime(Date.now() + 6000);
         await w.append({ type: 'user_input', ts: new Date().toISOString(), content: 'after' });
+        await flush();
         expect(warn).toHaveBeenCalledTimes(2);
-        // The second warn surfaces the count of failures that happened
-        // between the two warn windows (4 events).
-        const secondCall = warn.mock.calls[1]!;
-        expect(secondCall.some((arg) => /\+\d+ suppressed/.test(String(arg)))).toBe(true);
       } finally {
         stub.mockRestore();
         warn.mockRestore();
@@ -529,8 +537,9 @@ describe('DefaultSessionStore — in-flight markers', () => {
       outputTokens: 28,
       outputLines: 5,
     });
-    // Messages should still replay correctly.
-    expect(data.messages).toHaveLength(2); // user_input + assistant with tool_use
+    // Messages should still replay correctly: user_input + assistant with
+    // tool_use + the user message carrying the tool_result.
+    expect(data.messages).toHaveLength(3);
   });
 
   it('returns empty toolCallEnds when no tool_call_end events exist', async () => {

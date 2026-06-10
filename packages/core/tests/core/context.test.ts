@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { Context, DefaultTokenCounter } from '../../src/index.js';
 import type { Provider, SessionWriter, TextBlock } from '../../src/index.js';
@@ -87,8 +88,10 @@ describe('Context.setWorkingDir', () => {
       model: 'm',
     });
     const result = ctx.setWorkingDir('/proj/src');
-    expect(result).toBe('/proj/src');
-    expect(ctx.workingDir).toBe('/proj/src');
+    // setWorkingDir returns path.resolve output — platform-native separators
+    // (D:\proj\src on Windows), so build the expectation the same way.
+    expect(result).toBe(path.resolve('/proj/src'));
+    expect(ctx.workingDir).toBe(path.resolve('/proj/src'));
   });
 
   it('resolves relative paths against projectRoot', () => {
@@ -102,10 +105,10 @@ describe('Context.setWorkingDir', () => {
       projectRoot: '/proj',
       model: 'm',
     });
-    // 'src' relative → /proj/src
+    // 'src' relative → <projectRoot>/src
     const result = ctx.setWorkingDir('src');
-    expect(result).toBe('/proj/src');
-    expect(ctx.workingDir).toBe('/proj/src');
+    expect(result).toBe(path.resolve('/proj/src'));
+    expect(ctx.workingDir).toBe(path.resolve('/proj/src'));
   });
 
   it('rejects paths outside projectRoot', () => {
@@ -148,7 +151,7 @@ describe('Context.setWorkingDir', () => {
       model: 'm',
     });
     const result = ctx.setWorkingDir('/proj/src/lib');
-    expect(result).toBe('/proj/src/lib');
+    expect(result).toBe(path.resolve('/proj/src/lib'));
   });
 });
 
@@ -170,7 +173,7 @@ describe('Context.onWorkingDirChanged', () => {
     ctx.onWorkingDirChanged((n, o) => { newDir = n; oldDir = o; });
 
     ctx.setWorkingDir('/proj/src');
-    expect(newDir).toBe('/proj/src');
+    expect(newDir).toBe(path.resolve('/proj/src'));
     expect(oldDir).toBe('/proj');
   });
 

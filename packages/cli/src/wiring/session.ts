@@ -106,7 +106,10 @@ export async function setupSession(params: {
       const resumed = await sessionStore.resume(resumeId);
       session = resumed.writer;
       restoredMessages = resumed.data.messages;
-      restoredToolCalls = resumed.data.toolCallEnds;
+      // Sessions written before tool_call_end events existed (or alternate
+      // store impls) may not carry toolCallEnds — missing must not turn a
+      // perfectly resumable session into RESUME_FAILED.
+      restoredToolCalls = resumed.data.toolCallEnds ?? [];
       renderer.writeInfo(
         `Resumed session ${resumed.data.metadata.id} — ${restoredMessages.length} messages, ${restoredToolCalls.length} tool executions, ${resumed.data.usage.input + resumed.data.usage.output} tokens used previously.`,
       );
