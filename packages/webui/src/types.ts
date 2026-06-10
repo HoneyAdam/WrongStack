@@ -536,6 +536,7 @@ export type WSClientMessage =
   | { type: 'prefs.update'; payload: Record<string, unknown> }
   | { type: 'prefs.get' }
   | { type: 'projects.list' }
+  | { type: 'projects.select'; payload: { root: string; name?: string | undefined } }
   | WSCollabJoin
   | WSCollabLeave
   | WSCollabAnnotate
@@ -599,7 +600,8 @@ export type WSServerMessage =
   | { type: 'goal.updated'; payload: Record<string, unknown> | null }
   | { type: 'prefs.updated'; payload: Record<string, unknown> }
   | { type: 'process.list'; payload: { processes: Array<{ pid: number; command: string; tool: string; startedAt: number; status: 'running' | 'exited' | 'killed'; protected?: boolean | undefined }> } }
-  | { type: 'projects.list'; payload: { projects: Array<{ name: string; root: string; slug: string; lastSeen?: string | undefined }> } };
+  | { type: 'projects.list'; payload: { projects: Array<{ name: string; root: string; slug: string; lastSeen?: string | undefined }> } }
+  | { type: 'projects.selected'; payload: { root: string; name: string; message: string } };
 
 // Helper to broadcast to all clients
 export type BroadcastFn = (msg: WSServerMessage) => void;

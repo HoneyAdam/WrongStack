@@ -1756,6 +1756,45 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
         break;
       }
 
+      case 'projects.select': {
+        // Spawn a new wstack session in the chosen project directory
+        const { root, name: projectName } = (
+          msg as { payload: { root: string; name?: string | undefined } }
+        ).payload;
+        try {
+          // Find the CLI entry point
+          let cliPath: string;
+          try {
+            const { createRequire } = await import('node:module');
+            const req = createRequire(import.meta.url);
+            const pkg = req.resolve('@wrongstack/cli/package.json');
+            cliPath = path.join(path.dirname(pkg), 'dist', 'index.js');
+            await fs.access(cliPath);
+          } catch {
+            cliPath = process.argv[1] ?? '';
+            if (!cliPath) throw new Error('CLI entry not found');
+          }
+          const { spawn } = await import('node:child_process');
+          const child = spawn(process.execPath, [cliPath], {
+            cwd: root,
+            stdio: 'inherit',
+            detached: false,
+          });
+          child.unref();
+          send(ws, {
+            type: 'projects.selected',
+            payload: {
+              root,
+              name: projectName ?? path.basename(root),
+              message: `Spawning wstack in ${root} ...`,
+            },
+          });
+        } catch (err) {
+          sendResult(ws, false, err instanceof Error ? err.message : String(err));
+        }
+        break;
+      }
+
       default: {
         // Log unknown message types for debugging but do NOT send an error
         // to the client. This covers autophase.* and any new

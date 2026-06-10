@@ -532,4 +532,7 @@ export const WS_HANDLERS: Record<string, (msg: WSServerMessage) => void> = {
   'projects.list': (msg: WSServerMessage) => {
     // Handled directly by ProjectsPanel component
   },
+  'projects.selected': (msg: WSServerMessage) => {
+    // Handled directly by ProjectsPanel component
+  },
 };

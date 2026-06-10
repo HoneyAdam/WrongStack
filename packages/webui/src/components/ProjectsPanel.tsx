@@ -1,7 +1,8 @@
 import { cn } from '@/lib/utils';
 import { getWSClient } from '@/lib/ws-client';
-import { Folder, History, Loader2 } from 'lucide-react';
+import { ExternalLink, Folder, History, Loader2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import { toast } from './Toaster';
 
 interface ProjectEntry {
   name: string;
@@ -77,12 +78,23 @@ export function ProjectsPanel({ fullView }: { fullView?: boolean | undefined }) 
     return a.name.localeCompare(b.name);
   });
 
+  const handleSelect = useCallback((p: ProjectEntry) => {
+    const ws = getWSClient();
+    ws.send({ type: 'projects.select', payload: { root: p.root, name: p.name } });
+    const off = ws.on('projects.selected', () => {
+      toast.success(`Opening ${p.name} in a new terminal...`);
+      off();
+    });
+  }, []);
+
   const list = (
     <div className={cn('space-y-1', fullView && 'p-2')}>
       {sorted.map((p) => (
-        <div
+        <button
           key={p.slug}
-          className="flex items-start gap-2 px-2 py-1.5 rounded border bg-card/40 text-xs"
+          type="button"
+          onClick={() => handleSelect(p)}
+          className="flex items-start gap-2 w-full text-left px-2 py-1.5 rounded border bg-card/40 text-xs hover:bg-accent hover:border-primary/40 transition-colors"
         >
           <Folder className="h-3.5 w-3.5 shrink-0 mt-0.5 text-muted-foreground" />
           <div className="min-w-0 flex-1">
@@ -100,7 +112,8 @@ export function ProjectsPanel({ fullView }: { fullView?: boolean | undefined }) 
               )}
             </div>
           </div>
-        </div>
+          <ExternalLink className="h-3 w-3 shrink-0 mt-1 text-muted-foreground/40" />
+        </button>
       ))}
     </div>
   );
