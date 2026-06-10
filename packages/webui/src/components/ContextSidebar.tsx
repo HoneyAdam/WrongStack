@@ -2,7 +2,9 @@ import { getWSClient } from '@/lib/ws-client';
 import { cn } from '@/lib/utils';
 import { useConfigStore, useSessionStore } from '@/stores';
 import { Eraser, Shrink } from 'lucide-react';
+import { useState } from 'react';
 import { ContextBar } from './ContextBar';
+import { ContextBreakdownModal } from './ContextBreakdownModal';
 import { fmtTok } from './ChatView/utils';
 
 /**
@@ -18,6 +20,8 @@ export function ContextSidebar({
 }): React.ReactElement {
   const { lastInputTokens, maxContext } = useSessionStore();
   const wsUrl = useConfigStore((s) => s.wsUrl);
+
+  const [breakdownOpen, setBreakdownOpen] = useState(false);
 
   const ctxPct =
     maxContext > 0
@@ -51,6 +55,7 @@ export function ContextSidebar({
           maxTokens={maxContext}
           segments={12}
           showTokens={false}
+          onClick={() => setBreakdownOpen(true)}
         />
 
         {/* Fill bar */}
@@ -106,6 +111,7 @@ export function ContextSidebar({
         </button>
       </div>
 
+      <ContextBreakdownModal open={breakdownOpen} onClose={() => setBreakdownOpen(false)} />
     </div>
   );
 }

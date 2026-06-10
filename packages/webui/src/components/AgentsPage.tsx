@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ContextBar, ContextFillBar } from './ContextBar';
+import { ContextBreakdownModal } from './ContextBreakdownModal';
 import { fmtTok } from './ChatView/utils';
 
 // ── Helpers ────────────────────────────────────────────────────────────
@@ -325,11 +326,13 @@ function AgentRow({
   now,
   selected,
   onClick,
+  onContextClick,
 }: {
   agent: AgentView;
   now: number;
   selected: boolean;
   onClick: () => void;
+  onContextClick: () => void;
 }): React.ReactElement {
   const meta = STATUS_META[agent.status] ?? STATUS_META.idle;
   const active = agent.status === 'running';
@@ -381,6 +384,7 @@ function AgentRow({
             pct={agent.ctxPct}
             tokens={agent.ctxTokens}
             maxTokens={agent.maxContext}
+            onClick={onContextClick}
           />
         </div>
       )}
@@ -437,6 +441,7 @@ export function AgentsPage({
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [nowTick, setNowTick] = useState(Date.now());
+  const [breakdownOpen, setBreakdownOpen] = useState(false);
 
   // Live clock
   useEffect(() => {
@@ -657,6 +662,7 @@ export function AgentsPage({
                 now={nowTick}
                 selected={a.id === selected?.id}
                 onClick={() => setSelectedId(selectedId === a.id ? null : a.id)}
+                onContextClick={() => setBreakdownOpen(true)}
               />
             ))}
           </div>
@@ -681,6 +687,8 @@ export function AgentsPage({
           <AgentDetailPanel agent={selected} now={nowTick} />
         </div>
       )}
+
+      <ContextBreakdownModal open={breakdownOpen} onClose={() => setBreakdownOpen(false)} />
     </div>
   );
 }

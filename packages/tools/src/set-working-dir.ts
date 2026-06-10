@@ -47,7 +47,7 @@ export const setWorkingDirTool: Tool<SetWorkingDirInput, SetWorkingDirOutput> = 
       },
     },
   },
-  async execute(input, ctx: Context) {
+  async execute(input, ctx: Context, _opts: { signal: AbortSignal }) {
     if (!input.path) {
       return {
         current: ctx.workingDir,
