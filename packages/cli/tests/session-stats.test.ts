@@ -6,7 +6,7 @@ import { SessionStats } from '../src/session-stats.js';
 
 class CapStream extends Writable {
   buf = '';
-  _write(c: Buffer | string, _e: BufferEncoding, cb: (err?: Error | null) => void): void {
+  override _write(c: Buffer | string, _e: BufferEncoding, cb: (err?: Error | null) => void): void {
     this.buf += typeof c === 'string' ? c : c.toString('utf8');
     cb();
   }

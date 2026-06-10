@@ -1,7 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { DefaultTaskStore } from '../../src/sdd/task-generator.js';
 import { TaskTracker } from '../../src/sdd/task-tracker.js';
-import type { TaskGraph, TaskNode, TaskProgress, TaskStore } from '../../src/types/task-graph.js';
+import type { TaskGraph, TaskStore } from '../../src/types/task-graph.js';
 
 function makeFakeStore(): TaskStore & { graphs: Map<string, TaskGraph> } {
   const graphs = new Map<string, TaskGraph>();

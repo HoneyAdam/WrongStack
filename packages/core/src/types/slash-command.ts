@@ -45,6 +45,6 @@ export interface SlashCommand {
    */
   run(
     args: string,
-    ctx: Context,
+    ctx?: Context | undefined,
   ): Promise<{ exit?: boolean | undefined; message?: string | undefined; runText?: string | undefined; metadata?: Record<string, unknown> } | void>;
 }

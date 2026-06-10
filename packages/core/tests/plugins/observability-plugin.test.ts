@@ -10,14 +10,14 @@ describe('buildMetricsCommand', () => {
   it('reports "metrics not enabled" when no sink', async () => {
     const cmd = buildMetricsCommand(undefined);
     const res = await cmd.run('', {} as never);
-    expect(res.message).toContain('Metrics not enabled');
+    expect(res!.message).toContain('Metrics not enabled');
   });
 
   it('reports "no metrics recorded" when series is empty', async () => {
     const sink = { snapshot: () => ({ series: [] }) };
     const cmd = buildMetricsCommand(sink as never);
     const res = await cmd.run('', {} as never);
-    expect(res.message).toContain('No metrics recorded');
+    expect(res!.message).toContain('No metrics recorded');
   });
 
   it('renders counter and histogram series with labels', async () => {
@@ -47,7 +47,7 @@ describe('buildMetricsCommand', () => {
     };
     const cmd = buildMetricsCommand(sink as never);
     const res = await cmd.run('', {} as never);
-    const out = res.message ?? '';
+    const out = res!.message ?? '';
     expect(out).toContain('# latency_ms');
     expect(out).toContain('count=10');
     expect(out).toContain('p95=75');
@@ -84,7 +84,7 @@ describe('buildHealthCommand', () => {
     };
     const cmd = buildHealthCommand(registry as never);
     const res = await cmd.run('', {} as never);
-    const out = res.message ?? '';
+    const out = res!.message ?? '';
     expect(out).toContain('overall: unhealthy');
     expect(out).toContain('session-store: healthy');
     expect(out).toContain('provider: unhealthy');

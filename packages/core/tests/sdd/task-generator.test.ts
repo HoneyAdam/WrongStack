@@ -1,8 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { DefaultTaskStore, TaskGenerator } from '../../src/sdd/task-generator.js';
-import { TaskTracker } from '../../src/sdd/task-tracker.js';
+import type { TaskStore } from '../../src/sdd/task-tracker.js';
 import type { SpecRequirement, Specification } from '../../src/types/spec.js';
-import type { TaskGraph, TaskNode, TaskStore } from '../../src/types/task-graph.js';
 
 function makeRequirement(overrides: Partial<SpecRequirement> = {}): SpecRequirement {
   return {

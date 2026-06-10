@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import type { TextBlock } from '@wrongstack/core';
 import { stripAnsi } from '@wrongstack/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -10,8 +11,8 @@ import {
   printLaunchHints,
 } from '../src/launch-hints.js';
 
-function makeRenderer(): { write: ReturnType<typeof vi.fn>; output: () => string } {
-  const write = vi.fn();
+function makeRenderer(): { write: (input: string | TextBlock) => void; output: () => string } {
+  const write = vi.fn() as unknown as (input: string | TextBlock) => void;
   return {
     write,
     output: () => stripAnsi(write.mock.calls.map((c) => String(c[0])).join('')),

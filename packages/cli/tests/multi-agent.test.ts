@@ -63,7 +63,7 @@ function makeDeps(): MultiAgentDeps {
     append: vi.fn(async () => undefined),
     appendBatch: vi.fn(async () => undefined),
     close: vi.fn(async () => undefined),
-  } satisfies SessionWriter as unknown as SessionWriter;
+  } as unknown as SessionWriter;
 
   const tokenCounter: TokenCounter = {
     account: vi.fn(),

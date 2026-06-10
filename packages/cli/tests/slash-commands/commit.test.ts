@@ -2,7 +2,6 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { color } from '@wrongstack/core';
 
 // Git init/spawn overhead pushes these tests past the 5s default on Windows.
 vi.setConfig({ testTimeout: 30_000 });

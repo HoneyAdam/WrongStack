@@ -31,12 +31,12 @@ describe('buildPlanCommand', () => {
   it('reports when planPath missing', async () => {
     const cmd = buildPlanCommand(undefined);
     const res = await cmd.run('show', makeCtx());
-    expect(res.message).toContain('not configured');
+    expect(res!.message).toContain('not configured');
   });
 
   it('show on empty plan renders empty state', async () => {
     const res = await buildPlanCommand(planPath).run('', makeCtx());
-    expect(typeof res.message).toBe('string');
+    expect(typeof res!.message).toBe('string');
   });
 
   it('add without args returns usage', async () => {

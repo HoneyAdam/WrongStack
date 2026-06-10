@@ -6,7 +6,7 @@ import { TerminalRenderer } from '../src/renderer.js';
 
 class CaptureStream extends Writable {
   buf = '';
-  _write(chunk: Buffer | string, _enc: BufferEncoding, cb: (err?: Error | null) => void): void {
+  override _write(chunk: Buffer | string, _enc: BufferEncoding, cb: (err?: Error | null) => void): void {
     this.buf += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
     cb();
   }

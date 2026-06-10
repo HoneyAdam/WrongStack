@@ -274,13 +274,18 @@ function runCommand(
     // .cmd file so spawn can locate it; shell: true is still needed because
     // .cmd/.bat files are not natively executable by CreateProcess.
     const resolved = resolveWin32Command(cmd);
-    const needsShell = process.platform === 'win32' && (resolved.endsWith('.cmd') || resolved.endsWith('.bat'));
+    const isWin = process.platform === 'win32';
+    const needsShell = isWin && (resolved.endsWith('.cmd') || resolved.endsWith('.bat'));
 
+    // On Windows the abort signal is handled manually below: Node's built-in
+    // handling kills only the direct child, orphaning grandchildren (vitest
+    // forks, dev servers, anything under a .cmd shim) that keep the inherited
+    // stdio pipes open. registry.kill() tree-kills via taskkill instead.
     const child = spawn(resolved, args, {
       cwd,
-      signal,
       env: buildChildEnv(sessionId),
       stdio: ['ignore', 'pipe', 'pipe'],
+      ...(isWin ? {} : { signal }),
       ...(needsShell ? { shell: true, windowsVerbatimArguments: true } : {}),
     });
 
@@ -297,6 +302,16 @@ function runCommand(
       else child.kill('SIGTERM');
     }, timeout);
 
+    const onAbort = () => {
+      killed = true;
+      if (typeof pid === 'number') registry.kill(pid, { force: true });
+      else child.kill('SIGTERM');
+    };
+    if (isWin) {
+      if (signal.aborted) onAbort();
+      else signal.addEventListener('abort', onAbort, { once: true });
+    }
+
     child.stdout?.on('data', (chunk: Buffer) => {
       if (stdout.length < MAX_OUTPUT) stdout += chunk.toString();
     });
@@ -307,6 +322,7 @@ function runCommand(
 
     child.on('close', (code) => {
       clearTimeout(timer);
+      if (isWin) signal.removeEventListener('abort', onAbort);
       if (typeof pid === 'number') registry.unregister(pid);
       const durationMs = Date.now() - startedAt;
       const exitCode = killed ? 124 : (code ?? 1);
@@ -326,6 +342,7 @@ function runCommand(
 
     child.on('error', (err) => {
       clearTimeout(timer);
+      if (isWin) signal.removeEventListener('abort', onAbort);
       if (typeof pid === 'number') registry.unregister(pid);
       registry.afterCall(Date.now() - startedAt, true);
       resolve({

@@ -33,7 +33,7 @@ function makeFakeReader(lines: string[]): ReadlineInputReader {
       return lines[i++] ?? '';
     }),
     close: vi.fn(async () => {}),
-  };
+  } as unknown as ReadlineInputReader;
 }
 
 function makeFakeRenderer(): TerminalRenderer {
@@ -445,7 +445,7 @@ describe('runRepl', () => {
           if (parsed) suggestions.push(...parsed);
         },
         getSuggestions: () => suggestions,
-      }, 10_000);
+      });
 
       // Suggestion fed directly — no validation gate needed in auto mode
       const allTexts = run.mock.calls
@@ -528,7 +528,7 @@ describe('runRepl', () => {
           if (parsed) suggestions.push(...parsed);
         },
         getSuggestions: () => suggestions,
-      }, 10_000);
+      });
 
       // Suggestion "Clean up" was auto-fed (no validator → proceeds directly)
       const allTexts = run.mock.calls

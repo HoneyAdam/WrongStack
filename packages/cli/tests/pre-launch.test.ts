@@ -1,4 +1,5 @@
 import * as fs from 'node:fs/promises';
+import type { Dirent } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -54,7 +55,7 @@ function makeReader(answers: string[]): ReadlineInputReader {
       return answers[i++] ?? '';
     }),
     close: vi.fn(async () => {}),
-  };
+  } as unknown as ReadlineInputReader;
 }
 
 describe('detectProjectKind', () => {
@@ -417,7 +418,7 @@ describe('runLaunchPrompts', () => {
  * Minimal Dirent stub — the file counter only touches `.name`,
  * `.isDirectory()`, and `.isFile()`.
  */
-function dirent(name: string, isDir: boolean): fs.Dirent {
+function dirent(name: string, isDir: boolean): Dirent {
   return {
     name,
     isDirectory: () => isDir,
@@ -429,14 +430,14 @@ function dirent(name: string, isDir: boolean): fs.Dirent {
     isSocket: () => false,
     parentPath: '',
     path: '',
-  } as unknown as fs.Dirent;
+  } as unknown as Dirent;
 }
 
 /**
  * Stub `fs.readdir` to return a controlled directory tree. The map keys
  * are absolute directory paths; values are the entries in that directory.
  */
-function stubReaddir(tree: Record<string, fs.Dirent[]>) {
+function stubReaddir(tree: Record<string, Dirent[]>) {
   (fs.readdir as unknown as ReturnType<typeof vi.fn>).mockImplementation(
     async (dirPath: unknown) => {
       const key = typeof dirPath === 'string' ? dirPath : String(dirPath);

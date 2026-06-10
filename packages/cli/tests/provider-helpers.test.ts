@@ -120,8 +120,8 @@ describe('buildPickableProviders', () => {
     ]);
     const result = await buildPickableProviders(registry, { providers: {} } as never);
     expect(result).toHaveLength(1);
-    expect(result[0].id).toBe('anthropic');
-    expect(result[0].models).toEqual(['opus', 'haiku']);
+    expect(result[0]!.id).toBe('anthropic');
+    expect(result[0]!.models).toEqual(['opus', 'haiku']);
   });
 
   it('returns providers with stored apiKey in config', async () => {
@@ -222,6 +222,6 @@ describe('buildPickableProviders', () => {
     const anths = result.filter((p) => p.id === 'anthropic');
     expect(anths).toHaveLength(1);
     // And the overlay's models should win
-    expect(anths[0].models).toEqual(['custom']);
+    expect(anths[0]!.models).toEqual(['custom']);
   });
 });

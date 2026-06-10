@@ -3,7 +3,7 @@ import * as os from 'node:os';
 import type { Tool, ToolStreamEvent } from '@wrongstack/core';
 import { buildChildEnv } from './_env.js';
 import { normalizeCommandOutput } from './_util.js';
-import { redactCommand } from './process-registry.js';
+import { killWin32Tree, redactCommand } from './process-registry.js';
 import { getProcessRegistry } from './process-registry.js';
 
 interface BashInput {
@@ -38,6 +38,13 @@ const DEFAULT_TIMEOUT_MS = 300_000;
 // keep EventBus traffic reasonable on chatty processes.
 const STREAM_FLUSH_INTERVAL_MS = 200;
 const STREAM_FLUSH_BYTES = 4 * 1024;
+
+// Maximum chunks buffered between the child's data handlers and the
+// streaming consumer before the pipes are paused (backpressure). Without
+// this, a consumer that stalls — or a generator that was torn down while a
+// (grand)child keeps writing — lets `queue`/`pending` grow without bound
+// and can OOM the host process.
+const MAX_QUEUE_CHUNKS = 500;
 
 export const bashTool: Tool<BashInput, BashOutput> = {
   name: 'bash',
@@ -228,12 +235,18 @@ export const bashTool: Tool<BashInput, BashOutput> = {
     }
 
     // Foreground mode: pipe stdout/stderr for streaming output.
+    // On Windows the abort signal is handled manually below instead of being
+    // passed to spawn(): Node's built-in handling kills only the direct
+    // child (cmd.exe), which destroys taskkill's parent-pid tree enumeration
+    // and orphans the actual command (node/vitest/dev server). The orphan
+    // keeps the inherited stdio pipes open and streams into this process
+    // for the rest of the session.
     const child = spawn(shell, args, {
       cwd: ctx.projectRoot,
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
       detached,
-      signal: opts.signal,
+      ...(isWin ? {} : { signal: opts.signal }),
     });
 
     // Register with global registry so Ctrl+C / /kill can find and kill it.
@@ -259,7 +272,20 @@ export const bashTool: Tool<BashInput, BashOutput> = {
       timeoutMs: number,
     ): void {
       if (isWin) {
-        try { child.kill(); } catch { /* ignore */ }
+        // Tree-kill so grandchildren of the shell die too. Direct kill only
+        // as a delayed fallback — killing cmd.exe first would break
+        // taskkill's tree enumeration and orphan the real command.
+        if (typeof child.pid === 'number' && child.exitCode === null && killWin32Tree(child.pid)) {
+          const fallback = setTimeout(() => {
+            if (child.exitCode === null) {
+              try { child.kill(); } catch { /* ignore */ }
+            }
+          }, 2000);
+          timers.push(fallback);
+          fallback.unref?.();
+        } else {
+          try { child.kill(); } catch { /* ignore */ }
+        }
         return;
       }
 
@@ -295,6 +321,14 @@ export const bashTool: Tool<BashInput, BashOutput> = {
     timers.push(timer);
     timer.unref?.();
 
+    // Windows abort handling (see the spawn() comment above): tree-kill on
+    // abort while the shell is still alive so its grandchildren die with it.
+    const onAbort = () => killWithTimeout(child, 2000);
+    if (isWin) {
+      if (opts.signal.aborted) onAbort();
+      else opts.signal.addEventListener('abort', onAbort, { once: true });
+    }
+
     // Bridge the EventEmitter-style child to an async iterator.
     type Chunk =
       | { kind: 'data'; text: string }
@@ -327,7 +361,25 @@ export const bashTool: Tool<BashInput, BashOutput> = {
       return text;
     };
 
-    child.stdout?.on('data', (chunk) => {
+    // Backpressure: when the consumer falls behind, pause the pipes instead
+    // of letting `queue`/`pending` grow without bound. The child eventually
+    // blocks on write, which is the correct pressure signal.
+    let paused = false;
+    const pauseIfFlooded = () => {
+      if (!paused && queue.length >= MAX_QUEUE_CHUNKS) {
+        paused = true;
+        child.stdout?.pause();
+        child.stderr?.pause();
+      }
+    };
+    const resumeIfDrained = () => {
+      if (paused && queue.length < MAX_QUEUE_CHUNKS) {
+        paused = false;
+        child.stdout?.resume();
+        child.stderr?.resume();
+      }
+    };
+    const onData = (chunk: Buffer) => {
       const text = chunk.toString();
       // Cap buf during accumulation to prevent heap exhaustion from unbounded
       // string growth. exec.ts uses the same pattern. The final output is
@@ -338,15 +390,10 @@ export const bashTool: Tool<BashInput, BashOutput> = {
       }
       pending += text;
       push({ kind: 'data', text });
-    });
-    child.stderr?.on('data', (chunk) => {
-      const text = chunk.toString();
-      if (buf.length < MAX_OUTPUT) {
-        buf += text.slice(0, MAX_OUTPUT - buf.length);
-      }
-      pending += text;
-      push({ kind: 'data', text });
-    });
+      pauseIfFlooded();
+    };
+    child.stdout?.on('data', onData);
+    child.stderr?.on('data', onData);
 
     child.on('error', (err) => {
       for (const t of timers) clearTimeout(t);
@@ -363,6 +410,7 @@ export const bashTool: Tool<BashInput, BashOutput> = {
     try {
       while (true) {
         const c = await next();
+        resumeIfDrained();
         if (c.kind === 'error') throw c.err;
         if (c.kind === 'end') {
           const remainder = flush();
@@ -387,6 +435,22 @@ export const bashTool: Tool<BashInput, BashOutput> = {
       }
     } finally {
       for (const t of timers) clearTimeout(t);
+      if (isWin) opts.signal.removeEventListener('abort', onAbort);
+      // Teardown: this generator can be abandoned mid-stream (executor
+      // timeout, abort, consumer error). The data handlers above would
+      // otherwise stay attached and keep appending to `pending`/`queue`
+      // with no consumer — on Windows a shell grandchild that survived
+      // child.kill() can feed the orphaned pipes for the rest of the
+      // session, growing the host heap until OOM. Detach the handlers,
+      // destroy the pipes, and make sure nothing is still running.
+      child.stdout?.off('data', onData);
+      child.stderr?.off('data', onData);
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      if (child.exitCode === null && !child.killed) {
+        if (typeof pid === 'number') registry.kill(pid, { force: true });
+        else killWithTimeout(child, 2000);
+      }
     }
   },
 };

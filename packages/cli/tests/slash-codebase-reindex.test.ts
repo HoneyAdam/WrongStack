@@ -14,11 +14,6 @@ vi.mock('@wrongstack/tools', () => ({ runStartupIndex: runStartupIndexMock }));
 
 const { buildCodebaseReindexCommand } = await import('../src/slash-commands/codebase-reindex.js');
 
-function fakeRenderer() {
-  const writes: string[] = [];
-  return { writes, write: (s: string) => writes.push(s) };
-}
-
 function build(rendererWrites?: string[]) {
   const renderer = rendererWrites
     ? { write: (s: string) => rendererWrites.push(s) }

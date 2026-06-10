@@ -2,8 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { SessionWriter } from '../../src/types/session.js';
 import {
   createSessionEventBridge,
-  type AuditLevel,
-  type SessionEventBridgeOptions,
 } from '../../src/storage/session-event-bridge.js';
 
 function makeMockWriter() {

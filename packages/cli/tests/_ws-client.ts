@@ -22,7 +22,7 @@ export function openWs(url: string): Promise<WsClient> {
     const buffer: WsMessage[] = [];
     const waiters: Array<{
       type: string;
-      predicate?: (m: WsMessage) => boolean;
+      predicate: ((m: WsMessage) => boolean) | undefined;
       resolve: (m: WsMessage) => void;
     }> = [];
 
@@ -39,7 +39,7 @@ export function openWs(url: string): Promise<WsClient> {
       new Promise((res, rej) => {
         const idx = buffer.findIndex((m) => m.type === type && (!predicate || predicate(m)));
         if (idx >= 0) {
-          res(buffer.splice(idx, 1)[0]);
+          res(buffer.splice(idx, 1)[0]!);
           return;
         }
         const timer = setTimeout(() => rej(new Error(`timed out waiting for ${type}`)), 5_000);

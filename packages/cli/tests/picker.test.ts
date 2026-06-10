@@ -6,7 +6,7 @@ import { TerminalRenderer } from '../src/renderer.js';
 
 class CapStream extends Writable {
   buf = '';
-  _write(c: Buffer | string, _e: BufferEncoding, cb: (err?: Error | null) => void): void {
+  override _write(c: Buffer | string, _e: BufferEncoding, cb: (err?: Error | null) => void): void {
     this.buf += typeof c === 'string' ? c : c.toString('utf8');
     cb();
   }
@@ -273,7 +273,7 @@ describe('runPicker', () => {
 
   it('reports an error when the chosen model index is out of range and no default applies', async () => {
     const providers = [fakeProvider({ models: [fakeModel({ id: 'only-one' })] })];
-    const { renderer, err } = mkRig();
+    const { renderer } = mkRig();
     // Pick provider 1, then an invalid out-of-range numeric selection.
     const reader = fakeReader(['1', '99']);
     const registry = fakeRegistry(providers);

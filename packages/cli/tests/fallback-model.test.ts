@@ -9,7 +9,7 @@ function fakeProvider(id: string): Provider {
 }
 
 function makeCtx(providerId: string, model: string) {
-  return { provider: fakeProvider(providerId), model } as never;
+  return { provider: fakeProvider(providerId), model } as unknown as import('@wrongstack/core').Context;
 }
 
 function overload(providerId: string) {

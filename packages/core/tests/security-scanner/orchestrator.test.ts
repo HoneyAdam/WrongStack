@@ -1,21 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { Provider } from '../../src/types/provider.js';
 import { SecurityScannerOrchestrator } from '../../src/security-scanner/orchestrator.js';
 import type { RetryPolicy } from '../../src/types/retry-policy.js';
 import type { ErrorHandler } from '../../src/types/error-handler.js';
-import { ProviderError } from '../../src/types/provider.js';
-
-const mockProvider = (overrides: Partial<Provider> = {}): Provider =>
-  ({
-    id: 'test',
-    complete: vi.fn().mockResolvedValue({
-      content: [{ type: 'text' as const, text: 'test response' }],
-      stopReason: 'stop',
-      usage: { input: 10, output: 20 },
-    }),
-    capabilities: { streaming: false },
-    ...overrides,
-  } as unknown as Provider);
 
 const mockRetryPolicy = (): RetryPolicy =>
   ({

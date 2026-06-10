@@ -46,7 +46,7 @@ const { createInterfaceMock, currentIface, resetReadline } = vi.hoisted(() => {
   // created during the current test, never the previous one.
   const resetReadline = () => {
     createInterfaceMock.mockClear();
-    state.iface = undefined;
+    delete state.iface;
   };
   return { createInterfaceMock, currentIface: () => state.iface, resetReadline };
 });

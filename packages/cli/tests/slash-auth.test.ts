@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { buildAuthCommand } from '../src/slash-commands/auth.js';
 import type { SlashCommandContext } from '../src/slash-commands/index.js';
 
@@ -6,7 +6,7 @@ function makeContext(overrides: Partial<SlashCommandContext> = {}): SlashCommand
   return {
     registry: {} as SlashCommandContext['registry'],
     toolRegistry: {} as SlashCommandContext['toolRegistry'],
-    tokenCounter: { count: () => 0 } as SlashCommandContext['tokenCounter'],
+    tokenCounter: { count: () => 0 } as unknown as SlashCommandContext['tokenCounter'],
     renderer: {} as SlashCommandContext['renderer'],
     events: {} as SlashCommandContext['events'],
     cwd: '/tmp/test',
@@ -22,23 +22,23 @@ describe('/auth slash command', () => {
     const ctx = makeContext();
     const cmd = buildAuthCommand(ctx);
     const result = await cmd.run('help');
-    expect(result.message).toContain('Usage:');
-    expect(result.message).toContain('/auth');
+    expect(result!.message).toContain('Usage:');
+    expect(result!.message).toContain('/auth');
   });
 
   it('returns help on /auth --help', async () => {
     const ctx = makeContext();
     const cmd = buildAuthCommand(ctx);
     const result = await cmd.run('--help');
-    expect(result.message).toContain('Usage:');
+    expect(result!.message).toContain('Usage:');
   });
 
   it('errors when config path is missing', async () => {
     const ctx = makeContext({ paths: undefined });
     const cmd = buildAuthCommand(ctx);
     const result = await cmd.run('');
-    expect(result.message).toContain('Error');
-    expect(result.message).toContain('config path missing');
+    expect(result!.message).toContain('Error');
+    expect(result!.message).toContain('config path missing');
   });
 
   it('shows open hint with wstack auth instructions', async () => {
@@ -49,8 +49,8 @@ describe('/auth slash command', () => {
     });
     const cmd = buildAuthCommand(ctx);
     const result = await cmd.run('open');
-    expect(result.message).toContain('wstack auth');
-    expect(result.message).toContain('Interactive menu');
+    expect(result!.message).toContain('wstack auth');
+    expect(result!.message).toContain('Interactive menu');
   });
 
   it('shows empty state when no providers', async () => {
@@ -62,7 +62,7 @@ describe('/auth slash command', () => {
     const cmd = buildAuthCommand(ctx);
     const result = await cmd.run('');
     // When config doesn't exist, loadConfigProviders returns {}
-    expect(result.message).toContain('No providers configured');
+    expect(result!.message).toContain('No providers configured');
   });
 
   it('shows usage on /auth status with no argument', async () => {
@@ -73,7 +73,7 @@ describe('/auth slash command', () => {
     });
     const cmd = buildAuthCommand(ctx);
     const result = await cmd.run('status');
-    expect(result.message).toContain('Usage:');
-    expect(result.message).toContain('status <provider>');
+    expect(result!.message).toContain('Usage:');
+    expect(result!.message).toContain('status <provider>');
   });
 });

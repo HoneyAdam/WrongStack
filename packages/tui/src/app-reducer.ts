@@ -36,6 +36,13 @@ export type {
   State,
 } from './app-state.js';
 
+/**
+ * Upper bound on the live tool-stream text retained in state. The live box
+ * only ever displays the last few lines; retaining more than this is pure
+ * heap growth for long-running chatty commands.
+ */
+const MAX_TOOL_STREAM_RETAINED_CHARS = 100_000;
+
 // ── Project picker helpers ────────────────────────────────────────────────
 
 /**
@@ -228,9 +235,18 @@ export function reducer(state: State, action: Action): State {
       // visible).
       const cur = state.toolStream;
       if (cur && cur.toolUseId === action.toolUseId) {
+        // Keep only the tail: the live box renders just the last few lines,
+        // but the accumulated string is retained in React state for the whole
+        // life of the tool call — a chatty long-running command (vitest, a
+        // build) would otherwise grow it into the tens of MB.
+        const combined = cur.text + action.text;
+        const text =
+          combined.length > MAX_TOOL_STREAM_RETAINED_CHARS
+            ? combined.slice(-MAX_TOOL_STREAM_RETAINED_CHARS)
+            : combined;
         return {
           ...state,
-          toolStream: { ...cur, text: cur.text + action.text },
+          toolStream: { ...cur, text },
         };
       }
       return {

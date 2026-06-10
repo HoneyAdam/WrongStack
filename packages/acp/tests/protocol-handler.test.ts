@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { AgentServerTransport } from '../src/agent/stdio-transport.js';
 import type { ACPToolsRegistry } from '../src/agent/tools-registry.js';
 import { ACPProtocolHandler, WRONGSTACK_VERSION } from '../src/agent/protocol-handler.js';
@@ -215,7 +215,7 @@ describe('ACPProtocolHandler', () => {
       await handler.handleMessage({ id: 1, method: 'initialize', params: {} });
 
       // Start a long-running tool call
-      const toolCallPromise = handler.handleMessage({
+      handler.handleMessage({
         id: 2,
         method: 'tools/call',
         params: { name: 'sleep', arguments: {} },

@@ -11,6 +11,7 @@ import { expectDefined } from '@wrongstack/core';
  * Thread-safety: Node.js is single-threaded, but async callbacks can fire
  * in any order. All mutations go through synchronized Map methods.
  */
+import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import * as os from 'node:os';
 import { CircuitBreaker, type CircuitBreakerSnapshot, type CircuitBreakerConfig } from './circuit-breaker.js';
@@ -93,6 +94,31 @@ export interface RegistryStats {
 }
 
 const DEFAULT_GRACE_MS = 2000;
+
+/**
+ * Kill an entire process tree on Windows via `taskkill /T /F`.
+ *
+ * TerminateProcess (what `child.kill()` maps to) has no process-group
+ * semantics, so killing a shell wrapper (`cmd.exe /c …`) orphans its
+ * grandchildren (node, vitest forks, dev servers). The orphans inherit the
+ * parent's stdio pipe handles and can keep streaming into this process for
+ * the rest of the session — which both prevents the child's 'close' event
+ * from ever firing and grows in-memory output buffers without bound.
+ *
+ * Fire-and-forget: returns true if taskkill was spawned, false if spawning
+ * it failed (caller should fall back to a direct `child.kill()`).
+ */
+export function killWin32Tree(pid: number): boolean {
+  try {
+    spawn('taskkill', ['/pid', String(pid), '/T', '/F'], {
+      stdio: 'ignore',
+      windowsHide: true,
+    }).unref();
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 class ProcessRegistryImpl {
   private readonly processes = new Map<number, TrackedProcess>();
@@ -212,11 +238,34 @@ class ProcessRegistryImpl {
     const isWin = os.platform() === 'win32';
 
     if (isWin) {
-      // Windows: no process group semantics; just kill the process.
-      try {
-        p.child.kill(force ? 'SIGKILL' : 'SIGTERM');
-      } catch {
-        // Process may have already exited.
+      // Windows: no process group semantics. A direct kill terminates only
+      // the immediate child — shell-wrapped commands (cmd.exe /c …) leave
+      // grandchildren running that hold the inherited stdio pipes open and
+      // keep feeding output into this process indefinitely. Kill the whole
+      // tree via taskkill instead, but only for a real, still-running child
+      // (exitCode === null); test fakes and already-exited processes take
+      // the plain-kill path. The direct kill is deliberately NOT sent
+      // immediately alongside taskkill: killing the root first would break
+      // taskkill's parent-pid tree enumeration and orphan the grandchildren
+      // again — it runs as a delayed fallback instead.
+      const liveRealChild = p.child.exitCode === null && typeof p.child.pid === 'number';
+      if (liveRealChild && killWin32Tree(pid)) {
+        const fallback = setTimeout(() => {
+          if (p.child.exitCode === null) {
+            try {
+              p.child.kill('SIGKILL');
+            } catch {
+              // Process may have already exited.
+            }
+          }
+        }, graceMs);
+        fallback.unref?.();
+      } else {
+        try {
+          p.child.kill(force ? 'SIGKILL' : 'SIGTERM');
+        } catch {
+          // Process may have already exited.
+        }
       }
       p.killed = true;
       return true;

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 
 // Test that the ACP stdio transport uses buildChildEnv() instead of process.env.
 // We can't easily test the actual spawn, but we can verify the import is correct

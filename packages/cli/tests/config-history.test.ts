@@ -38,10 +38,9 @@ describe('config-history', () => {
       expect(entries[0]!.id).toBe(id);
       expect(entries[0]!.description).toBe('Switched provider');
 
-      const entry = await getHistoryEntry(id, home);
-      expect(entry).not.toBeNull();
-      expect(entry!.snapshotMasked.provider).toBe('openai');
-      expect(entry!.snapshotMasked.model).toBe('gpt-4o');
+      const entry = (await getHistoryEntry(id, home))!;
+      expect(entry.snapshotMasked.provider).toBe('openai');
+      expect(entry.snapshotMasked.model).toBe('gpt-4o');
     });
 
     it('masks apiKey in snapshot', async () => {
@@ -50,9 +49,9 @@ describe('config-history', () => {
 
       const id = await appendHistory(oldCfg, newCfg, 'Changed API key', home);
 
-      const entry = await getHistoryEntry(id, home);
-      expect(entry!.snapshotMasked).toEqual({ provider: 'test', apiKey: '[REDACTED]' });
-      expect(entry!.diffSummary).toContain('[CHANGED]');
+      const entry = (await getHistoryEntry(id, home))!;
+      expect(entry.snapshotMasked).toEqual({ provider: 'test', apiKey: '[REDACTED]' });
+      expect(entry.diffSummary).toContain('[CHANGED]');
     });
 
     it('prepends new entries (newest first)', async () => {

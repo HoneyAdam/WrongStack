@@ -1,16 +1,7 @@
-import { Writable } from 'node:stream';
 import type { InputReader, Tool } from '@wrongstack/core';
 import { stripAnsi } from '@wrongstack/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { makePromptDelegate } from '../src/permission-prompt.js';
-
-class _FakeStdout extends Writable {
-  buf = '';
-  _write(chunk: Buffer | string, _enc: BufferEncoding, cb: (err?: Error | null) => void): void {
-    this.buf += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
-    cb();
-  }
-}
 
 const fakeTool: Tool = {
   name: 'edit',

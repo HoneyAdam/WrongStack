@@ -15,8 +15,8 @@ describe('@wrongstack/cli package smoke', () => {
   it('package export points at built dist files', () => {
     const rootExport = pkg.exports['.'];
     expect(rootExport).toBeDefined();
-    expect(fs.existsSync(path.resolve(pkgRoot, rootExport.import))).toBe(true);
-    expect(fs.existsSync(path.resolve(pkgRoot, rootExport.types))).toBe(true);
+    expect(fs.existsSync(path.resolve(pkgRoot, rootExport!.import))).toBe(true);
+    expect(fs.existsSync(path.resolve(pkgRoot, rootExport!.types))).toBe(true);
   });
 
   it('dist entry imports without running main', async () => {
