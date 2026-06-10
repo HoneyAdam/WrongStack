@@ -30,7 +30,7 @@ describe('generateCommitMessageWithLLM', () => {
   it('forwards the model, maxTokens, temperature and system prompt', async () => {
     const provider = okProvider('feat: x');
     await generateCommitMessageWithLLM('the diff', { provider, model: 'gpt-4o-mini' });
-    const call = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[0];
+    const call = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[0]!;
     expect(call[0].model).toBe('gpt-4o-mini');
     expect(call[0].maxTokens).toBe(80);
     expect(call[0].temperature).toBe(0.3);
@@ -78,7 +78,7 @@ describe('generateCommitMessageWithLLM', () => {
   it('passes an AbortSignal so the call can be cancelled', async () => {
     const provider = okProvider('feat: x');
     await generateCommitMessageWithLLM('diff', { provider, model: 'm' });
-    const call = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[0];
+    const call = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[0]!;
     expect(call[1].signal.aborted).toBe(false);
   });
 });

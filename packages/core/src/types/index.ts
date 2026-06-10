@@ -28,6 +28,7 @@ export * from './input-reader.js';
 export * from './plugin.js';
 export * from './errors.js';
 export * from '../models/models-registry.js';
+export * from './models-registry.js';
 export * from './mode.js';
 export * from './context-window.js';
 export * from '../coordination/agent-bridge.js';

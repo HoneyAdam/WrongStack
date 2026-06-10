@@ -7,7 +7,7 @@ function fakeTransport() {
   const sent: unknown[] = [];
   return {
     sent,
-    send: vi.fn<[unknown], Promise<void>>().mockImplementation(async (msg: unknown) => {
+    send: vi.fn<(msg: unknown) => Promise<void>>().mockImplementation(async (msg: unknown) => {
       sent.push(msg);
     }),
   };
@@ -15,9 +15,9 @@ function fakeTransport() {
 
 function fakeRegistry() {
   return {
-    has: vi.fn<[string], boolean>(),
-    execute: vi.fn<[string, Record<string, unknown>, unknown, AbortSignal], Promise<unknown>>(),
-    buildToolList: vi.fn<[], { tools: unknown[] }>().mockReturnValue({ tools: [] }),
+    has: vi.fn<(s: string) => boolean>(),
+    execute: vi.fn<(name: string, input: Record<string, unknown>, context: unknown, signal: AbortSignal) => Promise<unknown>>(),
+    buildToolList: vi.fn<() => { tools: unknown[] }>().mockReturnValue({ tools: [] }),
   };
 }
 

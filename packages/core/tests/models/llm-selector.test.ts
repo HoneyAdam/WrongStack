@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LLMSelector } from '../../src/models/llm-selector.js';
 import type { Message } from '../../src/types/messages.js';
-import type { Provider } from '../../src/types/provider.js';
+import type { Provider, Capabilities } from '../../src/types/provider.js';
 
 function makeTextBlock(text: string) {
   return { type: 'text' as const, text };
@@ -15,7 +15,18 @@ function mockProvider(responses: string[]): Provider {
   let idx = 0;
   return {
     id: 'test',
-    capabilities: { tools: false, streaming: false },
+    capabilities: {
+      tools: false,
+      parallelTools: false,
+      vision: false,
+      streaming: false,
+      promptCache: false,
+      systemPrompt: false,
+      jsonMode: false,
+      reasoning: false,
+      maxContext: 128_000,
+      cacheControl: 'none' as const,
+    } satisfies Capabilities,
     complete: vi.fn().mockImplementation(async () => ({
       content: responses[idx++] ? [makeTextBlock(responses[idx - 1])] : [makeTextBlock('{}')],
       stopReason: 'end_turn' as const,
@@ -91,7 +102,7 @@ describe('LLMSelector', () => {
     it('uses fallback when provider throws', async () => {
       const provider: Provider = {
         id: 'test',
-        capabilities: { tools: false, streaming: false },
+        capabilities: { tools: false, streaming: false, parallelTools: false, vision: false, promptCache: false, systemPrompt: false, jsonMode: false, reasoning: false, maxContext: 128_000, cacheControl: 'none' as const } satisfies Capabilities,
         complete: vi.fn().mockRejectedValue(new Error('provider error')),
         stream: vi.fn(),
       };
@@ -159,7 +170,7 @@ describe('LLMSelector', () => {
     it('keeps recent messages that fit within budget', async () => {
       const provider: Provider = {
         id: 'test',
-        capabilities: { tools: false, streaming: false },
+        capabilities: { tools: false, streaming: false, parallelTools: false, vision: false, promptCache: false, systemPrompt: false, jsonMode: false, reasoning: false, maxContext: 128_000, cacheControl: 'none' as const } satisfies Capabilities,
         complete: vi.fn().mockRejectedValue(new Error('fail')),
         stream: vi.fn(),
       };
@@ -176,7 +187,7 @@ describe('LLMSelector', () => {
     it('collapses all when budget is very small', async () => {
       const provider: Provider = {
         id: 'test',
-        capabilities: { tools: false, streaming: false },
+        capabilities: { tools: false, streaming: false, parallelTools: false, vision: false, promptCache: false, systemPrompt: false, jsonMode: false, reasoning: false, maxContext: 128_000, cacheControl: 'none' as const } satisfies Capabilities,
         complete: vi.fn().mockRejectedValue(new Error('fail')),
         stream: vi.fn(),
       };
@@ -191,7 +202,7 @@ describe('LLMSelector', () => {
     it('keeps all when budget is large enough', async () => {
       const provider: Provider = {
         id: 'test',
-        capabilities: { tools: false, streaming: false },
+        capabilities: { tools: false, streaming: false, parallelTools: false, vision: false, promptCache: false, systemPrompt: false, jsonMode: false, reasoning: false, maxContext: 128_000, cacheControl: 'none' as const } satisfies Capabilities,
         complete: vi.fn().mockRejectedValue(new Error('fail')),
         stream: vi.fn(),
       };
@@ -209,7 +220,7 @@ describe('LLMSelector', () => {
     it('estimates tokens for message with array content containing tool_use blocks', async () => {
       const provider: Provider = {
         id: 'test',
-        capabilities: { tools: false, streaming: false },
+        capabilities: { tools: false, streaming: false, parallelTools: false, vision: false, promptCache: false, systemPrompt: false, jsonMode: false, reasoning: false, maxContext: 128_000, cacheControl: 'none' as const } satisfies Capabilities,
         complete: vi.fn().mockRejectedValue(new Error('fail')),
         stream: vi.fn(),
       };
@@ -235,7 +246,7 @@ describe('LLMSelector', () => {
     it('breaks early when total line length exceeds maxChars', async () => {
       const provider: Provider = {
         id: 'test',
-        capabilities: { tools: false, streaming: false },
+        capabilities: { tools: false, streaming: false, parallelTools: false, vision: false, promptCache: false, systemPrompt: false, jsonMode: false, reasoning: false, maxContext: 128_000, cacheControl: 'none' as const } satisfies Capabilities,
         complete: vi.fn().mockRejectedValue(new Error('fail')),
         stream: vi.fn(),
       };

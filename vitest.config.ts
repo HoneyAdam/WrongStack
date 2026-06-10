@@ -16,20 +16,15 @@ export default defineConfig({
   test: {
     globals: false,
     environment: 'node',
-    // forks pool: each test file runs in a dedicated child process.
-    // Prevents heap accumulation across ~500 test files in this monorepo
-    // (default 'threads' pool shares one process and runs OOM on large suites).
+    // forks pool: each test file runs in a dedicated child process with
+    // per-file isolation (Vitest 4 default for this pool). Prevents heap
+    // accumulation across ~500 test files in this monorepo (the 'threads'
+    // pool shares one process and runs OOM on large suites).
+    // NOTE: the old `poolOptions.forks.singleFork` knob was removed in
+    // Vitest 4 and had been silently ignored — do not reintroduce it.
     pool: 'forks',
-    // Single fork per file: cleanest isolation, no cross-test state leaks.
-    // Slightly slower startup but prevents the "test 142 passed but test 143
-    // OOMs because 141 files' modules are still in heap" failure mode.
-    poolOptions: {
-      forks: {
-        singleFork: true,
-      },
-    },
-    // Bump Node heap to 4 GB per worker — large test suites with sourcemaps
-    // and coverage instrumentation can exceed the default 512 MB–2 GB limit.
+    // Bump Node heap to 4 GB for child processes spawned BY tests (vitest
+    // worker processes themselves don't re-read NODE_OPTIONS set here).
     env: {
       NODE_OPTIONS: '--max-old-space-size=4096',
     },

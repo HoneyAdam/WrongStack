@@ -16,6 +16,7 @@ vi.mock('@wrongstack/providers', () => ({
 }));
 
 import {
+  DefaultSecretScrubber,
   type Config,
   type ConfigStore,
   Container,
@@ -57,12 +58,12 @@ function makeDeps(): MultiAgentDeps {
     build: vi.fn(async () => [{ type: 'text', text: 'sys' }]),
   } as unknown as SystemPromptBuilder;
 
-  const session: SessionWriter = {
+  const session = {
     id: 'sess-test',
     append: vi.fn(async () => undefined),
     appendBatch: vi.fn(async () => undefined),
     close: vi.fn(async () => undefined),
-  };
+  } satisfies SessionWriter as unknown as SessionWriter;
 
   const tokenCounter: TokenCounter = {
     account: vi.fn(),
@@ -85,6 +86,7 @@ function makeDeps(): MultiAgentDeps {
     tokenCounter,
     projectRoot: '/tmp/proj',
     cwd: '/tmp/proj',
+    secretScrubber: new DefaultSecretScrubber(),
   };
 }
 

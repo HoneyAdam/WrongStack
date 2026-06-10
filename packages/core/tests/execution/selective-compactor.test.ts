@@ -4,7 +4,7 @@ import { SelectiveCompactor } from '../../src/execution/selective-compactor.js';
 import type { ContentBlock, TextBlock } from '../../src/types/blocks.js';
 import type { CompactReport, Compactor } from '../../src/types/compactor.js';
 import type { Message } from '../../src/types/messages.js';
-import type { Provider } from '../../src/types/provider.js';
+import type { Provider, Capabilities } from '../../src/types/provider.js';
 import type { MessageSelector, SelectorResult } from '../../src/types/selector.js';
 
 function makeTextBlock(text: string): TextBlock {
@@ -53,7 +53,7 @@ function makeFakeProvider(responses: string[]): Provider {
   let idx = 0;
   return {
     id: 'test',
-    capabilities: { tools: false, streaming: false },
+    capabilities: { tools: false, streaming: false, parallelTools: false, vision: false, promptCache: false, systemPrompt: false, jsonMode: false, reasoning: false, maxContext: 128_000, cacheControl: 'none' as const } satisfies Capabilities,
     complete: vi.fn().mockImplementation(async () => ({
       content: [makeTextBlock(responses[idx++] ?? 'summarized')],
       stopReason: 'end_turn',

@@ -156,8 +156,8 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
       .then((info) => {
         updateInfo = info;
       })
-      .catch(() => {
-        // silent — never blocks boot
+      .catch((err) => {
+        logger.debug('update check failed', { err });
       });
   }
 

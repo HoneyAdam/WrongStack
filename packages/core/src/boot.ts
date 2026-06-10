@@ -87,7 +87,9 @@ export async function bootConfig(options: BootConfigOptions = {}): Promise<BootC
 
   // Clean up stale project directories left behind by tests or deleted
   // working directories.  Best-effort — never blocks boot.
-  cleanupStaleProjects(wpaths).catch(() => {});
+  cleanupStaleProjects(wpaths).catch((err) => {
+    noOpLogger.debug('cleanupStaleProjects failed', { err });
+  });
 
   // Vault must come first so the config loader can decrypt apiKey-like fields.
   // It lazily creates ~/.wrongstack/.key on first encrypt/decrypt.

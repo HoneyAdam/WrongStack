@@ -32,20 +32,20 @@ interface ActivityDef {
 }
 
 const TOP_ACTIVITIES: ActivityDef[] = [
-  { id: 'chat', icon: <MessageSquare />, label: 'Chat', mainView: 'chat' },
-  { id: 'agents', icon: <Bot />, label: 'Agents', mainView: 'chat' },
-  { id: 'context', icon: <Gauge />, label: 'Context', mainView: 'chat' },
-  { id: 'history', icon: <Clock />, label: 'History', mainView: 'chat' },
-  { id: 'mailbox', icon: <Mail />, label: 'Mailbox', mainView: 'chat' },
-  { id: 'files', icon: <FolderOpen />, label: 'Files', mainView: 'files' },
-  { id: 'projects', icon: <Folders />, label: 'Projects', mainView: 'projects' },
-  { id: 'sessions', icon: <Layers />, label: 'Sessions', mainView: 'sessions' },
+  { id: 'chat', icon: <MessageSquare size={16} />, label: 'Chat', mainView: 'chat' },
+  { id: 'agents', icon: <Bot size={16} />, label: 'Agents', mainView: 'chat' },
+  { id: 'context', icon: <Gauge size={16} />, label: 'Context', mainView: 'chat' },
+  { id: 'history', icon: <Clock size={16} />, label: 'History', mainView: 'chat' },
+  { id: 'mailbox', icon: <Mail size={16} />, label: 'Mailbox', mainView: 'chat' },
+  { id: 'files', icon: <FolderOpen size={16} />, label: 'Files', mainView: 'files' },
+  { id: 'projects', icon: <Folders size={16} />, label: 'Projects', mainView: 'projects' },
+  { id: 'sessions', icon: <Layers size={16} />, label: 'Sessions', mainView: 'sessions' },
 ];
 
 const BOTTOM_ACTIVITIES: ActivityDef[] = [
-  { id: 'autophase', icon: <Layers />, label: 'Phases', bottom: true, mainView: 'autophase' },
-  { id: 'agentflow', icon: <GitBranch />, label: 'Flow', bottom: true, mainView: 'agentflow' },
-  { id: 'settings', icon: <SettingsIcon />, label: 'Settings', bottom: true, mainView: 'settings' },
+  { id: 'autophase', icon: <Layers size={16} />, label: 'Phases', bottom: true, mainView: 'autophase' },
+  { id: 'agentflow', icon: <GitBranch size={16} />, label: 'Flow', bottom: true, mainView: 'agentflow' },
+  { id: 'settings', icon: <SettingsIcon size={16} />, label: 'Settings', bottom: true, mainView: 'settings' },
 ];
 
 // ── Component ──────────────────────────────────────────────────────────
@@ -156,7 +156,7 @@ export function ActivityBar() {
       <div className="flex-1" />
 
       {/* ── Bottom activities ── */}
-      <div className="flex flex-col items-center gap-0.5 pb-2">
+      <div className="flex flex-col items-center justify-between gap-0.5 pb-2">
         {BOTTOM_ACTIVITIES.map((def) => (
           <ActivityIcon
             key={def.id}
