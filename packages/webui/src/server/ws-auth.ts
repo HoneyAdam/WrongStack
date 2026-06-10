@@ -29,6 +29,24 @@ export function isLoopbackHostname(hostname: string): boolean {
   );
 }
 
+/**
+ * Check if an origin is a trusted loopback browser origin.
+ * Defense-in-depth: when wsHost=0.0.0.0, only accept explicit localhost origins,
+ * not arbitrary loopback hostnames that could be spoofed by local malware.
+ */
+function isTrustedLoopbackOrigin(origin: string): boolean {
+  try {
+    const url = new URL(origin);
+    // Only allow http(s)://localhost(:PORT) and http(s)://127.0.0.1(:PORT)
+    // Reject file://, data://, and other schemes even on loopback.
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+    // Require explicit localhost or 127.0.0.1 (not just any loopback like ::1)
+    return url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+  } catch {
+    return false;
+  }
+}
+
 /** True when the server is bound to a loopback interface (vs. LAN/0.0.0.0). */
 export function isLoopbackBind(wsHost: string): boolean {
   return wsHost === '127.0.0.1' || wsHost === '::1' || wsHost === 'localhost';
@@ -114,9 +132,16 @@ export function verifyClient(input: VerifyClientInput): boolean {
   }
   try {
     const { hostname } = new URL(origin);
-    // Loopback browser origins: allow without token (bootstrap). The Host-header
-    // guard above already rejects cross-site/rebinding pages here.
-    if (isLoopbackHostname(hostname)) return true;
+    // Loopback browser origins: allow without token only if the origin is
+    // explicitly http://localhost or http://127.0.0.1 (defense-in-depth).
+    // Reject file://, data://, and other schemes even on loopback.
+    if (isLoopbackHostname(hostname)) {
+      // For stricter security on 0.0.0.0 binds, require a trusted origin scheme
+      if (wsHost === '0.0.0.0' && !isTrustedLoopbackOrigin(origin)) {
+        return false;
+      }
+      return true;
+    }
     // Non-loopback origins: token is mandatory.
     return tokenOk;
   } catch {

@@ -235,7 +235,7 @@ function TreeNodeItem({
         </button>
         {expanded && hasChildren && (
           <div>
-            {node.children!.map((child) => (
+            {(node.children ?? []).map((child) => (
               <TreeNodeItem
                 key={child.path}
                 node={child}

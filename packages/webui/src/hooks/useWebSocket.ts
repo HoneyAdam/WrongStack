@@ -42,27 +42,37 @@ export function useWebSocketBootstrap(): void {
     if (!autoConnect) return;
     installFaviconVisibilityReset();
     const ws = getWSClient(wsUrl);
+    let cancelled = false;
 
-    const offStatus = ws.onStatus((s) => setWsStatus(s));
+    const offStatus = ws.onStatus((s) => {
+      if (!cancelled) setWsStatus(s);
+    });
 
     ws.connect()
       .then(() => {
+        if (cancelled) return;
         // Pull the current preference snapshot from the server so the
         // client starts with the server's truth — surviving a page refresh
         // without losing any settings changed in another tab.
         ws.getPrefs();
       })
       .catch((err) => {
-        // eslint-disable-next-line no-console
-        console.error('[WS] Connection failed:', err);
+        if (cancelled) return;
+        console.warn(JSON.stringify({
+          level: 'warn',
+          event: 'webui.ws_connection_failed',
+          message: err instanceof Error ? err.message : String(err),
+          timestamp: new Date().toISOString(),
+        }));
       });
 
     if (installed.current) {
-      return () => { offStatus(); };
+      return () => { cancelled = true; offStatus(); };
     }
     installed.current = true;
     const off = installHandlers(ws);
     return () => {
+      cancelled = true;
       off();
       offStatus();
     };

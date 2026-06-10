@@ -228,7 +228,15 @@ export class EternalAutonomyEngine {
     // doesn't report a phantom "running" engine. Fire-and-forget — if it
     // races with an in-flight iteration's write, the journal write wins
     // (engineState is metadata, not durable correctness).
-    void this.persistEngineState('stopped').catch(() => {});
+    void this.persistEngineState('stopped').catch((err) => {
+      console.error(JSON.stringify({
+        level: 'error',
+        event: 'engine.persist_state_failed',
+        message: err instanceof Error ? err.message : String(err),
+        context: { expectedState: 'stopped' },
+        timestamp: new Date().toISOString(),
+      }));
+    });
     this.state = 'stopped';
   }
 

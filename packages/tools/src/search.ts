@@ -104,17 +104,24 @@ async function duckduckgoSearch(
   const encoded = encodeURIComponent(query);
   const url = `https://lite.duckduckgo.com/lite/?q=${encoded}&kd=-1&kl=wt-wt`;
 
-  const results = await fetchWithTimeout(url, signal, TIMEOUT_MS)
-    .then((r) => r.text())
-    .then((html) => parseDuckDuckGo(html, num))
-    .catch(() => [{ title: 'Search unavailable', url: '', snippet: 'Could not reach DuckDuckGo' }]);
-
-  return {
-    query,
-    results,
-    source: 'duckduckgo',
-    truncated: results.length >= num,
-  };
+  try {
+    const response = await fetchWithTimeout(url, signal, TIMEOUT_MS);
+    const html = await response.text();
+    const results = parseDuckDuckGo(html, num);
+    return {
+      query,
+      results,
+      source: 'duckduckgo',
+      truncated: results.length >= num,
+    };
+  } catch {
+    return {
+      query,
+      results: [{ title: 'Search unavailable', url: '', snippet: 'Could not reach DuckDuckGo' }],
+      source: 'duckduckgo',
+      truncated: false,
+    };
+  }
 }
 
 function takeFrom<T>(iter: Iterable<T>, max: number): T[] {

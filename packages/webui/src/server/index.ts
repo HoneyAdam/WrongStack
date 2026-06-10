@@ -663,9 +663,9 @@ export async function startWebUI(
   // the URL query param `?token=...`. Without a token, any client on the
   // network can connect and send `user_message`/`key.add`/`model.switch`.
   const wsToken = generateAuthToken();
-  // Token is sent to clients via session.start payload — log only a masked
-  // prefix so operators can correlate without leaking the full secret.
-  console.log(`[WebUI] WS auth token: ${wsToken.slice(0, 4)}…${wsToken.slice(-4)} (masked)`);
+  // Token is sent to clients via session.start payload — log without any
+  // token characters to prevent search-space reduction for brute-force attacks.
+  console.log('[WebUI] WS auth token generated (redacted from logs)');
 
   // CSWSH guard + token auth: when the user exposes the socket beyond loopback,
   // require the shared token; loopback connections bootstrap without one. The
@@ -755,9 +755,22 @@ export async function startWebUI(
     clients.set(ws, client);
     console.log('[WebUI] Client connected, total:', clients.size);
 
-    void sessionStartPayload().then((payload) => {
-      send(ws, { type: 'session.start', payload });
-    });
+    // sessionStartPayload handles errors internally; no explicit catch needed.
+    // Adding a catch would be defensive but sessionStartPayload already has try-catch.
+    void sessionStartPayload()
+      .then((payload) => {
+        send(ws, { type: 'session.start', payload });
+      })
+      .catch((err) => {
+        // Log at warn level since sessionStartPayload should rarely fail.
+        // This prevents silent failures if internal error handling changes.
+        console.warn(JSON.stringify({
+          level: 'warn',
+          event: 'webui.session_start_payload_failed',
+          message: err instanceof Error ? err.message : String(err),
+          timestamp: new Date().toISOString(),
+        }));
+      });
 
     // Register this client with the AutoPhase handler so it receives phase events
     autoPhaseHandler.addClient(ws);

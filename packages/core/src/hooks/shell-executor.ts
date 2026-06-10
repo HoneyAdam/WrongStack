@@ -6,6 +6,42 @@ import type { Logger } from '../types/logger.js';
 const DEFAULT_TIMEOUT_MS = 5_000;
 const MAX_OUTPUT_BYTES = 64 * 1024;
 
+// Allowlist of safe shell commands for hooks. Commands not in this list are rejected.
+// This prevents arbitrary command execution if a hook config file is compromised.
+// For custom commands, operators should either:
+//   1. Use absolute paths to trusted executables
+//   2. Create wrapper scripts under .wrongstack/hooks/ and reference them by absolute path
+const ALLOWED_SHELL_COMMANDS = new Set([
+  // POSIX shells
+  'bash', 'sh', 'dash', 'zsh', 'fish',
+  // Utilities
+  'echo', 'cat', 'grep', 'sed', 'awk', 'find', 'sort', 'uniq', 'wc', 'head', 'tail', 'cut',
+  'tr', 'tee', 'xargs', 'printf', 'test', 'expr',
+  // File operations
+  'ls', 'stat', 'touch', 'mkdir', 'rm', 'cp', 'mv', 'chmod', 'chown',
+  // Network (read-only)
+  'curl', 'wget',
+  // Git (common operations)
+  'git', 'diff', 'merge',
+  // Process
+  'ps', 'kill', 'pgrep', 'pkill',
+  // Text processing
+  'jq', 'yq',
+  // System info
+  'uname', 'hostname', 'whoami', 'date',
+]);
+
+function isCommandAllowed(command: string): boolean {
+  // Extract the base command (first word) for allowlist check
+  const baseCommand = command.trim().split(/\s+/)[0] ?? '';
+  // Handle absolute paths - extract the filename
+  const commandName = baseCommand.includes('/')
+    ? baseCommand.split('/').pop() ?? baseCommand
+    : baseCommand;
+
+  return ALLOWED_SHELL_COMMANDS.has(commandName);
+}
+
 export interface ShellHookSpec {
   command: string;
   timeoutMs?: number | undefined;
@@ -27,6 +63,12 @@ export async function runShellHook(
   logger?: Logger | undefined,
 ): Promise<HookOutcome | null> {
   const timeoutMs = spec.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
+  // Security: reject commands not in the allowlist
+  if (!isCommandAllowed(spec.command)) {
+    logger?.warn?.(`hook rejected: command not in allowlist: ${spec.command}`);
+    return null;
+  }
 
   return await new Promise<HookOutcome | null>((resolve) => {
     let settled = false;

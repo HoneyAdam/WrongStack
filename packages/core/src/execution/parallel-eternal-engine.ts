@@ -139,7 +139,15 @@ export class ParallelEternalEngine {
 
   stop(): void {
     this.stopRequested = true;
-    void this.persistState('stopped').catch(() => {});
+    void this.persistState('stopped').catch((err) => {
+      console.error(JSON.stringify({
+        level: 'error',
+        event: 'engine.persist_state_failed',
+        message: err instanceof Error ? err.message : String(err),
+        context: { expectedState: 'stopped' },
+        timestamp: new Date().toISOString(),
+      }));
+    });
     this.state = 'stopped';
   }
 

@@ -57,6 +57,9 @@ jobs:
       - name: Lint (biome)
         run: pnpm lint
 
+      - name: Lint (distributive types review)
+        run: pnpm lint:distributive
+
       - name: Test (vitest)
         run: pnpm test
 

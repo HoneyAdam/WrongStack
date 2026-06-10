@@ -16,6 +16,34 @@ const KEY_BYTES = 32;
 const IV_BYTES = 12;
 const TAG_BYTES = 16;
 const ALGO = 'aes-256-gcm';
+// Desired file mode for the key file on POSIX systems.
+const KEY_FILE_MODE = 0o600;
+
+/**
+ * Check and warn if the key file has incorrect permissions on POSIX.
+ * On Windows this is a no-op (mode bits don't apply).
+ */
+function checkKeyFilePermissions(keyFile: string): void {
+  if (process.platform === 'win32') return; // No mode bits on Windows
+  try {
+    const stat = fs.statSync(keyFile);
+    const actualMode = stat.mode & 0o777;
+    if (actualMode !== KEY_FILE_MODE) {
+      console.warn(JSON.stringify({
+        level: 'warn',
+        event: 'vault.key_file_wrong_permissions',
+        message: `Key file ${keyFile} has mode ${actualMode.toString(8)} — expected ${KEY_FILE_MODE.toString(8)}. Run: chmod ${KEY_FILE_MODE.toString(8)} ${keyFile}`,
+        keyFile,
+        expectedMode: KEY_FILE_MODE,
+        actualMode,
+        timestamp: new Date().toISOString(),
+      }));
+    }
+  } catch {
+    // stat can fail for reasons other than the file not existing;
+    // if it does, the ENOENT path handles it.
+  }
+}
 
 /**
  * Default vault: AES-256-GCM with a key stored at `keyFile` (mode 0o600).
@@ -102,6 +130,8 @@ export class DefaultSecretVault implements SecretVault {
         });
       }
       this.key = buf;
+      // Warn if the key file has wrong permissions (defense-in-depth).
+      checkKeyFilePermissions(this.keyFile);
       return this.key;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
@@ -132,6 +162,8 @@ export class DefaultSecretVault implements SecretVault {
         });
       }
       this.key = buf;
+      // Warn if the key file has wrong permissions (defense-in-depth).
+      checkKeyFilePermissions(this.keyFile);
       return this.key;
     }
     this.key = key;

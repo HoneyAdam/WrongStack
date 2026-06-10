@@ -24,13 +24,21 @@ export interface HttpTransportOptions {
    * and passed to fetch via the `dispatch` option. This avoids globally
    * disabling certificate validation (NODE_TLS_REJECT_UNAUTHORIZED) which
    * would affect all provider API calls in the same process.
-   * ⚠️ Setting `rejectUnauthorized: false` disables TLS verification for this
-   * transport only — an active network attacker between the client and the
+   *
+   * ⚠️ Security gate: `rejectUnauthorized: false` REQUIRES either:
+   *   - `WRONGSTACK_UNSAFE_MCP_TLS=1` env var, OR
+   *   - `CI` env var is set (for automated testing)
+   *
+   * Without this gate, an active network attacker between the client and the
    * MCP server can read and modify tool calls and responses. Only use this
    * for local development with self-signed certificates; production MCP
    * servers must present a valid certificate.
    */
   tls?: { ca?: string | undefined; rejectUnauthorized?: boolean | undefined };
+}
+
+function isTlsUnsafeAllowed(): boolean {
+  return process.env['WRONGSTACK_UNSAFE_MCP_TLS'] === '1' || process.env['CI'] === 'true';
 }
 
 /**
@@ -357,9 +365,15 @@ export class SSETransport {
     this.requestTimeout = opts.requestTimeoutMs ?? 60_000;
     if (opts.tls) {
       if (opts.tls.rejectUnauthorized === false) {
-        console.warn(
-          `[mcp:SSETransport] TLS verification disabled for ${this.url}. ` +
-          `This is insecure — only use for localhost or trusted networks.`,
+        if (!isTlsUnsafeAllowed()) {
+          throw new Error(
+            `[mcp:SSETransport] TLS verification disabled — set WRONGSTACK_UNSAFE_MCP_TLS=1 ` +
+            `or CI=true to allow. Rejecting insecure configuration for ${this.url}.`,
+          );
+        }
+        console.error(
+          `[mcp:SSETransport] ⚠️ TLS verification DISABLED for ${this.url}. ` +
+          `Network attacks are possible — only use on localhost.`,
         );
       }
       this.tlsAgent = new https.Agent({
@@ -683,9 +697,15 @@ export class StreamableHTTPTransport {
     this.requestTimeout = opts.requestTimeoutMs ?? 60_000;
     if (opts.tls) {
       if (opts.tls.rejectUnauthorized === false) {
-        console.warn(
-          `[mcp:StreamableHTTP] TLS verification disabled for ${this.url}. ` +
-          `This is insecure — only use for localhost or trusted networks.`,
+        if (!isTlsUnsafeAllowed()) {
+          throw new Error(
+            `[mcp:StreamableHTTP] TLS verification disabled — set WRONGSTACK_UNSAFE_MCP_TLS=1 ` +
+            `or CI=true to allow. Rejecting insecure configuration for ${this.url}.`,
+          );
+        }
+        console.error(
+          `[mcp:StreamableHTTP] ⚠️ TLS verification DISABLED for ${this.url}. ` +
+          `Network attacks are possible — only use on localhost.`,
         );
       }
       this.tlsAgent = new https.Agent({

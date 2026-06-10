@@ -111,7 +111,12 @@ export class ConversationState {
     // Without this, replaceMessages() can silently skip repair when
     // it introduces or modifies tool_use/tool_result pairs (e.g. test
     // setup, agent-loop content rewrite).
-    if (messages.some((m) => m.content?.some((b) => b.type === 'tool_use' || b.type === 'tool_result'))) {
+    if (
+      messages.some(
+        (m) => Array.isArray(m.content) &&
+          m.content.some((b) => b.type === 'tool_use' || b.type === 'tool_result'),
+      )
+    ) {
       this.ctx.toolAdjacencyDirty = true;
     }
 

@@ -20,7 +20,8 @@ export function buildRoutingRunner(config: Config, host: MultiAgentHost): Subage
     const subCfg = ctx.config;
     if (subCfg.provider === 'acp') {
       const cacheKey = subCfg.role ?? subCfg.name ?? expectDefined(subCfg.id);
-      return host.buildACPRunner(cacheKey).then((r) => r(task, ctx));
+      const runner = await host.buildACPRunner(cacheKey);
+      return runner(task, ctx);
     }
     return standardRunner(task, ctx);
   };
