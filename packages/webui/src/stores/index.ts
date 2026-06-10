@@ -24,3 +24,5 @@ export { useAutoPhaseStore } from './autophase-store.js';
 export { useLocalPrefs } from './local-prefs.js';
 export { useFileStore } from './file-store.js';
 export type { TreeNode, OpenFile } from './file-store.js';
+export { useVizStore } from './viz-store.js';
+export type { VizEvent, VizEdge, VizNode } from './viz-store.js';

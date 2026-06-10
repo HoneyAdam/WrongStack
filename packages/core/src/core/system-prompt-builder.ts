@@ -90,7 +90,7 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
     }
 
     const layer1 = LAYER_1_IDENTITY;
-    const layer2 = this.buildToolUsage(ctx.tools);
+    const layer2 = this.buildToolUsage(ctx.tools, ctx);
     const layer3 = await this.buildEnvironment(ctx);
     const layer3WithDir = `${layer3}\n- Project root: ${ctx.projectRoot}`;
     const layer4 = await this.buildMemoryAndSkills();
@@ -236,7 +236,7 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
     return lines.join('\n');
   }
 
-  private buildToolUsage(tools: Tool[]): string {
+  private buildToolUsage(tools: Tool[], ctx: BuildContext): string {
     if (tools.length === 0) return '## Tool usage\n\nNo tools registered.';
 
     // Group tools by category for a cleaner listing when categories are used.
@@ -372,8 +372,17 @@ one by one, roll up results), use \`spawn_subagent\` + \`assign_task\` +
     // Mailbox guidance — included when the `mailbox` tool is present.
     const hasMailbox = tools.some((t) => t.name === 'mailbox');
     if (hasMailbox) {
+      // Build online agents info if provided
+      let onlineAgentsInfo = '';
+      if (ctx.onlineAgents && ctx.onlineAgents.length > 0) {
+        const totalCount = ctx.onlineAgents.length;
+        const agentList = ctx.onlineAgents
+          .map((a) => `- **${a.name}** (${a.source ?? 'unknown'}${a.sessionId ? `, session: ${a.sessionId.slice(0, 8)}` : ''})`)
+          .join('\n');
+        onlineAgentsInfo = `\n\n**Currently online (${totalCount} agent${totalCount !== 1 ? 's' : ''}):**\n${agentList}`;
+      }
       lines.push(`
-## Inter-agent mailbox
+## Inter-agent mailbox${onlineAgentsInfo}
 
 You share a persistent mailbox with other agents. Use it to coordinate
 across a fleet without interrupting active work.

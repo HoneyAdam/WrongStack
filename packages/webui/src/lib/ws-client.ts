@@ -118,7 +118,6 @@ export class WrongStackWebSocketClient {
         this.ws.onopen = () => {
           clearTimeout(connectTimeout);
           established = true;
-          console.log('[WS Client] Connected');
           this.reconnectAttempts = 0;
           this.lastErrorText = undefined;
           this.setStatus({ state: 'open' });
@@ -158,7 +157,6 @@ export class WrongStackWebSocketClient {
         };
 
         this.ws.onclose = (ev) => {
-          console.log('[WS Client] Disconnected', ev.code, ev.reason);
           if (!established) {
             clearTimeout(connectTimeout);
             const reason = ev.reason || `Closed with code ${ev.code}`;
@@ -183,7 +181,6 @@ export class WrongStackWebSocketClient {
 
   private attemptReconnect() {
     if (!this.shouldReconnect || this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.log('[WS Client] Not reconnecting');
       this.reconnectTimer = null;
       this.setStatus({ state: 'closed', error: this.lastErrorText ?? 'Disconnected' });
       return;
@@ -192,7 +189,6 @@ export class WrongStackWebSocketClient {
     this.reconnectAttempts++;
     const delay = Math.min(this.reconnectDelay * 2 ** (this.reconnectAttempts - 1), 30000);
     const nextRetryAt = Date.now() + delay;
-    console.log(`[WS Client] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
     this.setStatus({
       state: 'reconnecting',
       attempt: this.reconnectAttempts,

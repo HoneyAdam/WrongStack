@@ -22,6 +22,7 @@ import {
   EventBus,
   FLEET_ROSTER,
   FleetManager,
+  GlobalMailbox,
   type ModelsRegistry,
   type Provider,
   type ProviderRegistry,
@@ -411,6 +412,15 @@ export class MultiAgentHost {
       // at a phase's git worktree so isolated checkouts don't collide.
       const subCwd = subCfg.cwd ?? this.deps.cwd;
 
+      // Fetch online agents from the shared mailbox to include in subagent prompt
+      let onlineAgents: Awaited<ReturnType<GlobalMailbox['getAgentStatuses']>> = [];
+      try {
+        const subagentMailbox = new GlobalMailbox(this.deps.projectRoot);
+        onlineAgents = await subagentMailbox.getAgentStatuses();
+      } catch {
+        // Non-fatal — mailbox errors should not block subagent creation
+      }
+
       const baseSystem: TextBlock[] = await this.deps.systemPromptBuilder.build({
         cwd: subCwd,
         projectRoot: this.deps.projectRoot,
@@ -422,6 +432,7 @@ export class MultiAgentHost {
         // prompt instead of inheriting strategic context that's
         // meaningless to a single delegated subtask.
         subagent: true,
+        onlineAgents,
       });
 
       // Prepend bridge contract so the subagent knows it has a parent it

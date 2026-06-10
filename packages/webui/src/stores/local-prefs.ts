@@ -61,7 +61,7 @@ const DEFAULTS: Omit<LocalPrefs, 'set' | 'reset'> = {
   contextAutoCompact: true,
   contextStrategy: 'balanced',
   logLevel: 'info',
-  auditLevel: 'standard',
+  auditLevel: 'minimal',
 };
 
 export const useLocalPrefs = create<LocalPrefs>()(

@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 import { getWSClient } from '@/lib/ws-client';
 import { useChatStore, useConfigStore, useFileStore, useGoalStore, useSessionStore, useUIStore, useWorktreeStore, useAutoPhaseStore } from '@/stores';
 import { useCallback, useEffect, useState } from 'react';
-import { Layers, Play, Rocket } from 'lucide-react';
+import { Layers, Play, Rocket, GitBranch } from 'lucide-react';
 import { Button } from './components/ui/button';
 import { ActivityBar } from './components/ActivityBar';
 import { AgentsPage } from './components/AgentsPage';
@@ -27,13 +27,14 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { SetupScreen } from './components/SetupScreen';
 import { SessionsDashboard } from './components/SessionsDashboard';
 import { ShortcutsOverlay } from './components/ShortcutsOverlay';
-import { Sidebar } from './components/Sidebar';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
 import { Toaster } from './components/Toaster';
 import { WorkDashboard } from './components/WorkDashboard';
 import { WorktreeGraph } from './components/WorktreeGraph';
 import { WorktreeLanes } from './components/WorktreeLanes';
 import { AgentFlowViz } from './components/AgentFlowViz';
+import { AgentFlowGraph } from './components/AgentFlowGraph';
+import { FlowSidebar } from './components/FlowSidebar';
 function AppInner() {
   const { theme } = useTheme();
   const { currentView, sidebarOpen, toggleSidebar, setSearchOpen, setSidebarOpen, setCurrentView } = useUIStore();
@@ -268,7 +269,7 @@ function AppInner() {
       {currentView !== 'setup' && <ActivityBar />}
 
       {/* ── Secondary Panel — collapsible, context-sensitive ── */}
-      {sidebarOpen && currentView !== 'setup' && <Sidebar />}
+      {sidebarOpen && currentView !== 'setup' && <FlowSidebar />}
 
       {/* ── Main area ── */}
       <main className="flex-1 flex flex-col overflow-hidden">
@@ -389,7 +390,7 @@ function AppInner() {
         )}
         {currentView === 'agentflow' && (
           <div className="flex-1 flex flex-col overflow-hidden">
-            <AgentFlowViz />
+            <AgentFlowGraph />
           </div>
         )}
         {currentView === 'sessions' && (

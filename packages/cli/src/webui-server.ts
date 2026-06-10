@@ -744,7 +744,6 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
 
       const client: ConnectedClient = { ws, sessionId: opts.session.id };
       clients.set(ws, client);
-      console.log('[WebUI] Client connected');
 
       // Per-connection rate limiting — disabled unless WEBUI_RATE_LIMIT > 0.
       let msgCount = 0;
@@ -779,7 +778,6 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
       });
 
       ws.on('close', () => {
-        console.log('[WebUI] Client disconnected');
         clients.delete(ws);
         // If the last client leaves while a permission prompt is pending, deny
         // it so the agent loop doesn't hang waiting for an answer that will

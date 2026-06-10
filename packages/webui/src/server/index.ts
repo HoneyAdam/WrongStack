@@ -1,4 +1,4 @@
-import { expectDefined } from '@wrongstack/core';
+import { expectDefined, GlobalMailbox } from '@wrongstack/core';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as http from 'node:http';
@@ -370,12 +370,22 @@ export async function startWebUI(
     modelCapabilities,
   });
 
+  // Fetch online agents from the shared mailbox to include in system prompt
+  let onlineAgents: import('@wrongstack/core').MailboxAgentStatus[] = [];
+  try {
+    const systemMailbox = new GlobalMailbox(wpaths.projectDir);
+    onlineAgents = await systemMailbox.getAgentStatuses();
+  } catch {
+    // Non-fatal — mailbox errors should not block prompt building
+  }
+
   const systemPrompt = await systemPromptBuilder.build({
     cwd: projectRoot,
     projectRoot,
     tools: toolRegistry.list(),
     provider: config.provider,
     model: config.model,
+    onlineAgents,
   });
 
   // Build provider (only if provider is configured)
@@ -780,7 +790,6 @@ export async function startWebUI(
   const handleConnection = (ws: WebSocket): void => {
     const client: ConnectedClient = { ws, sessionId: session.id, connectedAt: Date.now() };
     clients.set(ws, client);
-    console.log('[WebUI] Client connected, total:', clients.size);
 
     // sessionStartPayload handles errors internally; no explicit catch needed.
     // Adding a catch would be defensive but sessionStartPayload already has try-catch.
@@ -852,7 +861,6 @@ export async function startWebUI(
     ws.on('close', () => {
       clients.delete(ws);
       rateLimits.delete(String(ws));
-      console.log('[WebUI] Client disconnected, total:', clients.size);
       // If the client disconnects while a permission prompt is pending,
       // resolve all pending confirms with 'no' so the agent loop doesn't
       // hang forever waiting for a response that will never come.
@@ -1420,14 +1428,6 @@ export async function startWebUI(
 
       case 'model.refine': {
         const { text } = (msg as { payload: { text: string } }).payload;
-        console.log(JSON.stringify({
-          level: 'debug',
-          event: 'model.refine.received',
-          textLength: text?.length,
-          provider: context.provider?.id,
-          model: context.model,
-          timestamp: new Date().toISOString(),
-        }));
         if (!text?.trim()) {
           send(ws, {
             type: 'model.refine_result',
@@ -1437,12 +1437,6 @@ export async function startWebUI(
         }
         try {
           const history = recentTextTurns(context.messages);
-          console.log(JSON.stringify({
-            level: 'debug',
-            event: 'model.refine.enhancing',
-            historyLength: history.length,
-            timestamp: new Date().toISOString(),
-          }));
           const result = await enhanceUserPrompt({
             provider: context.provider,
             model: context.model,
@@ -1458,13 +1452,6 @@ export async function startWebUI(
               }));
             },
           });
-          console.log(JSON.stringify({
-            level: 'debug',
-            event: 'model.refine.result',
-            resultExists: !!result,
-            resultRefined: result?.refined?.slice(0, 50),
-            timestamp: new Date().toISOString(),
-          }));
           if (result) {
             send(ws, {
               type: 'model.refine_result',

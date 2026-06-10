@@ -44,6 +44,10 @@
       "types": "./dist/execution/index.d.ts",
       "import": "./dist/execution/index.js"
     },
+    "./execution/prompt-enhancer": {
+      "types": "./dist/execution/prompt-enhancer.d.ts",
+      "import": "./dist/execution/prompt-enhancer.js"
+    },
     "./coordination": {
       "types": "./dist/coordination/index.d.ts",
       "import": "./dist/coordination/index.js"

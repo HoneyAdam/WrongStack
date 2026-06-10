@@ -16,3 +16,4 @@
  * single source of truth without pulling in the Node-oriented core barrel.
  */
 export { expectDefined } from '@wrongstack/core/utils/expect-defined';
+export { normalizedEqual } from '@wrongstack/core/execution/prompt-enhancer';

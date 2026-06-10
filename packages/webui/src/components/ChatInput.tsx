@@ -350,7 +350,6 @@ export function ChatInput({
               },
             });
             // Send the text to the backend for refinement
-            console.log('[ChatInput] Calling refineModel, content length:', content.length);
             refineModel(content);
           } else {
             addMessage({ role: 'user', content });

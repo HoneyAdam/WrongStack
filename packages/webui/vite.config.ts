@@ -14,6 +14,10 @@ export default defineConfig({
         find: /^@wrongstack\/core\/utils\/expect-defined$/,
         replacement: path.resolve(__dirname, '../core/src/utils/expect-defined.ts'),
       },
+      {
+        find: /^@wrongstack\/core\/execution\/prompt-enhancer$/,
+        replacement: path.resolve(__dirname, '../core/src/execution/prompt-enhancer.ts'),
+      },
       // Browser-only: redirect the bare `@wrongstack/core` barrel (which drags
       // in Node built-ins) to a tiny browser-safe shim. Exact match only, so
       // subpath imports like `@wrongstack/core/storage` are left untouched.

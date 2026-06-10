@@ -624,14 +624,7 @@ export const WS_HANDLERS: Record<string, (msg: WSServerMessage) => void> = {
   },
   'model.refine_result': (msg: WSServerMessage) => {
     const p = msg.payload as { refined: string; english: string; error?: string | undefined };
-    console.log('[WS] model.refine_result received:', JSON.stringify({
-      error: p.error,
-      refinedLength: p.refined?.length,
-      englishLength: p.english?.length,
-      refinedPreview: p.refined?.slice(0, 100),
-    }));
     const refinePanel = useUIStore.getState().refinePanel;
-    console.log('[WS] refinePanel exists:', !!refinePanel);
     if (!refinePanel) return;
     if (p.error) {
       // Refinement failed — fall back to original
@@ -648,7 +641,6 @@ export const WS_HANDLERS: Record<string, (msg: WSServerMessage) => void> = {
     // If the model returned essentially the same text, send directly without showing panel
     const original = refinePanel.original;
     if (normalizedEqual(p.refined, original)) {
-      console.log('[WS] Refinement returned same text — sending directly without panel');
       useUIStore.getState().setRefinePanel(null);
       useChatStore.getState().addMessage({ role: 'user', content: original });
       useUIStore.getState().setLoading(true);

@@ -1,5 +1,6 @@
 import type { TextBlock } from './blocks.js';
 import type { Tool } from './tool.js';
+import type { MailboxAgentStatus } from '../coordination/mailbox-types.js';
 
 /** Model capabilities relevant to prompt composition. */
 export interface ModelCapabilities {
@@ -25,6 +26,11 @@ export interface BuildContext {
    * layer short-circuits when this flag is set.
    */
   subagent?: boolean | undefined;
+  /**
+   * List of currently online agents in the shared mailbox system.
+   * Includes agents from all sessions (TUI, WebUI, CLI) in the same project.
+   */
+  onlineAgents?: MailboxAgentStatus[] | undefined;
 }
 
 export interface SystemPromptBuilder {

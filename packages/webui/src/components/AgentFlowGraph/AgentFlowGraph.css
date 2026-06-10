@@ -1,0 +1,113 @@
+/* AgentFlowGraph — Custom styles for React Flow visualization */
+
+.react-flow__node {
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.react-flow__node:hover {
+  transform: scale(1.02);
+}
+
+.react-flow__edge-path {
+  transition: stroke-width 0.2s ease;
+}
+
+/* Animated edges with flowing dashes */
+.animated-edge {
+  animation: flowDash 1s linear infinite;
+}
+
+@keyframes flowDash {
+  0% {
+    stroke-dashoffset: 10;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Pulsing glow for active nodes */
+@keyframes nodePulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.node-pulse {
+  animation: nodePulse 2s ease-in-out infinite;
+}
+
+/* Error pulse */
+@keyframes errorPulse {
+  0%, 100% {
+    box-shadow: 0 0 8px hsl(0, 70%, 50%);
+  }
+  50% {
+    box-shadow: 0 0 16px hsl(0, 70%, 60%);
+  }
+}
+
+.node-error-pulse {
+  animation: errorPulse 1.5s ease-in-out infinite;
+}
+
+/* Tool node icons */
+.react-flow__node-tool {
+  font-family: ui-monospace, 'IBM Plex Mono', monospace;
+}
+
+/* Context bar at bottom */
+.react-flow__attribution {
+  display: none;
+}
+
+/* Custom controls styling */
+.react-flow__controls {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.react-flow__controls-button {
+  background: transparent;
+  border: none;
+  color: hsl(var(--foreground));
+  transition: background 0.2s ease;
+}
+
+.react-flow__controls-button:hover {
+  background: hsl(var(--muted));
+}
+
+.react-flow__controls-button svg {
+  fill: currentColor;
+}
+
+/* MiniMap styling */
+.react-flow__minimap {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* Selection styling */
+.react-flow__node.selected {
+  z-index: 100;
+}
+
+/* Edge hover */
+.react-flow__edge:hover .react-flow__edge-path {
+  stroke-width: 3;
+}
+
+/* Loading state */
+.react-flow__loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: hsl(var(--muted-foreground));
+}

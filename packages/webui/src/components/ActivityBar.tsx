@@ -8,7 +8,7 @@ import {
   Layers,
   Mail,
   MessageSquare,
-  Radio,
+  GitBranch,
   Settings as SettingsIcon,
   Zap,
   Folders,
@@ -44,7 +44,7 @@ const TOP_ACTIVITIES: ActivityDef[] = [
 
 const BOTTOM_ACTIVITIES: ActivityDef[] = [
   { id: 'autophase', icon: <Layers />, label: 'Phases', bottom: true, mainView: 'autophase' },
-  { id: 'agentflow', icon: <Radio />, label: 'Flow', bottom: true, mainView: 'agentflow' },
+  { id: 'agentflow', icon: <GitBranch />, label: 'Flow', bottom: true, mainView: 'agentflow' },
   { id: 'settings', icon: <SettingsIcon />, label: 'Settings', bottom: true, mainView: 'settings' },
 ];
 
