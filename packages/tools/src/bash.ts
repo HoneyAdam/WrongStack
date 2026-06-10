@@ -329,13 +329,21 @@ export const bashTool: Tool<BashInput, BashOutput> = {
 
     child.stdout?.on('data', (chunk) => {
       const text = chunk.toString();
-      buf += text;
+      // Cap buf during accumulation to prevent heap exhaustion from unbounded
+      // string growth. exec.ts uses the same pattern. The final output is
+      // further normalized via normalizeCommandOutput which already caps at
+      // MAX_OUTPUT (32 KB).
+      if (buf.length < MAX_OUTPUT) {
+        buf += text.slice(0, MAX_OUTPUT - buf.length);
+      }
       pending += text;
       push({ kind: 'data', text });
     });
     child.stderr?.on('data', (chunk) => {
       const text = chunk.toString();
-      buf += text;
+      if (buf.length < MAX_OUTPUT) {
+        buf += text.slice(0, MAX_OUTPUT - buf.length);
+      }
       pending += text;
       push({ kind: 'data', text });
     });
