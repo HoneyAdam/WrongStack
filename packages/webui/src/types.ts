@@ -535,6 +535,7 @@ export type WSClientMessage =
   | { type: 'autonomy.switch'; payload: { mode: string } }
   | { type: 'prefs.update'; payload: Record<string, unknown> }
   | { type: 'prefs.get' }
+  | { type: 'projects.list' }
   | WSCollabJoin
   | WSCollabLeave
   | WSCollabAnnotate
@@ -597,7 +598,8 @@ export type WSServerMessage =
   | { type: 'session.checkpoints'; payload: { checkpoints: Array<{ index: number; iteration: number; timestamp: string; label: string; messageCount: number; tokens: number }> } }
   | { type: 'goal.updated'; payload: Record<string, unknown> | null }
   | { type: 'prefs.updated'; payload: Record<string, unknown> }
-  | { type: 'process.list'; payload: { processes: Array<{ pid: number; command: string; tool: string; startedAt: number; status: 'running' | 'exited' | 'killed'; protected?: boolean | undefined }> } };
+  | { type: 'process.list'; payload: { processes: Array<{ pid: number; command: string; tool: string; startedAt: number; status: 'running' | 'exited' | 'killed'; protected?: boolean | undefined }> } }
+  | { type: 'projects.list'; payload: { projects: Array<{ name: string; root: string; slug: string; lastSeen?: string | undefined }> } };
 
 // Helper to broadcast to all clients
 export type BroadcastFn = (msg: WSServerMessage) => void;

@@ -529,4 +529,7 @@ export const WS_HANDLERS: Record<string, (msg: WSServerMessage) => void> = {
   'process.list': (msg: WSServerMessage) => {
     // Handled directly by ProcessMonitor component via WS client.on()
   },
+  'projects.list': (msg: WSServerMessage) => {
+    // Handled directly by ProjectsPanel component
+  },
 };

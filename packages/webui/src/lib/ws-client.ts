@@ -541,6 +541,10 @@ export class WrongStackWebSocketClient {
     this.send({ type: 'session.delete', payload: { id } });
   }
 
+  listProjects() {
+    this.send({ type: 'projects.list' });
+  }
+
   resumeSession(sessionId: string) {
     this.send({
       type: 'session.resume',

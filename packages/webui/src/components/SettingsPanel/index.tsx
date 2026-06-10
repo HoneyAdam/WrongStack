@@ -7,6 +7,7 @@ import {
   Activity,
   Bot,
   Cpu,
+  Folder,
   Globe,
   Layers,
   Monitor,
@@ -19,8 +20,9 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { useState, useEffect, useCallback } from 'react';
+import { type ReactElement, useState, useEffect, useCallback } from 'react';
 import { useTheme } from '../ThemeProvider';
+import { ProjectsPanel } from '../ProjectsPanel';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { ScrollArea } from '../ui/scroll-area';
@@ -430,6 +432,17 @@ export function SettingsPanel() {
                   value={localPrefs.nextPrediction}
                   onChange={() => syncPref('nextPrediction', !localPrefs.nextPrediction)}
                 />
+              </div>
+
+              <div className="pt-2 border-t">
+                <h3 className="text-sm font-semibold mb-3 mt-3 flex items-center gap-2">
+                  <Folder className="h-4 w-4 text-muted-foreground" />
+                  Projects
+                </h3>
+                <p className="text-[11px] text-muted-foreground mb-2">
+                  Known projects from <code className="font-mono bg-muted/40 px-1 rounded">~/.wrongstack/projects.json</code>
+                </p>
+                <ProjectsPanel />
               </div>
             </TabsContent>
 

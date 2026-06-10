@@ -1,14 +1,11 @@
 import { spawn } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import * as os from 'node:os';
 import { color } from '@wrongstack/core';
 import { createRequire } from 'node:module';
 import type { Context, SlashCommand } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
 import { loadManifest, saveManifest, findProject, generateSlug, ensureProjectDataDir } from './project-utils.js';
-import type { ProjectEntry } from './project-utils.js';
-
 // ── Helpers ─────────────────────────────────────────────────────────────
 
 function fmtLastSeen(iso: string | undefined): string {
@@ -40,7 +37,7 @@ export function buildProjectCommand(opts: SlashCommandContext): SlashCommand {
       '  /project add <path> [name]        Register a new project',
       '  /project rename <slug> <name>     Rename a project',
       '  /project remove <slug>            Remove a project from the list',
-      '  /project switch <dir>             Spawn wstack in target directory',
+      '  /project switch <dir> [--name <n>]  Spawn wstack in target directory',
       '',
       'Projects are registered in ~/.wrongstack/projects.json.',
       'Each project has a name (user-friendly), root path, and slug.',
@@ -79,9 +76,18 @@ export function buildProjectCommand(opts: SlashCommandContext): SlashCommand {
       }
 
       if (lower.startsWith('switch ') || lower === 'switch') {
-        const target = trimmed.slice(lower.startsWith('switch ') ? 7 : 6).trim();
-        if (!target) return { message: 'Usage: /project switch <directory-path>' };
-        return switchProjectCommand(opts, ctx, target);
+        const rest = trimmed.slice(lower.startsWith('switch ') ? 7 : 6).trim();
+        if (!rest) return { message: 'Usage: /project switch <dir> [--name <name>]' };
+        // Parse optional --name flag
+        let target = rest;
+        let displayName: string | undefined;
+        const nameMatch = rest.match(/^(.*?)\s*--name\s+(.+)$/);
+        if (nameMatch) {
+          target = nameMatch[1]!.trim();
+          displayName = nameMatch[2]!.trim();
+        }
+        if (!target) return { message: 'Usage: /project switch <dir> [--name <name>]' };
+        return switchProjectCommand(opts, ctx, target, displayName);
       }
 
       return {
@@ -213,7 +219,7 @@ async function removeProjectCommand(opts: SlashCommandContext, ctx: Context | un
 
 // ── Switch ──────────────────────────────────────────────────────────────
 
-async function switchProjectCommand(opts: SlashCommandContext, ctx: Context | undefined, target: string) {
+async function switchProjectCommand(opts: SlashCommandContext, ctx: Context | undefined, target: string, displayName?: string) {
   const resolved = path.resolve(ctx?.projectRoot ?? ctx?.cwd ?? process.cwd(), target);
 
   try {
@@ -248,7 +254,7 @@ async function switchProjectCommand(opts: SlashCommandContext, ctx: Context | un
     existing.lastSeen = new Date().toISOString();
   } else {
     // Auto-register if not in manifest
-    const name = path.basename(resolved);
+    const name = displayName?.trim() || path.basename(resolved);
     const slug = generateSlug(resolved);
     manifest.projects.push({ name, root: resolved, slug, lastSeen: new Date().toISOString() });
     await ensureProjectDataDir(slug, opts.paths?.globalConfig);

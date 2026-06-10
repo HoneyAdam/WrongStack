@@ -1,5 +1,6 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { createRequire } from 'node:module';
 import {
@@ -1735,6 +1736,25 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
       case 'collab.annotate':
       case 'collab.resolve':
         break;
+
+      case 'projects.list': {
+        // Read the project manifest from ~/.wrongstack/projects.json
+        const projectsBase = opts.globalConfigPath
+          ? path.resolve(path.dirname(opts.globalConfigPath))
+          : path.resolve(os.homedir(), '.wrongstack');
+        const manifestPath = path.join(projectsBase, 'projects.json');
+        try {
+          const raw = await fs.readFile(manifestPath, 'utf8');
+          const manifest = JSON.parse(raw) as { projects: Array<{ name: string; root: string; slug: string; lastSeen?: string }> };
+          send(ws, {
+            type: 'projects.list',
+            payload: { projects: manifest.projects ?? [] },
+          });
+        } catch {
+          send(ws, { type: 'projects.list', payload: { projects: [] } });
+        }
+        break;
+      }
 
       default: {
         // Log unknown message types for debugging but do NOT send an error
