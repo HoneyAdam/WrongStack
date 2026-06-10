@@ -9,17 +9,17 @@
  *   /mailbox-demo status          — show project mailbox path and online agents
  *   /mailbox-demo agents          — list all registered agents in the project
  *   /mailbox-demo send <id> <msg> — send a test message to a specific agent
- *   /mailbox-demo broadcast <msg>  — broadcast to all agents
+ *   /mailbox-demo broadcast <msg> — broadcast to all agents
+ *   /mailbox-demo inbox           — check messages for the demo agent
  *   /mailbox-demo clear           — clear all messages for the demo agent
  */
 
 import * as path from 'node:path';
-import { randomUUID } from 'node:crypto';
 import {
   GlobalMailbox,
   resolveProjectDir,
   type MailboxMessage,
-  type RegisteredAgent,
+  type MailboxAgentStatus,
 } from '@wrongstack/core';
 import type { SlashCommand } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
@@ -38,8 +38,8 @@ function buildMailbox(opts: SlashCommandContext): GlobalMailbox | null {
   }
 }
 
-function formatAgent(a: RegisteredAgent): string {
-  const age = Date.now() - new Date(a.lastHeartbeat).getTime();
+function formatAgent(a: MailboxAgentStatus): string {
+  const age = Date.now() - new Date(a.lastSeenAt).getTime();
   const stale = age > 60_000 ? ' (STALE)' : '';
   const role = a.role ? ` [${a.role}]` : '';
   return `  ${a.agentId}${role} — last heartbeat ${(age / 1000).toFixed(0)}s ago${stale}`;
@@ -55,15 +55,36 @@ function formatMessage(m: MailboxMessage): string {
 export function buildMailboxDemoCommand(opts: SlashCommandContext): SlashCommand {
   return {
     name: 'mailbox-demo',
-    category: 'Debug',
+    category: 'Agent',
     description:
-      'Test inter-agent mailbox across TUI/WebUI sessions: /mailbox-demo [status|agents|send <id> <msg>|broadcast <msg>|clear]',
+      'Test inter-agent mailbox across TUI/WebUI sessions: /mailbox-demo [status|agents|send <id> <msg>|broadcast <msg>|inbox|clear]',
+    help: [
+      'Demonstrates and tests inter-agent messaging across TUI and WebUI sessions',
+      'sharing the same project directory. Allows listing online agents, sending',
+      'test messages, and verifying cross-session delivery.',
+      '',
+      'Subcommands:',
+      '  /mailbox-demo status          Show project mailbox path and online agents.',
+      '                                Also registers the demo agent as active.',
+      '  /mailbox-demo agents          List all registered agents in the project.',
+      '  /mailbox-demo send <id> <msg> Send a test message to a specific agent.',
+      '  /mailbox-demo broadcast <msg> Broadcast a message to all registered agents.',
+      '  /mailbox-demo inbox           Check messages received by the demo agent.',
+      '  /mailbox-demo clear           Clear all messages for the demo agent.',
+      '',
+      'Examples:',
+      '  /mailbox-demo status',
+      '  /mailbox-demo agents',
+      '  /mailbox-demo send tui:executor "hello from TUI"',
+      '  /mailbox-demo broadcast "hello everyone"',
+    ].join('\n'),
     async run(args) {
       const mailbox = buildMailbox(opts);
       if (!mailbox) {
         return { message: '❌ Could not access project mailbox directory.' };
       }
 
+      const sessionId = opts.context?.session?.id ?? 'cli';
       const { cmd, rest } = parseSubcommand(args);
       const restJoined = rest.join(' ').trim();
 
@@ -71,15 +92,16 @@ export function buildMailboxDemoCommand(opts: SlashCommandContext): SlashCommand
         case '':
         case 'status': {
           // Register (or refresh) demo agent
-          mailbox.register({
+          await mailbox.registerAgent({
             agentId: DEMO_AGENT_ID,
-            projectRoot: opts.projectRoot,
-            sessionId: opts.paths?.sessionId ?? 'unknown',
+            sessionId,
+            name: 'Mailbox Demo',
             role: 'demo',
+            pid: process.pid,
+            source: 'cli',
           });
 
-          const agents = mailbox.agents();
-          const projectDir = opts.paths?.projectDir ?? 'unknown';
+          const agents = await mailbox.getAgentStatuses();
 
           return {
             message: [
@@ -92,13 +114,14 @@ export function buildMailboxDemoCommand(opts: SlashCommandContext): SlashCommand
               '   /mailbox-demo agents          — list all registered agents',
               '   /mailbox-demo send <id> <msg> — send message to specific agent',
               '   /mailbox-demo broadcast <msg> — broadcast to all agents',
-              '   /mailbox-demo clear          — clear demo agent messages',
+              '   /mailbox-demo inbox           — check messages for demo agent',
+              '   /mailbox-demo clear           — clear demo agent messages',
             ].join('\n'),
           };
         }
 
         case 'agents': {
-          const agents = mailbox.agents();
+          const agents = await mailbox.getAgentStatuses();
           if (agents.length === 0) {
             return { message: '📭 No agents registered in this project mailbox.' };
           }
@@ -115,36 +138,44 @@ export function buildMailboxDemoCommand(opts: SlashCommandContext): SlashCommand
           if (!parts) {
             return { message: 'Usage: /mailbox-demo send <agent-id> <message>' };
           }
-          const [, targetId, msgBody] = parts;
+          const targetId = parts[1]!;
+          const msgBody = parts[2]!;
 
-          mailbox.register({
+          await mailbox.registerAgent({
             agentId: DEMO_AGENT_ID,
-            projectRoot: opts.projectRoot,
-            sessionId: opts.paths?.sessionId ?? 'unknown',
+            sessionId,
+            name: 'Mailbox Demo',
             role: 'demo',
+            pid: process.pid,
+            source: 'cli',
           });
 
-          const msgId = mailbox.send({
+          const msg = await mailbox.send({
             from: DEMO_AGENT_ID,
             to: targetId,
             type: 'note',
+            subject: `message from ${DEMO_AGENT_ID}`,
             body: msgBody,
           });
 
-          return { message: `✅ Message queued for "${targetId}" (id: ${msgId.slice(0, 8)}…)\n   "${msgBody.slice(0, 80)}${msgBody.length > 80 ? '…' : ''}"` };
+          return {
+            message: `✅ Message queued for "${targetId}" (id: ${msg.id.slice(0, 8)}…)\n   "${msgBody.slice(0, 80)}${msgBody.length > 80 ? '…' : ''}"`,
+          };
         }
 
         case 'broadcast': {
           if (!restJoined) return { message: 'Usage: /mailbox-demo broadcast <message>' };
 
-          mailbox.register({
+          await mailbox.registerAgent({
             agentId: DEMO_AGENT_ID,
-            projectRoot: opts.projectRoot,
-            sessionId: opts.paths?.sessionId ?? 'unknown',
+            sessionId,
+            name: 'Mailbox Demo',
             role: 'demo',
+            pid: process.pid,
+            source: 'cli',
           });
 
-          const agents = mailbox.agents();
+          const agents = await mailbox.getAgentStatuses();
           const otherAgents = agents.filter((a) => a.agentId !== DEMO_AGENT_ID);
 
           if (otherAgents.length === 0) {
@@ -153,13 +184,14 @@ export function buildMailboxDemoCommand(opts: SlashCommandContext): SlashCommand
 
           const results: string[] = [];
           for (const agent of otherAgents) {
-            const msgId = mailbox.send({
+            const msg = await mailbox.send({
               from: DEMO_AGENT_ID,
               to: agent.agentId,
               type: 'note',
+              subject: `broadcast from ${DEMO_AGENT_ID}`,
               body: `[broadcast] ${restJoined}`,
             });
-            results.push(`→ ${agent.agentId} (${msgId.slice(0, 8)}…)`);
+            results.push(`→ ${agent.agentId} (${msg.id.slice(0, 8)}…)`);
           }
 
           return {
@@ -173,16 +205,10 @@ export function buildMailboxDemoCommand(opts: SlashCommandContext): SlashCommand
         }
 
         case 'inbox': {
-          // Check messages for demo agent
-          const messages = mailbox.query({
-            forAgentId: DEMO_AGENT_ID,
-            unreadOnly: false,
-          });
-
+          const messages = await mailbox.query({ to: DEMO_AGENT_ID });
           if (messages.length === 0) {
             return { message: '📭 No messages for mailbox-demo.' };
           }
-
           return {
             message: [
               `📬 Inbox (${messages.length} message(s)):`,
@@ -192,9 +218,9 @@ export function buildMailboxDemoCommand(opts: SlashCommandContext): SlashCommand
         }
 
         case 'clear': {
-          const messages = mailbox.query({ forAgentId: DEMO_AGENT_ID, unreadOnly: false });
+          const messages = await mailbox.query({ to: DEMO_AGENT_ID });
           for (const m of messages) {
-            mailbox.ack({ messageId: m.id, agentId: DEMO_AGENT_ID });
+            await mailbox.ack({ messageId: m.id, readerId: DEMO_AGENT_ID });
           }
           return { message: `🗑 Cleared ${messages.length} message(s) for ${DEMO_AGENT_ID}.` };
         }
