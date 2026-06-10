@@ -522,8 +522,11 @@ export type WSClientMessage =
   | { type: 'todos.get' }
   | { type: 'todos.clear' }
   | { type: 'todos.remove'; payload: { id?: string | undefined; index?: number | undefined } }
+  | { type: 'todo.update'; payload: { id: string; status?: 'pending' | 'in_progress' | 'completed' | undefined; activeForm?: string | undefined } }
   | { type: 'tasks.get' }
+  | { type: 'task.update'; payload: { id: string; status: string } }
   | { type: 'plan.get' }
+  | { type: 'plan.item.update'; payload: { target: string; status: 'open' | 'in_progress' | 'done' } }
   | { type: 'ping' }
   | { type: 'process.list' }
   | { type: 'process.kill'; payload: { pid: number } }
@@ -576,6 +579,8 @@ export type WSServerMessage =
   | { type: 'files.read'; payload: { filePath: string; content: string; error?: string | undefined } }
   | { type: 'files.written'; payload: { filePath: string; success: boolean; error?: string | undefined } }
   | WSTodosUpdated
+  | { type: 'tasks.updated'; payload: { tasks: unknown[]; error?: string | undefined } }
+  | { type: 'plan.updated'; payload: { plan: unknown | null; error?: string | undefined } }
   | WSModesList
   | WSAutoPhaseState
   | WSWorktreeState

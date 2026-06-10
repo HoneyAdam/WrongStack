@@ -545,6 +545,9 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
           model: context.model,
           banner: !flags['no-banner'],
           queueStore,
+          // --mouse forces full mouse mode on; when absent, leave undefined so
+          // run-tui can still enable it from the saved setting / WRONGSTACK_MOUSE.
+          mouse: flags.mouse ? true : undefined,
           yolo: !!config.yolo,
           getYolo,
           getAutonomy,
@@ -613,6 +616,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
               debugStream: cfg.debugStream ?? false,
               configScope: cfg.configScope ?? 'global',
               enhanceDelayMs: (cfg.autonomy as Record<string, unknown> | undefined)?.enhanceDelayMs as number ?? 60_000,
+              mouseMode: (autonomy?.mouseMode as boolean) ?? false,
             };
           },
           async saveSettings(s: {
@@ -639,6 +643,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
             debugStream?: boolean | undefined;
             configScope?: 'global' | 'project' | undefined;
             enhanceDelayMs?: number | undefined;
+            mouseMode?: boolean | undefined;
           }) {
             try {
               // Persist autonomy section (existing behaviour).
@@ -658,6 +663,10 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
                   a['streamFleet'] = s.streamFleet ?? true;
                   a['chime'] = s.chime ?? false;
                   a['confirmExit'] = s.confirmExit ?? true;
+                  // Only written when explicitly provided — the SettingsPicker
+                  // auto-save omits mouseMode, so an unconditional write would
+                  // reset a /mouse-enabled session back to false on any toggle.
+                  if (s.mouseMode !== undefined) a['mouseMode'] = s.mouseMode;
                 },
               );
 

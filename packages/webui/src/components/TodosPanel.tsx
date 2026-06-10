@@ -1,4 +1,5 @@
 import { getWSClient } from '@/lib/ws-client';
+import { cn } from '@/lib/utils';
 import { CheckCircle2, Circle, Clock, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -20,9 +21,12 @@ const STATUS_ORDER: Record<TodoItem['status'], number> = {
  * requests the current todo snapshot, and stays in sync via
  * `todos.updated` events broadcast by the server.
  *
- * Sections: In Progress → Pending → Completed, each collapsible.
- * Auto-hides completed section when empty. Items are sorted within
- * each section by their natural order (stable).
+ * **Interactive**: Click an item to toggle between completed ↔ pending.
+ * Hover for a remove button. In-progress items are not toggleable (the
+ * agent sets that state).
+ *
+ * Sections: In Progress → Pending → Completed, completed is collapsible.
+ * Auto-hides when the todo list is empty.
  */
 export function TodosPanel(): React.ReactElement | null {
   const [todos, setTodos] = useState<TodoItem[]>([]);
@@ -40,6 +44,16 @@ export function TodosPanel(): React.ReactElement | null {
   }, [ws]);
 
   const handleRemove = useCallback((id: string) => { ws.removeTodo(id); }, [ws]);
+
+  const handleToggle = useCallback(
+    (t: TodoItem) => {
+      // Only toggle pending ↔ completed. In-progress is agent-managed.
+      if (t.status === 'in_progress') return;
+      const next = t.status === 'completed' ? 'pending' : 'completed';
+      ws.updateTodoStatus(t.id, next);
+    },
+    [ws],
+  );
 
   // Sort: in_progress → pending → completed, stable within groups
   const sorted = [...todos].sort(
@@ -65,17 +79,30 @@ export function TodosPanel(): React.ReactElement | null {
     const label = t.status === 'in_progress' && t.activeForm ? t.activeForm : t.content;
     const isInProgress = t.status === 'in_progress';
     const isCompleted = t.status === 'completed';
+    const isToggleable = !isInProgress;
 
     return (
       <div
         key={t.id}
-        className={`px-3 py-1.5 flex items-start gap-2 text-[13px] group transition-colors ${
+        onClick={() => isToggleable && handleToggle(t)}
+        className={cn(
+          'px-3 py-1.5 flex items-start gap-2 text-[13px] group transition-colors',
+          isToggleable && 'cursor-pointer hover:bg-accent/40',
           isInProgress
             ? 'bg-yellow-50/40 dark:bg-yellow-950/25'
             : isCompleted
               ? 'bg-emerald-50/20 dark:bg-emerald-950/10'
-              : ''
-        }`}
+              : 'bg-background',
+        )}
+        role={isToggleable ? 'button' : undefined}
+        aria-label={isToggleable ? `Toggle ${t.content}` : undefined}
+        tabIndex={isToggleable ? 0 : undefined}
+        onKeyDown={(e) => {
+          if (isToggleable && (e.key === 'Enter' || e.key === ' ')) {
+            e.preventDefault();
+            handleToggle(t);
+          }
+        }}
       >
         <span className="mt-0.5 shrink-0">
           {isCompleted ? (
@@ -83,17 +110,23 @@ export function TodosPanel(): React.ReactElement | null {
           ) : isInProgress ? (
             <Clock className="w-3.5 h-3.5 text-yellow-500 animate-spin" />
           ) : (
-            <Circle className="w-3.5 h-3.5 text-muted-foreground/40" />
+            <Circle
+              className={cn(
+                'w-3.5 h-3.5 transition-colors',
+                'text-muted-foreground/40 group-hover:text-emerald-400',
+              )}
+            />
           )}
         </span>
         <span
-          className={`leading-snug flex-1 min-w-0 ${
+          className={cn(
+            'leading-snug flex-1 min-w-0',
             isInProgress
               ? 'text-yellow-800 dark:text-yellow-200 font-medium'
               : isCompleted
                 ? 'text-muted-foreground line-through'
-                : 'text-foreground/80'
-          }`}
+                : 'text-foreground/80',
+          )}
         >
           {label}
         </span>
@@ -102,6 +135,7 @@ export function TodosPanel(): React.ReactElement | null {
           onClick={(e) => { e.stopPropagation(); handleRemove(t.id); }}
           className="shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-50 hover:opacity-100 hover:bg-destructive/10 transition-all"
           title="Remove todo"
+          aria-label={`Remove "${t.content}"`}
         >
           <Trash2 className="w-3 h-3 text-muted-foreground" />
         </button>

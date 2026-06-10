@@ -11,6 +11,9 @@ import {
   WifiOff,
 } from 'lucide-react';
 import { Button } from '../ui/button';
+import { ContextFillBar } from '../ContextBar';
+import { fmtTok } from '../ChatView/utils';
+import { getWSClient } from '@/lib/ws-client';
 
 interface ConfigSectionProps {
   formatDuration: (start: number | null) => string;
@@ -18,11 +21,16 @@ interface ConfigSectionProps {
 
 export function ConfigSection({ formatDuration }: ConfigSectionProps) {
   const { wsConnected, wsUrl, provider, model } = useConfigStore();
-  const { totalTokens, cost, session, todos } = useSessionStore();
+  const { totalTokens, cost, session, todos, lastInputTokens, maxContext } = useSessionStore();
   const { messages } = useChatStore();
   const pinnedIds = useUIStore((s) => s.pinnedIds);
   const unpinAll = useUIStore((s) => s.unpinAll);
   const setCurrentView = useUIStore((s) => s.setCurrentView);
+
+  const ctxPct =
+    maxContext > 0 && lastInputTokens > 0
+      ? Math.min(100, Math.round((lastInputTokens / maxContext) * 100))
+      : 0;
 
   const pinnedRows = pinnedIds
     .map((id) => messages.find((m) => m.id === id))
@@ -38,6 +46,44 @@ export function ConfigSection({ formatDuration }: ConfigSectionProps) {
         </div>
         <div className="text-xs text-muted-foreground mt-2 px-1 font-mono">{wsUrl}</div>
       </div>
+
+      {/* Context window — live fill bar + quick compact/clear */}
+      {maxContext > 0 && (
+        <div className="px-4 py-3 border-b space-y-2.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+              Context
+            </span>
+            <span className="text-[10px] text-muted-foreground tabular-nums font-mono">
+              {fmtTok(lastInputTokens)}/{fmtTok(maxContext)}
+            </span>
+          </div>
+          <ContextFillBar
+            pct={ctxPct}
+            tokens={lastInputTokens}
+            maxTokens={maxContext}
+            showTokens={false}
+          />
+          <div className="flex gap-1">
+            <button
+              type="button"
+              onClick={() => getWSClient(wsUrl)?.send?.({ type: 'context.compact', payload: { aggressive: false } })}
+              className="flex-1 text-[10px] px-2 py-1 rounded-md border border-border hover:bg-accent transition-colors"
+              title="Compact context"
+            >
+              Compact
+            </button>
+            <button
+              type="button"
+              onClick={() => getWSClient(wsUrl)?.send?.({ type: 'context.clear' })}
+              className="flex-1 text-[10px] px-2 py-1 rounded-md border border-border hover:bg-destructive/10 hover:text-destructive transition-colors"
+              title="Clear context"
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Active model */}
       <button type="button" onClick={() => setCurrentView('settings')} className="px-4 py-3 border-b text-left hover:bg-muted/40 transition-colors">

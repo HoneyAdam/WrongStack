@@ -20,6 +20,11 @@ const STATUS_CONFIG: Record<PlanItem['status'], { icon: React.ReactNode; label: 
  * Live plan board panel. Connects via WebSocket, requests the current
  * plan snapshot, and stays in sync via `plan.updated` events.
  *
+ * **Interactive**: Each plan item has hover quick-actions:
+ * - **Start** (open → in_progress)
+ * - **Done** (in_progress/open → done)
+ * - **Reopen** (done → open)
+ *
  * Sections: In Progress → Open → Done, each collapsible.
  * Auto-hides when the plan is empty.
  */
@@ -45,6 +50,14 @@ export function PlanPanel(): React.ReactElement | null {
       return next;
     });
   }, []);
+
+  const handleStatusChange = useCallback(
+    (item: PlanItem, status: PlanItem['status']) => {
+      // Use the item's id as the target — server resolves by id, index, or title match
+      ws.updatePlanItem(item.id, status);
+    },
+    [ws],
+  );
 
   const statusOrder: PlanItem['status'][] = ['in_progress', 'open', 'done'];
   const grouped = new Map<PlanItem['status'], PlanItem[]>();
@@ -87,7 +100,7 @@ export function PlanPanel(): React.ReactElement | null {
               <div
                 key={it.id}
                 className={cn(
-                  'px-3 py-1.5 flex items-start gap-2 text-[13px]',
+                  'px-3 py-1.5 flex items-start gap-2 text-[13px] group',
                   it.status === 'in_progress' ? 'bg-yellow-50/40 dark:bg-yellow-950/25' : '',
                 )}
               >
@@ -98,6 +111,40 @@ export function PlanPanel(): React.ReactElement | null {
                 )}>
                   {it.title}
                 </span>
+
+                {/* Quick Actions */}
+                <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                  {it.status === 'open' && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); handleStatusChange(it, 'in_progress'); }}
+                      className="px-1.5 py-0.5 text-[9px] rounded bg-primary/15 text-primary hover:bg-primary/25 transition-colors"
+                      title="Start"
+                    >
+                      Start
+                    </button>
+                  )}
+                  {it.status !== 'done' && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); handleStatusChange(it, 'done'); }}
+                      className="px-1.5 py-0.5 text-[9px] rounded bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success))] hover:bg-[hsl(var(--success)/0.25)] transition-colors"
+                      title="Mark done"
+                    >
+                      Done
+                    </button>
+                  )}
+                  {it.status === 'done' && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); handleStatusChange(it, 'open'); }}
+                      className="px-1.5 py-0.5 text-[9px] rounded bg-muted text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                      title="Reopen"
+                    >
+                      Reopen
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>

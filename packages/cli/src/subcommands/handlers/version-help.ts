@@ -48,6 +48,7 @@ export const helpCmd: SubcommandHandler = async (_args, deps) => {
     '  --confirm-destructive         In YOLO mode, still prompt for destructive operations',
     '  --yolo-destructive            Deprecated — YOLO now auto-approves everything by default',
     '  --tui / --no-tui             Force or disable TUI mode',
+    '  --mouse                      Full mouse mode in the TUI (in-app scroll + clickable UI)',
     '  --webui [--port <n>] [--open] Serve the browser UI + WS bridge (prints a URL,',
     '                               --open pops the browser; shares this terminal\'s',
     '                               agent; auto-picks free ports)',

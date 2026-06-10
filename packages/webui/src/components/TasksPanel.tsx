@@ -45,6 +45,11 @@ const TYPE_ICON: Record<TaskItem['type'], string> = {
  * Live task list panel. Connects via WebSocket, requests the current
  * task snapshot, and stays in sync via `tasks.updated` events.
  *
+ * **Interactive**: Each task shows quick-action buttons:
+ * - **Start** (pending/blocked/failed/review → in_progress)
+ * - **Complete** (in_progress → completed)
+ * - **Fail** (any non-completed → failed)
+ *
  * Groups: In Progress → Blocked → Review → Pending → Failed → Completed.
  * Each collapsible. Auto-hides empty sections.
  */
@@ -70,6 +75,13 @@ export function TasksPanel(): React.ReactElement | null {
       return next;
     });
   }, []);
+
+  const handleStatusChange = useCallback(
+    (taskId: string, status: TaskItem['status']) => {
+      ws.updateTaskStatus(taskId, status);
+    },
+    [ws],
+  );
 
   const statusOrder: TaskItem['status'][] = ['in_progress', 'blocked', 'review', 'pending', 'failed', 'completed'];
   const grouped = new Map<TaskItem['status'], TaskItem[]>();
@@ -110,7 +122,7 @@ export function TasksPanel(): React.ReactElement | null {
               <div
                 key={t.id}
                 className={cn(
-                  'px-3 py-1.5 flex items-start gap-2 text-[13px]',
+                  'px-3 py-1.5 flex items-start gap-2 text-[13px] group',
                   t.status === 'in_progress' ? 'bg-yellow-50/40 dark:bg-yellow-950/25' : '',
                 )}
               >
@@ -131,6 +143,40 @@ export function TasksPanel(): React.ReactElement | null {
                     <span className="ml-1 text-[10px] text-muted-foreground">{t.estimateHours}h</span>
                   )}
                 </span>
+
+                {/* Quick Actions */}
+                <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                  {t.status !== 'in_progress' && t.status !== 'completed' && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); handleStatusChange(t.id, 'in_progress'); }}
+                      className="px-1.5 py-0.5 text-[9px] rounded bg-primary/15 text-primary hover:bg-primary/25 transition-colors"
+                      title="Start"
+                    >
+                      Start
+                    </button>
+                  )}
+                  {t.status === 'in_progress' && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); handleStatusChange(t.id, 'completed'); }}
+                      className="px-1.5 py-0.5 text-[9px] rounded bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success))] hover:bg-[hsl(var(--success)/0.25)] transition-colors"
+                      title="Complete"
+                    >
+                      Done
+                    </button>
+                  )}
+                  {t.status !== 'completed' && t.status !== 'failed' && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); handleStatusChange(t.id, 'failed'); }}
+                      className="px-1.5 py-0.5 text-[9px] rounded bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors"
+                      title="Mark failed"
+                    >
+                      Fail
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>

@@ -52,12 +52,20 @@ export interface MouseEventInfo {
 }
 
 // SGR mouse report: ESC [ < Cb ; Cx ; Cy (M|m)
-// M = press / motion, m = release. Cb is a bitfield (see decode below).
-const SGR_MOUSE_RE = new RegExp(`^${ESC}\\[<(\\d+);(\\d+);(\\d+)([Mm])$`, 'u');
+// M = press / motion, m = release. Cb is a bitfield (see decodeMouse below).
+const SGR_MOUSE_ANCHORED = new RegExp(`^${ESC}\\[<(\\d+);(\\d+);(\\d+)([Mm])$`, 'u');
+// Same, unanchored + global: a fast wheel scroll batches several reports into
+// one stdin chunk, and chunks can carry trailing/leading bytes.
+const SGR_MOUSE_GLOBAL = new RegExp(`${ESC}\\[<(\\d+);(\\d+);(\\d+)([Mm])`, 'gu');
+
+// Ink doesn't understand mouse reports: it strips the leading ESC and hands the
+// rest to useInput as plain text, so an enabled-mouse terminal leaks
+// `[<64;10;5M`-style strings into the input buffer. This matches that leaked
+// form (ESC already gone). Unanchored — a fast scroll leaks several at once.
+const LEAKED_MOUSE_RE = /\[<\d+;\d+;\d+[Mm]/;
 
 /**
- * Parse a single SGR mouse report from raw stdin into a structured event.
- * Returns null when `data` is not a (complete) SGR mouse report.
+ * Decode an SGR Cb bitfield + coords into a structured event.
  *
  * Cb bitfield:
  *   bits 0-1 — button (0 left, 1 middle, 2 right, 3 none/released)
@@ -67,14 +75,7 @@ const SGR_MOUSE_RE = new RegExp(`^${ESC}\\[<(\\d+);(\\d+);(\\d+)([Mm])$`, 'u');
  *   bit  5   — motion         (+32)
  *   bit  6   — wheel          (+64; then bits 0-1: 0 up, 1 down, 2/3 horizontal)
  */
-export function parseMouseEvent(data: string): MouseEventInfo | null {
-  const m = data.match(SGR_MOUSE_RE);
-  if (!m) return null;
-  const cb = Number.parseInt(m[1] as string, 10);
-  const x = Number.parseInt(m[2] as string, 10);
-  const y = Number.parseInt(m[3] as string, 10);
-  const released = m[4] === 'm';
-
+function decodeMouse(cb: number, x: number, y: number, released: boolean): MouseEventInfo {
   const shift = (cb & 4) !== 0;
   const meta = (cb & 8) !== 0;
   const ctrl = (cb & 16) !== 0;
@@ -92,4 +93,47 @@ export function parseMouseEvent(data: string): MouseEventInfo | null {
     low === 0 ? 'left' : low === 1 ? 'middle' : low === 2 ? 'right' : 'none';
   const kind: MouseEventKind = motion ? 'move' : released ? 'release' : 'press';
   return { kind, button, x, y, wheel: 0, shift, meta, ctrl, motion };
+}
+
+/**
+ * Parse a single, whole SGR mouse report into a structured event. Returns null
+ * when `data` is not exactly one report.
+ */
+export function parseMouseEvent(data: string): MouseEventInfo | null {
+  const m = data.match(SGR_MOUSE_ANCHORED);
+  if (!m) return null;
+  return decodeMouse(
+    Number.parseInt(m[1] as string, 10),
+    Number.parseInt(m[2] as string, 10),
+    Number.parseInt(m[3] as string, 10),
+    m[4] === 'm',
+  );
+}
+
+/**
+ * Scan raw stdin data for ALL SGR mouse reports, in order. A fast wheel scroll
+ * coalesces several reports into one chunk; returns an empty array when the
+ * data contains no report.
+ */
+export function parseMouseEvents(data: string): MouseEventInfo[] {
+  const events: MouseEventInfo[] = [];
+  for (const m of data.matchAll(SGR_MOUSE_GLOBAL)) {
+    events.push(
+      decodeMouse(
+        Number.parseInt(m[1] as string, 10),
+        Number.parseInt(m[2] as string, 10),
+        Number.parseInt(m[3] as string, 10),
+        m[4] === 'm',
+      ),
+    );
+  }
+  return events;
+}
+
+/**
+ * True when `input` (Ink's already-ESC-stripped text) is a leaked mouse report.
+ * The input layer drops these so they never land in the buffer as typed text.
+ */
+export function isLeakedMouseInput(input: string): boolean {
+  return LEAKED_MOUSE_RE.test(input);
 }

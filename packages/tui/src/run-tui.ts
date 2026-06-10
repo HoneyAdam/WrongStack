@@ -399,7 +399,8 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
   // enable/disable lifecycle (it also turns tracking on per-overlay); cleanup()
   // below sends MOUSE_OFF unconditionally so the terminal is never left
   // reporting mouse events after exit.
-  const mouseEnabled = opts.mouse ?? process.env.WRONGSTACK_MOUSE === '1';
+  const mouseEnabled =
+    opts.mouse ?? opts.getSettings?.().mouseMode ?? process.env.WRONGSTACK_MOUSE === '1';
 
   // Clear the VISIBLE screen (not scrollback) before Ink's first paint. The
   // REPL boot output (provider banner, Director roster, fleet paths, recovery

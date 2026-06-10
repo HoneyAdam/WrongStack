@@ -606,9 +606,9 @@ export class DefaultSessionStore implements SessionStore {
     for (const e of events) {
       if (e.type === 'user_input') {
         openToolUses.clear();
-        messages.push({ role: 'user', content: e.content });
+        messages.push({ role: 'user', content: e.content, ts: e.ts });
       } else if (e.type === 'llm_response') {
-        messages.push({ role: 'assistant', content: e.content });
+        messages.push({ role: 'assistant', content: e.content, ts: e.ts });
         for (const b of e.content) {
           if (b.type === 'tool_use') openToolUses.add(b.id);
         }
@@ -642,10 +642,10 @@ export class DefaultSessionStore implements SessionStore {
           } else if (typeof last.content === 'string') {
             last.content = [{ type: 'text', text: last.content }, ...content];
           } else {
-            messages.push({ role: 'user', content });
+            messages.push({ role: 'user', content, ts: e.ts });
           }
         } else {
-          messages.push({ role: 'user', content });
+          messages.push({ role: 'user', content, ts: e.ts });
         }
       }
     }

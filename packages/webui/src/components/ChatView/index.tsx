@@ -51,7 +51,7 @@ export function ChatView() {
   const sidebarOpen = useUIStore((s) => s.sidebarOpen);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
   const compactMode = useUIStore((s) => s.compactMode);
-  const { totalTokens, startTime, lastInputTokens, maxContext, projectName, iteration, todos, mode } =
+  const { totalTokens, startTime, lastInputTokens, maxContext, projectName, cwd, iteration, todos, mode } =
     useSessionStore();
   const session = useSessionStore((s) => s.session);
   const sessionId = session?.id;
@@ -258,7 +258,7 @@ export function ChatView() {
             {projectName && (
               <span
                 className="flex items-center gap-1 text-[11px] text-muted-foreground shrink-0 min-w-0"
-                title={`Project: ${projectName}`}
+                title={cwd || `Project: ${projectName}`}
               >
                 <FolderOpen className="h-3 w-3 shrink-0" />
                 <span className="truncate max-w-[8rem]">{projectName}</span>

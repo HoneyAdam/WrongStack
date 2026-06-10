@@ -62,7 +62,7 @@ interface ChatState {
    *  elapsed timer. Reset alongside `thinkingBuffer`. */
   thinkingStartedAt: number | null;
 
-  addMessage: (msg: Omit<ChatMessage, 'id' | 'timestamp'>) => string;
+  addMessage: (msg: Omit<ChatMessage, 'id' | 'timestamp'> & { timestamp?: number }) => string;
   updateMessage: (id: string, updates: Partial<ChatMessage>) => void;
   appendToMessage: (id: string, text: string) => void;
   finalizeMessage: (id: string) => void;
@@ -112,7 +112,7 @@ export const useChatStore = create<ChatState>()(
 
       addMessage: (msg) => {
         const id = `msg_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
-        const fullMsg: ChatMessage = { ...msg, id, timestamp: Date.now() };
+        const fullMsg: ChatMessage = { ...msg, id, timestamp: msg.timestamp ?? Date.now() };
         set((state) => ({
           messages: [...state.messages, fullMsg],
           currentAssistantMessageId:

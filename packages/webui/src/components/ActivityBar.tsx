@@ -51,6 +51,7 @@ export function ActivityBar() {
   const setCurrentView = useUIStore((s) => s.setCurrentView);
   const setSidebarOpen = useUIStore((s) => s.setSidebarOpen);
   const projectName = useSessionStore((s) => s.projectName);
+  const cwd = useSessionStore((s) => s.cwd);
   const wsConnected = useConfigStore((s) => s.wsConnected);
   const fleetTotal = useFleetStore((s) => s.agents.size);
 
@@ -117,7 +118,7 @@ export function ActivityBar() {
         {/* Project name — truncated to fit the 48px bar */}
         <span
           className="mt-1.5 text-[8px] font-semibold tracking-tight text-muted-foreground text-center leading-tight w-10 truncate"
-          title={projectName || 'WrongStack'}
+          title={cwd || projectName || 'WrongStack'}
         >
           {projectName || 'WS'}
         </span>

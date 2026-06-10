@@ -17,6 +17,7 @@ export { FleetPanel } from './FleetPanel';
 export { TodosPanel } from './TodosPanel';
 export { TasksPanel } from './TasksPanel';
 export { PlanPanel } from './PlanPanel';
+export { WorkDashboard } from './WorkDashboard';
 export { PhasePanel, type PhaseItem } from './PhasePanel';
 export { WorktreeGraph } from './WorktreeGraph';
 export { WorktreeLanes } from './WorktreeLanes';

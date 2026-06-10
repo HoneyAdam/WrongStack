@@ -3,7 +3,9 @@ import {
   MOUSE_CLICK_ON,
   MOUSE_HOVER_ON,
   MOUSE_OFF,
+  isLeakedMouseInput,
   parseMouseEvent,
+  parseMouseEvents,
 } from '../src/mouse.js';
 
 const ESC = String.fromCharCode(27);
@@ -79,5 +81,43 @@ describe('parseMouseEvent', () => {
     expect(ev).toMatchObject({ shift: true, meta: true, ctrl: true, button: 'left' });
     const plain = parseMouseEvent(sgr(0, 1, 1));
     expect(plain).toMatchObject({ shift: false, meta: false, ctrl: false });
+  });
+
+  it('anchored parse rejects a chunk with extra bytes', () => {
+    // The real regression: a batched/decorated chunk must NOT parse as one event.
+    expect(parseMouseEvent(sgr(64, 1, 1) + sgr(65, 1, 1))).toBeNull();
+  });
+});
+
+describe('parseMouseEvents (batched scan)', () => {
+  it('extracts every report from a coalesced wheel-scroll chunk', () => {
+    const chunk = sgr(64, 5, 5) + sgr(64, 5, 5) + sgr(65, 5, 5);
+    const evs = parseMouseEvents(chunk);
+    expect(evs.map((e) => e.wheel)).toEqual([1, 1, -1]);
+  });
+
+  it('returns [] for non-mouse data', () => {
+    expect(parseMouseEvents('hello')).toEqual([]);
+    expect(parseMouseEvents(`${ESC}[A`)).toEqual([]);
+  });
+
+  it('finds a report even with surrounding noise', () => {
+    expect(parseMouseEvents(`x${sgr(2, 7, 8)}`)).toMatchObject([{ button: 'right', x: 7, y: 8 }]);
+  });
+});
+
+describe('isLeakedMouseInput', () => {
+  it('matches the ESC-stripped form Ink inserts as text', () => {
+    // Ink strips the leading ESC: "\x1b[<64;10;5M" -> "[<64;10;5M".
+    expect(isLeakedMouseInput('[<64;10;5M')).toBe(true);
+    expect(isLeakedMouseInput('[<0;3;4m')).toBe(true);
+    // Batched leak (fast scroll) keeps inner ESCs but still contains the core.
+    expect(isLeakedMouseInput(`[<64;1;1M${ESC}[<64;1;1M`)).toBe(true);
+  });
+
+  it('does not match ordinary typed text', () => {
+    expect(isLeakedMouseInput('hello world')).toBe(false);
+    expect(isLeakedMouseInput('a < b ; c')).toBe(false);
+    expect(isLeakedMouseInput('')).toBe(false);
   });
 });

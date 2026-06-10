@@ -97,7 +97,7 @@ function fillTextarea(text: string): void {
 }
 
 export function WelcomeScreen() {
-  const { projectName } = useSessionStore();
+  const { projectName, cwd } = useSessionStore();
   const { provider, model } = useConfigStore();
   const wsConnected = useConfigStore((s) => s.wsConnected);
   const wsUrl = useConfigStore((s) => s.wsUrl);
@@ -175,6 +175,11 @@ export function WelcomeScreen() {
           {provider && model && (
             <p className="text-xs text-muted-foreground/70 mt-2 font-mono">
               {provider} / {model}
+            </p>
+          )}
+          {cwd && (
+            <p className="text-[11px] text-muted-foreground/50 mt-1 font-mono" title={cwd}>
+              Working directory: {cwd}
             </p>
           )}
         </div>

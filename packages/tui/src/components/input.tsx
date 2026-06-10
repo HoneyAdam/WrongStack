@@ -3,7 +3,7 @@ import type React from 'react';
 import { memo, useEffect, useRef, useState } from 'react';
 import { fnKey } from '../fn-keys.js';
 import { type InputCell, layoutInputRows } from '../input-tokens.js';
-import { type MouseEventInfo, parseMouseEvent } from '../mouse.js';
+import { type MouseEventInfo, isLeakedMouseInput, parseMouseEvents } from '../mouse.js';
 export interface InputProps {
   prompt?: string | undefined;
   value: string;
@@ -181,6 +181,11 @@ export const Input = memo(function Input({
 
   useInput((input, key) => {
     if (disabled) return;
+    // Drop mouse reports that leaked through Ink as text. With mouse tracking on,
+    // the terminal emits SGR reports (\x1b[<b;x;yM); Ink can't decode them, strips
+    // the ESC, and would insert "[<b;x;yM" into the buffer. The raw-stdin handler
+    // below parses the real events — here we just discard the leaked text.
+    if (input && isLeakedMouseInput(input)) return;
     if (key.escape && suppressInkEscRef.current) {
       suppressInkEscRef.current = false;
       return;
@@ -269,16 +274,19 @@ export const Input = memo(function Input({
         return;
       }
 
-      // Mouse report (SGR protocol — terminal must have ?1000h + ?1006h set;
-      // see mouse.ts and run-tui's lifecycle). Surface the full event plus the
-      // wheelDeltaY back-compat shorthand so existing wheel consumers keep working.
-      const mouse = parseMouseEvent(s);
-      if (mouse) {
-        onKey('', {
-          ...EMPTY_KEY,
-          mouse,
-          wheelDeltaY: mouse.kind === 'wheel' ? mouse.wheel : undefined,
-        });
+      // Mouse reports (SGR protocol — enabled per-overlay/globally; see mouse.ts
+      // and run-tui's lifecycle). A fast wheel scroll batches several reports into
+      // one chunk, so emit each. The leak-drop in useInput above stops Ink from
+      // also inserting these as text.
+      const mouseEvents = parseMouseEvents(s);
+      if (mouseEvents.length > 0) {
+        for (const ev of mouseEvents) {
+          onKey('', {
+            ...EMPTY_KEY,
+            mouse: ev,
+            wheelDeltaY: ev.kind === 'wheel' ? ev.wheel : undefined,
+          });
+        }
         return;
       }
 

@@ -27,8 +27,10 @@ function modeIcon(label?: string): string {
   return `${icon} ${label}`;
 }
 
-/** Minimum terminal width before we switch to ultra-compact mode. */
-const COMPACT_THRESHOLD = 50;
+/** Minimum terminal width before we switch to ultra-compact mode. Exported so
+ *  the TUI mouse hit-test can skip the model-chip click in compact mode (where
+ *  line 1 uses a different layout than `statusBarModelSpan` assumes). */
+export const COMPACT_THRESHOLD = 50;
 /** Above this width, show most available information. */
 const COMFORTABLE_THRESHOLD = 90;
 

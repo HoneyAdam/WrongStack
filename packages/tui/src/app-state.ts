@@ -492,6 +492,8 @@ export type Settings = {
   debugStream: boolean;
   /** Where to persist settings: 'global' or 'project'. */
   configScope: 'global' | 'project';
+  /** Full mouse mode: in-app managed scroll + clickable UI (SGR tracking on). */
+  mouseMode?: boolean | undefined;
 };
 
 export type Action =

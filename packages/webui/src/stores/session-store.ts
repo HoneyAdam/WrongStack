@@ -23,6 +23,8 @@ interface SessionState {
   cacheReadCost: number;
   /** basename(projectRoot) for the topbar. */
   projectName: string;
+  /** Full project root path — used for richer tooltips / hover context. */
+  cwd: string;
   /** Active mode id (default | code | …). */
   mode: string;
   /** All modes the backend knows about, populated by modes.list. The
@@ -60,6 +62,7 @@ interface SessionState {
   setEnv: (env: {
     maxContext?: number | undefined;
     projectName?: string | undefined;
+    cwd?: string | undefined;
     mode?: string | undefined;
     contextMode?: string | undefined;
     inputCost?: number | undefined;
@@ -85,6 +88,7 @@ export const useSessionStore = create<SessionState>()(
       outputCost: 0,
       cacheReadCost: 0,
       projectName: '',
+      cwd: '',
       mode: 'default',
       modes: [],
       contextMode: 'balanced',
@@ -133,6 +137,7 @@ export const useSessionStore = create<SessionState>()(
         set((state) => ({
           maxContext: env.maxContext ?? state.maxContext,
           projectName: env.projectName ?? state.projectName,
+          cwd: env.cwd ?? state.cwd,
           mode: env.mode ?? state.mode,
           contextMode: env.contextMode ?? state.contextMode,
           inputCost: env.inputCost ?? state.inputCost,

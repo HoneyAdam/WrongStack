@@ -18,8 +18,16 @@ import { InputBuilder, buildGoalPreamble, formatTodosList, writeOut } from '@wro
 import { enhanceUserPrompt, normalizedEqual, recentTextTurns, shouldEnhance } from '@wrongstack/core';
 import { type VisionAdapters, routeImagesForModel } from '@wrongstack/runtime/vision';
 import { getProcessRegistry, getIndexState, onIndexStateChange } from '@wrongstack/tools';
-import { Box, Text, useApp, useStdout } from './ink.js';
-import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { Box, type DOMElement, Text, measureElement, useApp, useStdout } from './ink.js';
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from 'react';
 import { readClipboardImage } from './clipboard.js';
 import { AgentsMonitor } from './components/agents-monitor.js';
 import { AUTONOMY_OPTIONS, AutonomyPicker } from './components/autonomy-picker.js';
@@ -33,6 +41,8 @@ import { FleetMonitor } from './components/fleet-monitor.js';
 import { FleetPanel } from './components/fleet-panel.js';
 import { HelpOverlay } from './components/help-overlay.js';
 import { History, type HistoryEntry } from './components/history.js';
+import { ScrollableHistory, scrollOffsetForTrackRow } from './components/scrollable-history.js';
+import { hitRegion, statusBarLineRow } from './hit-test.js';
 import { Input, type KeyEvent } from './components/input.js';
 import { ModelPicker, type ProviderOption } from './components/model-picker.js';
 import { PhaseMonitor } from './components/phase-monitor.js';
@@ -43,7 +53,13 @@ import { GoalPanel } from './components/goal-panel.js';
 import { ResumePicker } from './components/resume-picker.js';
 import { SettingsPicker } from './components/settings-picker.js';
 import { SlashMenu } from './components/slash-menu.js';
-import { StatusBar } from './components/status-bar.js';
+import {
+  COMPACT_THRESHOLD,
+  StatusBar,
+  statusBarAutonomySpan,
+  statusBarModelSpan,
+  statusBarTodosSpan,
+} from './components/status-bar.js';
 import { TodosMonitor } from './components/todos-monitor.js';
 import { WorktreeMonitor } from './components/worktree-monitor.js';
 import { WorktreePanel } from './components/worktree-panel.js';
@@ -797,6 +813,11 @@ export function App({
   const draftRef = useRef({ buffer: state.buffer, cursor: state.cursor });
   draftRef.current = { buffer: state.buffer, cursor: state.cursor };
 
+  // Live mirror of the `mouse` opt-in so `/mouse` can toggle full mouse mode
+  // mid-session (swap History ↔ ScrollableHistory, flip SGR tracking) without a
+  // restart. Seeded from the prop (--mouse / WRONGSTACK_MOUSE / saved setting).
+  const [mouseMode, setMouseMode] = useState(mouse);
+
   // Mouse tracking ownership. We enable SGR mouse reporting while a selectable
   // overlay is open (so the wheel scrolls the picker selection — see the wheel
   // handlers in handleKey), and while the global `mouse` prop is set. Outside
@@ -810,7 +831,7 @@ export function App({
     state.settingsPicker.open ||
     state.slashPicker.open ||
     state.picker.open;
-  const mouseTrackingOn = mouse || pickerOverlayOpen;
+  const mouseTrackingOn = mouseMode || pickerOverlayOpen;
   const mouseWrittenRef = useRef(false);
   useEffect(() => {
     if (mouseWrittenRef.current === mouseTrackingOn) return;
@@ -831,6 +852,39 @@ export function App({
     },
     [],
   );
+
+  // Mouse-mode managed scroll. With SGR tracking on, the terminal's native
+  // wheel-scroll is captured by us, so the chat history can no longer ride the
+  // terminal's scrollback — it's rendered into a fixed-height ScrollableHistory
+  // viewport that the App scrolls itself. The viewport height is (terminal rows
+  // − bottom-region height): we measure the bottom region (input + pickers +
+  // status bar + panels) after layout and subtract from the live row count.
+  // Guarded against a measure → dispatch → re-measure loop by only dispatching
+  // when the computed height actually changes.
+  const bottomRegionRef = useRef<DOMElement | null>(null);
+  // Measured on click to locate clickable status-bar chips: the status bar is
+  // bottom-anchored above `belowStatusBarRef`'s panels, so its absolute rows are
+  // termRows − belowHeight − statusBarHeight … See statusBarLineRow / handleKey.
+  const statusBarWrapRef = useRef<DOMElement | null>(null);
+  const belowStatusBarRef = useRef<DOMElement | null>(null);
+  const [termRows, setTermRows] = useState(stdout?.rows ?? 24);
+  useEffect(() => {
+    const onResize = () => setTermRows(process.stdout.rows ?? 24);
+    process.stdout.on('resize', onResize);
+    return () => {
+      process.stdout.off('resize', onResize);
+    };
+  }, []);
+  useLayoutEffect(() => {
+    if (!mouseMode) return;
+    const node = bottomRegionRef.current;
+    if (!node) return;
+    const { height } = measureElement(node);
+    const vp = Math.max(1, termRows - height);
+    if (vp !== stateRef.current.viewportRows) {
+      dispatch({ type: 'setViewportRows', rows: vp });
+    }
+  });
 
   // Latest handleKey, so the keyboard event pipeline can be accessed from
   // effects and callbacks defined above handleKey in the component body.
@@ -2622,7 +2676,46 @@ export function App({
     // \r arrives with key.return=true (handled below); \n may arrive as
     // a stray character with key.return=false. Normalize both to Enter
     // and prevent them from polluting the buffer as literal text.
-    const isEnter = key.return || input === '\r' || input === '\n';
+    // Mouse buttons inside a selectable overlay map to keyboard semantics:
+    // left = confirm (Enter), right = cancel/back (Esc). Tracking is
+    // overlay-scoped (see the mouse effect near stateRef), so this is gated on
+    // an overlay being open and never disturbs normal chat clicks. Combined
+    // with wheel-to-move in each picker block, this gives full mouse menu
+    // control without any pixel hit-testing.
+    const overlaySelectable =
+      state.modelPicker.open ||
+      state.autonomyPicker.open ||
+      state.resumePicker.open ||
+      state.settingsPicker.open ||
+      state.slashPicker.open ||
+      state.picker.open;
+    const clickConfirm =
+      overlaySelectable && key.mouse?.kind === 'press' && key.mouse.button === 'left';
+    const clickCancel =
+      overlaySelectable && key.mouse?.kind === 'press' && key.mouse.button === 'right';
+    const isEnter = key.return || input === '\r' || input === '\n' || clickConfirm;
+
+    // Right-click cancels the open overlay (mirrors each picker's Esc path).
+    if (clickCancel) {
+      if (state.modelPicker.open) {
+        dispatch(
+          state.modelPicker.step === 'model'
+            ? { type: 'modelPickerBack' }
+            : { type: 'modelPickerClose' },
+        );
+      } else if (state.autonomyPicker.open) {
+        dispatch({ type: 'autonomyPickerClose' });
+      } else if (state.resumePicker.open) {
+        dispatch({ type: 'resumePickerClose' });
+      } else if (state.settingsPicker.open) {
+        dispatch({ type: 'settingsClose' });
+      } else if (state.slashPicker.open) {
+        dispatch({ type: 'slashPickerClose' });
+      } else if (state.picker.open) {
+        dispatch({ type: 'pickerClose' });
+      }
+      return;
+    }
 
     // IMPORTANT: do NOT bail on `!input` here. Special keys (arrows,
     // Enter, Escape, Tab, Backspace) arrive with an empty `input`
@@ -2753,6 +2846,10 @@ export function App({
     if (state.resumePicker.open) {
       if (key.escape) {
         dispatch({ type: 'resumePickerClose' });
+        return;
+      }
+      if (key.mouse?.kind === 'wheel') {
+        dispatch({ type: 'resumePickerMove', delta: key.mouse.wheel > 0 ? -1 : 1 });
         return;
       }
       if (key.upArrow) {
@@ -3428,6 +3525,93 @@ export function App({
       (state.autoPhase?.monitorOpen ?? false) ||
       state.rewindOverlay !== null;
 
+    // In-app chat scroll (mouse mode). SGR tracking captures the terminal's
+    // native wheel, so the managed ScrollableHistory viewport must be scrolled
+    // by us. Plain wheel = 3 rows; Shift+wheel and PgUp/PgDn = a page. Skipped
+    // while a below-the-statusline overlay owns the arrows/scroll, and a no-op
+    // outside mouse mode (where <Static> rides native scrollback instead).
+    if (mouseMode && !overlayOpen) {
+      if (key.mouse?.kind === 'wheel') {
+        if (key.mouse.shift) dispatch({ type: 'scrollPage', dir: key.mouse.wheel > 0 ? 'up' : 'down' });
+        else dispatch({ type: 'scrollBy', delta: key.mouse.wheel > 0 ? 3 : -3 });
+        return;
+      }
+      // Scrollbar click / drag. A left press (or left-button drag) on the
+      // right-edge track jumps the viewport to that position; each drag-move
+      // re-jumps, giving scrub-to-scroll for free. The track lives in the top
+      // `viewportRows` band, so the bottom region is never affected.
+      if (
+        (key.mouse?.kind === 'press' || key.mouse?.kind === 'move') &&
+        key.mouse.button === 'left'
+      ) {
+        const region = hitRegion(
+          { termRows, termCols: stdout?.columns ?? 80, viewportRows: state.viewportRows },
+          key.mouse.x,
+          key.mouse.y,
+        );
+        if (region?.kind === 'scrollbar') {
+          dispatch({
+            type: 'scrollTo',
+            offset: scrollOffsetForTrackRow(state.viewportRows, state.totalLines, region.cell),
+          });
+          return;
+        }
+      }
+      // Clickable status-bar chips. The bar is bottom-anchored above the panels
+      // in belowStatusBarRef; measure both to resolve each line's absolute row,
+      // then test the chip column spans (which mirror the rendered layout). A
+      // press only — drags never open a picker. Column spans are 0-based from
+      // the box's left edge (incl. paddingX), so screen col = span.start + 1.
+      if (key.mouse?.kind === 'press' && key.mouse.button === 'left' && statusBarWrapRef.current) {
+        const sbHeight = measureElement(statusBarWrapRef.current).height;
+        const belowHeight = belowStatusBarRef.current
+          ? measureElement(belowStatusBarRef.current).height
+          : 0;
+        const cols = stdout?.columns ?? 80;
+        const mx = key.mouse.x;
+        const my = key.mouse.y;
+        const rowFor = (line: number) =>
+          statusBarLineRow({ termRows, statusBarHeight: sbHeight, belowHeight, headerRows: 1, line });
+        const inSpan = (span: { start: number; len: number }) =>
+          mx >= span.start + 1 && mx <= span.start + span.len;
+        // Line 1 — model chip → model picker. Full-width layout only: compact
+        // mode (cols < COMPACT_THRESHOLD) lays line 1 out differently.
+        if (cols >= COMPACT_THRESHOLD && my === rowFor(0)) {
+          const span = statusBarModelSpan({
+            version: appVersion,
+            state: state.status,
+            fleetRunning: fleetCounts?.running ?? 0,
+            model: `${liveProvider}/${liveModel}`,
+          });
+          if (inSpan(span)) {
+            await openModelPicker();
+            return;
+          }
+        }
+        // Line 2 — autonomy chip → autonomy picker (span null when off).
+        const autoSpan = statusBarAutonomySpan({ yolo: yoloLive, autonomy: autonomyLive });
+        if (autoSpan && my === rowFor(1) && inSpan(autoSpan)) {
+          dispatch({ type: 'autonomyPickerOpen', options: AUTONOMY_OPTIONS });
+          return;
+        }
+        // Line 3 — todos chip → todos overlay (only when todos are shown).
+        const todosShown =
+          !!todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0);
+        if (todosShown && my === rowFor(2) && inSpan(statusBarTodosSpan())) {
+          dispatch({ type: 'toggleTodosMonitor' });
+          return;
+        }
+      }
+      if (key.pageUp) {
+        dispatch({ type: 'scrollPage', dir: 'up' });
+        return;
+      }
+      if (key.pageDown) {
+        dispatch({ type: 'scrollPage', dir: 'down' });
+        return;
+      }
+    }
+
     if (key.upArrow) {
       if (!overlayOpen && state.inputHistory.length > 0) {
         dispatch({ type: 'historyUp' });
@@ -3849,6 +4033,9 @@ export function App({
     }
 
     dispatch({ type: 'resetInterrupts' });
+    // Submitting anything snaps the managed viewport back to the newest output
+    // (no-op when already pinned or outside mouse mode).
+    dispatch({ type: 'scrollToBottom' });
     const pushSubmittedHistory = () => {
       if (trimmed) dispatch({ type: 'historyPush', text: trimmed });
     };
@@ -3895,6 +4082,41 @@ export function App({
         if (res?.metadata?.autoPhaseInit) {
           const m = res.metadata.autoPhaseInit as { title: string };
           dispatch({ type: 'autoPhaseInit', title: m.title });
+        }
+        // /mouse toggles full mouse mode. The command is stateless (it doesn't
+        // know the live value), so it emits an intent and the App resolves it
+        // against its own `mouseMode` state, persists, and prints the result.
+        const mouseToggle = res?.metadata?.mouseToggle as
+          | 'on'
+          | 'off'
+          | 'toggle'
+          | 'query'
+          | undefined;
+        if (mouseToggle) {
+          const nextVal =
+            mouseToggle === 'on'
+              ? true
+              : mouseToggle === 'off'
+                ? false
+                : mouseToggle === 'toggle'
+                  ? !mouseMode
+                  : mouseMode;
+          if (mouseToggle !== 'query' && nextVal !== mouseMode) {
+            setMouseMode(nextVal);
+            const cur = getSettings?.();
+            if (cur && saveSettings) {
+              Promise.resolve(saveSettings({ ...cur, mouseMode: nextVal })).catch(() => {});
+            }
+          }
+          dispatch({
+            type: 'addEntry',
+            entry: {
+              kind: 'info',
+              text: nextVal
+                ? 'Mouse mode: ON — wheel scrolls the chat in-app, clickable UI active. (Native scrollback off; Shift+wheel = page.)'
+                : 'Mouse mode: OFF — terminal native scrollback restored.',
+            },
+          });
         }
         // Slash commands like /model and /use mutate agent.ctx directly.
         // Re-sync the visible status bar so the user sees the switch
@@ -4239,12 +4461,24 @@ export function App({
   return (
     <Box flexDirection="column">
       <Box flexDirection="column" flexGrow={1} flexShrink={0}>
-        <History
-          entries={state.entries}
-          streamingText={state.streamingText}
-          toolStream={state.toolStream}
-        />
-        <Box flexDirection="column" flexShrink={0}>
+        {mouseMode ? (
+          <ScrollableHistory
+            entries={state.entries}
+            streamingText={state.streamingText}
+            toolStream={state.toolStream}
+            scrollOffset={state.scrollOffset}
+            viewportRows={state.viewportRows}
+            totalLines={state.totalLines}
+            onMeasure={(totalLines) => dispatch({ type: 'setMeasuredLines', totalLines })}
+          />
+        ) : (
+          <History
+            entries={state.entries}
+            streamingText={state.streamingText}
+            toolStream={state.toolStream}
+          />
+        )}
+        <Box flexDirection="column" flexShrink={0} ref={bottomRegionRef}>
           {/* NOTE: the LiveActivityStrip is deliberately NOT rendered in inline
               mode. Like the live tool-stream box (see history/index.tsx), it sits
               at the bottom edge of a full terminal, so every fleet tool.progress
@@ -4475,6 +4709,7 @@ export function App({
                 );
               })()
             : null}
+          <Box ref={statusBarWrapRef} flexDirection="column" flexShrink={0}>
           <StatusBar
             model={`${liveProvider}/${liveModel}`}
             version={appVersion}
@@ -4504,6 +4739,11 @@ export function App({
             enhanceCountdown={enhanceCountdown}
             autoProceedCountdown={autoProceedCountdown}
           />
+          </Box>
+          {/* Everything below the status bar is wrapped so its height can be
+              measured (via belowStatusBarRef) — the status-bar mouse hit-test
+              subtracts it from termRows to find the bar's absolute rows. */}
+          <Box ref={belowStatusBarRef} flexDirection="column" flexShrink={0}>
           {/* Keys-&-commands help overlay (`?` on an empty prompt). Modal: while
           open, handleKey swallows everything but Esc/?/q, so it never coexists
           with a monitor. */}
@@ -4570,6 +4810,7 @@ export function App({
           {state.processListOpen ? <ProcessListMonitor /> : null}
           {/* Goal panel (F9) — shows current goal, deliverables, progress. */}
           {state.goalPanelOpen ? <GoalPanel goal={state.goalSummary} /> : null}
+          </Box>
         </Box>
       </Box>
     </Box>

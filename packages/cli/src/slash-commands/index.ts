@@ -322,6 +322,7 @@ import { buildToolsCommand } from './tools.js';
 import { buildWorktreeCommand } from './worktree.js';
 import { buildTechStackCommand } from './techstack.js';
 import { buildYoloCommand } from './yolo.js';
+import { buildMouseCommand } from './mouse.js';
 import { buildReviewCommand } from './review.js';
 
 export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashCommand[] {
@@ -355,6 +356,7 @@ export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashComma
     buildSaveCommand(opts),
     buildLoadCommand(opts),
     buildYoloCommand(opts),
+    buildMouseCommand(opts),
     buildAutonomyCommand(opts),
     buildGoalCommand(opts),
     buildBtwCommand(opts),

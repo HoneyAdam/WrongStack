@@ -40,15 +40,32 @@ export function handleSessionStart(msg: WSServerMessage) {
   };
   const prev = useSessionStore.getState().session?.id;
   const isNew = !prev || prev !== payload.sessionId;
-  useSessionStore.getState().startSession({
-    id: payload.sessionId,
-    startedAt: Date.now(),
-    model: payload.model,
-    provider: payload.provider,
-  });
+  const isReset = isNew || payload.reset;
+
+  // Only fully reset the session when it's genuinely new or the server
+  // explicitly requests a reset. Model/mode switches update metadata
+  // without wiping token counters, cost, or elapsed time.
+  if (isReset) {
+    useSessionStore.getState().startSession({
+      id: payload.sessionId,
+      startedAt: Date.now(),
+      model: payload.model,
+      provider: payload.provider,
+    });
+  } else {
+    // Same session, no reset: update model/provider in-place.
+    useSessionStore.getState().setSession({
+      id: payload.sessionId,
+      startedAt: useSessionStore.getState().session?.startedAt ?? Date.now(),
+      model: payload.model,
+      provider: payload.provider,
+    });
+  }
+
   useSessionStore.getState().setEnv({
     maxContext: payload.maxContext,
     projectName: payload.projectName,
+    cwd: payload.cwd,
     mode: payload.mode,
     contextMode: payload.contextMode,
     inputCost: payload.inputCost,
@@ -59,15 +76,19 @@ export function handleSessionStart(msg: WSServerMessage) {
     provider: payload.provider,
     model: payload.model,
   });
-  if (isNew || payload.reset) {
+  if (isReset) {
     useChatStore.getState().clearMessages();
     useFleetStore.getState().clear();
   }
   // Resume hydration
-  const replay = (payload as { replayMessages?: Array<{ role: string | undefined; content: unknown }> }).replayMessages;
+  const replay = (payload as { replayMessages?: Array<{ role: string | undefined; content: unknown; ts?: string }> }).replayMessages;
   if (replay && replay.length > 0) {
     const chat = useChatStore.getState();
     for (const m of replay) {
+      // Preserve the original event timestamp so replayed messages show
+      // their real "when" instead of all clustering at "just now".
+      const parsedTs = typeof m.ts === 'string' ? Date.parse(m.ts) : Number.NaN;
+      const msgTimestamp: number | undefined = Number.isFinite(parsedTs) ? parsedTs : undefined;
       if (m.role === 'user' || m.role === 'assistant' || m.role === 'system') {
         let text = '';
         if (typeof m.content === 'string') {
@@ -77,8 +98,8 @@ export function handleSessionStart(msg: WSServerMessage) {
             if (b.type === 'text' && typeof b.text === 'string') {
               text += (text ? '\n' : '') + b.text;
             } else if (b.type === 'tool_use') {
-              if (text) { chat.addMessage({ role: m.role as 'user' | 'assistant', content: text }); text = ''; }
-              chat.addMessage({ role: 'tool', content: '', toolName: String(b.name ?? 'tool'), toolInput: b.input, toolUseId: String(b.id ?? '') });
+              if (text) { chat.addMessage({ role: m.role as 'user' | 'assistant', content: text, timestamp: msgTimestamp }); text = ''; }
+              chat.addMessage({ role: 'tool', content: '', toolName: String(b.name ?? 'tool'), toolInput: b.input, toolUseId: String(b.id ?? ''), timestamp: msgTimestamp });
             } else if (b.type === 'tool_result') {
               const all = useChatStore.getState().messages;
               let last: { id: string } | undefined;
@@ -89,7 +110,7 @@ export function handleSessionStart(msg: WSServerMessage) {
             }
           }
         }
-        if (text) chat.addMessage({ role: m.role as 'user' | 'assistant', content: text });
+        if (text) chat.addMessage({ role: m.role as 'user' | 'assistant', content: text, timestamp: msgTimestamp });
       }
     }
   }
@@ -482,6 +503,12 @@ export const WS_HANDLERS: Record<string, (msg: WSServerMessage) => void> = {
   'diag.get': handleDiagGet,
   'stats.get': handleStatsGet,
   'todos.updated': handleTodosUpdated,
+  'tasks.updated': (msg: WSServerMessage) => {
+    // Handled directly by TasksPanel component via WS client.on()
+  },
+  'plan.updated': (msg: WSServerMessage) => {
+    // Handled directly by PlanPanel component via WS client.on()
+  },
   'modes.list': handleModesList,
   'context.modes.list': handleContextModesList,
   'context.mode.changed': handleContextModeChanged,

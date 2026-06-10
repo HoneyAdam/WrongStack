@@ -226,6 +226,59 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
   // for subsequent reconnections. Loopback connections are exempt for
   // convenience (matches standalone WebUI server behavior).
   const authToken = crypto.randomBytes(16).toString('hex');
+  // Captured once at startup so stats.get can report elapsed time since the
+  // session was opened, rather than the hardcoded 0 it used to send.
+  const sessionStartedAt = Date.now();
+
+  /**
+   * Build a session.start payload enriched with per-model cost rates and
+   * max-context cap. Used by the initial connect handler and every
+   * broadcast path (model.switch, mode.switch, session.resume, etc.) so
+   * the frontend always has the correct cost rates for live computation.
+   *
+   * Callers pass optional overrides for fields that vary per context
+   * (reset, mode, replayMessages, etc.). The connection handler adds
+   * wsToken on top.
+   */
+  async function buildSessionStartPayload(overrides?: Record<string, unknown>) {
+    let maxContext = 0;
+    let inputCost = 0;
+    let outputCost = 0;
+    let cacheReadCost = 0;
+    try {
+      if (opts.modelsRegistry) {
+        const m = await opts.modelsRegistry.getModel(
+          (opts.agent.ctx.provider as { id: string }).id,
+          opts.agent.ctx.model,
+        );
+        maxContext =
+          (m as { capabilities?: { maxContext?: number } } | null)?.capabilities
+            ?.maxContext ?? 0;
+        const rates = getCostRates(m);
+        inputCost = rates.input;
+        outputCost = rates.output;
+        cacheReadCost = rates.cacheRead;
+      }
+    } catch {
+      /* best-effort; cost stays $0 */
+    }
+    return {
+      sessionId: opts.session.id,
+      model: opts.agent.ctx.model,
+      provider: (opts.agent.ctx.provider as { id: string }).id,
+      mode: opts.modeId ?? 'default',
+      projectName: opts.projectRoot ? path.basename(opts.projectRoot) : undefined,
+      cwd: opts.projectRoot ?? (opts.agent.ctx as { projectRoot?: string }).projectRoot ?? '',
+      contextMode: String(
+        opts.agent.ctx.meta['contextWindowMode'] ?? DEFAULT_CONTEXT_WINDOW_MODE_ID,
+      ),
+      maxContext,
+      inputCost,
+      outputCost,
+      cacheReadCost,
+      ...overrides,
+    };
+  }
 
   const wss = new WebSocketServer({ port, host, maxPayload: 1 * 1024 * 1024 });
 
@@ -556,7 +609,7 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
       opts.onListening?.({ httpPort, wsPort, host });
     });
 
-    wss.on('connection', (ws, req) => {
+    wss.on('connection', async (ws, req) => {
       // --- Auth token + Origin validation ---
       // Loopback connections (from the WebUI frontend on localhost) are
       // allowed without a token for convenience. Non-loopback connections
@@ -671,17 +724,13 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
         }
       });
 
-      // Send session.start to the new client (includes wsToken for reconnection)
+      // Send session.start to the new client — includes wsToken for
+      // reconnection, plus per-model cost rates and context-window cap
+      // so the frontend can compute accurate live costs.
+      const base = await buildSessionStartPayload();
       send(ws, {
         type: 'session.start',
-        payload: {
-          sessionId: opts.session.id,
-          model: opts.agent.ctx.model,
-          provider: (opts.agent.ctx.provider as { id: string }).id,
-          wsToken: authToken,
-          mode: opts.modeId ?? 'default',
-          projectName: opts.projectRoot ? path.basename(opts.projectRoot) : undefined,
-        },
+        payload: { ...base, wsToken: authToken },
       });
     });
 
@@ -870,15 +919,8 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
         ctx.state.replaceTodos([]);
         ctx.readFiles.clear();
         ctx.fileMtimes.clear();
-        broadcast({
-          type: 'session.start',
-          payload: {
-            sessionId: opts.session.id,
-            model: ctx.model,
-            provider: (opts.agent.ctx.provider as { id: string }).id,
-            reset: true,
-          },
-        });
+        const sessNewP = await buildSessionStartPayload({ reset: true });
+        broadcast({ type: 'session.start', payload: sessNewP });
         break;
       }
 
@@ -952,15 +994,8 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
         ctx.readFiles.clear();
         ctx.fileMtimes.clear();
         sendResult(ws, true, 'Context cleared');
-        broadcast({
-          type: 'session.start',
-          payload: {
-            sessionId: opts.session.id,
-            model: ctx.model,
-            provider: (ctx.provider as { id: string }).id,
-            reset: true,
-          },
-        });
+        const ctxClearP = await buildSessionStartPayload({ reset: true });
+        broadcast({ type: 'session.start', payload: ctxClearP });
         break;
       }
 
@@ -1072,7 +1107,7 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
             messages: ctx.messages.length,
             readFiles: ctx.readFiles.size,
             tools: opts.agent.tools.list().length,
-            elapsedMs: 0,
+            elapsedMs: Date.now() - sessionStartedAt,
           },
         });
         break;
@@ -1134,15 +1169,8 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
           await rewinder.rewindToCheckpoint(opts.session.id, checkpointIndex);
           await opts.session.truncateToCheckpoint(checkpointIndex);
           sendResult(ws, true, `Rewound to checkpoint ${checkpointIndex}`);
-          broadcast({
-            type: 'session.start',
-            payload: {
-              sessionId: opts.session.id,
-              model: opts.agent.ctx.model,
-              provider: (opts.agent.ctx.provider as { id: string }).id,
-              reset: true,
-            },
-          });
+          const rewindP = await buildSessionStartPayload({ reset: true });
+          broadcast({ type: 'session.start', payload: rewindP });
         } catch (err) {
           sendResult(ws, false, err instanceof Error ? err.message : String(err));
         }
@@ -1403,16 +1431,8 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
           // Store the mode in context.meta so the agent sees it on the next turn.
           opts.agent.ctx.meta['mode'] = id;
           sendResult(ws, true, `Switched to mode "${id}"`);
-          broadcast({
-            type: 'session.start',
-            payload: {
-              sessionId: opts.session.id,
-              model: opts.agent.ctx.model,
-              provider: (opts.agent.ctx.provider as { id: string }).id,
-              mode: id,
-              reset: true,
-            },
-          });
+          const modeSwP = await buildSessionStartPayload({ mode: id });
+          broadcast({ type: 'session.start', payload: modeSwP });
         } catch (err) {
           sendResult(ws, false, err instanceof Error ? err.message : String(err));
         }
@@ -1440,14 +1460,8 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
             type: 'key.operation_result',
             payload: { success: true, message: `Switched to ${newProvider} / ${newModel}` },
           });
-          broadcast({
-            type: 'session.start',
-            payload: {
-              sessionId: opts.session.id,
-              model: newModel,
-              provider: newProvider,
-            },
-          });
+          const modelSwP = await buildSessionStartPayload();
+          broadcast({ type: 'session.start', payload: modelSwP });
         } catch (err) {
           send(ws, {
             type: 'key.operation_result',
@@ -1481,17 +1495,12 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
           ctx.tokenCounter.reset();
           // Replay usage so the topbar shows accurate totals.
           ctx.tokenCounter.account(resumed.data.usage, ctx.model);
-          broadcast({
-            type: 'session.start',
-            payload: {
-              sessionId: opts.session.id,
-              model: ctx.model,
-              provider: (ctx.provider as { id: string }).id,
-              reset: true,
-              replayMessages: resumed.data.messages,
-              replayUsage: resumed.data.usage,
-            },
+          const resumeP = await buildSessionStartPayload({
+            reset: true,
+            replayMessages: resumed.data.messages,
+            replayUsage: resumed.data.usage,
           });
+          broadcast({ type: 'session.start', payload: resumeP });
           sendResult(ws, true, `Resumed session ${id}`);
         } catch (err) {
           sendResult(ws, false, err instanceof Error ? err.message : String(err));

@@ -25,9 +25,7 @@ import { ShortcutsOverlay } from './components/ShortcutsOverlay';
 import { Sidebar } from './components/Sidebar';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
 import { Toaster } from './components/Toaster';
-import { TodosPanel } from './components/TodosPanel';
-import { TasksPanel } from './components/TasksPanel';
-import { PlanPanel } from './components/PlanPanel';
+import { WorkDashboard } from './components/WorkDashboard';
 import { WorktreeGraph } from './components/WorktreeGraph';
 import { WorktreeLanes } from './components/WorktreeLanes';
 function AppInner() {
@@ -277,12 +275,8 @@ function AppInner() {
                 )}
                 {/* Live subagent roster — self-hides when no fleet is running. */}
                 <div id="panel-fleet"><FleetPanel /></div>
-                {/* Live agent todo list — self-hides when empty. */}
-                <div id="panel-todos"><TodosPanel /></div>
-                {/* Live task board — self-hides when empty. */}
-                <div id="panel-tasks"><TasksPanel /></div>
-                {/* Live plan board — self-hides when empty. */}
-                <div id="panel-plan"><PlanPanel /></div>
+                {/* Work Dashboard — tabbed Todos / Tasks / Plan, always mounted for real-time sync */}
+                <div id="panel-work"><WorkDashboard /></div>
                 {/* Worktree graph — only when active. Toggle between graph and lanes view. */}
                 {worktrees.length > 0 && (
                   <div id="panel-worktree" className="space-y-2">
