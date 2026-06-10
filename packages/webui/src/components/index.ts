@@ -24,6 +24,7 @@ export { WorktreeLanes } from './WorktreeLanes';
 export { AutoPhaseView } from './AutoPhaseView';
 export { TaskBoard, type TaskItem } from './TaskBoard';
 export { ContextBar, ContextFillBar } from './ContextBar';
+export { ContextBreakdownModal } from './ContextBreakdownModal';
 export { ContextPanel } from './ContextPanel';
 export { ContextSidebar } from './ContextSidebar';
 export { AgentsPage } from './AgentsPage';

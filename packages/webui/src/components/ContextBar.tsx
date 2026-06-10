@@ -26,6 +26,8 @@ export interface ContextBarProps {
   showTokens?: boolean | undefined;
   /** Additional class name. */
   className?: string | undefined;
+  /** Click handler — use to show a breakdown modal. */
+  onClick?: (() => void) | undefined;
 }
 
 const SEGMENT_FILL: Record<number, string> = {
@@ -59,6 +61,7 @@ export function ContextBar({
   segments = 10,
   showTokens = true,
   className,
+  onClick,
 }: ContextBarProps): React.ReactElement {
   const clamped = Math.max(0, Math.min(200, pct)); // cap visual at 200%
   const eighths = Math.round((clamped / 100) * segments * 8);
@@ -82,6 +85,7 @@ export function ContextBar({
     <span
       className={cn(
         'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-mono font-medium shrink-0',
+        onClick && 'cursor-pointer hover:ring-1 hover:ring-ring transition-shadow',
         getTextColor(pct),
         pct >= 75
           ? 'bg-red-500/10'
@@ -95,6 +99,10 @@ export function ContextBar({
           ? `Context window: ${tokens.toLocaleString()} / ${maxTokens.toLocaleString()} tokens (${pctText})`
           : `Context window: ${pctText}`
       }
+      onClick={onClick}
+      onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
     >
       <span className="inline-flex tracking-[-0.1em]">
         {bars.map((b, i) => (
@@ -125,6 +133,7 @@ export function ContextFillBar({
   maxTokens,
   showTokens = true,
   className,
+  onClick,
 }: Omit<ContextBarProps, 'segments'>): React.ReactElement {
   const clamped = Math.max(0, Math.min(100, pct));
   const pctText = `${Math.round(pct)}%`;
@@ -134,7 +143,22 @@ export function ContextFillBar({
       : '';
 
   return (
-    <span className={cn('inline-flex items-center gap-1.5', className)}>
+    <span
+      className={cn(
+        'inline-flex items-center gap-1.5',
+        onClick && 'cursor-pointer hover:opacity-80 transition-opacity',
+        className,
+      )}
+      title={
+        tokens !== undefined && maxTokens !== undefined
+          ? `Context window: ${tokens.toLocaleString()} / ${maxTokens.toLocaleString()} tokens (${pctText}) — click for breakdown`
+          : `Context window: ${pctText}`
+      }
+      onClick={onClick}
+      onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+    >
       <span className="h-1.5 w-16 overflow-hidden rounded-full bg-muted shrink-0">
         <span
           className={cn('h-full rounded-full transition-all duration-300', getColor(pct))}

@@ -31,7 +31,8 @@ import { ChatInput } from '../ChatInput';
 import { CheckpointTimeline } from '../CheckpointTimeline';
 import { ConnectionChip } from '../ConnectionChip';
 import { ContextModePicker } from '../ContextModePicker';
-import { ContextBar, ContextFillBar } from '../ContextBar';
+import { ContextFillBar } from '../ContextBar';
+import { ContextBreakdownModal } from '../ContextBreakdownModal';
 import { CostChip } from '../CostChip';
 import { MessageBubble } from '../MessageBubble';
 import { ModePicker } from '../ModePicker';
@@ -110,6 +111,9 @@ export function ChatView() {
   // Overlay toggles — triggered by header buttons
   const [processOpen, setProcessOpen] = useState(false);
   const [checkpointOpen, setCheckpointOpen] = useState(false);
+
+  // Context breakdown modal
+  const [breakdownOpen, setBreakdownOpen] = useState(false);
 
   // Context window usage
   const ctxPct =
@@ -489,6 +493,7 @@ export function ChatView() {
                   pct={ctxPct}
                   tokens={lastInputTokens}
                   maxTokens={maxContext}
+                  onClick={() => setBreakdownOpen(true)}
                 />
               )}
               {totalTokens.input > 0 && (
@@ -847,6 +852,7 @@ export function ChatView() {
       {/* Overlays — triggered by header buttons */}
       <ProcessMonitor open={processOpen} onClose={() => setProcessOpen(false)} />
       <CheckpointTimeline open={checkpointOpen} onClose={() => setCheckpointOpen(false)} />
+      <ContextBreakdownModal open={breakdownOpen} onClose={() => setBreakdownOpen(false)} />
     </div>
   );
 }
