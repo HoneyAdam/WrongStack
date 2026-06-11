@@ -603,6 +603,8 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
             const parsed = parseSuggestionsFromOutput(finalText);
             setSuggestions(parsed ?? []);
           },
+          // Retrieve current suggestions for next-steps auto-submit countdown.
+          getSuggestions: () => getSuggestions(),
           getEternalEngine,
           subscribeEternalIteration,
           subscribeEternalStage: subscribeEternalStage as never,

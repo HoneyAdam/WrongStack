@@ -306,6 +306,11 @@ export interface AppProps {
    */
   onSuggestionsParsed?: ((finalText: string) => void) | undefined;
   /**
+   * Retrieve current suggestions from the shared suggestion store.
+   * Used by the TUI for next-steps auto-submit countdown in 'auto' mode.
+   */
+  getSuggestions?: (() => string[]) | undefined;
+  /**
    * SDD session context getter. When an SDD session is active, returns
    * the AI prompt context to inject into user messages so the model
    * knows it's in a spec-building conversation.
@@ -558,6 +563,7 @@ export function App({
   saveSettings,
   predictNext,
   onSuggestionsParsed,
+  getSuggestions,
   switchAutonomy,
   effectiveMaxContext,
   onExit,
@@ -2151,6 +2157,80 @@ export function App({
     };
   }, [autonomyLive, getSettings]);
 
+  // ── Next-steps auto-submit countdown ─────────────────────────────────
+  // When autonomy is 'auto' and suggestions are available, start a countdown
+  // on line 3 of the status bar. When it expires, auto-submit the first suggestion.
+  // Cancels when user types anything or autonomy changes away from 'auto'.
+  useEffect(() => {
+    // Only run when idle and in auto mode
+    if (state.status !== 'idle' || autonomyLive !== 'auto') {
+      clearInterval(nextStepsAutoSubmitTimerRef.current);
+      nextStepsAutoSubmitTimerRef.current = undefined;
+      setNextStepsAutoSubmitCountdown(null);
+      nextStepsAutoSubmitSuggestionRef.current = null;
+      return;
+    }
+
+    // Don't start while enhance panel is active
+    if (state.enhance != null || state.enhanceBusy) {
+      return;
+    }
+
+    // Don't start if already counting down
+    if (nextStepsAutoSubmitTimerRef.current != null) {
+      return;
+    }
+
+    const suggestions = getSuggestions?.() ?? [];
+    if (suggestions.length === 0) {
+      return;
+    }
+
+    // Use the same delay as auto-proceed countdown
+    const cfg = getSettings?.();
+    const delay = cfg?.delayMs ?? 45_000;
+    const top = suggestions[0];
+    if (!top) return;
+
+    nextStepsAutoSubmitSuggestionRef.current = top;
+    const start = Date.now();
+    setNextStepsAutoSubmitCountdown(Math.ceil(delay / 1000));
+
+    nextStepsAutoSubmitTimerRef.current = setInterval(() => {
+      const remaining = Math.max(0, Math.ceil((delay - (Date.now() - start)) / 1000));
+      if (remaining <= 0) {
+        clearInterval(nextStepsAutoSubmitTimerRef.current);
+        nextStepsAutoSubmitTimerRef.current = undefined;
+        setNextStepsAutoSubmitCountdown(null);
+        // Auto-submit the suggestion
+        const suggestion = nextStepsAutoSubmitSuggestionRef.current;
+        nextStepsAutoSubmitSuggestionRef.current = null;
+        if (suggestion) {
+          setDraft(suggestion, suggestion.length);
+          // Trigger submit
+          void (async () => {
+            const trimmed = suggestion.trim();
+            if (!trimmed) return;
+            // Build blocks for the suggestion
+            const blocks: ContentBlock[] = [{ type: 'text', text: trimmed }];
+            dispatch({ type: 'addEntry', entry: { kind: 'user', text: trimmed } });
+            if (autonomyLive === 'auto') {
+              switchAutonomy?.('off');
+            }
+            await runBlocks(blocks);
+          })();
+        }
+      } else {
+        setNextStepsAutoSubmitCountdown(remaining);
+      }
+    }, 500);
+
+    return () => {
+      clearInterval(nextStepsAutoSubmitTimerRef.current);
+      nextStepsAutoSubmitTimerRef.current = undefined;
+    };
+  }, [state.status, autonomyLive, state.enhance, state.enhanceBusy, getSettings, getSuggestions, switchAutonomy, dispatch, runBlocks]);
+
   // ── Auto-save settings on value change (←/→ arrow keys) ──
   // Gate ref: skip the first effect fire when settings just opened (all fields
   // were populated from getSettings(), so saving would be a no-op double-write).
@@ -2607,6 +2687,12 @@ export function App({
   // out of EnhancePanel so the statusline can display it — panel re-renders
   // during the countdown were causing blank entries in chat scrollback.
   const [enhanceCountdown, setEnhanceCountdown] = useState<number | null>(null);
+
+  // Next-steps auto-submit countdown state: seconds remaining and the suggestion text.
+  // When autonomy is 'auto' and suggestions exist, this countdown auto-submits the first suggestion.
+  const [nextStepsAutoSubmitCountdown, setNextStepsAutoSubmitCountdown] = useState<number | null>(null);
+  const nextStepsAutoSubmitSuggestionRef = useRef<string | null>(null);
+  const nextStepsAutoSubmitTimerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
   useTuiEventBridge({
     events,
@@ -3928,6 +4014,13 @@ export function App({
 
       if (cursor === 0) return;
       const next = buffer.slice(0, cursor - 1) + buffer.slice(cursor);
+      // Cancel next-steps auto-submit countdown when buffer changes.
+      if (nextStepsAutoSubmitTimerRef.current != null) {
+        clearInterval(nextStepsAutoSubmitTimerRef.current);
+        nextStepsAutoSubmitTimerRef.current = undefined;
+        setNextStepsAutoSubmitCountdown(null);
+        nextStepsAutoSubmitSuggestionRef.current = null;
+      }
       setDraft(next, cursor - 1);
       return;
     }
@@ -3939,6 +4032,13 @@ export function App({
         const nextWordStart = afterCursor.indexOf(' ');
         const end = nextWordStart === -1 ? buffer.length : cursor + nextWordStart + 1;
         const next = buffer.slice(0, cursor) + buffer.slice(end);
+        // Cancel next-steps auto-submit countdown when buffer changes.
+        if (nextStepsAutoSubmitTimerRef.current != null) {
+          clearInterval(nextStepsAutoSubmitTimerRef.current);
+          nextStepsAutoSubmitTimerRef.current = undefined;
+          setNextStepsAutoSubmitCountdown(null);
+          nextStepsAutoSubmitSuggestionRef.current = null;
+        }
         setDraft(next, cursor);
         return;
       }
@@ -3947,6 +4047,13 @@ export function App({
       // Token-aware forward delete: drop a whole chip if one starts at cursor.
       const span = tokenLengthForward(buffer, cursor) || 1;
       const next = buffer.slice(0, cursor) + buffer.slice(cursor + span);
+      // Cancel next-steps auto-submit countdown when buffer changes.
+      if (nextStepsAutoSubmitTimerRef.current != null) {
+        clearInterval(nextStepsAutoSubmitTimerRef.current);
+        nextStepsAutoSubmitTimerRef.current = undefined;
+        setNextStepsAutoSubmitCountdown(null);
+        nextStepsAutoSubmitSuggestionRef.current = null;
+      }
       setDraft(next, cursor);
       return;
     }
@@ -4124,6 +4231,13 @@ export function App({
       return;
     }
     if (key.ctrl && input === 'u') {
+      // Cancel next-steps auto-submit countdown when buffer changes.
+      if (nextStepsAutoSubmitTimerRef.current != null) {
+        clearInterval(nextStepsAutoSubmitTimerRef.current);
+        nextStepsAutoSubmitTimerRef.current = undefined;
+        setNextStepsAutoSubmitCountdown(null);
+        nextStepsAutoSubmitSuggestionRef.current = null;
+      }
       setDraft('', 0);
       return;
     }
@@ -4135,6 +4249,13 @@ export function App({
       // Token-aware forward delete: drop a whole chip if one starts at cursor.
       const span = tokenLengthForward(buffer, cursor) || 1;
       const next = buffer.slice(0, cursor) + buffer.slice(cursor + span);
+      // Cancel next-steps auto-submit countdown when buffer changes.
+      if (nextStepsAutoSubmitTimerRef.current != null) {
+        clearInterval(nextStepsAutoSubmitTimerRef.current);
+        nextStepsAutoSubmitTimerRef.current = undefined;
+        setNextStepsAutoSubmitCountdown(null);
+        nextStepsAutoSubmitSuggestionRef.current = null;
+      }
       setDraft(next, cursor);
       return;
     }
@@ -4143,6 +4264,13 @@ export function App({
     if (key.ctrl && input === 'k') {
       if (cursor >= buffer.length) return;
       const next = buffer.slice(0, cursor);
+      // Cancel next-steps auto-submit countdown when buffer changes.
+      if (nextStepsAutoSubmitTimerRef.current != null) {
+        clearInterval(nextStepsAutoSubmitTimerRef.current);
+        nextStepsAutoSubmitTimerRef.current = undefined;
+        setNextStepsAutoSubmitCountdown(null);
+        nextStepsAutoSubmitSuggestionRef.current = null;
+      }
       setDraft(next, cursor);
       return;
     }
@@ -4177,6 +4305,14 @@ export function App({
     if (input.includes('\n')) {
       await commitPaste(input);
       return;
+    }
+
+    // Cancel next-steps auto-submit countdown when user types anything.
+    if (nextStepsAutoSubmitTimerRef.current != null) {
+      clearInterval(nextStepsAutoSubmitTimerRef.current);
+      nextStepsAutoSubmitTimerRef.current = undefined;
+      setNextStepsAutoSubmitCountdown(null);
+      nextStepsAutoSubmitSuggestionRef.current = null;
     }
 
     const next = buffer.slice(0, cursor) + input + buffer.slice(cursor);
@@ -5246,6 +5382,7 @@ export function App({
             modeLabel={liveModeLabel || undefined}
             debugStreamStats={state.debugStreamStats}
             enhanceCountdown={enhanceCountdown}
+            nextStepsAutoSubmitCountdown={nextStepsAutoSubmitCountdown}
             autoProceedCountdown={state.countdown?.remainingSeconds ?? autoProceedCountdown}
             sessionCount={sessionCount}
             mailbox={mailboxStatus}

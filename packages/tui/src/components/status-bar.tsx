@@ -237,6 +237,12 @@ export interface StatusBarProps {
    * causes blank entries in the chat scrollback.
    */
   enhanceCountdown?: number | null | undefined;
+  /**
+   * Seconds remaining in the next-steps auto-submit countdown.
+   * When non-null, renders a line-3 chip like `⏳ next step in 3s`
+   * that auto-submits the suggested next step when the countdown reaches 0.
+   */
+  nextStepsAutoSubmitCountdown?: number | null | undefined;
   /** Number of live sessions across processes (from SessionRegistry). */
   sessionCount?: number | undefined;
   /** Mailbox activity — unread count, online agents, latest message. */
@@ -279,6 +285,7 @@ export function StatusBar({
   modeLabel,
   debugStreamStats,
   enhanceCountdown,
+  nextStepsAutoSubmitCountdown,
   autoProceedCountdown,
   sessionCount,
   mailbox,
@@ -358,6 +365,7 @@ export function StatusBar({
   const hasBrainActivity = !!brain && brain.state !== 'idle';
   const hasDebugStream = !!debugStreamStats;
   const hasEnhanceCountdown = enhanceCountdown != null && enhanceCountdown > 0;
+  const hasNextStepsAutoSubmit = nextStepsAutoSubmitCountdown != null && nextStepsAutoSubmitCountdown > 0;
   const hasTaskActivity = tasks && (tasks.pending > 0 || tasks.inProgress > 0 || tasks.completed > 0 || tasks.blocked > 0 || tasks.failed > 0);
   const hasThirdLine =
     (todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0)) ||
@@ -366,7 +374,8 @@ export function StatusBar({
     fleetHasActivity ||
     hasBrainActivity ||
     hasDebugStream ||
-    hasEnhanceCountdown;
+    hasEnhanceCountdown ||
+    hasNextStepsAutoSubmit;
 
   return (
     <Box
@@ -722,6 +731,21 @@ export function StatusBar({
               ) : null}
               <Text color={enhanceCountdown <= 5 ? 'yellow' : 'cyan'}>
                 ⏳ auto-send in {enhanceCountdown}s
+              </Text>
+            </>
+          ) : null}
+          {hasNextStepsAutoSubmit && nextStepsAutoSubmitCountdown != null ? (
+            <>
+              {(todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0)) ||
+              (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0)) ||
+              fleetHasActivity ||
+              hasBrainActivity ||
+              hasDebugStream ||
+              hasEnhanceCountdown ? (
+                <Text dimColor>│</Text>
+              ) : null}
+              <Text color={nextStepsAutoSubmitCountdown <= 3 ? 'yellow' : 'cyan'}>
+                ⏳ next step in {nextStepsAutoSubmitCountdown}s
               </Text>
             </>
           ) : null}

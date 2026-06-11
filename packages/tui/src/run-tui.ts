@@ -268,6 +268,11 @@ export interface RunTuiOptions {
    */
   onSuggestionsParsed?: ((finalText: string) => void) | undefined;
   /**
+   * Retrieve current suggestions from the shared suggestion store.
+   * Used by the TUI to display and auto-submit next steps in 'auto' mode.
+   */
+  getSuggestions?: (() => string[]) | undefined;
+  /**
    * Messages restored from a previous session. When provided (non-empty),
    * the TUI renders the prior conversation as history entries so a resumed
    * session shows its full chat context, not just the LLM's internal state.
