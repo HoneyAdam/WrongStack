@@ -155,7 +155,7 @@ export function buildMailboxCommand(opts: SlashCommandContext): SlashCommand {
     category: 'Agent',
     aliases: ['mb'],
     description:
-      'Project-wide agent mailbox: /mailbox [agents|online|send <id> <msg>|broadcast <msg>|history [n]]',
+      'Project-wide agent mailbox: /mailbox [agents|online|send <id> <msg>|broadcast <msg>|history [n]|clear]',
     help: [
       'The human window into the shared inter-agent mailbox. Every terminal,',
       'TUI and WebUI on this project shares one inbox — agents see incoming',
@@ -168,6 +168,7 @@ export function buildMailboxCommand(opts: SlashCommandContext): SlashCommand {
       '  /mailbox send <id> <message>  Direct message an agent (use ids from `agents`).',
       '  /mailbox broadcast <message>  Message every agent on the project.',
       '  /mailbox history [n]          Last n messages on the project (default 20).',
+      '  /mailbox clear                 Delete all messages from the mailbox.',
       '',
       'Examples:',
       '  /mailbox broadcast pausing deploys, hold off on main',
@@ -280,8 +281,13 @@ export function buildMailboxCommand(opts: SlashCommandContext): SlashCommand {
         return { message: lines.join('\n') };
       }
 
+      if (sub === 'clear') {
+        await mb.clearAll();
+        return { message: color.green('✓ All messages deleted from the mailbox.') };
+      }
+
       return {
-        message: `Unknown subcommand "${sub}". Use: /mailbox [agents|online|send|broadcast|history]`,
+        message: `Unknown subcommand "${sub}". Use: /mailbox [agents|online|send|broadcast|history|clear]`,
       };
     },
   };

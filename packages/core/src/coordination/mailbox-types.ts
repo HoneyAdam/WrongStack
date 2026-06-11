@@ -293,4 +293,10 @@ export interface Mailbox {
 
   /** Close and flush any pending writes. */
   close(): Promise<void>;
+
+  /**
+   * Delete all messages from the mailbox file.
+   * Agents and read receipts are preserved; only messages are cleared.
+   */
+  clearAll(): Promise<void>;
 }

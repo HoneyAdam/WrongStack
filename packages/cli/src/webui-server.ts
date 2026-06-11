@@ -2517,6 +2517,23 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
       providers[payload.id] = newProv;
       await saveProviders(providers);
       sendResult(ws, true, `Provider "${payload.id}" added`);
+      console.log(`[WebUI] Provider "${payload.id}" added via provider.add`);
+      broadcast({
+        type: 'providers.saved',
+        payload: {
+          providers: Object.entries(providers).map(([id, cfg]) => ({
+            id,
+            family: cfg.family,
+            baseUrl: cfg.baseUrl,
+            apiKeys: normalizeKeys(cfg).map((k) => ({
+              label: k.label,
+              maskedKey: maskedKey(k.apiKey),
+              isActive: k.label === cfg.activeKey,
+              createdAt: k.createdAt,
+            })),
+          })),
+        },
+      });
     } catch (err) {
       sendResult(ws, false, err instanceof Error ? err.message : String(err));
     }

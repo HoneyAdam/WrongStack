@@ -347,15 +347,37 @@ export function SetupScreen() {
     setProvider(selectedProvider);
     setModel(selectedModel);
 
-    // Switch model on the server
+    // Switch model on the server and wait for the result before proceeding.
+    // If switchModel fails (e.g. provider not in catalog), we surface the error
+    // to the user instead of silently falling through to the chat view.
     const wsClient = getWSClient(wsUrl);
     wsClient.switchModel(selectedProvider, selectedModel);
 
-    // Start a new session (server will broadcast session.start)
-    wsClient.newSession();
+    // One-time listener for the server's key.operation_result response.
+    // Timeout after 5 s so a non-responsive server doesn't leave the UI stuck.
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const cleanup = () => { if (timeoutId) clearTimeout(timeoutId); };
 
-    // Go back to chat view
-    setCurrentView('chat');
+    const off = wsClient.on('key.operation_result', (msg: WSServerMessage) => {
+      const p = (msg as { payload: { success: boolean; message: string } }).payload;
+      cleanup();
+      off();
+      if (p.success) {
+        // Switch succeeded — now start the session and go to chat.
+        wsClient.newSession();
+        setCurrentView('chat');
+      } else {
+        // Switch failed — show the error inline so the user stays on the
+        // setup screen and can choose a different provider/model.
+        toast.error(p.message);
+      }
+    });
+
+    timeoutId = setTimeout(() => {
+      cleanup();
+      off();
+      toast.error('Model switch timed out. Please try again.');
+    }, 5000);
   }, [selectedProvider, selectedModel, setProvider, setModel, wsUrl, setCurrentView]);
 
   const currentModels = selectedProvider ? catalogModels[selectedProvider] ?? [] : [];

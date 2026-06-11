@@ -15,6 +15,7 @@ import {
   Bell,
   RotateCw,
   UserCheck,
+  Trash2,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
@@ -50,6 +51,7 @@ export function MailboxPanel({ className }: { className?: string }) {
   const messages = useMailboxStore((s) => s.messages);
   const agents = useMailboxStore((s) => s.agents);
   const [collapsed, setCollapsed] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const { client } = useWebSocket();
   // Track the socket lifecycle so the initial queries fire once the
   // connection is actually open (client.send drops messages otherwise).
@@ -65,6 +67,18 @@ export function MailboxPanel({ className }: { className?: string }) {
 
   const unreadCount = messages.filter((m) => !m.completed).length;
   const onlineCount = agents.filter((a) => a.online).length;
+
+  function handleDeleteAll() {
+    if (messages.length === 0) return;
+    if (!window.confirm(`Delete all ${messages.length} message(s)? This cannot be undone.`)) return;
+    setDeleting(true);
+    client.send({ type: 'mailbox.clear' });
+  }
+
+  // Reset deleting state once messages are cleared (after server confirms).
+  useEffect(() => {
+    if (deleting && messages.length === 0) setDeleting(false);
+  }, [deleting, messages.length]);
 
   return (
     <div className={cn('rounded-lg border border-border bg-card/60 backdrop-blur-sm', className)}>
@@ -93,6 +107,21 @@ export function MailboxPanel({ className }: { className?: string }) {
           {/* Messages */}
           {messages.length > 0 ? (
             <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                  Messages
+                </span>
+                <button
+                  type="button"
+                  onClick={handleDeleteAll}
+                  disabled={deleting}
+                  className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-red-500 disabled:opacity-40 transition-colors"
+                  title="Delete all messages"
+                >
+                  <Trash2 className="h-3 w-3" />
+                  {deleting ? 'Deleting…' : 'Delete all'}
+                </button>
+              </div>
               {messages.slice(0, 8).map((m) => {
                 const Icon = TYPE_ICONS[m.type] ?? MessageSquare;
                 const isRead = m.readByCount > 0;

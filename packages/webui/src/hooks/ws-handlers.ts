@@ -672,6 +672,11 @@ export const WS_HANDLERS: Record<string, (msg: WSServerMessage) => void> = {
     const p = msg.payload as { agents?: MailboxAgent[] } | undefined;
     if (p?.agents) useMailboxStore.getState().setAgents(p.agents);
   },
+  'mailbox.cleared': (_msg: WSServerMessage) => {
+    // Clear the local message store and re-query so the UI stays consistent.
+    useMailboxStore.getState().setMessages([]);
+    queryMailbox();
+  },
   'brain.status': (msg: WSServerMessage) => {
     const p = msg.payload as {
       maxAutoRisk: string;

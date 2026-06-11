@@ -7,8 +7,10 @@ import {
   setActiveKey as setActiveKeyRecord,
   addProvider as addProviderRecord,
   removeProvider as removeProviderRecord,
+  maskedKey,
+  normalizeKeys,
 } from './provider-keys.js';
-import type { WSServerMessage } from './types.js';
+import type { ConnectedClient, WSServerMessage } from './types.js';
 import { sendResult, errMessage } from './ws-utils.js';
 
 export interface ProviderHandlerDeps {
@@ -17,10 +19,14 @@ export interface ProviderHandlerDeps {
   /** Shared config write lock — serialized via chained promises */
   setConfigWriteLock: (lock: Promise<void>) => void;
   getConfigWriteLock: () => Promise<void>;
+  /** Broadcast a message to all connected WebUI clients */
+  broadcast: (clients: Map<WebSocket, ConnectedClient>, msg: WSServerMessage) => void;
+  /** Connected WebUI clients map */
+  clients: Map<WebSocket, ConnectedClient>;
 }
 
 export function createProviderHandlers(deps: ProviderHandlerDeps) {
-  const { globalConfigPath, vault } = deps;
+  const { globalConfigPath, vault, broadcast, clients } = deps;
   let configWriteLock = deps.getConfigWriteLock();
 
   async function loadConfigProviders(): Promise<Record<string, ProviderConfig>> {
@@ -83,6 +89,28 @@ export function createProviderHandlers(deps: ProviderHandlerDeps) {
       const result = addProviderRecord(providers, payload, new Date().toISOString());
       if (result.ok) await saveConfigProviders(providers);
       sendResult(ws, result.ok, result.message);
+      if (result.ok) {
+        console.log(`[WebUI] Provider "${payload.id}" added via provider.add`);
+        broadcast(clients, {
+          type: 'providers.saved',
+          payload: {
+            providers: Object.entries(providers).map(([id, cfg]) => {
+              const keys = normalizeKeys(cfg);
+              return {
+                id,
+                family: cfg.family ?? id,
+                baseUrl: cfg.baseUrl,
+                apiKeys: keys.map((k) => ({
+                  label: k.label,
+                  maskedKey: maskedKey(k.apiKey),
+                  isActive: k.label === cfg.activeKey,
+                  createdAt: k.createdAt,
+                })),
+              };
+            }),
+          },
+        });
+      }
     } catch (err) {
       sendResult(ws, false, errMessage(err));
     }

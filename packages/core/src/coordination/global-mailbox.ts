@@ -330,6 +330,13 @@ export class GlobalMailbox implements Mailbox {
     this._registryCache = null;
   }
 
+  async clearAll(): Promise<void> {
+    // Truncate the mailbox file under the same lock that protects append/ack.
+    await withFileLock(this.messagePath, async () => {
+      await fsp.writeFile(this.messagePath, '', 'utf8');
+    });
+  }
+
   // ── Internal ────────────────────────────────────────────────────────────
 
   private async _readMessages(): Promise<MailboxMessage[]> {

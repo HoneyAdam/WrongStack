@@ -72,7 +72,7 @@ import { bootConfig, patchConfig } from './boot.js';
 import { AutoPhaseWebSocketHandler } from './autophase-ws-handler.js';
 import { CollaborationWebSocketHandler } from './collaboration-ws-handler.js';
 import { WorktreeWebSocketHandler } from './worktree-ws-handler.js';
-import { handleMailboxMessages, handleMailboxAgents } from './mailbox-handlers.js';
+import { handleMailboxMessages, handleMailboxAgents, handleMailboxClear } from './mailbox-handlers.js';
 import { verifyClient as verifyWsClient } from './ws-auth.js';
 import { registerShutdownHandlers } from './lifecycle.js';
 import { registerInstance, unregisterInstance } from './instance-registry.js';
@@ -2840,6 +2840,11 @@ export async function startWebUI(
           { projectRoot, globalRoot: path.dirname(globalConfigPath) },
           (msg as { payload?: { onlineOnly?: boolean } }).payload,
         );
+      case 'mailbox.clear':
+        return handleMailboxClear(
+          ws,
+          { projectRoot, globalRoot: path.dirname(globalConfigPath) },
+        );
 
       // ── Brain — status, autonomy ceiling, direct decision support ───
       case 'brain.status':
@@ -2906,6 +2911,8 @@ export async function startWebUI(
     setConfigWriteLock: (p) => {
       configWriteLock = p;
     },
+    broadcast,
+    clients,
   });
 
   // HTTP server for the React frontend (port 3456) — see `http-server.ts`

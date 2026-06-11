@@ -103,3 +103,22 @@ export async function handleMailboxAgents(
     send(ws, { type: 'mailbox.agents', payload: { agents: [], error: errMessage(err) } });
   }
 }
+
+/**
+ * Delete all messages from the mailbox. Frontend sends:
+ *   { type: 'mailbox.clear' }
+ * Server responds with 'mailbox.cleared'.
+ */
+export async function handleMailboxClear(
+  ws: WebSocket,
+  deps: MailboxHandlerDeps,
+): Promise<void> {
+  try {
+    const dir = resolveProjectDir(deps.projectRoot, deps.globalRoot);
+    const mb = new GlobalMailbox(dir);
+    await mb.clearAll();
+    send(ws, { type: 'mailbox.cleared', payload: {} });
+  } catch (err) {
+    send(ws, { type: 'mailbox.cleared', payload: { error: errMessage(err) } });
+  }
+}
