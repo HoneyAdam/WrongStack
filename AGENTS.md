@@ -253,6 +253,35 @@ are controlled by `Config.session.auditLevel` (default: "standard").
 
 **Source of truth for paths:** `resolveWstackPaths()` in `packages/core/src/utils/wstack-paths.ts`.
 
+### Recording invariants (do not regress)
+
+1. **`agent.ctx.session` is the single live writer.** Anything that persists
+   events long-term must resolve the writer at append time — the CLI's
+   `sessionBridge` and the standalone WebUI server pass a **getter**
+   (`() => context.session`) to `createSessionEventBridge`, never a captured
+   writer instance.
+2. **Every code path that swaps `ctx.session`** (TUI `onResumeSession`, WebUI
+   `session.resume` / `session.new` / `projects.select`, process exit) must
+   finalize the writer it leaves: append `session_end` with current usage,
+   then `close()`. Resume paths additionally re-point the recovery lock
+   (`active.json`) at the new session id.
+3. **`FileSessionWriter` serializes all disk writes** through a FIFO
+   `writeChain`, shares one lazy-init promise for the `session_start` record,
+   and exposes an idempotent awaitable `close()`. Don't add a second write
+   path around it.
+4. **Mid-stream `session_end` markers are forbidden** — `/save` flushes, it
+   does not end. Recovery (`RecoveryLock`, `SessionRecovery`) treats only a
+   *trailing* `session_end` as a clean exit.
+5. **Session ids are date-sharded** (`2026-06-11/<base>`). Per-session sidecar
+   paths (`.jsonl`/`.summary.json`/`.annotations.json`/`.audit.jsonl`/
+   `.replay.jsonl`) must go through `sessionScopedPath()`
+   (`packages/core/src/utils/session-scoped-path.ts`) — containment-checked,
+   shard-slash-friendly. Directory scans for session artifacts must descend
+   one shard level; root-only scans miss every modern session.
+6. The end-to-end regression net is
+   `packages/core/tests/storage/session-lifecycle.test.ts` — extend it when
+   touching the lifecycle. Always test with sharded ids, not flat ones.
+
 The **only** things that live inside the project tree itself are the committed
 `.wrongstack/AGENTS.md` and `.wrongstack/skills/`. Everything else is in
 `~/.wrongstack/projects/<hash>/`.
