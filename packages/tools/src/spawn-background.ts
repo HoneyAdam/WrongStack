@@ -62,6 +62,10 @@ export function spawnBackground(opts: SpawnBackgroundOptions): {
   // fire-and-forget execution.
   const child = spawn(shell, shellArgs, spawnOpts);
 
+  // Fire-and-forget: an unhandled 'error' event (e.g. ENOENT) would crash the
+  // host process. Callers can still attach their own listener on `child`.
+  child.on('error', () => {});
+
   // Unref immediately so the parent can exit even if the child is still running
   child.unref();
 
@@ -101,6 +105,10 @@ export function spawnBackgroundExec(
   };
 
   const child = spawn(command, args, spawnOpts);
+
+  // Fire-and-forget: an unhandled 'error' event (e.g. ENOENT) would crash the
+  // host process. Callers can still attach their own listener on `child`.
+  child.on('error', () => {});
 
   // Unref immediately so the parent can exit even if the child is still running
   child.unref();
