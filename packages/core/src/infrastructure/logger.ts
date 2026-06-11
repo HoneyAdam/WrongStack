@@ -44,14 +44,25 @@ export interface DefaultLoggerOptions {
    * Default: true (stderr output is enabled).
    */
   stderr?: boolean | undefined;
+  /**
+   * Rotate the log file once it exceeds this many bytes: the current file is
+   * renamed to `<file>.1` (replacing any previous one) and a fresh file
+   * starts. Bounds total disk to ~2× this value. Default 10 MB.
+   */
+  maxFileBytes?: number | undefined;
 }
 
 export class DefaultLogger implements Logger {
+  /** How many file writes between rotation size checks (statSync is not free). */
+  private static readonly ROTATE_CHECK_EVERY = 100;
+
   level: LogLevel;
   private readonly file?: string | undefined;
   private readonly bindings: Record<string, unknown>;
   private readonly format: LogFormat;
   private readonly stderr: boolean;
+  private readonly maxFileBytes: number;
+  private writesSinceRotateCheck = 0;
 
   constructor(opts: DefaultLoggerOptions = {}) {
     this.level = opts.level ?? parseLogLevel(process.env.WRONGSTACK_LOG_LEVEL);
@@ -59,6 +70,7 @@ export class DefaultLogger implements Logger {
     this.bindings = opts.bindings ?? {};
     this.format = opts.format ?? parseLogFormat(process.env.WRONGSTACK_LOG_FORMAT);
     this.stderr = opts.stderr !== false; // default true
+    this.maxFileBytes = opts.maxFileBytes ?? 10 * 1024 * 1024;
     if (this.file) {
       try {
         fs.mkdirSync(path.dirname(this.file), { recursive: true });
@@ -90,8 +102,29 @@ export class DefaultLogger implements Logger {
       file: this.file,
       format: this.format,
       stderr: this.stderr,
+      maxFileBytes: this.maxFileBytes,
       bindings: { ...this.bindings, ...bindings },
     });
+  }
+
+  /**
+   * Size-based rotation: when the file outgrows `maxFileBytes`, rename it to
+   * `<file>.1` (dropping the previous `.1`) so the live file restarts empty.
+   * Checked on the first write and every ROTATE_CHECK_EVERY writes after.
+   * Best-effort: a rename can fail on Windows while another process holds
+   * the file — the next check retries. Multiple processes appending to the
+   * same log all run this check; whoever crosses the threshold first wins.
+   */
+  private maybeRotate(file: string): void {
+    if (this.writesSinceRotateCheck++ % DefaultLogger.ROTATE_CHECK_EVERY !== 0) return;
+    try {
+      const st = fs.statSync(file);
+      if (st.size < this.maxFileBytes) return;
+      fs.rmSync(`${file}.1`, { force: true });
+      fs.renameSync(file, `${file}.1`);
+    } catch {
+      // file missing, locked, or raced by another process — ignore
+    }
   }
 
   private log(level: LogLevel, msg: string, ctx?: unknown): void {
@@ -106,6 +139,7 @@ export class DefaultLogger implements Logger {
     // Disk: JSON line
     if (this.file) {
       try {
+        this.maybeRotate(this.file);
         fs.appendFileSync(this.file, `${JSON.stringify(entry)}\n`);
       } catch {
         // ignore

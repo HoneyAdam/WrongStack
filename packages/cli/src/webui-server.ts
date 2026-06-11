@@ -31,7 +31,7 @@ import {
 } from '@wrongstack/core';
 import { DefaultSessionStore } from '@wrongstack/core/storage';
 import { DefaultSecretVault, decryptConfigSecrets, encryptConfigSecrets } from '@wrongstack/core/security';
-import { TOKENS, atomicWrite, repairToolUseAdjacency, listContextWindowModes, resolveContextWindowPolicy, DEFAULT_CONTEXT_WINDOW_MODE_ID, GlobalMailbox, wstackGlobalRoot } from '@wrongstack/core';
+import { TOKENS, atomicWrite, repairToolUseAdjacency, listContextWindowModes, resolveContextWindowPolicy, DEFAULT_CONTEXT_WINDOW_MODE_ID, GlobalMailbox, resolveProjectDir, wstackGlobalRoot } from '@wrongstack/core';
 import { WebSocket, WebSocketServer } from 'ws';
 import { expectDefined, loadConfigProviders, maskedKey, mutateConfigProviders, normalizeKeys, nowIso, writeKeysBack } from './provider-config-utils.js';
 
@@ -1027,21 +1027,34 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
       }));
     });
 
-    // Graceful shutdown
+    // Graceful shutdown. Idempotent: every runWebUI call registers its own
+    // SIGINT/SIGTERM handlers, so a signal after this server already stopped
+    // (multiple servers per process — tests, /webui restarts) must not
+    // re-run teardown or fire a second unregister against a gone registry.
+    let shutdownStarted = false;
     function shutdown() {
+      if (shutdownStarted) return;
+      shutdownStarted = true;
+      process.off('SIGINT', shutdown);
+      process.off('SIGTERM', shutdown);
       console.log('[WebUI] Shutting down...');
       for (const unsub of eventUnsubscribers) unsub();
       for (const [ws] of clients) {
         ws.close();
       }
       clients.clear();
-      // Best-effort: drop ourselves from the running-instance registry and
-      // stop the frontend HTTP server before the WS server resolves the run.
-      void unregisterInstance(process.pid, registryBaseDir).catch((err: unknown) => console.debug(`[webui-server] unregister failed: ${err}`));
+      // Drop ourselves from the running-instance registry; the run promise
+      // resolves only after the write settles so callers can safely remove
+      // the registry directory once runWebUI's promise resolves.
+      const unregistered = unregisterInstance(process.pid, registryBaseDir).catch(
+        (err: unknown) => console.debug(`[webui-server] unregister failed: ${err}`),
+      );
       httpServer?.close();
       wss.close(() => {
-        console.log('[WebUI] Server stopped');
-        resolve();
+        void unregistered.then(() => {
+          console.log('[WebUI] Server stopped');
+          resolve();
+        });
       });
     }
 
@@ -2168,8 +2181,9 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
           break;
         }
         try {
-          const mbDir = path.join(globalRoot, 'projects',
-            `${((path.basename(projectRoot) || 'project').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40) || 'project')}-${crypto.createHash('sha256').update(path.resolve(projectRoot)).digest('hex').slice(0, 6)}`);
+          // Single source of truth for the per-project dir — the inline slug
+          // this replaced drifted from projectSlug() on edge-case names.
+          const mbDir = resolveProjectDir(projectRoot, globalRoot);
           const mb = new GlobalMailbox(mbDir);
           const payload = (msg as { payload?: { limit?: number; agentId?: string; unreadOnly?: boolean } }).payload;
           const messages = await mb.query({
@@ -2204,8 +2218,9 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
           break;
         }
         try {
-          const mbDir = path.join(globalRoot, 'projects',
-            `${((path.basename(projectRoot) || 'project').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40) || 'project')}-${crypto.createHash('sha256').update(path.resolve(projectRoot)).digest('hex').slice(0, 6)}`);
+          // Single source of truth for the per-project dir — the inline slug
+          // this replaced drifted from projectSlug() on edge-case names.
+          const mbDir = resolveProjectDir(projectRoot, globalRoot);
           const mb = new GlobalMailbox(mbDir);
           const payload = (msg as { payload?: { onlineOnly?: boolean } }).payload;
           const agents = payload?.onlineOnly
@@ -2238,8 +2253,9 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
           break;
         }
         try {
-          const mbDir = path.join(globalRoot, 'projects',
-            `${((path.basename(projectRoot) || 'project').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40) || 'project')}-${crypto.createHash('sha256').update(path.resolve(projectRoot)).digest('hex').slice(0, 6)}`);
+          // Single source of truth for the per-project dir — the inline slug
+          // this replaced drifted from projectSlug() on edge-case names.
+          const mbDir = resolveProjectDir(projectRoot, globalRoot);
           const mb = new GlobalMailbox(mbDir);
           await mb.clearAll();
           send(ws, { type: 'mailbox.cleared', payload: {} });

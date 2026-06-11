@@ -23,6 +23,10 @@ export default defineConfig({
     // NOTE: the old `poolOptions.forks.singleFork` knob was removed in
     // Vitest 4 and had been silently ignored — do not reintroduce it.
     pool: 'forks',
+    // 5s (the default) flakes under full-suite load on this machine: with
+    // ~16 fork workers competing, wiring-plugins / system-prompt-builder /
+    // plug-lsp setup intermittently time out while passing in isolation.
+    testTimeout: 15_000,
     // Bump Node heap to 4 GB for child processes spawned BY tests (vitest
     // worker processes themselves don't re-read NODE_OPTIONS set here).
     env: {

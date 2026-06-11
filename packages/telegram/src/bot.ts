@@ -101,6 +101,16 @@ export class TelegramBot {
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private pollActive = false;
   private offset = 0;
+  /**
+   * Consecutive HTTP 409 ("another getUpdates in flight") responses. Two
+   * wstack instances polling the same bot token used to fight at full poll
+   * speed forever, erroring on every cycle. After CONFLICT_BACKOFF_AFTER
+   * consecutive conflicts this instance backs off to a slow poll and warns
+   * once; any successful poll resets to the normal cadence.
+   */
+  private conflictStreak = 0;
+  private static readonly CONFLICT_BACKOFF_AFTER = 3;
+  private static readonly CONFLICT_POLL_MS = 60_000;
   private _startedAt: number | null = null;
   /** If set, the offset is persisted here after each successful poll. */
   private readonly offsetStoragePath?: string | undefined;
@@ -254,9 +264,13 @@ export class TelegramBot {
 
   private schedulePoll(): void {
     if (!this.pollActive) return;
+    const delay =
+      this.conflictStreak >= TelegramBot.CONFLICT_BACKOFF_AFTER
+        ? TelegramBot.CONFLICT_POLL_MS
+        : this.pollIntervalMs;
     this.pollTimer = setTimeout(() => {
       void this.poll().finally(() => this.schedulePoll());
-    }, this.pollIntervalMs);
+    }, delay);
   }
 
   private async poll(): Promise<void> {
@@ -266,9 +280,18 @@ export class TelegramBot {
       const data = (await res.json()) as TgResponse<TgUpdate[]>;
 
       if (!data.ok) {
+        if (data.error_code === 409) {
+          this.conflictStreak++;
+          if (this.conflictStreak === TelegramBot.CONFLICT_BACKOFF_AFTER) {
+            this.log.warn(
+              'Telegram: another instance is polling this bot token (HTTP 409) — backing off to 60s polls until it stops.',
+            );
+          }
+        }
         this.log.debug(`Telegram getUpdates failed: ${data.description}`);
         return;
       }
+      this.conflictStreak = 0;
 
       const updates = data.result ?? [];
       for (const upd of updates) {

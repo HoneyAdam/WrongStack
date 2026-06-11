@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { EventBus } from '@wrongstack/core/kernel';
-import { GlobalMailbox } from '@wrongstack/core';
+import { GlobalMailbox, resolveProjectDir } from '@wrongstack/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runWebUI } from '../src/webui-server.js';
 import { openWs } from './_ws-client.js';
@@ -109,10 +109,10 @@ describe('runWebUI mailbox operations', () => {
     const projectRoot = path.join(tmpDir, 'project');
     await fs.promises.mkdir(projectRoot, { recursive: true });
 
-    // Pre-populate the mailbox with a message
-    const globalRoot = tmpDir;
-    const mbDir = path.join(globalRoot, 'projects',
-      `${((path.basename(projectRoot) || 'project').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40) || 'project')}-testproj`);
+    // Pre-populate the mailbox with a message. The dir must be the SAME one
+    // the server resolves (globalRoot = dirname(globalConfigPath) = tmpDir),
+    // so use the canonical resolveProjectDir instead of a hand-rolled slug.
+    const mbDir = resolveProjectDir(projectRoot, tmpDir);
     await fs.promises.mkdir(mbDir, { recursive: true });
     const mb = new GlobalMailbox(mbDir);
     await mb.send({ from: 'agent#1', to: '*', type: 'broadcast', subject: 'test', body: 'test message' });
@@ -145,7 +145,8 @@ describe('runWebUI mailbox operations', () => {
     const cleared = await waitForMessage('mailbox.cleared');
     expect(cleared.type).toBe('mailbox.cleared');
 
-    // Verify the mailbox is now empty
+    // Verify the mailbox is now empty (re-request — responses are not pushed)
+    ws.send(JSON.stringify({ type: 'mailbox.messages', payload: { limit: 10 } }));
     const messagesResp2 = await waitForMessage('mailbox.messages');
     expect((messagesResp2.payload as { messages: unknown[] }).messages).toHaveLength(0);
 

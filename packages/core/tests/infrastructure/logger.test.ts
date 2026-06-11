@@ -123,4 +123,22 @@ describe('DefaultLogger', () => {
     expect(stderrWrites[0]).not.toContain('{"ts"');
     expect(stderrWrites[0]).toContain('hello');
   });
+
+  it('rotates the file to <file>.1 once it exceeds maxFileBytes', () => {
+    const logFile = path.join(tmp, 'rotate.log');
+    const log = new DefaultLogger({ level: 'info', stderr: false, file: logFile, maxFileBytes: 2_000 });
+    // Size is checked on the first write and every 100 writes after — write
+    // past one check interval with lines that overshoot the cap well before.
+    for (let i = 0; i < 101; i++) {
+      log.info(`line ${i} ${'x'.repeat(80)}`);
+    }
+    expect(fs.existsSync(`${logFile}.1`)).toBe(true);
+    // Rotated file holds the old lines; the live file restarted small.
+    expect(fs.statSync(`${logFile}.1`).size).toBeGreaterThan(2_000);
+    expect(fs.statSync(logFile).size).toBeLessThan(2_000);
+    // The live file continues from the rotation point — no lines lost.
+    const live = fs.readFileSync(logFile, 'utf8').trim().split('\n');
+    const rotated = fs.readFileSync(`${logFile}.1`, 'utf8').trim().split('\n');
+    expect(live.length + rotated.length).toBe(101);
+  });
 });
