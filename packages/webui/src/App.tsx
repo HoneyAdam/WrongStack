@@ -2,24 +2,17 @@ import { expectDefined } from '@wrongstack/core';
 import { useWebSocketBootstrap } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';
 import { getWSClient } from '@/lib/ws-client';
-import { useChatStore, useConfigStore, useFileStore, useGoalStore, useSessionStore, useUIStore, useWorktreeStore, useAutoPhaseStore } from '@/stores';
-import { useCallback, useEffect, useState } from 'react';
-import { Layers, Play, Rocket } from 'lucide-react';
-import { Button } from './components/ui/button';
+import { useChatStore, useConfigStore, useFileStore, useSessionStore, useUIStore } from '@/stores';
+import { useEffect } from 'react';
 import { ActivityBar, openPanel, PANEL_ORDER } from './components/ActivityBar';
 import { AgentsPage } from './components/AgentsPage';
 import { AutoPhaseView } from './components/AutoPhaseView';
-import { AutonomyPicker } from './components/AutonomyPicker';
 import { ChatView } from './components/ChatView';
 import { CodeEditor } from './components/CodeEditor';
-import { CollabPanel } from './components/CollabPanel';
 import { CommandPalette, downloadChatAsMarkdown } from './components/CommandPalette';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { ConnectionBanner } from './components/ConnectionBanner';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { FleetPanel } from './components/FleetPanel';
-import { GoalPanel } from './components/GoalPanel';
-import { PhasePanel } from './components/PhasePanel';
 import { QuickModelSwitcher } from './components/QuickModelSwitcher';
 import { SettingsPanel } from './components/SettingsPanel';
 import { SetupScreen } from './components/SetupScreen';
@@ -27,11 +20,9 @@ import { SessionsDashboard } from './components/SessionsDashboard';
 import { ShortcutsOverlay } from './components/ShortcutsOverlay';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
 import { Toaster } from './components/Toaster';
-import { WorkDashboard } from './components/WorkDashboard';
-import { WorktreeGraph } from './components/WorktreeGraph';
-import { WorktreeLanes } from './components/WorktreeLanes';
 import { AgentFlowGraph } from './components/AgentFlowGraph';
 import { SidePanel } from './components/SidePanel';
+import { WorkspaceDock } from './components/WorkspaceDock';
 function AppInner() {
   const { theme } = useTheme();
   const { currentView, sidebarOpen, toggleSidebar, setSearchOpen, setSidebarOpen, setCurrentView } = useUIStore();
@@ -41,24 +32,6 @@ function AppInner() {
   const sessionTitle = useSessionStore((s) => s.session?.title);
   const sessionId = useSessionStore((s) => s.session?.id);
   const nickname = useUIStore((s) => (sessionId ? s.sessionNicknames[sessionId] : undefined));
-
-  // Panel state — read from stores so GoalPanel / WorktreeGraph re-render
-  const goal = useGoalStore((s) => s.goal);
-  const worktrees = useWorktreeStore((s) => s.worktrees);
-  const baseBranch = useWorktreeStore((s) => s.baseBranch);
-  const autoPhase = useAutoPhaseStore((s) => s);
-
-  // Worktree view toggle
-  const [worktreeView, setWorktreeView] = useState<'graph' | 'lanes'>('graph');
-
-  // AutoPhase quick-start in chat view
-  const [autoPhaseGoal, setAutoPhaseGoal] = useState('');
-  const handleAutoPhaseStart = useCallback(() => {
-    const g = autoPhaseGoal.trim();
-    if (!g) return;
-    getWSClient(useConfigStore.getState().wsUrl).send({ type: 'autophase.start', payload: { title: g, autonomous: true } });
-    setAutoPhaseGoal('');
-  }, [autoPhaseGoal]);
 
   // Handle file open requests from FileExplorer (dispatches custom events on window)
   useEffect(() => {
@@ -284,98 +257,12 @@ function AppInner() {
         {currentView !== 'setup' && <ConnectionBanner />}
         {currentView === 'chat' && (
           <>
+            {/* WorkspaceDock — one slim chip strip (AutoPhase, Goal, Fleet,
+                Work, Worktrees, Collab); at most one panel expands below it
+                instead of the old always-on vertical pile. */}
             {sessionId && (
-              <div className="px-4 pt-2 space-y-2">
-                <div id="panel-collab"><CollabPanel sessionId={sessionId} /></div>
-                <div id="panel-goal"><GoalPanel goal={goal} /></div>
-                {/* AutoPhase panel — monitor or quick-start */}
-                {autoPhase.phases.length > 0 ? (
-                  <PhasePanel
-                    phases={autoPhase.phases}
-                    activePhaseId={autoPhase.activePhaseId ?? undefined}
-                    overallPercent={autoPhase.overallPercent}
-                    autonomous={autoPhase.autonomous}
-                  />
-                ) : (
-                  <div className="rounded-lg border border-dashed border-border bg-card/50 p-3 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Layers className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-xs font-semibold text-foreground flex-1">AutoPhase</span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 gap-1.5 text-xs"
-                        onClick={() => useUIStore.getState().setCurrentView('autophase')}
-                      >
-                        <Rocket className="h-3.5 w-3.5" />
-                        Full View
-                      </Button>
-                    </div>
-                    <div className="flex gap-2">
-                      <input
-                        value={autoPhaseGoal}
-                        onChange={(e) => setAutoPhaseGoal(e.target.value)}
-                        placeholder="What do you want to build?"
-                        className="flex-1 h-8 rounded-md border border-border bg-background px-3 text-xs placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            handleAutoPhaseStart();
-                          }
-                        }}
-                      />
-                      <Button
-                        size="sm"
-                        className="h-8 gap-1.5 text-xs"
-                        disabled={!autoPhaseGoal.trim()}
-                        onClick={handleAutoPhaseStart}
-                      >
-                        <Play className="h-3.5 w-3.5" />
-                        Start
-                      </Button>
-                    </div>
-                  </div>
-                )}
-                {/* Live subagent roster — self-hides when no fleet is running. */}
-                <div id="panel-fleet"><FleetPanel /></div>
-                {/* Work Dashboard — tabbed Todos / Tasks / Plan, always mounted for real-time sync */}
-                <div id="panel-work"><WorkDashboard /></div>
-                {/* Worktree graph — only when active. Toggle between graph and lanes view. */}
-                {worktrees.length > 0 && (
-                  <div id="panel-worktree" className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setWorktreeView('graph')}
-                        className={cn(
-                          'text-[10px] px-2 py-0.5 rounded-full border transition-colors',
-                          worktreeView === 'graph'
-                            ? 'bg-primary/10 border-primary/30 text-primary'
-                            : 'border-border text-muted-foreground hover:text-foreground',
-                        )}
-                      >
-                        Graph
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setWorktreeView('lanes')}
-                        className={cn(
-                          'text-[10px] px-2 py-0.5 rounded-full border transition-colors',
-                          worktreeView === 'lanes'
-                            ? 'bg-primary/10 border-primary/30 text-primary'
-                            : 'border-border text-muted-foreground hover:text-foreground',
-                        )}
-                      >
-                        Lanes
-                      </button>
-                    </div>
-                    {worktreeView === 'graph' ? (
-                      <WorktreeGraph worktrees={worktrees} baseBranch={baseBranch || 'HEAD'} />
-                    ) : (
-                      <WorktreeLanes worktrees={worktrees} baseBranch={baseBranch || 'HEAD'} />
-                    )}
-                  </div>
-                )}
+              <div className="px-4 pt-2">
+                <WorkspaceDock sessionId={sessionId} />
               </div>
             )}
             <ChatView />

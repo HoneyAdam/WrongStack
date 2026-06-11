@@ -1,7 +1,7 @@
 import { expectDefined } from '@wrongstack/core';
 import { cn } from '@/lib/utils';
 import { getWSClient } from '@/lib/ws-client';
-import { useChatStore, useFleetStore, useGoalStore, useHistoryStore, useSessionStore, useUIStore, useWorktreeStore } from '@/stores';
+import { useChatStore, useHistoryStore, useSessionStore, useUIStore } from '@/stores';
 import { useLocalPrefs } from '@/stores/local-prefs';
 import type { ChatMessage } from '@/stores';
 import { useConfigStore } from '@/stores';
@@ -10,20 +10,17 @@ import {
   ArrowDown,
   ArrowUp,
   Bot,
-  CheckCircle2,
   ChevronDown,
   Clock,
   Command,
   Cpu,
   FolderOpen,
-  GitBranch,
   History,
   PanelLeftOpen,
   Pencil,
   Settings,
   Shrink,
   Terminal,
-  Users,
   Zap,
 } from 'lucide-react';
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
@@ -82,23 +79,6 @@ export function ChatView() {
   const { wsConnected, wsStatus, provider, model } = useConfigStore();
   const { setCurrentView } = useUIStore();
   const scrollRef = useRef<HTMLDivElement>(null);
-
-  // Fleet counts for header chip
-  const fleetAgents = useFleetStore((s) => s.agents);
-  const fleetRunning = Object.values(fleetAgents).filter((a) => a.status === 'running').length;
-  const fleetTotal = Object.values(fleetAgents).length;
-
-  // Goal state
-  const goal = useGoalStore((s) => s.goal);
-
-  // Worktree state
-  const worktrees = useWorktreeStore((s) => s.worktrees);
-  const baseBranch = useWorktreeStore((s) => s.baseBranch);
-
-  // Todo breakdown
-  const pendingCount = todos.filter((t) => t.status === 'pending').length;
-  const inProgressCount = todos.filter((t) => t.status === 'in_progress').length;
-  const completedCount = todos.filter((t) => t.status === 'completed').length;
 
   // Autonomy mode — read from the shared local-prefs store (seeded from the
   // server's config-backed snapshot on connect), NOT component-local state.
@@ -374,64 +354,8 @@ export function ChatView() {
                 {iteration.max > 0 ? `/${iteration.max}` : ''}
               </button>
             )}
-            {/* Todo chip */}
-            {(pendingCount > 0 || inProgressCount > 0) && (
-              <button
-                type="button"
-                className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 shrink-0 hover:bg-amber-500/20 transition-colors cursor-pointer"
-                title={`Todos: ${completedCount}/${todos.length} done — click to jump`}
-                onClick={() => document.getElementById('panel-todos')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-              >
-                <CheckCircle2 className="h-3 w-3" />
-                {completedCount}/{todos.length}
-              </button>
-            )}
-            {/* Fleet chip */}
-            {fleetTotal > 0 && (
-              <button
-                type="button"
-                className={cn(
-                  'flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-medium shrink-0 cursor-pointer transition-colors',
-                  fleetRunning > 0
-                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20'
-                    : 'bg-muted text-muted-foreground hover:bg-muted/80',
-                )}
-                title={`Fleet: ${fleetRunning}/${fleetTotal} running — click to jump`}
-                onClick={() => document.getElementById('panel-fleet')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-              >
-                <Users className="h-3 w-3" />
-                {fleetRunning}/{fleetTotal}
-              </button>
-            )}
-            {/* Goal chip */}
-            {goal && (
-              <button
-                type="button"
-                className={cn(
-                  'flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-medium shrink-0 cursor-pointer transition-colors',
-                  goal.goalState === 'active'
-                    ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-500/20'
-                    : 'bg-muted text-muted-foreground hover:bg-muted/80',
-                )}
-                title={`Goal: ${goal.progress}% — ${goal.goal.slice(0, 60)} — click to jump`}
-                onClick={() => document.getElementById('panel-goal')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-              >
-                <Activity className="h-3 w-3" />
-                {goal.progress}%
-              </button>
-            )}
-            {/* Worktree chip */}
-            {baseBranch && (
-              <button
-                type="button"
-                className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-medium bg-violet-500/10 text-violet-600 dark:text-violet-400 shrink-0 hover:bg-violet-500/20 transition-colors cursor-pointer"
-                title={`Branch: ${baseBranch}${worktrees.length > 0 ? ` · ${worktrees.length} worktree${worktrees.length === 1 ? '' : 's'}` : ''} — click to jump`}
-                onClick={() => document.getElementById('panel-worktree')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-              >
-                <GitBranch className="h-3 w-3" />
-                {baseBranch}
-              </button>
-            )}
+            {/* Todos / fleet / goal / worktree live in the WorkspaceDock
+                strip directly below this header — no duplicate chips here. */}
             <AutonomyPicker value={autonomy} onChange={handleAutonomyChange} compact />
           </div>
 

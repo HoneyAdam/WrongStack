@@ -25,6 +25,9 @@ export const SIDEBAR_MIN_WIDTH = 240;
 export const SIDEBAR_MAX_WIDTH = 560;
 export const SIDEBAR_DEFAULT_WIDTH = 304;
 
+/** Sections of the WorkspaceDock strip above the chat transcript. */
+export type DockSection = 'autophase' | 'goal' | 'fleet' | 'work' | 'worktrees' | 'collab';
+
 interface UIState {
   sidebarOpen: boolean;
   /** Which activity icon is selected in the ActivityBar — controls secondary panel content. */
@@ -52,6 +55,8 @@ interface UIState {
   fileExplorerWidth: number;
   /** When true, free-text prompts are run through the prompt refiner before sending. */
   refineEnabled: boolean;
+  /** Which WorkspaceDock section is expanded above the chat. Null = all collapsed. */
+  dockSection: DockSection | null;
 
   /** Active prompt-refinement panel. Set while RefinePanel is shown. Null when no refinement is pending. */
   refinePanel: {
@@ -84,6 +89,9 @@ interface UIState {
   setFileExplorerWidth: (px: number) => void;
   toggleRefineEnabled: () => void;
   setRefinePanel: (panel: UIState['refinePanel']) => void;
+  setDockSection: (section: DockSection | null) => void;
+  /** Click-a-chip semantics: same section again collapses the dock. */
+  toggleDockSection: (section: DockSection) => void;
 }
 
 export const useUIStore = create<UIState>()(
@@ -109,6 +117,7 @@ export const useUIStore = create<UIState>()(
       fileExplorerWidth: 220,
       refineEnabled: true,
       refinePanel: null,
+      dockSection: null,
 
       selectActivity: (activity) => set({ activeActivity: activity }),
       toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
@@ -161,6 +170,9 @@ export const useUIStore = create<UIState>()(
         set({ fileExplorerWidth: Math.max(160, Math.min(400, Math.round(px))) }),
       toggleRefineEnabled: () => set((s) => ({ refineEnabled: !s.refineEnabled })),
       setRefinePanel: (panel) => set({ refinePanel: panel }),
+      setDockSection: (section) => set({ dockSection: section }),
+      toggleDockSection: (section) =>
+        set((s) => ({ dockSection: s.dockSection === section ? null : section })),
     }),
     {
       name: 'wrongstack-ui',

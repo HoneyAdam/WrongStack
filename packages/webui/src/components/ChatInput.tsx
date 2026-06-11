@@ -162,15 +162,9 @@ export function ChatInput({
         }
         case '/plan':
           ws.getPlan();
-          useUIStore.getState().selectActivity('chat');
-          useUIStore.getState().setSidebarOpen(true);
           setCurrentView('chat');
-          requestAnimationFrame(() => {
-            document.getElementById('panel-work')?.scrollIntoView({
-              behavior: 'smooth',
-              block: 'start',
-            });
-          });
+          // Surface the Work section of the dock strip above the chat.
+          useUIStore.getState().setDockSection('work');
           return true;
         case '/todos': {
           // Sub-commands: `/todos` (default = list), `/todos clear`. We
