@@ -181,10 +181,16 @@ one coordination plane under `~/.wrongstack/projects/<slug>/`:
   WebUI register their sessions and run `AgentStatusTracker`, so
   `/sessions status` lists every surface's live sessions.
 - **Surfaces.** Agents read incoming mail automatically each iteration
-  (`mailbox-loop` folds steer/btw inline) and write via the `mailbox` tool
-  (registered in CLI and WebUI). Humans use `/mailbox` (inbox / agents /
-  send / broadcast / history); the TUI and both WebUI servers forward
-  `mailbox.received` / `mailbox.agent_registered` live.
+  (`mailbox-loop` folds steer/btw inline) and write via `mail_send` /
+  `mail_inbox` (high-affordance thin wrappers) or the multi-action
+  `mailbox` power-tool — all registered in CLI and WebUI, available to
+  fleet subagents (full registry by default), and covered by a mailbox
+  protocol block in the system prompt + subagent baseline (identity,
+  broadcast-milestones etiquette, answer-your-mail). Fleet subagents get
+  distinct identities via Context `agentId`/`agentName` (host.ts).
+  Humans use `/mailbox` (inbox / agents / send / broadcast / history);
+  the TUI and both WebUI servers forward `mailbox.received` /
+  `mailbox.agent_registered` live.
 
 ### Collab Debug Session
 

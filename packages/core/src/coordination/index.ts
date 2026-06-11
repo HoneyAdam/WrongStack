@@ -171,7 +171,8 @@ export {
 // ── Mailbox — inter-agent messaging ──────────────────────────────────────
 export { DefaultMailbox } from './mailbox.js';
 export { GlobalMailbox, resolveProjectDir } from './global-mailbox.js';
-export { makeMailboxTool, type MailboxToolOptions, type MailboxResolver } from './mailbox-tool.js';
+export { makeMailboxTool, resolveMailboxIdentity, type MailboxToolOptions, type MailboxResolver } from './mailbox-tool.js';
+export { makeMailSendTool, makeMailInboxTool, type MailToolsOptions } from './mail-tools.js';
 export type {
   Mailbox,
   MailboxMessage,

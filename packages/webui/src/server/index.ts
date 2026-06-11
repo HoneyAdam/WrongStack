@@ -1,5 +1,5 @@
 import { expectDefined, GlobalMailbox, projectSlug, getSessionRegistry, AgentStatusTracker } from '@wrongstack/core';
-import { makeMailboxTool } from '@wrongstack/core';
+import { makeMailboxTool, makeMailSendTool, makeMailInboxTool } from '@wrongstack/core';
 import * as fs from 'node:fs/promises';
 import * as http from 'node:http';
 import * as path from 'node:path';
@@ -302,10 +302,13 @@ export async function startWebUI(
   const events = new EventBus();
   events.setLogger(logger);
 
-  // Inter-agent mailbox tool — same project-level GlobalMailbox the CLI
+  // Inter-agent mailbox tools — same project-level GlobalMailbox the CLI
   // registers, keyed by wpaths.projectDir so WebUI agents and terminal
   // agents on the same project share one inbox and can chat/broadcast.
+  // mail_send/mail_inbox are the high-affordance thin wrappers.
   toolRegistry.register(makeMailboxTool({ projectDir: wpaths.projectDir, events }));
+  toolRegistry.register(makeMailSendTool({ projectDir: wpaths.projectDir, events }));
+  toolRegistry.register(makeMailInboxTool({ projectDir: wpaths.projectDir, events }));
   console.log('[WebUI] Tool registry loaded:', toolRegistry.list().length, 'tools');
 
   // Session store — mutable so projects.select can swap it to the new project's dir.

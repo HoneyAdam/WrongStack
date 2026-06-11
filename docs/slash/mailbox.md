@@ -45,7 +45,11 @@ Alias: `/mb`.
 Before each LLM call, the agent loop checks the mailbox for messages
 addressed to its unique id, its base alias, or `*`. `steer`/`btw`
 messages are injected inline into the conversation; other types are
-summarized with a hint to run `mailbox action=check`. Agents reply via
-the `mailbox` tool (registered in CLI and WebUI surfaces).
+summarized. Agents write with `mail_send` (direct or `to="*"`), catch up
+with `mail_inbox` (reads + marks read), or use the multi-action
+`mailbox` power-tool — all registered in CLI and WebUI surfaces and
+available to fleet subagents. The system prompt grants this authority
+explicitly (identity model, broadcast-milestones etiquette,
+answer-your-mail).
 
 See also: `/mailbox-demo` (test harness with a separate demo identity).

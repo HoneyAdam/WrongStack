@@ -10,6 +10,8 @@ import {
   type WstackPaths,
   TOKENS,
   makeMailboxTool,
+  makeMailSendTool,
+  makeMailInboxTool,
 } from '@wrongstack/core';
 import {
   builtinToolsPack,
@@ -49,8 +51,12 @@ export async function setupTools(params: ToolsWiringDeps): Promise<ToolsWiringRe
   toolRegistry.registerDefault(
     createContextManagerTool({ compactor: container.resolve(TOKENS.Compactor) }),
   );
-  // Register the inter-agent mailbox tool — resolves to project-level GlobalMailbox at runtime
+  // Register the inter-agent mailbox tools — resolve to the project-level
+  // GlobalMailbox at runtime. mail_send/mail_inbox are the high-affordance
+  // thin wrappers agents reach for autonomously.
   toolRegistry.register(makeMailboxTool({ projectDir: wpaths.projectDir }));
+  toolRegistry.register(makeMailSendTool({ projectDir: wpaths.projectDir }));
+  toolRegistry.register(makeMailInboxTool({ projectDir: wpaths.projectDir }));
   if (config.features.memory) {
     toolRegistry.register(rememberTool(memoryStore));
     toolRegistry.register(forgetTool(memoryStore));

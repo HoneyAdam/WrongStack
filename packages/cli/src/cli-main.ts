@@ -42,6 +42,8 @@ import {
   type AutonomyStage,
   SessionMemoryConsolidator,
   makeMailboxTool,
+  makeMailSendTool,
+  makeMailInboxTool,
   GlobalMailbox,
   attachDepWatcherBridge,
   startTechStackConsumer,
@@ -276,6 +278,10 @@ export async function main(argv: string[]): Promise<number> {
   // events are passed so mailbox.agent_registered/heartbeat events are emitted for TUI/WebUI
   // to update the online agent count in the status bar.
   toolRegistry.register(makeMailboxTool({ projectDir: wpaths.projectDir, events }));
+  // High-affordance thin wrappers (mail_send/mail_inbox) — the explicit
+  // verbs are what makes agents use the mailbox autonomously mid-task.
+  toolRegistry.register(makeMailSendTool({ projectDir: wpaths.projectDir, events }));
+  toolRegistry.register(makeMailInboxTool({ projectDir: wpaths.projectDir, events }));
 
   // Metrics wiring — extracted to wiring/metrics.ts
   const { metricsSink, healthRegistry } = (() => {

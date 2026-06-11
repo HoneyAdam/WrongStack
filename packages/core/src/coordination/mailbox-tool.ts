@@ -47,9 +47,35 @@ export interface MailboxToolOptions {
   events?: EventBus | undefined;
 }
 
-function defaultResolveProjectDir(ctx: Context): string {
+export function defaultResolveProjectDir(ctx: Context): string {
   const home = os.homedir();
   return resolveProjectDir(ctx.projectRoot, path.join(home, '.wrongstack'));
+}
+
+/**
+ * Resolve the caller's mailbox identity from the execution Context.
+ *
+ * Shared by the `mailbox` power-tool and the thin `mail_send`/`mail_inbox`
+ * tools so every surface agrees on who is talking:
+ * - base id: ctx.meta.agentId → ctx.agentId field (subagents) → fallback
+ * - unique id: ctx.meta.globalAgentId (set by attachMailboxChecker) or
+ *   `<base>#<pid>` derived the same way the checker derives it.
+ */
+export function resolveMailboxIdentity(
+  ctx: Context,
+  fallbackBase = 'leader',
+): { baseId: string; callerId: string; name: string; role?: string | undefined; sessionId: string } {
+  const fieldId =
+    ctx.agentId && ctx.agentId !== 'unknown' ? ctx.agentId : undefined;
+  const baseId = (ctx.meta['agentId'] as string | undefined) ?? fieldId ?? fallbackBase;
+  const callerId =
+    (ctx.meta['globalAgentId'] as string | undefined) ?? `${baseId}#${process.pid}`;
+  const fieldName =
+    ctx.agentName && ctx.agentName !== 'Unknown Agent' ? ctx.agentName : undefined;
+  const name = (ctx.meta['agentName'] as string | undefined) ?? fieldName ?? baseId;
+  const role = ctx.meta['agentRole'] as string | undefined;
+  const sessionId = (ctx.meta['sessionId'] as string | undefined) ?? ctx.session?.id ?? 'default';
+  return { baseId, callerId, name, role, sessionId };
 }
 
 export function makeMailboxTool(opts: MailboxToolOptions = {}): Tool {
@@ -105,19 +131,19 @@ export function makeMailboxTool(opts: MailboxToolOptions = {}): Tool {
       // Prefer the process-unique identity set by attachMailboxChecker
       // (`leader#<pid>`) so registration/receipts/sends agree with the
       // agent-loop checker. The bare base id stays addressable as an alias.
-      const baseCallerId = (ctx.meta['agentId'] as string) ?? agentId;
-      const callerId = (ctx.meta['globalAgentId'] as string) ?? `${baseCallerId}#${process.pid}`;
-      const callerSessionId = (ctx.meta['sessionId'] as string) ?? (ctx.session?.id ?? sessionId);
+      const identity = resolveMailboxIdentity(ctx, agentId);
+      const baseCallerId = identity.baseId;
+      const callerId = identity.callerId;
+      const callerSessionId =
+        (ctx.meta['sessionId'] as string) ?? (ctx.session?.id ?? sessionId);
 
       // Auto-register this agent on first use (idempotent)
-      const callerName = (ctx.meta['agentName'] as string) ?? callerId;
-      const callerRole = ctx.meta['agentRole'] as string | undefined;
       try {
         await mb.registerAgent({
           agentId: callerId,
           sessionId: callerSessionId,
-          name: callerName,
-          role: callerRole,
+          name: identity.name,
+          role: identity.role,
           pid: process.pid,
           source: (ctx.meta['source'] as 'cli' | 'webui' | undefined) ?? 'cli',
         });

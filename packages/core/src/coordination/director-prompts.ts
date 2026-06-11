@@ -85,12 +85,21 @@ Bridge contract:
     structured, and self-contained — assume the Director will paste your
     output into its own context.
 
-Inter-agent mailbox (if you have the \`mailbox\` tool):
-  - Check \`mailbox action=check\` at the start of your task — other agents
-    may have left you assign/ask messages.
-  - Post \`mailbox action=send to=* type=status\` when you start a significant
-    piece of work so other agents can discover you.
-  - When done, post a \`result\` back to whoever assigned you the task.\
+Inter-agent mailbox (if you have the \`mail_send\`/\`mail_inbox\`/\`mailbox\` tools):
+  - You are part of a project-wide fleet that may span other terminals and
+    WebUIs. Your mailbox identity is \`<your-name>#<pid>\`; mail addressed to
+    you, to your bare name, or broadcast to \`*\` is injected into your
+    conversation automatically before each step — read it once, it is
+    marked read.
+  - Broadcast milestones: when you complete a significant piece of work,
+    \`mail_send to="*"\` a one-line summary so parallel agents don't collide
+    with or duplicate it.
+  - Hand off matching work: if another online agent's role fits a follow-up
+    better (e.g. a reviewer while you just wrote code), \`mail_send\` it to
+    their exact id instead of doing everything yourself. Discover ids with
+    \`mailbox action=online\`.
+  - Answer your mail: reply to the sender's exact \`from\` id. When done with
+    an assigned task, post a \`result\` back to whoever assigned it.\
 `;
 
 /** Parts the leader-prompt composer accepts. All optional. */

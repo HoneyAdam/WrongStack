@@ -452,9 +452,9 @@ export class MultiAgentHost {
         baseSystem.push({ type: 'text', text: rolePrompt });
       }
 
+      const subagentName = subCfg.id ?? subCfg.name ?? `sub_${randomUUID().slice(0, 8)}`;
       let subSession: SessionWriter;
       if (this.sessionFactory) {
-        const subagentName = subCfg.id ?? subCfg.name ?? `sub_${randomUUID().slice(0, 8)}`;
         subSession = await this.sessionFactory.createSubagentSession({
           subagentId: subagentName,
           provider: effProvider,
@@ -522,7 +522,13 @@ export class MultiAgentHost {
         projectRoot: this.deps.projectRoot,
         model: effModel,
         tools: this.filterTools(tools),
+        // Distinct mailbox identity: without these, every subagent fell back
+        // to the host's 'leader' base id and they all collided in the shared
+        // project mailbox registry (and consumed each other's read receipts).
+        agentId: subagentName,
+        agentName: subCfg.name ?? subagentName,
       });
+      if (subCfg.role) ctx.meta['agentRole'] = subCfg.role;
 
       const baseRegistry = this.subagentToolRegistry(tools);
       if (injectedFleetEmit) baseRegistry.register(injectedFleetEmit);

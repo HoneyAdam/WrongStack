@@ -43,8 +43,15 @@ function attachMailboxCheckerInner(
   // Pass the agent's EventBus so GlobalMailbox can emit real-time events
   // (agent_registered, agent_heartbeat, etc.) for TUI/WebUI display.
   const mailbox: Mailbox = new GlobalMailbox(projectDir, a.events);
-  const baseId = (a.ctx.meta['agentId'] as string) ?? 'leader';
-  const agentName = (a.ctx.meta['agentName'] as string) ?? 'Agent';
+  // Identity: ctx.meta override → Context field (subagents carry their
+  // name there) → 'leader'. Without the field fallback, every fleet
+  // subagent collapsed onto the host's 'leader' base id.
+  const fieldId =
+    a.ctx.agentId && a.ctx.agentId !== 'unknown' ? a.ctx.agentId : undefined;
+  const baseId = (a.ctx.meta['agentId'] as string | undefined) ?? fieldId ?? 'leader';
+  const fieldName =
+    a.ctx.agentName && a.ctx.agentName !== 'Unknown Agent' ? a.ctx.agentName : undefined;
+  const agentName = (a.ctx.meta['agentName'] as string | undefined) ?? fieldName ?? 'Agent';
   const sessionId = a.ctx.session.id;
   const surface = source ?? ((a.ctx.meta['source'] as 'cli' | 'webui' | undefined) ?? 'cli');
 

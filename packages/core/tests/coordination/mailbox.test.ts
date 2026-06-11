@@ -701,3 +701,99 @@ describe('DefaultMailbox — send racing ack does not lose messages', () => {
     expect(subjects.has('seed')).toBe(true);
   });
 });
+
+// ── mail_send / mail_inbox thin tools ────────────────────────────────────────
+describe('mail_send + mail_inbox tools', () => {
+  let mailbox: DefaultMailbox;
+  let dir: string;
+
+  beforeEach(async () => {
+    const m = await createMailbox();
+    mailbox = m.mailbox;
+    dir = m.dir;
+  });
+
+  afterEach(async () => {
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it('round-trip: agent A broadcasts, agent B reads it once via mail_inbox', async () => {
+    const { makeMailSendTool, makeMailInboxTool } = await import(
+      '../../src/coordination/mail-tools.js'
+    );
+    const send = makeMailSendTool({ resolveMailbox: () => mailbox });
+    const inbox = makeMailInboxTool({ resolveMailbox: () => mailbox });
+
+    const ctxA = mockCtx({ meta: { agentId: 'coder', agentName: 'Coder' } });
+    const ctxB = mockCtx({ meta: { agentId: 'reviewer', agentName: 'Reviewer' } });
+
+    const sent = await send.execute(
+      { to: '*', subject: 'auth done', body: 'refactored src/auth — please review' },
+      ctxA as never,
+    );
+    expect(sent.ok).toBe(true);
+    expect(sent.from).toBe(`coder#${process.pid}`);
+
+    const got = await inbox.execute({}, ctxB as never);
+    expect(got.ok).toBe(true);
+    expect(got.count).toBe(1);
+    expect(got.messages[0]).toMatchObject({
+      from: `coder#${process.pid}`,
+      to: '*',
+      type: 'broadcast',
+      subject: 'auth done',
+    });
+
+    // Read-once: marked read, second inbox call is empty for B…
+    const again = await inbox.execute({}, ctxB as never);
+    expect(again.count).toBe(0);
+    // …but a THIRD agent still sees the broadcast unread (per-id receipts).
+    const ctxC = mockCtx({ meta: { agentId: 'tester', agentName: 'Tester' } });
+    const cInbox = await inbox.execute({}, ctxC as never);
+    expect(cInbox.count).toBe(1);
+  });
+
+  it('mail_inbox covers direct, base-alias, and broadcast mail without duplicates', async () => {
+    const { makeMailSendTool, makeMailInboxTool } = await import(
+      '../../src/coordination/mail-tools.js'
+    );
+    const send = makeMailSendTool({ resolveMailbox: () => mailbox });
+    const inbox = makeMailInboxTool({ resolveMailbox: () => mailbox });
+    const ctxA = mockCtx({ meta: { agentId: 'coder' } });
+    const ctxB = mockCtx({ meta: { agentId: 'leader' } });
+    const uniqueB = `leader#${process.pid}`;
+
+    await send.execute({ to: uniqueB, subject: 'direct', body: 'd' }, ctxA as never);
+    await send.execute({ to: 'leader', subject: 'alias', body: 'a' }, ctxA as never);
+    await send.execute({ to: '*', subject: 'bcast', body: 'b' }, ctxA as never);
+    await send.execute({ to: 'someone-else', subject: 'other', body: 'o' }, ctxA as never);
+
+    const got = await inbox.execute({}, ctxB as never);
+    expect(got.count).toBe(3);
+    const subjects = got.messages.map((m: { subject: string }) => m.subject).sort();
+    expect(subjects).toEqual(['alias', 'bcast', 'direct']);
+  });
+
+  it('mail_inbox markRead=false peeks without consuming', async () => {
+    const { makeMailSendTool, makeMailInboxTool } = await import(
+      '../../src/coordination/mail-tools.js'
+    );
+    const send = makeMailSendTool({ resolveMailbox: () => mailbox });
+    const inbox = makeMailInboxTool({ resolveMailbox: () => mailbox });
+    const ctxA = mockCtx({ meta: { agentId: 'a' } });
+    const ctxB = mockCtx({ meta: { agentId: 'b' } });
+
+    await send.execute({ to: `b#${process.pid}`, subject: 's', body: 'x' }, ctxA as never);
+    const peek = await inbox.execute({ markRead: false }, ctxB as never);
+    expect(peek.count).toBe(1);
+    const second = await inbox.execute({}, ctxB as never);
+    expect(second.count).toBe(1); // still unread after the peek
+  });
+
+  it('mail_send validates required fields', async () => {
+    const { makeMailSendTool } = await import('../../src/coordination/mail-tools.js');
+    const send = makeMailSendTool({ resolveMailbox: () => mailbox });
+    const res = await send.execute({ to: '*' }, mockCtx() as never);
+    expect(res.ok).toBe(false);
+  });
+});

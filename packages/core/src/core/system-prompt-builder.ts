@@ -369,8 +369,10 @@ one by one, roll up results), use \`spawn_subagent\` + \`assign_task\` +
 \`await_tasks\` directly; \`delegate\` is the one-call shortcut.`);
     }
 
-    // Mailbox guidance — included when the `mailbox` tool is present.
-    const hasMailbox = tools.some((t) => t.name === 'mailbox');
+    // Mailbox guidance — included when any mailbox tool is present.
+    const hasMailbox = tools.some(
+      (t) => t.name === 'mailbox' || t.name === 'mail_send' || t.name === 'mail_inbox',
+    );
     if (hasMailbox) {
       // Build online agents info if provided
       let onlineAgentsInfo = '';
@@ -384,38 +386,55 @@ one by one, roll up results), use \`spawn_subagent\` + \`assign_task\` +
       lines.push(`
 ## Inter-agent mailbox${onlineAgentsInfo}
 
-You share a persistent mailbox with other agents. Use it to coordinate
-across a fleet without interrupting active work.
+You share a persistent project mailbox with every other agent working on
+this project — other terminals, TUIs and WebUIs included. You are
+EXPECTED to use it: announce what you do, hand work off, ask questions,
+and answer mail addressed to you. Coordination is part of the job, not
+an optional extra.
 
-### Checking for messages
+### Your identity
 
-High-priority steer/btw messages are automatically injected before each
-LLM call. For other message types (assign, ask, result, status), or
-when you've been working on a long task, check manually:
+You are addressable as \`<your-name>#<pid>\` (your process-unique id —
+visible in the online list). Mail sent to your bare base name (e.g.
+\`leader\`) reaches every process running under that name; mail to your
+exact id reaches only you. When replying, use the sender's exact \`from\`
+id.
 
-- \`mailbox action=check\` — read unread messages addressed to you
+### Receiving
+
+Unread mail (direct, base-name, and \`*\` broadcasts) is injected into
+your conversation automatically before each step — urgent steer/btw
+inline, the rest as a summary. To catch up explicitly:
+
+- \`mail_inbox\` — read your unread mail and mark it read
 - \`mailbox action=query from=<agent> type=result\` — find specific results
 
-### Sending messages
+### Sending
 
-- \`mailbox action=send to=<agentId> type=<type> subject="..." body="..."\`
-- Use \`to=*\` to broadcast to all agents
+- \`mail_send to=<agentId> subject="..." body="..."\` — direct message
+- \`mail_send to="*" subject="..." body="..."\` — broadcast to everyone
 - Message types: \`note\` (info), \`ask\` (question), \`assign\` (task handoff),
   \`steer\` (change approach), \`btw\` (non-urgent info), \`status\` (your current
   task), \`result\` (task outcome)
 
 ### Agent discovery
 
-- \`mailbox action=status\` — see other active agents and their current tasks.
-  Use this to find who to ask for help or to decide which agent can pick up
-  a broadcast task.
+- \`mailbox action=online\` — who is live right now (ids to address)
+- \`mailbox action=status\` — all agents and their current tasks. Use this
+  to find who to ask for help or who can pick up a broadcast task.
 
-### During long tasks
+### Etiquette — when to mail
 
-Post a \`status\` update when you start working on something significant.
-Other agents use this to discover you and route tasks appropriately.
-When you finish, mark the task complete and post a \`result\` if another
-agent is waiting.
+- **Broadcast milestones**: when you finish a significant change
+  ("refactored src/auth/*, tests green"), \`mail_send to="*"\` so parallel
+  agents don't collide with or duplicate your work.
+- **Hand off matching work**: if another agent's role fits a task better
+  (a reviewer online while you just wrote code → "can you review X?"),
+  send it to them instead of doing everything yourself.
+- **Answer your mail**: when an \`ask\` arrives, reply to the sender's
+  exact id with a \`result\` or \`note\` — silence stalls the other agent.
+- Post a \`status\` when you start something significant; post a \`result\`
+  when someone is waiting on you.
 
 ### Acknowledging
 
