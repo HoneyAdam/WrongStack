@@ -5,15 +5,15 @@ import { Loader2, RotateCcw, WifiOff, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 /**
- * Prominent connection-lost banner. The ConnectionChip in the topbar is
- * easy to miss when the user is heads-down on the chat; this banner
- * stretches across the top, blocks the visual flow, and offers a "retry
- * now" button. Auto-hides as soon as the socket comes back open.
+ * Prominent connection-lost banner. The ActivityBar's status dot is easy
+ * to miss when the user is heads-down on the chat; this banner stretches
+ * across the top, blocks the visual flow, and offers a "retry now"
+ * button. Auto-hides as soon as the socket comes back open.
  *
  * Dismissable for the current outage (X button) — once dismissed, only
- * comes back if the socket recovers and then drops again. The chip in
- * the topbar still reflects the live state so the user isn't fully blind
- * after dismissing.
+ * comes back if the socket recovers and then drops again. The ActivityBar
+ * dot still reflects the live state so the user isn't fully blind after
+ * dismissing.
  */
 export function ConnectionBanner() {
   const wsStatus = useConfigStore((s) => s.wsStatus);
