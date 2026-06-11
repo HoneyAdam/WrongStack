@@ -33,16 +33,17 @@ export function buildCollabCommand(opts: SlashCommandContext): SlashCommand {
     async run(args, ctx) {
       const { cmd, rest } = parseSubcommand(args);
       const sub = cmd || 'status';
+      const sessionId = ctx?.session?.id;
       switch (sub) {
         case 'status':
-          return statusCommand(ctx.session?.id);
+          return statusCommand(sessionId ?? undefined);
         case 'invite':
-          return inviteCommand(ctx.session?.id);
+          return inviteCommand(sessionId ?? undefined);
         case 'history':
-          return historyCommand(opts, ctx.session?.id, rest);
+          return historyCommand(opts, sessionId ?? undefined, rest);
         case 'annotations':
         case 'notes':
-          return annotationsCommand(opts, ctx.session?.id);
+          return annotationsCommand(opts, sessionId ?? undefined);
         case 'help':
         case '--help':
         case '-h':

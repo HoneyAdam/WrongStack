@@ -2,15 +2,13 @@
 
 ## /save
 
-Forces a session flush to disk by appending a `session_end` event with current token usage. WrongStack auto-saves on exit — this is useful mid-session to persist without quitting.
+Forces the session writer's in-memory buffer to disk. WrongStack auto-saves continuously (events are buffered for at most ~500 ms) and finalizes on exit — this is useful mid-session for an explicit durability point without quitting.
 
 ```typescript
-await ctx.session.append({
-  type: 'session_end',
-  ts: new Date().toISOString(),
-  usage: opts.tokenCounter.total(),
-});
+await ctx.session.flush();
 ```
+
+**Note:** `/save` deliberately does **not** write a `session_end` event. The session is still running — a mid-stream end marker would corrupt outcome/`endedAt` derivation and make crash recovery treat a later crash as a clean exit. `session_end` is written exactly once, by the exit path (or by a resume that finalizes the writer being left).
 
 ## /sessions (aliases: `/resume`, `/load`)
 

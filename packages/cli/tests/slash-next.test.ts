@@ -9,9 +9,9 @@ const makeCtx = (overrides: Partial<SlashCommandContext> = {}): SlashCommandCont
   const write = vi.fn();
   const writeWarning = vi.fn();
   return {
-    renderer: { write, writeWarning } as never,
+    renderer: { write, writeWarning } as unknown as SlashCommandContext['renderer'],
     ...overrides,
-  } as SlashCommandContext;
+  } as unknown as SlashCommandContext;
 };
 
 describe('/next slash command', () => {
@@ -38,7 +38,7 @@ describe('/next slash command', () => {
 
   describe('status query (no arg)', () => {
     let state: boolean;
-    let onNextPredict: ReturnType<typeof vi.fn>;
+    let onNextPredict: (next?: boolean) => boolean;
     let ctx: SlashCommandContext;
 
     beforeEach(() => {
@@ -46,7 +46,7 @@ describe('/next slash command', () => {
       onNextPredict = vi.fn((next?: boolean) => {
         if (next !== undefined) state = next;
         return state;
-      });
+      }) as unknown as (next?: boolean) => boolean;
       ctx = makeCtx({ onNextPredict });
     });
 
@@ -74,7 +74,7 @@ describe('/next slash command', () => {
 
   describe('set with explicit argument', () => {
     let state: boolean;
-    let onNextPredict: ReturnType<typeof vi.fn>;
+    let onNextPredict: (next?: boolean) => boolean;
     let ctx: SlashCommandContext;
 
     beforeEach(() => {
@@ -82,7 +82,7 @@ describe('/next slash command', () => {
       onNextPredict = vi.fn((next?: boolean) => {
         if (next !== undefined) state = next;
         return state;
-      });
+      }) as unknown as (next?: boolean) => boolean;
       ctx = makeCtx({ onNextPredict });
     });
 

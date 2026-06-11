@@ -10,7 +10,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { ScrollArea } from '../ui/scroll-area';
 
 interface SessionListProps {
@@ -25,7 +25,7 @@ interface SessionListProps {
   deleteSession: ReturnType<typeof useWebSocket>['deleteSession'];
 }
 
-const formatRelative = (iso: string): string => {
+export const formatRelative = (iso: string): string => {
   const ts = Date.parse(iso);
   if (Number.isNaN(ts)) return '';
   const diff = Date.now() - ts;
@@ -36,6 +36,13 @@ const formatRelative = (iso: string): string => {
   if (days < 7) return `${days}d ago`;
   return new Date(ts).toLocaleDateString();
 };
+
+/** Pure function: returns IDs of sessions with tokenTotal === 0, excluding the active session. */
+export function getEmptySessionIds(
+  entries: Array<{ id: string; tokenTotal: number; isCurrent: boolean }>,
+): string[] {
+  return entries.filter((e) => e.tokenTotal === 0 && !e.isCurrent).map((e) => e.id);
+}
 
 export function SessionList({
   historyQuery,
@@ -54,6 +61,21 @@ export function SessionList({
   const setSessionNickname = useUIStore((s) => s.setSessionNickname);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
+
+  const emptySessionIds = useMemo(
+    () => getEmptySessionIds(historyEntries),
+    [historyEntries],
+  );
+
+  const handleDeleteEmpty = useCallback(() => {
+    if (emptySessionIds.length === 0) return;
+    const msg = emptySessionIds.length === 1
+      ? 'Delete 1 empty session?'
+      : `Delete ${emptySessionIds.length} empty sessions?`;
+    if (window.confirm(msg)) {
+      for (const id of emptySessionIds) deleteSession(id);
+    }
+  }, [emptySessionIds, deleteSession]);
 
   const groupedHistory = (() => {
     const q = historyQuery.trim().toLowerCase();
@@ -100,15 +122,28 @@ export function SessionList({
     <>
       <div className="flex items-center justify-between px-4 py-2 border-b">
         <span className="text-xs uppercase tracking-wider text-muted-foreground">Recent sessions</span>
-        <button
-          type="button"
-          className="h-6 w-6 inline-flex items-center justify-center rounded-md hover:bg-muted"
-          onClick={() => listSessions(50)}
-          disabled={!wsConnected}
-          title="Refresh"
-        >
-          {historyLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-        </button>
+        <div className="flex items-center gap-1">
+          {emptySessionIds.length > 0 && (
+            <button
+              type="button"
+              className="h-6 w-6 inline-flex items-center justify-center rounded-md hover:bg-muted text-muted-foreground hover:text-destructive"
+              onClick={handleDeleteEmpty}
+              disabled={!wsConnected}
+              title={`Delete ${emptySessionIds.length} empty session${emptySessionIds.length === 1 ? '' : 's'}`}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
+          <button
+            type="button"
+            className="h-6 w-6 inline-flex items-center justify-center rounded-md hover:bg-muted"
+            onClick={() => listSessions(50)}
+            disabled={!wsConnected}
+            title="Refresh"
+          >
+            {historyLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+          </button>
+        </div>
       </div>
       {historyEntries.length > 3 && (
         <div className="px-3 py-2 border-b">

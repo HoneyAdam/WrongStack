@@ -256,8 +256,8 @@ export async function backupCurrent(homeFn: HomeDirFn = defaultHomeDir): Promise
   if (content !== undefined) {
     try {
       await atomicWrite(last, content);
-    } catch {
-      // Best-effort — .last backup is nice to have but not critical
+    } catch (err) {
+      writeErr(`[config-history] .last backup failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -266,8 +266,8 @@ export async function backupCurrent(homeFn: HomeDirFn = defaultHomeDir): Promise
     try {
       const bakPath = path.join(homeFn(), '.wrongstack', `config.json.${ts}.bak`);
       await atomicWrite(bakPath, content);
-    } catch {
-      // Best-effort
+    } catch (err) {
+      writeErr(`[config-history] timestamped backup failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -282,8 +282,8 @@ export async function backupCurrent(homeFn: HomeDirFn = defaultHomeDir): Promise
     for (const f of baks.slice(10)) {
       await safeDelete(path.join(dir, f));
     }
-  } catch {
-    // Best-effort
+  } catch (err) {
+    writeErr(`[config-history] backup prune failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 

@@ -12,7 +12,7 @@ const makeCtx = (
   return {
     compactor,
     renderer: { write, writeInfo, writeWarning } as never,
-  } as SlashCommandContext;
+  } as unknown as SlashCommandContext;
 };
 
 const fakeContext = {} as Context;
@@ -20,9 +20,11 @@ const fakeContext = {} as Context;
 const baseReport = {
   before: 100_000,
   after: 60_000,
+  fullRequestTokensBefore: 100_000,
+  fullRequestTokensAfter: 60_000,
   reductions: [
-    { phase: 'tools', saved: 25_000 },
-    { phase: 'history', saved: 15_000 },
+    { phase: 'elision' as const, saved: 25_000 },
+    { phase: 'selective' as const, saved: 15_000 },
   ],
 };
 
@@ -63,8 +65,8 @@ describe('/compact slash command', () => {
     const cmd = buildCompactCommand(ctx);
     const result = await cmd.run!('', fakeContext);
     expect(result!.message).toContain('100000 -> 60000 tokens');
-    expect(result!.message).toContain('tools: 25000');
-    expect(result!.message).toContain('history: 15000');
+    expect(result!.message).toContain('elision: 25000');
+    expect(result!.message).toContain('selective: 15000');
   });
 
   it('includes repair counts when the report has a repaired field', async () => {
@@ -75,7 +77,7 @@ describe('/compact slash command', () => {
         removedToolResults: ['r1'],
         removedMessages: 3,
       },
-    }));
+    }) as typeof baseReport & { repaired: { removedToolUses: string[]; removedToolResults: string[]; removedMessages: number } });
     const ctx = makeCtx({ compact });
     const cmd = buildCompactCommand(ctx);
     const result = await cmd.run!('', fakeContext);

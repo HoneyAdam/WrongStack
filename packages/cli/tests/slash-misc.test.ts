@@ -2,25 +2,30 @@ import { describe, expect, it, vi } from 'vitest';
 import { buildClearCommand } from '../src/slash-commands/clear.js';
 import { buildCompactCommand } from '../src/slash-commands/compact.js';
 import { buildHelpCommand } from '../src/slash-commands/help.js';
-import { SlashCommandRegistry } from '@wrongstack/core';
+import { SlashCommandRegistry, type Context } from '@wrongstack/core';
 
-function fakeCtx() {
+function fakeCtx(): Context {
   const state = {
     replaceMessages: vi.fn(),
     replaceTodos: vi.fn(),
     deleteMeta: vi.fn(),
   };
-  const ctx = {
+  return {
     state,
-    readFiles: { clear: vi.fn() },
-    fileMtimes: { clear: vi.fn() },
+    readFiles: { clear: vi.fn() } as unknown as Set<string>,
+    fileMtimes: { clear: vi.fn() } as unknown as Map<string, number>,
     meta: { plan: 'x', other: 'y' },
     session: {
       id: 'test-session-id',
       clearSession: vi.fn().mockResolvedValue(undefined),
     },
-  } as never;
-  return ctx;
+    messages: [],
+    todos: [],
+    systemPrompt: [],
+    model: 'test',
+    cwd: '/tmp',
+    projectRoot: '/tmp',
+  } as unknown as Context;
 }
 
 // ── /clear ───────────────────────────────────────────────────────────────────
@@ -45,14 +50,14 @@ describe('buildClearCommand', () => {
     expect(memoryStore.clear).toHaveBeenCalled();
     expect(onClear).toHaveBeenCalled();
     expect(renderer.clear).toHaveBeenCalled();
-    expect(res.message).toContain('Session cleared');
+    expect(res?.message ?? '').toContain('Session cleared');
   });
 
   it('survives missing context and missing memoryStore', async () => {
     const renderer = { write: vi.fn(), writeInfo: vi.fn(), clear: vi.fn() };
     const cmd = buildClearCommand({ renderer } as never);
     const res = await cmd.run('', undefined);
-    expect(res.message).toContain('Session cleared');
+    expect(res?.message ?? '').toContain('Session cleared');
   });
 });
 
@@ -63,7 +68,7 @@ describe('buildCompactCommand', () => {
     const renderer = { writeInfo: vi.fn(), writeWarning: vi.fn() };
     const cmd = buildCompactCommand({ renderer } as never);
     const res = await cmd.run('', {} as never);
-    expect(res.message).toContain('No compactor');
+    expect(res?.message ?? '').toContain('No compactor');
     expect(renderer.writeWarning).toHaveBeenCalled();
   });
 
@@ -83,9 +88,9 @@ describe('buildCompactCommand', () => {
     const cmd = buildCompactCommand({ renderer, compactor } as never);
     const res = await cmd.run('', {} as never);
     expect(compactor.compact).toHaveBeenCalledWith({}, { aggressive: false });
-    expect(res.message).toContain('1000 -> 600');
-    expect(res.message).toContain('summary: 300');
-    expect(res.message).toContain('truncate: 100');
+    expect(res?.message ?? '').toContain('1000 -> 600');
+    expect(res?.message ?? '').toContain('summary: 300');
+    expect(res?.message ?? '').toContain('truncate: 100');
   });
 
   it('honors "aggressive" arg and reports repaired count', async () => {
@@ -105,8 +110,8 @@ describe('buildCompactCommand', () => {
     const cmd = buildCompactCommand({ renderer, compactor } as never);
     const res = await cmd.run('aggressive', {} as never);
     expect(compactor.compact).toHaveBeenCalledWith({}, { aggressive: true });
-    expect(res.message).toContain('repaired 2 tool_use');
-    expect(res.message).toContain('1 tool_result');
+    expect(res?.message ?? '').toContain('repaired 2 tool_use');
+    expect(res?.message ?? '').toContain('1 tool_result');
   });
 });
 
@@ -129,42 +134,42 @@ describe('buildHelpCommand', () => {
     const reg = makeRegistry();
     const cmd = buildHelpCommand({ registry: reg } as never);
     const res = await cmd.run('', {} as never);
-    expect(res.message).toContain('Available slash commands');
-    expect(res.message).toContain('/foo');
-    expect(res.message).toContain('(/f)');
-    expect(res.message).toContain('/bar');
-    expect(res.message).toContain('Run `/help <name>`');
+    expect(res?.message ?? '').toContain('Available slash commands');
+    expect(res?.message ?? '').toContain('/foo');
+    expect(res?.message ?? '').toContain('(/f)');
+    expect(res?.message ?? '').toContain('/bar');
+    expect(res?.message ?? '').toContain('Run `/help <name>`');
   });
 
   it('matches name and returns help body when present', async () => {
     const cmd = buildHelpCommand({ registry: makeRegistry() } as never);
     const res = await cmd.run('bar', {} as never);
-    expect(res.message).toContain('/bar');
-    expect(res.message).toContain('# Detailed bar help');
+    expect(res?.message ?? '').toContain('/bar');
+    expect(res?.message ?? '').toContain('# Detailed bar help');
   });
 
   it('matches alias to the canonical entry', async () => {
     const cmd = buildHelpCommand({ registry: makeRegistry() } as never);
     const res = await cmd.run('f', {} as never);
-    expect(res.message).toContain('/foo');
-    expect(res.message).toContain('Aliases: /f');
+    expect(res?.message ?? '').toContain('/foo');
+    expect(res?.message ?? '').toContain('Aliases: /f');
   });
 
   it('strips leading slash from the query', async () => {
     const cmd = buildHelpCommand({ registry: makeRegistry() } as never);
     const res = await cmd.run('/foo', {} as never);
-    expect(res.message).toContain('/foo');
+    expect(res?.message ?? '').toContain('/foo');
   });
 
   it('falls back to description when no help is defined', async () => {
     const cmd = buildHelpCommand({ registry: makeRegistry() } as never);
     const res = await cmd.run('foo', {} as never);
-    expect(res.message).toContain('do foo');
+    expect(res?.message ?? '').toContain('do foo');
   });
 
   it('reports unknown command', async () => {
     const cmd = buildHelpCommand({ registry: makeRegistry() } as never);
     const res = await cmd.run('does-not-exist', {} as never);
-    expect(res.message).toContain('Unknown command');
+    expect(res?.message ?? '').toContain('Unknown command');
   });
 });

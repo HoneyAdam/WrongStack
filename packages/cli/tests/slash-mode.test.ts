@@ -15,7 +15,7 @@ const modes: Mode[] = [
   { id: 'teach', name: 'Teach', description: 'Mentor mode', prompt: '', tags: [] },
 ];
 
-const makeStore = (active: Mode | null = modes[0]): ModeStore & {
+const makeStore = (active: Mode | null = modes[0] ?? null): ModeStore & {
   setActiveMode: ReturnType<typeof vi.fn>;
 } => {
   let current = active;
@@ -55,7 +55,7 @@ describe('/mode slash command', () => {
       expect(out!.message).toContain('brief — Fast, no-nonsense [active]');
       expect(out!.message).toContain('teach');
       // Only one mode marked active
-      expect(out!.message.match(/\[active\]/g)).toHaveLength(1);
+      expect((out!.message ?? '').match(/\[active\]/g) ?? []).toHaveLength(1);
     });
 
     it('shows "none" when no mode is active', async () => {

@@ -3,6 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { Context } from '../../src/core/context.js';
+import type { SessionWriter } from '../../src/types/session.js';
 import {
   attachTodosCheckpoint,
   loadTodosCheckpoint,
@@ -13,7 +14,7 @@ function makeContext(): Context {
   return new Context({
     systemPrompt: [],
     provider: {} as never,
-    session: { id: 'sess', pendingToolUses: [], append: async () => {}, flush: async () => {}, close: async () => {} },
+    session: { id: 'sess', pendingToolUses: [], append: async () => {}, appendBatch: async () => {}, flush: async () => {}, close: async () => {}, recordFileChange: () => {}, writeCheckpoint: async () => {}, writeFileSnapshot: async () => {}, truncateToCheckpoint: async () => 0, clearSession: async () => {}, writeInFlightMarker: async () => {}, clearInFlightMarker: async () => {} } as unknown as SessionWriter,
     signal: new AbortController().signal,
     tokenCounter: { total: () => ({ input: 0, output: 0 }), record: () => {} } as never,
     cwd: process.cwd(),

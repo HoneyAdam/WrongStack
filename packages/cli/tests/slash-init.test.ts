@@ -3,6 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { SlashCommandRegistry } from '@wrongstack/core';
 import type { Context } from '@wrongstack/core';
+import type { SlashCommandContext } from '../src/slash-commands/index.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildBuiltinSlashCommands } from '../src/slash-commands/index.js';
 
@@ -28,10 +29,10 @@ function makeRegistry(renderer: FakeRenderer) {
   const reg = new SlashCommandRegistry();
   const cmds = buildBuiltinSlashCommands({
     registry: reg,
-    toolRegistry: { list: () => [] } as never,
-    renderer: renderer as never,
-    tokenCounter: { total: () => ({ input: 0, output: 0 }) } as never,
-  });
+    toolRegistry: { list: () => [] },
+    renderer,
+    tokenCounter: { total: () => ({ input: 0, output: 0 }) },
+  } as unknown as SlashCommandContext);
   for (const c of cmds) reg.register(c);
   return reg;
 }

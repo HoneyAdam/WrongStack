@@ -26,12 +26,17 @@ import { helpCmd } from '../src/subcommands/handlers/version-help.js';
 
 function fakeDeps() {
   return {
+    config: {} as Parameters<typeof authCmd>[1]['config'],
     renderer: { write: vi.fn(), writeError: vi.fn(), writeInfo: vi.fn(), writeWarning: vi.fn() },
-    reader: { readLine: vi.fn() } as never,
-    modelsRegistry: {} as never,
-    vault: {} as never,
-    paths: { globalConfig: '/tmp/cfg.json' } as never,
-  } as never;
+    reader: { readLine: vi.fn() },
+    modelsRegistry: {},
+    vault: {},
+    paths: { globalConfig: '/tmp/cfg.json' },
+    cwd: '/tmp',
+    projectRoot: '/tmp',
+    userHome: '/tmp',
+    flags: {},
+  } as unknown as Parameters<typeof authCmd>[1];
 }
 
 beforeEach(() => {

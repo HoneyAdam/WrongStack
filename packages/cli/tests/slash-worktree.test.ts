@@ -1,14 +1,35 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildWorktreeCommand } from '../src/slash-commands/worktree.js';
 import { buildBuiltinSlashCommands } from '../src/slash-commands/index.js';
+import type { Context, SlashCommandContext } from '@wrongstack/core';
+import type { ToolRegistry, TokenCounter } from '../src/slash-commands/index.js';
 
-function ctx(extra: object = {}) {
+function ctx(extra: object = {}): SlashCommandContext {
   return {
     session: { id: 's1' },
-    renderer: { write: () => {}, writeWarning: () => {}, projectRoot: '/tmp' },
+    registry: { register: () => {}, dispatch: async () => null } as unknown as SlashCommandContext['registry'],
+    toolRegistry: { list: () => [] } as unknown as ToolRegistry,
+    renderer: { write: () => {}, writeWarning: () => {}, writeError: () => {}, writeInfo: () => {}, projectRoot: '/tmp' } as unknown as SlashCommandContext['renderer'],
+    tokenCounter: { total: () => ({ input: 0, output: 0 }) } as unknown as TokenCounter,
+    events: { on: () => {} } as unknown as SlashCommandContext['events'],
     projectRoot: '/tmp',
+    cwd: '/tmp',
+    messages: [],
+    todos: [],
+    readFiles: new Set(),
+    fileMtimes: new Map(),
+    systemPrompt: [],
+    model: 'test',
+    meta: {},
+    configStore: { get: () => undefined, set: () => {}, has: () => false } as unknown as SlashCommandContext['configStore'],
+    reader: { readFile: async () => null } as unknown as SlashCommandContext['reader'],
+    state: {
+      replaceMessages: vi.fn(),
+      replaceTodos: vi.fn(),
+      deleteMeta: vi.fn(),
+    },
     ...extra,
-  } as never;
+  } as unknown as SlashCommandContext;
 }
 
 describe('buildWorktreeCommand', () => {

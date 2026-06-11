@@ -12,10 +12,10 @@ import {
 } from '../src/launch-hints.js';
 
 function makeRenderer(): { write: (input: string | TextBlock) => void; output: () => string } {
-  const write = vi.fn() as unknown as (input: string | TextBlock) => void;
+  const write = vi.fn<(input: string | TextBlock) => void>();
   return {
     write,
-    output: () => stripAnsi(write.mock.calls.map((c) => String(c[0])).join('')),
+    output: () => stripAnsi((write as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((c) => String(c[0])).join('')),
   };
 }
 

@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { DefaultConfigStore } from '@wrongstack/core';
+import { DefaultConfigStore, type Context } from '@wrongstack/core';
 import { describe, expect, it, vi } from 'vitest';
 import { buildContextCommand } from '../src/slash-commands/context.js';
 
@@ -15,7 +15,7 @@ function fakeRenderer() {
   };
 }
 
-function fakeCtx(overrides: Record<string, unknown> = {}) {
+function fakeCtx(overrides: Record<string, unknown> = {}): Context {
   const messages: unknown[] = [];
   const todos: unknown[] = [];
   return {
@@ -34,7 +34,7 @@ function fakeCtx(overrides: Record<string, unknown> = {}) {
       }),
     },
     ...overrides,
-  } as never;
+  } as unknown as Context;
 }
 
 describe('buildContextCommand', () => {

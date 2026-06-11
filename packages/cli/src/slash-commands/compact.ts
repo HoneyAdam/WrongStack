@@ -14,6 +14,11 @@ export function buildCompactCommand(opts: SlashCommandContext): SlashCommand {
       'The compactor summarizes older turns to reclaim tokens.',
     ].join('\n'),
     async run(args, ctx) {
+      if (!ctx) {
+        const msg = 'No agent context available.';
+        opts.renderer.writeWarning(msg);
+        return { message: msg };
+      }
       if (!opts.compactor) {
         const msg = 'No compactor configured.';
         opts.renderer.writeWarning(msg);

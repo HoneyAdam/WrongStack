@@ -43,7 +43,7 @@ function fakeDeps(overrides: Record<string, unknown> = {}) {
     },
     projectRoot: '/tmp/proj',
     ...overrides,
-  } as never;
+  };
 }
 
 beforeEach(() => {

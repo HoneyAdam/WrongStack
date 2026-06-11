@@ -37,7 +37,6 @@ function makeProgressEvent(
     event: {
       type,
       text: overrides.text ?? 'some output',
-      data: undefined,
     },
   };
 }

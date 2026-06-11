@@ -145,7 +145,7 @@ describe('config-history', () => {
         'changed',
         home,
       );
-      const entry = await getHistoryEntry(id, home)!;
+      const entry = (await getHistoryEntry(id, home))!;
       expect(entry.diffSummary).toContain('provider');
       expect(entry.diffSummary).toContain('model');
     });

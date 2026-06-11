@@ -10,7 +10,7 @@ import { FilePicker } from './FilePicker';
 import { Button } from './ui/button';
 
 import { type SlashCommandDef, SLASH_COMMANDS, SLASH_CATEGORY_ORDER, matchSlash, detectAtMention } from './ChatInput/slash-commands.js';
-import { autoFenceCode, detectLanguage, unfenceCode } from './ChatInput/code-detect.js';
+import { autoFenceCode } from './ChatInput/code-detect.js';
 import { RefinePanel } from './RefinePanel.js';
 
 export function ChatInput({
@@ -134,6 +134,26 @@ export function ChatInput({
         case '/save':
           ws.saveSession();
           return true;
+        case '/load':
+        case '/resume':
+          ws.listSessions(50);
+          setCurrentView('sessions');
+          return true;
+        case '/agents':
+          setCurrentView('agents');
+          return true;
+        case '/plan':
+          ws.getPlan();
+          useUIStore.getState().selectActivity('chat');
+          useUIStore.getState().setSidebarOpen(true);
+          setCurrentView('chat');
+          requestAnimationFrame(() => {
+            document.getElementById('panel-work')?.scrollIntoView({
+              behavior: 'smooth',
+              block: 'start',
+            });
+          });
+          return true;
         case '/todos': {
           // Sub-commands: `/todos` (default = list), `/todos clear`. We
           // pull live state from the session store so the rendered output
@@ -179,6 +199,15 @@ export function ChatInput({
         case '/model':
           setCurrentView('settings');
           return true;
+        case '/enhance': {
+          const enabled = !useUIStore.getState().refineEnabled;
+          toggleRefineEnabled();
+          addMessage({
+            role: 'assistant',
+            content: `Prompt refinement ${enabled ? 'enabled' : 'disabled'}.`,
+          });
+          return true;
+        }
         case '/suggest':
         case '/next-steps':
           // Ask the agent to suggest next steps
@@ -197,7 +226,17 @@ export function ChatInput({
           return false;
       }
     },
-    [addMessage, clearMessages, client, sendAbort, setLoading, setCurrentView, ws, onOpenBreakdown],
+    [
+      addMessage,
+      clearMessages,
+      client,
+      sendAbort,
+      setLoading,
+      setCurrentView,
+      toggleRefineEnabled,
+      ws,
+      onOpenBreakdown,
+    ],
   );
 
   // ── /next helpers ──────────────────────────────────────────────────

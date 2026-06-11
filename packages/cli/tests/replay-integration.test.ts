@@ -53,18 +53,19 @@ function makeResponse(seed: number): Response {
 
 function makeInner(responses: Response[]): ProviderRunner & { calls: number[] } {
   let i = 0;
+  const calls: number[] = [];
   return {
-    calls: [],
+    get calls() { return calls; },
     async run(_opts: RunProviderOptions): Promise<Response> {
       // We don't know which seed the request corresponds to without
       // inspecting the request — but for the test we just record the
       // call index. The caller is expected to push responses in the
       // same order as requests.
       const idx = i++;
-      this.calls.push(idx);
+      calls.push(idx);
       return responses[idx]!;
     },
-  } as never;
+  } as unknown as ProviderRunner & { calls: number[] };
 }
 
 function makeRunOpts(req: Request): RunProviderOptions {

@@ -23,7 +23,7 @@ const makeCtx = (
     renderer: { write, writeWarning } as never,
     // No configStore/paths → persistence is skipped (toggle still applies).
     ...overrides,
-  } as SlashCommandContext;
+  } as unknown as SlashCommandContext;
 };
 
 describe('/enhance slash command', () => {

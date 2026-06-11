@@ -14,14 +14,14 @@ import type { SlashCommandContext } from '../../src/slash-commands/index.js';
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 const fakeProvider = {} as Provider;
-const fakeSession: SessionWriter = {
+const fakeSession = {
   id: 't',
   pendingToolUses: [],
   append: async () => undefined,
   appendBatch: async () => undefined,
   flush: async () => undefined,
   close: async () => undefined,
-};
+} as unknown as SessionWriter;
 
 function mkContext(overrides: {
   projectRoot: string;
@@ -49,9 +49,7 @@ function mkDeps(): SlashCommandContext {
     events: { emit: () => {}, on: () => () => {}, off: () => {} },
     cwd: '/tmp',
     projectRoot: '/tmp',
-    configStore: { get: () => ({}), update: () => {}, subscribe: () => () => {} },
-    reader: { readLine: async () => '', readKey: async () => '', readSecret: async () => '', close: async () => {} },
-  };
+  } as unknown as SlashCommandContext;
 }
 
 // ── Temp dir setup ─────────────────────────────────────────────────────────

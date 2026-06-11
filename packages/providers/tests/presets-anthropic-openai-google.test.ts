@@ -29,7 +29,7 @@ function mkFetch(body: ReadableStream<Uint8Array>): typeof fetch {
       ok: true,
       status: 200,
       text: async () => '',
-      body,
+      body: body as ReadableStream<Uint8Array> | null,
     }) as unknown as Response) as unknown as typeof fetch;
 }
 

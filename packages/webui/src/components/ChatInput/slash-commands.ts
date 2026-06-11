@@ -15,6 +15,8 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   { name: '/new', category: 'Session', description: 'Start a brand-new session (fresh on disk and in memory)' },
   { name: '/clear', category: 'Session', description: 'Wipe current context (keeps session id, disk record stays)' },
   { name: '/compact', category: 'Session', description: 'Shrink context — elide ancient tool output' },
+  { name: '/compact!', category: 'Session', description: 'Aggressively shrink context now' },
+  { name: '/repair', category: 'Session', description: 'Repair orphan tool-use / tool-result protocol blocks' },
   { name: '/save', category: 'Session', description: 'Force-flush the session (auto-saved already)' },
   { name: '/load', category: 'Session', aliases: ['/resume'], description: 'Resume a previous session from disk' },
   { name: '/export', category: 'Session', description: 'Download the current chat as markdown' },
@@ -29,6 +31,8 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   { name: '/diag', category: 'Inspect', description: 'Runtime diagnostics (provider, tools, mode, usage)' },
   { name: '/agents', category: 'Inspect', description: 'Show status of spawned subagents' },
   { name: '/plan', category: 'Inspect', description: 'Strategic plan board: show, add, start, done, promote, clear' },
+  { name: '/suggest', category: 'Inspect', aliases: ['/next-steps'], description: 'Ask the agent for concrete next steps' },
+  { name: '/next', category: 'Inspect', description: 'Show or run numbered next-step suggestions' },
 
   // Config
   { name: '/settings', category: 'Config', aliases: ['/model'], description: 'Open settings (provider/model/keys)' },

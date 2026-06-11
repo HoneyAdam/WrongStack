@@ -4826,6 +4826,10 @@ export function App({
 
     if (state.status !== 'idle') {
       // Agent is busy — queue this message for the drainer to pick up.
+      // Abort any auto-proceed countdown since user is providing input.
+      if (autonomyLive === 'auto') {
+        switchAutonomy?.('off');
+      }
       dispatch({
         type: 'addEntry',
         entry: { kind: 'user', text: displayText, queued: true, pasteContent },
@@ -4835,6 +4839,14 @@ export function App({
     }
 
     dispatch({ type: 'addEntry', entry: { kind: 'user', text: displayText, pasteContent } });
+
+    // ── Abort auto-proceed countdown ────────────────────────────────────
+    // User submitted input — abort any pending auto-proceed countdown and
+    // switch to manual mode so the next step waits for explicit trigger.
+    if (autonomyLive === 'auto') {
+      switchAutonomy?.('off');
+    }
+
     await runBlocks(blocks);
   };
 

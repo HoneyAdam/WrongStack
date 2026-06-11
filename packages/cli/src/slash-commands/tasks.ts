@@ -80,6 +80,9 @@ export function buildTasksCommand(_opts: SlashCommandContext): SlashCommand {
       'Priorities: critical, high, medium, low',
     ].join('\n'),
     async run(args, ctx) {
+      if (!ctx) {
+        return { message: 'No agent context available.' };
+      }
       const taskPath = (ctx.meta as Record<string, unknown>)?.['task.path'];
       if (typeof taskPath !== 'string' || !taskPath) {
         return { message: 'Task storage is not configured for this session.' };

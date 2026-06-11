@@ -11,13 +11,19 @@ export function buildInitCommand(opts: SlashCommandContext): SlashCommand {
     category: 'Config',
     description: 'Create or update .wrongstack/AGENTS.md project context for the system prompt.',
     async run(_args, ctx) {
-      const dir = path.join(ctx.projectRoot, '.wrongstack');
+      // Per-dispatch ctx wins: the REPL/TUI pass the live run's projectRoot
+      // (and tests pass a sandbox dir). The builder-level opts.projectRoot /
+      // process.cwd() are fallbacks for dispatches without a Context — using
+      // them unconditionally made /init write into the host repo's
+      // .wrongstack/AGENTS.md regardless of the active project.
+      const root = ctx?.projectRoot ?? opts.projectRoot ?? process.cwd();
+      const dir = path.join(root, '.wrongstack');
       const file = path.join(dir, 'AGENTS.md');
 
       // Check BEFORE writing — was this file missing?
       const isFirstInit = !(await fileExists(file));
 
-      const detected = await detectProjectFacts(ctx.projectRoot);
+      const detected = await detectProjectFacts(root);
       const body = renderAgentsTemplate(detected);
       await fs.mkdir(dir, { recursive: true });
       await fs.writeFile(file, body, 'utf8');
@@ -25,7 +31,7 @@ export function buildInitCommand(opts: SlashCommandContext): SlashCommand {
       // Detect Node.js project for tech stack scan suggestion
       let nodePkg = false;
       try {
-        await fs.access(path.join(ctx.projectRoot, 'package.json'));
+        await fs.access(path.join(root, 'package.json'));
         nodePkg = true;
       } catch {
         // Not a Node.js project — skip techstack suggestion.

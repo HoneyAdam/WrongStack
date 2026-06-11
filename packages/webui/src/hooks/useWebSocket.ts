@@ -165,6 +165,7 @@ export function useWebSocket() {
   const listSkills = useCallback(() => client.listSkills(), [client]);
   const getDiag = useCallback(() => client.getDiag(), [client]);
   const getStats = useCallback(() => client.getStats(), [client]);
+  const getPlan = useCallback(() => client.getPlan(), [client]);
   const listModes = useCallback(() => client.listModes(), [client]);
   const switchMode = useCallback((id: string) => client.switchMode(id), [client]);
   const listContextModes = useCallback(() => client.listContextModes(), [client]);
@@ -212,7 +213,7 @@ export function useWebSocket() {
     listProviders, listProviderModels, listSavedProviders,
     addKey, updateKey, deleteKey, setActiveKey, addProvider, removeProvider,
     listSessions, deleteSession, resumeSession, saveSession,
-    listTools, listMemory, listSkills, getDiag, getStats,
+    listTools, listMemory, listSkills, getDiag, getStats, getPlan,
     listModes, switchMode, listContextModes, switchContextMode,
     createContextMode, updateContextMode, deleteContextMode, repairContext,
     toggleAutoPhaseAutonomous, startAutoPhase, pauseAutoPhase, resumeAutoPhase, stopAutoPhase, selectAutoPhase,

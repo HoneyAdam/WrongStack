@@ -9,9 +9,9 @@ const makeCtx = (overrides: Partial<SlashCommandContext> = {}): SlashCommandCont
   const write = vi.fn();
   const writeWarning = vi.fn();
   return {
-    renderer: { write, writeWarning } as never,
+    renderer: { write, writeWarning } as unknown as SlashCommandContext['renderer'],
     ...overrides,
-  } as SlashCommandContext;
+  } as unknown as SlashCommandContext;
 };
 
 describe('/yolo slash command', () => {
@@ -39,7 +39,7 @@ describe('/yolo slash command', () => {
 
   describe('status query (no arg)', () => {
     let state: boolean;
-    let onYolo: ReturnType<typeof vi.fn>;
+    let onYolo: (next?: boolean) => boolean;
     let ctx: SlashCommandContext;
 
     beforeEach(() => {
@@ -47,7 +47,7 @@ describe('/yolo slash command', () => {
       onYolo = vi.fn((next?: boolean) => {
         if (next !== undefined) state = next;
         return state;
-      });
+      }) as unknown as (next?: boolean) => boolean;
       ctx = makeCtx({ onYolo });
     });
 
@@ -78,7 +78,7 @@ describe('/yolo slash command', () => {
 
   describe('set with explicit argument', () => {
     let state: boolean;
-    let onYolo: ReturnType<typeof vi.fn>;
+    let onYolo: (next?: boolean) => boolean;
     let ctx: SlashCommandContext;
 
     beforeEach(() => {
@@ -86,7 +86,7 @@ describe('/yolo slash command', () => {
       onYolo = vi.fn((next?: boolean) => {
         if (next !== undefined) state = next;
         return state;
-      });
+      }) as unknown as (next?: boolean) => boolean;
       ctx = makeCtx({ onYolo });
     });
 

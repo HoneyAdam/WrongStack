@@ -32,6 +32,10 @@ export function buildContextCommand(opts: SlashCommandContext): SlashCommand {
       '  /context mode <id> Switch context-window mode for this session.',
     ].join('\n'),
     async run(args, ctx) {
+      if (!ctx) {
+        opts.renderer.writeWarning('No agent context available.');
+        return { message: 'No agent context available.' };
+      }
       const trimmed = args.trim();
 
       if (trimmed === 'mode' || trimmed === 'modes') {

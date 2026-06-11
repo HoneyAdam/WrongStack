@@ -2,6 +2,7 @@ import { type Context, DefaultTokenCounter, HybridCompactor, SlashCommandRegistr
 import { describe, expect, it } from 'vitest';
 import { classifyError, needsSubagent, isSimpleFix } from '../src/slash-commands/fix-classifier.js';
 import { buildBuiltinSlashCommands } from '../src/slash-commands/index.js';
+import type { SlashCommandContext } from '../src/slash-commands/index.js';
 
 class FakeRenderer {
   output = '';
@@ -34,7 +35,7 @@ function makeRig() {
     renderer: renderer as unknown as Parameters<typeof buildBuiltinSlashCommands>[0]['renderer'],
     cwd: '/tmp',
     projectRoot: '/proj',
-  });
+  } as unknown as SlashCommandContext);
   for (const c of cmds) registry.register(c);
   return { registry, renderer, toolRegistry };
 }

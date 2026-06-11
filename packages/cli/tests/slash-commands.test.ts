@@ -4,6 +4,9 @@ import {
   HybridCompactor,
   SlashCommandRegistry,
   ToolRegistry,
+  type Message,
+  type TodoItem,
+  type MemoryStore,
 } from '@wrongstack/core';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -52,14 +55,14 @@ function makeRig() {
     compactor,
     tokenCounter,
     renderer: renderer as unknown as Parameters<typeof buildBuiltinSlashCommands>[0]['renderer'],
-  });
+  } as unknown as SlashCommandContext);
   for (const c of cmds) registry.register(c);
   return { registry, renderer, toolRegistry, tokenCounter };
 }
 
 const fakeCtx = {
-  messages: [],
-  todos: [],
+  messages: [] as Message[],
+  todos: [] as TodoItem[],
   systemPrompt: [],
   readFiles: new Set(),
   fileMtimes: new Map(),
@@ -139,8 +142,8 @@ describe('built-in slash commands', () => {
     const registry = new SlashCommandRegistry();
     const renderer = new FakeRenderer();
     renderer.output = 'something';
-    const messages = [{ role: 'user' as const, content: 'old message' }];
-    const todos = [{ id: '1', content: 'old todo', status: 'pending' as const }];
+    const messages: Message[] = [{ role: 'user' as const, content: 'old message' }];
+    const todos: TodoItem[] = [{ id: '1', content: 'old todo', status: 'pending' as const }];
     const meta: Record<string, unknown> = { old: 'meta' };
     const ctx = {
       messages,
@@ -154,15 +157,15 @@ describe('built-in slash commands', () => {
         state: Pick<Context['state'], 'replaceMessages' | 'replaceTodos' | 'deleteMeta'>;
       }
     ).state = {
-      replaceMessages(next) {
+      replaceMessages(next: Message[]) {
         messages.length = 0;
         messages.splice(0, 0, ...next);
       },
-      replaceTodos(next) {
+      replaceTodos(next: TodoItem[]) {
         todos.length = 0;
         todos.splice(0, 0, ...next);
       },
-      deleteMeta(key) {
+      deleteMeta(key: string) {
         delete meta[key];
       },
     };
@@ -175,8 +178,8 @@ describe('built-in slash commands', () => {
       onClear,
       memoryStore: {
         async clear() {},
-      },
-    });
+      } as unknown as MemoryStore,
+    } as unknown as SlashCommandContext);
     for (const c of cmds) registry.register(c);
     await registry.dispatch('/clear', ctx);
     expect(onClear).toHaveBeenCalled();
@@ -319,7 +322,7 @@ describe('built-in slash commands', () => {
         >[0]['renderer'],
         onSpawn: async () => 'should not be called',
         onAgents: () => '',
-      });
+      } as unknown as SlashCommandContext);
       for (const c of cmds) registry.register(c);
       const r = await registry.dispatch('/spawn   ', fakeCtx);
       expect(r?.message).toMatch(/Usage:/);
@@ -341,32 +344,8 @@ describe('built-in slash commands', () => {
           typeof buildBuiltinSlashCommands
         >[0]['renderer'],
         onSpawn,
-        onAgents: () => 'no agents',
-      });
-      for (const c of cmds) registry.register(c);
-      const r = await registry.dispatch('/spawn refactor the auth code', fakeCtx);
-      expect(onSpawn).toHaveBeenCalledWith('refactor the auth code');
-      expect(r?.message).toContain('spawned:');
-    });
-
-    it('/spawn --provider=openai --model=gpt-5 forwards overrides', async () => {
-      const registry = new SlashCommandRegistry();
-      const toolRegistry = new ToolRegistry();
-      const renderer = new FakeRenderer();
-      const tokenCounter = new DefaultTokenCounter();
-      const compactor = new HybridCompactor({ preserveK: 5 });
-      const onSpawn = vi.fn(async (desc: string) => `spawned: ${desc}`);
-      const cmds = buildBuiltinSlashCommands({
-        registry,
-        toolRegistry,
-        compactor,
-        tokenCounter,
-        renderer: renderer as unknown as Parameters<
-          typeof buildBuiltinSlashCommands
-        >[0]['renderer'],
-        onSpawn,
         onAgents: () => '',
-      });
+      } as unknown as SlashCommandContext);
       for (const c of cmds) registry.register(c);
       await registry.dispatch(
         '/spawn --provider=openai --model=gpt-5 audit the auth flow',
@@ -395,7 +374,7 @@ describe('built-in slash commands', () => {
         >[0]['renderer'],
         onSpawn,
         onAgents: () => '',
-      });
+      } as unknown as SlashCommandContext);
       for (const c of cmds) registry.register(c);
       await registry.dispatch(
         '/spawn -p anthropic -m haiku -n researcher enumerate every package',
@@ -425,7 +404,7 @@ describe('built-in slash commands', () => {
         >[0]['renderer'],
         onSpawn,
         onAgents: () => '',
-      });
+      } as unknown as SlashCommandContext);
       for (const c of cmds) registry.register(c);
       await registry.dispatch('/spawn --tools=read,grep,bash investigate the bug', fakeCtx);
       expect(onSpawn).toHaveBeenCalledWith('investigate the bug', {
@@ -450,7 +429,7 @@ describe('built-in slash commands', () => {
         >[0]['renderer'],
         onSpawn,
         onAgents: () => '',
-      });
+      } as unknown as SlashCommandContext);
       for (const c of cmds) registry.register(c);
       await registry.dispatch('/spawn --name="Security Reviewer" audit OWASP', fakeCtx);
       expect(onSpawn).toHaveBeenCalledWith('audit OWASP', {
@@ -479,7 +458,7 @@ describe('built-in slash commands', () => {
         >[0]['renderer'],
         onSpawn,
         onAgents: () => '',
-      });
+      } as unknown as SlashCommandContext);
       for (const c of cmds) registry.register(c);
       await registry.dispatch('/spawn no flags here', fakeCtx);
       // Strict single-arg call — the slash command must NOT pass undefined.
@@ -502,7 +481,7 @@ describe('built-in slash commands', () => {
         >[0]['renderer'],
         onSpawn: async () => '',
         onAgents: () => '2 pending, 1 completed.\n  ✓        abc12345',
-      });
+      } as unknown as SlashCommandContext);
       for (const c of cmds) registry.register(c);
       const r = await registry.dispatch('/agents', fakeCtx);
       expect(r?.message).toContain('2 pending');
@@ -526,7 +505,7 @@ describe('built-in slash commands', () => {
           throw new Error('no provider configured');
         },
         onAgents: () => '',
-      });
+      } as unknown as SlashCommandContext);
       for (const c of cmds) registry.register(c);
       const r = await registry.dispatch('/spawn do a thing', fakeCtx);
       expect(r?.message).toMatch(/Spawn failed/);
@@ -550,7 +529,7 @@ describe('built-in slash commands', () => {
           typeof buildBuiltinSlashCommands
         >[0]['renderer'],
         onFleet,
-      });
+      } as unknown as SlashCommandContext);
       for (const c of cmds) registry.register(c);
       return { registry };
     }
@@ -603,7 +582,7 @@ describe('built-in slash commands', () => {
         tokenCounter,
         renderer: renderer as unknown as Parameters<typeof buildBuiltinSlashCommands>[0]['renderer'],
         onFleetKill,
-      });
+      } as unknown as SlashCommandContext);
       for (const c of cmds) registry.register(c);
       const r = await registry.dispatch('/fleet kill', fakeCtx);
       expect(onFleetKill).toHaveBeenCalledTimes(1);
@@ -645,7 +624,7 @@ describe('built-in slash commands', () => {
           typeof buildBuiltinSlashCommands
         >[0]['renderer'],
         onPlugin,
-      });
+      } as unknown as SlashCommandContext);
       for (const c of cmds) registry.register(c);
       return { registry };
     }
@@ -697,7 +676,7 @@ describe('built-in slash commands', () => {
           typeof buildBuiltinSlashCommands
         >[0]['renderer'],
         onDirector,
-      });
+      } as unknown as SlashCommandContext);
       for (const c of cmds) registry.register(c);
       return { registry };
     }

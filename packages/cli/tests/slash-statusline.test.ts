@@ -93,7 +93,7 @@ function makeDeps(initial: StatuslineConfig = { todos: true, plan: true, fleet: 
   return {
     cwd: tmp,
     hiddenItems: [],
-    setHiddenItems: vi.fn(function (this: { hiddenItems: typeof state }, items) {
+    setHiddenItems: vi.fn(function (this: { hiddenItems: typeof state }, _items) {
       // mutated externally; track separately
     }) as never,
     getConfig: vi.fn(async () => state.cfg),
@@ -109,8 +109,8 @@ describe('buildStatuslineCommand', () => {
     const deps = makeDeps({ todos: true, plan: false, fleet: true, git: true, elapsed: true, context: true, cost: true });
     const cmd = buildStatuslineCommand(deps);
     const res = await cmd.run('');
-    expect(res.message).toContain('● todos');
-    expect(res.message).toContain('○ plan');
+    expect(res?.message ?? '').toContain('● todos');
+    expect(res?.message ?? '').toContain('○ plan');
   });
 
   it('reset writes DEFAULTS and clears hidden items', async () => {
@@ -118,27 +118,27 @@ describe('buildStatuslineCommand', () => {
     const deps = { ...makeDeps(), setHiddenItems: setHidden } as never as StatuslineCommandDeps;
     const cmd = buildStatuslineCommand(deps);
     const res = await cmd.run('reset');
-    expect(res.message).toContain('reset to defaults');
+    expect(res?.message ?? '').toContain('reset to defaults');
     expect(setHidden).toHaveBeenCalledWith([]);
   });
 
   it('unknown item reports available choices', async () => {
     const cmd = buildStatuslineCommand(makeDeps());
     const res = await cmd.run('foo on');
-    expect(res.message).toContain('Unknown item "foo"');
-    expect(res.message).toContain('todos');
+    expect(res?.message ?? '').toContain('Unknown item "foo"');
+    expect(res?.message ?? '').toContain('todos');
   });
 
   it('valid item but missing on|off returns usage', async () => {
     const cmd = buildStatuslineCommand(makeDeps());
     const res = await cmd.run('git');
-    expect(res.message).toContain('Usage: /statusline git on|off');
+    expect(res?.message ?? '').toContain('Usage: /statusline git on|off');
   });
 
   it('valid item with invalid action returns usage', async () => {
     const cmd = buildStatuslineCommand(makeDeps());
     const res = await cmd.run('git maybe');
-    expect(res.message).toContain('Usage: /statusline git on|off');
+    expect(res?.message ?? '').toContain('Usage: /statusline git on|off');
   });
 
   it('item off persists and appends to hidden items', async () => {
@@ -146,7 +146,7 @@ describe('buildStatuslineCommand', () => {
     const deps = { ...makeDeps(), hiddenItems: ['cost'], setHiddenItems: setHidden } as never as StatuslineCommandDeps;
     const cmd = buildStatuslineCommand(deps);
     const res = await cmd.run('git off');
-    expect(res.message).toBe('statusline git: off');
+    expect(res?.message ?? '').toBe('statusline git: off');
     expect(setHidden).toHaveBeenCalledWith(['cost', 'git']);
   });
 
@@ -161,7 +161,7 @@ describe('buildStatuslineCommand', () => {
   it('case-insensitive ON|Off accepted', async () => {
     const cmd = buildStatuslineCommand(makeDeps());
     const res = await cmd.run('todos OFF');
-    expect(res.message).toBe('statusline todos: off');
+    expect(res?.message ?? '').toBe('statusline todos: off');
   });
 
   it('working_dir off persists and appends to hidden items', async () => {
@@ -169,7 +169,7 @@ describe('buildStatuslineCommand', () => {
     const deps = { ...makeDeps(), hiddenItems: ['cost'], setHiddenItems: setHidden } as never as StatuslineCommandDeps;
     const cmd = buildStatuslineCommand(deps);
     const res = await cmd.run('working_dir off');
-    expect(res.message).toBe('statusline working_dir: off');
+    expect(res?.message ?? '').toBe('statusline working_dir: off');
     expect(setHidden).toHaveBeenCalledWith(['cost', 'working_dir']);
   });
 

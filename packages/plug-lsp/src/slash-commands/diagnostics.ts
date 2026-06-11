@@ -16,7 +16,7 @@ export function diagnosticsCommand(registry: LSPRegistry): SlashCommand {
       }
       return {
         message: formatDiagnostics(byFile, {
-          cwd: ctx.cwd,
+          cwd: ctx?.cwd ?? process.cwd(),
           severityFilter: ['error', 'warning'],
           maxPerFile: 10,
           maxTotal: 100,
