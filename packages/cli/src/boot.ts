@@ -45,7 +45,7 @@ import { builtinToolsPack } from '@wrongstack/tools';
 import { parseArgs } from './arg-parser.js';
 import { LaunchAbortedError, maybeAskAboutIndexing, persistLaunchChoices, runLaunchPrompts } from './pre-launch.js';
 import { bootConfig } from './boot-config.js';
-import { loadManifest, saveManifest, generateSlug, ensureProjectDataDir } from './slash-commands/project-utils.js';
+import { loadManifest, touchProjectInManifest } from './slash-commands/project-utils.js';
 import { ReadlineInputReader } from './input-reader.js';
 import { runPicker, saveToGlobalConfig, type PickerResult } from './picker.js';
 import { printLaunchHints } from './launch-hints.js';
@@ -323,10 +323,20 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
     flags['no-tui'] = true;
   }
 
-  // If we're in interactive mode and the current project isn't registered
-  // in ~/.wrongstack/projects.json, offer to add it with a friendly name.
-  if (isInteractiveTTY) {
-    await maybeRegisterProject({ projectRoot, renderer, reader, wpaths });
+  // Register the current project in ~/.wrongstack/projects.json on EVERY
+  // launch (create when missing, refresh lastSeen/lastWorkingDir when
+  // present) — the manifest is the single source of truth all surfaces
+  // (project picker, WebUI projects list, cross-session discovery) read.
+  // Best-effort: a locked/corrupt manifest must never block boot.
+  try {
+    const created = await registerProjectAtBoot({ projectRoot, cwd, wpaths });
+    if (created && isInteractiveTTY) {
+      renderer.write(
+        color.dim(`  ✓ Registered "${path.basename(projectRoot)}" in projects.json.\n`),
+      );
+    }
+  } catch {
+    // best-effort
   }
 
   // Mode + YOLO + Director + Autonomy prompts
@@ -543,52 +553,27 @@ async function checkGitInCwd(opts: {
 }
 
 /**
- * If the current working directory is not yet registered in
- * ~/.wrongstack/projects.json, prompt the user to add it.
+ * Idempotent boot-time project registration: create the projects.json
+ * entry when missing, refresh lastSeen/lastWorkingDir when present.
+ * Returns true when a NEW entry was created (so the caller can print a
+ * one-line notice). Auto-registers without prompting — the manifest is
+ * cross-surface infrastructure (picker, WebUI, agent discovery), not an
+ * opt-in nicety. Rename later via `/project rename`.
  */
-async function maybeRegisterProject(opts: {
+async function registerProjectAtBoot(opts: {
   projectRoot: string;
-  renderer: TerminalRenderer;
-  reader: ReadlineInputReader;
+  cwd: string;
   wpaths: WstackPaths;
-}): Promise<void> {
-  const { projectRoot, renderer, reader, wpaths } = opts;
-
+}): Promise<boolean> {
+  const { projectRoot, cwd, wpaths } = opts;
   const manifest = await loadManifest(wpaths.globalConfig);
-  const existing = manifest.projects.find((p) => p.root === projectRoot);
-  if (existing) return; // already registered
-
-  renderer.write(
-    `\n  ${color.amber('○')} This directory is not registered as a project.\n`,
+  const existed = manifest.projects.some(
+    (p) => path.resolve(p.root) === path.resolve(projectRoot),
   );
-
-  const answer = (
-    await reader.readLine(
-      `  ${color.amber('?')} Add it to projects.json? ${color.dim('[Y/n]')} `,
-    )
-  )
-    .trim()
-    .toLowerCase();
-
-  if (answer === 'n' || answer === 'no') {
-    renderer.write(color.dim('  Skipped. Use /project add later to register it.\n'));
-    return;
-  }
-
-  // Ask for a project name
-  const defaultName = path.basename(projectRoot);
-  const nameAnswer = (
-    await reader.readLine(
-      `  ${color.amber('?')} Project name ${color.dim(`[${defaultName}]`)}: `,
-    )
-  ).trim();
-  const name = nameAnswer || defaultName;
-
-  const slug = generateSlug(projectRoot);
-  const now = new Date().toISOString();
-  manifest.projects.push({ name, root: projectRoot, slug, lastSeen: now, createdAt: now });
-  await saveManifest(manifest, wpaths.globalConfig);
-  await ensureProjectDataDir(slug, wpaths.globalConfig);
-
-  renderer.write(color.green(`  ✓ "${name}" added to projects.json.\n`));
+  await touchProjectInManifest({
+    projectRoot,
+    globalConfigPath: wpaths.globalConfig,
+    workingDir: cwd !== projectRoot ? cwd : undefined,
+  });
+  return !existed;
 }

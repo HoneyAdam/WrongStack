@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { withFileLock } from '@wrongstack/core';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -16,6 +17,8 @@ export interface ProjectEntry {
   lastSeen?: string | undefined;
   /** ISO timestamp of when the project was first registered. */
   createdAt?: string | undefined;
+  /** Working directory of the most recent session (may differ from root). */
+  lastWorkingDir?: string | undefined;
 }
 
 export interface ProjectsManifest {
@@ -98,4 +101,55 @@ export async function ensureProjectDataDir(slug: string, globalConfigPath?: stri
   const dir = path.join(projectsDataDir(globalConfigPath), slug);
   await fs.mkdir(dir, { recursive: true });
   return dir;
+}
+
+/**
+ * Idempotent project registration: ensure `projectRoot` has an entry in
+ * projects.json, creating one when missing and refreshing `lastSeen` /
+ * `lastWorkingDir` when present. Returns the (created or updated) entry.
+ *
+ * Every surface that opens a project (CLI/TUI boot, standalone WebUI boot,
+ * WebUI projects.select) funnels through this so the manifest is the single
+ * source of truth for "which projects exist" regardless of entry point.
+ * Concurrent processes booting on the same machine serialize via a file
+ * lock around the read-modify-write.
+ */
+export async function touchProjectInManifest(opts: {
+  projectRoot: string;
+  globalConfigPath?: string | undefined;
+  /** Working dir of this session when it differs from the root. */
+  workingDir?: string | undefined;
+  /** Friendly name for a NEWLY created entry (default: basename). */
+  name?: string | undefined;
+}): Promise<ProjectEntry> {
+  const root = path.resolve(opts.projectRoot);
+  const file = projectsJsonPath(opts.globalConfigPath);
+  let entry: ProjectEntry | undefined;
+  await withFileLock(file, async () => {
+    const manifest = await loadManifest(opts.globalConfigPath);
+    const now = new Date().toISOString();
+    entry = manifest.projects.find((p) => path.resolve(p.root) === root);
+    if (entry) {
+      entry.lastSeen = now;
+      if (opts.workingDir) entry.lastWorkingDir = path.resolve(opts.workingDir);
+    } else {
+      entry = {
+        name: opts.name ?? path.basename(root),
+        root,
+        slug: generateSlug(root),
+        createdAt: now,
+        lastSeen: now,
+        lastWorkingDir: opts.workingDir ? path.resolve(opts.workingDir) : undefined,
+      };
+      manifest.projects.push(entry);
+    }
+    await saveManifest(manifest, opts.globalConfigPath);
+  });
+  await ensureProjectDataDir(expectEntry(entry).slug, opts.globalConfigPath);
+  return expectEntry(entry);
+}
+
+function expectEntry(e: ProjectEntry | undefined): ProjectEntry {
+  if (!e) throw new Error('touchProjectInManifest: entry not resolved');
+  return e;
 }

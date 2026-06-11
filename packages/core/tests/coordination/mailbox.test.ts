@@ -303,8 +303,11 @@ describe('makeMailboxTool', () => {
     const result = await tool.execute({ action: 'check' }, mockCtx() as any);
     expect(result.ok).toBe(true);
     expect(result.count).toBe(2);
-    // check auto-acks: nothing should remain unread by agent-b.
-    const remaining = await mailbox.query({ to: 'agent-b', unreadBy: 'agent-b' });
+    // check auto-acks. Read receipts are recorded under the PROCESS-UNIQUE
+    // identity (`agent-b#<pid>`) so multiple processes sharing a base id
+    // never consume each other's read state.
+    const uniqueId = `agent-b#${process.pid}`;
+    const remaining = await mailbox.query({ to: 'agent-b', unreadBy: uniqueId });
     expect(remaining.length).toBe(0);
   });
 
@@ -330,7 +333,9 @@ describe('makeMailboxTool', () => {
     const msgs = await mailbox.query({ to: 'receiver' });
     expect(msgs.length).toBe(1);
     expect(msgs[0]!.subject).toBe('Question');
-    expect(msgs[0]!.from).toBe('sender');
+    // Sends are attributed to the process-unique identity so replies route
+    // back to the exact process that asked.
+    expect(msgs[0]!.from).toBe(`sender#${process.pid}`);
   });
 
   it('send validates required fields', async () => {
@@ -440,6 +445,36 @@ describe('mailbox-loop', () => {
     expect(types).toContain('steer');
     expect(types).toContain('btw');
     expect(types).toContain('ask');
+  });
+
+  it('createMailboxChecker receives base-id alias messages and dedupes broadcasts', async () => {
+    // Multi-process identity: the checker runs as the unique `leader#123`
+    // but must ALSO receive messages addressed to the bare base id and
+    // '*' broadcasts — each exactly once.
+    const check = createMailboxChecker({
+      mailbox,
+      agentId: 'leader#123',
+      aliases: ['leader'],
+    });
+
+    await mailbox.send({ from: 'a', to: 'leader#123', type: 'note', subject: 'direct', body: 'd' });
+    await mailbox.send({ from: 'a', to: 'leader', type: 'note', subject: 'alias', body: 'al' });
+    await mailbox.send({ from: 'a', to: '*', type: 'broadcast', subject: 'bcast', body: 'b' });
+    await mailbox.send({ from: 'a', to: 'someone-else', type: 'note', subject: 'other', body: 'o' });
+
+    const msgs = await check();
+    const subjects = msgs.map((m) => m.subject).sort();
+    expect(subjects).toEqual(['alias', 'bcast', 'direct']);
+    // Read receipts recorded under the UNIQUE id, not the alias. The
+    // checker acks fire-and-forget — poll briefly for the receipt to land.
+    let receipted = false;
+    for (let i = 0; i < 40 && !receipted; i++) {
+      const all = await mailbox.query({ limit: 50 });
+      const aliasMsg = all.find((m) => m.subject === 'alias');
+      receipted = !!aliasMsg && 'leader#123' in aliasMsg.readBy;
+      if (!receipted) await new Promise((r) => setTimeout(r, 25));
+    }
+    expect(receipted).toBe(true);
   });
 
   it('createMailboxChecker does not return already-injected messages', async () => {

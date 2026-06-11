@@ -1,5 +1,5 @@
-import { expectDefined, GlobalMailbox } from '@wrongstack/core';
-import { createHash } from 'node:crypto';
+import { expectDefined, GlobalMailbox, projectSlug, getSessionRegistry, AgentStatusTracker } from '@wrongstack/core';
+import { makeMailboxTool } from '@wrongstack/core';
 import * as fs from 'node:fs/promises';
 import * as http from 'node:http';
 import * as path from 'node:path';
@@ -297,11 +297,16 @@ export async function startWebUI(
     toolRegistry.register(searchMemoryTool(memoryStore));
     toolRegistry.register(relatedMemoryTool(memoryStore));
   }
-  console.log('[WebUI] Tool registry loaded:', toolRegistry.list().length, 'tools');
 
   // Event bus
   const events = new EventBus();
   events.setLogger(logger);
+
+  // Inter-agent mailbox tool — same project-level GlobalMailbox the CLI
+  // registers, keyed by wpaths.projectDir so WebUI agents and terminal
+  // agents on the same project share one inbox and can chat/broadcast.
+  toolRegistry.register(makeMailboxTool({ projectDir: wpaths.projectDir, events }));
+  console.log('[WebUI] Tool registry loaded:', toolRegistry.list().length, 'tools');
 
   // Session store — mutable so projects.select can swap it to the new project's dir.
   let sessionStore = new DefaultSessionStore({ dir: wpaths.projectSessions });
@@ -331,6 +336,40 @@ export async function startWebUI(
   // session, not the daemon process uptime.
   let sessionStartedAt = Date.now();
   console.log('[WebUI] Session created:', session.id);
+
+  // ── Cross-surface discovery ──────────────────────────────────────────
+  // (1) Register/refresh this project in ~/.wrongstack/projects.json so
+  // pickers and other surfaces see it regardless of which interface
+  // opened it first. (2) Register this session in the cross-process
+  // SessionRegistry so terminals' `/sessions status` lists this WebUI
+  // (and vice versa). Both best-effort — discovery must not block boot.
+  try {
+    await touchProjectEntry(projectRoot, workingDir);
+  } catch { /* best-effort */ }
+  let statusTracker: AgentStatusTracker | undefined;
+  try {
+    const registry = getSessionRegistry(wpaths.globalRoot);
+    await registry.register({
+      sessionId: session.id,
+      projectSlug: wpaths.projectSlug,
+      projectRoot,
+      projectName: path.basename(projectRoot),
+      workingDir,
+      pid: process.pid,
+      startedAt: new Date().toISOString(),
+    });
+    statusTracker = new AgentStatusTracker({ events, registry });
+    statusTracker.start();
+    const stopTracking = async () => {
+      try {
+        await registry.markClosing();
+        statusTracker?.stop();
+      } catch { /* ignore */ }
+    };
+    process.once('beforeExit', () => { void stopTracking(); });
+    process.once('SIGINT', () => { void stopTracking(); });
+    process.once('SIGTERM', () => { void stopTracking(); });
+  } catch { /* best-effort — discovery degrades gracefully */ }
 
   // Token counter
   const tokenCounter = new DefaultTokenCounter({
@@ -957,10 +996,39 @@ export async function startWebUI(
     slug: string;
     lastSeen?: string | undefined;
     createdAt?: string | undefined;
+    /** Working directory of the most recent session (may differ from root). */
+    lastWorkingDir?: string | undefined;
   }
 
   interface ProjectsManifest {
     projects: ProjectEntry[];
+  }
+
+  /**
+   * Idempotent manifest registration (mirrors the CLI's
+   * touchProjectInManifest): create the projects.json entry when missing,
+   * refresh lastSeen/lastWorkingDir when present.
+   */
+  async function touchProjectEntry(root: string, workDir?: string): Promise<void> {
+    const resolved = path.resolve(root);
+    const manifest = await loadManifest(globalConfigPath);
+    const now = new Date().toISOString();
+    const existing = manifest.projects.find((p) => path.resolve(p.root) === resolved);
+    if (existing) {
+      existing.lastSeen = now;
+      if (workDir) existing.lastWorkingDir = path.resolve(workDir);
+    } else {
+      manifest.projects.push({
+        name: path.basename(resolved),
+        root: resolved,
+        slug: generateProjectSlug(resolved),
+        createdAt: now,
+        lastSeen: now,
+        lastWorkingDir: workDir ? path.resolve(workDir) : undefined,
+      });
+    }
+    await saveManifest(manifest, globalConfigPath);
+    await ensureProjectDataDir(generateProjectSlug(resolved), globalConfigPath);
   }
 
   function projectsJsonPath(globalConfigPath: string): string {
@@ -985,13 +1053,9 @@ export async function startWebUI(
   }
 
   function generateProjectSlug(rootPath: string): string {
-    const base = path.basename(rootPath)
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 40) || 'project';
-    const hash = createHash('sha256').update(path.resolve(rootPath)).digest('hex').slice(0, 6);
-    return `${base}-${hash}`;
+    // Canonical derivation — must match wstack-paths/projectSlug exactly or
+    // the WebUI and CLI would key the same project under different dirs.
+    return projectSlug(rootPath);
   }
 
   async function ensureProjectDataDir(slug: string, globalConfigPath: string): Promise<string> {
@@ -2325,6 +2389,7 @@ export async function startWebUI(
           const entry = manifest.projects.find((p) => p.root === resolved);
           if (entry) {
             entry.lastSeen = new Date().toISOString();
+            entry.lastWorkingDir = resolved;
           } else {
             // Auto-register if not in manifest
             const name = selName?.trim() || path.basename(resolved);
@@ -2335,6 +2400,7 @@ export async function startWebUI(
               slug,
               lastSeen: new Date().toISOString(),
               createdAt: new Date().toISOString(),
+              lastWorkingDir: resolved,
             });
             await ensureProjectDataDir(slug, globalConfigPath);
           }

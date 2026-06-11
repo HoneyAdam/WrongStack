@@ -162,7 +162,9 @@ describe('mailbox end-to-end smoke test', () => {
     expect(checkB.ok).toBe(true);
     expect(checkB.count).toBeGreaterThanOrEqual(1);
     const msg = checkB.messages[0];
-    expect(msg.from).toBe('leader-sessA');
+    // Sends carry the process-unique identity (`<base>#<pid>`) so replies
+    // route back to the exact process; the bare base id remains an alias.
+    expect(msg.from).toBe(`leader-sessA#${process.pid}`);
     expect(msg.readByMe).toBe(true); // auto-read on check
 
     // Session B replies
@@ -181,8 +183,9 @@ describe('mailbox end-to-end smoke test', () => {
     const statusA = await toolA.execute({ action: 'online' }, ctxA as any);
     expect(statusA.ok).toBe(true);
     const agentIds = statusA.agents.map((a: { agentId: string }) => a.agentId);
-    expect(agentIds).toContain('leader-sessA');
-    expect(agentIds).toContain('leader-sessB');
+    // Agents register under their process-unique identity.
+    expect(agentIds).toContain(`leader-sessA#${process.pid}`);
+    expect(agentIds).toContain(`leader-sessB#${process.pid}`);
 
     // Unread count for session A
     const unreadA = await toolA.execute({ action: 'unread' }, ctxA as any);

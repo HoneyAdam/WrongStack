@@ -177,6 +177,19 @@ export function setupEvents(deps: SetupEventsDeps): void {
       .catch(() => { /* best-effort */ });
   });
 
+  // ── Inter-agent mailbox visibility ───────────────────────────────────
+  // Forward cross-session mailbox activity (messages received by this
+  // process's agents, new agent registrations on the project) to the
+  // browser so the user sees multi-terminal/multi-surface chatter live.
+  // These events are emitted via emit() with untyped names (GlobalMailbox
+  // + mailbox-loop), so subscribe by pattern like the TUI does.
+  events.onPattern('mailbox.received', (_e, payload) => {
+    broadcast(clients, { type: 'mailbox.received', payload } as unknown as WSServerMessage);
+  });
+  events.onPattern('mailbox.agent_registered', (_e, payload) => {
+    broadcast(clients, { type: 'mailbox.agent_registered', payload } as unknown as WSServerMessage);
+  });
+
   // Subagent fleet lifecycle
   const forwardSubagent = (kind: string, payload: Record<string, unknown>) =>
     broadcast(clients, { type: 'subagent.event', payload: { kind, sessionId: context.session.id, ...payload } });

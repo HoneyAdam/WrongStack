@@ -299,6 +299,7 @@ import { buildGoalCommand } from './goal.js';
 import { buildHelpCommand } from './help.js';
 import { buildInitCommand } from './init.js';
 import { buildMailboxDemoCommand } from './mailbox-demo.js';
+import { buildMailboxCommand } from './mailbox.js';
 import { buildMcpSlashCommand } from './mcp.js';
 import { buildMemoryCommand } from './memory.js';
 import { buildModeCommand } from './mode.js';
@@ -366,6 +367,7 @@ export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashComma
     buildNextCommand(opts),
     buildModeCommand(opts),
     buildMailboxDemoCommand(opts),
+    buildMailboxCommand(opts),
     buildExitCommand(opts),
     buildFixCommand(opts),
     buildAutoPhaseCommand(opts),

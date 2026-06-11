@@ -43,26 +43,36 @@ function attachMailboxCheckerInner(
   // Pass the agent's EventBus so GlobalMailbox can emit real-time events
   // (agent_registered, agent_heartbeat, etc.) for TUI/WebUI display.
   const mailbox: Mailbox = new GlobalMailbox(projectDir, a.events);
-  const agentId = (a.ctx.meta['agentId'] as string) ?? 'leader';
+  const baseId = (a.ctx.meta['agentId'] as string) ?? 'leader';
   const agentName = (a.ctx.meta['agentName'] as string) ?? 'Agent';
   const sessionId = a.ctx.session.id;
+  const surface = source ?? ((a.ctx.meta['source'] as 'cli' | 'webui' | undefined) ?? 'cli');
+
+  // Globally unique identity: multiple terminals/WebUIs on the same project
+  // ALL run an agent whose base id is 'leader' — registering with the bare
+  // id makes them overwrite each other in the shared registry and consume
+  // each other's read receipts. The pid suffix keeps every process distinct
+  // while the base id stays addressable as an alias (checker below).
+  const globalAgentId = `${baseId}#${process.pid}`;
+  a.ctx.meta['globalAgentId'] = globalAgentId;
+  if (!a.ctx.meta['source']) a.ctx.meta['source'] = surface;
 
   // Auto-register this agent to the shared mailbox system
   mailbox.registerAgent({
-    agentId,
-    name: agentName,
+    agentId: globalAgentId,
+    name: `${agentName} [${surface}]`,
     sessionId,
     pid: process.pid,
-    source,
+    source: surface,
   }).catch((err: unknown) => {
     // Log but don't fail - registration errors shouldn't crash the agent
-    console.debug(`[mailbox] Failed to register agent ${agentId}: ${err instanceof Error ? err.message : String(err)}`);
+    console.debug(`[mailbox] Failed to register agent ${globalAgentId}: ${err instanceof Error ? err.message : String(err)}`);
   });
 
   // Start heartbeat timer to keep registration alive (every 30 seconds)
   const HEARTBEAT_INTERVAL_MS = 30_000;
   const heartbeatTimer = setInterval(() => {
-    mailbox.heartbeat({ agentId }).catch(() => {
+    mailbox.heartbeat({ agentId: globalAgentId }).catch(() => {
       // Silently ignore - heartbeat failures are expected during shutdown
     });
   }, HEARTBEAT_INTERVAL_MS);
@@ -73,5 +83,7 @@ function attachMailboxCheckerInner(
     clearInterval(heartbeatTimer);
   });
 
-  return createMailboxChecker({ mailbox, agentId });
+  // Receive on the unique id AND the bare base id (plus '*' broadcasts) —
+  // "send to leader" reaches every live leader process on the project.
+  return createMailboxChecker({ mailbox, agentId: globalAgentId, aliases: [baseId] });
 }

@@ -14,24 +14,47 @@ import type { Mailbox, MailboxMessage } from '../coordination/mailbox-types.js';
 
 export interface MailboxLoopOptions {
   mailbox: Mailbox;
+  /**
+   * The agent's globally unique mailbox identity (e.g. `leader#1234`).
+   * Read receipts are recorded under this id, so two processes whose
+   * leaders share a base name never consume each other's receipts.
+   */
   agentId: string;
+  /**
+   * Additional addresses this agent also answers to — typically the bare
+   * base id (`leader`). Lets other agents (and humans) address "leader"
+   * without knowing the pid suffix; every live leader process receives it.
+   */
+  aliases?: string[] | undefined;
 }
 
 export function createMailboxChecker(
   opts: MailboxLoopOptions,
 ): () => Promise<MailboxMessage[]> {
   const { mailbox, agentId } = opts;
+  const targets = [agentId, ...(opts.aliases ?? []).filter((al) => al && al !== agentId)];
 
   const injectedIds = new Set<string>();
 
   return async (): Promise<MailboxMessage[]> => {
     try {
-      // Query ALL unread messages (steer/btw injected inline, others summarized)
-      const messages = await mailbox.query({
-        to: agentId,
-        unreadBy: agentId,
-        limit: 10,
-      });
+      // Query ALL unread messages across every address this agent answers
+      // to (unique id, base-id aliases; '*' broadcasts match each query and
+      // are deduped below). Receipts always use the unique id.
+      const batches = await Promise.all(
+        targets.map((to) =>
+          mailbox.query({ to, unreadBy: agentId, limit: 10 }).catch(() => [] as MailboxMessage[]),
+        ),
+      );
+      const seen = new Set<string>();
+      const messages: MailboxMessage[] = [];
+      for (const batch of batches) {
+        for (const m of batch) {
+          if (seen.has(m.id)) continue;
+          seen.add(m.id);
+          messages.push(m);
+        }
+      }
 
       // Filter out already-injected and completed messages
       const fresh = messages.filter(

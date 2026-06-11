@@ -14,10 +14,12 @@
  * @module GlobalMailbox
  */
 
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import * as fsp from 'node:fs/promises';
+
 import * as path from 'node:path';
 import { withFileLock } from '../utils/atomic-write.js';
+import { projectSlug } from '../utils/wstack-paths.js';
 import type { EventBus } from '../kernel/events.js';
 import type {
   AgentHeartbeatInput,
@@ -49,24 +51,17 @@ const LINE_SEPARATOR = '\n';
 /**
  * Derive the project-level mailbox directory path.
  *
- * Matches the slug format used by `wstack-paths`: `<slug>-<6-char-sha256-hash>`.
- * Both CLI and WebUI must use the same derivation so agents register in the
- * same registry regardless of which interface created them.
+ * Delegates to the CANONICAL `projectSlug()` from wstack-paths so every
+ * surface (CLI, TUI, WebUI, mailbox tool, loop checker) lands in the exact
+ * same `~/.wrongstack/projects/<slug>/` directory. A previous inline copy
+ * skipped the leading/trailing-hyphen strip, which silently split agents
+ * working on projects with non-alphanumeric name edges into TWO mailboxes.
  *
  * @param projectRoot  — absolute path to the project root
  * @param globalRoot   — `~/.wrongstack` (or custom global root)
  */
 export function resolveProjectDir(projectRoot: string, globalRoot: string): string {
-  const hash = createHash('sha256')
-    .update(path.resolve(projectRoot))
-    .digest('hex')
-    .slice(0, 6);
-  const slug = path
-    .basename(projectRoot)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .slice(0, 40) || 'project';
-  return path.join(globalRoot, 'projects', `${slug}-${hash}`);
+  return path.join(globalRoot, 'projects', projectSlug(projectRoot));
 }
 
 // ── GlobalMailbox ────────────────────────────────────────────────────────

@@ -102,7 +102,11 @@ export function makeMailboxTool(opts: MailboxToolOptions = {}): Tool {
       const mb = resolveMailbox(ctx);
       const i = (input ?? {}) as Record<string, unknown>;
       const action = i.action as string | undefined;
-      const callerId = (ctx.meta['agentId'] as string) ?? agentId;
+      // Prefer the process-unique identity set by attachMailboxChecker
+      // (`leader#<pid>`) so registration/receipts/sends agree with the
+      // agent-loop checker. The bare base id stays addressable as an alias.
+      const baseCallerId = (ctx.meta['agentId'] as string) ?? agentId;
+      const callerId = (ctx.meta['globalAgentId'] as string) ?? `${baseCallerId}#${process.pid}`;
       const callerSessionId = (ctx.meta['sessionId'] as string) ?? (ctx.session?.id ?? sessionId);
 
       // Auto-register this agent on first use (idempotent)
@@ -126,7 +130,7 @@ export function makeMailboxTool(opts: MailboxToolOptions = {}): Tool {
 
       switch (action) {
         case 'check':
-          return executeCheck(mb, callerId, i);
+          return executeCheck(mb, callerId, [baseCallerId], i);
         case 'send':
           return executeSend(mb, callerId, callerSessionId, i);
         case 'ack':
@@ -138,7 +142,7 @@ export function makeMailboxTool(opts: MailboxToolOptions = {}): Tool {
         case 'online':
           return executeOnline(mb);
         case 'unread':
-          return executeUnread(mb, callerId);
+          return executeUnread(mb, callerId, [baseCallerId]);
         default:
           return { ok: false, error: `Unknown action: "${action}". Use check, send, ack, query, status, online, or unread.` };
       }
@@ -148,9 +152,27 @@ export function makeMailboxTool(opts: MailboxToolOptions = {}): Tool {
 
 // ── Action handlers ──────────────────────────────────────────────────────
 
-async function executeCheck(mb: Mailbox, agentId: string, i: Record<string, unknown>) {
+async function executeCheck(
+  mb: Mailbox,
+  agentId: string,
+  aliases: string[],
+  i: Record<string, unknown>,
+) {
   const limit = (i.limit as number) ?? 20;
-  const messages = await mb.query({ to: agentId, unreadBy: agentId, limit, minPriority: 'low' });
+  // Check every address this agent answers to: unique id + base-id aliases
+  // ('*' broadcasts match each query — dedupe by message id below).
+  const targets = [agentId, ...aliases.filter((al) => al && al !== agentId)];
+  const batches = await Promise.all(
+    targets.map((to) =>
+      mb.query({ to, unreadBy: agentId, limit, minPriority: 'low' }).catch(() => []),
+    ),
+  );
+  const seen = new Set<string>();
+  const messages = batches.flat().filter((m) => {
+    if (seen.has(m.id)) return false;
+    seen.add(m.id);
+    return true;
+  });
 
   // Auto-read: add a read receipt for each message. Await the acks (rather
   // than fire-and-forget) and return the post-ack snapshots so readByMe in
@@ -267,9 +289,15 @@ async function executeOnline(mb: Mailbox) {
   };
 }
 
-async function executeUnread(mb: Mailbox, agentId: string) {
-  const count = await mb.unreadCount(agentId);
-  return { ok: true, count, summary: `${count} unread message(s) for you.` };
+async function executeUnread(mb: Mailbox, agentId: string, aliases: string[] = []) {
+  // Count unread across every address this agent answers to (unique id +
+  // base-id aliases); '*' broadcasts match each query — dedupe by id.
+  const targets = [agentId, ...aliases.filter((al) => al && al !== agentId)];
+  const batches = await Promise.all(
+    targets.map((to) => mb.query({ to, unreadBy: agentId, limit: 200 }).catch(() => [])),
+  );
+  const ids = new Set(batches.flat().map((m) => m.id));
+  return { ok: true, count: ids.size, summary: `${ids.size} unread message(s) for you.` };
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
