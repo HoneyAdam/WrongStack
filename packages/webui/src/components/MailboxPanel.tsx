@@ -18,6 +18,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { confirmModal } from './ConfirmModal';
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
@@ -68,9 +69,15 @@ export function MailboxPanel({ className }: { className?: string }) {
   const unreadCount = messages.filter((m) => !m.completed).length;
   const onlineCount = agents.filter((a) => a.online).length;
 
-  function handleDeleteAll() {
+  async function handleDeleteAll() {
     if (messages.length === 0) return;
-    if (!window.confirm(`Delete all ${messages.length} message(s)? This cannot be undone.`)) return;
+    const ok = await confirmModal({
+      title: `Delete all ${messages.length} message${messages.length === 1 ? '' : 's'}?`,
+      message: 'The mailbox file is truncated for every agent. This cannot be undone.',
+      confirmLabel: 'Delete all',
+      danger: true,
+    });
+    if (!ok) return;
     setDeleting(true);
     client.send({ type: 'mailbox.clear' });
   }

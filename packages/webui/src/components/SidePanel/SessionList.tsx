@@ -11,6 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { confirmModal } from '../ConfirmModal';
 import { ScrollArea } from '../ui/scroll-area';
 
 interface SessionListProps {
@@ -86,12 +87,17 @@ export function SessionList({
     [historyEntries],
   );
 
-  const handleDeleteEmpty = useCallback(() => {
+  const handleDeleteEmpty = useCallback(async () => {
     if (emptySessionIds.length === 0) return;
-    const msg = emptySessionIds.length === 1
-      ? 'Delete 1 empty session?'
-      : `Delete ${emptySessionIds.length} empty sessions?`;
-    if (window.confirm(msg)) {
+    const ok = await confirmModal({
+      title: emptySessionIds.length === 1
+        ? 'Delete 1 empty session?'
+        : `Delete ${emptySessionIds.length} empty sessions?`,
+      message: 'Sessions without any token usage are removed from disk.',
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (ok) {
       for (const id of emptySessionIds) deleteSession(id);
     }
   }, [emptySessionIds, deleteSession]);
@@ -252,7 +258,20 @@ export function SessionList({
                         <Star className={cn('h-3.5 w-3.5', favoriteSessionIds.includes(entry.id) && 'fill-current')} />
                       </button>
                       {!entry.isCurrent && (
-                        <button type="button" onClick={() => { if (window.confirm(`Delete session "${entry.title}"?`)) deleteSession(entry.id); }} className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive" title="Delete session">
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const ok = await confirmModal({
+                              title: 'Delete session?',
+                              message: `"${sessionNicknames[entry.id] || entry.title || '(empty)'}" will be removed from disk. This cannot be undone.`,
+                              confirmLabel: 'Delete',
+                              danger: true,
+                            });
+                            if (ok) deleteSession(entry.id);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+                          title="Delete session"
+                        >
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
                       )}

@@ -20,6 +20,7 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { confirmModal } from './ConfirmModal';
 import { ContextBar, ContextFillBar } from './ContextBar';
 import { ContextBreakdownModal } from './ContextBreakdownModal';
 import { fmtTok } from './ChatView/utils';
@@ -193,8 +194,13 @@ export function ContextPanel({
     setTimeout(() => listContextModesRef.current?.(), 300);
   };
 
-  const handleDelete = (id: string) => {
-    if (!window.confirm(`Delete context mode "${id}"?`)) return;
+  const handleDelete = async (id: string) => {
+    const ok = await confirmModal({
+      title: `Delete context mode "${id}"?`,
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
     deleteContextMode(id);
     setTimeout(() => listContextModesRef.current?.(), 300);
   };
