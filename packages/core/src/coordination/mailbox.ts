@@ -199,6 +199,14 @@ export class DefaultMailbox implements Mailbox {
     // JSONL append-only — no flush needed
   }
 
+  async clearAll(): Promise<void> {
+    // Truncate the mailbox file under the same lock that protects
+    // append/ack so a concurrent send can't be half-erased.
+    await withFileLock(this.filePath, async () => {
+      await fsp.writeFile(this.filePath, '', 'utf8');
+    });
+  }
+
   // ── Internal ──────────────────────────────────────────────────────────
 
   private async _readAll(): Promise<MailboxMessage[]> {
