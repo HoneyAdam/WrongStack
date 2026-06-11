@@ -26,7 +26,12 @@ export default defineConfig({
     // 5s (the default) flakes under full-suite load on this machine: with
     // ~16 fork workers competing, wiring-plugins / system-prompt-builder /
     // plug-lsp setup intermittently time out while passing in isolation.
-    testTimeout: 15_000,
+    // 15s was still not enough for spawn-heavy tests (shell hooks, git,
+    // tree-kill, biome) — every full run flaked a different set while all
+    // passed in isolation. The ceiling only matters for genuinely hung
+    // tests, so keep it generous.
+    testTimeout: 60_000,
+    hookTimeout: 60_000,
     // Bump Node heap to 4 GB for child processes spawned BY tests (vitest
     // worker processes themselves don't re-read NODE_OPTIONS set here).
     env: {
