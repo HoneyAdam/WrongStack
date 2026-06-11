@@ -100,6 +100,13 @@ export function handleSessionStart(msg: WSServerMessage) {
   });
   if (isReset) {
     useChatStore.getState().clearMessages();
+    // A reset means any in-flight run belonged to the session we just left
+    // (resume / new / project switch) — drop the streaming flag and stale
+    // plan so the input, Abort button, and tab indicator don't stay stuck
+    // on the old session's state.
+    useChatStore.getState().setLoading(false);
+    useSessionStore.setState({ todos: [] });
+    setFaviconStatus('ready');
 
     // Selectively clear fleet agents — if the server tells us which
     // session was just closed, only remove those agents. Otherwise
@@ -155,6 +162,32 @@ export function handleSessionStart(msg: WSServerMessage) {
         }
         if (text) chat.addMessage({ role: m.role as 'user' | 'assistant', content: text, timestamp: msgTimestamp });
       }
+    }
+  }
+  // The replayMessages field is only present on a session.resume — never on
+  // connect, session.new, or a project switch (see server session.resume).
+  if (replay) {
+    // Restore the resumed session's lifetime usage so the Session panel
+    // doesn't show zeros. Cost is recomputed from the per-1M rates that
+    // arrived in this same payload (close enough to the server's counter).
+    const usage = (payload as {
+      replayUsage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
+    }).replayUsage;
+    if (usage) {
+      const rates = useSessionStore.getState();
+      const input = usage.input ?? 0;
+      const output = usage.output ?? 0;
+      const cacheRead = usage.cacheRead ?? 0;
+      const cacheWrite = usage.cacheWrite ?? 0;
+      useSessionStore.setState({
+        totalTokens: { input, output, cacheRead, cacheWrite },
+        cost: (input * rates.inputCost + output * rates.outputCost + cacheRead * rates.cacheReadCost) / 1_000_000,
+      });
+    }
+    // Resuming is always a deliberate "take me back to that conversation" —
+    // land on the chat view no matter which surface triggered it.
+    if (useUIStore.getState().currentView !== 'chat') {
+      useUIStore.getState().setCurrentView('chat');
     }
   }
 }
