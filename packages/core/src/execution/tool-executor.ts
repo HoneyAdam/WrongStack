@@ -8,7 +8,7 @@ import type {
   ToolExecutorOptions,
   ToolExecutorStrategy,
 } from '../types/tool-executor.js';
-import type { Tool } from '../types/tool.js';
+import type { Tool, ToolProgressEvent } from '../types/tool.js';
 import {
   getDangerousCapabilities,
   hasDangerousCapabilityForSubagents,
@@ -16,6 +16,11 @@ import {
 import { validateAgainstSchema } from '../utils/json-schema-validate.js';
 import { createToolOutputSerializer } from '../utils/tool-output-serializer.js';
 export class ToolExecutor {
+  /** Minimum gap between coalesced `partial_output` tool.progress emits. */
+  static readonly PROGRESS_EMIT_INTERVAL_MS = 100;
+  /** Max chars of accumulated stream text carried per coalesced emit. */
+  static readonly PROGRESS_TAIL_CHARS = 16_384;
+
   private readonly serializer;
   private readonly iterationTimeoutMs: number;
   private readonly maxToolTimeoutMs: number;
@@ -428,6 +433,33 @@ export class ToolExecutor {
     // finally block runs regardless of whether the engine calls return() on
     // break of a for-await-of loop.
     const iter = stream[Symbol.asyncIterator]();
+    // Coalesce `partial_output` progress into at most one EventBus emit per
+    // PROGRESS_EMIT_INTERVAL_MS, carrying only the most recent
+    // PROGRESS_TAIL_CHARS of accumulated text. A chatty child process (a test
+    // suite or build spewing ANSI progress) can stream hundreds of MB per
+    // minute through executeStream; emitting every flush as its own event
+    // floods every bus subscriber (TUI render per dispatch, session bridge,
+    // WebUI broadcast) and has OOM'd the host. The live tail only ever shows
+    // the last few KB, so coalescing loses nothing the UI can display —
+    // the tool's own capped `final` output is unaffected.
+    let progressTail = '';
+    let lastProgressEmitAt = 0;
+    const emitProgress = (ev: ToolProgressEvent) => {
+      this.opts.events?.emit('tool.progress', {
+        name: tool.name,
+        id: toolUseId ?? '<unknown>',
+        event: ev,
+      });
+    };
+    const flushProgressTail = (force: boolean) => {
+      if (progressTail.length === 0) return;
+      const now = Date.now();
+      if (!force && now - lastProgressEmitAt < ToolExecutor.PROGRESS_EMIT_INTERVAL_MS) return;
+      const text = progressTail;
+      progressTail = '';
+      lastProgressEmitAt = now;
+      emitProgress({ type: 'partial_output', text });
+    };
     try {
       while (true) {
         const { done, value: ev } = await iter.next();
@@ -438,12 +470,20 @@ export class ToolExecutor {
           // Result is locked — stop consuming further events.
           break;
         }
-        this.opts.events?.emit('tool.progress', {
-          name: tool.name,
-          id: toolUseId ?? '<unknown>',
-          event: ev,
-        });
+        if (ev.type === 'partial_output' && typeof ev.text === 'string') {
+          progressTail += ev.text;
+          if (progressTail.length > ToolExecutor.PROGRESS_TAIL_CHARS) {
+            progressTail = progressTail.slice(-ToolExecutor.PROGRESS_TAIL_CHARS);
+          }
+          flushProgressTail(false);
+          continue;
+        }
+        // Non-partial events (log/warning/metric/file_changed) are low-volume;
+        // flush buffered text first so subscribers see events in stream order.
+        flushProgressTail(true);
+        emitProgress(ev);
       }
+      flushProgressTail(true);
     } finally {
       // Always close the iterator so the tool's generator finally block
       // runs even if we broke early on a final event or errored.

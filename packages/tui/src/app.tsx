@@ -1039,6 +1039,11 @@ export function App({
         messages: agent.ctx.state.messages.length,
         messagesChars: approxChars(agent.ctx.state.messages),
         runningTools: stateRef.current.runningTools.size,
+        // Bytes queued in stdout's writable buffer. On Windows, TTY writes
+        // are asynchronous — a render storm (e.g. high-frequency tool
+        // progress dispatches) queues whole ANSI frames here as live heap
+        // strings, invisible to every other counter.
+        stdoutQueued: process.stdout.writableLength ?? 0,
       }),
       onWarn: (level, message) => {
         dispatch({

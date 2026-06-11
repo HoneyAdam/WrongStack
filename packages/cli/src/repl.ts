@@ -27,6 +27,13 @@ import { CLI_VERSION } from './version.js';
  * Looks for numbered lines under a "Next steps" or "💡 Next steps" heading.
  * Returns null when no suggestions are found.
  */
+/**
+ * Hard ceiling on consecutive auto-proceed turns ('auto' autonomy mode)
+ * between two manual inputs. Without it, a model that ends every reply with
+ * a "Next steps" block drives the REPL in an unbounded self-feeding loop.
+ */
+const MAX_CONSECUTIVE_AUTO_PROCEED = 25;
+
 export function parseSuggestionsFromOutput(finalText: string): string[] | null {
   // Find the "Next steps" section — look for heading patterns
   const patterns = [
@@ -161,7 +168,13 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
   // before each agent.run so the SIGINT handler can target it.
   let activeCtrl: AbortController | undefined;
   let interrupts = 0;
-  let _autoIterCount = 0;
+  // Consecutive auto-proceed turns since the last manual input. Auto mode
+  // feeds suggestion #1 back into the agent after every turn — a model that
+  // emits "Next steps" on every reply would otherwise loop forever (and the
+  // unsupervised loop has burned real sessions: it spins at full speed when
+  // autoProceedDelayMs is 0). Manual input resets the counter.
+  let autoIterCount = 0;
+  let autoCapWarned = false;
   let exiting = false;
   const onSigint = () => {
     interrupts++;
@@ -388,17 +401,28 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
 
         // ── 'auto' mode: brief cooldown → feed directly ────────────
         if (mode === 'auto' && suggestions.length > 0) {
-          const top = suggestions[0] ?? '';
-          const delay = opts.autoProceedDelayMs ?? 1_000;
-          const ctrl = new AbortController();
-          activeCtrl = ctrl;
-          try {
-            _autoIterCount++;
-            await runAutoProceed(opts, top, delay, ctrl);
-          } finally {
-            activeCtrl = undefined;
+          if (autoIterCount >= MAX_CONSECUTIVE_AUTO_PROCEED) {
+            if (!autoCapWarned) {
+              autoCapWarned = true;
+              opts.renderer.writeWarning(
+                `Auto-proceed paused after ${MAX_CONSECUTIVE_AUTO_PROCEED} consecutive automatic turns — ` +
+                  'enter input to continue (resets the counter) or /autonomy off.',
+              );
+            }
+            // Fall through to the input read below instead of looping.
+          } else {
+            const top = suggestions[0] ?? '';
+            const delay = opts.autoProceedDelayMs ?? 1_000;
+            const ctrl = new AbortController();
+            activeCtrl = ctrl;
+            try {
+              autoIterCount++;
+              await runAutoProceed(opts, top, delay, ctrl);
+            } finally {
+              activeCtrl = undefined;
+            }
+            continue;
           }
-          continue;
         }
       }
 
@@ -414,6 +438,9 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
         continue;
       }
       interrupts = 0;
+      // Manual input re-arms auto-proceed.
+      autoIterCount = 0;
+      autoCapWarned = false;
 
       // Plain `q` quits immediately without needing a slash.
       if (trimmed === 'q') {
