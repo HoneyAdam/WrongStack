@@ -59,7 +59,12 @@ export class DefaultMailbox implements Mailbox {
     };
     const line = JSON.stringify(msg) + LINE_SEPARATOR;
     await fsp.mkdir(path.dirname(this.filePath), { recursive: true });
-    await fsp.appendFile(this.filePath, line, 'utf8');
+    // The append must hold the same lock ack() rewrites under: an unlocked
+    // append racing ack's read→rewrite gets silently erased when the rewrite
+    // lands (it was serialized from a snapshot taken before the append).
+    await withFileLock(this.filePath, async () => {
+      await fsp.appendFile(this.filePath, line, 'utf8');
+    });
     return msg;
   }
 

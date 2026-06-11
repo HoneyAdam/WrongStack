@@ -190,33 +190,53 @@ export class SessionRecovery {
    * recent crash first.
    */
   async listResumable(): Promise<StaleSession[]> {
-    let entries: string[];
-    try {
-      entries = await fs.readdir(this.dir);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
-      return [];
-    }
     const out: StaleSession[] = [];
-    for (const name of entries) {
-      if (!name.endsWith('.jsonl')) continue;
-      const sessionId = name.slice(0, -'.jsonl'.length);
-      if (sessionId.includes('.replay') || sessionId.includes('.annotations')) continue;
-      const stale = await this.detectStale(sessionId);
-      if (stale) out.push(stale);
-    }
+    // Modern sessions live inside date-shard subdirectories
+    // ("2026-06-11/<base>.jsonl"); legacy/flat sessions sit at the root.
+    // Scan both — a root-only scan silently misses every modern crash.
+    const collect = async (dir: string, prefix: string, depth: number): Promise<void> => {
+      let entries: import('node:fs').Dirent[];
+      try {
+        entries = await fs.readdir(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        if (entry.name.startsWith('.')) continue;
+        if (
+          entry.name === 'shared' ||
+          entry.name === 'subagents' ||
+          entry.name === 'attachments'
+        )
+          continue;
+        if (entry.isDirectory()) {
+          if (depth === 0) {
+            await collect(path.join(dir, entry.name), entry.name, depth + 1);
+          }
+          continue;
+        }
+        if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue;
+        if (entry.name === '_index.jsonl' || entry.name === '_mailbox.jsonl') continue;
+        const base = entry.name.slice(0, -'.jsonl'.length);
+        if (base.includes('.replay') || base.includes('.annotations') || base.includes('.audit'))
+          continue;
+        const sessionId = prefix ? `${prefix}/${base}` : base;
+        const stale = await this.detectStale(sessionId);
+        if (stale) out.push(stale);
+      }
+    };
+    await collect(this.dir, '', 0);
     return out.sort((a, b) => b.lastEventTs.localeCompare(a.lastEventTs));
   }
 
   // ── Internals ──────────────────────────────────────────────────────────
 
   private filePath(sessionId: string): string {
-    if (
-      !sessionId ||
-      sessionId.includes('/') ||
-      sessionId.includes('\\') ||
-      sessionId.includes('..')
-    ) {
+    // Modern session ids are date-sharded ("2026-06-11/12-30-45Z_model_ab12")
+    // so a forward slash is legitimate. Traversal is blocked by rejecting
+    // `..`/backslashes AND by verifying the resolved path stays inside the
+    // sessions dir — a containment check instead of a character ban.
+    if (!sessionId || sessionId.includes('\\') || sessionId.includes('..')) {
       throw new FsError({
         message: `Invalid sessionId: ${sessionId}`,
         code: ERROR_CODES.FS_DELETE_FAILED,
@@ -224,7 +244,18 @@ export class SessionRecovery {
         context: { reason: 'path_traversal' },
       });
     }
-    return path.join(this.dir, `${sessionId}.jsonl`);
+    const resolved = path.resolve(this.dir, `${sessionId}.jsonl`);
+    const root = path.resolve(this.dir);
+    const rel = path.relative(root, resolved);
+    if (rel.startsWith('..') || path.isAbsolute(rel)) {
+      throw new FsError({
+        message: `Invalid sessionId: ${sessionId}`,
+        code: ERROR_CODES.FS_DELETE_FAILED,
+        path: sessionId,
+        context: { reason: 'path_traversal' },
+      });
+    }
+    return resolved;
   }
 
   constructor(private readonly dir: string) {}

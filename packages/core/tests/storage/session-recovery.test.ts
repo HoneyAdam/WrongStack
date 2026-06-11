@@ -86,9 +86,15 @@ describe('SessionRecovery.detectStale', () => {
     expect(stale!.context).toBe('y');
   });
 
-  it('rejects path-traversal session ids', async () => {
+  it('rejects path-traversal session ids but accepts date-shard slashes', async () => {
     await expect(recovery.detectStale('../escape')).rejects.toThrow(/invalid sessionid/i);
-    await expect(recovery.detectStale('a/b')).rejects.toThrow(/invalid sessionid/i);
+    await expect(recovery.detectStale('a/../../escape')).rejects.toThrow(/invalid sessionid/i);
+    await expect(recovery.detectStale('a\\b')).rejects.toThrow(/invalid sessionid/i);
+    // Modern ids are date-sharded ("2026-06-11/<base>") — a forward slash
+    // that resolves INSIDE the sessions dir is legitimate, not traversal.
+    // No file exists for this id, so the probe resolves null instead of
+    // throwing.
+    await expect(recovery.detectStale('2026-06-11/no-such')).resolves.toBeNull();
   });
 });
 

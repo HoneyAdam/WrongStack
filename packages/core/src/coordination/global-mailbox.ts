@@ -121,7 +121,12 @@ export class GlobalMailbox implements Mailbox {
 
     const line = JSON.stringify(msg) + LINE_SEPARATOR;
     await fsp.mkdir(path.dirname(this.messagePath), { recursive: true });
-    await fsp.appendFile(this.messagePath, line, 'utf8');
+    // The append must hold the same lock ack() rewrites under: an unlocked
+    // append racing ack's read→rewrite gets silently erased when the rewrite
+    // lands. This file is shared ACROSS PROCESSES, so the window is real.
+    await withFileLock(this.messagePath, async () => {
+      await fsp.appendFile(this.messagePath, line, 'utf8');
+    });
 
     return msg;
   }

@@ -619,3 +619,50 @@ describe('makeDependencyWatcherConfig', () => {
     expect(msgs[0]!.subject).toContain('MyProject.csproj');
   });
 });
+
+// ── send/ack concurrency (lost-append race regression) ──────────────────────
+describe('DefaultMailbox — send racing ack does not lose messages', () => {
+  let mailbox: DefaultMailbox;
+  let dir: string;
+
+  beforeEach(async () => {
+    const m = await createMailbox();
+    mailbox = m.mailbox;
+    dir = m.dir;
+  });
+
+  afterEach(async () => {
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it('concurrent sends and acks preserve every message', async () => {
+    // Seed one message so acks have something to rewrite the file over.
+    const seed = await mailbox.send({
+      from: 'a',
+      to: 'b',
+      type: 'note',
+      subject: 'seed',
+      body: 'seed',
+    });
+
+    // Interleave sends with full-file ack rewrites. Before send() took the
+    // same lock ack() rewrites under, an append landing during ack's
+    // read→rewrite window was silently erased by the rewrite.
+    const N = 20;
+    const ops: Promise<unknown>[] = [];
+    for (let i = 0; i < N; i++) {
+      ops.push(
+        mailbox.send({ from: 'a', to: 'b', type: 'note', subject: `m${i}`, body: `${i}` }),
+      );
+      ops.push(mailbox.ack({ messageId: seed.id, readerId: `reader-${i}` }));
+    }
+    await Promise.all(ops);
+
+    const all = await mailbox.query({ limit: 1000 });
+    const subjects = new Set(all.map((m) => m.subject));
+    for (let i = 0; i < N; i++) {
+      expect(subjects.has(`m${i}`), `message m${i} was lost`).toBe(true);
+    }
+    expect(subjects.has('seed')).toBe(true);
+  });
+});
