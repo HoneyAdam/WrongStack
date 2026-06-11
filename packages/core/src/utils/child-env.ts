@@ -146,6 +146,11 @@ export function buildChildEnv(optsOrSessionId?: BuildChildEnvOptions | string): 
       upper.startsWith('GIT_') ||
       upper.startsWith('CI') ||
       upper.startsWith('XDG_') ||
+      // Our own non-secret knobs (WRONGSTACK_HOME, WRONGSTACK_SESSION_ID, …).
+      // Secrets never live in WRONGSTACK_* env vars (they're in the encrypted
+      // vault). Forwarding keeps child wstack processes — e.g. ones spawned
+      // by the test suite — inside the same redirected global root.
+      upper.startsWith('WRONGSTACK_') ||
       upper === 'EDITOR' ||
       upper === 'VISUAL' ||
       upper === 'PAGER'

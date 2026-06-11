@@ -31,7 +31,7 @@ import {
 } from '@wrongstack/core';
 import { DefaultSessionStore } from '@wrongstack/core/storage';
 import { DefaultSecretVault, decryptConfigSecrets, encryptConfigSecrets } from '@wrongstack/core/security';
-import { TOKENS, atomicWrite, repairToolUseAdjacency, listContextWindowModes, resolveContextWindowPolicy, DEFAULT_CONTEXT_WINDOW_MODE_ID, GlobalMailbox } from '@wrongstack/core';
+import { TOKENS, atomicWrite, repairToolUseAdjacency, listContextWindowModes, resolveContextWindowPolicy, DEFAULT_CONTEXT_WINDOW_MODE_ID, GlobalMailbox, wstackGlobalRoot } from '@wrongstack/core';
 import { WebSocket, WebSocketServer } from 'ws';
 import { expectDefined, loadConfigProviders, maskedKey, mutateConfigProviders, normalizeKeys, nowIso, writeKeysBack } from './provider-config-utils.js';
 
@@ -2053,7 +2053,7 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
         // Read the project manifest from ~/.wrongstack/projects.json
         const projectsBase = opts.globalConfigPath
           ? path.resolve(path.dirname(opts.globalConfigPath))
-          : path.resolve(os.homedir(), '.wrongstack');
+          : wstackGlobalRoot();
         const manifestPath = path.join(projectsBase, 'projects.json');
         try {
           const raw = await fs.readFile(manifestPath, 'utf8');

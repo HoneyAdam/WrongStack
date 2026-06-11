@@ -179,9 +179,22 @@ export async function runIndexer(
   _ctx: Context,
   opts: IndexerOptions,
 ): Promise<IndexResult> {
-  const { projectRoot, force = false, langs, ignore = [], indexDir, signal } = opts;
+  const store = new IndexStore(opts.projectRoot, { indexDir: opts.indexDir });
+  try {
+    return await runIndexerWithStore(store, opts);
+  } finally {
+    // Always release the synchronous SQLite connection — an abort mid-run
+    // (executor timeout, session teardown) previously leaked it.
+    try {
+      store.close();
+    } catch {
+      /* already closed */
+    }
+  }
+}
 
-  const store = new IndexStore(projectRoot, { indexDir });
+async function runIndexerWithStore(store: IndexStore, opts: IndexerOptions): Promise<IndexResult> {
+  const { projectRoot, force = false, langs, ignore = [], signal } = opts;
   const startMs = Date.now();
   const errors: string[] = [];
   const langStats: Record<string, number> = {};
@@ -337,7 +350,6 @@ export async function runIndexer(
 
   const durationMs = Date.now() - startMs;
   store.setLastIndexed(Date.now());
-  store.close();
 
   return {
     filesIndexed,

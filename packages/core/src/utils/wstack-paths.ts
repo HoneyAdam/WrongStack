@@ -121,9 +121,29 @@ export interface WstackPathOptions {
   globalRoot?: string | undefined;
 }
 
+/**
+ * The global `~/.wrongstack` root, honoring the `WRONGSTACK_HOME` env
+ * override. The override exists so tests (and sandboxed runs) can redirect
+ * ALL global state — config, secrets, logs, projects/, mailboxes — away from
+ * the real user home. Before it existed, `pnpm test` booted runtimes against
+ * the real `~/.wrongstack`: it read the user's real config.json (starting a
+ * second live Telegram poller), appended to the real wrongstack.log, and left
+ * ~20k orphaned fixture dirs under projects/.
+ *
+ * Every code path that wants the global dir must come through here (or
+ * through `resolveWstackPaths`) instead of `path.join(os.homedir(), '.wrongstack')`.
+ */
+export function wstackGlobalRoot(): string {
+  const fromEnv = process.env['WRONGSTACK_HOME'];
+  if (fromEnv && fromEnv.trim().length > 0) return path.resolve(fromEnv);
+  return path.join(os.homedir(), '.wrongstack');
+}
+
 export function resolveWstackPaths(opts: WstackPathOptions): WstackPaths {
-  const home = opts.userHome ?? os.homedir();
-  const globalRoot = opts.globalRoot ?? path.join(home, '.wrongstack');
+  // Precedence: explicit globalRoot > explicit userHome (callers/tests that
+  // pass one expect paths under it) > WRONGSTACK_HOME env > real home dir.
+  const globalRoot =
+    opts.globalRoot ?? (opts.userHome ? path.join(opts.userHome, '.wrongstack') : wstackGlobalRoot());
   const hash = projectHash(opts.projectRoot);
   const slug = projectSlug(opts.projectRoot);
   const projectDir = path.join(globalRoot, 'projects', slug);

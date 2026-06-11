@@ -10,9 +10,8 @@
  * @module mailbox-attach
  */
 
-import * as os from 'node:os';
-import * as path from 'node:path';
 import { GlobalMailbox, resolveProjectDir } from './coordination/global-mailbox.js';
+import { wstackGlobalRoot } from './utils/wstack-paths.js';
 import { mailboxSessionTag, resolveMailboxIdentity } from './coordination/mailbox-tool.js';
 import type { Mailbox, MailboxMessage } from './coordination/mailbox-types.js';
 import type { AgentInternals } from './core/agent-internals.js';
@@ -39,8 +38,7 @@ function attachMailboxCheckerInner(
   a: AgentInternals,
   source?: 'cli' | 'webui',
 ): () => Promise<MailboxMessage[]> {
-  const home = os.homedir();
-  const projectDir = resolveProjectDir(a.ctx.projectRoot, path.join(home, '.wrongstack'));
+  const projectDir = resolveProjectDir(a.ctx.projectRoot, wstackGlobalRoot());
   // Pass the agent's EventBus so GlobalMailbox can emit real-time events
   // (agent_registered, agent_heartbeat, etc.) for TUI/WebUI display.
   const mailbox: Mailbox = new GlobalMailbox(projectDir, a.events);

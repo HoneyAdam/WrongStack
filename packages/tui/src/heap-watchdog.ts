@@ -17,9 +17,9 @@
  * The log line is intentionally flat JSON so `jq`/spreadsheets can plot it.
  */
 import * as fsp from 'node:fs/promises';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import * as v8 from 'node:v8';
+import { wstackGlobalRoot } from '@wrongstack/core';
 
 export interface HeapSample {
   ts: string;
@@ -58,7 +58,7 @@ export interface HeapWatchdogOptions {
 const MB = 1024 * 1024;
 
 export function defaultHeapLogPath(): string {
-  return path.join(os.homedir(), '.wrongstack', 'logs', 'heap.jsonl');
+  return path.join(wstackGlobalRoot(), 'logs', 'heap.jsonl');
 }
 
 export function takeHeapSample(): HeapSample {

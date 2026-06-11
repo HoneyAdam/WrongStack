@@ -1,7 +1,6 @@
-import * as os from 'node:os';
 import * as path from 'node:path';
 import { color } from '../utils/color.js';
-import { projectHash } from '../utils/wstack-paths.js';
+import { projectHash, wstackGlobalRoot } from '../utils/wstack-paths.js';
 import { SkillInstaller } from '../skills/skill-installer.js';
 import type { Plugin } from '../types/plugin.js';
 import type { SlashCommand, Context } from '../index.js';
@@ -54,7 +53,7 @@ export function createSkillsPlugin(opts?: SkillsPluginOptions): Plugin {
 }
 
 function makeInstaller(skillLoader: SkillLoader | undefined, projectRoot: string): SkillInstaller {
-  const globalRoot = path.join(os.homedir(), '.wrongstack');
+  const globalRoot = wstackGlobalRoot();
   return new SkillInstaller({
     manifestPath: path.join(globalRoot, 'installed-skills.json'),
     projectSkillsDir: path.join(projectRoot, '.wrongstack', 'skills'),

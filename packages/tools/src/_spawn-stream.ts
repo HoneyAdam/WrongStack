@@ -72,26 +72,27 @@ export async function* spawnStream(
     }
   };
 
+  // Note: chunks may still arrive briefly after pause() (already in flight) —
+  // they are accumulated and queued rather than dropped, so the queue can
+  // overshoot maxQueue by a few entries but no output is silently lost.
   child.stdout?.on('data', (c) => {
-    if (paused) return;
     const s = c.toString();
     if (stdout.length < max) stdout += s;
     queue.push({ kind: 'out', data: s });
     wake();
     // Apply backpressure if queue is growing faster than we consume
-    if (queue.length >= maxQueue) {
+    if (!paused && queue.length >= maxQueue) {
       paused = true;
       child.stdout?.pause();
       child.stderr?.pause();
     }
   });
   child.stderr?.on('data', (c) => {
-    if (paused) return;
     const s = c.toString();
     if (stderr.length < max) stderr += s;
     queue.push({ kind: 'err', data: s });
     wake();
-    if (queue.length >= maxQueue) {
+    if (!paused && queue.length >= maxQueue) {
       paused = true;
       child.stdout?.pause();
       child.stderr?.pause();

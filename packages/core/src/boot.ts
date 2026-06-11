@@ -71,7 +71,9 @@ export async function bootConfig(options: BootConfigOptions = {}): Promise<BootC
   const pathResolver = new DefaultPathResolver(cwd);
   const projectRoot = pathResolver.projectRoot;
   const userHome = os.homedir();
-  const wpaths = resolveWstackPaths({ projectRoot, userHome });
+  // No explicit userHome here: that would defeat the WRONGSTACK_HOME env
+  // override (tests / sandboxed runs redirect all global state through it).
+  const wpaths = resolveWstackPaths({ projectRoot });
 
   // Ensure the directories every consumer relies on exist. This is the union
   // of what the cli and webui boot paths created independently — creating all

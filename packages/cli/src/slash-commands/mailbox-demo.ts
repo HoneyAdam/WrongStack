@@ -14,13 +14,12 @@
  *   /mailbox-demo clear           — clear all messages for the demo agent
  */
 
-import * as os from 'node:os';
-import * as path from 'node:path';
 import {
   GlobalMailbox,
   resolveProjectDir,
   type MailboxMessage,
   type MailboxAgentStatus,
+  wstackGlobalRoot,
 } from '@wrongstack/core';
 import type { SlashCommand } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
@@ -31,7 +30,7 @@ const DEMO_AGENT_ID = 'mailbox-demo';
 function buildMailbox(opts: SlashCommandContext): GlobalMailbox | null {
   // Prefer paths.projectDir (wstack-paths slug), fall back to projectRoot
   const projectDir =
-    opts.paths?.projectDir ?? resolveProjectDir(opts.projectRoot, path.join(os.homedir(), '.wrongstack'));
+    opts.paths?.projectDir ?? resolveProjectDir(opts.projectRoot, wstackGlobalRoot());
   try {
     return new GlobalMailbox(projectDir);
   } catch {

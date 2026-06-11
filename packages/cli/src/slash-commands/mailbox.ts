@@ -23,8 +23,6 @@
  *   /mailbox history [n]           — last n messages on the project (default 20)
  */
 
-import * as os from 'node:os';
-import * as path from 'node:path';
 import {
   GlobalMailbox,
   resolveProjectDir,
@@ -34,13 +32,13 @@ import {
   type MailboxAgentStatus,
   type MailboxMessage,
   type SlashCommand,
+  wstackGlobalRoot,
 } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
 
 function buildMailbox(opts: SlashCommandContext): GlobalMailbox | null {
   const projectDir =
-    opts.paths?.projectDir ??
-    resolveProjectDir(opts.projectRoot, path.join(os.homedir(), '.wrongstack'));
+    opts.paths?.projectDir ?? resolveProjectDir(opts.projectRoot, wstackGlobalRoot());
   try {
     return new GlobalMailbox(projectDir);
   } catch {

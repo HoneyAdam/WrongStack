@@ -1,8 +1,7 @@
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import * as os from 'node:os';
-import { withFileLock } from '@wrongstack/core';
+import { withFileLock, wstackGlobalRoot } from '@wrongstack/core';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -30,14 +29,14 @@ export interface ProjectsManifest {
 function projectsJsonPath(globalConfigPath?: string | undefined): string {
   const base = globalConfigPath
     ? path.dirname(globalConfigPath)
-    : path.join(os.homedir(), '.wrongstack');
+    : wstackGlobalRoot();
   return path.join(base, 'projects.json');
 }
 
 function projectsDataDir(globalConfigPath?: string | undefined): string {
   const base = globalConfigPath
     ? path.dirname(globalConfigPath)
-    : path.join(os.homedir(), '.wrongstack');
+    : wstackGlobalRoot();
   return path.join(base, 'projects');
 }
 

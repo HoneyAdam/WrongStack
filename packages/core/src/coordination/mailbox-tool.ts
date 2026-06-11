@@ -11,11 +11,10 @@
  */
 
 import { createHash } from 'node:crypto';
-import * as os from 'node:os';
-import * as path from 'node:path';
 import type { EventBus } from '../kernel/events.js';
 import type { Context } from '../core/context.js';
 import type { Tool } from '../types/tool.js';
+import { wstackGlobalRoot } from '../utils/wstack-paths.js';
 import { GlobalMailbox, resolveProjectDir } from './global-mailbox.js';
 import type { Mailbox, MailboxMessage, MailboxMessageType } from './mailbox-types.js';
 
@@ -49,8 +48,7 @@ export interface MailboxToolOptions {
 }
 
 export function defaultResolveProjectDir(ctx: Context): string {
-  const home = os.homedir();
-  return resolveProjectDir(ctx.projectRoot, path.join(home, '.wrongstack'));
+  return resolveProjectDir(ctx.projectRoot, wstackGlobalRoot());
 }
 
 /**

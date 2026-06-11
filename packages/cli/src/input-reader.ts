@@ -1,5 +1,4 @@
 import * as fs from 'node:fs/promises';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import * as readline from 'node:readline';
 import {
@@ -8,6 +7,7 @@ import {
   setOutputLineGuard,
   setRawMode,
   writeOut,
+  wstackGlobalRoot,
 } from '@wrongstack/core';
 
 export interface ReadlineInputReaderOptions {
@@ -22,7 +22,7 @@ export class ReadlineInputReader implements InputReader {
   private pending = false;
 
   constructor(opts: ReadlineInputReaderOptions = {}) {
-    this.historyFile = opts.historyFile ?? path.join(os.homedir(), '.wrongstack', 'history');
+    this.historyFile = opts.historyFile ?? path.join(wstackGlobalRoot(), 'history');
   }
 
   private async loadHistory(): Promise<void> {
