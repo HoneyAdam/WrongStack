@@ -570,7 +570,9 @@ export async function main(argv: string[]): Promise<number> {
             action: e.name === 'write' ? 'create' : 'edit',
             agentId: 'leader',
             agentName: 'Leader',
-            sessionId: session.id,
+            // Live writer id — after an in-app resume the active session is
+            // context.session, not the startup writer.
+            sessionId: context.session?.id ?? session.id,
           },
         ).catch(() => {
           // best-effort tracking
