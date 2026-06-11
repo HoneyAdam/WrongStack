@@ -223,7 +223,9 @@ export function ChatView() {
       {/* Header */}
       <header className="flex flex-col border-b bg-card/95 backdrop-blur-sm supports-[backdrop-filter]:bg-card/80 shrink-0 sticky top-0 z-20">
         <div className="flex items-center justify-between gap-2 px-3 py-2">
-          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+          {/* overflow-hidden: on narrow viewports excess chips clip cleanly
+              instead of colliding with the right-hand button cluster. */}
+          <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
             {!sidebarOpen && (
               <Button
                 variant="ghost"
@@ -242,7 +244,9 @@ export function ChatView() {
                 </div>
               </div>
             )}
-            <ConnectionChip wsStatus={wsStatus} wsConnected={wsConnected} />
+            {/* Connection / project / cwd moved out of this header — the
+                ActivityBar dot + ConnectionBanner own connection state and
+                the Session panel owns project/cwd. Keeps this row narrow. */}
             <span
               className={cn(
                 'flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-medium shrink-0 tabular-nums',
@@ -255,18 +259,6 @@ export function ChatView() {
               )}
               <span>{agentState}</span>
             </span>
-            {projectName && (
-              <>
-                <span
-                  className="flex items-center gap-1 text-[11px] text-muted-foreground shrink-0 min-w-0"
-                  title={cwd || `Project: ${projectName}`}
-                >
-                  <FolderOpen className="h-3 w-3 shrink-0" />
-                  <span className="truncate max-w-[8rem]">{projectName}</span>
-                </span>
-                <WorkingDirChip />
-              </>
-            )}
             {/* Session title — click to rename, shows nickname if set */}
             {sessionId && (
               renamingTitle ? (
@@ -330,18 +322,22 @@ export function ChatView() {
             <button
               type="button"
               onClick={() => useUIStore.getState().setModelSwitcherOpen(true)}
-              className="group flex items-center gap-1 px-2 py-0.5 rounded-md border bg-background/50 hover:bg-accent hover:border-primary/40 transition-colors text-[11px] min-w-0 shrink-0"
+              className="group hidden sm:flex items-center gap-1 px-2 py-0.5 rounded-md border bg-background/50 hover:bg-accent hover:border-primary/40 transition-colors text-[11px] min-w-0 shrink-0"
               title="Change provider / model (Ctrl+M)"
             >
               <Cpu className="h-3 w-3 text-muted-foreground group-hover:text-foreground shrink-0" />
-              <span className="font-mono truncate max-w-[16rem]">
+              <span className="font-mono truncate max-w-[9rem] xl:max-w-[16rem]">
                 <span className="text-muted-foreground">{provider || 'no-provider'}</span>
                 <span className="text-muted-foreground/40 mx-0.5">/</span>
                 <span className="font-medium">{model || 'no-model'}</span>
               </span>
             </button>
-            <ModePicker />
-            <ContextModePicker />
+            {/* Mode pickers fold away below md — both remain reachable via
+                the command palette and Settings. */}
+            <div className="hidden md:flex items-center gap-1.5 shrink-0">
+              <ModePicker />
+              <ContextModePicker />
+            </div>
             {iteration && (
               <button
                 type="button"
@@ -359,16 +355,10 @@ export function ChatView() {
             <AutonomyPicker value={autonomy} onChange={handleAutonomyChange} compact />
           </div>
 
+          {/* Only the session-scoped tools stay here — palette, theme, help
+              and settings are global app controls and live in the
+              ActivityBar's bottom group now. */}
           <div className="flex items-center gap-0.5 shrink-0">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={() => useUIStore.getState().toggleCompactMode()}
-              title="Toggle compact mode (Ctrl+Shift+D)"
-            >
-              <Shrink className="h-4 w-4" />
-            </Button>
             <Button
               variant={processOpen ? 'secondary' : 'ghost'}
               size="icon"
@@ -392,34 +382,6 @@ export function ChatView() {
               {checkpointOpen && (
                 <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-violet-500" />
               )}
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={() => setPaletteOpen(true)}
-              title="Command palette (Ctrl+K)"
-            >
-              <Command className="h-4 w-4" />
-            </Button>
-            <ThemeToggle className="mx-0.5" />
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 font-mono text-xs"
-              onClick={() => setShortcutsOpen(true)}
-              title="Keyboard shortcuts (?)"
-            >
-              ?
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={() => setCurrentView('settings')}
-              title="Settings"
-            >
-              <Settings className="h-4 w-4" />
             </Button>
           </div>
         </div>

@@ -11,16 +11,22 @@ import {
 import {
   Bot,
   Clock,
+  Command,
   FolderOpen,
   Folders,
   GitBranch,
+  Keyboard,
   Mail,
   MessageSquare,
+  Monitor,
+  Moon,
   Rocket,
   Settings as SettingsIcon,
+  Sun,
   Zap,
 } from 'lucide-react';
 import { type ReactElement } from 'react';
+import { useTheme } from './ThemeProvider';
 
 // ── Activity definitions ───────────────────────────────────────────────
 //
@@ -158,6 +164,24 @@ export function ActivityBar() {
       {/* ── Spacer ── */}
       <div className="flex-1" />
 
+      {/* ── Global utilities — app-wide controls that used to crowd the
+            chat header (palette, theme, shortcuts) ── */}
+      <div className="flex flex-col items-center gap-0.5 pb-2 border-b border-border/50 mb-2">
+        <ActivityIcon
+          icon={<Command size={16} />}
+          label="Command palette (Ctrl+K)"
+          active={false}
+          onClick={() => useUIStore.getState().setPaletteOpen(true)}
+        />
+        <ThemeCycleIcon />
+        <ActivityIcon
+          icon={<Keyboard size={16} />}
+          label="Keyboard shortcuts (?)"
+          active={false}
+          onClick={() => useUIStore.getState().setShortcutsOpen(true)}
+        />
+      </div>
+
       {/* ── Main-view icons ── */}
       <div className="flex flex-col items-center gap-0.5 pb-2">
         {VIEWS.map((def) => (
@@ -171,6 +195,22 @@ export function ActivityBar() {
         ))}
       </div>
     </div>
+  );
+}
+
+/** Single-icon theme control: cycles light → dark → system. */
+function ThemeCycleIcon() {
+  const { theme, setTheme } = useTheme();
+  const next = theme === 'light' ? 'dark' : theme === 'dark' ? 'system' : 'light';
+  const icon =
+    theme === 'light' ? <Sun size={16} /> : theme === 'dark' ? <Moon size={16} /> : <Monitor size={16} />;
+  return (
+    <ActivityIcon
+      icon={icon}
+      label={`Theme: ${theme} — click for ${next}`}
+      active={false}
+      onClick={() => setTheme(next)}
+    />
   );
 }
 
