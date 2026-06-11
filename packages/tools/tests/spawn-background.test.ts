@@ -3,9 +3,6 @@ import { spawnBackground, spawnBackgroundExec } from '../src/spawn-background.js
 import * as os from 'node:os';
 
 describe('spawnBackground', () => {
-  // Skip on Windows since spawn behavior differs significantly
-  const isWin = os.platform() === 'win32';
-
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -16,7 +13,7 @@ describe('spawnBackground', () => {
 
   it('spawns a background process and returns a pid', () => {
     const result = spawnBackground({
-      command: 'echo hello',
+      command: 'node --version',
     });
     expect(result.pid).toBeDefined();
     expect(typeof result.pid).toBe('number');
@@ -25,7 +22,7 @@ describe('spawnBackground', () => {
   it('returns immediately without waiting for the process', () => {
     const start = Date.now();
     const result = spawnBackground({
-      command: 'sleep 5 && echo done',
+      command: 'node -e "setTimeout(() => {}, 5000)"',
     });
     const elapsed = Date.now() - start;
     expect(elapsed).toBeLessThan(100); // Should return immediately
@@ -34,8 +31,8 @@ describe('spawnBackground', () => {
 
   it('respects cwd option', () => {
     const result = spawnBackground({
-      command: 'pwd',
-      cwd: '/tmp',
+      command: 'node --version',
+      cwd: os.tmpdir(),
     });
     expect(result.pid).toBeDefined();
   });
@@ -50,27 +47,34 @@ describe('spawnBackground', () => {
 
 describe('spawnBackgroundExec', () => {
   it('spawns a process without shell wrapping', () => {
-    const result = spawnBackgroundExec('echo', ['hello']);
+    const result = spawnBackgroundExec('node', ['--version']);
     expect(result.pid).toBeDefined();
   });
 
   it('returns immediately without waiting', () => {
     const start = Date.now();
-    const result = spawnBackgroundExec('sleep', ['2']);
+    const result = spawnBackgroundExec('node', ['-e', 'setTimeout(() => {}, 2000)']);
     const elapsed = Date.now() - start;
     expect(elapsed).toBeLessThan(100);
     expect(result.pid).toBeDefined();
   });
 
   it('passes environment variables', () => {
-    const result = spawnBackgroundExec('printenv', ['TEST_VAR'], undefined, {
+    const result = spawnBackgroundExec('node', ['-e', 'process.env.TEST_VAR'], undefined, {
       TEST_VAR: 'test_value',
     });
     expect(result.pid).toBeDefined();
   });
 
   it('respects cwd option', () => {
-    const result = spawnBackgroundExec('pwd', [], '/tmp');
+    const result = spawnBackgroundExec('node', ['-e', ''], os.tmpdir());
     expect(result.pid).toBeDefined();
+  });
+
+  it('does not crash the host process when the command does not exist', async () => {
+    const { child } = spawnBackgroundExec('definitely-not-a-real-command-xyz', []);
+    // The default error handler must swallow the async ENOENT; give it a tick to fire.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(child.pid ?? null).toBeNull();
   });
 });
