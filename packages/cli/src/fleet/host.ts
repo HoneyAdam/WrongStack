@@ -462,11 +462,33 @@ export class MultiAgentHost {
           title: `subagent: ${subagentName}`,
         });
       } else {
+        // No session factory — interleave subagent events into the parent's
+        // JSONL. This shim must implement the FULL SessionWriter surface the
+        // agent loop touches: runInner calls flush()/writeCheckpoint()
+        // unguarded and the tool handler calls appendBatch(); a partial shim
+        // crashes the subagent on its first input. Checkpoints, in-flight
+        // markers, and lifecycle calls are deliberate no-ops — subagent
+        // promptIndices/markers in the PARENT log would corrupt the parent's
+        // rewind and crash-recovery state, and the parent owns close().
         const parentSession = this.deps.session;
         subSession = {
           id: parentSession.id,
+          transcriptPath: parentSession.transcriptPath,
+          get pendingToolUses(): string[] {
+            return [];
+          },
           append: (ev) => parentSession.append({ ...ev }),
-        } as SessionWriter;
+          appendBatch: (evs) => parentSession.appendBatch(evs.map((e) => ({ ...e }))),
+          flush: () => parentSession.flush(),
+          close: async () => {},
+          recordFileChange: () => {},
+          writeCheckpoint: async () => {},
+          writeFileSnapshot: async () => {},
+          truncateToCheckpoint: async () => 0,
+          clearSession: async () => {},
+          writeInFlightMarker: async () => {},
+          clearInFlightMarker: async () => {},
+        } satisfies SessionWriter;
       }
 
       // Expand fleet_emit and fleet_status: when a subagent requests these tools
@@ -536,9 +558,8 @@ export class MultiAgentHost {
       // long fleet run (1000+ tasks) the process eventually hits the OS
       // limit. We only close writers we created via `sessionFactory` —
       // the fallback path forwards into the parent's session, which the
-      // host owns and must not close here. The shim writer in the
-      // fallback branch has no `close()`, so the null-guard handles
-      // both cases.
+      // host owns and must not close here — the fallback shim's `close()`
+      // is a no-op, so calling it unconditionally is safe in both cases.
       // Bridge per-subagent tool.executed to the host EventBus so the
       // TUI can update its compact live agent surfaces regardless of
       // director mode. The FleetBus path (director-only) covers the

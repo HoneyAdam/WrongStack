@@ -108,7 +108,21 @@ export class RecoveryLock {
     if (this.sessionStore) {
       try {
         const data = await this.sessionStore.load(lock.sessionId);
-        const closed = data.events.some((e) => e.type === 'session_end');
+        // Closed means the LAST session_end is not followed by further
+        // conversation activity. Legacy /save wrote mid-stream session_end
+        // markers — `some()` would treat a session that crashed AFTER such a
+        // marker as cleanly closed and silently skip recovery.
+        const lastEnd = data.events.findLastIndex((e) => e.type === 'session_end');
+        const closed =
+          lastEnd >= 0 &&
+          !data.events
+            .slice(lastEnd + 1)
+            .some(
+              (e) =>
+                e.type === 'user_input' ||
+                e.type === 'llm_response' ||
+                e.type === 'in_flight_start',
+            );
         if (closed) return null;
         messageCount = data.messages.length;
       } catch {

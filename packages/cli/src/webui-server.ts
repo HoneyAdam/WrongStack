@@ -16,8 +16,9 @@ import {
   handleMemoryList,
   handleMemoryRemember,
   handleMemoryForget,
+  AutoPhaseWebSocketHandler,
 } from '@wrongstack/webui/server';
-import type { Agent, EventBus, MemoryStore, ModeStore, ModelsRegistry, SessionStore, SessionWriter, SkillLoader } from '@wrongstack/core';
+import type { Agent, Context, EventBus, Logger, MemoryStore, ModeStore, ModelsRegistry, SessionStore, SessionWriter, SkillLoader } from '@wrongstack/core';
 import {
   DefaultSecretScrubber,
   enhanceUserPrompt,
@@ -30,9 +31,24 @@ import {
 } from '@wrongstack/core';
 import { DefaultSessionStore } from '@wrongstack/core/storage';
 import { DefaultSecretVault } from '@wrongstack/core/security';
-import { TOKENS, repairToolUseAdjacency, listContextWindowModes, resolveContextWindowPolicy, DEFAULT_CONTEXT_WINDOW_MODE_ID } from '@wrongstack/core';
+import { TOKENS, repairToolUseAdjacency, listContextWindowModes, resolveContextWindowPolicy, DEFAULT_CONTEXT_WINDOW_MODE_ID, GlobalMailbox } from '@wrongstack/core';
 import { WebSocket, WebSocketServer } from 'ws';
 import { expectDefined, loadConfigProviders, maskedKey, mutateConfigProviders, normalizeKeys, nowIso, writeKeysBack } from './provider-config-utils.js';
+
+// ── Console logger adapter for AutoPhaseWebSocketHandler ──────────────────────
+// AutoPhaseWebSocketHandler requires a Logger. The CLI uses console.log/error
+// directly, so we adapt that to the Logger interface expected by the handler.
+const structuredLine = (level: string, message: string): string =>
+  JSON.stringify({ level, event: 'webui.autophase', message, timestamp: new Date().toISOString() });
+const consoleLogger: Logger = {
+  level: 'debug',
+  error(msg: string, _ctx?: unknown) { console.error(structuredLine('error', msg)); },
+  warn(msg: string, _ctx?: unknown) { console.warn(structuredLine('warn', msg)); },
+  info(msg: string, _ctx?: unknown) { console.log(structuredLine('info', msg)); },
+  debug(msg: string, _ctx?: unknown) { console.debug(structuredLine('debug', msg)); },
+  trace(msg: string, _ctx?: unknown) { console.debug(structuredLine('trace', msg)); },
+  child(_bindings: Record<string, unknown>): Logger { return this; },
+};
 
 // ── Token estimator helpers (inlined from @wrongstack/webui/server/token-estimator.ts) ──
 
@@ -182,6 +198,18 @@ interface WebUIOptions {
   onExit?: (() => void) | undefined;
   /** Session store — enables session.resume and session.delete from the WebUI. */
   sessionStore?: SessionStore | undefined;
+  /**
+   * Absolute path to the project's sessions directory (wpaths.projectSessions).
+   * Used by checkpoint/rewind handlers to locate session JSONL files. When
+   * absent, falls back to the legacy <projectRoot>/.wrongstack/sessions path.
+   */
+  sessionsDir?: string | undefined;
+  /**
+   * Called after session.resume swaps the active writer, with the new session
+   * id. The host uses this to re-point crash-recovery state (active.json) at
+   * the session that is now actually being written.
+   */
+  onSessionSwapped?: ((newSessionId: string) => void) | undefined;
   /** Memory store — enables the MemoryPanel (memory.list, memory.remember, memory.forget). */
   memoryStore?: MemoryStore | undefined;
   /** Skill loader — enables the SkillsPanel (skills.list). */
@@ -227,6 +255,20 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
   const pendingConfirms = new Map<string, (d: 'yes' | 'no' | 'always' | 'deny') => void>();
   const secretScrubber = new DefaultSecretScrubber();
   let abortController: AbortController | null = null;
+
+  // AutoPhase handler — manages AutoPhase lifecycle via WS messages.
+  // Initialized here so it can be used in the connection handler and message switch.
+  const autoPhaseStoreDir = opts.projectRoot
+    ? path.join(opts.projectRoot, '.wrongstack', 'autophase')
+    : path.join(os.tmpdir(), '.wrongstack', 'autophase');
+  const autoPhaseHandler = new AutoPhaseWebSocketHandler(
+    opts.agent,
+    opts.agent.ctx as Context,
+    consoleLogger,
+    autoPhaseStoreDir,
+    opts.events,
+    opts.projectRoot,
+  );
 
   // Generate a random auth token to prevent unauthorized local connections.
   // The WebUI frontend reads this from the session.start payload and uses it
@@ -745,6 +787,9 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
       const client: ConnectedClient = { ws, sessionId: opts.session.id };
       clients.set(ws, client);
 
+      // Register this client with the AutoPhase handler so it receives phase events
+      autoPhaseHandler.addClient(ws);
+
       // Per-connection rate limiting — disabled unless WEBUI_RATE_LIMIT > 0.
       let msgCount = 0;
       let windowResetAt = Date.now() + 60_000;
@@ -943,13 +988,22 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
       }
 
       case 'sessions.list': {
-        // List sessions for the current project via a transient SessionStore.
-        const projectRoot = opts.projectRoot ?? opts.agent.ctx.projectRoot;
-        const sessionsDir = path.join(projectRoot, '.wrongstack', 'sessions');
+        // Prefer the wired SessionStore (the real ~/.wrongstack/projects/<hash>/
+        // sessions location). The transient store at <projectRoot>/.wrongstack/
+        // sessions is a legacy fallback only — real sessions never live there.
         const limit = (msg as { payload?: { limit?: number | undefined } }).payload?.limit ?? 50;
         try {
-          const store = new DefaultSessionStore({ dir: sessionsDir });
+          const store =
+            opts.sessionStore ??
+            new DefaultSessionStore({
+              dir: path.join(
+                opts.projectRoot ?? opts.agent.ctx.projectRoot,
+                '.wrongstack',
+                'sessions',
+              ),
+            });
           const list = await store.list(limit);
+          const currentId = opts.agent.ctx.session?.id ?? opts.session.id;
           send(ws, {
             type: 'sessions.list',
             payload: {
@@ -960,7 +1014,7 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
                 model: s.model,
                 provider: s.provider,
                 tokenTotal: s.tokenTotal,
-                isCurrent: s.id === opts.session.id,
+                isCurrent: s.id === currentId,
               })),
             },
           });
@@ -1206,10 +1260,13 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
         try {
           const { DefaultSessionRewinder } = await import('@wrongstack/core');
           const rewinder = new DefaultSessionRewinder(
-            path.join(projectRoot, '.wrongstack', 'sessions'),
+            opts.sessionsDir ?? path.join(projectRoot, '.wrongstack', 'sessions'),
             projectRoot,
           );
-          const checkpoints = await rewinder.listCheckpoints(opts.session.id);
+          // Use the LIVE writer's id — after an in-app resume the active
+          // session is agent.ctx.session, not the startup one.
+          const liveId = opts.agent.ctx.session?.id ?? opts.session.id;
+          const checkpoints = await rewinder.listCheckpoints(liveId);
           send(ws, {
             type: 'session.checkpoints',
             payload: { checkpoints },
@@ -1229,11 +1286,14 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
         try {
           const { DefaultSessionRewinder } = await import('@wrongstack/core');
           const rewinder = new DefaultSessionRewinder(
-            path.join(projectRoot, '.wrongstack', 'sessions'),
+            opts.sessionsDir ?? path.join(projectRoot, '.wrongstack', 'sessions'),
             projectRoot,
           );
-          await rewinder.rewindToCheckpoint(opts.session.id, checkpointIndex);
-          await opts.session.truncateToCheckpoint(checkpointIndex);
+          // Rewind the LIVE session — both the file reverts (rewinder) and
+          // the JSONL truncation (writer) must target the same session.
+          const liveSession = opts.agent.ctx.session ?? opts.session;
+          await rewinder.rewindToCheckpoint(liveSession.id, checkpointIndex);
+          await liveSession.truncateToCheckpoint(checkpointIndex);
           sendResult(ws, true, `Rewound to checkpoint ${checkpointIndex}`);
           const rewindP = await buildSessionStartPayload({ reset: true });
           broadcast({ type: 'session.start', payload: rewindP });
@@ -1266,15 +1326,24 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
 
       case 'session.delete': {
         const { id } = (msg as { payload: { id: string } }).payload;
-        if (id === opts.session.id) {
+        // Guard against the CURRENT writer — after an in-app resume the
+        // active session is agent.ctx.session, not the startup one.
+        if (id === (opts.agent.ctx.session?.id ?? opts.session.id)) {
           sendResult(ws, false, 'Cannot delete the active session');
           break;
         }
-        const projectRoot = opts.projectRoot ?? opts.agent.ctx.projectRoot;
         try {
-          const store = new DefaultSessionStore({
-            dir: path.join(projectRoot, '.wrongstack', 'sessions'),
-          });
+          // Prefer the wired SessionStore (real sessions location); the
+          // transient <projectRoot>/.wrongstack/sessions store is legacy-only.
+          const store =
+            opts.sessionStore ??
+            new DefaultSessionStore({
+              dir: path.join(
+                opts.projectRoot ?? opts.agent.ctx.projectRoot,
+                '.wrongstack',
+                'sessions',
+              ),
+            });
           await store.delete(id);
           sendResult(ws, true, `Session ${id} deleted`);
         } catch (err) {
@@ -1547,13 +1616,36 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
         }
         const { id } = (msg as { payload: { id: string } }).payload;
         try {
-          if (id === opts.session.id) {
+          // Compare against the CURRENT writer — after a prior in-app resume
+          // the active session is agent.ctx.session, not the startup one.
+          const ctx = opts.agent.ctx;
+          if (id === (ctx.session?.id ?? opts.session.id)) {
             sendResult(ws, false, 'Session is already active');
             break;
           }
           const resumed = await opts.sessionStore.resume(id);
+          // Finalize the writer we are leaving (session_end + flush + summary
+          // sidecar), then swap the context to the resumed writer so all new
+          // events land in the resumed session's JSONL. Without the swap,
+          // the conversation kept recording into the old session's log and
+          // the resumed writer leaked an open file handle.
+          const oldWriter = ctx.session;
+          if (oldWriter && oldWriter !== resumed.writer) {
+            const oldUsage = ctx.tokenCounter.total();
+            void (async () => {
+              await oldWriter.append({
+                type: 'session_end',
+                ts: new Date().toISOString(),
+                usage: oldUsage,
+              }).catch(() => undefined);
+              await oldWriter.close().catch(() => undefined);
+            })();
+          }
+          ctx.session = resumed.writer;
+          // Let the host re-point crash-recovery state (active.json) at the
+          // session that is now actually being written.
+          opts.onSessionSwapped?.(resumed.writer.id);
           // Hydrate the context with the old session's messages.
-          const ctx = opts.agent.ctx;
           ctx.state.replaceMessages(resumed.data.messages);
           ctx.state.replaceTodos([]);
           ctx.readFiles.clear();
@@ -1911,13 +2003,89 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
         shutdown();
         break;
 
+      // ── Mailbox operations — project-level inter-agent messaging ────
+      case 'mailbox.messages': {
+        const projectRoot = opts.projectRoot ?? (opts.agent.ctx as { projectRoot?: string }).projectRoot ?? '';
+        const globalRoot = opts.globalConfigPath ? path.dirname(opts.globalConfigPath) : '';
+        if (!projectRoot || !globalRoot) {
+          send(ws, { type: 'mailbox.messages', payload: { messages: [], error: 'No project root available' } });
+          break;
+        }
+        try {
+          const mbDir = path.join(globalRoot, 'projects',
+            `${((path.basename(projectRoot) || 'project').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40) || 'project')}-${crypto.createHash('sha256').update(path.resolve(projectRoot)).digest('hex').slice(0, 6)}`);
+          const mb = new GlobalMailbox(mbDir);
+          const payload = (msg as { payload?: { limit?: number; agentId?: string; unreadOnly?: boolean } }).payload;
+          const messages = await mb.query({
+            limit: payload?.limit ?? 30,
+            to: payload?.agentId,
+            unreadBy: payload?.unreadOnly ? payload.agentId : undefined,
+          });
+          send(ws, {
+            type: 'mailbox.messages',
+            payload: {
+              messages: messages.map((m) => ({
+                id: m.id, from: m.from, to: m.to, type: m.type,
+                subject: m.subject, body: m.body, priority: m.priority,
+                readBy: m.readBy, readByCount: Object.keys(m.readBy).length,
+                completed: m.completed, completedBy: m.completedBy,
+                outcome: m.outcome, timestamp: m.timestamp,
+                replyTo: m.replyTo, senderSessionId: m.senderSessionId,
+              })),
+            },
+          });
+        } catch (err) {
+          send(ws, { type: 'mailbox.messages', payload: { messages: [], error: err instanceof Error ? err.message : String(err) } });
+        }
+        break;
+      }
+
+      case 'mailbox.agents': {
+        const projectRoot = opts.projectRoot ?? (opts.agent.ctx as { projectRoot?: string }).projectRoot ?? '';
+        const globalRoot = opts.globalConfigPath ? path.dirname(opts.globalConfigPath) : '';
+        if (!projectRoot || !globalRoot) {
+          send(ws, { type: 'mailbox.agents', payload: { agents: [], error: 'No project root available' } });
+          break;
+        }
+        try {
+          const mbDir = path.join(globalRoot, 'projects',
+            `${((path.basename(projectRoot) || 'project').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40) || 'project')}-${crypto.createHash('sha256').update(path.resolve(projectRoot)).digest('hex').slice(0, 6)}`);
+          const mb = new GlobalMailbox(mbDir);
+          const payload = (msg as { payload?: { onlineOnly?: boolean } }).payload;
+          const agents = payload?.onlineOnly
+            ? await mb.getOnlineAgents()
+            : await mb.getAgentStatuses();
+          send(ws, {
+            type: 'mailbox.agents',
+            payload: {
+              agents: agents.map((a) => ({
+                agentId: a.agentId, name: a.name, role: a.role,
+                sessionId: a.sessionId, status: a.status,
+                currentTool: a.currentTool, currentTask: a.currentTask,
+                iterations: a.iterations, toolCalls: a.toolCalls,
+                lastSeenAt: a.lastSeenAt, online: a.online,
+                pid: a.pid, source: a.source,
+              })),
+            },
+          });
+        } catch (err) {
+          send(ws, { type: 'mailbox.agents', payload: { agents: [], error: err instanceof Error ? err.message : String(err) } });
+        }
+        break;
+      }
+
       default: {
-        // Log unknown message types for debugging but do NOT send an error
-        // to the client. This covers autophase.* and any new
-        // message types added in future frontend versions.
-        console.debug(
-          `[WebUI] Unhandled message type: ${String((msg as { type: string }).type)}`,
-        );
+        // Delegate AutoPhase lifecycle messages to the AutoPhase handler.
+        // If the message type starts with 'autophase.', forward it; otherwise
+        // log it as unhandled.
+        const msgType = (msg as { type: string }).type;
+        if (msgType.startsWith('autophase.')) {
+          await autoPhaseHandler.handleMessage(
+            msg as { type: string; payload?: Record<string, unknown> },
+          );
+        } else {
+          console.debug(`[WebUI] Unhandled message type: ${msgType}`);
+        }
         break;
       }
     }

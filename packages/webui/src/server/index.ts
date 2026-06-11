@@ -152,6 +152,11 @@ export {
   createProviderConfigIO,
 } from './provider-config-io.js';
 
+// AutoPhase WebSocket handler — manages AutoPhase lifecycle via WS messages.
+// Exported so the CLI's embedded webui-server can also handle autophase.*
+// messages when running in --webui mode.
+export { AutoPhaseWebSocketHandler } from './autophase-ws-handler.js';
+
 // Message + client shapes now live in ./types.ts (shared with the CLI's
 // embedded server). Imported here for internal use; re-exported above for
 // external consumers. The previous local copies shadowed these and made the
@@ -1090,6 +1095,21 @@ export async function startWebUI(
         // turns even though the UI looks empty — that's the "ghost context"
         // bug. After this, the next user message goes out as turn 1 with no
         // prior history.
+        //
+        // Finalize the writer we are leaving (session_end + close) — same
+        // pattern as projects.select/shutdown. Without it the old JSONL
+        // never ends cleanly, the summary sidecar/index entry are never
+        // written, and the file handle leaks for the daemon's lifetime.
+        try {
+          await session.append({
+            type: 'session_end',
+            ts: new Date().toISOString(),
+            usage: tokenCounter.total(),
+          });
+          await session.close();
+        } catch {
+          // best-effort
+        }
         session = await sessionStore.create({
           id: '',
           title: '',
@@ -1578,9 +1598,16 @@ export async function startWebUI(
             break;
           }
           const resumed = await sessionStore.resume(id);
-          // Close prior writer best-effort; swallow errors so we don't block
-          // the resume on a crashed file handle.
+          // Finalize the prior writer (session_end + close) best-effort;
+          // swallow errors so we don't block the resume on a crashed file
+          // handle. The end marker is what makes the session we are leaving
+          // read as cleanly completed (summary outcome, endedAt).
           try {
+            await session.append({
+              type: 'session_end',
+              ts: new Date().toISOString(),
+              usage: tokenCounter.total(),
+            });
             await session.close();
           } catch {
             /* noop */

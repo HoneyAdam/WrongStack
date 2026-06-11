@@ -155,7 +155,16 @@ export class DefaultSessionStore implements SessionStore {
           provider: data.metadata.provider,
         },
         this.events,
-        { resumed: true, dir: this.dir, filePath: file, secretScrubber: this.secretScrubber, onClose: (s) => this.appendToIndex(s) },
+        {
+          resumed: true,
+          // Shard directory (sessions/<date>/) — must match create() so the
+          // .summary.json sidecar lands next to the JSONL instead of the
+          // sessions root (where summaryFor() would never find it).
+          dir: path.dirname(file),
+          filePath: file,
+          secretScrubber: this.secretScrubber,
+          onClose: (s) => this.appendToIndex(s),
+        },
       );
       return { writer, data };
     } catch (err) {
@@ -585,7 +594,9 @@ export class DefaultSessionStore implements SessionStore {
 
   private metaFromEvents(id: string, events: SessionEvent[]): SessionMetadata {
     const start = events.find((e) => e.type === 'session_start');
-    const end = events.find((e) => e.type === 'session_end');
+    // Use the LAST session_end: resume cycles append a new session_end on
+    // every clean exit, and legacy /save commands wrote mid-stream markers.
+    const end = events.findLast((e) => e.type === 'session_end');
     return {
       id,
       startedAt: start?.ts ?? new Date(0).toISOString(),
@@ -697,7 +708,7 @@ function extractToolCallEnds(events: SessionEvent[]): SessionData['toolCallEnds'
 
 class FileSessionWriter implements SessionWriter {
   private closed = false;
-  private closing = false;
+  private closePromise: Promise<void> | null = null;
   private manifestFile: string;
   private summary: SessionSummary;
   private tokenIn = 0;
@@ -706,7 +717,17 @@ class FileSessionWriter implements SessionWriter {
   get transcriptPath(): string | undefined {
     return this.filePath || undefined;
   }
-  private initDone = false;
+  /**
+   * Lazy session_start/session_resumed init, shared by all appenders.
+   * A single promise (not a boolean) so a second append racing the first
+   * can't push its event into the buffer BEFORE the first append's event —
+   * every appender awaits the same init and resumes in FIFO call order.
+   */
+  private initPromise: Promise<void> | null = null;
+  private ensureInit(): Promise<void> {
+    if (!this.initPromise) this.initPromise = this.writeSessionStartLazy();
+    return this.initPromise;
+  }
   private readonly resumed: boolean;
   private appendFailCount = 0;
   private lastAppendWarnAt = 0;
@@ -724,6 +745,26 @@ class FileSessionWriter implements SessionWriter {
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private static readonly FLUSH_INTERVAL_MS = 500;
   private static readonly FLUSH_SIZE = 50;
+
+  // ── Write serialization ─────────────────────────────────────────────────
+  //
+  // All disk writes are funneled through a FIFO promise chain. Without it,
+  // a timer-driven flush racing an explicit flush()/close() issues two
+  // concurrent appendFile() calls on the shared O_APPEND handle — the kernel
+  // may complete them out of order (chronology breaks) or, for large
+  // batches, interleave partial writes (torn JSONL lines). The chain keeps
+  // exactly one write in flight; failures don't break the chain.
+  private writeChain: Promise<void> = Promise.resolve();
+
+  /** Enqueue a write on the FIFO chain. Resolves/rejects with that write. */
+  private enqueueWrite(data: string): Promise<void> {
+    const write = this.writeChain.then(() => this.handle.appendFile(data, 'utf8'));
+    this.writeChain = write.then(
+      () => undefined,
+      () => undefined,
+    );
+    return write;
+  }
 
   // ── Enriched summary tracking ──────────────────────────────────────────
   private iterationCount = 0;
@@ -827,7 +868,7 @@ class FileSessionWriter implements SessionWriter {
       provider: this.meta.provider ?? 'unknown',
     })}\n`;
     try {
-      await this.handle.appendFile(record, 'utf8');
+      await this.enqueueWrite(record);
     } catch {
       // best-effort
     }
@@ -835,10 +876,7 @@ class FileSessionWriter implements SessionWriter {
 
   async append(event: SessionEvent): Promise<void> {
     if (this.closed) return;
-    if (!this.initDone) {
-      this.initDone = true;
-      await this.writeSessionStartLazy();
-    }
+    await this.ensureInit();
     // Scrub before observing (the summary title is derived from user_input
     // content) and before buffering, so neither the JSONL nor the sidecar
     // ever holds a cleartext secret.
@@ -865,10 +903,7 @@ class FileSessionWriter implements SessionWriter {
 
   async appendBatch(events: SessionEvent[]): Promise<void> {
     if (this.closed || events.length === 0) return;
-    if (!this.initDone) {
-      this.initDone = true;
-      await this.writeSessionStartLazy();
-    }
+    await this.ensureInit();
     for (const event of events) {
       const scrubbed = this.scrubEvent(event);
       this.observeForSummary(scrubbed);
@@ -927,7 +962,7 @@ class FileSessionWriter implements SessionWriter {
     const batch = this.writeBuffer.map((e) => JSON.stringify(e)).join('\n') + '\n';
     this.writeBuffer = [];
     try {
-      await this.handle.appendFile(batch, 'utf8');
+      await this.enqueueWrite(batch);
     } catch (err) {
       this.appendFailCount += eventCount;
       const now = Date.now();
@@ -947,6 +982,14 @@ class FileSessionWriter implements SessionWriter {
 
   private observeForSummary(event: SessionEvent): void {
     // Track open tool uses so we can serialize them on close for resume.
+    // The authoritative source is the llm_response content (a core event,
+    // always written at every audit level); the legacy 'tool_use' event is
+    // kept for alternate writers that still emit it.
+    if (event.type === 'llm_response') {
+      for (const block of event.content) {
+        if (block.type === 'tool_use') this.openToolUses.add(block.id);
+      }
+    }
     if (event.type === 'tool_use') {
       this.openToolUses.add(event.id);
     } else if (event.type === 'tool_call_start') {
@@ -982,8 +1025,15 @@ class FileSessionWriter implements SessionWriter {
   }
 
   async close(): Promise<void> {
-    if (this.closing) return;
-    this.closing = true;
+    // Idempotent AND awaitable: concurrent/repeat callers share the same
+    // promise, so nobody proceeds (e.g. to tear down the session directory)
+    // while the first close is still flushing.
+    if (this.closePromise) return this.closePromise;
+    this.closePromise = this.doClose();
+    return this.closePromise;
+  }
+
+  private async doClose(): Promise<void> {
     this.closed = true;
     // Flush any buffered events before finalizing. The summary counters
     // (toolCallCount, tokenIn/Out, outcome) are already up to date because
@@ -994,6 +1044,9 @@ class FileSessionWriter implements SessionWriter {
       this.flushTimer = null;
     }
     await this.flushBuffer();
+    // Drain any write enqueued outside flushBuffer (e.g. the lazy
+    // session_start record) before the handle is closed.
+    await this.writeChain;
     // Finalize the summary before writing.
     this.summary = {
       ...this.summary,
@@ -1072,6 +1125,9 @@ class FileSessionWriter implements SessionWriter {
       this.flushTimer = null;
     }
     await this.flushBuffer();
+    // Drain the write chain so no in-flight write straddles the
+    // close → rename → reopen sequence below.
+    await this.writeChain;
     const raw = await fsp.readFile(this.filePath, 'utf8');
     const lines = raw.split('\n');
     const kept: string[] = [];
@@ -1156,6 +1212,9 @@ class FileSessionWriter implements SessionWriter {
       this.flushTimer = null;
     }
     this.writeBuffer = [];
+    // Let any in-flight append land first — otherwise it would re-append
+    // stale events AFTER the reset record below.
+    await this.writeChain;
     const record = `${JSON.stringify({
       type: 'session_start',
       ts: new Date().toISOString(),

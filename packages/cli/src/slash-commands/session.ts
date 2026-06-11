@@ -56,17 +56,19 @@ function getRegistry(): SessionRegistry | undefined {
   }
 }
 
-export function buildSaveCommand(opts: SlashCommandContext): SlashCommand {
+export function buildSaveCommand(_opts: SlashCommandContext): SlashCommand {
   return {
     name: 'save',
     category: 'Session',
     description: 'Save current session (auto by default; this forces flush).',
     async run(_args, ctx) {
-      await ctx.session.append({
-        type: 'session_end',
-        ts: new Date().toISOString(),
-        usage: opts.tokenCounter.total(),
-      });
+      if (!ctx?.session) {
+        return { message: 'No active session.' };
+      }
+      // Force buffered events to disk. Do NOT write a session_end here —
+      // the session is still running; a mid-stream end marker corrupts
+      // outcome/endedAt derivation for recovery and summaries.
+      await ctx.session.flush();
       return { message: `Session ${ctx.session.id} flushed.` };
     },
   };

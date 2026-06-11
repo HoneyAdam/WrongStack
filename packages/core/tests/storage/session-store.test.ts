@@ -116,7 +116,6 @@ describe('DefaultSessionStore', () => {
       ts: new Date().toISOString(),
       content: [{ type: 'tool_use', id: 'tu-1', name: 'x', input: {} }],
       usage: { input: 1, output: 1 },
-      model: 'm',
     });
     await w.close();
     // Damaged sessions resolve with partial replay instead of throwing —
@@ -134,7 +133,6 @@ describe('DefaultSessionStore', () => {
       ts: new Date().toISOString(),
       content: [{ type: 'tool_use', id: 'tu-1', name: 'x', input: {} }],
       usage: { input: 1, output: 1 },
-      model: 'm',
     });
     await w.append({
       type: 'tool_result',
@@ -590,6 +588,127 @@ describe('DefaultSessionStore — in-flight markers', () => {
     expect(data.toolCallEnds[1]).toMatchObject({ name: 'bash', id: 'b2', ok: false, durationMs: 200 });
     // Messages replay: 2 user (first + tool_result) + 2 assistant + 2 user (second + tool_result)
     expect(data.messages).toHaveLength(6);
+  });
+});
+
+// ── JSONL durability & correctness hardening ────────────────────────────────
+describe('DefaultSessionStore — JSONL correctness', () => {
+  let tmp: string;
+  let store: DefaultSessionStore;
+
+  beforeEach(async () => {
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-sess-hard-'));
+    store = new DefaultSessionStore({ dir: tmp });
+  });
+  afterEach(async () => {
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  it('resume() writes the summary sidecar into the shard directory, not the sessions root', async () => {
+    const id = '2026-06-11/12-00-00Z_test_ab12';
+    const w = await store.create({ id, model: 'm', provider: 'p' });
+    await w.append({ type: 'user_input', ts: new Date().toISOString(), content: 'hi' });
+    await w.close();
+
+    const { writer } = await store.resume(id);
+    await writer.append({ type: 'user_input', ts: new Date().toISOString(), content: 'again' });
+    await writer.close();
+
+    // Sidecar must sit next to the JSONL inside the date shard…
+    await expect(
+      fs.access(path.join(tmp, '2026-06-11', '12-00-00Z_test_ab12.summary.json')),
+    ).resolves.toBeUndefined();
+    // …and must NOT be orphaned at the sessions root.
+    await expect(
+      fs.access(path.join(tmp, '12-00-00Z_test_ab12.summary.json')),
+    ).rejects.toThrow();
+  });
+
+  it('close() is idempotent and awaitable — concurrent closers share one close', async () => {
+    const w = await store.create({ id: 'dbl-close', model: 'm', provider: 'p' });
+    await w.append({ type: 'user_input', ts: new Date().toISOString(), content: 'payload' });
+    await Promise.all([w.close(), w.close(), w.close()]);
+    // When ALL close() calls resolve, the data and the sidecar are on disk.
+    const raw = await fs.readFile(path.join(tmp, 'dbl-close.jsonl'), 'utf8');
+    expect(raw).toContain('payload');
+    await expect(fs.access(path.join(tmp, 'dbl-close.summary.json'))).resolves.toBeUndefined();
+  });
+
+  it('first-append init cannot be overtaken by a concurrent second append', async () => {
+    const w = await store.create({ id: 'init-race', model: 'm', provider: 'p' });
+    // Fire two appends WITHOUT awaiting the first — the session_start record
+    // must still be line 1 and events must keep call order.
+    const p1 = w.append({ type: 'user_input', ts: new Date().toISOString(), content: 'first' });
+    const p2 = w.append({ type: 'user_input', ts: new Date().toISOString(), content: 'second' });
+    await Promise.all([p1, p2]);
+    await w.close();
+    const lines = (await fs.readFile(path.join(tmp, 'init-race.jsonl'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l));
+    expect(lines[0].type).toBe('session_start');
+    const inputs = lines.filter((l) => l.type === 'user_input').map((l) => l.content);
+    expect(inputs).toEqual(['first', 'second']);
+  });
+
+  it('concurrent flush() calls never reorder or tear JSONL lines', async () => {
+    const w = await store.create({ id: 'order', model: 'm', provider: 'p' });
+    const promises: Promise<void>[] = [];
+    for (let i = 0; i < 120; i++) {
+      promises.push(
+        w.append({ type: 'user_input', ts: new Date().toISOString(), content: `m${i}` }),
+      );
+      // Interleave explicit flushes with buffered appends to provoke
+      // overlapping write attempts.
+      if (i % 7 === 0) promises.push(w.flush());
+    }
+    await Promise.all(promises);
+    await w.close();
+    const raw = await fs.readFile(path.join(tmp, 'order.jsonl'), 'utf8');
+    // Every line parses (no torn writes)…
+    const lines = raw.trim().split('\n').map((l) => JSON.parse(l));
+    // …and user_input events appear in exact append order.
+    const contents = lines.filter((l) => l.type === 'user_input').map((l) => l.content);
+    expect(contents).toEqual(Array.from({ length: 120 }, (_, i) => `m${i}`));
+  });
+
+  it('pendingToolUses tracks open tool_use blocks from llm_response content', async () => {
+    const w = await store.create({ id: 'pending', model: 'm', provider: 'p' });
+    await w.append({
+      type: 'llm_response',
+      ts: new Date().toISOString(),
+      content: [
+        { type: 'tool_use', id: 'tu-9', name: 'bash', input: {} },
+        { type: 'tool_use', id: 'tu-10', name: 'read', input: {} },
+      ],
+      stopReason: 'tool_use',
+      usage: { input: 1, output: 1 },
+    });
+    expect(w.pendingToolUses.sort()).toEqual(['tu-10', 'tu-9']);
+    await w.append({
+      type: 'tool_result',
+      ts: new Date().toISOString(),
+      id: 'tu-9',
+      content: 'ok',
+      isError: false,
+    });
+    expect(w.pendingToolUses).toEqual(['tu-10']);
+    await w.close();
+  });
+
+  it('metadata endedAt comes from the LAST session_end, not a mid-stream one', async () => {
+    const file = path.join(tmp, 'multi-end.jsonl');
+    const events = [
+      { type: 'session_start', ts: '2026-06-11T10:00:00.000Z', id: 'multi-end', model: 'm', provider: 'p' },
+      { type: 'user_input', ts: '2026-06-11T10:00:01.000Z', content: 'q1' },
+      // Legacy /save wrote a mid-stream session_end while the session kept going.
+      { type: 'session_end', ts: '2026-06-11T10:00:02.000Z', usage: { input: 1, output: 1 } },
+      { type: 'user_input', ts: '2026-06-11T10:00:03.000Z', content: 'q2' },
+      { type: 'session_end', ts: '2026-06-11T10:00:04.000Z', usage: { input: 2, output: 2 } },
+    ];
+    await fs.writeFile(file, events.map((e) => JSON.stringify(e)).join('\n') + '\n');
+    const data = await store.load('multi-end');
+    expect(data.metadata.endedAt).toBe('2026-06-11T10:00:04.000Z');
   });
 });
 

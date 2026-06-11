@@ -300,7 +300,14 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
               message: `🦂 Chimera review subagent ${result?.status ?? 'unknown'}: ${result?.error?.message ?? 'no result'}`,
               phase: 'agent',
             });
-          } catch { /* best-effort */ }
+          } catch (err) {
+            console.error(JSON.stringify({
+              level: 'error',
+              event: 'execution.chimera_append_failed',
+              message: err instanceof Error ? err.message : String(err),
+              timestamp: new Date().toISOString(),
+            }));
+          }
           return;
         }
 
@@ -326,7 +333,14 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
             message: `🦂 Chimera review failed: ${err instanceof Error ? err.message : String(err)}`,
             phase: 'agent',
           });
-        } catch { /* best-effort */ }
+        } catch (appendErr) {
+          console.error(JSON.stringify({
+            level: 'error',
+            event: 'execution.chimera_review_append_failed',
+            message: appendErr instanceof Error ? appendErr.message : String(appendErr),
+            timestamp: new Date().toISOString(),
+          }));
+        }
       }
     })();
   });
@@ -715,7 +729,13 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
                   configScope === 'project' && wpaths.inProjectConfig
                     ? wpaths.inProjectConfig
                     : wpaths.globalConfig;
-                const raw = await fs.readFile(targetPath, 'utf8').catch(() => '{}');
+                let raw: string;
+                try {
+                  raw = await fs.readFile(targetPath, 'utf8');
+                } catch (err) {
+                  // Re-throw with context so the outer catch handles it (e.g. user sees the real error)
+                  throw new Error(`Failed to read config at ${targetPath}: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
+                }
                 const parsed = JSON.parse(raw) as Record<string, unknown>;
                 const decrypted = decryptConfigSecrets(parsed, noOpVault) as Record<string, unknown>;
 
@@ -1048,20 +1068,59 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
                 }
               }
 
-              // Close the current session writer so a clean session_end event
-              // is appended to the JSONL before we start writing to the
-              // resumed one. Use agent.ctx.session (the currently active
-              // writer) rather than the captured `session` variable — the user
-              // may have resumed before, in which case `session` is stale.
+              // Finalize the current session: append a session_end (so the
+              // log ends cleanly and recovery/summaries see a completed
+              // session), then close (flush + summary sidecar + index). Use
+              // agent.ctx.session (the currently active writer) rather than
+              // the captured `session` variable — the user may have resumed
+              // before, in which case `session` is stale.
               // Fire-and-forget: don't block resume on the close.
               const oldWriter = agent.ctx.session;
               if (oldWriter && oldWriter !== resumed.writer) {
-                oldWriter.close().catch(() => undefined);
+                void (async () => {
+                  try {
+                    await oldWriter.append({
+                      type: 'session_end',
+                      ts: new Date().toISOString(),
+                      usage: tokenCounter.total(),
+                    });
+                  } catch (err) {
+                    console.error(JSON.stringify({
+                      level: 'error',
+                      event: 'execution.session_end_append_failed',
+                      message: err instanceof Error ? err.message : String(err),
+                      timestamp: new Date().toISOString(),
+                    }));
+                  }
+                  try {
+                    await oldWriter.close();
+                  } catch (err) {
+                    console.error(JSON.stringify({
+                      level: 'error',
+                      event: 'execution.session_close_failed',
+                      message: err instanceof Error ? err.message : String(err),
+                      timestamp: new Date().toISOString(),
+                    }));
+                  }
+                })();
               }
 
               // Swap the session writer: new events (tool calls, LLM responses)
               // will append to the resumed session's JSONL, not the old one.
               agent.ctx.session = resumed.writer;
+
+              // Re-point crash recovery (active.json) at the resumed session —
+              // otherwise a crash after this resume would offer recovery for
+              // the OLD (cleanly finalized) session and miss the live one.
+              void recoveryLock
+                .clear()
+                .then(() => recoveryLock.write(resumed.writer.id))
+                .catch((err) => console.error(JSON.stringify({
+                  level: 'error',
+                  event: 'execution.recovery_lock_update_failed',
+                  message: err instanceof Error ? err.message : String(err),
+                  timestamp: new Date().toISOString(),
+                })));
 
               // Replay the JSONL events as TUI history entries.
               const { replaySessionEvents } = await import('@wrongstack/tui');
@@ -1072,7 +1131,13 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
                 nextId: entries.length + 1,
                 sessionId: resumed.writer.id,
               };
-            } catch {
+            } catch (err) {
+              console.error(JSON.stringify({
+                level: 'error',
+                event: 'execution.resume_session_failed',
+                message: err instanceof Error ? err.message : String(err),
+                timestamp: new Date().toISOString(),
+              }));
               return null;
             }
           },
@@ -1192,6 +1257,10 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
       // this, approvals appear in the terminal even when you're driving the
       // agent from the browser.
       agent.disableInteractiveConfirmation();
+      // Silence CLI rendering — WebUI owns the output surface. The writeInfo
+      // calls below still flow (stderr), but streaming text/tool events are
+      // suppressed so they don't appear in both the terminal and the browser.
+      renderer.setSilent(true);
       const { runWebUI } = await import('./webui-server.js');
       const webuiPromise = runWebUI({
         agent,
@@ -1204,6 +1273,16 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
         globalConfigPath: wpaths.globalConfig,
         subscribeEternalIteration,
         sessionStore,
+        sessionsDir: wpaths.projectSessions,
+        onSessionSwapped: (newSessionId: string) => {
+          // Re-point crash recovery (active.json) at the resumed session —
+          // otherwise a crash after an in-app resume would offer recovery
+          // for the OLD (cleanly finalized) session and miss the live one.
+          void recoveryLock
+            .clear()
+            .then(() => recoveryLock.write(newSessionId))
+            .catch(() => undefined);
+        },
         memoryStore,
         skillLoader,
         modeStore,
@@ -1219,6 +1298,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
       renderer.writeInfo(color.dim('  Press Ctrl+C in this terminal to stop the WebUI server.\n'));
       const webuiExit = new Promise<number>((resolve) => {
         const onSigint = () => {
+          renderer.setSilent(false);
           renderer.write('\n');
           renderer.writeInfo(color.yellow('  Shutting down WebUI server…'));
           resolve(0);
@@ -1226,10 +1306,12 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
         process.on('SIGINT', onSigint);
         process.on('SIGTERM', onSigint);
         webuiPromise.then(() => {
+          renderer.setSilent(false);
           process.off('SIGINT', onSigint);
           process.off('SIGTERM', onSigint);
           resolve(0);
         }).catch((err) => {
+          renderer.setSilent(false);
           process.off('SIGINT', onSigint);
           process.off('SIGTERM', onSigint);
           console.debug(`[execution] webui error: ${err}`);
@@ -1281,13 +1363,20 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
     }
     await Promise.resolve(detachTodosCheckpoint?.()).catch(() => undefined);
     await mcpRegistry.stopAll();
-    await session.append({
+    // Use the CURRENT writer, not the one captured at startup — an in-app
+    // resume (TUI/WebUI) swaps agent.ctx.session to the resumed session's
+    // writer; session_end and close must land in THAT JSONL or the resumed
+    // session never gets finalized (no summary sidecar, no index entry).
+    const activeSession = agent.ctx.session ?? session;
+    const pending = activeSession.pendingToolUses;
+    await activeSession.append({
       type: 'session_end',
       ts: new Date().toISOString(),
       usage: tokenCounter.total(),
+      pendingToolUses: pending.length > 0 ? pending : undefined,
     });
-    events.emit('session.ended', { id: session.id, usage: tokenCounter.total() });
-    await session.close();
+    events.emit('session.ended', { id: activeSession.id, usage: tokenCounter.total() });
+    await activeSession.close();
     await recoveryLock.clear().catch(() => undefined);
     await reader.close();
   }

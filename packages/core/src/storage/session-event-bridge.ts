@@ -119,11 +119,22 @@ function isAllowed(type: SessionEvent['type'], level: AuditLevel): boolean {
  * });
  */
 export function createSessionEventBridge(
-  writer: SessionWriter | undefined | null,
+  writer:
+    | SessionWriter
+    | (() => SessionWriter | undefined | null)
+    | undefined
+    | null,
   level: AuditLevel = 'standard',
   options: SessionEventBridgeOptions = {},
 ): SessionEventBridge {
   const normalizedLevel: AuditLevel = level ?? 'standard';
+
+  // Accept either a writer instance or a getter. A getter lets long-lived
+  // hosts (CLI/TUI/WebUI) resolve the CURRENT writer on every append — when
+  // the user resumes another session mid-run, audit events follow the swap
+  // instead of being silently dropped into the old, closed writer.
+  const resolveWriter: () => SessionWriter | undefined | null =
+    typeof writer === 'function' ? writer : () => writer;
 
   // Internal sampling state for high-volume events (e.g. tool_progress).
   // Keyed by tool call id (or name as fallback) to keep sampling per-call.
@@ -168,14 +179,15 @@ export function createSessionEventBridge(
     },
 
     async append(event) {
-      if (!writer) return;
+      const target = resolveWriter();
+      if (!target) return;
       if (!isAllowed(event.type, normalizedLevel)) return;
 
       // Apply sampling for high-volume events (only at 'full' level)
       if (!shouldSample(event)) return;
 
       try {
-        await writer.append(event);
+        await target.append(event);
       } catch (err) {
         // Best-effort: never let session logging break the agent.
         // The existing FileSessionWriter already does throttled warnings,
@@ -185,13 +197,14 @@ export function createSessionEventBridge(
     },
 
     async appendBatch(events) {
-      if (!writer || events.length === 0) return;
+      const target = resolveWriter();
+      if (!target || events.length === 0) return;
       const allowed = events.filter(
         (e) => isAllowed(e.type, normalizedLevel) && shouldSample(e),
       );
       if (allowed.length === 0) return;
       try {
-        await writer.appendBatch(allowed);
+        await target.appendBatch(allowed);
       } catch {
         // best-effort — same contract as append()
       }

@@ -479,8 +479,12 @@ export async function main(argv: string[]): Promise<number> {
   const sessionConfig = resolveSessionLoggingConfig(
     config as unknown as Parameters<typeof resolveSessionLoggingConfig>[0],
   );
+  // Resolve the CURRENT writer on every append (getter form): when the user
+  // resumes another session mid-run, agent.ctx.session is swapped to the
+  // resumed writer — audit events must follow the swap instead of being
+  // dropped into the old, closed writer.
   const sessionBridge: SessionEventBridge = createSessionEventBridge(
-    session,
+    () => context.session ?? session,
     sessionConfig.auditLevel,
     {
       sampling: sessionConfig.sampling,

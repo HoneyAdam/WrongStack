@@ -139,6 +139,48 @@ describe('RecoveryLock', () => {
       expect(await checker.checkAbandoned()).toBeNull();
     });
 
+    it('still offers recovery when conversation continued AFTER a mid-stream session_end', async () => {
+      // Legacy /save wrote session_end markers mid-session. A crash after
+      // such a marker must still be recoverable — only a TRAILING
+      // session_end means clean exit.
+      const sessionStore = new DefaultSessionStore({ dir });
+      const session = await sessionStore.create({ id: 'mid-end', model: 'm', provider: 'p' });
+      await session.append({
+        type: 'user_input',
+        ts: new Date().toISOString(),
+        content: 'q1',
+      });
+      await session.append({
+        type: 'session_end',
+        ts: new Date().toISOString(),
+        usage: { input: 1, output: 1 },
+      });
+      // Conversation continued after the stale end marker, then crashed.
+      await session.append({
+        type: 'user_input',
+        ts: new Date().toISOString(),
+        content: 'q2 (crash after this)',
+      });
+      await session.close();
+      // close() appends nothing — the file's last events are user_input
+      // after session_end, which is what a crash-after-/save looks like.
+      // Strip the trailing flush artifacts? Not needed: load() reads raw.
+
+      const writer = new RecoveryLock({ dir, pid: 1, hostname: 'h', isPidAlive: () => false });
+      await writer.write(session.id);
+
+      const checker = new RecoveryLock({
+        dir,
+        pid: 2,
+        hostname: 'h',
+        isPidAlive: () => false,
+        sessionStore,
+      });
+      const out = await checker.checkAbandoned();
+      expect(out).not.toBeNull();
+      expect(out?.sessionId).toBe(session.id);
+    });
+
     it('returns null when the lockfile is older than maxAgeMs', async () => {
       // Hand-craft a lock with a stale timestamp.
       await fsp.mkdir(dir, { recursive: true });

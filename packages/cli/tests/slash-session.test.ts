@@ -4,29 +4,46 @@ import {
   buildLoadCommand,
   buildExitCommand,
 } from '../src/slash-commands/session.js';
+import type { Context } from '@wrongstack/core';
 
-function fakeCtx() {
+function fakeCtx(): Context {
   return {
     session: {
       id: 'sess-1',
       append: vi.fn().mockResolvedValue(undefined),
+      flush: vi.fn().mockResolvedValue(undefined),
     },
-  } as never;
+    messages: [],
+    todos: [],
+    readFiles: new Set(),
+    fileMtimes: new Map(),
+    systemPrompt: [],
+    model: 'test',
+    cwd: '/tmp',
+    projectRoot: '/tmp',
+    meta: {},
+    state: {
+      replaceMessages: vi.fn(),
+      replaceTodos: vi.fn(),
+      deleteMeta: vi.fn(),
+    },
+  } as unknown as Context;
 }
 
 // ── /save ────────────────────────────────────────────────────────────────────
 
 describe('buildSaveCommand', () => {
-  it('appends a session_end event and reports flushed', async () => {
+  it('flushes buffered events without writing a mid-stream session_end', async () => {
     const ctx = fakeCtx();
     const cmd = buildSaveCommand({
       tokenCounter: { total: () => ({ input: 100, output: 50 }) },
     } as never);
     const res = await cmd.run('', ctx);
     expect(res?.message).toContain('sess-1 flushed');
-    expect(ctx.session.append).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'session_end', usage: { input: 100, output: 50 } }),
-    );
+    expect(ctx.session.flush).toHaveBeenCalled();
+    // A running session must never get a session_end marker from /save —
+    // it corrupts outcome/endedAt derivation for recovery and summaries.
+    expect(ctx.session.append).not.toHaveBeenCalled();
   });
 });
 
