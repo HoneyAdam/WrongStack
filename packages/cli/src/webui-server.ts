@@ -31,7 +31,7 @@ import {
 } from '@wrongstack/core';
 import { DefaultSessionStore } from '@wrongstack/core/storage';
 import { DefaultSecretVault, decryptConfigSecrets, encryptConfigSecrets } from '@wrongstack/core/security';
-import { TOKENS, atomicWrite, repairToolUseAdjacency, listContextWindowModes, resolveContextWindowPolicy, DEFAULT_CONTEXT_WINDOW_MODE_ID, GlobalMailbox, resolveProjectDir, wstackGlobalRoot } from '@wrongstack/core';
+import { TOKENS, atomicWrite, repairToolUseAdjacency, listContextWindowModes, resolveContextWindowPolicy, DEFAULT_CONTEXT_WINDOW_MODE_ID, GlobalMailbox, projectSlug, resolveProjectDir, wstackGlobalRoot } from '@wrongstack/core';
 import { WebSocket, WebSocketServer } from 'ws';
 import { expectDefined, loadConfigProviders, maskedKey, mutateConfigProviders, normalizeKeys, nowIso, writeKeysBack } from './provider-config-utils.js';
 
@@ -2082,38 +2082,117 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
       }
 
       case 'projects.select': {
-        // Spawn a new wstack session in the chosen project directory
+        // In-process project switch — mirrors the standalone server's handler:
+        // re-root everything the handlers read at call time (opts.projectRoot,
+        // agent ctx, session store), finalize the old session writer, start a
+        // fresh session in the new project, and broadcast a reset
+        // session.start so every client re-renders (sessions, file manager,
+        // mailbox, context bar).
+        //
+        // An older version spawned a NEW interactive wstack with
+        // stdio:'inherit' into the host's terminal and changed nothing in the
+        // browser — the WebUI stayed on the old project.
         const { root, name: projectName } = (
           msg as { payload: { root: string; name?: string | undefined } }
         ).payload;
         try {
-          // Find the CLI entry point
-          let cliPath: string;
-          try {
-            const { createRequire } = await import('node:module');
-            const req = createRequire(import.meta.url);
-            const pkg = req.resolve('@wrongstack/cli/package.json');
-            cliPath = path.join(path.dirname(pkg), 'dist', 'index.js');
-            await fs.access(cliPath);
-          } catch {
-            cliPath = process.argv[1] ?? '';
-            if (!cliPath) throw new Error('CLI entry not found');
+          const resolved = path.resolve(root);
+          const stat = await fs.stat(resolved).catch(() => null);
+          if (!stat?.isDirectory()) {
+            send(ws, {
+              type: 'projects.selected',
+              payload: {
+                root,
+                name: projectName ?? path.basename(root),
+                message: `Cannot switch: not a directory: ${resolved}`,
+              },
+            });
+            break;
           }
-          const { spawn } = await import('node:child_process');
-          const child = spawn(process.execPath, [cliPath, '--no-interactive'], {
-            cwd: root,
-            stdio: 'inherit',
-            detached: false,
+
+          // Manifest: bump lastSeen, or auto-register an unknown root.
+          const { loadManifest, saveManifest } = await import('./slash-commands/project-utils.js');
+          const manifest = await loadManifest(opts.globalConfigPath);
+          const entry = manifest.projects.find((p) => path.resolve(p.root) === resolved);
+          const displayName = projectName?.trim() || entry?.name || path.basename(resolved);
+          if (entry) {
+            entry.lastSeen = new Date().toISOString();
+          } else {
+            manifest.projects.push({
+              name: displayName,
+              root: resolved,
+              slug: projectSlug(resolved),
+              lastSeen: new Date().toISOString(),
+              createdAt: new Date().toISOString(),
+            });
+          }
+          await saveManifest(manifest, opts.globalConfigPath);
+
+          // Abort any in-flight run — its context is about to be re-rooted.
+          if (abortController) {
+            abortController.abort();
+            abortController = null;
+          }
+
+          const ctx = opts.agent.ctx;
+          const oldSessionId = ctx.session?.id ?? opts.session.id;
+
+          // Finalize the writer we are leaving. Usage captured before the
+          // counter reset below (the closure runs after it).
+          const oldWriter = ctx.session;
+          const oldUsage = ctx.tokenCounter.total();
+          if (oldWriter) {
+            void (async () => {
+              await oldWriter
+                .append({ type: 'session_end', ts: new Date().toISOString(), usage: oldUsage })
+                .catch(() => undefined);
+              await oldWriter.close().catch(() => undefined);
+            })();
+          }
+
+          // Re-root: every handler resolves opts.projectRoot / ctx at call
+          // time (files.*, mailbox.*, goal, …), so mutating these re-roots
+          // them all without further plumbing.
+          opts.projectRoot = resolved;
+          ctx.cwd = resolved;
+          ctx.projectRoot = resolved;
+
+          // Fresh per-project session store + session.
+          const globalRoot = opts.globalConfigPath
+            ? path.dirname(opts.globalConfigPath)
+            : wstackGlobalRoot();
+          const newSessionsDir = path.join(resolveProjectDir(resolved, globalRoot), 'sessions');
+          await fs.mkdir(newSessionsDir, { recursive: true });
+          const newStore = new DefaultSessionStore({ dir: newSessionsDir });
+          opts.sessionStore = newStore;
+          const newWriter = await newStore.create({
+            id: '',
+            title: '',
+            model: ctx.model,
+            provider: (ctx.provider as { id?: string }).id ?? '',
           });
-          child.unref();
+          ctx.session = newWriter;
+          opts.onSessionSwapped?.(newWriter.id);
+          ctx.state.replaceMessages([]);
+          ctx.state.replaceTodos([]);
+          ctx.readFiles.clear();
+          ctx.fileMtimes.clear();
+          ctx.tokenCounter.reset();
+
           send(ws, {
             type: 'projects.selected',
             payload: {
-              root,
-              name: projectName ?? path.basename(root),
-              message: `Spawning wstack in ${root} ...`,
+              root: resolved,
+              name: displayName,
+              message: `Switched to ${displayName}`,
             },
           });
+          // Full-state broadcast so ALL clients re-root their panels.
+          const switchedP = await buildSessionStartPayload({
+            reset: true,
+            clearedSessionId: oldSessionId,
+          });
+          broadcast({ type: 'session.start', payload: switchedP });
         } catch (err) {
           sendResult(ws, false, err instanceof Error ? err.message : String(err));
         }
