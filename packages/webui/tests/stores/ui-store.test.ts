@@ -63,3 +63,27 @@ describe('selectActivity', () => {
     expect(useUIStore.getState().activeActivity).toBe('chat');
   });
 });
+
+// ── WorkspaceDock section state ────────────────────────────────────────
+
+describe('dockSection', () => {
+  it('starts collapsed', () => {
+    useUIStore.getState().setDockSection(null);
+    expect(useUIStore.getState().dockSection).toBeNull();
+  });
+
+  it('toggleDockSection opens a section and re-toggling collapses it', () => {
+    useUIStore.getState().setDockSection(null);
+    useUIStore.getState().toggleDockSection('work');
+    expect(useUIStore.getState().dockSection).toBe('work');
+    useUIStore.getState().toggleDockSection('work');
+    expect(useUIStore.getState().dockSection).toBeNull();
+  });
+
+  it('toggling a different section switches instead of collapsing', () => {
+    useUIStore.getState().setDockSection('work');
+    useUIStore.getState().toggleDockSection('autophase');
+    expect(useUIStore.getState().dockSection).toBe('autophase');
+    useUIStore.getState().setDockSection(null);
+  });
+});

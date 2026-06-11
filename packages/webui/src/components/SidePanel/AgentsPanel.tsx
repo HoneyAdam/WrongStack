@@ -5,11 +5,11 @@
  * overlay (the old FlowSidebar wired the overlay but never the click).
  */
 
-import { Bot, Wrench } from 'lucide-react';
+import { Bot, LayoutGrid, Wrench } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import type { SubagentView } from '@/stores';
-import { useFleetStore } from '@/stores';
+import { useFleetStore, useUIStore } from '@/stores';
 import { AgentDetail } from '../FleetPanel';
 
 const STATUS_META: Record<SubagentView['status'], { led: string; label: string; pulse: boolean }> =
@@ -73,6 +73,7 @@ function AgentRow({ agent, onClick }: { agent: SubagentView; onClick: () => void
 
 export function AgentsPanel() {
   const fleetAgents = useFleetStore((s) => s.agents);
+  const setCurrentView = useUIStore((s) => s.setCurrentView);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
 
   const fleetList = useMemo(() => {
@@ -116,6 +117,16 @@ export function AgentsPanel() {
         {fleetList.map((a) => (
           <AgentRow key={a.id} agent={a} onClick={() => setSelectedAgentId(a.id)} />
         ))}
+      </div>
+      <div className="border-t px-3 py-2 shrink-0">
+        <button
+          type="button"
+          onClick={() => setCurrentView('agents')}
+          className="w-full flex items-center justify-center gap-1.5 h-7 rounded-md border border-border text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+        >
+          <LayoutGrid className="h-3 w-3" />
+          Open full agents view
+        </button>
       </div>
       {selectedAgent && (
         <AgentDetail agent={selectedAgent} onClose={() => setSelectedAgentId(null)} />
