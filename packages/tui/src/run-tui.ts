@@ -315,6 +315,11 @@ export interface RunTuiOptions {
   onProjectSelect?: ((key: string, kind: 'project' | 'action') => void) | undefined;
   getLiveSessions?: (() => Promise<import('./components/sessions-panel.js').LiveSessionEntry[]>) | undefined;
   onSwitchToSession?: ((sessionId: string, projectRoot: string, projectName: string) => void) | undefined;
+  /**
+   * When true, the agents monitor (F3) is open by default at TUI startup.
+   * Used by the `wrongstack quick` command to show agents panel immediately.
+   */
+  initialAgentsMonitorOpen?: boolean | undefined;
 }
 
 // Bracketed paste mode wraps any pasted text with these markers, letting us
@@ -590,6 +595,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
           onProjectSelect: opts.onProjectSelect,
           getLiveSessions: opts.getLiveSessions,
           onSwitchToSession: opts.onSwitchToSession,
+          initialAgentsMonitorOpen: opts.initialAgentsMonitorOpen,
         }),
         { exitOnCtrlC: false, stdin: inkStdin },
       );

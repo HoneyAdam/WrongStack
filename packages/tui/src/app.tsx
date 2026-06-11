@@ -43,6 +43,7 @@ import { MailboxPanel } from './components/mailbox-panel.js';
 import { HelpOverlay } from './components/help-overlay.js';
 import { History, type HistoryEntry } from './components/history.js';
 import { ScrollableHistory, scrollOffsetForTrackRow } from './components/scrollable-history.js';
+import { startHeapWatchdog } from './heap-watchdog.js';
 import { hitRegion, statusBarLineRow } from './hit-test.js';
 import { Input, type KeyEvent } from './components/input.js';
 import { ModelPicker, type ProviderOption } from './components/model-picker.js';
@@ -56,6 +57,7 @@ import { ResumePicker } from './components/resume-picker.js';
 import { SessionsPanel } from './components/sessions-panel.js';
 import { SettingsPicker } from './components/settings-picker.js';
 import { SlashMenu } from './components/slash-menu.js';
+import { KeyHintBar, type KeyHintContext } from './components/key-hint-bar.js';
 import {
   COMPACT_THRESHOLD,
   StatusBar,
@@ -509,6 +511,11 @@ export interface AppProps {
     outputTokens?: number | undefined;
     outputLines?: number | undefined;
   }> | undefined;
+  /**
+   * When true, the agents monitor (F3) is open by default at TUI startup.
+   * Used by the `wrongstack quick` command to show agents panel immediately.
+   */
+  initialAgentsMonitorOpen?: boolean | undefined;
 }
 
 const PASTE_THRESHOLD_CHARS = 200;
@@ -588,6 +595,7 @@ export function App({
   onProjectSelect,
   getLiveSessions,
   onSwitchToSession,
+  initialAgentsMonitorOpen,
 }: AppProps): React.ReactElement {
   const { exit } = useApp();
   const { stdout } = useStdout();
@@ -744,7 +752,7 @@ export function App({
     },
     autonomyPicker: { open: false, options: [], selected: 0 },
     resumePicker: { open: false, sessions: [], selected: 0, busy: false, hint: undefined, error: undefined },
-    settingsPicker: { open: false, field: 0, mode: 'off', delayMs: 0, titleAnimation: true, yolo: false, streamFleet: true, chime: false, confirmExit: true, nextPrediction: false, featureMcp: true, featurePlugins: true, featureMemory: true, featureSkills: true, featureModelsRegistry: true, contextAutoCompact: true, contextStrategy: 'hybrid', logLevel: 'info', auditLevel: 'standard', indexOnStart: true, maxIterations: 500, autoProceedMaxIterations: 50, enhanceDelayMs: 60_000, debugStream: false, configScope: 'global' },
+    settingsPicker: { open: false, field: 0, mode: 'off', delayMs: 0, titleAnimation: true, yolo: false, streamFleet: true, chime: false, confirmExit: true, nextPrediction: false, featureMcp: true, featurePlugins: true, featureMemory: true, featureSkills: true, featureModelsRegistry: true, contextAutoCompact: true, contextStrategy: 'hybrid', logLevel: 'info', auditLevel: 'standard', indexOnStart: true, maxIterations: 500, autoProceedMaxIterations: 50, enhanceDelayMs: 60_000, enhanceEnabled: true, enhanceLanguage: 'original', debugStream: false, configScope: 'global' },
     projectPicker: { open: false, allItems: [], items: [], selected: 0, filter: '', hint: undefined },
     confirmQueue: [],
     enhance: null,
@@ -767,7 +775,7 @@ export function App({
     fleetConcurrency: 4,
     streamFleet: true,
     monitorOpen: false,
-    agentsMonitorOpen: false,
+    agentsMonitorOpen: initialAgentsMonitorOpen ?? false,
     helpOpen: false,
     todosMonitorOpen: false,
     queuePanelOpen: false,
@@ -1001,6 +1009,37 @@ export function App({
     const t = setInterval(() => setNowTick(Date.now()), 10000);
     return () => clearInterval(t);
   }, []);
+
+  // Heap watchdog. Long autonomous sessions (10h+) have crashed at the V8
+  // heap limit ("Ineffective mark-compacts near heap limit") with nothing
+  // attributing what grew. Sample memory every minute, append diagnostics
+  // (incl. history/conversation sizes) to ~/.wrongstack/logs/heap.jsonl,
+  // and surface in-chat warnings at 60% / 85% of the heap limit so the user
+  // can checkpoint and restart BEFORE the hard OOM.
+  useEffect(() => {
+    const approxChars = (v: unknown): number => {
+      try {
+        return JSON.stringify(v)?.length ?? 0;
+      } catch {
+        return -1;
+      }
+    };
+    return startHeapWatchdog({
+      collectStats: () => ({
+        historyEntries: stateRef.current.entries.length,
+        historyChars: approxChars(stateRef.current.entries),
+        messages: agent.ctx.state.messages.length,
+        messagesChars: approxChars(agent.ctx.state.messages),
+        runningTools: stateRef.current.runningTools.size,
+      }),
+      onWarn: (level, message) => {
+        dispatch({
+          type: 'addEntry',
+          entry: { kind: level === 'critical' ? 'error' : 'warn', text: message },
+        });
+      },
+    });
+  }, [agent.ctx]);
 
   // Keep the F9 goal panel live: refresh the moment it opens and on every tick
   // while it stays open, so a goal set mid-session via `/goal` — or progress
@@ -2217,7 +2256,11 @@ export function App({
             if (autonomyLive === 'auto') {
               switchAutonomy?.('off');
             }
-            await runBlocks(blocks);
+            // Via ref: `runBlocks` is declared ~2000 lines below — naming it
+            // in this effect's deps array evaluates it at render time and
+            // throws a TDZ ReferenceError. The ref is only dereferenced when
+            // the countdown fires, long after mount.
+            await runBlocksRef.current(blocks);
           })();
         }
       } else {
@@ -2229,7 +2272,7 @@ export function App({
       clearInterval(nextStepsAutoSubmitTimerRef.current);
       nextStepsAutoSubmitTimerRef.current = undefined;
     };
-  }, [state.status, autonomyLive, state.enhance, state.enhanceBusy, getSettings, getSuggestions, switchAutonomy, dispatch, runBlocks]);
+  }, [state.status, autonomyLive, state.enhance, state.enhanceBusy, getSettings, getSuggestions, switchAutonomy, dispatch]);
 
   // ── Auto-save settings on value change (←/→ arrow keys) ──
   // Gate ref: skip the first effect fire when settings just opened (all fields
@@ -2278,6 +2321,8 @@ export function App({
       maxIterations: sp.maxIterations,
       autoProceedMaxIterations: sp.autoProceedMaxIterations,
       enhanceDelayMs: sp.enhanceDelayMs,
+      enhanceEnabled: sp.enhanceEnabled,
+      enhanceLanguage: sp.enhanceLanguage,
       debugStream: sp.debugStream,
       configScope: sp.configScope,
     })).then((err: string | null) => {
@@ -3269,7 +3314,7 @@ export function App({
     }
 
     if (state.settingsPicker.open) {
-      if (key.escape || (key.ctrl && input === 's') || key.fn === 5) {
+      if (key.escape || (key.ctrl && input === 's')) {
         dispatch({ type: 'settingsClose' });
         return;
       }
@@ -3706,52 +3751,7 @@ export function App({
       toggleWorktreeOverlay();
       return;
     }
-    // F5 → open/close the autonomy settings editor. Opening closes any
-    // other open overlay or panel so only one dashboard is visible.
-    if (key.fn === 5) {
-      if (state.settingsPicker.open) {
-        dispatch({ type: 'settingsClose' });
-      } else if (getSettings && saveSettings) {
-        // Close all other overlays/panels first.
-        if (state.agentsMonitorOpen) dispatch({ type: 'toggleAgentsMonitor' });
-        if (state.monitorOpen) dispatch({ type: 'toggleMonitor' });
-        if (state.worktreeMonitorOpen) dispatch({ type: 'worktreeMonitorToggle' });
-        if (state.todosMonitorOpen) dispatch({ type: 'toggleTodosMonitor' });
-        if (state.autoPhase?.monitorOpen) dispatch({ type: 'autoPhaseMonitorToggle' });
-        if (state.queuePanelOpen) dispatch({ type: 'toggleQueuePanel' });
-        if (state.helpOpen) dispatch({ type: 'toggleHelp' });
-        const cfg = getSettings();
-        dispatch({
-          type: 'settingsOpen',
-          mode: cfg.mode,
-          delayMs: cfg.delayMs,
-          titleAnimation: cfg.titleAnimation ?? true,
-          yolo: cfg.yolo ?? false,
-          streamFleet: cfg.streamFleet ?? true,
-          chime: cfg.chime ?? false,
-          confirmExit: cfg.confirmExit ?? true,
-          nextPrediction: cfg.nextPrediction ?? false,
-          featureMcp: cfg.featureMcp ?? true,
-          featurePlugins: cfg.featurePlugins ?? true,
-          featureMemory: cfg.featureMemory ?? true,
-          featureSkills: cfg.featureSkills ?? true,
-          featureModelsRegistry: cfg.featureModelsRegistry ?? true,
-          contextAutoCompact: cfg.contextAutoCompact ?? true,
-          contextStrategy: cfg.contextStrategy ?? 'hybrid',
-          logLevel: cfg.logLevel ?? 'info',
-          auditLevel: cfg.auditLevel ?? 'standard',
-          indexOnStart: cfg.indexOnStart ?? true,
-          maxIterations: cfg.maxIterations ?? 500,
-          autoProceedMaxIterations: cfg.autoProceedMaxIterations ?? 50,
-          enhanceDelayMs: cfg.enhanceDelayMs ?? 60_000,
-          enhanceEnabled: cfg.enhanceEnabled ?? true,
-          enhanceLanguage: (cfg.enhanceLanguage as 'original' | 'english') ?? 'original',
-          debugStream: cfg.debugStream ?? false,
-          configScope: cfg.configScope ?? 'global',
-        });
-      }
-      return;
-    }
+    // F5 → no-op. Settings are accessible via the /settings slash command.
     // F6 → full-screen todos monitor overlay.
     if (key.fn === 6) {
       toggleTodosOverlay();
@@ -4970,8 +4970,11 @@ export function App({
 
     if (state.status !== 'idle') {
       // Agent is busy — queue this message for the drainer to pick up.
-      // Abort any auto-proceed countdown since user is providing input.
-      if (autonomyLive === 'auto') {
+      // Abort any next-steps auto-submit countdown since user is providing input.
+      // Only cancel autonomy if a countdown was actually running — otherwise
+      // this would override the user's explicit 'auto' selection in the
+      // autonomy picker (which also fires this handler via Enter).
+      if (autonomyLive === 'auto' && nextStepsAutoSubmitTimerRef.current != null) {
         switchAutonomy?.('off');
       }
       dispatch({
@@ -4985,9 +4988,12 @@ export function App({
     dispatch({ type: 'addEntry', entry: { kind: 'user', text: displayText, pasteContent } });
 
     // ── Abort auto-proceed countdown ────────────────────────────────────
-    // User submitted input — abort any pending auto-proceed countdown and
-    // switch to manual mode so the next step waits for explicit trigger.
-    if (autonomyLive === 'auto') {
+    // User submitted input — abort any pending next-steps auto-submit
+    // countdown and switch to manual mode so the next step waits for
+    // explicit trigger. Only cancel if a countdown was actually running —
+    // otherwise this would override the user's explicit 'auto' selection
+    // in the autonomy picker (which also fires this handler via Enter).
+    if (autonomyLive === 'auto' && nextStepsAutoSubmitTimerRef.current != null) {
       switchAutonomy?.('off');
     }
 
@@ -5206,6 +5212,8 @@ export function App({
               maxIterations={state.settingsPicker.maxIterations}
               autoProceedMaxIterations={state.settingsPicker.autoProceedMaxIterations}
               enhanceDelayMs={state.settingsPicker.enhanceDelayMs}
+              enhanceEnabled={state.settingsPicker.enhanceEnabled}
+              enhanceLanguage={state.settingsPicker.enhanceLanguage}
               debugStream={state.settingsPicker.debugStream}
               configScope={state.settingsPicker.configScope}
               hint={state.settingsPicker.hint}
@@ -5465,6 +5473,40 @@ export function App({
           {state.processListOpen ? <ProcessListMonitor /> : null}
           {/* Goal panel (F9) — shows current goal, deliverables, progress. */}
           {state.goalPanelOpen ? <GoalPanel goal={state.goalSummary} /> : null}
+          {/* Key hint bar — shows keyboard shortcuts and a discovery hint for the next panel. */}
+          {(() => {
+            const anyMonitorOpen =
+              state.agentsMonitorOpen ||
+              (state.autoPhase?.monitorOpen ?? false) ||
+              state.worktreeMonitorOpen ||
+              state.todosMonitorOpen ||
+              state.monitorOpen ||
+              state.processListOpen ||
+              state.queuePanelOpen ||
+              state.goalPanelOpen;
+            // Compute the next panel hint based on the currently open monitor.
+            // Panels cycle in this order: agents(F3) → todos(F6) → goal(F9) → agents
+            let nextPanelHint: KeyHintContext['nextPanelHint'];
+            if (state.agentsMonitorOpen) {
+              nextPanelHint = { key: 'F6', label: 'todos' };
+            } else if (
+              state.autoPhase?.monitorOpen ||
+              state.worktreeMonitorOpen ||
+              state.todosMonitorOpen
+            ) {
+              nextPanelHint = { key: 'F9', label: 'goal' };
+            } else if (state.queuePanelOpen || state.processListOpen || state.goalPanelOpen) {
+              nextPanelHint = { key: 'F3', label: 'agents' };
+            } else if (anyMonitorOpen) {
+              nextPanelHint = { key: 'F3', label: 'agents' };
+            }
+            const ctx: KeyHintContext = {
+              monitor: anyMonitorOpen,
+              managed: state.scrollOffset > 0,
+              nextPanelHint,
+            };
+            return <KeyHintBar context={ctx} />;
+          })()}
           </Box>
         </Box>
       </Box>

@@ -96,7 +96,7 @@ export interface SettingsPickerProps {
 }
 
 /** Total number of settings rows (used for wrap-around navigation). */
-export const SETTINGS_FIELD_COUNT = 25;
+export const SETTINGS_FIELD_COUNT = 24;
 
 export const CONFIG_SCOPES = ['global', 'project'] as const;
 export type ConfigScope = (typeof CONFIG_SCOPES)[number];

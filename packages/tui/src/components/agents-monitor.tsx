@@ -94,12 +94,13 @@ function ContextBar({
   tokens?: number | undefined;
   maxTokens?: number | undefined;
 }): React.ReactElement {
-  const clamped = Math.max(0, Math.min(2, pct)); // cap visual at 200%
+  const clamped = Math.max(0, Math.min(1, pct)); // cap visual at 100%
   const totalBars = 10;
   const filled = Math.round(clamped * totalBars);
   const empty = totalBars - filled;
-  const color = pct < 0.6 ? 'green' : pct < 0.75 ? 'yellow' : 'red';
-  const pctText = pct >= 1 ? `${Math.round(pct * 100)}%+` : `${Math.round(pct * 100)}%`;
+  const color = clamped < 0.6 ? 'green' : clamped < 0.75 ? 'yellow' : 'red';
+  // Display pct capped at 100% since compact mode manages over-budget scenarios.
+  const pctText = `${Math.min(Math.round(pct * 100), 100)}%`;
   const tokenText = tokens ? ` ${fmtTokens(tokens)}/${fmtTokens(maxTokens ?? 200_000)}` : '';
   return (
     <Text color={color}>

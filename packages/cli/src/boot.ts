@@ -176,6 +176,24 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
 
   // Quick path: subcommand dispatch
   const first = positional[0];
+  // `wrongstack quick` — launch directly into TUI with sensible defaults.
+  // Flags are set so execute() calls runTui() with initialAgentsMonitorOpen: true.
+  // Plugins are listed as debug logs (visible in log file).
+  if (first === 'quick') {
+    flags['quick'] = true;
+    flags['tui'] = true;
+    positional.splice(0, 1); // consume 'quick', don't dispatch to subcommand handler
+    const plugins = config?.plugins ?? [];
+    if (plugins.length === 0) {
+      console.debug('[wrongstack:quick] No plugins configured');
+    } else {
+      for (const p of plugins) {
+        const name = typeof p === 'string' ? p : p.name;
+        const enabled = typeof p === 'object' && p.enabled === false ? ' (disabled)' : '';
+        console.debug(`[wrongstack:quick] plugin: ${name}${enabled}`);
+      }
+    }
+  }
   if (first && subcommands[first]) {
     // Create container to get the SAME skillLoader instance that the main
     // interactive CLI uses. This ensures cache invalidation after

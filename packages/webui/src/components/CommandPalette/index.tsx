@@ -148,9 +148,12 @@ export function CommandPalette() {
         run: () => downloadChatAsHtml(),
       },
       {
-        id: 'history', category: 'Command', label: 'Open history',
+        id: 'history', category: 'Command', label: 'Open history panel',
         icon: HistoryIcon, keywords: ['history', 'sessions'],
-        run: () => setCurrentView('history'),
+        run: () => {
+          useUIStore.getState().setSidebarOpen(true);
+          useUIStore.getState().selectActivity('history');
+        },
       },
       {
         id: 'settings', category: 'Command', label: 'Open settings',
@@ -160,7 +163,7 @@ export function CommandPalette() {
       {
         id: 'model', category: 'Command', label: 'Change provider/model',
         icon: Cpu, keywords: ['model', 'provider', 'change'],
-        run: () => setCurrentView('settings'),
+        run: () => useUIStore.getState().setModelSwitcherOpen(true),
       },
       { id: 'theme-light', category: 'Theme', label: 'Theme: Light', icon: Sun, keywords: ['theme', 'light', 'mode'], run: () => setTheme('light') },
       { id: 'theme-dark', category: 'Theme', label: 'Theme: Dark', icon: Moon, keywords: ['theme', 'dark', 'mode'], run: () => setTheme('dark') },

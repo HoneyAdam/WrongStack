@@ -50,6 +50,7 @@ import { auditCmd } from './handlers/audit.js';
 import { skillsCmd, toolsCmd } from './handlers/tools-skills.js';
 import { modeldiagCmd } from './handlers/modeldiag.js';
 import { helpCmd, versionCmd } from './handlers/version-help.js';
+import { quickCmd } from './handlers/quick.js';
 
 export const subcommands: Record<string, SubcommandHandler> = {
   acp: acpCmd,
@@ -76,4 +77,5 @@ export const subcommands: Record<string, SubcommandHandler> = {
   help: helpCmd,
   projects: projectsCmd,
   modeldiag: modeldiagCmd,
+  quick: quickCmd,
 };

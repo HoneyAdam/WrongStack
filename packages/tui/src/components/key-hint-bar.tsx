@@ -9,11 +9,15 @@ export interface KeyHintContext {
   picker?: boolean | undefined; // file / slash / model / autonomy picker, or rewind overlay
   monitor?: boolean; // any full-screen monitor overlay open
   managed?: boolean; // managed viewport active (in-app scroll)
+  /** Hint for the next panel: key combination and panel name to encourage discovery. */
+  nextPanelHint?: { key: string; label: string } | undefined;
 }
 
 export interface Hint {
   key: string;
   label: string;
+  /** When true, render in a distinct color to highlight panel discovery. */
+  discovery?: boolean | undefined;
 }
 
 export function hintsFor(ctx: KeyHintContext): Hint[] {
@@ -33,7 +37,7 @@ export function hintsFor(ctx: KeyHintContext): Hint[] {
     ];
   }
   if (ctx.monitor) {
-    return [
+    const hints: Hint[] = [
       { key: 'Esc', label: 'close' },
       { key: '^F', label: 'fleet' },
       { key: '^G', label: 'agents' },
@@ -41,11 +45,18 @@ export function hintsFor(ctx: KeyHintContext): Hint[] {
       { key: 'F6', label: 'todos' },
       { key: 'F9', label: 'goal' },
     ];
+    if (ctx.nextPanelHint) {
+      hints.push({ key: ctx.nextPanelHint.key, label: ctx.nextPanelHint.label, discovery: true });
+    }
+    return hints;
   }
   // Idle / chat.
   const base: Hint[] = [{ key: '?', label: 'help' }];
-  if (ctx.managed) base.push({ key: 'PgUp/PgDn', label: 'scroll' }, { key: 'F5', label: 'Settings' });
+  if (ctx.managed) base.push({ key: 'PgUp/PgDn', label: 'scroll' });
   base.push({ key: '^G', label: 'agents' }, { key: '^C', label: 'stop' });
+  if (ctx.nextPanelHint) {
+    base.push({ key: ctx.nextPanelHint.key, label: ctx.nextPanelHint.label, discovery: true });
+  }
   return base;
 }
 
@@ -53,6 +64,7 @@ export function hintsFor(ctx: KeyHintContext): Hint[] {
  * Persistent one-line keybinding hint bar shown at the very bottom of the TUI,
  * like a status-line cheat sheet. Context-aware: surfaces the keys that matter
  * for whatever is on screen (confirm prompt → y/n/a/d, picker → ↑↓/↵, etc.).
+ * Discovery hints (next panel) are rendered in a distinct color to encourage exploration.
  */
 export function KeyHintBar({ context }: { context: KeyHintContext }): React.ReactElement {
   const hints = hintsFor(context);
@@ -61,7 +73,7 @@ export function KeyHintBar({ context }: { context: KeyHintContext }): React.Reac
       {hints.map((h, i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: hints are positional + stable
         <Box key={i} flexDirection="row" marginRight={2}>
-          <Text color={theme.accent}>{h.key}</Text>
+          <Text color={h.discovery ? theme.monitor.agents : theme.accent}>{h.key}</Text>
           <Text dimColor>{` ${h.label}`}</Text>
         </Box>
       ))}

@@ -429,9 +429,16 @@ export function StatusBar({
             {context && !hiddenSet.has('context') ? (
               <>
                 <Text dimColor>│</Text>
-                <Text color={context.used / context.max < 0.6 ? 'green' : context.used / context.max < 0.75 ? 'yellow' : 'red'}>
-                  ctx {renderMeter(context.used / context.max, 8)} {Math.round((context.used / context.max) * 100)}%
-                </Text>
+                {(() => {
+                  const ratio = context.used / context.max;
+                  const clampedRatio = Math.min(ratio, 1);
+                  const pctText = `${Math.min(Math.round(ratio * 100), 100)}%`;
+                  return (
+                    <Text color={clampedRatio < 0.6 ? 'green' : clampedRatio < 0.75 ? 'yellow' : 'red'}>
+                      ctx {renderMeter(clampedRatio, 8)} {pctText}
+                    </Text>
+                  );
+                })()}
               </>
             ) : null}
             {usage && isComfortable ? (

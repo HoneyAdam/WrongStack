@@ -44,6 +44,55 @@ export type {
  */
 const MAX_TOOL_STREAM_RETAINED_CHARS = 100_000;
 
+/**
+ * Caps applied to tool `input` payloads before they are retained in
+ * `state.entries`. Entries live for the entire session and the array is
+ * append-only (Ink's <Static> contract), so storing raw inputs leaks: a
+ * single `write` call carries the whole file body, an `edit` carries
+ * old_string+new_string — over a long autonomous session those add up to
+ * hundreds of MB of strings that nothing ever reads again. Rendering only
+ * needs tiny projections (paths, patterns, ~100-char command previews —
+ * see formatToolArgs), so per-string truncation is invisible in the UI.
+ * The full payload is always recoverable from the session JSONL log.
+ */
+const MAX_RETAINED_INPUT_CHARS = 2_048;
+const MAX_RETAINED_INPUT_DEPTH = 4;
+const MAX_RETAINED_INPUT_ITEMS = 64;
+
+/**
+ * Deep-truncate a tool input for long-term retention in history entries.
+ * Strings are capped per-string, arrays/objects are capped in breadth and
+ * depth. Returns the value unchanged when nothing exceeds a cap.
+ *
+ * @public — exported for unit tests
+ */
+export function pruneToolInput(value: unknown, depth = 0): unknown {
+  if (typeof value === 'string') {
+    return value.length > MAX_RETAINED_INPUT_CHARS
+      ? `${value.slice(0, MAX_RETAINED_INPUT_CHARS)}… [truncated, ${value.length} chars — full payload in session log]`
+      : value;
+  }
+  if (value === null || typeof value !== 'object') return value;
+  if (depth >= MAX_RETAINED_INPUT_DEPTH) return '[pruned: too deep]';
+  if (Array.isArray(value)) {
+    const head = value.slice(0, MAX_RETAINED_INPUT_ITEMS).map((v) => pruneToolInput(v, depth + 1));
+    if (value.length > MAX_RETAINED_INPUT_ITEMS) {
+      head.push(`[pruned: ${value.length - MAX_RETAINED_INPUT_ITEMS} more items]`);
+    }
+    return head;
+  }
+  const out: Record<string, unknown> = {};
+  let n = 0;
+  for (const [k, v] of Object.entries(value)) {
+    if (n++ >= MAX_RETAINED_INPUT_ITEMS) {
+      out['…'] = '[pruned: more keys]';
+      break;
+    }
+    out[k] = pruneToolInput(v, depth + 1);
+  }
+  return out;
+}
+
 // ── Project picker helpers ────────────────────────────────────────────────
 
 /**
@@ -84,8 +133,10 @@ export function reducer(state: State, action: Action): State {
     case 'addEntry': {
       // Append-only. We render finalized entries via Ink's <Static>,
       // which forbids removals or reordering — old items live on in the
-      // terminal's native scrollback. Memory growth is bounded by the
-      // terminal's own scrollback limits in practice.
+      // terminal's native scrollback. The terminal bounds what's VISIBLE,
+      // not this process's heap: the entries array itself is retained for
+      // the whole session, so large per-entry payloads (tool inputs) are
+      // pruned via pruneToolInput before storage.
       //
       // Guard: skip entries with empty text for text-bearing kinds.
       // During the enhance/refine countdown, re-renders combined with
@@ -99,7 +150,9 @@ export function reducer(state: State, action: Action): State {
       ) {
         return state;
       }
-      const appended = [...state.entries, { ...action.entry, id: state.nextId } as HistoryEntry];
+      const stored =
+        e.kind === 'tool' && e.input !== undefined ? { ...e, input: pruneToolInput(e.input) } : e;
+      const appended = [...state.entries, { ...stored, id: state.nextId } as HistoryEntry];
       return { ...state, entries: appended, nextId: state.nextId + 1 };
     }
     case 'setBuffer':
@@ -604,19 +657,19 @@ export function reducer(state: State, action: Action): State {
         const enext = (ebase + action.delta + ENHANCE_DELAY_PRESETS.length) % ENHANCE_DELAY_PRESETS.length;
         return { ...state, settingsPicker: { ...sp, enhanceDelayMs: expectDefined(ENHANCE_DELAY_PRESETS[enext]), hint: undefined } };
       }
-      // Field 21: debug stream (boolean toggle)
-      if (f === 21) return { ...state, settingsPicker: { ...sp, debugStream: !sp.debugStream, hint: undefined } };
-      // Field 22: config scope (cycle global/project)
-      if (f === 22) {
+      // Field 20: debug stream (boolean toggle)
+      if (f === 20) return { ...state, settingsPicker: { ...sp, debugStream: !sp.debugStream, hint: undefined } };
+      // Field 21: config scope (cycle global/project)
+      if (f === 21) {
         const i = CONFIG_SCOPES.indexOf(sp.configScope);
         const base = i < 0 ? 0 : i;
         const next = (base + action.delta + CONFIG_SCOPES.length) % CONFIG_SCOPES.length;
         return { ...state, settingsPicker: { ...sp, configScope: expectDefined(CONFIG_SCOPES[next]), hint: undefined } };
       }
-      // Field 23: enhance enabled (boolean toggle)
-      if (f === 23) return { ...state, settingsPicker: { ...sp, enhanceEnabled: !sp.enhanceEnabled, hint: undefined } };
-      // Field 24: enhance language (cycle original/english)
-      if (f === 24) {
+      // Field 22: enhance enabled (boolean toggle)
+      if (f === 22) return { ...state, settingsPicker: { ...sp, enhanceEnabled: !sp.enhanceEnabled, hint: undefined } };
+      // Field 23: enhance language (cycle original/english)
+      if (f === 23) {
         const i = ENHANCE_LANGUAGES.indexOf(sp.enhanceLanguage);
         const base = i < 0 ? 0 : i;
         const next = (base + action.delta + ENHANCE_LANGUAGES.length) % ENHANCE_LANGUAGES.length;

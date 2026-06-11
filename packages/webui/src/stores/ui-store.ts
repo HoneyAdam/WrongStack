@@ -6,14 +6,31 @@ import { persist } from 'zustand/middleware';
 // ============================================
 
 // Activity types shown in the ActivityBar (secondary panel content).
-export type Activity = 'chat' | 'agents' | 'context' | 'history' | 'files' | 'projects' | 'sessions' | 'mailbox';
+// One icon = one full panel. 'context' and 'sessions' were folded into
+// 'chat' and 'history' — coerceActivity maps persisted legacy values.
+export type Activity = 'chat' | 'agents' | 'history' | 'files' | 'projects' | 'mailbox';
+
+const ACTIVITIES: readonly Activity[] = ['chat', 'agents', 'history', 'files', 'projects', 'mailbox'];
+
+/** Map any persisted (possibly legacy) activity value onto the current set. */
+export function coerceActivity(value: unknown): Activity {
+  if (ACTIVITIES.includes(value as Activity)) return value as Activity;
+  if (value === 'context') return 'chat';
+  if (value === 'sessions') return 'history';
+  return 'chat';
+}
+
+/** Single source of truth for the secondary panel width bounds. */
+export const SIDEBAR_MIN_WIDTH = 240;
+export const SIDEBAR_MAX_WIDTH = 560;
+export const SIDEBAR_DEFAULT_WIDTH = 304;
 
 interface UIState {
   sidebarOpen: boolean;
   /** Which activity icon is selected in the ActivityBar — controls secondary panel content. */
   activeActivity: Activity;
   settingsOpen: boolean;
-  currentView: 'chat' | 'history' | 'settings' | 'autophase' | 'agents' | 'files' | 'context' | 'projects' | 'sessions' | 'setup' | 'agentflow';
+  currentView: 'chat' | 'settings' | 'autophase' | 'agents' | 'files' | 'sessions' | 'setup' | 'agentflow';
   showConfirmDialog: boolean;
   confirmInfo: {
     id: string;
@@ -83,7 +100,7 @@ export const useUIStore = create<UIState>()(
       searchOpen: false,
       searchQuery: '',
       promptHistory: [],
-      sidebarWidth: 288,
+      sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
       pinnedIds: [],
       compactMode: false,
       modelSwitcherOpen: false,
@@ -111,7 +128,8 @@ export const useUIStore = create<UIState>()(
           const filtered = state.promptHistory.filter((p) => p !== trimmed);
           return { promptHistory: [trimmed, ...filtered].slice(0, 50) };
         }),
-      setSidebarWidth: (px) => set({ sidebarWidth: Math.max(200, Math.min(480, Math.round(px))) }),
+      setSidebarWidth: (px) =>
+        set({ sidebarWidth: Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, Math.round(px))) }),
       togglePin: (id) =>
         set((state) => {
           const has = state.pinnedIds.includes(id);
@@ -146,6 +164,18 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: 'wrongstack-ui',
+      version: 1,
+      // v0 → v1: 'context'/'sessions' activities were removed and the
+      // sidebar width bounds changed — coerce persisted values so a stale
+      // localStorage entry can't select a panel that no longer exists.
+      migrate: (persisted) => {
+        const p = (persisted ?? {}) as Record<string, unknown>;
+        p.activeActivity = coerceActivity(p.activeActivity);
+        if (typeof p.sidebarWidth === 'number') {
+          p.sidebarWidth = Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, p.sidebarWidth));
+        }
+        return p as unknown as UIState;
+      },
       partialize: (s) => ({
         sidebarOpen: s.sidebarOpen,
         activeActivity: s.activeActivity,

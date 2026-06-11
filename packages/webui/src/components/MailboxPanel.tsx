@@ -1,6 +1,6 @@
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';
-import type { WSServerMessage } from '@/types';
+import { useMailboxStore } from '@/stores';
 import {
   CheckCircle2,
   Mail,
@@ -17,38 +17,6 @@ import {
   UserCheck,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-
-// ── Types ─────────────────────────────────────────────────────────────
-
-interface MailboxMessage {
-  id: string;
-  from: string;
-  to: string;
-  type: string;
-  subject: string;
-  body: string;
-  priority: string;
-  readBy: Record<string, string>;
-  readByCount: number;
-  completed: boolean;
-  completedBy?: string;
-  outcome?: string;
-  timestamp: string;
-  senderSessionId?: string;
-}
-
-interface MailboxAgent {
-  agentId: string;
-  name: string;
-  role?: string;
-  sessionId: string;
-  status: string;
-  currentTool?: string;
-  currentTask?: string;
-  lastSeenAt: string;
-  online: boolean;
-  source?: string;
-}
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
@@ -76,8 +44,11 @@ function fmtTime(iso: string): string {
 // ── Component ─────────────────────────────────────────────────────────
 
 export function MailboxPanel({ className }: { className?: string }) {
-  const [messages, setMessages] = useState<MailboxMessage[]>([]);
-  const [agents, setAgents] = useState<MailboxAgent[]>([]);
+  // Messages/agents live in the central mailbox store — populated by the
+  // ws-handlers registry, refreshed on every mailbox.event. This panel
+  // only triggers an extra refresh when (re)mounted.
+  const messages = useMailboxStore((s) => s.messages);
+  const agents = useMailboxStore((s) => s.agents);
   const [collapsed, setCollapsed] = useState(false);
   const { client } = useWebSocket();
   // Track the socket lifecycle so the initial queries fire once the
@@ -90,34 +61,6 @@ export function MailboxPanel({ className }: { className?: string }) {
     if (!ready) return;
     client.send({ type: 'mailbox.messages', payload: { limit: 30 } });
     client.send({ type: 'mailbox.agents', payload: {} });
-  }, [ready, client]);
-
-  // Subscribe to live mailbox events
-  useEffect(() => {
-    if (!ready) return;
-    const unsub = client.on('mailbox.event', (msg: WSServerMessage) => {
-      const p = msg.payload as Record<string, unknown> | undefined;
-      if (!p) return;
-
-      // Refresh messages on any mailbox event
-      client.send({ type: 'mailbox.messages', payload: { limit: 30 } });
-      client.send({ type: 'mailbox.agents', payload: {} });
-    });
-    return unsub;
-  }, [ready, client]);
-
-  // Handle response messages
-  useEffect(() => {
-    if (!ready) return;
-    const unsub1 = client.on('mailbox.messages', (msg: WSServerMessage) => {
-      const p = msg.payload as { messages?: MailboxMessage[] } | undefined;
-      if (p?.messages) setMessages(p.messages);
-    });
-    const unsub2 = client.on('mailbox.agents', (msg: WSServerMessage) => {
-      const p = msg.payload as { agents?: MailboxAgent[] } | undefined;
-      if (p?.agents) setAgents(p.agents);
-    });
-    return () => { unsub1(); unsub2(); };
   }, [ready, client]);
 
   const unreadCount = messages.filter((m) => !m.completed).length;

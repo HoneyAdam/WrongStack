@@ -106,7 +106,10 @@ type SddParallelRunGlobal = typeof globalThis & {
 
 export async function main(argv: string[]): Promise<number> {
   const ctx = await boot(argv);
+  // `wrongstack quick` sets flags.quick = true in boot() and removes 'quick' from
+  // positional, so boot() returns BootContext (not a number). Proceed to execute().
   if (typeof ctx === 'number') return ctx;
+  // At this point TypeScript knows ctx is BootContext. Proceed with execute().
   let {
     config,
     vault,

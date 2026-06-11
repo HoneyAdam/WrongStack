@@ -292,15 +292,12 @@ async function fetchWithTimeout(
 }
 
 function anySignal(...signals: AbortSignal[]): AbortSignal {
-  const controller = new AbortController();
-  for (const s of signals) {
-    if (s.aborted) {
-      controller.abort();
-      break;
-    }
-    s.addEventListener('abort', () => controller.abort());
-  }
-  return controller.signal;
+  // Native combinator (Node ≥ 20.3; this repo requires ≥ 22). The previous
+  // hand-rolled version registered a non-once 'abort' listener on every
+  // input signal and never removed it — the run-level signal outlives each
+  // request, so listeners (and their closures) accumulated one per search
+  // call for the life of the agent run.
+  return AbortSignal.any(signals);
 }
 
 function stripTags(html: string): string {

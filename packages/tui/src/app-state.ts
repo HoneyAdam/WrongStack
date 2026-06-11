@@ -276,6 +276,10 @@ export type State = {
     autoProceedMaxIterations: number;
     /** Prompt refinement preview countdown (ms). */
     enhanceDelayMs: number;
+    /** Master toggle for the prompt refiner (mirrors Settings.enhanceEnabled). */
+    enhanceEnabled: boolean;
+    /** Refined-prompt language preference (mirrors Settings.enhanceLanguage). */
+    enhanceLanguage: 'original' | 'english';
     /** Raw SSE stream debugging toggle. */
     debugStream: boolean;
     /** Where to persist settings: 'global' or 'project'. */

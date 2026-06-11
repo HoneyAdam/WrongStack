@@ -1,52 +1,90 @@
 import { cn } from '@/lib/utils';
-import { type Activity, useConfigStore, useFleetStore, useSessionStore, useUIStore } from '@/stores';
+import {
+  type Activity,
+  selectUnreadCount,
+  useConfigStore,
+  useFleetStore,
+  useMailboxStore,
+  useSessionStore,
+  useUIStore,
+} from '@/stores';
 import {
   Bot,
   Clock,
   FolderOpen,
-  Gauge,
-  Layers,
+  Folders,
+  GitBranch,
   Mail,
   MessageSquare,
-  GitBranch,
+  Rocket,
   Settings as SettingsIcon,
   Zap,
-  Folders,
 } from 'lucide-react';
 import { type ReactElement } from 'react';
 
-// ── Activity definition ───────────────────────────────────────────────
+// ── Activity definitions ───────────────────────────────────────────────
+//
+// Two icon groups with two distinct behaviours:
+//  - TOP icons each own one side-panel (open / switch / close-on-reclick).
+//  - BOTTOM icons toggle a full main view (Phases, Flow, Settings).
+// 'chat' and 'files' additionally steer the main view, since their panels
+// pair with a main surface (chat stream / code editor).
 
-type MainView = 'chat' | 'files' | 'projects' | 'settings' | 'autophase' | 'agents' | 'context' | 'history' | 'sessions' | 'agentflow';
-
-interface ActivityDef {
-  id: Activity | 'settings' | 'autophase' | 'agentflow';
+interface PanelDef {
+  id: Activity;
   icon: ReactElement;
   label: string;
-  /** If true, this icon is in the bottom group. */
-  bottom?: boolean;
-  /** What the main content area shows when this activity is selected. */
-  mainView: MainView;
-  /** Optional badge count rendered as a pill on the icon. */
-  badge?: number;
+  shortcut: string;
+  /** Main view this panel pairs with, if any. */
+  pairedView?: 'chat' | 'files';
 }
 
-const TOP_ACTIVITIES: ActivityDef[] = [
-  { id: 'chat', icon: <MessageSquare size={16} />, label: 'Chat', mainView: 'chat' },
-  { id: 'agents', icon: <Bot size={16} />, label: 'Agents', mainView: 'chat' },
-  { id: 'context', icon: <Gauge size={16} />, label: 'Context', mainView: 'chat' },
-  { id: 'history', icon: <Clock size={16} />, label: 'History', mainView: 'chat' },
-  { id: 'mailbox', icon: <Mail size={16} />, label: 'Mailbox', mainView: 'chat' },
-  { id: 'files', icon: <FolderOpen size={16} />, label: 'Files', mainView: 'files' },
-  { id: 'projects', icon: <Folders size={16} />, label: 'Projects', mainView: 'projects' },
-  { id: 'sessions', icon: <Layers size={16} />, label: 'Sessions', mainView: 'sessions' },
+type MainView = 'autophase' | 'agentflow' | 'settings';
+
+interface ViewDef {
+  id: MainView;
+  icon: ReactElement;
+  label: string;
+}
+
+const PANELS: PanelDef[] = [
+  { id: 'chat', icon: <MessageSquare size={16} />, label: 'Session', shortcut: 'Ctrl+1', pairedView: 'chat' },
+  { id: 'agents', icon: <Bot size={16} />, label: 'Agents', shortcut: 'Ctrl+2' },
+  { id: 'history', icon: <Clock size={16} />, label: 'History', shortcut: 'Ctrl+3' },
+  { id: 'files', icon: <FolderOpen size={16} />, label: 'Files', shortcut: 'Ctrl+4', pairedView: 'files' },
+  { id: 'projects', icon: <Folders size={16} />, label: 'Projects', shortcut: 'Ctrl+5' },
+  { id: 'mailbox', icon: <Mail size={16} />, label: 'Mailbox', shortcut: 'Ctrl+6' },
 ];
 
-const BOTTOM_ACTIVITIES: ActivityDef[] = [
-  { id: 'autophase', icon: <Layers size={16} />, label: 'Phases', bottom: true, mainView: 'autophase' },
-  { id: 'agentflow', icon: <GitBranch size={16} />, label: 'Flow', bottom: true, mainView: 'agentflow' },
-  { id: 'settings', icon: <SettingsIcon size={16} />, label: 'Settings', bottom: true, mainView: 'settings' },
+const VIEWS: ViewDef[] = [
+  { id: 'autophase', icon: <Rocket size={16} />, label: 'Phases' },
+  { id: 'agentflow', icon: <GitBranch size={16} />, label: 'Flow' },
+  { id: 'settings', icon: <SettingsIcon size={16} />, label: 'Settings' },
 ];
+
+/**
+ * Open/switch/close the side panel for an activity. Exported so keyboard
+ * shortcuts (Ctrl+1..6) drive the exact same logic as a mouse click.
+ */
+export function openPanel(activity: Activity): void {
+  const ui = useUIStore.getState();
+  if (!ui.sidebarOpen) {
+    ui.setSidebarOpen(true);
+    ui.selectActivity(activity);
+  } else if (ui.activeActivity === activity) {
+    ui.setSidebarOpen(false);
+    return;
+  } else {
+    ui.selectActivity(activity);
+  }
+  // Panels that pair with a main surface steer the main view too.
+  const paired = PANELS.find((p) => p.id === activity)?.pairedView;
+  if (paired && ui.currentView !== paired) {
+    ui.setCurrentView(paired);
+  }
+}
+
+export const PANEL_ORDER: readonly Activity[] = PANELS.map((p) => p.id);
 
 // ── Component ──────────────────────────────────────────────────────────
 
@@ -54,55 +92,19 @@ export function ActivityBar() {
   const activeActivity = useUIStore((s) => s.activeActivity);
   const sidebarOpen = useUIStore((s) => s.sidebarOpen);
   const currentView = useUIStore((s) => s.currentView);
-  const selectActivity = useUIStore((s) => s.selectActivity);
   const setCurrentView = useUIStore((s) => s.setCurrentView);
-  const setSidebarOpen = useUIStore((s) => s.setSidebarOpen);
   const projectName = useSessionStore((s) => s.projectName);
   const cwd = useSessionStore((s) => s.cwd);
   const wsConnected = useConfigStore((s) => s.wsConnected);
-  const fleetTotal = useFleetStore((s) => s.agents.size);
+  const runningAgents = useFleetStore(
+    (s) => Array.from(s.agents.values()).filter((a) => a.status === 'running').length,
+  );
+  const unreadMail = useMailboxStore(selectUnreadCount);
 
-  // Attach dynamic badge counts to activity definitions
-  const topActivities: ActivityDef[] = TOP_ACTIVITIES.map((def) => {
-    if (def.id === 'agents') return { ...def, badge: fleetTotal || undefined };
-    return def;
-  });
-
-  const handleClick = (def: ActivityDef) => {
-    const isSidebarActivity = TOP_ACTIVITIES.some((a) => a.id === def.id);
-
-    if (isSidebarActivity) {
-      // Sidebar activity: open/switch/close the secondary panel
-      if (!sidebarOpen) {
-        // Closed → open it
-        setSidebarOpen(true);
-        selectActivity(def.id as Activity);
-        setCurrentView(def.mainView);
-      } else if (activeActivity === def.id) {
-        // Same icon → close it
-        setSidebarOpen(false);
-      } else {
-        // Different icon → switch
-        selectActivity(def.id as Activity);
-        setCurrentView(def.mainView);
-      }
-    } else {
-      // Bottom activity (Settings / Phases): toggle main view
-      if (currentView === def.mainView) {
-        setCurrentView('chat');
-      } else {
-        setCurrentView(def.mainView);
-      }
-    }
-  };
-
-  const isActive = (def: ActivityDef): boolean => {
-    // Top activities: active when sidebar is open and matches
-    if (!def.bottom) {
-      return sidebarOpen && activeActivity === def.id;
-    }
-    // Bottom activities: active when main view matches
-    return currentView === def.mainView;
+  const badgeFor = (id: Activity): number | undefined => {
+    if (id === 'agents') return runningAgents || undefined;
+    if (id === 'mailbox') return unreadMail || undefined;
+    return undefined;
   };
 
   return (
@@ -112,9 +114,9 @@ export function ActivityBar() {
         <button
           type="button"
           onClick={() => {
-            // "Home" — open sidebar to chat, reset main view
-            setSidebarOpen(true);
-            selectActivity('chat');
+            // "Home" — open the Session panel, back to chat.
+            useUIStore.getState().setSidebarOpen(true);
+            useUIStore.getState().selectActivity('chat');
             setCurrentView('chat');
           }}
           title={projectName ? `${projectName} — return to chat` : 'WrongStack — return to chat'}
@@ -139,15 +141,16 @@ export function ActivityBar() {
         />
       </div>
 
-      {/* ── Top activities ── */}
+      {/* ── Panel icons ── */}
       <div className="flex flex-col items-center gap-0.5 pt-2">
-        {topActivities.map((def) => (
+        {PANELS.map((def) => (
           <ActivityIcon
             key={def.id}
-            def={def}
-            active={isActive(def)}
-            badge={def.badge}
-            onClick={() => handleClick(def)}
+            icon={def.icon}
+            label={`${def.label} (${def.shortcut})`}
+            active={sidebarOpen && activeActivity === def.id}
+            badge={badgeFor(def.id)}
+            onClick={() => openPanel(def.id)}
           />
         ))}
       </div>
@@ -155,14 +158,15 @@ export function ActivityBar() {
       {/* ── Spacer ── */}
       <div className="flex-1" />
 
-      {/* ── Bottom activities ── */}
-      <div className="flex flex-col items-center justify-between gap-0.5 pb-2">
-        {BOTTOM_ACTIVITIES.map((def) => (
+      {/* ── Main-view icons ── */}
+      <div className="flex flex-col items-center gap-0.5 pb-2">
+        {VIEWS.map((def) => (
           <ActivityIcon
             key={def.id}
-            def={def}
-            active={isActive(def)}
-            onClick={() => handleClick(def)}
+            icon={def.icon}
+            label={def.label}
+            active={currentView === def.id}
+            onClick={() => setCurrentView(currentView === def.id ? 'chat' : def.id)}
           />
         ))}
       </div>
@@ -171,21 +175,23 @@ export function ActivityBar() {
 }
 
 function ActivityIcon({
-  def,
+  icon,
+  label,
   active,
   badge,
   onClick,
 }: {
-  def: ActivityDef;
+  icon: ReactElement;
+  label: string;
   active: boolean;
-  badge?: number;
+  badge?: number | undefined;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      title={def.label}
+      title={label}
       className={cn(
         'relative flex items-center justify-center w-10 h-10 rounded-lg transition-colors',
         'text-muted-foreground hover:text-foreground hover:bg-muted/70',
@@ -196,7 +202,7 @@ function ActivityIcon({
       {active && (
         <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-6 rounded-r-full bg-primary" />
       )}
-      <span className="h-5 w-5">{def.icon}</span>
+      <span className="h-5 w-5">{icon}</span>
       {/* Badge count — top-right pill */}
       {badge !== undefined && badge > 0 && (
         <span className="absolute -top-0.5 -right-0.5 min-w-[15px] h-[15px] flex items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground leading-none px-1 tabular">

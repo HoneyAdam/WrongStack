@@ -7,7 +7,6 @@ import {
   Activity,
   Bot,
   Cpu,
-  Folder,
   Globe,
   Layers,
   Monitor,
@@ -22,7 +21,6 @@ import {
 } from 'lucide-react';
 import { type ReactElement, useState, useEffect, useCallback } from 'react';
 import { useTheme } from '../ThemeProvider';
-import { ProjectsPanel } from '../ProjectsPanel';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { ScrollArea } from '../ui/scroll-area';
@@ -197,14 +195,10 @@ export function SettingsPanel() {
       <ScrollArea className="flex-1">
         <div className="p-6 max-w-2xl mx-auto">
           <Tabs defaultValue="provider">
-            <TabsList className="w-full justify-start mb-6 grid grid-cols-6">
+            <TabsList className="w-full justify-start mb-6 grid grid-cols-5">
               <TabsTrigger value="provider" className="gap-1 text-xs">
                 <Network className="h-3.5 w-3.5" />
                 Provider
-              </TabsTrigger>
-              <TabsTrigger value="model" className="gap-1 text-xs">
-                <Cpu className="h-3.5 w-3.5" />
-                Model
               </TabsTrigger>
               <TabsTrigger value="connection" className="gap-1 text-xs">
                 <Globe className="h-3.5 w-3.5" />
@@ -224,7 +218,7 @@ export function SettingsPanel() {
               </TabsTrigger>
             </TabsList>
 
-            {/* Provider Tab */}
+            {/* Provider & Model Tab — pick a provider, then its model */}
             <TabsContent value="provider" className="space-y-4">
               <ProviderSection
                 activeProvider={provider}
@@ -243,19 +237,21 @@ export function SettingsPanel() {
                 catalogQuery={catalogQuery}
                 setCatalogQuery={setCatalogQuery}
               />
-            </TabsContent>
-
-            {/* Model Tab */}
-            <TabsContent value="model" className="space-y-4">
-              <ModelSection
-                provider={provider}
-                catalogModels={catalogModels}
-                currentCatalogProvider={currentCatalogProvider}
-                isLoadingModels={isLoadingModels}
-                setIsLoadingModels={setIsLoadingModels}
-                onModelSelect={handleModelSelect}
-                refreshModels={(pid) => ws.listProviderModels?.(pid)}
-              />
+              <div className="pt-4 border-t">
+                <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                  <Cpu className="h-4 w-4 text-muted-foreground" />
+                  Model
+                </h3>
+                <ModelSection
+                  provider={provider}
+                  catalogModels={catalogModels}
+                  currentCatalogProvider={currentCatalogProvider}
+                  isLoadingModels={isLoadingModels}
+                  setIsLoadingModels={setIsLoadingModels}
+                  onModelSelect={handleModelSelect}
+                  refreshModels={(pid) => ws.listProviderModels?.(pid)}
+                />
+              </div>
             </TabsContent>
 
             {/* Connection Tab */}
@@ -476,16 +472,6 @@ export function SettingsPanel() {
                 />
               </div>
 
-              <div className="pt-2 border-t">
-                <h3 className="text-sm font-semibold mb-3 mt-3 flex items-center gap-2">
-                  <Folder className="h-4 w-4 text-muted-foreground" />
-                  Projects
-                </h3>
-                <p className="text-[11px] text-muted-foreground mb-2">
-                  Known projects from <code className="font-mono bg-muted/40 px-1 rounded">~/.wrongstack/projects.json</code>
-                </p>
-                <ProjectsPanel />
-              </div>
             </TabsContent>
 
             {/* Features Tab */}

@@ -14,6 +14,7 @@ const SHORTCUTS: Array<{ section: string; items: Shortcut[] }> = [
       { keys: ['Ctrl', 'K'], description: 'Open command palette' },
       { keys: ['?'], description: 'Show this shortcuts overlay' },
       { keys: ['Ctrl', '\\'], description: 'Toggle sidebar' },
+      { keys: ['Ctrl', '1-6'], description: 'Open side panel (Session, Agents, History, Files, Projects, Mailbox)' },
       { keys: ['Ctrl', '/'], description: 'Focus the message input' },
     ],
   },

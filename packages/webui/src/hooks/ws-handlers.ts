@@ -23,6 +23,7 @@ import {
 } from '@/stores';
 import { useVizStore, wsToVizEvent } from '@/stores/viz-store';
 import { useLocalPrefs } from '@/stores/local-prefs';
+import { useMailboxStore, type MailboxAgent, type MailboxMessage } from '@/stores/mailbox-store';
 import type { WorktreeHandleView, WSServerMessage } from '@/types';
 // ── Session handlers ──
 
@@ -539,8 +540,20 @@ export function handleFilesWritten(msg: WSServerMessage) {
 
 // ── Handler registry: maps message types to handler functions ──
 
+/** Re-query the mailbox so the store (and ActivityBar badge) stays fresh. */
+function queryMailbox() {
+  const ws = getWSClient(useConfigStore.getState().wsUrl);
+  ws?.send?.({ type: 'mailbox.messages', payload: { limit: 30 } });
+  ws?.send?.({ type: 'mailbox.agents', payload: {} });
+}
+
 export const WS_HANDLERS: Record<string, (msg: WSServerMessage) => void> = {
-  'session.start': handleSessionStart,
+  'session.start': (msg: WSServerMessage) => {
+    handleSessionStart(msg);
+    // Prime the mailbox store so the unread badge works before the panel
+    // is ever opened.
+    queryMailbox();
+  },
   'context.debug': handleContextDebug,
   'key.operation_result': handleKeyOperationResult,
   'context.compacted': handleContextCompacted,
@@ -610,6 +623,16 @@ export const WS_HANDLERS: Record<string, (msg: WSServerMessage) => void> = {
       useVizStore.getState().pushEvent(vizEv);
       useVizStore.getState().setActive(true);
     }
+    // Any mailbox activity invalidates the cached messages/agents.
+    queryMailbox();
+  },
+  'mailbox.messages': (msg: WSServerMessage) => {
+    const p = msg.payload as { messages?: MailboxMessage[] } | undefined;
+    if (p?.messages) useMailboxStore.getState().setMessages(p.messages);
+  },
+  'mailbox.agents': (msg: WSServerMessage) => {
+    const p = msg.payload as { agents?: MailboxAgent[] } | undefined;
+    if (p?.agents) useMailboxStore.getState().setAgents(p.agents);
   },
   'brain.status': (msg: WSServerMessage) => {
     const p = msg.payload as {

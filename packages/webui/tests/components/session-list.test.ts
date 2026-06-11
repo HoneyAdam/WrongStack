@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { formatRelative, getEmptySessionIds } from '../../src/components/Sidebar/SessionList';
+import { formatRelative, getEmptySessionIds } from '../../src/components/SidePanel/SessionList';
 import type { SessionHistoryEntry } from '../../src/stores/types';
 
 type SessionEntry = { id: string; tokenTotal: number; isCurrent: boolean };

@@ -4,9 +4,9 @@ import { cn } from '@/lib/utils';
 import { getWSClient } from '@/lib/ws-client';
 import { useChatStore, useConfigStore, useFileStore, useGoalStore, useSessionStore, useUIStore, useWorktreeStore, useAutoPhaseStore } from '@/stores';
 import { useCallback, useEffect, useState } from 'react';
-import { Layers, Play, Rocket, GitBranch } from 'lucide-react';
+import { Layers, Play, Rocket } from 'lucide-react';
 import { Button } from './components/ui/button';
-import { ActivityBar } from './components/ActivityBar';
+import { ActivityBar, openPanel, PANEL_ORDER } from './components/ActivityBar';
 import { AgentsPage } from './components/AgentsPage';
 import { AutoPhaseView } from './components/AutoPhaseView';
 import { AutonomyPicker } from './components/AutonomyPicker';
@@ -16,12 +16,10 @@ import { CollabPanel } from './components/CollabPanel';
 import { CommandPalette, downloadChatAsMarkdown } from './components/CommandPalette';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { ConnectionBanner } from './components/ConnectionBanner';
-import { ContextPanel } from './components/ContextPanel';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { FleetPanel } from './components/FleetPanel';
 import { GoalPanel } from './components/GoalPanel';
 import { PhasePanel } from './components/PhasePanel';
-import { ProjectsPanel } from './components/ProjectsPanel';
 import { QuickModelSwitcher } from './components/QuickModelSwitcher';
 import { SettingsPanel } from './components/SettingsPanel';
 import { SetupScreen } from './components/SetupScreen';
@@ -32,9 +30,8 @@ import { Toaster } from './components/Toaster';
 import { WorkDashboard } from './components/WorkDashboard';
 import { WorktreeGraph } from './components/WorktreeGraph';
 import { WorktreeLanes } from './components/WorktreeLanes';
-import { AgentFlowViz } from './components/AgentFlowViz';
 import { AgentFlowGraph } from './components/AgentFlowGraph';
-import { FlowSidebar } from './components/FlowSidebar';
+import { SidePanel } from './components/SidePanel';
 function AppInner() {
   const { theme } = useTheme();
   const { currentView, sidebarOpen, toggleSidebar, setSearchOpen, setSidebarOpen, setCurrentView } = useUIStore();
@@ -157,6 +154,16 @@ function AppInner() {
         toggleSidebar();
         return;
       }
+      // Ctrl+1..6 — jump straight to a side panel (same logic as clicking
+      // its ActivityBar icon, including close-on-repeat).
+      if (mod && !e.shiftKey && !e.altKey && e.key >= '1' && e.key <= String(PANEL_ORDER.length)) {
+        const activity = PANEL_ORDER[Number(e.key) - 1];
+        if (activity) {
+          e.preventDefault();
+          openPanel(activity);
+          return;
+        }
+      }
       if (mod && e.key.toLowerCase() === 'f') {
         e.preventDefault();
         setSearchOpen(true);
@@ -269,7 +276,7 @@ function AppInner() {
       {currentView !== 'setup' && <ActivityBar />}
 
       {/* ── Secondary Panel — collapsible, context-sensitive ── */}
-      {sidebarOpen && currentView !== 'setup' && <FlowSidebar />}
+      {sidebarOpen && currentView !== 'setup' && <SidePanel />}
 
       {/* ── Main area ── */}
       <main className="flex-1 flex flex-col overflow-hidden">
@@ -375,11 +382,6 @@ function AppInner() {
         )}
         {currentView === 'settings' && <SettingsPanel />}
         {currentView === 'setup' && <SetupScreen />}
-        {currentView === 'projects' && (
-          <div className="flex-1 flex flex-col overflow-hidden max-w-lg border-r bg-card/50">
-            <ProjectsPanel fullView />
-          </div>
-        )}
         {currentView === 'autophase' && (
           <AutoPhaseView onClose={() => setCurrentView('chat')} />
         )}
@@ -396,11 +398,6 @@ function AppInner() {
         {currentView === 'sessions' && (
           <div className="flex-1 overflow-y-auto">
             <SessionsDashboard />
-          </div>
-        )}
-        {currentView === 'context' && (
-          <div className="flex-1 overflow-y-auto p-4 max-w-2xl mx-auto">
-            <ContextPanel />
           </div>
         )}
         {/* ── IDE Code Editor (only in Files view) ── */}
