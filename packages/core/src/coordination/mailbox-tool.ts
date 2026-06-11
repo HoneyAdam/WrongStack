@@ -53,13 +53,30 @@ export function defaultResolveProjectDir(ctx: Context): string {
 }
 
 /**
+ * Compact, deterministic tag for a session id — 8 hex chars of its sha256.
+ * Session ids are date-sharded paths ("2026-06-11/10-48-34Z_model_e66c");
+ * the tag keeps mailbox identities short, filesystem-safe, and stable for
+ * the lifetime of the session (including across process restarts/resumes).
+ */
+export function mailboxSessionTag(sessionId: string): string {
+  return createHash('sha256').update(sessionId).digest('hex').slice(0, 8);
+}
+
+/**
  * Resolve the caller's mailbox identity from the execution Context.
  *
- * Shared by the `mailbox` power-tool and the thin `mail_send`/`mail_inbox`
- * tools so every surface agrees on who is talking:
+ * Shared by the `mailbox` power-tool, the thin `mail_send`/`mail_inbox`
+ * tools, the agent-loop checker, and the /mailbox slash command so every
+ * surface agrees on who is talking:
  * - base id: ctx.meta.agentId → ctx.agentId field (subagents) → fallback
- * - unique id: ctx.meta.globalAgentId (set by attachMailboxChecker) or
- *   `<base>#<pid>` derived the same way the checker derives it.
+ * - unique id: `<base>@<sessionTag>` — SESSION-bound, not pid-bound. Every
+ *   session has its own id, so two leader sessions on the same project
+ *   never collide (pids can be recycled by the OS), and a resumed session
+ *   keeps its identity: read state survives a restart instead of
+ *   re-flooding old broadcasts. Derived LIVE from ctx.session.id so an
+ *   in-process session swap (resume / session.new / project switch) moves
+ *   the identity with it. `ctx.meta.globalAgentId` remains an explicit
+ *   override for hosts that manage identity themselves.
  */
 export function resolveMailboxIdentity(
   ctx: Context,
@@ -68,13 +85,14 @@ export function resolveMailboxIdentity(
   const fieldId =
     ctx.agentId && ctx.agentId !== 'unknown' ? ctx.agentId : undefined;
   const baseId = (ctx.meta['agentId'] as string | undefined) ?? fieldId ?? fallbackBase;
+  const sessionId = (ctx.meta['sessionId'] as string | undefined) ?? ctx.session?.id ?? 'default';
   const callerId =
-    (ctx.meta['globalAgentId'] as string | undefined) ?? `${baseId}#${process.pid}`;
+    (ctx.meta['globalAgentId'] as string | undefined) ??
+    `${baseId}@${mailboxSessionTag(sessionId)}`;
   const fieldName =
     ctx.agentName && ctx.agentName !== 'Unknown Agent' ? ctx.agentName : undefined;
   const name = (ctx.meta['agentName'] as string | undefined) ?? fieldName ?? baseId;
   const role = ctx.meta['agentRole'] as string | undefined;
-  const sessionId = (ctx.meta['sessionId'] as string | undefined) ?? ctx.session?.id ?? 'default';
   return { baseId, callerId, name, role, sessionId };
 }
 
