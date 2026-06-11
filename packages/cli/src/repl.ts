@@ -37,7 +37,7 @@ export function parseSuggestionsFromOutput(finalText: string): string[] | null {
 
   for (const pat of patterns) {
     const m = pat.exec(finalText);
-    if (m && m[1]) {
+    if (m?.[1]) {
       const block = m[1].trim();
       const lines = block.split('\n').filter(Boolean);
       const suggestions = lines
@@ -161,7 +161,7 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
   // before each agent.run so the SIGINT handler can target it.
   let activeCtrl: AbortController | undefined;
   let interrupts = 0;
-  let autoIterCount = 0;
+  let _autoIterCount = 0;
   let exiting = false;
   const onSigint = () => {
     interrupts++;
@@ -393,7 +393,7 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
           const ctrl = new AbortController();
           activeCtrl = ctrl;
           try {
-            autoIterCount++;
+            _autoIterCount++;
             await runAutoProceed(opts, top, delay, ctrl);
           } finally {
             activeCtrl = undefined;

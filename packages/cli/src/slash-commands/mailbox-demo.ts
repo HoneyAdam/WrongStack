@@ -139,8 +139,8 @@ export function buildMailboxDemoCommand(opts: SlashCommandContext): SlashCommand
           if (!parts) {
             return { message: 'Usage: /mailbox-demo send <agent-id> <message>' };
           }
-          const targetId = parts[1]!;
-          const msgBody = parts[2]!;
+          const targetId = parts[1] ?? '';
+          const msgBody = parts[2] ?? '';
 
           await mailbox.registerAgent({
             agentId: DEMO_AGENT_ID,

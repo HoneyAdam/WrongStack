@@ -113,7 +113,7 @@ export function buildLoadCommand(opts: SlashCommandContext): SlashCommand {
       }
 
       const showIncomplete = parts.includes('--incomplete') || parts.includes('-i');
-      const recoverIdx = parts.findIndex((p) => p === '--recover');
+      const recoverIdx = parts.indexOf('--recover');
       const recoverTarget = recoverIdx >= 0 ? parts[recoverIdx + 1] : undefined;
 
       if (recoverTarget) {

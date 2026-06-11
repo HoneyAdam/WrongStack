@@ -2230,6 +2230,25 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
         break;
       }
 
+      case 'mailbox.clear': {
+        const projectRoot = opts.projectRoot ?? (opts.agent.ctx as { projectRoot?: string }).projectRoot ?? '';
+        const globalRoot = opts.globalConfigPath ? path.dirname(opts.globalConfigPath) : '';
+        if (!projectRoot || !globalRoot) {
+          send(ws, { type: 'mailbox.cleared', payload: { error: 'No project root available' } });
+          break;
+        }
+        try {
+          const mbDir = path.join(globalRoot, 'projects',
+            `${((path.basename(projectRoot) || 'project').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40) || 'project')}-${crypto.createHash('sha256').update(path.resolve(projectRoot)).digest('hex').slice(0, 6)}`);
+          const mb = new GlobalMailbox(mbDir);
+          await mb.clearAll();
+          send(ws, { type: 'mailbox.cleared', payload: {} });
+        } catch (err) {
+          send(ws, { type: 'mailbox.cleared', payload: { error: err instanceof Error ? err.message : String(err) } });
+        }
+        break;
+      }
+
       default: {
         // Delegate AutoPhase lifecycle messages to the AutoPhase handler.
         // If the message type starts with 'autophase.', forward it; otherwise

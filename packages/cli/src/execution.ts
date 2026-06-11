@@ -292,7 +292,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
 
         const results = await dir.awaitTasks([taskId]);
         const result = results[0];
-        if (!result || result.status !== 'success') {
+        if (result?.status !== 'success') {
           try {
             await session.append({
               type: 'error',

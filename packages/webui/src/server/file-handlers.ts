@@ -11,7 +11,7 @@
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { WebSocket } from 'ws';
+import type { WebSocket } from 'ws';
 import { atomicWrite } from '@wrongstack/core';
 import { SKIP_DIRS, isHiddenEntry, rankFiles } from './file-picker.js';
 import { send, errMessage } from './ws-utils.js';

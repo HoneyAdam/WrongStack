@@ -269,7 +269,7 @@ describe('deepMerge — prototype pollution protection', () => {
     const base = { a: 1 };
     const patch = { constructor: 'allowed', b: 2 };
     const result = deepMerge(base, patch, { protectProto: false });
-    expect(Object.prototype.hasOwnProperty.call(result, 'constructor')).toBe(true);
+    expect(Object.hasOwn(result, 'constructor')).toBe(true);
     expect((result as Record<string, unknown>).constructor).toBe('allowed');
     expect(result).toHaveProperty('b', 2);
   });
@@ -284,7 +284,7 @@ describe('deepMerge — prototype pollution protection', () => {
       const base = { a: 1 };
       const patch = { [key]: 'evil', b: 2 };
       const result = deepMerge(base, patch);
-      expect(Object.prototype.hasOwnProperty.call(result, key)).toBe(false);
+      expect(Object.hasOwn(result, key)).toBe(false);
       expect(result).toEqual({ a: 1, b: 2 });
     }
   });

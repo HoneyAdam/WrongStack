@@ -170,7 +170,7 @@ async function runCompact(opts: SlashCommandContext): Promise<{ message: string 
 
   // 2. Check for LLM provider
   const provider = opts.llmProvider;
-  if (!provider || !provider.complete) {
+  if (!provider?.complete) {
     return { message: 'No LLM provider available. /memory compact requires an active session with a configured provider.' };
   }
 
@@ -483,7 +483,7 @@ async function runStats(opts: SlashCommandContext): Promise<{ message: string }>
     lines.push(`- ⚠️ ${old} entries older than 30 days — run \`/memory compact\` to review`);
   }
 
-  const pct = Number.parseInt(pctFull);
+  const pct = Number.parseInt(pctFull, 10);
   if (pct > 80) {
     lines.push(`- ⚠️ Storage ${pct}% full — run \`/memory compact\` to free space`);
   } else {

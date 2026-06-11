@@ -25,7 +25,7 @@ import {
   Sun,
   Zap,
 } from 'lucide-react';
-import { type ReactElement } from 'react';
+import type { ReactElement } from 'react';
 import { useTheme } from './ThemeProvider';
 
 // ── Activity definitions ───────────────────────────────────────────────

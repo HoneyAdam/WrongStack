@@ -11,9 +11,9 @@
  * @module agent-status-tracker
  */
 import type { EventBus } from './kernel/events.js';
-import {
-  type AgentEntry,
-  type AgentLiveStatus,
+import type {
+  AgentEntry,
+  AgentLiveStatus,
   SessionRegistry,
 } from './session-registry.js';
 

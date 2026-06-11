@@ -111,8 +111,8 @@ export function buildProjectCommand(opts: SlashCommandContext): SlashCommand {
         let displayName: string | undefined;
         const nameMatch = rest.match(/^(.*?)\s*--name\s+(.+)$/);
         if (nameMatch) {
-          target = nameMatch[1]!.trim();
-          displayName = nameMatch[2]!.trim();
+          target = nameMatch[1]?.trim() ?? target;
+          displayName = nameMatch[2]?.trim();
         }
         if (!target) return { message: 'Usage: /project switch <dir> [--name <name>]' };
         return switchProjectCommand(opts, ctx, target, displayName);
@@ -236,7 +236,7 @@ async function removeProjectCommand(opts: SlashCommandContext, _ctx: Context | u
     return { message: color.red(`Project not found: "${slugOrName}". Use /project list to see available projects.`) };
   }
 
-  const removed = manifest.projects[idx]!;
+  const removed = manifest.projects.at(idx)!;
   manifest.projects.splice(idx, 1);
   await saveManifest(manifest, opts.paths?.globalConfig);
 
