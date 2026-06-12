@@ -208,3 +208,37 @@ describe('circuit breaker integration', () => {
     });
   });
 });
+
+describe('UNIQUE constraint auto-recovery', () => {
+  it('retries with force=true on UNIQUE constraint failure', async () => {
+    // First call throws a UNIQUE constraint error (simulating corrupted DB)
+    runIndexerMock.mockRejectedValueOnce(new Error('UNIQUE constraint failed: symbols.id'));
+    // Second call (with force=true) succeeds
+    runIndexerMock.mockResolvedValueOnce(OK_RESULT);
+
+    const result = await runStartupIndex({ projectRoot: '/proj' });
+
+    expect(result).toMatchObject({ filesIndexed: 1 });
+    // Verify force=true was passed on retry
+    expect(runIndexerMock).toHaveBeenCalledTimes(2);
+    const secondCallArgs = runIndexerMock.mock.calls[1]?.[1];
+    expect(secondCallArgs).toMatchObject({ force: true });
+  });
+
+  it('does not retry if force=true already (prevents infinite recursion)', async () => {
+    // Even with force=true, if it fails, it should not retry again
+    runIndexerMock.mockRejectedValueOnce(new Error('UNIQUE constraint failed: symbols.id'));
+
+    await expect(runStartupIndex({ projectRoot: '/proj', force: true })).rejects.toThrow(
+      'UNIQUE constraint failed: symbols.id',
+    );
+    expect(runIndexerMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry on non-constraint errors', async () => {
+    runIndexerMock.mockRejectedValueOnce(new Error('some other error'));
+
+    await expect(runStartupIndex({ projectRoot: '/proj' })).rejects.toThrow('some other error');
+    expect(runIndexerMock).toHaveBeenCalledTimes(1);
+  });
+});
