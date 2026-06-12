@@ -174,6 +174,7 @@ export class ClientTransport {
           env: { ...buildChildEnv(), ...this.opts.env },
           cwd: this.opts.cwd,
           stdio: ['pipe', 'pipe', 'pipe'],
+          windowsHide: true,
         }) as unknown as ACPChildProcess;
       } catch (err) {
         clearTimeout(timeout);
