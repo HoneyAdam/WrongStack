@@ -2,16 +2,22 @@
  * Unified next-steps suggestion parser.
  *
  * Three code paths feed into the suggestion store:
- *   1. TUI rendering  — entry.tsx parses "💡 Next steps" from assistant output
- *   2. REPL store     — repl.ts parses "💡 Next steps" from final agent output
+ *   1. TUI rendering  — entry.tsx parses "💡 Next steps" or "<next_steps>" from assistant output
+ *   2. REPL store     — repl.ts parses "💡 Next steps" or "<next_steps>" from final agent output
  *   3. /suggest output — suggest.ts parses LLM-generated numbered lists
  *
  * Heading mode (`requireHeading = true`):
- *   strict=true  — only 💡 emoji heading (TUI rendering)
- *   strict=false — 💡, ##, plain "Next steps" headings (REPL store)
+ *   strict=true  — only 💡 emoji heading or <next_steps> tag (TUI rendering)
+ *   strict=false — 💡, ##, plain "Next steps", or <next_steps> headings (REPL store)
  *
  * Raw mode (`requireHeading = false`):
  *   Parses numbered/bullet items from anywhere in text (subagent /suggest output).
+ *
+ * Supported formats:
+ *   💡 Next steps     (old emoji format)
+ *   ## Next steps     (markdown heading)
+ *   Next steps        (plain text)
+ *   <next_steps>      (new XML tag format - preferred)
  */
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -35,14 +41,15 @@ export interface ParseNextStepsResult {
 
 // ── Patterns ───────────────────────────────────────────────────────────────
 
-/** Matches the 💡 emoji heading before numbered items. */
-const STRICT_HEADING_RE = /💡\s*Next steps?\s*\n+/i;
+/** Matches the 💡 emoji heading OR <next_steps> tag before numbered items. */
+const STRICT_HEADING_RE = /(?:💡\s*Next steps?|<next_steps>)\s*\n+/i;
 
 /** Heading patterns tried in non-strict (permissive) mode. */
 const PERMISSIVE_HEADING_PATTERNS: Array<{ re: RegExp; label: string }> = [
   { re: /💡\s*Next steps?\s*\n+/i, label: 'emoji' },
   { re: /##?\s*Next steps?\s*\n+/i, label: 'markdown' },
   { re: /\n{1,2}Next steps?\s*\n+/i, label: 'plain' },
+  { re: /<next_steps>\s*\n+/i, label: 'xml-tag' },
 ];
 
 /** Matches an item line: "1. text", "1) text", "- text", "* text". */
@@ -176,10 +183,17 @@ function findBlockEnd(afterHeading: string, stepCount: number): number {
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
+    
+    // XML closing tag — consume it and end block
+    if (line === '</next_steps>') {
+      consumed += rawLine.length + 1;
+      break;
+    }
+    
     if (!line) { consumed += rawLine.length + 1; continue; }
 
     const m = ITEM_RE.exec(line);
-    if (!m) break;
+    if (!m) break; // non-item line — block ends
 
     consumed += rawLine.length + 1;
     found++;

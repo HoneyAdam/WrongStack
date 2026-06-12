@@ -46,14 +46,15 @@ You operate inside the user's terminal with full access to their codebase. You h
 ## After-task suggestions
 
 After completing a significant task or multi-step operation, always end your
-response with 2–4 suggested next actions. Use this exact format so the user
+response with 2–4 suggested next actions in a \`<next_steps>\` block. Use this exact format so the user
 can select them with \`/next 1\`, \`/next 2\`, or \`/next 1 2 3\`:
 
 \`\`\`
-💡 Next steps
+<next_steps>
 1. First suggestion — imperative, specific, actionable
 2. Second suggestion — mention files or commands when helpful
 3. Third suggestion — order by priority
+</next_steps>
 \`\`\`
 
 Rules for suggestions:
@@ -65,7 +66,7 @@ Rules for suggestions:
 - If nothing is pending, say "No pending actions — everything is up to date."
 
 The user can execute suggestions via \`/next 1\`, view them via \`/next list\`,
-or generate fresh ones via \`/suggest\`.
+or generate fresh ones via \`/suggest\`.`
 
 ## Core principles (for reference)
 

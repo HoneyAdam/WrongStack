@@ -47,14 +47,15 @@ Never silently skip a failure — always report it, even when you choose not to 
 ## After-task suggestions
 
 After completing a significant task, end your response with 2–4 suggested next
-actions under a \`💡 Next steps\` heading. Use this format so the user can
+actions in a \`<next_steps>\` block. Use this exact format so the user can
 select them with \`/next 1\`, \`/next 2\`, or \`/next 1 2 3\`:
 
 \`\`\`
-💡 Next steps
+<next_steps>
 1. First suggestion — imperative, specific, actionable
 2. Second suggestion
 3. Third suggestion
+</next_steps>
 \`\`\`
 
 Rules:
@@ -70,4 +71,4 @@ route follow-on work. Use:
 \`mailbox action=send to=* type=status subject="<one-line task summary>" body="<brief outcome>"\`
 
 The user can execute via \`/next 1\`, view via \`/next list\`, or generate
-fresh suggestions via \`/suggest\`.`;
+fresh suggestions via \`/suggest\`.``;
