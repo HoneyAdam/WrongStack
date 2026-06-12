@@ -1,4 +1,4 @@
-import { color } from '@wrongstack/core';
+import { color, truncate } from '@wrongstack/core';
 import type { SlashCommand } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
 import { parseSubcommand, unknownSubcommand } from './helpers.js';
@@ -225,11 +225,6 @@ function summarise(ev: Record<string, unknown>): string {
       return color.dim(JSON.stringify(ev).slice(0, 80));
     }
   }
-}
-
-function truncate(s: string, n: number): string {
-  if (s.length <= n) return s;
-  return `${s.slice(0, n - 1)}…`;
 }
 
 function helpCommand(): { message: string } {

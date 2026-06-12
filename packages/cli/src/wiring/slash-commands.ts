@@ -51,6 +51,8 @@ export interface SlashCommandsDeps {
   };
   compactor: { compact(ctx: Context, opts?: { aggressive?: boolean | undefined }): Promise<CompactReport> };
   configStore: ConfigStore;
+  /** Called by /clear after wiping the session on disk — tells the TUI to reset its UI state. */
+  onNewSession?: (() => Promise<void>) | undefined;
 }
 
 export interface StatuslineConfigDeps {
@@ -62,7 +64,7 @@ export async function setupSlashCommands(params: SlashCommandsDeps): Promise<voi
   const { slashRegistry, toolRegistry, paths, sessionStore, skillLoader, tokenCounter, renderer,
     reader, events, memoryStore, context, cwd, projectRoot, metricsSink, healthRegistry,
     planPath, modeStore, provider, model, multiAgentHost, fleetStreamController,
-    agentsMonitorController, compactor, configStore } = params;
+    agentsMonitorController, compactor, configStore, onNewSession } = params;
 
   const statuslineConfigDeps: StatuslineConfigDeps = {
     get: () => loadStatuslineConfig(),
@@ -152,6 +154,7 @@ export async function setupSlashCommands(params: SlashCommandsDeps): Promise<voi
     },
     configStore,
     reader,
+    onNewSession,
   });
 
   for (const cmd of commands) {

@@ -33,6 +33,7 @@ export function buildClearCommand(opts: SlashCommandContext): SlashCommand {
       }
       await opts.memoryStore?.clear();
       opts.onClear?.();
+      await opts.onNewSession?.();
       opts.renderer.clear();
       const msg = 'Session cleared (context, memory, and history reset).';
       opts.renderer.writeInfo(msg);

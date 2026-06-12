@@ -5,6 +5,7 @@ export * from './color.js';
 export * from './term.js';
 export * from './todos-format.js';
 export * from './task-format.js';
+export * from './string.js';
 export * from './glob-match.js';
 export * from './diff.js';
 export * from './wstack-paths.js';

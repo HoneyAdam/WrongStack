@@ -3,6 +3,7 @@ import type { ErrorCode } from './errors.js';
 import { WrongStackError, ERROR_CODES } from './errors.js';
 import type { Message } from './messages.js';
 import type { Tool } from './tool.js';
+import { truncate } from '../utils/string.js';
 
 /**
  * Token usage for a single provider call, normalized across providers.
@@ -184,10 +185,6 @@ function describeStatus(status: number, type?: string): string {
   if (status >= 500 && status < 600) return `HTTP ${status} (server error)`;
   if (type) return `${type} (${status})`;
   return `HTTP ${status}`;
-}
-
-function truncate(s: string, n: number): string {
-  return s.length <= n ? s : `${s.slice(0, n - 1)}…`;
 }
 
 /**

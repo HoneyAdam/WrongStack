@@ -1,6 +1,7 @@
 import type { TaskGraph, TaskNode, TaskProgress } from '../types/task-graph.js';
 import { computeTaskProgress } from '../types/task-graph.js';
 import type { Specification } from '../types/spec.js';
+import { truncate } from '../utils/string.js';
 
 const STATUS_ICON: Record<TaskNode['status'], string> = {
   pending: '○',
@@ -227,7 +228,3 @@ export function renderSpecAnalysis(
   return lines.join('\n');
 }
 
-function truncate(str: string, maxLen: number): string {
-  if (str.length <= maxLen) return str;
-  return str.slice(0, maxLen - 1) + '…';
-}

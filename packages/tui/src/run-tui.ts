@@ -606,6 +606,9 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
           onClearHistory: opts.onClearHistory
             ? (dispatch) => opts.onClearHistory?.(dispatch)
             : undefined,
+          onNewSession: opts.onNewSession
+            ? (dispatch) => opts.onNewSession?.(dispatch)
+            : undefined,
           fleetStreamController: opts.fleetStreamController,
           enhanceController: opts.enhanceController,
           enhanceEnabled: opts.enhanceController?.enabled ?? true,

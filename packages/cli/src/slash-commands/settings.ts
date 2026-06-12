@@ -3,12 +3,7 @@ import type { SlashCommand } from '@wrongstack/core';
 import { persistAutonomySetting, persistConfigSetting } from '../settings-menu.js';
 import type { SlashCommandContext } from './index.js';
 import { parseSubcommand, unknownSubcommand } from './helpers.js';
-
-function formatDelay(ms: number): string {
-  if (ms >= 60_000) return `${Math.round(ms / 60_000)}m`;
-  if (ms === 0) return 'disabled';
-  return `${Math.round(ms / 1000)}s`;
-}
+import { formatDelay } from '../utils/delay-format.js';
 
 /**
  * `/settings` — view or change persisted settings.

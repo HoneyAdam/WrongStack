@@ -1,5 +1,5 @@
 import type { InputReader, Tool } from '@wrongstack/core';
-import { color, writeOut } from '@wrongstack/core';
+import { color, truncate, writeOut } from '@wrongstack/core';
 import { renderDiff } from './diff-renderer.js';
 import { theme } from './theme.js';
 
@@ -61,10 +61,6 @@ function stringifyInput(input: unknown): string {
     .filter(([k]) => k !== 'content' && k !== 'new_string')
     .map(([k, v]) => `${k}: ${truncate(JSON.stringify(v), 80)}`)
     .join('  ');
-}
-
-function truncate(s: string, max: number): string {
-  return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
 }
 
 function hasDiff(input: unknown): boolean {

@@ -45,6 +45,12 @@ export interface SlashCommandContext {
   onExit?: (() => void) | undefined;
   onBeforeExit?: () => Promise<{ abort?: boolean; message?: string | undefined } | void>;
   onClear?: (() => void) | undefined;
+  /**
+   * Called by /clear after wiping the session on disk and in the agent context.
+   * The TUI installs a dispatch-backed handler here to also reset its UI state
+   * (wipe rendered entries, reset fleet/leader stats, bump the context chip).
+   */
+  onNewSession?: (() => Promise<void>) | undefined;
   onDiag?: (() => string) | undefined;
   onStats?: (() => string | null) | undefined;
   /**

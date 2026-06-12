@@ -1,4 +1,4 @@
-import { expectDefined } from '@wrongstack/core';
+import { expectDefined, truncate } from '@wrongstack/core';
 import type { FileSymbols, Symbol as IndexSymbol, SymbolLang } from './schema.js';
 // ─── Public API ─────────────────────────────────────────────────────────────
 
@@ -173,11 +173,6 @@ function isScalar(value: string): boolean {
   if (/^(true|false|null|undefined)$/i.test(value)) return true;
   if (/^'[^']*'$/.test(value) || /^"[^"]*"$/.test(value)) return true;
   return false;
-}
-
-function truncate(s: string, max: number): string {
-  if (s.length <= max) return s;
-  return s.slice(0, max) + '...';
 }
 
 function makeSymbol(opts: {

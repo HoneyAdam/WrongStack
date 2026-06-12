@@ -914,6 +914,15 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
             dispatch({ type: 'clearHistory' });
             dispatch({ type: 'resetContextChip' });
           },
+          // /clear: signal the TUI to wipe entries and reset fleet/leader stats
+          // so the display reflects a completely fresh session after the backend
+          // has been cleared (context, memory, session history on disk).
+          onNewSession: (
+            dispatch: (action: { type: 'clearHistory' } | { type: 'resetContextChip' }) => void,
+          ) => {
+            dispatch({ type: 'clearHistory' });
+            dispatch({ type: 'resetContextChip' });
+          },
           fleetStreamController,
           enhanceController,
           statuslineHiddenItems,

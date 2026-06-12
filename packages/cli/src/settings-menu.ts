@@ -13,6 +13,7 @@ import {
 } from '@wrongstack/core';
 import type { ReadlineInputReader } from './input-reader.js';
 import type { TerminalRenderer } from './renderer.js';
+import { formatDelay } from './utils/delay-format.js';
 
 export interface SettingsMenuDeps {
   renderer: TerminalRenderer;
@@ -401,10 +402,4 @@ function mutateAutonomyConfig(
   mutator: (autonomy: { autoProceedDelayMs?: number | undefined; defaultMode?: string | undefined; enhance?: boolean | undefined; enhanceDelayMs?: number | undefined; enhanceLanguage?: string | undefined }) => void,
 ): Promise<void> {
   return persistAutonomySetting(deps, mutator);
-}
-
-function formatDelay(ms: number): string {
-  if (ms >= 60_000) return `${Math.round(ms / 60_000)}m`;
-  if (ms === 0) return 'disabled';
-  return `${Math.round(ms / 1000)}s`;
 }
