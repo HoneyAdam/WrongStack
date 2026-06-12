@@ -253,6 +253,10 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
     needsSetup,
   } = deps;
 
+  // Tracks the in-flight chimera subagent so finally can await it before session.close().
+  // Without this, the fire-and-forget IIFE appends to a session whose handle is already closed.
+  let pendingChimeraWork: Promise<void> | undefined;
+
   // ── Chimera post-session review: spawns subagent on chimera.review_needed ──
   events.onPattern('chimera.review_needed', (_event, payload) => {
     const p = payload as ChimeraReviewNeededPayload;
@@ -263,9 +267,10 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
     }
     if (p.files.length === 0) return;
 
-    // Fire-and-forget: spawn subagent, append result when done.
-    // Don't block session.close() — the subagent runs in background.
-    void (async () => {
+    // Store the promise so the finally block can await it before session.close().
+    // events.emit('session.ended') fires synchronously, so this assignment
+    // happens before the finally block checks pendingChimeraWork.
+    pendingChimeraWork = (async () => {
       try {
         const fileList = p.files
           .map((f) => `- [${f.status.toUpperCase()}] ${f.path}`)
@@ -1482,6 +1487,10 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
       pendingToolUses: pending.length > 0 ? pending : undefined,
     });
     events.emit('session.ended', { id: activeSession.id, usage: tokenCounter.total() });
+    // Await chimera's in-flight work so the review result is written to the JSONL
+    // before we close — without this, session.close() races against the subagent
+    // and the review text is silently dropped because append returns early on closed.
+    await pendingChimeraWork;
     await activeSession.close();
     await recoveryLock.clear().catch(() => undefined); /* best-effort: stale lock will be recovered on next startup */
     await reader.close();
