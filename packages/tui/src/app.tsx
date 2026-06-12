@@ -373,14 +373,6 @@ export interface AppProps {
   onClearHistory?: ((
     dispatch: React.Dispatch<{ type: 'clearHistory' } | { type: 'resetContextChip' }>,
   ) => void) | undefined;
-  /**
-   * Called from /clear after the session has been wiped on disk. The TUI
-   * dispatches a full UI reset (entries, fleet/leader stats, context chip
-   * version bump) so the display reflects a completely fresh session.
-   */
-  onNewSession?: ((
-    dispatch: React.Dispatch<{ type: 'clearHistory' } | { type: 'resetContextChip' }>,
-  ) => void) | undefined;
 
   /**
    * Called when the user selects a session in the /resume picker. The host
@@ -599,7 +591,6 @@ export function App({
   director,
   fleetRoster,
   onClearHistory,
-  onNewSession,
   listSessions,
   onResumeSession,
   fleetStreamController,
@@ -4892,9 +4883,6 @@ export function App({
         const cmd = trimmed.slice(1).split(/\s+/, 1)[0];
         if (cmd === 'clear') {
           onClearHistory?.(dispatch);
-          // Also signal a full UI new-session reset so the display reflects
-          // a completely fresh state: entries, fleet/leader stats, context chip.
-          onNewSession?.(dispatch);
           // Reset cumulative token/cost counters so the status bar
           // reflects a fresh session, not pre-clear stats.
           tokenCounter?.reset();

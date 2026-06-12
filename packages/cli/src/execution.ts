@@ -908,16 +908,10 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
           confirmExit: ((config.autonomy as Record<string, unknown> | undefined)?.['confirmExit'] as boolean) ?? true,
           director,
           fleetRoster,
-          onClearHistory: (
-            dispatch: (action: { type: 'clearHistory' } | { type: 'resetContextChip' }) => void,
-          ) => {
-            dispatch({ type: 'clearHistory' });
-            dispatch({ type: 'resetContextChip' });
-          },
           // /clear: signal the TUI to wipe entries and reset fleet/leader stats
-          // so the display reflects a completely fresh session after the backend
-          // has been cleared (context, memory, session history on disk).
-          onNewSession: (
+          // AND bump the context chip version — so the display reflects a
+          // completely fresh session after the backend has been cleared.
+          onClearHistory: (
             dispatch: (action: { type: 'clearHistory' } | { type: 'resetContextChip' }) => void,
           ) => {
             dispatch({ type: 'clearHistory' });
