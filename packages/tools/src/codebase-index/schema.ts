@@ -115,4 +115,6 @@ export interface Ref {
 
 // ─── Schema version ───────────────────────────────────────────────────────────
 
-export const SCHEMA_VERSION = 1;
+// v2: added the symbols_fts FTS5 table (ranked search moved into SQLite).
+// A version mismatch on open drops & rebuilds the index (it is derived data).
+export const SCHEMA_VERSION = 2;

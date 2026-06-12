@@ -24,7 +24,6 @@ import { parseSymbols as parseRs } from './rs-parser.js';
 import { parseSymbols as parseJson } from './json-parser.js';
 import { parseSymbols as parseYaml } from './yaml-parser.js';
 import { loadGitignoreMatcher, type IgnoreMatcher } from './gitignore.js';
-import { _setIndexProgress } from './background-indexer.js';
 /** Yield the event loop every N files so the main thread stays responsive. */
 const YIELD_EVERY_N = 50;
 
@@ -75,6 +74,12 @@ interface IndexerOptions {
    * and `runIndexer` throws, releasing the mutex and resetting flags.
    */
   signal?: AbortSignal | undefined;
+  /**
+   * Per-file progress callback. Injected by the caller instead of imported
+   * from the host's module state so the indexer can run inside a worker
+   * thread (worker posts progress messages; inline host updates its state).
+   */
+  onProgress?: ((current: number, total: number) => void) | undefined;
 }
 
 async function findSourceFiles(
@@ -235,8 +240,8 @@ async function runIndexerWithStore(store: IndexStore, opts: IndexerOptions): Pro
   for (let fi = 0; fi < files.length; fi++) {
     const file = expectDefined(files[fi]);
 
-    // Report progress to the state tracker so UIs can show indexing status.
-    _setIndexProgress(fi + 1, files.length);
+    // Report progress to the caller so UIs can show indexing status.
+    opts.onProgress?.(fi + 1, files.length);
 
     // Yield the event loop periodically so the main thread stays responsive
     // (TUI rendering, input handling, etc.) during large index builds.

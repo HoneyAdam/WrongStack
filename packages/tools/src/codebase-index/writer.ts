@@ -15,6 +15,7 @@ import { resolveWstackPaths } from '@wrongstack/core';
 import type { FileMeta, IndexStats, Ref, SearchResult, Symbol as IndexSymbol, SymbolKind, SymbolLang } from './schema.js';
 import { SCHEMA_VERSION } from './schema.js';
 import { lspKindToInternalKind } from './lsp-kind.js';
+import { buildBm25Index, buildIndexableText, tokenise } from './bm25.js';
 const DB_FILE = 'index.db';
 
 /**
@@ -83,6 +84,11 @@ export class IndexStore {
   private db: DatabaseSync;
   /** Absolute path to this project's index directory. */
   private readonly indexDir: string;
+  /**
+   * True when the SQLite build provides FTS5 (Node's bundled SQLite does).
+   * When false, ranked search falls back to the LIKE + in-process BM25 path.
+   */
+  private ftsAvailable = false;
 
   constructor(projectRoot: string, opts: { indexDir?: string | undefined } = {}) {
     this.indexDir = resolveIndexDir(projectRoot, opts.indexDir);
@@ -111,6 +117,26 @@ export class IndexStore {
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
       );
+    `);
+
+    // Schema migration: the index is derived, rebuildable data — on any
+    // version mismatch we drop everything and let the next index run repopulate
+    // from source, instead of maintaining per-version migration scripts.
+    const storedRows = this.db.prepare('SELECT value FROM metadata WHERE key = ?').all('version') as { value: string }[];
+    const storedVersion = storedRows.length ? Number(storedRows[0]?.value) : null;
+    if (storedVersion !== null && storedVersion !== SCHEMA_VERSION) {
+      this.db.exec(`
+        DROP TABLE IF EXISTS symbols;
+        DROP TABLE IF EXISTS files;
+        DROP TABLE IF EXISTS refs;
+      `);
+      this.db.exec('DROP TABLE IF EXISTS symbols_fts');
+      this.db.prepare('UPDATE metadata SET value = ? WHERE key = ?').run(String(SCHEMA_VERSION), 'version');
+    } else if (storedVersion === null) {
+      this.db.prepare('INSERT INTO metadata(key, value) VALUES (?, ?)').run('version', String(SCHEMA_VERSION));
+    }
+
+    this.db.exec(`
       CREATE TABLE IF NOT EXISTS files (
         file TEXT PRIMARY KEY,
         lang TEXT NOT NULL,
@@ -155,9 +181,16 @@ export class IndexStore {
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_r_to_name ON refs(to_name)');
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_r_call_type ON refs(call_type)');
 
-    const versionRows = this.db.prepare('SELECT value FROM metadata WHERE key = ?').all('version');
-    if (!versionRows.length) {
-      this.db.prepare('INSERT INTO metadata(key, value) VALUES (?, ?)').run('version', String(SCHEMA_VERSION));
+    // FTS5 full-text index over the camelCase-split symbol text; rowid is the
+    // symbol id. Replaces the old `LIKE '%token%'` full-table scan + per-query
+    // in-process BM25 build: MATCH uses the inverted index and bm25() ranks
+    // natively. Kept in sync explicitly in insertSymbols/delete*/clearAll.
+    try {
+      this.db.exec("CREATE VIRTUAL TABLE IF NOT EXISTS symbols_fts USING fts5(text, tokenize = 'unicode61')");
+      this.ftsAvailable = true;
+    } catch {
+      // SQLite built without FTS5 — searchRanked falls back to LIKE + BM25.
+      this.ftsAvailable = false;
     }
   }
 
@@ -168,11 +201,14 @@ export class IndexStore {
       `INSERT INTO symbols(id, lang, kind, name, file, line, col, signature, doc_comment, scope, text, file_fk)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
+    const ftsStmt = this.ftsAvailable
+      ? this.db.prepare('INSERT INTO symbols_fts(rowid, text) VALUES (?, ?)')
+      : null;
 
     let id = nextId;
     for (const s of symbols) {
       stmt.run(
-        id++,
+        id,
         s.lang,
         s.kind,
         s.name,
@@ -185,15 +221,31 @@ export class IndexStore {
         s.text,
         s.file,
       );
+      // The FTS row indexes the camelCase-split text so a query for "complex"
+      // matches "complexOperation" — same recall the JS BM25 path provided.
+      ftsStmt?.run(id, buildIndexableText(s.name, s.signature, s.docComment));
+      id++;
     }
     return id;
   }
 
   deleteSymbolsForFile(file: string): void {
+    if (this.ftsAvailable) {
+      this.db
+        .prepare('DELETE FROM symbols_fts WHERE rowid IN (SELECT id FROM symbols WHERE file_fk = ?)')
+        .run(file);
+    }
     this.db.prepare('DELETE FROM symbols WHERE file_fk = ?').run(file);
   }
 
+  /**
+   * Remove every trace of a file (refs, symbols, FTS rows, file meta). Used
+   * when a source file disappears between index runs — previously this only
+   * dropped the `files` row, leaving its symbols orphaned but still searchable.
+   */
   deleteFile(file: string): void {
+    this.deleteRefsForFile(file);
+    this.deleteSymbolsForFile(file);
     this.db.prepare('DELETE FROM files WHERE file = ?').run(file);
   }
 
@@ -292,6 +344,127 @@ export class IndexStore {
     }));
   }
 
+  /**
+   * Ranked search — the one-stop query the codebase-search tool and plug-lsp
+   * use. With FTS5 this is a single indexed `MATCH` ranked by SQLite's native
+   * `bm25()` with a built-in `snippet()`; without FTS5 it falls back to the
+   * legacy LIKE scan + in-process BM25 (identical semantics, slower).
+   *
+   * Tokens are matched as prefixes (`"tok"*`), mirroring the old
+   * `LIKE '%tok%'` recall for the common symbol-search shapes ("user" finds
+   * "users", camelCase-split text makes "complex" find "complexOperation").
+   */
+  searchRanked(
+    query: string,
+    filter:
+      | { kind?: SymbolKind | undefined; lang?: SymbolLang | undefined; file?: string | undefined; lspKind?: number | undefined }
+      | undefined,
+    limit: number,
+  ): { results: SearchResult[]; total: number } {
+    const tokens = tokenise(query);
+    // No usable tokens → plain filtered listing (matches old `search('')`).
+    if (tokens.length === 0 || !this.ftsAvailable) {
+      return this.searchRankedFallback(query, filter, limit);
+    }
+
+    let effectiveKind: SymbolKind | undefined = filter?.kind;
+    if (filter?.lspKind !== undefined) {
+      const mapped = lspKindToInternalKind(filter.lspKind);
+      if (mapped === null) return { results: [], total: 0 };
+      effectiveKind = mapped;
+    }
+
+    // Each token is quoted (neutralises FTS5 query syntax) and prefix-starred.
+    const match = tokens.map((t) => `"${t.replaceAll('"', '')}"*`).join(' OR ');
+
+    const conditions: string[] = ['symbols_fts MATCH ?'];
+    const values: (string | number)[] = [match];
+    if (effectiveKind) {
+      conditions.push('s.kind = ?');
+      values.push(effectiveKind);
+    }
+    if (filter?.lang) {
+      conditions.push('s.lang = ?');
+      values.push(filter.lang);
+    }
+    if (filter?.file) {
+      conditions.push('s.file LIKE ?');
+      values.push(`%${filter.file}%`);
+    }
+    const where = conditions.join(' AND ');
+
+    const countRows = this.db
+      .prepare(`SELECT COUNT(*) AS n FROM symbols_fts JOIN symbols s ON s.id = symbols_fts.rowid WHERE ${where}`)
+      .all(...values) as { n: number }[];
+    const total = countRows[0] ? Number(countRows[0].n) : 0;
+    if (total === 0) return { results: [], total: 0 };
+
+    const rows = this.db
+      .prepare(
+        `SELECT s.id, s.lang, s.kind, s.name, s.file, s.line, s.col, s.signature, s.doc_comment,
+                -bm25(symbols_fts) AS score,
+                snippet(symbols_fts, 0, '', '', '…', 12) AS snippet
+         FROM symbols_fts JOIN symbols s ON s.id = symbols_fts.rowid
+         WHERE ${where}
+         ORDER BY bm25(symbols_fts)
+         LIMIT ?`,
+      )
+      .all(...values, limit) as {
+      id: number; lang: string; kind: string; name: string; file: string;
+      line: number; col: number; signature: string; doc_comment: string;
+      score: number; snippet: string;
+    }[];
+
+    return {
+      results: rows.map((r) => ({
+        id: r.id,
+        lang: r.lang as SymbolLang,
+        kind: r.kind as SymbolKind,
+        name: r.name,
+        file: r.file,
+        line: r.line,
+        col: r.col,
+        signature: r.signature,
+        docComment: r.doc_comment,
+        // bm25() is negative-is-better; negate so callers keep "higher is
+        // better" and clamp so a match never reports a zero score.
+        score: Math.max(0.0001, r.score),
+        snippet: r.snippet,
+        lspKind: filter?.lspKind,
+      })),
+      total,
+    };
+  }
+
+  /** Legacy ranked path: LIKE candidates + in-process BM25 + JS snippets. */
+  private searchRankedFallback(
+    query: string,
+    filter:
+      | { kind?: SymbolKind | undefined; lang?: SymbolLang | undefined; file?: string | undefined; lspKind?: number | undefined }
+      | undefined,
+    limit: number,
+  ): { results: SearchResult[]; total: number } {
+    const candidates = this.search(query, filter);
+    if (candidates.length === 0) return { results: [], total: 0 };
+
+    if (!query.trim()) {
+      return { results: candidates.slice(0, limit), total: candidates.length };
+    }
+
+    const bm25 = buildBm25Index(
+      candidates.map((c) => ({ id: c.id, text: buildIndexableText(c.name, c.signature, c.docComment) })),
+    );
+    const scored = bm25.score(query, (id) => candidates.some((c) => c.id === id));
+    scored.sort((a, b) => b.score - a.score);
+    const qTokens = tokenise(query);
+
+    const results = scored.slice(0, limit).map(({ id, score }) => {
+      const c = expectDefined(candidates.find((cand) => cand.id === id));
+      return { ...c, score, snippet: bm25.extractSnippet(id, qTokens) };
+    });
+    return { results, total: candidates.length };
+  }
+
   getAllIndexable(): Array<{ id: number; text: string }> {
     return (this.db.prepare('SELECT id, text FROM symbols').all() as { id: number; text: string }[]).map(
       ({ id, text }) => ({ id, text }),
@@ -360,6 +533,7 @@ export class IndexStore {
     this.db.exec('DELETE FROM symbols');
     this.db.exec('DELETE FROM files');
     this.db.exec('DELETE FROM refs');
+    if (this.ftsAvailable) this.db.exec('DELETE FROM symbols_fts');
   }
 
   // ─── Ref CRUD ────────────────────────────────────────────────────────────────
