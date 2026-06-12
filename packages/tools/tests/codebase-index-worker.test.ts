@@ -18,7 +18,12 @@ import { afterAll, describe, expect, it } from 'vitest';
 const distDir = fileURLToPath(new URL('../dist', import.meta.url));
 const distEntry = path.join(distDir, 'codebase-index', 'index.js');
 const distWorker = path.join(distDir, 'codebase-index', 'worker.js');
-const distReady = fsSync.existsSync(distEntry) && fsSync.existsSync(distWorker);
+// The worker resolves @wrongstack/core from ITS dist at runtime, so a missing
+// core build (fresh checkout, or a concurrent `tsup --clean` wiping dist
+// mid-suite) must skip rather than fail.
+const coreDist = fileURLToPath(new URL('../../core/dist/index.js', import.meta.url));
+const distReady =
+  fsSync.existsSync(distEntry) && fsSync.existsSync(distWorker) && fsSync.existsSync(coreDist);
 
 interface DistIndexApi {
   runStartupIndex(opts: {
