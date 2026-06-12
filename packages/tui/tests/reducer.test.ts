@@ -487,6 +487,12 @@ describe('settings picker reducer', () => {
         auditLevel: 'standard' as const,
         indexOnStart: true,
         maxIterations: 500,
+        autoProceedMaxIterations: 50,
+        enhanceDelayMs: 60_000,
+        enhanceEnabled: true,
+        enhanceLanguage: 'original' as const,
+        debugStream: false,
+        configScope: 'global' as const,
         ...over,
       },
     }) as unknown as Parameters<typeof reducer>[0];
@@ -513,6 +519,12 @@ describe('settings picker reducer', () => {
       auditLevel: 'standard',
       indexOnStart: true,
       maxIterations: 500,
+      autoProceedMaxIterations: 50,
+      enhanceDelayMs: 60_000,
+      enhanceEnabled: true,
+      enhanceLanguage: 'original',
+      debugStream: false,
+      configScope: 'global',
     });
     expect(s.settingsPicker).toMatchObject({ open: true, field: 0, mode: 'auto', delayMs: 30_000 });
   });
