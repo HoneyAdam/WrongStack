@@ -65,6 +65,11 @@ export type HistoryEntry =
 export interface HistoryProps {
   entries: HistoryEntry[];
   /**
+   * Store parsed next steps in the shared suggestion store so /next 1 works.
+   * Called by the Entry component after parsing each assistant message.
+   */
+  setSuggestions?: ((steps: string[]) => void) | undefined;
+  /**
    * Generation counter for wholesale history replacements (session resume).
    * Keys the internal <Static> so a replacement remounts it — Ink's Static
    * tracks written items by index and would otherwise skip replayed entries

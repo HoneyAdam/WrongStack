@@ -1,5 +1,5 @@
 import { Box, Text } from '../../ink.js';
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { theme } from '../../theme.js';
 import { Banner } from './banner.js';
 import { DiffBlock, extractDiffPreview } from './code-block.js';
@@ -79,13 +79,29 @@ function brainRiskColor(risk: Extract<HistoryEntry, { kind: 'brain' }>['risk']):
 export const Entry = React.memo(function Entry({
   entry,
   termWidth,
-}: { entry: HistoryEntry; termWidth: number }): React.ReactElement {
+  setSuggestions,
+}: {
+  entry: HistoryEntry;
+  termWidth: number;
+  /** Store parsed next steps in the shared suggestion store so /next 1 works. */
+  setSuggestions?: ((steps: string[]) => void) | undefined;
+}): React.ReactElement {
   // Parse next steps from assistant text — computed once, used only in
   // the assistant case. Must live at the top level (hooks rules).
   const nextSteps = useMemo(() => {
     if (entry.kind !== 'assistant') return { steps: [] as ParsedNextStep[], stripped: '' };
     return parseNextSteps(entry.text);
   }, [entry.kind, (entry as { text?: string }).text]);
+
+  // Store parsed next steps in the shared suggestion store (for /next and
+  // auto-submit countdown). Depend on entry.text (stable per-entry) rather
+  // than nextSteps.steps (fresh [] object every call when no match) to avoid
+  // unnecessary setSuggestions calls.
+  useEffect(() => {
+    if (!setSuggestions) return;
+    const stepTexts = nextSteps.steps.map((s) => s.text);
+    if (stepTexts.length > 0) setSuggestions(stepTexts);
+  }, [entry.kind, (entry as { text?: string }).text, setSuggestions, nextSteps.steps]);
 
   switch (entry.kind) {
     case 'user':
