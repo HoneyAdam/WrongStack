@@ -159,7 +159,7 @@ export class FileMemoryBackend implements MemoryBackend {
     const file = this.resolveFile(filePath, scope);
     return withFileLock(file, async () => {
       let existing: string;
-      try { existing = await fs.readFile(file, 'utf8'); } catch { return 0; }
+      try { existing = await fs.readFile(file, 'utf8'); } catch { return 0; /* best-effort */ }
 
       const needle = query.toLowerCase();
       const idMatcher = /mem_\d+_\w+/;
@@ -187,7 +187,7 @@ export class FileMemoryBackend implements MemoryBackend {
 
   async readAll(scope: MemoryScope, filePath: string): Promise<string> {
     const file = this.resolveFile(filePath, scope);
-    try { return await fs.readFile(file, 'utf8'); } catch { return ''; }
+    try { return await fs.readFile(file, 'utf8'); } catch { return ''; /* best-effort */ }
   }
 
   async list(scope: MemoryScope, filePath: string, limit?: number): Promise<MemoryEntry[]> {
@@ -226,7 +226,7 @@ export class FileMemoryBackend implements MemoryBackend {
   async consolidate(scope: MemoryScope, filePath: string): Promise<number> {
     const file = this.resolveFile(filePath, scope);
     let existing: string;
-    try { existing = await fs.readFile(file, 'utf8'); } catch { return 0; }
+    try { existing = await fs.readFile(file, 'utf8'); } catch { return 0; /* best-effort */ }
 
     const seen = new Set<string>();
     let removed = 0;
@@ -249,7 +249,7 @@ export class FileMemoryBackend implements MemoryBackend {
     const next = lines.join('\n');
     const backup = `${file}.bak.${Date.now()}`;
     try { await fs.copyFile(file, backup); } catch { /* best-effort */ }
-    try { await atomicWrite(file, next); } catch { return 0; }
+    try { await atomicWrite(file, next); } catch { return 0; /* best-effort */ }
     return removed;
   }
 }

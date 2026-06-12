@@ -221,7 +221,7 @@ export class DefaultSessionStore implements SessionStore {
       }
       // Index unavailable — fall back to full directory scan + summary parse.
       const ids = await this.collectSessionIds(this.dir);
-      const sessions = await Promise.all(ids.map((id) => this.summaryFor(id).catch(() => null)));
+      const sessions = await Promise.all(ids.map((id) => this.summaryFor(id).catch(() => null))); /* best-effort */
       const out = sessions.filter((s): s is SessionSummary => s !== null);
       out.sort((a, b) => {
         if (a.startedAt < b.startedAt) return 1;
@@ -329,7 +329,7 @@ export class DefaultSessionStore implements SessionStore {
    */
   async rebuildIndex(): Promise<number> {
     const ids = await this.collectSessionIds(this.dir);
-    const summaries = await Promise.all(ids.map((id) => this.summaryFor(id).catch(() => null)));
+    const summaries = await Promise.all(ids.map((id) => this.summaryFor(id).catch(() => null))); /* best-effort */
     const valid = summaries.filter((s): s is SessionSummary => s !== null);
     // Atomic rewrite: write to temp, then rename.
     const tmp = `${this.indexFile}.tmp`;
