@@ -27,22 +27,20 @@ export interface ProjectsManifest {
 // ── Path resolution ───────────────────────────────────────────────────
 
 function projectsJsonPath(globalConfigPath?: string | undefined): string {
-  const base = globalConfigPath
-    ? path.dirname(globalConfigPath)
-    : wstackGlobalRoot();
+  const base = globalConfigPath ? path.dirname(globalConfigPath) : wstackGlobalRoot();
   return path.join(base, 'projects.json');
 }
 
 function projectsDataDir(globalConfigPath?: string | undefined): string {
-  const base = globalConfigPath
-    ? path.dirname(globalConfigPath)
-    : wstackGlobalRoot();
+  const base = globalConfigPath ? path.dirname(globalConfigPath) : wstackGlobalRoot();
   return path.join(base, 'projects');
 }
 
 // ── Read / Write manifest ─────────────────────────────────────────────
 
-export async function loadManifest(globalConfigPath?: string | undefined): Promise<ProjectsManifest> {
+export async function loadManifest(
+  globalConfigPath?: string | undefined,
+): Promise<ProjectsManifest> {
   const file = projectsJsonPath(globalConfigPath);
   try {
     const raw = await fs.readFile(file, 'utf8');
@@ -53,7 +51,10 @@ export async function loadManifest(globalConfigPath?: string | undefined): Promi
   }
 }
 
-export async function saveManifest(manifest: ProjectsManifest, globalConfigPath?: string | undefined): Promise<void> {
+export async function saveManifest(
+  manifest: ProjectsManifest,
+  globalConfigPath?: string | undefined,
+): Promise<void> {
   const file = projectsJsonPath(globalConfigPath);
   await fs.mkdir(path.dirname(file), { recursive: true });
   await fs.writeFile(file, JSON.stringify(manifest, null, 2), 'utf8');
@@ -65,11 +66,13 @@ export async function saveManifest(manifest: ProjectsManifest, globalConfigPath?
  * Generate a unique slug from a project root path.
  */
 export function generateSlug(root: string): string {
-  const base = path.basename(root)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40) || 'project';
+  const base =
+    path
+      .basename(root)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 40) || 'project';
   const hash = createHash('sha256').update(path.resolve(root)).digest('hex').slice(0, 6);
   return `${base}-${hash}`;
 }
@@ -96,7 +99,10 @@ export function findProject(manifest: ProjectsManifest, query: string): ProjectE
 /**
  * Ensure the per-project data directory exists under ~/.wrongstack/projects/<slug>/.
  */
-export async function ensureProjectDataDir(slug: string, globalConfigPath?: string | undefined): Promise<string> {
+export async function ensureProjectDataDir(
+  slug: string,
+  globalConfigPath?: string | undefined,
+): Promise<string> {
   const dir = path.join(projectsDataDir(globalConfigPath), slug);
   await fs.mkdir(dir, { recursive: true });
   return dir;

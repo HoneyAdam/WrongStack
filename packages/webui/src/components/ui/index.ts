@@ -31,3 +31,6 @@ export {
   DropdownMenuSubTrigger,
   DropdownMenuRadioGroup,
 } from './dropdown-menu';
+export { SparklineChart } from './sparkline';
+export { ConcurrencyGauge } from './concurrency-gauge';
+export { EventTimeline } from './event-timeline';

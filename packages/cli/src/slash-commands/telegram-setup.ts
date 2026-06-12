@@ -1,5 +1,5 @@
-import { color, noOpVault } from '@wrongstack/core';
 import type { SlashCommand } from '@wrongstack/core';
+import { color, noOpVault } from '@wrongstack/core';
 import { persistTelegramConfig } from '../settings-menu.js';
 import type { SlashCommandContext } from './index.js';
 
@@ -64,10 +64,7 @@ export function buildTelegramSetupCommand(opts: SlashCommandContext): SlashComma
           return name === '@wrongstack/telegram' || name === 'telegram';
         });
 
-        const lines = [
-          `${color.bold('Telegram Setup')}`,
-          '',
-        ];
+        const lines = [`${color.bold('Telegram Setup')}`, ''];
 
         if (!hasTelegram) {
           lines.push(

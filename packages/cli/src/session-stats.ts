@@ -32,42 +32,70 @@ export class SessionStats {
   private bashCommands = 0;
   private fetches = 0;
 
+  // Stored handler refs so destroy() can remove them.
+  private readonly _handlers: Array<{ event: string; handler: (e: unknown) => void }> = [];
+
   constructor(events: EventBus, tokenCounter: TokenCounter) {
     this.tokenCounter = tokenCounter;
-    events.on('provider.response', () => {
+
+    const onResponse = () => {
       this.apiRequests++;
-    });
-    events.on('iteration.completed', () => {
+    };
+    const onIteration = () => {
       this.iterations++;
-    });
-    events.on('error', () => {
+    };
+    const onError = () => {
       this.errors++;
-    });
-    events.on('tool.executed', (e) => {
-      const slot = this.toolStats.get(e.name) ?? { ok: 0, fail: 0, totalMs: 0 };
-      if (e.ok) slot.ok++;
+    };
+    const onTool = (e: unknown) => {
+      const tool = e as {
+        name: string;
+        ok: boolean;
+        durationMs: number;
+        input?: Record<string, unknown>;
+      };
+      const slot = this.toolStats.get(tool.name) ?? { ok: 0, fail: 0, totalMs: 0 };
+      if (tool.ok) slot.ok++;
       else slot.fail++;
-      slot.totalMs += e.durationMs;
-      this.toolStats.set(e.name, slot);
+      slot.totalMs += tool.durationMs;
+      this.toolStats.set(tool.name, slot);
 
-      const input = e.input as Record<string, unknown> | undefined;
-      // Side-effect counts are attempt-based (count failed shells / fetches too —
-      // the user wants to see "the agent tried to run 4 commands").
-      if (e.name === 'bash') this.bashCommands++;
-      else if (e.name === 'fetch') this.fetches++;
+      const input = tool.input;
+      if (tool.name === 'bash') this.bashCommands++;
+      else if (tool.name === 'fetch') this.fetches++;
 
-      // File-path tracking is success-only: a failed read or edit didn't
-      // actually touch the file, so don't claim it did.
-      if (!e.ok) return;
-      const path = typeof input?.path === 'string' ? (input.path as string) : undefined;
-      if (e.name === 'read' && path) this.readPaths.add(path);
-      else if (e.name === 'edit' && path) this.editedPaths.add(path);
-      else if (e.name === 'write' && path) {
+      if (!tool.ok) return;
+      const path = typeof input?.path === 'string' ? input.path : undefined;
+      if (tool.name === 'read' && path) this.readPaths.add(path);
+      else if (tool.name === 'edit' && path) this.editedPaths.add(path);
+      else if (tool.name === 'write' && path) {
         this.writtenPaths.add(path);
-        const content = typeof input?.content === 'string' ? (input.content as string) : '';
+        const content = typeof input?.content === 'string' ? input.content : '';
         this.bytesWritten += Buffer.byteLength(content, 'utf8');
       }
-    });
+    };
+
+    events.on('provider.response', onResponse);
+    events.on('iteration.completed', onIteration);
+    events.on('error', onError);
+    events.on('tool.executed', onTool);
+
+    this._handlers.push(
+      { event: 'provider.response', handler: onResponse },
+      { event: 'iteration.completed', handler: onIteration },
+      { event: 'error', handler: onError },
+      { event: 'tool.executed', handler: onTool },
+    );
+  }
+
+  /** Remove all event listeners. Call this when the session ends. */
+  destroy(events: EventBus): void {
+    for (const { event, handler } of this._handlers) {
+      // event is a string literal known to be a valid EventName — safe cast
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (events.off as (e: string, h: (...args: any) => void) => void)(event, handler);
+    }
+    this._handlers.length = 0;
   }
 
   hasActivity(): boolean {

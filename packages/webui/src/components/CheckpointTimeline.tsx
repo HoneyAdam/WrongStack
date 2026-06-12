@@ -138,7 +138,7 @@ export function CheckpointTimeline({
                         className={cn(
                           'w-2.5 h-2.5 rounded-full border-2 shrink-0 transition-colors',
                           isLatest
-                            ? 'border-primary bg-primary/20 shadow-[0_0_0_3px_hsl(var(--primary)/0.1)]'
+                            ? 'border-primary bg-primary/20 shadow-[0_0_0_3px_hsl(var(--primary)/0.25)]'
                             : 'border-muted-foreground/30 bg-background group-hover:border-primary/40',
                         )}
                       />
@@ -163,9 +163,9 @@ export function CheckpointTimeline({
                         <span className="tabular-nums">
                           {cp.messageCount} msg{cp.messageCount === 1 ? '' : 's'}
                         </span>
-                        <span>·</span>
+                        <span className="opacity-50">·</span>
                         <span className="tabular-nums">~{cp.tokens.toLocaleString()} tok</span>
-                        <span>·</span>
+                        <span className="opacity-50">·</span>
                         <span className="tabular-nums">iter {cp.iteration}</span>
                       </div>
                     </div>

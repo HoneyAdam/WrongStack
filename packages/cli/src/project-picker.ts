@@ -33,10 +33,10 @@ const BS = '\x7f';
 // ── Types ─────────────────────────────────────────────────────────────────
 
 export interface PickerItem {
-  key: string;         // unique identifier
-  label: string;       // primary display line
+  key: string; // unique identifier
+  label: string; // primary display line
   subtitle?: string | undefined; // secondary dim line (e.g. path)
-  meta?: string | undefined;     // right-aligned info (e.g. "yesterday")
+  meta?: string | undefined; // right-aligned info (e.g. "yesterday")
   kind: 'project' | 'action';
 }
 
@@ -192,9 +192,10 @@ function renderPickerFrame(
     let sub = '';
     if (item.subtitle) {
       const maxSub = width - 10;
-      const truncated = item.subtitle.length > maxSub
-        ? `…${item.subtitle.slice(item.subtitle.length - maxSub + 1)}`
-        : item.subtitle;
+      const truncated =
+        item.subtitle.length > maxSub
+          ? `…${item.subtitle.slice(item.subtitle.length - maxSub + 1)}`
+          : item.subtitle;
       sub = `\n${pad}       ${color.dim(truncated)}`;
     }
 
@@ -205,14 +206,20 @@ function renderPickerFrame(
   // Scroll indicator
   if (items.length > effectiveVisible) {
     const pct = Math.round((scrollOffset / Math.max(1, items.length - effectiveVisible)) * 100);
-    out.write(`\n${pad}${color.dim(`↑ ${scrollOffset + 1}-${Math.min(scrollOffset + effectiveVisible, items.length)} of ${items.length} (${pct}%) ↓`)}\n`);
+    out.write(
+      `\n${pad}${color.dim(`↑ ${scrollOffset + 1}-${Math.min(scrollOffset + effectiveVisible, items.length)} of ${items.length} (${pct}%) ↓`)}\n`,
+    );
   }
 
   // Footer hint — context-sensitive
   if (filter.length > 0) {
-    out.write(`\n${pad}${color.dim('type to filter   ↑↓ navigate   ↵ select   ESC clear   Ctrl+C quit')}\n`);
+    out.write(
+      `\n${pad}${color.dim('type to filter   ↑↓ navigate   ↵ select   ESC clear   Ctrl+C quit')}\n`,
+    );
   } else {
-    out.write(`\n${pad}${color.dim('type to filter   ↑↓ navigate   PgUp PgDn page   ↵ select   q quit')}\n`);
+    out.write(
+      `\n${pad}${color.dim('type to filter   ↑↓ navigate   PgUp PgDn page   ↵ select   q quit')}\n`,
+    );
   }
 }
 
@@ -281,7 +288,7 @@ export async function runProjectPicker(opts: {
   if (allItems.length === 0) return undefined;
 
   const title = 'Project Switch';
-  const reservedTop = 4;    // title + divider + padding
+  const reservedTop = 4; // title + divider + padding
   const reservedBottom = 3; // scroll indicator + footer
   const headerHeight = reservedTop + reservedBottom;
   const baseVisibleHeight = Math.max(5, terminalHeight() - headerHeight);
@@ -298,7 +305,15 @@ export async function runProjectPicker(opts: {
     const visibleHeight = () => effectiveVisibleHeight(baseVisibleHeight, filter);
 
     const render = () => {
-      renderPickerFrame(displayItems, selectedIdx, scrollOffset, visibleHeight(), title, filter, out);
+      renderPickerFrame(
+        displayItems,
+        selectedIdx,
+        scrollOffset,
+        visibleHeight(),
+        title,
+        filter,
+        out,
+      );
     };
 
     const applyFilter = (newFilter: string) => {
@@ -349,10 +364,7 @@ export async function runProjectPicker(opts: {
       selectedIdx = skipDivider(displayItems, selectedIdx, 1);
       const vh = visibleHeight();
       if (selectedIdx >= scrollOffset + vh) {
-        scrollOffset = Math.min(
-          displayItems.length - vh,
-          selectedIdx - vh + 1,
-        );
+        scrollOffset = Math.min(displayItems.length - vh, selectedIdx - vh + 1);
         if (scrollOffset < 0) scrollOffset = 0;
       }
     };
@@ -360,7 +372,11 @@ export async function runProjectPicker(opts: {
     const cleanup = () => {
       stdin.off('data', onData);
       if (wasRaw) {
-        try { stdin.setRawMode(wasRaw); } catch { /* ignore */ }
+        try {
+          stdin.setRawMode(wasRaw);
+        } catch {
+          /* ignore */
+        }
       }
       if (wasPaused) stdin.pause();
       out.write(CURSOR_SHOW);
@@ -384,14 +400,34 @@ export async function runProjectPicker(opts: {
       if (buf.startsWith(ESC) && buf.length >= 3) {
         // ── 4-byte sequences (PageUp/Down: ESC [ 5/6 ~) ─────────
         if (buf.length >= 4) {
-          if (buf === PAGE_UP) { buf = ''; pageUp(); render(); return; }
-          if (buf === PAGE_DOWN) { buf = ''; pageDown(); render(); return; }
+          if (buf === PAGE_UP) {
+            buf = '';
+            pageUp();
+            render();
+            return;
+          }
+          if (buf === PAGE_DOWN) {
+            buf = '';
+            pageDown();
+            render();
+            return;
+          }
         }
 
         // ── 3-byte sequences (arrows: ESC [ A / B / O A / O B) ──
         if (buf.length === 3) {
-          if (buf === ARROW_UP || buf === ARROW_UP_ALT) { buf = ''; navigateUp(); render(); return; }
-          if (buf === ARROW_DOWN || buf === ARROW_DOWN_ALT) { buf = ''; navigateDown(); render(); return; }
+          if (buf === ARROW_UP || buf === ARROW_UP_ALT) {
+            buf = '';
+            navigateUp();
+            render();
+            return;
+          }
+          if (buf === ARROW_DOWN || buf === ARROW_DOWN_ALT) {
+            buf = '';
+            navigateDown();
+            render();
+            return;
+          }
         }
 
         // Known lengths but unknown sequence — let it buffer more
@@ -483,8 +519,18 @@ export async function runProjectPicker(opts: {
             resolve(undefined);
             return;
           }
-          if (ch === 'j') { buf = ''; navigateDown(); render(); return; }
-          if (ch === 'k') { buf = ''; navigateUp(); render(); return; }
+          if (ch === 'j') {
+            buf = '';
+            navigateDown();
+            render();
+            return;
+          }
+          if (ch === 'k') {
+            buf = '';
+            navigateUp();
+            render();
+            return;
+          }
         }
 
         // Printable character → add to filter

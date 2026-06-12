@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { color } from '@wrongstack/core';
 import type { SlashCommand } from '@wrongstack/core';
+import { color } from '@wrongstack/core';
 import { detectProjectFacts, renderAgentsTemplate } from './helpers.js';
 import type { SlashCommandContext } from './index.js';
 
@@ -47,7 +47,9 @@ export function buildInitCommand(opts: SlashCommandContext): SlashCommand {
         lines.push(hintLine);
       } else {
         opts.renderer.writeInfo(`Wrote ${file}`);
-        lines.push('No project type auto-detected. Edit the file with project context and instructions the system prompt should carry.');
+        lines.push(
+          'No project type auto-detected. Edit the file with project context and instructions the system prompt should carry.',
+        );
       }
 
       // On first init of a Node.js project, suggest (or auto-run) tech stack scan

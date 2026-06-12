@@ -1,13 +1,13 @@
-import { expectDefined } from '@wrongstack/core';
 import * as fs from 'node:fs/promises';
 import {
+  atomicWrite,
   type Capabilities,
   type CustomModelDefinition,
-  type WireFamily,
-  atomicWrite,
   color,
   decryptConfigSecrets,
   encryptConfigSecrets,
+  expectDefined,
+  type WireFamily,
 } from '@wrongstack/core';
 import type { SubcommandHandler } from '../index.js';
 export const providersCmd: SubcommandHandler = async (args, deps) => {
@@ -122,15 +122,16 @@ export const modelsCmd: SubcommandHandler = async (args, deps) => {
 
   const flags = parseFlags(args);
   const search = typeof flags['search'] === 'string' ? flags['search'].toLowerCase() : '';
-  const perPage =
-    Number(flags['per-page']) > 0 ? Number(flags['per-page']) : DEFAULT_PER_PAGE;
+  const perPage = Number(flags['per-page']) > 0 ? Number(flags['per-page']) : DEFAULT_PER_PAGE;
   const page = Math.max(1, Number(flags['page']) || 1);
 
   // Use first positional arg as provider if given, else fall back to configured default.
   // Flags (--search, --page) filter/paginate the list — they don't change the provider.
   const providerId = sub ?? deps.config.provider ?? '';
   if (!providerId) {
-    deps.renderer.writeError('Usage: wstack models <provider> [--search <term>] [--page N] [--per-page N]');
+    deps.renderer.writeError(
+      'Usage: wstack models <provider> [--search <term>] [--page N] [--per-page N]',
+    );
     return 1;
   }
 
@@ -177,10 +178,7 @@ export const modelsCmd: SubcommandHandler = async (args, deps) => {
   const end = Math.min(start + pageItems.length, total);
 
   // Header
-  const pageHint =
-    totalPages > 1
-      ? color.cyan(`[page ${actualPage}/${totalPages}]`)
-      : '';
+  const pageHint = totalPages > 1 ? color.cyan(`[page ${actualPage}/${totalPages}]`) : '';
   const searchHint = search
     ? color.yellow(` (filtered: "${search}" — ${total} match${total === 1 ? '' : 'es'})`)
     : color.dim(` (${total} model${total === 1 ? '' : 's'})`);
@@ -196,7 +194,8 @@ export const modelsCmd: SubcommandHandler = async (args, deps) => {
       if ('tool_call' in m && m.tool_call) caps.push('tools');
       if ('reasoning' in m && m.reasoning) caps.push('reasoning');
       if ('modalities' in m && m.modalities?.input?.includes('image')) caps.push('vision');
-      const ctx = 'limit' in m && m.limit?.context ? `${(m.limit.context / 1000).toFixed(0)}k` : '?';
+      const ctx =
+        'limit' in m && m.limit?.context ? `${(m.limit.context / 1000).toFixed(0)}k` : '?';
       const cost =
         'cost' in m && m.cost?.input !== undefined ? `${m.cost.input}/${m.cost.output ?? '?'}` : '';
       deps.renderer.write(
@@ -281,19 +280,13 @@ function parseSizeFlag(raw: string | undefined): number | undefined {
 }
 
 /** Parse a boolean flag like "--tools" / "--no-tools". */
-function parseBoolFlag(
-  flags: Record<string, string | boolean>,
-  key: string,
-): boolean | undefined {
+function parseBoolFlag(flags: Record<string, string | boolean>, key: string): boolean | undefined {
   if (flags[key] === true || flags[key] === 'true') return true;
   if (flags[`no-${key}`] !== undefined) return false;
   return undefined;
 }
 
-async function modelsAdd(
-  args: string[],
-  deps: Parameters<SubcommandHandler>[1],
-): Promise<number> {
+async function modelsAdd(args: string[], deps: Parameters<SubcommandHandler>[1]): Promise<number> {
   const flags = parseFlags(args);
   const pos = positionals(args);
   const modelId = pos[0];
@@ -309,9 +302,7 @@ async function modelsAdd(
 
   const existing = deps.config.models?.[modelId];
   if (existing) {
-    deps.renderer.writeWarning(
-      `Model "${modelId}" already defined. Overwriting.`,
-    );
+    deps.renderer.writeWarning(`Model "${modelId}" already defined. Overwriting.`);
   }
 
   const capabilities: Partial<Capabilities> = {};
@@ -392,7 +383,9 @@ async function modelsList(
 
   if (entries.length === 0) {
     deps.renderer.write(color.dim('No custom models defined.\n'));
-    deps.renderer.write(color.dim('Use `wstack models add <modelId> --max-context 128k --tools`\n'));
+    deps.renderer.write(
+      color.dim('Use `wstack models add <modelId> --max-context 128k --tools`\n'),
+    );
     return 0;
   }
 

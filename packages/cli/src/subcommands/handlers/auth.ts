@@ -1,7 +1,12 @@
 import { color } from '@wrongstack/core';
 import { parseAuthFlags } from '../../arg-parser.js';
-import { runAuthDirect, runAuthMenu, type AuthMenuDeps } from '../../auth-menu/index.js';
-import { loadConfigProviders, maskedKey, mutateConfigProviders, normalizeKeys } from '../../provider-config-utils.js';
+import { type AuthMenuDeps, runAuthDirect, runAuthMenu } from '../../auth-menu/index.js';
+import {
+  loadConfigProviders,
+  maskedKey,
+  mutateConfigProviders,
+  normalizeKeys,
+} from '../../provider-config-utils.js';
 import type { SubcommandHandler } from '../index.js';
 
 export const authCmd: SubcommandHandler = async (args, deps) => {
@@ -80,26 +85,25 @@ async function runAuthList(deps: AuthMenuDeps): Promise<number> {
   deps.renderer.write(`\n${color.bold('Saved providers')} ${color.dim(`(${ids.length})`)}\n\n`);
 
   for (const id of ids) {
-    const cfg = providers[id] as {
-      type?: string;
-      family?: string;
-      baseUrl?: string;
-      activeKey?: string;
-      apiKeys?: { label: string; apiKey: string; createdAt: string }[];
-      apiKey?: string;
-      models?: string[];
-    } | undefined;
+    const cfg = providers[id] as
+      | {
+          type?: string;
+          family?: string;
+          baseUrl?: string;
+          activeKey?: string;
+          apiKeys?: { label: string; apiKey: string; createdAt: string }[];
+          apiKey?: string;
+          models?: string[];
+        }
+      | undefined;
     if (!cfg) continue;
 
     const keys = normalizeKeys(cfg as Parameters<typeof normalizeKeys>[0]);
     const active = cfg.activeKey ?? keys[0]?.label;
     const famTag = cfg.family ? `${cfg.family}` : color.amber('no-family');
-    const aliasHint =
-      cfg.type && cfg.type !== id ? color.dim(` (→ ${cfg.type})`) : '';
+    const aliasHint = cfg.type && cfg.type !== id ? color.dim(` (→ ${cfg.type})`) : '';
     const modelHint =
-      cfg.models && cfg.models.length > 0
-        ? color.dim(` [${cfg.models.length} models]`)
-        : '';
+      cfg.models && cfg.models.length > 0 ? color.dim(` [${cfg.models.length} models]`) : '';
 
     deps.renderer.write(`  ${color.bold(id)}${aliasHint}\n`);
     deps.renderer.write(
@@ -109,7 +113,9 @@ async function runAuthList(deps: AuthMenuDeps): Promise<number> {
     if (keys.length === 0) {
       deps.renderer.write(`    ${color.amber('no keys')}\n`);
     } else {
-      deps.renderer.write(`    ${color.dim(`${keys.length} key${keys.length === 1 ? '' : 's'}:`)}\n`);
+      deps.renderer.write(
+        `    ${color.dim(`${keys.length} key${keys.length === 1 ? '' : 's'}:`)}\n`,
+      );
       for (const k of keys) {
         const marker = k.label === active ? color.green('●') : color.dim('○');
         deps.renderer.write(
@@ -120,17 +126,12 @@ async function runAuthList(deps: AuthMenuDeps): Promise<number> {
     deps.renderer.write('\n');
   }
 
-  deps.renderer.write(
-    color.dim(`Manage: wstack auth   Add key: wstack auth <provider>\n`),
-  );
+  deps.renderer.write(color.dim(`Manage: wstack auth   Add key: wstack auth <provider>\n`));
   return 0;
 }
 
 /** Detailed view of a single provider. */
-async function runAuthStatus(
-  deps: AuthMenuDeps,
-  providerId: string,
-): Promise<number> {
+async function runAuthStatus(deps: AuthMenuDeps, providerId: string): Promise<number> {
   let providers: Record<string, unknown>;
   try {
     providers = await loadConfigProviders(deps.globalConfigPath, deps.vault);
@@ -139,16 +140,18 @@ async function runAuthStatus(
     return 1;
   }
 
-  const cfg = providers[providerId] as {
-    type?: string;
-    family?: string;
-    baseUrl?: string;
-    activeKey?: string;
-    envVars?: string[];
-    models?: string[];
-    apiKeys?: { label: string; apiKey: string; createdAt: string }[];
-    apiKey?: string;
-  } | undefined;
+  const cfg = providers[providerId] as
+    | {
+        type?: string;
+        family?: string;
+        baseUrl?: string;
+        activeKey?: string;
+        envVars?: string[];
+        models?: string[];
+        apiKeys?: { label: string; apiKey: string; createdAt: string }[];
+        apiKey?: string;
+      }
+    | undefined;
 
   if (!cfg) {
     deps.renderer.writeError(`Provider "${providerId}" not found in config.`);
@@ -196,10 +199,7 @@ async function runAuthStatus(
 }
 
 /** Quick removal of a provider without the interactive menu. */
-async function runAuthRemove(
-  deps: AuthMenuDeps,
-  providerId: string,
-): Promise<number> {
+async function runAuthRemove(deps: AuthMenuDeps, providerId: string): Promise<number> {
   const providers = await loadConfigProviders(deps.globalConfigPath, deps.vault);
   if (!providers[providerId]) {
     deps.renderer.writeError(`Provider "${providerId}" not found.`);
@@ -211,9 +211,7 @@ async function runAuthRemove(
     `${color.amber('!')} This will remove "${providerId}" and all its saved keys.\n`,
   );
   const answer = (
-    await deps.reader.readLine(
-      `  ${color.amber('?')} Confirm removal? ${color.dim('[y/N]')} `,
-    )
+    await deps.reader.readLine(`  ${color.amber('?')} Confirm removal? ${color.dim('[y/N]')} `)
   )
     .trim()
     .toLowerCase();
@@ -227,9 +225,7 @@ async function runAuthRemove(
     await mutateConfigProviders(deps.globalConfigPath, deps.vault, (all) => {
       delete all[providerId];
     });
-    deps.renderer.write(
-      `  ${color.green('✓')} Removed ${color.bold(providerId)}.\n`,
-    );
+    deps.renderer.write(`  ${color.green('✓')} Removed ${color.bold(providerId)}.\n`);
     return 0;
   } catch (err) {
     deps.renderer.writeError(`Failed to remove: ${(err as Error).message}`);

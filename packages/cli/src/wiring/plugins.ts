@@ -4,16 +4,16 @@ import type {
   ConfigStore,
   Container,
   EventBus,
+  ExtensionRegistry,
+  HealthRegistry,
   Logger,
+  MetricsSinkView,
+  Plugin,
   ProviderRegistry,
+  SessionWriter,
+  SkillLoader,
   SlashCommandRegistry,
   ToolRegistry,
-  SessionWriter,
-  ExtensionRegistry,
-  MetricsSinkView,
-  HealthRegistry,
-  SkillLoader,
-  Plugin,
 } from '@wrongstack/core';
 import { loadPlugins } from '@wrongstack/core';
 import type { MCPRegistry } from '@wrongstack/mcp';
@@ -231,7 +231,9 @@ export async function setupPlugins(params: PluginsWiringDeps): Promise<void> {
       }),
   });
 
-  log.info(`[setupPlugins] loaded ${builtinPlugins.length} built-in, ${userPlugins.length} user plugin(s)`);
+  log.info(
+    `[setupPlugins] loaded ${builtinPlugins.length} built-in, ${userPlugins.length} user plugin(s)`,
+  );
 }
 
 function buildPluginOptions(config: Config): Record<string, Record<string, unknown>> {

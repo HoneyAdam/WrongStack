@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import * as path from 'node:path';
 import type { Tool } from '@wrongstack/core';
 import { buildChildEnv } from './_env.js';
+import { createOutputSpool, spoolNote } from './_output-spool.js';
 import { COMMAND_OUTPUT_MAX_BYTES, normalizeCommandOutput } from './_util.js';
 import { getProcessRegistry, redactCommand } from './process-registry.js';
 import { resolveWin32Command } from './_win32-resolve.js';
@@ -268,6 +269,10 @@ function runCommand(
     let stderr = '';
     let killed = false;
     const startedAt = Date.now();
+    // Full-output spool (stdout+stderr interleaved as they arrive): the
+    // in-memory buffers keep only the first MAX_OUTPUT bytes; the spool
+    // captures everything on disk and the result points at the file.
+    const spool = createOutputSpool({ tool: `exec-${cmd}`, thresholdBytes: MAX_OUTPUT });
 
     // On Windows, .cmd/.bat resolution requires shell: true — same rationale
     // as _spawn-stream.ts. resolveWin32Command() finds the full path to the
@@ -314,11 +319,15 @@ function runCommand(
     }
 
     child.stdout?.on('data', (chunk: Buffer) => {
-      if (stdout.length < MAX_OUTPUT) stdout += chunk.toString();
+      const text = chunk.toString();
+      if (stdout.length < MAX_OUTPUT) stdout += text;
+      spool.write(text);
     });
 
     child.stderr?.on('data', (chunk: Buffer) => {
-      if (stderr.length < MAX_OUTPUT) stderr += chunk.toString();
+      const text = chunk.toString();
+      if (stderr.length < MAX_OUTPUT) stderr += text;
+      spool.write(text);
     });
 
     child.on('close', (code) => {
@@ -328,10 +337,11 @@ function runCommand(
       const durationMs = Date.now() - startedAt;
       const exitCode = killed ? 124 : (code ?? 1);
       registry.afterCall(durationMs, exitCode !== 0);
+      const spooled = spool.finalize();
       resolve({
         command: cmd,
         args,
-        stdout: normalizeCommandOutput(stdout),
+        stdout: normalizeCommandOutput(stdout) + (spooled ? spoolNote(spooled) : ''),
         stderr: normalizeCommandOutput(stderr),
         exitCode,
         truncated:
@@ -346,6 +356,7 @@ function runCommand(
       if (isWin) signal.removeEventListener('abort', onAbort);
       if (typeof pid === 'number') registry.unregister(pid);
       registry.afterCall(Date.now() - startedAt, true);
+      spool.finalize();
       resolve({
         command: cmd,
         args,

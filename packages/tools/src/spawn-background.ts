@@ -8,12 +8,20 @@
  *   - Does NOT register with the ProcessRegistry (fire-and-forget)
  *   - Does NOT affect the circuit breaker
  *
- * POSIX: Uses setsid() to create a new session, fully detaching from the
- *        parent's process group. The child becomes a daemon-like process.
+ * POSIX: Uses setsid() (detached: true) to create a new session, fully
+ *        detaching from the parent's process group. The child becomes a
+ *        daemon-like process.
  *
- * Windows: Uses CREATE_NEW_PROCESS_GROUP flag with detached: true. The child
- *          runs in a new process group and won't be affected by Ctrl+C in
- *          the parent terminal.
+ * Windows: detached: false + windowsHide: true (CREATE_NO_WINDOW). This is
+ *          deliberate: CreateProcess IGNORES CREATE_NO_WINDOW when combined
+ *          with DETACHED_PROCESS (which detached: true sets), so a detached
+ *          cmd.exe runs console-less and its console-app *grandchildren*
+ *          (node, etc.) each allocate a fresh VISIBLE console window.
+ *          CREATE_NO_WINDOW instead gives the child a hidden console that
+ *          grandchildren inherit — no window ever appears. Windows children
+ *          survive parent exit regardless of detached, and the hidden
+ *          console also isolates them from the terminal's Ctrl+C, so
+ *          nothing is lost by dropping DETACHED_PROCESS.
  */
 
 import { spawn, type SpawnOptions } from 'node:child_process';
@@ -47,14 +55,16 @@ export function spawnBackground(opts: SpawnBackgroundOptions): {
   const shell = opts.shell ?? (isWin ? process.env['COMSPEC'] ?? 'cmd.exe' : '/bin/bash');
   const shellArgs = isWin ? ['/c', opts.command] : ['-c', opts.command];
 
-  // Platform-specific spawn options for maximum detachment
+  // Platform-specific spawn options for maximum detachment.
+  // win32 must NOT set detached: DETACHED_PROCESS makes Windows ignore
+  // CREATE_NO_WINDOW, and the console-less cmd.exe's grandchildren then pop
+  // visible console windows (see module doc).
   const spawnOpts: SpawnOptions = {
     cwd: opts.cwd ?? process.cwd(),
     env: { ...process.env, ...opts.env },
     stdio: ['ignore', 'pipe', 'pipe'],
-    detached: true, // POSIX: causes setsid() to be called; Windows: CREATE_NEW_PROCESS_GROUP
-    // On Windows, windowsHide: true hides the console window
-    windowsHide: isWin,
+    detached: !isWin, // POSIX: setsid()
+    windowsHide: true,
   };
 
   // On POSIX, the shell itself is spawned as the detached process leader.
@@ -66,6 +76,8 @@ export function spawnBackground(opts: SpawnBackgroundOptions): {
   // host process. Callers can still attach their own listener on `child`.
   child.on('error', () => {});
 
+  releaseStdio(child);
+
   // Unref immediately so the parent can exit even if the child is still running
   child.unref();
 
@@ -73,6 +85,24 @@ export function spawnBackground(opts: SpawnBackgroundOptions): {
     pid: child.pid ?? null,
     child,
   };
+}
+
+/**
+ * Drain and release a fire-and-forget child's stdio pipes. Nothing here ever
+ * reads them: without resume() a chatty child blocks as soon as the OS pipe
+ * buffer (~64 KB) fills, and the open pipe handles keep the parent's event
+ * loop alive even after child.unref() — a one-shot CLI run could never exit
+ * while a background dev server kept its pipes open. resume() switches the
+ * streams to flowing mode and discards the data (callers that attach their
+ * own 'data' listener still receive chunks); unref() detaches the handles
+ * from the event loop.
+ */
+function releaseStdio(child: ReturnType<typeof spawn>): void {
+  for (const stream of [child.stdout, child.stderr]) {
+    if (!stream) continue;
+    stream.resume();
+    (stream as unknown as { unref?: () => void }).unref?.();
+  }
 }
 
 /**
@@ -95,12 +125,15 @@ export function spawnBackgroundExec(
   // Resolve .cmd/.bat on Windows - these require shell: true
   const isBatchFile = isWin && (command.endsWith('.cmd') || command.endsWith('.bat'));
 
+  // Same win32 rule as spawnBackground: detached + windowsHide conflict, and
+  // the hidden console from CREATE_NO_WINDOW is what keeps any children of
+  // the spawned command windowless.
   const spawnOpts: SpawnOptions = {
     cwd: cwd ?? process.cwd(),
     env: { ...process.env, ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
-    detached: true,
-    windowsHide: isWin,
+    detached: !isWin,
+    windowsHide: true,
     ...(isBatchFile ? { shell: true } : {}),
   };
 
@@ -109,6 +142,8 @@ export function spawnBackgroundExec(
   // Fire-and-forget: an unhandled 'error' event (e.g. ENOENT) would crash the
   // host process. Callers can still attach their own listener on `child`.
   child.on('error', () => {});
+
+  releaseStdio(child);
 
   // Unref immediately so the parent can exit even if the child is still running
   child.unref();

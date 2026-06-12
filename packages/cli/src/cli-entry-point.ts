@@ -25,9 +25,7 @@ const isMain =
   process.argv[1]?.endsWith('/cli/dist/index.js') ||
   process.argv[1]?.endsWith('\\cli\\dist\\index.js');
 
-export function runAsMain(
-  mainFn: (argv: string[]) => Promise<number>,
-): void {
+export function runAsMain(mainFn: (argv: string[]) => Promise<number>): void {
   if (!isMain) return;
   mainFn(process.argv.slice(2)).then(
     (c) => {

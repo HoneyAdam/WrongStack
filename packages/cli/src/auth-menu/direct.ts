@@ -1,5 +1,10 @@
 import type { WireFamily } from '@wrongstack/core';
-import { mutateConfigProviders, normalizeKeys, nowIso, writeKeysBack } from '../provider-config-utils.js';
+import {
+  mutateConfigProviders,
+  normalizeKeys,
+  nowIso,
+  writeKeysBack,
+} from '../provider-config-utils.js';
 import { loadProviders } from './helpers.js';
 import { readKeyInput } from './shared.js';
 import type { AuthMenuDeps } from './types.js';
@@ -49,9 +54,7 @@ export async function runAuthDirect(
     opts.envVars ??= knownEnv;
   }
 
-  const usedLabels = new Set(
-    existing ? normalizeKeys(existing).map((k) => k.label) : [],
-  );
+  const usedLabels = new Set(existing ? normalizeKeys(existing).map((k) => k.label) : []);
   let label = opts.label ?? 'default';
   if (usedLabels.has(label)) {
     let n = 2;

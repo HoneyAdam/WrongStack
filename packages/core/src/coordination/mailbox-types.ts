@@ -241,6 +241,56 @@ export interface AgentRegistrationInput {
   source?: 'cli' | 'webui' | 'mcp' | 'acp' | undefined;
 }
 
+// ── Client (REPL/TUI/WebUI) registration ─────────────────────────────────
+
+export type ClientSource = 'repl' | 'tui' | 'webui';
+
+export interface RegisteredClient {
+  /** Unique client id. */
+  clientId: string;
+  /** Session/project context id. */
+  sessionId: string;
+  /** Human-readable name (e.g. "TUI [main]", "WebUI [chrome]"). */
+  name: string;
+  /** Client type. */
+  source: ClientSource;
+  /** ISO8601 — registered at. */
+  registeredAt: string;
+  /** ISO8601 — last heartbeat. */
+  lastSeenAt: string;
+  /** Which process. */
+  pid: number;
+}
+
+export interface ClientStatus {
+  /** Client id. */
+  clientId: string;
+  /** Human-readable name. */
+  name: string;
+  /** Client type. */
+  source: ClientSource;
+  /** Session id. */
+  sessionId: string;
+  /** ISO8601 — last activity timestamp. */
+  lastSeenAt: string;
+  /** Whether this client is currently online (heartbeat within threshold). */
+  online: boolean;
+  /** Which process. */
+  pid: number;
+}
+
+export interface ClientRegistrationInput {
+  clientId: string;
+  sessionId: string;
+  name: string;
+  source: ClientSource;
+  pid: number;
+}
+
+export interface ClientHeartbeatInput {
+  clientId: string;
+}
+
 // ── Agent heartbeat input ────────────────────────────────────────────────
 
 export interface AgentHeartbeatInput {
@@ -299,4 +349,22 @@ export interface Mailbox {
    * Agents and read receipts are preserved; only messages are cleared.
    */
   clearAll(): Promise<void>;
+
+  // ── Client (REPL/TUI/WebUI) registry ──────────────────────────────────
+
+  /**
+   * Register a client (REPL/TUI/WebUI). Called once per client on startup.
+   * Subsequent calls are idempotent — they update lastSeenAt.
+   */
+  registerClient(input: ClientRegistrationInput): Promise<void>;
+
+  /**
+   * Update client heartbeat. Called periodically (every 15s for clients).
+   */
+  clientHeartbeat(input: ClientHeartbeatInput): Promise<void>;
+
+  /**
+   * Get snapshot of online/offline clients and their last activity.
+   */
+  getClientStatuses(): Promise<ClientStatus[]>;
 }

@@ -40,7 +40,7 @@ const STATUS_CONFIG: Record<
 > = {
   pending: { icon: <Circle className="w-4 h-4" />, color: 'text-slate-400', bg: 'bg-slate-100 dark:bg-slate-800', label: 'Pending' },
   ready: { icon: <Play className="w-4 h-4" />, color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-950', label: 'Ready' },
-  running: { icon: <Clock className="w-4 h-4 animate-spin" />, color: 'text-amber-500', bg: 'bg-amber-50 dark:bg-amber-950', label: 'Running' },
+  running: { icon: <Clock className="w-4 h-4 animate-spin" aria-label="Running" />, color: 'text-amber-500', bg: 'bg-amber-50 dark:bg-amber-950', label: 'Running' },
   paused: { icon: <Pause className="w-4 h-4" />, color: 'text-orange-500', bg: 'bg-orange-50 dark:bg-orange-950', label: 'Paused' },
   completed: { icon: <CheckCircle2 className="w-4 h-4" />, color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-950', label: 'Completed' },
   failed: { icon: <XCircle className="w-4 h-4" />, color: 'text-red-500', bg: 'bg-red-50 dark:bg-red-950', label: 'Failed' },

@@ -161,7 +161,7 @@ export type {
   ModelsDevProvider,
 } from './types/models-registry.js';
 export type { Logger, LogLevel } from './types/logger.js';
-export type { TokenCounter } from './types/token-counter.js';
+export type { CacheStats, TokenCounter } from './types/token-counter.js';
 export type { ProviderRunner, RunProviderOptions } from './types/provider-runner.js';
 export type { SecretVault } from './types/secret-vault.js';
 export { noOpVault } from './types/secret-vault.js';

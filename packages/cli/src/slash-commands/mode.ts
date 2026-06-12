@@ -1,7 +1,6 @@
-import type { Mode, ModeStore, InputReader } from '@wrongstack/core';
-import type { SlashCommand } from '@wrongstack/core';
-import type { SlashCommandContext } from './index.js';
+import type { InputReader, Mode, ModeStore, SlashCommand } from '@wrongstack/core';
 import { color, writeOut } from '@wrongstack/core';
+import type { SlashCommandContext } from './index.js';
 
 /**
  * Interactive mode picker — arrow-key navigation, Enter to select, q to quit.

@@ -1,9 +1,9 @@
-import { color, noOpVault } from '@wrongstack/core';
 import type { SlashCommand } from '@wrongstack/core';
+import { color, noOpVault } from '@wrongstack/core';
 import { persistAutonomySetting, persistConfigSetting } from '../settings-menu.js';
-import type { SlashCommandContext } from './index.js';
-import { parseSubcommand, unknownSubcommand } from './helpers.js';
 import { formatDelay } from '../utils/delay-format.js';
+import { parseSubcommand, unknownSubcommand } from './helpers.js';
+import type { SlashCommandContext } from './index.js';
 
 /**
  * `/settings` — view or change persisted settings.
@@ -33,7 +33,13 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
 
   function currentView(): string {
     const autonomy = opts.configStore.get().autonomy as
-      | { autoProceedDelayMs?: number | undefined; defaultMode?: string | undefined; enhance?: boolean | undefined; enhanceDelayMs?: number | undefined; enhanceLanguage?: string | undefined }
+      | {
+          autoProceedDelayMs?: number | undefined;
+          defaultMode?: string | undefined;
+          enhance?: boolean | undefined;
+          enhanceDelayMs?: number | undefined;
+          enhanceLanguage?: string | undefined;
+        }
       | undefined;
     const delay = autonomy?.autoProceedDelayMs ?? 45_000;
     const mode = autonomy?.defaultMode ?? 'off';
@@ -43,7 +49,10 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
     const enhanceEnabled = autonomy?.enhance ?? true;
     const enhanceDelay = autonomy?.enhanceDelayMs ?? 60_000;
     const enhanceLanguage = (autonomy?.enhanceLanguage as string) ?? 'original';
-    const semverPart = ((opts.configStore.get().extensions?.['semver-bump'] as Record<string, unknown> | undefined)?.['defaultPart'] as string) ?? 'patch';
+    const semverPart =
+      ((
+        opts.configStore.get().extensions?.['semver-bump'] as Record<string, unknown> | undefined
+      )?.['defaultPart'] as string) ?? 'patch';
     return [
       `${color.bold('WrongStack')} ${color.dim('— Settings')}`,
       '',
@@ -64,7 +73,8 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
   return {
     name: 'settings',
     category: 'Config',
-    description: 'View or change settings (auto-proceed delay, default autonomy mode, launch hints).',
+    description:
+      'View or change settings (auto-proceed delay, default autonomy mode, launch hints).',
     help,
     async run(args) {
       const { cmd, rest } = parseSubcommand(args);
@@ -148,7 +158,9 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
           await persistConfigSetting(persistDeps, (cfg) => {
             cfg.hints = on;
           });
-          return { message: `${color.green('✓')} launch hints → ${on ? color.cyan('on') : color.dim('off')}` };
+          return {
+            message: `${color.green('✓')} launch hints → ${on ? color.cyan('on') : color.dim('off')}`,
+          };
         }
 
         if (sub === 'debug-stream') {
@@ -165,7 +177,9 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
           await persistConfigSetting(persistDeps, (cfg) => {
             (cfg as Record<string, unknown>).debugStream = on;
           });
-          return { message: `${color.green('✓')} debug stream → ${on ? color.cyan('on') : color.dim('off')}   ${color.dim('raw SSE hex-dump to stderr')}` };
+          return {
+            message: `${color.green('✓')} debug stream → ${on ? color.cyan('on') : color.dim('off')}   ${color.dim('raw SSE hex-dump to stderr')}`,
+          };
         }
 
         if (sub === 'config-scope') {
@@ -176,9 +190,10 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
           await persistConfigSetting(persistDeps, (cfg) => {
             cfg.configScope = raw;
           });
-          const label = raw === 'project'
-            ? `${color.cyan('project')} — settings saved to <project>/.wrongstack/config.json`
-            : `${color.cyan('global')} — settings saved to ~/.wrongstack/config.json`;
+          const label =
+            raw === 'project'
+              ? `${color.cyan('project')} — settings saved to <project>/.wrongstack/config.json`
+              : `${color.cyan('global')} — settings saved to ~/.wrongstack/config.json`;
           return { message: `${color.green('✓')} config scope → ${label}` };
         }
 
@@ -191,7 +206,9 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
           await persistAutonomySetting(persistDeps, (autonomy) => {
             (autonomy as Record<string, unknown>).enhance = on;
           });
-          return { message: `${color.green('✓')} refine → ${on ? color.cyan('on') : color.dim('off')}   ${color.dim(on ? 'prompts will be refined before sending' : 'prompts sent verbatim')}` };
+          return {
+            message: `${color.green('✓')} refine → ${on ? color.cyan('on') : color.dim('off')}   ${color.dim(on ? 'prompts will be refined before sending' : 'prompts sent verbatim')}`,
+          };
         }
 
         if (sub === 'refine-delay') {
@@ -201,7 +218,9 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
           }
           const seconds = Number.parseFloat(raw);
           if (Number.isNaN(seconds) || seconds < 0) {
-            return { message: `${color.red('Invalid number')}: "${raw}". Enter seconds, e.g. /settings refine-delay 30` };
+            return {
+              message: `${color.red('Invalid number')}: "${raw}". Enter seconds, e.g. /settings refine-delay 30`,
+            };
           }
           const ms = Math.round(seconds * 1000);
           await persistAutonomySetting(persistDeps, (autonomy) => {
@@ -213,14 +232,17 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
         if (sub === 'refine-language') {
           const raw = (rest[0] ?? '').toLowerCase();
           if (!['original', 'english'].includes(raw)) {
-            return { message: `${color.amber('Usage:')} /settings refine-language original|english` };
+            return {
+              message: `${color.amber('Usage:')} /settings refine-language original|english`,
+            };
           }
           await persistAutonomySetting(persistDeps, (autonomy) => {
             (autonomy as Record<string, unknown>).enhanceLanguage = raw;
           });
-          const label = raw === 'original'
-            ? `${color.cyan('original')} — use the language you wrote in`
-            : `${color.cyan('english')} — translate to English`;
+          const label =
+            raw === 'original'
+              ? `${color.cyan('original')} — use the language you wrote in`
+              : `${color.cyan('english')} — translate to English`;
           return { message: `${color.green('✓')} refine-language → ${label}` };
         }
 
@@ -228,7 +250,9 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
           const raw = (rest[0] ?? '').toLowerCase();
           const parts = ['patch', 'minor', 'major', 'auto'];
           if (!parts.includes(raw)) {
-            return { message: `${color.amber('Usage:')} /settings semver-part patch|minor|major|auto` };
+            return {
+              message: `${color.amber('Usage:')} /settings semver-part patch|minor|major|auto`,
+            };
           }
           // Plugin options live under extensions.<plugin-name> — the same key
           // the semver-bump plugin's configSchema validates at load time.
@@ -236,11 +260,14 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
           // secrets), so force the global config regardless of configScope —
           // otherwise filterSafeForProject would silently drop the write.
           await persistConfigSetting({ ...persistDeps, inProjectConfigPath: undefined }, (cfg) => {
-            const ext = (cfg.extensions as Record<string, Record<string, unknown>> | undefined) ?? {};
+            const ext =
+              (cfg.extensions as Record<string, Record<string, unknown>> | undefined) ?? {};
             ext['semver-bump'] = { ...ext['semver-bump'], defaultPart: raw };
             cfg.extensions = ext;
           });
-          return { message: `${color.green('✓')} semver default part → ${color.bold(raw)}   ${color.dim('saved to global config; used when /semver or semver_bump gets no explicit part')}` };
+          return {
+            message: `${color.green('✓')} semver default part → ${color.bold(raw)}   ${color.dim('saved to global config; used when /semver or semver_bump gets no explicit part')}`,
+          };
         }
 
         return {

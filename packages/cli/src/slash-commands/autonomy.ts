@@ -1,6 +1,5 @@
-import { color } from '@wrongstack/core';
-import { goalFilePath, loadGoal, summarizeUsage } from '@wrongstack/core';
 import type { SlashCommand } from '@wrongstack/core';
+import { color, goalFilePath, loadGoal, summarizeUsage } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
 
 export type AutonomyMode = 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel';

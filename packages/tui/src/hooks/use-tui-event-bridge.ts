@@ -59,6 +59,7 @@ function useSessionEvents(
     const offRewound = events.on('session.rewound', () => {
       dispatch({ type: 'sessionRewound', toPromptIndex: 0 });
       dispatch({ type: 'clearHistory' });
+      dispatch({ type: 'resetContextChip' });
       onClearHistory?.(dispatch);
     });
     return () => {

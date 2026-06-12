@@ -1,8 +1,4 @@
-import {
-  color,
-  resolveWstackPaths,
-  ToolAuditLog,
-} from '@wrongstack/core';
+import { color, resolveWstackPaths, ToolAuditLog } from '@wrongstack/core';
 import type { SubcommandHandler } from '../index.js';
 
 /**
@@ -30,7 +26,7 @@ export const auditCmd: SubcommandHandler = async (args, deps) => {
     deps.renderer.writeError(
       'Usage: wstack audit <sessionId>\n' +
         '       wstack audit --list\n\n' +
-        'Inspects a session\'s tamper-evident tool audit log. Each entry\n' +
+        "Inspects a session's tamper-evident tool audit log. Each entry\n" +
         'is chained to the previous via SHA-256; any post-hoc modification\n' +
         'breaks the chain. Use this to verify a session was not tampered\n' +
         'with after recording.\n',
@@ -110,9 +106,7 @@ async function listAudits(
   };
   await scan(dir, '', 0);
   if (!foundRoot) {
-    deps.renderer.write(
-      color.dim(`No sessions dir found at ${dir}. Run a session first.`) + '\n',
-    );
+    deps.renderer.write(color.dim(`No sessions dir found at ${dir}. Run a session first.`) + '\n');
     return 0;
   }
   out.sort((a, b) => a.sessionId.localeCompare(b.sessionId));
@@ -120,15 +114,10 @@ async function listAudits(
     deps.renderer.write(color.dim('No audit logs recorded yet.') + '\n');
     return 0;
   }
-  const lines: string[] = [
-    color.bold(`${out.length} audit log(s)`),
-    '',
-  ];
+  const lines: string[] = [color.bold(`${out.length} audit log(s)`), ''];
   for (const r of out) {
     const status = r.ok ? color.green('✓ intact') : color.red('✗ broken');
-    lines.push(
-      `  ${color.cyan(r.sessionId)}  ${color.dim(`${r.entryCount} entries`)}  ${status}`,
-    );
+    lines.push(`  ${color.cyan(r.sessionId)}  ${color.dim(`${r.entryCount} entries`)}  ${status}`);
   }
   deps.renderer.write(lines.join('\n') + '\n');
   return 0;

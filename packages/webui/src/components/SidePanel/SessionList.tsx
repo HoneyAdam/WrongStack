@@ -248,8 +248,8 @@ export function SessionList({
                           ) : (
                             <span>{formatRelative(entry.startedAt)}</span>
                           )}
-                          {entry.tokenTotal > 0 && <><span>·</span><span className="tabular-nums">{entry.tokenTotal.toLocaleString()} tok</span></>}
-                          {entry.isCurrent && <><span>·</span><span className="text-primary font-medium">active</span></>}
+                          {entry.tokenTotal > 0 && <><span className="opacity-50">·</span><span className="tabular-nums">{entry.tokenTotal.toLocaleString()} tok</span></>}
+                          {entry.isCurrent && <><span className="opacity-50">·</span><span className="text-primary font-medium">active</span></>}
                         </div>
                       </div>
                     </button>

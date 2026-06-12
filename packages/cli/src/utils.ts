@@ -58,7 +58,12 @@ export function fmtTaskResultLine(
     status: 'success' | 'failed' | 'timeout' | 'stopped';
     error?:
       | string
-      | { kind?: string | undefined; message?: string | undefined; retryable?: boolean | undefined; backoffMs?: number | undefined }
+      | {
+          kind?: string | undefined;
+          message?: string | undefined;
+          retryable?: boolean | undefined;
+          backoffMs?: number | undefined;
+        }
       | undefined;
     iterations: number;
     toolCalls: number;
@@ -88,7 +93,11 @@ export function fmtTaskResultLine(
     case 'success':
       return { mark: color.green('✓'), stats, tail: '' };
     case 'timeout':
-      return { mark: color.yellow('⏱'), stats: `${color.yellow('timeout')} ${stats}`, tail: errSnip };
+      return {
+        mark: color.yellow('⏱'),
+        stats: `${color.yellow('timeout')} ${stats}`,
+        tail: errSnip,
+      };
     case 'stopped':
       return { mark: color.dim('⊘'), stats: `${color.dim('stopped')} ${stats}`, tail: errSnip };
     case 'failed':

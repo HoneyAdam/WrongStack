@@ -18,6 +18,9 @@ import { normalizeRecipient } from './mailbox-types.js';
 import type {
   AgentHeartbeatInput,
   AgentRegistrationInput,
+  ClientHeartbeatInput,
+  ClientRegistrationInput,
+  ClientStatus,
   Mailbox,
   MailboxAckInput,
   MailboxAgentStatus,
@@ -205,6 +208,21 @@ export class DefaultMailbox implements Mailbox {
     await withFileLock(this.filePath, async () => {
       await fsp.writeFile(this.filePath, '', 'utf8');
     });
+  }
+
+  // ── Client registry stubs (not applicable per-session) ─────────────────
+
+  async registerClient(_input: ClientRegistrationInput): Promise<void> {
+    // no-op: per-session mailbox doesn't track clients globally
+  }
+
+  async clientHeartbeat(_input: ClientHeartbeatInput): Promise<void> {
+    // no-op: per-session mailbox doesn't track client heartbeats
+  }
+
+  async getClientStatuses(): Promise<ClientStatus[]> {
+    // no-op: per-session mailbox doesn't track clients globally
+    return [];
   }
 
   // ── Internal ──────────────────────────────────────────────────────────

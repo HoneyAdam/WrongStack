@@ -1,9 +1,9 @@
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
-import type { SlashCommand, PhaseGraph, PhaseProgress } from '@wrongstack/core';
+import type { PhaseGraph, PhaseProgress, SlashCommand } from '@wrongstack/core';
 import { PhaseStore } from '@wrongstack/core';
-import type { SlashCommandContext } from './index.js';
 import { parseSubcommand, unknownSubcommand } from './helpers.js';
+import type { SlashCommandContext } from './index.js';
 
 function getStore(opts: SlashCommandContext): PhaseStore {
   // Per-project: ~/.wrongstack/projects/<hash>/autophase
@@ -39,7 +39,9 @@ function formatPhaseList(graph: PhaseGraph): string {
     'Phases:',
     ...phases.map((p) => {
       const total = p.taskGraph.nodes.size;
-      const done = Array.from(p.taskGraph.nodes.values()).filter((t) => t.status === 'completed').length;
+      const done = Array.from(p.taskGraph.nodes.values()).filter(
+        (t) => t.status === 'completed',
+      ).length;
       const tasks = total > 0 ? ` (${done}/${total} todos)` : '';
       return `  ${STATUS_EMOJI[p.status] ?? '?'} ${p.name}: ${p.status}${tasks}`;
     }),
@@ -74,7 +76,8 @@ export function buildAutoPhaseCommand(opts: SlashCommandContext): SlashCommand {
   return {
     name: 'autophase',
     category: 'Agent',
-    description: 'Autonomous phase-based workflow — plans a project into phases of todos and builds it with the LLM.',
+    description:
+      'Autonomous phase-based workflow — plans a project into phases of todos and builds it with the LLM.',
     help: [
       'Usage:',
       '  /autophase                 Show current status',
@@ -99,7 +102,9 @@ export function buildAutoPhaseCommand(opts: SlashCommandContext): SlashCommand {
             return { message: 'Usage: /autophase start <goal>  — describe what to build.' };
           }
           if (!opts.onAutoPhaseStart) {
-            return { message: '❌ AutoPhase is not available in this session (no LLM host wired).' };
+            return {
+              message: '❌ AutoPhase is not available in this session (no LLM host wired).',
+            };
           }
 
           const projectContext = await gatherProjectContext(opts.projectRoot);
@@ -123,7 +128,9 @@ export function buildAutoPhaseCommand(opts: SlashCommandContext): SlashCommand {
         case 'pause': {
           if (!opts.onAutoPhasePause) return { message: '❌ AutoPhase host not available.' };
           opts.onAutoPhasePause();
-          return { message: '⏸️ AutoPhase paused — running tasks will finish; no new ones will start.' };
+          return {
+            message: '⏸️ AutoPhase paused — running tasks will finish; no new ones will start.',
+          };
         }
 
         case 'resume': {
@@ -156,7 +163,9 @@ export function buildAutoPhaseCommand(opts: SlashCommandContext): SlashCommand {
           const graph = await store.load(entry.id);
           if (!graph) return { message: `❌ Could not load project "${entry.title}".` };
           return {
-            message: [`📂 Loaded (display only): **${graph.title}**`, formatPhaseList(graph)].join('\n'),
+            message: [`📂 Loaded (display only): **${graph.title}**`, formatPhaseList(graph)].join(
+              '\n',
+            ),
           };
         }
 
@@ -166,7 +175,10 @@ export function buildAutoPhaseCommand(opts: SlashCommandContext): SlashCommand {
           return {
             message: [
               'Saved AutoPhase projects:',
-              ...graphs.map((g) => `  · ${g.title} — ${g.status} (updated ${new Date(g.updatedAt).toLocaleString()})`),
+              ...graphs.map(
+                (g) =>
+                  `  · ${g.title} — ${g.status} (updated ${new Date(g.updatedAt).toLocaleString()})`,
+              ),
             ].join('\n'),
           };
         }
@@ -187,7 +199,13 @@ export function buildAutoPhaseCommand(opts: SlashCommandContext): SlashCommand {
           };
         }
       }
-      return { message: unknownSubcommand(sub, ['start', 'pause', 'resume', 'stop', 'save', 'load', 'list', 'status'], 'autophase') };
+      return {
+        message: unknownSubcommand(
+          sub,
+          ['start', 'pause', 'resume', 'stop', 'save', 'load', 'list', 'status'],
+          'autophase',
+        ),
+      };
     },
   };
 }

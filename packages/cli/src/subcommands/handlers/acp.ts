@@ -9,11 +9,12 @@
  * ACP clients (Zed, JetBrains, VS Code ACP extension) spawn it as a subprocess.
  * This is the correct CLI entry point to test DIR-2 against a real ACP client.
  */
-import type {SubcommandDeps, SubcommandHandler} from '../index.js';
-import {WrongStackACPServer} from '@wrongstack/acp/agent';
-import {ACP_AGENT_COMMANDS, makeACPSubagentRunnerWithStop} from '@wrongstack/acp';
-import type {SubagentRunContext} from '@wrongstack/core';
-import {ACP_AGENTS, SubagentBudget} from '@wrongstack/core/coordination';
+
+import { ACP_AGENT_COMMANDS, makeACPSubagentRunnerWithStop } from '@wrongstack/acp';
+import { WrongStackACPServer } from '@wrongstack/acp/agent';
+import type { SubagentRunContext } from '@wrongstack/core';
+import { ACP_AGENTS, SubagentBudget } from '@wrongstack/core/coordination';
+import type { SubcommandDeps, SubcommandHandler } from '../index.js';
 
 export const acpCmd: SubcommandHandler = async (args, deps) => {
   const sub = args[0];
@@ -70,7 +71,7 @@ async function runACPServer(deps: SubcommandDeps): Promise<number> {
   deps.renderer.writeInfo('Waiting for ACP client connection on stdin/stdout...\n');
   deps.renderer.writeInfo('Press Ctrl+C to stop.\n');
 
-  const server = new WrongStackACPServer({tools});
+  const server = new WrongStackACPServer({ tools });
 
   const shutdown = () => {
     deps.renderer.writeWarning('\nShutting down ACP server...');
@@ -83,7 +84,9 @@ async function runACPServer(deps: SubcommandDeps): Promise<number> {
   try {
     await server.start();
   } catch (err) {
-    deps.renderer.writeError(`ACP server error: ${err instanceof Error ? err.message : String(err)}\n`);
+    deps.renderer.writeError(
+      `ACP server error: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
     return 1;
   }
 
@@ -128,7 +131,11 @@ async function spawnACPAgent(args: string[], deps: SubcommandDeps): Promise<numb
 
   const cleanup = () => {
     if (stop) {
-      try { stop(); } catch { /* ignore */ }
+      try {
+        stop();
+      } catch {
+        /* ignore */
+      }
     }
   };
 
@@ -138,7 +145,7 @@ async function spawnACPAgent(args: string[], deps: SubcommandDeps): Promise<numb
   let stop: (() => void) | null = null;
 
   try {
-    const {runner, stop: runStop} = await makeACPSubagentRunnerWithStop(cmd);
+    const { runner, stop: runStop } = await makeACPSubagentRunnerWithStop(cmd);
     stop = runStop;
 
     const taskId = `acp-${crypto.randomUUID()}`;
@@ -166,10 +173,7 @@ async function spawnACPAgent(args: string[], deps: SubcommandDeps): Promise<numb
 
     deps.renderer.writeInfo('Running task…\n');
 
-    const result = await runner(
-      {id: taskId, description: task},
-      ctx,
-    );
+    const result = await runner({ id: taskId, description: task }, ctx);
 
     deps.renderer.write('\n--- Result ---\n');
     deps.renderer.write(String(result.result ?? 'no result'));
@@ -179,7 +183,9 @@ async function spawnACPAgent(args: string[], deps: SubcommandDeps): Promise<numb
     );
     return 0;
   } catch (err) {
-    deps.renderer.writeError(`ACP agent error: ${err instanceof Error ? err.message : String(err)}\n`);
+    deps.renderer.writeError(
+      `ACP agent error: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
     return 1;
   } finally {
     cleanup();

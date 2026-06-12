@@ -1,11 +1,11 @@
-import { expectDefined } from '@wrongstack/core';
-import type { Config, ModelsRegistry, ResolvedProvider } from '@wrongstack/core';
-import { color } from '@wrongstack/core';
 import os from 'node:os';
+import type { Config, ModelsRegistry, ResolvedProvider } from '@wrongstack/core';
+import { color, expectDefined } from '@wrongstack/core';
+import { appendHistory, backupCurrent } from './config-history.js';
 import type { ReadlineInputReader } from './input-reader.js';
 import { hasApiKey } from './provider-helpers.js';
 import type { TerminalRenderer } from './renderer.js';
-import { backupCurrent, appendHistory } from './config-history.js';
+
 // Simple theme alias (avoids importing the full theme module just for one color)
 const theme = { primary: color.amber };
 
@@ -40,12 +40,14 @@ export async function saveToGlobalConfig(
     try {
       await backupCurrent(homeFn);
     } catch (err) {
-      console.warn(JSON.stringify({
-        level: 'warn',
-        event: 'picker.backup_failed',
-        message: err instanceof Error ? err.message : String(err),
-        timestamp: new Date().toISOString(),
-      }));
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          event: 'picker.backup_failed',
+          message: err instanceof Error ? err.message : String(err),
+          timestamp: new Date().toISOString(),
+        }),
+      );
     }
 
     await atomicWrite(configPath, JSON.stringify(existing, null, 2), { mode: 0o600 });
@@ -64,12 +66,14 @@ export async function saveToGlobalConfig(
 
     return true;
   } catch (err) {
-    console.warn(JSON.stringify({
-      level: 'warn',
-      event: 'picker.save_failed',
-      message: err instanceof Error ? err.message : String(err),
-      timestamp: new Date().toISOString(),
-    }));
+    console.warn(
+      JSON.stringify({
+        level: 'warn',
+        event: 'picker.save_failed',
+        message: err instanceof Error ? err.message : String(err),
+        timestamp: new Date().toISOString(),
+      }),
+    );
     return false;
   }
 }
@@ -349,7 +353,9 @@ async function pickModel(
   const defaultHint =
     defaultIdxInModels >= 0 && defaultModel ? ` ${color.dim(`[Enter = ${defaultModel}]`)}` : '';
   const answer = (
-    await reader.readLine(`\n${color.amber('?')} Select model (1-${models.length})${defaultHint} ${color.dim('[q to quit]')}: `)
+    await reader.readLine(
+      `\n${color.amber('?')} Select model (1-${models.length})${defaultHint} ${color.dim('[q to quit]')}: `,
+    )
   ).trim();
   if (answer.toLowerCase() === 'q') {
     renderer.write(color.dim('Cancelled.\n'));

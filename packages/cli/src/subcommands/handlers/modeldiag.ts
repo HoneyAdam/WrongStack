@@ -28,15 +28,90 @@ interface ModelProfile {
 }
 
 const MODEL_PROFILES: ModelProfile[] = [
-  { provider: 'anthropic', pattern: /claude-opus/i, family: 'Claude Opus', strengths: ['reasoning', 'planning'], bestFor: ['planning', 'security', 'debugging'], costTier: 'premium', speedTier: 'slow' },
-  { provider: 'anthropic', pattern: /claude-sonnet/i, family: 'Claude Sonnet', strengths: ['coding', 'balanced'], bestFor: ['coding', 'general'], costTier: 'standard', speedTier: 'fast' },
-  { provider: 'anthropic', pattern: /claude-haiku/i, family: 'Claude Haiku', strengths: ['speed'], bestFor: ['lightweight', 'docs'], avoidFor: ['planning'], costTier: 'budget', speedTier: 'fast' },
-  { provider: 'openai', pattern: /gpt-5|o3|o4/i, family: 'GPT-5/o3/o4', strengths: ['reasoning', 'coding'], bestFor: ['planning', 'coding', 'debugging'], costTier: 'premium', speedTier: 'normal' },
-  { provider: 'openai', pattern: /gpt-4/i, family: 'GPT-4', strengths: ['coding'], bestFor: ['coding', 'docs'], costTier: 'standard', speedTier: 'fast' },
-  { provider: 'openai', pattern: /gpt-4o-mini/i, family: 'GPT-4o Mini', strengths: ['speed'], bestFor: ['lightweight', 'docs'], avoidFor: ['planning'], costTier: 'budget', speedTier: 'fast' },
-  { provider: 'google', pattern: /gemini-(?:2\.5|3)/i, family: 'Gemini 2.5/3', strengths: ['context', 'coding'], bestFor: ['coding', 'data'], costTier: 'standard', speedTier: 'normal' },
-  { provider: 'google', pattern: /gemini.*flash/i, family: 'Gemini Flash', strengths: ['speed'], bestFor: ['lightweight', 'docs'], avoidFor: ['planning'], costTier: 'budget', speedTier: 'fast' },
-  { provider: 'deepseek', pattern: /deepseek/i, family: 'DeepSeek', strengths: ['coding', 'cost-effective'], bestFor: ['coding', 'general'], costTier: 'standard', speedTier: 'normal' },
+  {
+    provider: 'anthropic',
+    pattern: /claude-opus/i,
+    family: 'Claude Opus',
+    strengths: ['reasoning', 'planning'],
+    bestFor: ['planning', 'security', 'debugging'],
+    costTier: 'premium',
+    speedTier: 'slow',
+  },
+  {
+    provider: 'anthropic',
+    pattern: /claude-sonnet/i,
+    family: 'Claude Sonnet',
+    strengths: ['coding', 'balanced'],
+    bestFor: ['coding', 'general'],
+    costTier: 'standard',
+    speedTier: 'fast',
+  },
+  {
+    provider: 'anthropic',
+    pattern: /claude-haiku/i,
+    family: 'Claude Haiku',
+    strengths: ['speed'],
+    bestFor: ['lightweight', 'docs'],
+    avoidFor: ['planning'],
+    costTier: 'budget',
+    speedTier: 'fast',
+  },
+  {
+    provider: 'openai',
+    pattern: /gpt-5|o3|o4/i,
+    family: 'GPT-5/o3/o4',
+    strengths: ['reasoning', 'coding'],
+    bestFor: ['planning', 'coding', 'debugging'],
+    costTier: 'premium',
+    speedTier: 'normal',
+  },
+  {
+    provider: 'openai',
+    pattern: /gpt-4/i,
+    family: 'GPT-4',
+    strengths: ['coding'],
+    bestFor: ['coding', 'docs'],
+    costTier: 'standard',
+    speedTier: 'fast',
+  },
+  {
+    provider: 'openai',
+    pattern: /gpt-4o-mini/i,
+    family: 'GPT-4o Mini',
+    strengths: ['speed'],
+    bestFor: ['lightweight', 'docs'],
+    avoidFor: ['planning'],
+    costTier: 'budget',
+    speedTier: 'fast',
+  },
+  {
+    provider: 'google',
+    pattern: /gemini-(?:2\.5|3)/i,
+    family: 'Gemini 2.5/3',
+    strengths: ['context', 'coding'],
+    bestFor: ['coding', 'data'],
+    costTier: 'standard',
+    speedTier: 'normal',
+  },
+  {
+    provider: 'google',
+    pattern: /gemini.*flash/i,
+    family: 'Gemini Flash',
+    strengths: ['speed'],
+    bestFor: ['lightweight', 'docs'],
+    avoidFor: ['planning'],
+    costTier: 'budget',
+    speedTier: 'fast',
+  },
+  {
+    provider: 'deepseek',
+    pattern: /deepseek/i,
+    family: 'DeepSeek',
+    strengths: ['coding', 'cost-effective'],
+    bestFor: ['coding', 'general'],
+    costTier: 'standard',
+    speedTier: 'normal',
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -66,19 +141,27 @@ function checkMark(ok: boolean): string {
 
 function costLabel(tier: string): string {
   switch (tier) {
-    case 'premium': return color.red('$$$');
-    case 'standard': return color.amber('$$');
-    case 'budget': return color.green('$');
-    default: return color.dim('?');
+    case 'premium':
+      return color.red('$$$');
+    case 'standard':
+      return color.amber('$$');
+    case 'budget':
+      return color.green('$');
+    default:
+      return color.dim('?');
   }
 }
 
 function speedLabel(tier: string): string {
   switch (tier) {
-    case 'fast': return color.green('⚡');
-    case 'normal': return color.amber('→');
-    case 'slow': return color.red('🐢');
-    default: return color.dim('?');
+    case 'fast':
+      return color.green('⚡');
+    case 'normal':
+      return color.amber('→');
+    case 'slow':
+      return color.red('🐢');
+    default:
+      return color.dim('?');
   }
 }
 
@@ -92,7 +175,9 @@ function scoreBar(score: number, max: number): string {
 interface CacheModel {
   id: string;
   name?: string | undefined;
-  capabilities?: { contextWindow?: number | undefined; maxOutputTokens?: number | undefined } | undefined;
+  capabilities?:
+    | { contextWindow?: number | undefined; maxOutputTokens?: number | undefined }
+    | undefined;
   pricing?: { input?: number; output?: number } | undefined;
 }
 
@@ -115,16 +200,34 @@ interface ScoredModel {
 }
 
 const ROLE_CATEGORY: Record<string, string> = {
-  'security-scanner': 'security', 'security-reviewer': 'security',
-  'bug-hunter': 'debugging', debugger: 'debugging', tracer: 'debugging',
-  planner: 'planning', architect: 'planning', 'refactor-planner': 'planning',
-  test: 'testing', e2e: 'testing',
-  document: 'docs', simplifier: 'docs',
-  'code-reviewer': 'review', critic: 'review',
-  executor: 'coding', refactor: 'refactoring', migration: 'coding',
-  frontend: 'frontend', backend: 'backend', api: 'backend', auth: 'backend',
-  designer: 'frontend', analyst: 'data', data: 'data', database: 'data',
-  explore: 'planning', search: 'planning', researcher: 'planning',
+  'security-scanner': 'security',
+  'security-reviewer': 'security',
+  'bug-hunter': 'debugging',
+  debugger: 'debugging',
+  tracer: 'debugging',
+  planner: 'planning',
+  architect: 'planning',
+  'refactor-planner': 'planning',
+  test: 'testing',
+  e2e: 'testing',
+  document: 'docs',
+  simplifier: 'docs',
+  'code-reviewer': 'review',
+  critic: 'review',
+  executor: 'coding',
+  refactor: 'refactoring',
+  migration: 'coding',
+  frontend: 'frontend',
+  backend: 'backend',
+  api: 'backend',
+  auth: 'backend',
+  designer: 'frontend',
+  analyst: 'data',
+  data: 'data',
+  database: 'data',
+  explore: 'planning',
+  search: 'planning',
+  researcher: 'planning',
 };
 
 function findProfile(pid: string, mid: string): ModelProfile | undefined {
@@ -152,7 +255,8 @@ function scoreModel(
     if (profile.avoidFor?.includes(category as never)) score -= 50;
     if (category === 'planning' && profile.costTier === 'premium') score += 15;
     if (profile.speedTier === 'slow' && category === 'planning') score += 10;
-    if (profile.costTier === 'budget' && category !== 'planning' && category !== 'security') score += 10;
+    if (profile.costTier === 'budget' && category !== 'planning' && category !== 'security')
+      score += 10;
   }
 
   if (ctxWindow > 200_000) score += 10;
@@ -172,7 +276,7 @@ function rankModels(
 
   for (const prov of providers) {
     if (!hasKey(prov.id)) continue;
-    for (const m of (prov.models ?? [])) {
+    for (const m of prov.models ?? []) {
       const ctxWindow = m.capabilities?.contextWindow ?? 0;
       const { score, profile } = scoreModel(prov.id, m.id, category, ctxWindow);
       if (score > 0) {
@@ -206,35 +310,43 @@ interface EvalTask {
 const EVAL_TASKS: Record<string, EvalTask> = {
   coding: {
     label: 'Code Generation',
-    prompt: 'Write a TypeScript function parseCSV(input: string): { headers: string[]; rows: string[][] } that handles quoted fields, escaped quotes, and empty lines. Return an error string on malformed input. Keep under 40 lines.',
+    prompt:
+      'Write a TypeScript function parseCSV(input: string): { headers: string[]; rows: string[][] } that handles quoted fields, escaped quotes, and empty lines. Return an error string on malformed input. Keep under 40 lines.',
   },
   planning: {
     label: 'Architecture Planning',
-    prompt: 'Design the folder structure and key interfaces for a monorepo CLI tool with slash commands, model routing, subagent spawning, and config persistence. List packages, their responsibilities, and the 5 most important TypeScript interfaces.',
+    prompt:
+      'Design the folder structure and key interfaces for a monorepo CLI tool with slash commands, model routing, subagent spawning, and config persistence. List packages, their responsibilities, and the 5 most important TypeScript interfaces.',
   },
   security: {
     label: 'Vulnerability Detection',
-    prompt: 'Review this code for security issues:\n```ts\napp.get("/api/user", (req, res) => {\n  const id = req.query.id;\n  const user = db.query("SELECT * FROM users WHERE id = " + id);\n  res.json(user);\n});\n\napp.post("/api/run", (req, res) => {\n  const { cmd } = req.body;\n  exec("echo " + cmd, (err, stdout) => res.send(stdout));\n});\n```\nList every vulnerability, its severity (critical/high/medium), and the exact fix.',
+    prompt:
+      'Review this code for security issues:\n```ts\napp.get("/api/user", (req, res) => {\n  const id = req.query.id;\n  const user = db.query("SELECT * FROM users WHERE id = " + id);\n  res.json(user);\n});\n\napp.post("/api/run", (req, res) => {\n  const { cmd } = req.body;\n  exec("echo " + cmd, (err, stdout) => res.send(stdout));\n});\n```\nList every vulnerability, its severity (critical/high/medium), and the exact fix.',
   },
   debugging: {
     label: 'Bug Diagnosis',
-    prompt: 'This async function has 2 bugs. Find and fix both:\n```ts\nasync function processBatch(items: string[]) {\n  const results = [];\n  for (const item of items) {\n    const result = await fetch("https://api.example.com/" + item);\n    results.push(result);\n  }\n  return results.map(r => r.json());\n}\n```\nExplain what each bug is, why it fails, and write the corrected version.',
+    prompt:
+      'This async function has 2 bugs. Find and fix both:\n```ts\nasync function processBatch(items: string[]) {\n  const results = [];\n  for (const item of items) {\n    const result = await fetch("https://api.example.com/" + item);\n    results.push(result);\n  }\n  return results.map(r => r.json());\n}\n```\nExplain what each bug is, why it fails, and write the corrected version.',
   },
   testing: {
     label: 'Test Authoring',
-    prompt: 'Write vitest test cases for this deepMerge function:\n```ts\nfunction deepMerge(base: Record<string, unknown>, overrides: Record<string, unknown>): Record<string, unknown> {\n  const merged = { ...base };\n  for (const [key, val] of Object.entries(overrides)) {\n    if (val === null) { delete merged[key]; continue; }\n    if (typeof val === "object" && !Array.isArray(val) && typeof merged[key] === "object" && !Array.isArray(merged[key])) {\n      merged[key] = deepMerge(merged[key] as Record<string, unknown>, val as Record<string, unknown>);\n    } else { merged[key] = val; }\n  }\n  return merged;\n}\n```\nCover: happy path, edge cases, and error conditions.',
+    prompt:
+      'Write vitest test cases for this deepMerge function:\n```ts\nfunction deepMerge(base: Record<string, unknown>, overrides: Record<string, unknown>): Record<string, unknown> {\n  const merged = { ...base };\n  for (const [key, val] of Object.entries(overrides)) {\n    if (val === null) { delete merged[key]; continue; }\n    if (typeof val === "object" && !Array.isArray(val) && typeof merged[key] === "object" && !Array.isArray(merged[key])) {\n      merged[key] = deepMerge(merged[key] as Record<string, unknown>, val as Record<string, unknown>);\n    } else { merged[key] = val; }\n  }\n  return merged;\n}\n```\nCover: happy path, edge cases, and error conditions.',
   },
   docs: {
     label: 'Documentation',
-    prompt: 'Write TSDoc comments for this RateLimiter interface. Include @param, @returns, @throws, and @example for each method:\n```ts\ninterface RateLimiter {\n  tryAcquire(key: string, maxPerWindow: number, windowMs: number): Promise<boolean>;\n  getRemaining(key: string): Promise<number>;\n  reset(key: string): Promise<void>;\n}\n```',
+    prompt:
+      'Write TSDoc comments for this RateLimiter interface. Include @param, @returns, @throws, and @example for each method:\n```ts\ninterface RateLimiter {\n  tryAcquire(key: string, maxPerWindow: number, windowMs: number): Promise<boolean>;\n  getRemaining(key: string): Promise<number>;\n  reset(key: string): Promise<void>;\n}\n```',
   },
   review: {
     label: 'Code Review',
-    prompt: 'Review this PR change:\n```diff\n async function loadConfig(path: string) {\n-  const raw = await fs.readFile(path, "utf8");\n-  return JSON.parse(raw);\n+  const raw = await fs.readFile(path);\n+  const config = JSON.parse(raw);\n+  process.env.API_KEY = config.apiKey;\n+  return config;\n }\n```\nList issues by severity (blocking / should-fix / nit) and explain your reasoning.',
+    prompt:
+      'Review this PR change:\n```diff\n async function loadConfig(path: string) {\n-  const raw = await fs.readFile(path, "utf8");\n-  return JSON.parse(raw);\n+  const raw = await fs.readFile(path);\n+  const config = JSON.parse(raw);\n+  process.env.API_KEY = config.apiKey;\n+  return config;\n }\n```\nList issues by severity (blocking / should-fix / nit) and explain your reasoning.',
   },
   refactoring: {
     label: 'Refactoring',
-    prompt: 'Refactor this nested condition into a cleaner pattern:\n```ts\nfunction getDiscount(user: { type: string; years: number; coupon?: string }): number {\n  if (user.type === "premium") {\n    if (user.years > 5) {\n      if (user.coupon === "BLACKFRIDAY") return 0.5;\n      return 0.3;\n    }\n    return 0.2;\n  }\n  if (user.type === "standard") {\n    if (user.years > 3) return 0.15;\n    return 0.1;\n  }\n  return 0;\n}\n```\nShow your refactored code and explain why your approach is cleaner.',
+    prompt:
+      'Refactor this nested condition into a cleaner pattern:\n```ts\nfunction getDiscount(user: { type: string; years: number; coupon?: string }): number {\n  if (user.type === "premium") {\n    if (user.years > 5) {\n      if (user.coupon === "BLACKFRIDAY") return 0.5;\n      return 0.3;\n    }\n    return 0.2;\n  }\n  if (user.type === "standard") {\n    if (user.years > 3) return 0.15;\n    return 0.1;\n  }\n  return 0;\n}\n```\nShow your refactored code and explain why your approach is cleaner.',
   },
 };
 
@@ -295,22 +407,28 @@ async function rankResponses(
     const resp = await provider.complete(
       {
         model: leaderModel,
-        system: [{ type: 'text' as const, text: 'You are an expert evaluator. Rank responses concisely. Output ONLY the ranked list.' }],
+        system: [
+          {
+            type: 'text' as const,
+            text: 'You are an expert evaluator. Rank responses concisely. Output ONLY the ranked list.',
+          },
+        ],
         messages: [{ role: 'user', content: [{ type: 'text' as const, text: rankingPrompt }] }],
         maxTokens: 400,
       },
       { signal: AbortSignal.timeout(30_000) },
     );
 
-    const text: string = resp.content[0] && 'text' in resp.content[0]
-      ? (resp.content[0] as { text: string }).text
-      : '';
+    const text: string =
+      resp.content[0] && 'text' in resp.content[0]
+        ? (resp.content[0] as { text: string }).text
+        : '';
     const rankings: number[] = [];
     for (const line of text.split('\n')) {
       const m = line.match(/^\s*(\d+)[.)]\s*Response\s+([A-Z])/i);
       if (m) {
-        const label = m[2]!.toUpperCase();
-        const idx = labelToIdx.get(label);
+        const label = m[2]?.toUpperCase();
+        const idx = label !== undefined ? labelToIdx.get(label) : undefined;
         if (idx !== undefined && !rankings.includes(idx)) {
           rankings.push(idx);
         }
@@ -338,15 +456,17 @@ async function readProviders(cachePath: string | undefined): Promise<CacheProvid
       id: (p.id as string) ?? id,
       name: (p.name as string) ?? id,
       family: (p.npm as string) ?? id,
-      models: Object.values((p.models as Record<string, Record<string, unknown>>) ?? {}).map((m) => ({
-        id: m.id as string,
-        name: m.name as string | undefined,
-        capabilities: {
-          contextWindow: (m.limit as { context?: number } | undefined)?.context,
-          maxOutputTokens: (m.limit as { output?: number } | undefined)?.output,
-        },
-        pricing: m.cost as { input?: number; output?: number } | undefined,
-      })),
+      models: Object.values((p.models as Record<string, Record<string, unknown>>) ?? {}).map(
+        (m) => ({
+          id: m.id as string,
+          name: m.name as string | undefined,
+          capabilities: {
+            contextWindow: (m.limit as { context?: number } | undefined)?.context,
+            maxOutputTokens: (m.limit as { output?: number } | undefined)?.output,
+          },
+          pricing: m.cost as { input?: number; output?: number } | undefined,
+        }),
+      ),
     }));
   } catch {
     return `${color.amber('Models cache not available')}. Run wstack sync-models.`;
@@ -419,10 +539,15 @@ export const modeldiagCmd: SubcommandHandler = async (args, deps) => {
       if (!hasKey(prov.id)) continue;
       writeLine(`  ${color.bold(prov.id)} ${color.dim(`(${prov.name})`)}`);
 
-      const tiers: Record<string, CacheModel[]> = { premium: [], standard: [], budget: [], unknown: [] };
+      const tiers: Record<string, CacheModel[]> = {
+        premium: [],
+        standard: [],
+        budget: [],
+        unknown: [],
+      };
       for (const m of prov.models ?? []) {
         const profile = findProfile(prov.id, m.id);
-        tiers[profile?.costTier ?? 'unknown']!.push(m);
+        tiers[profile?.costTier ?? 'unknown']?.push(m);
       }
 
       for (const tier of ['premium', 'standard', 'budget', 'unknown'] as const) {
@@ -443,41 +568,62 @@ export const modeldiagCmd: SubcommandHandler = async (args, deps) => {
             : color.dim('pricing ?');
           writeLine(
             `      ${color.cyan(m.id.padEnd(34))}` +
-            `${ctx > 0 ? `ctx ${fmtTokens(ctx).padEnd(6)}` : color.dim('ctx ?  ')}` +
-            `${maxOut > 0 ? `out ${fmtTokens(maxOut).padEnd(6)}` : '        '}` +
-            `${family}   ${pricing}`,
+              `${ctx > 0 ? `ctx ${fmtTokens(ctx).padEnd(6)}` : color.dim('ctx ?  ')}` +
+              `${maxOut > 0 ? `out ${fmtTokens(maxOut).padEnd(6)}` : '        '}` +
+              `${family}   ${pricing}`,
           );
         }
       }
       writeLine();
     }
 
-    writeLine(color.dim('Prices in USD per 1M tokens (input/output). ctx = context window, out = max output.'));
+    writeLine(
+      color.dim(
+        'Prices in USD per 1M tokens (input/output). ctx = context window, out = max output.',
+      ),
+    );
     return 0;
   }
 
   // ── suggest (also called from 'full') ──
   async function renderSuggest(): Promise<void> {
     writeLine();
-    writeLine(`${color.bold('Agent → Model Suggestions')} ${color.amber('(heuristic — untested)')}`);
-    writeLine(color.dim('These are profile-based best guesses. Test them with wstack modeldiag bench <role> "<prompt>".'));
+    writeLine(
+      `${color.bold('Agent → Model Suggestions')} ${color.amber('(heuristic — untested)')}`,
+    );
+    writeLine(
+      color.dim(
+        'These are profile-based best guesses. Test them with wstack modeldiag bench <role> "<prompt>".',
+      ),
+    );
     writeLine();
 
     const keyedProviders = providers.filter((p) => hasKey(p.id));
     if (keyedProviders.length === 0) {
-      writeLine(`  ${color.amber('No providers have API keys configured. Add keys with wstack auth.')}`);
+      writeLine(
+        `  ${color.amber('No providers have API keys configured. Add keys with wstack auth.')}`,
+      );
     } else {
       const roles = [
-        'security-scanner', 'bug-hunter', 'planner', 'architect',
-        'refactor-planner', 'test', 'document', 'code-reviewer',
-        'executor', 'debugger',
+        'security-scanner',
+        'bug-hunter',
+        'planner',
+        'architect',
+        'refactor-planner',
+        'test',
+        'document',
+        'code-reviewer',
+        'executor',
+        'debugger',
       ];
 
       for (const role of roles) {
         if (modelMatrix[role]) {
           const entry = modelMatrix[role]!;
           const p = entry.provider ?? config.provider;
-          writeLine(`  ${color.dim(role.padEnd(20))} → ${color.cyan(`${p}/${entry.model}`)}  ${color.dim('(user-configured)')}`);
+          writeLine(
+            `  ${color.dim(role.padEnd(20))} → ${color.cyan(`${p}/${entry.model}`)}  ${color.dim('(user-configured)')}`,
+          );
           continue;
         }
 
@@ -497,16 +643,20 @@ export const modeldiagCmd: SubcommandHandler = async (args, deps) => {
         );
         writeLine(`  ${' '.repeat(22)}  ${bar}  ${color.dim(cat)}`);
 
-        if (ranked.length > 1 && ranked[1]!.score >= best.score - 15) {
+        if (ranked.length > 1 && (ranked[1]?.score ?? Number.NEGATIVE_INFINITY) >= best.score - 15) {
           for (const alt of ranked.slice(1)) {
             const af = alt.profile ? ` (${alt.profile.family})` : '';
-            writeLine(`  ${' '.repeat(22)}  ${color.dim(`${alt.provider}/${alt.model}${af}  score ${alt.score}`)}`);
+            writeLine(
+              `  ${' '.repeat(22)}  ${color.dim(`${alt.provider}/${alt.model}${af}  score ${alt.score}`)}`,
+            );
           }
         }
       }
 
       writeLine();
-      writeLine(`  ${color.bold('leader'.padEnd(20))} → ${color.cyan(`${config.provider}/${config.model}`)}`);
+      writeLine(
+        `  ${color.bold('leader'.padEnd(20))} → ${color.cyan(`${config.provider}/${config.model}`)}`,
+      );
     }
   }
 
@@ -530,7 +680,9 @@ export const modeldiagCmd: SubcommandHandler = async (args, deps) => {
     }
 
     for (const prov of keyed) {
-      writeLine(`  ${color.cyan('⟳')} ${prov.id}... ${color.dim('(capability scan, no API call)')}`);
+      writeLine(
+        `  ${color.cyan('⟳')} ${prov.id}... ${color.dim('(capability scan, no API call)')}`,
+      );
 
       const profile = findProfile(prov.id, config.model ?? '');
       const firstModel = prov.models?.[0]?.id ?? config.model ?? '?';
@@ -545,7 +697,9 @@ export const modeldiagCmd: SubcommandHandler = async (args, deps) => {
     }
 
     writeLine(color.dim('Full API connectivity test requires an active session (costs tokens).'));
-    writeLine(color.dim('Use wstack modeldiag bench <role> "<prompt>" to test models with real API calls.'));
+    writeLine(
+      color.dim('Use wstack modeldiag bench <role> "<prompt>" to test models with real API calls.'),
+    );
     return 0;
   }
 
@@ -553,10 +707,20 @@ export const modeldiagCmd: SubcommandHandler = async (args, deps) => {
   if (sub === 'bench') {
     const benchArgs = args.slice(1);
     if (benchArgs.length < 2) {
-      writeLine(`${color.amber('Usage:')} wstack modeldiag bench <role> "<test prompt>" [--providers=p1,p2]`);
+      writeLine(
+        `${color.amber('Usage:')} wstack modeldiag bench <role> "<test prompt>" [--providers=p1,p2]`,
+      );
       writeLine();
-      writeLine(color.dim('Example: wstack modeldiag bench verify "Write a function that checks if a string is a palindrome"'));
-      writeLine(color.dim('Tests the top 5 candidate models for the role with your prompt and reports results.'));
+      writeLine(
+        color.dim(
+          'Example: wstack modeldiag bench verify "Write a function that checks if a string is a palindrome"',
+        ),
+      );
+      writeLine(
+        color.dim(
+          'Tests the top 5 candidate models for the role with your prompt and reports results.',
+        ),
+      );
       writeLine(color.dim('Add --providers=anthropic,google to test across multiple providers.'));
       return 0;
     }
@@ -573,7 +737,9 @@ export const modeldiagCmd: SubcommandHandler = async (args, deps) => {
 
     const benchRole = benchArgs[0];
     if (!benchRole) {
-      writeLine(`${color.amber('No benchmark role specified')}. Usage: wstack diag bench <role> [prompt]`);
+      writeLine(
+        `${color.amber('No benchmark role specified')}. Usage: wstack diag bench <role> [prompt]`,
+      );
       return 1;
     }
     const benchPrompt = benchArgs.slice(1).join(' ');
@@ -582,7 +748,9 @@ export const modeldiagCmd: SubcommandHandler = async (args, deps) => {
     const candidates = rankModels(providers, hasKey, cat, 5);
 
     if (candidates.length === 0) {
-      writeLine(`${color.amber('No candidate models found')} for role "${benchRole}" (category: ${cat}).`);
+      writeLine(
+        `${color.amber('No candidate models found')} for role "${benchRole}" (category: ${cat}).`,
+      );
       return 0;
     }
 
@@ -590,16 +758,24 @@ export const modeldiagCmd: SubcommandHandler = async (args, deps) => {
     if (providerFilter && providerFilter.length > 0) {
       targetCandidates = candidates.filter((c) => providerFilter.includes(c.provider));
       if (targetCandidates.length === 0) {
-        writeLine(`${color.amber('No candidates match the specified providers')}: ${providerFilter.join(', ')}`);
-        writeLine(`Candidate providers: ${[...new Set(candidates.map((c) => c.provider))].join(', ')}`);
+        writeLine(
+          `${color.amber('No candidates match the specified providers')}: ${providerFilter.join(', ')}`,
+        );
+        writeLine(
+          `Candidate providers: ${[...new Set(candidates.map((c) => c.provider))].join(', ')}`,
+        );
         return 0;
       }
     } else {
       targetCandidates = candidates;
     }
 
-    writeLine(`${color.bold('Model Benchmark')} — ${color.amber(benchRole)} ${color.dim(`(category: ${cat})`)}`);
-    writeLine(`${color.dim('Prompt:')} "${benchPrompt.slice(0, 120)}${benchPrompt.length > 120 ? '…' : ''}"`);
+    writeLine(
+      `${color.bold('Model Benchmark')} — ${color.amber(benchRole)} ${color.dim(`(category: ${cat})`)}`,
+    );
+    writeLine(
+      `${color.dim('Prompt:')} "${benchPrompt.slice(0, 120)}${benchPrompt.length > 120 ? '…' : ''}"`,
+    );
     writeLine();
 
     writeLine(
@@ -638,9 +814,10 @@ export const modeldiagCmd: SubcommandHandler = async (args, deps) => {
           { signal: AbortSignal.timeout(30_000) },
         );
         const latency = Date.now() - start;
-        const firstText: string = resp.content[0] && 'text' in resp.content[0]
-          ? (resp.content[0] as { text: string }).text
-          : '';
+        const firstText: string =
+          resp.content[0] && 'text' in resp.content[0]
+            ? (resp.content[0] as { text: string }).text
+            : '';
         const firstLineClean = firstText.replace(/\n/g, ' ').slice(0, 80) || color.dim('(empty)');
 
         const provColor = c.provider === config.provider ? color.green : color.cyan;
@@ -659,7 +836,9 @@ export const modeldiagCmd: SubcommandHandler = async (args, deps) => {
     const testedProviders = [...new Set(targetCandidates.map((c) => c.provider))];
     writeLine();
     writeLine(
-      color.dim(`Tested ${idx} model(s) across ${testedProviders.length} provider(s): ${testedProviders.join(', ')}.`),
+      color.dim(
+        `Tested ${idx} model(s) across ${testedProviders.length} provider(s): ${testedProviders.join(', ')}.`,
+      ),
     );
     writeLine(color.dim('Pin the best: wstack setmodel set <role> <provider>/<model>'));
     return 0;
@@ -671,7 +850,11 @@ export const modeldiagCmd: SubcommandHandler = async (args, deps) => {
 
     const providersEq = evalArgs.find((a) => a.startsWith('--providers='));
     const providerFilter = providersEq
-      ? providersEq.replace('--providers=', '').split(',').map((s) => s.trim()).filter(Boolean)
+      ? providersEq
+          .replace('--providers=', '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
       : undefined;
 
     const maxEq = evalArgs.find((a) => a.startsWith('--max='));
@@ -682,11 +865,15 @@ export const modeldiagCmd: SubcommandHandler = async (args, deps) => {
 
     const roleFilter = evalArgs.find((a) => !a.startsWith('--'));
     const targetCategories = roleFilter
-      ? (EVAL_CATEGORIES.includes(roleCat(roleFilter)) ? [roleCat(roleFilter)] : [])
+      ? EVAL_CATEGORIES.includes(roleCat(roleFilter))
+        ? [roleCat(roleFilter)]
+        : []
       : EVAL_CATEGORIES;
 
     if (targetCategories.length === 0 && roleFilter) {
-      writeLine(`${color.amber('Unknown role/category')}: "${roleFilter}". Try: ${EVAL_CATEGORIES.join(', ')}`);
+      writeLine(
+        `${color.amber('Unknown role/category')}: "${roleFilter}". Try: ${EVAL_CATEGORIES.join(', ')}`,
+      );
       return 1;
     }
 
@@ -697,9 +884,10 @@ export const modeldiagCmd: SubcommandHandler = async (args, deps) => {
       const unknown = providerFilter.filter((pid) => !keyedProviderIds.includes(pid));
       targetProviderIds = providerFilter.filter((pid) => keyedProviderIds.includes(pid));
       if (targetProviderIds.length === 0) {
-        const noKeyMsg = unknown.length > 0
-          ? `None of the specified providers (${unknown.join(', ')}) have API keys. Add keys with wstack auth.`
-          : 'None of the specified providers have API keys configured.';
+        const noKeyMsg =
+          unknown.length > 0
+            ? `None of the specified providers (${unknown.join(', ')}) have API keys. Add keys with wstack auth.`
+            : 'None of the specified providers have API keys configured.';
         writeLine(`${color.amber(noKeyMsg)}`);
         return 0;
       }
@@ -717,7 +905,9 @@ export const modeldiagCmd: SubcommandHandler = async (args, deps) => {
         })
         .join('\n');
 
-      deps.renderer.write(`\n${color.bold('Select providers to evaluate')}\n\n${providerList}\n\n${color.dim('Enter numbers or provider IDs (comma-separated, or "all"):')}\n`);
+      deps.renderer.write(
+        `\n${color.bold('Select providers to evaluate')}\n\n${providerList}\n\n${color.dim('Enter numbers or provider IDs (comma-separated, or "all"):')}\n`,
+      );
       const input = await deps.reader.readLine('  > ');
       const selected = input.trim().toLowerCase();
 
@@ -747,12 +937,17 @@ export const modeldiagCmd: SubcommandHandler = async (args, deps) => {
     const unknownProviders = providerFilter
       ? providerFilter.filter((pid) => !keyedProviderIds.includes(pid))
       : [];
-    const warningLine = unknownProviders.length > 0
-      ? `  ${color.amber('⚠ skipped (no key):')} ${unknownProviders.join(', ')}\n`
-      : '';
+    const warningLine =
+      unknownProviders.length > 0
+        ? `  ${color.amber('⚠ skipped (no key):')} ${unknownProviders.join(', ')}\n`
+        : '';
 
     writeLine(`${color.bold('Model Competency Evaluation')}`);
-    writeLine(color.dim(`Providers: ${targetProviderIds.join(', ')}  |  ${targetCategories.length} cats  |  ${modelsPerCat} model(s)/cat/provider`));
+    writeLine(
+      color.dim(
+        `Providers: ${targetProviderIds.join(', ')}  |  ${targetCategories.length} cats  |  ${modelsPerCat} model(s)/cat/provider`,
+      ),
+    );
     writeLine(warningLine);
     writeLine(color.dim(`Leader (ranker): ${config.provider}/${leaderModel}`));
     writeLine();
@@ -760,7 +955,8 @@ export const modeldiagCmd: SubcommandHandler = async (args, deps) => {
     // Phase 1: collect responses from all providers
     type EvalResult = { model: string; latency: number; tokens: number; text: string };
     const collected = new Map<string, Map<string, EvalResult>>();
-    let total = 0; let ok = 0;
+    let total = 0;
+    let ok = 0;
 
     for (const pid of targetProviderIds) {
       const prov = createProviderForId(pid, config);
@@ -773,8 +969,9 @@ export const modeldiagCmd: SubcommandHandler = async (args, deps) => {
         const task = EVAL_TASKS[cat];
         if (!task) continue;
 
-        const candidates = rankModels(providers, hasKey, cat, modelsPerCat)
-          .filter((c) => c.provider === pid);
+        const candidates = rankModels(providers, hasKey, cat, modelsPerCat).filter(
+          (c) => c.provider === pid,
+        );
         if (candidates.length === 0) continue;
 
         if (!collected.has(cat)) collected.set(cat, new Map());
@@ -788,16 +985,19 @@ export const modeldiagCmd: SubcommandHandler = async (args, deps) => {
               {
                 model: c.model,
                 system: [{ type: 'text' as const, text: 'Be thorough and correct.' }],
-                messages: [{ role: 'user', content: [{ type: 'text' as const, text: task.prompt }] }],
+                messages: [
+                  { role: 'user', content: [{ type: 'text' as const, text: task.prompt }] },
+                ],
                 maxTokens: 1024,
               },
               { signal: AbortSignal.timeout(45_000) },
             );
-            const respText = resp.content[0] && 'text' in resp.content[0]
-              ? (resp.content[0] as { text: string }).text
-              : '';
+            const respText =
+              resp.content[0] && 'text' in resp.content[0]
+                ? (resp.content[0] as { text: string }).text
+                : '';
             const respUsage = resp.usage;
-            collected.get(cat)!.set(modelKey, {
+            collected.get(cat)?.set(modelKey, {
               model: modelKey,
               latency: Date.now() - start,
               tokens: (respUsage?.input ?? 0) + (respUsage?.output ?? 0),
@@ -805,7 +1005,7 @@ export const modeldiagCmd: SubcommandHandler = async (args, deps) => {
             });
             ok++;
           } catch {
-            collected.get(cat)!.set(modelKey, {
+            collected.get(cat)?.set(modelKey, {
               model: modelKey,
               latency: -1,
               tokens: 0,
@@ -836,9 +1036,11 @@ export const modeldiagCmd: SubcommandHandler = async (args, deps) => {
       const valid = Array.from(responses.values()).filter((r) => r.latency >= 0);
       if (valid.length < 2) {
         if (valid.length === 1) {
-          const m = valid[0]!.model;
-          if (!rankings.has(m)) rankings.set(m, new Map());
-          rankings.get(m)!.set(cat, { rank: 1, total: 1 });
+          const m = valid[0]?.model;
+          if (m !== undefined) {
+            if (!rankings.has(m)) rankings.set(m, new Map());
+            rankings.get(m)?.set(cat, { rank: 1, total: 1 });
+          }
         }
         continue;
       }
@@ -846,14 +1048,15 @@ export const modeldiagCmd: SubcommandHandler = async (args, deps) => {
       if (leaderProvider) {
         const ranked = await rankResponses(leaderProvider, leaderModel, task.prompt, valid);
         for (let i = 0; i < valid.length; i++) {
-          const m = valid[ranked[i] ?? i]!.model;
+          const m = valid[ranked[i] ?? i]?.model;
+          if (m === undefined) continue;
           if (!rankings.has(m)) rankings.set(m, new Map());
-          rankings.get(m)!.set(cat, { rank: i + 1, total: valid.length });
+          rankings.get(m)?.set(cat, { rank: i + 1, total: valid.length });
         }
       } else {
         for (const r of valid) {
           if (!rankings.has(r.model)) rankings.set(r.model, new Map());
-          rankings.get(r.model)!.set(cat, { rank: 1, total: valid.length });
+          rankings.get(r.model)?.set(cat, { rank: 1, total: valid.length });
         }
       }
     }
@@ -868,7 +1071,9 @@ export const modeldiagCmd: SubcommandHandler = async (args, deps) => {
 
     writeLine(
       `  ${color.dim('model'.padEnd(modelColWidth))}` +
-      catList.map((c) => color.dim((EVAL_TASKS[c]?.label ?? c).slice(0, cw).padEnd(cw + 2))).join(''),
+        catList
+          .map((c) => color.dim((EVAL_TASKS[c]?.label ?? c).slice(0, cw).padEnd(cw + 2)))
+          .join(''),
     );
     writeLine(`  ${color.dim('─'.repeat(modelColWidth + catList.length * (cw + 2)))}`);
 
@@ -894,8 +1099,14 @@ export const modeldiagCmd: SubcommandHandler = async (args, deps) => {
     writeLine(color.dim('#1 100% = best in category. — = not tested.'));
     writeLine();
     writeLine(color.dim('Pin: wstack setmodel set <role> <provider>/<model>'));
-    writeLine(color.dim('Full: wstack modeldiag eval          Providers: wstack modeldiag eval --providers=id1,id2'));
-    writeLine(color.dim('Max:  wstack modeldiag eval --max=3   Quick: wstack modeldiag eval --quick'));
+    writeLine(
+      color.dim(
+        'Full: wstack modeldiag eval          Providers: wstack modeldiag eval --providers=id1,id2',
+      ),
+    );
+    writeLine(
+      color.dim('Max:  wstack modeldiag eval --max=3   Quick: wstack modeldiag eval --quick'),
+    );
     return 0;
   }
 
@@ -919,10 +1130,15 @@ export const modeldiagCmd: SubcommandHandler = async (args, deps) => {
     if (!hasKey(prov.id)) continue;
     writeLine(`  ${color.bold(prov.id)} ${color.dim(`(${prov.name})`)}`);
 
-    const tiers: Record<string, CacheModel[]> = { premium: [], standard: [], budget: [], unknown: [] };
+    const tiers: Record<string, CacheModel[]> = {
+      premium: [],
+      standard: [],
+      budget: [],
+      unknown: [],
+    };
     for (const m of prov.models ?? []) {
       const profile = findProfile(prov.id, m.id);
-      tiers[profile?.costTier ?? 'unknown']!.push(m);
+      tiers[profile?.costTier ?? 'unknown']?.push(m);
     }
 
     for (const tier of ['premium', 'standard', 'budget', 'unknown'] as const) {
@@ -943,9 +1159,9 @@ export const modeldiagCmd: SubcommandHandler = async (args, deps) => {
           : color.dim('pricing ?');
         writeLine(
           `      ${color.cyan(m.id.padEnd(34))}` +
-          `${ctx > 0 ? `ctx ${fmtTokens(ctx).padEnd(6)}` : color.dim('ctx ?  ')}` +
-          `${maxOut > 0 ? `out ${fmtTokens(maxOut).padEnd(6)}` : '        '}` +
-          `${family}   ${pricing}`,
+            `${ctx > 0 ? `ctx ${fmtTokens(ctx).padEnd(6)}` : color.dim('ctx ?  ')}` +
+            `${maxOut > 0 ? `out ${fmtTokens(maxOut).padEnd(6)}` : '        '}` +
+            `${family}   ${pricing}`,
         );
       }
     }

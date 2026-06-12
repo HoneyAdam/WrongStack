@@ -228,6 +228,16 @@ export interface EventMap {
   'ctx.max_context': { providerId: string; modelId: string; maxContext: number };
   'token.threshold': { used: number; limit: number };
   /**
+   * Fired by `DefaultTokenCounter` after each call to `account()` /
+   * `accountWithModel()` updates its internal state. The payload carries
+   * the live snapshot so subscribers (notably the TUI's `StatusBar`) can
+   * re-render fresh token/cost/cache data immediately instead of waiting
+   * for a slow polling interval. Cost fields may be zero when the model
+   * is unknown to the ModelsRegistry — that is already signalled separately
+   * by `token.cost_estimate_unavailable`.
+   */
+  'token.accounted': { usage: Usage; cost: { input: number; output: number; total: number } };
+  /**
    * Fired when the subagent budget hits a soft limit and the coordinator
    * is being asked for an extension. The coordinator should call `extend()`
    * to grant more budget, or the promise auto-resolves to `deny` after

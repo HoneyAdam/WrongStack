@@ -51,7 +51,7 @@ describe('useFleetStore reducer', () => {
     expect(a.currentTool).toBe('edit');
   });
 
-  it('clamps ctx load to 0–100 percent', () => {
+  it('converts ctx load fraction to percent without clamping', () => {
     fleet().applyEvent({ kind: 'spawned', subagentId: 'a4', name: 'Grace' });
     fleet().applyEvent({
       kind: 'ctx_pct',
@@ -61,8 +61,10 @@ describe('useFleetStore reducer', () => {
       maxContext: 100_000,
     });
     expect(get('a4')!.ctxPct).toBe(73);
+    // load > 1.0 is valid (over context limit) — store does NOT clamp;
+    // the visual rendering clamps the fill bar independently.
     fleet().applyEvent({ kind: 'ctx_pct', subagentId: 'a4', load: 1.5 });
-    expect(get('a4')!.ctxPct).toBe(100);
+    expect(get('a4')!.ctxPct).toBe(150);
   });
 
   it('tracks self-extensions', () => {

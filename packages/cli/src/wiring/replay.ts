@@ -1,12 +1,12 @@
 import {
-  ReplayLogStore,
-  ReplayProviderRunner,
-  runProviderWithRetry,
-  TOKENS,
   type Container,
   type Logger,
   type ProviderRunner,
+  ReplayLogStore,
   type ReplayMode,
+  ReplayProviderRunner,
+  runProviderWithRetry,
+  TOKENS,
   type WstackPaths,
 } from '@wrongstack/core';
 
@@ -44,9 +44,13 @@ export function bindReplayToContainer(opts: BindReplayOptions): void {
   if (!opts.container.has(TOKENS.ProviderRunner)) {
     // No prior binding — install the default `runProviderWithRetry`
     // first so the replay wrapper has a real inner to delegate to.
-    container.bind(TOKENS.ProviderRunner, () => ({
-      run: (o) => runProviderWithRetry(o),
-    } satisfies ProviderRunner));
+    container.bind(
+      TOKENS.ProviderRunner,
+      () =>
+        ({
+          run: (o) => runProviderWithRetry(o),
+        }) satisfies ProviderRunner,
+    );
   }
   const inner = container.resolve(TOKENS.ProviderRunner);
   const log = new ReplayLogStore({ dir: wpaths.projectSessions });

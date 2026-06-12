@@ -50,6 +50,10 @@ export class DefaultTokenCounter implements TokenCounter {
     const price = model ? this.priceCache.get(model) : undefined;
     if (price) {
       this.applyPrice(usage, price);
+      this.events?.emit('token.accounted', {
+        usage: this.total(),
+        cost: { input: this.costInput, output: this.costOutput, total: this.costInput + this.costOutput },
+      });
     } else if (this.registry && this.providerId && model) {
       // Evict oldest entry when cache is full before async lookup.
       if (this.priceCache.size >= PRICE_CACHE_MAX_SIZE) {
@@ -64,6 +68,10 @@ export class DefaultTokenCounter implements TokenCounter {
             const p = priceFromModel(m);
             this.priceCache.set(model, p);
             this.applyPrice(usage, p);
+            this.events?.emit('token.accounted', {
+              usage: this.total(),
+              cost: { input: this.costInput, output: this.costOutput, total: this.costInput + this.costOutput },
+            });
           }
         })
         .catch(() => {
@@ -90,6 +98,10 @@ export class DefaultTokenCounter implements TokenCounter {
     }
     this.priceCache.set(resolved.modelId, price);
     this.applyPrice(usage, price);
+    this.events?.emit('token.accounted', {
+      usage: this.total(),
+      cost: { input: this.costInput, output: this.costOutput, total: this.costInput + this.costOutput },
+    });
   }
 
   total(): Usage {

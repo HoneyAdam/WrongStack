@@ -12,19 +12,20 @@
  * without spinning up the entire CLI. Returns `true` if a launch
  * happened, `false` if the flag was empty.
  */
+
+import type { Agent } from '@wrongstack/core';
 import {
-  TOKENS,
   type Compactor,
   type Config,
-  EternalAutonomyEngine,
   color,
+  EternalAutonomyEngine,
   type JournalEntry,
+  TOKENS,
 } from '@wrongstack/core';
 import type { Token } from '@wrongstack/core/kernel';
-import { patchConfig } from './utils.js';
-import type { Agent } from '@wrongstack/core';
 import type { TerminalRenderer } from './renderer.js';
 import type { AutonomyMode } from './slash-commands/autonomy.js';
+import { patchConfig } from './utils.js';
 
 /**
  * The container type is structural because `@wrongstack/runtime`'s `Container`
@@ -68,15 +69,11 @@ export interface EternalFlagDeps {
   };
 }
 
-export async function launchEternalFromFlag(
-  deps: EternalFlagDeps,
-): Promise<boolean> {
+export async function launchEternalFromFlag(deps: EternalFlagDeps): Promise<boolean> {
   const { eternalFlag } = deps;
   if (eternalFlag.length === 0) return false;
 
-  const { saveGoal, emptyGoal, goalFilePath, loadGoal } = await import(
-    '@wrongstack/core'
-  );
+  const { saveGoal, emptyGoal, goalFilePath, loadGoal } = await import('@wrongstack/core');
   const goalPath = goalFilePath(deps.projectRoot);
   const prior = await loadGoal(goalPath);
   // Preserve journal across flag-driven re-launches so the user can run
@@ -110,8 +107,7 @@ export async function launchEternalFromFlag(
     agent: deps.agent,
     projectRoot: deps.projectRoot,
     compactor,
-    maxContextTokens:
-      deps.effectiveMaxContext > 0 ? deps.effectiveMaxContext : undefined,
+    maxContextTokens: deps.effectiveMaxContext > 0 ? deps.effectiveMaxContext : undefined,
     onIteration: deps.broadcastEternalIteration,
     brain,
   });
@@ -120,9 +116,7 @@ export async function launchEternalFromFlag(
   deps.autonomyModeRef.current = 'eternal';
   deps.renderer.write(
     color.red('Eternal mode launching from --eternal flag.') +
-      color.dim(
-        ` Goal: ${eternalFlag.slice(0, 80)}${eternalFlag.length > 80 ? '…' : ''}`,
-      ) +
+      color.dim(` Goal: ${eternalFlag.slice(0, 80)}${eternalFlag.length > 80 ? '…' : ''}`) +
       '\n',
   );
   return true;

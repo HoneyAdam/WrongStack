@@ -99,7 +99,13 @@ export class ReadlineInputReader implements InputReader {
         fresh.question(prompt ?? '> ', (line) => {
           if (line.trim()) {
             this.history.push(line);
-            void this.saveHistory();
+            // Fire-and-forget: saveHistory logs its own errors; we intentionally
+            // don't await or .catch() here — failing to write history must not
+            // block the user input path. Using the two-arg .then() form (not
+            // .catch()) so TypeScript flags if the Promise type ever changes.
+            this.saveHistory().then(undefined, () => {
+              /* intentionally empty */
+            });
           }
           settle(line);
         });

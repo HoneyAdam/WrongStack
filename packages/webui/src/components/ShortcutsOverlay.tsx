@@ -19,6 +19,16 @@ const SHORTCUTS: Array<{ section: string; items: Shortcut[] }> = [
     ],
   },
   {
+    section: 'Fleet & Agents',
+    items: [
+      { keys: ['Ctrl', 'Shift', 'M'], description: 'Open Fleet Monitor overlay' },
+      { keys: ['Ctrl', 'Shift', 'A'], description: 'Open Agents Monitor overlay' },
+      { keys: ['↑', '↓'], description: 'Navigate agents in monitor' },
+      { keys: ['Enter'], description: 'Select focused agent' },
+      { keys: ['Esc'], description: 'Close active overlay' },
+    ],
+  },
+  {
     section: 'Chat input',
     items: [
       { keys: ['Enter'], description: 'Send message' },

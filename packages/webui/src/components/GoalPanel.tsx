@@ -159,7 +159,7 @@ export function GoalPanel({ goal, className }: GoalPanelProps): React.ReactEleme
                       ? 'bg-amber-500'
                       : 'bg-primary',
                 )}
-                style={{ width: `${Math.max(2, goal.progress)}%` }}
+                style={{ width: `${goal.progress > 0 ? Math.max(2, goal.progress) : 0}%` }}
               />
             </div>
             {goal.progressNote && (

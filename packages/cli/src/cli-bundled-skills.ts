@@ -9,8 +9,9 @@
  * reason — the caller should treat that as "no bundled skills this run"
  * and continue without error.
  */
-import * as path from 'node:path';
+
 import { createRequire } from 'node:module';
+import * as path from 'node:path';
 
 export function resolveBundledSkillsDir(): string | undefined {
   try {

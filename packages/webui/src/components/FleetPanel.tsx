@@ -1,7 +1,8 @@
 import { cn } from '@/lib/utils';
 import { type SubagentView, useFleetStore } from '@/stores';
-import { Bot, Check, ChevronDown, ChevronRight, Clock, Copy, Cpu, Wrench, X } from 'lucide-react';
+import { Bot, Check, ChevronDown, ChevronRight, Clock, Copy, Cpu, Crown, Wrench, X, Zap } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
+import { SparklineChart } from '@/components/ui/sparkline';
 
 /** Status → LED color + label. */
 const STATUS_META: Record<
@@ -48,6 +49,8 @@ export function AgentDetail({
   const tool = agent.currentTool ?? agent.lastTool;
   const elapsed = Date.now() - agent.startedAt;
   const [copied, setCopied] = useState(false);
+  const leaderId = useFleetStore((s) => s.leaderId);
+  const isLeader = agent.id === leaderId;
 
   const handleCopy = useCallback(async (text: string) => {
     try {
@@ -78,6 +81,7 @@ export function AgentDetail({
           <div className="flex items-center gap-2">
             <span className={cn('led', meta.led, meta.pulse && 'led-pulse')} />
             <h3 className="text-sm font-semibold">{agent.name}</h3>
+            {isLeader && <Crown className="h-3.5 w-3.5 text-amber-500 shrink-0" aria-label="leader" />}
             <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
               {meta.label}
             </span>
@@ -143,11 +147,30 @@ export function AgentDetail({
               <div className="rounded-lg border bg-muted/30 px-3 py-2">
                 <span className="text-[10px] text-muted-foreground">Budget Extensions</span>
                 <span className="block text-xs font-mono font-medium mt-0.5 tabular">
-                  {agent.extensions}
+                  ⚡×{agent.extensions}
                 </span>
               </div>
             )}
           </div>
+
+          {/* Activity sparkline */}
+          {active && (
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-muted-foreground">Activity</span>
+              <SparklineChart bins={agent.sparklineBins} className="font-mono" />
+            </div>
+          )}
+
+          {/* Budget warning */}
+          {agent.budgetWarning && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs">
+              <Zap className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+              <span className="text-amber-600 dark:text-amber-400">
+                ⚡ hitting <strong>{agent.budgetWarning.kind}</strong> limit
+                ({agent.budgetWarning.used}/{agent.budgetWarning.limit}) — extending
+              </span>
+            </div>
+          )}
 
           {/* Context bar */}
           {agent.maxContext > 0 && (
@@ -168,7 +191,7 @@ export function AgentDetail({
                         ? 'bg-[hsl(var(--warning))]'
                         : 'bg-primary',
                   )}
-                  style={{ width: `${Math.max(2, agent.ctxPct)}%` }}
+                  style={{ width: `${Math.min(200, Math.max(2, agent.ctxPct))}%` }}
                 />
               </div>
               <div className="text-[10px] text-muted-foreground tabular text-right">
@@ -368,10 +391,12 @@ function AgentCard({
                     ? 'bg-[hsl(var(--warning))]'
                     : 'bg-primary',
               )}
-              style={{ width: `${Math.max(2, a.ctxPct)}%` }}
+              style={{ width: `${Math.min(200, Math.max(2, a.ctxPct))}%` }}
             />
           </div>
-          <span className="tabular text-[9px] text-muted-foreground">{a.ctxPct}%</span>
+          <span className="tabular text-[9px] text-muted-foreground">
+            {a.maxContext > 0 ? `${a.ctxPct}%` : '—'}
+          </span>
         </div>
       )}
 

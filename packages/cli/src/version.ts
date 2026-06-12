@@ -19,7 +19,9 @@ export const CLI_VERSION = readOwnVersion();
 
 let API_VERSION = '0.0.0';
 try {
-  const corePkg = req('@wrongstack/core/package.json') as { wrongstackApiVersion?: string | undefined };
+  const corePkg = req('@wrongstack/core/package.json') as {
+    wrongstackApiVersion?: string | undefined;
+  };
   if (corePkg.wrongstackApiVersion) API_VERSION = corePkg.wrongstackApiVersion;
 } catch {
   /* fallback */

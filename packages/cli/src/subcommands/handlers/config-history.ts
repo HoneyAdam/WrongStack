@@ -1,8 +1,7 @@
-import { expectDefined } from '@wrongstack/core';
-import { color } from '@wrongstack/core';
+import { color, expectDefined } from '@wrongstack/core';
 import {
-  listHistory,
   getHistoryEntry,
+  listHistory,
   restoreFromHistory,
   restoreLast,
 } from '../../config-history.js';

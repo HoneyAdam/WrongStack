@@ -1,24 +1,43 @@
-import { expectDefined } from '@wrongstack/core';
-import type { Agent, AttachmentStore, GoalFile, SlashCommandRegistry, TokenCounter } from '@wrongstack/core';
-import {
-  InputBuilder,
-  color,
-  estimateRequestTokensCalibrated,
-  goalFilePath,
-  loadGoal,
-  summarizeUsage,
+import * as crypto from 'node:crypto';
+import * as path from 'node:path';
+import type {
+  Agent,
+  AttachmentStore,
+  GoalFile,
+  SlashCommandRegistry,
+  TokenCounter,
 } from '@wrongstack/core';
 import {
-  readClipboardImage,
-  routeImagesForModel,
-  type VisionAdapters,
-} from '@wrongstack/runtime';
+  color,
+  estimateRequestTokensCalibrated,
+  expectDefined,
+  GlobalMailbox,
+  goalFilePath,
+  InputBuilder,
+  loadGoal,
+  resolveProjectDir,
+  summarizeUsage,
+  wstackGlobalRoot,
+} from '@wrongstack/core';
+import { readClipboardImage, routeImagesForModel, type VisionAdapters } from '@wrongstack/runtime';
 import { parseNextSteps } from '@wrongstack/tui';
 import { contextOverflowHint } from './context-overflow-diagnostic.js';
 import type { ReadlineInputReader } from './input-reader.js';
-import { predictNextTasks, type PredictLLMProvider } from './next-task-predictor.js';
+import { type PredictLLMProvider, predictNextTasks } from './next-task-predictor.js';
 import type { TerminalRenderer } from './renderer.js';
-import { getActiveSDDContext, trySaveSpecFromAIOutput, trySaveTasksFromAIOutput, getTaskListText, getTaskProgress, autoDetectTaskCompletion, getActiveSDDPhase, trySaveImplementationPlan, renderTaskListWithProgress, getCurrentExecutingContext, advanceToNextTask } from './slash-commands/sdd.js';
+import {
+  advanceToNextTask,
+  autoDetectTaskCompletion,
+  getActiveSDDContext,
+  getActiveSDDPhase,
+  getCurrentExecutingContext,
+  getTaskListText,
+  getTaskProgress,
+  renderTaskListWithProgress,
+  trySaveImplementationPlan,
+  trySaveSpecFromAIOutput,
+  trySaveTasksFromAIOutput,
+} from './slash-commands/sdd.js';
 import { theme } from './theme.js';
 import { fmtTok } from './utils.js';
 import { CLI_VERSION } from './version.js';
@@ -141,6 +160,8 @@ export interface ReplOptions {
    * the countdown and switch to manual mode.
    */
   onCountdownTick?: ((remainingSeconds: number) => boolean | void) | undefined;
+  /** Called when the REPL exits — use for cleanup such as removing event listeners. */
+  onDestroy?: (() => void) | undefined;
 }
 
 export async function runRepl(opts: ReplOptions): Promise<number> {
@@ -172,9 +193,7 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
     // In eternal or parallel mode, the first Ctrl+C should stop the engine —
     // aborting the in-flight agent.run and flipping autonomy back to 'off'
     // so the outer for-loop returns to reading user input on the next tick.
-    if (
-      opts.getAutonomy?.() === 'eternal' || opts.getAutonomy?.() === 'eternal-parallel'
-    ) {
+    if (opts.getAutonomy?.() === 'eternal' || opts.getAutonomy?.() === 'eternal-parallel') {
       opts.getEternalEngine?.()?.stop();
       opts.getParallelEngine?.()?.stop();
       opts.onAutonomy?.('off');
@@ -190,6 +209,33 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
     }
   };
   process.on('SIGINT', onSigint);
+
+  // ── Register REPL as a client in the shared mailbox ──────────────────────────
+  // This lets other REPL/TUI/WebUI instances on the same project know this
+  // REPL is running, even when no agents are active.
+  const replProjectRoot = opts.projectRoot ?? process.cwd();
+  const projectDir = resolveProjectDir(replProjectRoot, wstackGlobalRoot());
+  const clientId = `repl@${crypto.randomUUID().slice(0, 8)}`;
+  const clientMailbox = new GlobalMailbox(projectDir);
+  let clientHeartbeat: ReturnType<typeof setInterval> | undefined;
+  clientMailbox
+    .registerClient({
+      clientId,
+      sessionId: replProjectRoot,
+      name: `REPL [${path.basename(replProjectRoot)}]`,
+      source: 'repl',
+      pid: process.pid,
+    })
+    .then(() => {
+      clientHeartbeat = setInterval(() => {
+        clientMailbox.clientHeartbeat({ clientId }).catch(() => {
+          // best-effort — if the registry is gone, don't spam errors
+        });
+      }, 15_000);
+    })
+    .catch(() => {
+      // best-effort — if another instance has the lock, skip registration
+    });
 
   const builder = new InputBuilder({ store: opts.attachments });
 
@@ -217,9 +263,7 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
           // the loop runs for hours and the journal scrolls off screen.
           const beforeGoal = await loadGoalSafe(opts);
           const beforeIter = beforeGoal?.iterations ?? 0;
-          opts.renderer.write(
-            color.dim(`\n  ↳ [eternal #${beforeIter + 1}] running iteration…\n`),
-          );
+          opts.renderer.write(color.dim(`\n  ↳ [eternal #${beforeIter + 1}] running iteration…\n`));
           interrupts = 0;
           try {
             const ok = await engine.runOneIteration();
@@ -228,7 +272,12 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
             if (!ok && !last) {
               opts.renderer.write(color.dim('  ↳ [eternal] iteration produced no progress.\n'));
             } else if (last) {
-              const mark = last.status === 'success' ? color.green('✓') : last.status === 'failure' ? color.red('✗') : color.amber('⊘');
+              const mark =
+                last.status === 'success'
+                  ? color.green('✓')
+                  : last.status === 'failure'
+                    ? color.red('✗')
+                    : color.amber('⊘');
               const tail = last.note ? color.dim(` — ${last.note.slice(0, 80)}`) : '';
               opts.renderer.write(
                 `  ${mark} ${color.dim(`#${last.iteration}`)} ${color.dim(`[${last.source}]`)} ${last.task}${tail}\n`,
@@ -241,17 +290,18 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
             if (engine.currentState === 'stopped') {
               const goal = await loadGoalSafe(opts);
               if (goal?.goalState === 'completed') {
-                const u = goal.journal.length > 0
-                  ? summarizeUsage(goal)
-                  : null;
-                const costLine = u && u.iterationsWithUsage > 0
-                  ? color.dim(` — ${u.totalCostUsd.toFixed(4)} · ${u.totalInputTokens} in / ${u.totalOutputTokens} out · ${goal.iterations} iterations`)
-                  : goal.iterations > 0
-                    ? color.dim(` — ${goal.iterations} iterations`)
-                    : '';
+                const u = goal.journal.length > 0 ? summarizeUsage(goal) : null;
+                const costLine =
+                  u && u.iterationsWithUsage > 0
+                    ? color.dim(
+                        ` — ${u.totalCostUsd.toFixed(4)} · ${u.totalInputTokens} in / ${u.totalOutputTokens} out · ${goal.iterations} iterations`,
+                      )
+                    : goal.iterations > 0
+                      ? color.dim(` — ${goal.iterations} iterations`)
+                      : '';
                 opts.renderer.write(
                   color.green(`\n  🎯 Goal completed!${costLine}\n\n`) +
-                  color.dim('  Goal cleared. Use /goal set <mission> to create a new goal.\n'),
+                    color.dim('  Goal cleared. Use /goal set <mission> to create a new goal.\n'),
                 );
                 // Auto-clear the goal file so the completed goal doesn't
                 // linger across restarts. The goal's journal is already
@@ -281,7 +331,9 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
       } else if (opts.getAutonomy?.() === 'eternal-parallel') {
         const engine = opts.getParallelEngine?.();
         if (!engine) {
-          opts.renderer.writeWarning('Parallel mode set but no engine wired — falling back to off.');
+          opts.renderer.writeWarning(
+            'Parallel mode set but no engine wired — falling back to off.',
+          );
         } else {
           const beforeGoal = await loadGoalSafe(opts);
           const beforeIter = beforeGoal?.iterations ?? 0;
@@ -291,7 +343,9 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
           if (coord) {
             const stats = coord.getStats();
             opts.renderer.write(
-              color.dim(`  ┌─ Fleet: ${stats.running} running, ${stats.idle} idle, ${stats.pending} pending, ${stats.completed} done`) + '\n',
+              color.dim(
+                `  ┌─ Fleet: ${stats.running} running, ${stats.idle} idle, ${stats.pending} pending, ${stats.completed} done`,
+              ) + '\n',
             );
           }
 
@@ -308,12 +362,19 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
             if (coord) {
               const stats = coord.getStats();
               opts.renderer.write(
-                color.dim(`  └─ Fleet: ${stats.running} running, ${stats.idle} idle, ${stats.completed} done\n`),
+                color.dim(
+                  `  └─ Fleet: ${stats.running} running, ${stats.idle} idle, ${stats.completed} done\n`,
+                ),
               );
             }
 
             if (last) {
-              const mark = last.status === 'success' ? color.green('✓') : last.status === 'failure' ? color.red('✗') : color.amber('⊘');
+              const mark =
+                last.status === 'success'
+                  ? color.green('✓')
+                  : last.status === 'failure'
+                    ? color.red('✗')
+                    : color.amber('⊘');
               const tail = last.note ? color.dim(` — ${last.note.slice(0, 80)}`) : '';
               opts.renderer.write(
                 `  ${mark} ${color.dim(`#${last.iteration}`)} ${color.dim(`[${last.source}]`)} ${last.task}${tail}\n`,
@@ -323,17 +384,18 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
             if (engine.currentState === 'stopped') {
               const goal = await loadGoalSafe(opts);
               if (goal?.goalState === 'completed') {
-                const u = goal.journal.length > 0
-                  ? summarizeUsage(goal)
-                  : null;
-                const costLine = u && u.iterationsWithUsage > 0
-                  ? color.dim(` — ${u.totalCostUsd.toFixed(4)} · ${u.totalInputTokens} in / ${u.totalOutputTokens} out · ${goal.iterations} iterations`)
-                  : goal.iterations > 0
-                    ? color.dim(` — ${goal.iterations} iterations`)
-                    : '';
+                const u = goal.journal.length > 0 ? summarizeUsage(goal) : null;
+                const costLine =
+                  u && u.iterationsWithUsage > 0
+                    ? color.dim(
+                        ` — ${u.totalCostUsd.toFixed(4)} · ${u.totalInputTokens} in / ${u.totalOutputTokens} out · ${goal.iterations} iterations`,
+                      )
+                    : goal.iterations > 0
+                      ? color.dim(` — ${goal.iterations} iterations`)
+                      : '';
                 opts.renderer.write(
                   color.green(`\n  🎯 Goal completed!${costLine}\n\n`) +
-                  color.dim('  Goal cleared. Use /goal set <mission> to create a new goal.\n'),
+                    color.dim('  Goal cleared. Use /goal set <mission> to create a new goal.\n'),
                 );
                 // Auto-clear the goal file so the completed goal doesn't
                 // linger across restarts. The goal's journal is already
@@ -377,9 +439,7 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
 
         // ── 'suggest' mode: display-only ────────────────────────────
         if (mode === 'suggest' && suggestions.length > 0) {
-          const lines = suggestions.map(
-            (s, i) => `  ${color.bold(`${i + 1}.`)} ${color.dim(s)}`,
-          );
+          const lines = suggestions.map((s, i) => `  ${color.bold(`${i + 1}.`)} ${color.dim(s)}`);
           opts.renderer.write(
             `\n${color.cyan('  💡 Suggested next steps')}  ${color.dim('(use /next 1, /next 2, or /next 1 2 3)')}\n${lines.join('\n')}\n\n`,
           );
@@ -441,10 +501,7 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
       if (trimmed === 'wd' || trimmed.startsWith('cd ')) {
         const args = trimmed.startsWith('cd ') ? trimmed.slice(3).trim() : '';
         try {
-          const res = await opts.slashRegistry.dispatch(
-            `/working_dir ${args}`,
-            opts.agent.ctx,
-          );
+          const res = await opts.slashRegistry.dispatch(`/working_dir ${args}`, opts.agent.ctx);
           if (res?.message) opts.renderer.write(`${res.message}\n`);
         } catch (err) {
           opts.renderer.writeError(err instanceof Error ? err.message : String(err));
@@ -490,9 +547,7 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
                 }
                 const planSaved = trySaveImplementationPlan(runResult.finalText);
                 if (planSaved) {
-                  opts.renderer.write(
-                    `\n${color.cyan('  ✓ Implementation plan saved!')}\n`,
-                  );
+                  opts.renderer.write(`\n${color.cyan('  ✓ Implementation plan saved!')}\n`);
                 }
                 const tasksSaved = await trySaveTasksFromAIOutput(runResult.finalText);
                 if (tasksSaved) {
@@ -587,10 +642,7 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
       }
 
       const effectiveBlocks = sddPrefix
-        ? [
-            { type: 'text' as const, text: sddPrefix },
-            ...blocks,
-          ]
+        ? [{ type: 'text' as const, text: sddPrefix }, ...blocks]
         : blocks;
 
       const runCtrl = new AbortController();
@@ -659,9 +711,7 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
           // Try to save implementation plan (text before task JSON)
           const planSaved = trySaveImplementationPlan(result.finalText);
           if (planSaved) {
-            opts.renderer.write(
-              `\n${color.cyan('  ✓ Implementation plan saved!')}\n`,
-            );
+            opts.renderer.write(`\n${color.cyan('  ✓ Implementation plan saved!')}\n`);
           }
 
           // Try to detect and save tasks
@@ -779,7 +829,9 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
             const suggestCtrl = new AbortController();
             activeCtrl = suggestCtrl;
             try {
-              const suggestResult = await opts.agent.run(suggestBlocks, { signal: suggestCtrl.signal });
+              const suggestResult = await opts.agent.run(suggestBlocks, {
+                signal: suggestCtrl.signal,
+              });
               opts.onAgentIterationComplete?.(
                 estimateRequestTokensCalibrated(
                   opts.agent.ctx.messages,
@@ -858,6 +910,10 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
     await opts.reader.close().catch(() => {
       /* best-effort */
     });
+    // Stop the client heartbeat so this REPL is marked offline.
+    clearInterval(clientHeartbeat);
+    // Run user-provided cleanup (e.g., SessionStats event listener removal).
+    opts.onDestroy?.();
   }
 }
 
@@ -905,23 +961,37 @@ async function renderGoalBanner(opts: ReplOptions): Promise<void> {
   const summary = goal.goal.length > 80 ? `${goal.goal.slice(0, 77)}…` : goal.goal;
 
   // Color based on goalState
-  const stateColor = goal.goalState === 'active' ? color.green
-    : goal.goalState === 'paused' ? color.amber
-    : goal.goalState === 'completed' ? color.green
-    : goal.goalState === 'abandoned' ? color.dim
-    : color.dim;
+  const stateColor =
+    goal.goalState === 'active'
+      ? color.green
+      : goal.goalState === 'paused'
+        ? color.amber
+        : goal.goalState === 'completed'
+          ? color.green
+          : goal.goalState === 'abandoned'
+            ? color.dim
+            : color.dim;
 
   opts.renderer.write(
-    color.dim('Goal: ') + stateColor(summary) + color.dim(` [${goal.goalState}]  (iter ${goal.iterations})`) + '\n',
+    color.dim('Goal: ') +
+      stateColor(summary) +
+      color.dim(` [${goal.goalState}]  (iter ${goal.iterations})`) +
+      '\n',
   );
 
   // Show journal summary if there are recent entries
   if (goal.journal.length > 0) {
     const lastEntry = expectDefined(goal.journal[goal.journal.length - 1]);
-    const statusIcon = lastEntry.status === 'success' ? '✓'
-      : lastEntry.status === 'failure' ? '✗'
-      : lastEntry.status === 'aborted' ? '⊘'
-      : lastEntry.status === 'skipped' ? '⊝' : '·';
+    const statusIcon =
+      lastEntry.status === 'success'
+        ? '✓'
+        : lastEntry.status === 'failure'
+          ? '✗'
+          : lastEntry.status === 'aborted'
+            ? '⊘'
+            : lastEntry.status === 'skipped'
+              ? '⊝'
+              : '·';
     opts.renderer.write(
       color.dim(`  Last: ${statusIcon} ${lastEntry.task} (${lastEntry.status})`) + '\n',
     );
@@ -955,23 +1025,17 @@ async function renderGoalBanner(opts: ReplOptions): Promise<void> {
       }
     } catch {
       // Non-interactive path: just hint.
-      opts.renderer.write(
-        color.dim('  Use `/autonomy eternal` to resume.') + '\n',
-      );
+      opts.renderer.write(color.dim('  Use `/autonomy eternal` to resume.') + '\n');
     }
   } else if (goal.goalState === 'paused') {
     // Paused goal - prompt to resume
-    opts.renderer.write(
-      color.amber('  ⏸ Goal is paused. Use `/goal resume` to continue.') + '\n',
-    );
+    opts.renderer.write(color.amber('  ⏸ Goal is paused. Use `/goal resume` to continue.') + '\n');
   } else if (goal.goalState === 'completed') {
     opts.renderer.write(
       color.green('  ✓ Goal completed! Use `/goal clear` to set a new goal.') + '\n',
     );
   } else if (goal.goalState === 'abandoned') {
-    opts.renderer.write(
-      color.dim('  Use `/goal clear` to set a new goal.') + '\n',
-    );
+    opts.renderer.write(color.dim('  Use `/goal clear` to set a new goal.') + '\n');
   }
   opts.renderer.write('\n');
 }
@@ -990,12 +1054,14 @@ async function runAutoProceed(
   ctrl: AbortController,
 ): Promise<void> {
   const truncated = suggestion.length > 80 ? `${suggestion.slice(0, 77)}…` : suggestion;
-  console.log(JSON.stringify({
-    level: 'info',
-    event: 'auto_proceed_started',
-    suggestion: truncated,
-    delayMs,
-  }));
+  console.log(
+    JSON.stringify({
+      level: 'info',
+      event: 'auto_proceed_started',
+      suggestion: truncated,
+      delayMs,
+    }),
+  );
   try {
     // ── Productive cooldown: compact context while we wait ─────────
     const proceed = await autoProceedCooldown(opts, delayMs, suggestion, ctrl.signal);
@@ -1003,23 +1069,27 @@ async function runAutoProceed(
       // Countdown was cancelled (host callback or abort signal) — do NOT
       // feed the suggestion. Resolving here without running keeps the
       // "cancel" semantics honest instead of fast-forwarding the run.
-      console.log(JSON.stringify({
-        level: 'info',
-        event: 'auto_proceed_cancelled',
-        suggestion: truncated,
-      }));
+      console.log(
+        JSON.stringify({
+          level: 'info',
+          event: 'auto_proceed_cancelled',
+          suggestion: truncated,
+        }),
+      );
       return;
     }
     // ── Feed the suggestion as if it were runText ──────────────────
     const runBlocks = [{ type: 'text' as const, text: suggestion }];
     const runResult = await opts.agent.run(runBlocks, { signal: ctrl.signal });
-    console.log(JSON.stringify({
-      level: 'info',
-      event: 'auto_proceed_completed',
-      suggestion: truncated,
-      status: runResult.status,
-      iterations: runResult.iterations,
-    }));
+    console.log(
+      JSON.stringify({
+        level: 'info',
+        event: 'auto_proceed_completed',
+        suggestion: truncated,
+        status: runResult.status,
+        iterations: runResult.iterations,
+      }),
+    );
     opts.onAgentIterationComplete?.(
       estimateRequestTokensCalibrated(
         opts.agent.ctx.messages,
@@ -1060,9 +1130,7 @@ async function autoProceedCooldown(
   const truncated = suggestion.length > 100 ? `${suggestion.slice(0, 97)}…` : suggestion;
   const sec = Math.ceil(delayMs / 1000);
 
-  opts.renderer.write(
-    `\n${color.cyan('⏳ Auto')}  ${color.dim('(Ctrl+C to cancel)')}\n`,
-  );
+  opts.renderer.write(`\n${color.cyan('⏳ Auto')}  ${color.dim('(Ctrl+C to cancel)')}\n`);
   opts.renderer.write(`${color.dim('  ▸')} ${color.dim(truncated)}\n`);
 
   // ── Run compaction during the cooldown ────────────────────────
@@ -1078,7 +1146,10 @@ async function autoProceedCooldown(
     signal.addEventListener('abort', onAbort, { once: true });
 
     interval = setInterval(() => {
-      if (signal.aborted) { resolve(false); return; }
+      if (signal.aborted) {
+        resolve(false);
+        return;
+      }
       const elapsed = Date.now() - start;
       const remaining = Math.max(0, Math.ceil((delayMs - elapsed) / 1000));
       if (remaining <= 0) {
@@ -1093,7 +1164,9 @@ async function autoProceedCooldown(
         try {
           const shouldAbort = opts.onCountdownTick(remaining);
           if (shouldAbort === true) {
-            opts.renderer.write(color.yellow('  ↳ Countdown cancelled — switching to manual mode\n'));
+            opts.renderer.write(
+              color.yellow('  ↳ Countdown cancelled — switching to manual mode\n'),
+            );
             resolve(false);
             return;
           }
@@ -1123,10 +1196,7 @@ async function autoProceedCooldown(
  * never interrupts the auto-proceed flow. Returns immediately if the
  * agent's context has no compactor wired up.
  */
-async function runContextCompaction(
-  opts: ReplOptions,
-  _signal: AbortSignal,
-): Promise<void> {
+async function runContextCompaction(opts: ReplOptions, _signal: AbortSignal): Promise<void> {
   try {
     const ctx = opts.agent.ctx as unknown as {
       messages?: Array<unknown>;

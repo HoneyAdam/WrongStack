@@ -1,21 +1,21 @@
-import { expectDefined } from '@wrongstack/core';
 import * as fs from 'node:fs/promises';
 import {
   AGENT_CATALOG,
   AGENTS_BY_PHASE,
-  MATRIX_PHASE_KEYS,
   type AgentPhase,
-  type ModelMatrixEntry,
-  type ProviderConfig,
-  type SlashCommand,
   atomicWrite,
   color,
   decryptConfigSecrets,
   encryptConfigSecrets,
+  expectDefined,
+  MATRIX_PHASE_KEYS,
+  type ModelMatrixEntry,
   matrixKeyKind,
   noOpVault,
+  type ProviderConfig,
   phaseForRole,
   resolveModelMatrix,
+  type SlashCommand,
 } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
 
@@ -152,7 +152,9 @@ export function buildSetModelCommand(opts: SlashCommandContext): SlashCommand {
       for (const k of keys.sort()) {
         const kind = matrixKeyKind(k);
         const tag = kind === 'unknown' ? color.red('?') : color.dim(kind);
-        lines.push(`    ${color.amber(k.padEnd(22))} → ${fmtEntry(expectDefined(matrix[k]))}   ${tag}`);
+        lines.push(
+          `    ${color.amber(k.padEnd(22))} → ${fmtEntry(expectDefined(matrix[k]))}   ${tag}`,
+        );
       }
     }
 
@@ -166,7 +168,9 @@ export function buildSetModelCommand(opts: SlashCommandContext): SlashCommand {
         const provider = entry?.provider ?? config.provider;
         const model = entry?.model ?? config.model;
         const source = resolutionSource(matrix, role);
-        lines.push(`    ${color.dim(role.padEnd(22))} → ${color.cyan(`${provider}/${model}`)}  ${color.dim(source)}`);
+        lines.push(
+          `    ${color.dim(role.padEnd(22))} → ${color.cyan(`${provider}/${model}`)}  ${color.dim(source)}`,
+        );
       }
     }
 
@@ -255,10 +259,7 @@ export function buildSetModelCommand(opts: SlashCommandContext): SlashCommand {
             message: `${color.red('Unknown role')}: "${role}". Use ${color.dim('/setmodel list')} to see valid roles.`,
           };
         }
-        const lines: string[] = [
-          `${color.bold('Resolution chain')} for ${color.amber(role)}`,
-          '',
-        ];
+        const lines: string[] = [`${color.bold('Resolution chain')} for ${color.amber(role)}`, ''];
 
         // Walk the chain step by step
         const phase = phaseForRole(role);
@@ -266,7 +267,9 @@ export function buildSetModelCommand(opts: SlashCommandContext): SlashCommand {
 
         // Step 1: exact role
         if (matrix[role]) {
-          lines.push(`  1. matrix["${role}"] → ${fmtEntry(expectDefined(matrix[role]))}  ${color.green('✓ exact role')}`);
+          lines.push(
+            `  1. matrix["${role}"] → ${fmtEntry(expectDefined(matrix[role]))}  ${color.green('✓ exact role')}`,
+          );
         } else {
           lines.push(`  1. matrix["${role}"] → ${color.dim('not set')}`);
         }
@@ -274,7 +277,9 @@ export function buildSetModelCommand(opts: SlashCommandContext): SlashCommand {
         // Step 2: phase
         if (phase) {
           if (matrix[phase]) {
-            lines.push(`  2. matrix["${phase}"] → ${fmtEntry(expectDefined(matrix[phase]))}  ${matrix[role] ? color.dim('(skipped — role matched)') : color.green('✓ phase match')}`);
+            lines.push(
+              `  2. matrix["${phase}"] → ${fmtEntry(expectDefined(matrix[phase]))}  ${matrix[role] ? color.dim('(skipped — role matched)') : color.green('✓ phase match')}`,
+            );
           } else {
             lines.push(`  2. matrix["${phase}"] → ${color.dim('not set')}`);
           }
@@ -283,14 +288,18 @@ export function buildSetModelCommand(opts: SlashCommandContext): SlashCommand {
         // Step 3: *
         if (matrix['*']) {
           const skipped = matrix[role] || (phase && matrix[phase]);
-          lines.push(`  3. matrix["*"] → ${fmtEntry(expectDefined(matrix['*']))}  ${skipped ? color.dim('(skipped)') : color.green('✓ default')}`);
+          lines.push(
+            `  3. matrix["*"] → ${fmtEntry(expectDefined(matrix['*']))}  ${skipped ? color.dim('(skipped)') : color.green('✓ default')}`,
+          );
         } else {
           lines.push(`  3. matrix["*"] → ${color.dim('not set')}`);
         }
 
         // Step 4: leader fallback
         const leaderSkipped = matrix[role] || (phase && matrix[phase]) || matrix['*'];
-        lines.push(`  4. ${color.dim('leader fallback')} → ${color.cyan(`${config.provider}/${config.model}`)}  ${leaderSkipped ? color.dim('(skipped)') : color.green('✓ used')}`);
+        lines.push(
+          `  4. ${color.dim('leader fallback')} → ${color.cyan(`${config.provider}/${config.model}`)}  ${leaderSkipped ? color.dim('(skipped)') : color.green('✓ used')}`,
+        );
 
         lines.push('');
 
@@ -299,7 +308,9 @@ export function buildSetModelCommand(opts: SlashCommandContext): SlashCommand {
           const rp = resolved.provider ?? config.provider;
           lines.push(`${color.green('✓ Resolved')}: ${color.cyan(`${rp}/${resolved.model}`)}`);
         } else {
-          lines.push(`${color.green('✓ Resolved')}: ${color.cyan(`${config.provider}/${config.model}`)} ${color.dim('(leader)')}`);
+          lines.push(
+            `${color.green('✓ Resolved')}: ${color.cyan(`${config.provider}/${config.model}`)} ${color.dim('(leader)')}`,
+          );
         }
 
         return { message: lines.join('\n') };
@@ -352,7 +363,9 @@ export function buildSetModelCommand(opts: SlashCommandContext): SlashCommand {
             covered.add(key);
           }
           // Phase-level coverage
-          const phasesCovered = new Set(Object.keys(matrix).filter((k) => matrixKeyKind(k) === 'phase'));
+          const phasesCovered = new Set(
+            Object.keys(matrix).filter((k) => matrixKeyKind(k) === 'phase'),
+          );
           const unprotected: string[] = [];
           for (const role of Object.keys(AGENT_CATALOG)) {
             if (covered.has(role)) continue;

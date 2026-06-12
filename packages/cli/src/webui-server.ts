@@ -1,41 +1,74 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { createRequire } from 'node:module';
+import type {
+  Agent,
+  BrainArbiter,
+  BrainAutoRisk,
+  Context,
+  EventBus,
+  Logger,
+  MemoryStore,
+  ModelsRegistry,
+  ModeStore,
+  SessionStore,
+  SessionWriter,
+  SkillLoader,
+} from '@wrongstack/core';
 import {
+  atomicWrite,
+  DEFAULT_CONTEXT_WINDOW_MODE_ID,
+  DefaultSecretScrubber,
+  enhanceUserPrompt,
+  GlobalMailbox,
+  mutatePlan,
+  mutateTasks,
+  type ProviderConfig,
+  projectSlug,
+  recentTextTurns,
+  repairToolUseAdjacency,
+  resolveContextWindowPolicy,
+  resolveProjectDir,
+  setPlanItemStatus,
+  TOKENS,
+  type TodoItem,
+  wstackGlobalRoot,
+} from '@wrongstack/core';
+import {
+  DefaultSecretVault,
+  decryptConfigSecrets,
+  encryptConfigSecrets,
+} from '@wrongstack/core/security';
+import { DefaultSessionStore } from '@wrongstack/core/storage';
+import {
+  AutoPhaseWebSocketHandler,
+  type CustomModeStore,
+  createCustomModeStore,
   createHttpServer,
   findFreePort,
+  handleFilesList,
+  handleFilesRead,
+  handleFilesTree,
+  handleFilesWrite,
+  handleMemoryForget,
+  handleMemoryList,
+  handleMemoryRemember,
   openBrowser,
   registerInstance,
   unregisterInstance,
-  handleFilesTree,
-  handleFilesRead,
-  handleFilesWrite,
-  handleFilesList,
-  handleMemoryList,
-  handleMemoryRemember,
-  handleMemoryForget,
-  AutoPhaseWebSocketHandler,
-  createCustomModeStore,
-  type CustomModeStore,
 } from '@wrongstack/webui/server';
-import type { Agent, BrainArbiter, BrainAutoRisk, Context, EventBus, Logger, MemoryStore, ModeStore, ModelsRegistry, SessionStore, SessionWriter, SkillLoader } from '@wrongstack/core';
-import {
-  DefaultSecretScrubber,
-  enhanceUserPrompt,
-  recentTextTurns,
-  type ProviderConfig,
-  type TodoItem,
-  mutateTasks,
-  mutatePlan,
-  setPlanItemStatus,
-} from '@wrongstack/core';
-import { DefaultSessionStore } from '@wrongstack/core/storage';
-import { DefaultSecretVault, decryptConfigSecrets, encryptConfigSecrets } from '@wrongstack/core/security';
-import { TOKENS, atomicWrite, repairToolUseAdjacency, resolveContextWindowPolicy, DEFAULT_CONTEXT_WINDOW_MODE_ID, GlobalMailbox, projectSlug, resolveProjectDir, wstackGlobalRoot } from '@wrongstack/core';
 import { WebSocket, WebSocketServer } from 'ws';
-import { expectDefined, loadConfigProviders, maskedKey, mutateConfigProviders, normalizeKeys, nowIso, writeKeysBack } from './provider-config-utils.js';
+import {
+  expectDefined,
+  loadConfigProviders,
+  maskedKey,
+  mutateConfigProviders,
+  normalizeKeys,
+  nowIso,
+  writeKeysBack,
+} from './provider-config-utils.js';
 
 // ── Console logger adapter for AutoPhaseWebSocketHandler ──────────────────────
 // AutoPhaseWebSocketHandler requires a Logger. The CLI uses console.log/error
@@ -44,12 +77,24 @@ const structuredLine = (level: string, message: string): string =>
   JSON.stringify({ level, event: 'webui.autophase', message, timestamp: new Date().toISOString() });
 const consoleLogger: Logger = {
   level: 'debug',
-  error(msg: string, _ctx?: unknown) { console.error(structuredLine('error', msg)); },
-  warn(msg: string, _ctx?: unknown) { console.warn(structuredLine('warn', msg)); },
-  info(msg: string, _ctx?: unknown) { console.log(structuredLine('info', msg)); },
-  debug(msg: string, _ctx?: unknown) { console.debug(structuredLine('debug', msg)); },
-  trace(msg: string, _ctx?: unknown) { console.debug(structuredLine('trace', msg)); },
-  child(_bindings: Record<string, unknown>): Logger { return this; },
+  error(msg: string, _ctx?: unknown) {
+    console.error(structuredLine('error', msg));
+  },
+  warn(msg: string, _ctx?: unknown) {
+    console.warn(structuredLine('warn', msg));
+  },
+  info(msg: string, _ctx?: unknown) {
+    console.log(structuredLine('info', msg));
+  },
+  debug(msg: string, _ctx?: unknown) {
+    console.debug(structuredLine('debug', msg));
+  },
+  trace(msg: string, _ctx?: unknown) {
+    console.debug(structuredLine('trace', msg));
+  },
+  child(_bindings: Record<string, unknown>): Logger {
+    return this;
+  },
 };
 
 // ── Token estimator helpers (inlined from @wrongstack/webui/server/token-estimator.ts) ──
@@ -60,14 +105,24 @@ function estimateTokens(s: string): number {
 
 function stringifyContent(c: unknown): string {
   if (typeof c === 'string') return c;
-  try { return JSON.stringify(c); } catch { return String(c); }
+  try {
+    return JSON.stringify(c);
+  } catch {
+    return String(c);
+  }
 }
 
 function messageTokens(content: unknown): number {
   if (typeof content === 'string') return estimateTokens(content);
   if (!Array.isArray(content)) return 0;
   let tk = 0;
-  for (const b of content as Array<{ type?: string; text?: string; input?: unknown; content?: unknown; name?: string }>) {
+  for (const b of content as Array<{
+    type?: string;
+    text?: string;
+    input?: unknown;
+    content?: unknown;
+    name?: string;
+  }>) {
     if (b.type === 'text') tk += estimateTokens(b.text ?? '');
     else if (b.type === 'tool_use') tk += estimateTokens(stringifyContent(b.input));
     else if (b.type === 'tool_result') tk += estimateTokens(stringifyContent(b.content));
@@ -81,15 +136,30 @@ function messagePreview(content: unknown): string {
   if (!Array.isArray(content)) return '';
   return (content as Array<{ type?: string; text?: string; name?: string }>)
     .map((b) =>
-      b.type === 'text' ? (b.text ?? '').slice(0, 40) :
-      b.type === 'tool_use' ? `[tool_use: ${b.name}]` :
-      b.type === 'tool_result' ? '[tool_result]' : `[${b.type}]`)
-    .join(' ').slice(0, 60);
+      b.type === 'text'
+        ? (b.text ?? '').slice(0, 40)
+        : b.type === 'tool_use'
+          ? `[tool_use: ${b.name}]`
+          : b.type === 'tool_result'
+            ? '[tool_result]'
+            : `[${b.type}]`,
+    )
+    .join(' ')
+    .slice(0, 60);
 }
 
-interface PromptBlock { text?: string | undefined; }
-interface ToolLike { name: string; inputSchema?: unknown; description?: string; }
-interface MessageLike { role: string; content: unknown; }
+interface PromptBlock {
+  text?: string | undefined;
+}
+interface ToolLike {
+  name: string;
+  inputSchema?: unknown;
+  description?: string;
+}
+interface MessageLike {
+  role: string;
+  content: unknown;
+}
 
 function estimateContextBreakdown(input: {
   systemPrompt: ReadonlyArray<PromptBlock>;
@@ -100,11 +170,18 @@ function estimateContextBreakdown(input: {
   const toolBreakdown = input.tools.map((t) => {
     const schema = t.inputSchema ?? {};
     const desc = t.description ?? '';
-    return { name: t.name, tokens: estimateTokens(t.name) + estimateTokens(desc) + estimateTokens(stringifyContent(schema)) };
+    return {
+      name: t.name,
+      tokens:
+        estimateTokens(t.name) + estimateTokens(desc) + estimateTokens(stringifyContent(schema)),
+    };
   });
   const toolTokens = toolBreakdown.reduce((a, b) => a + b.tokens, 0);
   const messageBreakdown = input.messages.map((m, i) => ({
-    index: i, role: m.role, tokens: messageTokens(m.content), preview: messagePreview(m.content),
+    index: i,
+    role: m.role,
+    tokens: messageTokens(m.content),
+    preview: messagePreview(m.content),
   }));
   const msgTokens = messageBreakdown.reduce((a, b) => a + b.tokens, 0);
   return {
@@ -133,7 +210,16 @@ interface TokenUsage {
 
 function getCostRates(model: unknown): CostRates {
   const cost = (
-    model as { cost?: { input?: number | undefined; output?: number | undefined; cache_read?: number | undefined } } | null | undefined
+    model as
+      | {
+          cost?: {
+            input?: number | undefined;
+            output?: number | undefined;
+            cache_read?: number | undefined;
+          };
+        }
+      | null
+      | undefined
   )?.cost;
   return {
     input: cost?.input ?? 0,
@@ -306,12 +392,28 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
   // autonomy "off" etc.), and persist pref changes back to config.json with
   // the same key mapping the TUI settings picker writes.
   const PREF_KEYS = [
-    'autonomy', 'autonomyDelayMs', 'autoProceedMaxIterations', 'yolo', 'maxIterations',
-    'chime', 'confirmExit', 'streamFleet', 'nextPrediction',
-    'enhanceEnabled', 'enhanceDelayMs', 'enhanceLanguage',
-    'featureMcp', 'featurePlugins', 'featureMemory', 'featureSkills',
-    'featureModelsRegistry', 'indexOnStart',
-    'contextAutoCompact', 'contextStrategy', 'logLevel', 'auditLevel',
+    'autonomy',
+    'autonomyDelayMs',
+    'autoProceedMaxIterations',
+    'yolo',
+    'maxIterations',
+    'chime',
+    'confirmExit',
+    'streamFleet',
+    'nextPrediction',
+    'enhanceEnabled',
+    'enhanceDelayMs',
+    'enhanceLanguage',
+    'featureMcp',
+    'featurePlugins',
+    'featureMemory',
+    'featureSkills',
+    'featureModelsRegistry',
+    'indexOnStart',
+    'contextAutoCompact',
+    'contextStrategy',
+    'logLevel',
+    'auditLevel',
   ] as const;
 
   const prefSnapshot = (): Record<string, unknown> => {
@@ -346,12 +448,14 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
       meta['featureMemory'] = features['memory'] !== false;
       meta['featureSkills'] = features['skills'] !== false;
       meta['featureModelsRegistry'] = features['modelsRegistry'] !== false;
-      meta['indexOnStart'] = ((cfg.indexing as Record<string, unknown>) ?? {})['onSessionStart'] !== false;
-      meta['contextAutoCompact'] = ((cfg.context as Record<string, unknown>) ?? {})['autoCompact'] !== false;
-      meta['contextStrategy'] = ((cfg.context as Record<string, unknown>) ?? {})['strategy'] ?? 'hybrid';
-      meta['logLevel'] = ((cfg.log as Record<string, unknown>) ?? {})['level'] ?? 'info';
-      meta['auditLevel'] = ((cfg.session as Record<string, unknown>) ?? {})['auditLevel'] ?? 'standard';
-      meta['maxIterations'] = ((cfg.tools as Record<string, unknown>) ?? {})['maxIterations'] ?? 500;
+      meta['indexOnStart'] =
+        (cfg.indexing as Record<string, unknown>)?.['onSessionStart'] !== false;
+      meta['contextAutoCompact'] =
+        (cfg.context as Record<string, unknown>)?.['autoCompact'] !== false;
+      meta['contextStrategy'] = (cfg.context as Record<string, unknown>)?.['strategy'] ?? 'hybrid';
+      meta['logLevel'] = (cfg.log as Record<string, unknown>)?.['level'] ?? 'info';
+      meta['auditLevel'] = (cfg.session as Record<string, unknown>)?.['auditLevel'] ?? 'standard';
+      meta['maxIterations'] = (cfg.tools as Record<string, unknown>)?.['maxIterations'] ?? 500;
     } catch {
       // best-effort — missing/corrupt config just leaves prefs unseeded
     }
@@ -374,7 +478,9 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
       } catch {
         return; // refuse to overwrite a corrupt-but-existing config
       }
-      const vault = new DefaultSecretVault({ keyFile: path.join(path.dirname(configPath), '.key') });
+      const vault = new DefaultSecretVault({
+        keyFile: path.join(path.dirname(configPath), '.key'),
+      });
       const decrypted = decryptConfigSecrets(parsed, vault) as Record<string, unknown>;
 
       const autonomyCfg = (decrypted.autonomy as Record<string, unknown>) ?? {};
@@ -383,21 +489,32 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
         autonomyCfg[key] = val;
         autonomyTouched = true;
       };
-      if (typeof payload['autonomy'] === 'string' && ['off', 'suggest', 'auto'].includes(payload['autonomy'])) {
+      if (
+        typeof payload['autonomy'] === 'string' &&
+        ['off', 'suggest', 'auto'].includes(payload['autonomy'])
+      ) {
         setAutonomy('defaultMode', payload['autonomy']);
       }
-      if (typeof payload['autonomyDelayMs'] === 'number') setAutonomy('autoProceedDelayMs', payload['autonomyDelayMs']);
-      if (typeof payload['autoProceedMaxIterations'] === 'number') setAutonomy('autoProceedMaxIterations', payload['autoProceedMaxIterations']);
+      if (typeof payload['autonomyDelayMs'] === 'number')
+        setAutonomy('autoProceedDelayMs', payload['autonomyDelayMs']);
+      if (typeof payload['autoProceedMaxIterations'] === 'number')
+        setAutonomy('autoProceedMaxIterations', payload['autoProceedMaxIterations']);
       if (typeof payload['yolo'] === 'boolean') setAutonomy('yolo', payload['yolo']);
       if (typeof payload['chime'] === 'boolean') setAutonomy('chime', payload['chime']);
-      if (typeof payload['confirmExit'] === 'boolean') setAutonomy('confirmExit', payload['confirmExit']);
-      if (typeof payload['streamFleet'] === 'boolean') setAutonomy('streamFleet', payload['streamFleet']);
-      if (typeof payload['enhanceEnabled'] === 'boolean') setAutonomy('enhance', payload['enhanceEnabled']);
-      if (typeof payload['enhanceDelayMs'] === 'number') setAutonomy('enhanceDelayMs', payload['enhanceDelayMs']);
-      if (typeof payload['enhanceLanguage'] === 'string') setAutonomy('enhanceLanguage', payload['enhanceLanguage']);
+      if (typeof payload['confirmExit'] === 'boolean')
+        setAutonomy('confirmExit', payload['confirmExit']);
+      if (typeof payload['streamFleet'] === 'boolean')
+        setAutonomy('streamFleet', payload['streamFleet']);
+      if (typeof payload['enhanceEnabled'] === 'boolean')
+        setAutonomy('enhance', payload['enhanceEnabled']);
+      if (typeof payload['enhanceDelayMs'] === 'number')
+        setAutonomy('enhanceDelayMs', payload['enhanceDelayMs']);
+      if (typeof payload['enhanceLanguage'] === 'string')
+        setAutonomy('enhanceLanguage', payload['enhanceLanguage']);
       if (autonomyTouched) decrypted.autonomy = autonomyCfg;
 
-      if (typeof payload['nextPrediction'] === 'boolean') decrypted.nextPrediction = payload['nextPrediction'];
+      if (typeof payload['nextPrediction'] === 'boolean')
+        decrypted.nextPrediction = payload['nextPrediction'];
       const FEATURE_MAP: Record<string, string> = {
         featureMcp: 'mcp',
         featurePlugins: 'plugins',
@@ -412,10 +529,15 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
           decrypted.features = feats;
         }
       }
-      if (typeof payload['contextAutoCompact'] === 'boolean' || typeof payload['contextStrategy'] === 'string') {
+      if (
+        typeof payload['contextAutoCompact'] === 'boolean' ||
+        typeof payload['contextStrategy'] === 'string'
+      ) {
         const ctxCfg = (decrypted.context as Record<string, unknown>) ?? {};
-        if (typeof payload['contextAutoCompact'] === 'boolean') ctxCfg.autoCompact = payload['contextAutoCompact'];
-        if (typeof payload['contextStrategy'] === 'string') ctxCfg.strategy = payload['contextStrategy'];
+        if (typeof payload['contextAutoCompact'] === 'boolean')
+          ctxCfg.autoCompact = payload['contextAutoCompact'];
+        if (typeof payload['contextStrategy'] === 'string')
+          ctxCfg.strategy = payload['contextStrategy'];
         decrypted.context = ctxCfg;
       }
       if (typeof payload['logLevel'] === 'string') {
@@ -450,12 +572,14 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
     try {
       await next;
     } catch (err) {
-      console.error(JSON.stringify({
-        level: 'warn',
-        event: 'webui.prefs.persist_failed',
-        message: err instanceof Error ? err.message : String(err),
-        timestamp: new Date().toISOString(),
-      }));
+      console.error(
+        JSON.stringify({
+          level: 'warn',
+          event: 'webui.prefs.persist_failed',
+          message: err instanceof Error ? err.message : String(err),
+          timestamp: new Date().toISOString(),
+        }),
+      );
     }
   };
 
@@ -489,13 +613,18 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
           (opts.agent.ctx.provider as { id: string }).id,
           opts.agent.ctx.model,
         );
-        maxContext =
-          (m as { capabilities?: { maxContext?: number } } | null)?.capabilities
-            ?.maxContext ?? 0;
+        const registryMax = (m as { capabilities?: { maxContext?: number } } | null)?.capabilities
+          ?.maxContext;
+        // Fall back to the live provider's capabilities if the registry has no override.
+        // The provider is the authoritative source for the model's default context window.
+        maxContext = registryMax ?? opts.agent.ctx.provider.capabilities?.maxContext ?? 0;
         const rates = getCostRates(m);
         inputCost = rates.input;
         outputCost = rates.output;
         cacheReadCost = rates.cacheRead;
+      } else {
+        // No registry — use the provider's default capabilities directly.
+        maxContext = opts.agent.ctx.provider.capabilities?.maxContext ?? 0;
       }
     } catch {
       /* best-effort; cost stays $0 */
@@ -518,6 +647,53 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
       ...overrides,
     };
   }
+
+  // ── Client (REPL/TUI/WebUI) registration ─────────────────────────────────
+  // Register this WebUI instance as a client in the global mailbox so other
+  // TUIs, WebUIs, and REPLs on the same project can see it as "online".
+  // Clients heartbeat more frequently than agents (15s vs 30s).
+  let webuiClientId: string | null = null;
+  let webuiHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  const CLIENT_HEARTBEAT_MS = 15_000;
+
+  const registerWebuiClient = async (): Promise<string | null> => {
+    if (!opts.projectRoot) return null;
+    try {
+      const projectDir = resolveProjectDir(opts.projectRoot, wstackGlobalRoot());
+      const mailbox = new GlobalMailbox(projectDir, opts.events);
+      webuiClientId = `webui@${crypto.randomUUID().slice(0, 8)}`;
+      const projectName = opts.projectRoot ? path.basename(opts.projectRoot) : 'unknown';
+      await mailbox.registerClient({
+        clientId: webuiClientId,
+        sessionId: opts.projectRoot,
+        name: `WebUI [${projectName}]`,
+        source: 'webui',
+        pid: process.pid,
+      });
+
+      webuiHeartbeatTimer = setInterval(() => {
+        mailbox.clientHeartbeat({ clientId: webuiClientId! }).catch(() => {
+          // best-effort — ignore heartbeat failures during shutdown
+        });
+      }, CLIENT_HEARTBEAT_MS);
+      webuiHeartbeatTimer.unref();
+
+      return webuiClientId;
+    } catch {
+      // best-effort — client registration errors should not block WebUI startup
+      return null;
+    }
+  };
+
+  const unregisterWebuiClient = (): void => {
+    if (webuiHeartbeatTimer) {
+      clearInterval(webuiHeartbeatTimer);
+      webuiHeartbeatTimer = null;
+    }
+  };
+
+  // Register immediately (fire-and-forget so it doesn't block server startup)
+  registerWebuiClient();
 
   const wss = new WebSocketServer({ port, host, maxPayload: 1 * 1024 * 1024 });
 
@@ -577,10 +753,41 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
   // Subscribe to events once
   const eventUnsubscribers: Array<() => void> = [];
 
+  // ── Fleet concurrency tracking ────────────────────────────────────────────
+  // Tracks how many subagents are currently active (running) so the WebUI's
+  // ConcurrencyGauge can show [████░░] 2/4 instead of always 0/4.
+  // The leader is NOT counted — it's the host process, not a spawned worker.
+  let fleetConcurrency = 0;
+  // Default max matches the CLI default fleet size (4). A future
+  // fleet.max_concurrency kernel event could override this dynamically.
+  const FLEET_CONCURRENCY_MAX = 4;
+  const emitConcurrency = () =>
+    broadcast({
+      type: 'fleet.concurrency_update',
+      payload: { fleetConcurrency, fleetConcurrencyMax: FLEET_CONCURRENCY_MAX },
+    });
+
   function setupEvents() {
     // Clear any existing subscriptions
     for (const unsub of eventUnsubscribers) unsub();
     eventUnsubscribers.length = 0;
+
+    // ── Leader identity — the host is always the leader (agentId 'leader').
+    // Emit once so the WebUI's fleet store sets leaderId and shows the crown.
+    broadcast({
+      type: 'subagent.event',
+      payload: {
+        kind: 'leader_updated',
+        subagentId: 'leader',
+        isLeader: true,
+        name: 'Leader',
+        status: 'running',
+      },
+    });
+
+    // ── Fleet concurrency — emit the initial 0/N state so the gauge
+    // renders immediately instead of waiting for the first spawn event.
+    emitConcurrency();
 
     // iteration.started
     eventUnsubscribers.push(
@@ -680,7 +887,9 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
                   payload: { tasks: file?.tasks ?? [] },
                 });
               }
-            } catch { /* best-effort */ }
+            } catch {
+              /* best-effort */
+            }
             try {
               const planPath = (opts.agent.ctx.meta as Record<string, unknown>)['plan.path'];
               if (typeof planPath === 'string' && planPath) {
@@ -698,7 +907,9 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
                   },
                 });
               }
-            } catch { /* best-effort */ }
+            } catch {
+              /* best-effort */
+            }
           })();
         }
       }),
@@ -761,7 +972,9 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
     const forwardSubagent = (kind: string, payload: Record<string, unknown>) =>
       broadcast({ type: 'subagent.event', payload: { kind, ...payload } });
     eventUnsubscribers.push(
-      opts.events.on('subagent.spawned', (e) =>
+      opts.events.on('subagent.spawned', (e) => {
+        fleetConcurrency += 1;
+        emitConcurrency();
         forwardSubagent('spawned', {
           subagentId: e.subagentId,
           taskId: e.taskId,
@@ -769,8 +982,8 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
           provider: e.provider,
           model: e.model,
           description: e.description,
-        }),
-      ),
+        });
+      }),
       opts.events.on('subagent.task_started', (e) =>
         forwardSubagent('task_started', {
           subagentId: e.subagentId,
@@ -809,15 +1022,17 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
           maxContext: e.maxContext,
         }),
       ),
-      opts.events.on('subagent.task_completed', (e) =>
+      opts.events.on('subagent.task_completed', (e) => {
+        fleetConcurrency = Math.max(0, fleetConcurrency - 1);
+        emitConcurrency();
         forwardSubagent('task_completed', {
           subagentId: e.subagentId,
           status: e.status,
           iterations: e.iterations,
           toolCalls: e.toolCalls,
           error: e.error ? { kind: e.error.kind, message: e.error.message } : undefined,
-        }),
-      ),
+        });
+      }),
     );
 
     // eternal-autonomy iteration events. Each iteration the engine
@@ -849,14 +1064,20 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
     // Enables the WebUI to update its online agent count and mailbox panel without polling.
     eventUnsubscribers.push(
       opts.events.onPattern('mailbox.*', (eventName, payload) => {
-        broadcast({ type: 'mailbox.event', payload: { event: eventName, ...payload as Record<string, unknown> } });
+        broadcast({
+          type: 'mailbox.event',
+          payload: { event: eventName, ...(payload as Record<string, unknown>) },
+        });
       }),
     );
 
     // ── Brain events — decisions + proactive interventions, live in the browser ──
     eventUnsubscribers.push(
       opts.events.onPattern('brain.*', (eventName, payload) => {
-        broadcast({ type: 'brain.event', payload: { event: eventName, ...payload as Record<string, unknown> } });
+        broadcast({
+          type: 'brain.event',
+          payload: { event: eventName, ...(payload as Record<string, unknown>) },
+        });
       }),
     );
   }
@@ -872,9 +1093,7 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
       // live agent/session status to all connected WebSocket clients.
       // This keeps the WebUI session panel in sync even when agents
       // run in background (project switches, multiple processes).
-      const globalRoot = opts.globalConfigPath
-        ? path.dirname(opts.globalConfigPath)
-        : undefined;
+      const globalRoot = opts.globalConfigPath ? path.dirname(opts.globalConfigPath) : undefined;
       if (globalRoot) {
         const statusInterval = setInterval(async () => {
           try {
@@ -921,7 +1140,10 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
       // allowed without a token for convenience. Non-loopback connections
       // require the token passed as ?token=<authToken>.
       const isLoopback = (hostname: string) =>
-        hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '[::1]';
+        hostname === 'localhost' ||
+        hostname === '127.0.0.1' ||
+        hostname === '::1' ||
+        hostname === '[::1]';
 
       // Constant-time token compare (length mismatch short-circuits).
       const tokenMatches = (provided: string | null): boolean => {
@@ -1009,12 +1231,14 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
           const msg = JSON.parse(data.toString()) as WSClientMessage;
           await handleMessage(ws, client, msg);
         } catch (err) {
-          console.error(JSON.stringify({
-            level: 'error',
-            event: 'webui_server.message_parse_failed',
-            message: err instanceof Error ? err.message : String(err),
-            timestamp: new Date().toISOString(),
-          }));
+          console.error(
+            JSON.stringify({
+              level: 'error',
+              event: 'webui_server.message_parse_failed',
+              message: err instanceof Error ? err.message : String(err),
+              timestamp: new Date().toISOString(),
+            }),
+          );
         }
       });
 
@@ -1042,12 +1266,14 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
     });
 
     wss.on('error', (err) => {
-      console.error(JSON.stringify({
-        level: 'error',
-        event: 'webui_server.error',
-        message: err instanceof Error ? err.message : String(err),
-        timestamp: new Date().toISOString(),
-      }));
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          event: 'webui_server.error',
+          message: err instanceof Error ? err.message : String(err),
+          timestamp: new Date().toISOString(),
+        }),
+      );
     });
 
     // Graceful shutdown. Idempotent: every runWebUI call registers its own
@@ -1069,8 +1295,8 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
       // Drop ourselves from the running-instance registry; the run promise
       // resolves only after the write settles so callers can safely remove
       // the registry directory once runWebUI's promise resolves.
-      const unregistered = unregisterInstance(process.pid, registryBaseDir).catch(
-        (err: unknown) => console.debug(`[webui-server] unregister failed: ${err}`),
+      const unregistered = unregisterInstance(process.pid, registryBaseDir).catch((err: unknown) =>
+        console.debug(`[webui-server] unregister failed: ${err}`),
       );
       httpServer?.close();
       wss.close(() => {
@@ -1159,7 +1385,12 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
 
       case 'provider.add': {
         const m = msg as {
-          payload: { id: string; family: string; baseUrl?: string | undefined; apiKey?: string | undefined };
+          payload: {
+            id: string;
+            family: string;
+            baseUrl?: string | undefined;
+            apiKey?: string | undefined;
+          };
         };
         await handleProviderAdd(ws, m.payload);
         break;
@@ -1267,12 +1498,14 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
             ctx.tokenCounter.reset();
           } catch (err) {
             // Store failure degrades to the in-memory reset below.
-            console.warn(JSON.stringify({
-              level: 'warn',
-              event: 'webui.session_new_store_failed',
-              message: err instanceof Error ? err.message : String(err),
-              timestamp: new Date().toISOString(),
-            }));
+            console.warn(
+              JSON.stringify({
+                level: 'warn',
+                event: 'webui.session_new_store_failed',
+                message: err instanceof Error ? err.message : String(err),
+                timestamp: new Date().toISOString(),
+              }),
+            );
           }
         }
         ctx.state.replaceMessages([]);
@@ -1454,7 +1687,9 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
               rates,
             );
           }
-        } catch { /* cost stays null */ }
+        } catch {
+          /* cost stays null */
+        }
         send(ws, {
           type: 'stats.get',
           payload: {
@@ -1709,7 +1944,10 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
       // ── Memory operations — delegated to shared handlers (memory-handlers.ts) ──
       case 'memory.list': {
         if (!opts.memoryStore) {
-          send(ws, { type: 'memory.list', payload: { text: '', error: 'Memory store not available' } });
+          send(ws, {
+            type: 'memory.list',
+            payload: { text: '', error: 'Memory store not available' },
+          });
           break;
         }
         return handleMemoryList(ws, opts.memoryStore);
@@ -1756,7 +1994,11 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
         } catch (err) {
           send(ws, {
             type: 'skills.list',
-            payload: { skills: [], enabled: true, error: err instanceof Error ? err.message : String(err) },
+            payload: {
+              skills: [],
+              enabled: true,
+              error: err instanceof Error ? err.message : String(err),
+            },
           });
         }
         break;
@@ -1788,7 +2030,11 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
         } catch (err) {
           send(ws, {
             type: 'modes.list',
-            payload: { modes: [], activeId: 'default', error: err instanceof Error ? err.message : String(err) },
+            payload: {
+              modes: [],
+              activeId: 'default',
+              error: err instanceof Error ? err.message : String(err),
+            },
           });
         }
         break;
@@ -1831,7 +2077,9 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
           // Create a new provider instance from the saved config
           const { makeProviderFromConfig } = await import('@wrongstack/providers');
           const { loadConfigProviders } = await import('./provider-config-utils.js');
-          const saved = opts.globalConfigPath ? await loadConfigProviders(opts.globalConfigPath, getVault()) : {};
+          const saved = opts.globalConfigPath
+            ? await loadConfigProviders(opts.globalConfigPath, getVault())
+            : {};
           const providerCfg = saved[newProvider] ?? { type: newProvider };
           const newProv = makeProviderFromConfig(newProvider, providerCfg);
           ctx.provider = newProv;
@@ -1878,11 +2126,13 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
           if (oldWriter && oldWriter !== resumed.writer) {
             const oldUsage = ctx.tokenCounter.total();
             void (async () => {
-              await oldWriter.append({
-                type: 'session_end',
-                ts: new Date().toISOString(),
-                usage: oldUsage,
-              }).catch(() => undefined);
+              await oldWriter
+                .append({
+                  type: 'session_end',
+                  ts: new Date().toISOString(),
+                  usage: oldUsage,
+                })
+                .catch(() => undefined);
               await oldWriter.close().catch(() => undefined);
             })();
           }
@@ -2043,7 +2293,18 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
       }
 
       case 'context.mode.create': {
-        const payload = (msg as { payload: { id: string; name: string; description: string; thresholds: { warn: number; soft: number; hard: number }; preserveK: number; eliseThreshold: number } }).payload;
+        const payload = (
+          msg as {
+            payload: {
+              id: string;
+              name: string;
+              description: string;
+              thresholds: { warn: number; soft: number; hard: number };
+              preserveK: number;
+              eliseThreshold: number;
+            };
+          }
+        ).payload;
         const modeStore = await getCustomModeStore();
         const result = modeStore.create({
           id: payload.id,
@@ -2056,13 +2317,31 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
           aggressiveOn: 'soft',
           targetLoad: 0.65,
         });
-        if (result.ok) await modeStore.save().catch(() => undefined); /* best-effort: user preferences */
+        if (result.ok)
+          await modeStore.save().catch(() => undefined); /* best-effort: user preferences */
         sendResult(ws, result.ok, result.error ?? `Mode "${payload.id}" created`);
         break;
       }
 
       case 'context.mode.update': {
-        const payload = (msg as { payload: { id: string; name?: string | undefined; description?: string | undefined; thresholds?: { warn?: number | undefined; soft?: number | undefined; hard?: number | undefined } | undefined; preserveK?: number | undefined; eliseThreshold?: number | undefined } }).payload;
+        const payload = (
+          msg as {
+            payload: {
+              id: string;
+              name?: string | undefined;
+              description?: string | undefined;
+              thresholds?:
+                | {
+                    warn?: number | undefined;
+                    soft?: number | undefined;
+                    hard?: number | undefined;
+                  }
+                | undefined;
+              preserveK?: number | undefined;
+              eliseThreshold?: number | undefined;
+            };
+          }
+        ).payload;
         const modeStore = await getCustomModeStore();
         // Build the patch without explicit-undefined keys
         // (exactOptionalPropertyTypes).
@@ -2079,9 +2358,12 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
               }
             : {}),
           ...(payload.preserveK !== undefined ? { preserveK: payload.preserveK } : {}),
-          ...(payload.eliseThreshold !== undefined ? { eliseThreshold: payload.eliseThreshold } : {}),
+          ...(payload.eliseThreshold !== undefined
+            ? { eliseThreshold: payload.eliseThreshold }
+            : {}),
         });
-        if (result.ok) await modeStore.save().catch(() => undefined); /* best-effort: user preferences */
+        if (result.ok)
+          await modeStore.save().catch(() => undefined); /* best-effort: user preferences */
         sendResult(ws, result.ok, result.error ?? `Mode "${payload.id}" updated`);
         break;
       }
@@ -2092,11 +2374,15 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
         // If the active mode is being deleted, fall back to the default.
         if (String(ctx.meta['contextWindowMode'] ?? '') === id) {
           ctx.meta['contextWindowMode'] = DEFAULT_CONTEXT_WINDOW_MODE_ID;
-          ctx.meta['contextWindowPolicy'] = resolveContextWindowPolicy({}, DEFAULT_CONTEXT_WINDOW_MODE_ID);
+          ctx.meta['contextWindowPolicy'] = resolveContextWindowPolicy(
+            {},
+            DEFAULT_CONTEXT_WINDOW_MODE_ID,
+          );
         }
         const modeStore = await getCustomModeStore();
         const result = modeStore.remove(id);
-        if (result.ok) await modeStore.save().catch(() => undefined); /* best-effort: user preferences */
+        if (result.ok)
+          await modeStore.save().catch(() => undefined); /* best-effort: user preferences */
         sendResult(ws, result.ok, result.error ?? `Mode "${id}" deleted`);
         break;
       }
@@ -2161,7 +2447,11 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
           });
           send(ws, { type: 'brain.answer', payload: { question, decision } });
         } catch (err) {
-          sendResult(ws, false, `Brain consultation failed: ${err instanceof Error ? err.message : String(err)}`);
+          sendResult(
+            ws,
+            false,
+            `Brain consultation failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
         break;
       }
@@ -2207,7 +2497,10 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
             send(ws, { type: 'tasks.updated', payload: { tasks: [] } });
           }
         } else {
-          send(ws, { type: 'tasks.updated', payload: { tasks: [], error: 'Task storage not configured.' } });
+          send(ws, {
+            type: 'tasks.updated',
+            payload: { tasks: [], error: 'Task storage not configured.' },
+          });
         }
         break;
       }
@@ -2259,7 +2552,9 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
         const manifestPath = path.join(projectsBase, 'projects.json');
         try {
           const raw = await fs.readFile(manifestPath, 'utf8');
-          const manifest = JSON.parse(raw) as { projects: Array<{ name: string; root: string; slug: string; lastSeen?: string }> };
+          const manifest = JSON.parse(raw) as {
+            projects: Array<{ name: string; root: string; slug: string; lastSeen?: string }>;
+          };
           send(ws, {
             type: 'projects.list',
             payload: { projects: manifest.projects ?? [] },
@@ -2540,12 +2835,14 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
             history,
             timeoutMs: 90000,
             onError: (reason) => {
-              console.warn(JSON.stringify({
-                level: 'warn',
-                event: 'model.refine_failed',
-                reason,
-                timestamp: new Date().toISOString(),
-              }));
+              console.warn(
+                JSON.stringify({
+                  level: 'warn',
+                  event: 'model.refine_failed',
+                  reason,
+                  timestamp: new Date().toISOString(),
+                }),
+              );
             },
           });
           if (result) {
@@ -2562,7 +2859,11 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
         } catch (err) {
           send(ws, {
             type: 'model.refine_result',
-            payload: { refined: text, english: text, error: err instanceof Error ? err.message : String(err) },
+            payload: {
+              refined: text,
+              english: text,
+              error: err instanceof Error ? err.message : String(err),
+            },
           });
         }
         break;
@@ -2575,10 +2876,14 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
 
       // ── Mailbox operations — project-level inter-agent messaging ────
       case 'mailbox.messages': {
-        const projectRoot = opts.projectRoot ?? (opts.agent.ctx as { projectRoot?: string }).projectRoot ?? '';
+        const projectRoot =
+          opts.projectRoot ?? (opts.agent.ctx as { projectRoot?: string }).projectRoot ?? '';
         const globalRoot = opts.globalConfigPath ? path.dirname(opts.globalConfigPath) : '';
         if (!projectRoot || !globalRoot) {
-          send(ws, { type: 'mailbox.messages', payload: { messages: [], error: 'No project root available' } });
+          send(ws, {
+            type: 'mailbox.messages',
+            payload: { messages: [], error: 'No project root available' },
+          });
           break;
         }
         try {
@@ -2586,7 +2891,9 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
           // this replaced drifted from projectSlug() on edge-case names.
           const mbDir = resolveProjectDir(projectRoot, globalRoot);
           const mb = new GlobalMailbox(mbDir);
-          const payload = (msg as { payload?: { limit?: number; agentId?: string; unreadOnly?: boolean } }).payload;
+          const payload = (
+            msg as { payload?: { limit?: number; agentId?: string; unreadOnly?: boolean } }
+          ).payload;
           const messages = await mb.query({
             limit: payload?.limit ?? 30,
             to: payload?.agentId,
@@ -2596,26 +2903,42 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
             type: 'mailbox.messages',
             payload: {
               messages: messages.map((m) => ({
-                id: m.id, from: m.from, to: m.to, type: m.type,
-                subject: m.subject, body: m.body, priority: m.priority,
-                readBy: m.readBy, readByCount: Object.keys(m.readBy).length,
-                completed: m.completed, completedBy: m.completedBy,
-                outcome: m.outcome, timestamp: m.timestamp,
-                replyTo: m.replyTo, senderSessionId: m.senderSessionId,
+                id: m.id,
+                from: m.from,
+                to: m.to,
+                type: m.type,
+                subject: m.subject,
+                body: m.body,
+                priority: m.priority,
+                readBy: m.readBy,
+                readByCount: Object.keys(m.readBy).length,
+                completed: m.completed,
+                completedBy: m.completedBy,
+                outcome: m.outcome,
+                timestamp: m.timestamp,
+                replyTo: m.replyTo,
+                senderSessionId: m.senderSessionId,
               })),
             },
           });
         } catch (err) {
-          send(ws, { type: 'mailbox.messages', payload: { messages: [], error: err instanceof Error ? err.message : String(err) } });
+          send(ws, {
+            type: 'mailbox.messages',
+            payload: { messages: [], error: err instanceof Error ? err.message : String(err) },
+          });
         }
         break;
       }
 
       case 'mailbox.agents': {
-        const projectRoot = opts.projectRoot ?? (opts.agent.ctx as { projectRoot?: string }).projectRoot ?? '';
+        const projectRoot =
+          opts.projectRoot ?? (opts.agent.ctx as { projectRoot?: string }).projectRoot ?? '';
         const globalRoot = opts.globalConfigPath ? path.dirname(opts.globalConfigPath) : '';
         if (!projectRoot || !globalRoot) {
-          send(ws, { type: 'mailbox.agents', payload: { agents: [], error: 'No project root available' } });
+          send(ws, {
+            type: 'mailbox.agents',
+            payload: { agents: [], error: 'No project root available' },
+          });
           break;
         }
         try {
@@ -2631,23 +2954,34 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
             type: 'mailbox.agents',
             payload: {
               agents: agents.map((a) => ({
-                agentId: a.agentId, name: a.name, role: a.role,
-                sessionId: a.sessionId, status: a.status,
-                currentTool: a.currentTool, currentTask: a.currentTask,
-                iterations: a.iterations, toolCalls: a.toolCalls,
-                lastSeenAt: a.lastSeenAt, online: a.online,
-                pid: a.pid, source: a.source,
+                agentId: a.agentId,
+                name: a.name,
+                role: a.role,
+                sessionId: a.sessionId,
+                status: a.status,
+                currentTool: a.currentTool,
+                currentTask: a.currentTask,
+                iterations: a.iterations,
+                toolCalls: a.toolCalls,
+                lastSeenAt: a.lastSeenAt,
+                online: a.online,
+                pid: a.pid,
+                source: a.source,
               })),
             },
           });
         } catch (err) {
-          send(ws, { type: 'mailbox.agents', payload: { agents: [], error: err instanceof Error ? err.message : String(err) } });
+          send(ws, {
+            type: 'mailbox.agents',
+            payload: { agents: [], error: err instanceof Error ? err.message : String(err) },
+          });
         }
         break;
       }
 
       case 'mailbox.clear': {
-        const projectRoot = opts.projectRoot ?? (opts.agent.ctx as { projectRoot?: string }).projectRoot ?? '';
+        const projectRoot =
+          opts.projectRoot ?? (opts.agent.ctx as { projectRoot?: string }).projectRoot ?? '';
         const globalRoot = opts.globalConfigPath ? path.dirname(opts.globalConfigPath) : '';
         if (!projectRoot || !globalRoot) {
           send(ws, { type: 'mailbox.cleared', payload: { error: 'No project root available' } });
@@ -2661,7 +2995,10 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
           await mb.clearAll();
           send(ws, { type: 'mailbox.cleared', payload: {} });
         } catch (err) {
-          send(ws, { type: 'mailbox.cleared', payload: { error: err instanceof Error ? err.message : String(err) } });
+          send(ws, {
+            type: 'mailbox.cleared',
+            payload: { error: err instanceof Error ? err.message : String(err) },
+          });
         }
         break;
       }
@@ -2745,6 +3082,7 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
 
   function shutdown(): void {
     console.log('[WebUI] Shutting down...');
+    unregisterWebuiClient();
     httpServer?.close();
     opts.onExit?.();
   }
@@ -2933,7 +3271,12 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
 
   async function handleProviderAdd(
     ws: WebSocket,
-    payload: { id: string; family: string; baseUrl?: string | undefined; apiKey?: string | undefined },
+    payload: {
+      id: string;
+      family: string;
+      baseUrl?: string | undefined;
+      apiKey?: string | undefined;
+    },
   ): Promise<void> {
     try {
       const providers = await loadSavedProviders();

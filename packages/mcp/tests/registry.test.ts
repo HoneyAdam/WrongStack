@@ -91,11 +91,14 @@ describe('MCPRegistry', () => {
   it('health reflects failed state', async () => {
     const reg = new MCPRegistry({ toolRegistry: toolReg, events, log: silentLog });
     await reg.start(stdioCfg('failing', { command: '__nonexistent__', startupTimeoutMs: 50 }));
-    // Give retries time to exhaust
-    await new Promise((r) => setTimeout(r, 5000));
-    const h = reg.health();
-    const entry = h.find((s) => s.name === 'failing');
-    expect(entry?.alive).toBe(false);
+    // Poll until retries exhaust instead of sleeping a fixed 5s — the old
+    // fixed wait burned 5s of wall clock on every suite run.
+    await expect
+      .poll(() => reg.health().find((s) => s.name === 'failing')?.alive, {
+        timeout: 9_000,
+        interval: 200,
+      })
+      .toBe(false);
   }, 10_000);
 
   it('stop unregisters exit listener to avoid memory leaks', async () => {

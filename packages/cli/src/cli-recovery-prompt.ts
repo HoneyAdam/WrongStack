@@ -11,9 +11,9 @@
  * function in `index.ts`; extracted as part of the cli/index.ts decompose
  * pass to make the recovery contract independently testable.
  */
-import { isStdinTTY } from '@wrongstack/core';
+
 import type { AbandonedSession } from '@wrongstack/core';
-import { color } from '@wrongstack/core';
+import { color, isStdinTTY } from '@wrongstack/core';
 import type { ReadlineInputReader } from './input-reader.js';
 import type { TerminalRenderer } from './renderer.js';
 

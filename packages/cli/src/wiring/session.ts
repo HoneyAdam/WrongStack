@@ -1,21 +1,21 @@
-import { expectDefined } from '@wrongstack/core';
 import * as path from 'node:path';
 import {
-  Context,
-  DefaultAttachmentStore,
-  QueueStore,
-  RecoveryLock,
   // createSessionEventBridge,
   // resolveAuditLevel,
   type AbandonedSession,
-  type SessionStore,
-  type SessionWriter,
-  type WstackPaths,
   attachTodosCheckpoint,
+  Context,
+  DEFAULT_SESSION_PRUNE_DAYS,
+  DefaultAttachmentStore,
+  expectDefined,
   loadDirectorState,
   loadPlan,
   loadTodosCheckpoint,
-  DEFAULT_SESSION_PRUNE_DAYS,
+  QueueStore,
+  RecoveryLock,
+  type SessionStore,
+  type SessionWriter,
+  type WstackPaths,
 } from '@wrongstack/core';
 export interface SessionResult {
   session: SessionWriter;
@@ -89,11 +89,15 @@ export async function setupSession(params: {
       const choice = await onRecovery(abandoned, !!flags['recover']);
       if (choice === 'resume') resumeId = abandoned.sessionId;
       else if (choice === 'delete') {
-        await sessionStore.delete(abandoned.sessionId).catch(() => undefined); /* best-effort: orphaned session will be cleaned by pruning */
+        await sessionStore
+          .delete(abandoned.sessionId)
+          .catch(() => undefined); /* best-effort: orphaned session will be cleaned by pruning */
         await recoveryLock.clear();
       } else await recoveryLock.clear();
     } else if (abandoned) {
-      await sessionStore.delete(abandoned.sessionId).catch(() => undefined); /* best-effort: orphaned session will be cleaned by pruning */
+      await sessionStore
+        .delete(abandoned.sessionId)
+        .catch(() => undefined); /* best-effort: orphaned session will be cleaned by pruning */
       await recoveryLock.clear();
     }
   }
@@ -128,7 +132,14 @@ export async function setupSession(params: {
 
   const sessionRef: { current?: SessionWriter | undefined } = { current: session };
   await recoveryLock.write(session?.id).catch((err) => {
-    console.error(JSON.stringify({ level: 'error', event: 'recovery_lock_write_failed', error: String(err), sessionId: session?.id }));
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        event: 'recovery_lock_write_failed',
+        error: String(err),
+        sessionId: session?.id,
+      }),
+    );
   });
 
   const attachments = new DefaultAttachmentStore({

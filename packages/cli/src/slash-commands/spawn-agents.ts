@@ -110,7 +110,8 @@ export function buildDirectorCommand(opts: SlashCommandContext): SlashCommand {
       'and /spawn. Without it, those commands will report "not wired."',
     ].join('\n'),
     async run() {
-      if (!opts.onDirector) return { message: 'Director promotion is not available in this session.' };
+      if (!opts.onDirector)
+        return { message: 'Director promotion is not available in this session.' };
       const result = await opts.onDirector();
       if (result === null) {
         return {

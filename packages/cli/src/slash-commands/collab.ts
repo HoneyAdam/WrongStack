@@ -1,7 +1,7 @@
-import { color, truncate } from '@wrongstack/core';
 import type { SlashCommand } from '@wrongstack/core';
-import type { SlashCommandContext } from './index.js';
+import { color, truncate } from '@wrongstack/core';
 import { parseSubcommand, unknownSubcommand } from './helpers.js';
+import type { SlashCommandContext } from './index.js';
 
 /**
  * /collab — operator-side controls for the live-collaboration feature
@@ -65,14 +65,8 @@ function statusCommand(sessionId: string | undefined): { message: string } {
   lines.push(`  Session: ${color.cyan(sessionId ?? '(none)')}`);
   lines.push(`  Observers: ${color.dim('unknown (check webui)')}`);
   lines.push('');
-  lines.push(
-    color.dim(
-      '  Tip: /collab invite — print a webui join link for a teammate',
-    ),
-  );
-  lines.push(
-    color.dim('       /collab history 20 — show the last 20 events of this session'),
-  );
+  lines.push(color.dim('  Tip: /collab invite — print a webui join link for a teammate'));
+  lines.push(color.dim('       /collab history 20 — show the last 20 events of this session'));
   return { message: lines.join('\n') };
 }
 
@@ -90,9 +84,7 @@ function inviteCommand(sessionId: string | undefined): { message: string } {
     `  Share this URL with a teammate (they must be able to reach your machine):`,
     `    ${color.cyan(url)}`,
     '',
-    color.dim(
-      '  The teammate opens the URL in their browser, then clicks "Join as observer"',
-    ),
+    color.dim('  The teammate opens the URL in their browser, then clicks "Join as observer"'),
     color.dim('  on the panel that appears above the chat. They will see a live mirror'),
     color.dim('  of tool calls, iterations, and subagent spawns — read-only.'),
     '',
@@ -131,10 +123,7 @@ async function historyCommand(
   if (tail.length === 0) {
     return { message: color.dim('No events recorded yet for this session.') };
   }
-  const lines: string[] = [
-    color.bold(`Last ${tail.length} events of ${sessionId}`),
-    '',
-  ];
+  const lines: string[] = [color.bold(`Last ${tail.length} events of ${sessionId}`), ''];
   for (const raw of tail) {
     const ev = raw as { type?: string | undefined; ts?: string | undefined; [k: string]: unknown };
     const t = ev.ts ? color.dim(ev.ts.slice(11, 19)) : color.dim('--:--:--');
@@ -185,10 +174,7 @@ async function annotationsCommand(
       message: color.dim('No open annotations for this session.'),
     };
   }
-  const lines: string[] = [
-    color.bold(`${open.length} open annotation(s) for ${sessionId}`),
-    '',
-  ];
+  const lines: string[] = [color.bold(`${open.length} open annotation(s) for ${sessionId}`), ''];
   for (const a of open) {
     const t = color.dim(a.createdAt.slice(11, 19));
     const author = color.cyan(a.authorId.slice(0, 8));
@@ -238,9 +224,7 @@ function helpCommand(): { message: string } {
     `  ${color.cyan('annotations')}       List open (unresolved) annotations from webui annotators`,
     `  ${color.cyan('help')}              Show this help`,
     '',
-    color.dim(
-      '  The observer flow itself lives in the webui: open the URL printed',
-    ),
+    color.dim('  The observer flow itself lives in the webui: open the URL printed'),
     color.dim('  by `invite` and click "Join as observer" on the panel above the chat.'),
   ];
   return { message: lines.join('\n') };

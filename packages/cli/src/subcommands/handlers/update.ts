@@ -38,13 +38,17 @@ export const updateCmd: SubcommandHandler = async (args, deps) => {
         windowsHide: true,
       });
       let _stderr = '';
-      child.stderr?.on('data', (d) => { _stderr += d; });
+      child.stderr?.on('data', (d) => {
+        _stderr += d;
+      });
       child.on('error', reject);
       child.on('close', (code) => resolve({ code: code ?? 0 }));
     });
 
     if (result.code === 0) {
-      deps.renderer.write(`\nUpdated to v${info.latest}. Restart wrongstack to use the new version.\n`);
+      deps.renderer.write(
+        `\nUpdated to v${info.latest}. Restart wrongstack to use the new version.\n`,
+      );
     } else {
       deps.renderer.write(`\nUpdate failed with exit code ${result.code}.\n`);
     }

@@ -6,7 +6,7 @@
  * when the heuristic router is ambiguous. Mirrors the one-shot completion
  * pattern used by `generateCommitMessageWithLLM`.
  */
-import { makeLLMClassifier, type DispatchClassifier } from '@wrongstack/core';
+import { type DispatchClassifier, makeLLMClassifier } from '@wrongstack/core';
 import type { CommitLLMProvider } from './commit-llm.js';
 
 export function makeProviderClassifier(

@@ -1,8 +1,8 @@
-import { color } from '@wrongstack/core';
-import type { Context, SlashCommand } from '@wrongstack/core';
-import type { SlashCommandContext } from './index.js';
 import { execFileSync } from 'node:child_process';
+import type { Context, SlashCommand } from '@wrongstack/core';
+import { color } from '@wrongstack/core';
 import { parseNextSteps } from '@wrongstack/tui';
+import type { SlashCommandContext } from './index.js';
 import { setSuggestions } from './suggestion-store.js';
 
 /**
@@ -99,7 +99,9 @@ export function buildSuggestCommand(opts: SlashCommandContext): SlashCommand {
         const suggestions = generateHeuristicSuggestions(opts);
         setSuggestions(suggestions);
         opts.onSuggestions?.(suggestions);
-        const display = formatSuggestions(suggestions) + '\n' +
+        const display =
+          formatSuggestions(suggestions) +
+          '\n' +
           color.dim('(Heuristic fallback — multi-agent not enabled)');
         return { message: display };
       }
@@ -148,7 +150,8 @@ function parseSuggestions(raw: string): string[] {
   if (texts.length > 0) return texts;
 
   // Fallback: take the first 5 non-empty lines that look like suggestions
-  return raw.split('\n')
+  return raw
+    .split('\n')
     .map((l) => l.trim())
     .filter((l) => l.length > 10 && !l.startsWith('#') && !l.startsWith('```'))
     .slice(0, 5);

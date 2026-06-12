@@ -505,6 +505,14 @@ export function handleSubagentEvent(msg: WSServerMessage) {
   }
 }
 
+export function handleFleetConcurrency(msg: WSServerMessage) {
+  const p = msg.payload as { fleetConcurrency: number; fleetConcurrencyMax: number };
+  useFleetStore.setState({
+    fleetConcurrency: p.fleetConcurrency,
+    fleetConcurrencyMax: p.fleetConcurrencyMax,
+  });
+}
+
 /** Universal viz event pipe — called by every handler that generates a VizEvent. */
 function pipeViz(msg: WSServerMessage) {
   const vizEv = wsToVizEvent(msg.type, msg.payload as Record<string, unknown>);
@@ -626,6 +634,7 @@ export const WS_HANDLERS: Record<string, (msg: WSServerMessage) => void> = {
   'worktree.state': handleWorktreeState,
   'worktree.event': handleWorktreeEvent,
   'subagent.event': handleSubagentEvent,
+  'fleet.concurrency_update': handleFleetConcurrency,
   'goal.updated': handleGoalUpdated,
   'prefs.updated': handlePrefsUpdated,
   'sessions.status_update': (msg: WSServerMessage) => {

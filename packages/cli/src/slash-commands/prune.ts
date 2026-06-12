@@ -1,13 +1,12 @@
-import { color } from '@wrongstack/core';
 import type { SlashCommand } from '@wrongstack/core';
+import { color } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
 
 export function buildPruneCommand(opts: SlashCommandContext): SlashCommand {
   return {
     name: 'prune',
     category: 'Session',
-    description:
-      'Delete old sessions. /prune (default 30d), /prune 7, /prune --rebuild-index.',
+    description: 'Delete old sessions. /prune (default 30d), /prune 7, /prune --rebuild-index.',
     help:
       'Usage:\n' +
       '  /prune               Delete sessions older than 30 days.\n' +
@@ -22,9 +21,7 @@ export function buildPruneCommand(opts: SlashCommandContext): SlashCommand {
       if (rebuildIndex) {
         if (!opts.sessionStore?.rebuildIndex) {
           return {
-            message: color.yellow(
-              'Session store does not support index rebuild.',
-            ),
+            message: color.yellow('Session store does not support index rebuild.'),
           };
         }
         const count = await opts.sessionStore.rebuildIndex();
@@ -59,8 +56,7 @@ export function buildPruneCommand(opts: SlashCommandContext): SlashCommand {
           };
         }
         const lines = stale.map(
-          (s) =>
-            `  ${color.dim(s.id)}  ${color.dim(s.startedAt.slice(0, 10))}  ${s.title}`,
+          (s) => `  ${color.dim(s.id)}  ${color.dim(s.startedAt.slice(0, 10))}  ${s.title}`,
         );
         return {
           message: [

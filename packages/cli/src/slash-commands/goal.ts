@@ -1,14 +1,14 @@
-import { color } from '@wrongstack/core';
+import type { SlashCommand } from '@wrongstack/core';
 import {
   buildGoalPreamble,
+  color,
   emptyGoal,
   formatGoal,
+  type GoalFile,
   loadGoal,
   saveGoal,
-  type GoalFile,
 } from '@wrongstack/core';
-import type { SlashCommand } from '@wrongstack/core';
-import { refineGoal, refineGoalHeuristic, type RefinedGoal } from './goal-refiner.js';
+import { type RefinedGoal, refineGoal, refineGoalHeuristic } from './goal-refiner.js';
 import type { SlashCommandContext } from './index.js';
 
 const KNOWN_VERBS = new Set([
@@ -65,8 +65,7 @@ export function buildGoalCommand(opts: SlashCommandContext): SlashCommand {
       // If the first token isn't a known verb, treat the entire args
       // string as the goal text — `/goal rewrite the auth module` works.
       const verbForDispatch = verb && !KNOWN_VERBS.has(verb) ? 'set' : verb;
-      const setText =
-        verbForDispatch === 'set' && !KNOWN_VERBS.has(verb) ? trimmed : restJoined;
+      const setText = verbForDispatch === 'set' && !KNOWN_VERBS.has(verb) ? trimmed : restJoined;
 
       switch (verbForDispatch) {
         case '':
@@ -124,11 +123,13 @@ export function buildGoalCommand(opts: SlashCommandContext): SlashCommand {
 
           // Show summary
           const lines: string[] = [];
-          lines.push(
-            `🎯 ${color.green('Goal locked:')} ${color.bold(refined.refinedGoal)}`,
-          );
+          lines.push(`🎯 ${color.green('Goal locked:')} ${color.bold(refined.refinedGoal)}`);
           if (refined.refinedGoal !== setText) {
-            lines.push(color.dim(`  (original: "${setText.length > 60 ? setText.slice(0, 60) + '…' : setText}")`));
+            lines.push(
+              color.dim(
+                `  (original: "${setText.length > 60 ? setText.slice(0, 60) + '…' : setText}")`,
+              ),
+            );
           }
           if (refined.deliverables.length > 0) {
             lines.push('');
@@ -138,9 +139,7 @@ export function buildGoalCommand(opts: SlashCommandContext): SlashCommand {
             }
           }
           lines.push('');
-          lines.push(
-            color.dim(`Stored in ${goalPath} — progress tracked automatically.`),
-          );
+          lines.push(color.dim(`Stored in ${goalPath} — progress tracked automatically.`));
 
           const msg = lines.join('\n');
           opts.renderer.write(msg);
@@ -213,9 +212,7 @@ export function buildGoalCommand(opts: SlashCommandContext): SlashCommand {
             opts.renderer.write(msg);
             return { message: msg };
           }
-          const n = restJoined
-            ? Math.max(1, Number.parseInt(restJoined, 10) || 25)
-            : 25;
+          const n = restJoined ? Math.max(1, Number.parseInt(restJoined, 10) || 25) : 25;
           if (current.journal.length === 0) {
             const msg = 'Journal is empty.';
             opts.renderer.write(msg);

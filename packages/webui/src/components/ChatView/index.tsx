@@ -87,10 +87,17 @@ export function ChatView() {
   // Context breakdown modal
   const [breakdownOpen, setBreakdownOpen] = useState(false);
 
-  // Context window usage
+  // Listen for the custom event fired by ContextModePicker's ops menu → "Debug Context"
+  useEffect(() => {
+    const handler = () => setBreakdownOpen(true);
+    document.addEventListener('open:context-breakdown', handler);
+    return () => document.removeEventListener('open:context-breakdown', handler);
+  }, []);
+
+  // Context window usage — uncapped so over-limit (>100%) is visible
   const ctxPct =
     maxContext > 0 && lastInputTokens > 0
-      ? Math.min(100, Math.round((lastInputTokens / maxContext) * 100))
+      ? Math.round((lastInputTokens / maxContext) * 100)
       : 0;
   const ctxTone =
     ctxPct >= 85
@@ -710,35 +717,35 @@ export function ChatView() {
           <span title="Enter" className="inline-flex items-center gap-1">
             <kbd>Enter</kbd> send
           </span>
-          <span className="opacity-30">·</span>
+          <span className="opacity-50">·</span>
           <span title="Shift+Enter" className="inline-flex items-center gap-1">
             <kbd>Shift</kbd>+<kbd>↵</kbd> newline
           </span>
-          <span className="opacity-30">·</span>
+          <span className="opacity-50">·</span>
           <span title="Ctrl+\\" className="inline-flex items-center gap-1">
             <kbd>Ctrl+\</kbd> sidebar
           </span>
-          <span className="opacity-30">·</span>
+          <span className="opacity-50">·</span>
           <span title="Ctrl+F" className="inline-flex items-center gap-1">
             <kbd>Ctrl+F</kbd> search
           </span>
-          <span className="opacity-30">·</span>
+          <span className="opacity-50">·</span>
           <span title="Ctrl+K" className="inline-flex items-center gap-1">
             <kbd>Ctrl+K</kbd> palette
           </span>
-          <span className="opacity-30">·</span>
+          <span className="opacity-50">·</span>
           <span title="Ctrl+L / Ctrl+N" className="inline-flex items-center gap-1">
             <kbd>Ctrl+L</kbd> clear
           </span>
-          <span className="opacity-30">·</span>
+          <span className="opacity-50">·</span>
           <span title="j/k to navigate" className="inline-flex items-center gap-1">
             <kbd>j</kbd><kbd>k</kbd> navigate
           </span>
-          <span className="opacity-30">·</span>
+          <span className="opacity-50">·</span>
           <span title="Ctrl+M" className="inline-flex items-center gap-1">
             <kbd>Ctrl+M</kbd> model
           </span>
-          <span className="opacity-30">·</span>
+          <span className="opacity-50">·</span>
           <span title="Ctrl+Shift+D" className="inline-flex items-center gap-1">
             <kbd>Ctrl+⇧D</kbd> density
           </span>

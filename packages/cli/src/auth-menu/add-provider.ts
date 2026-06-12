@@ -1,6 +1,11 @@
 import type { ProviderConfig, ResolvedProvider, WireFamily } from '@wrongstack/core';
 import { color } from '@wrongstack/core';
-import { mutateConfigProviders, normalizeKeys, nowIso, writeKeysBack } from '../provider-config-utils.js';
+import {
+  mutateConfigProviders,
+  normalizeKeys,
+  nowIso,
+  writeKeysBack,
+} from '../provider-config-utils.js';
 import { loadProviders } from './helpers.js';
 import { readKeyInput, suggestLabel, validateFamily } from './shared.js';
 import type { AuthMenuDeps } from './types.js';
@@ -12,13 +17,9 @@ import type { AuthMenuDeps } from './types.js';
 export async function addFromCatalog(deps: AuthMenuDeps): Promise<boolean> {
   let catalog: ResolvedProvider[] = [];
   try {
-    catalog = (await deps.modelsRegistry.listProviders()).filter(
-      (p) => p.family !== 'unsupported',
-    );
+    catalog = (await deps.modelsRegistry.listProviders()).filter((p) => p.family !== 'unsupported');
   } catch {
-    deps.renderer.writeWarning(
-      'Catalog unavailable — falling back to manual entry.\n',
-    );
+    deps.renderer.writeWarning('Catalog unavailable — falling back to manual entry.\n');
   }
 
   if (catalog.length === 0) {
@@ -46,10 +47,7 @@ export async function addFromCatalog(deps: AuthMenuDeps): Promise<boolean> {
   function matches(p: ResolvedProvider): boolean {
     if (showUnsavedOnly) return !saved.has(p.id);
     if (!filterLc) return true;
-    return (
-      p.id.toLowerCase().includes(filterLc) ||
-      p.name.toLowerCase().includes(filterLc)
-    );
+    return p.id.toLowerCase().includes(filterLc) || p.name.toLowerCase().includes(filterLc);
   }
 
   const byFamily = new Map<WireFamily, ResolvedProvider[]>();
@@ -71,20 +69,13 @@ export async function addFromCatalog(deps: AuthMenuDeps): Promise<boolean> {
 
   if (filterRaw && !showUnsavedOnly) {
     deps.renderer.write(
-      color.dim(
-        `  ${filteredCount} match${filteredCount === 1 ? '' : 'es'} for "${filterRaw}".\n`,
-      ),
+      color.dim(`  ${filteredCount} match${filteredCount === 1 ? '' : 'es'} for "${filterRaw}".\n`),
     );
   }
 
   // Render grouped by family
   const ordered: ResolvedProvider[] = [];
-  const familyOrder: WireFamily[] = [
-    'anthropic',
-    'openai',
-    'google',
-    'openai-compatible',
-  ];
+  const familyOrder: WireFamily[] = ['anthropic', 'openai', 'google', 'openai-compatible'];
   let idx = 1;
   deps.renderer.write('\n');
   for (const fam of familyOrder) {
@@ -229,9 +220,7 @@ export async function addCustomProvider(deps: AuthMenuDeps): Promise<boolean> {
 
   const existing = (await loadProviders(deps))[type];
   if (existing) {
-    deps.renderer.writeWarning(
-      `"${type}" already exists. Pick it from the main menu to edit.`,
-    );
+    deps.renderer.writeWarning(`"${type}" already exists. Pick it from the main menu to edit.`);
     return false;
   }
 
@@ -292,9 +281,7 @@ export async function addCustomProvider(deps: AuthMenuDeps): Promise<boolean> {
 
 async function addManualEntry(deps: AuthMenuDeps): Promise<boolean> {
   const pid = (
-    await deps.reader.readLine(
-      `  ${color.amber('?')} Provider id ${color.dim('[q to quit]')}: `,
-    )
+    await deps.reader.readLine(`  ${color.amber('?')} Provider id ${color.dim('[q to quit]')}: `)
   ).trim();
   if (!pid || pid === 'q') return false;
 
@@ -310,9 +297,7 @@ async function addManualEntry(deps: AuthMenuDeps): Promise<boolean> {
   }
 
   const baseUrl = (
-    await deps.reader.readLine(
-      `  ${color.amber('?')} Base URL ${color.dim('(optional)')}: `,
-    )
+    await deps.reader.readLine(`  ${color.amber('?')} Base URL ${color.dim('(optional)')}: `)
   ).trim();
 
   return addKeyForProvider(pid, deps, {
@@ -367,18 +352,11 @@ export async function addKeyForProvider(
   deps.renderer.write(
     `  ${color.green('✓')} Saved ${color.bold(providerId)}/${color.bold(label)}.\n`,
   );
-  deps.renderer.write(
-    color.dim(
-      `  Launch: wstack --provider ${providerId} "<task>"\n`,
-    ),
-  );
+  deps.renderer.write(color.dim(`  Launch: wstack --provider ${providerId} "<task>"\n`));
   return true;
 }
 
-async function promptForLabel(
-  deps: AuthMenuDeps,
-  usedLabels: Set<string>,
-): Promise<string | null> {
+async function promptForLabel(deps: AuthMenuDeps, usedLabels: Set<string>): Promise<string | null> {
   const defaultLabel = suggestLabel(usedLabels);
   const labelRaw = (
     await deps.reader.readLine(
@@ -387,9 +365,7 @@ async function promptForLabel(
   ).trim();
   const label = labelRaw || defaultLabel;
   if (usedLabels.has(label)) {
-    deps.renderer.writeError(
-      `Label "${label}" is already used. Use update (u) instead.`,
-    );
+    deps.renderer.writeError(`Label "${label}" is already used. Use update (u) instead.`);
     return null;
   }
   return label;

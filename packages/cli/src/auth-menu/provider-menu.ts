@@ -1,8 +1,8 @@
 import type { ProviderConfig } from '@wrongstack/core';
 import { color, expectDefined } from '@wrongstack/core';
 import {
-  mutateConfigProviders,
   maskedKey,
+  mutateConfigProviders,
   normalizeKeys,
   nowIso,
   writeKeysBack,
@@ -22,10 +22,7 @@ import type { AuthMenuDeps } from './types.js';
  * Interactive submenu for managing a single provider's keys and settings.
  * Loops until the user goes back or quits.
  */
-export async function manageProvider(
-  providerId: string,
-  deps: AuthMenuDeps,
-): Promise<void> {
+export async function manageProvider(providerId: string, deps: AuthMenuDeps): Promise<void> {
   for (;;) {
     const providers = await loadProviders(deps);
     const cfg = providers[providerId];
@@ -38,11 +35,7 @@ export async function manageProvider(
     renderProviderHeader(deps.renderer, providerId, cfg);
     renderActions(deps.renderer, keys.length);
 
-    const raw = (
-      await deps.reader.readLine(
-        `\n${color.amber('?')} ${providerId} > `,
-      )
-    ).trim();
+    const raw = (await deps.reader.readLine(`\n${color.amber('?')} ${providerId} > `)).trim();
 
     if (!raw || raw === 'b' || raw === 'back' || raw === 'q' || raw === 'quit') {
       return;
@@ -76,7 +69,10 @@ async function dispatchAction(
 
   // --- Remove provider ---
   if (verb === 'x' || verb === 'remove') {
-    const answer = await confirm(deps, `Remove provider "${providerId}" and ${keys.length} key(s)?`);
+    const answer = await confirm(
+      deps,
+      `Remove provider "${providerId}" and ${keys.length} key(s)?`,
+    );
     if (answer === null) return 'continue'; // cancelled
     if (answer) {
       await mutateConfigProviders(deps.globalConfigPath, deps.vault, (all) => {
@@ -140,9 +136,7 @@ async function dispatchAction(
       writeKeysBack(p, list);
       p.activeKey = target.label;
     });
-    deps.renderer.write(
-      `  ${color.green('✓')} Active key → ${color.bold(target.label)}.\n`,
-    );
+    deps.renderer.write(`  ${color.green('✓')} Active key → ${color.bold(target.label)}.\n`);
     return 'continue';
   }
 
@@ -157,7 +151,9 @@ async function dispatchAction(
     if (ans !== '') {
       const validated = validateFamily(ans);
       if (!validated) {
-        deps.renderer.writeError(`Invalid family: "${ans}". Must be one of: anthropic, openai, openai-compatible, google.`);
+        deps.renderer.writeError(
+          `Invalid family: "${ans}". Must be one of: anthropic, openai, openai-compatible, google.`,
+        );
         return 'continue';
       }
       await mutateConfigProviders(deps.globalConfigPath, deps.vault, (all) => {

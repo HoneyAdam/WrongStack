@@ -57,6 +57,10 @@ interface UIState {
   refineEnabled: boolean;
   /** Which WorkspaceDock section is expanded above the chat. Null = all collapsed. */
   dockSection: DockSection | null;
+  /** Full-screen Fleet Monitor overlay. */
+  fleetMonitorOpen: boolean;
+  /** Full-screen Agents Monitor overlay. */
+  agentsMonitorOpen: boolean;
 
   /** Active prompt-refinement panel. Set while RefinePanel is shown. Null when no refinement is pending. */
   refinePanel: {
@@ -92,6 +96,8 @@ interface UIState {
   setDockSection: (section: DockSection | null) => void;
   /** Click-a-chip semantics: same section again collapses the dock. */
   toggleDockSection: (section: DockSection) => void;
+  setFleetMonitorOpen: (open: boolean) => void;
+  setAgentsMonitorOpen: (open: boolean) => void;
 }
 
 export const useUIStore = create<UIState>()(
@@ -118,6 +124,8 @@ export const useUIStore = create<UIState>()(
       refineEnabled: true,
       refinePanel: null,
       dockSection: null,
+      fleetMonitorOpen: false,
+      agentsMonitorOpen: false,
 
       selectActivity: (activity) => set({ activeActivity: activity }),
       toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
@@ -173,6 +181,8 @@ export const useUIStore = create<UIState>()(
       setDockSection: (section) => set({ dockSection: section }),
       toggleDockSection: (section) =>
         set((s) => ({ dockSection: s.dockSection === section ? null : section })),
+      setFleetMonitorOpen: (open) => set({ fleetMonitorOpen: open }),
+      setAgentsMonitorOpen: (open) => set({ agentsMonitorOpen: open }),
     }),
     {
       name: 'wrongstack-ui',

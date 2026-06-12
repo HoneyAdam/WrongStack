@@ -1,39 +1,64 @@
-import { expectDefined } from '@wrongstack/core';
 import * as fsp from 'node:fs/promises';
-import type { SlashCommand, SpecRequirement, AISpecPhase } from '@wrongstack/core';
+import type { AISpecPhase, SlashCommand, SpecRequirement } from '@wrongstack/core';
 import {
-  SpecParser,
-  SpecStore,
-  TaskGraphStore,
   AISpecBuilder,
   analyzeCriticalPath,
-  renderTaskGraph,
-  renderSpecAnalysis,
-  renderProgress,
-  listTemplates,
-  templateToMarkdown,
-  getTemplate,
-  TaskTracker,
   DefaultTaskStore,
+  expectDefined,
+  getTemplate,
+  listTemplates,
+  renderProgress,
+  renderSpecAnalysis,
+  renderTaskGraph,
   type SpecIndexEntry,
+  SpecParser,
+  SpecStore,
   type SpecVersion,
+  TaskGraphStore,
+  TaskTracker,
+  templateToMarkdown,
 } from '@wrongstack/core';
-import type { SlashCommandContext } from './index.js';
 import { parseSubcommand, unknownSubcommand } from './helpers.js';
-import { sddState, getSessionState } from './sdd/state.js';
-import { advanceToNextTask, formatElapsed, getTaskProgress } from './sdd/task-manager.js';
+import type { SlashCommandContext } from './index.js';
 import { findSpec, gatherProjectContext } from './sdd/project-context.js';
+import { getSessionState, sddState } from './sdd/state.js';
+import { advanceToNextTask, formatElapsed, getTaskProgress } from './sdd/task-manager.js';
 
-// Re-exports for backward compat
-export { sddState, getSessionState, SDDState } from './sdd/state.js';
-export { trySaveSpecFromAIOutput, isExplanatoryText, autoDetectTaskCompletion, trySaveImplementationPlan } from './sdd/spec-detection.js';
-export { trySaveTasksFromAIOutput, getTaskProgress, getCurrentTask, advanceToNextTask, formatElapsed, getTaskListText, renderTaskListWithProgress, getCurrentExecutingContext, markTaskCompleted, getTaskGraphId, getTaskTrackerExport } from './sdd/task-manager.js';
-export { getActiveBuilder, getActiveSDDContext, getActiveSDDPhase, findSpec, gatherProjectContext } from './sdd/project-context.js';
-export { renderProgress };
 export type { TaskProgress } from '@wrongstack/core';
+export {
+  findSpec,
+  gatherProjectContext,
+  getActiveBuilder,
+  getActiveSDDContext,
+  getActiveSDDPhase,
+} from './sdd/project-context.js';
+export {
+  autoDetectTaskCompletion,
+  isExplanatoryText,
+  trySaveImplementationPlan,
+  trySaveSpecFromAIOutput,
+} from './sdd/spec-detection.js';
+// Re-exports for backward compat
+export { getSessionState, SDDState, sddState } from './sdd/state.js';
+export {
+  advanceToNextTask,
+  formatElapsed,
+  getCurrentExecutingContext,
+  getCurrentTask,
+  getTaskGraphId,
+  getTaskListText,
+  getTaskProgress,
+  getTaskTrackerExport,
+  markTaskCompleted,
+  renderTaskListWithProgress,
+  trySaveTasksFromAIOutput,
+} from './sdd/task-manager.js';
+export { renderProgress };
 
 import { getTaskTrackerExport as _getTaskTracker } from './sdd/task-manager.js';
-export function getTaskTracker(): TaskTracker | null { return _getTaskTracker(); }
+export function getTaskTracker(): TaskTracker | null {
+  return _getTaskTracker();
+}
 
 import { sddHelp } from './sdd/rendering.js';
 
@@ -48,8 +73,7 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
   return {
     name: 'sdd',
     category: 'Agent',
-    description:
-      'AI-driven SDD: /sdd [new|approve|execute|cancel|status|list|show|templates]',
+    description: 'AI-driven SDD: /sdd [new|approve|execute|cancel|status|list|show|templates]',
     async run(args) {
       if (!opts.paths) return { message: 'SDD not available — paths not configured.' };
       const specsDir = opts.paths.projectSpecs;
@@ -70,7 +94,11 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
         case 'new':
         case 'create': {
           const forceFlag = restArgs.includes('--force') || restArgs.includes('-f');
-          const title = restArgs.filter(a => !a.startsWith('-')).join(' ').trim() || 'Untitled Feature';
+          const title =
+            restArgs
+              .filter((a) => !a.startsWith('-'))
+              .join(' ')
+              .trim() || 'Untitled Feature';
 
           // Check for existing session and offer to resume (unless --force)
           if (!sessionState.getBuilder() && !forceFlag) {
@@ -78,7 +106,9 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
             try {
               await fsp.access(sessionPath);
               // Session file exists — try to load it
-              const projectContext = await gatherProjectContext(opts.context?.projectRoot ?? process.cwd());
+              const projectContext = await gatherProjectContext(
+                opts.context?.projectRoot ?? process.cwd(),
+              );
               const tempBuilder = new AISpecBuilder({
                 store: specStore,
                 projectContext,
@@ -109,15 +139,19 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
           sddState.clearTaskState();
 
           // Gather project context for smarter AI questions
-          const projectContext = await gatherProjectContext(opts.context?.projectRoot ?? process.cwd());
+          const projectContext = await gatherProjectContext(
+            opts.context?.projectRoot ?? process.cwd(),
+          );
 
-          sddState.setBuilder(new AISpecBuilder({
-            store: specStore,
-            projectContext,
-            minQuestions: 2,
-            maxQuestions: 10,
-            sessionPath: opts.paths.projectSddSession,
-          }));
+          sddState.setBuilder(
+            new AISpecBuilder({
+              store: specStore,
+              projectContext,
+              minQuestions: 2,
+              maxQuestions: 10,
+              sessionPath: opts.paths.projectSddSession,
+            }),
+          );
           // Reset session and phase timers for the new session
           sddState.setSessionStartTime(Date.now());
           sddState.setPhaseStartTime(Date.now());
@@ -208,14 +242,15 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
             const plan = session.implementation;
             if (!plan) {
               return {
-                message: 'No implementation plan yet. The AI is still generating it. Try again shortly.',
+                message:
+                  'No implementation plan yet. The AI is still generating it. Try again shortly.',
               };
             }
             return {
               message: [
                 `╭─── Implementation Plan ───────────────────────────────╮`,
                 '',
-                ...plan.split('\n').map(l => `  ${l}`),
+                ...plan.split('\n').map((l) => `  ${l}`),
                 '',
                 `╰${'─'.repeat(55)}╯`,
               ].join('\n'),
@@ -236,7 +271,9 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
             const slotsArg = restJoined.trim();
             const slots = slotsArg ? Number.parseInt(slotsArg, 10) : undefined;
             const message = await opts.onSddParallelRun(
-              slots && Number.isFinite(slots) ? { parallelSlots: Math.min(16, Math.max(1, slots)) } : {},
+              slots && Number.isFinite(slots)
+                ? { parallelSlots: Math.min(16, Math.max(1, slots)) }
+                : {},
             );
             return { message };
           }
@@ -268,7 +305,9 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
           const slotsArg = restJoined.trim();
           const slots = slotsArg ? Number.parseInt(slotsArg, 10) : undefined;
           const message = await opts.onSddParallelRun(
-            slots && Number.isFinite(slots) ? { parallelSlots: Math.min(16, Math.max(1, slots)) } : {},
+            slots && Number.isFinite(slots)
+              ? { parallelSlots: Math.min(16, Math.max(1, slots)) }
+              : {},
           );
           return { message };
         }
@@ -288,18 +327,15 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
           const planSession = planBuilder.getSession();
           if (!planSession.implementation) {
             return {
-              message: planSession.phase === 'implementation'
-                ? 'No implementation plan yet. The AI will generate it after /sdd approve.'
-                : 'No implementation plan in this session.',
+              message:
+                planSession.phase === 'implementation'
+                  ? 'No implementation plan yet. The AI will generate it after /sdd approve.'
+                  : 'No implementation plan in this session.',
             };
           }
 
           return {
-            message: [
-              '═══ Implementation Plan ═══',
-              '',
-              planSession.implementation,
-            ].join('\n'),
+            message: ['═══ Implementation Plan ═══', '', planSession.implementation].join('\n'),
           };
         }
 
@@ -312,9 +348,10 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
           const specSession = specBuilder.getSession();
           if (!specSession.spec) {
             return {
-              message: specSession.phase === 'questioning'
-                ? 'No spec generated yet. Keep answering the AI\'s questions.'
-                : 'No spec in this session.',
+              message:
+                specSession.phase === 'questioning'
+                  ? "No spec generated yet. Keep answering the AI's questions."
+                  : 'No spec in this session.',
             };
           }
 
@@ -333,7 +370,8 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
           if (spec.requirements.length > 0) {
             lines.push('', `## Requirements (${spec.requirements.length})`);
             for (const r of spec.requirements) {
-              const ac = r.acceptanceCriteria.length > 0 ? ` → ${r.acceptanceCriteria.join(', ')}` : '';
+              const ac =
+                r.acceptanceCriteria.length > 0 ? ` → ${r.acceptanceCriteria.join(', ')}` : '';
               lines.push(`  [${r.priority}] ${r.description}${ac}`);
             }
           }
@@ -376,17 +414,38 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
 
           // Sort: in_progress first, then pending, then others
           const sorted = [...nodes].sort((a, b) => {
-            const order: Record<string, number> = { in_progress: 0, pending: 1, review: 2, blocked: 3, failed: 4, completed: 5 };
+            const order: Record<string, number> = {
+              in_progress: 0,
+              pending: 1,
+              review: 2,
+              blocked: 3,
+              failed: 4,
+              completed: 5,
+            };
             return (order[a.status] ?? 6) - (order[b.status] ?? 6);
           });
 
           for (let i = 0; i < sorted.length; i++) {
             const n = expectDefined(sorted[i]);
-            const status = n.status === 'completed' ? '✅' : n.status === 'in_progress' ? '🔄' : n.status === 'failed' ? '❌' : n.status === 'blocked' ? '🚫' : n.status === 'review' ? '👁' : '⏳';
+            const status =
+              n.status === 'completed'
+                ? '✅'
+                : n.status === 'in_progress'
+                  ? '🔄'
+                  : n.status === 'failed'
+                    ? '❌'
+                    : n.status === 'blocked'
+                      ? '🚫'
+                      : n.status === 'review'
+                        ? '👁'
+                        : '⏳';
             const num = `${i + 1}`.padStart(3);
             const prio = n.priority.slice(0, 4).padEnd(5);
             const title = n.title.length > 36 ? n.title.slice(0, 35) + '…' : n.title;
-            const elapsed = n.status === 'in_progress' && n.startedAt ? ` (${formatElapsed(Date.now() - n.startedAt)})` : '';
+            const elapsed =
+              n.status === 'in_progress' && n.startedAt
+                ? ` (${formatElapsed(Date.now() - n.startedAt)})`
+                : '';
             lines.push(`  ${num}  ${status}     ${prio}   ${title}${elapsed}`);
             if (n.description && n.status !== 'completed') {
               const first = expectDefined(n.description.split('\n')[0]);
@@ -429,9 +488,10 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
 
           // Try fuzzy title match
           if (!matched) {
-            const match = nodes.find(n =>
-              n.title.toLowerCase().includes(restJoined.toLowerCase()) ||
-              restJoined.toLowerCase().includes(n.title.toLowerCase())
+            const match = nodes.find(
+              (n) =>
+                n.title.toLowerCase().includes(restJoined.toLowerCase()) ||
+                restJoined.toLowerCase().includes(n.title.toLowerCase()),
             );
             if (match) {
               doneTracker.updateNodeStatus(match.id, 'completed');
@@ -466,9 +526,10 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
             }
           }
           if (!matched) {
-            const match = nodes.find(n =>
-              n.title.toLowerCase().includes(restJoined.toLowerCase()) ||
-              restJoined.toLowerCase().includes(n.title.toLowerCase())
+            const match = nodes.find(
+              (n) =>
+                n.title.toLowerCase().includes(restJoined.toLowerCase()) ||
+                restJoined.toLowerCase().includes(n.title.toLowerCase()),
             );
             if (match) {
               skipTracker.updateNodeStatus(match.id, 'pending');
@@ -501,9 +562,10 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
             }
           }
           if (!matched) {
-            const match = nodes.find(n =>
-              n.title.toLowerCase().includes(restJoined.toLowerCase()) ||
-              restJoined.toLowerCase().includes(n.title.toLowerCase())
+            const match = nodes.find(
+              (n) =>
+                n.title.toLowerCase().includes(restJoined.toLowerCase()) ||
+                restJoined.toLowerCase().includes(n.title.toLowerCase()),
             );
             if (match) {
               failTracker.updateNodeStatus(match.id, 'failed');
@@ -530,7 +592,14 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
 
           // Match by number (within sorted visible list)
           const sorted = [...nodes].sort((a, b) => {
-            const order: Record<string, number> = { in_progress: 0, pending: 1, review: 2, blocked: 3, failed: 4, completed: 5 };
+            const order: Record<string, number> = {
+              in_progress: 0,
+              pending: 1,
+              review: 2,
+              blocked: 3,
+              failed: 4,
+              completed: 5,
+            };
             return (order[a.status] ?? 6) - (order[b.status] ?? 6);
           });
 
@@ -542,9 +611,10 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
             }
           }
           if (!matched) {
-            const match = nodes.find(n =>
-              n.title.toLowerCase().includes(restJoined.toLowerCase()) ||
-              restJoined.toLowerCase().includes(n.title.toLowerCase())
+            const match = nodes.find(
+              (n) =>
+                n.title.toLowerCase().includes(restJoined.toLowerCase()) ||
+                restJoined.toLowerCase().includes(n.title.toLowerCase()),
             );
             if (match) {
               reviewTracker.updateNodeStatus(match.id, 'review');
@@ -568,7 +638,8 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
           // Parse: /sdd edit <N> <new content>
           const parts = restJoined.split(/\s+/);
           const num = Number(parts[0]);
-          if (Number.isNaN(num)) return { message: 'Usage: /sdd edit <N> <new title or description>' };
+          if (Number.isNaN(num))
+            return { message: 'Usage: /sdd edit <N> <new title or description>' };
 
           const nodes = editTracker.getAllNodes();
           if (num < 1 || num > nodes.length) return { message: `Task #${num} not found.` };
@@ -586,7 +657,9 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
             editTracker.updateNode(node.id, { description: newContent });
           }
 
-          return { message: `✏️ Task #${num} updated: "${newContent.slice(0, 50)}${newContent.length > 50 ? '…' : ''}"` };
+          return {
+            message: `✏️ Task #${num} updated: "${newContent.slice(0, 50)}${newContent.length > 50 ? '…' : ''}"`,
+          };
         }
 
         case 'undo': {
@@ -626,12 +699,12 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
           }
 
           // Find the next executable task (pending with all blockers completed)
-          const next = pending.find(n => nextTracker.canStart(n.id));
+          const next = pending.find((n) => nextTracker.canStart(n.id));
           if (!next) {
             // All pending tasks are blocked
-            const blocked = pending.filter(n => {
+            const blocked = pending.filter((n) => {
               const blockers = nextTracker.getBlockers(n.id);
-              return blockers.some(id => nextTracker.getNode(id)?.status !== 'completed');
+              return blockers.some((id) => nextTracker.getNode(id)?.status !== 'completed');
             });
             if (blocked.length > 0) {
               return {
@@ -640,7 +713,7 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
                   ...blocked.map((b, i) => {
                     const blockers = nextTracker.getBlockers(b.id);
                     const blockerNames = blockers
-                      .map(id => nextTracker.getNode(id)?.title ?? '?')
+                      .map((id) => nextTracker.getNode(id)?.title ?? '?')
                       .join(', ');
                     return `  ${i + 1}. ${b.title} (blocked by: ${blockerNames})`;
                   }),
@@ -653,8 +726,8 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
           const progress = nextTracker.getProgress();
           const blockers = nextTracker.getBlockers(next.id);
           const blockedBy = blockers
-            .filter(id => nextTracker.getNode(id)?.status !== 'completed')
-            .map(id => nextTracker.getNode(id)?.title ?? '?')
+            .filter((id) => nextTracker.getNode(id)?.status !== 'completed')
+            .map((id) => nextTracker.getNode(id)?.title ?? '?')
             .join(', ');
 
           const lines = [
@@ -668,15 +741,21 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
             lines.push(`     ↳ ${first}`);
           }
 
-          const taskElapsed = next.startedAt ? ` ⏱ ${formatElapsed(Date.now() - next.startedAt)}` : '';
-          lines.push(`  Priority: ${next.priority}  |  Est: ${next.estimateHours}h  |  Tags: ${(next.tags ?? []).join(', ') || 'none'}${taskElapsed}`);
+          const taskElapsed = next.startedAt
+            ? ` ⏱ ${formatElapsed(Date.now() - next.startedAt)}`
+            : '';
+          lines.push(
+            `  Priority: ${next.priority}  |  Est: ${next.estimateHours}h  |  Tags: ${(next.tags ?? []).join(', ') || 'none'}${taskElapsed}`,
+          );
 
           if (blockedBy) {
             lines.push(`  Blocked by: ${blockedBy}`);
           }
 
           lines.push('');
-          lines.push(`  ── Progress: ${progress.completed}/${progress.total} (${progress.percentComplete}%) ──`);
+          lines.push(
+            `  ── Progress: ${progress.completed}/${progress.total} (${progress.percentComplete}%) ──`,
+          );
           lines.push('');
           lines.push(`  Run /sdd done <task title or number> when done.`);
           lines.push(`╰${'─'.repeat(55)}╯`);
@@ -727,7 +806,9 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
             // Show requirements as compact list
             const reqs = session.spec.requirements.slice(0, 4);
             for (const r of reqs) {
-              lines.push(`     • [${r.priority}] ${r.description.length > 42 ? r.description.slice(0, 41) + '…' : r.description}`);
+              lines.push(
+                `     • [${r.priority}] ${r.description.length > 42 ? r.description.slice(0, 41) + '…' : r.description}`,
+              );
             }
             if (session.spec.requirements.length > 4) {
               lines.push(`     + ${session.spec.requirements.length - 4} more requirements`);
@@ -749,7 +830,7 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
             if (tracker) {
               const pending = tracker.getAllNodes({ status: ['pending', 'in_progress'] });
               const nextTasks = pending
-                .filter(n => n.status === 'pending' && tracker.canStart(n.id))
+                .filter((n) => n.status === 'pending' && tracker.canStart(n.id))
                 .slice(0, 3);
               if (nextTasks.length > 0) {
                 lines.push('');
@@ -794,12 +875,30 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
             const progress = graphTracker.getProgress();
             const lines = [renderProgress(progress), ''];
             const sorted = [...nodes].sort((a, b) => {
-              const order: Record<string, number> = { in_progress: 0, pending: 1, review: 2, blocked: 3, failed: 4, completed: 5 };
+              const order: Record<string, number> = {
+                in_progress: 0,
+                pending: 1,
+                review: 2,
+                blocked: 3,
+                failed: 4,
+                completed: 5,
+              };
               return (order[a.status] ?? 6) - (order[b.status] ?? 6);
             });
             for (let i = 0; i < sorted.length; i++) {
               const n = expectDefined(sorted[i]);
-              const status = n.status === 'completed' ? '✅' : n.status === 'in_progress' ? '🔄' : n.status === 'failed' ? '❌' : n.status === 'blocked' ? '🚫' : n.status === 'review' ? '👁' : '⏳';
+              const status =
+                n.status === 'completed'
+                  ? '✅'
+                  : n.status === 'in_progress'
+                    ? '🔄'
+                    : n.status === 'failed'
+                      ? '❌'
+                      : n.status === 'blocked'
+                        ? '🚫'
+                        : n.status === 'review'
+                          ? '👁'
+                          : '⏳';
               lines.push(`${i + 1}. ${status} [${n.priority}] ${n.title}`);
             }
             return { message: lines.join('\n') };
@@ -824,12 +923,30 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
           const progress = graphTracker.getProgress();
           const lines = [renderProgress(progress), ''];
           const sorted = [...nodes].sort((a, b) => {
-            const order: Record<string, number> = { in_progress: 0, pending: 1, review: 2, blocked: 3, failed: 4, completed: 5 };
+            const order: Record<string, number> = {
+              in_progress: 0,
+              pending: 1,
+              review: 2,
+              blocked: 3,
+              failed: 4,
+              completed: 5,
+            };
             return (order[a.status] ?? 6) - (order[b.status] ?? 6);
           });
           for (let i = 0; i < sorted.length; i++) {
             const n = expectDefined(sorted[i]);
-            const status = n.status === 'completed' ? '✅' : n.status === 'in_progress' ? '🔄' : n.status === 'failed' ? '❌' : n.status === 'blocked' ? '🚫' : n.status === 'review' ? '👁' : '⏳';
+            const status =
+              n.status === 'completed'
+                ? '✅'
+                : n.status === 'in_progress'
+                  ? '🔄'
+                  : n.status === 'failed'
+                    ? '❌'
+                    : n.status === 'blocked'
+                      ? '🚫'
+                      : n.status === 'review'
+                        ? '👁'
+                        : '⏳';
             lines.push(`${i + 1}. ${status} [${n.priority}] ${n.title}`);
           }
           return { message: lines.join('\n') };
@@ -878,15 +995,19 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
           }
 
           const sessionPath = opts.paths.projectSddSession;
-          const projectContext = await gatherProjectContext(opts.context?.projectRoot ?? process.cwd());
+          const projectContext = await gatherProjectContext(
+            opts.context?.projectRoot ?? process.cwd(),
+          );
 
-          sddState.setBuilder(new AISpecBuilder({
-            store: specStore,
-            projectContext,
-            minQuestions: 2,
-            maxQuestions: 10,
-            sessionPath,
-          }));
+          sddState.setBuilder(
+            new AISpecBuilder({
+              store: specStore,
+              projectContext,
+              minQuestions: 2,
+              maxQuestions: 10,
+              sessionPath,
+            }),
+          );
           const resumeBuilder = expectDefined(sddState.getBuilder());
           const loaded = await resumeBuilder.loadSession();
           if (!loaded) {
@@ -930,7 +1051,9 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
               taskCount > 0 ? `Tasks: ${completedCount}/${taskCount} completed` : '',
               '',
               'The AI will continue from where you left off.',
-            ].filter(Boolean).join('\n'),
+            ]
+              .filter(Boolean)
+              .join('\n'),
             runText: `[SDD SESSION ACTIVE]\n${resumePrompt}\n\n---\nUser message:\nContinue from where we left off. Check the session status and proceed.`,
           };
         }
@@ -945,12 +1068,7 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
           }
 
           const lines = entries.map((e: SpecIndexEntry, i: number) => {
-            const status =
-              e.status === 'draft'
-                ? '📝'
-                : e.status === 'approved'
-                  ? '✅'
-                  : '📋';
+            const status = e.status === 'draft' ? '📝' : e.status === 'approved' ? '✅' : '📋';
             return `${i + 1}. ${status} ${e.title} (${e.version}) — ${e.id.slice(0, 8)}...`;
           });
 
@@ -1009,7 +1127,9 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
           const template = getTemplate(templateId);
           if (!template) {
             return {
-              message: `Template "${templateId}" not found.\nAvailable: ${listTemplates().map((t: { id: string }) => t.id).join(', ')}`,
+              message: `Template "${templateId}" not found.\nAvailable: ${listTemplates()
+                .map((t: { id: string }) => t.id)
+                .join(', ')}`,
             };
           }
 
@@ -1032,8 +1152,7 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
         case 'version':
         case 'history': {
           const spec = await findSpec(specStore, restJoined);
-          if (!spec)
-            return { message: `Spec "${restJoined}" not found.` };
+          if (!spec) return { message: `Spec "${restJoined}" not found.` };
 
           const history = versioning.getHistory(spec.id);
           if (history.length === 0) {
@@ -1084,7 +1203,9 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
               analysis.criticalPath.forEach((taskId, i) => {
                 const node = graph.nodes.get(taskId);
                 if (node) {
-                  lines.push(`    ${i + 1}. ${node.title} [${node.priority}] — ${node.estimateHours}h`);
+                  lines.push(
+                    `    ${i + 1}. ${node.title} [${node.priority}] — ${node.estimateHours}h`,
+                  );
                 }
               });
             }
@@ -1104,7 +1225,7 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
               lines.push('');
               lines.push(`  ⚡ Parallel groups (can run concurrently):`);
               analysis.parallelGroups.forEach((group, i) => {
-                const names = group.map(id => graph.nodes.get(id)?.title ?? '?').join(' | ');
+                const names = group.map((id) => graph.nodes.get(id)?.title ?? '?').join(' | ');
                 lines.push(`    Group ${i + 1}: ${names}`);
               });
             }
@@ -1135,4 +1256,3 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
     },
   };
 }
-

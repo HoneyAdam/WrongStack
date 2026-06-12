@@ -308,13 +308,16 @@ describe('MCPRegistry + MockMCPServer', () => {
 
   it('health returns alive=false for failed', { timeout: 15_000 }, async () => {
     const reg = new MCPRegistry({ toolRegistry: toolReg, events, log: silentLog });
-    await reg.start(
-      stdioCfg('broken', '/nonexistent/script.js', { enabled: true, startupTimeoutMs: 500 }),
-    );
-    // Wait for retries to exhaust
-    await new Promise((r) => setTimeout(r, 6000));
-    const h = reg.health();
-    expect(h[0]!.alive).toBe(false);
+    // A nonexistent *binary* fails the spawn itself with ENOENT — no process
+    // is ever created. The previous `node /nonexistent/script.js` started a
+    // real node process on every retry while the test slept a fixed 6s.
+    const cfg = stdioCfg('broken', 'irrelevant.js', { enabled: true, startupTimeoutMs: 200 });
+    cfg.command = '__nonexistent_binary_zzzz__';
+    await reg.start(cfg);
+    // Poll instead of a fixed sleep: finishes the moment retries exhaust.
+    await expect
+      .poll(() => reg.health()[0]?.alive, { timeout: 12_000, interval: 200 })
+      .toBe(false);
   });
 
   it('skips disabled servers', async () => {

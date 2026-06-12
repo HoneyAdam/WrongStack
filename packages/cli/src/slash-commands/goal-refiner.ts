@@ -24,12 +24,15 @@ export async function refineGoal(
 
   try {
     const signal = AbortSignal.timeout(30_000);
-    const response = await provider.complete({
-      model,
-      system: [{ type: 'text', text: prompt }],
-      messages: [{ role: 'user', content: 'Produce the refined goal.' }],
-      maxTokens: 1000,
-    }, { signal });
+    const response = await provider.complete(
+      {
+        model,
+        system: [{ type: 'text', text: prompt }],
+        messages: [{ role: 'user', content: 'Produce the refined goal.' }],
+        maxTokens: 1000,
+      },
+      { signal },
+    );
 
     const text = extractText(response);
     if (!text) return null;
@@ -44,7 +47,7 @@ export async function refineGoal(
 /** Build the refinement prompt. */
 function buildRefinementPrompt(rawGoal: string): string {
   return [
-    'You are a goal refinement assistant. Your job is to take a user\'s raw',
+    "You are a goal refinement assistant. Your job is to take a user's raw",
     'goal description and turn it into a clear, unambiguous, actionable mission',
     'with concrete, verifiable deliverables.',
     '',

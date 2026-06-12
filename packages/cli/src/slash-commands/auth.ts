@@ -1,9 +1,7 @@
-import { color } from '@wrongstack/core';
 import type { SlashCommand } from '@wrongstack/core';
+import { color } from '@wrongstack/core';
+import { loadConfigProviders } from '../provider-config-utils.js';
 import type { SlashCommandContext } from './index.js';
-import {
-  loadConfigProviders,
-} from '../provider-config-utils.js';
 
 /**
  * `/auth` — view API key status and manage provider credentials.
@@ -88,16 +86,21 @@ export function buildAuthCommand(opts: SlashCommandContext): SlashCommand {
           return { message: `${color.amber('Usage:')} /auth status <provider>` };
         }
         const cfg = providers[pid] as
-          | { type?: string; family?: string; baseUrl?: string; models?: string[]; envVars?: string[]; apiKeys?: { label: string; createdAt: string }[] }
+          | {
+              type?: string;
+              family?: string;
+              baseUrl?: string;
+              models?: string[];
+              envVars?: string[];
+              apiKeys?: { label: string; createdAt: string }[];
+            }
           | undefined;
         if (!cfg) {
           return { message: `${color.yellow('Provider')} "${pid}" not found in saved config.` };
         }
         const keys = cfg.apiKeys ?? [];
-        const active = keys.find((k) =>
-          cfg &&
-          (cfg as { activeKey?: string }).activeKey === k.label,
-        ) ?? keys[0];
+        const active =
+          keys.find((k) => cfg && (cfg as { activeKey?: string }).activeKey === k.label) ?? keys[0];
 
         const lines: string[] = [
           `${color.bold(pid)} ${cfg.family ? color.dim(`[${cfg.family}]`) : color.amber('[no family]')}`,
@@ -120,9 +123,8 @@ export function buildAuthCommand(opts: SlashCommandContext): SlashCommand {
           lines.push(`  ${color.dim('Keys:')}`);
           for (const k of keys) {
             const marker = k.label === active?.label ? color.green('●') : color.dim('○');
-            const masked = k.label === active?.label
-              ? color.dim('(active — masked)')
-              : color.dim('(masked)');
+            const masked =
+              k.label === active?.label ? color.dim('(active — masked)') : color.dim('(masked)');
             lines.push(
               `    ${marker} ${color.bold(k.label.padEnd(18))} ${masked}  ${color.dim(k.createdAt)}`,
             );
@@ -175,9 +177,7 @@ export function buildAuthCommand(opts: SlashCommandContext): SlashCommand {
           status = color.green(`${keys.length} keys`);
         }
 
-        lines.push(
-          `  ${color.bold(id.padEnd(22))} ${famTag} ${aliasTag} ${status}`,
-        );
+        lines.push(`  ${color.bold(id.padEnd(22))} ${famTag} ${aliasTag} ${status}`);
       }
 
       lines.push('');

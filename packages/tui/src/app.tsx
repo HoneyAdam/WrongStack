@@ -467,9 +467,9 @@ export interface AppProps {
    * visible bar without a round-trip. The initial value is loaded from
    * the config file before App mounts.
    */
-  statuslineHiddenItems: Array<'todos' | 'plan' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost'>;
+  statuslineHiddenItems: Array<'todos' | 'plan' | 'tasks' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost'>;
   setStatuslineHiddenItems: (
-    items: Array<'todos' | 'plan' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost'>,
+    items: Array<'todos' | 'plan' | 'tasks' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost'>,
   ) => void;
   /**
    * Controller for the agents monitor overlay. App installs a dispatch-backed
@@ -1194,6 +1194,7 @@ export function App({
   const [mailboxStatus, setMailboxStatus] = useState<MailboxStatus>({
     unread: 0,
     onlineAgents: 0,
+    onlineClients: { tui: 0, webui: 0, repl: 0 },
   });
   useEffect(() => {
     const seenAgents = new Set<string>();
@@ -1220,7 +1221,24 @@ export function App({
       if (p?.agentId) seenAgents.add(p.agentId);
       setMailboxStatus((prev) => ({ ...prev, onlineAgents: seenAgents.size }));
     });
-    return () => { unsub1(); unsub2(); unsub3(); unsub4(); };
+    // `mailbox.sync_clients` is the authoritative source of truth — emitted every
+    // 30s by the TUI that holds the GlobalMailbox. It overwrites whatever the
+    // fast-path event handlers above may have set, correcting counts when clients
+    // disconnect and their registrations expire (CLIENT_STALE_MS = 60s).
+    const unsub5 = events.onPattern('mailbox.sync_clients', (_e, payload) => {
+      const p = payload as { tui?: number; webui?: number; repl?: number } | undefined;
+      if (p) {
+        setMailboxStatus((prev) => ({
+          ...prev,
+          onlineClients: {
+            tui: p.tui ?? 0,
+            webui: p.webui ?? 0,
+            repl: p.repl ?? 0,
+          },
+        }));
+      }
+    });
+    return () => { unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); };
   }, [events]);
 
   // ── Mailbox panel state ──────────────────────────────────────────────
@@ -5470,6 +5488,7 @@ export function App({
             subagentCount={Object.keys(state.fleet).length}
             processCount={getProcessRegistry().activeCount}
             hiddenItems={hiddenItems}
+            events={events}
             eternalStage={state.eternalStage}
             goalSummary={state.goalSummary}
             indexState={indexState}

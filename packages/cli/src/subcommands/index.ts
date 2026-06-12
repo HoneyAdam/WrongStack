@@ -34,23 +34,23 @@ export interface SubcommandDeps {
 }
 
 import { acpCmd } from './handlers/acp.js';
+import { auditCmd } from './handlers/audit.js';
 import { authCmd } from './handlers/auth.js';
-import { updateCmd } from './handlers/update.js';
 import { diagCmd, doctorCmd } from './handlers/diag-doctor.js';
 import { exportCmd } from './handlers/export.js';
 import { initCmd } from './handlers/init.js';
 import { mcpCmd } from './handlers/mcp.js';
+import { modeldiagCmd } from './handlers/modeldiag.js';
 import { pluginCmd, usageCmd } from './handlers/plugin-usage.js';
 import { projectsCmd } from './handlers/projects.js';
 import { modelsCmd, providersCmd } from './handlers/providers-models.js';
-import { configCmd, sessionsCmd } from './handlers/sessions-config.js';
-import { rewindCmd } from './handlers/rewind.js';
-import { replayCmd } from './handlers/replay.js';
-import { auditCmd } from './handlers/audit.js';
-import { skillsCmd, toolsCmd } from './handlers/tools-skills.js';
-import { modeldiagCmd } from './handlers/modeldiag.js';
-import { helpCmd, versionCmd } from './handlers/version-help.js';
 import { quickCmd } from './handlers/quick.js';
+import { replayCmd } from './handlers/replay.js';
+import { rewindCmd } from './handlers/rewind.js';
+import { configCmd, sessionsCmd } from './handlers/sessions-config.js';
+import { skillsCmd, toolsCmd } from './handlers/tools-skills.js';
+import { updateCmd } from './handlers/update.js';
+import { helpCmd, versionCmd } from './handlers/version-help.js';
 
 export const subcommands: Record<string, SubcommandHandler> = {
   acp: acpCmd,

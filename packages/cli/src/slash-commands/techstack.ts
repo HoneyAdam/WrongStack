@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { color } from '@wrongstack/core';
 import type { Context, SlashCommand } from '@wrongstack/core';
+import { color } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
 
 /**
@@ -27,7 +27,10 @@ async function discoverPackageFiles(projectRoot: string): Promise<string[]> {
     const globMatch = /packages?:\s*\[([^\]]+)\]/s.exec(content);
     const rawGlobs = globMatch?.[1];
     if (!rawGlobs) return files;
-    const globs = rawGlobs.split(/[\s,]+/).filter(Boolean).map((g) => g.replace(/['"]/g, ''));
+    const globs = rawGlobs
+      .split(/[\s,]+/)
+      .filter(Boolean)
+      .map((g) => g.replace(/['"]/g, ''));
     for (const g of globs) {
       // Convert glob to directory prefix and scan
       const dirPrefix = g.replace(/\/?\*$/, '').replace(/\/\*$/, '');
@@ -223,7 +226,9 @@ export function buildTechStackCommand(opts: SlashCommandContext): SlashCommand {
       if (discoveryNote) opts.renderer.write(discoveryNote);
 
       opts.renderer.write(
-        color.dim(`Spawning tech-stack subagent → writes ${outputFormat === 'json' ? 'techstack.json' : 'techstack.md'} when done.`),
+        color.dim(
+          `Spawning tech-stack subagent → writes ${outputFormat === 'json' ? 'techstack.json' : 'techstack.md'} when done.`,
+        ),
       );
 
       try {

@@ -8,9 +8,10 @@ import type {
   SlashCommandRegistry,
   TokenCounter,
 } from '@wrongstack/core';
-import { writeErr, type AutonomyStage } from '@wrongstack/core';
+import { writeErr, type AutonomyStage, GlobalMailbox, resolveProjectDir, wstackGlobalRoot } from '@wrongstack/core';
 import type { VisionAdapters } from '@wrongstack/runtime/vision';
 import { render } from 'ink';
+import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
 import React from 'react';
 import { App } from './app.js';
@@ -187,9 +188,9 @@ export interface RunTuiOptions {
    * visible bar without a round-trip. The initial value is loaded from
    * the config file before App mounts.
    */
-  statuslineHiddenItems: Array<'todos' | 'plan' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost'>;
+  statuslineHiddenItems: Array<'todos' | 'plan' | 'tasks' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost'>;
   setStatuslineHiddenItems: (
-    items: Array<'todos' | 'plan' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost'>,
+    items: Array<'todos' | 'plan' | 'tasks' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost'>,
   ) => void;
   /**
    * Controller for the agents monitor overlay. App installs a dispatch-backed
@@ -492,6 +493,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
   const cleanup = () => {
     if (cleaned) return;
     cleaned = true;
+    unregisterTuiClient();
     unsilenceTerminal();
     try {
       stopTitle();
@@ -528,6 +530,83 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
     }
     process.off('exit', exitHandler);
   };
+
+  // ── Client (REPL/TUI/WebUI) registration ─────────────────────────────────
+  // Register this TUI instance as a client in the global mailbox so other
+  // TUIs, WebUIs, and REPLs on the same project can see it as "online".
+  // Clients heartbeat more frequently than agents (15s vs 30s) since they
+  // have no other activity to drive the registration.
+  let clientHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  let clientSyncTimer: ReturnType<typeof setInterval> | null = null;
+  const CLIENT_HEARTBEAT_MS = 15_000;
+  /** Sync client counts from the shared registry every 30s so closed clients disappear promptly. */
+  const CLIENT_SYNC_MS = 30_000;
+
+  const registerTuiClient = async (): Promise<string | null> => {
+    if (!opts.projectRoot) return null;
+    try {
+      const projectDir = resolveProjectDir(opts.projectRoot, wstackGlobalRoot());
+      const mailbox = new GlobalMailbox(projectDir, opts.events);
+      // Unique per-process: tui@<uuid>
+      const clientId = `tui@${randomUUID().slice(0, 8)}`;
+      await mailbox.registerClient({
+        clientId,
+        sessionId: opts.projectRoot,
+        name: `TUI [${path.basename(opts.projectRoot)}]`,
+        source: 'tui',
+        pid: process.pid,
+      });
+
+      // Heartbeat to keep registration alive
+      clientHeartbeatTimer = setInterval(() => {
+        mailbox.clientHeartbeat({ clientId }).catch(() => {
+          // best-effort — ignore heartbeat failures during shutdown
+        });
+      }, CLIENT_HEARTBEAT_MS);
+      clientHeartbeatTimer.unref();
+
+      // Periodically sync authoritative client counts from the shared registry.
+      // This corrects the count when other clients disconnect (their registrations
+      // expire after 60s without a heartbeat) and when this TUI restarts.
+      const syncClients = async (): Promise<void> => {
+        try {
+          const statuses = await mailbox.getClientStatuses();
+          const counts = { tui: 0, webui: 0, repl: 0 };
+          for (const s of statuses) {
+            if (s.online && s.source in counts) {
+              counts[s.source as keyof typeof counts]++;
+            }
+          }
+          opts.events.emitCustom('mailbox.sync_clients', counts);
+        } catch {
+          // best-effort — sync failures should not affect TUI operation
+        }
+      };
+      // First sync after 5s (give other clients time to register), then every CLIENT_SYNC_MS
+      setTimeout(() => { void syncClients(); }, 5_000);
+      clientSyncTimer = setInterval(() => { void syncClients(); }, CLIENT_SYNC_MS);
+      clientSyncTimer.unref();
+
+      return clientId;
+    } catch {
+      // best-effort — client registration errors should not block TUI startup
+      return null;
+    }
+  };
+
+  const unregisterTuiClient = (): void => {
+    if (clientHeartbeatTimer) {
+      clearInterval(clientHeartbeatTimer);
+      clientHeartbeatTimer = null;
+    }
+    if (clientSyncTimer) {
+      clearInterval(clientSyncTimer);
+      clientSyncTimer = null;
+    }
+  };
+
+  // Register immediately (fire-and-forget)
+  registerTuiClient();
 
   return new Promise<number>((resolve) => {
     let exitCode = 0;

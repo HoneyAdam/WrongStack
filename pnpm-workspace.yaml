@@ -14,6 +14,12 @@ packages:
   - "website"
 overrides:
   dompurify: ">=3.4.0"
+# GHSA-gv7w-rqvm-qjhr: esbuild "missing binary integrity verification" applies
+# only to esbuild's DENO installer path; we consume esbuild via tsup/vite/vitest
+# (Node, devDependencies only). Remove once tsup/vite ship esbuild >= 0.28.1.
+auditConfig:
+  ignoreGhsas:
+    - GHSA-gv7w-rqvm-qjhr
 allowBuilds:
   '@biomejs/biome': true
   better-sqlite3: true

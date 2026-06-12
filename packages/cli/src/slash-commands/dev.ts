@@ -1,6 +1,6 @@
-import { color } from '@wrongstack/core';
-import type { Context, SlashCommand } from '@wrongstack/core';
 import { exec } from 'node:child_process';
+import type { Context, SlashCommand } from '@wrongstack/core';
+import { color } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
 
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -32,16 +32,19 @@ function runCommand(
   });
 }
 
-function formatOutput(cmd: string, result: { stdout: string; stderr: string; exitCode: number; killed: boolean }, elapsed: number): string {
+function formatOutput(
+  cmd: string,
+  result: { stdout: string; stderr: string; exitCode: number; killed: boolean },
+  elapsed: number,
+): string {
   const lines: string[] = [];
 
   // Header
-  const exitLabel =
-    result.killed
-      ? color.red('TIMEOUT')
-      : result.exitCode === 0
-        ? color.green('OK')
-        : color.red(`EXIT ${result.exitCode}`);
+  const exitLabel = result.killed
+    ? color.red('TIMEOUT')
+    : result.exitCode === 0
+      ? color.green('OK')
+      : color.red(`EXIT ${result.exitCode}`);
   lines.push(`${color.cyan('$')} ${color.bold(cmd)}  ${exitLabel}  ${color.dim(`${elapsed}ms`)}`);
 
   // Output
@@ -57,7 +60,11 @@ function formatOutput(cmd: string, result: { stdout: string; stderr: string; exi
       lines.push(line);
     }
     if (truncated) {
-      lines.push(color.dim(`… (truncated, showing first ${MAX_OUTPUT_LINES} of ${outputLines.length} lines)`));
+      lines.push(
+        color.dim(
+          `… (truncated, showing first ${MAX_OUTPUT_LINES} of ${outputLines.length} lines)`,
+        ),
+      );
     }
     lines.push(color.dim('──'));
   } else {
@@ -97,7 +104,9 @@ export function buildDevCommand(opts: SlashCommandContext): SlashCommand {
     async run(args: string, _ctx: Context) {
       const cmd = args.trim();
       if (!cmd) {
-        return { message: `${color.yellow('Usage:')} /dev <shell command>\n\nExamples:\n  /dev pnpm release:check\n  /dev git diff --stat` };
+        return {
+          message: `${color.yellow('Usage:')} /dev <shell command>\n\nExamples:\n  /dev pnpm release:check\n  /dev git diff --stat`,
+        };
       }
 
       const cwd = opts.cwd;

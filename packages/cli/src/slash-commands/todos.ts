@@ -1,14 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { type TodoItem, formatTodosList } from '@wrongstack/core';
 import type { SlashCommand } from '@wrongstack/core';
-import type { SlashCommandContext } from './index.js';
+import { formatTodosList, type TodoItem } from '@wrongstack/core';
 import { parseSubcommand, unknownSubcommand } from './helpers.js';
+import type { SlashCommandContext } from './index.js';
 
 /** Find a todo by 1-based index, exact id, or case-insensitive substring. */
-function findTodo(
-  todos: TodoItem[],
-  query: string,
-): { idx: number; item: TodoItem } | null {
+function findTodo(todos: TodoItem[], query: string): { idx: number; item: TodoItem } | null {
   const asIndex = Number.parseInt(query, 10);
   if (!Number.isNaN(asIndex)) {
     const idx = asIndex - 1;
@@ -84,10 +81,7 @@ export function buildTodosCommand(opts: SlashCommandContext): SlashCommand {
           if (!restJoined) return { message: 'Usage: /todos remove <id|index>' };
           const found = findTodo(ctx.todos, restJoined);
           if (!found) return { message: `No todo matched "${restJoined}".` };
-          const nextTodos = [
-            ...ctx.todos.slice(0, found.idx),
-            ...ctx.todos.slice(found.idx + 1),
-          ];
+          const nextTodos = [...ctx.todos.slice(0, found.idx), ...ctx.todos.slice(found.idx + 1)];
           ctx.state.replaceTodos(nextTodos);
           return { message: `Removed: ${found.item.content}` };
         }

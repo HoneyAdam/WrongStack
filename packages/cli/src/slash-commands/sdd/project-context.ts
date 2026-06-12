@@ -1,6 +1,6 @@
-import * as path from 'node:path';
 import * as fsp from 'node:fs/promises';
-import type { AISpecBuilder, AISpecPhase, SpecStore, SpecIndexEntry } from '@wrongstack/core';
+import * as path from 'node:path';
+import type { AISpecBuilder, AISpecPhase, SpecIndexEntry, SpecStore } from '@wrongstack/core';
 import { sddState } from './state.js';
 
 export function getActiveBuilder(): AISpecBuilder | null {
@@ -22,8 +22,7 @@ export async function findSpec(store: SpecStore, idOrTitle: string) {
   const all = await store.list();
   const match = all.find(
     (e: SpecIndexEntry) =>
-      e.id.startsWith(idOrTitle) ||
-      e.title.toLowerCase().includes(idOrTitle.toLowerCase()),
+      e.id.startsWith(idOrTitle) || e.title.toLowerCase().includes(idOrTitle.toLowerCase()),
   );
   if (match) return store.load(match.id);
   return null;
@@ -44,22 +43,30 @@ export async function gatherProjectContext(projectRoot: string): Promise<string>
     }
     if (pkg.devDependencies) {
       const devDeps = Object.keys(pkg.devDependencies as Record<string, unknown>);
-      parts.push(`Dev Dependencies: ${devDeps.slice(0, 15).join(', ')}${devDeps.length > 15 ? '...' : ''}`);
+      parts.push(
+        `Dev Dependencies: ${devDeps.slice(0, 15).join(', ')}${devDeps.length > 15 ? '...' : ''}`,
+      );
     }
-  } catch { /* no package.json */ }
+  } catch {
+    /* no package.json */
+  }
 
   try {
     const tsconfigPath = path.join(projectRoot, 'tsconfig.json');
     await fsp.access(tsconfigPath);
     parts.push('Language: TypeScript');
-  } catch { /* no tsconfig */ }
+  } catch {
+    /* no tsconfig */
+  }
 
   try {
     const srcDir = path.join(projectRoot, 'src');
     const entries = await fsp.readdir(srcDir, { withFileTypes: true });
     const dirs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
     if (dirs.length > 0) parts.push(`Source structure: src/${dirs.join(', src/')}`);
-  } catch { /* no src dir */ }
+  } catch {
+    /* no src dir */
+  }
 
   return parts.join('\n');
 }

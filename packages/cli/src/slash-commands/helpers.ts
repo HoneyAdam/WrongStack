@@ -214,7 +214,6 @@ on disconnect with exponential backoff, up to 3 attempts"._
 
 - _Docs, dashboards, runbooks, issue trackers, design notes, owner contacts._
 - _Related projects or repositories._`;
-
 }
 
 export function countTurnPairs(messages: Context['messages']): number {

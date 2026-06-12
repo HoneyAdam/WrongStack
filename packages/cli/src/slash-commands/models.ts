@@ -1,15 +1,15 @@
 import * as fs from 'node:fs/promises';
 import {
-  type CustomModelDefinition,
-  type SlashCommand,
   atomicWrite,
+  type CustomModelDefinition,
   color,
   decryptConfigSecrets,
   encryptConfigSecrets,
   noOpVault,
+  type SlashCommand,
 } from '@wrongstack/core';
-import type { SlashCommandContext } from './index.js';
 import { parseSubcommand, unknownSubcommand } from './helpers.js';
+import type { SlashCommandContext } from './index.js';
 
 async function patchGlobalConfig(
   globalConfigPath: string,
@@ -45,7 +45,8 @@ function fmtModel(id: string, def: CustomModelDefinition): string {
   if (def.name) parts.push(`${color.dim('name:')} ${def.name}`);
   const caps = def.capabilities;
   if (caps) {
-    if (caps.maxContext) parts.push(`${color.dim('maxContext:')} ${color.yellow(String(caps.maxContext))}`);
+    if (caps.maxContext)
+      parts.push(`${color.dim('maxContext:')} ${color.yellow(String(caps.maxContext))}`);
     const flags: string[] = [];
     if (caps.tools) flags.push('tools');
     if (caps.vision) flags.push('vision');
@@ -54,7 +55,8 @@ function fmtModel(id: string, def: CustomModelDefinition): string {
     if (caps.jsonMode) flags.push('json');
     if (flags.length) parts.push(`${color.dim('caps:')} ${flags.join(', ')}`);
   }
-  if (def.maxOutput) parts.push(`${color.dim('maxOutput:')} ${color.yellow(String(def.maxOutput))}`);
+  if (def.maxOutput)
+    parts.push(`${color.dim('maxOutput:')} ${color.yellow(String(def.maxOutput))}`);
   return `    ${color.amber(id)}  ${parts.join('  ')}`;
 }
 
@@ -221,7 +223,9 @@ export function buildModelsCommand(opts: SlashCommandContext): SlashCommand {
             return { message: `${color.red('Error')}: ${error}. ${color.dim('/models help')}` };
           }
           if (!def && !error) {
-            return { message: `${color.amber('Usage:')} /models add <id> [--max-context N] [--tools] ... ${color.dim('/models help')}` };
+            return {
+              message: `${color.amber('Usage:')} /models add <id> [--max-context N] [--tools] ... ${color.dim('/models help')}`,
+            };
           }
 
           const existingModels = (config.models ?? {}) as Record<string, CustomModelDefinition>;
@@ -241,7 +245,9 @@ export function buildModelsCommand(opts: SlashCommandContext): SlashCommand {
           opts.configStore.update({
             models: decrypted.models as Record<string, CustomModelDefinition>,
           });
-          return { message: `${color.green('✓')} ${color.amber(modelId)} ${existed ? 'updated' : 'added'}.` };
+          return {
+            message: `${color.green('✓')} ${color.amber(modelId)} ${existed ? 'updated' : 'added'}.`,
+          };
         }
 
         // ---- REMOVE ----
@@ -252,7 +258,9 @@ export function buildModelsCommand(opts: SlashCommandContext): SlashCommand {
           }
           const existing = (config.models ?? {}) as Record<string, CustomModelDefinition>;
           if (!(modelId in existing)) {
-            return { message: `${color.amber('Not found')}: custom model "${modelId}" is not defined.` };
+            return {
+              message: `${color.amber('Not found')}: custom model "${modelId}" is not defined.`,
+            };
           }
           const decrypted = await patchGlobalConfig(globalConfigPath, (cfg) => {
             const models = { ...((cfg.models as Record<string, CustomModelDefinition>) ?? {}) };

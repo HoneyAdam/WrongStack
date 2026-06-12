@@ -19,7 +19,9 @@ export function makePromptDelegate(reader: InputReader) {
     // Without this, the prompt can be easily missed when output is
     // scrolling or the user has switched to another window.
     writeOut('\x07');
-    writeOut(`\n${theme.warn('⚠ APPROVAL REQUIRED')} ${theme.primary('│')} ${theme.bold(tool.name)}\n`);
+    writeOut(
+      `\n${theme.warn('⚠ APPROVAL REQUIRED')} ${theme.primary('│')} ${theme.bold(tool.name)}\n`,
+    );
     writeOut(`${color.dim(stringifyInput(input))}\n`);
 
     if (tool.name === 'edit' && hasDiff(input)) {

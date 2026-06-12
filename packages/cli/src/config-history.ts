@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
 import os from 'node:os';
-import { atomicWrite, FsError, ERROR_CODES, writeErr } from '@wrongstack/core';
+import * as path from 'node:path';
+import { atomicWrite, ERROR_CODES, FsError, writeErr } from '@wrongstack/core';
 import { isSecretField } from '@wrongstack/core/security';
 
 // ── UID ownership ──────────────────────────────────────────────────────────
@@ -47,11 +47,7 @@ async function checkConfigOwnership(
 // These are NEVER touched by any operation in this module.
 // Guards against bugs (glob patterns, typos, race conditions)
 // accidentally deleting critical user data.
-const PROTECTED_BASENAMES = new Set([
-  'config.json',
-  '.key',
-  'index.json',
-]);
+const PROTECTED_BASENAMES = new Set(['config.json', '.key', 'index.json']);
 
 // Top-level directories that should never be deleted even if a prune
 // pattern accidentally widens. These are absolute directory names
@@ -257,7 +253,9 @@ export async function backupCurrent(homeFn: HomeDirFn = defaultHomeDir): Promise
     try {
       await atomicWrite(last, content);
     } catch (err) {
-      writeErr(`[config-history] .last backup failed: ${err instanceof Error ? err.message : String(err)}`);
+      writeErr(
+        `[config-history] .last backup failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
@@ -267,7 +265,9 @@ export async function backupCurrent(homeFn: HomeDirFn = defaultHomeDir): Promise
       const bakPath = path.join(homeFn(), '.wrongstack', `config.json.${ts}.bak`);
       await atomicWrite(bakPath, content);
     } catch (err) {
-      writeErr(`[config-history] timestamped backup failed: ${err instanceof Error ? err.message : String(err)}`);
+      writeErr(
+        `[config-history] timestamped backup failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
@@ -283,7 +283,9 @@ export async function backupCurrent(homeFn: HomeDirFn = defaultHomeDir): Promise
       await safeDelete(path.join(dir, f));
     }
   } catch (err) {
-    writeErr(`[config-history] backup prune failed: ${err instanceof Error ? err.message : String(err)}`);
+    writeErr(
+      `[config-history] backup prune failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
@@ -334,7 +336,9 @@ export async function appendHistory(
 /**
  * List all history entries (newest first).
  */
-export async function listHistory(homeFn: HomeDirFn = defaultHomeDir): Promise<HistoryIndex['entries']> {
+export async function listHistory(
+  homeFn: HomeDirFn = defaultHomeDir,
+): Promise<HistoryIndex['entries']> {
   const idx = await readIndex(homeFn);
   return idx.entries;
 }
@@ -342,7 +346,10 @@ export async function listHistory(homeFn: HomeDirFn = defaultHomeDir): Promise<H
 /**
  * Get a specific history entry by ID.
  */
-export async function getHistoryEntry(id: string, homeFn: HomeDirFn = defaultHomeDir): Promise<HistoryEntry | null> {
+export async function getHistoryEntry(
+  id: string,
+  homeFn: HomeDirFn = defaultHomeDir,
+): Promise<HistoryEntry | null> {
   try {
     const raw = await fs.readFile(path.join(historyDir(homeFn), `${id}.json`), 'utf8');
     return JSON.parse(raw) as HistoryEntry;
@@ -365,7 +372,11 @@ export async function restoreFromHistory(
   // does not own the file. Prevents one user on a multi-user system from
   // overwriting another user's config via a shared wrongstack install.
   if (!(await checkConfigOwnership(homeFn))) {
-    return { ok: false, backupId: null, error: 'Operation denied: config file is not owned by current user' };
+    return {
+      ok: false,
+      backupId: null,
+      error: 'Operation denied: config file is not owned by current user',
+    };
   }
 
   await backupCurrent(homeFn);
@@ -397,7 +408,9 @@ export async function restoreFromHistory(
 /**
  * Restore config.json to the .last backup.
  */
-export async function restoreLast(homeFn: HomeDirFn = defaultHomeDir): Promise<{ ok: boolean; error?: string | undefined }> {
+export async function restoreLast(
+  homeFn: HomeDirFn = defaultHomeDir,
+): Promise<{ ok: boolean; error?: string | undefined }> {
   const last = backupLastPath(homeFn);
   const cfg = configPath(homeFn);
 

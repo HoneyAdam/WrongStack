@@ -24,9 +24,11 @@ import { Toaster } from './components/Toaster';
 import { AgentFlowGraph } from './components/AgentFlowGraph';
 import { SidePanel } from './components/SidePanel';
 import { WorkspaceDock } from './components/WorkspaceDock';
+import { AgentsMonitor } from './components/AgentsMonitor';
+import { FleetMonitor } from './components/FleetMonitor';
 function AppInner() {
   const { theme } = useTheme();
-  const { currentView, sidebarOpen, toggleSidebar, setSearchOpen, setSidebarOpen, setCurrentView } = useUIStore();
+  const { currentView, sidebarOpen, toggleSidebar, setSearchOpen, setSidebarOpen, setCurrentView, fleetMonitorOpen, agentsMonitorOpen, setFleetMonitorOpen, setAgentsMonitorOpen } = useUIStore();
   const isLoading = useChatStore((s) => s.isLoading);
   const iteration = useSessionStore((s) => s.iteration);
   const projectName = useSessionStore((s) => s.projectName);
@@ -176,6 +178,16 @@ function AppInner() {
         e.preventDefault();
         useUIStore.getState().toggleCompactMode();
       }
+      // Ctrl+Shift+M — Fleet Monitor overlay  (Ctrl+Shift+F is browser Find)
+      if (mod && e.shiftKey && e.key.toLowerCase() === 'm') {
+        e.preventDefault();
+        useUIStore.getState().setFleetMonitorOpen(!useUIStore.getState().fleetMonitorOpen);
+      }
+      // Ctrl+Shift+A — Agents Monitor overlay  (Ctrl+Shift+G is browser Find Next)
+      if (mod && e.shiftKey && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        useUIStore.getState().setAgentsMonitorOpen(!useUIStore.getState().agentsMonitorOpen);
+      }
       // Vim-style chat navigation: j/k step between bubbles, g goes to the
       // first message and G to the last. Skipped while typing so j/k inside
       // the textarea still inserts those letters. No modifier required —
@@ -292,6 +304,23 @@ function AppInner() {
         {/* ── IDE Code Editor (only in Files view) ── */}
         {currentView === 'files' && <CodeEditor />}
       </main>
+
+      {/* Fleet Monitor overlay */}
+      {fleetMonitorOpen && (
+        <FleetMonitor
+          onClose={() => setFleetMonitorOpen(false)}
+          onSelectAgent={(agent) => {
+            // Open agent detail — close fleet monitor and open the agent
+            setFleetMonitorOpen(false);
+            setAgentsMonitorOpen(true);
+          }}
+        />
+      )}
+
+      {/* Agents Monitor overlay */}
+      {agentsMonitorOpen && (
+        <AgentsMonitor onClose={() => setAgentsMonitorOpen(false)} />
+      )}
 
       {/* Global overlays */}
       <ConfirmDialog />

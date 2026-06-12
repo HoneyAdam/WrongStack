@@ -24,13 +24,13 @@
  */
 
 import {
-  GlobalMailbox,
-  resolveProjectDir,
-  resolveMailboxIdentity,
-  mailboxSessionTag,
   color,
+  GlobalMailbox,
   type MailboxAgentStatus,
   type MailboxMessage,
+  mailboxSessionTag,
+  resolveMailboxIdentity,
+  resolveProjectDir,
   type SlashCommand,
   wstackGlobalRoot,
 } from '@wrongstack/core';
@@ -111,12 +111,7 @@ function fmtAgent(a: MailboxAgentStatus, selfId: string, idWidth: number): strin
  * Subject is only shown when it adds information (it is usually just the
  * first 60 chars of the body — repeating that reads as a glitch).
  */
-function fmtMessage(
-  m: MailboxMessage,
-  selfId: string,
-  fromWidth: number,
-  toWidth: number,
-): string {
+function fmtMessage(m: MailboxMessage, selfId: string, fromWidth: number, toWidth: number): string {
   const rawFrom = m.from === selfId ? 'you' : m.from;
   const rawTo = m.to === '*' ? 'all' : m.to === selfId ? 'you' : m.to;
   const fromPad = ' '.repeat(Math.max(0, fromWidth - rawFrom.length));
@@ -160,7 +155,7 @@ export function buildMailboxCommand(opts: SlashCommandContext): SlashCommand {
       'messages automatically on their next iteration.',
       '',
       'Subcommands:',
-      '  /mailbox                      Unread inbox for this session\'s leader.',
+      "  /mailbox                      Unread inbox for this session's leader.",
       '  /mailbox agents               All registered agents on the project.',
       '  /mailbox online               Only agents with a live heartbeat.',
       '  /mailbox send <id> <message>  Direct message an agent (use ids from `agents`).',
@@ -181,8 +176,7 @@ export function buildMailboxCommand(opts: SlashCommandContext): SlashCommand {
       const sub = parts[0]?.toLowerCase() ?? '';
 
       if (sub === 'agents' || sub === 'online') {
-        const agents =
-          sub === 'online' ? await mb.getOnlineAgents() : await mb.getAgentStatuses();
+        const agents = sub === 'online' ? await mb.getOnlineAgents() : await mb.getAgentStatuses();
         if (agents.length === 0) {
           return {
             message: color.dim(
@@ -194,7 +188,9 @@ export function buildMailboxCommand(opts: SlashCommandContext): SlashCommand {
           ...agents.map((a) => a.agentId.length + (a.agentId === self.id ? 6 : 0)),
         );
         const lines = [
-          color.bold(`${agents.length} ${sub === 'online' ? 'online ' : ''}agent(s) on this project`),
+          color.bold(
+            `${agents.length} ${sub === 'online' ? 'online ' : ''}agent(s) on this project`,
+          ),
           ...agents.flatMap((a) => fmtAgent(a, self.id, idWidth)),
           '',
           color.dim(`Mailbox: ${mb.messagePath}`),

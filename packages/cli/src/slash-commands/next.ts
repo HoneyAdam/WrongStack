@@ -1,5 +1,5 @@
-import { color } from '@wrongstack/core';
 import type { SlashCommand } from '@wrongstack/core';
+import { color } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
 import { clearSuggestions, getSuggestions } from './suggestion-store.js';
 
@@ -85,7 +85,9 @@ export function buildNextCommand(opts: SlashCommandContext): SlashCommand {
         const msg = [
           `Next-task prediction: ${label(current)}`,
           suggestions.length > 0
-            ? color.dim(`  ${suggestions.length} suggestion(s) available — use /next list to view, /next 1 to execute`)
+            ? color.dim(
+                `  ${suggestions.length} suggestion(s) available — use /next list to view, /next 1 to execute`,
+              )
             : color.dim('  No suggestions stored — use /suggest to generate'),
         ].join('\n');
         opts.renderer.write(msg);
@@ -127,18 +129,21 @@ function handleSelection(
   const indices = parts.map((p) => Number.parseInt(p, 10)).filter((n) => !Number.isNaN(n) && n > 0);
 
   if (indices.length === 0) {
-    return { message: color.amber('No valid suggestion numbers found. Use /next 1, /next 1 2 3, etc.') };
+    return {
+      message: color.amber('No valid suggestion numbers found. Use /next 1, /next 1 2 3, etc.'),
+    };
   }
 
   // Use shared module-level store first (bypasses callback indirection);
   // fall back to opts.onSuggestions for backward compatibility.
-  const suggestions = getSuggestions().length > 0
-    ? getSuggestions()
-    : (opts.onSuggestions?.() ?? []);
+  const suggestions =
+    getSuggestions().length > 0 ? getSuggestions() : (opts.onSuggestions?.() ?? []);
 
   if (suggestions.length === 0) {
     return {
-      message: color.amber('No suggestions available. Run /suggest first, or enable prediction with /next on.'),
+      message: color.amber(
+        'No suggestions available. Run /suggest first, or enable prediction with /next on.',
+      ),
     };
   }
 
@@ -147,7 +152,9 @@ function handleSelection(
   if (invalid.length > 0) {
     const max = suggestions.length;
     return {
-      message: color.amber(`Invalid suggestion number(s): ${invalid.join(', ')}. Valid range: 1–${max}.`),
+      message: color.amber(
+        `Invalid suggestion number(s): ${invalid.join(', ')}. Valid range: 1–${max}.`,
+      ),
     };
   }
 
@@ -185,9 +192,8 @@ function handleSelection(
  */
 function handleList(opts: SlashCommandContext): { message: string } {
   // Use shared module-level store first; fall back to opts.onSuggestions
-  const suggestions = getSuggestions().length > 0
-    ? getSuggestions()
-    : (opts.onSuggestions?.() ?? []);
+  const suggestions =
+    getSuggestions().length > 0 ? getSuggestions() : (opts.onSuggestions?.() ?? []);
 
   if (suggestions.length === 0) {
     return {

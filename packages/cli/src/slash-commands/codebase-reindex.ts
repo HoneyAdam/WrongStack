@@ -1,5 +1,5 @@
-import { color } from '@wrongstack/core';
 import type { Context, SlashCommand } from '@wrongstack/core';
+import { color } from '@wrongstack/core';
 import { resetIndexCircuitBreaker, runStartupIndex } from '@wrongstack/tools';
 import type { SlashCommandContext } from './index.js';
 

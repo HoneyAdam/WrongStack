@@ -25,6 +25,9 @@ import type { EventBus } from '../kernel/events.js';
 import type {
   AgentHeartbeatInput,
   AgentRegistrationInput,
+  ClientHeartbeatInput,
+  ClientRegistrationInput,
+  ClientStatus,
   Mailbox,
   MailboxAckInput,
   MailboxAgentStatus,
@@ -32,13 +35,17 @@ import type {
   MailboxQuery,
   MailboxSendInput,
   RegisteredAgent,
+  RegisteredClient,
 } from './mailbox-types.js';
 
 // ── Constants ────────────────────────────────────────────────────────────
 
 const MAILBOX_FILE = '_mailbox.jsonl';
+const CLIENT_REGISTRY_FILE = '_mailbox.clients.json';
 /** Agents without a heartbeat for this long are considered offline. */
 const AGENT_STALE_MS = 60_000;
+/** Clients without a heartbeat for this long are considered offline. */
+const CLIENT_STALE_MS = 60_000;
 /** Heartbeat updates are throttled to at most this interval. */
 const HEARTBEAT_THROTTLE_MS = 5_000;
 /**
@@ -72,6 +79,8 @@ export class GlobalMailbox implements Mailbox {
   readonly messagePath: string;
   /** Path to the JSON agent registry file. */
   readonly registryPath: string;
+  /** Path to the JSON client registry file. */
+  readonly clientRegistryPath: string;
   /** Optional event bus for emitting agent registration/heartbeat events. */
   private readonly _events?: EventBus | undefined;
   /**
@@ -83,8 +92,17 @@ export class GlobalMailbox implements Mailbox {
   private _registryCache: Map<string, RegisteredAgent> | null = null;
   /** When the registry cache was last refreshed from disk (epoch ms). */
   private _registryCacheAt = 0;
+  /**
+   * Local cache of the client registry to avoid re-reading on every call.
+   * Same reasoning as agent registry cache.
+   */
+  private _clientRegistryCache: Map<string, RegisteredClient> | null = null;
+  /** When the client registry cache was last refreshed from disk (epoch ms). */
+  private _clientRegistryCacheAt = 0;
   /** Last time each local agent sent a heartbeat (throttle). */
   private _lastHeartbeat = new Map<string, number>();
+  /** Last time each local client sent a heartbeat (throttle). */
+  private _lastClientHeartbeat = new Map<string, number>();
 
   /**
    * @param projectDir — `~/.wrongstack/projects/<slug>/`
@@ -93,6 +111,7 @@ export class GlobalMailbox implements Mailbox {
   constructor(projectDir: string, events?: EventBus) {
     this.messagePath = path.join(projectDir, MAILBOX_FILE);
     this.registryPath = path.join(projectDir, '_mailbox.registry.json');
+    this.clientRegistryPath = path.join(projectDir, CLIENT_REGISTRY_FILE);
     this._events = events;
   }
 
@@ -322,12 +341,95 @@ export class GlobalMailbox implements Mailbox {
     return all.filter((a) => a.online);
   }
 
+  // ── Client registry ─────────────────────────────────────────────────────
+
+  async registerClient(input: ClientRegistrationInput): Promise<void> {
+    await this._ensureClientRegistry();
+    const now = new Date().toISOString();
+    const client: RegisteredClient = {
+      clientId: input.clientId,
+      sessionId: input.sessionId,
+      name: input.name,
+      source: input.source,
+      registeredAt: now,
+      lastSeenAt: now,
+      pid: input.pid,
+    };
+
+    await withFileLock(this.clientRegistryPath, async () => {
+      const registry = await this._readClientRegistry({ fresh: true });
+      this._pruneStaleClientsInPlace(registry);
+      registry.set(input.clientId, client);
+      this._clientRegistryCache = registry;
+      this._clientRegistryCacheAt = Date.now();
+      await this._writeClientRegistry(registry);
+    });
+
+    // Emit event for TUI/WebUI to update online client count
+    this._events?.emitCustom('mailbox.client_registered', {
+      clientId: input.clientId,
+      sessionId: input.sessionId,
+      name: input.name,
+      source: input.source,
+    });
+  }
+
+  async clientHeartbeat(input: ClientHeartbeatInput): Promise<void> {
+    // Throttle: at most one heartbeat per client per HEARTBEAT_THROTTLE_MS
+    const last = this._lastClientHeartbeat.get(input.clientId) ?? 0;
+    const now = Date.now();
+    if (now - last < HEARTBEAT_THROTTLE_MS) return;
+
+    this._lastClientHeartbeat.set(input.clientId, now);
+
+    await this._ensureClientRegistry();
+
+    await withFileLock(this.clientRegistryPath, async () => {
+      const registry = await this._readClientRegistry({ fresh: true });
+      this._pruneStaleClientsInPlace(registry);
+
+      const client = registry.get(input.clientId);
+      if (client) {
+        client.lastSeenAt = new Date().toISOString();
+      }
+
+      this._clientRegistryCache = registry;
+      this._clientRegistryCacheAt = Date.now();
+      await this._writeClientRegistry(registry);
+    });
+
+    // Emit event so TUI/WebUI can track online clients in real time
+    this._events?.emitCustom('mailbox.client_heartbeat', {
+      clientId: input.clientId,
+    });
+  }
+
+  async getClientStatuses(): Promise<ClientStatus[]> {
+    await this._ensureClientRegistry();
+    const registry = await this._readClientRegistry();
+    this._pruneStaleClientsInPlace(registry);
+
+    const now = Date.now();
+    return Array.from(registry.values())
+      .map((c) => ({
+        clientId: c.clientId,
+        name: c.name,
+        source: c.source,
+        sessionId: c.sessionId,
+        lastSeenAt: c.lastSeenAt,
+        online: now - new Date(c.lastSeenAt).getTime() < CLIENT_STALE_MS,
+        pid: c.pid,
+      }))
+      .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt));
+  }
+
   // ── Lifecycle ───────────────────────────────────────────────────────────
 
   async close(): Promise<void> {
     // JSONL append-only — no flush needed
     // Cache is cleared on next read
     this._registryCache = null;
+    this._clientRegistryCache = null;
   }
 
   async clearAll(): Promise<void> {
@@ -426,5 +528,63 @@ export class GlobalMailbox implements Mailbox {
     const tmp = `${this.registryPath}.${randomUUID().slice(0, 8)}.tmp`;
     await fsp.writeFile(tmp, JSON.stringify(obj, null, 2), 'utf8');
     await fsp.rename(tmp, this.registryPath);
+  }
+
+  // ── Client registry internals ───────────────────────────────────────────
+
+  private async _ensureClientRegistry(): Promise<void> {
+    await fsp.mkdir(path.dirname(this.clientRegistryPath), { recursive: true });
+  }
+
+  private async _readClientRegistry(
+    opts?: { fresh?: boolean },
+  ): Promise<Map<string, RegisteredClient>> {
+    if (
+      !opts?.fresh &&
+      this._clientRegistryCache &&
+      Date.now() - this._clientRegistryCacheAt < REGISTRY_CACHE_TTL_MS
+    ) {
+      return new Map(this._clientRegistryCache);
+    }
+
+    try {
+      const raw = await fsp.readFile(this.clientRegistryPath, 'utf8');
+      const data = JSON.parse(raw) as Record<string, RegisteredClient>;
+      const map = new Map<string, RegisteredClient>();
+      for (const [id, client] of Object.entries(data)) {
+        map.set(id, client as RegisteredClient);
+      }
+      this._clientRegistryCache = map;
+      this._clientRegistryCacheAt = Date.now();
+      return new Map(map);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        const empty = new Map<string, RegisteredClient>();
+        this._clientRegistryCache = empty;
+        this._clientRegistryCacheAt = Date.now();
+        return empty;
+      }
+      throw err;
+    }
+  }
+
+  private _pruneStaleClientsInPlace(registry: Map<string, RegisteredClient>): void {
+    const cutoff = Date.now() - CLIENT_STALE_MS;
+    for (const client of registry.values()) {
+      if (new Date(client.lastSeenAt).getTime() < cutoff) {
+        // Mark as offline but preserve entry
+        client.lastSeenAt = new Date(cutoff).toISOString();
+      }
+    }
+  }
+
+  private async _writeClientRegistry(registry: Map<string, RegisteredClient>): Promise<void> {
+    const obj: Record<string, RegisteredClient> = {};
+    for (const [id, client] of registry) {
+      obj[id] = client;
+    }
+    const tmp = `${this.clientRegistryPath}.${randomUUID().slice(0, 8)}.tmp`;
+    await fsp.writeFile(tmp, JSON.stringify(obj, null, 2), 'utf8');
+    await fsp.rename(tmp, this.clientRegistryPath);
   }
 }

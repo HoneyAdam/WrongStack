@@ -62,7 +62,12 @@ export interface SlashCommandContext {
   /** Fire-and-forget spawn — returns immediately with spawn metadata. Used by /spawn. */
   onSpawn?: (
     description: string,
-    opts?: { provider?: string | undefined; model?: string | undefined; tools?: string[] | undefined; name?: string | undefined },
+    opts?: {
+      provider?: string | undefined;
+      model?: string | undefined;
+      tools?: string[] | undefined;
+      name?: string | undefined;
+    },
   ) => Promise<string>;
   /**
    * Blocking spawn — waits for the subagent to complete and returns the full
@@ -71,7 +76,12 @@ export interface SlashCommandContext {
    */
   onSpawnAndWait?: (
     description: string,
-    opts?: { provider?: string | undefined; model?: string | undefined; tools?: string[] | undefined; name?: string | undefined },
+    opts?: {
+      provider?: string | undefined;
+      model?: string | undefined;
+      tools?: string[] | undefined;
+      name?: string | undefined;
+    },
   ) => Promise<string>;
   onAgents?: ((subagentId?: string) => string) | undefined;
   onFleet?: (
@@ -205,7 +215,9 @@ export interface SlashCommandContext {
    * This enables slash commands like /modeldiag eval to test models
    * across multiple providers, not just the currently active one.
    */
-  createProvider?: ((providerId: string) => import('@wrongstack/core').Provider | undefined) | undefined;
+  createProvider?:
+    | ((providerId: string) => import('@wrongstack/core').Provider | undefined)
+    | undefined;
   /** StatusBar visibility config — loaded from ~/.wrongstack/statusline.json */
   statuslineConfig?: {
     get: () => Promise<import('./statusline.js').StatuslineConfig>;
@@ -216,10 +228,12 @@ export interface SlashCommandContext {
    * so the TUI can update without a restart.
    */
   statuslineHiddenItems?: Array<
-    'todos' | 'plan' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost' | 'working_dir'
+    'todos' | 'plan' | 'tasks' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost' | 'working_dir'
   >;
   setStatuslineHiddenItems?: (
-    items: Array<'todos' | 'plan' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost' | 'working_dir'>,
+    items: Array<
+      'todos' | 'plan' | 'tasks' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost' | 'working_dir'
+    >,
   ) => void;
   /**
    * Controller for the agents monitor overlay. The TUI installs the actual
@@ -241,7 +255,9 @@ export interface SlashCommandContext {
    * Returns a structured diagnosis + fix plan, and sets up the next agent turn
    * with the appropriate skill (bug-hunter, typescript-strict, security-scanner).
    */
-  onFix?: (errorText: string) => Promise<{ message?: string | undefined; runText?: string | undefined }>;
+  onFix?: (
+    errorText: string,
+  ) => Promise<{ message?: string | undefined; runText?: string | undefined }>;
   /**
    * Start an SDD parallel fan-out run. Requires an active SDD session with
    * an approved spec and generated task graph.
@@ -255,7 +271,10 @@ export interface SlashCommandContext {
    * per-project JSON, and drives the orchestrator — one subagent per task —
    * in the background. Returns the built graph or an error.
    */
-  onAutoPhaseStart?: (opts: { goal: string; projectContext?: string | undefined }) => Promise<
+  onAutoPhaseStart?: (opts: {
+    goal: string;
+    projectContext?: string | undefined;
+  }) => Promise<
     { ok: true; graph: import('@wrongstack/core').PhaseGraph } | { ok: false; error: string }
   >;
   onAutoPhasePause?: (() => void) | undefined;
@@ -301,8 +320,8 @@ export type { ProjectFacts } from './helpers.js';
 export { detectProjectFacts, renderAgentsTemplate } from './helpers.js';
 
 import { buildAuthCommand } from './auth.js';
-import { buildAutoPhaseCommand } from './autophase.js';
 import { buildAutonomyCommand } from './autonomy.js';
+import { buildAutoPhaseCommand } from './autophase.js';
 import { buildBrainCommand } from './brain.js';
 import { buildBtwCommand } from './btw.js';
 import { buildClearCommand } from './clear.js';
@@ -313,17 +332,19 @@ import { buildContextCommand } from './context.js';
 import { buildDelegateCommand } from './delegate.js';
 import { buildDevCommand } from './dev.js';
 import { buildDiagCommand, buildStatsCommand } from './diag-stats.js';
+import { buildDoctorCommand } from './doctor.js';
 import { buildEnhanceCommand } from './enhance.js';
 import { buildFixCommand } from './fix.js';
 import { buildFleetCommand } from './fleet.js';
 import { buildGoalCommand } from './goal.js';
 import { buildHelpCommand } from './help.js';
 import { buildInitCommand } from './init.js';
-import { buildMailboxDemoCommand } from './mailbox-demo.js';
 import { buildMailboxCommand } from './mailbox.js';
+import { buildMailboxDemoCommand } from './mailbox-demo.js';
 import { buildMcpSlashCommand } from './mcp.js';
 import { buildMemoryCommand } from './memory.js';
 import { buildModeCommand } from './mode.js';
+import { buildModelCapsCommand } from './modelcaps.js';
 import { buildModelsCommand } from './models.js';
 import { buildNextCommand } from './next.js';
 import { buildPluginCommand } from './plugin.js';
@@ -331,24 +352,24 @@ import { buildPruneCommand } from './prune.js';
 import { buildSddCommand } from './sdd.js';
 import { buildExitCommand, buildLoadCommand, buildSaveCommand } from './session.js';
 import { buildSetModelCommand } from './setmodel.js';
-import { buildModelCapsCommand } from './modelcaps.js';
 import { buildSuggestCommand } from './suggest.js';
+
 // modeldiag is now a CLI subcommand (wstack modeldiag), not a slash command.
 
+import { buildMouseCommand } from './mouse.js';
+import { buildProjectCommand } from './project.js';
+import { buildReviewCommand } from './review.js';
 import { buildSettingsCommand } from './settings.js';
-import { buildTelegramSetupCommand } from './telegram-setup.js';
 import { buildAgentsCommand, buildDirectorCommand, buildSpawnCommand } from './spawn-agents.js';
 import { buildStatuslineCommand } from './statusline.js';
-import { buildTodosCommand } from './todos.js';
 import { buildTasksCommand } from './tasks.js';
-import { buildToolsCommand } from './tools.js';
-import { buildWorktreeCommand } from './worktree.js';
-import { buildWorkingDirCommand } from './working-dir.js';
-import { buildProjectCommand } from './project.js';
 import { buildTechStackCommand } from './techstack.js';
+import { buildTelegramSetupCommand } from './telegram-setup.js';
+import { buildTodosCommand } from './todos.js';
+import { buildToolsCommand } from './tools.js';
+import { buildWorkingDirCommand } from './working-dir.js';
+import { buildWorktreeCommand } from './worktree.js';
 import { buildYoloCommand } from './yolo.js';
-import { buildMouseCommand } from './mouse.js';
-import { buildReviewCommand } from './review.js';
 
 export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashCommand[] {
   return [
@@ -359,6 +380,7 @@ export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashComma
     buildContextCommand(opts),
     buildDelegateCommand(opts),
     buildDevCommand(opts),
+    buildDoctorCommand(opts),
     buildCodebaseReindexCommand(opts),
     buildTechStackCommand(opts),
     buildToolsCommand(opts),

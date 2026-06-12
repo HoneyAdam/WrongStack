@@ -122,20 +122,10 @@ describe('bashTool', () => {
 // ─── New coverage tests ───────────────────────────────────────────────────────
 
 describe('bashTool timeout kill paths', () => {
-  it('times out and triggers kill on Windows', async () => {
-    if (!isWin) return;
-    const sb = await mkSandbox();
-    try {
-      const out = await bashTool.execute(
-        { command: 'ping -n 10 127.0.0.1 > NUL', timeout_ms: 200 },
-        sb.ctx,
-        { signal: newSignal() },
-      );
-      expect(out.timed_out).toBe(true);
-    } finally {
-      await sb.cleanup();
-    }
-  }, 15_000);
+  // The Windows timeout→kill path is covered by 'honours timeout for
+  // long-running command' above and the dedicated grandchild regression in
+  // bash-treekill-win32.test.ts — a third ping-based spawn here added load
+  // without new coverage.
 
   it('times out and triggers kill on POSIX (SIGTERM then SIGKILL)', async () => {
     if (isWin) return;
@@ -175,10 +165,13 @@ describe('bashTool partial_output flush paths', () => {
     const sb = await mkSandbox();
     try {
       const events: ToolStreamEvent[] = [];
-      // Write enough output to trigger size-based flush (STREAM_FLUSH_BYTES = 4096)
+      // Write enough output to trigger size-based flush (STREAM_FLUSH_BYTES =
+      // 4096). 700 lines ≈ 7KB — comfortably past one flush. cmd.exe `for /L`
+      // loops are CPU-bound and slow; keep the count as low as the threshold
+      // allows.
       const largeCmd = isWin
-        ? `for /L %i in (1,1,2000) do @echo line-%i`
-        : 'for i in $(seq 1 2000); do echo "line-$i"; done';
+        ? `for /L %i in (1,1,700) do @echo line-%i`
+        : 'for i in $(seq 1 700); do echo "line-$i"; done';
       for await (const ev of bashTool.executeStream!(
         { command: largeCmd, timeout_ms: 5000 },
         sb.ctx,
@@ -200,10 +193,10 @@ describe('bashTool partial_output flush paths', () => {
     const sb = await mkSandbox();
     try {
       const events: ToolStreamEvent[] = [];
-      // Very large output that triggers multiple flushes
+      // Several flush windows (4096B each): 1500 lines ≈ 16KB ≈ 3-4 flushes.
       const veryLargeCmd = isWin
-        ? `for /L %i in (1,1,5000) do @echo line-%i`
-        : 'for i in $(seq 1 5000); do echo "line-$i"; done';
+        ? `for /L %i in (1,1,1500) do @echo line-%i`
+        : 'for i in $(seq 1 1500); do echo "line-$i"; done';
       for await (const ev of bashTool.executeStream!(
         { command: veryLargeCmd, timeout_ms: 8000 },
         sb.ctx,
@@ -257,10 +250,12 @@ describe('bashTool truncation', () => {
   it('truncates output from the middle when it exceeds MAX_OUTPUT', async () => {
     const sb = await mkSandbox();
     try {
-      // Generate output larger than MAX_OUTPUT (32768 bytes)
+      // Generate output just past MAX_OUTPUT (32768 bytes): 1500 lines ×
+      // ~28 bytes ≈ 42KB. The old 10000-line loop produced 300KB through a
+      // crawling cmd.exe `for /L` for no extra coverage.
       const largeCmd = isWin
-        ? `for /L %i in (1,1,10000) do @echo line-with-some-content-%i`
-        : 'for i in $(seq 1 10000); do echo "line-with-content-number-$i"; done';
+        ? `for /L %i in (1,1,1500) do @echo line-with-some-content-%i`
+        : 'for i in $(seq 1 1500); do echo "line-with-content-number-$i"; done';
       const out = await bashTool.execute({ command: largeCmd, timeout_ms: 10000 }, sb.ctx, {
         signal: newSignal(),
       });
@@ -325,44 +320,22 @@ describe('bashTool signal abort', () => {
 });
 
 describe('bashTool edge cases', () => {
-  it('handles echo command', async () => {
-    const sb = await mkSandbox();
-    try {
-      const out = await bashTool.execute({ command: 'echo hello' }, sb.ctx, { signal: newSignal() });
-      expect(out.exit_code).toBe(0);
-      expect(out.output.trim()).toContain('hello');
-    } finally {
-      try {
-        await sb.cleanup();
-      } catch {
-        /* ignore */
-      }
-    }
-  });
+  // Trimmed in the spawn-load cleanup: 'handles echo command' and 'handles
+  // very long command string' duplicated 'runs a simple command' (all three
+  // executed the same echo), and 'cleans up timers in finally block' was a
+  // third copy of the ping-timeout path. One shell per behaviour is enough.
 
-  it('clamps timeout_ms to minimum of 1', async () => {
+  it('clamps timeout_ms at both bounds', async () => {
     const sb = await mkSandbox();
     try {
-      const out = await bashTool.execute({ command: echoCmd, timeout_ms: -5 }, sb.ctx, {
+      const below = await bashTool.execute({ command: echoCmd, timeout_ms: -5 }, sb.ctx, {
         signal: newSignal(),
       });
-      expect(out).toHaveProperty('exit_code');
-    } finally {
-      try {
-        await sb.cleanup();
-      } catch {
-        /* ignore */
-      }
-    }
-  });
-
-  it('clamps timeout_ms to maximum of 600000', async () => {
-    const sb = await mkSandbox();
-    try {
-      const out = await bashTool.execute({ command: echoCmd, timeout_ms: 999999999 }, sb.ctx, {
+      expect(below).toHaveProperty('exit_code');
+      const above = await bashTool.execute({ command: echoCmd, timeout_ms: 999999999 }, sb.ctx, {
         signal: newSignal(),
       });
-      expect(out.exit_code).toBe(0);
+      expect(above.exit_code).toBe(0);
     } finally {
       try {
         await sb.cleanup();
@@ -371,43 +344,6 @@ describe('bashTool edge cases', () => {
       }
     }
   });
-
-  it('handles very long command string', async () => {
-    const sb = await mkSandbox();
-    try {
-      // Long but valid command
-      const longCmd = echoCmd;
-      const out = await bashTool.execute({ command: longCmd }, sb.ctx, { signal: newSignal() });
-      expect(out.exit_code).toBe(0);
-    } finally {
-      try {
-        await sb.cleanup();
-      } catch {
-        /* ignore */
-      }
-    }
-  });
-
-  it('cleans up timers in finally block', async () => {
-    const sb = await mkSandbox();
-    try {
-      const ac = new AbortController();
-      // Trigger timeout
-      const out = await bashTool.execute(
-        { command: isWin ? 'ping -n 5 127.0.0.1 > NUL' : 'sleep 5', timeout_ms: 100 },
-        sb.ctx,
-        { signal: ac.signal },
-      );
-      expect(out.timed_out).toBe(true);
-      // If we get here without hanging, timers were cleaned up
-    } finally {
-      try {
-        await sb.cleanup();
-      } catch {
-        /* ignore */
-      }
-    }
-  }, 10_000);
 });
 
 describe('bashTool session and env', () => {

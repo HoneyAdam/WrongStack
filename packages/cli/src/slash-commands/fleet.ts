@@ -1,5 +1,5 @@
-import { color, dispatchAgent, AGENTS_BY_PHASE } from '@wrongstack/core';
-import type { SlashCommand, AgentPhase } from '@wrongstack/core';
+import type { AgentPhase, SlashCommand } from '@wrongstack/core';
+import { AGENTS_BY_PHASE, color, dispatchAgent } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
 
 const PHASE_ORDER: { phase: AgentPhase; label: string }[] = [
@@ -118,7 +118,18 @@ export function buildFleetCommand(opts: SlashCommandContext): SlashCommand {
 
         // ── Unknown command ──────────────────────────────────────────────────
         default: {
-          const valid = ['status', 'list', 'dispatch', 'usage', 'spawn', 'terminate', 'kill', 'retry', 'concurrency', 'journal'];
+          const valid = [
+            'status',
+            'list',
+            'dispatch',
+            'usage',
+            'spawn',
+            'terminate',
+            'kill',
+            'retry',
+            'concurrency',
+            'journal',
+          ];
           const msg = `Unknown subcommand "${cmd}". Valid subcommands: ${valid.join(', ')}. Run /fleet with no args to see status, or /fleet help for usage.`;
           opts.renderer.writeWarning(msg);
           return { message: msg };
@@ -130,10 +141,7 @@ export function buildFleetCommand(opts: SlashCommandContext): SlashCommand {
 
 // ── Fleet subcommand handlers ───────────────────────────────────────────────
 
-async function handleStatus(
-  opts: SlashCommandContext,
-  cmd: string,
-): Promise<{ message: string }> {
+async function handleStatus(opts: SlashCommandContext, cmd: string): Promise<{ message: string }> {
   if (opts.onFleetStatus) {
     const status = opts.onFleetStatus();
     if (!status) {
@@ -165,7 +173,8 @@ async function handleStatus(
             : sa.status === 'idle'
               ? color.dim(sa.status.padEnd(10))
               : color.dim(sa.status.padEnd(10));
-        const ext = sa.extensions && sa.extensions > 0 ? `${color.yellow(`⚡×${sa.extensions}`)} ` : '';
+        const ext =
+          sa.extensions && sa.extensions > 0 ? `${color.yellow(`⚡×${sa.extensions}`)} ` : '';
         const task = sa.currentTask ?? color.dim('—');
         lines.push(`  ${id} ${name} ${statusColor} ${ext}${task}`);
       }
@@ -175,7 +184,17 @@ async function handleStatus(
     return { message: msg };
   }
   if (opts.onFleet) {
-    const msg = await opts.onFleet((cmd || 'status') as 'status' | 'usage' | 'kill' | 'manifest' | 'concurrency' | 'retry' | 'log', undefined);
+    const msg = await opts.onFleet(
+      (cmd || 'status') as
+        | 'status'
+        | 'usage'
+        | 'kill'
+        | 'manifest'
+        | 'concurrency'
+        | 'retry'
+        | 'log',
+      undefined,
+    );
     return { message: msg };
   }
   const msg = `${color.amber('⚠ No fleet active.')} Start /autonomy parallel first, or pass --director to a session.`;
@@ -284,10 +303,7 @@ async function handleKill(
   return { message: msg };
 }
 
-function handleTerminate(
-  opts: SlashCommandContext,
-  subargs: string[],
-): { message: string } {
+function handleTerminate(opts: SlashCommandContext, subargs: string[]): { message: string } {
   const targetId = subargs[0];
   if (!targetId) {
     const msg = `${color.amber('⚠ /fleet terminate requires a subagentId.')} Use /fleet to see active ids.`;
@@ -342,7 +358,9 @@ async function handleSpawn(
 }
 
 function handleList(): { message: string } {
-  const lines: string[] = [`${color.bold('Agent Roster')} ${color.dim('(spawn with /fleet spawn <role>)')}`];
+  const lines: string[] = [
+    `${color.bold('Agent Roster')} ${color.dim('(spawn with /fleet spawn <role>)')}`,
+  ];
   for (const { phase, label } of PHASE_ORDER) {
     const defs = AGENTS_BY_PHASE[phase];
     if (!defs || defs.length === 0) continue;
@@ -375,7 +393,10 @@ async function handleDispatch(
   lines.push(`  ${color.dim(decision.definition.capability.summary)}`);
   lines.push(`  ${color.dim('why:')} ${decision.reason}`);
   if (decision.alternatives.length > 0) {
-    const alts = decision.alternatives.slice(0, 3).map((a) => a.role).join(', ');
+    const alts = decision.alternatives
+      .slice(0, 3)
+      .map((a) => a.role)
+      .join(', ');
     lines.push(`  ${color.dim('alternatives:')} ${alts}`);
   }
   if (opts.onFleetSpawn) {
@@ -388,7 +409,9 @@ async function handleDispatch(
       );
     }
   } else {
-    lines.push(`  ${color.dim('(no fleet active — run /autonomy parallel or --director to spawn)')}`);
+    lines.push(
+      `  ${color.dim('(no fleet active — run /autonomy parallel or --director to spawn)')}`,
+    );
   }
   const msg = lines.join('\n');
   opts.renderer.write(msg);

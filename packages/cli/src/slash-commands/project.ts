@@ -1,12 +1,19 @@
 import { spawn } from 'node:child_process';
 import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
-import { color } from '@wrongstack/core';
 import { createRequire } from 'node:module';
+import * as path from 'node:path';
 import type { Context, SlashCommand } from '@wrongstack/core';
-import type { SlashCommandContext } from './index.js';
-import { loadManifest, saveManifest, findProject, generateSlug, ensureProjectDataDir } from './project-utils.js';
+import { color } from '@wrongstack/core';
 import { runProjectPicker } from '../project-picker.js';
+import type { SlashCommandContext } from './index.js';
+import {
+  ensureProjectDataDir,
+  findProject,
+  generateSlug,
+  loadManifest,
+  saveManifest,
+} from './project-utils.js';
+
 // ── Helpers ─────────────────────────────────────────────────────────────
 
 function fmtLastSeen(iso: string | undefined): string {
@@ -31,7 +38,8 @@ export function buildProjectCommand(opts: SlashCommandContext): SlashCommand {
     name: 'project',
     category: 'Session',
     aliases: ['projects'],
-    description: 'Open project picker or manage known projects. Arrow keys to select, Enter to confirm.',
+    description:
+      'Open project picker or manage known projects. Arrow keys to select, Enter to confirm.',
     help: [
       'Usage:',
       '  /project                          Open interactive project picker (arrow keys)',
@@ -94,7 +102,9 @@ export function buildProjectCommand(opts: SlashCommandContext): SlashCommand {
         const interactiveFlag = /\s--interactive\b|\s-i\b|^--interactive\b|^-i\b/.test(rest);
         if (interactiveFlag) {
           if (!process.stdin.isTTY) {
-            return { message: 'Usage: /project switch --interactive (interactive picker requires a TTY)' };
+            return {
+              message: 'Usage: /project switch --interactive (interactive picker requires a TTY)',
+            };
           }
           return switchInteractiveCommand(opts, ctx);
         }
@@ -102,7 +112,10 @@ export function buildProjectCommand(opts: SlashCommandContext): SlashCommand {
         if (!rest) {
           // No args — launch interactive project picker
           if (!process.stdin.isTTY) {
-            return { message: 'Usage: /project switch <dir> [--name <name>] (interactive picker requires a TTY)' };
+            return {
+              message:
+                'Usage: /project switch <dir> [--name <name>] (interactive picker requires a TTY)',
+            };
           }
           return switchInteractiveCommand(opts, ctx);
         }
@@ -162,14 +175,23 @@ async function listProjectsCommand(opts: SlashCommandContext, ctx: Context | und
     }
     lines.push('');
   }
-  lines.push(color.dim('Commands: add <path> [name]  |  rename <slug> <name>  |  remove <slug>  |  switch [dir] (no args = picker)'));
+  lines.push(
+    color.dim(
+      'Commands: add <path> [name]  |  rename <slug> <name>  |  remove <slug>  |  switch [dir] (no args = picker)',
+    ),
+  );
 
   return { message: lines.join('\n') };
 }
 
 // ── Add ─────────────────────────────────────────────────────────────────
 
-async function addProjectCommand(opts: SlashCommandContext, ctx: Context | undefined, targetPath: string, displayName?: string) {
+async function addProjectCommand(
+  opts: SlashCommandContext,
+  ctx: Context | undefined,
+  targetPath: string,
+  displayName?: string,
+) {
   const resolved = path.resolve(ctx?.projectRoot ?? ctx?.cwd ?? process.cwd(), targetPath);
 
   try {
@@ -185,7 +207,9 @@ async function addProjectCommand(opts: SlashCommandContext, ctx: Context | undef
   const manifest = await loadManifest(opts.paths?.globalConfig);
   const existing = manifest.projects.find((p) => p.root === resolved);
   if (existing) {
-    return { message: color.yellow(`Project already registered: "${existing.name}" (${existing.slug})`) };
+    return {
+      message: color.yellow(`Project already registered: "${existing.name}" (${existing.slug})`),
+    };
   }
 
   const name = displayName?.trim() || path.basename(resolved);
@@ -211,11 +235,20 @@ async function addProjectCommand(opts: SlashCommandContext, ctx: Context | undef
 
 // ── Rename ──────────────────────────────────────────────────────────────
 
-async function renameProjectCommand(opts: SlashCommandContext, _ctx: Context | undefined, slugOrName: string, newName: string) {
+async function renameProjectCommand(
+  opts: SlashCommandContext,
+  _ctx: Context | undefined,
+  slugOrName: string,
+  newName: string,
+) {
   const manifest = await loadManifest(opts.paths?.globalConfig);
   const project = findProject(manifest, slugOrName);
   if (!project) {
-    return { message: color.red(`Project not found: "${slugOrName}". Use /project list to see available projects.`) };
+    return {
+      message: color.red(
+        `Project not found: "${slugOrName}". Use /project list to see available projects.`,
+      ),
+    };
   }
 
   const oldName = project.name;
@@ -227,13 +260,21 @@ async function renameProjectCommand(opts: SlashCommandContext, _ctx: Context | u
 
 // ── Remove ──────────────────────────────────────────────────────────────
 
-async function removeProjectCommand(opts: SlashCommandContext, _ctx: Context | undefined, slugOrName: string) {
+async function removeProjectCommand(
+  opts: SlashCommandContext,
+  _ctx: Context | undefined,
+  slugOrName: string,
+) {
   const manifest = await loadManifest(opts.paths?.globalConfig);
   const idx = manifest.projects.findIndex(
     (p) => p.slug === slugOrName || p.name.toLowerCase() === slugOrName.toLowerCase(),
   );
   if (idx === -1) {
-    return { message: color.red(`Project not found: "${slugOrName}". Use /project list to see available projects.`) };
+    return {
+      message: color.red(
+        `Project not found: "${slugOrName}". Use /project list to see available projects.`,
+      ),
+    };
   }
 
   const removed = manifest.projects.at(idx)!;
@@ -241,13 +282,20 @@ async function removeProjectCommand(opts: SlashCommandContext, _ctx: Context | u
   await saveManifest(manifest, opts.paths?.globalConfig);
 
   return {
-    message: color.dim(`Removed: "${removed.name}" (${removed.root}) — data directory kept at ~/.wrongstack/projects/${removed.slug}/`),
+    message: color.dim(
+      `Removed: "${removed.name}" (${removed.root}) — data directory kept at ~/.wrongstack/projects/${removed.slug}/`,
+    ),
   };
 }
 
 // ── Switch ──────────────────────────────────────────────────────────────
 
-async function switchProjectCommand(opts: SlashCommandContext, ctx: Context | undefined, target: string, displayName?: string) {
+async function switchProjectCommand(
+  opts: SlashCommandContext,
+  ctx: Context | undefined,
+  target: string,
+  displayName?: string,
+) {
   const resolved = path.resolve(ctx?.projectRoot ?? ctx?.cwd ?? process.cwd(), target);
 
   try {
@@ -271,7 +319,11 @@ async function switchProjectCommand(opts: SlashCommandContext, ctx: Context | un
   } catch {
     cliPath = process.argv[1] ?? '';
     if (!cliPath) {
-      return { message: color.red('Could not locate the CLI entry point. Run `wstack` manually in the target directory.') };
+      return {
+        message: color.red(
+          'Could not locate the CLI entry point. Run `wstack` manually in the target directory.',
+        ),
+      };
     }
   }
 
@@ -343,10 +395,7 @@ async function confirmProjectSwitch(
   if (!hasActiveAgents) return true;
 
   // Build the warning message
-  const parts: string[] = [
-    color.yellow(`⚠  Switching projects will stop all running agents.`),
-    '',
-  ];
+  const parts: string[] = [color.yellow(`⚠  Switching projects will stop all running agents.`), ''];
   if (fleetRunning > 0) {
     parts.push(color.dim(`  • ${fleetRunning} subagent(s) currently running`));
   }
@@ -468,7 +517,9 @@ async function spawnInProject(
     cliPath = process.argv[1] ?? '';
     if (!cliPath) {
       return {
-        message: color.red('Could not locate the CLI entry point. Run `wstack` manually in the target directory.'),
+        message: color.red(
+          'Could not locate the CLI entry point. Run `wstack` manually in the target directory.',
+        ),
       };
     }
   }
@@ -586,11 +637,17 @@ async function handlePrevSessions(
       color.dim(`${s.tokenTotal.toLocaleString()} tok`),
       s.toolCallCount ? color.cyan(`${s.toolCallCount} calls`) : '',
       s.iterationCount ? color.dim(`${s.iterationCount} iter`) : '',
-    ].filter(Boolean).join(' ');
-    const outcome = s.outcome === 'completed' ? color.green('✓')
-      : s.outcome === 'aborted' ? color.yellow('⚠')
-      : s.outcome === 'error' ? color.red('✗')
-      : color.dim('?');
+    ]
+      .filter(Boolean)
+      .join(' ');
+    const outcome =
+      s.outcome === 'completed'
+        ? color.green('✓')
+        : s.outcome === 'aborted'
+          ? color.yellow('⚠')
+          : s.outcome === 'error'
+            ? color.red('✗')
+            : color.dim('?');
 
     lines.push(`  ${marker} ${color.bold(s.id)}  ${date}`);
     lines.push(`       ${stats}  ${outcome}  ${color.dim(s.title)}`);

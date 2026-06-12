@@ -63,12 +63,17 @@ port.on('message', (msg: HostToWorker) => {
   }
   void dispatch(msg).then(
     (result) => post({ type: 'response', id: msg.id, ok: true, result }),
-    (err: unknown) =>
-      post({
-        type: 'response',
-        id: msg.id,
-        ok: false,
-        error: err instanceof Error ? err.message : String(err),
-      }),
+    (err: unknown) => {
+      try {
+        post({
+          type: 'response',
+          id: msg.id,
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      } catch {
+        // postMessage to a closed port — nothing we can do; drop the response.
+      }
+    },
   );
 });

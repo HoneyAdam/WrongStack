@@ -1,15 +1,15 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import {
+  atomicWrite,
+  ConfigError,
   type ConfigStore,
-  type SecretVault,
   color,
   decryptConfigSecrets,
-  encryptConfigSecrets,
-  atomicWrite,
-  FsError,
-  ConfigError,
   ERROR_CODES,
+  encryptConfigSecrets,
+  FsError,
+  type SecretVault,
 } from '@wrongstack/core';
 import type { ReadlineInputReader } from './input-reader.js';
 import type { TerminalRenderer } from './renderer.js';
@@ -58,11 +58,20 @@ export async function runSettingsMenu(deps: SettingsMenuDeps): Promise<number> {
   }
 }
 
-function renderSettingsTopMenu(renderer: TerminalRenderer, config: { autonomy?: { autoProceedDelayMs?: number | undefined; defaultMode?: string | undefined } | undefined }): void {
+function renderSettingsTopMenu(
+  renderer: TerminalRenderer,
+  config: {
+    autonomy?:
+      | { autoProceedDelayMs?: number | undefined; defaultMode?: string | undefined }
+      | undefined;
+  },
+): void {
   const delay = config.autonomy?.autoProceedDelayMs ?? 45_000;
   const defMode = config.autonomy?.defaultMode ?? 'off';
   renderer.write(`\n${color.bold('WrongStack')} ${color.dim('— Settings')}\n\n`);
-  renderer.write(`  ${color.bold('1.')} auto-proceed delay:    ${color.cyan(formatDelay(delay))} (in auto mode, wait before continuing)\n`);
+  renderer.write(
+    `  ${color.bold('1.')} auto-proceed delay:    ${color.cyan(formatDelay(delay))} (in auto mode, wait before continuing)\n`,
+  );
   renderer.write(`  ${color.bold('2.')} default autonomy mode: ${color.cyan(defMode)}\n`);
   renderer.write(`\n  ${color.dim('Actions:')}\n`);
   renderer.write(`    ${color.bold('1')}       Edit auto-proceed delay\n`);
@@ -72,9 +81,17 @@ function renderSettingsTopMenu(renderer: TerminalRenderer, config: { autonomy?: 
 }
 
 async function editAutoProceedDelay(deps: SettingsMenuDeps): Promise<void> {
-  deps.renderer.write(`\n${color.bold('Auto-proceed delay')} ${color.dim('— wait time before auto-continuing in auto mode')}\n`);
-  deps.renderer.write(color.dim(`  Current: ${formatDelay(deps.configStore.get().autonomy?.autoProceedDelayMs ?? 45_000)}\n`));
-  deps.renderer.write(color.dim(`  Enter value in SECONDS (e.g. 30 for 30 seconds, 0 to disable)\n`));
+  deps.renderer.write(
+    `\n${color.bold('Auto-proceed delay')} ${color.dim('— wait time before auto-continuing in auto mode')}\n`,
+  );
+  deps.renderer.write(
+    color.dim(
+      `  Current: ${formatDelay(deps.configStore.get().autonomy?.autoProceedDelayMs ?? 45_000)}\n`,
+    ),
+  );
+  deps.renderer.write(
+    color.dim(`  Enter value in SECONDS (e.g. 30 for 30 seconds, 0 to disable)\n`),
+  );
 
   const raw = (await deps.reader.readLine(`  ${color.amber('?')} Delay (seconds): `)).trim();
   if (!raw || raw === 'q') return;
@@ -96,10 +113,14 @@ async function editDefaultAutonomy(deps: SettingsMenuDeps): Promise<void> {
   deps.renderer.write(`\n${color.bold('Default Autonomy Mode')}\n\n`);
   deps.renderer.write(`  ${color.bold('1.')} off     — agent stops after each turn (normal)\n`);
   deps.renderer.write(`  ${color.bold('2.')} suggest — shows next-step suggestions\n`);
-  deps.renderer.write(`  ${color.bold('3.')} auto    — self-driving, agent continues automatically\n`);
+  deps.renderer.write(
+    `  ${color.bold('3.')} auto    — self-driving, agent continues automatically\n`,
+  );
   deps.renderer.write(`  ${color.bold('q')}  Quit without changing\n`);
 
-  const raw = (await deps.reader.readLine(`  ${color.amber('?')} Default mode: `)).trim().toLowerCase();
+  const raw = (await deps.reader.readLine(`  ${color.amber('?')} Default mode: `))
+    .trim()
+    .toLowerCase();
   if (!raw || raw === 'q') return;
 
   const modes = ['off', 'suggest', 'auto'];
@@ -122,7 +143,9 @@ async function editDefaultAutonomy(deps: SettingsMenuDeps): Promise<void> {
 
 async function showDefaults(deps: SettingsMenuDeps): Promise<void> {
   deps.renderer.write(`\n${color.bold('Default Values')}\n\n`);
-  deps.renderer.write(`  auto-proceed delay:    ${color.cyan('45s')} (WRONGSTACK_AUTO_PROCEED_DELAY_MS env)\n`);
+  deps.renderer.write(
+    `  auto-proceed delay:    ${color.cyan('45s')} (WRONGSTACK_AUTO_PROCEED_DELAY_MS env)\n`,
+  );
   deps.renderer.write(`  default autonomy mode:  ${color.cyan('off')}\n`);
   deps.renderer.write(`  iteration timeout:      ${color.cyan('5 min')}\n`);
   deps.renderer.write(`  session timeout:        ${color.cyan('30 min')}\n`);
@@ -214,7 +237,13 @@ export function filterSafeForProject(cfg: Record<string, unknown>): Record<strin
  */
 export async function persistAutonomySetting(
   deps: PersistSettingDeps,
-  mutator: (autonomy: { autoProceedDelayMs?: number | undefined; defaultMode?: string | undefined; enhance?: boolean | undefined; enhanceDelayMs?: number | undefined; enhanceLanguage?: string | undefined }) => void,
+  mutator: (autonomy: {
+    autoProceedDelayMs?: number | undefined;
+    defaultMode?: string | undefined;
+    enhance?: boolean | undefined;
+    enhanceDelayMs?: number | undefined;
+    enhanceLanguage?: string | undefined;
+  }) => void,
 ): Promise<void> {
   const targetPath = resolvePersistPath(deps);
   await ensureProjectDir(targetPath);
@@ -253,7 +282,9 @@ export async function persistAutonomySetting(
 
   const decrypted = decryptConfigSecrets(parsed, deps.vault) as Record<string, unknown>;
   const autonomy = (decrypted.autonomy as Record<string, unknown>) ?? {};
-  mutator(autonomy as { autoProceedDelayMs?: number | undefined; defaultMode?: string | undefined });
+  mutator(
+    autonomy as { autoProceedDelayMs?: number | undefined; defaultMode?: string | undefined },
+  );
   decrypted.autonomy = autonomy;
 
   // Re-resolve path — the mutator might have changed configScope.
@@ -270,13 +301,16 @@ export async function persistAutonomySetting(
 
   // When writing to the project-local config, strip credentials so
   // apiKey / providers / sync never leak into a per-project file.
-  const toWrite = actualTarget === deps.globalConfigPath ? decrypted : filterSafeForProject(decrypted);
+  const toWrite =
+    actualTarget === deps.globalConfigPath ? decrypted : filterSafeForProject(decrypted);
 
   const encrypted = encryptConfigSecrets(toWrite, deps.vault);
   await atomicWrite(actualTarget, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
 
   // Also update the in-memory config store so changes are immediately visible
-  deps.configStore.update({ autonomy: decrypted.autonomy as Parameters<typeof deps.configStore.update>[0]['autonomy'] });
+  deps.configStore.update({
+    autonomy: decrypted.autonomy as Parameters<typeof deps.configStore.update>[0]['autonomy'],
+  });
 }
 
 /**
@@ -344,7 +378,8 @@ export async function persistConfigSetting(
 
   // When writing to the project-local config, strip credentials so
   // apiKey / providers / sync never leak into a per-project file.
-  const toWrite = actualTarget === deps.globalConfigPath ? decrypted : filterSafeForProject(decrypted);
+  const toWrite =
+    actualTarget === deps.globalConfigPath ? decrypted : filterSafeForProject(decrypted);
 
   const encrypted = encryptConfigSecrets(toWrite, deps.vault);
   await atomicWrite(actualTarget, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
@@ -377,7 +412,9 @@ export async function persistTelegramConfig(
     parsed = JSON.parse(raw) as Record<string, unknown>;
   } catch (err) {
     if (fileExists) {
-      throw new Error(`Config at ${deps.globalConfigPath} is not valid JSON: ${(err as Error).message}`);
+      throw new Error(
+        `Config at ${deps.globalConfigPath} is not valid JSON: ${(err as Error).message}`,
+      );
     }
     parsed = {};
   }
@@ -393,13 +430,23 @@ export async function persistTelegramConfig(
   await atomicWrite(deps.globalConfigPath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
 
   // Also update the in-memory config store so changes are immediately visible
-  deps.configStore.update({ extensions: extensions as NonNullable<Parameters<typeof deps.configStore.update>[0]['extensions']> });
+  deps.configStore.update({
+    extensions: extensions as NonNullable<
+      Parameters<typeof deps.configStore.update>[0]['extensions']
+    >,
+  });
 }
 
 /** Interactive-menu adapter over {@link persistAutonomySetting}. */
 function mutateAutonomyConfig(
   deps: SettingsMenuDeps,
-  mutator: (autonomy: { autoProceedDelayMs?: number | undefined; defaultMode?: string | undefined; enhance?: boolean | undefined; enhanceDelayMs?: number | undefined; enhanceLanguage?: string | undefined }) => void,
+  mutator: (autonomy: {
+    autoProceedDelayMs?: number | undefined;
+    defaultMode?: string | undefined;
+    enhance?: boolean | undefined;
+    enhanceDelayMs?: number | undefined;
+    enhanceLanguage?: string | undefined;
+  }) => void,
 ): Promise<void> {
   return persistAutonomySetting(deps, mutator);
 }

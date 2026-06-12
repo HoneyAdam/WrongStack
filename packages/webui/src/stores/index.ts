@@ -8,6 +8,7 @@ export type {
   SessionHistoryEntry,
   SubagentView,
   SubagentEvent,
+  FleetTimelineEvent,
 } from './types.js';
 
 export { useChatStore } from './chat-store.js';

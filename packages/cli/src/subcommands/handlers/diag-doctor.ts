@@ -50,7 +50,9 @@ export const doctorCmd: SubcommandHandler = async (_args, deps) => {
   else checks.push({ name: 'model', status: 'ok', detail: cfg.model });
   if (cfg.provider) {
     const providerCfg = (
-      cfg.providers as Record<string, { apiKey?: string | undefined; envVars?: string[] | undefined }> | undefined
+      cfg.providers as
+        | Record<string, { apiKey?: string | undefined; envVars?: string[] | undefined }>
+        | undefined
     )?.[cfg.provider];
     const hasVaultKey = typeof providerCfg?.apiKey === 'string' && providerCfg.apiKey.length > 0;
     const envHit = providerCfg?.envVars?.some((v) => process.env[v]) ?? false;
@@ -115,7 +117,12 @@ export const doctorCmd: SubcommandHandler = async (_args, deps) => {
   }
   const mcpEntries = Object.entries(cfg.mcpServers ?? {}) as [
     string,
-    { enabled?: boolean | undefined; transport?: string | undefined; command?: string | undefined; url?: string | undefined },
+    {
+      enabled?: boolean | undefined;
+      transport?: string | undefined;
+      command?: string | undefined;
+      url?: string | undefined;
+    },
   ][];
   for (const [name, srv] of mcpEntries) {
     if (!srv.enabled) continue;

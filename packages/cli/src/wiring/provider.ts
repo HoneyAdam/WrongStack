@@ -1,9 +1,6 @@
-import { ProviderRegistry, type Config, type Logger, type ModelsRegistry } from '@wrongstack/core';
 import type { ResolvedProvider } from '@wrongstack/core';
-import {
-  buildProviderFactoriesFromRegistry,
-  makeProviderFromConfig,
-} from '@wrongstack/providers';
+import { type Config, type Logger, type ModelsRegistry, ProviderRegistry } from '@wrongstack/core';
+import { buildProviderFactoriesFromRegistry, makeProviderFromConfig } from '@wrongstack/providers';
 
 export interface ProviderSetupResult {
   resolvedProvider: ResolvedProvider | undefined;
@@ -74,9 +71,7 @@ export async function setupProvider(params: {
       provider = makeProviderFromConfig(config.provider, cfgWithType);
     }
   } catch (err) {
-    throw new Error(
-      `Failed to create provider: ${err instanceof Error ? err.message : err}`,
-    );
+    throw new Error(`Failed to create provider: ${err instanceof Error ? err.message : err}`);
   }
 
   return { resolvedProvider, provider, providerRegistry };

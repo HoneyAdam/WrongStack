@@ -109,6 +109,27 @@ export function startHeapWatchdog(opts: HeapWatchdogOptions = {}): () => void {
   };
 
   const tick = (): void => {
+    // User-timing hygiene. Node keeps every performance.mark()/measure()
+    // entry in the global timeline until explicitly cleared — there is no
+    // browser DevTools consuming them. React's development build (Component
+    // Performance Track) measures every component render, which leaked
+    // ~3 GB of PerformanceMeasure objects over a long TUI session before
+    // NODE_ENV defaulted to production. Clearing here is belt-and-braces
+    // against ANY dependency that emits user timings; the per-interval
+    // count is logged so a regression is visible in heap.jsonl.
+    let userTimings = 0;
+    try {
+      userTimings =
+        performance.getEntriesByType('mark').length +
+        performance.getEntriesByType('measure').length;
+      if (userTimings > 0) {
+        performance.clearMarks();
+        performance.clearMeasures();
+      }
+    } catch {
+      // performance API unavailable — nothing to clean
+    }
+
     const s = takeHeapSample();
 
     // Threshold callbacks — critical first so a single giant jump surfaces
@@ -147,7 +168,7 @@ export function startHeapWatchdog(opts: HeapWatchdogOptions = {}): () => void {
       } catch {
         // collectStats must not break sampling
       }
-      append(JSON.stringify({ pid: process.pid, ...s, ...extras }));
+      append(JSON.stringify({ pid: process.pid, ...s, userTimings, ...extras }));
     }
   };
 

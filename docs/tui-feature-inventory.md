@@ -4,6 +4,11 @@ Exhaustive list of all user-facing features in the TUI (`@wrongstack/tui`).
 This document serves as the specification for WebUI feature parity.
 
 Generated: 2026-06-09
+Last updated: 2026-06-12
+
+> **WebUI parity status (as of 2026-06-12):** Most TUI features are now implemented in the WebUI.
+> The remaining gaps are: status bar depth (TUI has 3 lines, WebUI has 1), and the Unicode sub-cell
+> context fill bar precision. See the summary table at the bottom for the full current status.
 
 ---
 
@@ -299,23 +304,23 @@ Generated: 2026-06-09
 | Capability | TUI Has | WebUI Status |
 |---|---|---|
 | Status bar (3 lines) | ✅ | ⚠️ Partial (1-line header + sub-bar) |
-| Context fill bar (visual) | ✅ | ❌ Text-only |
-| Context mode management | ✅ (via /) | ⚠️ Dropdown picker only |
-| Context operations (clear/compact/repair/debug) | ✅ | ⚠️ WS types exist, no UI |
-| Agents Monitor (full overlay) | ✅ | ❌ Basic card-based panel |
-| Fleet Monitor (dashboard) | ✅ | ❌ |
-| Per-agent context bars | ✅ | ⚠️ In cards only |
-| Per-agent sparklines | ✅ | ❌ |
-| Per-agent budget warnings | ✅ | ❌ |
-| Per-agent failure reasons | ✅ | ❌ |
-| Per-agent streaming tail | ✅ | ⚠️ In AgentDetail overlay |
-| Per-agent tool log | ✅ | ⚠️ In AgentDetail overlay |
-| Fleet-wide token aggregation | ✅ | ❌ |
-| Fleet concurrency gauge | ✅ | ❌ |
-| Fleet event timeline | ✅ | ❌ |
-| Leader tracking | ✅ | ❌ |
-| Keyboard navigation (agents) | ✅ | ❌ |
-| Agent selection + detail | ✅ | ⚠️ Click-only |
+| Context fill bar (visual) | ✅ | ⚠️ Text + progress bar, Unicode sub-cell bar pending |
+| Context mode management | ✅ (via /) | ✅ Dropdown picker + wrench ops menu |
+| Context operations (clear/compact/repair/debug) | ✅ | ✅ Ops dropdown in ContextModePicker |
+| Agents Monitor (full overlay) | ✅ | ✅ `AgentsMonitor.tsx` — sparklines, streaming tail, tool log, budget warnings |
+| Fleet Monitor (dashboard) | ✅ | ✅ `FleetMonitor.tsx` — table, sparklines, context bars, token aggregation, timeline |
+| Per-agent context bars | ✅ | ✅ Visual progress bars in FleetMonitor + FleetPanel |
+| Per-agent sparklines | ✅ | ✅ `SparklineChart` in FleetMonitor + FleetPanel |
+| Per-agent budget warnings | ✅ | ✅ Derived from `ctx_pct >= 80%`; rendered in all fleet components |
+| Per-agent failure reasons | ✅ | ✅ Rendered in FleetMonitor + FleetPanel |
+| Per-agent streaming tail | ✅ | ✅ In `AgentsMonitor` + `FleetPanel` AgentDetail |
+| Per-agent tool log | ✅ | ✅ In `AgentsMonitor` + `FleetPanel` AgentDetail |
+| Fleet-wide token aggregation | ✅ | ✅ `fleetTokensIn/Out` in store, shown in FleetMonitor header |
+| Fleet concurrency gauge | ✅ | ✅ `ConcurrencyGauge` + `fleet.concurrency_update` event wired |
+| Fleet event timeline | ✅ | ✅ `EventTimeline` component in FleetMonitor |
+| Leader tracking | ✅ | ✅ End-to-end: server → ws-handler → fleet store → UI crown badge |
+| Keyboard navigation (agents) | ✅ | ✅ ↑↓ arrows in FleetMonitor + AgentsMonitor |
+| Agent selection + detail | ✅ | ✅ Click + keyboard in both monitors |
 | Keyboard shortcuts | ✅ | ✅ |
 | Goal panel | ✅ | ✅ |
 | Phase panel/monitor | ✅ | ✅ |

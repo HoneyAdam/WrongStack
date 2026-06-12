@@ -1,26 +1,26 @@
+import type { TextBlock } from '@wrongstack/core';
 import {
+  type Config,
+  createContextManagerTool,
+  type DefaultMemoryStore,
   type DefaultModelsRegistry,
+  DefaultModeStore,
   DefaultSkillLoader,
   DefaultSystemPromptBuilder,
-  type DefaultMemoryStore,
-  DefaultModeStore,
-  createContextManagerTool,
-  type Config,
+  makeMailboxTool,
+  makeMailInboxTool,
+  makeMailSendTool,
+  TOKENS,
   type ToolRegistry,
   type WstackPaths,
-  TOKENS,
-  makeMailboxTool,
-  makeMailSendTool,
-  makeMailInboxTool,
 } from '@wrongstack/core';
 import {
   builtinToolsPack,
   forgetTool,
+  relatedMemoryTool,
   rememberTool,
   searchMemoryTool,
-  relatedMemoryTool,
 } from '@wrongstack/tools';
-import type { TextBlock } from '@wrongstack/core';
 import { resolveBundledSkillsDir } from '../cli-bundled-skills.js';
 
 export interface ToolsWiringDeps {
@@ -44,7 +44,8 @@ export interface ToolsWiringResult {
 }
 
 export async function setupTools(params: ToolsWiringDeps): Promise<ToolsWiringResult> {
-  const { config, toolRegistry, modelsRegistry, memoryStore, wpaths, container, projectRoot, cwd } = params;
+  const { config, toolRegistry, modelsRegistry, memoryStore, wpaths, container, projectRoot, cwd } =
+    params;
 
   // Tool registry — already created by caller, just configure it here
   toolRegistry.registerAllOrThrow([...(builtinToolsPack.tools ?? [])], builtinToolsPack.name);

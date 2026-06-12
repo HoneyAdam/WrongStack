@@ -13,9 +13,9 @@
  *   subagent.spawned / task_started / tool_executed / iteration_summary /
  *   task_completed.
  */
-import { color } from '@wrongstack/core';
+
 import type { EventBus } from '@wrongstack/core';
-import { onResize } from '@wrongstack/core';
+import { color, onResize } from '@wrongstack/core';
 
 export interface FleetAgentState {
   id: string;
@@ -68,7 +68,9 @@ export function renderFleetLine(
   const done = all.filter((a) => a.status === 'done').length;
   const failed = all.filter((a) => a.status === 'failed').length;
 
-  const versionChip = version ? `${color.bold('WS')}${color.dim(` v${version}`)} ${color.dim('│')} ` : '';
+  const versionChip = version
+    ? `${color.bold('WS')}${color.dim(` v${version}`)} ${color.dim('│')} `
+    : '';
   const counts =
     versionChip +
     `${color.cyan('⟳ fleet')} ` +
@@ -91,7 +93,8 @@ export function renderFleetLine(
       );
     });
 
-  let line = shown.length > 0 ? `${counts} ${color.dim('│')} ${shown.join(color.dim('  ·  '))}` : counts;
+  let line =
+    shown.length > 0 ? `${counts} ${color.dim('│')} ${shown.join(color.dim('  ·  '))}` : counts;
 
   // Hard cap to terminal width so the line never wraps and corrupts the
   // scroll region. Strip-aware truncation isn't worth it here — cap on the

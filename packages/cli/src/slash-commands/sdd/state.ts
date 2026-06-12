@@ -15,20 +15,48 @@ export class SDDState {
   private phaseStartTime: number = Date.now();
   private versioning: SpecVersioning | null = null;
 
-  getBuilder(): AISpecBuilder | null { return this.builder; }
-  setBuilder(b: AISpecBuilder | null) { this.builder = b; }
-  getTaskStore(): DefaultTaskStore | null { return this.taskStore; }
-  setTaskStore(s: DefaultTaskStore | null) { this.taskStore = s; }
-  getTaskTracker(): TaskTracker | null { return this.taskTracker; }
-  setTaskTracker(t: TaskTracker | null) { this.taskTracker = t; }
-  getTaskGraphId(): string | null { return this.taskGraphId; }
-  setTaskGraphId(id: string | null) { this.taskGraphId = id; }
-  getSessionStartTime(): number { return this.sessionStartTime; }
-  setSessionStartTime(t: number) { this.sessionStartTime = t; }
-  setPhaseStartTime(t: number) { this.phaseStartTime = t; }
-  getPhaseStartTime(): number { return this.phaseStartTime; }
-  getSessionElapsed(): number { return Date.now() - this.sessionStartTime; }
-  getPhaseElapsed(): number { return Date.now() - this.phaseStartTime; }
+  getBuilder(): AISpecBuilder | null {
+    return this.builder;
+  }
+  setBuilder(b: AISpecBuilder | null) {
+    this.builder = b;
+  }
+  getTaskStore(): DefaultTaskStore | null {
+    return this.taskStore;
+  }
+  setTaskStore(s: DefaultTaskStore | null) {
+    this.taskStore = s;
+  }
+  getTaskTracker(): TaskTracker | null {
+    return this.taskTracker;
+  }
+  setTaskTracker(t: TaskTracker | null) {
+    this.taskTracker = t;
+  }
+  getTaskGraphId(): string | null {
+    return this.taskGraphId;
+  }
+  setTaskGraphId(id: string | null) {
+    this.taskGraphId = id;
+  }
+  getSessionStartTime(): number {
+    return this.sessionStartTime;
+  }
+  setSessionStartTime(t: number) {
+    this.sessionStartTime = t;
+  }
+  setPhaseStartTime(t: number) {
+    this.phaseStartTime = t;
+  }
+  getPhaseStartTime(): number {
+    return this.phaseStartTime;
+  }
+  getSessionElapsed(): number {
+    return Date.now() - this.sessionStartTime;
+  }
+  getPhaseElapsed(): number {
+    return Date.now() - this.phaseStartTime;
+  }
   getVersioning(): SpecVersioning {
     if (this.versioning === null) this.versioning = new SpecVersioning();
     return this.versioning;

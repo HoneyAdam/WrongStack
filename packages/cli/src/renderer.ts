@@ -177,14 +177,14 @@ export class TerminalRenderer implements Renderer {
     const boxWidth = Math.min(Math.max(contentWidth + 4, 44), maxWidth);
 
     const thick = '━'.repeat(boxWidth - 2);
-    const thin  = '─'.repeat(boxWidth - 2);
+    const thin = '─'.repeat(boxWidth - 2);
 
     this.out.write(`\n ${theme.primary('┌')}${thick}${theme.primary('┐')}\n`);
 
     const centre = (s: string) => {
       const inner = ` ${s} `;
       const padLen = Math.max(0, boxWidth - 2 - s.length);
-      const left  = Math.floor(padLen / 2);
+      const left = Math.floor(padLen / 2);
       const right = padLen - left;
       return `${' '.repeat(left)}${inner}${' '.repeat(right)}`;
     };
@@ -206,7 +206,10 @@ export class TerminalRenderer implements Renderer {
    * Uses `delegateSummaries` when available (populated by delegate tool),
    * otherwise falls back to scanning message history.
    */
-  writeDelegateSummaries(result: { delegateSummaries?: Array<{ summary: string | undefined; ok: boolean }>; messages?: Array<unknown> | undefined }): void {
+  writeDelegateSummaries(result: {
+    delegateSummaries?: Array<{ summary: string | undefined; ok: boolean }>;
+    messages?: Array<unknown> | undefined;
+  }): void {
     if (this.silent) return;
     // Prefer the structured field from delegate tool.
     if (result.delegateSummaries) {
@@ -222,7 +225,11 @@ export class TerminalRenderer implements Renderer {
       const m = msg as { content?: Array<unknown> | undefined };
       if (!Array.isArray(m.content)) continue;
       for (const block of m.content) {
-        const b = block as { type?: string | undefined; name?: string | undefined; content?: unknown | undefined };
+        const b = block as {
+          type?: string | undefined;
+          name?: string | undefined;
+          content?: unknown | undefined;
+        };
         if (b.type !== 'tool_result' || b.name !== 'delegate') continue;
         let obj: unknown;
         try {

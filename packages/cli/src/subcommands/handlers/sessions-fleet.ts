@@ -89,9 +89,7 @@ async function listFleetRuns(deps: SubcommandDeps): Promise<number> {
       `  ${color.bold(r.id)}  ${checkpointFlag} checkpoint  ${manifestFlag} manifest${subagentInfo}\n`,
     );
   }
-  deps.renderer.write(
-    `\n  ${color.dim('Run `wrongstack sessions fleet <runId>` for details.')}\n`,
-  );
+  deps.renderer.write(`\n  ${color.dim('Run `wrongstack sessions fleet <runId>` for details.')}\n`);
   return 0;
 }
 
@@ -121,7 +119,13 @@ async function showFleetRun(runId: string, deps: SubcommandDeps): Promise<number
     const manifest = JSON.parse(manifestData);
     const subagents = manifest.subagents ?? [];
     const tasks = manifest.tasks ?? [];
-    const completed = tasks.filter((t: { status?: string | undefined }) => t.status === 'completed' || t.status === 'failed' || t.status === 'timeout' || t.status === 'stopped');
+    const completed = tasks.filter(
+      (t: { status?: string | undefined }) =>
+        t.status === 'completed' ||
+        t.status === 'failed' ||
+        t.status === 'timeout' ||
+        t.status === 'stopped',
+    );
     deps.renderer.write(
       `  ${color.green('✓')} fleet.json — ${subagents.length} subagent(s), ${completed.length}/${tasks.length} tasks done\n`,
     );
@@ -197,7 +201,10 @@ async function showFleetRun(runId: string, deps: SubcommandDeps): Promise<number
       } catch {
         size = 0;
       }
-      const sizeStr = size > 1024 * 1024 ? `${(size / 1024 / 1024).toFixed(1)}MB` : `${(size / 1024).toFixed(0)}KB`;
+      const sizeStr =
+        size > 1024 * 1024
+          ? `${(size / 1024 / 1024).toFixed(1)}MB`
+          : `${(size / 1024).toFixed(0)}KB`;
       deps.renderer.write(`    ${color.dim(f)}  ${color.dim(sizeStr)}\n`);
     }
   } else {
@@ -213,8 +220,6 @@ async function showFleetRun(runId: string, deps: SubcommandDeps): Promise<number
     deps.renderer.write(`\n  ${color.dim('○')} No shared scratchpad\n`);
   }
 
-  deps.renderer.write(
-    `\n  ${color.dim('Resume: wrongstack --resume ' + runId)}\n`,
-  );
+  deps.renderer.write(`\n  ${color.dim('Resume: wrongstack --resume ' + runId)}\n`);
   return 0;
 }

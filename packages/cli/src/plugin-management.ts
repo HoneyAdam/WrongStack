@@ -1,5 +1,5 @@
 import * as fs from 'node:fs/promises';
-import { type Config, type PluginConfig, atomicWrite } from '@wrongstack/core';
+import { atomicWrite, type Config, type PluginConfig } from '@wrongstack/core';
 
 export const OFFICIAL_PLUGINS = [
   {

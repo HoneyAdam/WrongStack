@@ -1,97 +1,102 @@
-import { expectDefined } from '@wrongstack/core';
-import * as path from 'node:path';
-import * as fs from 'node:fs/promises';
 import { spawn } from 'node:child_process';
-import type { CommitLLMProvider } from './slash-commands/commit-llm.js';
-import { generateCommitMessageWithLLM } from './slash-commands/commit-llm.js';
-import { makeProviderClassifier } from './slash-commands/dispatch-llm.js';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import {
-  BrainDecisionQueue,
-  type Config,
-  DefaultBrainArbiter,
-  DefaultPathResolver,
-  HumanEscalatingBrainArbiter,
-  DefaultSystemPromptBuilder,
-  makeAutonomyPromptContributor,
-  ObservableBrainArbiter,
-  type Director,
-  EventBus,
-  FLEET_ROSTER,
-  type ProviderRegistry,
-  SlashCommandRegistry,
-  type SystemPromptBuilder,
-  TOKENS,
-  ToolRegistry,
+  type AutonomyStage,
   allServers,
+  attachDepWatcherBridge,
+  type BrainAutoRisk,
+  BrainDecisionQueue,
+  BrainMonitor,
+  type Config,
   color,
+  createAutonomyBrain,
   createContextManagerTool,
-  EternalAutonomyEngine,
-  ParallelEternalEngine,
   createDelegateTool,
   createMcpControlTool,
+  createSessionEventBridge,
+  createTieredBrainArbiter,
+  DefaultBrainArbiter,
+  DefaultPathResolver,
+  DefaultSystemPromptBuilder,
+  type Director,
+  EternalAutonomyEngine,
+  EventBus,
+  expectDefined,
+  type FileAuthorTrackerOptions,
+  FLEET_ROSTER,
+  GlobalMailbox,
   HookRegistry,
   HookRunner,
+  HumanEscalatingBrainArbiter,
   isStdinTTY,
   loadDirectorState,
+  mailboxSessionTag,
+  makeAutonomyPromptContributor,
+  makeMailboxTool,
+  makeMailInboxTool,
+  makeMailSendTool,
   mergeCustomModelDefs,
-  writeErr,
-  writeOut,
-  createSessionEventBridge,
+  ObservableBrainArbiter,
+  type PackageAuthorTrackerOptions,
+  ParallelEternalEngine,
+  type ProviderRegistry,
+  recordFileAction,
   resolveSessionLoggingConfig,
   type SessionEventBridge,
-  type AutonomyStage,
   SessionMemoryConsolidator,
-  makeMailboxTool,
-  makeMailSendTool,
-  makeMailInboxTool,
-  GlobalMailbox,
-  mailboxSessionTag,
-  createAutonomyBrain,
-  createTieredBrainArbiter,
-  type BrainAutoRisk,
-  BrainMonitor,
-  attachDepWatcherBridge,
-  startTechStackConsumer,
-  recordFileAction,
-  type FileAuthorTrackerOptions,
+  SlashCommandRegistry,
+  type SystemPromptBuilder,
   startPackageOutdatedWatcher,
-  type PackageAuthorTrackerOptions,
+  startTechStackConsumer,
+  TOKENS,
+  ToolRegistry,
+  writeErr,
+  writeOut,
 } from '@wrongstack/core';
 import { MCPRegistry } from '@wrongstack/mcp';
 import { capabilitiesFor, makeProviderFromConfig } from '@wrongstack/providers';
-import { resolveRuntimeMaxContext } from './context-limit.js';
 import { createDefaultContainer } from '@wrongstack/runtime';
-import { builtinToolsPack, forgetTool, rememberTool, searchMemoryTool, relatedMemoryTool } from '@wrongstack/tools';
+import {
+  builtinToolsPack,
+  forgetTool,
+  relatedMemoryTool,
+  rememberTool,
+  searchMemoryTool,
+} from '@wrongstack/tools';
+import { createAutoPhaseHost } from './autophase-host.js';
 import { boot } from './boot.js';
+import { resolveBundledSkillsDir } from './cli-bundled-skills.js';
+import { launchEternalFromFlag } from './cli-eternal-flag.js';
+import { promptRecovery } from './cli-recovery-prompt.js';
+import { printUpdateNotice } from './cli-update-notice.js';
+import { resolveRuntimeMaxContext } from './context-limit.js';
 import { type ExecutionDeps, execute } from './execution.js';
+import { createFallbackModelExtension } from './fallback-model.js';
+import { createLifecycleHooksExtension, createUserPromptSubmitMiddleware } from './hooks-wiring.js';
 import { MultiAgentHost } from './multi-agent.js';
 import { makeConfirmAwaiter, makePromptDelegate } from './permission-prompt.js';
 import { runPluginManagementCommand } from './plugin-management.js';
-import { runMcpManagementCommand, parseMcpArgs } from './slash-commands/mcp-utils.js';
 import { buildPickableProviders } from './provider-helpers.js';
-import { bindReplayToContainer } from './wiring/replay.js';
 import { SessionStats } from './session-stats.js';
+import type { CommitLLMProvider } from './slash-commands/commit-llm.js';
+import { generateCommitMessageWithLLM } from './slash-commands/commit-llm.js';
+import { makeProviderClassifier } from './slash-commands/dispatch-llm.js';
 import { buildBuiltinSlashCommands } from './slash-commands/index.js';
-import { setSuggestions, getSuggestions } from './slash-commands/suggestion-store.js';
-import { createAutoPhaseHost } from './autophase-host.js';
+import { parseMcpArgs, runMcpManagementCommand } from './slash-commands/mcp-utils.js';
 import { loadStatuslineConfig, saveStatuslineConfig } from './slash-commands/statusline.js';
+import { getSuggestions, setSuggestions } from './slash-commands/suggestion-store.js';
 import { Spinner } from './spinner.js';
 import { fmtTaskResultLine, patchConfig } from './utils.js';
-import { createAgent, setupCompaction, setupPipelines } from './wiring/pipeline.js';
-import { createFallbackModelExtension } from './fallback-model.js';
-import { createLifecycleHooksExtension, createUserPromptSubmitMiddleware } from './hooks-wiring.js';
-import { setupMetrics } from './wiring/metrics.js';
+import { CLI_VERSION } from './version.js';
 import { setupCodebaseIndexing } from './wiring/codebase-index.js';
+import { setupMetrics } from './wiring/metrics.js';
+import { createAgent, setupCompaction, setupPipelines } from './wiring/pipeline.js';
 import { setupPlugins } from './wiring/plugins.js';
 import { setupProvider } from './wiring/provider.js';
+import { bindReplayToContainer } from './wiring/replay.js';
 import { setupSession } from './wiring/session.js';
 
-import { CLI_VERSION } from './version.js';
-import { resolveBundledSkillsDir } from './cli-bundled-skills.js';
-import { printUpdateNotice } from './cli-update-notice.js';
-import { promptRecovery } from './cli-recovery-prompt.js';
-
-import { launchEternalFromFlag } from './cli-eternal-flag.js';
 export { CLI_VERSION };
 
 type ContainerPromptDelegate = (
@@ -105,6 +110,23 @@ type SddParallelRunGlobal = typeof globalThis & {
 };
 
 export async function main(argv: string[]): Promise<number> {
+  // Default to React/Ink PRODUCTION builds. Without NODE_ENV, the package
+  // exports map resolves react-reconciler.development.js, whose Component
+  // Performance Track calls performance.measure() for EVERY component
+  // render (supportsUserTiming is true under Node — console.timeStamp and
+  // performance.measure both exist). Node retains user-timing entries in
+  // the global timeline until explicitly cleared, so a ticking TUI leaked
+  // ~200 PerformanceMeasure entries/sec → ~3 GB heap over a long session
+  // (root-caused from a live 4.1M-measure heap snapshot, 2026-06-12).
+  // Must run before the lazy `--tui` import evaluates ink/react. Explicit
+  // user/test overrides win (vitest sets NODE_ENV=test). The marker flag
+  // lets buildChildEnv() strip the injected value from child processes —
+  // a leaked NODE_ENV=production would make `pnpm install` skip
+  // devDependencies and flip test-runner behavior.
+  if (process.env['NODE_ENV'] === undefined) {
+    process.env['NODE_ENV'] = 'production';
+    process.env['WRONGSTACK_NODE_ENV_DEFAULTED'] = '1';
+  }
   const ctx = await boot(argv);
   // `wrongstack quick` sets flags.quick = true in boot() and removes 'quick' from
   // positional, so boot() returns BootContext (not a number). Proceed to execute().
@@ -132,8 +154,7 @@ export async function main(argv: string[]): Promise<number> {
   // Seed the stream-debug singleton from persisted config so WireAdapter
   // picks it up on construction. Runtime toggles update this singleton
   // directly; the config file is the source of truth for restarts.
-  const { setDebugStreamEnabled } =
-    await import('@wrongstack/providers');
+  const { setDebugStreamEnabled } = await import('@wrongstack/providers');
   if (config.debugStream) setDebugStreamEnabled(true);
   // Default debug-stream callback is intentionally left unset.
   // The TUI installs its own reducer-bound callback that renders inside
@@ -323,12 +344,20 @@ export async function main(argv: string[]): Promise<number> {
   // REPL/TUI modes keep the EventBus alive across multiple runs — stale
   // handlers from a re-entrant main() would otherwise accumulate.
   const teardownHandlers: Array<() => void> = [];
-  // biome-ignore lint/suspicious/noExplicitAny: event bus uses any for dispatch
-  const evOn = (event: string, handler: (...args: any[]) => void) => {
-    // biome-ignore lint/suspicious/noExplicitAny: type cast for event bus
-    (events.on as (event: string, handler: (...args: any[]) => void) => void)(event, handler);
-    // biome-ignore lint/suspicious/noExplicitAny: type cast for event bus
-    teardownHandlers.push(() => (events.off as (event: string, handler: (...args: any[]) => void) => void)(event, handler));
+  // Variadic helper: EventBus is dynamically typed per-event, but evOn needs to
+  // register many events with different payload shapes. (...args: any) keeps the
+  // handler body type-safe while Biome only flags the parameter declaration line.
+  const evOn = (
+    event: string,
+    handler: (
+      // biome-ignore lint/suspicious/noExplicitAny: dynamic event dispatch — callers use typed payloads
+      ...args: any
+    ) => void,
+  ) => {
+    (events.on as (e: string, h: (...args: any) => void) => void)(event, handler);
+    teardownHandlers.push(() =>
+      (events.off as (e: string, h: (...args: any) => void) => void)(event, handler),
+    );
   };
 
   evOn('provider.response', (e) => {
@@ -454,7 +483,9 @@ export async function main(argv: string[]): Promise<number> {
         timeout: 3000,
         stdio: ['ignore', 'pipe', 'ignore'],
         windowsHide: true,
-      }).toString().trim();
+      })
+        .toString()
+        .trim();
       if (gitBranch === 'HEAD') gitBranch = undefined; // detached HEAD
     } catch {
       // Not a git repo or git not available — leave undefined
@@ -479,11 +510,21 @@ export async function main(argv: string[]): Promise<number> {
       try {
         await registry.markClosing();
         tracker?.stop();
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     };
-    process.once('beforeExit', () => { void cleanup(); });
-    process.once('SIGINT', () => { void cleanup(); process.exit(0); });
-    process.once('SIGTERM', () => { void cleanup(); process.exit(0); });
+    process.once('beforeExit', () => {
+      void cleanup();
+    });
+    process.once('SIGINT', () => {
+      void cleanup();
+      process.exit(0);
+    });
+    process.once('SIGTERM', () => {
+      void cleanup();
+      process.exit(0);
+    });
   } catch {
     // Non-critical — session tracking degrades gracefully
   }
@@ -574,7 +615,10 @@ export async function main(argv: string[]): Promise<number> {
       });
 
     // ── File-author tracking: record which agent wrote/edited files ──
-    if (e.ok && (e.name === 'write' || e.name === 'edit' || e.name === 'replace' || e.name === 'patch')) {
+    if (
+      e.ok &&
+      (e.name === 'write' || e.name === 'edit' || e.name === 'replace' || e.name === 'patch')
+    ) {
       const filePath = (e.input as Record<string, unknown>)?.path as string | undefined;
       if (filePath) {
         const projectDir = path.join(wpaths.globalRoot, 'projects', wpaths.projectSlug);
@@ -802,7 +846,9 @@ export async function main(argv: string[]): Promise<number> {
         watcherAgentId: 'dep-watcher',
         debounceMs: (dwCfg['debounceMs'] as number) ?? 3000,
       });
-      logger.info('Dep-watcher bridge activated — dependency changes will trigger tech-stack audits');
+      logger.info(
+        'Dep-watcher bridge activated — dependency changes will trigger tech-stack audits',
+      );
     } catch (err) {
       logger.warn(`Failed to wire dep-watcher bridge: ${err}`);
     }
@@ -1052,7 +1098,12 @@ export async function main(argv: string[]): Promise<number> {
     });
   });
   evOn('brain.decision_ask_human', (e) => {
-    pushBrainLog({ at: e.at, kind: 'ask_human', question: e.request.question, outcome: 'escalated to human' });
+    pushBrainLog({
+      at: e.at,
+      kind: 'ask_human',
+      question: e.request.question,
+      outcome: 'escalated to human',
+    });
   });
   evOn('brain.decision_denied', (e) => {
     pushBrainLog({
@@ -1181,9 +1232,14 @@ export async function main(argv: string[]): Promise<number> {
         currentAgentId: 'leader',
         currentAgentName: 'Leader',
         onLog: (msg) => logger.debug(msg),
-        onError: (err) => logger.warn(`Tech-stack consumer error: ${err instanceof Error ? err.message : String(err)}`),
+        onError: (err) =>
+          logger.warn(
+            `Tech-stack consumer error: ${err instanceof Error ? err.message : String(err)}`,
+          ),
       });
-      logger.info('Tech-stack mailbox consumer started — will auto-spawn agents on dependency changes');
+      logger.info(
+        'Tech-stack mailbox consumer started — will auto-spawn agents on dependency changes',
+      );
     } catch (err) {
       logger.warn(`Failed to start tech-stack consumer: ${err}`);
     }
@@ -1217,9 +1273,14 @@ export async function main(argv: string[]): Promise<number> {
           });
         },
         onLog: (m) => logger.debug(m),
-        onError: (err) => logger.warn(`Pkg-outdated-watcher error: ${err instanceof Error ? err.message : String(err)}`),
+        onError: (err) =>
+          logger.warn(
+            `Pkg-outdated-watcher error: ${err instanceof Error ? err.message : String(err)}`,
+          ),
       });
-      logger.info('Package outdated watcher started — will notify agents when their added packages are outdated');
+      logger.info(
+        'Package outdated watcher started — will notify agents when their added packages are outdated',
+      );
     } catch (err) {
       logger.warn(`Failed to start package outdated watcher: ${err}`);
     }
@@ -1292,14 +1353,22 @@ export async function main(argv: string[]): Promise<number> {
 
   // Statusline hidden items — derived from the config file, kept in sync with the TUI
   const hiddenItemsFromConfig = await loadStatuslineConfig();
-  const hiddenItemsList: Array<'todos' | 'plan' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost'> = [];
-  const ALL_ITEMS = ['todos', 'plan', 'fleet', 'git', 'elapsed', 'context', 'cost'] as const;
+  const hiddenItemsList: Array<
+    'todos' | 'plan' | 'tasks' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost'
+  > = [];
+  const ALL_ITEMS = ['todos', 'plan', 'tasks', 'fleet', 'git', 'elapsed', 'context', 'cost'] as const;
   for (const k of ALL_ITEMS) {
     if (!hiddenItemsFromConfig[k]) hiddenItemsList.push(k);
   }
   const statuslineHiddenItems = hiddenItemsList;
-  let currentHiddenItems = [...statuslineHiddenItems] as Array<'todos' | 'plan' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost' | 'working_dir'>;
-  const setStatuslineHiddenItems = (items: Array<'todos' | 'plan' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost' | 'working_dir'>) => {
+  let currentHiddenItems = [...statuslineHiddenItems] as Array<
+    'todos' | 'plan' | 'tasks' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost' | 'working_dir'
+  >;
+  const setStatuslineHiddenItems = (
+    items: Array<
+      'todos' | 'plan' | 'tasks' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost' | 'working_dir'
+    >,
+  ) => {
     currentHiddenItems = items;
   };
 
@@ -1350,8 +1419,11 @@ export async function main(argv: string[]): Promise<number> {
     llmProvider: provider,
     llmModel: config.model,
     createProvider: (pid: string) => {
-      try { return buildProviderForId(pid); }
-      catch { return undefined; }
+      try {
+        return buildProviderForId(pid);
+      } catch {
+        return undefined;
+      }
     },
     statuslineConfig: statuslineConfigDeps,
     statuslineHiddenItems: [...currentHiddenItems],
@@ -1400,7 +1472,13 @@ export async function main(argv: string[]): Promise<number> {
 
       const secs = (result.durationMs / 1000).toFixed(result.durationMs < 10_000 ? 1 : 0);
       const icon =
-        result.status === 'success' ? '✓' : result.status === 'timeout' ? '⏱' : result.status === 'stopped' ? '⊘' : '✗';
+        result.status === 'success'
+          ? '✓'
+          : result.status === 'timeout'
+            ? '⏱'
+            : result.status === 'stopped'
+              ? '⊘'
+              : '✗';
       const resultPreview =
         typeof result.result === 'string' && result.result.trim()
           ? `\n${color.dim('─'.repeat(40))}\n${result.result.trim().slice(0, 600)}${result.result.trim().length > 600 ? '\n…' : ''}\n${color.dim('─'.repeat(40))}`
@@ -2252,8 +2330,8 @@ export async function main(argv: string[]): Promise<number> {
       ((config.autonomy as Record<string, unknown> | undefined)?.autoProceedDelayMs as number) ??
       45_000,
     autoProceedMaxIterations:
-      ((config.autonomy as Record<string, unknown> | undefined)?.autoProceedMaxIterations as number) ??
-      50,
+      ((config.autonomy as Record<string, unknown> | undefined)
+        ?.autoProceedMaxIterations as number) ?? 50,
     onValidateAutoProceed: async (suggestion, lastOutput) => {
       try {
         const resp = await context.provider.complete(
@@ -2322,6 +2400,8 @@ export async function main(argv: string[]): Promise<number> {
     brain,
     brainSettings,
     getBrainLog: () => brainLog,
+    // Clean up SessionStats event listeners when the REPL exits.
+    onDestroy: () => stats.destroy(events),
   });
 }
 

@@ -38,7 +38,7 @@ export const DiffView = memo(function DiffView({ oldText, newText, caption }: Di
         <span className="font-mono text-muted-foreground truncate">{caption ?? 'diff'}</span>
         <span className="font-mono shrink-0">
           <span className="text-emerald-600 dark:text-emerald-400">+{adds}</span>
-          <span className="text-muted-foreground mx-1">·</span>
+          <span className="text-muted-foreground mx-1 opacity-50">·</span>
           <span className="text-rose-600 dark:text-rose-400">-{dels}</span>
         </span>
       </div>

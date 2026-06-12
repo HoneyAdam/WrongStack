@@ -122,6 +122,21 @@ export interface SubagentView {
   /** Running log of tool executions: name, ok/fail, duration. Most recent
    *  first, capped at ~50 entries to avoid memory bloat on long runs. */
   toolLog: Array<{ name: string; ok: boolean; durationMs: number; at: number }>;
+  /** 12-bin activity sparkline (0–12, one per 2-second bucket). Each value
+   *  is the count of events in that bucket, normalized to 0–12 for display.
+   *  Updated on tool_executed and iteration_summary events. */
+  sparklineBins: number[];
+  /** Budget warning: subagent hit a soft limit and coordinator is auto-extending.
+   *  Rendered as "⚡ hitting {kind} limit ({used}/{limit}) — extending". */
+  budgetWarning?: { kind: string; used: number; limit: number } | undefined;
+  /** Human-readable reason for terminal failure when status is failed/timeout.
+   *  E.g. "provider_auth", "rate_limit", "timeout", "budget_iterations". */
+  failureReason?: string | undefined;
+  /** True when this is the leader agent (vs. a spawned subagent). */
+  isLeader?: boolean | undefined;
+  /** Per-agent token usage (from ctx_pct event). */
+  tokensIn?: number | undefined;
+  tokensOut?: number | undefined;
 }
 
 /** Discriminated payload mirroring the subagent.* events the backend forwards. */
@@ -134,7 +149,8 @@ export interface SubagentEvent {
     | 'budget_extended'
     | 'ctx_pct'
     | 'task_completed'
-    | 'session_stopped';
+    | 'session_stopped'
+    | 'leader_updated';
   subagentId?: string | undefined;
   /** Session this agent belongs to — forwarded from the server on every subagent event. */
   sessionId?: string | undefined;
@@ -163,4 +179,31 @@ export interface SubagentEvent {
   partialText?: string | undefined;
   /** Final output text (task_completed event). */
   finalText?: string | undefined;
+  /** Failure reason for task_completed with failed/timeout status. */
+  failureReason?: string | undefined;
+  /** True when this event marks the agent as the leader. */
+  isLeader?: boolean | undefined;
+  /** Tokens in/out for fleet-wide aggregation (from ctx_pct event). */
+  tokensIn?: number | undefined;
+  tokensOut?: number | undefined;
+}
+
+/** A single entry in the Fleet Monitor event timeline. */
+export interface FleetTimelineEvent {
+  id: string;
+  kind:
+    | 'spawned'
+    | 'task_started'
+    | 'tool_executed'
+    | 'iteration_summary'
+    | 'budget_extended'
+    | 'task_completed'
+    | 'ctx_pct'
+    | 'leader_updated';
+  agentId: string;
+  agentName: string;
+  timestamp: number;
+  message: string;
+  /** Numeric value for sorting/display (e.g. duration, cost delta). */
+  value?: number | undefined;
 }

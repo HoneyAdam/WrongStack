@@ -1,9 +1,9 @@
-import { expectDefined } from '@wrongstack/core';
 import * as fs from 'node:fs/promises';
-import { atomicWrite } from '@wrongstack/core';
+import { atomicWrite, expectDefined } from '@wrongstack/core';
 import { allServers } from '@wrongstack/core/infrastructure';
 import { serveMcpStdio } from '../../mcp-serve.js';
 import type { SubcommandDeps, SubcommandHandler } from '../index.js';
+
 const BUILT_IN_MCP = allServers();
 
 export const mcpCmd: SubcommandHandler = async (args, deps) => {
@@ -40,7 +40,9 @@ export const mcpCmd: SubcommandHandler = async (args, deps) => {
     return removeMcpServer(name, deps);
   }
   if (sub === 'restart') {
-    deps.renderer.writeWarning('mcp restart is only available in REPL mode. Use /mcp restart instead.');
+    deps.renderer.writeWarning(
+      'mcp restart is only available in REPL mode. Use /mcp restart instead.',
+    );
     return 0;
   }
   deps.renderer.writeError(`Unknown mcp subcommand: ${sub}`);

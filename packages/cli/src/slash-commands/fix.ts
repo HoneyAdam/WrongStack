@@ -1,7 +1,12 @@
 import type { Context, SlashCommand } from '@wrongstack/core';
 import { color } from '@wrongstack/core';
+import {
+  type Classification,
+  classifyError,
+  isSimpleFix,
+  needsSubagent,
+} from './fix-classifier.js';
 import type { SlashCommandContext } from './index.js';
-import { classifyError, needsSubagent, isSimpleFix, type Classification } from './fix-classifier.js';
 
 interface FixResult {
   message?: string | undefined;
@@ -172,11 +177,16 @@ function buildDirective(cli: Classification, errorText: string): string {
 /** Map classification category to delegate role. */
 function delegateRoleFor(cli: Classification): string | undefined {
   switch (cli.category) {
-    case 'ts':       return 'typescript-strict';
-    case 'security': return 'security-scanner';
-    case 'perf':     return 'refactor-planner';
-    case 'tech':     return 'tech-stack';
-    default:        return 'bug-hunter';
+    case 'ts':
+      return 'typescript-strict';
+    case 'security':
+      return 'security-scanner';
+    case 'perf':
+      return 'refactor-planner';
+    case 'tech':
+      return 'tech-stack';
+    default:
+      return 'bug-hunter';
   }
 }
 
@@ -195,7 +205,8 @@ export function buildFixCommand(opts: SlashCommandContext): SlashCommand {
   return {
     name: 'fix',
     category: 'Agent',
-    description: 'Classify a bug/error (any language), activate the right skill, and fix it — inline or via subagent.',
+    description:
+      'Classify a bug/error (any language), activate the right skill, and fix it — inline or via subagent.',
     argsHint: '<error message or problem description>',
     help: `
 # /fix — Problem Solver
@@ -269,10 +280,10 @@ When the error confidence is low (< 0.85) or the problem spans multiple files,
             'Examples:',
             `  /fix ${color.dim('TS2345: Argument of type "string | null" is not assignable')}`,
             `  /fix ${color.dim("TypeError: Cannot read property 'map' of undefined")}`,
-            `  /fix ${color.dim("error[E0503]: expected something but found E0503 in src/lib.rs")}`,
+            `  /fix ${color.dim('error[E0503]: expected something but found E0503 in src/lib.rs')}`,
             `  /fix ${color.dim("AttributeError: 'NoneType' object has no attribute 'encode'")}`,
-            `  /fix ${color.dim("react-dom.development.js:172 Error: Invalid hook call")}`,
-            `  /fix ${color.dim("Security: hardcoded API key in config.ts")}`,
+            `  /fix ${color.dim('react-dom.development.js:172 Error: Invalid hook call')}`,
+            `  /fix ${color.dim('Security: hardcoded API key in config.ts')}`,
             `  /fix ${color.dim('Should I use axios for API calls?')}`,
             '',
             'Run `/help fix` for full documentation.',
@@ -292,19 +303,22 @@ When the error confidence is low (< 0.85) or the problem spans multiple files,
 
       // ── Inline fix: high-confidence single-location errors ──────────────
       if (isSimpleFix(cli) || (!delegate && opts.onFix)) {
-        const runText = [
-          '',
-          `${color.bold('╔═══════ /fix — Problem Solver ═══════╗')}`,
-          '',
-          `**Classification:** ${categoryLabel(cli)}`,
-          `**Confidence:** ${Math.round(cli.confidence * 100)}%`,
-          `**Error code:** \`${cli.errorCode ?? 'n/a'}\``,
-          '',
-          `**Skills activated:** ${skillLabel(cli.skillHints)}`,
-          '',
-          `**Next step:** ${delegate ? 'Delegating to `' + delegateRole + '` subagent...' : 'Applying inline fix...'}`,
-          '',
-        ].join('\n') + '\n---\n' + buildDirective(cli, trimmed);
+        const runText =
+          [
+            '',
+            `${color.bold('╔═══════ /fix — Problem Solver ═══════╗')}`,
+            '',
+            `**Classification:** ${categoryLabel(cli)}`,
+            `**Confidence:** ${Math.round(cli.confidence * 100)}%`,
+            `**Error code:** \`${cli.errorCode ?? 'n/a'}\``,
+            '',
+            `**Skills activated:** ${skillLabel(cli.skillHints)}`,
+            '',
+            `**Next step:** ${delegate ? 'Delegating to `' + delegateRole + '` subagent...' : 'Applying inline fix...'}`,
+            '',
+          ].join('\n') +
+          '\n---\n' +
+          buildDirective(cli, trimmed);
 
         if (opts.onFix) {
           const injected = await opts.onFix(trimmed);
@@ -317,7 +331,11 @@ When the error confidence is low (< 0.85) or the problem spans multiple files,
           }
         }
 
-        return { message: `${color.green('✓')} [${categoryLabel(cli)}] — Skills: ${skillLabel(cli.skillHints)}`, runText, metadata };
+        return {
+          message: `${color.green('✓')} [${categoryLabel(cli)}] — Skills: ${skillLabel(cli.skillHints)}`,
+          runText,
+          metadata,
+        };
       }
 
       // ── Auto-delegate: low-confidence / complex fixes ─────────────────────
@@ -346,18 +364,25 @@ When the error confidence is low (< 0.85) or the problem spans multiple files,
           'The specialist subagent will now fix the issue. Results will be reported when complete.',
         ].join('\n');
 
-        return { message: `${color.green('✓')} Delegating to \`${delegateRole}\`...`, runText, metadata };
+        return {
+          message: `${color.green('✓')} Delegating to \`${delegateRole}\`...`,
+          runText,
+          metadata,
+        };
       }
 
       // Fallback — general
-      const runText = [
-        '',
-        `${color.bold('╔═══════ /fix — Problem Solver ═══════╗')}`,
-        '',
-        `**Classification:** ${categoryLabel(cli)} (confidence: ${Math.round(cli.confidence * 100)}%)`,
-        `**Skills activated:** ${skillLabel(cli.skillHints)}`,
-        '',
-      ].join('\n') + '\n---\n' + buildDirective(cli, trimmed);
+      const runText =
+        [
+          '',
+          `${color.bold('╔═══════ /fix — Problem Solver ═══════╗')}`,
+          '',
+          `**Classification:** ${categoryLabel(cli)} (confidence: ${Math.round(cli.confidence * 100)}%)`,
+          `**Skills activated:** ${skillLabel(cli.skillHints)}`,
+          '',
+        ].join('\n') +
+        '\n---\n' +
+        buildDirective(cli, trimmed);
 
       return {
         message: `${color.green('✓')} [${categoryLabel(cli)}] — Skills: ${skillLabel(cli.skillHints)}`,

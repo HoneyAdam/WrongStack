@@ -34,7 +34,7 @@ const TASK_STATUS_CONFIG: Record<
   { icon: React.ReactNode; color: string; label: string }
 > = {
   pending: { icon: <Circle className="w-4 h-4" />, color: 'text-muted-foreground', label: 'Pending' },
-  in_progress: { icon: <Clock className="w-4 h-4 animate-spin" />, color: 'text-primary', label: 'In Progress' },
+  in_progress: { icon: <Clock className="w-4 h-4 animate-spin" aria-label="In Progress" />, color: 'text-primary', label: 'In Progress' },
   blocked: { icon: <Pause className="w-4 h-4" />, color: 'text-[hsl(var(--warning))]', label: 'Blocked' },
   failed: { icon: <XCircle className="w-4 h-4" />, color: 'text-destructive', label: 'Failed' },
   review: { icon: <RotateCcw className="w-4 h-4" />, color: 'text-[hsl(var(--info))]', label: 'Review' },

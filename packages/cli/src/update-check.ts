@@ -1,7 +1,7 @@
-import { createRequire } from 'node:module';
 import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
+import { createRequire } from 'node:module';
 import * as os from 'node:os';
+import * as path from 'node:path';
 
 export interface UpdateInfo {
   current: string;
@@ -90,12 +90,12 @@ async function fetchLatestFromNpm(timeoutMs = 3000): Promise<string> {
   try {
     const res = await fetch('https://registry.npmjs.org/wrongstack/latest', {
       signal: controller.signal,
-      headers: { 'Accept': 'application/json' },
+      headers: { Accept: 'application/json' },
     });
     clearTimeout(timer);
 
     if (!res.ok) throw new Error(`npm registry responded ${res.status}`);
-    const data = await res.json() as { version?: unknown | undefined };
+    const data = (await res.json()) as { version?: unknown | undefined };
     if (typeof data.version === 'string') return data.version;
     throw new Error('No version field in npm response');
   } finally {

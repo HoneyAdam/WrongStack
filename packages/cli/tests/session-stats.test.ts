@@ -121,6 +121,35 @@ describe('SessionStats', () => {
     expect(text).toContain('Shell commands:  1');
   });
 
+  it('removes event listeners on destroy', () => {
+    const r = rig();
+    r.events.emit('iteration.completed', {} as never);
+    r.events.emit('provider.response', {
+      ctx: {} as never,
+      usage: {} as never,
+      stopReason: 'end_turn',
+    } as never);
+    expect(r.stats.hasActivity()).toBe(true);
+
+    // Destroy removes all listeners — subsequent events should be ignored.
+    r.stats.destroy(r.events);
+
+    // After destroy, events no longer accumulate.
+    r.events.emit('iteration.completed', {} as never);
+    r.events.emit('provider.response', {
+      ctx: {} as never,
+      usage: {} as never,
+      stopReason: 'end_turn',
+    } as never);
+
+    // render() should still work without throwing.
+    const renderer = new TerminalRenderer({
+      out: r.out as unknown as NodeJS.WriteStream,
+      err: r.err as unknown as NodeJS.WriteStream,
+    });
+    expect(() => r.stats.render(renderer)).not.toThrow();
+  });
+
   it('shows pricing when registry-priced model is used', () => {
     const r = rig();
     r.tc.accountWithModel({ input: 1_000_000, output: 1_000_000 }, {

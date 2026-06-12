@@ -1,23 +1,21 @@
-import {
-  type TaskItem,
-  type TaskStatus,
-  type TaskType,
-  type TaskPriority,
-  formatTaskList,
-  formatTaskProgress,
-  loadTasks,
-  mutateTasks,
-} from '@wrongstack/core';
+import type { SlashCommand } from '@wrongstack/core';
 import {
   addPlanItem,
   emptyPlan,
   formatPlan,
+  formatTaskList,
+  formatTaskProgress,
   loadPlan,
+  loadTasks,
+  mutateTasks,
   savePlan,
+  type TaskItem,
+  type TaskPriority,
+  type TaskStatus,
+  type TaskType,
 } from '@wrongstack/core';
-import type { SlashCommand } from '@wrongstack/core';
-import type { SlashCommandContext } from './index.js';
 import { parseSubcommand, unknownSubcommand } from './helpers.js';
+import type { SlashCommandContext } from './index.js';
 
 function findTask(tasks: TaskItem[], query: string): { idx: number; item: TaskItem } | null {
   const asIndex = Number.parseInt(query, 10);
@@ -51,7 +49,14 @@ function validatePriority(s: string): TaskPriority | null {
 }
 
 function validateStatus(s: string): TaskStatus | null {
-  const valid: TaskStatus[] = ['pending', 'in_progress', 'blocked', 'failed', 'review', 'completed'];
+  const valid: TaskStatus[] = [
+    'pending',
+    'in_progress',
+    'blocked',
+    'failed',
+    'review',
+    'completed',
+  ];
   return valid.includes(s as TaskStatus) ? (s as TaskStatus) : null;
 }
 
@@ -131,7 +136,10 @@ export function buildTasksCommand(_opts: SlashCommandContext): SlashCommand {
       await mutateTasks(taskPath, sessionId, async (file) => {
         switch (cmd) {
           case 'add': {
-            if (!restJoined) { outputMessage = 'Usage: /tasks add <title> [type] [priority]'; return file; }
+            if (!restJoined) {
+              outputMessage = 'Usage: /tasks add <title> [type] [priority]';
+              return file;
+            }
             const parts = restJoined.split(/\s+/);
             const title = parts[0] ?? '';
             const type = validateType(parts[1] ?? '') ?? 'feature';
@@ -139,7 +147,9 @@ export function buildTasksCommand(_opts: SlashCommandContext): SlashCommand {
             const now = new Date().toISOString();
             file.tasks.push({
               id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-              title, type, priority,
+              title,
+              type,
+              priority,
               status: 'pending',
               createdAt: now,
               updatedAt: now,
@@ -150,23 +160,46 @@ export function buildTasksCommand(_opts: SlashCommandContext): SlashCommand {
           case 'start':
           case 'done':
           case 'fail': {
-            if (!restJoined) { outputMessage = `Usage: /tasks ${cmd} <id|index>`; return file; }
+            if (!restJoined) {
+              outputMessage = `Usage: /tasks ${cmd} <id|index>`;
+              return file;
+            }
             const found = findTask(file.tasks, restJoined);
-            if (!found) { outputMessage = `No task matched "${restJoined}".`; return file; }
-            const statusMap: Record<string, TaskStatus> = { start: 'in_progress', done: 'completed', fail: 'failed' };
-            const verbMap: Record<string, string> = { start: 'Started', done: 'Completed', fail: 'Failed' };
+            if (!found) {
+              outputMessage = `No task matched "${restJoined}".`;
+              return file;
+            }
+            const statusMap: Record<string, TaskStatus> = {
+              start: 'in_progress',
+              done: 'completed',
+              fail: 'failed',
+            };
+            const verbMap: Record<string, string> = {
+              start: 'Started',
+              done: 'Completed',
+              fail: 'Failed',
+            };
             found.item.status = statusMap[cmd] ?? 'pending';
             found.item.updatedAt = new Date().toISOString();
             outputMessage = `Marked ${verbMap[cmd] ?? cmd}: ${found.item.title}\n\n${formatTaskProgress(file.tasks)}`;
             break;
           }
           case 'status': {
-            if (rest.length < 2) { outputMessage = 'Usage: /tasks status <id> <status>'; return file; }
+            if (rest.length < 2) {
+              outputMessage = 'Usage: /tasks status <id> <status>';
+              return file;
+            }
             const targetId = rest[0] ?? '';
             const newStatus = validateStatus(rest[1] ?? '');
-            if (!newStatus) { outputMessage = `Invalid status "${rest[1]}".`; return file; }
+            if (!newStatus) {
+              outputMessage = `Invalid status "${rest[1]}".`;
+              return file;
+            }
             const found = findTask(file.tasks, targetId);
-            if (!found) { outputMessage = `No task matched "${targetId}".`; return file; }
+            if (!found) {
+              outputMessage = `No task matched "${targetId}".`;
+              return file;
+            }
             found.item.status = newStatus;
             found.item.updatedAt = new Date().toISOString();
             outputMessage = `Status → ${newStatus}: ${found.item.title}\n\n${formatTaskProgress(file.tasks)}`;
@@ -174,38 +207,73 @@ export function buildTasksCommand(_opts: SlashCommandContext): SlashCommand {
           }
           case 'depends':
           case 'deps': {
-            if (rest.length < 2) { outputMessage = 'Usage: /tasks depends <id> <depId1> [depId2 ...]'; return file; }
+            if (rest.length < 2) {
+              outputMessage = 'Usage: /tasks depends <id> <depId1> [depId2 ...]';
+              return file;
+            }
             const targetId = rest[0] ?? '';
             const depIds = rest.slice(1);
             const found = findTask(file.tasks, targetId);
-            if (!found) { outputMessage = `No task matched "${targetId}".`; return file; }
+            if (!found) {
+              outputMessage = `No task matched "${targetId}".`;
+              return file;
+            }
             found.item.dependsOn = depIds;
             found.item.updatedAt = new Date().toISOString();
             outputMessage = `Dependencies set for "${found.item.title}": ${depIds.join(', ')}`;
             break;
           }
           case 'assign': {
-            if (rest.length < 2) { outputMessage = 'Usage: /tasks assign <id> <agent>'; return file; }
+            if (rest.length < 2) {
+              outputMessage = 'Usage: /tasks assign <id> <agent>';
+              return file;
+            }
             const targetId = rest[0] ?? '';
             const agent = rest.slice(1).join(' ');
             const found = findTask(file.tasks, targetId);
-            if (!found) { outputMessage = `No task matched "${targetId}".`; return file; }
+            if (!found) {
+              outputMessage = `No task matched "${targetId}".`;
+              return file;
+            }
             found.item.assignee = agent;
             found.item.updatedAt = new Date().toISOString();
             outputMessage = `Assigned to ${agent}: "${found.item.title}"`;
             break;
           }
           case 'promote': {
-            if (!restJoined) { outputMessage = 'Usage: /tasks promote <id|index>'; return file; }
+            if (!restJoined) {
+              outputMessage = 'Usage: /tasks promote <id|index>';
+              return file;
+            }
             const found = findTask(file.tasks, restJoined);
-            if (!found) { outputMessage = `No task matched "${restJoined}".`; return file; }
+            if (!found) {
+              outputMessage = `No task matched "${restJoined}".`;
+              return file;
+            }
             found.item.status = 'in_progress';
             found.item.updatedAt = new Date().toISOString();
-            const todos: Array<{ id: string; content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string; promotedFromTask?: string }> = [
-              { id: `todo_${Date.now()}_task`, content: found.item.title, status: 'in_progress', activeForm: found.item.title, promotedFromTask: found.item.id },
+            const todos: Array<{
+              id: string;
+              content: string;
+              status: 'pending' | 'in_progress' | 'completed';
+              activeForm?: string;
+              promotedFromTask?: string;
+            }> = [
+              {
+                id: `todo_${Date.now()}_task`,
+                content: found.item.title,
+                status: 'in_progress',
+                activeForm: found.item.title,
+                promotedFromTask: found.item.id,
+              },
             ];
             if (found.item.description) {
-              todos.push({ id: `todo_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, content: found.item.description.slice(0, 200), status: 'pending', promotedFromTask: found.item.id });
+              todos.push({
+                id: `todo_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                content: found.item.description.slice(0, 200),
+                status: 'pending',
+                promotedFromTask: found.item.id,
+              });
             }
             ctx.state.replaceTodos(todos);
             outputMessage = `Promoted to ${todos.length} todo(s): "${found.item.title}"\n\n${formatTaskProgress(file.tasks)}`;
@@ -213,13 +281,32 @@ export function buildTasksCommand(_opts: SlashCommandContext): SlashCommand {
           }
           case 'clear': {
             const n = file.tasks.length;
-            if (n === 0) { outputMessage = 'Tasks were already empty.'; return file; }
+            if (n === 0) {
+              outputMessage = 'Tasks were already empty.';
+              return file;
+            }
             file.tasks = [];
             outputMessage = `Cleared ${n} task${n === 1 ? '' : 's'}.`;
             break;
           }
           default:
-            outputMessage = unknownSubcommand(cmd, ['show', 'add', 'start', 'done', 'fail', 'status', 'depends', 'assign', 'promote', 'planify', 'clear'], 'tasks');
+            outputMessage = unknownSubcommand(
+              cmd,
+              [
+                'show',
+                'add',
+                'start',
+                'done',
+                'fail',
+                'status',
+                'depends',
+                'assign',
+                'promote',
+                'planify',
+                'clear',
+              ],
+              'tasks',
+            );
             return file;
         }
         return file;

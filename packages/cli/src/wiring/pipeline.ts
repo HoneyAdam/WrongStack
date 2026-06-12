@@ -1,37 +1,38 @@
 import {
   Agent,
-  AutoCompactionMiddleware,
   type AgentPipelines,
+  AutoCompactionMiddleware,
   type Context,
+  createDefaultPipelines,
+  createSessionEventBridge,
   type EventBus,
+  estimateRequestTokensCalibrated,
   type Logger,
   type ModelsRegistry,
   type Provider,
   type ProviderRegistry,
+  resolveAuditLevel,
+  resolveContextWindowPolicy,
+  type SessionEventBridge,
   TOKENS,
   type ToolRegistry,
-  createDefaultPipelines,
-  estimateRequestTokensCalibrated,
-  resolveContextWindowPolicy,
-  createSessionEventBridge,
-  resolveAuditLevel,
-  type SessionEventBridge,
 } from '@wrongstack/core';
 import { ToolExecutor } from '@wrongstack/core/execution';
 import { resolveRuntimeMaxContext } from '../context-limit.js';
 
 type CompactionDriver = ConstructorParameters<typeof AutoCompactionMiddleware>[0];
 
-export function setupPipelines(params: {
-  events: EventBus;
-  logger: Logger;
-}): AgentPipelines {
+export function setupPipelines(params: { events: EventBus; logger: Logger }): AgentPipelines {
   const { events, logger } = params;
   const pipelines = createDefaultPipelines();
 
   const installBoundary = <_T>(p: {
     setErrorHandler: (
-      h: (ev: { middleware: string; owner?: string | undefined; err: unknown }) => 'rethrow' | 'swallow',
+      h: (ev: {
+        middleware: string;
+        owner?: string | undefined;
+        err: unknown;
+      }) => 'rethrow' | 'swallow',
     ) => unknown;
   }) => {
     p.setErrorHandler((ev) => {
@@ -81,7 +82,9 @@ export async function setupCompaction(params: {
   provider: Provider;
   pipelines: AgentPipelines;
   /** Full config object (preferred) so we can reliably read session.auditLevel. */
-  fullConfig?: { session?: { auditLevel?: 'minimal' | 'standard' | 'full' | undefined } | undefined } | undefined;
+  fullConfig?:
+    | { session?: { auditLevel?: 'minimal' | 'standard' | 'full' | undefined } | undefined }
+    | undefined;
   /** Real SessionWriter (used if no pre-created bridge is passed). */
   sessionWriter?: import('@wrongstack/core').SessionWriter | undefined;
   /** Pre-created SessionEventBridge (preferred for sharing across error + compaction + future events). */

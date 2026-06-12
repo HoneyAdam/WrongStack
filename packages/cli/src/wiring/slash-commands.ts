@@ -1,26 +1,26 @@
 import type {
-  SlashCommandRegistry,
-  ToolRegistry,
+  CompactReport,
+  ConfigStore,
+  Context,
+  EventBus,
+  HealthRegistry,
+  InputReader,
+  MemoryStore,
+  MetricsSink,
+  ModeStore,
+  Provider,
+  Renderer,
   SessionStore,
   SkillLoader,
+  SlashCommandRegistry,
   TokenCounter,
-  Renderer,
-  MemoryStore,
-  Context,
-  ModeStore,
-  MetricsSink,
-  HealthRegistry,
-  Provider,
+  ToolRegistry,
   WstackPaths,
-  EventBus,
-  ConfigStore,
-  InputReader,
 } from '@wrongstack/core';
-import type { CompactReport } from '@wrongstack/core';
+import type { MultiAgentHost } from '../multi-agent.js';
 import { buildBuiltinSlashCommands } from '../slash-commands/index.js';
 import type { StatuslineConfig } from '../slash-commands/statusline.js';
 import { loadStatuslineConfig, saveStatuslineConfig } from '../slash-commands/statusline.js';
-import type { MultiAgentHost } from '../multi-agent.js';
 
 export interface SlashCommandsDeps {
   slashRegistry: SlashCommandRegistry;
@@ -49,7 +49,9 @@ export interface SlashCommandsDeps {
     visible: boolean;
     setVisible: (visible: boolean) => void;
   };
-  compactor: { compact(ctx: Context, opts?: { aggressive?: boolean | undefined }): Promise<CompactReport> };
+  compactor: {
+    compact(ctx: Context, opts?: { aggressive?: boolean | undefined }): Promise<CompactReport>;
+  };
   configStore: ConfigStore;
   /** Called by /clear after wiping the session on disk — tells the TUI to reset its UI state. */
   onNewSession?: (() => Promise<void>) | undefined;
@@ -61,10 +63,33 @@ export interface StatuslineConfigDeps {
 }
 
 export async function setupSlashCommands(params: SlashCommandsDeps): Promise<void> {
-  const { slashRegistry, toolRegistry, paths, sessionStore, skillLoader, tokenCounter, renderer,
-    reader, events, memoryStore, context, cwd, projectRoot, metricsSink, healthRegistry,
-    planPath, modeStore, provider, model, multiAgentHost, fleetStreamController,
-    agentsMonitorController, compactor, configStore, onNewSession } = params;
+  const {
+    slashRegistry,
+    toolRegistry,
+    paths,
+    sessionStore,
+    skillLoader,
+    tokenCounter,
+    renderer,
+    reader,
+    events,
+    memoryStore,
+    context,
+    cwd,
+    projectRoot,
+    metricsSink,
+    healthRegistry,
+    planPath,
+    modeStore,
+    provider,
+    model,
+    multiAgentHost,
+    fleetStreamController,
+    agentsMonitorController,
+    compactor,
+    configStore,
+    onNewSession,
+  } = params;
 
   const statuslineConfigDeps: StatuslineConfigDeps = {
     get: () => loadStatuslineConfig(),
@@ -73,14 +98,22 @@ export async function setupSlashCommands(params: SlashCommandsDeps): Promise<voi
 
   // Statusline hidden items — derived from the config file
   const hiddenItemsFromConfig = await loadStatuslineConfig();
-  const hiddenItemsList: Array<'todos' | 'plan' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost'> = [];
-  const ALL_ITEMS = ['todos', 'plan', 'fleet', 'git', 'elapsed', 'context', 'cost'] as const;
+  const hiddenItemsList: Array<
+    'todos' | 'plan' | 'tasks' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost' | 'working_dir'
+  > = [];
+  const ALL_ITEMS = ['todos', 'plan', 'tasks', 'fleet', 'git', 'elapsed', 'context', 'cost', 'working_dir'] as const;
   for (const k of ALL_ITEMS) {
     if (!hiddenItemsFromConfig[k]) hiddenItemsList.push(k);
   }
   const statuslineHiddenItems = hiddenItemsList;
-  let currentHiddenItems = [...statuslineHiddenItems] as Array<'todos' | 'plan' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost' | 'working_dir'>;
-  const setStatuslineHiddenItems = (items: Array<'todos' | 'plan' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost' | 'working_dir'>) => {
+  let currentHiddenItems = [...statuslineHiddenItems] as Array<
+    'todos' | 'plan' | 'tasks' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost' | 'working_dir'
+  >;
+  const setStatuslineHiddenItems = (
+    items: Array<
+      'todos' | 'plan' | 'tasks' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost' | 'working_dir'
+    >,
+  ) => {
     currentHiddenItems = items;
   };
 
@@ -128,7 +161,13 @@ export async function setupSlashCommands(params: SlashCommandsDeps): Promise<voi
 
       const secs = (result.durationMs / 1000).toFixed(result.durationMs < 10_000 ? 1 : 0);
       const icon =
-        result.status === 'success' ? '✓' : result.status === 'timeout' ? '⏱' : result.status === 'stopped' ? '⊘' : '✗';
+        result.status === 'success'
+          ? '✓'
+          : result.status === 'timeout'
+            ? '⏱'
+            : result.status === 'stopped'
+              ? '⊘'
+              : '✗';
       const resultPreview =
         typeof result.result === 'string' && result.result.trim()
           ? `\n${result.result.trim().slice(0, 600)}${result.result.trim().length > 600 ? '\n…' : ''}`

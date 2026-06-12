@@ -105,12 +105,13 @@ export function ContextBar({
       role={onClick ? 'button' : undefined}
       tabIndex={onClick ? 0 : undefined}
     >
-      <span className="inline-flex tracking-[-0.1em]">
+      {/* Use tabular-nums font for reliable Unicode block alignment. */}
+      <span className="inline-flex font-mono text-[10px] leading-none tracking-tight">
         {bars.map((b, i) => (
           <span
             key={i}
             className={cn(
-              'tabular-nums',
+              'tabular-nums w-[0.55em] text-center',
               b.fill > 0 ? getTextColor(pct) : 'text-muted-foreground/30',
             )}
           >
@@ -136,8 +137,10 @@ export function ContextFillBar({
   className,
   onClick,
 }: Omit<ContextBarProps, 'segments'>): React.ReactElement {
-  const clamped = Math.max(0, Math.min(100, pct));
-  const pctText = `${Math.round(pct)}%`;
+  // Allow bar to grow past 100% visually (up to 200%) so over-capacity
+  // is visible even when the text says "125%".
+  const clamped = Math.max(0, Math.min(200, pct));
+  const pctText = pct > 100 ? `${Math.round(pct)}%+` : `${Math.round(pct)}%`;
   const tokenText =
     showTokens && tokens !== undefined && maxTokens !== undefined && maxTokens > 0
       ? ` ${fmtTok(tokens)}/${fmtTok(maxTokens)}`

@@ -8,18 +8,18 @@ export function isExplanatoryText(text: string): boolean {
   const lower = text.toLowerCase();
   return (
     lower.startsWith("i'") ||
-    lower.startsWith("i will") ||
-    lower.startsWith("let me") ||
+    lower.startsWith('i will') ||
+    lower.startsWith('let me') ||
     lower.startsWith("here's my") ||
-    lower.startsWith("here is my") ||
+    lower.startsWith('here is my') ||
     lower.startsWith("i'm going to") ||
-    lower.startsWith("first, let me") ||
-    lower.startsWith("sure") ||
-    lower.startsWith("of course") ||
-    lower.startsWith("okay") ||
-    lower.startsWith("ok,") ||
-    lower.startsWith("sounds good") ||
-    lower.startsWith("no problem") ||
+    lower.startsWith('first, let me') ||
+    lower.startsWith('sure') ||
+    lower.startsWith('of course') ||
+    lower.startsWith('okay') ||
+    lower.startsWith('ok,') ||
+    lower.startsWith('sounds good') ||
+    lower.startsWith('no problem') ||
     (text.split('\n').length < 3 && !text.includes('.'))
   );
 }
@@ -58,7 +58,12 @@ export function trySaveImplementationPlan(aiOutput: string): boolean {
     }
   }
 
-  if (aiOutput.length > 100 && !aiOutput.includes('```json') && aiOutput !== current && !isExplanatoryText(aiOutput)) {
+  if (
+    aiOutput.length > 100 &&
+    !aiOutput.includes('```json') &&
+    aiOutput !== current &&
+    !isExplanatoryText(aiOutput)
+  ) {
     builder.setImplementation(aiOutput.trim());
     return true;
   }
@@ -88,10 +93,20 @@ export function autoDetectTaskCompletion(aiOutput: string): number {
       const num = Number(target);
       if (!Number.isNaN(num) && num >= 1 && num <= pending.length) {
         const node = pending[num - 1];
-        if (node && node.status !== 'completed') { tracker.updateNodeStatus(node.id, 'completed'); completed++; }
+        if (node && node.status !== 'completed') {
+          tracker.updateNodeStatus(node.id, 'completed');
+          completed++;
+        }
       } else {
-        const match = pending.find(n => n.title.toLowerCase().includes(target.toLowerCase()) || target.toLowerCase().includes(n.title.toLowerCase()));
-        if (match && match.status !== 'completed') { tracker.updateNodeStatus(match.id, 'completed'); completed++; }
+        const match = pending.find(
+          (n) =>
+            n.title.toLowerCase().includes(target.toLowerCase()) ||
+            target.toLowerCase().includes(n.title.toLowerCase()),
+        );
+        if (match && match.status !== 'completed') {
+          tracker.updateNodeStatus(match.id, 'completed');
+          completed++;
+        }
       }
       continue;
     }
@@ -99,8 +114,15 @@ export function autoDetectTaskCompletion(aiOutput: string): number {
     const checkmarkMatch = trimmed.match(/^✅\s*(?:Task:\s*)?(.+)/i);
     if (checkmarkMatch?.[1]) {
       const title = checkmarkMatch[1].trim();
-      const match = pending.find(n => n.title.toLowerCase().includes(title.toLowerCase()) || title.toLowerCase().includes(n.title.toLowerCase()));
-      if (match && match.status !== 'completed') { tracker.updateNodeStatus(match.id, 'completed'); completed++; }
+      const match = pending.find(
+        (n) =>
+          n.title.toLowerCase().includes(title.toLowerCase()) ||
+          title.toLowerCase().includes(n.title.toLowerCase()),
+      );
+      if (match && match.status !== 'completed') {
+        tracker.updateNodeStatus(match.id, 'completed');
+        completed++;
+      }
       continue;
     }
 
@@ -109,7 +131,10 @@ export function autoDetectTaskCompletion(aiOutput: string): number {
       const num = Number(taskNumMatch[1]);
       if (num >= 1 && num <= pending.length) {
         const node = pending[num - 1];
-        if (node && node.status !== 'completed') { tracker.updateNodeStatus(node.id, 'completed'); completed++; }
+        if (node && node.status !== 'completed') {
+          tracker.updateNodeStatus(node.id, 'completed');
+          completed++;
+        }
       }
       continue;
     }
@@ -117,8 +142,15 @@ export function autoDetectTaskCompletion(aiOutput: string): number {
     const completedMatch = trimmed.match(/^(?:Completed|Done|Finished)\s*[:]\s*(.+)/i);
     if (completedMatch?.[1]) {
       const title = completedMatch[1].trim();
-      const match = pending.find(n => n.title.toLowerCase().includes(title.toLowerCase()) || title.toLowerCase().includes(n.title.toLowerCase()));
-      if (match && match.status !== 'completed') { tracker.updateNodeStatus(match.id, 'completed'); completed++; }
+      const match = pending.find(
+        (n) =>
+          n.title.toLowerCase().includes(title.toLowerCase()) ||
+          title.toLowerCase().includes(n.title.toLowerCase()),
+      );
+      if (match && match.status !== 'completed') {
+        tracker.updateNodeStatus(match.id, 'completed');
+        completed++;
+      }
     }
   }
 

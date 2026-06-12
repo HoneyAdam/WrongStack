@@ -1,7 +1,8 @@
-import { createRequire } from 'node:module';
 import * as fs from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
 /**
  * Boot phase — everything before the DI container wiring.
  * Extracted from index.ts so main() focuses on wire → execute.
@@ -28,33 +29,39 @@ function resolveBundledOverlayFile(): string | undefined {
     return undefined;
   }
 }
+
 import {
   type Config,
   color,
   DefaultLogger,
   DefaultModelsRegistry,
+  isStdinTTY,
   type ModelsRegistry,
   type SecretVault,
+  TOKENS,
   ToolRegistry,
   type WstackPaths,
-  TOKENS,
-  isStdinTTY,
   writeErr,
 } from '@wrongstack/core';
+import { createDefaultContainer } from '@wrongstack/runtime';
 import { builtinToolsPack } from '@wrongstack/tools';
 import { parseArgs } from './arg-parser.js';
-import { LaunchAbortedError, maybeAskAboutIndexing, persistLaunchChoices, runLaunchPrompts } from './pre-launch.js';
 import { bootConfig } from './boot-config.js';
-import { loadManifest, touchProjectInManifest } from './slash-commands/project-utils.js';
 import { ReadlineInputReader } from './input-reader.js';
-import { runPicker, saveToGlobalConfig, type PickerResult } from './picker.js';
 import { printLaunchHints } from './launch-hints.js';
-import { runProjectCheck } from './pre-launch.js';
+import { type PickerResult, runPicker, saveToGlobalConfig } from './picker.js';
+import {
+  LaunchAbortedError,
+  maybeAskAboutIndexing,
+  persistLaunchChoices,
+  runLaunchPrompts,
+  runProjectCheck,
+} from './pre-launch.js';
 import { TerminalRenderer } from './renderer.js';
+import { loadManifest, touchProjectInManifest } from './slash-commands/project-utils.js';
 import { subcommands } from './subcommands/index.js';
-import { patchConfig } from './utils.js';
-import { createDefaultContainer } from '@wrongstack/runtime';
 import { checkForUpdate, type UpdateInfo } from './update-check.js';
+import { patchConfig } from './utils.js';
 
 export interface BootContext {
   config: Config;
@@ -244,7 +251,8 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
 
   const isSingleShot = positional.length > 0 || typeof flags['prompt'] === 'string';
   // Skip interactive TTY prompts when: single-shot, --webui, or --no-interactive
-  const isInteractiveTTY = isStdinTTY() && !isSingleShot && !flags['webui'] && !flags['no-interactive'];
+  const isInteractiveTTY =
+    isStdinTTY() && !isSingleShot && !flags['webui'] && !flags['no-interactive'];
 
   if (isInteractiveTTY) {
     // If the current working directory has no .git repository, prompt the
@@ -507,7 +515,7 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
     reader,
     logger,
     updateInfo,
-    needsSetup: !noInteractiveMode ? false : (!config.provider || !config.model),
+    needsSetup: !noInteractiveMode ? false : !config.provider || !config.model,
   };
 }
 
@@ -538,9 +546,7 @@ async function checkGitInCwd(opts: {
       `\n  ${color.amber('○')} This folder has no ${color.bold('.git')} repository.\n`,
     );
     const answer = (
-      await reader.readLine(
-        `  ${color.amber('?')} Initialize one here? ${color.dim('[y/N]')} `,
-      )
+      await reader.readLine(`  ${color.amber('?')} Initialize one here? ${color.dim('[y/N]')} `)
     )
       .trim()
       .toLowerCase();
@@ -597,9 +603,7 @@ async function registerProjectAtBoot(opts: {
 }): Promise<boolean> {
   const { projectRoot, cwd, wpaths } = opts;
   const manifest = await loadManifest(wpaths.globalConfig);
-  const existed = manifest.projects.some(
-    (p) => path.resolve(p.root) === path.resolve(projectRoot),
-  );
+  const existed = manifest.projects.some((p) => path.resolve(p.root) === path.resolve(projectRoot));
   await touchProjectInManifest({
     projectRoot,
     globalConfigPath: wpaths.globalConfig,

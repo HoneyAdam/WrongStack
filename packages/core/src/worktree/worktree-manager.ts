@@ -490,6 +490,10 @@ export class WorktreeManager {
     return new Promise((res) => {
       let stdout = '';
       let stderr = '';
+      // Bound the captured output — a merge/status against a huge worktree
+      // can emit MBs that nothing reads in full (parseConflictPaths only
+      // scans for CONFLICT lines). 1 MB matches grep.ts's buffer cap.
+      const MAX_GIT_OUTPUT = 1_000_000;
       const child = spawn(this.gitBin, args, {
         cwd,
         env: buildChildEnv(),
@@ -498,10 +502,10 @@ export class WorktreeManager {
         windowsHide: true,
       });
       child.stdout?.on('data', (c: Buffer) => {
-        stdout += c.toString();
+        if (stdout.length < MAX_GIT_OUTPUT) stdout += c.toString();
       });
       child.stderr?.on('data', (c: Buffer) => {
-        stderr += c.toString();
+        if (stderr.length < MAX_GIT_OUTPUT) stderr += c.toString();
       });
       child.on('error', (err) => res({ code: 1, stdout, stderr: err.message }));
       child.on('close', (code) => res({ code: code ?? 1, stdout, stderr }));

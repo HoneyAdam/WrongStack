@@ -1,12 +1,13 @@
-import { expectDefined } from '@wrongstack/core';
 import * as path from 'node:path';
 import {
+  color,
   DefaultSessionRewinder,
   DefaultSessionStore,
-  color,
+  expectDefined,
   resolveWstackPaths,
 } from '@wrongstack/core';
 import type { SubcommandHandler } from '../index.js';
+
 interface RewindFlags {
   all?: boolean | undefined;
   last?: string | undefined;
@@ -129,7 +130,9 @@ export const rewindCmd: SubcommandHandler = async (args, deps) => {
         const store = new DefaultSessionStore({ dir: sessionsDir });
         const resumed = await store.resume(targetSessionId);
         const toIdx = (result as unknown as { toPromptIndex: number }).toPromptIndex;
-        await (resumed.writer as unknown as { truncateToCheckpoint(n: number): Promise<number> }).truncateToCheckpoint(toIdx);
+        await (
+          resumed.writer as unknown as { truncateToCheckpoint(n: number): Promise<number> }
+        ).truncateToCheckpoint(toIdx);
         await resumed.writer.close();
         deps.renderer.write(`  ${color.green('✓')} Session truncated at checkpoint ${toIdx}\n`);
       }
@@ -145,9 +148,13 @@ export const rewindCmd: SubcommandHandler = async (args, deps) => {
       const store = new DefaultSessionStore({ dir: sessionsDir });
       const resumed = await store.resume(targetSessionId);
       const toIdx = (result as unknown as { toPromptIndex: number }).toPromptIndex;
-      const removed = await (resumed.writer as unknown as { truncateToCheckpoint(n: number): Promise<number> }).truncateToCheckpoint(toIdx);
+      const removed = await (
+        resumed.writer as unknown as { truncateToCheckpoint(n: number): Promise<number> }
+      ).truncateToCheckpoint(toIdx);
       await resumed.writer.close();
-      deps.renderer.write(`\n  ${color.green('✓')} Session truncated — ${removed} event(s) removed\n`);
+      deps.renderer.write(
+        `\n  ${color.green('✓')} Session truncated — ${removed} event(s) removed\n`,
+      );
     }
 
     if (result.errors.length > 0) {

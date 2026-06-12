@@ -116,4 +116,30 @@ describe('buildChildEnv (security gate for bash/exec child env)', () => {
     expect(env['ANTHROPIC_API_KEY']).toBe('sk-ant-pass');
     expect(env['SOMETHING_RANDOM']).toBe('value');
   });
+
+  it('strips a wrongstack-defaulted NODE_ENV (and its marker) from children', () => {
+    // cli-main defaults NODE_ENV=production for React/Ink production builds
+    // and sets the marker; children must not inherit the injected value —
+    // NODE_ENV=production makes `pnpm install` skip devDependencies.
+    set('NODE_ENV', 'production');
+    set('WRONGSTACK_NODE_ENV_DEFAULTED', '1');
+    const env = buildChildEnv();
+    expect(env['NODE_ENV']).toBeUndefined();
+    expect(env['WRONGSTACK_NODE_ENV_DEFAULTED']).toBeUndefined();
+  });
+
+  it('forwards a genuine operator-set NODE_ENV (no marker)', () => {
+    set('NODE_ENV', 'production');
+    set('WRONGSTACK_NODE_ENV_DEFAULTED', undefined);
+    const env = buildChildEnv();
+    expect(env['NODE_ENV']).toBe('production');
+  });
+
+  it('strips the defaulted NODE_ENV even in passthrough mode', () => {
+    set('WRONGSTACK_BASH_ENV_PASSTHROUGH', '1');
+    set('NODE_ENV', 'production');
+    set('WRONGSTACK_NODE_ENV_DEFAULTED', '1');
+    const env = buildChildEnv();
+    expect(env['NODE_ENV']).toBeUndefined();
+  });
 });

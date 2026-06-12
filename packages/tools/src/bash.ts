@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import * as os from 'node:os';
 import type { Tool, ToolStreamEvent } from '@wrongstack/core';
 import { buildChildEnv } from './_env.js';
+import { createOutputSpool, spoolNote } from './_output-spool.js';
 import { normalizeCommandOutput } from './_util.js';
 import { killWin32Tree, redactCommand } from './process-registry.js';
 import { getProcessRegistry } from './process-registry.js';
@@ -166,10 +167,10 @@ export const bashTool: Tool<BashInput, BashOutput> = {
     // On POSIX we put the shell in its own process group so that timeout /
     // abort can kill the entire group with `process.kill(-pid)`. Otherwise
     // `bash -c "sleep 9999 & disown"` would leave the grandchild running.
-    // `detached: true` is also reused for the user-facing background mode;
-    // we always want detached on POSIX, only on Windows is it tied to the
-    // explicit background flag.
-    const detached = isWin ? !!input.background : true;
+    // Never on Windows: timeouts tree-kill via taskkill /T instead, and
+    // DETACHED_PROCESS would void windowsHide (grandchildren would pop
+    // visible console windows — see the background-mode spawn below).
+    const detached = !isWin;
 
     const startedAt = Date.now();
 
@@ -182,10 +183,14 @@ export const bashTool: Tool<BashInput, BashOutput> = {
         cwd: ctx.projectRoot,
         env,
         stdio: ['ignore', 'pipe', 'pipe'],
-        detached: true,
-        // Detached console children on Windows allocate their own VISIBLE
-        // console window (one per background command — test suites flash
-        // dozens). CREATE_NO_WINDOW suppresses it; no-op elsewhere.
+        // win32: CreateProcess IGNORES CREATE_NO_WINDOW (windowsHide) when
+        // DETACHED_PROCESS (detached: true) is set, so the console-less
+        // cmd.exe's grandchildren (node, dev servers) each allocate a fresh
+        // VISIBLE console window. detached: false lets CREATE_NO_WINDOW
+        // apply: the child gets a hidden console that grandchildren inherit.
+        // Windows children survive parent exit either way. POSIX keeps
+        // detached for the process-group kill semantics.
+        detached: !isWin,
         windowsHide: true,
         signal: opts.signal,
       });
@@ -204,24 +209,29 @@ export const bashTool: Tool<BashInput, BashOutput> = {
         // can deliver the close event.
         child.on('close', () => registry.unregister(pid));
       }
-      child.stdout?.on('data', (chunk: Buffer) => {
-        if (!truncated) {
-          const remain = MAX_OUTPUT - buf.length;
-          if (remain > 0) {
-            buf += chunk.toString().slice(0, remain);
-          }
-          if (buf.length >= MAX_OUTPUT) truncated = true;
+      const onBgData = (chunk: Buffer) => {
+        if (truncated) return;
+        const remain = MAX_OUTPUT - buf.length;
+        if (remain > 0) {
+          buf += chunk.toString().slice(0, remain);
         }
-      });
-      child.stderr?.on('data', (chunk: Buffer) => {
-        if (!truncated) {
-          const remain = MAX_OUTPUT - buf.length;
-          if (remain > 0) {
-            buf += chunk.toString().slice(0, remain);
-          }
-          if (buf.length >= MAX_OUTPUT) truncated = true;
+        if (buf.length >= MAX_OUTPUT) {
+          truncated = true;
+          // Cap reached — stop accumulating. The streams stay in flowing
+          // mode so the rest of the output is read and discarded (pausing
+          // would fill the OS pipe buffer and block the background process).
+          child.stdout?.off('data', onBgData);
+          child.stderr?.off('data', onBgData);
         }
-      });
+      };
+      child.stdout?.on('data', onBgData);
+      child.stderr?.on('data', onBgData);
+      // The pipe handles would otherwise keep the parent's event loop alive
+      // for as long as the background process runs — child.unref() alone
+      // does not release stdio. A one-shot (--print) run could never exit
+      // while a background dev server kept its pipes open.
+      (child.stdout as unknown as { unref?: () => void })?.unref?.();
+      (child.stderr as unknown as { unref?: () => void })?.unref?.();
       child.on('close', () => {
         registry.afterCall(Date.now() - startedAt, false, bypassBreaker);
       });
@@ -271,6 +281,11 @@ export const bashTool: Tool<BashInput, BashOutput> = {
     let pending = '';
     let timedOut = false;
     const timers: NodeJS.Timeout[] = [];
+    // Full-output spool: `buf` keeps only the first MAX_OUTPUT bytes for the
+    // model; everything else used to be dropped. The spool streams the FULL
+    // output to a file once it exceeds the cap, and the final result carries
+    // a marker pointing at it — file-based instead of in-memory/in-context.
+    const spool = createOutputSpool({ tool: 'bash', thresholdBytes: MAX_OUTPUT });
 
     function killWithTimeout(
       child: ReturnType<typeof spawn>,
@@ -389,10 +404,11 @@ export const bashTool: Tool<BashInput, BashOutput> = {
       // Cap buf during accumulation to prevent heap exhaustion from unbounded
       // string growth. exec.ts uses the same pattern. The final output is
       // further normalized via normalizeCommandOutput which already caps at
-      // MAX_OUTPUT (32 KB).
+      // MAX_OUTPUT (32 KB). The spool captures the FULL output on disk.
       if (buf.length < MAX_OUTPUT) {
         buf += text.slice(0, MAX_OUTPUT - buf.length);
       }
+      spool.write(text);
       pending += text;
       push({ kind: 'data', text });
       pauseIfFlooded();
@@ -422,10 +438,11 @@ export const bashTool: Tool<BashInput, BashOutput> = {
           if (remainder !== null) {
             yield { type: 'partial_output', text: remainder };
           }
+          const spooled = spool.finalize();
           yield {
             type: 'final',
             output: {
-              output: normalizeCommandOutput(buf),
+              output: normalizeCommandOutput(buf) + (spooled ? spoolNote(spooled) : ''),
               exit_code: c.code,
               timed_out: timedOut,
             },
@@ -440,6 +457,7 @@ export const bashTool: Tool<BashInput, BashOutput> = {
       }
     } finally {
       for (const t of timers) clearTimeout(t);
+      spool.finalize(); // idempotent — closes the file if the stream was abandoned
       if (isWin) opts.signal.removeEventListener('abort', onAbort);
       // Teardown: this generator can be abandoned mid-stream (executor
       // timeout, abort, consumer error). The data handlers above would

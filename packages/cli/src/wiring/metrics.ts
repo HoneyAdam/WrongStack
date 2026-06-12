@@ -1,16 +1,16 @@
+import { writeFileSync } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { writeFileSync } from 'node:fs';
 import {
   DefaultHealthRegistry,
-  InMemoryMetricsSink,
-  startMetricsServer,
-  wireMetricsToEvents,
   type EventBus,
   type HealthRegistry,
+  InMemoryMetricsSink,
   type MetricsServerHandle,
   type MetricsSink,
+  startMetricsServer,
   type WstackPaths,
+  wireMetricsToEvents,
 } from '@wrongstack/core';
 
 export interface MetricsWiringDeps {

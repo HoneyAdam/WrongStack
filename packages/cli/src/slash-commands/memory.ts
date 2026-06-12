@@ -1,6 +1,6 @@
 import type { SlashCommand } from '@wrongstack/core';
-import type { SlashCommandContext } from './index.js';
 import { parseSubcommand, unknownSubcommand } from './helpers.js';
+import type { SlashCommandContext } from './index.js';
 
 export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
   return {
@@ -51,7 +51,11 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
         }
         default:
           return {
-            message: unknownSubcommand(cmd, ['show', 'remember', 'forget', 'clear', 'compact', 'stats'], 'memory'),
+            message: unknownSubcommand(
+              cmd,
+              ['show', 'remember', 'forget', 'clear', 'compact', 'stats'],
+              'memory',
+            ),
           };
       }
     },
@@ -171,7 +175,10 @@ async function runCompact(opts: SlashCommandContext): Promise<{ message: string 
   // 2. Check for LLM provider
   const provider = opts.llmProvider;
   if (!provider?.complete) {
-    return { message: 'No LLM provider available. /memory compact requires an active session with a configured provider.' };
+    return {
+      message:
+        'No LLM provider available. /memory compact requires an active session with a configured provider.',
+    };
   }
 
   // 3. Build prompt and call LLM
@@ -295,7 +302,9 @@ async function runCompact(opts: SlashCommandContext): Promise<{ message: string 
   if (merged > 0) stats.push(`${merged} merged`);
   if (deleted > 0) stats.push(`${deleted} deleted`);
   lines.push(`**Result:** ${stats.join(', ')}`);
-  lines.push(`**Before:** ${compactEntries.length} entries → **After:** ${kept + rewritten + merged} entries`);
+  lines.push(
+    `**Before:** ${compactEntries.length} entries → **After:** ${kept + rewritten + merged} entries`,
+  );
 
   if (parsed.summary) {
     lines.push('');
@@ -307,10 +316,15 @@ async function runCompact(opts: SlashCommandContext): Promise<{ message: string 
   lines.push('### Operations');
   for (const op of parsed.operations) {
     const icon =
-      op.action === 'keep' ? '✓' :
-      op.action === 'rewrite' ? '✏️' :
-      op.action === 'merge' ? '🔀' :
-      op.action === 'delete' ? '✗' : '?';
+      op.action === 'keep'
+        ? '✓'
+        : op.action === 'rewrite'
+          ? '✏️'
+          : op.action === 'merge'
+            ? '🔀'
+            : op.action === 'delete'
+              ? '✗'
+              : '?';
     const detail = op.newText ? ` → "${op.newText}"` : '';
     lines.push(`- ${icon} **${op.action}** ${op.targets.join(', ')}${detail}`);
     if (op.reason) lines.push(`  _${op.reason}_`);
@@ -357,7 +371,10 @@ function parseCompactEntries(raw: string): CompactEntry[] {
     }
 
     // Clean text (remove tags)
-    const text = afterId.replace(tagRe, '').replace(/\s{2,}/g, ' ').trim();
+    const text = afterId
+      .replace(tagRe, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
     if (!text) continue;
 
     entries.push({ id, text, ts, tags: tags.length > 0 ? tags : undefined });
@@ -396,7 +413,15 @@ async function runStats(opts: SlashCommandContext): Promise<{ message: string }>
   if (byType.size > 0) {
     lines.push('');
     lines.push('### By Type');
-    const typeOrder = ['convention', 'decision', 'fact', 'preference', 'reference', 'anti_pattern', 'untyped'];
+    const typeOrder = [
+      'convention',
+      'decision',
+      'fact',
+      'preference',
+      'reference',
+      'anti_pattern',
+      'untyped',
+    ];
     for (const t of typeOrder) {
       const count = byType.get(t);
       if (count) {
@@ -415,7 +440,13 @@ async function runStats(opts: SlashCommandContext): Promise<{ message: string }>
   if (byPriority.size > 0) {
     lines.push('');
     lines.push('### By Priority');
-    const icon: Record<string, string> = { critical: '⚡', high: '▲', medium: '●', low: '○', unset: '·' };
+    const icon: Record<string, string> = {
+      critical: '⚡',
+      high: '▲',
+      medium: '●',
+      low: '○',
+      unset: '·',
+    };
     for (const [p, count] of [...byPriority.entries()].sort((a, b) => b[1] - a[1])) {
       lines.push(`- ${icon[p] ?? '·'} \`${p}\`: ${count}`);
     }
@@ -464,7 +495,9 @@ async function runStats(opts: SlashCommandContext): Promise<{ message: string }>
   const old = byAge.get('>30d') ?? 0;
 
   if (untyped > entries.length * 0.5) {
-    lines.push(`- ⚠️ ${untyped}/${entries.length} entries have no type — run \`/memory compact\` to categorize`);
+    lines.push(
+      `- ⚠️ ${untyped}/${entries.length} entries have no type — run \`/memory compact\` to categorize`,
+    );
   } else if (untyped > 0) {
     lines.push(`- ℹ️ ${untyped} entries untyped — consider categorizing`);
   } else {

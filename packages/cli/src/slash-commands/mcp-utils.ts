@@ -1,4 +1,3 @@
-import { expectDefined } from '@wrongstack/core';
 /**
  * MCP management command utilities.
  * Contains the argument parser and the actual management logic shared between
@@ -6,8 +5,8 @@ import { expectDefined } from '@wrongstack/core';
  * and the slash-command wiring in index.ts.
  */
 import * as fs from 'node:fs/promises';
-import { color } from '@wrongstack/core';
 import type { Config, MCPServerConfig } from '@wrongstack/core';
+import { color, expectDefined } from '@wrongstack/core';
 import type { MCPRegistry } from '@wrongstack/mcp';
 export interface McpParsedArgs {
   action: 'list' | 'add' | 'remove' | 'enable' | 'disable' | 'restart';

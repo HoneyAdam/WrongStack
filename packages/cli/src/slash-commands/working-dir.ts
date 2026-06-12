@@ -60,8 +60,8 @@ export function buildWorkingDirCommand(_opts: SlashCommandContext): SlashCommand
         return {
           message: color.red(
             `Directory "${trimmed}" is outside the project root.\n` +
-            `  Resolved: ${resolved}\n` +
-            `  Root:     ${root}`,
+              `  Resolved: ${resolved}\n` +
+              `  Root:     ${root}`,
           ),
         };
       }
@@ -82,9 +82,7 @@ export function buildWorkingDirCommand(_opts: SlashCommandContext): SlashCommand
         ctx.setWorkingDir(resolved);
       } catch (err) {
         return {
-          message: color.red(
-            err instanceof Error ? err.message : String(err),
-          ),
+          message: color.red(err instanceof Error ? err.message : String(err)),
         };
       }
 

@@ -1,31 +1,38 @@
-import {
-  color,
-  SessionRecovery,
-} from '@wrongstack/core';
-import type { SessionRegistry } from '@wrongstack/core';
-import type { SlashCommand } from '@wrongstack/core';
+import type { SessionRegistry, SlashCommand } from '@wrongstack/core';
+import { color, SessionRecovery } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
 
 // ── Live session helpers (SessionRegistry) ──────────────────────────────
 
 function statusIcon(status: string): string {
   switch (status) {
-    case 'active': return color.green('●');
-    case 'idle': return color.cyan('◉');
-    case 'closing': return color.yellow('◐');
-    case 'stale': return color.dim('○');
-    default: return color.dim('?');
+    case 'active':
+      return color.green('●');
+    case 'idle':
+      return color.cyan('◉');
+    case 'closing':
+      return color.yellow('◐');
+    case 'stale':
+      return color.dim('○');
+    default:
+      return color.dim('?');
   }
 }
 
 function agentStatusIcon(status: string): string {
   switch (status) {
-    case 'running': return color.green('▶');
-    case 'streaming': return color.cyan('↻');
-    case 'waiting_user': return color.yellow('⏳');
-    case 'error': return color.red('✗');
-    case 'idle': return color.dim('■');
-    default: return color.dim('?');
+    case 'running':
+      return color.green('▶');
+    case 'streaming':
+      return color.cyan('↻');
+    case 'waiting_user':
+      return color.yellow('⏳');
+    case 'error':
+      return color.red('✗');
+    case 'idle':
+      return color.dim('■');
+    default:
+      return color.dim('?');
   }
 }
 
@@ -39,7 +46,13 @@ function fmtDuration(startedAt: string): string {
   return `${Math.floor(h / 24)}d ${h % 24}h`;
 }
 
-function fmtAgentLine(agent: { name: string; status: string; currentTool?: string | undefined; iterations: number; toolCalls: number }): string {
+function fmtAgentLine(agent: {
+  name: string;
+  status: string;
+  currentTool?: string | undefined;
+  iterations: number;
+  toolCalls: number;
+}): string {
   const icon = agentStatusIcon(agent.status);
   const tool = agent.currentTool ? color.dim(` [${agent.currentTool}]`) : '';
   const stats = color.dim(` ${agent.iterations} iter · ${agent.toolCalls} tools`);
@@ -79,7 +92,8 @@ export function buildLoadCommand(opts: SlashCommandContext): SlashCommand {
     name: 'sessions',
     category: 'Session',
     aliases: ['resume', 'load'],
-    description: 'List recent sessions, show incomplete ones (--incomplete), or plan a recovery (--recover <id>).',
+    description:
+      'List recent sessions, show incomplete ones (--incomplete), or plan a recovery (--recover <id>).',
     async run(args) {
       const parts = args.split(/\s+/).filter(Boolean);
       const first = parts[0]?.toLowerCase();
@@ -124,9 +138,7 @@ export function buildLoadCommand(opts: SlashCommandContext): SlashCommand {
         const plan = await recovery.recover(recoverTarget);
         if (!plan) {
           return {
-            message: color.yellow(
-              `No session log found for ${recoverTarget} (or it is empty).`,
-            ),
+            message: color.yellow(`No session log found for ${recoverTarget} (or it is empty).`),
           };
         }
         const lines: string[] = [
@@ -164,7 +176,9 @@ export function buildLoadCommand(opts: SlashCommandContext): SlashCommand {
 
       if (showIncomplete) {
         if (!opts.paths) {
-          return { message: color.yellow('No paths configured — cannot scan for incomplete sessions.') };
+          return {
+            message: color.yellow('No paths configured — cannot scan for incomplete sessions.'),
+          };
         }
         const recovery = new SessionRecovery(opts.paths.projectSessions);
         const resumable = await recovery.listResumable();
@@ -208,10 +222,13 @@ export function buildLoadCommand(opts: SlashCommandContext): SlashCommand {
         if (s.iterationCount) parts.push(color.dim(`${s.iterationCount} iter`));
         if (s.outcome) {
           const badge =
-            s.outcome === 'completed' ? color.green('✓') :
-            s.outcome === 'aborted' ? color.yellow('⚠') :
-            s.outcome === 'error' ? color.red('✗') :
-            color.dim('?');
+            s.outcome === 'completed'
+              ? color.green('✓')
+              : s.outcome === 'aborted'
+                ? color.yellow('⚠')
+                : s.outcome === 'error'
+                  ? color.red('✗')
+                  : color.dim('?');
           parts.push(badge);
         }
         const stat = parts.join(' ');
@@ -224,7 +241,9 @@ export function buildLoadCommand(opts: SlashCommandContext): SlashCommand {
         color.bold(`Recent sessions (${list.length}):`),
         ...lines,
         '',
-        color.dim(`Resume: /resume to open interactive picker, or wstack resume ${list[0]?.id ?? '<id>'}`),
+        color.dim(
+          `Resume: /resume to open interactive picker, or wstack resume ${list[0]?.id ?? '<id>'}`,
+        ),
         color.dim('Tip: /resume --incomplete — list crashed sessions'),
       ].join('\n');
       opts.renderer.write(msg);
@@ -260,9 +279,7 @@ export function buildExitCommand(opts: SlashCommandContext): SlashCommand {
  * pending events. Stops early once we've shown enough to be useful
  * (cap = 12 lines) — the recovery is informational, not a re-execution.
  */
-function summarizePending(
-  events: import('@wrongstack/core').SessionEvent[],
-): string[] {
+function summarizePending(events: import('@wrongstack/core').SessionEvent[]): string[] {
   const lines: string[] = [];
   const cap = 12;
   for (const ev of events.slice(-cap)) {
@@ -359,9 +376,7 @@ async function listLiveSessions(): Promise<{ message: string }> {
     lines.push('');
   }
 
-  lines.push(
-    color.dim(`Registry: ${registry.registryPath}  |  /sessions status <id> for detail`),
-  );
+  lines.push(color.dim(`Registry: ${registry.registryPath}  |  /sessions status <id> for detail`));
 
   return { message: lines.join('\n') };
 }
@@ -374,7 +389,11 @@ async function sessionStatusDetail(sessionId: string): Promise<{ message: string
 
   const entry = await registry.get(sessionId);
   if (!entry) {
-    return { message: color.yellow(`Session not found: ${sessionId}. Use /sessions status to list live sessions.`) };
+    return {
+      message: color.yellow(
+        `Session not found: ${sessionId}. Use /sessions status to list live sessions.`,
+      ),
+    };
   }
 
   const lines: string[] = [
@@ -390,7 +409,9 @@ async function sessionStatusDetail(sessionId: string): Promise<{ message: string
     `  PID:       ${entry.pid}`,
     `  Agents:    ${entry.agentCount}`,
     entry.status !== 'stale'
-      ? color.dim(`  Transcript: ~/.wrongstack/projects/${entry.projectSlug}/sessions/${entry.sessionId}.jsonl`)
+      ? color.dim(
+          `  Transcript: ~/.wrongstack/projects/${entry.projectSlug}/sessions/${entry.sessionId}.jsonl`,
+        )
       : '',
     '',
   ];
@@ -448,7 +469,9 @@ async function killSession(sessionId: string): Promise<{ message: string }> {
 
   const entry = await registry.get(sessionId);
   if (!entry) {
-    return { message: color.yellow(`Session not found: ${sessionId}. It may have already exited.`) };
+    return {
+      message: color.yellow(`Session not found: ${sessionId}. It may have already exited.`),
+    };
   }
 
   // Don't kill the current process
@@ -477,7 +500,7 @@ async function killSession(sessionId: string): Promise<{ message: string }> {
     return {
       message: color.green(
         `Sent termination signal to ${entry.projectName} (PID ${entry.pid}). ` +
-        `The session will be removed from the registry shortly.`,
+          `The session will be removed from the registry shortly.`,
       ),
     };
   } catch (err) {

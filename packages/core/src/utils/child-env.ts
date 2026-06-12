@@ -121,8 +121,19 @@ export function buildChildEnv(optsOrSessionId?: BuildChildEnvOptions | string): 
   }
   const out: NodeJS.ProcessEnv = {};
 
+  // The CLI entry defaults NODE_ENV=production (so React/Ink resolve their
+  // production builds — see cli-main) and marks the injection with this
+  // flag. The injected value must NOT reach children: NODE_ENV=production
+  // makes `pnpm install` skip devDependencies and flips test-runner
+  // behavior. Strip both vars whenever the flag says wrongstack set them —
+  // a NODE_ENV genuinely exported by the operator's shell (flag absent)
+  // is forwarded unchanged. Applies in passthrough mode too: passthrough
+  // means "the operator's real environment", which this value is not.
+  const nodeEnvDefaulted = process.env['WRONGSTACK_NODE_ENV_DEFAULTED'] === '1';
+
   for (const [k, v] of Object.entries(process.env)) {
     if (v === undefined) continue;
+    if (nodeEnvDefaulted && (k === 'NODE_ENV' || k === 'WRONGSTACK_NODE_ENV_DEFAULTED')) continue;
     if (passthrough) {
       out[k] = v;
       continue;

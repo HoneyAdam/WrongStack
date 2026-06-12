@@ -1,8 +1,9 @@
 import { expectDefined } from '@wrongstack/core';
-import type { TokenCounter, AutonomyStage } from '@wrongstack/core';
+import type { EventBus, TokenCounter, AutonomyStage } from '@wrongstack/core';
 import { Box, Text, useStdout } from '../ink.js';
 import type React from 'react';
 import { useEffect, useState } from 'react';
+import { useTokenCounterRefresh } from '../hooks/use-token-counter-refresh.js';
 import type { GitInfo } from '../git-info.js';
 // ─── Mode icon map ───────────────────────────────────────────────────────────
 
@@ -118,6 +119,8 @@ export interface MailboxStatus {
   unread: number;
   /** Number of online agents in the project. */
   onlineAgents: number;
+  /** Per-source count of online clients. */
+  onlineClients: { tui: number; webui: number; repl: number; };
   /** Latest received message subject (if any). Null = no messages yet. */
   lastSubject?: string | null | undefined;
   /** Latest received message sender (if any). */
@@ -194,6 +197,8 @@ export interface StatusBarProps {
   processCount?: number | undefined;
   /** Items to hide from the status bar. */
   hiddenItems?: Array<'todos' | 'plan' | 'tasks' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost' | 'working_dir'> | undefined;
+  /** EventBus for subscribing to token.accounted events for real-time cost/token updates. */
+  events?: EventBus | undefined;
   /**
    * Live iteration stage from the active autonomy engine. When set, renders
    * a chip like `⏸ decide` or `▶ execute(todo:fix-auth)` next to the
@@ -286,6 +291,7 @@ export function StatusBar({
   processCount,
   context,
   hiddenItems,
+  events,
   eternalStage,
   goalSummary,
   indexState,
@@ -314,9 +320,12 @@ export function StatusBar({
   const isCompact = termWidth < COMPACT_THRESHOLD;
   const isComfortable = termWidth >= COMFORTABLE_THRESHOLD;
   const hiddenSet = new Set(hiddenItems);
-  const usage = tokenCounter?.total();
-  const cost = tokenCounter?.estimateCost();
-  const cache = tokenCounter?.cacheStats();
+  // Use the refresh hook so token/cost updates appear immediately when
+  // the provider responds, instead of waiting for the next nowTick poll.
+  const tokenData = useTokenCounterRefresh(tokenCounter, events);
+  const usage = tokenData?.usage;
+  const cost = tokenData?.cost;
+  const cache = tokenData?.cacheStats;
 
   // Elapsed time display — updated locally on a 1s interval so the "⏱ 12:34"
   // chip stays live without forcing a full App tree re-render.
@@ -786,7 +795,22 @@ export function StatusBar({
             <Text dimColor>✉ 0</Text>
           )}
           <Text dimColor>│</Text>
-          <Text color="cyan">👥 {mailbox.onlineAgents} online</Text>
+          <Text color="cyan">
+            👥 {mailbox.onlineAgents} agent{mailbox.onlineAgents === 1 ? '' : 's'}
+            {(mailbox.onlineClients.tui + mailbox.onlineClients.webui + mailbox.onlineClients.repl) > 0 ? (
+              <Text color="green">
+                {mailbox.onlineClients.tui > 0 ? (
+                  <Text color="green"> · 🖥 TUI{mailbox.onlineClients.tui > 1 ? `×${mailbox.onlineClients.tui}` : ''}</Text>
+                ) : null}
+                {mailbox.onlineClients.webui > 0 ? (
+                  <Text color="green"> · 🌐 WebUI{mailbox.onlineClients.webui > 1 ? `×${mailbox.onlineClients.webui}` : ''}</Text>
+                ) : null}
+                {mailbox.onlineClients.repl > 0 ? (
+                  <Text color="green"> · ⌨ REPL{mailbox.onlineClients.repl > 1 ? `×${mailbox.onlineClients.repl}` : ''}</Text>
+                ) : null}
+              </Text>
+            ) : null}
+          </Text>
           {mailbox.lastSubject ? (
             <>
               <Text dimColor>│</Text>

@@ -1,5 +1,5 @@
-import * as fs from 'node:fs/promises';
 import type { Dirent } from 'node:fs';
+import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { atomicWrite, color } from '@wrongstack/core';
 import type { ReadlineInputReader } from './input-reader.js';
@@ -136,13 +136,21 @@ export async function runProjectCheck(opts: {
       try {
         const { spawn } = await import('node:child_process');
         await new Promise<void>((resolve, reject) => {
-          const child = spawn('git', ['init'], { cwd, signal: AbortSignal.timeout(10_000), windowsHide: true });
+          const child = spawn('git', ['init'], {
+            cwd,
+            signal: AbortSignal.timeout(10_000),
+            windowsHide: true,
+          });
           child.on('error', reject);
-          child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`git init failed with ${code}`))));
+          child.on('close', (code) =>
+            code === 0 ? resolve() : reject(new Error(`git init failed with ${code}`)),
+          );
         });
         renderer.write(`  ${color.green('✓')} Git repository initialized\n`);
       } catch (err) {
-        renderer.writeError(`git init failed: ${err instanceof Error ? err.message : String(err)}\n`);
+        renderer.writeError(
+          `git init failed: ${err instanceof Error ? err.message : String(err)}\n`,
+        );
       }
     }
   } else {
@@ -217,7 +225,12 @@ export async function runLaunchPrompts(opts: {
     directorPinned !== undefined &&
     autonomyPinned !== undefined
   ) {
-    return { mode: modePinned, yolo: yoloPinned, director: directorPinned, autonomy: autonomyPinned };
+    return {
+      mode: modePinned,
+      yolo: yoloPinned,
+      director: directorPinned,
+      autonomy: autonomyPinned,
+    };
   }
 
   // --- Summary gate: when saved preferences exist, show them + one question ---
@@ -238,9 +251,7 @@ export async function runLaunchPrompts(opts: {
     );
 
     const answer = (
-      await reader.readLine(
-        `  ${color.amber('?')} Continue with these? ${color.dim('[Y/n/q]')} `,
-      )
+      await reader.readLine(`  ${color.amber('?')} Continue with these? ${color.dim('[Y/n/q]')} `)
     )
       .trim()
       .toLowerCase();
@@ -350,7 +361,8 @@ function buildBadges(chosen: LaunchModeChoices): string[] {
   const badges: string[] = [];
   if (chosen.yolo) badges.push(color.yellow('YOLO'));
   if (chosen.director) badges.push(color.cyan('DIRECTOR'));
-  if (chosen.autonomy !== 'off') badges.push(color.magenta(`AUTONOMY:${chosen.autonomy.toUpperCase()}`));
+  if (chosen.autonomy !== 'off')
+    badges.push(color.magenta(`AUTONOMY:${chosen.autonomy.toUpperCase()}`));
   return badges;
 }
 

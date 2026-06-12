@@ -50,7 +50,7 @@ export const helpCmd: SubcommandHandler = async (_args, deps) => {
     '  --tui / --no-tui             Force or disable TUI mode',
     '  --mouse                      Full mouse mode in the TUI (in-app scroll + clickable UI)',
     '  --webui [--port <n>] [--open] Serve the browser UI + WS bridge (prints a URL,',
-    '                               --open pops the browser; shares this terminal\'s',
+    "                               --open pops the browser; shares this terminal's",
     '                               agent; auto-picks free ports)',
     '  --eternal "<mission>"        Start an eternal-autonomy loop',
     '  --no-hints                   Hide launch hints',

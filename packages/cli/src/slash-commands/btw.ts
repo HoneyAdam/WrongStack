@@ -1,4 +1,4 @@
-import { type SlashCommand, pendingBtwCount, setBtwNote } from '@wrongstack/core';
+import { pendingBtwCount, type SlashCommand, setBtwNote } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
 
 /**

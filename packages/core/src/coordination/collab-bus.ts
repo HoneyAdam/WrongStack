@@ -114,7 +114,11 @@ export class CollaborationBus {
     const timeoutPromise = new Promise<'timeout'>((resolve) => {
       timer = setTimeout(() => resolve('timeout'), timeoutMs);
     });
-    const resumedPromise = this.pausePromise.then(() => 'resumed' as const);
+    // pausePromise is created with a void executor that only ever resolves
+    // (via pauseResolve), never rejects — the .catch() is technically redundant
+    // but silences the TypeScript promise rejection warning and documents the
+    // intentional no-reject guarantee.
+    const resumedPromise = this.pausePromise.then(() => 'resumed' as const).catch(() => 'resumed' as const);
     const winner = await Promise.race([resumedPromise, timeoutPromise]);
     if (timer) clearTimeout(timer);
     if (winner === 'timeout') {

@@ -1,7 +1,5 @@
-import { color } from '@wrongstack/core';
-import type { SlashCommand } from '@wrongstack/core';
-import { dispatchAgent, AGENT_CATALOG, AGENTS_BY_PHASE } from '@wrongstack/core';
-import type { AgentPhase } from '@wrongstack/core';
+import type { AgentPhase, SlashCommand } from '@wrongstack/core';
+import { AGENT_CATALOG, AGENTS_BY_PHASE, color, dispatchAgent } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
 
 /**
@@ -25,7 +23,7 @@ export function buildDelegateCommand(opts: SlashCommandContext): SlashCommand {
       'Hand a task to a specialist subagent. /delegate [--role=<role>] <task>. Auto-dispatches if no role given.',
     argsHint: '[--role=<role>] [--name=<label>] <task description>',
     help: [
-      'User-facing counterpart to the AI\'s `delegate` tool.',
+      "User-facing counterpart to the AI's `delegate` tool.",
       '',
       'Usage:',
       '  /delegate <task description>                  Auto-dispatch to best agent',
@@ -129,7 +127,10 @@ export function buildDelegateCommand(opts: SlashCommandContext): SlashCommand {
         `  ${color.dim(decision.definition.capability.summary)}`,
         `  ${color.dim('why:')} ${decision.reason}`,
         decision.alternatives.length > 0
-          ? `  ${color.dim('alternatives:')} ${decision.alternatives.slice(0, 3).map((a) => a.role).join(', ')}`
+          ? `  ${color.dim('alternatives:')} ${decision.alternatives
+              .slice(0, 3)
+              .map((a) => a.role)
+              .join(', ')}`
           : '',
       ]
         .filter(Boolean)
@@ -137,13 +138,7 @@ export function buildDelegateCommand(opts: SlashCommandContext): SlashCommand {
 
       opts.renderer.write(decisionMsg);
 
-      return await spawnAgent(
-        opts,
-        decision.role,
-        task,
-        name ?? decision.role,
-        decisionMsg,
-      );
+      return await spawnAgent(opts, decision.role, task, name ?? decision.role, decisionMsg);
     },
   };
 }
@@ -163,10 +158,7 @@ async function spawnAgent(
 
   try {
     const id = await opts.onFleetSpawn(role);
-    const msg = [
-      header,
-      `  ${color.green('✓ spawned')} as ${color.dim(id)}`,
-    ].join('\n');
+    const msg = [header, `  ${color.green('✓ spawned')} as ${color.dim(id)}`].join('\n');
     opts.renderer.write(msg);
     return { message: msg };
   } catch (err) {

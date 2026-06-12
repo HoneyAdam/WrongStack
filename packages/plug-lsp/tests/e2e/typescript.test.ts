@@ -9,7 +9,12 @@ import { LSPRegistry } from '../../src/registry.js';
 import { makeLSPTools } from '../../src/tools/index.js';
 import type { PlugLSPConfig } from '../../src/types.js';
 
-const hasTypeScriptLanguageServer = commandExists('typescript-language-server');
+// Opt-in only: spawning a real typescript-language-server (tsserver) costs
+// seconds of CPU and hundreds of MB on every `pnpm test` for anyone who has
+// the binary installed globally. Run explicitly with:
+//   WSTACK_E2E=1 pnpm vitest run packages/plug-lsp/tests/e2e/typescript.test.ts
+const e2eEnabled = process.env['WSTACK_E2E'] === '1';
+const hasTypeScriptLanguageServer = e2eEnabled && commandExists('typescript-language-server');
 
 const log: Logger = {
   level: 'error',

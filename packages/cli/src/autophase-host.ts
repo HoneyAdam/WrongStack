@@ -22,6 +22,7 @@ import { join } from 'node:path';
 import {
   AutoPhasePlanner,
   type BrainArbiter,
+  buildChildEnv,
   type Config,
   type EventBus,
   type PhaseGraph,
@@ -31,12 +32,20 @@ import {
   PhaseStore,
   type TaskNode,
   WorktreeManager,
-  buildChildEnv,
 } from '@wrongstack/core';
 import type { MultiAgentHost } from './multi-agent.js';
 
 /** Default parallel-phase concurrency once worktree isolation is available. */
 const WORKTREE_PHASE_CONCURRENCY = 4;
+
+/**
+ * Cap on captured command output. Verification commands (`pnpm test` across
+ * a large monorepo) can emit tens of MB on a verbose run — accumulating the
+ * full transcript spikes the host heap for output nothing ever reads in
+ * full. runCmd keeps the TAIL (the failure summary lives at the end of a
+ * test run); gitText keeps the head (its commands are tiny).
+ */
+const MAX_CMD_OUTPUT = 200_000;
 
 /** Run a git command, returning trimmed stdout (empty string on failure). */
 function gitText(args: string[], cwd: string): Promise<{ code: number; out: string }> {
@@ -57,10 +66,10 @@ function gitText(args: string[], cwd: string): Promise<{ code: number; out: stri
     }
     let out = '';
     child.stdout?.on('data', (c: Buffer) => {
-      out += c.toString();
+      if (out.length < MAX_CMD_OUTPUT) out += c.toString();
     });
     child.stderr?.on('data', (c: Buffer) => {
-      out += c.toString();
+      if (out.length < MAX_CMD_OUTPUT) out += c.toString();
     });
     child.on('error', () => resolve({ code: 1, out }));
     child.on('close', (code) => resolve({ code: code ?? 1, out: out.trim() }));
@@ -76,9 +85,7 @@ async function isGitRepo(cwd: string): Promise<boolean> {
 // @wrongstack/tools exec.ts ALLOWED_COMMANDS but is intentionally narrower:
 // autophase only ever runs package-manager script invocations and an optional
 // user-configured custom verify command.
-const AUTOPHASE_SAFE_CMDS: ReadonlySet<string> = new Set([
-  'pnpm', 'npm', 'yarn', 'bun',
-]);
+const AUTOPHASE_SAFE_CMDS: ReadonlySet<string> = new Set(['pnpm', 'npm', 'yarn', 'bun']);
 
 // Destructive shell patterns that must never execute autonomously.
 // Mirrors the yolo-risk.ts pattern set for autophase context.
@@ -87,9 +94,9 @@ const DESTRUCTIVE_PATTERNS: readonly RegExp[] = [
   /\bdangerously\s+(?:force|reset|--hard)\b/,
   /\bgit\s+clean\s+-[xdf]{2,}/,
   /\bgit\s+reset\s+--hard\b/,
-  /([;&|]\s*)(?!\s*$)/,  // command chaining (; && || |)
-  /`[^`]+`/,              // backtick subshell
-  /\$\(/,                 // $(...) subshell
+  /([;&|]\s*)(?!\s*$)/, // command chaining (; && || |)
+  /`[^`]+`/, // backtick subshell
+  /\$\(/, // $(...) subshell
 ];
 
 /** Run an arbitrary command, capturing combined stdout+stderr. */
@@ -103,9 +110,10 @@ function runCmd(
   if (!AUTOPHASE_SAFE_CMDS.has(cmd)) {
     return Promise.resolve({
       code: 1,
-      out: `autophase: command "${cmd}" not in autonomous safe-commands allowlist. ` +
-           `Allowed: ${[...AUTOPHASE_SAFE_CMDS].join(', ')}. ` +
-           `Set WRONGSTACK_AUTOPHASE_VERIFY_CMD to one of these.`,
+      out:
+        `autophase: command "${cmd}" not in autonomous safe-commands allowlist. ` +
+        `Allowed: ${[...AUTOPHASE_SAFE_CMDS].join(', ')}. ` +
+        `Set WRONGSTACK_AUTOPHASE_VERIFY_CMD to one of these.`,
     });
   }
 
@@ -138,12 +146,14 @@ function runCmd(
       reject(err);
       return;
     }
-    child.stdout?.on('data', (c: Buffer) => {
+    // Tail-keep: a failing `pnpm test` prints its summary at the end, which
+    // is what the verify failure message feeds back to the agent.
+    const append = (c: Buffer) => {
       out += c.toString();
-    });
-    child.stderr?.on('data', (c: Buffer) => {
-      out += c.toString();
-    });
+      if (out.length > MAX_CMD_OUTPUT) out = out.slice(-MAX_CMD_OUTPUT);
+    };
+    child.stdout?.on('data', append);
+    child.stderr?.on('data', append);
     child.on('error', (e) => resolve({ code: 1, out: `${out}${String(e)}` }));
     child.on('close', (code) => resolve({ code: code ?? 1, out: out.trim() }));
   });

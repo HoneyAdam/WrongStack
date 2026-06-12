@@ -60,12 +60,11 @@ export async function generateCommitMessageWithLLM(
     clearTimeout(timeout);
 
     const rawContent = resp.content;
-    const text =
-      Array.isArray(rawContent)
-        ? (rawContent[0] as { type: string; text?: string | undefined })?.text ?? ''
-        : typeof rawContent === 'object' && rawContent !== null
-          ? (rawContent as { type: string; text?: string | undefined }).text ?? ''
-          : String(rawContent);
+    const text = Array.isArray(rawContent)
+      ? ((rawContent[0] as { type: string; text?: string | undefined })?.text ?? '')
+      : typeof rawContent === 'object' && rawContent !== null
+        ? ((rawContent as { type: string; text?: string | undefined }).text ?? '')
+        : String(rawContent);
     const message = expectDefined(text.trim().split('\n')[0]);
 
     if (message.length > 0 && message.length < 200) {

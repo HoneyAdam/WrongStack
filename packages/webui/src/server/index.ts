@@ -951,6 +951,21 @@ export async function startWebUI(
     try {
       const m = await modelsRegistry.getModel(config.provider, config.model);
       maxContext = m?.capabilities?.maxContext ?? 0;
+      // Fall back to the provider's raw model data from the registry when the
+      // resolved model has no maxContext (e.g. a user-defined or API-proxied
+      // model that wasn't in the models.dev catalog). DefaultModelsRegistry
+      // exposes getProvider() which gives us the model's limit.context directly.
+      if (!maxContext) {
+        try {
+          const provider = await (
+            modelsRegistry as { getProvider(id: string): Promise<{ models: Array<{ id: string; limit?: { context?: number } }> } | undefined> }
+          ).getProvider(config.provider);
+          const rawModel = provider?.models.find((mod) => mod.id === config.model);
+          maxContext = rawModel?.limit?.context ?? 0;
+        } catch {
+          /* best-effort — leave maxContext at whatever the registry set it */
+        }
+      }
       // models.dev pricing is dollars per 1M tokens; some providers omit the
       // field for free/unmetered plans (e.g. minimax-coding-plan) — in that
       // case we report 0 and the cost chip just stays at $0.

@@ -8,36 +8,48 @@ import * as path from 'node:path';
 import type {
   Agent,
   AttachmentStore,
+  ChimeraReviewNeededPayload,
   Config,
   ConfigStore,
   Director,
   EventBus,
+  MemoryStore,
   ModelsRegistry,
+  ModeStore,
+  ProviderConfig,
   RecoveryLock,
+  ResolvedProvider,
   SessionStore,
   SessionWriter,
   SlashCommandRegistry,
   SubagentConfig,
   TokenCounter,
+  WstackPaths,
 } from '@wrongstack/core';
-import type { MemoryStore, ModeStore } from '@wrongstack/core';
-import { color, mergeCustomModelDefs, writeOut, type AutonomyStage, decryptConfigSecrets, encryptConfigSecrets, atomicWrite, noOpVault, setQueuedMessagesSnapshot } from '@wrongstack/core';
-import type { ChimeraReviewNeededPayload } from '@wrongstack/core';
-import { CHIMERA_REVIEW_PROMPT } from '@wrongstack/core';
-import { filterSafeForProject, persistAutonomySetting } from './settings-menu.js';
-import type { ProviderConfig, ResolvedProvider, WstackPaths } from '@wrongstack/core';
+import {
+  type AutonomyStage,
+  atomicWrite,
+  CHIMERA_REVIEW_PROMPT,
+  color,
+  decryptConfigSecrets,
+  encryptConfigSecrets,
+  mergeCustomModelDefs,
+  noOpVault,
+  setQueuedMessagesSnapshot,
+  writeOut,
+} from '@wrongstack/core';
 import type { MCPRegistry } from '@wrongstack/mcp';
-import { createToolVisionAdapters } from '@wrongstack/runtime/vision';
 import { capabilitiesFor } from '@wrongstack/providers';
-import type { ReadlineInputReader } from './input-reader.js';
-import type { TerminalRenderer } from './renderer.js';
+import { createToolVisionAdapters } from '@wrongstack/runtime/vision';
 import { contextOverflowHint } from './context-overflow-diagnostic.js';
 import { FleetStatusLine } from './fleet-statusline.js';
+import type { ReadlineInputReader } from './input-reader.js';
 import { type PredictLLMProvider, predictNextTasks } from './next-task-predictor.js';
-import { runRepl } from './repl.js';
-import { parseSuggestionsFromOutput } from './repl.js';
-import { setSuggestions } from './slash-commands/suggestion-store.js';
+import type { TerminalRenderer } from './renderer.js';
+import { parseSuggestionsFromOutput, runRepl } from './repl.js';
 import type { SessionStats } from './session-stats.js';
+import { filterSafeForProject, persistAutonomySetting } from './settings-menu.js';
+import { setSuggestions } from './slash-commands/suggestion-store.js';
 import { fmtTok } from './utils.js';
 import { CLI_VERSION } from './version.js';
 
@@ -88,9 +100,13 @@ export interface ExecutionDeps {
     setEnabled: (enabled: boolean) => void;
   };
   /** Status bar hidden items controller (passed to TUI). */
-  statuslineHiddenItems: Array<'todos' | 'plan' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost'>;
+  statuslineHiddenItems: Array<
+    'todos' | 'plan' | 'tasks' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost'
+  >;
   setStatuslineHiddenItems: (
-    items: Array<'todos' | 'plan' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost' | 'working_dir'>,
+    items: Array<
+      'todos' | 'plan' | 'tasks' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost' | 'working_dir'
+    >,
   ) => void;
   /** Agents monitor overlay controller (passed to TUI). */
   agentsMonitorController?: {
@@ -179,17 +195,21 @@ export interface ExecutionDeps {
    * Tool execution records from a previous session (tool_call_end JSONL
    * events). Used by the TUI to render tool entries on resume.
    */
-  restoredToolCalls?: Array<{
-    name: string;
-    id: string;
-    durationMs: number;
-    ok: boolean;
-    outputBytes?: number | undefined;
-    outputTokens?: number | undefined;
-    outputLines?: number | undefined;
-  }> | undefined;
+  restoredToolCalls?:
+    | Array<{
+        name: string;
+        id: string;
+        durationMs: number;
+        ok: boolean;
+        outputBytes?: number | undefined;
+        outputTokens?: number | undefined;
+        outputLines?: number | undefined;
+      }>
+    | undefined;
   /** When true, the WebUI shows a provider/model setup screen instead of the chat. */
   needsSetup?: boolean | undefined;
+  /** Called when the REPL shuts down — use to clean up event listeners etc. */
+  onDestroy?: (() => void) | undefined;
 }
 
 export async function execute(deps: ExecutionDeps): Promise<number> {
@@ -272,9 +292,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
     // happens before the finally block checks pendingChimeraWork.
     pendingChimeraWork = (async () => {
       try {
-        const fileList = p.files
-          .map((f) => `- [${f.status.toUpperCase()}] ${f.path}`)
-          .join('\n');
+        const fileList = p.files.map((f) => `- [${f.status.toUpperCase()}] ${f.path}`).join('\n');
 
         const taskDesc = [
           `Review the following ${p.files.length} file(s) changed in this session at ${p.cwd}.`,
@@ -317,19 +335,20 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
               phase: 'agent',
             });
           } catch (err) {
-            console.error(JSON.stringify({
-              level: 'error',
-              event: 'execution.chimera_append_failed',
-              message: err instanceof Error ? err.message : String(err),
-              timestamp: new Date().toISOString(),
-            }));
+            console.error(
+              JSON.stringify({
+                level: 'error',
+                event: 'execution.chimera_append_failed',
+                message: err instanceof Error ? err.message : String(err),
+                timestamp: new Date().toISOString(),
+              }),
+            );
           }
           return;
         }
 
-        const reviewText = typeof result.result === 'string'
-          ? result.result.trim()
-          : JSON.stringify(result.result);
+        const reviewText =
+          typeof result.result === 'string' ? result.result.trim() : JSON.stringify(result.result);
 
         if (reviewText) {
           await session.append({
@@ -350,12 +369,14 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
             phase: 'agent',
           });
         } catch (appendErr) {
-          console.error(JSON.stringify({
-            level: 'error',
-            event: 'execution.chimera_review_append_failed',
-            message: appendErr instanceof Error ? appendErr.message : String(appendErr),
-            timestamp: new Date().toISOString(),
-          }));
+          console.error(
+            JSON.stringify({
+              level: 'error',
+              event: 'execution.chimera_review_append_failed',
+              message: appendErr instanceof Error ? appendErr.message : String(appendErr),
+              timestamp: new Date().toISOString(),
+            }),
+          );
         }
       }
     })();
@@ -368,10 +389,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
     const supportsVision = async (): Promise<boolean> => {
       try {
         const providerConfig = config.providers?.[context.provider.id];
-        const mergedModels = mergeCustomModelDefs(
-          providerConfig?.customModels,
-          config.models,
-        );
+        const mergedModels = mergeCustomModelDefs(providerConfig?.customModels, config.models);
         const caps = await capabilitiesFor(
           modelsRegistry,
           context.provider.id,
@@ -583,7 +601,11 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
       // runTui returns PROJECT_SWITCH_EXIT_CODE to spawn the new wstack
       // process. `resumeSessionId` makes the new instance resume that
       // session (`--resume <id>`) instead of starting fresh.
-      let pendingProjectSwitch: { root: string; name: string; resumeSessionId?: string | undefined } | null = null;
+      let pendingProjectSwitch: {
+        root: string;
+        name: string;
+        resumeSessionId?: string | undefined;
+      } | null = null;
 
       try {
         code = await runTui({
@@ -675,11 +697,16 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
               auditLevel: cfg.session?.auditLevel ?? 'standard',
               indexOnStart: cfg.indexing?.onSessionStart !== false,
               maxIterations: cfg.tools?.maxIterations ?? 500,
-              autoProceedMaxIterations: (cfg.autonomy as Record<string, unknown> | undefined)?.autoProceedMaxIterations as number ?? 50,
+              autoProceedMaxIterations:
+                ((cfg.autonomy as Record<string, unknown> | undefined)
+                  ?.autoProceedMaxIterations as number) ?? 50,
               debugStream: cfg.debugStream ?? false,
               configScope: cfg.configScope ?? 'global',
-              enhanceDelayMs: (cfg.autonomy as Record<string, unknown> | undefined)?.enhanceDelayMs as number ?? 60_000,
-              enhanceEnabled: (cfg.autonomy as Record<string, unknown> | undefined)?.enhance as boolean ?? true,
+              enhanceDelayMs:
+                ((cfg.autonomy as Record<string, unknown> | undefined)?.enhanceDelayMs as number) ??
+                60_000,
+              enhanceEnabled:
+                ((cfg.autonomy as Record<string, unknown> | undefined)?.enhance as boolean) ?? true,
               enhanceLanguage:
                 (cfg.autonomy as Record<string, unknown> | undefined)?.enhanceLanguage === 'english'
                   ? ('english' as const)
@@ -765,7 +792,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
                 // Resolve target config path based on scope.
                 // When scope is 'project', write to projectLocalConfig
                 // so provider/model/ux settings live in the project folder.
-                const configScope = s.configScope ?? (configStore.get().configScope ?? 'global');
+                const configScope = s.configScope ?? configStore.get().configScope ?? 'global';
                 const targetPath =
                   configScope === 'project' && wpaths.inProjectConfig
                     ? wpaths.inProjectConfig
@@ -775,10 +802,16 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
                   raw = await fs.readFile(targetPath, 'utf8');
                 } catch (err) {
                   // Re-throw with context so the outer catch handles it (e.g. user sees the real error)
-                  throw new Error(`Failed to read config at ${targetPath}: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
+                  throw new Error(
+                    `Failed to read config at ${targetPath}: ${err instanceof Error ? err.message : String(err)}`,
+                    { cause: err },
+                  );
                 }
                 const parsed = JSON.parse(raw) as Record<string, unknown>;
-                const decrypted = decryptConfigSecrets(parsed, noOpVault) as Record<string, unknown>;
+                const decrypted = decryptConfigSecrets(parsed, noOpVault) as Record<
+                  string,
+                  unknown
+                >;
 
                 if (s.nextPrediction !== undefined) {
                   decrypted.nextPrediction = s.nextPrediction;
@@ -795,7 +828,8 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
                   if (s.featurePlugins !== undefined) feats.plugins = s.featurePlugins;
                   if (s.featureMemory !== undefined) feats.memory = s.featureMemory;
                   if (s.featureSkills !== undefined) feats.skills = s.featureSkills;
-                  if (s.featureModelsRegistry !== undefined) feats.modelsRegistry = s.featureModelsRegistry;
+                  if (s.featureModelsRegistry !== undefined)
+                    feats.modelsRegistry = s.featureModelsRegistry;
                   decrypted.features = feats;
                 }
                 if (s.contextAutoCompact !== undefined || s.contextStrategy !== undefined) {
@@ -861,26 +895,53 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
                 // Sync in-memory config store.
                 configStore.update({
                   ...(s.nextPrediction !== undefined ? { nextPrediction: s.nextPrediction } : {}),
-                  ...(s.featureMcp !== undefined || s.featurePlugins !== undefined || s.featureMemory !== undefined || s.featureSkills !== undefined || s.featureModelsRegistry !== undefined
+                  ...(s.featureMcp !== undefined ||
+                  s.featurePlugins !== undefined ||
+                  s.featureMemory !== undefined ||
+                  s.featureSkills !== undefined ||
+                  s.featureModelsRegistry !== undefined
                     ? { features: decrypted.features as Config['features'] }
                     : {}),
                   ...(s.contextAutoCompact !== undefined || s.contextStrategy !== undefined
                     ? { context: decrypted.context as Config['context'] }
                     : {}),
                   ...(s.logLevel !== undefined ? { log: decrypted.log as Config['log'] } : {}),
-                  ...(s.auditLevel !== undefined ? { session: decrypted.session as Config['session'] } : {}),
-                  ...(s.indexOnStart !== undefined ? { indexing: decrypted.indexing as Config['indexing'] } : {}),
-                  ...(s.maxIterations !== undefined ? { tools: decrypted.tools as Config['tools'] } : {}),
+                  ...(s.auditLevel !== undefined
+                    ? { session: decrypted.session as Config['session'] }
+                    : {}),
+                  ...(s.indexOnStart !== undefined
+                    ? { indexing: decrypted.indexing as Config['indexing'] }
+                    : {}),
+                  ...(s.maxIterations !== undefined
+                    ? { tools: decrypted.tools as Config['tools'] }
+                    : {}),
                   ...(s.debugStream !== undefined ? { debugStream: s.debugStream } : {}),
-                  ...(s.configScope !== undefined ? { configScope: s.configScope as 'global' | 'project' } : {}),
+                  ...(s.configScope !== undefined
+                    ? { configScope: s.configScope as 'global' | 'project' }
+                    : {}),
                   ...(s.enhanceDelayMs !== undefined
-                    ? { autonomy: { ...((configStore.get().autonomy as Record<string, unknown>) ?? {}), enhanceDelayMs: s.enhanceDelayMs } as Config['autonomy'] }
+                    ? {
+                        autonomy: {
+                          ...((configStore.get().autonomy as Record<string, unknown>) ?? {}),
+                          enhanceDelayMs: s.enhanceDelayMs,
+                        } as Config['autonomy'],
+                      }
                     : {}),
                   ...(s.enhanceEnabled !== undefined
-                    ? { autonomy: { ...((configStore.get().autonomy as Record<string, unknown>) ?? {}), enhance: s.enhanceEnabled } as Config['autonomy'] }
+                    ? {
+                        autonomy: {
+                          ...((configStore.get().autonomy as Record<string, unknown>) ?? {}),
+                          enhance: s.enhanceEnabled,
+                        } as Config['autonomy'],
+                      }
                     : {}),
                   ...(s.enhanceLanguage !== undefined
-                    ? { autonomy: { ...((configStore.get().autonomy as Record<string, unknown>) ?? {}), enhanceLanguage: s.enhanceLanguage } as Config['autonomy'] }
+                    ? {
+                        autonomy: {
+                          ...((configStore.get().autonomy as Record<string, unknown>) ?? {}),
+                          enhanceLanguage: s.enhanceLanguage,
+                        } as Config['autonomy'],
+                      }
                     : {}),
                 });
               }
@@ -894,23 +955,33 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
               // The outer caller expects string | null (null = success, string = error message).
               // Log the full error with structure before returning the message string.
               const message = err instanceof Error ? err.message : String(err);
-              console.debug(JSON.stringify({
-                level: 'error',
-                event: 'execution.settings_persist_failed',
-                message,
-                errorName: err instanceof Error ? err.name : undefined,
-                timestamp: new Date().toISOString(),
-              }));
+              console.debug(
+                JSON.stringify({
+                  level: 'error',
+                  event: 'execution.settings_persist_failed',
+                  message,
+                  errorName: err instanceof Error ? err.name : undefined,
+                  timestamp: new Date().toISOString(),
+                }),
+              );
               return message;
             }
           },
           effectiveMaxContext,
           // Terminal title animation: read from config (default on).
-          titleAnimation: ((config.autonomy as Record<string, unknown> | undefined)?.['terminalTitleAnimation'] as boolean) ?? true,
+          titleAnimation:
+            ((config.autonomy as Record<string, unknown> | undefined)?.[
+              'terminalTitleAnimation'
+            ] as boolean) ?? true,
           // Completion chime: terminal bell when agent finishes.
-          chime: ((config.autonomy as Record<string, unknown> | undefined)?.['chime'] as boolean) ?? false,
+          chime:
+            ((config.autonomy as Record<string, unknown> | undefined)?.['chime'] as boolean) ??
+            false,
           // Normal exit.
-          confirmExit: ((config.autonomy as Record<string, unknown> | undefined)?.['confirmExit'] as boolean) ?? true,
+          confirmExit:
+            ((config.autonomy as Record<string, unknown> | undefined)?.[
+              'confirmExit'
+            ] as boolean) ?? true,
           director,
           fleetRoster,
           // /clear: signal the TUI to wipe entries and reset fleet/leader stats
@@ -1026,12 +1097,14 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
             void import('@wrongstack/providers')
               .then(({ setDebugStreamCallback }) => setDebugStreamCallback(cb))
               .catch((err) =>
-                console.error(JSON.stringify({
-                  level: 'error',
-                  event: 'execution.debug_stream_register_failed',
-                  message: err instanceof Error ? err.message : String(err),
-                  timestamp: new Date().toISOString(),
-                })),
+                console.error(
+                  JSON.stringify({
+                    level: 'error',
+                    event: 'execution.debug_stream_register_failed',
+                    message: err instanceof Error ? err.message : String(err),
+                    timestamp: new Date().toISOString(),
+                  }),
+                ),
               );
           },
           restoreDebugStreamCallback: () => {
@@ -1040,12 +1113,14 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
                 setDebugStreamCallback(defaultDebugStreamCallback),
               )
               .catch((err) =>
-                console.error(JSON.stringify({
-                  level: 'error',
-                  event: 'execution.debug_stream_restore_failed',
-                  message: err instanceof Error ? err.message : String(err),
-                  timestamp: new Date().toISOString(),
-                })),
+                console.error(
+                  JSON.stringify({
+                    level: 'error',
+                    event: 'execution.debug_stream_restore_failed',
+                    message: err instanceof Error ? err.message : String(err),
+                    timestamp: new Date().toISOString(),
+                  }),
+                ),
               );
           },
           restoredMessages,
@@ -1110,10 +1185,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
                 const currentProviderId = (agent.ctx.provider as { id?: string }).id;
                 if (meta.provider !== currentProviderId && switchProviderAndModel) {
                   // Full provider switch — rebuilds the Provider instance
-                  switchProviderAndModel(
-                    meta.provider as string,
-                    meta.model ?? agent.ctx.model,
-                  );
+                  switchProviderAndModel(meta.provider as string, meta.model ?? agent.ctx.model);
                 }
               }
 
@@ -1138,22 +1210,26 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
                       usage: endedUsage,
                     });
                   } catch (err) {
-                    console.error(JSON.stringify({
-                      level: 'error',
-                      event: 'execution.session_end_append_failed',
-                      message: err instanceof Error ? err.message : String(err),
-                      timestamp: new Date().toISOString(),
-                    }));
+                    console.error(
+                      JSON.stringify({
+                        level: 'error',
+                        event: 'execution.session_end_append_failed',
+                        message: err instanceof Error ? err.message : String(err),
+                        timestamp: new Date().toISOString(),
+                      }),
+                    );
                   }
                   try {
                     await oldWriter.close();
                   } catch (err) {
-                    console.error(JSON.stringify({
-                      level: 'error',
-                      event: 'execution.session_close_failed',
-                      message: err instanceof Error ? err.message : String(err),
-                      timestamp: new Date().toISOString(),
-                    }));
+                    console.error(
+                      JSON.stringify({
+                        level: 'error',
+                        event: 'execution.session_close_failed',
+                        message: err instanceof Error ? err.message : String(err),
+                        timestamp: new Date().toISOString(),
+                      }),
+                    );
                   }
                 })();
               }
@@ -1172,12 +1248,16 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
               void recoveryLock
                 .clear()
                 .then(() => recoveryLock.write(resumed.writer.id))
-                .catch((err) => console.error(JSON.stringify({
-                  level: 'error',
-                  event: 'execution.recovery_lock_update_failed',
-                  message: err instanceof Error ? err.message : String(err),
-                  timestamp: new Date().toISOString(),
-                })));
+                .catch((err) =>
+                  console.error(
+                    JSON.stringify({
+                      level: 'error',
+                      event: 'execution.recovery_lock_update_failed',
+                      message: err instanceof Error ? err.message : String(err),
+                      timestamp: new Date().toISOString(),
+                    }),
+                  ),
+                );
 
               // Replay the JSONL events as TUI history entries.
               const { replaySessionEvents } = await import('@wrongstack/tui');
@@ -1189,12 +1269,14 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
                 sessionId: resumed.writer.id,
               };
             } catch (err) {
-              console.error(JSON.stringify({
-                level: 'error',
-                event: 'execution.resume_session_failed',
-                message: err instanceof Error ? err.message : String(err),
-                timestamp: new Date().toISOString(),
-              }));
+              console.error(
+                JSON.stringify({
+                  level: 'error',
+                  event: 'execution.resume_session_failed',
+                  message: err instanceof Error ? err.message : String(err),
+                  timestamp: new Date().toISOString(),
+                }),
+              );
               return null;
             }
           },
@@ -1243,7 +1325,8 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
 
               // ── Notify about running agents (they keep running) ────
               const fleetStatus = director?.status();
-              const fleetRunning = fleetStatus?.subagents.filter((a) => a.status === 'running').length ?? 0;
+              const fleetRunning =
+                fleetStatus?.subagents.filter((a) => a.status === 'running').length ?? 0;
               const eternalEngine = getEternalEngine?.();
               const parallelEngine = getParallelEngine?.();
               const eternalActive = eternalEngine?.currentState === 'running';
@@ -1255,7 +1338,9 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
                 // spawning the new one, so in-process agents/engines die with
                 // it. (An older message claimed they "continue running".)
                 const parts: string[] = [
-                  color.yellow('⚠  Switching projects exits this wstack — running agents will stop:'),
+                  color.yellow(
+                    '⚠  Switching projects exits this wstack — running agents will stop:',
+                  ),
                 ];
                 if (fleetRunning > 0) {
                   parts.push(color.dim(`  • ${fleetRunning} subagent(s) currently running`));
@@ -1281,7 +1366,9 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
               pendingProjectSwitch = { root: project.root, name: project.name };
             } catch (err) {
               renderer.write(
-                color.red(`Project switch failed: ${err instanceof Error ? err.message : String(err)}\n`),
+                color.red(
+                  `Project switch failed: ${err instanceof Error ? err.message : String(err)}\n`,
+                ),
               );
             }
           },
@@ -1335,13 +1422,15 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
             console.error(color.red(`Failed to spawn wstack: ${err.message}`));
           });
 
-          console.log([
-            '',
-            color.green(`  Switched to ${name}`),
-            color.dim(`  Root: ${root}`),
-            color.dim('  (current session stays open — Ctrl+C to return)'),
-            '',
-          ].join('\n'));
+          console.log(
+            [
+              '',
+              color.green(`  Switched to ${name}`),
+              color.dim(`  Root: ${root}`),
+              color.dim('  (current session stays open — Ctrl+C to return)'),
+              '',
+            ].join('\n'),
+          );
 
           return 0;
         }
@@ -1393,8 +1482,11 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
         // autonomy mode — context.meta alone never reaches the run loop.
         onAutonomySwitch: (mode: string) => {
           if (
-            mode === 'off' || mode === 'suggest' || mode === 'auto' ||
-            mode === 'eternal' || mode === 'eternal-parallel'
+            mode === 'off' ||
+            mode === 'suggest' ||
+            mode === 'auto' ||
+            mode === 'eternal' ||
+            mode === 'eternal-parallel'
           ) {
             onAutonomy?.(mode);
           }
@@ -1404,7 +1496,9 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
       // until the WebUI server shuts down. The WebUI WS handler listens for
       // /exit or abort signals and resolves webuiPromise when the server stops.
       renderer.writeInfo(
-        color.green(`  ✦ WebUI running → ${color.bold(`http://localhost:${Number.parseInt(String(flags.port ?? '3457'), 10)}`)}`),
+        color.green(
+          `  ✦ WebUI running → ${color.bold(`http://localhost:${Number.parseInt(String(flags.port ?? '3457'), 10)}`)}`,
+        ),
       );
       renderer.writeInfo(color.dim('  Press Ctrl+C in this terminal to stop the WebUI server.\n'));
       const webuiExit = new Promise<number>((resolve) => {
@@ -1416,18 +1510,20 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
         };
         process.on('SIGINT', onSigint);
         process.on('SIGTERM', onSigint);
-        webuiPromise.then(() => {
-          renderer.setSilent(false);
-          process.off('SIGINT', onSigint);
-          process.off('SIGTERM', onSigint);
-          resolve(0);
-        }).catch((err) => {
-          renderer.setSilent(false);
-          process.off('SIGINT', onSigint);
-          process.off('SIGTERM', onSigint);
-          console.debug(`[execution] webui error: ${err}`);
-          resolve(1);
-        });
+        webuiPromise
+          .then(() => {
+            renderer.setSilent(false);
+            process.off('SIGINT', onSigint);
+            process.off('SIGTERM', onSigint);
+            resolve(0);
+          })
+          .catch((err) => {
+            renderer.setSilent(false);
+            process.off('SIGINT', onSigint);
+            process.off('SIGTERM', onSigint);
+            console.debug(`[execution] webui error: ${err}`);
+            resolve(1);
+          });
       });
       code = await webuiExit;
     } else {
@@ -1459,6 +1555,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
           ? (tokens) => director.setLeaderContextPressure(tokens)
           : undefined,
         onCountdownTick: deps.onCountdownTick,
+        onDestroy: deps.onDestroy,
       });
     }
   } finally {
@@ -1492,7 +1589,9 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
     // and the review text is silently dropped because append returns early on closed.
     await pendingChimeraWork;
     await activeSession.close();
-    await recoveryLock.clear().catch(() => undefined); /* best-effort: stale lock will be recovered on next startup */
+    await recoveryLock
+      .clear()
+      .catch(() => undefined); /* best-effort: stale lock will be recovered on next startup */
     await reader.close();
   }
   return code;

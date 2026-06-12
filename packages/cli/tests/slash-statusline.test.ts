@@ -126,13 +126,17 @@ describe('buildStatuslineCommand', () => {
     const cmd = buildStatuslineCommand(makeDeps());
     const res = await cmd.run('foo on');
     expect(res?.message ?? '').toContain('Unknown item "foo"');
-    expect(res?.message ?? '').toContain('todos');
+    expect(res?.message ?? '').toContain('Run /statusline to see available items');
   });
 
-  it('valid item but missing on|off returns usage', async () => {
-    const cmd = buildStatuslineCommand(makeDeps());
+  it('valid item but missing on|off toggles the item', async () => {
+    const setHidden = vi.fn();
+    const deps = { ...makeDeps(), hiddenItems: [], setHiddenItems: setHidden } as never as StatuslineCommandDeps;
+    const cmd = buildStatuslineCommand(deps);
+    // git is visible by default (not in hiddenItems), so toggling should hide it
     const res = await cmd.run('git');
-    expect(res?.message ?? '').toContain('Usage: /statusline git on|off');
+    expect(res?.message ?? '').toBe('statusline git: off');
+    expect(setHidden).toHaveBeenCalledWith(['git']);
   });
 
   it('valid item with invalid action returns usage', async () => {

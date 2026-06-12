@@ -1,5 +1,5 @@
-import { color } from '@wrongstack/core';
 import type { SlashCommand } from '@wrongstack/core';
+import { color } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
 
 export function buildToolsCommand(opts: SlashCommandContext): SlashCommand {

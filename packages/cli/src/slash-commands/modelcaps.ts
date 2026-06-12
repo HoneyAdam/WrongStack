@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises';
-import { color } from '@wrongstack/core';
 import type { SlashCommand } from '@wrongstack/core';
+import { color } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
 
 /**
@@ -37,7 +37,9 @@ function contextBar(maxContext: number): string {
 interface CacheModel {
   id: string;
   name?: string | undefined;
-  capabilities?: { contextWindow?: number | undefined; maxOutputTokens?: number | undefined } | undefined;
+  capabilities?:
+    | { contextWindow?: number | undefined; maxOutputTokens?: number | undefined }
+    | undefined;
   pricing?: { input?: number; output?: number } | undefined;
 }
 
@@ -94,20 +96,22 @@ export function buildModelCapsCommand(opts: SlashCommandContext): SlashCommand {
         const parsed = JSON.parse(raw) as Record<string, unknown>;
         // The cache file is a CacheEnvelope: { fetchedAt, url, payload: Record<id, ModelsDevProvider> }.
         // Extract the payload (if enveloped) and convert the provider-object to an array.
-        const payload = ((parsed.payload ?? parsed) as Record<string, Record<string, unknown>>);
+        const payload = (parsed.payload ?? parsed) as Record<string, Record<string, unknown>>;
         providers = Object.entries(payload).map(([id, p]) => ({
           id: (p.id as string) ?? id,
           name: (p.name as string) ?? id,
           family: (p.npm as string) ?? id,
-          models: Object.values((p.models as Record<string, Record<string, unknown>>) ?? {}).map((m) => ({
-            id: m.id as string,
-            name: m.name as string | undefined,
-            capabilities: {
-              contextWindow: (m.limit as { context?: number } | undefined)?.context,
-              maxOutputTokens: (m.limit as { output?: number } | undefined)?.output,
-            },
-            pricing: m.cost as { input?: number; output?: number } | undefined,
-          })),
+          models: Object.values((p.models as Record<string, Record<string, unknown>>) ?? {}).map(
+            (m) => ({
+              id: m.id as string,
+              name: m.name as string | undefined,
+              capabilities: {
+                contextWindow: (m.limit as { context?: number } | undefined)?.context,
+                maxOutputTokens: (m.limit as { output?: number } | undefined)?.output,
+              },
+              pricing: m.cost as { input?: number; output?: number } | undefined,
+            }),
+          ),
         }));
       } catch {
         return {
@@ -121,7 +125,10 @@ export function buildModelCapsCommand(opts: SlashCommandContext): SlashCommand {
       }
 
       const config = opts.configStore.get();
-      const configProviders = (config?.providers ?? {}) as Record<string, { apiKey?: string; apiKeys?: Array<{ apiKey?: string }> }>;
+      const configProviders = (config?.providers ?? {}) as Record<
+        string,
+        { apiKey?: string; apiKeys?: Array<{ apiKey?: string }> }
+      >;
 
       function hasKey(providerId: string): boolean {
         const pc = configProviders[providerId];
@@ -140,7 +147,12 @@ export function buildModelCapsCommand(opts: SlashCommandContext): SlashCommand {
 
       for (const prov of providers) {
         // Filter by provider if user specified a fragment without slash
-        if (trimmed && !trimmed.includes('/') && !prov.id.toLowerCase().includes(trimmed) && !prov.name.toLowerCase().includes(trimmed)) {
+        if (
+          trimmed &&
+          !trimmed.includes('/') &&
+          !prov.id.toLowerCase().includes(trimmed) &&
+          !prov.name.toLowerCase().includes(trimmed)
+        ) {
           continue;
         }
 
@@ -167,9 +179,9 @@ export function buildModelCapsCommand(opts: SlashCommandContext): SlashCommand {
 
           lines.push(
             `    ${color.cyan(m.id)}  ` +
-            `${contextBar(ctx)}` +
-            (maxOut > 0 ? ` ${color.dim('out')} ${fmtTokens(maxOut)}` : '') +
-            `  ${color.dim('in')} ${fmtPrice(m.pricing?.input)}  ${color.dim('out')} ${fmtPrice(m.pricing?.output)}`,
+              `${contextBar(ctx)}` +
+              (maxOut > 0 ? ` ${color.dim('out')} ${fmtTokens(maxOut)}` : '') +
+              `  ${color.dim('in')} ${fmtPrice(m.pricing?.input)}  ${color.dim('out')} ${fmtPrice(m.pricing?.output)}`,
           );
           shown++;
         }
@@ -180,7 +192,11 @@ export function buildModelCapsCommand(opts: SlashCommandContext): SlashCommand {
         lines.push(`  ${color.dim('No models matched. Try /modelcaps without a filter.')}`);
       }
 
-      lines.push(color.dim(`${shown} model(s). ● = key present · ○ = no key. Use /modelcaps summary for agent-type mapping.`));
+      lines.push(
+        color.dim(
+          `${shown} model(s). ● = key present · ○ = no key. Use /modelcaps summary for agent-type mapping.`,
+        ),
+      );
       return { message: lines.join('\n') };
     },
   };

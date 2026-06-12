@@ -1,14 +1,14 @@
 import * as fs from 'node:fs/promises';
+import type { Config, Context, SlashCommand } from '@wrongstack/core';
 import {
   atomicWrite,
+  type ContextWindowPolicy,
   color,
   formatContextWindowModeList,
   getContextWindowMode,
   repairToolUseAdjacency,
   resolveContextWindowPolicy,
-  type ContextWindowPolicy,
 } from '@wrongstack/core';
-import type { Config, Context, SlashCommand } from '@wrongstack/core';
 import { countToolResults, countToolUses, countTurnPairs, estimateTokens } from './helpers.js';
 import type { SlashCommandContext } from './index.js';
 
@@ -66,9 +66,10 @@ export function buildContextCommand(opts: SlashCommandContext): SlashCommand {
 
       if (trimmed === 'limit') {
         const limit = readEffectiveLimit(ctx, opts);
-        const msg = limit > 0
-          ? `Effective context window: ${limit.toLocaleString()} tokens`
-          : 'Effective context window: unknown (auto-compaction may be disabled).';
+        const msg =
+          limit > 0
+            ? `Effective context window: ${limit.toLocaleString()} tokens`
+            : 'Effective context window: unknown (auto-compaction may be disabled).';
         opts.renderer.write(`${msg}\n`);
         return { message: msg };
       }
@@ -101,7 +102,8 @@ export function buildContextCommand(opts: SlashCommandContext): SlashCommand {
         const thresholdArgs = stripPersistFlag(trimmed.slice('thresholds '.length)).trim();
         const parts = thresholdArgs.split(/\s+/).filter(Boolean);
         if (parts.length !== 3) {
-          const msg = 'Usage: /context thresholds <warn> <soft> <hard> (examples: 60% 75% 90% or 0.6 0.75 0.9)';
+          const msg =
+            'Usage: /context thresholds <warn> <soft> <hard> (examples: 60% 75% 90% or 0.6 0.75 0.9)';
           opts.renderer.write(`${color.red(msg)}\n`);
           return { message: msg };
         }
@@ -206,7 +208,8 @@ async function persistContextConfig(
   opts: SlashCommandContext,
   patch: Partial<Config['context']>,
 ): Promise<string | null> {
-  if (!opts.configStore || !opts.paths) return 'Cannot persist context settings: config store not available.';
+  if (!opts.configStore || !opts.paths)
+    return 'Cannot persist context settings: config store not available.';
 
   let raw = '{}';
   try {
@@ -240,7 +243,8 @@ function readEffectiveLimit(ctx: Context, opts: SlashCommandContext): number {
   const live = opts.onContextLimit?.();
   if (typeof live === 'number' && Number.isFinite(live) && live > 0) return live;
   const metaLimit = ctx.meta?.['effectiveMaxContext'];
-  if (typeof metaLimit === 'number' && Number.isFinite(metaLimit) && metaLimit > 0) return metaLimit;
+  if (typeof metaLimit === 'number' && Number.isFinite(metaLimit) && metaLimit > 0)
+    return metaLimit;
   const providerLimit = ctx.provider?.capabilities?.maxContext;
   return typeof providerLimit === 'number' && Number.isFinite(providerLimit) && providerLimit > 0
     ? providerLimit

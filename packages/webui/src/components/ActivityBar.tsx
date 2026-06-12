@@ -24,6 +24,8 @@ import {
   Settings as SettingsIcon,
   Sun,
   Zap,
+  LayoutGrid,
+  Activity as ActivityIconSvg,
 } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { useTheme } from './ThemeProvider';
@@ -165,7 +167,7 @@ export function ActivityBar() {
       <div className="flex-1" />
 
       {/* ── Global utilities — app-wide controls that used to crowd the
-            chat header (palette, theme, shortcuts) ── */}
+            chat header (palette, theme, shortcuts, fleet monitors) ── */}
       <div className="flex flex-col items-center gap-0.5 pb-2 border-b border-border/50 mb-2">
         <ActivityIcon
           icon={<Command size={16} />}
@@ -179,6 +181,18 @@ export function ActivityBar() {
           label="Keyboard shortcuts (?)"
           active={false}
           onClick={() => useUIStore.getState().setShortcutsOpen(true)}
+        />
+        <ActivityIcon
+          icon={<LayoutGrid size={16} />}
+          label="Fleet Monitor (Ctrl+Shift+M)"
+          active={useUIStore.getState().fleetMonitorOpen}
+          onClick={() => useUIStore.getState().setFleetMonitorOpen(!useUIStore.getState().fleetMonitorOpen)}
+        />
+        <ActivityIcon
+          icon={<ActivityIconSvg size={16} />}
+          label="Agents Monitor (Ctrl+Shift+A)"
+          active={useUIStore.getState().agentsMonitorOpen}
+          onClick={() => useUIStore.getState().setAgentsMonitorOpen(!useUIStore.getState().agentsMonitorOpen)}
         />
       </div>
 

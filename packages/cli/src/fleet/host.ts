@@ -6,7 +6,7 @@ import * as path from 'node:path';
  * subagents don't pay the construction cost.
  */
 import { ACP_AGENT_COMMANDS, makeACPSubagentRunner } from '@wrongstack/acp';
-import type { BrainArbiter, SubagentRunner } from '@wrongstack/core';
+import type { BrainArbiter, SubagentRunner, TextBlock } from '@wrongstack/core';
 import {
   Agent,
   type AgentFactory,
@@ -15,6 +15,7 @@ import {
   type ConfigStore,
   type Container,
   Context,
+  createDefaultPipelines,
   DEFAULT_SUBAGENT_BASELINE,
   type DefaultMultiAgentCoordinator,
   Director,
@@ -24,8 +25,12 @@ import {
   FleetManager,
   GlobalMailbox,
   type ModelsRegistry,
+  makeDirectorSessionFactory,
+  makeFleetEmitTool,
+  makeFleetStatusTool,
   type Provider,
   type ProviderRegistry,
+  resolveModelMatrix,
   type SessionWriter,
   type SubagentConfig,
   type SystemPromptBuilder,
@@ -33,13 +38,7 @@ import {
   type TokenCounter,
   type Tool,
   ToolRegistry,
-  createDefaultPipelines,
-  makeDirectorSessionFactory,
-  makeFleetEmitTool,
-  makeFleetStatusTool,
-  resolveModelMatrix,
 } from '@wrongstack/core';
-import type { TextBlock } from '@wrongstack/core';
 import { ToolExecutor } from '@wrongstack/core/execution';
 import { makeProviderFromConfig } from '@wrongstack/providers';
 import { resolveRuntimeMaxContext } from '../context-limit.js';
@@ -362,7 +361,10 @@ export class MultiAgentHost {
       ({
         task,
         subagentId,
-      }: { task: { id: string; description?: string | undefined }; subagentId: string }) => {
+      }: {
+        task: { id: string; description?: string | undefined };
+        subagentId: string;
+      }) => {
         this.deps.events.emit('subagent.task_started', {
           subagentId,
           taskId: task.id,
@@ -760,7 +762,12 @@ export class MultiAgentHost {
    */
   async spawn(
     description: string,
-    opts?: { provider?: string | undefined; model?: string | undefined; tools?: string[] | undefined; name?: string | undefined },
+    opts?: {
+      provider?: string | undefined;
+      model?: string | undefined;
+      tools?: string[] | undefined;
+      name?: string | undefined;
+    },
   ): Promise<{ subagentId: string; taskId: string }> {
     // Always build a Director (directorMode or not) so that spawn routes
     // through the same code path. The Director handles all orchestration.
@@ -800,7 +807,12 @@ export class MultiAgentHost {
    */
   async spawnAndWait(
     description: string,
-    opts?: { provider?: string | undefined; model?: string | undefined; tools?: string[] | undefined; name?: string | undefined },
+    opts?: {
+      provider?: string | undefined;
+      model?: string | undefined;
+      tools?: string[] | undefined;
+      name?: string | undefined;
+    },
   ): Promise<TaskResult> {
     const { taskId } = await this.spawn(description, opts);
     if (!this.director) throw new Error('Director is not initialized');

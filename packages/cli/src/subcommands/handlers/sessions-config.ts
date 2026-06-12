@@ -1,14 +1,13 @@
-import { expectDefined } from '@wrongstack/core';
-import { color } from '@wrongstack/core';
-import type { SubcommandDeps, SubcommandHandler } from '../index.js';
-import { redactKeys } from './helpers.js';
-import { sessionsFleetCmd } from './sessions-fleet.js';
+import { color, expectDefined } from '@wrongstack/core';
 import {
-  listHistory,
   getHistoryEntry,
+  listHistory,
   restoreFromHistory,
   restoreLast,
 } from '../../config-history.js';
+import type { SubcommandDeps, SubcommandHandler } from '../index.js';
+import { redactKeys } from './helpers.js';
+import { sessionsFleetCmd } from './sessions-fleet.js';
 export const sessionsCmd: SubcommandHandler = async (args, deps) => {
   const sub = args[0];
   // `wrongstack sessions fleet [runId]` — fleet run inspection

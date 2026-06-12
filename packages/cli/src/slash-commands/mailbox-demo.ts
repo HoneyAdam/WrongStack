@@ -14,16 +14,16 @@
  *   /mailbox-demo clear           — clear all messages for the demo agent
  */
 
+import type { SlashCommand } from '@wrongstack/core';
 import {
   GlobalMailbox,
-  resolveProjectDir,
-  type MailboxMessage,
   type MailboxAgentStatus,
+  type MailboxMessage,
+  resolveProjectDir,
   wstackGlobalRoot,
 } from '@wrongstack/core';
-import type { SlashCommand } from '@wrongstack/core';
-import type { SlashCommandContext } from './index.js';
 import { parseSubcommand, unknownSubcommand } from './helpers.js';
+import type { SlashCommandContext } from './index.js';
 
 const DEMO_AGENT_ID = 'mailbox-demo';
 
@@ -108,7 +108,7 @@ export function buildMailboxDemoCommand(opts: SlashCommandContext): SlashCommand
               `📬 Mailbox Demo — project: ${opts.projectRoot}`,
               `   Mailbox path: ${mailbox.messagePath}`,
               `   Registered agents (${agents.length}):`,
-              ...agents.length > 0 ? agents.map(formatAgent) : ['   (none)'],
+              ...(agents.length > 0 ? agents.map(formatAgent) : ['   (none)']),
               '',
               '   Available subcommands:',
               '   /mailbox-demo agents          — list all registered agents',
@@ -126,10 +126,9 @@ export function buildMailboxDemoCommand(opts: SlashCommandContext): SlashCommand
             return { message: '📭 No agents registered in this project mailbox.' };
           }
           return {
-            message: [
-              `Registered agents (${agents.length}):`,
-              ...agents.map(formatAgent),
-            ].join('\n'),
+            message: [`Registered agents (${agents.length}):`, ...agents.map(formatAgent)].join(
+              '\n',
+            ),
           };
         }
 

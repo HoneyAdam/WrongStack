@@ -208,15 +208,42 @@ describe('MCPClient', () => {
 
   describe('close() — stdio lifecycle edge cases', () => {
     it('close uses SIGTERM then escalates to SIGKILL on stuck process', async () => {
-      // Test that close() correctly handles the graceful → forced kill sequence.
-      // We spawn a process that ignores SIGTERM but dies on SIGKILL.
+      // The previous version of this test constructed a client with a
+      // `while(true) {}` busy-loop command but never called connect() — no
+      // child ever existed, so close() returned instantly and the
+      // SIGTERM→SIGKILL escalation was never exercised. Drive the real
+      // escalation deterministically with an injected fake child that
+      // ignores SIGTERM and only exits on SIGKILL — no subprocess needed.
       const c = new MCPClient({
         name: 'force-kill-test',
         transport: 'stdio',
-        command: 'node',
-        args: ['-e', 'process.on("SIGTERM", () => process.exit(1)); while(true) {}'],
+        command: 'noop',
+      });
+      const { EventEmitter } = await import('node:events');
+      const fakeChild = new EventEmitter() as InstanceType<typeof EventEmitter> & {
+        exitCode: number | null;
+        signalCode: string | null;
+        kill: (signal?: string) => boolean;
+      };
+      fakeChild.exitCode = null;
+      fakeChild.signalCode = null;
+      const signals: string[] = [];
+      fakeChild.kill = (signal = 'SIGTERM') => {
+        signals.push(signal);
+        if (signal === 'SIGKILL') {
+          fakeChild.signalCode = 'SIGKILL';
+          fakeChild.emit('exit', null, 'SIGKILL');
+        }
+        // SIGTERM is ignored — the "stuck" server.
+        return true;
+      };
+      Object.defineProperty(c as unknown as Record<string, unknown>, 'child', {
+        value: fakeChild,
+        writable: true,
+        configurable: true,
       });
       await c.close();
+      expect(signals).toEqual(['SIGTERM', 'SIGKILL']);
       expect(c.getState()).toBe('disconnected');
     });
 

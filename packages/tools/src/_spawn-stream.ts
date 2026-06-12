@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process';
 import { buildChildEnv } from '@wrongstack/core';
 import type { ToolProgressEvent } from '@wrongstack/core';
+import { createOutputSpool, spoolNote } from './_output-spool.js';
+import { getProcessRegistry, redactCommand } from './process-registry.js';
 import { resolveWin32Command } from './_win32-resolve.js';
 export interface SpawnStreamResult {
   stdout: string;
@@ -8,6 +10,10 @@ export interface SpawnStreamResult {
   exitCode: number;
   truncated: boolean;
   error?: string | undefined;
+  /** When the output exceeded maxBytes, the FULL output was spooled here. */
+  spoolPath?: string | undefined;
+  /** Total output bytes produced (only set when spooled). */
+  spoolBytes?: number | undefined;
 }
 
 export interface SpawnStreamOptions {
@@ -39,18 +45,46 @@ export async function* spawnStream(
   let stderr = '';
   let pending = '';
   let error: string | undefined;
+  // Full-output spool: stdout/stderr keep only the first `max` bytes for the
+  // model. Once the combined output exceeds that, the FULL stream goes to a
+  // file and the result carries a marker — so a huge vitest/tsc run lands on
+  // disk, not in the host heap or the chat history.
+  const spool = createOutputSpool({ tool: opts.cmd, thresholdBytes: max });
 
   const cmd = resolveWin32Command(opts.cmd);
-  const needsShell = process.platform === 'win32' && (cmd.endsWith('.cmd') || cmd.endsWith('.bat'));
+  const isWin = process.platform === 'win32';
+  const needsShell = isWin && (cmd.endsWith('.cmd') || cmd.endsWith('.bat'));
 
+  // On Windows the abort signal is handled manually below instead of being
+  // passed to spawn(): Node's built-in handling kills only the direct child.
+  // With the .cmd/.bat shell wrapper the real command (vitest, tsc, …) is a
+  // *grandchild* of cmd.exe — killing the wrapper orphans it, the orphan
+  // keeps the inherited stdio pipes open (so 'close' never fires) and
+  // streams into this process for the rest of the session. registry.kill()
+  // tree-kills via taskkill /T instead — same rationale as bash.ts/exec.ts.
   const child = spawn(cmd, opts.args, {
     cwd: opts.cwd,
-    signal: opts.signal,
     env: buildChildEnv(),
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
+    ...(isWin ? {} : { signal: opts.signal }),
     ...(needsShell ? { shell: true, windowsVerbatimArguments: true } : {}),
   });
+
+  // Register with the global registry so Ctrl+C / /kill can find and
+  // tree-kill it — spawnStream consumers (test/lint/typecheck/install/…)
+  // were previously invisible to the registry.
+  const registry = getProcessRegistry();
+  const pid = child.pid;
+  if (typeof pid === 'number') {
+    registry.register({
+      pid,
+      name: opts.cmd,
+      command: redactCommand(`${opts.cmd} ${opts.args.join(' ')}`),
+      startedAt: Date.now(),
+      child,
+    });
+  }
 
   type Chunk = { kind: 'out' | 'err' | 'close' | 'error'; data: string; code?: number | undefined };
   const queue: Chunk[] = [];
@@ -76,9 +110,11 @@ export async function* spawnStream(
   // Note: chunks may still arrive briefly after pause() (already in flight) —
   // they are accumulated and queued rather than dropped, so the queue can
   // overshoot maxQueue by a few entries but no output is silently lost.
-  child.stdout?.on('data', (c) => {
+  // Named handlers so the teardown in `finally` can detach them.
+  const onOut = (c: Buffer) => {
     const s = c.toString();
     if (stdout.length < max) stdout += s;
+    spool.write(s);
     queue.push({ kind: 'out', data: s });
     wake();
     // Apply backpressure if queue is growing faster than we consume
@@ -87,10 +123,11 @@ export async function* spawnStream(
       child.stdout?.pause();
       child.stderr?.pause();
     }
-  });
-  child.stderr?.on('data', (c) => {
+  };
+  const onErr = (c: Buffer) => {
     const s = c.toString();
     if (stderr.length < max) stderr += s;
+    spool.write(s);
     queue.push({ kind: 'err', data: s });
     wake();
     if (!paused && queue.length >= maxQueue) {
@@ -98,55 +135,112 @@ export async function* spawnStream(
       child.stdout?.pause();
       child.stderr?.pause();
     }
-  });
+  };
+  child.stdout?.on('data', onOut);
+  child.stderr?.on('data', onErr);
   child.on('error', (e) => {
     error = e.message;
     queue.push({ kind: 'error', data: e.message });
     wake();
   });
   child.on('close', (code) => {
+    if (typeof pid === 'number') registry.unregister(pid);
     queue.push({ kind: 'close', data: '', code: code ?? 0 });
     wake();
   });
 
+  // Abort: tree-kill the child and wake the consumer loop with a synthetic
+  // close (exit code 124, matching exec.ts's timeout convention). Without
+  // the sentinel the loop can park forever on `waiter` when the pipes are
+  // paused (queue full) or a win32 orphan holds them open — the executor's
+  // iter.return() then never completes, the tool call hangs for the rest of
+  // the session and retains the queue (up to maxQueue chunks) on the heap.
+  const onAbort = () => {
+    if (typeof pid === 'number') {
+      registry.kill(pid, { force: true });
+    } else {
+      try {
+        child.kill('SIGKILL');
+      } catch {
+        /* already gone */
+      }
+    }
+    queue.push({ kind: 'close', data: '', code: 124 });
+    wake();
+  };
+  if (opts.signal.aborted) onAbort();
+  else opts.signal.addEventListener('abort', onAbort, { once: true });
+
   let exitCode = 0;
   let spawnFailed = false;
-  for (;;) {
-    while (queue.length === 0) {
-      await new Promise<void>((resolve) => {
-        waiter = resolve;
-      });
+  try {
+    for (;;) {
+      while (queue.length === 0) {
+        await new Promise<void>((resolve) => {
+          waiter = resolve;
+        });
+      }
+      const chunk = queue.shift()!;
+      // Resume reading after consuming a chunk
+      resume();
+      if (chunk.kind === 'close') {
+        // If we already saw a spawn error (ENOENT etc.), keep exitCode=1
+        // rather than the negative platform code Node fabricates.
+        if (!spawnFailed) exitCode = chunk.code ?? 0;
+        break;
+      }
+      if (chunk.kind === 'error') {
+        spawnFailed = true;
+        exitCode = 1;
+        // close usually follows
+        continue;
+      }
+      pending += chunk.data;
+      if (pending.length >= flushAt) {
+        yield { type: 'partial_output', text: pending };
+        pending = '';
+      }
     }
-    const chunk = queue.shift()!;
-    // Resume reading after consuming a chunk
-    resume();
-    if (chunk.kind === 'close') {
-      // If we already saw a spawn error (ENOENT etc.), keep exitCode=1
-      // rather than the negative platform code Node fabricates.
-      if (!spawnFailed) exitCode = chunk.code ?? 0;
-      break;
-    }
-    if (chunk.kind === 'error') {
-      spawnFailed = true;
-      exitCode = 1;
-      // close usually follows
-      continue;
-    }
-    pending += chunk.data;
-    if (pending.length >= flushAt) {
+    if (pending.length > 0) {
       yield { type: 'partial_output', text: pending };
-      pending = '';
+    }
+
+    const spooled = spool.finalize();
+    return {
+      // The marker rides on stdout's tail so every consumer's head+tail
+      // normalization keeps it without per-tool changes.
+      stdout: spooled ? stdout + spoolNote(spooled) : stdout,
+      stderr,
+      exitCode,
+      truncated: stdout.length >= max || stderr.length >= max,
+      error,
+      spoolPath: spooled?.path,
+      spoolBytes: spooled?.bytes,
+    };
+  } finally {
+    // Teardown — this generator can be abandoned mid-stream (executor
+    // timeout/abort, or the consumer erroring out of its for-await loop).
+    // The data handlers would otherwise stay attached and keep queueing
+    // output with no consumer (bounded only by the pause cap), and a
+    // surviving child would keep the closures — queue, output buffers,
+    // child handle — alive until OOM. Detach the handlers, destroy the
+    // pipes, and make sure nothing is left running.
+    spool.finalize(); // idempotent — closes the file if the stream was abandoned
+    opts.signal.removeEventListener('abort', onAbort);
+    child.stdout?.off('data', onOut);
+    child.stderr?.off('data', onErr);
+    child.stdout?.destroy();
+    child.stderr?.destroy();
+    if (child.exitCode === null && !child.killed) {
+      if (typeof pid === 'number') {
+        registry.kill(pid, { force: true });
+      } else {
+        try {
+          child.kill('SIGKILL');
+        } catch {
+          /* already gone */
+        }
+      }
     }
   }
-  if (pending.length > 0) {
-    yield { type: 'partial_output', text: pending };
-  }
-
-  return {
-    stdout,
-    stderr,
-    exitCode,
-    truncated: stdout.length >= max || stderr.length >= max,
-    error,
-  };
 }

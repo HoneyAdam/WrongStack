@@ -1,0 +1,114 @@
+import * as fsp from 'node:fs/promises';
+import { afterEach, describe, expect, it } from 'vitest';
+import {
+  _resetOutputSpoolForTests,
+  createOutputSpool,
+  spoolNote,
+  toolOutputDir,
+} from '../src/_output-spool.js';
+import { spawnStream } from '../src/_spawn-stream.js';
+
+// vitest.setup.ts points WRONGSTACK_HOME at a per-worker temp dir, so
+// toolOutputDir() is hermetic — these tests never touch the real global root.
+
+afterEach(async () => {
+  _resetOutputSpoolForTests();
+  await fsp.rm(toolOutputDir(), { recursive: true, force: true });
+});
+
+describe('createOutputSpool', () => {
+  it('creates no file for output under the threshold', () => {
+    const spool = createOutputSpool({ tool: 'small', thresholdBytes: 1024 });
+    spool.write('hello ');
+    spool.write('world');
+    expect(spool.finalize()).toBeNull();
+  });
+
+  it('spools the FULL output to disk once the threshold is crossed', async () => {
+    const spool = createOutputSpool({ tool: 'big', thresholdBytes: 100 });
+    const chunkA = 'a'.repeat(80);
+    const chunkB = 'b'.repeat(80);
+    const chunkC = 'c'.repeat(80);
+    spool.write(chunkA);
+    spool.write(chunkB); // crosses the threshold — file opens here
+    spool.write(chunkC);
+    const info = spool.finalize();
+    expect(info).not.toBeNull();
+    expect(info!.bytes).toBe(240);
+    expect(info!.droppedBytes).toBe(0);
+    // The file contains the complete output including the pre-threshold head.
+    await expect.poll(async () => (await fsp.readFile(info!.path, 'utf8')).length).toBe(240);
+    const content = await fsp.readFile(info!.path, 'utf8');
+    expect(content).toBe(chunkA + chunkB + chunkC);
+  });
+
+  it('finalize is idempotent and write() after finalize is a no-op', () => {
+    const spool = createOutputSpool({ tool: 'idem', thresholdBytes: 10 });
+    spool.write('x'.repeat(50));
+    const first = spool.finalize();
+    spool.write('more');
+    const second = spool.finalize();
+    expect(first?.path).toBe(second?.path);
+    expect(second?.bytes).toBe(50);
+  });
+
+  it('spoolNote mentions the path and total bytes', () => {
+    const note = spoolNote({ path: 'C:/tmp/x.log', bytes: 12345, droppedBytes: 0 });
+    expect(note).toContain('C:/tmp/x.log');
+    expect(note).toContain('12345');
+    expect(note).not.toContain('dropped');
+  });
+});
+
+describe('spawnStream spool integration', () => {
+  it('appends a spool marker to stdout and exposes the path for oversized output', async () => {
+    const ctrl = new AbortController();
+    // ~150 KB of output with a tiny maxBytes so the spool activates fast.
+    const gen = spawnStream({
+      cmd: 'node',
+      args: ['-e', "process.stdout.write('y'.repeat(150000))"],
+      cwd: process.cwd(),
+      signal: ctrl.signal,
+      maxBytes: 10_000,
+    });
+    let result: Awaited<ReturnType<typeof gen.next>>['value'];
+    for (;;) {
+      const { value, done } = await gen.next();
+      if (done) {
+        result = value;
+        break;
+      }
+    }
+    const r = result as {
+      stdout: string;
+      spoolPath?: string;
+      spoolBytes?: number;
+    };
+    expect(r.spoolPath).toBeTruthy();
+    expect(r.spoolBytes).toBe(150000);
+    expect(r.stdout).toContain('[output truncated — full 150000 bytes at ');
+    const onDisk = await fsp.readFile(r.spoolPath!, 'utf8');
+    expect(onDisk.length).toBe(150000);
+  });
+
+  it('does not spool when output stays under maxBytes', async () => {
+    const ctrl = new AbortController();
+    const gen = spawnStream({
+      cmd: 'node',
+      args: ['-e', "process.stdout.write('ok')"],
+      cwd: process.cwd(),
+      signal: ctrl.signal,
+    });
+    let result: Awaited<ReturnType<typeof gen.next>>['value'];
+    for (;;) {
+      const { value, done } = await gen.next();
+      if (done) {
+        result = value;
+        break;
+      }
+    }
+    const r = result as { stdout: string; spoolPath?: string };
+    expect(r.spoolPath).toBeUndefined();
+    expect(r.stdout).not.toContain('[output truncated');
+  });
+});

@@ -1,8 +1,4 @@
-import {
-  color,
-  ReplayLogStore,
-  resolveWstackPaths,
-} from '@wrongstack/core';
+import { color, ReplayLogStore, resolveWstackPaths } from '@wrongstack/core';
 import type { SubcommandHandler } from '../index.js';
 
 /**
@@ -41,16 +37,8 @@ export const replayCmd: SubcommandHandler = async (args, deps) => {
       );
     }
     lines.push('');
-    lines.push(
-      color.dim(
-        '  Inspect:  wstack replay <sessionId>',
-      ),
-    );
-    lines.push(
-      color.dim(
-        '  Replay:   wstack --replay <sessionId>',
-      ),
-    );
+    lines.push(color.dim('  Inspect:  wstack replay <sessionId>'));
+    lines.push(color.dim('  Replay:   wstack --replay <sessionId>'));
     deps.renderer.write(lines.join('\n') + '\n');
     return 0;
   }
@@ -62,7 +50,9 @@ export const replayCmd: SubcommandHandler = async (args, deps) => {
         '       wstack replay --list\n\n' +
         'Lists recorded provider responses for the session. To actually\n' +
         're-run the agent with frozen responses, use:\n' +
-        '  wstack --replay ' + color.cyan('<sessionId>') + '\n' +
+        '  wstack --replay ' +
+        color.cyan('<sessionId>') +
+        '\n' +
         '  wstack --record                   # start a fresh recording\n',
     );
     return 1;
@@ -88,9 +78,7 @@ export const replayCmd: SubcommandHandler = async (args, deps) => {
     'Recorded timestamps (oldest first):',
   ];
   for (const e of entries.slice(-10)) {
-    lines.push(
-      `  ${color.dim(e.ts.slice(11, 19))}  ${e.hash.slice(0, 16)}…  ${e.request.model}`,
-    );
+    lines.push(`  ${color.dim(e.ts.slice(11, 19))}  ${e.hash.slice(0, 16)}…  ${e.request.model}`);
   }
   if (entries.length > 10) {
     lines.push(color.dim(`  … and ${entries.length - 10} more`));

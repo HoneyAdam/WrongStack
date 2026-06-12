@@ -1,21 +1,30 @@
+import { spawn } from 'node:child_process';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
-import { spawn } from 'node:child_process';
-import type { SlashCommand, Context } from '@wrongstack/core';
+import type { Context, SlashCommand } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
 
 // ── Git helpers (minimal copy — same logic as chimera-plugin) ────────────
 async function runGit(args: string[], cwd: string): Promise<{ stdout: string; code: number }> {
   return new Promise((resolve) => {
-    const child = spawn('git', args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], signal: AbortSignal.timeout(10_000), windowsHide: true });
+    const child = spawn('git', args, {
+      cwd,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      signal: AbortSignal.timeout(10_000),
+      windowsHide: true,
+    });
     let stdout = '';
-    child.stdout?.on('data', (d) => { stdout += d; });
+    child.stdout?.on('data', (d) => {
+      stdout += d;
+    });
     child.on('error', () => resolve({ stdout, code: 1 }));
     child.on('close', (code) => resolve({ stdout, code: code ?? 0 }));
   });
 }
 
-async function getChangedFiles(cwd: string): Promise<Array<{ path: string; status: 'added' | 'modified' }>> {
+async function getChangedFiles(
+  cwd: string,
+): Promise<Array<{ path: string; status: 'added' | 'modified' }>> {
   const r = await runGit(['status', '--porcelain'], cwd);
   if (r.code !== 0) return [];
   const files: Array<{ path: string; status: 'added' | 'modified' }> = [];
@@ -53,7 +62,12 @@ export function buildReviewCommand(opts: SlashCommandContext): SlashCommand {
       const existing: Array<{ path: string; status: 'added' | 'modified' }> = [];
       for (const f of allChanged) {
         if (f.path.startsWith('.wrongstack/')) continue;
-        try { await fsp.access(path.join(cwd, f.path)); existing.push(f); } catch { /* deleted */ }
+        try {
+          await fsp.access(path.join(cwd, f.path));
+          existing.push(f);
+        } catch {
+          /* deleted */
+        }
       }
 
       if (existing.length === 0) {
@@ -61,12 +75,18 @@ export function buildReviewCommand(opts: SlashCommandContext): SlashCommand {
       }
 
       // Read files and emit chimera.review_needed event
-      const filesWithContent: Array<{ path: string; status: 'added' | 'modified'; content: string }> = [];
+      const filesWithContent: Array<{
+        path: string;
+        status: 'added' | 'modified';
+        content: string;
+      }> = [];
       for (const f of existing.slice(0, 30)) {
         try {
           const content = await fsp.readFile(path.join(cwd, f.path), 'utf8');
           filesWithContent.push({ ...f, content });
-        } catch { /* skip */ }
+        } catch {
+          /* skip */
+        }
       }
 
       // Emit custom event — execution.ts picks this up

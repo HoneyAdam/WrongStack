@@ -218,9 +218,10 @@ export function SessionPanel() {
     [fleetAgents],
   );
 
+  // Context fill — uncapped so >100% is visible when over context limit
   const ctxPct =
     maxContext > 0 && lastInputTokens > 0
-      ? Math.min(100, Math.round((lastInputTokens / maxContext) * 100))
+      ? Math.round((lastInputTokens / maxContext) * 100)
       : 0;
 
   const pinnedRows = pinnedIds

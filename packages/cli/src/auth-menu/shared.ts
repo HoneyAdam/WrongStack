@@ -1,14 +1,5 @@
-import {
-  type ProviderApiKey,
-  type ProviderConfig,
-  type WireFamily,
-  color,
-} from '@wrongstack/core';
-import {
-  activeLabel,
-  maskedKey,
-  normalizeKeys,
-} from '../provider-config-utils.js';
+import { color, type ProviderApiKey, type ProviderConfig, type WireFamily } from '@wrongstack/core';
+import { activeLabel, maskedKey, normalizeKeys } from '../provider-config-utils.js';
 import type { AuthMenuDeps } from './types.js';
 
 /* ------------------------------------------------------------------ */
@@ -63,9 +54,7 @@ export function renderProviderHeader(
 
   const details: string[] = [
     color.dim(`  type:    ${cfg.type ?? providerId}`),
-    color.dim(
-      `  family:  ${cfg.family ?? '(unset → resolved from models.dev when type matches)'}`,
-    ),
+    color.dim(`  family:  ${cfg.family ?? '(unset → resolved from models.dev when type matches)'}`),
     color.dim(`  baseUrl: ${cfg.baseUrl ?? '(unset → catalog default)'}`),
   ];
 
@@ -103,10 +92,7 @@ export function renderKeyLine(
 }
 
 /** Render action shortcuts. */
-export function renderActions(
-  renderer: AuthMenuDeps['renderer'],
-  keysLength: number,
-): void {
+export function renderActions(renderer: AuthMenuDeps['renderer'], keysLength: number): void {
   renderer.write(`\n  ${color.dim('Actions:')}\n`);
   renderer.write(`    ${color.bold('a')}        Add another key\n`);
   if (keysLength > 0) {
@@ -127,14 +113,16 @@ export function renderTopMenu(
   renderer: AuthMenuDeps['renderer'],
   providers: Record<string, ProviderConfig>,
 ): void {
-  renderer.write(
-    `\n${color.bold('WrongStack')} ${color.dim('— API key manager')}\n\n`,
-  );
+  renderer.write(`\n${color.bold('WrongStack')} ${color.dim('— API key manager')}\n\n`);
 
   const ids = Object.keys(providers).sort();
   if (ids.length === 0) {
     renderer.write(color.dim('  No providers configured yet.\n'));
-    renderer.write(color.dim('  Use (a) to add one from the models.dev catalog, or (c) for a custom provider.\n'));
+    renderer.write(
+      color.dim(
+        '  Use (a) to add one from the models.dev catalog, or (c) for a custom provider.\n',
+      ),
+    );
   } else {
     renderer.write(`  ${color.dim('Saved providers:')}\n`);
     let idx = 1;
@@ -150,7 +138,9 @@ export function renderTopMenu(
   renderer.write(`    ${color.bold('a')}  Add a provider (from catalog)\n`);
   renderer.write(`    ${color.bold('c')}  Add a custom provider\n`);
   if (ids.length > 0) {
-    renderer.write(`    ${color.dim('1-')}${color.dim(String(ids.length))}  ${color.bold('Manage a provider')}\n`);
+    renderer.write(
+      `    ${color.dim('1-')}${color.dim(String(ids.length))}  ${color.bold('Manage a provider')}\n`,
+    );
   }
   renderer.write(`    ${color.bold('q')}  Quit\n`);
 }
@@ -187,9 +177,7 @@ export async function confirm(
   question: string,
 ): Promise<boolean | null> {
   const answer = (
-    await deps.reader.readLine(
-      `  ${color.amber('?')} ${question} ${color.dim('[y/N/q]')} `,
-    )
+    await deps.reader.readLine(`  ${color.amber('?')} ${question} ${color.dim('[y/N/q]')} `)
   )
     .trim()
     .toLowerCase();

@@ -11,6 +11,7 @@ interface TestInput {
   cwd?: string | undefined;
   grep?: string | undefined;
   timeout?: number | undefined;
+  verbose?: boolean | undefined;
 }
 
 interface TestOutput {
@@ -54,6 +55,12 @@ export const testTool: Tool<TestInput, TestOutput> = {
       cwd: { type: 'string', description: 'Working directory (default: cwd)' },
       grep: { type: 'string', description: 'Filter tests by name pattern (default: none)' },
       timeout: { type: 'integer', description: 'Test timeout in ms (default: 30000)' },
+      verbose: {
+        type: 'boolean',
+        description:
+          'Per-test verbose reporter output (default: false — the summary reporter is used; ' +
+          'full output is always saved to a log file referenced in the result)',
+      },
     },
   },
   async execute(input, ctx, opts) {
@@ -128,17 +135,19 @@ function buildArgs(runner: string, input: TestInput): string[] {
 
   switch (runner) {
     case 'vitest':
-      args.push('run', '--reporter=verbose');
-      if (input.watch) {
-        args[1] = '';
-        args.push('watch');
-      }
+      // Default reporter, NOT verbose: a verbose run over a large suite
+      // emits one line per test (tens of MB on big monorepos) that then has
+      // to be buffered, spooled, and truncated. The default reporter prints
+      // per-file summaries + full failure details, which is what the agent
+      // acts on. Opt back in per call with `verbose: true`.
+      args.push(input.watch ? 'watch' : 'run');
+      if (input.verbose) args.push('--reporter=verbose');
       if (input.coverage) args.push('--coverage');
       if (input.grep) args.push('--testNamePattern', input.grep);
       args.push('--testTimeout', String(timeout));
       break;
     case 'jest':
-      args.push('--verbose');
+      if (input.verbose) args.push('--verbose');
       if (input.watch) args.push('--watch');
       if (input.coverage) args.push('--coverage');
       if (input.grep) args.push('--testPathPattern', input.grep);
@@ -192,7 +201,13 @@ function parseResult(
     passed,
     failed,
     duration_ms: duration,
-    output: normalizeCommandOutput(result.stdout || result.error || ''),
+    // A passing run only needs the tail summary in chat history — counts are
+    // already parsed above and the FULL log is on disk (spool marker rides
+    // the stdout tail). Failures keep the standard command-output cap so
+    // the agent sees the failure details inline.
+    output: normalizeCommandOutput(result.stdout || result.error || '', {
+      maxBytes: result.exitCode === 0 ? 4096 : undefined,
+    }),
     truncated: result.truncated,
   };
 }

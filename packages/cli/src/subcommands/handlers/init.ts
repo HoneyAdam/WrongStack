@@ -1,10 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { type Config, atomicWrite, color } from '@wrongstack/core';
-import {
-  DefaultSecretVault,
-  encryptConfigSecrets,
-} from '@wrongstack/core/security';
+import { atomicWrite, type Config, color } from '@wrongstack/core';
+import { DefaultSecretVault, encryptConfigSecrets } from '@wrongstack/core/security';
 import { detectProjectFacts, renderAgentsTemplate } from '../../slash-commands/helpers.js';
 import type { SubcommandHandler } from '../index.js';
 

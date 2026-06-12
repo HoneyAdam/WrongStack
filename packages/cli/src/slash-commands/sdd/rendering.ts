@@ -13,7 +13,7 @@ export function sddHelp(): string {
     '',
     '  ┌─ 🔄 Flow ───────────────────────────────────────────────┐',
     '  │  /sdd approve        Approve current phase               │',
-    '  │  /sdd spec           Show current session\'s spec         │',
+    "  │  /sdd spec           Show current session's spec         │",
     '  │  /sdd plan           Show implementation plan            │',
     '  │  /sdd execute        Execute generated tasks             │',
     '  └────────────────────────────────────────────────────────┘',

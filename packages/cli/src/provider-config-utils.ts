@@ -1,5 +1,7 @@
 import { expectDefined } from '@wrongstack/core';
+
 export { expectDefined };
+
 /**
  * Pure helpers for ProviderConfig shape normalisation, key masking, and
  * timestamp generation — plus config file I/O (load/mutate providers).
@@ -119,10 +121,9 @@ export async function mutateConfigProviders(
     raw = await fs.readFile(configPath, 'utf8');
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-      throw new Error(
-        `Refusing to mutate ${configPath}: ${(err as Error).message}`,
-        { cause: err },
-      );
+      throw new Error(`Refusing to mutate ${configPath}: ${(err as Error).message}`, {
+        cause: err,
+      });
     }
     fileExists = false;
     raw = '{}';
