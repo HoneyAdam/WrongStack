@@ -243,7 +243,12 @@ describe('tool-format conversions', () => {
     expect(out[0]?.content).toBe('be terse');
   });
 
-  it('messagesToOpenAI emits empty string content for tool-only assistant message under emptyToolCallContent:empty_string', () => {
+  it('messagesToOpenAI emits explicit null content for tool-only assistant message under emptyToolCallContent:null', () => {
+    // Opt-in to the older / permissive-proxy wire format. vLLM and
+    // llama.cpp servers that reject `content: ''` want `content: null`
+    // explicitly. Today no WrongStack preset ships this — the
+    // default `'empty_string'` is the right choice for 2025 — but
+    // a future vLLM provider preset can flip this on.
     const messages: Message[] = [
       {
         role: 'assistant',
@@ -251,10 +256,10 @@ describe('tool-format conversions', () => {
       },
     ];
     const out = messagesToOpenAI(undefined, messages, {
-      emptyToolCallContent: 'empty_string',
+      emptyToolCallContent: 'null',
     });
     const a = out.find((m) => m.role === 'assistant')!;
-    expect(a.content).toBe('');
+    expect(a.content).toBeNull();
     expect(a.tool_calls).toHaveLength(1);
   });
 
@@ -338,6 +343,64 @@ describe('tool-format conversions', () => {
     ]);
     expect(blocks).toHaveLength(3);
     for (const b of blocks) expect(b).toMatchObject({ type: 'tool_use', input: {} });
+  });
+
+  // ── OpenAI content field on tool-only assistant messages ─────────
+  //
+  // OpenAI 2024-2025 wire contract: every assistant message must have
+  // a `content` field — vanilla OpenAI, K2P7, strict Mistral, and
+  // OpenRouter all 400 on a tool_calls message that omits content
+  // ("messages.N.content must be a string").
+  //
+  // The default in `messagesToOpenAI` is `content: ''` (empty
+  // string). The old pre-2024 behaviour — literally omitting the
+  // field — was a foot-gun that broke multi-turn tool calling for
+  // every model that produces prose-less tool calls (K2P7 most
+  // visibly).
+  //
+  // Two valid values for the `emptyToolCallContent` option:
+  //   - `'empty_string'` (default): wire-compatible with strict providers
+  //   - `'null'`: explicit null — preferred by some older vLLM /
+  //     llama.cpp builds; opt in with `emptyToolCallContent: 'null'`
+  describe('emptyToolCallContent', () => {
+    it('writes empty string content for tool-only assistant messages by default (K2P7-safe)', () => {
+      // The pre-fix behaviour was: omit `content` entirely. That
+      // broke K2P7 (and several strict proxies) with 400. The fix
+      // ships as the new default: `content: ''`. This is the
+      // canonical OpenAI wire shape and the safest choice in 2025.
+      const messages: Message[] = [
+        {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: 'u1', name: 'echo', input: { text: 'hi' } }],
+        },
+      ];
+      const out = messagesToOpenAI(undefined, messages);
+      const a = out.find((m) => m.role === 'assistant')!;
+      // `content` MUST be present (string) and non-undefined.
+      expect('content' in a).toBe(true);
+      expect(a.content).toBe('');
+      // The tool_calls survive — the model at least sees what the
+      // previous turn did.
+      expect(a.tool_calls).toHaveLength(1);
+    });
+
+    it('writes explicit null content when emptyToolCallContent is "null" (legacy opt-in)', () => {
+      // Some older / permissive proxies (e.g. vLLM, llama.cpp)
+      // reject `content: ''` and want `content: null` explicitly.
+      // This is the only path to omit-or-null the field today;
+      // a future provider preset can opt in.
+      const messages: Message[] = [
+        {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: 'u1', name: 'echo', input: { text: 'hi' } }],
+        },
+      ];
+      const out = messagesToOpenAI(undefined, messages, {
+        emptyToolCallContent: 'null',
+      });
+      const a = out.find((m) => m.role === 'assistant')!;
+      expect(a.content).toBeNull();
+    });
   });
 
   it('contentFromAnthropic preserves base64 and URL image blocks', () => {
