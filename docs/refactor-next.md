@@ -21,7 +21,8 @@ refactor). Update this before switching context, handing off, or resuming.
 | 5c | ws-handlers/ — **introspection group** | ✅ merged | #63 |
 | 5d | ws-handlers/ — **worklist group** (todos/tasks/plan) | ✅ merged | #64 |
 | 5e | ws-handlers/ — **agent-config** (modes/model) | ✅ merged | #65 |
-| 5f | ws-handlers/ — **remaining groups** | 🔴 in progress | — |
+| 5f | ws-handlers/ — **prefs** (prefs/autonomy.switch) | ✅ merged | #66 |
+| 5g | ws-handlers/ — **remaining groups** | 🔴 in progress | — |
 
 `webui-server.ts` is ~3000 lines (down from ~3250). The self-contained
 concerns now live under `packages/cli/src/webui-server/`:
@@ -41,6 +42,7 @@ webui-server/
     introspection.ts    — skills/tools/diag/stats snapshots  (PR 5c)
     worklist.ts         — todos/tasks/plan handlers          (PR 5d)
     agent-config.ts     — modes/mode.switch/model.*          (PR 5e)
+    prefs.ts            — prefs.get/update, autonomy.switch   (PR 5f)
 ```
 
 Per-group contexts now extend a small `WsCommon` base (`send`/`broadcast`/
@@ -50,19 +52,19 @@ A module-map doc comment at the top of `webui-server.ts` points to each.
 
 ---
 
-## PR 5f — remaining ws-handler groups (🔴 in progress)
+## PR 5g — remaining ws-handler groups (🔴 in progress)
 
 Extracted so far: **providers** (5), **brain** (5b), **introspection**
-(5c), **worklist** todos/tasks/plan (5d), **agent-config** modes/model
-(5e) — each fully unit-tested, threaded via a per-group context extending
-`WsCommon`. Current reality:
+(5c), **worklist** (5d), **agent-config** (5e), **prefs** (5f) — each
+fully unit-tested, threaded via a per-group context extending `WsCommon`.
+Current reality:
 
 - **Already delegated** — `memory.*`, `files.*`, `mailbox.*`, `shell.open`
   cases already call the shared `@wrongstack/webui/server` handlers. No
   CLI-local extraction to do.
 - **Still inline** — the `handleMessage` switch cases for
-  `sessions` / `session.*`, `context.*`, `projects.*`,
-  `autonomy.switch`, `prefs.*`, plus `handleUserMessage`. These
+  `sessions` / `session.*`, `context.*`, `projects.*`, plus
+  `handleUserMessage`. These
   are coupled to run-loop state (the abort controllers, client map,
   custom-mode store, session writer/store, the session.start payload
   builder, the prefs-snapshot/persist closures) — extract test-first, one

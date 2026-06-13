@@ -70,6 +70,12 @@ export {
   type IntrospectionContext,
 } from './introspection.js';
 export {
+  handleAutonomySwitch,
+  handlePrefsGet,
+  handlePrefsUpdate,
+  type PrefsContext,
+} from './prefs.js';
+export {
   handleKeyDelete,
   handleKeySetActive,
   handleKeyUpsert,
