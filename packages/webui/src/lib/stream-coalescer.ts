@@ -24,14 +24,13 @@ interface Pending {
   flush: FlushFn;
 }
 
-const raf: (cb: () => void) => void =
-  typeof requestAnimationFrame === 'function'
-    ? (cb) => {
-        requestAnimationFrame(cb);
-      }
-    : (cb) => {
-        queueMicrotask(cb);
-      };
+// Looked up at call time (not bound at module load) so the host's
+// requestAnimationFrame is always honoured — and so test stubs that replace it
+// after import take effect. Falls back to a microtask when rAF is unavailable.
+function raf(cb: () => void): void {
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(cb);
+  else queueMicrotask(cb);
+}
 
 export class StreamCoalescer {
   private pending = new Map<string, Pending>();
