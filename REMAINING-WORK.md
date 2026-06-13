@@ -131,7 +131,7 @@ The session-long audit (2026-06-13) concluded: do NOT refactor app.tsx without f
 | **P4-1** | Add optional `capabilities?: string[]` to `Tool` interface | 1 h | ✅ Already exists (2026-06-13) | `packages/core/src/types/tool.ts:116` |
 | **P4-2** | Define canonical capability names: `fs.write`, `shell.arbitrary`, `net.outbound`, `mcp.proxy`, `subagent.spawn`, `tool.mutate.any` | 30 min | ✅ Fixed (2026-06-13) | Used: `fs.read`, `fs.write`, `shell.restricted`, `memory.read`, `memory.write`, `memory.delete`, `session.todo`, `session.mode`, `tool.meta`, `tool.mutate.any` |
 | **P4-3** | Update `AutoApprovePermissionPolicy` to use capabilities as primary check | 2-3 h | 🔴 **Open** | Blocked on P4-5 |
-| **P4-4** | Update subagent dangerous-tool guard to allowlist by default | 1-2 h | 🔴 **Open** | Blocked on P4-5 |
+| **P4-4** | Update subagent dangerous-tool guard to allowlist by default | 1-2 h | ✅ Fixed (2026-06-14) | Cherry-picked `a61c1acb` to main |
 | **P4-5** | Add capability declarations to all built-in tools (read, edit, write, bash, glob, grep, fetch, todo, memory) | 2 h | ✅ Fixed (2026-06-13) | 15 tools updated, commit `0ee9ac14` |
 
 ### Phase 1.2 — Plugin Mutation Rules
