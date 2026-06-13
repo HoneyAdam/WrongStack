@@ -11,9 +11,6 @@ export interface SlashCommandDef {
 }
 
 export const SLASH_COMMANDS: SlashCommandDef[] = [
-  // Run
-  { name: '/interrupt', category: 'Run', aliases: ['/stop', '/int'], description: 'Stop the current run (abort the in-flight request)' },
-
   // Session
   { name: '/new', category: 'Session', description: 'Start a brand-new session (fresh on disk and in memory)' },
   { name: '/clear', category: 'Session', description: 'Wipe current context (keeps session id, disk record stays)' },
@@ -41,7 +38,7 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   // Config
   { name: '/settings', category: 'Config', aliases: ['/model'], description: 'Open settings (provider/model/keys)' },
   { name: '/enhance', category: 'Config', description: 'Toggle prompt refinement before sending' },
-  { name: '/abort', category: 'Config', aliases: ['/stop'], description: 'Abort the current run' },
+  { name: '/interrupt', category: 'Run', aliases: ['/abort', '/stop', '/int'], description: 'Stop the current run (abort the in-flight request)' },
 
   // App
   { name: '/help', category: 'App', description: 'Show every slash command and what it does' },

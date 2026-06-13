@@ -86,7 +86,9 @@ export function buildFallbackCommand(opts: SlashCommandContext): SlashCommand {
     ];
 
     if (explicit.length > 0) {
-      lines.push(`  ${color.bold('explicit chain')} ${color.dim('(tried in order after the leader)')}`);
+      lines.push(
+        `  ${color.bold('explicit chain')} ${color.dim('(tried in order after the leader)')}`,
+      );
       explicit.forEach((ref, i) => {
         lines.push(`    ${color.amber(String(i + 1).padStart(2))}. ${color.cyan(ref)}`);
       });

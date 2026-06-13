@@ -54,7 +54,6 @@ describe('createFallbackModelExtension', () => {
       throw err;
     });
     await expect(
-      // biome-ignore lint/style/noNonNullAssertion: wrapProviderRunner is defined here
       ext.wrapProviderRunner!(ctx as never, { model: 'opus' } as never, inner as never),
     ).rejects.toBe(err);
     expect(inner).toHaveBeenCalledTimes(1);

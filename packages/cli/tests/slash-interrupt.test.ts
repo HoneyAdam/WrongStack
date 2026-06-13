@@ -1,7 +1,7 @@
 import { stripAnsi } from '@wrongstack/core';
 import { describe, expect, it, vi } from 'vitest';
-import { buildInterruptCommand } from '../src/slash-commands/interrupt.js';
 import type { SlashCommandContext } from '../src/slash-commands/index.js';
+import { buildInterruptCommand } from '../src/slash-commands/interrupt.js';
 
 function makeCtx(over: Partial<SlashCommandContext> = {}) {
   return {
