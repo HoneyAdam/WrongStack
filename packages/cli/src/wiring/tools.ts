@@ -17,6 +17,7 @@ import {
 import {
   builtinToolsPack,
   forgetTool,
+  OPTIONAL_TOOLS,
   relatedMemoryTool,
   rememberTool,
   searchMemoryTool,
@@ -48,7 +49,11 @@ export async function setupTools(params: ToolsWiringDeps): Promise<ToolsWiringRe
     params;
 
   // Tool registry — already created by caller, just configure it here
-  toolRegistry.registerAllOrThrow([...(builtinToolsPack.tools ?? [])], builtinToolsPack.name);
+  const allTools = builtinToolsPack.tools ?? [];
+  const toolsToRegister = config.features.tokenSavingMode
+    ? allTools.filter((t) => !OPTIONAL_TOOLS.includes(t))
+    : allTools;
+  toolRegistry.registerAllOrThrow([...toolsToRegister], builtinToolsPack.name);
   toolRegistry.registerDefault(
     createContextManagerTool({ compactor: container.resolve(TOKENS.Compactor) }),
   );
@@ -99,6 +104,7 @@ export async function setupTools(params: ToolsWiringDeps): Promise<ToolsWiringRe
     modeId,
     modePrompt,
     modelCapabilities,
+    tokenSavingMode: config.features.tokenSavingMode,
   });
 
   const systemPrompt = promptBuilder.build({

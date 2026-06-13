@@ -34,6 +34,34 @@ import { treeTool } from './tree.js';
 import { typecheckTool } from './typecheck.js';
 import { writeTool } from './write.js';
 
+/**
+ * Non-essential tools that can be omitted in token-saving mode to reduce
+ * per-request token consumption. Each tool definition adds ~50-200 tokens
+ * to the system prompt; skipping these saves ~2000-3000 tokens per iteration.
+ *
+ * These tools are useful but not critical for core development flow:
+ * package management (install/audit/outdated run once per session at most),
+ * meta-tools (toolSearch/toolUse/batchToolUse/toolHelp duplicate built-in
+ * model capabilities), indexing (background service), scaffolding, logging,
+ * and auto-documentation.
+ */
+export const OPTIONAL_TOOLS: Tool[] = [
+  installTool,
+  auditTool,
+  outdatedTool,
+  logsTool,
+  documentTool,
+  scaffoldTool,
+  toolSearchTool,
+  toolUseTool,
+  batchToolUseTool,
+  toolHelpTool,
+  codebaseIndexTool,
+  codebaseSearchTool,
+  codebaseStatsTool,
+  setWorkingDirTool,
+];
+
 export const builtinTools: Tool[] = [
   readTool,
   writeTool,

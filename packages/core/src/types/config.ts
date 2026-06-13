@@ -162,6 +162,14 @@ export interface FeaturesConfig {
   modelsRegistry: boolean;
   /** Discover + load skills from disk. */
   skills: boolean;
+  /**
+   * Token-saving mode: when enabled, non-essential tools are omitted,
+   * skill descriptions are trimmed, and the system prompt is shortened
+   * to reduce per-request token consumption without compromising core
+   * functionality. Enable with `--token-saving-mode` or
+   * `features.tokenSavingMode: true` in config.
+   */
+  tokenSavingMode?: boolean | undefined;
 }
 
 export interface AutonomyConfig {

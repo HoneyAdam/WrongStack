@@ -187,6 +187,10 @@ export function flagsToConfigPatch(flags: Record<string, string | boolean>): Par
       skills: false,
     };
   }
+  if (flags['token-saving-mode']) {
+    patch.features ??= {} as Config['features'];
+    patch.features.tokenSavingMode = true;
+  }
   return patch;
 }
 

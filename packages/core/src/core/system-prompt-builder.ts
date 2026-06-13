@@ -51,6 +51,14 @@ export interface DefaultSystemPromptBuilderOptions {
    * contributor is caught and logged without aborting the build.
    */
   contributors?: readonly SystemPromptContributor[] | undefined;
+  /**
+   * Token-saving mode: when enabled, skill bodies are omitted, tool usage
+   * hints are trimmed, and optional guidance sections (delegation, mailbox,
+   * context management) use minimal versions to reduce per-request tokens.
+   * Enabled via `--token-saving-mode` CLI flag or `features.tokenSavingMode`
+   * in config.
+   */
+  tokenSavingMode?: boolean | undefined;
 }
 
 export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
@@ -278,7 +286,15 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
       lines.push(`\n### ${cat}`);
       for (const t of catTools) {
         const hint = t.usageHint ?? t.description;
-        const desc = hint.length > 80 ? `${hint.slice(0, 77)}...` : hint.trim();
+        // In token-saving mode, trim descriptions aggressively:
+        // keep only the first sentence or 60 chars, whichever is shorter.
+        const desc = this.opts.tokenSavingMode
+          ? hint.length > 60
+            ? hint.slice(0, hint.indexOf('.', 20) + 1 || 60) + (hint.length > 60 ? '…' : '')
+            : hint.trim()
+          : hint.length > 80
+            ? `${hint.slice(0, 77)}...`
+            : hint.trim();
         lines.push(`- **${t.name}** — ${desc}`);
       }
     }
@@ -293,7 +309,9 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
     }
 
     // Common tool chain patterns — teaches model how to compose tools effectively.
-    lines.push(`
+    // Skipped in token-saving mode — the model already knows these patterns.
+    if (!this.opts.tokenSavingMode) {
+      lines.push(`
 ## Common patterns
 
 - **Inspect before edit:** \`read\`/\`glob\`/\`grep\` → locate target → \`edit\`
@@ -303,11 +321,13 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
 - **Batch ops:** Use \`replace\` with glob patterns for multi-file surgical changes
 
 When unsure about a file's current state, read it first rather than assuming.`);
+    }
 
     // Delegation guidance — included when the `delegate` tool is present.
     // Without this block the model doesn't know that multi-agent work is
     // even an option, and `delegate` sits unused while the host agent
     // tries to do everything in one expensive context.
+    // In token-saving mode, use a short one-liner instead of the full block.
     const hasDelegate = tools.some((t) => t.name === 'delegate');
     if (hasDelegate) {
       const delegateTool = tools.find((t) => t.name === 'delegate');
@@ -320,7 +340,10 @@ When unsure about a file's current state, read it first rather than assuming.`);
         return Array.isArray(role) ? (role.filter((r) => typeof r === 'string') as string[]) : [];
       })();
       const roleList = enumValues.length > 0 ? enumValues.join(', ') : '(no roster configured)';
-      lines.push(`
+      if (this.opts.tokenSavingMode) {
+        lines.push(`## Delegation\n\nUse \`delegate\` to hand work to a subagent (roles: ${roleList}).`);
+      } else {
+        lines.push(`
 ## Delegation
 
 You have a \`delegate\` tool that hands a discrete piece of work to a
@@ -383,6 +406,7 @@ it's called — you do not need to call any setup tool. For fine-grained
 control over a long-running fleet (spawn N workers, hand them tasks
 one by one, roll up results), use \`spawn_subagent\` + \`assign_task\` +
 \`await_tasks\` directly; \`delegate\` is the one-call shortcut.`);
+      }
     }
 
     // Mailbox guidance — included when any mailbox tool is present.
@@ -394,8 +418,11 @@ one by one, roll up results), use \`spawn_subagent\` + \`assign_task\` +
       // agents list changes at join/leave pace (seconds to minutes) while
       // the prompt builds happen every iteration (hundreds of ms).
       const onlineAgentsInfo = this.renderOnlineAgents(ctx.onlineAgents);
-      lines.push(`
-## Inter-agent mailbox${onlineAgentsInfo}
+      if (this.opts.tokenSavingMode) {
+        // Token-saving: keep just the header and agent count.
+        lines.push(`\n## Inter-agent mailbox${onlineAgentsInfo}\n\nUse \`mail_inbox\` for new messages, \`mail_send\` to communicate with other agents.`);
+      } else {
+        lines.push(`\n## Inter-agent mailbox${onlineAgentsInfo}
 
 You share a persistent project mailbox with every other agent working on
 this project — other terminals, TUIs and WebUIs included. You are
@@ -453,12 +480,15 @@ inline, the rest as a summary. To catch up explicitly:
 
 - \`mailbox action=ack messageId=<id> completed=true outcome="What you did"\`
 - Messages you \`check\` are auto-marked as read; use \`ack\` to mark complete.`);
+      }
     }
 
     // Context management guidance — included when context_manager is present.
     // This layer teaches the model WHEN and HOW to use it proactively.
+    // Skipped in token-saving mode — the model is already instructed to
+    // compact proactively in the core identity prompt.
     const hasContextManager = tools.some((t) => t.name === 'context_manager');
-    if (hasContextManager) {
+    if (hasContextManager && !this.opts.tokenSavingMode) {
       // Adaptive threshold based on model context window size.
       // Small context (<=32k) → trigger earlier; large context (>=128k) → more relaxed.
       const maxCtx = this.opts.modelCapabilities?.maxContextTokens ?? 128000;
@@ -606,7 +636,9 @@ summarize it, and let the tool result hold only the summary.`);
     // Skills are listed by name+trigger in buildEnvironment (envCache);
     // here we inject the full body content so the model has the actual
     // domain instructions, not just a trigger hint.
-    if (this.opts.skillLoader && this.skillBodyCache === undefined) {
+    // In token-saving mode, skill bodies are omitted entirely to save
+    // thousands of tokens per iteration since skill text can exceed 10K tokens.
+    if (this.opts.skillLoader && this.skillBodyCache === undefined && !this.opts.tokenSavingMode) {
       try {
         const skills = await this.opts.skillLoader.list();
         if (skills.length > 0) {
