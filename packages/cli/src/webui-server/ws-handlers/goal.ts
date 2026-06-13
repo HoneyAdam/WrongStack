@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { WebSocket } from 'ws';
-import type { WsCommon, WsServerMessage } from './index.js';
+import type { WsCommon } from './index.js';
 
 /**
  * PR 5h of Issue #30: goal ws-handler.

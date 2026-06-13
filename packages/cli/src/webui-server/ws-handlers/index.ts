@@ -107,3 +107,51 @@ export {
   handleProcessList,
   type ProcessContext,
 } from './process.js';
+export {
+  handleWebuiShutdown,
+  type ShutdownContext,
+} from './shutdown.js';
+export {
+  type CollabContext,
+  handleCollabNoop,
+} from './collab.js';
+export {
+  handleWorkingDirSet,
+  type WorkingDirContext,
+} from './working-dir.js';
+export {
+  handleMailboxAgents,
+  handleMailboxClear,
+  handleMailboxMessages,
+  type MailboxContext,
+} from './mailbox.js';
+export {
+  handleProjectsAdd,
+  handleProjectsList,
+  handleProjectsSelect,
+  type ProjectsContext,
+  type ProjectSwitchContext,
+} from './projects.js';
+export {
+  handleSessionCheckpoints,
+  handleSessionDelete,
+  handleSessionNew,
+  handleSessionResume,
+  handleSessionRewind,
+  handleSessionSave,
+  handleSessionsList,
+  type SessionContext,
+} from './session.js';
+export {
+  type CompactorLike,
+  type ContextOpsContext,
+  handleContextClear,
+  handleContextCompact,
+  handleContextDebug,
+  handleContextModeCreate,
+  handleContextModeDelete,
+  handleContextModeSwitch,
+  handleContextModesList,
+  handleContextModeUpdate,
+  handleContextRepair,
+} from './context.js';

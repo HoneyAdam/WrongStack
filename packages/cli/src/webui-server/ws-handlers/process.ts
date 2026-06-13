@@ -1,5 +1,5 @@
 import type { WebSocket } from 'ws';
-import type { WsCommon, WsServerMessage } from './index.js';
+import type { WsCommon } from './index.js';
 
 /**
  * PR 5g of Issue #30: process ws-handlers.

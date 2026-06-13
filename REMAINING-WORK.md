@@ -48,7 +48,8 @@ Goal: split `packages/cli/src/webui-server.ts` (3,407 lines, 2nd largest file in
 | 2 | `cost-helpers.ts` | ✅ Merged | #51 |
 | 3 | `context-breakdown.ts` | ✅ Merged | #52 |
 | 4 | `provider-config.ts` | ✅ Merged | #55 |
-| 6 | `static-serve.ts` | ⚠️ Committed, PR not opened | `refactor/webui-server-static-serve` branch, commit `ab245dc4` |
+| 6 | `static-serve.ts` | ✅ Merged | #57 |
+| 7 | `lifecycle.ts` | ✅ Merged | #59 |
 
 ### Remaining
 
@@ -56,8 +57,8 @@ Goal: split `packages/cli/src/webui-server.ts` (3,407 lines, 2nd largest file in
 |---|---|---|---|---|
 | **P1-1** | **PR 5 — `ws-handlers/` directory** | **HIGH** | 2-3 days | None (all preceding PRs merged) |
 | **P1-1a** | Extract remaining inline handlers: sessions, context, process, goal, projects, working_dir, shell, mailbox | High | 1-2 days | Test-first extraction needed for state-coupled handlers |
-| **P1-2** | **PR 6 — Open PR for `static-serve.ts`** | Low | 30 min | Unit tests for `startStaticServe` |
-| **P1-3** | **PR 7 — `lifecycle.ts`** | Low | 1-2 h | PR 6 merge (httpServer type change) |
+| **P1-2** | **PR 6 — `static-serve.ts`** | Low | 30 min | ✅ Merged (#57) |
+| **P1-3** | **PR 7 — `lifecycle.ts`** | Low | 1-2 h | ✅ Merged (#59) |
 | **P1-4** | **PR 8 — Final pass** | Low | 1 h | All PRs 1-7 complete |
 | **P1-5** | **Follow-up: `ProviderConfigStore` facade** | Medium | 2-4 h | PR 4 merged (dedup two import paths) |
 
@@ -73,25 +74,19 @@ Goal: split `packages/cli/src/webui-server.ts` (3,407 lines, 2nd largest file in
 | `worklist.ts` | handleTodosGet, handleTodosClear, handleTodosRemove, handleTodoUpdate, handlePlanGet, handlePlanTemplateUse, handlePlanItemUpdate, handleTasksGet, handleTaskUpdate | ✅ Extracted |
 | `agent-config.ts` | handleModeSwitch, handleModesList, handleModelSwitch, handleModelRefine, handleAutonomySwitch | ✅ Extracted |
 | `prefs.ts` | handlePrefsGet, handlePrefsUpdate | ✅ Extracted |
+| `process.ts` | handleProcessList, handleProcessKill, handleProcessKillAll | ✅ Extracted (2026-06-13) |
+| `goal.ts` | handleGoalGet | ✅ Extracted (2026-06-13) |
+| `shutdown.ts` | handleWebuiShutdown | ✅ Extracted (2026-06-13) |
+| `collab.ts` | handleCollabNoop | ✅ Extracted (2026-06-13) |
+| `working-dir.ts` | handleWorkingDirSet | ✅ Extracted (2026-06-13) |
+| `mailbox.ts` | handleMailboxMessages, handleMailboxAgents, handleMailboxClear | ✅ Extracted (2026-06-13) |
+| `projects.ts` | handleProjectsList, handleProjectsAdd, handleProjectsSelect | ✅ Extracted (2026-06-13) |
+| `session.ts` | handleSessionsList, handleSessionNew, handleSessionDelete, handleSessionSave, handleSessionResume, handleSessionCheckpoints, handleSessionRewind | ✅ Extracted (2026-06-13) |
+| `context.ts` | handleContextClear, handleContextDebug, handleContextCompact, handleContextRepair, handleContextModesList, handleContextModeSwitch, handleContextModeCreate, handleContextModeUpdate, handleContextModeDelete | ✅ Extracted (2026-06-13) |
 
-**Remaining inline handlers** (still in `webui-server.ts` `handleMessage` switch):
+**Status: P1-1a COMPLETE (2026-06-13).** All inline message handlers with real logic are now in `ws-handlers/`. `webui-server.ts` shrank from 2,639 → 2,132 lines. `shell.open` is intentionally left inline — it is already a one-call delegation to the shared `handleShellOpen` (`@wrongstack/webui/server`); wrapping it adds no testable surface. The remaining inline `case` blocks are thin delegations, the messaging helpers (`send`/`broadcast`/`sendResult`), file/memory shared-handler delegations, and `user_message`/`abort`/`ping`/`tool.confirm_result` core loop wiring.
 
-| Category | Cases | Blocker |
-|---|---|---|
-| Sessions | sessions.list, session.new, session.delete, session.save, session.resume, session.checkpoints, session.rewind | Coupled to `opts.sessionStore`, `opts.agent.ctx.session`, `opts.onSessionSwapped` |
-| Context | context.clear, context.debug, context.compact, context.repair, context.modes.list, context.mode.switch, context.mode.create, context.mode.update, context.mode.delete | Coupled to `opts.agent.ctx`, `getCustomModeStore`, `TOKENS.Compactor` |
-| Process | process.list, process.kill, process.killAll | Coupled to `getProcessRegistry()` |
-| Goal | goal.get | Simple read from disk |
-| Projects | projects.list, projects.select, projects.add | Coupled to `opts.globalConfigPath`, `opts.projectRoot`, `opts.agent.ctx`, project switch logic |
-| Working dir | working_dir.set | Coupled to `opts.agent.ctx.cwd` |
-| Shell | shell.open | Delegated to shared handler |
-| Mailbox | mailbox.messages, mailbox.agents, mailbox.clear | Coupled to `opts.projectRoot`, `opts.globalConfigPath` |
-| Shutdown | webui.shutdown | Simple — calls `shutdown()` |
-| Collaboration | collab.join, collab.leave, collab.annotate, collab.resolve | No-op (ignored) |
-
-**Key design decision:** Create a `WsHandlerContext` interface to thread shared state (providers, vault, wpaths, eventBridge, broadcast) explicitly — no closure captures allowed. Each file exports a `register*` function. `webui-server.ts` calls `registerAllHandlers(wss, ctx)` after PR 8.
-
-**Risk:** HIGH. Handlers share closure-captured mutable state today. Every single handler must be reviewed for undrawn closure references.
+**Design realized:** Each handler group has its own focused `*Context` interface extending `WsCommon` — no closure captures. Host-owned, mutation-heavy seams (project switch's system-prompt rebuild + abort, session lifecycle, compactor/mode-store resolution) are passed as explicit callbacks. State that is reassigned on a project switch (`opts.sessionStore`, `opts.projectRoot`) is read at call time via per-call context factories (`makeSessionCtx`) or inline builders (mailbox/projects), mirroring `goal.get`. Every group has unit tests under `tests/webui-server/ws-handlers-*.test.ts` (42 new tests).
 
 ---
 
