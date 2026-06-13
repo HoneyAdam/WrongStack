@@ -432,7 +432,7 @@ Slash commands are documented in `docs/slash/`. When adding a new one:
 
 **Currently registered (33):** `help`, `init`, `clear`, `compact`, `context`, `tools`, `plugin`, `mcp`, `diag`, `stats`, `spawn`, `agents`, `director`, `fleet`, `memory`, `todos`, `sdd`, `save`, `load`, `yolo`, `autonomy`, `goal`, `brain`, `btw`, `next`, `mode`, `exit`, `fix`, `autophase`, `worktree`, `settings`, `collab`, `statusline`.
 
-**Planned but not yet implemented (7):** `git`, `health`, `metrics`, `plan`, `security`, `skill-gen`, `skills`. Their `docs/slash/*.md` files exist but no buildXxxCommand has been registered yet. Either implement them or remove the orphan docs in a follow-up commit. See H13 in the 2026-06-03 audit.
+Previously-planned but not yet implemented: `git`, `health`, `metrics`, `plan`, `security`, `skill-gen`, `skills`. Their `docs/slash/*.md` files were deleted in 2026-06-13 (H13 from the 2026-06-03 audit). If any of them become priorities, add them via a `buildXxxCommand` registered in `packages/cli/src/slash-commands/index.ts` first, then write a fresh `docs/slash/<name>.md` describing the actual implementation.
 
 ## Skill system
 

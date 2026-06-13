@@ -13,32 +13,29 @@ export type WsStatus =
   | { state: 'closed'; error?: string | undefined }
   | { state: 'reconnecting'; attempt: number; nextRetryAt: number; lastError?: string | undefined };
 
-const WS_TOKEN_KEY = 'ws_token';
+// C-2 fix (Phase 1.4): the auth token is delivered via the HttpOnly
+// cookie set by `/ws-auth` (preferred) OR via the `?token=…` query param
+// (non-browser fallback). The legacy in-sessionStorage path has been
+// removed: every reconnect re-derives the token from the URL or relies
+// on the cookie, so the token never sits in client-accessible storage
+// where an XSS could lift it. See ws-auth.ts for the full policy and
+// security rationale.
 
-/** Read wsToken from sessionStorage (survives page refresh, cleared on tab close). */
-function getStoredToken(): string | null {
+/**
+ * Read `?token=…` from the WS URL the client was constructed with.
+ * Used by the cookie bootstrap (`ensureAuthCookie`) — when the server
+ * prints the WS URL to its startup banner (e.g. `ws://127.0.0.1:3457?token=…`)
+ * the page is loaded with the token in the URL, the client reads it
+ * here, hits `/ws-auth?token=…` to swap it for an HttpOnly cookie, and
+ * the cookie carries forward on every reconnect. There is no
+ * persistent client-side store of the token.
+ */
+function getTokenFromWsUrl(wsUrl: string): string | null {
   try {
-    return sessionStorage.getItem(WS_TOKEN_KEY);
+    const u = new URL(wsUrl);
+    return u.searchParams.get('token');
   } catch {
     return null;
-  }
-}
-
-/** Store wsToken in sessionStorage. */
-function setStoredToken(token: string): void {
-  try {
-    sessionStorage.setItem(WS_TOKEN_KEY, token);
-  } catch {
-    /* sessionStorage unavailable (private browsing quota, etc.) — degrade gracefully */
-  }
-}
-
-/** Clear wsToken from sessionStorage. */
-function clearStoredToken(): void {
-  try {
-    sessionStorage.removeItem(WS_TOKEN_KEY);
-  } catch {
-    /* best-effort */
   }
 }
 
@@ -85,7 +82,67 @@ export class WrongStackWebSocketClient {
     this.url = url ?? defaultWsUrl();
   }
 
+  /**
+   * Exchange a stored token for an HttpOnly auth cookie via `/ws-auth`.
+   * Called once before the first connect so subsequent reconnections can
+   * drop the `?token=` from the WS URL (C-2 fix — token-in-URL closes
+   * the C-598 query-string exposure class). No-op when the cookie is
+   * already set, when the server is on a loopback bind (no token
+   * required), or when no token is available yet.
+   *
+   * Failure is non-fatal: the legacy `?token=` URL path still works, so
+   * the client just continues to use it. Cookie is a defense-in-depth
+   * layer, not a hard requirement.
+   */
+  async ensureAuthCookie(): Promise<void> {
+    if (typeof window === 'undefined') return;
+    if (document.cookie.split(';').some((c) => c.trim().startsWith('ws_token='))) {
+      // Cookie already set — the browser sends it automatically on the
+      // WS upgrade. Nothing to do.
+      return;
+    }
+    // The token, if any, is in the WS URL itself (server-printed on
+    // startup). sessionStorage persistence was removed in the C-2
+    // fix: the token must not live in client-accessible storage.
+    const token = getTokenFromWsUrl(this.url);
+    if (!token) return; // first boot, no token yet — fallback to loopback-bootstrap
+    const authUrl = httpOriginForAuth() + `/ws-auth?token=${encodeURIComponent(token)}`;
+    try {
+      const res = await fetch(authUrl, {
+        method: 'GET',
+        credentials: 'same-origin',
+        // Cache-Control: no-store on the server side. Don't let the
+        // browser cache a 401 or replay a stale response.
+        cache: 'no-store',
+      });
+      if (!res.ok) {
+        console.warn(JSON.stringify({
+          level: 'warn',
+          event: 'ws_client.ws_auth_failed',
+          status: res.status,
+          timestamp: new Date().toISOString(),
+        }));
+      }
+    } catch (err) {
+      // Network failure on the auth bootstrap is non-fatal — the URL
+      // token path still works. Just log it and continue.
+      console.warn(JSON.stringify({
+        level: 'warn',
+        event: 'ws_client.ws_auth_error',
+        message: err instanceof Error ? err.message : String(err),
+        timestamp: new Date().toISOString(),
+      }));
+    }
+  }
+
   async connect(): Promise<void> {
+    // Bootstrap the HttpOnly auth cookie before the first connect.
+    // After this resolves, the browser sends `Cookie: ws_token=…` on
+    // the WS upgrade automatically, so we can drop the `?token=` from
+    // the URL on subsequent reconnects. Idempotent — the cookie is
+    // refreshed only when absent.
+    await this.ensureAuthCookie();
+
     return new Promise((resolve, reject) => {
       if (this.ws?.readyState === WebSocket.OPEN) {
         resolve();
@@ -95,12 +152,19 @@ export class WrongStackWebSocketClient {
       this.setStatus({ state: 'connecting' });
 
       try {
-        // Include auth token from sessionStorage if available (from session.start).
-        // Initial connect to loopback is exempt, but reconnections should
-        // carry the token for defense-in-depth.
-        const storedToken = getStoredToken();
-        const wsUrl = storedToken
-          ? `${this.url}${this.url.includes('?') ? '&' : '?'}token=${storedToken}`
+        // Prefer the cookie path (C-2 fix): the browser already sends
+        // `Cookie: ws_token=…` on the WS upgrade after `ensureAuthCookie`.
+        // Fall back to `?token=` from sessionStorage when the cookie
+        // is missing (loopback bind, first boot, or `ensureAuthCookie`
+        // was unable to reach `/ws-auth`). The URL path will be
+        // removed once the frontend fully migrates — for now it's
+        // kept for back-compat and for the "browser opened with a
+        // token in the URL" case. The token is read from the URL
+        // itself (server-printed on startup); sessionStorage
+        // persistence was removed in the C-2 fix.
+        const urlToken = getTokenFromWsUrl(this.url);
+        const wsUrl = urlToken
+          ? `${this.url}${this.url.includes('?') ? '&' : '?'}token=${urlToken}`
           : this.url;
         this.ws = new WebSocket(wsUrl);
         this.ws.binaryType = 'arraybuffer';
@@ -262,11 +326,15 @@ export class WrongStackWebSocketClient {
     }
 
     if (msg.type === 'session.start') {
-      const payload = msg.payload as { sessionId: string; wsToken?: string | undefined };
+      // C-2 fix: the `wsToken` field has been removed from the
+      // `session.start` payload. The token is delivered via the
+      // HttpOnly cookie set by `/ws-auth` (preferred) or via the
+      // `?token=…` query param on the WS URL. There is no
+      // client-side persistence of the token (no sessionStorage,
+      // no localStorage) — every reconnect re-derives it from
+      // the URL or relies on the cookie. See ws-auth.ts.
+      const payload = msg.payload as { sessionId: string };
       this.sessionId = payload.sessionId;
-      if (payload.wsToken) {
-        setStoredToken(payload.wsToken);
-      }
     }
 
     this.emit(msg);
@@ -576,7 +644,9 @@ export class WrongStackWebSocketClient {
     }
     this.ws?.close();
     this.ws = null;
-    clearStoredToken();
+    // C-2 fix: no client-side token storage to clear — the token lives
+    // in the HttpOnly cookie (set by `/ws-auth`, expires on its own) or
+    // in the WS URL `?token=…` query param (re-issued on every page load).
   }
 
   get isConnected(): boolean {
@@ -630,6 +700,31 @@ function defaultWsUrl(): string {
     return `ws://127.0.0.1:${port}`;
   }
   return `ws://${window.location.hostname}:${port}`;
+}
+
+/**
+ * Derive the HTTP origin for `/ws-auth` from the page's own location.
+ * `/ws-auth` is a same-origin HTTP call, so we use the page's host
+ * (NOT the WS port). The same `loopback→127.0.0.1` DNS-dance fix from
+ * `defaultWsUrl()` applies — on Windows, browsers resolve `localhost`
+ * to `[::1]` first, so we force IPv4 loopback for cookie consistency.
+ */
+function httpOriginForAuth(): string {
+  if (typeof window === 'undefined' || !window.location?.hostname) {
+    return 'http://127.0.0.1:3456';
+  }
+  const host = window.location.hostname.toLowerCase();
+  // Reuse the page's HTTP port when it exists (different WS port and
+  // HTTP port are the common dev case). Fall back to the well-known
+  // HTTP port when the page is on a custom WS-only origin.
+  const pagePort = window.location.port
+    ? Number.parseInt(window.location.port, 10)
+    : Number.NaN;
+  const httpPort = Number.isFinite(pagePort) && pagePort > 0 ? pagePort : 3456;
+  if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1') {
+    return `http://127.0.0.1:${httpPort}`;
+  }
+  return `http://${window.location.hostname}:${httpPort}`;
 }
 
 export function getWSClient(url?: string): WrongStackWebSocketClient {
