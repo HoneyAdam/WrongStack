@@ -3,7 +3,7 @@ import type { Context } from '../core/context.js';
 import type { InputReader } from '../types/input-reader.js';
 import type { PermissionDecision, PermissionPolicy, TrustPolicy } from '../types/permission.js';
 import type { Tool } from '../types/tool.js';
-import { ToolCapabilities } from './capabilities.js';
+import { hasCapability, ToolCapabilities } from './capabilities.js';
 import { atomicWrite } from '../utils/atomic-write.js';
 import { matchAny, matchGlob } from '../utils/glob-match.js';
 import { safeParse } from '../utils/safe-json.js';
@@ -279,7 +279,19 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
     // client must not be able to trigger them without the user seeing the
     // tool.confirm_needed prompt). Non-mutating auto tools (read-only
     // heuristics, schema checks) are still safe to shortcut.
-    if (tool.permission === 'auto' && !tool.mutating) {
+    //
+    // Capability-based check: tools with fs.read or net.outbound (non-mutating)
+    // can auto-approve; tools with fs.write, shell.*, etc. need confirmation.
+    const hasWriteCap = hasCapability(tool, ToolCapabilities.FS_WRITE);
+    const hasShellCap = hasCapability(tool, [
+      ToolCapabilities.SHELL_ARBITRARY,
+      ToolCapabilities.SHELL_RESTRICTED,
+    ]);
+    const hasInstallCap = hasCapability(tool, ToolCapabilities.PACKAGE_INSTALL);
+    const hasConfigCap = hasCapability(tool, ToolCapabilities.CONFIG_MUTATE);
+    const hasSubagentCap = hasCapability(tool, ToolCapabilities.SUBAGENT_SPAWN);
+    const isMutating = tool.mutating || hasWriteCap || hasShellCap || hasInstallCap || hasConfigCap || hasSubagentCap;
+    if (tool.permission === 'auto' && !isMutating) {
       const decision: PermissionDecision = { permission: 'auto', source: 'default' };
       this._evalCache.set(cacheKey, decision);
       return decision;
@@ -301,7 +313,33 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
     return { permission: 'confirm', source: 'default' };
   }
 
+  // Capability-based destructive check (preferred over name-based)
+  private isDestructiveByCapability(tool: Tool): boolean {
+    const caps = tool.capabilities ?? [];
+    if (caps.includes('shell.arbitrary')) return true;
+    if (caps.includes('fs.write')) return true;
+    if (caps.includes('fs.write.outside-project')) return true;
+    return false;
+  }
+
   private isDestructiveYoloCall(tool: Tool, input: unknown, ctx: Context): boolean {
+    // 1. Capability-based check (preferred — works for all tools, not just hardcoded names)
+    if (this.isDestructiveByCapability(tool)) {
+      // For shell tools, also check if the command is clearly destructive
+      if (tool.name === 'bash') {
+        const command = getInputString(input, 'command');
+        return command ? isClearlyDestructiveBashCommand(command, ctx.projectRoot) : true;
+      }
+      // For write tools, check if path escapes project
+      if (tool.name === 'write' || tool.name === 'edit' || tool.name === 'replace' || tool.name === 'patch') {
+        const targetPath = getInputString(input, 'path') ?? getInputString(input, 'file');
+        if (!targetPath || !ctx.projectRoot) return false;
+        return !pathLooksInsideProject(targetPath, ctx.projectRoot);
+      }
+      return true;
+    }
+
+    // 2. Legacy name-based fallback (for tools without capabilities)
     if (tool.name === 'bash') {
       const command = getInputString(input, 'command');
       return command ? isClearlyDestructiveBashCommand(command, ctx.projectRoot) : true;

@@ -296,6 +296,53 @@ describe('DefaultPermissionPolicy', () => {
     const d2 = await p.evaluate(tool('edit_lines'), { path: 'src/b.ts' }, {} as Context);
     expect(d2.permission).toBe('auto');
   });
+
+  describe('capability-based destructive gating', () => {
+    it('yolo + confirmDestructive gates a shell.arbitrary tool running a destructive command', async () => {
+      const p = new DefaultPermissionPolicy({ trustFile, yolo: true, confirmDestructive: true });
+      const d = await p.evaluate(
+        tool('bash', 'confirm', 'destructive', true, ['shell.arbitrary']),
+        { command: 'git reset --hard' },
+        { projectRoot: process.cwd() } as Context,
+      );
+      expect(d.permission).toBe('confirm');
+      expect(d.source).toBe('yolo_destructive');
+    });
+
+    it('yolo + confirmDestructive gates an fs.write tool targeting a path outside the project', async () => {
+      const p = new DefaultPermissionPolicy({ trustFile, yolo: true, confirmDestructive: true });
+      const d = await p.evaluate(
+        tool('write', 'confirm', 'destructive', true, ['fs.write']),
+        { path: '../../../outside.ts' },
+        { projectRoot: process.cwd() } as Context,
+      );
+      expect(d.permission).toBe('confirm');
+      expect(d.source).toBe('yolo_destructive');
+    });
+
+    it('yolo + confirmDestructive allows an in-project fs.write even with the capability', async () => {
+      const p = new DefaultPermissionPolicy({ trustFile, yolo: true, confirmDestructive: true });
+      const d = await p.evaluate(
+        tool('write', 'confirm', 'destructive', true, ['fs.write']),
+        { path: 'src/a.ts' },
+        { projectRoot: process.cwd() } as Context,
+      );
+      // Inside project = not destructive → yolo auto-approves.
+      expect(d.permission).toBe('auto');
+      expect(d.source).toBe('yolo');
+    });
+
+    it('yolo without confirmDestructive auto-approves capability-based destructive tools', async () => {
+      const p = new DefaultPermissionPolicy({ trustFile, yolo: true });
+      const d = await p.evaluate(
+        tool('bash', 'confirm', 'destructive', true, ['shell.arbitrary']),
+        { command: 'echo hello' },
+        { projectRoot: process.cwd() } as Context,
+      );
+      expect(d.permission).toBe('auto');
+      expect(d.source).toBe('yolo');
+    });
+  });
 });
 
 describe('AutoApprovePermissionPolicy', () => {
