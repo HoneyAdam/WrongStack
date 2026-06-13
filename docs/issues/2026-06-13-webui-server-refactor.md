@@ -98,6 +98,22 @@ The June 5 plan didn't include this step; it's the lesson from the
 tui-app refactor (2026-06-13): "Big-file refactors need
 characterization tests first, not after."
 
+> **Status 2026-06-13:** merged as PR #53. The shipped
+> scope is narrower than the original sketch:
+> - the export is `runWebUI` (not `start`) — the plan
+>   body referred to the function by a working name
+>   that never landed.
+> - the `WSTACK_WEBUI_INSPECT` env flag was *not*
+>   introduced in this PR; the boot shape is pinned by
+>   direct `runWebUI` invocation and a `session.start`
+>   round-trip over a real WebSocket.
+> - port pinning was removed — `findFreePort` increments
+>   on collision, so the test reads the actual bound
+>   port from `onListening.info.wsPort` rather than
+>   asserting a specific value.
+> - three test cases (API surface, boot→ws→session.start,
+>   onListening host) — 53ms total.
+
 ### PR 1 — `webui-server/logger-shim.ts` (low risk)
 
 Extract the inlined `Logger` shim (lines 80–111) into
@@ -107,22 +123,50 @@ real `Logger` while this CLI module is consumed by other CLI
 modules that don't import the full `@wrongstack/core` tree. Make
 that comment explicit in the new file.
 
+> **Status 2026-06-13:** merged as PR #50. The shim
+> was extracted to `webui-server/logger-shim.ts` with
+> 7 unit tests. `webui-server.ts` is 20 lines shorter.
+
 ### PR 2 — `webui-server/cost-helpers.ts` (low risk)
 
-Extract `getCostRates`, `computeCost`, `maskedKey` (the inlined
-"Cost computation helpers" block at lines 157–300) into
+Extract `getCostRates`, `computeUsageCost` (the inlined
+"Cost computation helpers" block at lines 137–180) into
 `webui-server/cost-helpers.ts`. These are pure functions over the
 `CostRates` / `TokenUsage` interfaces — they are testable in
-isolation and have no shared closure state. This PR pairs with the
-file's own header note: "Phase 2 of the refactor plan continues
-this pattern for the rest of the file."
+isolation and have no shared closure state.
+
+> **Update 2026-06-13 (after PR #51):** the plan body
+> originally listed `maskedKey` in this PR. The function
+> does not exist in `webui-server.ts` (it was removed in
+> an earlier cleanup), so PR #51 shipped with
+> `getCostRates` + `computeUsageCost` only. `maskedKey` is
+> not part of this refactor; if a future helper needs
+> similar masking, it should land in a dedicated
+> `webui-server/redaction.ts` module (PR 6) instead of
+> this one.
+
+This PR pairs with the file's own header note: "Phase 2
+of the refactor plan continues this pattern for the rest
+of the file."
 
 ### PR 3 — `webui-server/context-breakdown.ts` (low risk)
 
-Extract `estimateContextBreakdown` (lines 126–155) into
+Extract `estimateContextBreakdown` (lines 93–135, the
+"context breakdown" block) into
 `webui-server/context-breakdown.ts`. The function consumes
 `estimateTokens` / `messageTokens` / `messagePreview` from
 `@wrongstack/webui/server` and stitches them into a single report.
+
+> **Update 2026-06-13 (after PR #52):** the plan body
+> listed lines 126–155. After PR 1 + PR 2 removed the
+> logger shim and the cost helpers, the context-breakdown
+> block was at lines 93–135 when PR #52 shipped. The
+> extraction was straightforward: 7 unit tests, 0
+> regressions. The `PromptBlock` / `ToolLike` /
+> `MessageLike` interfaces are now re-exported from
+> `context-breakdown.ts` so call sites in
+> `webui-server.ts` keep their import shape.
+
 After this PR, only the report-shape concerns live here; the
 underlying token math lives in `@wrongstack/webui/server`. The two
 implementations are no longer "drifting apart" — they're
