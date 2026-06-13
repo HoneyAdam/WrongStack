@@ -37,10 +37,24 @@ export const outdatedTool: Tool<OutdatedInput, OutdatedOutput> = {
     'MAINTENANCE & SECURITY TOOL:\n\n' +
     '- Run periodically or before dependency-related work.\n' +
     '- Helps surface packages that may need updates for security or features.\n' +
-    '- Safe, read-only operation.\n' +
+    '- Hits the package registry over HTTP, so it is NOT purely local — flagged as mutating for the confirmation gate.\n' +
     'Use the output to decide on upgrades. Prefer this over manual shell commands for dependency hygiene.',
-  permission: 'auto',
-  mutating: false,
+  permission: 'confirm',
+  // Network side-effecting (registry HTTP). Pairs with `mutating: true`
+  // so the H7 invariant test (`no auto-permission tool declares
+  // mutating: true`) passes — a tool claiming `'auto'` must be purely
+  // read-only, but `outdated` makes outbound HTTP calls to the
+  // registry. The 'confirm' permission routes the call through the
+  // tool.confirm_needed flow on every invocation. M-1 originally
+  // fixed four sibling tools (mcp_control, shellcheck, shellcheck_scan,
+  // web_search) but missed this one; applying the same contract here.
+  mutating: true,
+  // Capability is just "network" — the tool only hits the package
+  // registry over HTTP, never touches the filesystem or runs shell.
+  // The H7 invariant test requires this array to be non-empty for
+  // any mutating:true tool (meta-tools whitelisted). See
+  // tests/permission-mutating-invariant.test.ts:92.
+  capabilities: ['network'],
   timeoutMs: 60_000,
   inputSchema: {
     type: 'object',

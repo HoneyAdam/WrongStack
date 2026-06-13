@@ -12,8 +12,15 @@
  *   stays under `distDir`.
  * - **CSP**: `connect-src` uses explicit loopback addresses for the WS
  *   server (not bare `ws:` / `wss:`) so a malicious page script cannot
- *   dial an attacker-controlled WebSocket. Combined with token-in-URL
- *   (C-2), this prevents cross-origin WS abuse.
+ *   dial an attacker-controlled WebSocket. Combined with the
+ *   cookie-based WS auth delivery (`/ws-auth` → `Set-Cookie: ws_token=
+ *   …; HttpOnly; SameSite=Strict; Path=/`), this prevents cross-origin
+ *   WS abuse.
+ * - **API auth**: the `/api/sessions` and `/api/sessions/:id/agents`
+ *   endpoints accept the same shared token as the WS upgrade, via the
+ *   `X-WS-Token` header. Without it, those endpoints return 401. This
+ *   closes the LAN-attacker enumeration vector when `wsHost` is
+ *   non-loopback (e.g. `WS_HOST=0.0.0.0`).
  *
  * Extracted from `index.ts` so the static-serve concern can be tested
  * with a tiny fake `distDir` and asserted on path-traversal, MIME
@@ -22,6 +29,7 @@
 import * as fs from 'node:fs/promises';
 import * as http from 'node:http';
 import * as path from 'node:path';
+import { isLoopbackBind, tokenMatches } from './ws-auth.js';
 
 export interface CreateHttpServerOptions {
   /** Port to listen on. Defaults to 3456 (or the `PORT` env var). */
@@ -41,6 +49,20 @@ export interface CreateHttpServerOptions {
    * cross-process SessionRegistry.
    */
   globalRoot?: string | undefined;
+  /**
+   * Shared auth token for `/api/*` endpoints. Required for non-loopback
+   * binds (LAN exposure). Loopback binds accept any local origin without
+   * a token (the WS path's loopback-bootstrap policy — see ws-auth.ts).
+   */
+  apiToken?: string | undefined;
+  /**
+   * If true, the `/ws-auth` endpoint exchanges a `?token=` query param (or
+   * `X-WS-Token` header) for an `HttpOnly` auth cookie. The cookie is then
+   * sent automatically on the WS upgrade, closing the C-598 query-string
+   * token exposure class. Default: true. Set to false to keep the legacy
+   * URL-token-only flow (e.g. in tests that don't want cookie state).
+   */
+  enableWsCookie?: boolean | undefined;
 }
 
 const MIME_TYPES: Record<string, string> = {
@@ -112,19 +134,72 @@ export function createHttpServer(opts: CreateHttpServerOptions): http.Server {
   const port = opts.port ?? Number.parseInt(process.env['PORT'] ?? '3456', 10);
   const distDir = path.resolve(opts.distDir);
   const wsPort = opts.wsPort;
+  // Loopback bind: no API token required (mirrors WS loopback-bootstrap).
+  // LAN bind: caller MUST supply a token; we reject any /api request that
+  // doesn't present it via `X-WS-Token` (constant-time compared).
+  const requireApiToken = !isLoopbackBind(opts.host) && Boolean(opts.apiToken);
 
   return http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? '/', `http://127.0.0.1:${port}`);
 
       // ── API routes ──────────────────────────────────────────────────
+      // /ws-auth — exchange a one-shot token (header or query) for an
+      // HttpOnly cookie. The browser then sends the cookie on the WS
+      // upgrade automatically, closing C-598 (token-in-URL). Disabled
+      // when `enableWsCookie: false` (tests, or operators who prefer
+      // the URL-token flow for explicit dev).
+      if (url.pathname === '/ws-auth' && req.method === 'GET' && (opts.enableWsCookie ?? true)) {
+        // Accept the token from `?token=` query (browser navigation
+        // from the server-printed URL) OR the `X-WS-Token` header
+        // (scripted client).
+        const provided =
+          url.searchParams.get('token') ?? (req.headers['x-ws-token'] as string | undefined);
+        if (!provided || !opts.apiToken || !tokenMatches(provided, opts.apiToken)) {
+          res.writeHead(401, { 'Content-Type': 'text/plain' });
+          res.end('Unauthorized');
+          return;
+        }
+        // HttpOnly + SameSite=Strict + Path=/ — the cookie is immune to
+        // XSS exfiltration (no JS access), cross-origin Referer leakage
+        // (Strict blocks cross-site), and is scoped to this origin only.
+        // No `Secure` flag: the dev server is plain HTTP on loopback,
+        // and a Secure cookie over HTTP would not be sent by the browser.
+        res.writeHead(200, {
+          'Content-Type': 'text/plain',
+          'Set-Cookie': `ws_token=${encodeURIComponent(opts.apiToken)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=3600`,
+          // Belt-and-braces: tell any caches the cookie response itself
+          // is sensitive.
+          'Cache-Control': 'no-store',
+        });
+        res.end('ok');
+        return;
+      }
+
       if (url.pathname === '/api/sessions' && req.method === 'GET') {
+        // `req.headers['x-ws-token']` is typed as `string | string[] | undefined`
+        // because some Node http clients send repeated headers as an array.
+        // Pick the first value for the constant-time compare.
+        const headerToken = req.headers['x-ws-token'];
+        const provided = Array.isArray(headerToken) ? headerToken[0] : headerToken;
+        if (requireApiToken && !tokenMatches(provided, opts.apiToken ?? '')) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Unauthorized' }));
+          return;
+        }
         await handleApiSessions(res, opts.globalRoot);
         return;
       }
 
       const agentsMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/agents$/);
       if (agentsMatch && req.method === 'GET') {
+        const headerToken = req.headers['x-ws-token'];
+        const provided = Array.isArray(headerToken) ? headerToken[0] : headerToken;
+        if (requireApiToken && !tokenMatches(provided, opts.apiToken ?? '')) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Unauthorized' }));
+          return;
+        }
         await handleApiSessionAgents(res, opts.globalRoot, agentsMatch[1]!);
         return;
       }

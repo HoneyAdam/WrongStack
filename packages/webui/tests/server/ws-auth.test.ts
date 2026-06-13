@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  extractTokenFromCookie,
   hostHeaderOk,
   isLoopbackHostname,
   tokenMatches,
@@ -183,6 +184,142 @@ describe('isLoopbackHostname', () => {
     for (const h of ['192.168.1.5', '10.0.0.5', 'evil.com', '0.0.0.0']) {
       expect(isLoopbackHostname(h)).toBe(false);
     }
+  });
+});
+
+// ─── Cookie-based WS auth (C-2 fix) ────────────────────────────────────────
+
+describe('extractTokenFromCookie', () => {
+  it('returns undefined for absent / empty cookie header', () => {
+    expect(extractTokenFromCookie(undefined)).toBeUndefined();
+    expect(extractTokenFromCookie('')).toBeUndefined();
+  });
+
+  it('extracts the ws_token value from a single-cookie header', () => {
+    expect(extractTokenFromCookie('ws_token=abc123def456')).toBe('abc123def456');
+  });
+
+  it('extracts ws_token when it is one of several cookies', () => {
+    expect(
+      extractTokenFromCookie('session=xyz; ws_token=abc123def456; theme=dark'),
+    ).toBe('abc123def456');
+  });
+
+  it('URL-decodes the cookie value (server stores the encoded form)', () => {
+    // A token with special chars gets encoded by the server when writing the
+    // Set-Cookie header. The reader decodes on the way back out.
+    expect(extractTokenFromCookie('ws_token=abc%2B123%3D')).toBe('abc+123=');
+  });
+
+  it('returns undefined when ws_token is not present', () => {
+    expect(extractTokenFromCookie('session=xyz; theme=dark')).toBeUndefined();
+  });
+
+  it('accepts string[] cookie headers (some Node http clients)', () => {
+    expect(extractTokenFromCookie(['ws_token=abc123def456', 'session=xyz'])).toBe(
+      'abc123def456',
+    );
+  });
+});
+
+describe('verifyClient — cookie auth (C-2 path)', () => {
+  const TOKEN = 'cookie-token-abc123';
+  const LAN_HOST = '192.168.1.10:3457';
+
+  it('accepts a non-loopback browser origin when cookie matches expected token', () => {
+    // LAN-exposed bind, browser origin (so not loopback-bootstrap), valid
+    // cookie — must accept. This is the new C-2 path: the token never
+    // appears in the URL, the browser sends the HttpOnly cookie
+    // automatically on the WS upgrade.
+    expect(
+      verifyClient({
+        origin: 'https://wrongstack.example.com',
+        url: '/',
+        hostHeader: LAN_HOST,
+        wsHost: '0.0.0.0',
+        expectedToken: TOKEN,
+        cookieHeader: `ws_token=${TOKEN}`,
+      }),
+    ).toBe(true);
+  });
+
+  it('rejects a non-loopback browser origin when cookie does not match', () => {
+    expect(
+      verifyClient({
+        origin: 'https://wrongstack.example.com',
+        url: '/',
+        hostHeader: LAN_HOST,
+        wsHost: '0.0.0.0',
+        expectedToken: TOKEN,
+        cookieHeader: 'ws_token=wrong-token',
+      }),
+    ).toBe(false);
+  });
+
+  it('rejects a non-loopback browser origin when cookie is absent', () => {
+    // No cookie, no URL token — must reject for a non-loopback browser
+    // origin. This is the C-598 closing case (no token leak).
+    expect(
+      verifyClient({
+        origin: 'https://wrongstack.example.com',
+        url: '/',
+        hostHeader: LAN_HOST,
+        wsHost: '0.0.0.0',
+        expectedToken: TOKEN,
+      }),
+    ).toBe(false);
+  });
+
+  it('still accepts the legacy URL-token path for browser clients (back-compat)', () => {
+    // While the frontend migrates to /ws-auth, browser clients still
+    // work via `?token=…`. The full C-2 fix removes this path once the
+    // migration is complete; until then, this is intentional backward
+    // compatibility, not a regression.
+    expect(
+      verifyClient({
+        origin: 'https://wrongstack.example.com',
+        url: `/?token=${TOKEN}`,
+        hostHeader: LAN_HOST,
+        wsHost: '0.0.0.0',
+        expectedToken: TOKEN,
+      }),
+    ).toBe(true);
+  });
+
+  it('accepts cookie for non-browser clients on a loopback bind', () => {
+    // Non-browser path also benefits from the cookie delivery, in case
+    // a CI script wants to use the cookie jar approach instead of
+    // `?token=…`. Loopback bind: any remoteAddress on 127.0.0.1 (the
+    // very common local curl) is fine — non-loopback peers on a
+    // non-loopback bind are denied outright (LAN exposure policy, see
+    // the next test).
+    expect(
+      verifyClient({
+        // No origin = non-browser
+        url: '/',
+        hostHeader: '127.0.0.1:3457',
+        remoteAddress: '127.0.0.1',
+        wsHost: '127.0.0.1',
+        expectedToken: TOKEN,
+        cookieHeader: `ws_token=${TOKEN}`,
+      }),
+    ).toBe(true);
+  });
+
+  it('denies a LAN peer on a public bind, even with a valid cookie', () => {
+    // A non-loopback peer (e.g. 192.168.1.20) on a 0.0.0.0 bind is
+    // denied outright regardless of token source — the LAN exposure
+    // policy. Token in URL or cookie does not bypass.
+    expect(
+      verifyClient({
+        url: '/',
+        hostHeader: LAN_HOST,
+        remoteAddress: '192.168.1.20',
+        wsHost: '0.0.0.0',
+        expectedToken: TOKEN,
+        cookieHeader: `ws_token=${TOKEN}`,
+      }),
+    ).toBe(false);
   });
 });
 

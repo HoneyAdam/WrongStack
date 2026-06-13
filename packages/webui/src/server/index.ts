@@ -97,6 +97,19 @@ export type { WSServerMessage, WSClientMessage, ConnectedClient } from './types.
 export { createHttpServer, buildCspHeader, injectWsPort } from './http-server.js';
 export { findFreePort, isPortFree } from './port-utils.js';
 export { openBrowser, browserOpenCommand } from './open-browser.js';
+// Token estimator primitives — exposed for the CLI's embedded webui
+// (which historically inlined its own copy and let it drift). Now
+// there's exactly one definition. See
+// packages/cli/src/webui-server.ts Phase 2 of the refactor plan.
+export {
+  estimateTokens,
+  messageTokens,
+  messagePreview,
+  stringifyContent,
+  type ContextBreakdown,
+  type MessageTokenEntry,
+  type ToolTokenEntry,
+} from './token-estimator.js';
 export {
   registerInstance,
   unregisterInstance,
@@ -942,7 +955,6 @@ export async function startWebUI(
     cwd: string;
     mode: string;
     contextMode: string;
-    wsToken: string;
   }> {
     let maxContext = 0;
     let inputCost = 0;
@@ -989,7 +1001,6 @@ export async function startWebUI(
       cwd: workingDir,
       mode: modeId,
       contextMode: String(context.meta['contextWindowMode'] ?? DEFAULT_CONTEXT_WINDOW_MODE_ID),
-      wsToken,
     };
   }
 
@@ -1029,6 +1040,11 @@ export async function startWebUI(
       url: info.req.url ?? '',
       hostHeader: info.req.headers.host,
       remoteAddress: info.req.socket.remoteAddress,
+      // C-2 fix: accept the token via the HttpOnly cookie set by
+      // `/ws-auth` (preferred) OR the URL query param (non-browser
+      // fallback). The cookie path closes the C-598 query-string
+      // exposure class.
+      cookieHeader: info.req.headers.cookie,
       wsHost,
       expectedToken: wsToken,
     });
@@ -2811,37 +2827,63 @@ export async function startWebUI(
         try {
           const resolved = path.resolve(targetPath);
           await fs.access(resolved);
-
-          const { exec } = await import('node:child_process');
-          const platform = process.platform; // 'win32' | 'darwin' | 'linux'
-
-          let cmd: string;
-          if (target === 'file-manager') {
-            if (platform === 'win32') {
-              cmd = `explorer "${resolved}"`;
-            } else if (platform === 'darwin') {
-              cmd = `open "${resolved}"`;
-            } else {
-              cmd = `xdg-open "${resolved}"`;
-            }
-          } else {
-            // terminal
-            if (platform === 'win32') {
-              cmd = `start cmd /k cd /d "${resolved}"`;
-            } else if (platform === 'darwin') {
-              cmd = `open -a Terminal "${resolved}"`;
-            } else {
-              // Try several terminal emulators
-              cmd = `x-terminal-emulator --working-directory="${resolved}" 2>/dev/null || gnome-terminal --working-directory="${resolved}" 2>/dev/null || xterm -e "cd '${resolved}' && $SHELL"`;
-            }
+          // Metacharacter guard. Real directory paths virtually never
+          // contain these; rejecting them closes the cmd.exe re-parsing
+          // injection class outright (`"foo" && calc.exe`, `'$(...)'`,
+          // backticks, redirections). Defense in depth alongside the
+          // argv-array spawn below.
+          if (/[&|<>^"'`\n\r]/.test(resolved)) {
+            sendResult(ws, false, 'Path contains unsupported characters.');
+            break;
           }
 
-          exec(cmd, { timeout: 5000 }, (err) => {
-            // Fire-and-forget — errors are logged but not surfaced
-            if (err) {
-              logger.warn(`shell.open failed: ${err.message}`);
+          const { spawn } = await import('node:child_process');
+          const platform = process.platform; // 'win32' | 'darwin' | 'linux'
+          // detached: true + stdio: 'ignore' + unref() — the launcher
+          // does its job and exits; the spawned terminal/Explorer keeps
+          // running independently of the webui process lifetime. This
+          // is what `start cmd /k` (cmd builtin) needs on Windows to
+          // actually open a new window.
+          const launch = (cmd: string, args: string[], onError?: () => void) => {
+            const child = spawn(cmd, args, {
+              detached: true,
+              stdio: 'ignore',
+              windowsHide: true,
+            });
+            child.on('error', (err) => {
+              // `error` fires when the binary is missing (e.g. xterm not
+              // installed) — log it, but never block the WS caller. The
+              // fallback chain in the terminal branch uses onError to
+              // try the next emulator.
+              logger.warn(`shell.open spawn failed: ${err.message}`);
+              onError?.();
+            });
+            child.unref();
+          };
+
+          if (target === 'file-manager') {
+            if (platform === 'win32') launch('explorer', [resolved]);
+            else if (platform === 'darwin') launch('open', [resolved]);
+            else launch('xdg-open', [resolved]);
+          } else if (target === 'terminal') {
+            if (platform === 'win32') {
+              // `start` is a cmd builtin; each token is a separate argv
+              // entry (Node quotes them individually — no string
+              // concatenation). This replaces the previous
+              // `start cmd /k cd /d "..."` exec() call that was
+              // shell-injectable.
+              launch('cmd', ['/c', 'start', 'cmd', '/k', 'cd', '/d', resolved]);
+            } else if (platform === 'darwin') {
+              launch('open', ['-a', 'Terminal', resolved]);
+            } else {
+              // Try several terminal emulators
+              launch('x-terminal-emulator', [`--working-directory=${resolved}`], () =>
+                launch('gnome-terminal', [`--working-directory=${resolved}`], () =>
+                  launch('xterm', ['-e', `cd '${resolved}' && ${process.env['SHELL'] ?? 'sh'}`]),
+                ),
+              );
             }
-          });
+          }
 
           sendResult(ws, true, `Opened ${target} at ${resolved}`);
         } catch (err) {
@@ -2941,10 +2983,17 @@ export async function startWebUI(
   // HTTP server for the React frontend (port 3456) — see `http-server.ts`
   // for the static-serve, MIME matching, path-traversal guard, and CSP
   // header logic. Constructed here, listen()d below alongside the WS server.
+  // `globalRoot` powers the /api/sessions and /api/sessions/:id/agents
+  // handlers (read the cross-process SessionRegistry); `apiToken` is the
+  // shared auth token the HTTP API requires when bound to a non-loopback
+  // host (LAN exposure). Loopback binds skip the token check, mirroring
+  // the WS verifyClient loopback-bootstrap policy.
   const httpServer = createHttpServer({
     host: wsHost,
     distDir: path.resolve(import.meta.dirname, '../../dist'),
     wsPort,
+    globalRoot: wpaths.globalRoot,
+    apiToken: wsToken,
   });
   // httpPort/wsPort were resolved (and possibly auto-advanced) at the top.
   // Base dir for the running-instance registry — keep it next to the rest of

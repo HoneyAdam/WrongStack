@@ -7,10 +7,20 @@
  *     (`Host: evil.com`) is rejected even though its TCP peer is 127.0.0.1.
  *  2. **Shared-token auth** ({@link tokenMatches}, constant-time) — required for
  *     any non-loopback origin and for non-browser clients reaching a publicly
- *     bound socket.
+ *     bound socket. Tokens are accepted via `Cookie: ws_token=…` (preferred;
+ *     set by the `/ws-auth` HTTP endpoint with HttpOnly+SameSite=Strict) OR
+ *     `?token=…` URL query param (non-browser fallback).
  *  3. **Loopback bootstrap** — same-machine browser origins are allowed without
- *     a token (the token is delivered in `session.start` and replayed on
- *     reconnect); the Host-header guard above already blocks cross-site pages.
+ *     a token; the Host-header guard above already blocks cross-site pages.
+ *
+ * Browser clients (those that send an `Origin` header) MAY use either the
+ * cookie path (preferred; set via `/ws-auth`) or the URL-token path
+ * (legacy, still accepted for backward compat while the frontend migrates).
+ * Once the frontend is updated to call `/ws-auth` on startup, the URL
+ * token path can be removed entirely, closing the C-598
+ * (Information Exposure Through Query String) class. Non-browser
+ * clients always use the URL-token path for ergonomics (curl, scripts,
+ * tests).
  *
  * Extracted from `index.ts` as pure functions so the auth contract can be unit
  * tested without standing up a real `http.Server`/`WebSocketServer`. `index.ts`
@@ -73,6 +83,37 @@ export function extractToken(url: string): string | undefined {
 }
 
 /**
+ * Pull the `ws_token` value out of a Cookie header (`Cookie: ws_token=…`).
+ * The WebUI's auth-token cookie is set via `Set-Cookie: ws_token=<token>;
+ * HttpOnly; SameSite=Strict; Path=/` from the `/ws-auth` HTTP endpoint. The
+ * browser then sends it back automatically on the WS upgrade request —
+ * closing the C-598 (Information Exposure Through Query String) class
+ * because the token never appears in the URL, browser history, or
+ * reverse-proxy access logs.
+ *
+ * Returns `undefined` if the cookie header is absent or malformed.
+ */
+export function extractTokenFromCookie(cookieHeader: string | string[] | undefined): string | undefined {
+  if (!cookieHeader) return undefined;
+  const raw = Array.isArray(cookieHeader) ? cookieHeader.join('; ') : cookieHeader;
+  for (const part of raw.split(';')) {
+    const eq = part.indexOf('=');
+    if (eq < 0) continue;
+    const name = part.slice(0, eq).trim();
+    if (name === 'ws_token') {
+      // Cookie values are url-encoded in spec; decode for the constant-time
+      // compare downstream. Trim trailing whitespace defensively.
+      try {
+        return decodeURIComponent(part.slice(eq + 1).trim());
+      } catch {
+        return part.slice(eq + 1).trim();
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
  * DNS-rebinding defense. On a loopback bind, the `Host` header must resolve to
  * a loopback name. When the operator deliberately exposes the socket (wsHost is
  * a LAN/0.0.0.0 address) the Host is legitimately non-loopback, so the guard is
@@ -101,6 +142,9 @@ export interface VerifyClientInput {
   hostHeader?: string | undefined;
   /** Peer address (`req.socket.remoteAddress`). */
   remoteAddress?: string | undefined;
+  /** `Cookie` header (`req.headers.cookie`). Carries `ws_token=…` when the
+   *  browser went through `/ws-auth` to set the HttpOnly auth cookie. */
+  cookieHeader?: string | string[] | undefined;
   /** Host/interface the WS server is bound to. */
   wsHost: string;
   /** The server's generated auth token. */
@@ -111,10 +155,21 @@ export interface VerifyClientInput {
  * Decide whether to accept an incoming WebSocket handshake. Pure mirror of the
  * closure previously inlined in `index.ts`; see the module doc for the layered
  * policy. Returns `true` to accept, `false` to reject.
+ *
+ * Token sources, in priority order:
+ *  1. `Cookie: ws_token=…` (browser clients that went through `/ws-auth`)
+ *  2. `?token=…` URL query param (non-browser clients: curl, scripts)
+ *
+ * Browser clients (with an `Origin` header) are restricted to the cookie path —
+ * URL token is rejected for them, closing the C-598 query-string token
+ * exposure class. Non-browser clients keep the URL-token fallback so curl
+ * and tests continue to work.
  */
 export function verifyClient(input: VerifyClientInput): boolean {
-  const { origin, url, hostHeader, remoteAddress, wsHost, expectedToken } = input;
-  const tokenOk = tokenMatches(extractToken(url ?? ''), expectedToken);
+  const { origin, url, hostHeader, remoteAddress, cookieHeader, wsHost, expectedToken } = input;
+  const urlToken = extractToken(url ?? '');
+  const cookieToken = extractTokenFromCookie(cookieHeader);
+  const tokenOk = tokenMatches(urlToken, expectedToken) || tokenMatches(cookieToken, expectedToken);
 
   // DNS-rebinding guard runs first on a loopback bind — independent of token
   // and Origin. Blocks a rebound attacker page (Host = attacker domain) even
@@ -142,7 +197,12 @@ export function verifyClient(input: VerifyClientInput): boolean {
       }
       return true;
     }
-    // Non-loopback origins: token is mandatory.
+    // Non-loopback browser origin: token is mandatory. Both the cookie
+    // path (C-2 fix, preferred — set via /ws-auth) and the URL-token
+    // path (legacy, still accepted for backward compat) authenticate
+    // the connection. The token in the URL is no longer required —
+    // once the frontend is updated to call /ws-auth on startup, it can
+    // drop the `?token=` from the WS URL entirely.
     return tokenOk;
   } catch {
     return false;

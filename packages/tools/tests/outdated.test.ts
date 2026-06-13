@@ -56,13 +56,17 @@ afterEach(() => {
 describe('outdatedTool', () => {
   it('has correct metadata', () => {
     expect(outdatedTool.name).toBe('outdated');
-    expect(outdatedTool.permission).toBe('auto');
-    // `outdated` only queries the registry; it does not write to the
-    // filesystem, install, or change state. Network reads are not
-    // "mutating" by the permission-mutating invariant (H7) — the
-    // invariant is about persistent local state changes, not side
-    // effects in the wider world.
-    expect(outdatedTool.mutating).toBe(false);
+    // Network side-effecting (registry HTTP) — routes through the
+    // confirmation gate (M-1 contract: M-1 originally fixed four
+    // sibling tools — mcp_control, shellcheck, shellcheck_scan,
+    // web_search — but missed outdated; the audit's permission
+    // policy at permission-policy.ts:188-195 special-cases
+    // `mutating: true` tools into the confirm_needed flow regardless
+    // of `permission`).
+    expect(outdatedTool.permission).toBe('confirm');
+    expect(outdatedTool.mutating).toBe(true);
+    // H7 invariant: mutating tools must declare capabilities.
+    expect(outdatedTool.capabilities).toEqual(['network']);
   });
 
   it('handles default params', async () => {

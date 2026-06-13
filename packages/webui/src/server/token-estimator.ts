@@ -64,7 +64,7 @@ export interface ContextBreakdown {
   messages: { total: number; count: number; breakdown: MessageTokenEntry[] };
 }
 
-function messageTokens(content: unknown): number {
+export function messageTokens(content: unknown): number {
   if (typeof content === 'string') return estimateTokens(content);
   if (!Array.isArray(content)) return 0;
   let tk = 0;
@@ -77,7 +77,7 @@ function messageTokens(content: unknown): number {
   return tk;
 }
 
-function messagePreview(content: unknown): string {
+export function messagePreview(content: unknown): string {
   if (typeof content === 'string') return content.slice(0, 60);
   if (!Array.isArray(content)) return '';
   return (content as ContentBlock[])
