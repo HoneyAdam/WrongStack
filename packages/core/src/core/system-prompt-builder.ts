@@ -14,6 +14,7 @@ import type {
   ModelCapabilities,
   SystemPromptBuilder,
 } from '../types/system-prompt.js';
+import type { MailboxAgentStatus } from '../coordination/mailbox-types.js';
 import type { Tool } from '../types/tool.js';
 
 export const LAYER_1_IDENTITY = DEFAULT_PROMPT;
@@ -66,6 +67,8 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
   private skillBodyCache?: string | undefined;
   /** Tools from last build — used for memory relevance scoring. */
   private _lastBuildTools?: Tool[] | undefined;
+  /** Cached rendered online agents string, keyed by array reference. */
+  private _lastOnlineAgents?: { ref: readonly MailboxAgentStatus[]; text: string } | undefined;
   constructor(private readonly opts: DefaultSystemPromptBuilderOptions = {}) {}
 
   async build(ctx: BuildContext): Promise<TextBlock[]> {
@@ -374,15 +377,10 @@ one by one, roll up results), use \`spawn_subagent\` + \`assign_task\` +
       (t) => t.name === 'mailbox' || t.name === 'mail_send' || t.name === 'mail_inbox',
     );
     if (hasMailbox) {
-      // Build online agents info if provided
-      let onlineAgentsInfo = '';
-      if (ctx.onlineAgents && ctx.onlineAgents.length > 0) {
-        const totalCount = ctx.onlineAgents.length;
-        const agentList = ctx.onlineAgents
-          .map((a) => `- **${a.name}** (${a.source ?? 'unknown'}${a.sessionId ? `, session: ${a.sessionId.slice(0, 8)}` : ''})`)
-          .join('\n');
-        onlineAgentsInfo = `\n\n**Currently online (${totalCount} agent${totalCount !== 1 ? 's' : ''}):**\n${agentList}`;
-      }
+      // Build online agents info — cached by array reference since the
+      // agents list changes at join/leave pace (seconds to minutes) while
+      // the prompt builds happen every iteration (hundreds of ms).
+      const onlineAgentsInfo = this.renderOnlineAgents(ctx.onlineAgents);
       lines.push(`
 ## Inter-agent mailbox${onlineAgentsInfo}
 
@@ -468,6 +466,36 @@ summarize it, and let the tool result hold only the summary.`);
     }
 
     return lines.join('\n');
+  }
+
+  /**
+   * Render the online agents list, cached by array reference. The agents
+   * list changes at join/leave pace (seconds to minutes), not every prompt
+   * build turn (hundreds of ms). Reference equality avoids re-stringifying
+   * the same array on every iteration while still being correct when the
+   * caller passes a fresh array.
+   */
+  private renderOnlineAgents(
+    agents: readonly MailboxAgentStatus[] | undefined,
+  ): string {
+    if (!agents || agents.length === 0) return '';
+
+    // Reference equality: if the same array object was passed last time,
+    // reuse the cached string without re-mapping the list.
+    if (this._lastOnlineAgents?.ref === agents) {
+      return this._lastOnlineAgents.text;
+    }
+
+    const totalCount = agents.length;
+    const agentList = agents
+      .map(
+        (a) =>
+          `- **${a.name}** (${a.source ?? 'unknown'}${a.sessionId ? `, session: ${a.sessionId.slice(0, 8)}` : ''})`,
+      )
+      .join('\n');
+    const text = `\n\n**Currently online (${totalCount} agent${totalCount !== 1 ? 's' : ''}):**\n${agentList}`;
+    this._lastOnlineAgents = { ref: agents, text };
+    return text;
   }
 
   private async buildEnvironment(ctx: BuildContext): Promise<string> {
