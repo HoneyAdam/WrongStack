@@ -3,7 +3,7 @@ import type { Context } from '../core/context.js';
 import type { InputReader } from '../types/input-reader.js';
 import type { PermissionDecision, PermissionPolicy, TrustPolicy } from '../types/permission.js';
 import type { Tool } from '../types/tool.js';
-import { hasDangerousCapabilityForSubagents } from './capabilities.js';
+import { hasCapability, ToolCapabilities } from './capabilities.js';
 import { atomicWrite } from '../utils/atomic-write.js';
 import { matchAny, matchGlob } from '../utils/glob-match.js';
 import { safeParse } from '../utils/safe-json.js';
@@ -436,23 +436,55 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
  * is kept only for backward compatibility with tools that have not yet
  * declared capabilities.
  */
+/**
+ * Auto-approving PermissionPolicy used for subagents. Subagents run
+ * non-interactively under a director — they cannot answer permission
+ * prompts, so a non-YOLO policy on the leader would silently hang the
+ * delegated run on the first sensitive tool call. The user already
+ * authorized the delegation when they invoked the leader; subagents
+ * inherit that authorization automatically.
+ *
+ * Tool defaults of `permission: 'deny'` are still honored (this is a
+ * subagent capability override, not a deny-bypass).
+ *
+ * 2026-06+: Primary decision is now based on declared `Tool.capabilities`
+ * (capability allowlist / denylist model). The legacy name-based DENY set
+ * is kept only for backward compatibility with tools that have not yet
+ * declared capabilities.
+ *
+ * 2026-06-13+: Switched to allowlist-by-default. Only tools with explicitly
+ * allowed capabilities are auto-approved. Everything else is denied.
+ * Default allowed: fs.read, net.outbound (read-only, safe operations).
+ */
 export class AutoApprovePermissionPolicy implements PermissionPolicy {
+  private readonly allowedCapabilities: readonly string[];
+
+  constructor(allowedCapabilities?: readonly string[]) {
+    // Default allowlist: read-only, safe operations
+    this.allowedCapabilities = allowedCapabilities ?? [
+      ToolCapabilities.FS_READ,
+      ToolCapabilities.NET_OUTBOUND,
+    ];
+  }
+
   private static isMcpTool(name: string): boolean {
     return name.startsWith('mcp__');
   }
 
   async evaluate(tool: Tool): Promise<PermissionDecision> {
-    const hasDangerousCap = hasDangerousCapabilityForSubagents(tool);
+    const caps = tool.capabilities ?? [];
+    const hasAllowedCap = caps.some((c) => this.allowedCapabilities.includes(c));
     const isMcp = AutoApprovePermissionPolicy.isMcpTool(tool.name);
 
-    const blocked = tool.permission === 'deny' || hasDangerousCap || isMcp;
+    // Block if: tool is MCP, tool default is deny, or no allowed capability
+    const blocked = tool.permission === 'deny' || isMcp || !hasAllowedCap;
 
     if (blocked) {
-      const reason = hasDangerousCap
-        ? `tool declares dangerous capability (${tool.capabilities?.join(', ')}) — not auto-approved for subagents`
-        : isMcp
-          ? `MCP tool ${tool.name} is not auto-approved for subagents — ask the leader to allow it explicitly`
-          : 'tool default deny';
+      const reason = isMcp
+        ? `MCP tool ${tool.name} is not auto-approved for subagents — ask the leader to allow it explicitly`
+        : tool.permission === 'deny'
+          ? 'tool default deny'
+          : `tool lacks allowed capability (has: ${caps.join(', ') || 'none'}, allowed: ${this.allowedCapabilities.join(', ')})`;
 
       return {
         permission: 'deny',
