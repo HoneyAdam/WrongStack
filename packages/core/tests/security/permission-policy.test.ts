@@ -299,7 +299,7 @@ describe('DefaultPermissionPolicy', () => {
 });
 
 describe('AutoApprovePermissionPolicy', () => {
-  it('auto-approves non-deny tools without prompting', async () => {
+  it('auto-approves tools with allowed capabilities (fs.read, net.outbound)', async () => {
     const p = new AutoApprovePermissionPolicy();
     const auto = await p.evaluate({
       name: 'read',
@@ -307,6 +307,7 @@ describe('AutoApprovePermissionPolicy', () => {
       inputSchema: { type: 'object' },
       permission: 'confirm',
       mutating: false,
+      capabilities: ['fs.read'],
       async execute() {
         return 'x';
       },
@@ -315,9 +316,24 @@ describe('AutoApprovePermissionPolicy', () => {
     expect(auto.source).toBe('yolo');
   });
 
-  // Subagent guard: tools declaring dangerous capabilities are denied,
-  // regardless of name. The legacy name-based denylist was removed — all
-  // authorization is now purely capability-driven.
+  it('denies tools without any capabilities (allowlist-by-default)', async () => {
+    const p = new AutoApprovePermissionPolicy();
+    const d = await p.evaluate({
+      name: 'unknown_tool',
+      description: '',
+      inputSchema: { type: 'object' },
+      permission: 'confirm',
+      mutating: false,
+      async execute() {
+        return 'x';
+      },
+    } as Tool);
+    expect(d.permission).toBe('deny');
+    expect(d.source).toBe('subagent_guard');
+    expect(d.reason).toContain('lacks allowed capability');
+  });
+
+  // Subagent guard: tools with non-allowed capabilities are denied.
   it.each([
     { name: 'bash', caps: ['shell.arbitrary'] },
     { name: 'write', caps: ['fs.write'] },
@@ -328,7 +344,7 @@ describe('AutoApprovePermissionPolicy', () => {
     { name: 'install', caps: ['package.install'] },
     { name: 'exec', caps: ['shell.restricted'] },
   ])(
-    'denies dangerous builtin "%s" for subagents via capabilities',
+    'denies non-allowed builtin "%s" for subagents via capabilities',
     async ({ name, caps }) => {
       const p = new AutoApprovePermissionPolicy();
       const d = await p.evaluate({
@@ -393,13 +409,13 @@ describe('AutoApprovePermissionPolicy', () => {
 
   // --- 2026-06 Capability-based tests ---
 
-  it('denies tools that declare dangerous capabilities even if name is not in legacy list', async () => {
+  it('denies tools that declare non-allowed capabilities even if name is safe', async () => {
     const p = new AutoApprovePermissionPolicy();
     const d = await p.evaluate(
       tool('my-custom-shell', 'confirm', undefined, true, ['shell.arbitrary'])
     );
     expect(d.permission).toBe('deny');
-    expect(d.reason).toContain('dangerous capability');
+    expect(d.reason).toContain('lacks allowed capability');
   });
 
   it('denies tools with fs.write.outside-project capability', async () => {
@@ -418,11 +434,33 @@ describe('AutoApprovePermissionPolicy', () => {
     expect(decision.permission).toBe('auto');
   });
 
-  it('auto-approves tools without capabilities (no legacy name deny)', async () => {
+  it('auto-approves tools with net.outbound capability', async () => {
+    const p = new AutoApprovePermissionPolicy();
+    const d = await p.evaluate(
+      tool('fetch', 'confirm', undefined, false, ['net.outbound'])
+    );
+    expect(d.permission).toBe('auto');
+  });
+
+  it('custom allowlist constructor overrides defaults', async () => {
+    const p = new AutoApprovePermissionPolicy(['fs.write']);
+    const d = await p.evaluate(
+      tool('write', 'confirm', undefined, true, ['fs.write'])
+    );
+    expect(d.permission).toBe('auto');
+    // fs.read is no longer allowed with custom allowlist
+    const d2 = await p.evaluate(
+      tool('read', 'confirm', undefined, false, ['fs.read'])
+    );
+    expect(d2.permission).toBe('deny');
+  });
+
+  it('denies tools without capabilities under allowlist-by-default', async () => {
     const p = new AutoApprovePermissionPolicy();
     const d = await p.evaluate(tool('bash')); // no capabilities declared
-    expect(d.permission).toBe('auto');
-    expect(d.source).toBe('yolo');
+    expect(d.permission).toBe('deny');
+    expect(d.source).toBe('subagent_guard');
+    expect(d.reason).toContain('lacks allowed capability');
   });
 
   it('MCP tools are still denied regardless of capabilities', async () => {
