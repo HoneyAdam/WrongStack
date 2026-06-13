@@ -98,12 +98,16 @@ import {
   type AgentConfigContext,
   type BrainHandlerContext,
   type IntrospectionContext,
+  type PrefsContext,
   type WorklistContext,
   type WsHandlerContext,
+  handleAutonomySwitch,
   handleBrainAsk,
   handleBrainRisk,
   handleBrainStatus,
   handleDiagGet,
+  handlePrefsGet,
+  handlePrefsUpdate,
   handleKeyDelete,
   handleKeySetActive,
   handleKeyUpsert,
@@ -1301,6 +1305,16 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     log: (m) => console.log(m),
   };
 
+  const prefsCtx: PrefsContext = {
+    agent: opts.agent,
+    prefSnapshot,
+    persistPrefs: persistPrefsToConfig,
+    onAutonomySwitch: opts.onAutonomySwitch,
+    send,
+    broadcast,
+    log: (m) => console.log(m),
+  };
+
   async function handleMessage(
     ws: WebSocket,
     client: ConnectedClient,
@@ -1614,14 +1628,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       }
 
       case 'autonomy.switch': {
-        const { mode } = (msg as { payload: { mode: string } }).payload;
-        opts.agent.ctx.meta['autonomy'] = mode;
-        // Flip the CLI's REAL autonomy state (same setter the TUI uses) —
-        // meta alone is advisory and the running loop never reads it.
-        opts.onAutonomySwitch?.(mode);
-        sendResult(ws, true, `Autonomy mode set to "${mode}"`);
-        broadcast({ type: 'prefs.updated', payload: { autonomy: mode } });
-        void persistPrefsToConfig({ autonomy: mode });
+        handleAutonomySwitch(prefsCtx, ws, (msg as { payload: { mode: string } }).payload.mode);
         break;
       }
 
@@ -2115,24 +2122,12 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       // ── Preferences ──────────────────────────────────────────
 
       case 'prefs.get': {
-        // Return the current pref snapshot from context.meta so the
-        // frontend can seed its local-prefs store from the server's truth.
-        send(ws, { type: 'prefs.updated', payload: prefSnapshot() });
+        handlePrefsGet(prefsCtx, ws);
         break;
       }
 
       case 'prefs.update': {
-        // Batch preference update. Merges arbitrary key/value pairs into
-        // context.meta so the runtime can read them immediately, broadcasts
-        // the full pref snapshot to every connected client so all browser
-        // tabs stay in sync, and persists the durable keys to config.json
-        // (same key mapping the TUI settings picker writes).
-        const payload = (msg as { payload: Record<string, unknown> }).payload;
-        for (const [key, val] of Object.entries(payload)) {
-          opts.agent.ctx.meta[key] = val;
-        }
-        void persistPrefsToConfig(payload);
-        broadcast({ type: 'prefs.updated', payload: prefSnapshot() });
+        handlePrefsUpdate(prefsCtx, ws, (msg as { payload: Record<string, unknown> }).payload);
         break;
       }
 
