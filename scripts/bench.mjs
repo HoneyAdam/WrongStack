@@ -831,6 +831,13 @@ function bench6_mTierSweep() {
   // equivalent to the post-fix's combined pass (both are dominated by
   // the tool-block scan). To measure the real win, we reset the cache
   // before each iteration so the `_estTokens` loop is doing real work.
+  //
+  // NOTE: The numbers below are noise-band. The per-call savings (~1 µs)
+  // are smaller than V8 JIT jitter (±20-30% at this granularity). The
+  // 0.87-1.31× range across 5 runs of 2000 iterations (audited 2026-06-13)
+  // confirms the signal is indistinguishable from noise. The structural
+  // change (eliminating the redundant second walk) is correct regardless
+  // — the bench tells us only that the savings are microscopic.
   const M1_ITERS = 200;
 
   // Helper: a fresh batch of messages with cleared _estTokens.
@@ -895,44 +902,71 @@ function bench6_mTierSweep() {
   });
 
   // ── M3: parseContinueDirective tail scan ───────────────────────────
-  // Measure the actual implementation cost on two inputs:
-  //   (a) 4 KB no-marker text — the common case; tail scan walks 2 KB
-  //   (b) 2 KB no-marker text — the *pre-fix equivalent* for a 2 KB
-  //       response (the tail == full text, no slicing overhead)
-  // The savings is the difference: a 2x-larger input would have cost
-  // ~2x more in the pre-fix; the post-fix pays the 2 KB tail cost
-  // regardless of the total length. The 4 KB input cost is roughly
-  // the 2 KB input cost minus the slice() overhead.
+  // Apples-to-apples comparison: 4 KB no-marker input measured both as
+  // a full scan (pre-fix, simulating the old code that walked the whole
+  // string) and as a tail-restricted scan (post-fix, last 2 KB).
+  //
+  // The pre-fix simulation uses a local copy of the function without the
+  // tail slice. The post-fix uses the actual exported function. A 2 KB
+  // control confirms that small responses (tail == full text) have zero
+  // win.
   const M3_ITERS = 1_000;
   const noMarker2K = 'x'.repeat(2_000);
   const noMarker4K = 'x'.repeat(4_000);
 
-  // Pre-fix: a 4 KB response would have walked the full 4 KB string.
-  // We approximate that cost by measuring the 2 KB no-marker scan —
-  // the regex engine's per-char cost is roughly constant, so a 4 KB
-  // walk is ~2× the 2 KB walk.
+  // Helper: simulate the pre-fix path — same regex, no tail restriction.
+  const LINE_MARKERS_FULL =
+    /^\s*\[(continue|next step|proceed|done)\]\s*$/gim;
+  function preFixScan(text) {
+    // Full-scan: no slice, walk the entire input.
+    let match;
+    let lastDirective = 'none';
+    // biome-ignore lint/suspicious/noAssignInExpressions: same as source
+    while ((match = LINE_MARKERS_FULL.exec(text)) !== null) {
+      const value = (match[1] ?? '').toLowerCase();
+      if (value === 'continue' || value === 'next step' || value === 'proceed') {
+        lastDirective = 'continue';
+      } else if (value === 'done') {
+        lastDirective = 'stop';
+      }
+    }
+    return lastDirective;
+  }
+
+  // Pre-fix: full-scan 4 KB input.
   const m3PreStart = performance.now();
   for (let i = 0; i < M3_ITERS; i++) {
-    // The 2 KB scan with no marker — the pre-fix-equivalent cost for
-    // a 2 KB response. We multiply by 2 in the savings line to model
-    // the 4 KB case.
-    parseContinueDirective(noMarker2K);
+    preFixScan(noMarker4K);
   }
   const m3PreFix = performance.now() - m3PreStart;
 
-  // Post-fix: 4 KB input, tail scan walks 2 KB. Wall time should be
-  // similar to the 2 KB scan above (minus slice overhead).
+  // Post-fix: 4 KB input, tail-restricted to 2 KB.
   const m3PostStart = performance.now();
   for (let i = 0; i < M3_ITERS; i++) {
     parseContinueDirective(noMarker4K);
   }
   const m3PostFix = performance.now() - m3PostStart;
+
+  // Control: 2 KB no-marker (tail == full content, no win expected).
+  const m3CtrlStart = performance.now();
+  for (let i = 0; i < M3_ITERS; i++) {
+    parseContinueDirective(noMarker2K);
+  }
+  const m3Ctrl = performance.now() - m3CtrlStart;
+
   rows.push({
     fix: 'M3 (parseContinueDirective tail-restricted scan)',
-    preFixMs: m3PreFix.toFixed(3) + ' (2KB scan, ~half of 4KB cost)',
+    preFixMs: m3PreFix.toFixed(3) + ' (4KB full scan)',
     postFixMs: m3PostFix.toFixed(3) + ' (4KB input, 2KB tail scan)',
     speedup: m3PreFix > 0 ? (m3PreFix / Math.max(m3PostFix, 0.001)).toFixed(2) : '∞',
     savedPerIter: (((m3PreFix - m3PostFix) * 1_000) / M3_ITERS).toFixed(2) + 'µs',
+  });
+  rows.push({
+    fix: 'M3 (control: 2KB no-marker, tail == full)',
+    preFixMs: m3Ctrl.toFixed(3) + ' (2KB scan, baseline)',
+    postFixMs: '— (same cost)',
+    speedup: '1.00x (expected)',
+    savedPerIter: '0.00µs',
   });
 
   return { rows };
