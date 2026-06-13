@@ -36,6 +36,18 @@ import {
   type TodoItem,
   wstackGlobalRoot,
 } from '@wrongstack/core';
+// Reuse the standalone webui server's token estimator rather than
+// maintaining an inlined copy. Two implementations of `estimateTokens`
+// / `messageTokens` / `messagePreview` were drifting apart; the
+// standalone module is the canonical source (and is unit-tested
+// independently). Phase 2 of the refactor plan continues this
+// pattern for the rest of the file.
+import {
+  estimateTokens,
+  messageTokens,
+  messagePreview,
+  stringifyContent,
+} from '@wrongstack/webui/server';
 import {
   DefaultSecretVault,
   decryptConfigSecrets,
@@ -96,57 +108,6 @@ const consoleLogger: Logger = {
     return this;
   },
 };
-
-// ── Token estimator helpers (inlined from @wrongstack/webui/server/token-estimator.ts) ──
-
-function estimateTokens(s: string): number {
-  return Math.ceil(s.length / 4);
-}
-
-function stringifyContent(c: unknown): string {
-  if (typeof c === 'string') return c;
-  try {
-    return JSON.stringify(c);
-  } catch {
-    return String(c);
-  }
-}
-
-function messageTokens(content: unknown): number {
-  if (typeof content === 'string') return estimateTokens(content);
-  if (!Array.isArray(content)) return 0;
-  let tk = 0;
-  for (const b of content as Array<{
-    type?: string;
-    text?: string;
-    input?: unknown;
-    content?: unknown;
-    name?: string;
-  }>) {
-    if (b.type === 'text') tk += estimateTokens(b.text ?? '');
-    else if (b.type === 'tool_use') tk += estimateTokens(stringifyContent(b.input));
-    else if (b.type === 'tool_result') tk += estimateTokens(stringifyContent(b.content));
-    else tk += estimateTokens(stringifyContent(b));
-  }
-  return tk;
-}
-
-function messagePreview(content: unknown): string {
-  if (typeof content === 'string') return content.slice(0, 60);
-  if (!Array.isArray(content)) return '';
-  return (content as Array<{ type?: string; text?: string; name?: string }>)
-    .map((b) =>
-      b.type === 'text'
-        ? (b.text ?? '').slice(0, 40)
-        : b.type === 'tool_use'
-          ? `[tool_use: ${b.name}]`
-          : b.type === 'tool_result'
-            ? '[tool_result]'
-            : `[${b.type}]`,
-    )
-    .join(' ')
-    .slice(0, 60);
-}
 
 interface PromptBlock {
   text?: string | undefined;
@@ -357,6 +318,13 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
   const pendingConfirms = new Map<string, (d: 'yes' | 'no' | 'always' | 'deny') => void>();
   const secretScrubber = new DefaultSecretScrubber();
   let abortController: AbortController | null = null;
+  // Per-WebSocket abort controllers. The legacy single-slot `abortController`
+  // above is the project-switch path's view (it always aborts the in-flight
+  // run, no matter which socket initiated the switch) — kept for behavior
+  // parity. The per-socket map scopes `case 'abort'` and `handleUserMessage`
+  // so a second browser tab or a rapid same-tab abort cannot kill another
+  // socket's run. Both are kept in sync.
+  const abortControllers = new Map<WebSocket, AbortController>();
 
   // Custom context modes — file-backed (~/.wrongstack/custom-context-modes.json),
   // shared with the standalone server. Lazily loaded on first mode operation.
@@ -1244,6 +1212,13 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
 
       ws.on('close', () => {
         clients.delete(ws);
+        // Drop this socket's in-flight run controller (if any). We do NOT
+        // abort the run here — a tab close may be a reload, and the user
+        // may reconnect. The controller is removed so a future
+        // `case 'abort'` from a reconnected socket starts clean. The
+        // `handleUserMessage` finally-block also clears its entry, so
+        // this is a safety net for an unclean close mid-run.
+        abortControllers.delete(ws);
         // If the last client leaves while a permission prompt is pending, deny
         // it so the agent loop doesn't hang waiting for an answer that will
         // never arrive (the terminal no longer prompts in --webui mode).
@@ -1255,13 +1230,18 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
         }
       });
 
-      // Send session.start to the new client — includes wsToken for
-      // reconnection, plus per-model cost rates and context-window cap
-      // so the frontend can compute accurate live costs.
+      // Send session.start to the new client — per-model cost rates
+      // and context-window cap so the frontend can compute accurate
+      // live costs. The auth token is no longer in the payload: the
+      // cookie path (`/ws-auth` → `Set-Cookie: ws_token=…`) is the
+      // C-2 recommended delivery (Phase 1.4) and `?token=…` from
+      // the server-printed URL is the back-compat fallback. Including
+      // the token here would re-introduce the C-598 query-string
+      // exposure class.
       const base = await buildSessionStartPayload({}, opts.needsSetup ?? false);
       send(ws, {
         type: 'session.start',
-        payload: { ...base, wsToken: authToken },
+        payload: { ...base },
       });
     });
 
@@ -1287,6 +1267,20 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
       process.off('SIGINT', shutdown);
       process.off('SIGTERM', shutdown);
       console.log('[WebUI] Shutting down...');
+      // Abort every in-flight run before closing clients. Without this, a run
+      // mid-iteration at SIGINT/SIGTERM continues to completion on a now-dead
+      // webui (wasted provider spend; the eventual `run.result` is sent to
+      // nobody because clients are about to close). Both the legacy single
+      // slot (project-switch path) and every per-socket controller must be
+      // aborted — they are independent.
+      if (abortController) {
+        abortController.abort();
+        abortController = null;
+      }
+      for (const c of abortControllers.values()) {
+        c.abort();
+      }
+      abortControllers.clear();
       for (const unsub of eventUnsubscribers) unsub();
       for (const [ws] of clients) {
         ws.close();
@@ -1326,8 +1320,17 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
         break;
 
       case 'abort':
-        abortController?.abort();
-        broadcast({
+        // Scope the abort to the requesting socket. The legacy module-scope
+        // `abortController` (project-switch path) is left alone — a
+        // `case 'abort'` from one client should not interfere with another
+        // client's in-flight run. The error message is sent only to the
+        // requesting socket (was `broadcast({...})` previously), which is
+        // correct: other clients have no idea what just happened.
+        {
+          const wsController = abortControllers.get(ws);
+          wsController?.abort();
+        }
+        send(ws, {
           type: 'error',
           payload: { phase: 'abort', message: 'User aborted' },
         });
@@ -2617,6 +2620,12 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
             abortController.abort();
             abortController = null;
           }
+          // Also clear the per-socket controller for this switching client
+          // so a subsequent `case 'abort'` from a reconnected socket starts
+          // clean. We do NOT iterate other sockets' controllers — a project
+          // switch is a server-wide state change and other sockets should see
+          // it via the projects.list broadcast below, not be aborted.
+          abortControllers.delete(ws);
 
           const ctx = opts.agent.ctx;
           const oldSessionId = ctx.session?.id ?? opts.session.id;
@@ -3028,7 +3037,10 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
     // Guard against overlapping runs on the same Agent instance. Two
     // rapid user messages would otherwise start a second agent.run()
     // before the first one's cleanup settles, corrupting context state.
-    if (abortController) {
+    // Scoped to the requesting socket via `abortControllers` — a second
+    // tab's `user_message` is allowed to start its own run; only an
+    // overlapping message from the SAME tab is rejected.
+    if (abortControllers.has(ws)) {
       send(ws, {
         type: 'error',
         payload: { phase: 'agent.run', message: 'A run is already in progress. Abort it first.' },
@@ -3039,11 +3051,12 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
     // Abort any existing run (safety net; the guard above makes this
     // unreachable in the overlapping case, but direct abort requests
     // from the client still need the controller reference).
-    abortController = new AbortController();
+    const wsAbort = new AbortController();
+    abortControllers.set(ws, wsAbort);
 
     try {
       const result = await opts.agent.run(content, {
-        signal: abortController.signal,
+        signal: wsAbort.signal,
       });
 
       send(ws, {
@@ -3070,7 +3083,7 @@ export async function runWebUI(opts: WebUIOptions): Promise<void> {
         },
       });
     } finally {
-      abortController = null;
+      abortControllers.delete(ws);
     }
   }
 
