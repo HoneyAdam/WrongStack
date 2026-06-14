@@ -1,6 +1,7 @@
 import type { Director, FleetEvent } from '@wrongstack/core';
 import { useEffect, useRef } from 'react';
 import type { Action, State } from '../app-reducer.js';
+import { stripNextStepsBlock } from '../components/suggestions.js';
 
 const FLUSH_MS = 150;
 const STREAM_COLORS = ['cyan', 'magenta', 'yellow', 'green', 'blue'];
@@ -72,10 +73,13 @@ export function useDirectorFleetBridge({
     let streamFlushTimer: ReturnType<typeof setTimeout> | null = null;
     const flushStreamBufs = () => {
       for (const [id, text] of streamBuf) {
-        const trimmed = text.trim();
-        if (!trimmed) continue;
+        // Strip <next_steps> blocks from subagent output — suggestions belong
+        // to the main assistant, not subagent results. This prevents raw XML
+        // tags from appearing as literal text in the fleet panel.
+        const cleaned = stripNextStepsBlock(text);
+        if (!cleaned) continue;
         const label = labelFor(labelsRef, id);
-        enq({ type: 'fleetMessage', id, text: trimmed });
+        enq({ type: 'fleetMessage', id, text: cleaned });
         if (streamFleetRef.current) {
           enq({
             type: 'addEntry',
@@ -84,7 +88,7 @@ export function useDirectorFleetBridge({
               agentLabel: label.label,
               agentColor: label.color,
               icon: '💬',
-              text: trimmed,
+              text: cleaned,
             },
           });
         }

@@ -1,7 +1,6 @@
-import * as fsp from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { EventBus } from '../../src/kernel/events.js';
 import {
   emptyTaskFile,
@@ -9,6 +8,58 @@ import {
   mutateTasks,
   saveTasks,
 } from '../../src/storage/task-store.js';
+
+// vi.mock is hoisted above imports.  We use vi.importActual inside the factory
+// to lazily get the real module, avoiding TDZ issues.  The returned plain object
+// replaces 'node:fs/promises' before the second import runs.
+vi.mock('node:fs/promises', async () => {
+  const real = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+
+  // In-memory store so writes and reads share state within a test.
+  const store: Record<string, string> = {};
+
+  const mockFs = {
+    mkdtemp: async (prefix: string) => {
+      const dir = await real.mkdtemp(prefix);
+      store[dir] = '';
+      return dir;
+    },
+    readFile: vi.fn(async (filepath: string) => {
+      if (store[filepath] !== undefined) return store[filepath];
+      return await real.readFile(filepath, 'utf8');
+    }),
+    writeFile: vi.fn(async (filepath: string, data: string) => {
+      store[filepath] = data;
+      try { await real.writeFile(filepath, data, 'utf8'); } catch { /* best-effort */ }
+    }),
+    rename: real.rename,
+    access: vi.fn(async (filepath: string) => {
+      if (store[filepath] !== undefined) return;
+      try { await real.access(filepath); } catch { /* fall through */ }
+      if (store[filepath] === undefined) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    }),
+    unlink: vi.fn(async (filepath: string) => {
+      delete store[filepath];
+      try { await real.unlink(filepath); } catch { /* best-effort */ }
+    }),
+    mkdir: real.mkdir,
+    readdir: real.readdir,
+    rm: vi.fn(async (filepath: string, opts?: { recursive?: boolean; force?: boolean }) => {
+      if (opts?.recursive) {
+        for (const key of Object.keys(store)) {
+          if (key.startsWith(filepath)) delete store[key];
+        }
+      } else {
+        delete store[filepath];
+      }
+      try { await real.rm(filepath, opts); } catch { /* best-effort */ }
+    }),
+    chmod: real.chmod,
+  };
+  return mockFs;
+});
+
+import * as fsp from 'node:fs/promises';
 
 function makeTask(overrides: Partial<import('../../src/utils/task-format.js').TaskItem> = {}): import('../../src/utils/task-format.js').TaskItem {
   return {
@@ -166,9 +217,12 @@ describe('task-store', () => {
     const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'wstack-tasks-'));
     const fp = path.join(dir, 'io-error.tasks.json');
     const events: EventBus = { emit: vi.fn() } as never;
-    const spy = vi.spyOn(fsp, 'readFile');
-    spy.mockRejectedValueOnce(Object.assign(new Error('EACCES permission denied'), { code: 'EACCES' }));
+    // First ensure the file exists (so the error is a read error, not ENOENT)
+    await fsp.writeFile(fp, JSON.stringify({ version: 1, sessionId: 'sess', updatedAt: new Date().toISOString(), tasks: [] }), 'utf8');
     try {
+      fsp.readFile.mockRejectedValueOnce(
+        Object.assign(new Error('EACCES permission denied'), { code: 'EACCES' }),
+      );
       const result = await loadTasks(fp, events);
       expect(result).toBeNull();
       expect(events.emit).toHaveBeenCalledWith('storage.error', expect.objectContaining({
@@ -178,7 +232,7 @@ describe('task-store', () => {
         error: expect.stringContaining('EACCES'),
       }));
     } finally {
-      spy.mockRestore();
+      fsp.readFile.mockReset();
       await fsp.rm(dir, { recursive: true, force: true });
     }
   });
@@ -204,9 +258,10 @@ describe('task-store', () => {
     const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'wstack-tasks-'));
     const fp = path.join(dir, 'io-error.tasks.json');
     const events: EventBus = { emit: vi.fn() } as never;
-    const spy = vi.spyOn(fsp, 'writeFile');
-    spy.mockRejectedValueOnce(Object.assign(new Error('ENOSPC no space left'), { code: 'ENOSPC' }));
     try {
+      fsp.writeFile.mockRejectedValueOnce(
+        Object.assign(new Error('ENOSPC no space left'), { code: 'ENOSPC' }),
+      );
       await saveTasks(fp, { ...emptyTaskFile('sess'), tasks: [makeTask()] }, events);
       expect(events.emit).toHaveBeenCalledWith('storage.error', expect.objectContaining({
         store: 'tasks',
@@ -215,7 +270,7 @@ describe('task-store', () => {
         error: expect.stringContaining('ENOSPC'),
       }));
     } finally {
-      spy.mockRestore();
+      fsp.writeFile.mockReset();
       await fsp.rm(dir, { recursive: true, force: true });
     }
   });
@@ -225,7 +280,7 @@ describe('task-store', () => {
     const fp = path.join(dir, 'sess.tasks.json');
     const events: EventBus = { emit: vi.fn() } as never;
     try {
-      await saveTasks(fp, { ...emptyTaskFile('sess'), tasks: [makeTask({ id: 't1', title: 'before' })] });
+      await saveTasks(fp, { ...emptyTaskFile('sess'), tasks: [makeTask({ id: 't1', title: 'before' })] }, events);
       events.emit = vi.fn(); // reset after save's emissions
       await mutateTasks(fp, 'sess', (file) => {
         file.tasks[0]!.title = 'after';

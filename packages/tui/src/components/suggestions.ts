@@ -170,6 +170,12 @@ function parseWithHeading(content: string, strict: boolean): ParseNextStepsResul
     return { steps: [], texts: [], stripped: content, autoTexts: [] };
   }
 
+  // In strict mode, require the closing </next_steps> tag — webui cannot parse
+  // malformed XML. If missing, reject the entire block (return no steps).
+  if (strict && !afterHeading.includes('</next_steps>')) {
+    return { steps: [], texts: [], stripped: content, autoTexts: [] };
+  }
+
   const texts = steps.map((s) => s.text);
   const autoTexts = steps.filter((s) => s.auto).map((s) => s.text);
 
@@ -214,4 +220,20 @@ function findBlockEnd(afterHeading: string, stepCount: number): number {
   }
 
   return consumed;
+}
+
+/**
+ * Strip <next_steps>...</next_steps> blocks from subagent output text.
+ * Subagent results should not contain suggestion blocks — those belong to
+ * the main assistant's output. This prevents raw XML tags from appearing
+ * as literal text in the fleet panel.
+ */
+export function stripNextStepsBlock(text: string): string {
+  // Match <next_steps>...</next_steps> or <next_steps/> (self-closing)
+  // The block may span multiple lines.
+  return text
+    .replace(/<next_steps\b[^>]*>[\s\S]*?<\/next_steps>/gi, '')
+    .replace(/<next_steps\b[^>]*\/?>/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }

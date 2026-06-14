@@ -2368,8 +2368,9 @@ export function App({
         nextStepsAutoSubmitSuggestionRef.current = null;
         if (suggestion) {
           autoSubmitStreakRef.current += 1;
-          setDraft(suggestion, suggestion.length);
-          // Trigger submit
+          // Trigger submit — input field is cleared after submission completes
+          // (see clearDraft in finally block below). Do not pre-populate the
+          // input with the suggestion text.
           void (async () => {
             const trimmed = suggestion.trim();
             if (!trimmed) {

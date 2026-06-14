@@ -592,6 +592,7 @@ export interface EventMap {
     store: 'session' | 'goal' | 'plan' | 'project' | 'todos' | 'queue' | 'tasks' | 'memory' | 'annotations' | 'audit' | 'replay' | 'config';
     filePath: string;
     operation: string;
+    outcome?: 'failure';
     error: string;
     recoverable: boolean;
     durationMs?: number;

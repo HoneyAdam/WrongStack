@@ -121,6 +121,7 @@ export class ReplayLogStore {
         store: 'replay',
         filePath: fp,
         operation: 'record',
+        outcome: 'failure',
         error: err instanceof Error ? err.message : String(err),
         recoverable: false,
         durationMs: Date.now() - t0,

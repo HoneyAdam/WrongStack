@@ -1,10 +1,36 @@
-import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DefaultConfigLoader } from '../../src/storage/config-loader.js';
 import { resolveWstackPaths } from '../../src/utils/wstack-paths.js';
 import { EventBus } from '../../src/kernel/events.js';
+
+// vi.mock is hoisted above imports — the factory uses vi.importActual to lazily
+// get the real module, avoiding TDZ issues with importing at module scope.
+// The returned plain object replaces 'node:fs/promises' before the second
+// import runs.  Exposed via globalThis so tests can configure mock behavior.
+vi.mock('node:fs/promises', async () => {
+  const real = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+  const mockFs = {
+    readFile: vi.fn(real.readFile),
+    writeFile: vi.fn(real.writeFile),
+    rename: real.rename,
+    access: real.access,
+    unlink: real.unlink,
+    mkdir: real.mkdir,
+    readdir: real.readdir,
+    rm: real.rm,
+    mkdtemp: real.mkdtemp,
+    copyFile: real.copyFile,
+    stat: real.stat,
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (globalThis as any).__mockFs = mockFs;
+  return mockFs;
+});
+
+// After vi.mock replacement, this gets the spy-wrapped plain object.
+import * as fs from 'node:fs/promises';
 
 describe('DefaultConfigLoader', () => {
   let projectRoot: string;
@@ -385,8 +411,10 @@ describe('DefaultConfigLoader', () => {
     const emitSpy = vi.spyOn(events, 'emit');
     const { loader: l, paths } = loader({ events });
     await fs.mkdir(path.dirname(paths.syncConfig), { recursive: true });
-    // Make the directory read-only so atomicWrite fails with EACCES
-    vi.spyOn(fs, 'writeFile').mockRejectedValueOnce(
+    // Make atomicWrite's underlying writeFile call fail with EACCES
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mockFs = (globalThis as any).__mockFs as typeof fs;
+    mockFs.writeFile.mockRejectedValueOnce(
       Object.assign(new Error('Permission denied'), { code: 'EACCES' }),
     );
     try {
@@ -398,7 +426,7 @@ describe('DefaultConfigLoader', () => {
         error: expect.stringContaining('EACCES'),
       }));
     } finally {
-      vi.restoreAllMocks();
+      mockFs.writeFile.mockReset();
     }
   });
 
@@ -423,9 +451,11 @@ describe('DefaultConfigLoader', () => {
     const emitSpy = vi.spyOn(events, 'emit');
     const { loader: l, paths } = loader({ events });
     await fs.mkdir(path.dirname(paths.syncConfig), { recursive: true });
-    // Write a valid file so the path resolves, then make it unreadable
+    // Write a valid file so the path resolves, then make readFile fail with EACCES
     await fs.writeFile(paths.syncConfig, JSON.stringify({ githubToken: 'ghp_abc' }));
-    vi.spyOn(fs, 'readFile').mockRejectedValueOnce(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mockFs = (globalThis as any).__mockFs as typeof fs;
+    mockFs.readFile.mockRejectedValueOnce(
       Object.assign(new Error('Permission denied'), { code: 'EACCES' }),
     );
     try {
@@ -439,7 +469,7 @@ describe('DefaultConfigLoader', () => {
         error: expect.stringContaining('EACCES'),
       }));
     } finally {
-      vi.restoreAllMocks();
+      mockFs.readFile.mockReset();
     }
   });
 

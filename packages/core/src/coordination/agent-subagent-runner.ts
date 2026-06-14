@@ -23,6 +23,35 @@ import type { FleetBus } from './fleet-bus.js';
  */
 export type AgentFactory = (config: SubagentConfig) => Promise<AgentFactoryResult>;
 
+/**
+ * Wrap a factory to automatically filter out disabled tools from subagent
+ * configurations. This provides mechanical enforcement of tool restrictions
+ * (e.g., preventing delegation) in addition to the baseline prompt constraint.
+ *
+ * The wrapper reads `config.disabledTools` and removes those tools from the
+ * agent's tool registry before returning.
+ *
+ * Usage:
+ *   const filteredFactory = withDisabledToolFiltering(originalFactory);
+ *   const runner = makeAgentSubagentRunner({ factory: filteredFactory });
+ */
+export function withDisabledToolFiltering(factory: AgentFactory): AgentFactory {
+  return async (config: SubagentConfig) => {
+    const result = await factory(config);
+    const disabled = config.disabledTools ?? [];
+    if (disabled.length === 0) return result;
+
+    // Agent.tools is a ToolRegistry with unregister() method
+    const registry = result.agent.tools;
+    if (registry && typeof registry.unregister === 'function') {
+      for (const toolName of disabled) {
+        registry.unregister(toolName);
+      }
+    }
+    return result;
+  };
+}
+
 export interface AgentFactoryResult {
   agent: Agent;
   /** Event bus the factory wired to this agent — required for budget hookup. */

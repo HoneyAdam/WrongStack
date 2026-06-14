@@ -1,9 +1,61 @@
-import * as fsp from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EventBus } from '../../src/kernel/events.js';
 import { QueueStore } from '../../src/storage/queue-store.js';
+
+// vi.mock is hoisted above imports.  We use vi.importActual inside the factory
+// to lazily get the real module, avoiding TDZ issues.  The returned plain object
+// replaces 'node:fs/promises' before the second import runs.
+vi.mock('node:fs/promises', async () => {
+  const real = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+
+  // In-memory store so writes and reads share state within a test.
+  const store: Record<string, string> = {};
+
+  const mockFs = {
+    mkdtemp: async (prefix: string) => {
+      const dir = await real.mkdtemp(prefix);
+      store[dir] = '';
+      return dir;
+    },
+    readFile: vi.fn(async (filepath: string) => {
+      if (store[filepath] !== undefined) return store[filepath];
+      return await real.readFile(filepath, 'utf8');
+    }),
+    writeFile: vi.fn(async (filepath: string, data: string) => {
+      store[filepath] = data;
+      try { await real.writeFile(filepath, data, 'utf8'); } catch { /* best-effort real write */ }
+    }),
+    rename: real.rename,
+    unlink: vi.fn(async (filepath: string) => {
+      delete store[filepath];
+      try { await real.unlink(filepath); } catch { /* best-effort */ }
+    }),
+    access: vi.fn(async (filepath: string) => {
+      if (store[filepath] !== undefined) return;
+      try { await real.access(filepath); } catch { /* fall through to check in-memory */ }
+      if (store[filepath] === undefined) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    }),
+    mkdir: real.mkdir,
+    readdir: real.readdir,
+    rm: vi.fn(async (filepath: string, opts?: { recursive?: boolean; force?: boolean }) => {
+      // Remove all in-memory entries under this directory prefix
+      if (opts?.recursive) {
+        for (const key of Object.keys(store)) {
+          if (key.startsWith(filepath)) delete store[key];
+        }
+      } else {
+        delete store[filepath];
+      }
+      try { await real.rm(filepath, opts); } catch { /* best-effort */ }
+    }),
+    chmod: real.chmod,
+  };
+  return mockFs;
+});
+
+import * as fsp from 'node:fs/promises';
 
 async function mktmp(): Promise<string> {
   return fsp.mkdtemp(path.join(os.tmpdir(), 'wstack-queue-'));
@@ -13,6 +65,10 @@ describe('QueueStore', () => {
   let dir: string;
   beforeEach(async () => {
     dir = await mktmp();
+    fsp.readFile.mockReset();
+    fsp.writeFile.mockReset();
+    fsp.unlink.mockReset();
+    fsp.access.mockReset();
   });
   afterEach(async () => {
     await fsp.rm(dir, { recursive: true, force: true });
@@ -141,20 +197,17 @@ describe('QueueStore', () => {
   it('emits storage.error when read() encounters a disk I/O error', async () => {
     const events: EventBus = { emit: vi.fn() } as never;
     const store = new QueueStore({ dir, events });
-    const spy = vi.spyOn(fsp, 'readFile');
-    spy.mockRejectedValueOnce(Object.assign(new Error('EACCES permission denied'), { code: 'EACCES' }));
-    try {
-      const out = await store.read();
-      expect(out).toEqual([]);
-      expect(events.emit).toHaveBeenCalledWith('storage.error', expect.objectContaining({
-        store: 'queue',
-        operation: 'read',
-        outcome: 'failure',
-        error: expect.stringContaining('EACCES'),
-      }));
-    } finally {
-      spy.mockRestore();
-    }
+    fsp.readFile.mockRejectedValueOnce(
+      Object.assign(new Error('EACCES permission denied'), { code: 'EACCES' }),
+    );
+    const out = await store.read();
+    expect(out).toEqual([]);
+    expect(events.emit).toHaveBeenCalledWith('storage.error', expect.objectContaining({
+      store: 'queue',
+      operation: 'read',
+      outcome: 'failure',
+      error: expect.stringContaining('EACCES'),
+    }));
   });
 
   it('emits storage.write with outcome success when write() succeeds', async () => {
@@ -171,23 +224,19 @@ describe('QueueStore', () => {
   it('emits storage.error when write() encounters a disk I/O error', async () => {
     const events: EventBus = { emit: vi.fn() } as never;
     const store = new QueueStore({ dir, events });
-    const spy = vi.spyOn(fsp, 'writeFile');
-    spy.mockRejectedValueOnce(Object.assign(new Error('ENOSPC no space left'), { code: 'ENOSPC' }));
-    try {
-      await store.write([{ displayText: 'hello', blocks: [{ type: 'text', text: 'hello' }] }]);
-      expect(events.emit).toHaveBeenCalledWith('storage.error', expect.objectContaining({
-        store: 'queue',
-        operation: 'write',
-        outcome: 'failure',
-        error: expect.stringContaining('ENOSPC'),
-      }));
-    } finally {
-      spy.mockRestore();
-    }
+    fsp.writeFile.mockRejectedValueOnce(
+      Object.assign(new Error('ENOSPC no space left'), { code: 'ENOSPC' }),
+    );
+    await store.write([{ displayText: 'hello', blocks: [{ type: 'text', text: 'hello' }] }]);
+    expect(events.emit).toHaveBeenCalledWith('storage.error', expect.objectContaining({
+      store: 'queue',
+      operation: 'write',
+      outcome: 'failure',
+      error: expect.stringContaining('ENOSPC'),
+    }));
   });
 
   it('emits storage.write with outcome success when clear() succeeds', async () => {
-    // clear() is only emitted when the file exists — write then clear
     const events: EventBus = { emit: vi.fn() } as never;
     const store = new QueueStore({ dir, events });
     await store.write([{ displayText: 'x', blocks: [{ type: 'text', text: 'x' }] }]);

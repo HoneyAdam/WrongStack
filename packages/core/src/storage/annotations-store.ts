@@ -236,6 +236,7 @@ export class AnnotationsStore {
         store: 'annotations',
         filePath: fp,
         operation: 'add',
+        outcome: 'failure',
         error: err instanceof Error ? err.message : String(err),
         recoverable: false,
         durationMs: Date.now() - t0,
@@ -296,6 +297,7 @@ export class AnnotationsStore {
         store: 'annotations',
         filePath: fp,
         operation: 'resolve',
+        outcome: 'failure',
         error: err instanceof Error ? err.message : String(err),
         recoverable: false,
         durationMs: Date.now() - t0,
@@ -316,23 +318,24 @@ export class AnnotationsStore {
 
   private async readFile(sessionId: string): Promise<AnnotationsFile | null> {
     const fp = this.filePath(sessionId);
+    let raw: string;
     try {
-      const raw = await fs.readFile(fp, 'utf8');
+      raw = await fs.readFile(fp, 'utf8');
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      // Non-ENOENT I/O errors (EACCES, ENOSPC): re-throw so callers emit
+      // storage.error.
+      throw err;
+    }
+    try {
       const parsed = JSON.parse(raw) as AnnotationsFile;
       if (parsed.version !== FILE_VERSION) {
-        // Future-proof: migrations land here. For now, treat unknown
-        // versions as an empty store — safer than crashing on a
-        // downgrade.
         return { version: FILE_VERSION, annotations: [] };
       }
       return parsed;
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
-      // Corrupt JSON or permission error: log via the silent-recovery
-      // path (the store doesn't take a logger; callers observe via
-      // list() returning [] for an unreadable file is acceptable for
-      // Phase 2 — annotations are meta-data, losing them is not fatal).
-      return { version: FILE_VERSION, annotations: [] };
+    } catch {
+      // JSON parse error (SyntaxError): treat as empty store — not an I/O failure.
+      return null;
     }
   }
 

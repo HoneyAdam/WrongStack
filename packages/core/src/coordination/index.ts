@@ -60,6 +60,7 @@ export type {
 } from './subagent-budget.js';
 export {
   makeAgentSubagentRunner,
+  withDisabledToolFiltering,
   type AgentFactory,
   type AgentFactoryResult,
   type AgentRunnerOptions,

@@ -41,6 +41,7 @@ export async function loadTodosCheckpoint(
       store: 'todos',
       filePath,
       operation: 'load',
+      outcome: 'failure',
       error: err instanceof Error ? err.message : String(err),
       recoverable: true,
     });
@@ -128,6 +129,7 @@ export async function saveTodosCheckpoint(
       store: 'todos',
       filePath,
       operation: 'save',
+      outcome: 'failure',
       error: err instanceof Error ? err.message : String(err),
       recoverable: false,
     });

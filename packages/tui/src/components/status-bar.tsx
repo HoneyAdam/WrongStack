@@ -410,6 +410,19 @@ export function StatusBar({
   const hasDebugStream = !!debugStreamStats;
   const hasEnhanceCountdown = enhanceCountdown != null && enhanceCountdown > 0;
   const hasNextStepsAutoSubmit = nextStepsAutoSubmitCountdown != null && nextStepsAutoSubmitCountdown > 0;
+
+  // Rainbow wave phase for the next-steps auto-submit countdown — separate
+  // interval so the countdown text animates even when state is 'idle'.
+  const [countdownWaveIdx, setCountdownWaveIdx] = useState(0);
+  useEffect(() => {
+    if (!hasNextStepsAutoSubmit) return;
+    const t = setInterval(
+      () => setCountdownWaveIdx((n) => (n + 1) % WAVE_COLORS.length),
+      SPINNER_INTERVAL_MS,
+    );
+    return () => clearInterval(t);
+  }, [hasNextStepsAutoSubmit]);
+
   const hasTaskActivity = tasks && (tasks.pending > 0 || tasks.inProgress > 0 || tasks.completed > 0 || tasks.blocked > 0 || tasks.failed > 0);
   const hasThirdLine =
     (todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0)) ||
@@ -812,13 +825,14 @@ export function StatusBar({
               hasEnhanceCountdown ? (
                 <Text dimColor>│</Text>
               ) : null}
-              <Text color={nextStepsAutoSubmitCountdown <= 3 ? 'yellow' : 'cyan'}>
-                ⏳ {nextStepsAutoSubmitLabel
-                  ? truncateLabel(nextStepsAutoSubmitLabel, 30)
-                  : 'next step'}
-                {' in '}
-                {nextStepsAutoSubmitCountdown}s
-              </Text>
+              <WaveText
+                text={`⏳ ${
+                  nextStepsAutoSubmitLabel
+                    ? truncateLabel(nextStepsAutoSubmitLabel, 30)
+                    : 'next step'
+                } in ${nextStepsAutoSubmitCountdown}s`}
+                phase={countdownWaveIdx}
+              />
             </>
           ) : null}
         </Box>

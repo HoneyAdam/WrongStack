@@ -47,6 +47,22 @@ function parseStepLines(block: string): NextStep[] {
 }
 
 /**
+ * Strip <next_steps>...</next_steps> blocks from subagent output text.
+ * Subagent results should not contain suggestion blocks — those belong to
+ * the main assistant's output. This prevents raw XML tags from appearing
+ * as literal text in the fleet panel.
+ */
+export function stripNextStepsBlock(text: string): string {
+  // Match <next_steps>...</next_steps> or <next_steps/> (self-closing)
+  // The block may span multiple lines.
+  return text
+    .replace(/<next_steps\b[^>]*>[\s\S]*?<\/next_steps>/gi, '')
+    .replace(/<next_steps\b[^>]*\/?>/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
  * Fill the chat input textarea with the given text.
  * Uses the native setter to trigger React's onChange.
  */

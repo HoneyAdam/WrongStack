@@ -71,8 +71,11 @@ export const Entry = React.memo(function Entry({
   // Store parsed next steps in the shared suggestion store (for /next and
   // auto-submit countdown). Strict=true accepts 💡 headings or <next_steps> XML tags
   // (consistent with what the TUI renders in the message body).
+  // NOTE: Only assistant entries should have <next_steps> — subagents return
+  // task results, not suggestions, so we skip parsing for subagent entries.
   useEffect(() => {
     if (!setSuggestions) return;
+    if (entry.kind !== 'assistant') return;
     const text = (entry as unknown as { text?: string }).text ?? '';
     const { texts } = parseNextSteps(text, true);
     if (texts.length > 0) setSuggestions(texts);

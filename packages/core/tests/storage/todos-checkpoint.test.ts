@@ -1,7 +1,6 @@
-import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Context } from '../../src/core/context.js';
 import type { EventBus } from '../../src/kernel/events.js';
 import type { SessionWriter } from '../../src/types/session.js';
@@ -11,11 +10,77 @@ import {
   saveTodosCheckpoint,
 } from '../../src/storage/todos-checkpoint.js';
 
+// vi.mock is hoisted above imports.  We use vi.importActual inside the factory
+// to lazily get the real module, avoiding TDZ issues.  The returned plain object
+// replaces 'node:fs/promises' before the second import runs.
+vi.mock('node:fs/promises', async () => {
+  const real = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+
+  // In-memory store so writes and reads share state within a test.
+  const store: Record<string, string> = {};
+
+  const mockFs = {
+    mkdtemp: async (prefix: string) => {
+      const dir = await real.mkdtemp(prefix);
+      store[dir] = '';
+      return dir;
+    },
+    readFile: vi.fn(async (filepath: string) => {
+      if (store[filepath] !== undefined) return store[filepath];
+      return await real.readFile(filepath, 'utf8');
+    }),
+    writeFile: vi.fn(async (filepath: string, data: string) => {
+      store[filepath] = data;
+      try { await real.writeFile(filepath, data, 'utf8'); } catch { /* best-effort */ }
+    }),
+    rename: real.rename,
+    access: vi.fn(async (filepath: string) => {
+      if (store[filepath] !== undefined) return;
+      try { await real.access(filepath); } catch { /* fall through */ }
+      if (store[filepath] === undefined) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    }),
+    unlink: vi.fn(async (filepath: string) => {
+      delete store[filepath];
+      try { await real.unlink(filepath); } catch { /* best-effort */ }
+    }),
+    mkdir: real.mkdir,
+    readdir: real.readdir,
+    rm: vi.fn(async (filepath: string, opts?: { recursive?: boolean; force?: boolean }) => {
+      if (opts?.recursive) {
+        for (const key of Object.keys(store)) {
+          if (key.startsWith(filepath)) delete store[key];
+        }
+      } else {
+        delete store[filepath];
+      }
+      try { await real.rm(filepath, opts); } catch { /* best-effort */ }
+    }),
+    chmod: real.chmod,
+  };
+  return mockFs;
+});
+
+import * as fs from 'node:fs/promises';
+
 function makeContext(): Context {
   return new Context({
     systemPrompt: [],
     provider: {} as never,
-    session: { id: 'sess', pendingToolUses: [], append: async () => {}, appendBatch: async () => {}, flush: async () => {}, close: async () => {}, recordFileChange: () => {}, writeCheckpoint: async () => {}, writeFileSnapshot: async () => {}, truncateToCheckpoint: async () => 0, clearSession: async () => {}, writeInFlightMarker: async () => {}, clearInFlightMarker: async () => {} } as unknown as SessionWriter,
+    session: {
+      id: 'sess',
+      pendingToolUses: [],
+      append: async () => {},
+      appendBatch: async () => {},
+      flush: async () => {},
+      close: async () => {},
+      recordFileChange: () => {},
+      writeCheckpoint: async () => {},
+      writeFileSnapshot: async () => {},
+      truncateToCheckpoint: async () => 0,
+      clearSession: async () => {},
+      writeInFlightMarker: async () => {},
+      clearInFlightMarker: async () => {},
+    } as unknown as SessionWriter,
     signal: new AbortController().signal,
     tokenCounter: { total: () => ({ input: 0, output: 0 }), record: () => {} } as never,
     cwd: process.cwd(),
@@ -98,9 +163,6 @@ describe('todos-checkpoint', () => {
     try {
       const ctx = makeContext();
       const detach = attachTodosCheckpoint(ctx.state, file, 'sess');
-      // Include a pending item alongside a completed one — when ALL items
-      // are completed the board auto-clears (by design), but a mixed board
-      // should persist fully.
       ctx.state.replaceTodos([
         { id: 'b', content: 'beta', status: 'completed' },
         { id: 'c', content: 'gamma', status: 'pending' },
@@ -124,7 +186,12 @@ describe('todos-checkpoint', () => {
     const file = path.join(dir, 'sess.todos.json');
     const events: EventBus = { emit: vi.fn() } as never;
     try {
-      await fs.writeFile(file, JSON.stringify({ version: 1, sessionId: 'sess', updatedAt: new Date().toISOString(), todos: [{ id: 't1', content: 'first', status: 'pending' }] }));
+      await fs.writeFile(file, JSON.stringify({
+        version: 1,
+        sessionId: 'sess',
+        updatedAt: new Date().toISOString(),
+        todos: [{ id: 't1', content: 'first', status: 'pending' }],
+      }));
       await loadTodosCheckpoint(file, events);
       expect(events.emit).toHaveBeenCalledWith('storage.read', expect.objectContaining({
         store: 'todos',
@@ -143,7 +210,12 @@ describe('todos-checkpoint', () => {
     const events: EventBus = { emit: vi.fn() } as never;
     try {
       // version 999 is not valid — filter rejects it
-      await fs.writeFile(file, JSON.stringify({ version: 999, sessionId: 'sess', updatedAt: new Date().toISOString(), todos: [] }));
+      await fs.writeFile(file, JSON.stringify({
+        version: 999,
+        sessionId: 'sess',
+        updatedAt: new Date().toISOString(),
+        todos: [],
+      }));
       await loadTodosCheckpoint(file, events);
       expect(events.emit).toHaveBeenCalledWith('storage.read', expect.objectContaining({
         store: 'todos',
@@ -160,9 +232,17 @@ describe('todos-checkpoint', () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-todos-'));
     const file = path.join(dir, 'io-error.todos.json');
     const events: EventBus = { emit: vi.fn() } as never;
-    const spy = vi.spyOn(fs, 'readFile');
-    spy.mockRejectedValueOnce(Object.assign(new Error('EACCES permission denied'), { code: 'EACCES' }));
+    // Create the file so it exists, then make readFile fail
+    await fs.writeFile(file, JSON.stringify({
+      version: 1,
+      sessionId: 'sess',
+      updatedAt: new Date().toISOString(),
+      todos: [],
+    }));
     try {
+      fs.readFile.mockRejectedValueOnce(
+        Object.assign(new Error('EACCES permission denied'), { code: 'EACCES' }),
+      );
       const result = await loadTodosCheckpoint(file, events);
       expect(result).toBeNull();
       expect(events.emit).toHaveBeenCalledWith('storage.error', expect.objectContaining({
@@ -172,7 +252,7 @@ describe('todos-checkpoint', () => {
         error: expect.stringContaining('EACCES'),
       }));
     } finally {
-      spy.mockRestore();
+      fs.readFile.mockReset();
       await fs.rm(dir, { recursive: true, force: true });
     }
   });
@@ -182,7 +262,12 @@ describe('todos-checkpoint', () => {
     const file = path.join(dir, 'sess.todos.json');
     const events: EventBus = { emit: vi.fn() } as never;
     try {
-      await saveTodosCheckpoint(file, 'sess', [{ id: 't1', content: 'first', status: 'pending' }], events);
+      await saveTodosCheckpoint(
+        file,
+        'sess',
+        [{ id: 't1', content: 'first', status: 'pending' }],
+        events,
+      );
       expect(events.emit).toHaveBeenCalledWith('storage.write', expect.objectContaining({
         store: 'todos',
         operation: 'save',
@@ -198,11 +283,16 @@ describe('todos-checkpoint', () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-todos-'));
     const file = path.join(dir, 'io-error.todos.json');
     const events: EventBus = { emit: vi.fn() } as never;
-    const spy = vi.spyOn(fs, 'writeFile');
-    // atomicWrite uses writeFile then rename — mock at the writeFile level
-    spy.mockRejectedValueOnce(Object.assign(new Error('ENOSPC no space left'), { code: 'ENOSPC' }));
     try {
-      await saveTodosCheckpoint(file, 'sess', [{ id: 't1', content: 'first', status: 'pending' }], events);
+      fs.writeFile.mockRejectedValueOnce(
+        Object.assign(new Error('ENOSPC no space left'), { code: 'ENOSPC' }),
+      );
+      await saveTodosCheckpoint(
+        file,
+        'sess',
+        [{ id: 't1', content: 'first', status: 'pending' }],
+        events,
+      );
       expect(events.emit).toHaveBeenCalledWith('storage.error', expect.objectContaining({
         store: 'todos',
         operation: 'save',
@@ -210,7 +300,7 @@ describe('todos-checkpoint', () => {
         error: expect.stringContaining('ENOSPC'),
       }));
     } finally {
-      spy.mockRestore();
+      fs.writeFile.mockReset();
       await fs.rm(dir, { recursive: true, force: true });
     }
   });

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { FleetTimelineEvent, SubagentView, SubagentEvent } from './types.js';
+import { stripNextStepsBlock } from '../components/NextStepsBar.js';
 
 // ── Fleet store (live subagent roster; not persisted) ───────────────────────
 
@@ -266,7 +267,9 @@ export const useFleetStore = create<FleetState>()((set, get) => ({
           next.completedAt = now;
           next.failureReason = e.failureReason ?? next.failureReason;
           if (typeof e.finalText === 'string' && e.finalText) {
-            next.finalText = e.finalText;
+            // Strip <next_steps> blocks from subagent output — suggestions belong
+            // to the main assistant, not subagent results.
+            next.finalText = stripNextStepsBlock(e.finalText);
           }
           const statusLabel = e.status === 'success'
             ? '✓ completed'

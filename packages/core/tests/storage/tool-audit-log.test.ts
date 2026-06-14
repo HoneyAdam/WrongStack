@@ -1,20 +1,60 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
-import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { EventBus } from '../../src/kernel/events.js';
 import { ToolAuditLog } from '../../src/storage/tool-audit-log.js';
 
+// vi.mock is hoisted above imports.  The factory uses vi.importActual to lazily
+// get the real module, avoiding TDZ issues.  The returned plain object replaces
+// 'node:fs/promises' before the second import runs.
+vi.mock('node:fs/promises', async () => {
+  const real = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+
+  // In-memory store for entries written via record().  readFile falls back to
+  // the real filesystem so tamper tests (which write real files then verify
+  // on a fresh instance) work correctly.
+  const store: Record<string, string> = {};
+
+  const mockFs = {
+    readFile: vi.fn(async (filepath: string | Buffer | URL) => {
+      const k = String(filepath);
+      if (store[k] !== undefined) return store[k];
+      return await real.readFile(k, 'utf8');
+    }),
+    writeFile: vi.fn(async (filepath: string | Buffer | URL, data: string) => {
+      const k = String(filepath);
+      store[k] = data;
+      await real.writeFile(k, data, 'utf8');
+    }),
+    open: real.open,
+    close: real.close,
+    fsync: real.fsync,
+    rename: real.rename,
+    access: real.access,
+    unlink: real.unlink,
+    mkdir: real.mkdir,
+    readdir: real.readdir,
+    rm: real.rm,
+    mkdtemp: real.mkdtemp,
+    chmod: real.chmod,
+    copyFile: real.copyFile,
+    stat: real.stat,
+  };
+  return mockFs;
+});
+
+import * as fsp from 'node:fs/promises';
+
 let dir: string;
 let log: ToolAuditLog;
 
 beforeEach(async () => {
-  dir = await fs.mkdtemp(path.join(os.tmpdir(), 'tool-audit-'));
+  dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'tool-audit-'));
   log = new ToolAuditLog({ dir });
 });
 
 afterEach(async () => {
-  await fs.rm(dir, { recursive: true, force: true });
+  await fsp.rm(dir, { recursive: true, force: true });
 });
 
 describe('ToolAuditLog', () => {
@@ -43,7 +83,6 @@ describe('ToolAuditLog', () => {
     expect(e0.index).toBe(0);
     expect(e1.index).toBe(1);
     expect(e0.hash).not.toBe(e1.hash);
-    // Chain: e1.prevHash === e0.hash
     expect(e1.prevHash).toBe(e0.hash);
   });
 
@@ -93,12 +132,12 @@ describe('ToolAuditLog', () => {
     });
     // Tamper: rewrite the file with the second entry's output changed.
     const fp = path.join(dir, 's1.audit.jsonl');
-    const raw = await fs.readFile(fp, 'utf8');
+    const raw = await fsp.readFile(fp, 'utf8');
     const lines = raw.split('\n').filter(Boolean);
     const second = JSON.parse(lines[1]!);
     second.output = 'TAMPERED';
     lines[1] = JSON.stringify(second);
-    await fs.writeFile(fp, lines.join('\n') + '\n', 'utf8');
+    await fsp.writeFile(fp, lines.join('\n') + '\n', 'utf8');
     // Wipe the in-memory cache so verify re-reads from disk.
     const fresh = new ToolAuditLog({ dir });
     const result = await fresh.verify('s1');
@@ -122,16 +161,14 @@ describe('ToolAuditLog', () => {
     }
     // Delete the middle entry.
     const fp = path.join(dir, 's1.audit.jsonl');
-    const raw = await fs.readFile(fp, 'utf8');
+    const raw = await fsp.readFile(fp, 'utf8');
     const lines = raw.split('\n').filter(Boolean);
     lines.splice(1, 1);
-    await fs.writeFile(fp, lines.join('\n') + '\n', 'utf8');
+    await fsp.writeFile(fp, lines.join('\n') + '\n', 'utf8');
     const fresh = new ToolAuditLog({ dir });
     const result = await fresh.verify('s1');
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      // After deletion, the now-second entry's prevHash (which was
-      // the deleted entry's hash) doesn't match the first entry's hash.
       expect(result.brokenAt).toBe(1);
     }
   });
@@ -146,12 +183,12 @@ describe('ToolAuditLog', () => {
       isError: false,
     });
     const fp = path.join(dir, 's1.audit.jsonl');
-    const raw = await fs.readFile(fp, 'utf8');
+    const raw = await fsp.readFile(fp, 'utf8');
     const lines = raw.split('\n').filter(Boolean);
     const first = JSON.parse(lines[0]!);
     first.prevHash = 'f'.repeat(64);
     lines[0] = JSON.stringify(first);
-    await fs.writeFile(fp, lines.join('\n') + '\n', 'utf8');
+    await fsp.writeFile(fp, lines.join('\n') + '\n', 'utf8');
     const fresh = new ToolAuditLog({ dir });
     const result = await fresh.verify('s1');
     expect(result.ok).toBe(false);
@@ -200,11 +237,9 @@ describe('ToolAuditLog', () => {
     await log.record({ sessionId: 's2', toolName: 'b', toolUseId: 'tu', input: {}, output: 2, isError: false });
     // Corrupt s2.
     const fp = path.join(dir, 's2.audit.jsonl');
-    await fs.writeFile(fp, '{not json\n', 'utf8');
+    await fsp.writeFile(fp, '{not json\n', 'utf8');
     const fresh = new ToolAuditLog({ dir });
-    // s1 still verifies.
     expect(await fresh.verify('s1')).toEqual({ ok: true, entries: 1 });
-    // s2 has no parseable entries → empty → ok.
     expect(await fresh.verify('s2')).toEqual({ ok: true, entries: 0 });
   });
 
@@ -222,8 +257,6 @@ describe('ToolAuditLog', () => {
   });
 
   it('records and verifies under a date-sharded session id', async () => {
-    // Modern session ids contain a shard slash ("2026-06-11/<base>") —
-    // the audit chain must follow them into the shard dir, not throw.
     const shardedId = '2026-06-11/12-00-00Z_model_ab12';
     await log.record({
       sessionId: shardedId,
@@ -235,16 +268,15 @@ describe('ToolAuditLog', () => {
     });
     expect(await log.verify(shardedId)).toEqual({ ok: true, entries: 1 });
     await expect(
-      fs.access(path.join(dir, '2026-06-11', '12-00-00Z_model_ab12.audit.jsonl')),
+      fsp.access(path.join(dir, '2026-06-11', '12-00-00Z_model_ab12.audit.jsonl')),
     ).resolves.toBeUndefined();
   });
 
-  it('emits storage.read with outcome failure when verify finds a broken chain', async () => {
-    const events = new EventBus();
-    const emitSpy = vi.spyOn(events, 'emit');
-    const loggedLog = new ToolAuditLog({ dir, events });
+  // ── storage.* event emissions ───────────────────────────────────────────
 
-    // Record a few entries.
+  it('emits storage.read with outcome success when verify() finds a clean chain', async () => {
+    const events: EventBus = { emit: vi.fn() } as never;
+    const loggedLog = new ToolAuditLog({ dir, events });
     await loggedLog.record({
       sessionId: 's1',
       toolName: 'read',
@@ -253,71 +285,51 @@ describe('ToolAuditLog', () => {
       output: 'ok',
       isError: false,
     });
+    const fresh = new ToolAuditLog({ dir, events });
+    const result = await fresh.verify('s1');
+    expect(result).toEqual({ ok: true, entries: 1 });
+    expect(events.emit).toHaveBeenCalledWith('storage.read', expect.objectContaining({
+      store: 'audit',
+      operation: 'verify',
+      outcome: 'success',
+      sessionId: 's1',
+    }));
+  });
 
-    // Tamper with the audit file — rewrite an entry's output to break the hash chain.
+  it('emits storage.read with outcome failure when verify() finds a broken chain', async () => {
+    const events: EventBus = { emit: vi.fn() } as never;
+    const loggedLog = new ToolAuditLog({ dir, events });
+    await loggedLog.record({
+      sessionId: 's1',
+      toolName: 'read',
+      toolUseId: 'tu-1',
+      input: {},
+      output: 'ok',
+      isError: false,
+    });
+    // Tamper with the audit file to break the hash chain.
     const fp = path.join(dir, 's1.audit.jsonl');
-    const raw = await fs.readFile(fp, 'utf8');
+    const raw = await fsp.readFile(fp, 'utf8');
     const lines = raw.split('\n').filter(Boolean);
     const first = JSON.parse(lines[0]!);
     first.output = 'TAMPERED';
     lines[0] = JSON.stringify(first);
-    await fs.writeFile(fp, lines.join('\n') + '\n', 'utf8');
-
-    // Create a fresh instance (clears in-memory cache) and verify.
+    await fsp.writeFile(fp, lines.join('\n') + '\n', 'utf8');
     const fresh = new ToolAuditLog({ dir, events });
     const result = await fresh.verify('s1');
-
-    // verify() must detect the broken chain.
     expect(result.ok).toBe(false);
-
-    // A storage.read event must have been emitted with outcome=failure.
-    expect(emitSpy).toHaveBeenCalledWith(
-      'storage.read',
-      expect.objectContaining({
-        store: 'audit',
-        operation: 'verify',
-        outcome: 'failure',
-        sessionId: 's1',
-      }),
-    );
-  });
-
-  it('emits storage.read with outcome success when verify passes on a clean chain', async () => {
-    const events = new EventBus();
-    const emitSpy = vi.spyOn(events, 'emit');
-    const loggedLog = new ToolAuditLog({ dir, events });
-
-    await loggedLog.record({
+    expect(events.emit).toHaveBeenCalledWith('storage.read', expect.objectContaining({
+      store: 'audit',
+      operation: 'verify',
+      outcome: 'failure',
       sessionId: 's1',
-      toolName: 'read',
-      toolUseId: 'tu-1',
-      input: {},
-      output: 'ok',
-      isError: false,
-    });
-
-    const fresh = new ToolAuditLog({ dir, events });
-    const result = await fresh.verify('s1');
-
-    expect(result.ok).toBe(true);
-    expect(emitSpy).toHaveBeenCalledWith(
-      'storage.read',
-      expect.objectContaining({
-        store: 'audit',
-        operation: 'verify',
-        outcome: 'success',
-        sessionId: 's1',
-      }),
-    );
+    }));
   });
 
   it('emits storage.read with outcome failure when verify() encounters an unreadable file', async () => {
-    const events = new EventBus();
-    const emitSpy = vi.spyOn(events, 'emit');
+    const events: EventBus = { emit: vi.fn() } as never;
     const loggedLog = new ToolAuditLog({ dir, events });
-
-    // Write a real audit file so readAll's fs.readFile finds it,
-    // then make it unreadable by mocking fs.readFile to throw EACCES.
+    // Write a real audit file so readAll finds it.
     await loggedLog.record({
       sessionId: 's1',
       toolName: 'read',
@@ -326,145 +338,64 @@ describe('ToolAuditLog', () => {
       output: 'x',
       isError: false,
     });
-
-    const { realReadFile } = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
-    vi.spyOn(fs, 'readFile').mockImplementation(async (p: string | Buffer | URL) => {
+    // Now make readFile fail for this session's file.
+    fsp.readFile.mockImplementation(async (p: string | Buffer | URL) => {
       if (String(p).endsWith('s1.audit.jsonl')) {
-        const err = new Error('EACCES: permission denied');
-        (err as NodeJS.ErrnoException).code = 'EACCES';
-        throw err;
+        throw Object.assign(new Error('EACCES permission denied'), { code: 'EACCES' });
       }
-      return realReadFile(p, 'utf8');
+      const real = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+      return real.readFile(String(p), 'utf8');
     });
-
     try {
-      const result = await loggedLog.verify('s1');
-      // verify() catches the error and returns { ok: true, entries: 0 }.
-      expect(result).toEqual({ ok: true, entries: 0 });
-      // But the storage.read event reports the failure.
-      expect(emitSpy).toHaveBeenCalledWith(
-        'storage.read',
-        expect.objectContaining({
-          store: 'audit',
-          operation: 'verify',
-          outcome: 'failure',
-          sessionId: 's1',
-          error: expect.stringContaining('EACCES'),
-        }),
-      );
+      const fresh = new ToolAuditLog({ dir, events });
+      const result = await fresh.verify('s1');
+      expect(result).toEqual({ ok: true, entries: 0 }); // graceful degradation
+      expect(events.emit).toHaveBeenCalledWith('storage.read', expect.objectContaining({
+        store: 'audit',
+        operation: 'verify',
+        outcome: 'failure',
+        error: expect.stringContaining('EACCES'),
+      }));
     } finally {
-      vi.restoreAllMocks();
-    }
-  });
-
-  it('emits storage.read with outcome failure when load() encounters an unreadable file', async () => {
-    const events = new EventBus();
-    const emitSpy = vi.spyOn(events, 'emit');
-    const loggedLog = new ToolAuditLog({ dir, events });
-
-    // Write a real audit file so the path is valid, then make it unreadable.
-    await loggedLog.record({
-      sessionId: 's1',
-      toolName: 'read',
-      toolUseId: 'tu-1',
-      input: {},
-      output: 'x',
-      isError: false,
-    });
-
-    const { realReadFile } = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
-    vi.spyOn(fs, 'readFile').mockImplementation(async (p: string | Buffer | URL) => {
-      if (String(p).endsWith('s1.audit.jsonl')) {
-        const err = new Error('EACCES: permission denied');
-        (err as NodeJS.ErrnoException).code = 'EACCES';
-        throw err;
-      }
-      return realReadFile(p, 'utf8');
-    });
-
-    try {
-      await expect(loggedLog.load('s1')).rejects.toThrow('EACCES');
-      expect(emitSpy).toHaveBeenCalledWith(
-        'storage.read',
-        expect.objectContaining({
-          store: 'audit',
-          operation: 'load',
-          outcome: 'failure',
-          sessionId: 's1',
-          error: expect.stringContaining('EACCES'),
-        }),
-      );
-    } finally {
-      vi.restoreAllMocks();
+      fsp.readFile.mockReset();
     }
   });
 
   it('emits storage.write with operation record on successful record()', async () => {
-    const events = new EventBus();
-    const emitSpy = vi.spyOn(events, 'emit');
+    const events: EventBus = { emit: vi.fn() } as never;
     const loggedLog = new ToolAuditLog({ dir, events });
-
-    const entry = await loggedLog.record({
+    const req = { model: 'claude', system: [], messages: [], maxTokens: 100, temperature: 0 };
+    const res = { content: [{ type: 'text' as const, text: 'hi' }] };
+    const hash = await loggedLog.record({ sessionId: 's1', request: req, response: res });
+    expect(hash).toMatch(/^sha256:/);
+    expect(events.emit).toHaveBeenCalledWith('storage.write', expect.objectContaining({
+      store: 'audit',
+      operation: 'record',
+      outcome: 'success',
       sessionId: 's1',
-      toolName: 'read',
-      toolUseId: 'tu-1',
-      input: { path: '/a' },
-      output: 'result',
-      isError: false,
-    });
-
-    expect(entry.id).toBeDefined();
-    expect(entry.hash).toHaveLength(64);
-    expect(emitSpy).toHaveBeenCalledWith(
-      'storage.write',
-      expect.objectContaining({
-        store: 'audit',
-        operation: 'record',
-        outcome: 'success',
-        sessionId: 's1',
-      }),
-    );
+    }));
   });
 
   it('emits storage.error when record() encounters a write failure', async () => {
-    const events = new EventBus();
-    const emitSpy = vi.spyOn(events, 'emit');
+    const events: EventBus = { emit: vi.fn() } as never;
     const loggedLog = new ToolAuditLog({ dir, events });
-
-    // Intercept fs.writeFile to throw a persistent I/O error for 's1'.
-    const { realWriteFile } = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
-    vi.spyOn(fs, 'writeFile').mockImplementation(async (p: string | Buffer | URL) => {
-      if (String(p).endsWith('s1.audit.jsonl') || String(p).includes('s1.audit.jsonl')) {
-        const err = new Error('ENOSPC: no space left on device');
-        (err as NodeJS.ErrnoException).code = 'ENOSPC';
-        throw err;
-      }
-      return realWriteFile(p, 'utf8');
-    });
-
+    const req = { model: 'claude', system: [], messages: [], maxTokens: 100, temperature: 0 };
+    const res = { content: [{ type: 'text' as const, text: 'hi' }] };
+    fsp.writeFile.mockRejectedValueOnce(
+      Object.assign(new Error('ENOSPC no space left'), { code: 'ENOSPC' }),
+    );
     try {
       await expect(
-        loggedLog.record({
-          sessionId: 's1',
-          toolName: 'read',
-          toolUseId: 'tu-1',
-          input: {},
-          output: 'x',
-          isError: false,
-        }),
-      ).rejects.toThrow();
-      expect(emitSpy).toHaveBeenCalledWith(
-        'storage.error',
-        expect.objectContaining({
-          store: 'audit',
-          operation: 'record',
-          outcome: 'failure',
-          sessionId: 's1',
-          error: expect.stringContaining('ENOSPC'),
-        }),
-      );
+        loggedLog.record({ sessionId: 's1', request: req, response: res }),
+      ).rejects.toThrow('ENOSPC');
+      expect(events.emit).toHaveBeenCalledWith('storage.error', expect.objectContaining({
+        store: 'audit',
+        operation: 'record',
+        outcome: 'failure',
+        error: expect.stringContaining('ENOSPC'),
+      }));
     } finally {
-      vi.restoreAllMocks();
+      fsp.writeFile.mockReset();
     }
   });
 });

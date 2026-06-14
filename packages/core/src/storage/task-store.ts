@@ -44,6 +44,7 @@ export async function loadTasks(
       store: 'tasks',
       filePath,
       operation: 'load',
+      outcome: 'failure',
       error: err instanceof Error ? err.message : String(err),
       recoverable: true,
     });
@@ -118,6 +119,7 @@ export async function saveTasks(
       store: 'tasks',
       filePath,
       operation: 'save',
+      outcome: 'failure',
       error: err instanceof Error ? err.message : String(err),
       recoverable: false,
       ...(traceId !== undefined && { traceId }),
