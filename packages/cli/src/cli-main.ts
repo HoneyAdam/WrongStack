@@ -2123,6 +2123,9 @@ export async function main(argv: string[]): Promise<number> {
       brainMonitor.stop();
       brainQueue.dispose();
       void mcpRegistry.stopAll();
+      void multiAgentHost.dispose().catch((err) =>
+        logger.warn(`multiAgentHost.dispose() failed: ${err instanceof Error ? err.message : String(err)}`),
+      );
     },
     onBeforeExit: async () => {
       // Check for uncommitted changes directly

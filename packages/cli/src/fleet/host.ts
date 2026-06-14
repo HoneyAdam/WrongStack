@@ -201,6 +201,12 @@ export class MultiAgentHost {
    * actionable error instead of a generic "Director could not be activated".
    */
   private promotionBlockReason: string | null = null;
+  /** Guards `buildDirector` from overwriting a runner set by `spawnACP`. */
+  private directorRunnerSet = false;
+  /** Event-bus off-handles registered in `buildDirector` — cleaned up in `dispose()`. */
+  private readonly directorOffHandles: Array<() => void> = [];
+  /** Coordinator task.assigned listener — cleaned up in `dispose()`. */
+  private coordinatorOffHandle: (() => void) | null = null;
 
   constructor(
     private readonly deps: MultiAgentDeps,
@@ -304,79 +310,93 @@ export class MultiAgentHost {
       this.fleetManager?.removePendingTask(task.id);
       this.emitLifecycleCompleted(task.id, result);
     });
-    this.director.fleet.filter('budget.threshold_reached', (e) => {
-      const payload = e.payload as { kind: string; used: number; limit: number };
-      this.deps.events.emit('subagent.budget_warning', {
-        subagentId: e.subagentId,
-        kind: payload.kind,
-        used: payload.used,
-        limit: payload.limit,
-      });
-    });
+    this.directorOffHandles.push(
+      this.director.fleet.filter('budget.threshold_reached', (e) => {
+        const payload = e.payload as { kind: string; used: number; limit: number };
+        this.deps.events.emit('subagent.budget_warning', {
+          subagentId: e.subagentId,
+          kind: payload.kind,
+          used: payload.used,
+          limit: payload.limit,
+        });
+      }),
+    );
     // The director resolves a threshold negotiation by granting an extension
     // and broadcasting budget.extended on the FleetBus. Bridge it to the host
     // bus so the TUI monitor / REPL fleet line can show a "⚡ extended ×N"
     // badge — the live proof that never-die kept the agent running.
-    this.director.fleet.filter('budget.extended', (e) => {
-      const payload = e.payload as { kind: string; newLimit: number; totalExtensions: number };
-      this.deps.events.emit('subagent.budget_extended', {
-        subagentId: e.subagentId,
-        kind: payload.kind,
-        newLimit: payload.newLimit,
-        totalExtensions: payload.totalExtensions,
-      });
-    });
+    this.directorOffHandles.push(
+      this.director.fleet.filter('budget.extended', (e) => {
+        const payload = e.payload as { kind: string; newLimit: number; totalExtensions: number };
+        this.deps.events.emit('subagent.budget_extended', {
+          subagentId: e.subagentId,
+          kind: payload.kind,
+          newLimit: payload.newLimit,
+          totalExtensions: payload.totalExtensions,
+        });
+      }),
+    );
     // Forward ctx.pct events from the FleetBus to the host EventBus so the TUI
     // can render live context-window fill bars per subagent.
-    this.director.fleet.filter('ctx.pct', (e) => {
-      const payload = e.payload as { load: number; tokens: number; maxContext: number };
-      this.deps.events.emit('subagent.ctx_pct', {
-        subagentId: e.subagentId,
-        load: payload.load,
-        tokens: payload.tokens,
-        maxContext: payload.maxContext,
-      });
-    });
+    this.directorOffHandles.push(
+      this.director.fleet.filter('ctx.pct', (e) => {
+        const payload = e.payload as { load: number; tokens: number; maxContext: number };
+        this.deps.events.emit('subagent.ctx_pct', {
+          subagentId: e.subagentId,
+          load: payload.load,
+          tokens: payload.tokens,
+          maxContext: payload.maxContext,
+        });
+      }),
+    );
     // Forward subagent.spawned from FleetBus to host EventBus so the TUI can
     // track collab agents (bug-hunter, refactor-planner, critic) that bypass
     // MultiAgentHost.spawn and go through director.spawn directly.
-    this.director.fleet.filter('subagent.spawned', (e) => {
-      const payload = e.payload as {
-        subagentId: string;
-        taskId: string;
-        name?: string | undefined;
-        role?: string | undefined;
-        provider?: string | undefined;
-        model?: string | undefined;
-      };
-      this.deps.events.emit('subagent.spawned', {
-        subagentId: payload.subagentId,
-        taskId: payload.taskId,
-        name: payload.name,
-        provider: payload.provider,
-        model: payload.model,
-      });
-    });
-    this.getCoordinator().on(
-      'task.assigned',
-      ({
-        task,
-        subagentId,
-      }: {
-        task: { id: string; description?: string | undefined };
-        subagentId: string;
-      }) => {
-        this.deps.events.emit('subagent.task_started', {
-          subagentId,
-          taskId: task.id,
-          description: task.description,
+    this.directorOffHandles.push(
+      this.director.fleet.filter('subagent.spawned', (e) => {
+        const payload = e.payload as {
+          subagentId: string;
+          taskId: string;
+          name?: string | undefined;
+          role?: string | undefined;
+          provider?: string | undefined;
+          model?: string | undefined;
+        };
+        this.deps.events.emit('subagent.spawned', {
+          subagentId: payload.subagentId,
+          taskId: payload.taskId,
+          name: payload.name,
+          provider: payload.provider,
+          model: payload.model,
         });
-      },
+      }),
     );
+    const coordinatorTaskAssignedHandler = ({
+      task,
+      subagentId,
+    }: {
+      task: { id: string; description?: string | undefined };
+      subagentId: string;
+    }) => {
+      this.deps.events.emit('subagent.task_started', {
+        subagentId,
+        taskId: task.id,
+        description: task.description,
+      });
+    };
+    const coordinator = this.getCoordinator();
+    coordinator.on('task.assigned', coordinatorTaskAssignedHandler);
+    this.coordinatorOffHandle = () => coordinator.off('task.assigned', coordinatorTaskAssignedHandler);
     this.fleetEmitTool = makeFleetEmitTool(this.director);
     this.fleetStatusTool = makeFleetStatusTool(this.director);
     const runner = await this.buildSubagentRunner(config);
-    this.getCoordinator().setRunner(runner);
+    // Guard: if spawnACP already set an ACP runner, don't overwrite it with the
+    // routing runner. This prevents a race where buildDirector (called by
+    // ensureCoordinator from a concurrent spawnACP) overwrites the ACP runner.
+    if (!this.directorRunnerSet) {
+      this.getCoordinator().setRunner(runner);
+      this.directorRunnerSet = true;
+    }
   }
 
   /**
@@ -721,6 +741,9 @@ export class MultiAgentHost {
 
     const acpRunner = await this.buildACPRunner(subagentId);
     coordinator.setRunner(acpRunner);
+    // Mark that we've set the runner so buildDirector (called by a concurrent
+    // _spawnAndAssign) doesn't overwrite the ACP runner with the routing runner.
+    this.directorRunnerSet = true;
     await coordinator.spawn({
       id: subagentId,
       name: subagentId,
@@ -1103,6 +1126,28 @@ export class MultiAgentHost {
     this.opts.maxConcurrent = v;
     if (this.director) {
       this.getCoordinator().setMaxConcurrent(v);
+    }
+  }
+
+  /**
+   * Clean up all listeners and resources held by the host.
+   * Unregisters all EventBus/FleetBus listeners registered in `buildDirector`
+   * and stops the Director and its coordinator.
+   *
+   * Safe to call multiple times — subsequent calls are no-ops.
+   */
+  async dispose(): Promise<void> {
+    // Unregister FleetBus filter listeners
+    for (const off of this.directorOffHandles) {
+      off();
+    }
+    this.directorOffHandles.length = 0;
+    // Unregister coordinator task.assigned listener
+    this.coordinatorOffHandle?.();
+    this.coordinatorOffHandle = null;
+    // Stop the director and all subagents
+    if (this.director) {
+      await this.director.shutdown();
     }
   }
 }
