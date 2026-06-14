@@ -37,7 +37,7 @@ export const mistralWireFormat = defineWireFormat<MistralStreamState>({
   buildBody: (req: Request) => {
     const body: Record<string, unknown> = {
       model: req.model,
-      messages: messagesToOpenAI(stripCacheControl(req.system), req.messages, {}),
+      messages: messagesToOpenAI(stripCacheControl(req.system), req.messages),
       max_tokens: req.maxTokens,
       stream: true,
     };

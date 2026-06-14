@@ -65,6 +65,26 @@ export interface ConvertOptions {
   flattenContentToString?: boolean | undefined;
   stripCacheControl?: boolean | undefined;
   systemAsMessage?: boolean | undefined;
+  /**
+   * What to write as the assistant message's `content` field when the
+   * message has tool_calls but no prose. Two values:
+   *
+   *   - `'empty_string'` (default): writes `content: ''`. This is the
+   *     OpenAI 2024-2025 wire-format contract. Vanilla OpenAI, K2P7,
+   *     strict Mistral / OpenRouter / DeepSeek proxies all reject
+   *     requests where `content` is missing or `null` on a tool_call
+   *     assistant message.
+   *
+   *   - `'null'`: writes `content: null` explicitly. Some older or
+   *     permissive proxies (e.g. certain vLLM builds, local llama.cpp
+   *     servers) prefer this. Set this only if a specific provider
+   *     rejects the empty-string form.
+   *
+   * The default is `'empty_string'` (NOT undefined) because omitting
+   * `content` entirely (the pre-2024 behaviour) breaks too many
+   * providers to be the safe default in 2025. Callers that need the
+   * old behaviour can opt in with `emptyToolCallContent: 'null'`.
+   */
   emptyToolCallContent?: 'null' | 'empty_string' | undefined;
 }
 
@@ -73,6 +93,12 @@ export function messagesToOpenAI(
   messages: Message[],
   opts: ConvertOptions = {},
 ): OpenAIMessage[] {
+  // Default to `'empty_string'` for the assistant content field on
+  // tool-call-only messages. See ConvertOptions.emptyToolCallContent
+  // for the rationale. Callers can opt back into the pre-2024
+  // behaviour with `emptyToolCallContent: 'null'`.
+  const emptyContentMode: 'null' | 'empty_string' =
+    opts.emptyToolCallContent ?? 'empty_string';
   const out: OpenAIMessage[] = [];
 
   if (system && system.length > 0) {
