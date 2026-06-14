@@ -207,6 +207,10 @@ export class MultiAgentHost {
   private readonly directorOffHandles: Array<() => void> = [];
   /** Coordinator task.assigned listener — cleaned up in `dispose()`. */
   private coordinatorOffHandle: (() => void) | null = null;
+  /** ACP runner cache — keyed by role/subagentId, reused across tasks to avoid
+   *  creating a new transport process on every ACP task dispatch. Stores the
+   *  pending promise so concurrent calls for the same subagentId share one spawn. */
+  private readonly acpRunnerCache = new Map<string, Promise<SubagentRunner>>();
 
   constructor(
     private readonly deps: MultiAgentDeps,
@@ -678,9 +682,13 @@ export class MultiAgentHost {
   }
 
   async buildACPRunner(subagentId: string): Promise<SubagentRunner> {
+    const cached = this.acpRunnerCache.get(subagentId);
+    if (cached) return cached;
     const cmd = ACP_AGENT_COMMANDS[subagentId];
     if (!cmd) throw new Error(`Unknown ACP agent: ${subagentId}`);
-    return makeACPSubagentRunner(cmd);
+    const p = makeACPSubagentRunner(cmd);
+    this.acpRunnerCache.set(subagentId, p);
+    return p;
   }
 
   /**
