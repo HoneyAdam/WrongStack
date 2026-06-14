@@ -94,7 +94,10 @@ export class AnnotationsStore {
   /**
    * Return all annotations for `sessionId` in insertion order
    * (oldest first). Returns an empty array when no file exists
-   * yet (the normal case for a fresh session).
+   * yet (the normal case for a fresh session) and also degrades
+   * gracefully to `[]` on a read error (permissions, corruption) —
+   * the failure is still surfaced via a `storage.read` event so it
+   * never silently hides I/O problems from observers.
    */
   async list(sessionId: string): Promise<Annotation[]> {
     const t0 = Date.now();
@@ -123,7 +126,7 @@ export class AnnotationsStore {
         error: err instanceof Error ? err.message : String(err),
         ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
       });
-      throw err;
+      return [];
     }
   }
 

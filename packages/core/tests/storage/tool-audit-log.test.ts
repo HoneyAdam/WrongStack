@@ -364,10 +364,15 @@ describe('ToolAuditLog', () => {
   it('emits storage.write with operation record on successful record()', async () => {
     const events: EventBus = { emit: vi.fn() } as never;
     const loggedLog = new ToolAuditLog({ dir, events });
-    const req = { model: 'claude', system: [], messages: [], maxTokens: 100, temperature: 0 };
-    const res = { content: [{ type: 'text' as const, text: 'hi' }] };
-    const hash = await loggedLog.record({ sessionId: 's1', request: req, response: res });
-    expect(hash).toMatch(/^sha256:/);
+    const entry = await loggedLog.record({
+      sessionId: 's1',
+      toolName: 'read',
+      toolUseId: 'tu-1',
+      input: {},
+      output: 'hi',
+      isError: false,
+    });
+    expect(entry.hash).toMatch(/^[a-f0-9]{64}$/);
     expect(events.emit).toHaveBeenCalledWith('storage.write', expect.objectContaining({
       store: 'audit',
       operation: 'record',
@@ -379,14 +384,19 @@ describe('ToolAuditLog', () => {
   it('emits storage.error when record() encounters a write failure', async () => {
     const events: EventBus = { emit: vi.fn() } as never;
     const loggedLog = new ToolAuditLog({ dir, events });
-    const req = { model: 'claude', system: [], messages: [], maxTokens: 100, temperature: 0 };
-    const res = { content: [{ type: 'text' as const, text: 'hi' }] };
     fsp.writeFile.mockRejectedValueOnce(
       Object.assign(new Error('ENOSPC no space left'), { code: 'ENOSPC' }),
     );
     try {
       await expect(
-        loggedLog.record({ sessionId: 's1', request: req, response: res }),
+        loggedLog.record({
+          sessionId: 's1',
+          toolName: 'read',
+          toolUseId: 'tu-1',
+          input: {},
+          output: 'hi',
+          isError: false,
+        }),
       ).rejects.toThrow('ENOSPC');
       expect(events.emit).toHaveBeenCalledWith('storage.error', expect.objectContaining({
         store: 'audit',

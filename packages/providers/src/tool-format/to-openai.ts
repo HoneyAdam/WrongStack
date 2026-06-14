@@ -161,13 +161,9 @@ export function messagesToOpenAI(
         if (text) {
           message.content = text;
         } else {
-          // OpenAI 2024-2025 wire spec requires every assistant message
-          // to have a `content` field. K2P7's Moonshot gateway, OpenRouter
-          // in strict mode, and modern Mistral 400 on a tool_calls message
-          // that omits content. Default to `''` (matches OpenAI SDK
-          // behaviour today). Permissive proxies (vLLM, llama.cpp) that
-          // reject `''` can opt out with `emptyToolCallContent: 'null'`.
-          const emptyContentMode = opts.emptyToolCallContent ?? 'empty_string';
+          // Tool-call-only assistant message: emit the empty `content`
+          // field per `emptyContentMode` (computed once at the top of the
+          // function; defaults to `''`, opt out with `'null'`).
           message.content = emptyContentMode === 'null' ? null : '';
         }
       } else {

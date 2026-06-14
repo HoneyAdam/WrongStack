@@ -12,6 +12,9 @@ import { EventBus } from '../../src/kernel/events.js';
 vi.mock('node:fs/promises', async () => {
   const real = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
   const mockFs = {
+    // Fall through to the real module for anything not overridden (chmod,
+    // open, fsync, …) so atomicWrite's durability path works on real files.
+    ...real,
     readFile: vi.fn(real.readFile),
     writeFile: vi.fn(real.writeFile),
     rename: real.rename,

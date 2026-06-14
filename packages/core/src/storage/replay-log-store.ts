@@ -8,6 +8,19 @@ import { safeParse } from '../utils/safe-json.js';
 import type { EventBus } from '../kernel/events.js';
 
 /**
+ * Surface the OS error code (EACCES, ENOSPC, …) alongside the message in
+ * storage.* event payloads. Codes are stable and locale-independent, so
+ * they are what dashboards and alerts key on; the message is supplementary.
+ */
+function storageErrorString(err: unknown): string {
+  if (err instanceof Error) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return code ? `${code}: ${err.message}` : err.message;
+  }
+  return String(err);
+}
+
+/**
  * ReplayLogStore — sidecar store for deterministic-replay support
  * (idea #2 from IDEAS.md). One JSONL file per session, recording
  * every provider request/response pair so the same agent loop can
@@ -122,7 +135,7 @@ export class ReplayLogStore {
         filePath: fp,
         operation: 'record',
         outcome: 'failure',
-        error: err instanceof Error ? err.message : String(err),
+        error: storageErrorString(err),
         recoverable: false,
         durationMs: Date.now() - t0,
         ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
@@ -161,7 +174,7 @@ export class ReplayLogStore {
         operation: 'lookup',
         outcome: 'failure',
         durationMs: Date.now() - t0,
-        error: err instanceof Error ? err.message : String(err),
+        error: storageErrorString(err),
         ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
       });
       throw err;
@@ -194,7 +207,7 @@ export class ReplayLogStore {
         operation: 'load',
         outcome: 'failure',
         durationMs,
-        error: err instanceof Error ? err.message : String(err),
+        error: storageErrorString(err),
         ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
       });
       throw err;

@@ -19,6 +19,10 @@ vi.mock('node:fs/promises', async () => {
   const store: Record<string, string> = {};
 
   const mockFs = {
+    // Fall through to the real module for everything not overridden below
+    // (open, stat, …). `mutateTasks` goes through withFileLock/atomicWrite,
+    // which lock + stat real files in the real temp dirs these tests use.
+    ...real,
     mkdtemp: async (prefix: string) => {
       const dir = await real.mkdtemp(prefix);
       store[dir] = '';

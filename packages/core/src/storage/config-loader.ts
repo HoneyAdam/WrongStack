@@ -20,6 +20,19 @@ import {
 import type { EventBus } from '../kernel/events.js';
 
 /**
+ * Surface the OS error code (EACCES, ENOSPC, …) alongside the message in
+ * storage.* event payloads. Codes are stable and locale-independent, so
+ * they are what dashboards and alerts key on; the message is supplementary.
+ */
+function storageErrorString(err: unknown): string {
+  if (err instanceof Error) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return code ? `${code}: ${err.message}` : err.message;
+  }
+  return String(err);
+}
+
+/**
  * Defaults express *behavior*, not identity. Provider and model are NOT
  * hardcoded — they must be resolved at runtime from config + env + the
  * ModelsRegistry. A bare Config returned by this loader will throw when
@@ -326,7 +339,8 @@ export class DefaultConfigLoader implements ConfigLoader {
         store: 'config',
         filePath: fp,
         operation: 'persist_sync',
-        error: err instanceof Error ? err.message : String(err),
+        outcome: 'failure',
+        error: storageErrorString(err),
         recoverable: false,
         durationMs: Date.now() - t0,
         ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
@@ -396,7 +410,7 @@ export class DefaultConfigLoader implements ConfigLoader {
         operation: 'load_sync',
         outcome: 'failure',
         durationMs: Date.now() - t0,
-        error: err instanceof Error ? err.message : String(err),
+        error: storageErrorString(err),
         ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
       });
       console.warn(JSON.stringify({
@@ -426,7 +440,7 @@ export class DefaultConfigLoader implements ConfigLoader {
           operation: 'read_json',
           outcome: 'failure',
           durationMs: Date.now() - t0,
-          error: err instanceof Error ? err.message : String(err),
+          error: storageErrorString(err),
           ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
         });
         console.warn(JSON.stringify({

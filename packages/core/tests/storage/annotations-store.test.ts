@@ -114,7 +114,7 @@ describe('AnnotationsStore', () => {
     );
     const list = await store.list('s1');
     expect(list).toHaveLength(N);
-    expect(new Set(list.map((a) => a.text).size).toBe(N);
+    expect(new Set(list.map((a) => a.text)).size).toBe(N);
   });
 
   it('rejects path traversal in session ids', async () => {

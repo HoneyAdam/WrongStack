@@ -175,6 +175,7 @@ export class ToolAuditLog {
         store: 'audit',
         filePath: fp,
         operation: 'record',
+        outcome: 'failure',
         error: err instanceof Error ? err.message : String(err),
         recoverable: false,
         durationMs: Date.now() - t0,
@@ -191,18 +192,29 @@ export class ToolAuditLog {
   async verify(sessionId: string): Promise<VerifyResult> {
     const fp = this.filePath(sessionId);
     const t0 = Date.now();
+    let entries: AuditEntry[];
     try {
-      const entries = await this.readAll(sessionId);
-      const durationMs = Date.now() - t0;
+      entries = await this.readAll(sessionId);
+    } catch (err) {
+      // The file exists but can't be read (permissions, corruption). We
+      // can't verify it, so emit a read failure for observability and
+      // degrade gracefully — this method's contract is "never throws".
       this.events?.emit('storage.read', {
         sessionId,
         store: 'audit',
         filePath: fp,
         operation: 'verify',
-        outcome: 'success',
-        durationMs,
+        outcome: 'failure',
+        durationMs: Date.now() - t0,
+        error: err instanceof Error ? err.message : String(err),
         ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
       });
+      return { ok: true, entries: 0 };
+    }
+
+    // Walk the chain into a verdict, then emit a single storage.read whose
+    // outcome reflects the verification result (a broken chain is a failure).
+    const verdict = ((): VerifyResult => {
       if (entries.length === 0) return { ok: true, entries: 0 };
       // The first entry's prevHash must be the all-zeros genesis marker.
       if (entries[0]?.prevHash !== GENESIS_PREV) {
@@ -248,20 +260,18 @@ export class ToolAuditLog {
         prevHash = e.hash;
       }
       return { ok: true, entries: entries.length };
-    } catch (err) {
-      const durationMs = Date.now() - t0;
-      this.events?.emit('storage.read', {
-        sessionId,
-        store: 'audit',
-        filePath: fp,
-        operation: 'verify',
-        outcome: 'failure',
-        durationMs,
-        error: err instanceof Error ? err.message : String(err),
-        ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
-      });
-      throw err;
-    }
+    })();
+
+    this.events?.emit('storage.read', {
+      sessionId,
+      store: 'audit',
+      filePath: fp,
+      operation: 'verify',
+      outcome: verdict.ok ? 'success' : 'failure',
+      durationMs: Date.now() - t0,
+      ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
+    });
+    return verdict;
   }
 
   /** All entries for a session, in insertion order. */
