@@ -64,35 +64,5 @@
         }
       }
     },
-    {
-      "includes": ["packages/cli/src/subcommands/handlers/modeldiag.ts"],
-      "linter": {
-        "rules": {
-          "style": {
-            "noNonNullAssertion": "off"
-          }
-        }
-      }
-    },
-    {
-      "includes": ["packages/cli/src/webui-server.ts"],
-      "linter": {
-        "rules": {
-          "style": {
-            "noNonNullAssertion": "off"
-          }
-        }
-      }
-    },
-    {
-      "includes": ["packages/cli/src/slash-commands/project.ts"],
-      "linter": {
-        "rules": {
-          "style": {
-            "noNonNullAssertion": "off"
-          }
-        }
-      }
-    }
   ]
 }
