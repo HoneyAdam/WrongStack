@@ -1,4 +1,4 @@
-import { expectDefined, truncate } from '@wrongstack/core';
+import { expectDefined } from '@wrongstack/core';
 import type { EventBus, TokenCounter, AutonomyStage } from '@wrongstack/core';
 import { Box, Text, useStdout } from '../ink.js';
 import type React from 'react';
@@ -28,11 +28,19 @@ function modeIcon(label?: string): string {
   return `${icon} ${label}`;
 }
 
-/** Truncate a suggestion label to a maximum character width for display. */
-function truncateLabel(label: string, maxWidth: number): string {
-  // Strip /next N prefix like "/next 1" or "/next 1 2" before truncating
+/**
+ * Format a suggestion label for the status bar countdown chip.
+ * Shows a short tag + the first few words rather than blindly truncating.
+ * Examples: "fix null deref…" or "add tests for…" or "run typecheck…"
+ */
+function formatSuggestionLabel(label: string, maxLen = 28): string {
+  // Strip /next N prefix like "/next 1" or "/next 1 2" before formatting
   const stripped = label.replace(/^\/next\s+[\d\s]+\s*/, '');
-  return truncate(stripped, maxWidth);
+  if (stripped.length <= maxLen) return stripped;
+  // Try to break at a word boundary near maxLen
+  const shortened = stripped.slice(0, maxLen);
+  const lastSpace = shortened.lastIndexOf(' ');
+  return lastSpace > 10 ? `${shortened.slice(0, lastSpace)}…` : `${shortened}…`;
 }
 
 /** Minimum terminal width before we switch to ultra-compact mode. Exported so
@@ -411,17 +419,13 @@ export function StatusBar({
   const hasEnhanceCountdown = enhanceCountdown != null && enhanceCountdown > 0;
   const hasNextStepsAutoSubmit = nextStepsAutoSubmitCountdown != null && nextStepsAutoSubmitCountdown > 0;
 
-  // Rainbow wave phase for the next-steps auto-submit countdown — separate
-  // interval so the countdown text animates even when state is 'idle'.
-  const [countdownWaveIdx, setCountdownWaveIdx] = useState(0);
-  useEffect(() => {
-    if (!hasNextStepsAutoSubmit) return;
-    const t = setInterval(
-      () => setCountdownWaveIdx((n) => (n + 1) % WAVE_COLORS.length),
-      SPINNER_INTERVAL_MS,
-    );
-    return () => clearInterval(t);
-  }, [hasNextStepsAutoSubmit]);
+  // Countdown color threshold helper — transitions from green through
+  // yellow to red as the remaining time drops.
+  const countdownColor = nextStepsAutoSubmitCountdown != null
+    ? nextStepsAutoSubmitCountdown > 20 ? 'cyan'
+      : nextStepsAutoSubmitCountdown > 10 ? 'yellow'
+      : 'red'
+    : 'cyan';
 
   const hasTaskActivity = tasks && (tasks.pending > 0 || tasks.inProgress > 0 || tasks.completed > 0 || tasks.blocked > 0 || tasks.failed > 0);
   const hasThirdLine =
@@ -825,14 +829,15 @@ export function StatusBar({
               hasEnhanceCountdown ? (
                 <Text dimColor>│</Text>
               ) : null}
-              <WaveText
-                text={`⏳ ${
-                  nextStepsAutoSubmitLabel
-                    ? truncateLabel(nextStepsAutoSubmitLabel, 30)
-                    : 'next step'
-                } in ${nextStepsAutoSubmitCountdown}s`}
-                phase={countdownWaveIdx}
-              />
+              <Text color={countdownColor} bold>
+                ⏳ {nextStepsAutoSubmitCountdown}s
+              </Text>
+              <Text dimColor>
+                {' '}
+                {nextStepsAutoSubmitLabel
+                  ? formatSuggestionLabel(nextStepsAutoSubmitLabel)
+                  : ''}
+              </Text>
             </>
           ) : null}
         </Box>

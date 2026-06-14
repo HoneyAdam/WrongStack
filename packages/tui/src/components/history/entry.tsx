@@ -170,7 +170,11 @@ export const Entry = React.memo(function Entry({
                     ) : null}
                     {autonomyMode === 'auto' && i === 0 ? (
                       autoSubmitCountdown != null && autoSubmitCountdown > 0 ? (
-                        <Text color="cyan">{`  auto in ${autoSubmitCountdown}s`}</Text>
+                        <Text color={
+                          autoSubmitCountdown > 20 ? 'cyan'
+                          : autoSubmitCountdown > 10 ? 'yellow'
+                          : 'red'
+                        }>{`  auto in ${autoSubmitCountdown}s`}</Text>
                       ) : (
                         <Text color="cyan">{'  ⏩'}</Text>
                       )
