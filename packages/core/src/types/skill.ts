@@ -24,6 +24,12 @@ export interface SkillLoader {
   find(name: string): Promise<SkillManifest | undefined>;
   manifestText(): Promise<string>;
   readBody(name: string): Promise<string>;
+  /**
+   * Read the token-saving compact variant of a skill body.
+   * Tries `SKILL.save.md` first (hand-crafted compact version), falls back
+   * to auto-compacting the full `SKILL.md` body.
+   */
+  readSaveBody(name: string): Promise<string>;
   /** Clear the internal cache so the next list/find re-reads from disk. */
   invalidateCache(): void;
 }

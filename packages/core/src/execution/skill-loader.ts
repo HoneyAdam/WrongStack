@@ -3,6 +3,46 @@ import * as path from 'node:path';
 import type { SkillEntry, SkillLoader, SkillManifest } from '../types/skill.js';
 import type { WstackPaths } from '../utils/wstack-paths.js';
 
+/**
+ * Strip YAML frontmatter from a SKILL.md file, returning only the body.
+ */
+function stripFrontmatter(raw: string): string {
+  if (!raw.startsWith('---')) return raw;
+  const end = raw.indexOf('\n---', 4);
+  if (end === -1) return raw;
+  let body = raw.slice(end + 4);
+  if (body.startsWith('\n')) body = body.slice(1);
+  return body;
+}
+
+/**
+ * Compact a full skill body for token-saving fallback.
+ * Extracts the Overview and Rules sections, trims to ~400 chars max.
+ */
+function compactSkillBody(body: string): string {
+  const sections: string[] = [];
+  const overviewMatch = body.match(/##\s*Overview\s*\n([\s\S]*?)(?=\n##|\n$|$)/i);
+  if (overviewMatch && overviewMatch[1].trim()) {
+    sections.push(overviewMatch[1].trim().slice(0, 200));
+  }
+  const rulesMatch = body.match(/##\s*Rules\s*\n([\s\S]*?)(?=\n##|\n$|$)/i);
+  if (rulesMatch && rulesMatch[1].trim()) {
+    const rules = rulesMatch[1].trim().slice(0, 350);
+    const ruleLines = rules
+      .split('\n')
+      .filter((l) => /^\s*[-*]\s/.test(l) || /^\s*\d+[.)]\s/.test(l))
+      .slice(0, 6)
+      .join('\n');
+    if (ruleLines) sections.push(ruleLines);
+  }
+  if (sections.length === 0) {
+    const first = body.trim().slice(0, 200);
+    if (first) sections.push(first);
+  }
+  const result = sections.join('\n\n');
+  return result.length > 450 ? result.slice(0, 447) + '…' : result;
+}
+
 export interface SkillLoaderOptions {
   paths: WstackPaths;
   bundledDir?: string | undefined;
@@ -105,6 +145,26 @@ export class DefaultSkillLoader implements SkillLoader {
     const m = await this.find(name);
     if (!m) throw new Error(`Skill "${name}" not found`);
     return fs.readFile(m.path, 'utf8');
+  }
+
+  async readSaveBody(name: string): Promise<string> {
+    const m = await this.find(name);
+    if (!m) throw new Error(`Skill "${name}" not found`);
+    // Try SKILL.save.md in the same directory as SKILL.md
+    const savePath = path.join(path.dirname(m.path), 'SKILL.save.md');
+    try {
+      return await fs.readFile(savePath, 'utf8');
+    } catch {
+      // No hand-crafted save variant — auto-compact the full body
+      const full = await fs.readFile(m.path, 'utf8');
+      const body = stripFrontmatter(full);
+      const compact = compactSkillBody(body);
+      if (compact) {
+        return `## Overview\n\n${compact}`;
+      }
+      // Fallback: return first 300 chars of full body
+      return body.trim().slice(0, 300);
+    }
   }
 }
 

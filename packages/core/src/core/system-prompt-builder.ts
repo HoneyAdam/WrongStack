@@ -734,21 +734,21 @@ summarize it, and let the tool result hold only the summary.`);
 
   /**
    * Build compact skill bodies for token-saving mode.
-   * Keeps only the Overview + Rules sections, trimmed to ~400 chars max.
+   * Uses `readSaveBody` from the skill loader which tries `SKILL.save.md`
+   * first, then falls back to auto-compaction.
    */
   private async buildCompactSkillBodies(): Promise<void> {
+    if (!this.opts.skillLoader) { this.skillBodyCache = ''; return; }
     try {
-      const skills = await this.opts.skillLoader!.list();
+      const skills = await this.opts.skillLoader.list();
       if (skills.length > 0) {
         const bodies: string[] = [];
         for (const s of skills) {
           try {
-            const raw = await this.opts.skillLoader!.readBody(s.name);
-            const body = stripFrontmatter(raw);
-            if (!body.trim()) continue;
-            const compact = compactSkillBody(body);
-            if (compact) {
-              bodies.push(`## Skill: ${s.name}\n\n${compact}`);
+            const saveBody = await this.opts.skillLoader.readSaveBody(s.name);
+            const clean = stripFrontmatter(saveBody);
+            if (clean.trim()) {
+              bodies.push(`## Skill: ${s.name}\n\n${clean.trim()}`);
             }
           } catch {
             // skip unreadable skill
@@ -893,40 +893,3 @@ function compactTrigger(trigger: string): string {
 }
 
 /**
- * Compact a full skill body for token-saving mode.
- * Extracts the Overview and Rules sections, trims to ~400 chars max.
- * Returns empty string if nothing usable is found.
- */
-function compactSkillBody(body: string): string {
-  const sections: string[] = [];
-
-  // Extract Overview section (between ## Overview and next ##)
-  const overviewMatch = body.match(/##\s*Overview\s*\n([\s\S]*?)(?=\n##|\n$|$)/i);
-  if (overviewMatch && overviewMatch[1].trim()) {
-    sections.push(overviewMatch[1].trim().slice(0, 200));
-  }
-
-  // Extract Rules section (between ## Rules and next ##)
-  const rulesMatch = body.match(/##\s*Rules\s*\n([\s\S]*?)(?=\n##|\n$|$)/i);
-  if (rulesMatch && rulesMatch[1].trim()) {
-    const rules = rulesMatch[1].trim().slice(0, 350);
-    // Keep only rule lines (starting with - or numbered)
-    const ruleLines = rules
-      .split('\n')
-      .filter((l) => /^\s*[-*]\s/.test(l) || /^\s*\d+[.)]\s/.test(l))
-      .slice(0, 6) // max 6 rules
-      .join('\n');
-    if (ruleLines) {
-      sections.push(ruleLines);
-    }
-  }
-
-  // Fallback: if neither section found, take first 200 chars
-  if (sections.length === 0) {
-    const first = body.trim().slice(0, 200);
-    if (first) sections.push(first);
-  }
-
-  const result = sections.join('\n\n');
-  return result.length > 450 ? result.slice(0, 447) + '…' : result;
-}
