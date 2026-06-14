@@ -668,11 +668,11 @@ export function classifyError(input: string): Classification {
 
 function extractCode(s: string): string | undefined {
   const ts = /\bTS\d+\b|\bCS\d+\b/.exec(s);
-  if (ts) return ts[0];
+  if (ts !== null) return ts[0];
   const rust = /\bE\d{4,}\b/.exec(s);
-  if (rust) return rust[0];
+  if (rust !== null) return rust[0];
   const c = /\bc\d+\b/i.exec(s);
-  if (c) return c[0];
+  if (c !== null) return c[0];
   return undefined;
 }
 
