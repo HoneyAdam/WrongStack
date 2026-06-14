@@ -17,14 +17,17 @@ export async function aggregateStream(
   let model = '';
   let stopReason: StopReason = 'end_turn';
   let usage: Usage = { input: 0, output: 0 };
-  const textBuffers: string[] = [];
+  // Accumulate deltas as an array of chunks; join once at content-build time.
+  // This avoids O(n²) string concatenation for responses with many small deltas.
+  const textBuffers: string[][] = [];
   let currentTextIndex = -1;
   const toolBuffers = new Map<
     string,
     { name: string; partial: string; input?: unknown | undefined; providerMeta?: Record<string, unknown> }
   >();
   const thinkingBuffers: Array<{
-    textBuf: string;
+    /** Accumulated as an array of chunks; joined into a string at content-build time. */
+    chunks: string[];
     signature?: string | undefined;
     providerMeta?: Record<string, unknown>;
   }> = [];
@@ -42,10 +45,10 @@ export async function aggregateStream(
       case 'text_delta':
         if (currentTextIndex === -1) {
           currentTextIndex = textBuffers.length;
-          textBuffers.push('');
+          textBuffers.push([]);
           blockOrder.push({ kind: 'text', idx: currentTextIndex });
         }
-        textBuffers[currentTextIndex] = (textBuffers[currentTextIndex] ?? '') + ev.text;
+        textBuffers[currentTextIndex]!.push(ev.text);
         break;
       case 'tool_use_start':
         // A tool_use block starts — close any open text block so subsequent
@@ -88,7 +91,7 @@ export async function aggregateStream(
         // duplicate thinking entries in the response.
         if (currentThinkingIndex === -1 || !thinkingBuffers[currentThinkingIndex]) {
           currentThinkingIndex = thinkingBuffers.length;
-          thinkingBuffers.push({ textBuf: '' });
+          thinkingBuffers.push({ chunks: [] });
         }
         // Always set providerMeta on the target block (thinking_start may carry
         // metadata even when the prior signature event did not).
@@ -104,11 +107,11 @@ export async function aggregateStream(
         // signature and content end up in the same buffer.
         if (currentThinkingIndex === -1 || !thinkingBuffers[currentThinkingIndex]) {
           currentThinkingIndex = thinkingBuffers.length;
-          thinkingBuffers.push({ textBuf: '' });
+          thinkingBuffers.push({ chunks: [] });
           blockOrder.push({ kind: 'thinking', idx: currentThinkingIndex });
         }
         const t = thinkingBuffers[currentThinkingIndex];
-        if (t) t.textBuf += ev.text;
+        if (t) t.chunks.push(ev.text);
         break;
       }
       case 'thinking_signature': {
@@ -117,7 +120,7 @@ export async function aggregateStream(
         // thinking_start.
         if (currentThinkingIndex === -1 || !thinkingBuffers[currentThinkingIndex]) {
           currentThinkingIndex = thinkingBuffers.length;
-          thinkingBuffers.push({ textBuf: '' });
+          thinkingBuffers.push({ chunks: [] });
           blockOrder.push({ kind: 'thinking', idx: currentThinkingIndex });
         }
         const t = thinkingBuffers[currentThinkingIndex];
@@ -141,14 +144,15 @@ export async function aggregateStream(
   const content: ContentBlock[] = [];
   for (const b of blockOrder) {
     if (b.kind === 'text') {
-      const text = textBuffers[b.idx] ?? '';
+      const text = textBuffers[b.idx]?.join('') ?? '';
       if (text) content.push({ type: 'text', text });
     } else if (b.kind === 'thinking') {
       const t = thinkingBuffers[b.idx];
+      const thinkingText = t?.chunks.join('') ?? '';
       // Drop completely empty thinking blocks — emitting one would make
       // Anthropic 400 on the round-trip ("thinking: cannot be empty").
-      if (!t || (!t.textBuf && !t.signature)) continue;
-      const block: ContentBlock = { type: 'thinking', thinking: t.textBuf };
+      if (!t || (!thinkingText && !t.signature)) continue;
+      const block: ContentBlock = { type: 'thinking', thinking: thinkingText };
       if (t.signature) (block as { signature?: string | undefined }).signature = t.signature;
       if (t.providerMeta && Object.keys(t.providerMeta).length > 0) {
         (block as { providerMeta?: Record<string, unknown> }).providerMeta = t.providerMeta;

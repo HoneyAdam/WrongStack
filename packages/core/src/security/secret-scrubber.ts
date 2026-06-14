@@ -155,6 +155,20 @@ export class DefaultSecretScrubber implements SecretScrubber {
     return out;
   }
 
+  /**
+   * Fields that may contain tool output, user input, or secrets.
+   * Only these fields (plus any unrecognized keys whose name contains a
+   * credential anchor) are recursively scrubbed. Tool names, descriptions,
+   * parameter names, metadata keys, and provider fields are skipped.
+   */
+  private static readonly SCRUB_KEYS = new Set(['content', 'input', 'message', 'body', 'data', 'payload', 'text']);
+
+  /**
+   * Keys whose names contain a credential anchor — also recursively scrubbed.
+   * Covers dynamic cases like `{ db_password: "..." }` or `{ AUTH_TOKEN: "..." }`.
+   */
+  private static readonly CRED_ANCHOR_SUBSTRINGS = ['key', 'token', 'secret', 'password', 'pwd', 'credential'] as const;
+
   scrubObject<T>(obj: T): T {
     const seen = new WeakSet();
     const visit = (v: unknown): unknown => {
@@ -165,7 +179,17 @@ export class DefaultSecretScrubber implements SecretScrubber {
       if (Array.isArray(v)) return v.map(visit);
       const out: Record<string, unknown> = {};
       for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
-        out[k] = visit(val);
+        // Recursively scrub known high-risk fields or keys whose name suggests
+        // they hold sensitive values. Skip tool names, descriptions, metadata
+        // keys, provider fields, and other structural properties.
+        if (
+          DefaultSecretScrubber.SCRUB_KEYS.has(k) ||
+          DefaultSecretScrubber.CRED_ANCHOR_SUBSTRINGS.some((s) => k.toLowerCase().includes(s))
+        ) {
+          out[k] = visit(val);
+        } else {
+          out[k] = val;
+        }
       }
       return out;
     };

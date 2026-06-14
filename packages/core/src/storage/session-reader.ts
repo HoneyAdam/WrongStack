@@ -28,7 +28,9 @@ export class DefaultSessionReader implements SessionReader {
   }
 
   async query(q: SessionQuery = {}): Promise<SessionSummaryLite[]> {
-    const raw = await this.store.list(q.limit ? Math.max(q.limit * 4, 100) : 1000);
+    // Fetch only what's needed; in-process filters are cheap relative to store I/O.
+    // If a caller needs pagination, it should pass `q.limit` and page through results.
+    const raw = await this.store.list(q.limit ? Math.max(q.limit, 100) : 1000);
     const titleNeedle = q.titleContains?.toLowerCase();
     const filtered = raw.filter((s) => {
       if (q.since && s.startedAt < q.since) return false;

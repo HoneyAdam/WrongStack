@@ -1,4 +1,3 @@
-import { expectDefined } from './expect-defined.js';
 import type { Message } from '../types/messages.js';
 /**
  * Shared token estimation with JSON.stringify caching.
@@ -65,17 +64,21 @@ const ESTIMATE_CACHE = new Map<string, number>();
 
 const ESTIMATE_CACHE_MAX_SIZE = 10_000;
 
-function getCachedEstimate(key: string, compute: () => number): number {
+function getCachedEstimate(key: string, compute: (key: string) => number): number {
   const existing = ESTIMATE_CACHE.get(key);
   if (existing !== undefined) return existing;
   if (ESTIMATE_CACHE.size >= ESTIMATE_CACHE_MAX_SIZE) {
     // Evict oldest quarter when at capacity — simple LRU-ish policy.
-    const keys = [...ESTIMATE_CACHE.keys()];
-    for (let i = 0; i < Math.floor(ESTIMATE_CACHE_MAX_SIZE / 4); i++) {
-      ESTIMATE_CACHE.delete(expectDefined(keys[i]));
+    // Iterate directly over the Map iterator to avoid a full O(n) array spread.
+    let evicted = 0;
+    const maxEvict = Math.floor(ESTIMATE_CACHE_MAX_SIZE / 4);
+    for (const k of ESTIMATE_CACHE.keys()) {
+      if (evicted >= maxEvict) break;
+      ESTIMATE_CACHE.delete(k);
+      evicted++;
     }
   }
-  const estimate = compute();
+  const estimate = compute(key);
   ESTIMATE_CACHE.set(key, estimate);
   return estimate;
 }
@@ -90,8 +93,9 @@ export function estimateToolInputTokens(input: unknown): number {
   if (input === null || typeof input !== 'object') {
     return RoughTokenEstimate(String(input));
   }
-  const key = JSON.stringify(input);
-  return getCachedEstimate(key, () => RoughTokenEstimate(key));
+  // JSON.stringify is called once to form the cache key; RoughTokenEstimate
+  // is deferred only on cache miss (compute callback), not wrapped unnecessarily.
+  return getCachedEstimate(JSON.stringify(input), (key) => RoughTokenEstimate(key));
 }
 
 /**
@@ -99,8 +103,7 @@ export function estimateToolInputTokens(input: unknown): number {
  */
 export function estimateToolResultTokens(content: string | unknown): number {
   if (typeof content === 'string') return RoughTokenEstimate(content);
-  const key = JSON.stringify(content);
-  return getCachedEstimate(key, () => RoughTokenEstimate(key));
+  return getCachedEstimate(JSON.stringify(content), (key) => RoughTokenEstimate(key));
 }
 
 /**
