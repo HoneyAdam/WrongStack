@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+*(none yet)*
+
+## [0.260.0] — 2026-06-14
+
+> The benchmark, observability & capability-authorization release. Consolidates
+> `0.257.1`–`0.260.0` into a single documented entry. Three headlines: a new
+> **`@wrongstack/bench`** package + `wstack bench` subcommand that holds the
+> harness fixed (system prompt, tools, agent loop) and swaps only the model —
+> grading with each suite's own tests (never an LLM judge) and stamping every
+> report with a harness fingerprint so leaderboard rows stay comparable. A
+> **storage.* EventBus observability** pass that wires every store
+> (config-loader, memory-store, session-store, todos, queue, annotations, …) to
+> emit typed `storage.read` / `storage.write` / `storage.error` events with
+> operation-level granularity. And a **capability-based plugin authorization**
+> layer that gates tool mutation (`wrap` / `override` / `unregister`) on
+> declared capabilities (P4-6/P4-7/P4-8), plus an allowlist-by-default subagent
+> permission policy (fail-closed). Plus WebUI WS-handler extraction, TUI
+> countdown refinements, subagent mailbox inline injection, output-standards
+> enforcement, and a performance cache for `buildToolUsage`. Additive only; no
+> breaking changes. All **16** workspace packages and the marketing site are
+> aligned to 0.260.0 in lockstep.
+
+### Added
+
 - **`@wrongstack/bench` — model-independent agentic benchmark harness.** New
   package + `wstack bench` subcommand that hold the harness fixed (system prompt,
   tools, agent loop) and swap only the model, grading with each suite's own tests
@@ -27,6 +51,116 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     pass@1, edit-apply %, cost, tokens, p50 iterations/wall, timeout %, and 429s.
   - Docs: [docs/subcommands/bench.md](docs/subcommands/bench.md),
     [packages/bench/README.md](packages/bench/README.md).
+
+- **`storage.*` EventBus observability for all stores.** Every store — config-loader,
+  memory-store, session-store, session-recovery store, todos-checkpoint, queue-store,
+  annotations-store, prompt-store, goal-store, recovery-lock — now emits typed
+  `storage.read` / `storage.write` / `storage.error` events with an `operation` field
+  (`load` / `save` / `append` / `delete` / `consolidate` / `evict` / …) and the store's
+  `name` / `path` identity. Failures carry the underlying error via `Error.cause`.
+  (`packages/core/src/storage/`)
+
+- **Capability-based plugin tool-mutation authorization (P4-6/P4-7/P4-8).** Plugin
+  `wrap` / `override` / `unregister` calls are now gated on **declared capabilities**
+  in addition to the existing officiality trust tier, so a plugin can only mutate
+  tools it is actually authorized for. The capability model is documented in
+  `docs/tool-author-guide.md` and `SECURITY.md`.
+
+- **`AutoApprovePermissionPolicy` is allowlist-by-default (fail-closed).** The
+  non-interactive subagent policy now approves only an explicit allowlist rather than
+  denying a denylist, so newly-added mutating tools (and all `mcp__*` tools) are
+  denied to prompt-injected subagents by default instead of slipping through (P4-4).
+
+- **Capability-based destructive gating in `DefaultPermissionPolicy`.** The
+  permission policy now classifies tools by capability groups — destructive
+  operations (bash, write, edit, replace, patch, exec) require a higher trust bar
+  even within auto-approved sessions. YOLO mode's `/yolo destructive` toggle
+  controls whether destructive calls auto-approve or still require confirmation.
+
+- **Subagent mail inline injection — all types.** All subagent message types
+  (`result`, `ask`, `assign`, `note`, `steer`, `btw`) are now folded into the
+  leader's conversation before every step, with per-type action prompts and an
+  actionable footer. The system-prompt builder's "Receiving" docs and the Director
+  leader prompt were updated accordingly: the leader must "act on subagent mail
+  immediately" and subagents are told "mail to leader is always seen even mid-task."
+  (`packages/core/src/coordination/mailbox-loop.ts`,
+  `packages/core/src/core/system-prompt-builder.ts`,
+  `packages/core/src/coordination/director-prompts.ts`)
+
+- **WebUI Fleet Monitor & Agent Monitor sliding sidebars.** Two new sliding panel
+  overlays in the WebUI show per-subagent status (Fleet Monitor) and per-agent
+  diagnostics (Agent Monitor), giving browser users the same real-time fleet
+  visibility the TUI has (`Ctrl+F` / `Ctrl+G`).
+
+- **WebUI WS-handler extraction (P1-1a).** The monolithic `webui-server.ts` WebSocket
+  layer was decomposed into focused handler modules:
+  - Goal handler, process handler, preferences handler, and remaining general handlers
+    extracted into dedicated modules with unit test coverage.
+  - Each handler module is independently testable.
+
+### Changed
+
+- **TUI countdown visuals refined.** Three changes to the `/enhance` and `/next`
+  countdown UX:
+  - **Solid color transitions.** The rainbow `WaveText` was replaced with a solid
+    color that transitions cyan (≥20s) → yellow (>10s) → red (≤10s).
+    Bold `"⏳ 42s"` with dim suggestion text.
+  - **Auto marker on first next-step.** When autonomy mode is `'auto'`, a cyan `⏩`
+    marker appears next to the first next-step suggestion, visually indicating that
+    step is the one auto-submitted after the countdown.
+  - **Word-boundary label formatting.** `truncateLabel` replaced with
+    `formatSuggestionLabel` — breaks at word boundaries instead of blindly slicing
+    at 30 chars.
+  - **Direct `/next` submit.** Suggestions are submitted directly to the agent loop
+    instead of being placed into the input field first, fixing a double-submit race.
+
+- **Output-standards conventions enforced fleet-wide.** The `next_steps` system
+  prompt conventions were codified and enforced across all skill files and mode
+  prompts:
+  - **Leader only** — only the top-level session agent (leader) emits `<next_steps>`.
+    Subagents report findings only; the leader aggregates.
+  - **Concrete actions only** — items must be directly executable commands or
+    prompts. No declarations of intent or manual-review suggestions.
+  (`packages/core/skills/output-standards/SKILL.md`,
+  `packages/core/skills/output-standards/SKILL.save.md`,
+  `packages/core/src/core/modes/default.ts`,
+  `packages/core/src/core/modes/brief.ts`,
+  `packages/core/src/core/modes/teach.ts`)
+
+### Performance
+
+- **`buildToolUsage()` output cached by reference.** The `DefaultSystemPromptBuilder`
+  now caches the rendered tool-usage section and reuses it across system-prompt builds
+  when the tool list hasn't changed, saving repeated serialization per turn.
+
+- **WebUI stream-coalescer hardened.** The stream-coalescer's `rAF` loop was hardened
+  to recover from stale frame callbacks, correcting false failures under load.
+
+### Fixed
+
+- **OpenAI-compatible providers: `emptyToolCallContent` default changed to
+  `'empty_string'`.** The `OpenAICompatibleProvider` wire spec now defaults
+  `emptyToolCallContent` to `'empty_string'` instead of `'null'`, matching the
+  majority of OpenAI-compatible endpoints that send an empty string alongside
+  `tool_calls` rather than `null`. (`packages/providers`)
+
+- **WebUI WS-client connect() hardening.** The `connect()` promise now rejects on
+  `onerror` / `onclose` before `onopen`, so WebUI callers no longer block
+  indefinitely when the backend is unreachable.
+
+- **Storage observability test alignment.** Storage observability tests across
+  the session-store, memory-store, config-loader, and related stores were corrected
+  to assert the new typed `storage.*` event contracts.
+
+### Changed — versions
+
+- **All workspace packages aligned to 0.260.0**: `wrongstack`,
+  `@wrongstack/cli`, `@wrongstack/core`, `@wrongstack/mcp`,
+  `@wrongstack/plug-lsp`, `@wrongstack/plugins`, `@wrongstack/providers`,
+  `@wrongstack/runtime`, `@wrongstack/skills`, `@wrongstack/telegram`,
+  `@wrongstack/tools`, `@wrongstack/tui`, `@wrongstack/webui`,
+  `@wrongstack/acp`, **and `@wrongstack/bench`** (new). The marketing site
+  (`website/`) is aligned in lockstep.
 
 ## [0.257.0] — 2026-06-14
 
