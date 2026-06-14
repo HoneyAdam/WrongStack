@@ -70,6 +70,11 @@ export interface HistoryProps {
    */
   setSuggestions?: ((steps: string[]) => void) | undefined;
   /**
+   * Current autonomy mode. When 'auto', a marker is shown next to the first
+   * next-step suggestion indicating it will be auto-submitted.
+   */
+  autonomyMode?: string | undefined;
+  /**
    * Generation counter for wholesale history replacements (session resume).
    * Keys the internal <Static> so a replacement remounts it — Ink's Static
    * tracks written items by index and would otherwise skip replayed entries

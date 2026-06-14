@@ -54,11 +54,14 @@ export const Entry = React.memo(function Entry({
   entry,
   termWidth,
   setSuggestions,
+  autonomyMode,
 }: {
   entry: HistoryEntry;
   termWidth: number;
   /** Store parsed next steps in the shared suggestion store so /next 1 works. */
   setSuggestions?: ((steps: string[]) => void) | undefined;
+  /** Current autonomy mode — when 'auto', first step shows an auto marker. */
+  autonomyMode?: string | undefined;
 }): React.ReactElement {
   // Parse next steps from assistant text — computed once, used only in
   // the assistant case. Must live at the top level (hooks rules).
@@ -154,13 +157,16 @@ export const Entry = React.memo(function Entry({
                 </Text>
                 <Text dimColor>(use /next 1, /next 1 2 3 to select)</Text>
               </Box>
-              {steps.map((s) => (
+              {steps.map((s, i) => (
                 <Box key={s.index} flexDirection="row" marginTop={0}>
                   <Text>
                     <Text bold color={theme.accent}>{`  ${s.index}. `}</Text>
                     <Text>{s.text}</Text>
                     {s.auto ? (
                       <Text color="cyan" dimColor>  auto</Text>
+                    ) : null}
+                    {autonomyMode === 'auto' && i === 0 ? (
+                      <Text color="cyan">{'  ⏩'}</Text>
                     ) : null}
                   </Text>
                 </Box>

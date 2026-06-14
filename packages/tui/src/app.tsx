@@ -5327,6 +5327,7 @@ export function App({
             totalLines={state.totalLines}
             onMeasure={(totalLines) => dispatch({ type: 'setMeasuredLines', totalLines })}
             setSuggestions={setSuggestions}
+            autonomyMode={autonomyLive}
           />
         ) : (
           <History
@@ -5335,6 +5336,7 @@ export function App({
             streamingText={state.streamingText}
             toolStream={state.toolStream}
             setSuggestions={setSuggestions}
+            autonomyMode={autonomyLive}
           />
         )}
         <Box flexDirection="column" flexShrink={0} ref={bottomRegionRef}>
