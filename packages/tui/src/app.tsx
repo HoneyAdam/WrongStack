@@ -1718,6 +1718,7 @@ export function App({
             featureMemory: sp.featureMemory,
             featureSkills: sp.featureSkills,
             featureModelsRegistry: sp.featureModelsRegistry,
+            featureTokenSaving: sp.featureTokenSaving,
             contextAutoCompact: sp.contextAutoCompact,
             contextStrategy: sp.contextStrategy,
             logLevel: sp.logLevel,
@@ -2220,6 +2221,7 @@ export function App({
       featureMemory: s.featureMemory ?? true,
       featureSkills: s.featureSkills ?? true,
       featureModelsRegistry: s.featureModelsRegistry ?? true,
+      featureTokenSaving: s.featureTokenSaving ?? false,
       contextAutoCompact: s.contextAutoCompact ?? true,
       contextStrategy: s.contextStrategy ?? 'hybrid',
       logLevel: s.logLevel ?? 'info',
@@ -4020,6 +4022,7 @@ export function App({
           featureMemory: cfg.featureMemory ?? true,
           featureSkills: cfg.featureSkills ?? true,
           featureModelsRegistry: cfg.featureModelsRegistry ?? true,
+          featureTokenSaving: cfg.featureTokenSaving ?? false,
           contextAutoCompact: cfg.contextAutoCompact ?? true,
           contextStrategy: cfg.contextStrategy ?? 'hybrid',
           logLevel: cfg.logLevel ?? 'info',
@@ -5562,7 +5565,7 @@ export function App({
             autoProceedCountdown={state.countdown?.remainingSeconds ?? null}
             sessionCount={sessionCount}
             mailbox={mailboxStatus}
-            tokenSavingMode={tokenSavingMode}
+            tokenSavingMode={getSettings ? getSettings().featureTokenSaving : tokenSavingMode}
             toolCount={toolCount}
           />
           </Box>

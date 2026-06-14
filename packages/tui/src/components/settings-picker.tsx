@@ -69,6 +69,8 @@ export interface SettingsPickerProps {
   featureMemory: boolean;
   featureSkills: boolean;
   featureModelsRegistry: boolean;
+  /** Token-saving mode: omits non-essential tools and trims system prompt. */
+  featureTokenSaving: boolean;
   // ── Context ──
   contextAutoCompact: boolean;
   contextStrategy: CompactorStrategy;
@@ -96,7 +98,7 @@ export interface SettingsPickerProps {
 }
 
 /** Total number of settings rows (used for wrap-around navigation). */
-export const SETTINGS_FIELD_COUNT = 25;
+export const SETTINGS_FIELD_COUNT = 26;
 
 export const CONFIG_SCOPES = ['global', 'project'] as const;
 export type ConfigScope = (typeof CONFIG_SCOPES)[number];
@@ -116,6 +118,7 @@ export function SettingsPicker({
   featureMemory,
   featureSkills,
   featureModelsRegistry,
+  featureTokenSaving,
   contextAutoCompact,
   contextStrategy,
   logLevel,
@@ -206,6 +209,11 @@ export function SettingsPicker({
       label: 'Models registry',
       value: boolVal(featureModelsRegistry),
       detail: 'Fetch models.dev catalog at startup',
+    },
+    {
+      label: 'Token-saving mode',
+      value: boolVal(featureTokenSaving),
+      detail: 'Omit non-essential tools and trim system prompt to save tokens',
     },
     // ── Context ──
     { section: 'Context' },

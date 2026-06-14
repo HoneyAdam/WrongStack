@@ -697,6 +697,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
               featureMemory: cfg.features?.memory !== false,
               featureSkills: cfg.features?.skills !== false,
               featureModelsRegistry: cfg.features?.modelsRegistry !== false,
+              featureTokenSaving: cfg.features?.tokenSavingMode ?? false,
               contextAutoCompact: cfg.context?.autoCompact !== false,
               contextStrategy: cfg.context?.strategy ?? 'hybrid',
               logLevel: cfg.log?.level ?? 'info',
@@ -827,7 +828,8 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
                   s.featurePlugins !== undefined ||
                   s.featureMemory !== undefined ||
                   s.featureSkills !== undefined ||
-                  s.featureModelsRegistry !== undefined
+                  s.featureModelsRegistry !== undefined ||
+                  s.featureTokenSaving !== undefined
                 ) {
                   const feats = (decrypted.features as Record<string, unknown>) ?? {};
                   if (s.featureMcp !== undefined) feats.mcp = s.featureMcp;
@@ -836,6 +838,8 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
                   if (s.featureSkills !== undefined) feats.skills = s.featureSkills;
                   if (s.featureModelsRegistry !== undefined)
                     feats.modelsRegistry = s.featureModelsRegistry;
+                  if (s.featureTokenSaving !== undefined)
+                    feats.tokenSavingMode = s.featureTokenSaving;
                   decrypted.features = feats;
                 }
                 if (s.contextAutoCompact !== undefined || s.contextStrategy !== undefined) {

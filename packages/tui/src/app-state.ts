@@ -270,6 +270,7 @@ export type State = {
     featureMemory: boolean;
     featureSkills: boolean;
     featureModelsRegistry: boolean;
+    featureTokenSaving: boolean;
     // Context
     contextAutoCompact: boolean;
     contextStrategy: CompactorStrategy;
@@ -530,6 +531,8 @@ export type Settings = {
   featureMemory: boolean;
   featureSkills: boolean;
   featureModelsRegistry: boolean;
+  /** Token-saving mode: omits non-essential tools and trims system prompt. */
+  featureTokenSaving: boolean;
   contextAutoCompact: boolean;
   contextStrategy: 'hybrid' | 'intelligent' | 'selective';
   logLevel: 'error' | 'warn' | 'info' | 'debug' | 'trace';
@@ -630,6 +633,7 @@ export type Action =
       featureMemory: boolean;
       featureSkills: boolean;
       featureModelsRegistry: boolean;
+      featureTokenSaving: boolean;
       contextAutoCompact: boolean;
       contextStrategy: CompactorStrategy;
       logLevel: LogLevel;
