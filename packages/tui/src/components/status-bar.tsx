@@ -32,10 +32,12 @@ function modeIcon(label?: string): string {
  * Format a suggestion label for the status bar countdown chip.
  * Shows a short tag + the first few words rather than blindly truncating.
  * Examples: "fix null deref…" or "add tests for…" or "run typecheck…"
+ * Returns empty string when the label has no meaningful content after stripping.
  */
 function formatSuggestionLabel(label: string, maxLen = 28): string {
   // Strip /next N prefix like "/next 1" or "/next 1 2" before formatting
-  const stripped = label.replace(/^\/next\s+[\d\s]+\s*/, '');
+  const stripped = label.replace(/^\/next\s+[\d\s]+\s*/, '').trim();
+  if (!stripped) return '';
   if (stripped.length <= maxLen) return stripped;
   // Try to break at a word boundary near maxLen
   const shortened = stripped.slice(0, maxLen);
@@ -420,12 +422,13 @@ export function StatusBar({
   const hasNextStepsAutoSubmit = nextStepsAutoSubmitCountdown != null && nextStepsAutoSubmitCountdown > 0;
 
   // Countdown color threshold helper — transitions from green through
-  // yellow to red as the remaining time drops.
+  // yellow to red as the remaining time drops. Shared by the next-steps
+  // auto-submit countdown and the enhance-panel auto-send countdown.
   const countdownColor = nextStepsAutoSubmitCountdown != null
-    ? nextStepsAutoSubmitCountdown > 20 ? 'cyan'
+    ? nextStepsAutoSubmitCountdown > 20 ? 'green'
       : nextStepsAutoSubmitCountdown > 10 ? 'yellow'
       : 'red'
-    : 'cyan';
+    : 'green';
 
   const hasTaskActivity = tasks && (tasks.pending > 0 || tasks.inProgress > 0 || tasks.completed > 0 || tasks.blocked > 0 || tasks.failed > 0);
   const hasThirdLine =
@@ -814,7 +817,11 @@ export function StatusBar({
               hasDebugStream ? (
                 <Text dimColor>│</Text>
               ) : null}
-              <Text color={enhanceCountdown <= 5 ? 'yellow' : 'cyan'}>
+              <Text color={
+                enhanceCountdown > 15 ? 'green'
+                : enhanceCountdown > 5 ? 'yellow'
+                : 'red'
+              }>
                 ⏳ auto-send in {enhanceCountdown}s
               </Text>
             </>
