@@ -22,10 +22,10 @@ export const MESSAGE_PANEL_MARGIN = 2;
 
 /**
  * Compute the real inner content width of an assistant panel.
- * termWidth - chrome (border+padding) - margin*2.
+ * termWidth - chrome (border+padding) only — no margin since panels are now full-width.
  */
 export function assistantContentWidth(termWidth: number): number {
-  return Math.max(20, termWidth - MESSAGE_PANEL_CHROME_WIDTH - MESSAGE_PANEL_MARGIN * 2);
+  return Math.max(20, termWidth - MESSAGE_PANEL_CHROME_WIDTH);
 }
 
 /**

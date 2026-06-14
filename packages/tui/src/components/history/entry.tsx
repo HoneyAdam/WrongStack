@@ -6,7 +6,7 @@ import { DiffBlock, extractDiffPreview } from './code-block.js';
 import { parseNextSteps } from '../suggestions.js';
 import type { ParsedNextStep } from '../suggestions.js';
 import type { HistoryEntry } from './types.js';
-import { MESSAGE_PANEL_MARGIN, AssistantBody, assistantContentWidth } from './assistant.js';
+import { AssistantBody, assistantContentWidth } from './assistant.js';
 import {
   fmtBytes,
   fmtDuration,
@@ -83,7 +83,7 @@ export const Entry = React.memo(function Entry({
     case 'user':
       return (
         <Box
-          marginX={MESSAGE_PANEL_MARGIN}
+          marginX={0}
           borderStyle="single"
           borderTop={false}
           borderRight={false}
@@ -118,7 +118,7 @@ export const Entry = React.memo(function Entry({
         <Box flexDirection="column">
           <Box
             flexDirection="column"
-            marginX={MESSAGE_PANEL_MARGIN}
+            marginX={0}
             marginY={1}
             borderStyle="single"
             borderTop={false}
@@ -138,7 +138,7 @@ export const Entry = React.memo(function Entry({
           {hasNext && (
             <Box
               flexDirection="column"
-              marginX={MESSAGE_PANEL_MARGIN}
+              marginX={0}
               marginY={1}
               borderStyle="single"
               borderTop={false}
@@ -235,7 +235,7 @@ export const Entry = React.memo(function Entry({
     case 'warn':
       return (
         <Box
-          marginX={MESSAGE_PANEL_MARGIN}
+          marginX={0}
           borderStyle="single"
           borderTop={false}
           borderRight={false}
@@ -249,7 +249,7 @@ export const Entry = React.memo(function Entry({
     case 'error':
       return (
         <Box
-          marginX={MESSAGE_PANEL_MARGIN}
+          marginX={0}
           borderStyle="single"
           borderTop={false}
           borderRight={false}
@@ -268,7 +268,7 @@ export const Entry = React.memo(function Entry({
       return (
         <Box
           flexDirection="column"
-          marginX={MESSAGE_PANEL_MARGIN}
+          marginX={0}
           marginY={1}
           borderStyle="single"
           borderTop={false}

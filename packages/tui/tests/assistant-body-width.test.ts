@@ -77,10 +77,10 @@ describe('assistant panel — table width budget', () => {
 describe('assistantContentWidth (the helper)', () => {
   // The assistant Entry render and these tests share this helper, so
   // any drift between them is a TypeScript error or a test failure.
-  it('subtracts the chrome + margins from termWidth and floors at 20', () => {
-    // chrome(2) + margin*2(4) = 6 columns subtracted
-    expect(assistantContentWidth(80)).toBe(74);
-    expect(assistantContentWidth(120)).toBe(114);
+  it('subtracts only the chrome from termWidth and floors at 20', () => {
+    // chrome(2) = 2 columns subtracted; panels are now full-width (no margins)
+    expect(assistantContentWidth(80)).toBe(78);
+    expect(assistantContentWidth(120)).toBe(118);
   });
 
   it('clamps to 20 at very small terminal widths', () => {
