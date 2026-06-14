@@ -2,8 +2,10 @@
  * mailbox-loop — Agent-loop integration for mailbox checking.
  *
  * Integrates the inter-agent mailbox into the agent's iteration cycle.
- * Before each LLM call, checks for unread high-priority messages (steer, btw).
- * Found messages are folded into the conversation so the agent can react.
+ * Before each LLM call, checks for unread messages from subagents and other
+ * agents. ALL message types are injected inline so the leader sees and acts
+ * on them even when mid-task — subagent results, asks, assigns, and
+ * steer/btw are all folded into the conversation with a call to action.
  *
  * Uses the project-level GlobalMailbox for cross-session communication.
  *
@@ -99,9 +101,11 @@ export function buildMailboxBlock(messages: MailboxMessage[]): { type: 'text'; t
   parts.push('[MAILBOX] New message(s) from other agents:');
   parts.push('');
 
+  const hasActionable = messages.some((m) => m.type === 'ask' || m.type === 'assign' || m.type === 'result');
+
   for (const m of messages) {
     const typeLabel =
-      m.type === 'steer' ? '🔄 STEER' : m.type === 'btw' ? '💬 BTW' : `📨 ${m.type.toUpperCase()}`;
+      m.type === 'steer' ? '🔄 STEER' : m.type === 'btw' ? '💬 BTW' : m.type === 'ask' ? '❓ ASK' : m.type === 'assign' ? '📋 ASSIGN' : m.type === 'result' ? '✅ RESULT' : `📨 ${m.type.toUpperCase()}`;
     parts.push(`--- ${typeLabel} from ${m.from} ---`);
     parts.push(`Subject: ${m.subject}`);
     parts.push('');
@@ -111,6 +115,23 @@ export function buildMailboxBlock(messages: MailboxMessage[]): { type: 'text'; t
       parts.push('After your current operation reaches a stopping point, adjust your approach per the instruction above.');
       parts.push('');
     }
+    if (m.type === 'ask') {
+      parts.push('↳ This agent is waiting for your answer. Reply directly or use mailbox action=send to respond.');
+      parts.push('');
+    }
+    if (m.type === 'assign') {
+      parts.push('↳ This is a task assignment. Act on it when your current operation allows.');
+      parts.push('');
+    }
+    if (m.type === 'result') {
+      parts.push('↳ A subagent has completed its work. Factor this result into your next decision.');
+      parts.push('');
+    }
+  }
+
+  if (hasActionable) {
+    parts.push('Action required: address the items above. When done, use `mailbox action=ack messageId=<id> completed=true` to mark them complete.');
+    parts.push('');
   }
 
   parts.push('[END MAILBOX]');
@@ -134,7 +155,7 @@ export async function injectPendingMailboxMessages(
     return;
   }
 
-  // Emit events for all found messages (steer/btw go below, others get a summary)
+  // Emit events for all found messages
   for (const m of messages) {
     a.events.emit('mailbox.received', {
       messageId: m.id, from: m.from, type: m.type, subject: m.subject,
@@ -143,23 +164,13 @@ export async function injectPendingMailboxMessages(
 
   if (messages.length === 0) return;
 
-  // Separate steer/btw (inject inline) from other types (summarize)
-  const injectable = messages.filter((m) => m.type === 'steer' || m.type === 'btw');
-  const others = messages.filter((m) => m.type !== 'steer' && m.type !== 'btw');
-
-  if (injectable.length > 0) {
-    try { foldFn(buildMailboxBlock(injectable)); } catch (err) {
-      (a.logger.debug ?? console.debug)?.(
-        `mailbox: failed to fold messages: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-  }
-
-  if (others.length > 0) {
-    const otherSubjects = others.map((m) => `  - [${m.type}] ${m.from}: ${m.subject}`).join('\n');
-    const note = `[MAILBOX] You have ${others.length} other unread message(s). Use \`mailbox action=check\` to read them:\n${otherSubjects}\n[END MAILBOX]`;
-    try { foldFn({ type: 'text', text: note }); } catch {
-      // best-effort
-    }
+  // Inject ALL message types inline — subagent results, asks, assigns,
+  // notes, and steer/btw all need the leader's attention even mid-task.
+  // The summary-only approach for non-steer/btw types caused subagent
+  // mail to be silently missed when the leader was busy.
+  try { foldFn(buildMailboxBlock(messages)); } catch (err) {
+    (a.logger.debug ?? console.debug)?.(
+      `mailbox: failed to fold messages: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }

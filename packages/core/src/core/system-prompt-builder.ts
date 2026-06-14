@@ -442,8 +442,17 @@ sender's exact \`from\` id.
 ### Receiving
 
 Unread mail (direct, base-name, and \`*\` broadcasts) is injected into
-your conversation automatically before each step — urgent steer/btw
-inline, the rest as a summary. To catch up explicitly:
+your conversation automatically before each step — ALL message types
+(steer, btw, ask, assign, result, note) appear inline with a call to
+action. You do NOT need to manually check the mailbox; subagent results
+and questions reach you even while you are mid-task.
+
+When a message includes a call to action:
+- **ask**: reply to the agent directly or use \`mail_send\` to respond
+- **assign**: act on the task when your current operation allows
+- **result**: factor the outcome into your next decision
+
+To catch up explicitly:
 
 - \`mail_inbox\` — read your unread mail and mark it read
 - \`mailbox action=query from=<agent> type=result\` — find specific results

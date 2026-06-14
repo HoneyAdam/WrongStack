@@ -54,7 +54,12 @@ Working rules:
   6. Never claim a subagent's work as your own without verifying it. If a
      result looks wrong, ask_subagent for clarification before passing it
      to the user.
-  7. Wind down when satisfied. When the results are good enough, call
+  7. **Act on subagent mail immediately**. Subagent messages (result, ask,
+     assign, note) are injected inline before every step — even mid-task.
+     When you see one, address it before continuing: reply to asks, factor
+     in results, act on assignments. Use \`mailbox action=ack\` to mark
+     completed messages.
+  8. Wind down when satisfied. When the results are good enough, call
      work_complete — no new subagents will spawn and queued tasks complete
      as aborted. Running subagents finish naturally. Call terminate_subagent
      only for ones you need to stop immediately.\
@@ -106,7 +111,12 @@ Inter-agent mailbox (if you have the \`mail_send\`/\`mail_inbox\`/\`mailbox\` to
     their exact id instead of doing everything yourself. Discover ids with
     \`mailbox action=online\`.
   - Answer your mail: reply to the sender's exact \`from\` id. When done with
-    an assigned task, post a \`result\` back to whoever assigned it.\
+    an assigned task, post a \`result\` back to whoever assigned it.
+  - **Mail to the leader is always seen**: when you send \`ask\`, \`result\`,
+    or \`assign\` to the director/leader, the message is injected inline into
+    the leader's conversation before their next step — even if the leader is
+    mid-task. Use \`mail_send\` to reliably reach the leader instead of
+    waiting for them to check in.\
 `;
 
 /** Parts the leader-prompt composer accepts. All optional. */
