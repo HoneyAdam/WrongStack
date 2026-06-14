@@ -25,6 +25,7 @@
  */
 
 import { spawn, type SpawnOptions } from 'node:child_process';
+import { buildChildEnv } from '@wrongstack/core';
 import * as os from 'node:os';
 
 export interface SpawnBackgroundOptions {
@@ -61,7 +62,7 @@ export function spawnBackground(opts: SpawnBackgroundOptions): {
   // visible console windows (see module doc).
   const spawnOpts: SpawnOptions = {
     cwd: opts.cwd ?? process.cwd(),
-    env: { ...process.env, ...opts.env },
+    env: buildChildEnv({ extra: opts.env }),
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: !isWin, // POSIX: setsid()
     windowsHide: true,
@@ -74,7 +75,11 @@ export function spawnBackground(opts: SpawnBackgroundOptions): {
 
   // Fire-and-forget: an unhandled 'error' event (e.g. ENOENT) would crash the
   // host process. Callers can still attach their own listener on `child`.
-  child.on('error', () => {});
+  child.on('error', (err) => {
+    // ENOENT / EACCES on the binary itself is expected for missing commands;
+    // don't crash the parent — just log at debug level.
+    console.log(JSON.stringify({ level: 'debug', event: 'spawn_error', cmd: opts.command, error: err.message }));
+  });
 
   releaseStdio(child);
 
@@ -130,7 +135,7 @@ export function spawnBackgroundExec(
   // the spawned command windowless.
   const spawnOpts: SpawnOptions = {
     cwd: cwd ?? process.cwd(),
-    env: { ...process.env, ...env },
+    env: buildChildEnv({ extra: env }),
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: !isWin,
     windowsHide: true,
@@ -141,7 +146,11 @@ export function spawnBackgroundExec(
 
   // Fire-and-forget: an unhandled 'error' event (e.g. ENOENT) would crash the
   // host process. Callers can still attach their own listener on `child`.
-  child.on('error', () => {});
+  child.on('error', (err) => {
+    // ENOENT / EACCES on the binary itself is expected for missing commands;
+    // don't crash the parent — just log at debug level.
+    console.log(JSON.stringify({ level: 'debug', event: 'spawn_error', cmd: command, error: err.message }));
+  });
 
   releaseStdio(child);
 

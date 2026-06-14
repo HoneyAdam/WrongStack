@@ -1007,5 +1007,8 @@ export class CollabSession extends EventEmitter {
     }
     for (const dispose of this.disposers) dispose();
     this.disposers.length = 0;
+    // Release snapshot file contents to free memory; keep the snapshot object
+    // itself so the report (already assembled) remains valid.
+    this.snapshot.files.length = 0;
   }
 }

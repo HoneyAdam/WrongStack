@@ -65,10 +65,7 @@ export const documentTool: Tool<DocumentInput, DocumentOutput> = {
         enum: ['jsdoc', 'tsdoc', 'block'],
         description: 'Documentation style (default: jsdoc)',
       },
-      overwrite: {
-        type: 'boolean',
-        description: 'Overwrite existing docstrings (default: false)',
-      },
+
       cwd: { type: 'string', description: 'Working directory (default: cwd)' },
     },
   },
@@ -144,10 +141,10 @@ function processFile(
   target: string,
 ): DocumentedItem[] {
   const results: DocumentedItem[] = [];
-  const functionRegex = /(?:async\s+)?function\s+(\w+)\s*\(([^)]*)\)/g;
-  const arrowRegex = /(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\(([^)]*)\)\s*=>/g;
-  const classRegex = /class\s+(\w+)/g;
-  const typeRegex = /(?:type|interface)\s+(\w+)\s*[=<]/g;
+  const functionRegex = /(?:async\s+)?function\s+(\w+)\s*\(([^)]*)\)/;
+  const arrowRegex = /(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\(([^)]*)\)\s*=>/;
+  const classRegex = /class\s+(\w+)/;
+  const typeRegex = /(?:type|interface)\s+(\w+)\s*[=<]/;
 
   const allMatches: { name: string; sig: string; type: string; line: number }[] = [];
 

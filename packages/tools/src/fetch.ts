@@ -79,7 +79,7 @@ function guardedLookup(
         );
         return;
       }
-      const first = list[0];
+      const first = list.at(0);
       if (!first) {
         callback(
           Object.assign(new Error(`fetch: no address for ${hostname}`), { code: 'ENOTFOUND' }),
@@ -272,7 +272,7 @@ export const fetchTool: Tool<FetchInput, FetchOutput> = {
             // Snapshot recent bytes for the partial_output. Keep it cheap —
             // don't try to decode UTF-8 boundaries; the TUI just needs a
             // "things are happening" signal.
-            const recent = Buffer.from(value).toString('utf8');
+            const recent = Buffer.from(value).toString('utf-8');
             yield {
               type: 'partial_output',
               text: recent,

@@ -17,6 +17,8 @@ interface ToolSearchOutput {
   }[];
   total: number;
   truncated: boolean;
+  /** Total count of tools in the registry (for "no results" hints). */
+  _available?: number;
 }
 
 export const toolSearchTool: Tool<ToolSearchInput, ToolSearchOutput> = {

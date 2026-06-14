@@ -45,7 +45,7 @@ const SENSITIVE_FLAG_PATTERNS: RegExp[] = [
   // --flag=value  or  --flag "value"  (value captured up to next space or comma)
   /--(?:token|password|passwd|pwd|secret|api[-_]?key|api[-_]?secret|auth|credential|private[-_]?key|access[-_]?key|github[-_]?token|gh[-_]?token|bearer|jwt|oauth|pin|pincode|passphrase|access[-_]?token)(?:[=\s,][^\s]*)?/gi,
   // -f "value" style short flags
-  /(?<!\w)-t(?:\s+|\s*=\s*)[^\s,]+/g,
+  /(?<!\w)-t(?:\s+|\s*=\s*)[^\s,]+/,
   /(?<!\w)-p(?:ssword)?(?:\s+|\s*=\s*)[^\s,]+/gi,
   // env var–style secrets: TOKEN=x, API_KEY=y, etc.
   /(?:TOKEN|API_KEY|API_SECRET|AUTH_TOKEN|GITHUB_TOKEN|GH_TOKEN|BEARER|JWT|OAUTH|CREDENTIAL|SECRET|PRIVATE_KEY|PASSWORD|PASSWD)\s*[=:]\s*[^\s,]+/gi,

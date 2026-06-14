@@ -209,8 +209,11 @@ export class MultiAgentHost {
   private coordinatorOffHandle: (() => void) | null = null;
   /** ACP runner cache — keyed by role/subagentId, reused across tasks to avoid
    *  creating a new transport process on every ACP task dispatch. Stores the
-   *  pending promise so concurrent calls for the same subagentId share one spawn. */
+   *  pending promise so concurrent calls for the same subagentId share one spawn.
+   *  Bounded to 20 entries with LRU eviction to prevent unbounded memory growth. */
   private readonly acpRunnerCache = new Map<string, Promise<SubagentRunner>>();
+  private readonly acpRunnerAccessOrder: string[] = [];
+  private static readonly ACP_CACHE_MAX = 20;
 
   constructor(
     private readonly deps: MultiAgentDeps,
@@ -683,11 +686,23 @@ export class MultiAgentHost {
 
   async buildACPRunner(subagentId: string): Promise<SubagentRunner> {
     const cached = this.acpRunnerCache.get(subagentId);
-    if (cached) return cached;
+    if (cached) {
+      // Move to end (most recently used)
+      const idx = this.acpRunnerAccessOrder.indexOf(subagentId);
+      if (idx !== -1) this.acpRunnerAccessOrder.splice(idx, 1);
+      this.acpRunnerAccessOrder.push(subagentId);
+      return cached;
+    }
     const cmd = ACP_AGENT_COMMANDS[subagentId];
     if (!cmd) throw new Error(`Unknown ACP agent: ${subagentId}`);
+    // LRU eviction: remove oldest entries if at capacity
+    while (this.acpRunnerAccessOrder.length >= MultiAgentHost.ACP_CACHE_MAX) {
+      const oldest = this.acpRunnerAccessOrder.shift();
+      if (oldest) this.acpRunnerCache.delete(oldest);
+    }
     const p = makeACPSubagentRunner(cmd);
     this.acpRunnerCache.set(subagentId, p);
+    this.acpRunnerAccessOrder.push(subagentId);
     return p;
   }
 

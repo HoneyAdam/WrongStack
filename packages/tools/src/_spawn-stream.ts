@@ -4,6 +4,8 @@ import type { ToolProgressEvent } from '@wrongstack/core';
 import { createOutputSpool, spoolNote } from './_output-spool.js';
 import { getProcessRegistry, redactCommand } from './process-registry.js';
 import { resolveWin32Command } from './_win32-resolve.js';
+
+const isWin = process.platform === 'win32';
 export interface SpawnStreamResult {
   stdout: string;
   stderr: string;
@@ -52,7 +54,6 @@ export async function* spawnStream(
   const spool = createOutputSpool({ tool: opts.cmd, thresholdBytes: max });
 
   const cmd = resolveWin32Command(opts.cmd);
-  const isWin = process.platform === 'win32';
   const needsShell = isWin && (cmd.endsWith('.cmd') || cmd.endsWith('.bat'));
 
   // On Windows the abort signal is handled manually below instead of being

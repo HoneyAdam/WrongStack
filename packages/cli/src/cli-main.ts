@@ -2123,7 +2123,7 @@ export async function main(argv: string[]): Promise<number> {
       brainMonitor.stop();
       brainQueue.dispose();
       void mcpRegistry.stopAll();
-      void multiAgentHost.dispose().catch((err) =>
+      multiAgentHost.dispose().catch((err: unknown) =>
         logger.warn(`multiAgentHost.dispose() failed: ${err instanceof Error ? err.message : String(err)}`),
       );
     },
@@ -2446,8 +2446,11 @@ export async function main(argv: string[]): Promise<number> {
     brain,
     brainSettings,
     getBrainLog: () => brainLog,
-    // Clean up SessionStats event listeners when the REPL exits.
-    onDestroy: () => stats.destroy(events),
+    // Clean up SessionStats event listeners and all EventBus handlers when the REPL exits.
+    onDestroy: () => {
+      teardownHandlers.forEach((fn) => fn());
+      stats.destroy(events);
+    },
   });
 }
 

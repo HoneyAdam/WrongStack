@@ -118,9 +118,13 @@ function extractDiffTargets(patch: string): string[] {
   const out: string[] = [];
   // Matches `+++ path/to/file` and `+++ b/path/to/file` (also `a/`). Strips
   // optional tab-prefixed timestamp suffixes that some diff tools emit.
+  // Cap each line at 4096 chars to prevent maliciously long lines from
+  // causing regex backtracking issues in large patches.
   const re = /^\+\+\+\s+([^\t\r\n]+)/gm;
   for (const m of patch.matchAll(re)) {
-    const target = m[1]?.trim();
+    const raw = m[1];
+    if (!raw) continue;
+    const target = raw.length > 4096 ? raw.slice(0, 4096).trim() : raw.trim();
     if (!target || target === '/dev/null') continue;
     out.push(target);
   }
@@ -131,8 +135,9 @@ function extractDiffTargets(patch: string): string[] {
  *  if the path has fewer segments than `strip`. */
 function stripPathComponents(p: string, strip: number): string | undefined {
   // Normalize separators so the count works on both POSIX and Windows-style
-  // paths embedded in LLM-generated diffs.
-  const parts = p.replace(/\\/g, '/').split('/');
+  // paths embedded in LLM-generated diffs. Filter out empty segments (e.g.
+  // from trailing slashes or `//` sequences) before counting.
+  const parts = p.replace(/\\/g, '/').split('/').filter((s) => s !== '' && s !== '.');
   if (parts.length <= strip) return undefined;
   return parts.slice(strip).join('/');
 }

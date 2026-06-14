@@ -8,6 +8,8 @@ interface TypecheckInput {
   cwd?: string | undefined;
   strict?: boolean | undefined;
   all?: boolean | undefined;
+  /** Emit JSON for machine-readable output (default: false). */
+  json?: boolean | undefined;
 }
 
 interface TypecheckOutput {
@@ -47,6 +49,10 @@ export const typecheckTool: Tool<TypecheckInput, TypecheckOutput> = {
         type: 'boolean',
         description: 'Type-check all projects (pnpm -r) (default: false)',
       },
+      json: {
+        type: 'boolean',
+        description: 'Emit JSON output from tsc (default: false)',
+      },
     },
   },
   async execute(input, ctx, opts) {
@@ -74,6 +80,7 @@ export const typecheckTool: Tool<TypecheckInput, TypecheckOutput> = {
       if (tsconfig) args.push('--project', tsconfig);
       project = tsconfig ?? 'default';
     }
+    if (input.json) args.push('--json');
 
     yield { type: 'log', text: `tsc ${args.join(' ')}`, data: { project } };
 
@@ -85,8 +92,8 @@ export const typecheckTool: Tool<TypecheckInput, TypecheckOutput> = {
       maxBytes: 200_000,
     });
 
-    const errors = (result.stdout.match(/error TS/g) || []).length;
-    const warnings = (result.stdout.match(/warning/g) || []).length;
+    const errors = [...result.stdout.matchAll(/\berror\b/gi)].length;
+    const warnings = [...result.stdout.matchAll(/\bwarning\b/gi)].length;
 
     yield {
       type: 'final',

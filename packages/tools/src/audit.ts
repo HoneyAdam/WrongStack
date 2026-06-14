@@ -125,7 +125,7 @@ function parseAuditOutput(json: string, exitCode: number): AuditOutput {
       total,
       summary,
       output: json,
-      truncated: json.length >= 100_000,
+      truncated: json.length > 100_000,
     };
   } catch {
     return {

@@ -93,8 +93,8 @@ export const lintTool: Tool<LintInput, LintOutput> = {
     const cmd = detected === 'biome' ? 'biome' : detected;
     const result = yield* spawnStream({ cmd, args, cwd, signal: opts.signal, maxBytes: 100_000 });
 
-    const errors = (result.stdout.match(/error/g) || []).length;
-    const warnings = (result.stdout.match(/warning/g) || []).length;
+    const errors = [...result.stdout.matchAll(/\berror\b/gi)].length;
+    const warnings = [...result.stdout.matchAll(/\bwarning\b/gi)].length;
 
     yield {
       type: 'final',

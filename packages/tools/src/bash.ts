@@ -230,8 +230,6 @@ export const bashTool: Tool<BashInput, BashOutput> = {
       // for as long as the background process runs — child.unref() alone
       // does not release stdio. A one-shot (--print) run could never exit
       // while a background dev server kept its pipes open.
-      (child.stdout as unknown as { unref?: () => void })?.unref?.();
-      (child.stderr as unknown as { unref?: () => void })?.unref?.();
       child.on('close', () => {
         registry.afterCall(Date.now() - startedAt, false, bypassBreaker);
       });

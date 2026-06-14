@@ -114,7 +114,8 @@ async function duckduckgoSearch(
       source: 'duckduckgo',
       truncated: results.length >= num,
     };
-  } catch {
+  } catch (err) {
+    console.log(JSON.stringify({ level: 'debug', event: 'search_failed', query, error: err instanceof Error ? err.message : String(err) }));
     return {
       query,
       results: [{ title: 'Search unavailable', url: '', snippet: 'Could not reach DuckDuckGo' }],

@@ -99,7 +99,7 @@ export const formatTool: Tool<FormatInput, FormatOutput> = {
       maxBytes: 100_000,
     });
 
-    const changed = (result.stdout.match(/changed/g) || []).length;
+    const changed = [...result.stdout.matchAll(/\bchanged\b/gi)].length;
     yield {
       type: 'final',
       output: {

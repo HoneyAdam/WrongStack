@@ -107,22 +107,22 @@ export function renderFleetLine(
   if (visible.length > max) {
     // Re-truncate the visible portion; rebuild without trailing partial codes.
     let count = 0;
-    let out = '';
+    const out: string[] = [];
     let i = 0;
     while (i < line.length && count < max - 1) {
       if (line[i] === '\x1b') {
         const end = line.indexOf('m', i);
         if (end !== -1) {
-          out += line.slice(i, end + 1);
+          out.push(line.slice(i, end + 1));
           i = end + 1;
           continue;
         }
       }
-      out += line[i];
+      if (line[i] !== undefined) out.push(line[i]!);
       count++;
       i++;
     }
-    line = out + '…';
+    line = out.join('') + '…';
   }
   return line;
 }

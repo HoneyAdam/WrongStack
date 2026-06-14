@@ -188,6 +188,9 @@ export const taskTool: Tool<TaskInput, TaskOutput> = {
     // Track planify data — written to plan file after the task lock releases
     const planifyMeta = { title: '', details: '' };
     let didPlanify = false;
+    // collect todos to replace — called AFTER mutateTasks so rollback is possible
+    type TodosReplacement = Array<{ id: string; content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string; promotedFromTask?: string }>;
+    let todosToReplace: TodosReplacement | null = null;
 
     const file = await mutateTasks(taskPath, sessionId, async (f: TaskFile) => {
       switch (input.action) {
@@ -249,7 +252,7 @@ export const taskTool: Tool<TaskInput, TaskOutput> = {
           }
           const now = new Date().toISOString();
           const newTask: TaskItem = {
-            id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            id: `task_${Date.now()}_${randomUUID().slice(0, 8)}`,
             title: t.title,
             description: t.description,
             type: t.type || 'feature',
@@ -335,7 +338,7 @@ export const taskTool: Tool<TaskInput, TaskOutput> = {
             }
           }
 
-          ctx.state.replaceTodos(todos);
+          todosToReplace = todos;
           promoteMeta.count = todos.length;
           promoteMeta.title = match.title;
           break;
@@ -372,6 +375,10 @@ export const taskTool: Tool<TaskInput, TaskOutput> = {
 
       return f;
     });
+
+    // Apply todo replacements after the task file mutation succeeds so that
+    // on error the state is rolled back cleanly.
+    if (todosToReplace) ctx.state.replaceTodos(todosToReplace);
 
     // If the callback set an early-return result, use it
     if (early) return early;

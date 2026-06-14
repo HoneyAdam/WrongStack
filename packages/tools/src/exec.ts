@@ -7,6 +7,8 @@ import { COMMAND_OUTPUT_MAX_BYTES, normalizeCommandOutput } from './_util.js';
 import { getProcessRegistry, redactCommand } from './process-registry.js';
 import { resolveWin32Command } from './_win32-resolve.js';
 
+const isWin = process.platform === 'win32';
+
 const ALLOWED_COMMANDS: Record<string, string[]> = {
   node: ['--version', '-r', '--input-type=module'],
   npm: ['--version', 'list', 'pkg', 'doctor', 'view', 'outdated', 'audit'],
@@ -279,7 +281,6 @@ function runCommand(
     // .cmd file so spawn can locate it; shell: true is still needed because
     // .cmd/.bat files are not natively executable by CreateProcess.
     const resolved = resolveWin32Command(cmd);
-    const isWin = process.platform === 'win32';
     const needsShell = isWin && (resolved.endsWith('.cmd') || resolved.endsWith('.bat'));
 
     // On Windows the abort signal is handled manually below: Node's built-in

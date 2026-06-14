@@ -175,9 +175,13 @@ async function dockerLogs(
     // When the child is SIGTERM-killed on timeout (or aborted via `signal`),
     // its pipes can emit `error` (e.g. EPIPE on Windows). Without a listener
     // that surfaces as an unhandled error and can fail the host/test — swallow
-    // it; `child.on('error')` and the timeout already drive the result.
-    child.stdout?.on('error', () => {});
-    child.stderr?.on('error', () => {});
+    // it at debug level; `child.on('error')` and the timeout already drive the result.
+    child.stdout?.on('error', (e) => {
+      console.log(JSON.stringify({ level: 'debug', event: 'pipe_error', stream: 'stdout', error: e.message }));
+    });
+    child.stderr?.on('error', (e) => {
+      console.log(JSON.stringify({ level: 'debug', event: 'pipe_error', stream: 'stderr', error: e.message }));
+    });
     child.on('close', () => {
       const output = stdout + stderr;
       const entries = parseLogLines(output, filterRe);

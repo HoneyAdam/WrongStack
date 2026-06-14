@@ -274,9 +274,10 @@ function buildArgs(input: GitInput): string[] {
         ...(files.length ? ['--', ...files] : []),
       ];
     case 'branch':
-      // Validate branch name: reject names starting with '-' (flag injection).
+      // Validate branch name: reject names starting with '-' or containing ' --'
+      // to prevent flag injection (e.g. "foo --force").
       return input.branch
-        ? ['branch', ...(input.branch.startsWith('-') ? [] : [input.branch])]
+        ? ['branch', ...(input.branch.startsWith('-') || input.branch.includes(' --') ? [] : [input.branch])]
         : ['branch'];
     case 'checkout':
       return [
@@ -293,7 +294,7 @@ function buildArgs(input: GitInput): string[] {
     case 'fetch':
       return ['fetch', ...(input.branch ? [input.branch] : ['--all'])];
     case 'reset':
-      return ['reset'];
+      return ['reset', ...(files.length ? ['--', ...files] : [])];
     case 'worktree':
       switch (input.worktreeAction) {
         case 'list':

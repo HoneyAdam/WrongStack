@@ -14,7 +14,9 @@ export function resolveWin32Command(cmd: string): string {
   if (process.platform !== 'win32') return cmd;
 
   // Already has a path or extension — use as-is
-  if (cmd.includes('/') || cmd.includes('\\') || path.extname(cmd)) {
+  // Normalize forward slashes so path.extname correctly detects extensions
+  // even when a Unix-style path is passed on Windows.
+  if (cmd.includes('/') || cmd.includes('\\') || path.extname(cmd.replace(/\//g, '\\'))) {
     return cmd;
   }
 
