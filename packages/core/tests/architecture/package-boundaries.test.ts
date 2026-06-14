@@ -9,7 +9,10 @@ const CORE_SRC = path.resolve(process.cwd(), 'packages/core/src');
  * @wrongstack/core is always allowed (re-export barrel).
  * @wrongstack/kernel and @wrongstack/observability will be added once extracted.
  */
-const ALLOWED_SELF_IMPORTS = new Set(['@wrongstack/core']);
+const ALLOWED_SELF_IMPORTS = new Set([
+  '@wrongstack/core',
+  '@wrongstack/core/utils/dispatcher-types', // dispatcher-types.d.ts re-exports from itself in JSDoc examples
+]);
 
 /**
  * Core subdirectories that form the internal layer graph.
