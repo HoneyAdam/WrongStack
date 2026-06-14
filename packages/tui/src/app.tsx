@@ -5005,10 +5005,10 @@ export function App({
             while (stateRef.current.status !== 'idle' && Date.now() - start < 1500) {
               await new Promise((r) => setTimeout(r, 25));
             }
-            // Show the suggestion in the input field (matching auto-submit behavior),
-            // then clear it after runBlocks completes. Use try/finally to ensure
-            // the input is always cleared even if runBlocks throws.
-            setDraft(res.runText, res.runText.length);
+            // Submit directly without placing the text into the input field.
+            // The draft was already cleared above (clearDraft before dispatch),
+            // and runBlocks will handle the execution. The finally block
+            // ensures the input stays cleared even if runBlocks throws.
             try {
               await runBlocks(blocks);
             } finally {
