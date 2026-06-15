@@ -4114,6 +4114,53 @@ export function App({
       }
       return;
     }
+    // Esc closes whichever overlay/panel is open.
+    if (key.escape) {
+      if (state.agentsMonitorOpen) {
+        dispatch({ type: 'toggleAgentsMonitor' });
+        return;
+      }
+      if (state.monitorOpen) {
+        dispatch({ type: 'toggleMonitor' });
+        return;
+      }
+      // worktreeMonitor and the autoPhase PhaseMonitor are intentionally NOT
+      // handled here: each owns its own Esc close via its own useInput. Because
+      // the Input stays mounted alongside them, dispatching the toggle here too
+      // would fire it twice in one keypress and the panel would re-open.
+      if (state.todosMonitorOpen) {
+        dispatch({ type: 'toggleTodosMonitor' });
+        return;
+      }
+      if (state.settingsPicker.open) {
+        dispatch({ type: 'settingsClose' });
+        return;
+      }
+      if (state.projectPicker.open) {
+        dispatch({ type: 'projectPickerClose' });
+        return;
+      }
+      if (state.queuePanelOpen) {
+        dispatch({ type: 'toggleQueuePanel' });
+        return;
+      }
+      if (state.processListOpen) {
+        dispatch({ type: 'toggleProcessList' });
+        return;
+      }
+      if (state.goalPanelOpen) {
+        dispatch({ type: 'toggleGoalPanel' });
+        return;
+      }
+      if (state.helpOpen) {
+        dispatch({ type: 'toggleHelp' });
+        return;
+      }
+      if (state.sessionsPanelOpen) {
+        dispatch({ type: 'toggleSessionsPanel' });
+        return;
+      }
+    }
     // ── Hidden-input guard (process list only) ────────────────────────
     // The process list is the one monitor that keeps the Input hidden (its
     // single-key kill actions own the keyboard). The overlay-control keys above
