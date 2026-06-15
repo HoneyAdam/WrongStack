@@ -44,6 +44,8 @@ export interface WSUserMessage {
     id: string;
     content: string;
     timestamp: number;
+    /** Base64-encoded clipboard image, if the user pasted one. */
+    imageBase64?: string;
   };
 }
 
@@ -533,6 +535,7 @@ export type WSClientMessage =
   | { type: 'process.list' }
   | { type: 'process.kill'; payload: { pid: number } }
   | { type: 'process.killAll' }
+  | { type: 'git.info' }
   | { type: 'goal.get' }
   | { type: 'autonomy.switch'; payload: { mode: string } }
   | { type: 'prefs.update'; payload: Record<string, unknown> }
@@ -550,9 +553,10 @@ export type WSClientMessage =
   | WSCollabResume
   | WSCollabGrantControl
   | WSCollabInjectTool
-  | { type: 'mailbox.messages'; payload: { limit?: number | undefined; agentId?: string | undefined; unreadOnly?: boolean | undefined } }
+  | { type: 'mailbox.messages'; payload: { limit?: number | undefined; incompleteOnly?: boolean | undefined } }
   | { type: 'mailbox.agents'; payload: { onlineOnly?: boolean | undefined } | Record<string, never> }
   | { type: 'mailbox.clear' }
+  | { type: 'mailbox.purge'; payload?: { completedMaxAgeMs?: number; incompleteMaxAgeMs?: number } | undefined }
   | { type: 'brain.status' }
   | { type: 'brain.risk'; payload: { level: string } }
   | { type: 'brain.ask'; payload: { question: string } }
@@ -612,6 +616,7 @@ export type WSServerMessage =
   | { type: 'goal.updated'; payload: Record<string, unknown> | null }
   | { type: 'prefs.updated'; payload: Record<string, unknown> }
   | { type: 'process.list'; payload: { processes: Array<{ pid: number; command: string; tool: string; startedAt: number; status: 'running' | 'exited' | 'killed'; protected?: boolean | undefined }> } }
+  | { type: 'git.info'; payload: { branch: string; added: number; deleted: number; untracked: number; behind: number; ahead: number } }
   | { type: 'projects.list'; payload: { projects: Array<{ name: string; root: string; slug: string; lastSeen?: string | undefined }> } }
   | { type: 'projects.added'; payload: { name: string; root: string; slug: string; message: string } }
   | { type: 'projects.selected'; payload: { root: string; name: string; message: string } }

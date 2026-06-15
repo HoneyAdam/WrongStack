@@ -6,26 +6,9 @@
  * reads from the project-level GlobalMailbox and responds.
  */
 
-import * as path from 'node:path';
 import type { WebSocket } from 'ws';
-import { GlobalMailbox } from '@wrongstack/core';
+import { GlobalMailbox, resolveProjectDir } from '@wrongstack/core';
 import { send, errMessage } from './ws-utils.js';
-
-// ── Helpers ───────────────────────────────────────────────────────────
-
-function resolveProjectDir(projectRoot: string, globalRoot: string): string {
-  const { createHash } = require('node:crypto');
-  const hash = createHash('sha256')
-    .update(path.resolve(projectRoot))
-    .digest('hex')
-    .slice(0, 6);
-  const slug = path
-    .basename(projectRoot)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .slice(0, 40) || 'project';
-  return path.join(globalRoot, 'projects', `${slug}-${hash}`);
-}
 
 export interface MailboxHandlerDeps {
   /** Absolute project root. */
@@ -38,20 +21,23 @@ export interface MailboxHandlerDeps {
 
 /**
  * List recent mailbox messages. Frontend sends:
- *   { type: 'mailbox.messages', limit?: number, agentId?: string }
+ *   { type: 'mailbox.messages', limit?: number, incompleteOnly?: boolean }
+ *
+ * Uses `incompleteOnly` so the server filters to active/unread messages,
+ * making readByCount === 0 a reliable "unread to all agents" signal for
+ * the ActivityBar badge count.
  */
 export async function handleMailboxMessages(
   ws: WebSocket,
   deps: MailboxHandlerDeps,
-  payload: { limit?: number; agentId?: string; unreadOnly?: boolean } | undefined,
+  payload: { limit?: number; incompleteOnly?: boolean } | undefined,
 ): Promise<void> {
   try {
     const dir = resolveProjectDir(deps.projectRoot, deps.globalRoot);
     const mb = new GlobalMailbox(dir);
     const messages = await mb.query({
       limit: payload?.limit ?? 30,
-      to: payload?.agentId,
-      unreadBy: payload?.unreadOnly ? payload.agentId : undefined,
+      incompleteOnly: payload?.incompleteOnly ?? false,
     });
     send(ws, {
       type: 'mailbox.messages',
@@ -61,8 +47,9 @@ export async function handleMailboxMessages(
           subject: m.subject, body: m.body, priority: m.priority,
           readBy: m.readBy, readByCount: Object.keys(m.readBy).length,
           completed: m.completed, completedBy: m.completedBy,
-          outcome: m.outcome, timestamp: m.timestamp,
+          completedAt: m.completedAt, outcome: m.outcome, timestamp: m.timestamp,
           replyTo: m.replyTo, senderSessionId: m.senderSessionId,
+          taskContext: m.taskContext,
         })),
       },
     });
@@ -120,5 +107,25 @@ export async function handleMailboxClear(
     send(ws, { type: 'mailbox.cleared', payload: {} });
   } catch (err) {
     send(ws, { type: 'mailbox.cleared', payload: { error: errMessage(err) } });
+  }
+}
+
+/**
+ * Purge stale/orphaned messages from the mailbox. Frontend sends:
+ *   { type: 'mailbox.purge', payload?: { completedMaxAgeMs?: number; incompleteMaxAgeMs?: number } }
+ * Server responds with 'mailbox.purged'.
+ */
+export async function handleMailboxPurge(
+  ws: WebSocket,
+  deps: MailboxHandlerDeps,
+  opts?: { completedMaxAgeMs?: number; incompleteMaxAgeMs?: number },
+): Promise<void> {
+  try {
+    const dir = resolveProjectDir(deps.projectRoot, deps.globalRoot);
+    const mb = new GlobalMailbox(dir);
+    const result = await mb.purgeStale(opts);
+    send(ws, { type: 'mailbox.purged', payload: result });
+  } catch (err) {
+    send(ws, { type: 'mailbox.purged', payload: { error: errMessage(err) } });
   }
 }

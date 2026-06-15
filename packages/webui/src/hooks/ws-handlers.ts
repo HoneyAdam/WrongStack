@@ -21,6 +21,7 @@ import {
   useUIStore,
   useWorktreeStore,
   useFileStore,
+  useGitInfoStore,
 } from '@/stores';
 import { useVizStore, wsToVizEvent } from '@/stores/viz-store';
 import { useLocalPrefs } from '@/stores/local-prefs';
@@ -610,10 +611,12 @@ export function handleFilesWritten(msg: WSServerMessage) {
 
 // ── Handler registry: maps message types to handler functions ──
 
-/** Re-query the mailbox so the store (and ActivityBar badge) stays fresh. */
+/** Re-query the mailbox so the store (and ActivityBar badge) stays fresh.
+ *  Uses incompleteOnly so the server filters to active/unread messages — the
+ *  readByCount field then accurately reflects whether anyone has acted. */
 function queryMailbox() {
-  const ws = getWSClient(useConfigStore.getState().wsUrl);
-  ws?.send?.({ type: 'mailbox.messages', payload: { limit: 30 } });
+  const ws = getWSClient();
+  ws?.send?.({ type: 'mailbox.messages', payload: { limit: 30, incompleteOnly: true } });
   ws?.send?.({ type: 'mailbox.agents', payload: {} });
 }
 
@@ -708,6 +711,10 @@ export const WS_HANDLERS: Record<string, (msg: WSServerMessage) => void> = {
   'mailbox.cleared': (_msg: WSServerMessage) => {
     // Clear the local message store and re-query so the UI stays consistent.
     useMailboxStore.getState().setMessages([]);
+    queryMailbox();
+  },
+  'mailbox.purged': (msg: WSServerMessage) => {
+    // Refresh the mailbox store after a purge.
     queryMailbox();
   },
   'brain.status': (msg: WSServerMessage) => {
@@ -820,5 +827,9 @@ export const WS_HANDLERS: Record<string, (msg: WSServerMessage) => void> = {
       refined: p.refined,
       english: p.english,
     });
+  },
+  'git.info': (msg: WSServerMessage) => {
+    const p = msg.payload as { branch: string; added: number; deleted: number; untracked: number; behind: number; ahead: number };
+    useGitInfoStore.getState().setInfo({ ...p, fetchedAt: Date.now() });
   },
 };

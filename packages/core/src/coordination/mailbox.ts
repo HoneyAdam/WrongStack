@@ -27,6 +27,8 @@ import type {
   MailboxMessage,
   MailboxQuery,
   MailboxSendInput,
+  PurgeOptions,
+  PurgeResult,
 } from './mailbox-types.js';
 
 const MAILBOX_FILE = '_mailbox.jsonl';
@@ -208,6 +210,52 @@ export class DefaultMailbox implements Mailbox {
     await withFileLock(this.filePath, async () => {
       await fsp.writeFile(this.filePath, '', 'utf8');
     });
+  }
+
+  async purgeStale(opts?: PurgeOptions): Promise<PurgeResult> {
+    const COMPLETED_MAX_AGE_MS = opts?.completedMaxAgeMs ?? 86_400_000; // 1 day
+    const INCOMPLETE_MAX_AGE_MS = opts?.incompleteMaxAgeMs ?? 604_800_000; // 7 days
+
+    let completedPurged = 0;
+    let incompletePurged = 0;
+
+    await withFileLock(this.filePath, async () => {
+      const all = await this._readAll();
+      const now = Date.now();
+      const cutoffCompleted = now - COMPLETED_MAX_AGE_MS;
+      const cutoffIncomplete = now - INCOMPLETE_MAX_AGE_MS;
+
+      const kept: MailboxMessage[] = [];
+
+      for (const msg of all) {
+        const msgTime = new Date(msg.timestamp).getTime();
+        const completedTime = msg.completedAt ? new Date(msg.completedAt).getTime() : 0;
+
+        if (msg.completed && completedTime < cutoffCompleted) {
+          completedPurged++;
+          continue;
+        }
+        if (!msg.completed && msgTime < cutoffIncomplete) {
+          incompletePurged++;
+          continue;
+        }
+
+        kept.push(msg);
+      }
+
+      if (kept.length < all.length) {
+        const content = kept.map((m) => JSON.stringify(m)).join(LINE_SEPARATOR) + LINE_SEPARATOR;
+        await fsp.writeFile(this.filePath, content, 'utf8');
+      }
+    });
+
+    const all = await this._readAll();
+    return {
+      completedPurged,
+      incompletePurged,
+      totalPurged: completedPurged + incompletePurged,
+      remaining: all.length,
+    };
   }
 
   // ── Client registry stubs (not applicable per-session) ─────────────────

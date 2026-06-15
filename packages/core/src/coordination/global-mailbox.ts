@@ -34,6 +34,8 @@ import type {
   MailboxMessage,
   MailboxQuery,
   MailboxSendInput,
+  PurgeOptions,
+  PurgeResult,
   RegisteredAgent,
   RegisteredClient,
 } from './mailbox-types.js';
@@ -437,6 +439,54 @@ export class GlobalMailbox implements Mailbox {
     await withFileLock(this.messagePath, async () => {
       await fsp.writeFile(this.messagePath, '', 'utf8');
     });
+  }
+
+  async purgeStale(opts?: PurgeOptions): Promise<PurgeResult> {
+    const COMPLETED_MAX_AGE_MS = opts?.completedMaxAgeMs ?? 86_400_000; // 1 day
+    const INCOMPLETE_MAX_AGE_MS = opts?.incompleteMaxAgeMs ?? 604_800_000; // 7 days
+
+    let completedPurged = 0;
+    let incompletePurged = 0;
+
+    // Read-modify-write under the lock — same pattern as ack().
+    await withFileLock(this.messagePath, async () => {
+      const all = await this._readMessages();
+      const now = Date.now();
+      const cutoffCompleted = now - COMPLETED_MAX_AGE_MS;
+      const cutoffIncomplete = now - INCOMPLETE_MAX_AGE_MS;
+
+      const kept: MailboxMessage[] = [];
+
+      for (const msg of all) {
+        const msgTime = new Date(msg.timestamp).getTime();
+        const completedTime = msg.completedAt ? new Date(msg.completedAt).getTime() : 0;
+
+        if (msg.completed && completedTime < cutoffCompleted) {
+          completedPurged++;
+          continue; // drop
+        }
+        if (!msg.completed && msgTime < cutoffIncomplete) {
+          incompletePurged++;
+          continue; // drop
+        }
+
+        kept.push(msg);
+      }
+
+      // Rewrite only if something changed
+      if (kept.length < all.length) {
+        const content = kept.map((m) => JSON.stringify(m)).join(LINE_SEPARATOR) + LINE_SEPARATOR;
+        await fsp.writeFile(this.messagePath, content, 'utf8');
+      }
+    });
+
+    const all = await this._readMessages();
+    return {
+      completedPurged,
+      incompletePurged,
+      totalPurged: completedPurged + incompletePurged,
+      remaining: all.length,
+    };
   }
 
   // ── Internal ────────────────────────────────────────────────────────────

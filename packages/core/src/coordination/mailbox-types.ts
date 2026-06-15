@@ -302,6 +302,32 @@ export interface AgentHeartbeatInput {
   toolCalls?: number | undefined;
 }
 
+// ── Purge options & result ───────────────────────────────────────────────
+
+export interface PurgeOptions {
+  /**
+   * Purge completed messages older than this many milliseconds.
+   * Default: 1 day (86_400_000 ms)
+   */
+  completedMaxAgeMs?: number | undefined;
+  /**
+   * Purge incomplete messages older than this many milliseconds.
+   * Default: 7 days (604_800_000 ms)
+   */
+  incompleteMaxAgeMs?: number | undefined;
+}
+
+export interface PurgeResult {
+  /** Messages removed because they were completed and too old. */
+  completedPurged: number;
+  /** Messages removed because they were incomplete and too old. */
+  incompletePurged: number;
+  /** Total messages removed. */
+  totalPurged: number;
+  /** Messages remaining in the mailbox after purge. */
+  remaining: number;
+}
+
 // ── Mailbox interface ────────────────────────────────────────────────────
 
 export interface Mailbox {
@@ -349,6 +375,17 @@ export interface Mailbox {
    * Agents and read receipts are preserved; only messages are cleared.
    */
   clearAll(): Promise<void>;
+
+  /**
+   * Purge orphaned and stale messages from the mailbox.
+   *
+   * Stale messages are:
+   *  - Completed messages older than `completedMaxAgeMs` (default: 1 day)
+   *  - Incomplete messages older than `incompleteMaxAgeMs` (default: 7 days)
+   *
+   * This does NOT touch agent registrations or client registry.
+   */
+  purgeStale(opts?: PurgeOptions): Promise<PurgeResult>;
 
   // ── Client (REPL/TUI/WebUI) registry ──────────────────────────────────
 

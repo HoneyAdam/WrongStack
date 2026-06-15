@@ -16,6 +16,7 @@ import {
   RotateCw,
   UserCheck,
   Trash2,
+  Sparkles,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { confirmModal } from './ConfirmModal';
@@ -53,6 +54,7 @@ export function MailboxPanel({ className }: { className?: string }) {
   const agents = useMailboxStore((s) => s.agents);
   const [collapsed, setCollapsed] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [purging, setPurging] = useState(false);
   const { client } = useWebSocket();
   // Track the socket lifecycle so the initial queries fire once the
   // connection is actually open (client.send drops messages otherwise).
@@ -89,6 +91,27 @@ export function MailboxPanel({ className }: { className?: string }) {
   useEffect(() => {
     if (deleting && messages.length === 0) setDeleting(false);
   }, [deleting, messages.length]);
+
+  async function handlePurge() {
+    const ok = await confirmModal({
+      title: 'Purge stale messages?',
+      message:
+        'Removes completed messages older than 1 day and incomplete messages older than 7 days. Active messages are preserved.',
+      confirmLabel: 'Purge',
+      danger: false,
+    });
+    if (!ok) return;
+    setPurging(true);
+    client.send({ type: 'mailbox.purge' });
+  }
+
+  // Reset purging state after server confirms (ws-handlers re-queries mailbox).
+  useEffect(() => {
+    if (purging) {
+      const t = setTimeout(() => setPurging(false), 3000);
+      return () => clearTimeout(t);
+    }
+  }, [purging]);
 
   return (
     <div className={cn('rounded-lg border border-border bg-card/60 backdrop-blur-sm', className)}>
@@ -130,6 +153,16 @@ export function MailboxPanel({ className }: { className?: string }) {
                 >
                   <Trash2 className="h-3 w-3" />
                   {deleting ? 'Deleting…' : 'Delete all'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePurge}
+                  disabled={purging}
+                  className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-cyan-500 disabled:opacity-40 transition-colors"
+                  title="Purge stale/orphaned messages"
+                >
+                  <Sparkles className="h-3 w-3" />
+                  {purging ? 'Purging…' : 'Purge'}
                 </button>
               </div>
               {messages.slice(0, 8).map((m) => {

@@ -2019,6 +2019,29 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
         break;
       }
 
+      case 'mailbox.purge': {
+        const projectRoot =
+          opts.projectRoot ?? (opts.agent.ctx as { projectRoot?: string }).projectRoot ?? '';
+        const globalRoot = opts.globalConfigPath ? path.dirname(opts.globalConfigPath) : '';
+        if (!projectRoot || !globalRoot) {
+          send(ws, { type: 'mailbox.purged', payload: { error: 'No project root available' } });
+          break;
+        }
+        try {
+          const mbDir = resolveProjectDir(projectRoot, globalRoot);
+          const mb = new GlobalMailbox(mbDir);
+          const payload = msg as { type: 'mailbox.purge'; payload?: { completedMaxAgeMs?: number; incompleteMaxAgeMs?: number } };
+          const result = await mb.purgeStale(payload.payload);
+          send(ws, { type: 'mailbox.purged', payload: result });
+        } catch (err) {
+          send(ws, {
+            type: 'mailbox.purged',
+            payload: { error: err instanceof Error ? err.message : String(err) },
+          });
+        }
+        break;
+      }
+
       default: {
         // Delegate AutoPhase lifecycle messages to the AutoPhase handler.
         // If the message type starts with 'autophase.', forward it; otherwise

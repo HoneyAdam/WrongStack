@@ -162,6 +162,7 @@ export function buildMailboxCommand(opts: SlashCommandContext): SlashCommand {
       '  /mailbox broadcast <message>  Message every agent on the project.',
       '  /mailbox history [n]          Last n messages on the project (default 20).',
       '  /mailbox clear                 Delete all messages from the mailbox.',
+      '  /mailbox purge                Remove stale/orphaned messages (completed >1d, incomplete >7d).',
       '',
       'Examples:',
       '  /mailbox broadcast pausing deploys, hold off on main',
@@ -280,8 +281,21 @@ export function buildMailboxCommand(opts: SlashCommandContext): SlashCommand {
         return { message: color.green('✓ All messages deleted from the mailbox.') };
       }
 
+      if (sub === 'purge') {
+        const result = await mb.purgeStale();
+        if (result.totalPurged === 0) {
+          return { message: color.green('✓ No stale messages found. Mailbox is clean.') };
+        }
+        return {
+          message:
+            `✓ Purged ${result.totalPurged} message(s): ` +
+            `${result.completedPurged} completed, ${result.incompletePurged} incomplete. ` +
+            `${result.remaining} message(s) remain.`,
+        };
+      }
+
       return {
-        message: `Unknown subcommand "${sub}". Use: /mailbox [agents|online|send|broadcast|history|clear]`,
+        message: `Unknown subcommand "${sub}". Use: /mailbox [agents|online|send|broadcast|history|clear purge]`,
       };
     },
   };

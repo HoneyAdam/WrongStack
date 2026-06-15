@@ -72,7 +72,7 @@ import { bootConfig, patchConfig } from './boot.js';
 import { AutoPhaseWebSocketHandler } from './autophase-ws-handler.js';
 import { CollaborationWebSocketHandler } from './collaboration-ws-handler.js';
 import { WorktreeWebSocketHandler } from './worktree-ws-handler.js';
-import { handleMailboxMessages, handleMailboxAgents, handleMailboxClear } from './mailbox-handlers.js';
+import { handleMailboxMessages, handleMailboxAgents, handleMailboxClear, handleMailboxPurge } from './mailbox-handlers.js';
 import { verifyClient as verifyWsClient } from './ws-auth.js';
 import { registerShutdownHandlers } from './lifecycle.js';
 import { registerInstance, unregisterInstance } from './instance-registry.js';
@@ -2487,6 +2487,49 @@ export async function startWebUI(
         break;
       }
 
+      case 'git.info': {
+        // Read git branch, change stats, and sync status from the working directory.
+        const cwd = projectRoot;
+        const execFile = (cmd: string, args: string[]): Promise<string> =>
+          new Promise((resolve) => {
+            import('node:child_process').then(({ execFile: ef }) => {
+              ef(cmd, args, { cwd, timeout: 3000 }, (err: Error | null, stdout: string) => {
+                resolve(err ? '' : stdout.trim());
+              });
+            });
+          });
+
+        const [branchRaw, diffRaw, statusRaw, upstreamRaw] = await Promise.all([
+          execFile('git', ['branch', '--show-current']),
+          execFile('git', ['diff', '--stat']),
+          execFile('git', ['status', '--porcelain']),
+          execFile('git', ['rev-list', '--left-right', '--count', '@{upstream}...HEAD']),
+        ]);
+
+        const branch = branchRaw || '(detached)';
+
+        // Parse `git diff --stat` output like "3 files changed, 10 insertions(+), 2 deletions(-)"
+        const diffMatch = /\+\s*(\d+)\s*deletion/i.exec(diffRaw);
+        const addMatch  = /(\d+)\s*insertion/i.exec(diffRaw)  ?? /(\d+)\s*addition/i.exec(diffRaw);
+        const delMatch  = /\+\s*(\d+)\s*deletion/i.exec(diffRaw);
+        const added    = addMatch  ? Number(addMatch[1])  : 0;
+        const deleted  = delMatch  ? Number(delMatch[1])  : 0;
+
+        // Count untracked files from `git status --porcelain`
+        const untracked = statusRaw.split('\n').filter((l) => l.startsWith('??')).length;
+
+        // Parse behind/ahead from `@{upstream}...HEAD`
+        const [aheadRaw, behindRaw] = (upstreamRaw || '0\t0').split('\t');
+        const ahead  = Number(aheadRaw) || 0;
+        const behind = Number(behindRaw) || 0;
+
+        send(ws, {
+          type: 'git.info',
+          payload: { branch, added, deleted, untracked, ahead, behind },
+        });
+        break;
+      }
+
       case 'goal.get': {
         // Read goal.json from disk and broadcast to all clients so every
         // connected browser sees the same goal state. The file is polled
@@ -2971,6 +3014,12 @@ export async function startWebUI(
         return handleMailboxClear(
           ws,
           { projectRoot, globalRoot: path.dirname(globalConfigPath) },
+        );
+      case 'mailbox.purge':
+        return handleMailboxPurge(
+          ws,
+          { projectRoot, globalRoot: path.dirname(globalConfigPath) },
+          (msg as { payload?: { completedMaxAgeMs?: number; incompleteMaxAgeMs?: number } }).payload,
         );
 
       // ── Brain — status, autonomy ceiling, direct decision support ───
