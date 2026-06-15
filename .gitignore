@@ -39,6 +39,8 @@ coverage/
 # Editor swap files
 *.swp
 *~
+# WrongStack skill editor backups (created when saving SKILL.md files)
+*.SKILL.save.md
 # Vitest coverage
 coverage/**
 .reports/

@@ -1,5 +1,6 @@
 import type { Config, ConfigStore } from '../types/config.js';
 import { ConfigError, ERROR_CODES } from '../types/errors.js';
+import { toErrorMessage } from '../utils/error.js';
 
 
 /**
@@ -83,7 +84,7 @@ export class DefaultConfigStore implements ConfigStore {
         console.error(JSON.stringify({
           level: 'error',
           event: 'config_store.watcher_threw',
-          message: err instanceof Error ? err.message : String(err),
+          message: toErrorMessage(err),
           timestamp: new Date().toISOString(),
         }));
       }

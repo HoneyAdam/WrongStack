@@ -1,4 +1,5 @@
 import type { HealthRegistry, MetricsSink, MetricsSnapshot } from '../types/observability.js';
+import { toErrorMessage } from '../utils/error.js';
 
 /** TLS options for HTTPS metrics endpoint. */
 export interface MetricsTlsOptions {
@@ -160,7 +161,7 @@ export async function startMetricsServer(opts: MetricsServerOptions): Promise<Me
       } catch (err) {
         res.statusCode = 500;
         res.setHeader('content-type', 'text/plain; charset=utf-8');
-        res.end(`metrics render failed: ${err instanceof Error ? err.message : String(err)}`);
+        res.end(`metrics render failed: ${toErrorMessage(err)}`);
         return;
       }
       res.statusCode = 200;
@@ -178,7 +179,7 @@ export async function startMetricsServer(opts: MetricsServerOptions): Promise<Me
         (err: unknown) => {
           res.statusCode = 500;
           res.setHeader('content-type', 'text/plain; charset=utf-8');
-          res.end(`health run failed: ${err instanceof Error ? err.message : String(err)}`);
+          res.end(`health run failed: ${toErrorMessage(err)}`);
         },
       );
       return;

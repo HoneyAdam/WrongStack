@@ -2,6 +2,7 @@ import { PluginError, ERROR_CODES } from '../types/errors.js';
 import type { Logger } from '../types/logger.js';
 import type { Plugin, PluginAPI, PluginDependency } from '../types/plugin.js';
 import { validateAgainstSchema } from '../utils/json-schema-validate.js';
+import { toErrorMessage } from '../utils/error.js';
 
 /** Internal map tracking the API instance each plugin received during setup,
  *  so unloadPlugins can call teardown with the same API (not a fresh one).
@@ -192,7 +193,7 @@ export async function loadPlugins(
   try {
     sorted = topoSort(plugins);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = toErrorMessage(err);
     opts.log.error('Plugin dependency sort failed', message);
     throw new PluginError({
       message: `Plugin dependency sort failed: ${message}`,

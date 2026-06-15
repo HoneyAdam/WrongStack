@@ -16,6 +16,7 @@ import {
   type JournalEntry,
 } from '../storage/goal-store.js';
 import { sleep } from '../utils/sleep.js';
+import { toErrorMessage } from '../utils/error.js';
 import { formatDecisionSummary } from './autonomy-brain.js';
 
 const execFileP = promisify(execFile);
@@ -235,7 +236,7 @@ export class EternalAutonomyEngine {
       console.error(JSON.stringify({
         level: 'error',
         event: 'engine.persist_state_failed',
-        message: err instanceof Error ? err.message : String(err),
+        message: toErrorMessage(err),
         context: { expectedState: 'stopped' },
         timestamp: new Date().toISOString(),
       }));
@@ -270,7 +271,7 @@ export class EternalAutonomyEngine {
         } catch (err) {
           this.consecutiveFailures++;
           this.opts.onError?.(err instanceof Error ? err : new Error(String(err)), this.consecutiveFailures);
-          await this.appendFailure('engine error', err instanceof Error ? err.message : String(err));
+          await this.appendFailure('engine error', toErrorMessage(err));
         }
 
         if (iterationOk) {
@@ -395,7 +396,7 @@ export class EternalAutonomyEngine {
     } catch (err) {
       const isAbort = err instanceof Error && (err.name === 'AbortError' || err.message.includes('abort'));
       status = isAbort ? 'aborted' : 'failure';
-      note = err instanceof Error ? err.message : String(err);
+      note = toErrorMessage(err);
       // Surface .recoverable on the thrown WrongStackError too — provider
       // errors that escape the agent's catch (rare; usually wrapped into
       // result.error) still classify correctly.

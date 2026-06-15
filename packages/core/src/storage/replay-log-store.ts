@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { atomicWrite, withFileLock } from '../utils/atomic-write.js';
+import { toErrorMessage } from '../utils/error.js';
 import { sessionScopedPath } from '../utils/session-scoped-path.js';
 import { hashRequest } from '../replay/hash.js';
 import type { Request, Response } from '../types/provider.js';
@@ -237,7 +238,7 @@ export class ReplayLogStore {
             level: 'warn',
             event: 'replay_log_store.list_readdir_failed',
             dir,
-            message: err instanceof Error ? err.message : String(err),
+            message: toErrorMessage(err),
             timestamp: new Date().toISOString(),
           }));
         }

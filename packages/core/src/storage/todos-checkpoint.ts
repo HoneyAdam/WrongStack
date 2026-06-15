@@ -3,6 +3,7 @@ import type { EventBus } from '../kernel/events.js';
 import type { TodoItem } from '../core/context.js';
 import type { ConversationState } from '../core/conversation-state.js';
 import { atomicWrite } from '../utils/atomic-write.js';
+import { toErrorMessage } from '../utils/error.js';
 
 /**
  * On-disk checkpoint for `ctx.todos`. Written atomically every time the
@@ -42,7 +43,7 @@ export async function loadTodosCheckpoint(
       filePath,
       operation: 'load',
       outcome: 'failure',
-      error: err instanceof Error ? err.message : String(err),
+      error: toErrorMessage(err),
       recoverable: true,
     });
     return null;
@@ -130,13 +131,13 @@ export async function saveTodosCheckpoint(
       filePath,
       operation: 'save',
       outcome: 'failure',
-      error: err instanceof Error ? err.message : String(err),
+      error: toErrorMessage(err),
       recoverable: false,
     });
     console.warn(JSON.stringify({
       level: 'warn',
       event: 'todos_checkpoint.save_failed',
-      message: err instanceof Error ? err.message : String(err),
+      message: toErrorMessage(err),
       timestamp: new Date().toISOString(),
     }));
   }
@@ -167,7 +168,7 @@ export function attachTodosCheckpoint(
       .catch((err) => {
         // Log and keep the chain alive — a failed write must not
         // poison the chain and silently stop all subsequent writes.
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = toErrorMessage(err);
         console.error(JSON.stringify({
           level: 'error',
           event: 'todos_checkpoint.write_chain_failed',

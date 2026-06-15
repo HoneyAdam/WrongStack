@@ -2,6 +2,7 @@ import type { HookEntry, HookEvent, HookInput, HookOutcome } from '../types/hook
 import type { Logger } from '../types/logger.js';
 import { type HookRegistry, hookMatcherMatches } from './registry.js';
 import { runShellHook } from './shell-executor.js';
+import { toErrorMessage } from '../utils/error.js';
 
 /** Minimal run-state the runner reads. `Context` structurally satisfies it. */
 export interface HookRunEnv {
@@ -147,7 +148,7 @@ export class HookRunner {
       );
     } catch (err) {
       this.opts.logger?.warn?.(
-        `${payload.event} hook threw: ${err instanceof Error ? err.message : String(err)}`,
+        `${payload.event} hook threw: ${toErrorMessage(err)}`,
       );
       return null;
     }

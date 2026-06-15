@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { EventBus } from '../kernel/events.js';
 import type { ConversationState } from '../core/conversation-state.js';
 import { atomicWrite, withFileLock } from '../utils/atomic-write.js';
+import { toErrorMessage } from '../utils/error.js';
 
 /**
  * Plan items are the strategic counterpart to todos. Where `ctx.todos`
@@ -43,7 +44,7 @@ export async function loadPlan(filePath: string, events?: EventBus): Promise<Pla
       store: 'plan',
       filePath,
       operation: 'load',
-      error: err instanceof Error ? err.message : String(err),
+      error: toErrorMessage(err),
       recoverable: true,
     });
     return null;
@@ -103,12 +104,12 @@ export async function savePlan(filePath: string, plan: PlanFile, events?: EventB
       store: 'plan',
       filePath,
       operation: 'save',
-      error: err instanceof Error ? err.message : String(err),
+      error: toErrorMessage(err),
       recoverable: false,
     });
     console.warn(
       '[plan-store] save failed:',
-      err instanceof Error ? err.message : String(err),
+      toErrorMessage(err),
     );
   }
 }

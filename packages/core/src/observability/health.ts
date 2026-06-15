@@ -1,3 +1,4 @@
+import { toErrorMessage } from '../utils/error.js';
 import type {
   AggregateHealth,
   HealthCheck,
@@ -60,7 +61,7 @@ export class DefaultHealthRegistry implements HealthRegistry {
     try {
       return await Promise.race([check.check(), timeout]);
     } catch (err) {
-      return { status: 'unhealthy', detail: err instanceof Error ? err.message : String(err) };
+      return { status: 'unhealthy', detail: toErrorMessage(err) };
     } finally {
       if (timer) clearTimeout(timer);
     }

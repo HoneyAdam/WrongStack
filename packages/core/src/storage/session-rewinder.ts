@@ -1,4 +1,5 @@
 import { expectDefined } from '../utils/expect-defined.js';
+import { toErrorMessage } from '../utils/error.js';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import type { CheckpointInfo, RewindResult, RewindResultExtended, SessionRewinder } from '../types/session-rewinder.js';
@@ -218,7 +219,7 @@ async function revertSnapshots(
           }
         }
       } catch (err) {
-        errors.push(`${file.path}: ${err instanceof Error ? err.message : String(err)}`);
+        errors.push(`${file.path}: ${toErrorMessage(err)}`);
       }
     }
   }

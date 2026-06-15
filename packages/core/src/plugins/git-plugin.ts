@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { color } from '../utils/color.js';
+import { toErrorMessage } from '../utils/error.js';
 import { ERROR_CODES, WrongStackError } from '../types/errors.js';
 import type { Plugin } from '../types/plugin.js';
 import type { SlashCommand, Context } from '../index.js';
@@ -74,7 +75,7 @@ async function runGit(
   } catch (err) {
     if (err instanceof WrongStackError) throw err;
     throw new WrongStackError({
-      message: err instanceof Error ? err.message : String(err),
+      message: toErrorMessage(err),
       code: ERROR_CODES.TOOL_EXECUTION_FAILED,
       subsystem: 'tool',
       context: { command: 'git', args, cwd },

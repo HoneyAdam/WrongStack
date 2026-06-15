@@ -1,6 +1,7 @@
 import * as fsp from 'node:fs/promises';
 import type { EventBus } from '../kernel/events.js';
 import { atomicWrite, withFileLock } from '../utils/atomic-write.js';
+import { toErrorMessage } from '../utils/error.js';
 import { color } from '../utils/color.js';
 import { resolveWstackPaths } from '../utils/wstack-paths.js';
 import { FsError, ERROR_CODES } from '../types/errors.js';
@@ -128,7 +129,7 @@ export async function loadGoal(filePath: string, events?: EventBus): Promise<Goa
       store: 'goal',
       filePath,
       operation: 'load',
-      error: err instanceof Error ? err.message : String(err),
+      error: toErrorMessage(err),
       recoverable: false,
     });
     throw err; // permission errors etc. should surface
@@ -202,11 +203,11 @@ export async function saveGoal(filePath: string, goal: GoalFile, events?: EventB
       store: 'goal',
       filePath,
       operation: 'save',
-      error: err instanceof Error ? err.message : String(err),
+      error: toErrorMessage(err),
       recoverable: false,
     });
     throw new FsError({
-      message: err instanceof Error ? err.message : String(err),
+      message: toErrorMessage(err),
       code: ERROR_CODES.FS_ATOMIC_WRITE_FAILED,
       path: filePath,
       cause: err,
@@ -250,7 +251,7 @@ export async function updateGoal(
           store: 'goal',
           filePath,
           operation: 'delete',
-          error: err instanceof Error ? err.message : String(err),
+          error: toErrorMessage(err),
           recoverable: true,
         });
         // best-effort — file may not exist

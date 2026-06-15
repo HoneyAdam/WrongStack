@@ -13,6 +13,7 @@ import type {
   ToolExecutorStrategy,
 } from '../types/tool-executor.js';
 import { expectDefined } from '../utils/expect-defined.js';
+import { toErrorMessage } from '../utils/error.js';
 import { validateAgainstSchema } from '../utils/json-schema-validate.js';
 import { createToolOutputSerializer } from '../utils/tool-output-serializer.js';
 export class ToolExecutor {
@@ -254,7 +255,7 @@ export class ToolExecutor {
         );
         return { result, tool, durationMs: Date.now() - start };
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = toErrorMessage(err);
         const scrubbed = this.opts.secretScrubber.scrub(msg);
         this.opts.renderer?.writeToolResult(tool.name, scrubbed, true);
         const result = {
@@ -282,7 +283,7 @@ export class ToolExecutor {
       try {
         return await runOne(use);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = toErrorMessage(err);
         const scrubbed = this.opts.secretScrubber.scrub(msg);
         const result = {
           type: 'tool_result' as const,

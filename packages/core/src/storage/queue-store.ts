@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import type { EventBus } from '../kernel/events.js';
 import type { ContentBlock } from '../types/blocks.js';
 import { atomicWrite } from '../utils/atomic-write.js';
+import { toErrorMessage } from '../utils/error.js';
 
 /**
  * The persisted form of a single queued user message. The TUI's
@@ -65,7 +66,7 @@ export class QueueStore {
         filePath: this.file,
         operation: 'write',
         outcome: 'failure',
-        error: err instanceof Error ? err.message : String(err),
+        error: toErrorMessage(err),
         recoverable: false,
         ...(this.traceId !== undefined && { traceId: this.traceId }),
       });
@@ -73,7 +74,7 @@ export class QueueStore {
         level: 'warn',
         event: 'queue_store.write_failed',
         path: this.file,
-        message: err instanceof Error ? err.message : String(err),
+        message: toErrorMessage(err),
         timestamp: new Date().toISOString(),
       }));
     }
@@ -104,7 +105,7 @@ export class QueueStore {
         filePath: this.file,
         operation: 'read',
         outcome: 'failure',
-        error: err instanceof Error ? err.message : String(err),
+        error: toErrorMessage(err),
         recoverable: true,
         ...(this.traceId !== undefined && { traceId: this.traceId }),
       });
@@ -112,7 +113,7 @@ export class QueueStore {
         level: 'warn',
         event: 'queue_store.read_failed',
         path: this.file,
-        message: err instanceof Error ? err.message : String(err),
+        message: toErrorMessage(err),
         timestamp: new Date().toISOString(),
       }));
       return [];
@@ -184,7 +185,7 @@ export class QueueStore {
         filePath: this.file,
         operation: 'clear',
         outcome: 'failure',
-        error: err instanceof Error ? err.message : String(err),
+        error: toErrorMessage(err),
         recoverable: true,
         ...(this.traceId !== undefined && { traceId: this.traceId }),
       });

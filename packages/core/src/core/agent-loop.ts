@@ -8,6 +8,7 @@ import type { ContentBlock, TextBlock } from '../types/blocks.js';
 import { isToolUseBlock } from '../types/blocks.js';
 import { toWrongStackError } from '../types/errors.js';
 import { estimateRequestTokens, estimateRequestTokensCalibrated, getCalibrationState, recordActualUsage } from '../utils/token-estimate.js';
+import { toErrorMessage } from '../utils/error.js';
 import { consumeAutonomousContinue } from './continue-to-next-iteration.js';
 import { buildBtwBlock, consumeBtwNotes } from './btw.js';
 import { buildQueuedMessagesBlock, consumeQueuedMessagesUpdate } from './queued-messages.js';
@@ -313,7 +314,7 @@ export function createAgentLoopHandler(
           .writeInFlightMarker(`iteration ${i} / max ${a.maxIterations}`)
           .catch((err) => {
             (a.logger.debug ?? a.logger.warn)?.(
-              `in-flight marker write failed: ${err instanceof Error ? err.message : String(err)}`,
+              `in-flight marker write failed: ${toErrorMessage(err)}`,
             );
           });
 
@@ -508,7 +509,7 @@ export function createAgentLoopHandler(
         .clearInFlightMarker(reason)
         .catch((err) => {
           (a.logger.debug ?? a.logger.warn)?.(
-            `in-flight marker clear failed: ${err instanceof Error ? err.message : String(err)}`,
+            `in-flight marker clear failed: ${toErrorMessage(err)}`,
           );
         });
     }

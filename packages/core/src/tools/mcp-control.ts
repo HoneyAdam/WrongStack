@@ -1,4 +1,5 @@
 import { expectDefined } from '../utils/expect-defined.js';
+import { toErrorMessage } from '../utils/error.js';
 /**
  * `mcp_control` — LLM-driven MCP server lifecycle management.
  *
@@ -240,7 +241,7 @@ async function runEnable(
     const updated = deps.registry.describe().find((s) => s.name === name);
     return `${green('✓ Enabled and started')} "${name}"${updated ? ` (${updated.toolCount} tools registered).` : '.'}`;
   } catch (err) {
-    return `${red('✗ Failed to start')} "${name}": ${err instanceof Error ? err.message : String(err)}`;
+    return `${red('✗ Failed to start')} "${name}": ${toErrorMessage(err)}`;
   }
 }
 
@@ -290,7 +291,7 @@ async function runRestart(
     const updated = deps.registry.describe().find((s) => s.name === name);
     return `${green('✓ Restarted')} "${name}"${updated ? ` (${updated.toolCount} tools registered).` : '.'}`;
   } catch (err) {
-    return `${red('✗ Restart failed')} for "${name}": ${err instanceof Error ? err.message : String(err)}`;
+    return `${red('✗ Restart failed')} for "${name}": ${toErrorMessage(err)}`;
   }
 }
 

@@ -9,6 +9,7 @@ import type {
   WireFamily,
 } from '../types/models-registry.js';
 import { atomicWrite } from '../utils/atomic-write.js';
+import { toErrorMessage } from '../utils/error.js';
 import { mergeModelsPayload } from '../utils/merge-models-payload.js';
 
 const DEFAULT_URL = 'https://models.dev/api.json';
@@ -175,7 +176,7 @@ export class DefaultModelsRegistry implements ModelsRegistry {
         // eslint-disable-next-line no-console -- one-line operator warning
         console.warn(
           `ModelsRegistry: models.dev unavailable (${
-            err instanceof Error ? err.message : String(err)
+            toErrorMessage(err)
           }); serving curated overlay only.`,
         );
         return {};

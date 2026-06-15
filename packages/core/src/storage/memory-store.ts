@@ -11,6 +11,7 @@ import type {
 } from '../types/memory.js';
 import type { EventBus } from '../kernel/events.js';
 import type { WstackPaths } from '../utils/wstack-paths.js';
+import { toErrorMessage } from '../utils/error.js';
 import { type MemoryBackend, FileMemoryBackend } from './memory-backend.js';
 
 const MAX_BYTES_TOTAL = 32_000; // ~8K tokens
@@ -143,7 +144,7 @@ export class DefaultMemoryStore implements MemoryStore {
           operation: 'readAll',
           outcome: 'failure',
           durationMs: dur,
-          error: err instanceof Error ? err.message : String(err),
+          error: toErrorMessage(err),
           ...(this.traceId !== undefined && { traceId: this.traceId }),
         });
         throw err;
@@ -177,7 +178,7 @@ export class DefaultMemoryStore implements MemoryStore {
         operation: 'read',
         outcome: 'failure',
         durationMs: dur,
-        error: err instanceof Error ? err.message : String(err),
+        error: toErrorMessage(err),
         ...(this.traceId !== undefined && { traceId: this.traceId }),
       });
       throw err;
@@ -238,7 +239,7 @@ export class DefaultMemoryStore implements MemoryStore {
           operation: 'remember',
           outcome: 'failure',
           durationMs: dur,
-          error: err instanceof Error ? err.message : String(err),
+          error: toErrorMessage(err),
           ...(this.traceId !== undefined && { traceId: this.traceId }),
         });
         throw err;
@@ -402,7 +403,7 @@ export class DefaultMemoryStore implements MemoryStore {
           operation: 'forget',
           outcome: 'failure',
           durationMs: dur,
-          error: err instanceof Error ? err.message : String(err),
+          error: toErrorMessage(err),
           ...(this.traceId !== undefined && { traceId: this.traceId }),
         });
         throw err;
@@ -445,7 +446,7 @@ export class DefaultMemoryStore implements MemoryStore {
           operation: 'consolidate',
           outcome: 'failure',
           durationMs: dur,
-          error: err instanceof Error ? err.message : String(err),
+          error: toErrorMessage(err),
           ...(this.traceId !== undefined && { traceId: this.traceId }),
         });
         throw err;
@@ -486,7 +487,7 @@ export class DefaultMemoryStore implements MemoryStore {
             operation: 'clear',
             outcome: 'failure',
             durationMs: dur,
-            error: err instanceof Error ? err.message : String(err),
+            error: toErrorMessage(err),
             ...(this.traceId !== undefined && { traceId: this.traceId }),
           });
           throw err;
@@ -522,7 +523,7 @@ export class DefaultMemoryStore implements MemoryStore {
               operation: 'clear',
               outcome: 'failure',
               durationMs: dur,
-              error: err instanceof Error ? err.message : String(err),
+              error: toErrorMessage(err),
               ...(this.traceId !== undefined && { traceId: this.traceId }),
             });
             throw err;

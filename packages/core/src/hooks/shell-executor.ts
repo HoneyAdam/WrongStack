@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { buildChildEnv } from '../utils/child-env.js';
+import { toErrorMessage } from '../utils/error.js';
 import type { HookInput, HookOutcome } from '../types/hooks.js';
 import type { Logger } from '../types/logger.js';
 
@@ -104,7 +105,7 @@ export async function runShellHook(
         windowsHide: true,
       });
     } catch (err) {
-      logger?.warn?.(`hook spawn failed: ${err instanceof Error ? err.message : String(err)}`);
+      logger?.warn?.(`hook spawn failed: ${toErrorMessage(err)}`);
       return resolve(null);
     }
 

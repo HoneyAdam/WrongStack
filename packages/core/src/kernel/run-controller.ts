@@ -1,3 +1,4 @@
+import { toErrorMessage } from '../utils/error.js';
 /**
  * RunController centralises abort + cleanup for a single agent run. It
  * wraps a single AbortController and exposes a registry of teardown
@@ -36,7 +37,7 @@ export class RunController {
           level: 'warn',
           event: 'run.cleanup_hook_failed',
           where,
-          message: err instanceof Error ? err.message : String(err),
+          message: toErrorMessage(err),
           timestamp: new Date().toISOString(),
         }));
       });

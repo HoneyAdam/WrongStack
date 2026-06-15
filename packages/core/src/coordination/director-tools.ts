@@ -5,6 +5,7 @@ import { type Director, FleetSpawnBudgetError, FleetCostCapError } from './direc
 import { dispatchAgent } from './dispatcher.js';
 import type { AgentDefinition } from './agents/index.js';
 import type { CollabSessionOptions } from './collab-debug.js';
+import { toErrorMessage } from '../utils/error.js';
 
 // ---------------------------------------------------------------------------
 // Director-facing tool factories.
@@ -98,7 +99,7 @@ export function makeSpawnTool(director: Director, roster?: Record<string, Subage
         if (err instanceof FleetCostCapError) {
           return { error: err.message, kind: err.kind, limit: err.limit, observed: err.observed };
         }
-        return { error: err instanceof Error ? err.message : String(err) };
+        return { error: toErrorMessage(err) };
       }
     },
   };
@@ -185,7 +186,7 @@ export function makeAskTool(director: Director): Tool {
           _hint: 'Response was large and stored. Use ask_result with the key to retrieve it.',
         };
       } catch (err) {
-        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+        return { ok: false, error: toErrorMessage(err) };
       }
     },
   };
@@ -462,7 +463,7 @@ export function makeCollabDebugTool(director: Director): Tool {
           evaluations: report.evaluations,
         };
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = toErrorMessage(err);
         return { error: 'collab_debug failed: ' + msg };
       }
     },

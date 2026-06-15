@@ -3,6 +3,7 @@ import { DefaultTaskStore } from '../sdd/task-generator.js';
 import { TaskTracker } from '../sdd/task-tracker.js';
 import type { TaskNode } from '../types/task-graph.js';
 import type { WorktreeHandle, WorktreeManager } from '../worktree/worktree-manager.js';
+import { toErrorMessage } from '../utils/error.js';
 import type {
   AutoPhaseOptions,
   PhaseEventMap,
@@ -138,7 +139,7 @@ export class PhaseOrchestrator {
   private async drainMerges(): Promise<void> {
     await Promise.allSettled([...this.phaseMergePromise.values()]);
     await this.mergeQueue.catch((err) => {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = toErrorMessage(err);
       console.warn(JSON.stringify({
         level: 'warn',
         event: 'orchestrator.merge_queue_failed',
@@ -157,7 +158,7 @@ export class PhaseOrchestrator {
   resume(): void {
     this.paused = false;
     this.tick().catch((err) => {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = toErrorMessage(err);
       console.error(JSON.stringify({
         level: 'error',
         event: 'orchestrator.tick_failed',
@@ -336,7 +337,7 @@ export class PhaseOrchestrator {
       try {
         verdict = await this.ctx.verifyPhase(phase, env);
       } catch (err) {
-        verdict = { ok: false, output: err instanceof Error ? err.message : String(err) };
+        verdict = { ok: false, output: toErrorMessage(err) };
       }
       if (verdict.ok) return { ok: true };
 
@@ -422,7 +423,7 @@ export class PhaseOrchestrator {
         .catch((err) => {
           // Log and keep the queue alive — a failed merge must not
           // poison the chain and silently stop all subsequent merges.
-          const msg = err instanceof Error ? err.message : String(err);
+          const msg = toErrorMessage(err);
           console.error(JSON.stringify({
             level: 'error',
             event: 'orchestrator.merge_failed',
@@ -478,12 +479,12 @@ export class PhaseOrchestrator {
       this.setIntegrationMetadata(phase, 'merge_failed', {
         branch: handle.branch,
         worktreeDir: handle.dir,
-        error: err instanceof Error ? err.message : String(err),
+        error: toErrorMessage(err),
       });
       this.emit('phase.failed', {
         phaseId: phase.id,
         name: phase.name,
-        error: `worktree merge failed: ${err instanceof Error ? err.message : String(err)}`,
+        error: `worktree merge failed: ${toErrorMessage(err)}`,
       });
     }
   }

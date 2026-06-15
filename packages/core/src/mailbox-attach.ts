@@ -12,6 +12,7 @@
 
 import { GlobalMailbox, resolveProjectDir } from './coordination/global-mailbox.js';
 import { wstackGlobalRoot } from './utils/wstack-paths.js';
+import { toErrorMessage } from './utils/error.js';
 import { mailboxSessionTag, resolveMailboxIdentity } from './coordination/mailbox-tool.js';
 import type { Mailbox, MailboxMessage } from './coordination/mailbox-types.js';
 import type { AgentInternals } from './core/agent-internals.js';
@@ -77,7 +78,7 @@ function attachMailboxCheckerInner(
         .catch((err: unknown) => {
           // Log but don't fail - registration errors shouldn't crash the agent
           console.debug(
-            `[mailbox] Failed to register agent ${derived}: ${err instanceof Error ? err.message : String(err)}`,
+            `[mailbox] Failed to register agent ${derived}: ${toErrorMessage(err)}`,
           );
         });
     }

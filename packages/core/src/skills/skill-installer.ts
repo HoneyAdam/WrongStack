@@ -1,4 +1,5 @@
 import { expectDefined } from '../utils/expect-defined.js';
+import { toErrorMessage } from '../utils/error.js';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { SkillLoader } from '../types/skill.js';
@@ -235,7 +236,7 @@ export class SkillInstaller {
           });
         }
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = toErrorMessage(err);
         for (const entry of entries) {
           result.errors.push({ name: entry.name, error: msg });
         }

@@ -1,3 +1,4 @@
+import { toErrorMessage } from '@wrongstack/core/utils';
 # WrongStack TypeScript Style Guide
 
 Surgical guide for TypeScript patterns that are easy to get wrong in this
@@ -189,7 +190,7 @@ console.warn(JSON.stringify({
 Field conventions:
 - **`level`**: `'warn'` for non-fatal anomalies, `'error'` for failures, `'fatal'` for errors immediately followed by `process.exit()`
 - **`event`**: dot-separated, subsystem-prefixed (`session_store.delete_failed`, `webui.port_reassigned`, `mcp_server.handle_message_failed`)
-- **`message`**: always `err instanceof Error ? err.message : String(err)` when wrapping errors — never the raw error object
+- **`message`**: always `toErrorMessage(err)` when wrapping errors — never the raw error object
 - **Domain fields**: include relevant context (`sessionId`, `path`, `tool`, `source`, `protocol`, `attempt`, etc.) as top-level keys
 
 ### Do
@@ -201,7 +202,7 @@ Field conventions:
     level: 'warn',
     event: 'queue_store.read_failed',
     path: this.file,
-    message: err instanceof Error ? err.message : String(err),
+    message: toErrorMessage(err),
     timestamp: new Date().toISOString(),
   }));
 });

@@ -2,6 +2,7 @@ import type { SubagentError, SubagentErrorKind } from '../../types/multi-agent.j
 import { ProviderError } from '../../types/provider.js';
 import { AgentError } from '../../types/errors.js';
 import { BudgetExceededError } from '../subagent-budget.js';
+import { toErrorMessage } from '../../utils/error.js';
 
 /**
  * Map any raw exception thrown out of a subagent's runner into a
@@ -34,7 +35,7 @@ export function classifySubagentError(
     return providerErrorToSubagentError(err, baseMessage, cause);
   }
 
-  const baseMessage = err instanceof Error ? err.message : String(err);
+  const baseMessage = toErrorMessage(err);
 
   if (err instanceof BudgetExceededError) {
     const map: Record<BudgetExceededError['kind'], SubagentErrorKind> = {

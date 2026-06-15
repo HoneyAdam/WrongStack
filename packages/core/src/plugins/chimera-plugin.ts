@@ -3,6 +3,7 @@ import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import type { Plugin } from '../types/plugin.js';
 import type { SlashCommand } from '../types/slash-command.js';
+import { toErrorMessage } from '../utils/error.js';
 
 // ---------------------------------------------------------------------------
 // Chimera configuration — read from config.extensions['wstack-chimera']
@@ -297,7 +298,7 @@ export function createChimeraPlugin(): Plugin {
 
         api.log.info(`[chimera] emitted review_needed event (${filesWithContent.length} files)`);
         } catch (err) {
-          api.log.warn(`[chimera] session.ended handler failed: ${err instanceof Error ? err.message : String(err)}`);
+          api.log.warn(`[chimera] session.ended handler failed: ${toErrorMessage(err)}`);
         }
       });
     },

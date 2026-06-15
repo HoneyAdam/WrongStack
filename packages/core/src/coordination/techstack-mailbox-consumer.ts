@@ -14,6 +14,7 @@
  */
 
 import type { Mailbox, MailboxMessage } from './mailbox-types.js';
+import { toErrorMessage } from '../utils/error.js';
 import {
   recordFileAction,
   type FileAuthorTrackerOptions,
@@ -140,7 +141,7 @@ export function startTechStackConsumer(opts: TechStackConsumerOptions): () => vo
           log(`[techstack-consumer] Spawned tech-stack agent for ${manifestPath}`);
         } catch (err) {
           handleError(err);
-          log(`[techstack-consumer] Failed to spawn tech-stack agent: ${err instanceof Error ? err.message : String(err)}`);
+          log(`[techstack-consumer] Failed to spawn tech-stack agent: ${toErrorMessage(err)}`);
         }
       }
     } catch (err) {

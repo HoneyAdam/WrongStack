@@ -16,6 +16,7 @@ import type {
 import type { SessionWriter } from '../types/session.js';
 import type { Tool } from '../types/tool.js';
 import { atomicWrite } from '../utils/atomic-write.js';
+import { toErrorMessage } from '../utils/error.js';
 import { safeParse } from '../utils/safe-json.js';
 import { InMemoryAgentBridge } from './agent-bridge.js';
 import {
@@ -1345,7 +1346,7 @@ export class Director implements ICoordinator {
    * listener for structured collection, and never affects exit code.
    */
   private logShutdownError(phase: string, err: unknown): void {
-    const detail = err instanceof Error ? err.message : String(err);
+    const detail = toErrorMessage(err);
     process.emitWarning(
       `Director shutdown phase "${phase}" failed: ${detail}`,
       'DirectorShutdownWarning',

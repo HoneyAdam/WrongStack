@@ -1,6 +1,7 @@
 import * as fsp from 'node:fs/promises';
 import type { EventBus } from '../kernel/events.js';
 import { atomicWrite, withFileLock } from '../utils/atomic-write.js';
+import { toErrorMessage } from '../utils/error.js';
 import type { TaskItem } from '../utils/task-format.js';
 
 // ---------------------------------------------------------------------------
@@ -45,7 +46,7 @@ export async function loadTasks(
       filePath,
       operation: 'load',
       outcome: 'failure',
-      error: err instanceof Error ? err.message : String(err),
+      error: toErrorMessage(err),
       recoverable: true,
     });
     return null;
@@ -120,13 +121,13 @@ export async function saveTasks(
       filePath,
       operation: 'save',
       outcome: 'failure',
-      error: err instanceof Error ? err.message : String(err),
+      error: toErrorMessage(err),
       recoverable: false,
       ...(traceId !== undefined && { traceId }),
     });
     console.warn(
       '[task-store] save failed:',
-      err instanceof Error ? err.message : String(err),
+      toErrorMessage(err),
     );
   }
 }

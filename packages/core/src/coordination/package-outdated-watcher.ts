@@ -27,6 +27,7 @@
  */
 
 import type { Mailbox, MailboxMessage } from './mailbox-types.js';
+import { toErrorMessage } from '../utils/error.js';
 import {
   getPackageAuthor,
   type PackageAuthorTrackerOptions,
@@ -242,7 +243,7 @@ export function startPackageOutdatedWatcher(
         );
       } catch (err) {
         handleError(err);
-        log(`[pkg-outdated-watcher] Failed to notify for ${entry.name}: ${err instanceof Error ? err.message : String(err)}`);
+        log(`[pkg-outdated-watcher] Failed to notify for ${entry.name}: ${toErrorMessage(err)}`);
       }
     }
   }

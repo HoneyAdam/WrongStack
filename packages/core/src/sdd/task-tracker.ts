@@ -7,6 +7,7 @@ import type {
 } from '../types/task-graph.js';
 import { computeTaskProgress } from '../types/task-graph.js';
 import { SddError, ERROR_CODES } from '../types/errors.js';
+import { toErrorMessage } from '../utils/error.js';
 
 export interface TaskStore {
   saveGraph(graph: TaskGraph): Promise<void>;
@@ -312,7 +313,7 @@ export class TaskTracker {
         : console.warn(JSON.stringify({
             level: 'warn',
             event: 'task_tracker.save_graph_failed',
-            message: err instanceof Error ? err.message : String(err),
+            message: toErrorMessage(err),
             timestamp: new Date().toISOString(),
           }));
     });

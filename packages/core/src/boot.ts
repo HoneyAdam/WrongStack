@@ -8,6 +8,7 @@ import { DefaultSecretVault, migratePlaintextSecrets } from './security/secret-v
 import { DefaultConfigLoader } from './storage/config-loader.js';
 import type { Config } from './types/config.js';
 import { writeErr } from './utils/term.js';
+import { toErrorMessage } from './utils/error.js';
 import { type WstackPaths, resolveWstackPaths } from './utils/wstack-paths.js';
 
 /**
@@ -244,7 +245,7 @@ async function registerProjectInManifest(
       store: 'project',
       filePath: manifestPath,
       operation: 'manifest_read',
-      error: err instanceof Error ? err.message : String(err),
+      error: toErrorMessage(err),
       recoverable: true,
     });
   }
@@ -285,7 +286,7 @@ async function registerProjectInManifest(
       store: 'project',
       filePath: manifestPath,
       operation: 'manifest_write',
-      error: err instanceof Error ? err.message : String(err),
+      error: toErrorMessage(err),
       recoverable: false,
     });
     // best-effort — never blocks boot

@@ -1,4 +1,5 @@
 import { expectDefined } from '../utils/expect-defined.js';
+import { toErrorMessage } from '../utils/error.js';
 import type { Specification, SpecRequirement, SpecSection } from '../types/spec.js';
 import type { SpecStore } from './spec-store.js';
 import { SddError, ERROR_CODES } from '../types/errors.js';
@@ -330,7 +331,7 @@ export class AISpecBuilder {
    *  ENOSPC / EACCES doesn't silently strand session edits in memory. */
   private autoSave(): void {
     this.saveSession().catch((err) => {
-      const detail = err instanceof Error ? err.message : String(err);
+      const detail = toErrorMessage(err);
       process.emitWarning(
         `SpecBuilder autoSave failed: ${detail}`,
         'SpecBuilderWarning',

@@ -2,6 +2,7 @@ import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { atomicWrite } from '../utils/atomic-write.js';
+import { toErrorMessage } from '../utils/error.js';
 import { assignNickname, nicknameKeyFromDisplay } from './subagent-nicknames.js';
 import type { SubagentConfig } from '../types/multi-agent.js';
 import type { SessionWriter } from '../types/session.js';
@@ -339,7 +340,7 @@ export class FleetManager implements IFleetManager {
     if (this.manifestDebounceMs === 0) {
       // 0 means instant flush — write synchronously, no timer.
       void this.writeManifest().catch((err) => {
-        const detail = err instanceof Error ? err.message : String(err);
+        const detail = toErrorMessage(err);
         process.emitWarning(
           `FleetManager manifest write failed: ${detail}`,
           'FleetManagerWarning',
@@ -356,7 +357,7 @@ export class FleetManager implements IFleetManager {
         // failure doesn't get silently swallowed (e.g. ENOSPC on the
         // sessions dir would otherwise leave fleet state un-persisted with
         // no signal until shutdown).
-        const detail = err instanceof Error ? err.message : String(err);
+        const detail = toErrorMessage(err);
         process.emitWarning(
           `FleetManager manifest write failed: ${detail}`,
           'FleetManagerWarning',
@@ -376,7 +377,7 @@ export class FleetManager implements IFleetManager {
       this.manifestTimer = null;
     }
     await this.writeManifest().catch((err) => {
-      const detail = err instanceof Error ? err.message : String(err);
+      const detail = toErrorMessage(err);
       process.emitWarning(
         `FleetManager manifest write failed: ${detail}`,
         'FleetManagerWarning',

@@ -9,6 +9,7 @@ import type { SlashCommand } from '../types/slash-command.js';
  * This prevents collisions with built-in commands and other plugins.
  */
 export type { SlashCommand };
+import { toErrorMessage } from '../utils/error.js';
 
 export class SlashCommandRegistry {
   private readonly cmds = new Map<string, { cmd: SlashCommand; owner: string; official: boolean }>();
@@ -162,7 +163,7 @@ export class SlashCommandRegistry {
       const res = await entry.cmd.run(args, ctx);
       return res ?? {};
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = toErrorMessage(err);
       return { message: `Command "/${name}" failed: ${msg}` };
     }
   }

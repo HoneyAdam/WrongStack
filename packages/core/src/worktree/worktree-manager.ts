@@ -3,6 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import type { EventBus } from '../kernel/events.js';
 import { buildChildEnv } from '../utils/child-env.js';
+import { toErrorMessage } from '../utils/error.js';
 
 /**
  * Lifecycle of a single worktree handle.
@@ -168,7 +169,7 @@ export class WorktreeManager {
         return this.fail(handle, res.stderr || 'git worktree add failed');
       }
     } catch (err) {
-      return this.fail(handle, err instanceof Error ? err.message : String(err));
+      return this.fail(handle, toErrorMessage(err));
     }
 
     this.setStatus(handle, 'active');

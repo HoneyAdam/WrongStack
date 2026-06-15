@@ -1,5 +1,6 @@
 import * as path from 'node:path';
 import { color } from '../utils/color.js';
+import { toErrorMessage } from '../utils/error.js';
 import { projectHash, wstackGlobalRoot } from '../utils/wstack-paths.js';
 import { SkillInstaller } from '../skills/skill-installer.js';
 import type { Plugin } from '../types/plugin.js';
@@ -182,7 +183,7 @@ export function buildSkillInstallCommand(skillLoader?: SkillLoader): SlashComman
         }
         return { message: lines.join('\n') };
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = toErrorMessage(err);
         return { message: `✗ Install failed: ${msg}` };
       }
     },
@@ -234,7 +235,7 @@ export function buildSkillUpdateCommand(skillLoader?: SkillLoader): SlashCommand
 
         return { message: lines.join('\n') };
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = toErrorMessage(err);
         return { message: `✗ Update failed: ${msg}` };
       }
     },
@@ -284,7 +285,7 @@ export function buildSkillUninstallCommand(skillLoader?: SkillLoader): SlashComm
         await installer.uninstall(name, { global: isGlobal });
         return { message: `✓ Skill "${name}" uninstalled.` };
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = toErrorMessage(err);
         return { message: `✗ Uninstall failed: ${msg}` };
       }
     },

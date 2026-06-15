@@ -1,4 +1,5 @@
 import { expectDefined } from '../utils/expect-defined.js';
+import { toErrorMessage } from '../utils/error.js';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import { sessionScopedPath } from '../utils/session-scoped-path.js';
@@ -123,7 +124,7 @@ export class AnnotationsStore {
         operation: 'list',
         outcome: 'failure',
         durationMs: Date.now() - t0,
-        error: err instanceof Error ? err.message : String(err),
+        error: toErrorMessage(err),
         ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
       });
       return [];
@@ -240,7 +241,7 @@ export class AnnotationsStore {
         filePath: fp,
         operation: 'add',
         outcome: 'failure',
-        error: err instanceof Error ? err.message : String(err),
+        error: toErrorMessage(err),
         recoverable: false,
         durationMs: Date.now() - t0,
         ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
@@ -301,7 +302,7 @@ export class AnnotationsStore {
         filePath: fp,
         operation: 'resolve',
         outcome: 'failure',
-        error: err instanceof Error ? err.message : String(err),
+        error: toErrorMessage(err),
         recoverable: false,
         durationMs: Date.now() - t0,
         ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),

@@ -1,4 +1,5 @@
 import { expectDefined } from '../utils/expect-defined.js';
+import { toErrorMessage } from '../utils/error.js';
 import { randomUUID } from 'node:crypto';
 import type { Agent } from '../core/agent.js';
 import type { AgentFactory } from '../coordination/agent-subagent-runner.js';
@@ -146,7 +147,7 @@ export class ParallelEternalEngine {
       console.error(JSON.stringify({
         level: 'error',
         event: 'engine.persist_state_failed',
-        message: err instanceof Error ? err.message : String(err),
+        message: toErrorMessage(err),
         context: { expectedState: 'stopped' },
         timestamp: new Date().toISOString(),
       }));
@@ -188,7 +189,7 @@ export class ParallelEternalEngine {
           );
           await this.appendFailure(
             'engine error',
-            err instanceof Error ? err.message : String(err),
+            toErrorMessage(err),
           );
         }
         if (this.stopRequested) break;

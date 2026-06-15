@@ -1,6 +1,7 @@
 import * as fsp from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { atomicWrite } from '../utils/atomic-write.js';
+import { toErrorMessage } from '../utils/error.js';
 
 /**
  * Director state checkpoint — written incrementally throughout a fleet
@@ -300,7 +301,7 @@ export class DirectorStateCheckpoint {
     } catch (err) {
       console.warn(
         '[director-state] checkpoint write failed:',
-        err instanceof Error ? err.message : String(err),
+        toErrorMessage(err),
       );
     } finally {
       this.writing = false;

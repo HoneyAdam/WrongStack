@@ -2,6 +2,7 @@ import { isTextBlock } from '../types/blocks.js';
 import type { ContentBlock } from '../types/blocks.js';
 import type { Message } from '../types/messages.js';
 import type { Provider, Request } from '../types/provider.js';
+import { toErrorMessage } from '../utils/error.js';
 
 /**
  * Prompt refinement ("did you mean this?").
@@ -18,6 +19,7 @@ import type { Provider, Request } from '../types/provider.js';
  */
 
 export const ENHANCER_SYSTEM_PROMPT = `You are a request refiner embedded in a coding agent. Your ONLY job is to rewrite the user's message into clearer, unambiguous instructions that the coding agent can act on confidently.
+import { toErrorMessage } from '../utils/error.js';
 
 Rules:
 - Preserve the user's intent and scope EXACTLY. Do not add new requirements, features, constraints, or steps the user did not ask for. Do not remove anything they did ask for.
@@ -204,7 +206,7 @@ export async function enhanceUserPrompt(
       opts.onError?.(`timed out after ${Math.round(timeoutMs / 1000)}s`);
       return null;
     }
-    opts.onError?.(err instanceof Error ? err.message : String(err));
+    opts.onError?.(toErrorMessage(err));
     return null;
   } finally {
     clearTimeout(to);

@@ -1,4 +1,5 @@
 import { expectDefined } from '../utils/expect-defined.js';
+import { toErrorMessage } from '../utils/error.js';
 import { defaultTechStackDetector } from './detector.js';
 import { defaultGitignoreUpdater } from './gitignore-updater.js';
 import type { TechStackInfo } from './types.js';
@@ -248,7 +249,7 @@ Return ONLY the JSON object, no markdown, no explanation.`;
       console.error(JSON.stringify({
         level: 'error',
         event: 'security_scanner.skill_generation_failed',
-        message: err instanceof Error ? err.message : String(err),
+        message: toErrorMessage(err),
         techStack: techStack.stack,
         timestamp: new Date().toISOString(),
       }));
@@ -413,7 +414,7 @@ Return ONLY the JSON array. If no issues found, return [].`;
       console.error(JSON.stringify({
         level: 'error',
         event: 'security_scanner.llm_scan_batch_failed',
-        message: err instanceof Error ? err.message : String(err),
+        message: toErrorMessage(err),
         fileCount: files.length,
         timestamp: new Date().toISOString(),
       }));
@@ -485,7 +486,7 @@ Be specific about the vulnerabilities found and how to fix them.`;
       console.error(JSON.stringify({
         level: 'error',
         event: 'security_scanner.report_synthesis_failed',
-        message: err instanceof Error ? err.message : String(err),
+        message: toErrorMessage(err),
         findingsCount: scanResult.findings.length,
         timestamp: new Date().toISOString(),
       }));

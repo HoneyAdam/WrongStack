@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
 import { decryptConfigSecrets } from '../security/secret-vault.js';
 import { atomicWrite } from '../utils/atomic-write.js';
+import { toErrorMessage } from '../utils/error.js';
 import {
   DEFAULT_CONTEXT_WINDOW_MODE_ID,
   isContextWindowModeId,
@@ -246,7 +247,7 @@ export class DefaultConfigLoader implements ConfigLoader {
           level: 'warn',
           event: 'config.source_load_failed',
           source: src.name,
-          message: err instanceof Error ? err.message : String(err),
+          message: toErrorMessage(err),
           timestamp: new Date().toISOString(),
         }));
       }
@@ -416,7 +417,7 @@ export class DefaultConfigLoader implements ConfigLoader {
       console.warn(JSON.stringify({
         level: 'warn',
         event: 'config.sync_load_failed',
-        message: err instanceof Error ? err.message : String(err),
+        message: toErrorMessage(err),
         timestamp: new Date().toISOString(),
       }));
       return null;
@@ -447,7 +448,7 @@ export class DefaultConfigLoader implements ConfigLoader {
           level: 'warn',
           event: 'config.read_failed',
           path: file,
-          message: err instanceof Error ? err.message : String(err),
+          message: toErrorMessage(err),
           timestamp: new Date().toISOString(),
         }));
       }

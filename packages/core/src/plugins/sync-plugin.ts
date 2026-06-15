@@ -1,4 +1,5 @@
 import { expectDefined } from '../utils/expect-defined.js';
+import { toErrorMessage } from '../utils/error.js';
 import type { Plugin } from '../types/plugin.js';
 import type { SlashCommand, Context } from '../index.js';
 import type { SyncCategory } from '../types/config.js';
@@ -158,7 +159,7 @@ function buildSyncCommand(
           try {
             result = await cloud.push(cfg.githubToken);
           } catch (err) {
-            return { message: `Push failed: ${err instanceof Error ? err.message : String(err)}` };
+            return { message: `Push failed: ${toErrorMessage(err)}` };
           }
 
           if (result.ok) {
@@ -181,7 +182,7 @@ function buildSyncCommand(
           try {
             result = await cloud.pull(cfg.githubToken);
           } catch (err) {
-            return { message: `Pull failed: ${err instanceof Error ? err.message : String(err)}` };
+            return { message: `Pull failed: ${toErrorMessage(err)}` };
           }
 
           if (result.ok) {

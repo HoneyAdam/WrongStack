@@ -7,6 +7,7 @@ import type { ToolUseBlock, ToolResultBlock } from '../types/blocks.js';
 import type { Tool } from '../types/tool.js';
 import type { SessionEvent } from '../types/session.js';
 import { sizeSignals, truncateForEvent } from '../utils/tool-output-serializer.js';
+import { toErrorMessage } from '../utils/error.js';
 import type { AgentInternals } from './agent-internals.js';
 
 export interface AgentToolHandler {
@@ -46,7 +47,7 @@ export function createAgentToolHandler(a: AgentInternals): AgentToolHandler {
       // surface `block` only here and let it handle the bytes).
       return { result: result.block, durationMs: Date.now() - start };
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = toErrorMessage(err);
       return {
         result: {
           type: 'tool_result',

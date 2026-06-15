@@ -7,6 +7,7 @@ import type { JSONSchema, Tool } from '../types/tool.js';
 import type { Director } from './director.js';
 import { applyRosterBudget } from './fleet.js';
 import { safeParse } from '../utils/safe-json.js';
+import { toErrorMessage } from '../utils/error.js';
 
 /**
  * Opaque host interface so this factory doesn't have to depend on the
@@ -451,7 +452,7 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
           summary,
         };
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = toErrorMessage(err);
         // Resolve any "started" line the UI is showing — without this a
         // spawn/assign failure after delegate.started would leave a
         // dangling "Delegating…" entry with no outcome.

@@ -13,6 +13,7 @@
  */
 
 import type { Mailbox, MailboxMessage } from '../coordination/mailbox-types.js';
+import { toErrorMessage } from '../utils/error.js';
 
 export interface MailboxLoopOptions {
   mailbox: Mailbox;
@@ -170,7 +171,7 @@ export async function injectPendingMailboxMessages(
   // mail to be silently missed when the leader was busy.
   try { foldFn(buildMailboxBlock(messages)); } catch (err) {
     (a.logger.debug ?? console.debug)?.(
-      `mailbox: failed to fold messages: ${err instanceof Error ? err.message : String(err)}`,
+      `mailbox: failed to fold messages: ${toErrorMessage(err)}`,
     );
   }
 }
