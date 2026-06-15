@@ -1,6 +1,7 @@
 import { cn } from '@/lib/utils';
 import { AlertTriangle, CheckCircle2, Info, X, XCircle } from 'lucide-react';
 import { useEffect } from 'react';
+import { randomUUID } from 'node:crypto';
 import { create } from 'zustand';
 
 /**
@@ -29,7 +30,7 @@ interface ToastState {
 const useToastStore = create<ToastState>((set) => ({
   toasts: [],
   push: (t) => {
-    const id = `toast_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const id = `toast_${randomUUID()}`;
     set((state) => ({ toasts: [...state.toasts, { ...t, id }] }));
     return id;
   },
