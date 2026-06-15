@@ -4047,7 +4047,10 @@ export function App({
       return;
     }
     // F10 → live sessions panel. Opening closes any other overlay or panel.
-    if (key.fn === 10) {
+    // Also allow ESC to close the sessions panel directly from here (defence in depth:
+    // if the dedicated sessions-panel ESC handler at line 3623 is bypassed for any
+    // reason, this check still closes the panel).
+    if (key.fn === 10 || (key.escape && state.sessionsPanelOpen)) {
       if (state.sessionsPanelOpen) {
         dispatch({ type: 'toggleSessionsPanel' });
       } else {
