@@ -21,6 +21,13 @@ jobs:
     permissions:
       contents: write
       id-token: write
+    env:
+      # actions/checkout, actions/setup-node, pnpm/action-setup are pinned to
+      # SHA revisions that still default to Node 20, but Node 20 segfaults
+      # `tsup` during `pnpm build` on Linux. Force them onto Node 24 so the
+      # build can complete — the setup-node step below still pins the
+      # build/runtime to Node 22 via the `node-version` input.
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
     steps:
       # Pinned to full commit SHAs — see ci.yml for rationale.
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 (resolved 2026-05-29)
