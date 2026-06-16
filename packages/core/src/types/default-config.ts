@@ -11,6 +11,7 @@ export const DEFAULT_TOOLS_CONFIG = Object.freeze({
   sessionTimeoutMs: 1_800_000,
   perIterationOutputCapBytes: 100_000,
   autoExtendLimit: true,
+  restrictToProjectRoot: false,
 });
 
 /** Default context config — mirrors BEHAVIOR_DEFAULTS.context. */

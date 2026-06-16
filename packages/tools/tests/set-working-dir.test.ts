@@ -26,7 +26,7 @@ function mkSignal(): AbortSignal {
   return new AbortController().signal;
 }
 
-function mkContext(root: string, wd?: string): Context {
+function mkContext(root: string, wd?: string, restrictFsToRoot = true): Context {
   return new Context({
     systemPrompt: [{ type: 'text', text: 'hi' }],
     provider: fakeProvider,
@@ -36,6 +36,7 @@ function mkContext(root: string, wd?: string): Context {
     cwd: root,
     projectRoot: root,
     workingDir: wd ?? root,
+    restrictFsToRoot,
     model: 'm',
   });
 }
@@ -124,6 +125,19 @@ describe('set_working_dir tool', () => {
       { signal: mkSignal() },
     );
     expect(result.error).toContain('outside project root');
+  });
+
+  it('navigates outside the project root when filesystem access is unrestricted', async () => {
+    // An existing directory outside tmpRoot. os.tmpdir() is the parent of tmpRoot.
+    const outside = path.resolve(os.tmpdir());
+    const ctx = mkContext(tmpRoot, undefined, /* restrictFsToRoot */ false);
+    const result = await setWorkingDirTool.execute(
+      { path: outside },
+      ctx,
+      { signal: mkSignal() },
+    );
+    expect(result.error).toBeUndefined();
+    expect(ctx.workingDir).toBe(outside);
   });
 
   it('rolls back workingDir when directory does not exist', async () => {

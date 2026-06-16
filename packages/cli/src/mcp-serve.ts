@@ -43,7 +43,12 @@ function parseToolsFlag(flags: Record<string, string | boolean>): Set<string> | 
 }
 
 /** Minimal run context — tools read cwd/projectRoot/signal; provider/session are stubs. */
-export function makeServeContext(cwd: string, projectRoot: string, signal: AbortSignal): Context {
+export function makeServeContext(
+  cwd: string,
+  projectRoot: string,
+  signal: AbortSignal,
+  restrictFsToRoot = true,
+): Context {
   const provider = {
     id: 'mcp-serve',
     capabilities: { maxContext: 0 },
@@ -68,6 +73,7 @@ export function makeServeContext(cwd: string, projectRoot: string, signal: Abort
     tokenCounter,
     cwd,
     projectRoot,
+    restrictFsToRoot,
     model: 'mcp-serve',
     tools: [],
   });
@@ -109,7 +115,12 @@ export async function serveMcpStdio(deps: SubcommandDeps): Promise<number> {
   }
 
   const controller = new AbortController();
-  const ctx = makeServeContext(deps.cwd, deps.projectRoot, controller.signal);
+  const ctx = makeServeContext(
+    deps.cwd,
+    deps.projectRoot,
+    controller.signal,
+    deps.config.tools?.restrictToProjectRoot ?? false,
+  );
   const permissionPolicy: PermissionPolicy = yolo
     ? new AllowAllPermissionPolicy()
     : new AutoApprovePermissionPolicy();

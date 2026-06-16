@@ -80,6 +80,8 @@ export interface LiveSettingsInput {
   indexOnStart?: boolean | undefined;
   maxIterations?: number | undefined;
   autoProceedMaxIterations?: number | undefined;
+  /** When true, file tools are confined to the project root. Default false. */
+  restrictFsToRoot?: boolean | undefined;
   debugStream?: boolean | undefined;
   configScope?: 'global' | 'project' | undefined;
   enhanceDelayMs?: number | undefined;
@@ -786,6 +788,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
               auditLevel: cfg.session?.auditLevel ?? 'standard',
               indexOnStart: cfg.indexing?.onSessionStart !== false,
               maxIterations: cfg.tools?.maxIterations ?? 500,
+              restrictFsToRoot: cfg.tools?.restrictToProjectRoot ?? false,
               autoProceedMaxIterations:
                 ((cfg.autonomy as Record<string, unknown> | undefined)
                   ?.autoProceedMaxIterations as number) ?? 50,
@@ -857,6 +860,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
                 s.auditLevel !== undefined ||
                 s.indexOnStart !== undefined ||
                 s.maxIterations !== undefined ||
+                s.restrictFsToRoot !== undefined ||
                 s.nextPrediction !== undefined ||
                 s.debugStream !== undefined ||
                 s.configScope !== undefined ||
@@ -929,9 +933,11 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
                   idx.onSessionStart = s.indexOnStart;
                   decrypted.indexing = idx;
                 }
-                if (s.maxIterations !== undefined) {
+                if (s.maxIterations !== undefined || s.restrictFsToRoot !== undefined) {
                   const tools = (decrypted.tools as Record<string, unknown>) ?? {};
-                  tools.maxIterations = s.maxIterations;
+                  if (s.maxIterations !== undefined) tools.maxIterations = s.maxIterations;
+                  if (s.restrictFsToRoot !== undefined)
+                    tools.restrictToProjectRoot = s.restrictFsToRoot;
                   decrypted.tools = tools;
                 }
                 if (s.debugStream !== undefined) {
@@ -988,7 +994,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
                   ...(s.indexOnStart !== undefined
                     ? { indexing: decrypted.indexing as Config['indexing'] }
                     : {}),
-                  ...(s.maxIterations !== undefined
+                  ...(s.maxIterations !== undefined || s.restrictFsToRoot !== undefined
                     ? { tools: decrypted.tools as Config['tools'] }
                     : {}),
                   ...(s.debugStream !== undefined ? { debugStream: s.debugStream } : {}),

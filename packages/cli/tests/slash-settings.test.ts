@@ -82,4 +82,48 @@ describe('/settings slash command', () => {
     const cmd = buildSettingsCommand(ctx);
     expect(cmd.help).toContain('semver-part patch|minor|major|auto');
   });
+
+  it('bare /settings shows filesystem access (default: unrestricted)', async () => {
+    const { ctx } = makeCtx();
+    const res = await buildSettingsCommand(ctx).run!('');
+    const text = stripAnsi(res!.message!);
+    expect(text).toContain('filesystem access:   unrestricted');
+    expect(text).toContain('/settings fs-access unrestricted|project');
+  });
+
+  it('view reflects a configured project-only filesystem scope', async () => {
+    const { ctx } = makeCtx({ tools: { restrictToProjectRoot: true } });
+    const res = await buildSettingsCommand(ctx).run!('');
+    expect(stripAnsi(res!.message!)).toContain('filesystem access:   project');
+  });
+
+  it('fs-access project persists tools.restrictToProjectRoot=true', async () => {
+    const { ctx, globalConfig } = makeCtx();
+    const res = await buildSettingsCommand(ctx).run!('fs-access project');
+    expect(stripAnsi(res!.message!)).toContain('filesystem access → project');
+
+    const written = JSON.parse(readFileSync(globalConfig, 'utf8'));
+    expect(written.tools.restrictToProjectRoot).toBe(true);
+  });
+
+  it('fs-access unrestricted persists tools.restrictToProjectRoot=false', async () => {
+    const { ctx, globalConfig } = makeCtx({ tools: { restrictToProjectRoot: true } });
+    await buildSettingsCommand(ctx).run!('fs-access unrestricted');
+
+    const written = JSON.parse(readFileSync(globalConfig, 'utf8'));
+    expect(written.tools.restrictToProjectRoot).toBe(false);
+  });
+
+  it('fs-access rejects invalid values without writing', async () => {
+    const { ctx, globalConfig } = makeCtx();
+    const res = await buildSettingsCommand(ctx).run!('fs-access bogus');
+    expect(stripAnsi(res!.message!)).toContain('fs-access unrestricted|project');
+    expect(existsSync(globalConfig)).toBe(false);
+  });
+
+  it('help lists the fs-access subcommand', () => {
+    const { ctx } = makeCtx();
+    const cmd = buildSettingsCommand(ctx);
+    expect(cmd.help).toContain('fs-access unrestricted|project');
+  });
 });

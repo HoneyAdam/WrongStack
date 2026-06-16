@@ -571,6 +571,7 @@ export function reducer(state: State, action: Action): State {
           enhanceLanguage: action.enhanceLanguage,
           debugStream: action.debugStream,
           configScope: action.configScope,
+          restrictFsToRoot: action.restrictFsToRoot,
           hint: undefined,
         },
       };
@@ -693,6 +694,8 @@ export function reducer(state: State, action: Action): State {
         const next = (base + action.delta + CONFIG_SCOPES.length) % CONFIG_SCOPES.length;
         return { ...state, settingsPicker: { ...sp, configScope: expectDefined(CONFIG_SCOPES[next]), hint: undefined } };
       }
+      // Field 26: filesystem access scope (boolean — applies live)
+      if (f === 26) return { ...state, settingsPicker: { ...sp, restrictFsToRoot: !sp.restrictFsToRoot, hint: undefined } };
       return state;
     }
     case 'settingsHint':

@@ -44,6 +44,14 @@ export interface ToolsConfig {
    * limit by 100 when hit. Set to false to require user confirmation.
    */
   autoExtendLimit?: boolean | undefined;
+  /**
+   * When true, file tools (read/write/edit/grep/glob/install) are confined to
+   * the project root and `set_working_dir` may not leave it. Default: false —
+   * tools may access paths outside the project root, still subject to each
+   * tool's permission tier (writes/edits prompt for confirmation). Toggle via
+   * `/settings` ("Filesystem access").
+   */
+  restrictToProjectRoot?: boolean | undefined;
 }
 
 export interface ProviderApiKey {

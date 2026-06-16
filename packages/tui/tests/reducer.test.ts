@@ -295,6 +295,7 @@ describe('TUI reducer', () => {
       enhanceLanguage: 'original',
       debugStream: false,
       configScope: 'global',
+      restrictFsToRoot: false,
     } as never);
   }
 
@@ -582,6 +583,7 @@ describe('settings picker reducer', () => {
         enhanceLanguage: 'original' as const,
         debugStream: false,
         configScope: 'global' as const,
+        restrictFsToRoot: false,
         ...over,
       },
     }) as unknown as Parameters<typeof reducer>[0];
@@ -614,6 +616,7 @@ describe('settings picker reducer', () => {
       enhanceLanguage: 'original',
       debugStream: false,
       configScope: 'global',
+      restrictFsToRoot: false,
     });
     expect(s.settingsPicker).toMatchObject({ open: true, field: 0, mode: 'auto', delayMs: 30_000 });
   });
@@ -626,7 +629,7 @@ describe('settings picker reducer', () => {
   });
 
   it('field move wraps between fields', () => {
-    // SETTINGS_FIELD_COUNT = 25; wrap back to 0 after the last field.
+    // Wrap back to 0 after the last field (SETTINGS_FIELD_COUNT fields total).
     let s = reducer(base({ open: true, field: 0 }), { type: 'settingsFieldMove', delta: 1 });
     expect(s.settingsPicker.field).toBe(1);
     // Move forward enough to wrap around
@@ -668,6 +671,16 @@ describe('settings picker reducer', () => {
       delta: -1,
     });
     expect(down.settingsPicker.delayMs).toBe(120_000);
+  });
+
+  it('value change toggles filesystem access on the last field (live, no hint)', () => {
+    const lastField = SETTINGS_FIELD_COUNT - 1;
+    const s = reducer(base({ open: true, field: lastField, restrictFsToRoot: false }), {
+      type: 'settingsValueChange',
+      delta: 1,
+    });
+    expect(s.settingsPicker.restrictFsToRoot).toBe(true);
+    expect(s.settingsPicker.hint).toBeUndefined();
   });
 });
 
