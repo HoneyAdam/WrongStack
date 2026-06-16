@@ -37,7 +37,13 @@ jobs:
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4 (resolved 2026-05-29)
         with:
-          node-version: 22
+          # `tsup` 8.5.1 segfaults on Node 22 during the first `pnpm build` on
+          # cold Linux runners (exit null). Pin to Node 24 — the consumer-facing
+          # `engines.node` requirement in package.json is `>=22.19.0`, so any
+          # consumer on Node 22 is still supported at runtime, but the build
+          # itself needs Node 24 to complete. Local dev (Node 22.13/24.x) is
+          # unaffected.
+          node-version: 24
           cache: pnpm
           registry-url: 'https://registry.npmjs.org'
 
