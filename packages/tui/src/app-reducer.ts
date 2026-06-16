@@ -173,11 +173,17 @@ export function reducer(state: State, action: Action): State {
       const banner = state.entries.find((e) => e.kind === 'banner');
       return {
         ...state,
-        entries: banner ? [banner] : state.entries,
+        entries: banner ? [banner] : [],
         queue: [],
         nextQueueId: 1,
         scrollOffset: 0,
         pendingNewLines: 0,
+        // Bump the generation so <Static> remounts — without this, Ink's
+        // already-written index exceeds the new (shorter) array and the
+        // committed entries stay on screen even though `state.entries` no
+        // longer references them. /clear would otherwise appear to do
+        // nothing to the visible chat history.
+        historyGen: state.historyGen + 1,
         // Reset fleet state on /clear so old subagent entries don't
         // cause the LiveActivityStrip to render stale spacers, and
         // the fleet cost/tokens chips show zero.

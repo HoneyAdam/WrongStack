@@ -17,6 +17,7 @@ function initial() {
     brain: { state: 'idle' as const },
     brainPrompt: null,
     nextId: 1,
+    historyGen: 0,
     picker: { open: false, query: '', matches: [], selected: 0 },
     slashPicker: { open: false, query: '', matches: [], selected: 0 },
     runningTools: new Map<string, { name: string; startedAt: number }>(),
@@ -146,6 +147,29 @@ describe('TUI reducer', () => {
     expect(s.entries.length).toBe(600);
     expect((s.entries[0] as { text: string }).text).toBe('entry-0');
     expect((s.entries[599] as { text: string }).text).toBe('entry-599');
+  });
+
+  // ── /clear regression: bump historyGen so <Static> remounts ─────────────
+  // The visible chat history is rendered by <Static> in
+  // components/history/index.tsx, which is keyed on `historyGen`. <Static>
+  // writes each item to the terminal exactly once and never re-renders it —
+  // the `key` is the only way to force a remount that drops the previously
+  // committed entries. Without this bump, /clear wiped state.entries but
+  // every committed entry stayed on screen, so users saw "history not
+  // cleared" even though the React state was empty. replaceHistory already
+  // bumps historyGen for the resume-replay case; clearHistory must do the
+  // same or /clear is a silent no-op against the rendered transcript.
+
+  it('clearHistory bumps historyGen so <Static> remounts (mid-session)', () => {
+    // Simulate a session that has already gone through one /clear (gen=7).
+    const before = { ...initial(), historyGen: 7 };
+    const out = reducer(before, { type: 'clearHistory' });
+    expect(out.historyGen).toBe(8);
+  });
+
+  it('clearHistory bumps historyGen from 0 (first-ever /clear)', () => {
+    const out = reducer(initial(), { type: 'clearHistory' });
+    expect(out.historyGen).toBe(1);
   });
 
   it('setBuffer + clearInput reset cursor and history index', () => {
