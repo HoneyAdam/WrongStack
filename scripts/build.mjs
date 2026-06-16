@@ -98,29 +98,12 @@ function runBuild(pkgDir, script) {
     ...process.env,
     PATH: envPath,
     Path: envPath,
-    // 4 GB was enough on local + GH Actions until 2026-06, when `tsup` DTS
-    // generation for `@wrongstack/core` started OOM-segfaulting in the
-    // ubuntu-latest runner (`exit null`, ERR_WORKER_OUT_OF_MEMORY in
-    // local repro with `--max-old-space-size=1024`). 8 GB matches the
-    // GH Actions `node-options` ceiling used by `pnpm typecheck` (4 GB ×
-    // 2, accounts for child workers spawned by tsup's parallel DTS
-    // bundler). Lower only if you can prove a smaller cap locally — a
-    // 1 GB heap triggers a hard worker kill on a fresh dist build, so
-    // do not under-budget this.
-    NODE_OPTIONS: '--max-old-space-size=8192',
+    NODE_OPTIONS: '--max-old-space-size=4096',
   };
-  // `serialization: 'json'` makes spawnSync round-trip child stdio as
-  // JSON-encoded buffers. Functionally equivalent to the default
-  // `'advanced'` mode for our purposes (we only read `result.status`),
-  // but it documents the contract: child workers spawned by tsup
-  // (tsc --noEmit in worker_threads) inherit this env, including
-  // NODE_OPTIONS — that's how the 8 GB ceiling reaches the tsc
-  // worker that was OOM-killing at 1–2 GB.
   const result = spawnSync(shell, ['/c', script], {
     cwd: join(root, pkgDir),
     stdio: 'inherit',
     env,
-    serialization: 'json',
   });
   if (result.status !== 0) {
     console.error(`\nBuild failed in ${pkgDir} (exit ${result.status})`);
