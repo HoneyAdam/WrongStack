@@ -520,6 +520,8 @@ See `docs/skills.md` for the full authoring guide.
 
 The typecheck gate exists because `dist/` is gitignored: a source edit that changes a public type (e.g. making a property mutable, adding a method) won't show up in `git status`, but the next consumer's `tsc --noEmit` will read the stale `dist/index.d.ts` and fail. Without this hook, the failure surfaces only after `pnpm -r build && pnpm typecheck` — usually in CI, blocking the PR.
 
+**One-time setup after pulling this commit:** run `pnpm -r build` once to seed your local `dist/` directories. Without this, the first source-touching commit you make will rebuild every changed package from scratch (~5-15s each), making that commit noticeably slower than the steady-state ~45s the hook was sized for. Use `scripts/build.mjs` (topological order, used by `pnpm build`) — do not invoke `pnpm -r build` directly because it doesn't honor dependency order and may produce unloadable dist (ERR_MODULE_NOT_FOUND). 13 packages with `build` scripts; total ~60-90s on a warm cache.
+
 **Cost:** ~45s per source-touching commit (~5-15s rebuild per changed package + ~30s typecheck). Skipped entirely for docs/config-only commits. Multi-package edits scale linearly — a commit touching 3 packages costs ~75s.
 
 **Bypass:** `git commit --no-verify` skips all hooks. Use only for emergencies (broken WIP, hotfix); CI still runs the full `pnpm -r build && pnpm test` gate on every PR via `release:check`, so a stale dist cannot ship.
