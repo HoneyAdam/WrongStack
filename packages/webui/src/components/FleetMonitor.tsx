@@ -99,7 +99,7 @@ function FleetAgentDetailPanel({
   const avgToolDuration = agent.toolLog.length > 0 ? Math.round(totalToolDuration / agent.toolLog.length) : 0;
   const uniqueTools = useMemo(() => {
     const tools = new Set<string>();
-    agent.toolLog.forEach((t) => tools.add(t.name));
+    for (const t of agent.toolLog) tools.add(t.name);
     return tools.size;
   }, [agent.toolLog]);
 

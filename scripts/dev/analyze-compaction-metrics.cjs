@@ -1,4 +1,4 @@
-const fs = require('fs');
+const fs = require('node:fs');
 const path = process.argv[2];
 if (!path) { console.error('Usage: node scripts/analyze-compaction-metrics.cjs <file>'); process.exit(1); }
 const content = fs.readFileSync(path, 'utf8');

@@ -1,4 +1,4 @@
-const fs = require('fs');
+const fs = require('node:fs');
 let d = '';
 process.stdin.on('data', c => d += c);
 process.stdin.on('end', () => {

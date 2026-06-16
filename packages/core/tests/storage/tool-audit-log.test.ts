@@ -1,7 +1,6 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { EventBus } from '../../src/kernel/events.js';
 import { ToolAuditLog } from '../../src/storage/tool-audit-log.js';
 
 // vi.mock is hoisted above imports.  The factory uses vi.importActual to lazily

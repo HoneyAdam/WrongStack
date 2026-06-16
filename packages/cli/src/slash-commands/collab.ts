@@ -1,5 +1,5 @@
 import type { SlashCommand } from '@wrongstack/core';
-import { AnnotationsStoreOptions, color, truncate } from '@wrongstack/core';
+import { type AnnotationsStoreOptions, color, truncate } from '@wrongstack/core';
 import { parseSubcommand, unknownSubcommand } from './helpers.js';
 import type { SlashCommandContext } from './index.js';
 import { toErrorMessage } from '@wrongstack/core/utils';

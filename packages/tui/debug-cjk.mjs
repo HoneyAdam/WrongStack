@@ -14,6 +14,8 @@ const lines = out.split('\n');
 console.log('Input:');
 console.log(input);
 console.log('\nOutput:');
-lines.forEach((l, i) => console.log(`Line ${i}: "${l}" (len=${l.length})`));
+for (let i = 0; i < lines.length; i++) {
+  console.log(`Line ${i}: "${lines[i]}" (len=${lines[i].length})`);
+}
 
 console.log('\nWidths:', [...new Set(lines.map(l => l.length))]);

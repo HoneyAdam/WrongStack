@@ -64,7 +64,9 @@ function walk(value: unknown, schema: JSONSchema, path: string, errors: Validati
   }
 
   if (schema.type === 'array' && Array.isArray(value) && schema.items) {
-    value.forEach((item, i) => walk(item, schema.items as JSONSchema, `${path}[${i}]`, errors));
+    for (let i = 0; i < value.length; i++) {
+      walk(value[i], schema.items as JSONSchema, `${path}[${i}]`, errors);
+    }
   }
 }
 

@@ -135,7 +135,9 @@ function validateJsonSchema(data: unknown, schema: Record<string, unknown>): { v
       errors.push(`${path}: above maximum ${s['maximum']}`);
     }
     if (Array.isArray(value) && s['items'] && Array.isArray(s['items'])) {
-      value.forEach((item, i) => check(item, s['items'] as Record<string, unknown>, `${path}[${i}]`));
+      for (let i = 0; i < value.length; i++) {
+        check(value[i], s['items'] as unknown as Record<string, unknown>, `${path}[${i}]`);
+      }
     }
     if (typeof value === 'object' && value !== null && !Array.isArray(value) && s['properties']) {
       const props = s['properties'] as Record<string, Record<string, unknown>>;

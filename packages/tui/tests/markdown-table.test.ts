@@ -126,7 +126,9 @@ describe('renderMarkdownTables', () => {
     const lines = out.split('\n');
     // Debug: print lines and widths
     console.log('CJK test output:');
-    lines.forEach((l, i) => console.log(`  [${i}] "${l}" visual=${strWidth(l)}`));
+    for (let i = 0; i < lines.length; i++) {
+      console.log(`  [${i}] "${lines[i]}" visual=${strWidth(lines[i])}`);
+    }
     // All lines must have the same visual width.
     const widths = new Set(lines.map((l) => strWidth(l)));
     expect(widths.size).toBe(1);
@@ -142,7 +144,9 @@ describe('renderMarkdownTables', () => {
     const out = renderMarkdownTables(input, 60);
     const lines = out.split('\n');
     console.log('Emoji single column:');
-    lines.forEach((l, i) => console.log(`  [${i}] "${l}" visual=${strWidth(l)}`));
+    for (let i = 0; i < lines.length; i++) {
+      console.log(`  [${i}] "${lines[i]}" visual=${strWidth(lines[i])}`);
+    }
     // All lines must have the same visual width.
     const widths = new Set(lines.map((l) => strWidth(l)));
     expect(widths.size).toBe(1);

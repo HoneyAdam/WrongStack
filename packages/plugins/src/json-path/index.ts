@@ -162,7 +162,9 @@ function validateJsonSchema(data: unknown, schema: Record<string, unknown>): { v
     }
 
     if (Array.isArray(value) && s['items'] && Array.isArray(s['items'])) {
-      value.forEach((item, i) => check(item, s['items'] as Record<string, unknown>, `${path}[${i}]`));
+      for (let i = 0; i < value.length; i++) {
+        check(value[i], s['items'] as unknown as Record<string, unknown>, `${path}[${i}]`);
+      }
     }
 
     if (typeof value === 'object' && value !== null && !Array.isArray(value) && s['properties']) {

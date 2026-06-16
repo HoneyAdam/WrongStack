@@ -187,7 +187,7 @@ function AgentDetailPanel({
   // Get unique tools used
   const uniqueTools = useMemo(() => {
     const tools = new Set<string>();
-    agent.toolLog.forEach((t) => tools.add(t.name));
+    for (const t of agent.toolLog) tools.add(t.name);
     return tools.size;
   }, [agent.toolLog]);
 
