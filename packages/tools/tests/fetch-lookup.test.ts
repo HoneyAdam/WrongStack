@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // Drive guardedLookup (the undici dispatcher's DNS callback) and the
 // assertNotPrivate resolved-private rethrow with a mocked resolver — real fetch
@@ -14,8 +14,10 @@ vi.mock('node:dns/promises', async (orig) => ({
 import { fetchTool, guardedLookup } from '../src/fetch.js';
 import { mkSandbox, newSignal } from './fixtures.js';
 
-beforeEach(() => lookupMock.mockReset());
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  lookupMock.mockReset();
+  vi.restoreAllMocks();
+});
 
 const call = (
   hostname: string,
