@@ -36,25 +36,13 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-        env:
-          # tsup's esbuild worker segfaults on the default 2 GB heap when
-          # building the @wrongstack/core DTS bundle (the kernel entry
-          # imports ~150 .d.ts files through `dispatcher-types.d.ts`,
-          # which trips the V8 OOM killer on cold Linux runners). 8 GB
-          # is enough for the current core bundle — bump if a future
-          # entry-point tree grows beyond ~300 modules.
-          NODE_OPTIONS: --max-old-space-size=8192
 
       - name: Dependency Audit (moderate+)
         run: pnpm audit --audit-level=moderate
-        env:
-          NODE_OPTIONS: --max-old-space-size=8192
 
       # Build first: cross-package typecheck resolves types via dist/*.d.ts.
       - name: Build
         run: pnpm build
-        env:
-          NODE_OPTIONS: --max-old-space-size=8192
 
       - name: Typecheck
         run: pnpm typecheck
