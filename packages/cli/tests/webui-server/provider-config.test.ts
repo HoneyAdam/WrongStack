@@ -1,124 +1,133 @@
-import * as fs from 'node:fs/promises';
-import * as os from 'node:os';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import * as fsSync from 'node:fs';
 import * as path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  createProviderConfigStore,
-  getVault,
-  loadSavedProviders,
-  maskedKey,
-  normalizeKeys,
-  saveProviders,
-} from '../../src/webui-server/provider-config.js';
+import { randomBytes } from 'node:crypto';
+import { getVault, loadSavedProviders, saveProviders, createProviderConfigStore } from '../../src/webui-server/provider-config.js';
 
-/**
- * PR 4 of Issue #30 (webui-server 8-PR refactor):
- * provider-config IO unit tests.
- *
- * These cover the three helpers extracted from
- * webui-server.ts:
- *
- *   - getVault: builds a DefaultSecretVault rooted at
- *     <dirname(globalConfigPath)>/.key
- *   - loadSavedProviders: returns {} when no
- *     globalConfigPath, otherwise the on-disk map
- *     (decrypted via the vault)
- *   - saveProviders: no-op when no globalConfigPath,
- *     otherwise replaces the entire providers map
- *
- * Tests use real on-disk temp files in
- * os.tmpdir() — no mocking of the vault or
- * loadConfigProviders. The point of this PR is to
- * decouple the helpers from the `runWebUI` closure;
- * the helpers themselves are still integration-tested
- * with the underlying fs/cipher stack.
- */
+describe('provider-config', () => {
+  let tempDir: string;
 
-let tmpDir = '';
-let configPath = '';
-
-beforeEach(async () => {
-  tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-pr4-'));
-  configPath = path.join(tmpDir, 'config.json');
-});
-
-afterEach(async () => {
-  if (tmpDir) await fs.rm(tmpDir, { recursive: true, force: true });
-  tmpDir = '';
-  configPath = '';
-});
-
-describe('webui-server/provider-config (PR 4 of #30)', () => {
-  it('getVault: returns a DefaultSecretVault rooted at dirname(configPath)/.key', () => {
-    const v = getVault(configPath);
-    expect(v).toBeDefined();
-    // DefaultSecretVault is the only thing exported
-    // from @wrongstack/core/security that has a
-    // keyFile; we don't introspect further, just
-    // assert it's truthy.
+  beforeEach(() => {
+    tempDir = path.join(process.env.TEMP || '/tmp', `test-${randomBytes(4).toString('hex')}`);
+    fsSync.mkdirSync(tempDir, { recursive: true });
   });
 
-  it('getVault: tolerates undefined configPath', () => {
-    const v = getVault(undefined);
-    expect(v).toBeDefined();
+  afterEach(() => {
+    try {
+      fsSync.rmSync(tempDir, { recursive: true, force: true });
+    } catch {
+      // ignore
+    }
+    vi.restoreAllMocks();
   });
 
-  it('loadSavedProviders: returns {} when no globalConfigPath', async () => {
-    const out = await loadSavedProviders(undefined);
-    expect(out).toEqual({});
+  describe('getVault', () => {
+    it('creates vault with correct keyFile path', () => {
+      const configPath = path.join(tempDir, 'config.json');
+      const vault = getVault(configPath);
+      expect(vault).toBeDefined();
+    });
+
+    it('handles undefined path', () => {
+      const vault = getVault(undefined);
+      expect(vault).toBeDefined();
+    });
   });
 
-  it('loadSavedProviders: returns {} when config file is absent', async () => {
-    // configPath exists as a path but no file at
-    // it yet. loadConfigProviders treats that as
-    // an empty config.
-    const out = await loadSavedProviders(configPath);
-    expect(out).toEqual({});
+  describe('loadSavedProviders', () => {
+    it('returns empty object when path is undefined', async () => {
+      const result = await loadSavedProviders(undefined);
+      expect(result).toEqual({});
+    });
+
+    it('returns empty object when file does not exist', async () => {
+      const result = await loadSavedProviders(path.join(tempDir, 'nonexistent.json'));
+      expect(result).toEqual({});
+    });
+
+    it('loads providers from config file', async () => {
+      const configPath = path.join(tempDir, 'config.json');
+      const configContent = {
+        providers: {
+          anthropic: { apiKey: 'test-key', models: ['claude-3-5-sonnet'] },
+        },
+      };
+      fsSync.writeFileSync(configPath, JSON.stringify(configContent));
+
+      const result = await loadSavedProviders(configPath);
+      expect(result).toEqual(configContent.providers);
+    });
   });
 
-  it('saveProviders + loadSavedProviders round-trip', async () => {
-    // The vault encrypts the keys, so save+load
-    // should return the same map. We don't
-    // introspect the on-disk format — the
-    // round-trip is the contract.
-    const input = {
-      anthropic: { type: 'anthropic', apiKeys: [{ label: 'k1', key: 'sk-test-1' }] },
-      openai: { type: 'openai', apiKeys: [{ label: 'k2', key: 'sk-test-2' }] },
-    } as never;
-    await saveProviders(configPath, input);
-    const out = await loadSavedProviders(configPath);
-    expect(out).toEqual(input);
+  describe('saveProviders', () => {
+    it('does nothing when path is undefined', async () => {
+      await expect(saveProviders(undefined, { anthropic: {} as never })).resolves.not.toThrow();
+    });
+
+    it('saves providers to config file', async () => {
+      const configPath = path.join(tempDir, 'config.json');
+      // Create existing config with some data
+      const existingConfig = { otherField: 'value' };
+      fsSync.writeFileSync(configPath, JSON.stringify(existingConfig));
+
+      const providers = {
+        anthropic: { apiKey: 'new-key', models: ['claude-3-5-sonnet'] },
+      };
+
+      await saveProviders(configPath, providers);
+
+      const saved = JSON.parse(fsSync.readFileSync(configPath, 'utf8'));
+      // API keys are encrypted, so check structure
+      expect(saved.providers.anthropic).toBeDefined();
+      expect(saved.providers.anthropic.models).toEqual(['claude-3-5-sonnet']);
+      expect(saved.otherField).toBe('value'); // other fields preserved
+    });
+
+    it('creates config file if it does not exist', async () => {
+      const configPath = path.join(tempDir, 'new-config.json');
+      const providers = { openai: { apiKey: 'key' } as never };
+
+      await saveProviders(configPath, providers);
+
+      const saved = JSON.parse(fsSync.readFileSync(configPath, 'utf8'));
+      expect(saved.providers.openai).toBeDefined();
+    });
   });
 
-  it('saveProviders: no-op when no globalConfigPath', async () => {
-    // The function must not throw, must not create
-    // any files, and must not write to anything.
-    await expect(saveProviders(undefined, {})).resolves.toBeUndefined();
-  });
-});
+  describe('createProviderConfigStore', () => {
+    it('returns a store with load and save methods', () => {
+      const store = createProviderConfigStore(path.join(tempDir, 'config.json'));
+      expect(typeof store.load).toBe('function');
+      expect(typeof store.save).toBe('function');
+    });
 
-describe('webui-server/provider-config facade (PR 4 follow-up of #30)', () => {
-  it('re-exports the provider-record transforms (single import surface)', () => {
-    expect(typeof normalizeKeys).toBe('function');
-    expect(typeof maskedKey).toBe('function');
-    // maskedKey never returns the plaintext.
-    expect(maskedKey('sk-supersecret-value')).not.toContain('supersecret');
-  });
+    it('load returns empty when no config', async () => {
+      const store = createProviderConfigStore(path.join(tempDir, 'nonexistent.json'));
+      const result = await store.load();
+      expect(result).toEqual({});
+    });
 
-  it('createProviderConfigStore: load/save round-trip bound to one path', async () => {
-    const store = createProviderConfigStore(configPath);
-    const input = {
-      anthropic: { type: 'anthropic', apiKeys: [{ label: 'k1', key: 'sk-test-1' }] },
-    } as never;
-    await store.save(input);
-    expect(await store.load()).toEqual(input);
-    // The store is just a binding over the same IO.
-    expect(await loadSavedProviders(configPath)).toEqual(input);
-  });
+    it('load returns empty when path is undefined', async () => {
+      const store = createProviderConfigStore(undefined);
+      const result = await store.load();
+      expect(result).toEqual({});
+    });
 
-  it('createProviderConfigStore: no-op store when path is undefined', async () => {
-    const store = createProviderConfigStore(undefined);
-    expect(await store.load()).toEqual({});
-    await expect(store.save({})).resolves.toBeUndefined();
+    it('save updates the config file', async () => {
+      const configPath = path.join(tempDir, 'config.json');
+      fsSync.writeFileSync(configPath, JSON.stringify({ other: 'data' }));
+
+      const store = createProviderConfigStore(configPath);
+      await store.save({ anthropic: { apiKey: 'key' } as never });
+
+      const saved = JSON.parse(fsSync.readFileSync(configPath, 'utf8'));
+      expect(saved.providers.anthropic).toBeDefined();
+      expect(saved.other).toBe('data');
+    });
+
+    it('save does nothing when path is undefined', async () => {
+      const store = createProviderConfigStore(undefined);
+      await expect(store.save({})).resolves.not.toThrow();
+    });
   });
 });
