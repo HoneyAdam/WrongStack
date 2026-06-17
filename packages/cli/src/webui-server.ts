@@ -91,8 +91,13 @@ import {
   registerWebuiInstance,
   registerWebuiSignalHandlers,
 } from './webui-server/lifecycle.js';
-import { createProviderConfigStore } from './webui-server/provider-config.js';
+import {
+  createProviderConfigStore,
+  loadSavedProviders,
+  saveProviders,
+} from './webui-server/provider-config.js';
 import { startStaticServe } from './webui-server/static-serve.js';
+import { WebSocket, WebSocketServer } from 'ws';
 import {
   type AgentConfigContext,
   type BrainHandlerContext,
@@ -678,12 +683,22 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     globalRoot: path.dirname(opts.globalConfigPath ?? ''),
   });
   if (httpServer) {
+<<<<<<< HEAD
     announceWebuiReady({
       server: httpServer.server,
       host,
       httpPort,
       wsPort,
       open: !!opts.open,
+=======
+    const openUrl = `http://${host}:${httpPort}`;
+    httpServer.server.on('listening', () => {
+      console.log(
+        `\n  ▸ WebUI ready — open \x1b[1m${openUrl}\x1b[0m in your browser` +
+          `\n    (same agent as this terminal · ws:${wsPort})\n`,
+      );
+      if (opts.open) openBrowser(openUrl);
+>>>>>>> origin/refactor/webui-server-static-serve
     });
   } else {
     console.warn(
@@ -1356,6 +1371,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       );
     });
 
+<<<<<<< HEAD
     // Graceful shutdown (extracted to webui-server/lifecycle.ts, PR 7 of
     // #30). Idempotent: every runWebUI call registers its own SIGINT/SIGTERM
     // handlers, so a signal after this server already stopped (multiple
@@ -1390,6 +1406,52 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       registryBaseDir,
       onStopped: resolve,
     });
+=======
+    // Graceful shutdown. Idempotent: every runWebUI call registers its own
+    // SIGINT/SIGTERM handlers, so a signal after this server already stopped
+    // (multiple servers per process — tests, /webui restarts) must not
+    // re-run teardown or fire a second unregister against a gone registry.
+    let shutdownStarted = false;
+    function shutdown() {
+      if (shutdownStarted) return;
+      shutdownStarted = true;
+      process.off('SIGINT', shutdown);
+      process.off('SIGTERM', shutdown);
+      console.log('[WebUI] Shutting down...');
+      // Abort every in-flight run before closing clients. Without this, a run
+      // mid-iteration at SIGINT/SIGTERM continues to completion on a now-dead
+      // webui (wasted provider spend; the eventual `run.result` is sent to
+      // nobody because clients are about to close). Both the legacy single
+      // slot (project-switch path) and every per-socket controller must be
+      // aborted — they are independent.
+      if (abortController) {
+        abortController.abort();
+        abortController = null;
+      }
+      for (const c of abortControllers.values()) {
+        c.abort();
+      }
+      abortControllers.clear();
+      for (const unsub of eventUnsubscribers) unsub();
+      for (const [ws] of clients) {
+        ws.close();
+      }
+      clients.clear();
+      // Drop ourselves from the running-instance registry; the run promise
+      // resolves only after the write settles so callers can safely remove
+      // the registry directory once runWebUI's promise resolves.
+      const unregistered = unregisterInstance(process.pid, registryBaseDir).catch((err: unknown) =>
+        console.debug(`[webui-server] unregister failed: ${err}`),
+      );
+      httpServer?.server.close();
+      wss.close(() => {
+        void unregistered.then(() => {
+          console.log('[WebUI] Server stopped');
+          resolve();
+        });
+      });
+    }
+>>>>>>> origin/refactor/webui-server-static-serve
 
     registerWebuiSignalHandlers(signalShutdown);
   });
