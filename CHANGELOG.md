@@ -5,11 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.264.0] — 2026-06-17
+
+> Performance release addressing session/mailbox file-size scaling on the
+> per-iteration hot path. Key changes: GlobalMailbox refactored with
+> in-memory ring buffer + ack sidecar + batched persistence, replay-log-store
+> switched to append-only writes with cached tail hash, and session flush
+> de-awaited from the inner loop. Additive only — no breaking changes.
+
+### Performance
+
+- **GlobalMailbox refactored** (`global-mailbox.ts`). Full-file read+rewrite on
+  every `query()`/`ack()` was O(n) in mailbox size and fired per alias per tool
+  call — a major hot-path bottleneck. Replaced with an in-memory ring buffer
+  that batches acknowledgements, flushes to an append-only ack sidecar on
+  configurable intervals, and reloads on startup by replaying the ring. This
+  eliminates the per-call full-file I/O while preserving durability guarantees.
+
+- **replay-log-store switched to append-only** (`replay-log-store.ts`). Every
+  record previously appended a full file rewrite (quadratic in session length).
+  Now uses a ring buffer + `appendFile` with cached tail hash — amortised
+  O(1) appends regardless of session size.
+
+- **Session flush de-awaited from inner loop** (`agent-response.ts`). The
+  post-`llm_response` `await ctx.session.flush()` blocked the iteration
+  loop on a disk round-trip every turn. Flushed to background
+  (`void ...flush().catch()`) so disk I/O no longer stalls iteration
+  throughput. Awaited flushes at turn-start, checkpoint, and close remain
+  unchanged.
 
 ### Added
 
-*(none yet)*
+- **`mailbox-types.ts` — typed mailbox interfaces.** Explicit types for
+  mailbox query/ack contracts, ring buffer state, and flush semantics.
+
+### Changed
+
+- **mailbox-loop.ts, mailbox.ts — coordination layer tuned.** Alignment pass
+  for the new GlobalMailbox architecture.
+
+- **agent-loop.ts, context.ts — agent core adjustments.** Budget heartbeat
+  and context tracking aligned with the new flush behaviour.
+
+### Fixed
+
+- **TUI app state hardening** (`app.tsx`, `app-reducer.ts`, `app-state.ts`).
+  Reducer and state management refinements for cleaner TUI lifecycle handling.
 
 ## [0.262.0] — 2026-06-16
 
