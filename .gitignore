@@ -126,6 +126,8 @@ AGENTS.md
 /test_output.*
 /test-output.*
 /vitest_*.txt
+/coverage_output.txt
+/test-results/
 /vtest_*.txt
 /vt*.txt
 /tsc_*.txt
