@@ -2,6 +2,7 @@ import { expectDefined, GlobalMailbox, projectSlug, getSessionRegistry, AgentSta
 import { makeMailboxTool, makeMailSendTool, makeMailInboxTool, mailboxSessionTag } from '@wrongstack/core';
 import { toErrorMessage, wstackGlobalRoot, projectHash } from '@wrongstack/core/utils';
 import { SkillInstaller } from '@wrongstack/core/skills';
+import JSZip from 'jszip';
 import {
   BrainMonitor,
   DefaultBrainArbiter,
@@ -2505,6 +2506,32 @@ export async function startWebUI(
           send(ws, { type: 'skills.edited', payload: { success: true, error: null } });
         } catch (err) {
           send(ws, { type: 'skills.edited', payload: { success: false, error: errMessage(err) } });
+        }
+        break;
+      }
+
+      case 'skills.export': {
+        if (!skillLoader) {
+          send(ws, { type: 'skills.exported', payload: { zipBase64: '', skillCount: 0, error: 'Skills not enabled' } });
+          break;
+        }
+        try {
+          const entries = await skillLoader.listEntries();
+          const zip = new JSZip();
+          for (const entry of entries) {
+            try {
+              const body = await skillLoader!.readBody(entry.name);
+              const safeName = entry.name.replace(/\//g, '_');
+              zip.file(`${safeName}/SKILL.md`, body);
+            } catch {
+              // Skip skills we can't read
+            }
+          }
+          const zipBuffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+          const zipBase64 = zipBuffer.toString('base64');
+          send(ws, { type: 'skills.exported', payload: { zipBase64, skillCount: entries.length, error: undefined } });
+        } catch (err) {
+          send(ws, { type: 'skills.exported', payload: { zipBase64: '', skillCount: 0, error: errMessage(err) } });
         }
         break;
       }

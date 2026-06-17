@@ -597,6 +597,10 @@ export class WrongStackWebSocketClient {
     this.send({ type: 'skills.edit', payload: { name, body } });
   }
 
+  exportAllSkills() {
+    this.send({ type: 'skills.export' });
+  }
+
   getDiag() {
     this.send({ type: 'diag.get' });
   }

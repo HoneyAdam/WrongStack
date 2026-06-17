@@ -6,6 +6,7 @@
  */
 
 import { Sparkles, FileText, FolderOpen, X, ChevronRight, BookOpen, ArrowUpRight, ChevronLeft, Plus, Trash2, Download, Loader2, Copy, Check, RefreshCw, Globe, Pencil, PanelRight } from 'lucide-react';
+import JSZip from 'jszip';
 import TextareaCodeEditor from '@uiw/react-textarea-code-editor';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
@@ -135,6 +136,17 @@ export function SkillsPanel({ className }: { className?: string }) {
   const [editError, setEditError] = useState<string | null>(null);
   const [splitPreview, setSplitPreview] = useState(false);
 
+  // Draft state: transient saved indicator and discard prompt
+  const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
+  const [draftRestored, setDraftRestored] = useState(false);
+
+  // Clear draftSavedAt after 2 seconds
+  useEffect(() => {
+    if (!draftSavedAt) return;
+    const t = setTimeout(() => setDraftSavedAt(null), 2000);
+    return () => clearTimeout(t);
+  }, [draftSavedAt]);
+
   // Edit content stats — recomputed only when editContent changes
   const editStats = useMemo(() => {
     if (!editContent) return { lines: 0, words: 0, chars: 0 };
@@ -143,6 +155,56 @@ export function SkillsPanel({ className }: { className?: string }) {
     const chars = editContent.length;
     return { lines, words, chars };
   }, [editContent]);
+
+  // Warn when approaching localStorage's ~5MB limit (4 MB = soft warning, 5 MB = hard limit)
+  const charsWarning = useMemo((): null | { level: 'warn' | 'critical'; used: number; limit: number } => {
+    if (!editContent) return null;
+    const LOCALSTORAGE_LIMIT = 5 * 1024 * 1024; // 5 MB in bytes (localStorage is ~5-10 MB per origin)
+    const SOFT_LIMIT = 4 * 1024 * 1024; // 4 MB soft warning
+    const sizeBytes = new Blob([editContent]).size;
+    if (sizeBytes >= LOCALSTORAGE_LIMIT) {
+      return { level: 'critical', used: sizeBytes, limit: LOCALSTORAGE_LIMIT };
+    }
+    if (sizeBytes >= SOFT_LIMIT) {
+      return { level: 'warn', used: sizeBytes, limit: LOCALSTORAGE_LIMIT };
+    }
+    return null;
+  }, [editContent]);
+
+  // Auto-save draft to localStorage every 5 seconds while editing
+  const lastSavedDraftRef = useRef<string>('');
+  useEffect(() => {
+    if (!editMode || !selectedSkill) return;
+    const interval = setInterval(() => {
+      if (editContent && editContent !== lastSavedDraftRef.current) {
+        lastSavedDraftRef.current = editContent;
+        localStorage.setItem(
+          `skills_draft_${selectedSkill.name}`,
+          JSON.stringify({ content: editContent, savedAt: Date.now() })
+        );
+        setDraftSavedAt(Date.now());
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [editMode, editContent, selectedSkill]);
+
+  // Restore draft from localStorage on mount and when starting to edit a skill
+  useEffect(() => {
+    if (!selectedSkill || !editMode) return;
+    const raw = localStorage.getItem(`skills_draft_${selectedSkill.name}`);
+    if (raw) {
+      try {
+        const { content } = JSON.parse(raw) as { content: string; savedAt: number };
+        if (content && content !== editContent && content !== lastSavedDraftRef.current) {
+          setEditContent(content);
+          lastSavedDraftRef.current = content;
+          setDraftRestored(true);
+        }
+      } catch {
+        // ignore malformed draft
+      }
+    }
+  }, [selectedSkill?.name, editMode]);
 
   // Install a skill from a GitHub ref (owner/repo or URL)
   const handleInstallSkill = useCallback(async () => {
@@ -197,6 +259,8 @@ export function SkillsPanel({ className }: { className?: string }) {
   const handleStartEdit = useCallback(() => {
     if (!skillContent) return;
     setEditContent(skillContent.body);
+    lastSavedDraftRef.current = skillContent.body;
+    setDraftRestored(false);
     setEditError(null);
     setEditMode(true);
     setSplitPreview(false);
@@ -208,7 +272,18 @@ export function SkillsPanel({ className }: { className?: string }) {
     setEditContent('');
     setEditError(null);
     setSplitPreview(false);
-  }, []);
+    setDraftRestored(false);
+    if (selectedSkill) localStorage.removeItem(`skills_draft_${selectedSkill.name}`);
+  }, [selectedSkill]);
+
+  // Discard the restored draft and reload from server
+  const handleDiscardDraft = useCallback(() => {
+    if (!selectedSkill || !skillContent) return;
+    setDraftRestored(false);
+    setEditContent(skillContent.body);
+    lastSavedDraftRef.current = skillContent.body;
+    if (selectedSkill) localStorage.removeItem(`skills_draft_${selectedSkill.name}`);
+  }, [selectedSkill, skillContent]);
 
   // Save the edited skill content
   const handleSaveEdit = useCallback(() => {
@@ -220,6 +295,9 @@ export function SkillsPanel({ className }: { className?: string }) {
       const m = msg as { payload: { success: boolean; error: string | null } };
       setEditSaving(false);
       if (m.payload.success) {
+        lastSavedDraftRef.current = '';
+        localStorage.removeItem(`skills_draft_${selectedSkill.name}`);
+        setDraftRestored(false);
         setEditMode(false);
         // Refresh skill content and skills list
         setSkillContent(null);
@@ -514,6 +592,53 @@ export function SkillsPanel({ className }: { className?: string }) {
     client.checkForUpdates(undefined, undefined);
   }, [client]);
 
+  // Download a single skill's SKILL.md file
+  const handleExportSkill = useCallback(() => {
+    if (!skillContent?.body) return;
+    const blob = new Blob([skillContent.body], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${skillContent.name.replace(/\//g, '_')}-SKILL.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [skillContent]);
+
+  // Export all skills as a .zip file
+  const [exportingAll, setExportingAll] = useState(false);
+  const handleExportAll = useCallback(() => {
+    if (!client) return;
+    setExportingAll(true);
+    const handler = (msg: unknown) => {
+      const m = msg as { payload: { zipBase64: string; skillCount: number; error?: string } };
+      setExportingAll(false);
+      if (m.payload.error) {
+        console.error('[skills.export]', m.payload.error);
+      } else {
+        // Decode base64 zip and trigger download
+        const binary = atob(m.payload.zipBase64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: 'application/zip' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `wrongstack-skills-${Date.now()}.zip`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+      client.off('skills.exported', handler as (msg: unknown) => void);
+    };
+    client.on('skills.exported', handler as (msg: unknown) => void);
+    client.exportAllSkills();
+  }, [client]);
+
   const filteredSkills = useMemo(() => {
     let result = skills;
 
@@ -597,6 +722,20 @@ export function SkillsPanel({ className }: { className?: string }) {
               }
             >
               <FileText className="h-3 w-3" />
+            </button>
+            {/* Export all skills as .zip */}
+            <button
+              type="button"
+              onClick={handleExportAll}
+              disabled={exportingAll || skills.length === 0}
+              className="flex items-center gap-1 px-1.5 py-1 text-[10px] rounded bg-muted text-muted-foreground hover:bg-accent hover:text-foreground shrink-0 disabled:opacity-50"
+              title="Export all skills as .zip"
+            >
+              {exportingAll ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Download className="h-3 w-3" />
+              )}
             </button>
             <button
               type="button"
@@ -866,16 +1005,26 @@ export function SkillsPanel({ className }: { className?: string }) {
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   )}
-                  {/* Edit button — only for project/user scope, not bundled */}
+                  {/* Export + Edit — only for project/user scope, not bundled */}
                   {selectedSkill.source !== 'bundled' && !editMode && (
-                    <button
-                      type="button"
-                      onClick={handleStartEdit}
-                      className="flex items-center gap-1 px-1.5 py-1 text-[10px] rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer"
-                      title="Edit skill"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleExportSkill}
+                        className="flex items-center gap-1 px-1.5 py-1 text-[10px] rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer"
+                        title="Export skill as .md"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleStartEdit}
+                        className="flex items-center gap-1 px-1.5 py-1 text-[10px] rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer"
+                        title="Edit skill"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    </>
                   )}
                   <button
                     type="button"
@@ -1000,10 +1149,38 @@ export function SkillsPanel({ className }: { className?: string }) {
                       <span className="text-[10px] text-muted-foreground tabular-nums">
                         {editStats.lines.toLocaleString()} line{editStats.lines !== 1 ? 's' : ''} · {editStats.words.toLocaleString()} word{editStats.words !== 1 ? 's' : ''} · {editStats.chars.toLocaleString()} char{editStats.chars !== 1 ? 's' : ''}
                       </span>
+                      {charsWarning && (
+                        <span
+                          className={`text-[10px] tabular-nums ${
+                            charsWarning.level === 'critical'
+                              ? 'text-red-500 font-medium'
+                              : 'text-amber-500'
+                          }`}
+                          title="localStorage has a per-origin limit of ~5 MB"
+                        >
+                          ⚠ {(charsWarning.used / (1024 * 1024)).toFixed(1)}&nbsp;MB / {(charsWarning.limit / (1024 * 1024)).toFixed(0)}&nbsp;MB
+                        </span>
+                      )}
+                      {draftSavedAt && (
+                        <span className="text-[10px] text-green-500 animate-pulse">Draft saved</span>
+                      )}
+                      {draftRestored && (
+                        <span className="text-[10px] text-amber-500 animate-pulse">Draft restored</span>
+                      )}
                     </div>
                     <div className="flex items-center gap-2">
                       {editError && (
                         <span className="text-[10px] text-destructive">{editError}</span>
+                      )}
+                      {draftRestored && (
+                        <button
+                          type="button"
+                          onClick={handleDiscardDraft}
+                          className="px-2 py-1 text-[10px] rounded border border-amber-500/50 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 transition-colors cursor-pointer"
+                          title="Discard the restored draft and reload the server version"
+                        >
+                          Discard draft
+                        </button>
                       )}
                       <button
                         type="button"

@@ -362,6 +362,16 @@ export interface WSSkillsEdited {
   };
 }
 
+export interface WSSkillsExported {
+  type: 'skills.exported';
+  payload: {
+    /** Base64-encoded ZIP buffer containing all skills as SKILL.md files */
+    zipBase64: string;
+    skillCount: number;
+    error?: string | undefined;
+  };
+}
+
 export interface WSDiagGet {
   type: 'diag.get';
   payload: {
@@ -677,6 +687,7 @@ export type WSClientMessage =
   | { type: 'skills.uninstall'; payload: { name: string; global?: boolean } }
   | { type: 'skills.update'; payload: { name?: string; global?: boolean } }
   | { type: 'skills.create'; payload: { name: string; description: string; scope: 'project' | 'global' } }
+  | { type: 'skills.export'; payload?: Record<string, unknown> }
   | { type: 'skills.edit'; payload: { name: string; body: string } };
 
 export type WSServerMessage =
@@ -708,6 +719,7 @@ export type WSServerMessage =
   | WSSkillsUpdated
   | WSSkillsCreated
   | WSSkillsEdited
+  | WSSkillsExported
   | WSDiagGet
   | WSStatsGet
   | WSSessionsList
