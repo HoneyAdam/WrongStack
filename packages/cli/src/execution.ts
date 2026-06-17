@@ -1193,8 +1193,13 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
             return () => { coordinatorEvents.delete(fn); };
           },
           onCoordinatorStart: (goal?: string) => {
-            if (!autonomousCoordinator) return;
-            void autonomousCoordinator.run({ goal: goal ?? '' });
+            if (!autonomousCoordinator) {
+              console.error('[coordinator] not ready — no director yet (spawn a subagent first)');
+              return;
+            }
+            autonomousCoordinator.run({ goal: goal ?? '' }).catch((err) => {
+              console.error('[coordinator] run() failed:', err);
+            });
           },
           onCoordinatorStop: () => {
             autonomousCoordinator?.stop();

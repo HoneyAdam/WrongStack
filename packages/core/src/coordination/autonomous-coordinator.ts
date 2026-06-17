@@ -220,10 +220,10 @@ export class AutonomousCoordinator {
     const goal = opts.goal ?? 'Improve the codebase';
     const maxCost = opts.maxCostUsd;
 
-    // Load persisted state
-    await this.graph.load();
-
     try {
+      // Load persisted state (inside try so errors are caught)
+      await this.graph.load();
+
       // Phase 1: Decompose the goal into sub-goals
       const goalConfigs = await this._decomposeGoal(goal);
       for (const g of goalConfigs) {
