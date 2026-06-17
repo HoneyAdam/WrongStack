@@ -33,10 +33,11 @@ export function resolvePath(input: string, ctx: Context): string {
 }
 
 export function ensureInsideRoot(absPath: string, ctx: Context): string {
-  // If allowOutsideProjectRoot is true, skip the project-root restriction.
-  if (ctx.allowOutsideProjectRoot) return path.resolve(absPath);
-  const root = path.resolve(ctx.projectRoot);
   const target = path.resolve(absPath);
+  // Unrestricted filesystem access: skip the project-root containment check.
+  // `=== false` (not falsy) so a ctx lacking the field stays confined.
+  if (ctx.restrictFsToRoot === false || ctx.allowOutsideProjectRoot) return target;
+  const root = path.resolve(ctx.projectRoot);
   const rel = path.relative(root, target);
   if (rel.startsWith('..') || path.isAbsolute(rel)) {
     throw new Error(`Path "${absPath}" is outside project root "${root}"`);
@@ -63,8 +64,9 @@ export function safeResolve(input: string, ctx: Context): string {
  * the caller named exactly one file.
  */
 export async function assertRealInsideRoot(absPath: string, ctx: Context): Promise<void> {
-  // If allowOutsideProjectRoot is true, skip the symlink-escape check.
-  if (ctx.allowOutsideProjectRoot) return;
+  // Unrestricted filesystem access: no symlink-escape check to perform.
+  // `=== false` (not falsy) so a ctx lacking the field stays confined.
+  if (ctx.restrictFsToRoot === false || ctx.allowOutsideProjectRoot) return;
   const realRoot = await fsp.realpath(ctx.projectRoot).catch(() => path.resolve(ctx.projectRoot));
   let probe = absPath;
   for (;;) {

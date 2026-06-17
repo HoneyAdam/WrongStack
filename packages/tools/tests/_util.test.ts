@@ -5,6 +5,7 @@ import type { Context } from '@wrongstack/core';
 import { describe, expect, it } from 'vitest';
 import {
   COMMAND_OUTPUT_MAX_BYTES,
+  assertRealInsideRoot,
   collapseCarriageReturns,
   collapseConsecutiveDuplicates,
   detectPackageManager,
@@ -77,6 +78,46 @@ describe('safeResolve', () => {
       projectRoot: path.resolve('/tmp/project'),
     });
     expect(() => safeResolve('../../escape.txt', c)).toThrow(/outside project root/);
+  });
+});
+
+describe('unrestricted filesystem access (restrictFsToRoot === false)', () => {
+  // The runtime constructs the leader/subagent Context with restrictFsToRoot
+  // derived from `tools.restrictToProjectRoot` (default false). When false, the
+  // project-root containment checks are bypassed so tools can reach outside.
+  const open = (overrides: Partial<Context> = {}): Context =>
+    ({
+      cwd: overrides.cwd ?? path.resolve('/tmp/project'),
+      projectRoot: overrides.projectRoot ?? path.resolve('/tmp/project'),
+      restrictFsToRoot: false,
+    }) as Context;
+
+  it('ensureInsideRoot returns an outside path instead of throwing', () => {
+    const c = open();
+    const outside = path.resolve('/tmp/elsewhere/a.txt');
+    expect(ensureInsideRoot(outside, c)).toBe(outside);
+  });
+
+  it('safeResolve resolves a `..` escape without throwing', () => {
+    const c = open({
+      cwd: path.resolve('/tmp/project/sub'),
+      projectRoot: path.resolve('/tmp/project'),
+    });
+    expect(safeResolve('../../escape.txt', c)).toBe(path.resolve('/tmp/escape.txt'));
+  });
+
+  it('assertRealInsideRoot resolves for an outside path without throwing', async () => {
+    const c = open();
+    await expect(
+      assertRealInsideRoot(path.resolve('/tmp/elsewhere/a.txt'), c),
+    ).resolves.toBeUndefined();
+  });
+
+  it('still confines when the flag is omitted (defaults to restricted)', () => {
+    const c = ctx({ projectRoot: path.resolve('/tmp/project') });
+    expect(() => ensureInsideRoot(path.resolve('/tmp/elsewhere/a.txt'), c)).toThrow(
+      /outside project root/,
+    );
   });
 });
 

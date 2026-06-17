@@ -46,7 +46,12 @@ export interface SessionResult {
 }
 
 export async function setupSession(params: {
-  config: { model: string; provider: string; features?: { allowOutsideProjectRoot?: boolean | undefined } };
+  config: {
+    model: string;
+    provider: string;
+    features?: { allowOutsideProjectRoot?: boolean | undefined };
+    tools?: { restrictToProjectRoot?: boolean | undefined } | undefined;
+  };
   wpaths: WstackPaths;
   projectRoot: string;
   cwd: string;
@@ -166,6 +171,10 @@ export async function setupSession(params: {
     tokenCounter,
     cwd,
     projectRoot,
+    // Filesystem-access scope: when restrictToProjectRoot is false (default),
+    // file tools may reach paths outside the project root. Togglable live via
+    // `/settings` ("Filesystem access").
+    restrictFsToRoot: config.tools?.restrictToProjectRoot ?? false,
     model: config.model,
     agentId: 'leader',
     agentName: 'Leader Agent',

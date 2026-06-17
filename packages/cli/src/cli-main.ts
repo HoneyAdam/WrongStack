@@ -2422,6 +2422,15 @@ export async function main(argv: string[]): Promise<number> {
         if (s.contextAutoCompact !== undefined) {
           autoCompactor?.setEnabled(s.contextAutoCompact);
         }
+        if (s.restrictFsToRoot !== undefined) {
+          // Toggle the live filesystem-access scope on the leader context so
+          // file tools immediately honor the new boundary. Subagents spawned
+          // afterwards read the patched config below.
+          context.restrictFsToRoot = s.restrictFsToRoot;
+          config = patchConfig(config, {
+            tools: { ...config.tools, restrictToProjectRoot: s.restrictFsToRoot },
+          });
+        }
       } catch {
         // Live-apply is best-effort; the persisted config is the source of truth.
       }

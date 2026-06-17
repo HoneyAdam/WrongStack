@@ -43,6 +43,13 @@ export interface ContextInit {
   projectRoot: string;
   /** Mutable working directory. Defaults to `cwd`. Must stay within `projectRoot`. */
   workingDir?: string | undefined;
+  /**
+   * When true, file tools and `setWorkingDir()` are confined to `projectRoot`.
+   * Defaults to `true` when omitted so directly-constructed contexts (tests,
+   * embedded callers) keep the safe behavior; the runtime passes the
+   * config-derived value (default `false` — unrestricted) explicitly.
+   */
+  restrictFsToRoot?: boolean | undefined;
   model: string;
   tools?: Tool[] | undefined;
   /** Agent id performing this run (e.g. 'leader', 'executor', 'tech-stack'). */
@@ -96,6 +103,13 @@ export class Context implements RunEnv {
   projectRoot: string;
   /** Mutable working directory — starts as `cwd`. Change via `setWorkingDir()`. */
   workingDir: string;
+  /**
+   * When true, file tools (via `_util.ts`) and `setWorkingDir()` reject paths
+   * outside `projectRoot`. When false, those boundary checks are bypassed so
+   * tools may reach paths outside the project (still gated by permission
+   * tiers). Mutable so `/settings` can toggle it live on the running session.
+   */
+  restrictFsToRoot: boolean;
   model: string;
   tools: Tool[] = [];
   meta: Record<string, unknown> = {};
@@ -149,6 +163,7 @@ export class Context implements RunEnv {
     this.cwd = init.cwd;
     this.projectRoot = init.projectRoot;
     this.workingDir = init.workingDir ?? init.cwd;
+    this.restrictFsToRoot = init.restrictFsToRoot ?? true;
     this.model = init.model;
     this.tools = init.tools ?? [];
     this.agentId = init.agentId ?? 'unknown';
@@ -236,13 +251,16 @@ export class Context implements RunEnv {
       ? path.resolve(dir)
       : path.resolve(this.projectRoot, dir);
 
-    // Validate containment within projectRoot
-    const root = path.resolve(this.projectRoot);
-    const rel = path.relative(root, resolved);
-    if (rel.startsWith('..') || path.isAbsolute(rel)) {
-      throw new Error(
-        `Working directory "${resolved}" is outside project root "${root}"`,
-      );
+    // Validate containment within projectRoot — unless filesystem access is
+    // unrestricted, in which case the working dir may leave the project root.
+    if (this.restrictFsToRoot !== false) {
+      const root = path.resolve(this.projectRoot);
+      const rel = path.relative(root, resolved);
+      if (rel.startsWith('..') || path.isAbsolute(rel)) {
+        throw new Error(
+          `Working directory "${resolved}" is outside project root "${root}"`,
+        );
+      }
     }
 
     const old = this.workingDir;

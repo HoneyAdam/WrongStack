@@ -23,6 +23,7 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
     '  /settings hints on|off        Show or suppress rotating launch hints',
     '  /settings debug-stream on|off   Raw SSE hex-dump to stderr for debugging',
     '  /settings config-scope global|project   Save settings globally or per-project',
+    '  /settings fs-access unrestricted|project   File-tool access scope (project = confine to project root)',
     '  /settings refine on|off       Enable/disable prompt refinement',
     '  /settings refine-delay <seconds>   Countdown duration for refine preview',
     '  /settings refine-language original|english   Default language for refinement',
@@ -47,6 +48,8 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
     const hints = opts.configStore.get().hints !== false; // default true
     const debugStream = opts.configStore.get().debugStream === true;
     const configScope = opts.configStore.get().configScope ?? 'global';
+    const fsAccess =
+      opts.configStore.get().tools?.restrictToProjectRoot === true ? 'project' : 'unrestricted';
     const enhanceEnabled = autonomy?.enhance ?? true;
     const enhanceDelay = autonomy?.enhanceDelayMs ?? 60_000;
     const enhanceLanguage = (autonomy?.enhanceLanguage as string) ?? 'original';
@@ -62,6 +65,7 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
       `  launch hints:          ${hints ? color.cyan('on') : color.dim('off')}   ${color.dim('change: /settings hints on|off')}`,
       `  debug stream:         ${debugStream ? color.cyan('on') : color.dim('off')}   ${color.dim('change: /settings debug-stream on|off')}`,
       `  config scope:         ${color.cyan(configScope)}   ${color.dim('change: /settings config-scope global|project')}`,
+      `  filesystem access:   ${color.cyan(fsAccess)}   ${color.dim('change: /settings fs-access unrestricted|project')}`,
       `  refine:              ${enhanceEnabled ? color.cyan('on') : color.dim('off')}   ${color.dim('change: /settings refine on|off')}`,
       `  refine-delay:        ${color.cyan(formatDelay(enhanceDelay))}   ${color.dim('change: /settings refine-delay <seconds>')}`,
       `  refine-language:     ${color.cyan(enhanceLanguage)}   ${color.dim('change: /settings refine-language original|english')}`,
@@ -198,6 +202,25 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
           return { message: `${color.green('✓')} config scope → ${label}` };
         }
 
+        if (sub === 'fs-access') {
+          const raw = (rest[0] ?? '').toLowerCase();
+          if (!['unrestricted', 'project'].includes(raw)) {
+            return { message: `${color.amber('Usage:')} /settings fs-access unrestricted|project` };
+          }
+          const restrict = raw === 'project';
+          await persistConfigSetting(persistDeps, (cfg) => {
+            const tools = (cfg.tools as Record<string, unknown> | undefined) ?? {};
+            tools.restrictToProjectRoot = restrict;
+            cfg.tools = tools;
+          });
+          const label = restrict
+            ? `${color.cyan('project')} — file tools confined to the project root`
+            : `${color.cyan('unrestricted')} — file tools may access paths outside the project root`;
+          return {
+            message: `${color.green('✓')} filesystem access → ${label}   ${color.dim('(restart or re-open the session to apply)')}`,
+          };
+        }
+
         if (sub === 'refine') {
           const raw = (rest[0] ?? '').toLowerCase();
           if (!['on', 'off'].includes(raw)) {
@@ -272,7 +295,7 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
         }
 
         return {
-          message: `${color.red('Unknown setting')} "${sub}". ${unknownSubcommand(sub, ['delay', 'mode', 'hints', 'debug-stream', 'config-scope', 'refine', 'refine-delay', 'refine-language', 'semver-part', 'defaults'], 'settings')}`,
+          message: `${color.red('Unknown setting')} "${sub}". ${unknownSubcommand(sub, ['delay', 'mode', 'hints', 'debug-stream', 'config-scope', 'fs-access', 'refine', 'refine-delay', 'refine-language', 'semver-part', 'defaults'], 'settings')}`,
         };
       } catch (err) {
         return {

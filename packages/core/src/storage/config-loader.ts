@@ -58,6 +58,7 @@ const BEHAVIOR_DEFAULTS: Omit<Config, 'provider' | 'model'> = {
     sessionTimeoutMs: DEFAULT_TOOLS_CONFIG.sessionTimeoutMs,
     perIterationOutputCapBytes: DEFAULT_TOOLS_CONFIG.perIterationOutputCapBytes,
     autoExtendLimit: DEFAULT_TOOLS_CONFIG.autoExtendLimit,
+    restrictToProjectRoot: DEFAULT_TOOLS_CONFIG.restrictToProjectRoot,
   },
   log: { level: 'info' },
   features: {

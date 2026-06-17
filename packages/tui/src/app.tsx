@@ -836,7 +836,8 @@ export function App({
     },
     autonomyPicker: { open: false, options: [], selected: 0 },
     resumePicker: { open: false, sessions: [], selected: 0, busy: false, hint: undefined, error: undefined },
-    settingsPicker: { open: false, field: 0, mode: 'off', delayMs: 0, titleAnimation: true, yolo: false, streamFleet: true, chime: false, confirmExit: true, nextPrediction: false, featureMcp: true, featurePlugins: true, featureMemory: true, featureSkills: true, featureModelsRegistry: true, featureTokenSaving: false, allowOutsideProjectRoot: true, contextAutoCompact: true, contextStrategy: 'hybrid', logLevel: 'info', auditLevel: 'standard', indexOnStart: true, maxIterations: 500, autoProceedMaxIterations: 50, enhanceDelayMs: 60_000, enhanceEnabled: true, enhanceLanguage: 'original', debugStream: false, configScope: 'global' },
+<<<<<<< HEAD
+    settingsPicker: { open: false, field: 0, mode: 'off', delayMs: 0, titleAnimation: true, yolo: false, streamFleet: true, chime: false, confirmExit: true, nextPrediction: false, featureMcp: true, featurePlugins: true, featureMemory: true, featureSkills: true, featureModelsRegistry: true, featureTokenSaving: false, allowOutsideProjectRoot: true, restrictFsToRoot: false, contextAutoCompact: true, contextStrategy: 'hybrid', logLevel: 'info', auditLevel: 'standard', indexOnStart: true, maxIterations: 500, autoProceedMaxIterations: 50, enhanceDelayMs: 60_000, enhanceEnabled: true, enhanceLanguage: 'original', debugStream: false, configScope: 'global' },
     projectPicker: { open: false, allItems: [], items: [], selected: 0, filter: '', hint: undefined },
     confirmQueue: [],
     enhance: null,
@@ -1796,6 +1797,7 @@ export function App({
             enhanceLanguage: sp.enhanceLanguage,
             debugStream: sp.debugStream,
             configScope: sp.configScope,
+            restrictFsToRoot: sp.restrictFsToRoot,
           });
         }
         if (prev.projectPicker) {
@@ -2334,6 +2336,7 @@ export function App({
       enhanceLanguage: (s.enhanceLanguage as 'original' | 'english') ?? 'original',
       debugStream: s.debugStream ?? false,
       configScope: s.configScope ?? 'global',
+      restrictFsToRoot: s.restrictFsToRoot ?? false,
     });
   }, [getSettings]);
 
@@ -2542,6 +2545,7 @@ export function App({
       enhanceLanguage: sp.enhanceLanguage,
       debugStream: sp.debugStream,
       configScope: sp.configScope,
+      restrictFsToRoot: sp.restrictFsToRoot,
     })).then((err: string | null) => {
       if (err) dispatch({ type: 'settingsHint', text: err });
     });
@@ -4177,6 +4181,7 @@ export function App({
           enhanceLanguage: (cfg.enhanceLanguage as 'original' | 'english') ?? 'original',
           debugStream: cfg.debugStream ?? false,
           configScope: cfg.configScope ?? 'global',
+          restrictFsToRoot: cfg.restrictFsToRoot ?? false,
         });
       }
       return;
@@ -5585,6 +5590,7 @@ export function App({
               enhanceLanguage={state.settingsPicker.enhanceLanguage}
               debugStream={state.settingsPicker.debugStream}
               configScope={state.settingsPicker.configScope}
+              restrictFsToRoot={state.settingsPicker.restrictFsToRoot}
               hint={state.settingsPicker.hint}
             />
           ) : null}
