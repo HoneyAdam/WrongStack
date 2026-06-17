@@ -190,7 +190,10 @@ export class AutonomousCoordinator {
     });
 
     // ── Wire fleet events ───────────────────────────────────────────────
-    this.fleet?.filter('subagent.terminated', (e: FleetEvent) => {
+    // NOTE: 'subagent.terminated' is never emitted — '_onSubagentTerminated' was
+    // dead code. The correct event is 'subagent.completed' (emitted by
+    // MultiAgentCoordinator when a subagent finishes with status).
+    this.fleet?.filter('subagent.completed', (e: FleetEvent) => {
       this._onSubagentTerminated(e);
     });
   }
@@ -511,9 +514,16 @@ export class AutonomousCoordinator {
   }
 
   private _onSubagentTerminated(e: FleetEvent): void {
-    const payload = e.payload as { subagentId?: string; stopReason?: string } | undefined;
+    // Handle both the old 'stopReason' format and the 'subagent.completed' format
+    const payload = e.payload as {
+      subagentId?: string;
+      stopReason?: string;
+      status?: 'ok' | 'error' | 'timeout' | 'aborted';
+      taskId?: string;
+    } | undefined;
     const subagentId = payload?.subagentId ?? e.subagentId;
-    const stopReason = payload?.stopReason ?? 'unknown';
+    // 'stopReason' is from the old format; 'status' is from 'subagent.completed'
+    const stopReason = payload?.stopReason ?? (payload?.status === 'ok' ? 'end_turn' : (payload?.status ?? 'unknown'));
     const tasks = this.auction.getTasksForAgent(subagentId);
 
     for (const task of tasks) {
