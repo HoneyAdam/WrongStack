@@ -172,6 +172,7 @@ export class RecoveryLock {
       if (code === 'EEXIST') {
         throw new Error(`Recovery lock already held by another process`);
       }
+      /* v8 ignore next -- defensive: an unexpected (non-EEXIST) write failure is rethrown */
       throw err;
     }
   }
@@ -187,6 +188,7 @@ export class RecoveryLock {
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code === 'ENOENT') return;
+      /* v8 ignore next -- defensive: an unexpected (non-ENOENT) unlink failure is rethrown */
       throw err;
     }
   }
@@ -238,6 +240,7 @@ function defaultIsPidAlive(pid: number): boolean {
     return true;
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
+    /* v8 ignore next -- platform/permission-specific: EPERM means alive but owned by another user */
     if (code === 'EPERM') return true; // alive, but owned by someone else
     return false;
   }
