@@ -188,6 +188,7 @@ export class DefaultModelsRegistry implements ModelsRegistry {
   /** Fetch + cache the models.dev base. Throws on failure (used by `refresh`). */
   private async refreshBase(): Promise<ModelsDevPayload> {
     const controller = new AbortController();
+    /* v8 ignore next -- timing: the abort callback only fires if the real fetch exceeds the timeout */
     const timeout = setTimeout(() => controller.abort(), this.refreshTimeoutMs);
     try {
       const res = await this.fetchImpl(this.url, {
@@ -223,6 +224,7 @@ export class DefaultModelsRegistry implements ModelsRegistry {
    * disk. Never throws — a missing/broken overlay yields `{}`.
    */
   private async loadOverlay(opts: { force?: boolean | undefined } = {}): Promise<ModelsDevPayload> {
+    /* v8 ignore next -- unreachable: load() caches `payload` and short-circuits before re-calling loadOverlay non-forced */
     if (this.overlayPayload && !opts.force) return this.overlayPayload;
     if (hasEntries(this.overlay)) {
       this.overlayPayload = this.overlay;
@@ -258,6 +260,7 @@ export class DefaultModelsRegistry implements ModelsRegistry {
         url: this.overlayUrl,
         payload: json,
       };
+      /* v8 ignore next -- best-effort: overlay-cache write failure is intentionally ignored */
       await atomicWrite(this.overlayCacheFile, JSON.stringify(envelope)).catch(() => {});
       return json;
     } catch {
