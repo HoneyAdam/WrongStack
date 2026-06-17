@@ -188,7 +188,7 @@ export const useChatStore = create<ChatState>()(
           const idx = state.messages.findIndex((m) => m.id === id);
           if (idx === -1) return state;
           return {
-            messages: state.messages.slice(0, idx),
+            messages: state.messages.slice(0, idx + 1),
             currentAssistantMessageId: null,
             currentToolId: null,
           };
