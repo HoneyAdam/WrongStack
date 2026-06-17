@@ -4,7 +4,8 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { META } from '@/lib/utils';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Github, Menu, Moon, Sun, X } from 'lucide-react';
+import { Menu, Moon, Sun, X } from 'lucide-react';
+import { GitHubIcon } from '@/components/ui/github-icon';
 import { useTheme } from 'next-themes';
 import { useEffect, useState } from 'react';
 
@@ -97,7 +98,7 @@ export function Header() {
               rel="noopener noreferrer"
               aria-label="GitHub repository"
             >
-              <Github className="size-5" />
+              <GitHubIcon className="size-5" />
             </a>
           </Button>
           <Button size="sm" asChild className="ml-1 hidden sm:inline-flex">

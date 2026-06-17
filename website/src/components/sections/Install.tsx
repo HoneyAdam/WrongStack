@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { CopyButton } from '@/components/ui/copy';
 import { Reveal, SectionHeading } from '@/components/ui/reveal';
 import { META } from '@/lib/utils';
-import { Github } from 'lucide-react';
+import { GitHubIcon } from '@/components/ui/github-icon';
 
 function Cmd({ children, copy }: { children: string; copy?: string }) {
   return (
@@ -107,7 +107,7 @@ export function Install() {
           <div className="mt-5 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Button size="lg" asChild className="sheen w-full sm:w-auto">
               <a href={META.repo} target="_blank" rel="noopener noreferrer">
-                <Github className="size-4" /> Open the repository
+                <GitHubIcon className="size-4" /> Open the repository
               </a>
             </Button>
             <Button size="lg" variant="outline" asChild className="w-full sm:w-auto">

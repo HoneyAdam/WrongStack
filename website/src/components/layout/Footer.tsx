@@ -2,7 +2,8 @@
 
 import { Badge } from '@/components/ui/badge';
 import { META, packages } from '@/lib/utils';
-import { BookOpen, Github } from 'lucide-react';
+import { BookOpen } from 'lucide-react';
+import { GitHubIcon } from '@/components/ui/github-icon';
 
 const footerLinks: Record<string, { label: string; href: string }[]> = {
   Product: [
@@ -106,7 +107,7 @@ export function Footer() {
               rel="noopener noreferrer"
               className="flex items-center gap-1.5 transition-colors hover:text-brand"
             >
-              <Github className="size-4" /> GitHub
+              <GitHubIcon className="size-4" /> GitHub
             </a>
             <a
               href={`${META.repo}/tree/main/docs`}

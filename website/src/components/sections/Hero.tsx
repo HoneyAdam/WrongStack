@@ -6,7 +6,8 @@ import { CountUp } from '@/components/ui/count-up';
 import { Out, Prompt, TerminalFrame } from '@/components/ui/terminal';
 import { META, heroStats } from '@/lib/utils';
 import { motion, useReducedMotion } from 'framer-motion';
-import { ArrowRight, Github } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
+import { GitHubIcon } from '@/components/ui/github-icon';
 import { useEffect, useRef, useState } from 'react';
 
 /** Two slow-drifting brand blobs. Static under reduced-motion. */
@@ -148,7 +149,7 @@ export function Hero() {
             </Button>
             <Button size="lg" variant="outline" asChild className="w-full sm:w-auto">
               <a href={META.repo} target="_blank" rel="noopener noreferrer">
-                <Github className="size-4" /> View on GitHub
+                <GitHubIcon className="size-4" /> View on GitHub
               </a>
             </Button>
           </motion.div>
