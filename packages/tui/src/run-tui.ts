@@ -389,6 +389,14 @@ export interface RunTuiOptions {
    * Returns an unsubscribe function.
    */
   subscribeCoordinatorEvents?: (fn: (event: CoordinatorEvent) => void) => () => void;
+  /**
+   * Start the AutonomousCoordinator loop. Fire-and-forget — run() loops
+   * asynchronously. Pass a goal string to begin decomposition and task
+   * auction immediately.
+   */
+  onCoordinatorStart?: ((goal?: string) => void) | undefined;
+  /** Stop the AutonomousCoordinator loop. */
+  onCoordinatorStop?: (() => void) | undefined;
 }
 
 // Bracketed paste mode wraps any pasted text with these markers, letting us

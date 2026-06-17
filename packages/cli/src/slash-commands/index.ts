@@ -202,6 +202,15 @@ export interface SlashCommandContext {
   /** Stop the eternal/parallel autonomy engine (mid-iteration abort + flag flip). */
   onEternalStop?: (() => void) | undefined;
   /**
+   * Start the AutonomousCoordinator — project-level multi-session coordination
+   * that tracks goals, tasks, knowledge, and consensus across all active sessions
+   * in the same project. Fire-and-forget: run() loops asynchronously.
+   * Pass the goal text to decompose and work on.
+   */
+  onCoordinatorStart?: ((goal?: string) => void) | undefined;
+  /** Stop the AutonomousCoordinator loop. */
+  onCoordinatorStop?: (() => void) | undefined;
+  /**
    * Ask the user a yes/no question on the REPL. Returns `true`/`false` for
    * Y/N answers, `null` when the user cancels (q). Resolves to `defaultYes`
    * on non-TTY / EOF so non-interactive callers don't hang. Slash commands

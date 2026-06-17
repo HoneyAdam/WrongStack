@@ -1184,6 +1184,13 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
             coordinatorEvents.add(fn);
             return () => { coordinatorEvents.delete(fn); };
           },
+          onCoordinatorStart: (goal?: string) => {
+            if (!autonomousCoordinator) return;
+            void autonomousCoordinator.run({ goal: goal ?? '' });
+          },
+          onCoordinatorStop: () => {
+            autonomousCoordinator?.stop();
+          },
           // /clear: signal the TUI to wipe entries and reset fleet/leader stats
           // AND bump the context chip version — so the display reflects a
           // completely fresh session after the backend has been cleared.
