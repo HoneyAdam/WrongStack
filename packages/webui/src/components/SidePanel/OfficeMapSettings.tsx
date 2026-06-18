@@ -5,12 +5,12 @@
  * the map itself which now lives in the full-width main area.
  */
 
-import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import {
   useFleetStore,
   useMailboxStore,
   useVizStore,
+  useOfficeMapStore,
 } from '@/stores';
 
 interface SettingRowProps {
@@ -67,13 +67,20 @@ export function OfficeMapSettings() {
   const vizEvents = useVizStore((s) => s.events);
   const mailboxMessages = useMailboxStore((s) => s.messages);
 
-  // Local settings state
-  const [showMinimap, setShowMinimap] = useState(true);
-  const [showControls, setShowControls] = useState(true);
-  const [animateEdges, setAnimateEdges] = useState(true);
-  const [showLabels, setShowLabels] = useState(true);
-  const [autoFit, setAutoFit] = useState(true);
-  const [zoomLevel, setZoomLevel] = useState(1);
+  // Settings from the store — these control the canvas in real-time
+  const showMinimap = useOfficeMapStore((s) => s.showMinimap);
+  const showControls = useOfficeMapStore((s) => s.showControls);
+  const animateEdges = useOfficeMapStore((s) => s.animateEdges);
+  const showLegend = useOfficeMapStore((s) => s.showLegend);
+  const showHud = useOfficeMapStore((s) => s.showHud);
+  const background = useOfficeMapStore((s) => s.background);
+
+  const setShowMinimap = useOfficeMapStore((s) => s.setShowMinimap);
+  const setShowControls = useOfficeMapStore((s) => s.setShowControls);
+  const setAnimateEdges = useOfficeMapStore((s) => s.setAnimateEdges);
+  const setShowLegend = useOfficeMapStore((s) => s.setShowLegend);
+  const setShowHud = useOfficeMapStore((s) => s.setShowHud);
+  const setBackground = useOfficeMapStore((s) => s.setBackground);
 
   const runningAgents = Array.from(fleetAgents.values()).filter((a) => a.status === 'running').length;
   const totalAgents = fleetAgents.size;
@@ -114,6 +121,13 @@ export function OfficeMapSettings() {
           View
         </div>
         <div className="rounded-lg border bg-card divide-y">
+          <SettingRow label="HUD" description="Show real-time session stats overlay">
+            <Toggle
+              checked={showHud}
+              onChange={setShowHud}
+              label="Toggle HUD"
+            />
+          </SettingRow>
           <SettingRow label="Minimap" description="Show the overview minimap">
             <Toggle
               checked={showMinimap}
@@ -126,13 +140,6 @@ export function OfficeMapSettings() {
               checked={showControls}
               onChange={setShowControls}
               label="Toggle controls"
-            />
-          </SettingRow>
-          <SettingRow label="Auto-fit view" description="Automatically fit all nodes on changes">
-            <Toggle
-              checked={autoFit}
-              onChange={setAutoFit}
-              label="Toggle auto-fit"
             />
           </SettingRow>
         </div>
@@ -151,37 +158,37 @@ export function OfficeMapSettings() {
               label="Toggle edge animation"
             />
           </SettingRow>
-          <SettingRow label="Show labels" description="Display connection type labels">
+          <SettingRow label="Show legend" description="Display status and connection legend">
             <Toggle
-              checked={showLabels}
-              onChange={setShowLabels}
-              label="Toggle labels"
+              checked={showLegend}
+              onChange={setShowLegend}
+              label="Toggle legend"
             />
           </SettingRow>
         </div>
       </div>
 
-      {/* Zoom Level */}
+      {/* Background Style */}
       <div className="space-y-1">
         <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Zoom
+          Background
         </div>
         <div className="rounded-lg border bg-card p-3 space-y-2">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Zoom level</span>
-            <span className="font-mono">{Math.round(zoomLevel * 100)}%</span>
-          </div>
-          <input
-            type="range"
-            min="30"
-            max="150"
-            value={zoomLevel * 100}
-            onChange={(e) => setZoomLevel(Number(e.target.value) / 100)}
-            className="w-full h-1.5 rounded-full bg-muted appearance-none cursor-pointer accent-primary"
-          />
-          <div className="flex justify-between text-[9px] text-muted-foreground">
-            <span>30%</span>
-            <span>150%</span>
+          <div className="flex gap-2">
+            {(['dots', 'lines', 'cross', 'none'] as const).map((bg) => (
+              <button
+                key={bg}
+                onClick={() => setBackground(bg)}
+                className={cn(
+                  'px-3 py-1.5 text-xs rounded-md border transition-colors',
+                  background === bg
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'bg-muted text-muted-foreground border-border hover:border-primary/50'
+                )}
+              >
+                {bg.charAt(0).toUpperCase() + bg.slice(1)}
+              </button>
+            ))}
           </div>
         </div>
       </div>

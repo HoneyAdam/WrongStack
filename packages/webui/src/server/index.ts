@@ -505,6 +505,7 @@ export async function startWebUI(
       projectRoot,
       projectName: path.basename(projectRoot),
       workingDir,
+      clientType: 'webui',
       pid: process.pid,
       startedAt: new Date().toISOString(),
     });
@@ -3305,6 +3306,7 @@ export async function startWebUI(
               projectRoot,
               projectName: path.basename(projectRoot),
               workingDir,
+              clientType: 'webui',
               pid: process.pid,
               startedAt: new Date().toISOString(),
             });

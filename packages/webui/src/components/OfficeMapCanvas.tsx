@@ -21,7 +21,10 @@ import {
   type EdgeTypes,
   BackgroundVariant,
   useReactFlow,
-  MarkerType,
+  Handle,
+  Position,
+  getBezierPath,
+  EdgeLabelRenderer,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
@@ -54,6 +57,8 @@ import {
   useMonitorStore,
   useOfficeMapStore,
 } from '@/stores';
+import type { LiveSession } from '@/stores/monitor-store';
+import type { SubagentView } from '@/stores/types';
 
 // ── Client Types ─────────────────────────────────────────────────────────────
 
@@ -70,11 +75,61 @@ interface OfficeNodeData extends Record<string, unknown> {
   currentTask?: string;
   iteration?: number;
   toolCalls?: number;
+  costUsd?: number;
+  tokensIn?: number;
+  tokensOut?: number;
+  ctxPct?: number;
+  model?: string;
+  lastActivityAt?: string;
   lastSeenAt?: number;
   connections?: number;
+  // Client-node extras
+  pid?: number;
+  branch?: string;
+  workingDir?: string;
+  startedAt?: string;
+  agentCount?: number;
   color?: string;
   /** 0–1 activity level from VizStore for glow intensity */
   vizActivity?: number;
+}
+
+// ── Formatting helpers ───────────────────────────────────────────────────────
+
+/** Compact token/number formatting: 1234 → "1.2k", 1_500_000 → "1.5M". */
+function fmtCompact(n?: number): string {
+  if (!n) return '0';
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
+
+/** Relative "Xs/Xm/Xh ago" from an ISO timestamp, using a passed `now` (ms). */
+function fmtAgo(iso: string | undefined, now: number): string {
+  if (!iso) return '—';
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return '—';
+  const s = Math.max(0, Math.round((now - t) / 1000));
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  return `${Math.floor(s / 3600)}h ago`;
+}
+
+/** Compact uptime "Xs/Xm/Xh" from an ISO start, using a passed `now` (ms). */
+function fmtUptime(iso: string | undefined, now: number): string {
+  if (!iso) return '—';
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return '—';
+  const s = Math.max(0, Math.round((now - t) / 1000));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+}
+
+/** Short model label, e.g. "anthropic/claude-opus-4-8" → "claude-opus-4-8". */
+function shortModel(model: string | undefined): string | undefined {
+  if (!model) return undefined;
+  return model.split('/').pop()?.slice(0, 22);
 }
 
 // ── Status LED ─────────────────────────────────────────────────────────────
@@ -125,7 +180,7 @@ function StatusLED({ status, small, activity = 0 }: { status: ClientStatus; smal
 // ── Real-time Stats HUD ──────────────────────────────────────────────────────
 
 function StatsHUD() {
-  const { clientCounts, currentSession, totalAgents, activeAgents } = useMonitorStore();
+  const { clientCounts, currentSession, totalAgents, activeAgents, aggregate } = useMonitorStore();
   const totalClients = clientCounts.tui + clientCounts.webui + clientCounts.repl;
 
   // Format tokens with commas
@@ -147,7 +202,7 @@ function StatsHUD() {
             <span className="text-gray-400">Clients</span>
           </div>
           <span className="text-gray-200 font-mono">
-            {totalClients} <span className="text-gray-500">/</span>{' '}
+            {activeAgents} <span className="text-gray-500">/</span>{' '}
             <span className="text-emerald-400">{totalClients}</span>
           </span>
         </div>
@@ -221,49 +276,40 @@ function StatsHUD() {
           </div>
         )}
 
-        {/* Tool Calls */}
+        {/* Tool Calls — project-wide total across every live agent */}
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-1.5">
             <Hash className="h-3 w-3 text-gray-500" />
             <span className="text-gray-400">Tool Calls</span>
           </div>
-          <span className="text-yellow-400 font-mono">{fmtNum(currentSession.toolCalls)}</span>
+          <span className="text-yellow-400 font-mono">{fmtNum(aggregate.toolCalls)}</span>
         </div>
 
-        {/* Token breakdown */}
+        {/* Token breakdown — project-wide */}
         <div className="border-t border-slate-700 pt-1.5 mt-1.5 space-y-1">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-1.5">
               <span className="text-gray-500 text-[8px]">IN</span>
               <span className="text-gray-400">Input</span>
             </div>
-            <span className="text-gray-300 font-mono text-[9px]">{fmtNum(currentSession.inputTokens)}</span>
+            <span className="text-gray-300 font-mono text-[9px]">{fmtNum(aggregate.tokensIn)}</span>
           </div>
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-1.5">
               <span className="text-gray-500 text-[8px]">OUT</span>
               <span className="text-gray-400">Output</span>
             </div>
-            <span className="text-gray-300 font-mono text-[9px]">{fmtNum(currentSession.outputTokens)}</span>
+            <span className="text-gray-300 font-mono text-[9px]">{fmtNum(aggregate.tokensOut)}</span>
           </div>
-          {currentSession.cacheTokens != null && currentSession.cacheTokens > 0 && (
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-1.5">
-                <span className="text-gray-500 text-[8px]">CACHE</span>
-                <span className="text-gray-400">Cache</span>
-              </div>
-              <span className="text-gray-500 font-mono text-[9px]">{fmtNum(currentSession.cacheTokens)}</span>
-            </div>
-          )}
         </div>
 
-        {/* Cost */}
+        {/* Cost — project-wide */}
         <div className="flex items-center justify-between gap-4 border-t border-slate-700 pt-1.5 mt-1.5">
           <div className="flex items-center gap-1.5">
             <DollarSign className="h-3 w-3 text-gray-500" />
             <span className="text-gray-400">Cost</span>
           </div>
-          <span className="text-emerald-400 font-mono font-medium">{fmtCost(currentSession.costUsd)}</span>
+          <span className="text-emerald-400 font-mono font-medium">{fmtCost(aggregate.costUsd)}</span>
         </div>
       </div>
     </div>
@@ -271,6 +317,35 @@ function StatsHUD() {
 }
 
 // ── Node Components ─────────────────────────────────────────────────────────
+
+/**
+ * Hidden connection points. React Flow only renders an edge when BOTH endpoints
+ * expose a matching handle — custom nodes get none by default, which is why the
+ * office wires never appeared. Every node carries a top target + bottom source
+ * so edges in either vertical direction attach. Kept invisible (the custom
+ * `wire` edge draws its own bezier).
+ */
+function NodeHandles() {
+  const style = { opacity: 0, width: 1, height: 1, minWidth: 0, border: 'none', background: 'transparent' } as const;
+  return (
+    <>
+      <Handle type="target" position={Position.Top} style={style} isConnectable={false} />
+      <Handle type="source" position={Position.Bottom} style={style} isConnectable={false} />
+    </>
+  );
+}
+
+/** Shared footer for client nodes: agent count + uptime. */
+function ClientMeta({ data }: { data: OfficeNodeData }) {
+  return (
+    <div className="mt-2 flex items-center justify-between border-t border-white/5 pt-1.5 text-[8px] text-gray-500">
+      <span>
+        <span className="font-mono text-gray-300">{data.agentCount ?? 0}</span> agents
+      </span>
+      {data.startedAt && <span>up {fmtUptime(data.startedAt, Date.now())}</span>}
+    </div>
+  );
+}
 
 function WebUINode({ data }: { data: OfficeNodeData }) {
   const isActive = data.status === 'active' || data.status === 'streaming';
@@ -286,6 +361,7 @@ function WebUINode({ data }: { data: OfficeNodeData }) {
       isOffline && 'border-gray-500/30 bg-gray-500/5 opacity-60',
       !isActive && !isError && !isOffline && 'border-blue-500/30 bg-blue-500/10',
     )}>
+      <NodeHandles />
       <div className="flex items-center gap-3 mb-3">
         <div className={cn(
           'flex items-center justify-center w-10 h-10 rounded-lg',
@@ -325,6 +401,8 @@ function WebUINode({ data }: { data: OfficeNodeData }) {
           <div className="h-full bg-blue-500 animate-pulse" style={{ width: '60%' }} />
         </div>
       )}
+
+      <ClientMeta data={data} />
     </div>
   );
 }
@@ -341,6 +419,7 @@ function TUINode({ data }: { data: OfficeNodeData }) {
       isError && 'border-red-500/50 bg-red-500/10',
       !isActive && !isError && 'border-emerald-500/30 bg-emerald-500/10',
     )}>
+      <NodeHandles />
       <div className="flex items-center gap-3 mb-3">
         <div className={cn(
           'flex items-center justify-center w-10 h-10 rounded-lg',
@@ -365,6 +444,8 @@ function TUINode({ data }: { data: OfficeNodeData }) {
         <Terminal className="h-3 w-3 text-emerald-500" />
         <span>Terminal</span>
       </div>
+
+      <ClientMeta data={data} />
     </div>
   );
 }
@@ -379,6 +460,7 @@ function REPLNode({ data }: { data: OfficeNodeData }) {
       isActive && 'shadow-lg shadow-amber-500/20',
       !isActive && 'border-amber-500/30 bg-amber-500/10',
     )}>
+      <NodeHandles />
       <div className="flex items-center gap-3 mb-3">
         <div className={cn(
           'flex items-center justify-center w-10 h-10 rounded-lg',
@@ -392,6 +474,12 @@ function REPLNode({ data }: { data: OfficeNodeData }) {
         </div>
         <StatusLED status={data.status} activity={data.vizActivity ?? 0} />
       </div>
+
+      {data.sublabel && (
+        <div className="text-[10px] text-gray-400 mb-1 truncate">{data.sublabel}</div>
+      )}
+
+      <ClientMeta data={data} />
     </div>
   );
 }
@@ -403,6 +491,7 @@ function CoordinatorNode({ data }: { data: OfficeNodeData }) {
 
   return (
     <div className="rounded-xl border-2 p-4 min-w-[200px] transition-all backdrop-blur-sm relative bg-slate-900/90">
+      <NodeHandles />
       <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-purple-600 text-white text-[9px] rounded-full font-bold">
         COORDINATOR
       </div>
@@ -456,29 +545,49 @@ function AgentNode({ data }: { data: OfficeNodeData }) {
       isCompleted && 'border-gray-500/30 bg-gray-500/5',
       !isActive && !isError && !isCompleted && 'border-cyan-500/30 bg-cyan-500/10',
     )}>
-      <div className="flex items-center gap-2 mb-2">
-        <Bot className="h-4 w-4" style={{ color }} />
+      <NodeHandles />
+      <div className="flex items-center gap-2 mb-1.5">
+        <Bot className="h-4 w-4 shrink-0" style={{ color }} />
         <div className="flex-1 min-w-0">
           <div className="text-[11px] font-bold truncate" style={{ color }}>{data.label}</div>
+          {data.model && (
+            <div className="text-[8px] text-gray-500 truncate">{shortModel(data.model)}</div>
+          )}
         </div>
         <StatusLED status={data.status} small activity={data.vizActivity ?? 0} />
       </div>
 
+      {/* Live current tool */}
       {data.currentTask && (
-        <div className="text-[9px] text-gray-400 truncate mb-1">
-          {data.currentTask}
+        <div className="flex items-center gap-1 text-[9px] text-cyan-300/90 truncate mb-1.5">
+          <span className={cn('w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0', isActive && 'animate-pulse')} />
+          <span className="truncate font-mono">{data.currentTask}</span>
         </div>
       )}
 
-      <div className="flex items-center gap-3 text-[9px] text-gray-500">
-        <span>iter {data.iteration || 0}</span>
-        <span>tools {data.toolCalls || 0}</span>
+      {/* Metric grid: iterations, tools, cost, tokens */}
+      <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[9px] mb-1.5">
+        <div className="flex justify-between"><span className="text-gray-500">iter</span><span className="text-gray-300 font-mono">{data.iteration || 0}</span></div>
+        <div className="flex justify-between"><span className="text-gray-500">tools</span><span className="text-yellow-400/90 font-mono">{data.toolCalls || 0}</span></div>
+        <div className="flex justify-between"><span className="text-gray-500">tok</span><span className="text-gray-300 font-mono">{fmtCompact((data.tokensIn || 0) + (data.tokensOut || 0))}</span></div>
+        <div className="flex justify-between"><span className="text-gray-500">cost</span><span className="text-emerald-400/90 font-mono">${(data.costUsd || 0).toFixed(3)}</span></div>
       </div>
 
-      {isActive && (
-        <div className="mt-2 h-1 rounded-full bg-cyan-500/30 overflow-hidden">
-          <div className="h-full bg-cyan-500 animate-pulse" style={{ width: '40%' }} />
+      {/* Context-fill bar */}
+      {data.ctxPct != null && data.ctxPct > 0 && (
+        <div className="mb-1">
+          <div className="flex justify-between text-[8px] text-gray-500 mb-0.5">
+            <span>ctx</span><span className={cn('font-mono', data.ctxPct >= 90 ? 'text-red-400' : data.ctxPct >= 70 ? 'text-amber-400' : 'text-gray-400')}>{data.ctxPct}%</span>
+          </div>
+          <div className="h-1 rounded-full bg-slate-700/60 overflow-hidden">
+            <div className={cn('h-full', data.ctxPct >= 90 ? 'bg-red-500' : data.ctxPct >= 70 ? 'bg-amber-500' : 'bg-cyan-500')} style={{ width: `${Math.min(100, data.ctxPct)}%` }} />
+          </div>
         </div>
+      )}
+
+      {/* Last activity */}
+      {data.lastActivityAt && (
+        <div className="text-[8px] text-gray-600">{fmtAgo(data.lastActivityAt, Date.now())}</div>
       )}
     </div>
   );
@@ -492,6 +601,7 @@ function DeskNode({ data }: { data: OfficeNodeData }) {
       'rounded-lg border border-dashed p-3 min-w-[120px] transition-all opacity-40',
       'border-gray-600 bg-gray-800/30',
     )}>
+      <NodeHandles />
       <div className="flex items-center gap-2 mb-2">
         <Armchair className="h-4 w-4 text-gray-600" />
         <div className="flex-1 min-w-0">
@@ -514,6 +624,7 @@ function MailboxNode({ data }: { data: OfficeNodeData }) {
       hasUnread && 'border-yellow-500/50 bg-yellow-500/10 shadow-lg shadow-yellow-500/10',
       !hasUnread && 'border-yellow-500/30 bg-yellow-500/5',
     )}>
+      <NodeHandles />
       <div className="flex items-center gap-3 mb-3">
         <div className={cn(
           'flex items-center justify-center w-10 h-10 rounded-lg',
@@ -567,157 +678,290 @@ const nodeTypes: NodeTypes = {
 };
 
 const edgeTypes: EdgeTypes = {
-  wire: ({ id, sourceX, sourceY, targetX, targetY, data, selected }: any) => {
+  wire: ({
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+    sourcePosition,
+    targetPosition,
+    data,
+    selected,
+  }: any) => {
     const color = data?.color || '#6366f1';
     // Respect the global "animate edges" toggle from the settings panel.
-    // SUBSCRIBE (not getState()) so toggling the setting re-renders the edges —
-    // a getState() snapshot never re-runs this component on store changes.
+    // SUBSCRIBE (not getState()) so toggling the setting re-renders the edges.
     const animateEdges = useOfficeMapStore((s) => s.animateEdges);
     const isAnimated = data?.animated && animateEdges;
-    // Intensity drives dash speed and opacity — decays from 1 → 0 as activity fades.
-    const intensity = isAnimated ? (data?.intensity ?? 0.7) : 0;
-    // Faster dashes at higher intensity: dashLen shrinks from 12 → 4, gap from 6 → 2.
-    const dashLen = Math.round(4 + intensity * 8);
-    const dashGap = Math.round(2 + intensity * 4);
-    const dashArray = `${dashLen} ${dashGap}`;
-    const flowType = data?.flowType || 'heartbeat';
+    // Intensity (0–1) drives flow speed + glow — decays as activity fades.
+    const intensity = isAnimated ? Math.max(0.15, data?.intensity ?? 0.6) : 0;
 
-    const meta: Record<string, { icon: string; label: string }> = {
-      mail: { icon: '✉', label: 'mail' },
-      status: { icon: '●', label: 'status' },
-      spawn: { icon: '★', label: 'spawn' },
-      task: { icon: '→', label: 'task' },
-      heartbeat: { icon: '♥', label: 'hb' },
-    };
+    // Clean React-Flow bezier between the top/bottom handles — no hand-rolled
+    // upward arc that balloons for far-apart nodes.
+    const [path, labelX, labelY] = getBezierPath({
+      sourceX,
+      sourceY,
+      sourcePosition: sourcePosition ?? Position.Bottom,
+      targetX,
+      targetY,
+      targetPosition: targetPosition ?? Position.Top,
+      curvature: 0.28,
+    });
 
-    const m = meta[flowType] || meta.heartbeat;
-
-    // Bezier path
-    const dx = Math.abs(targetX - sourceX);
-    const offset = Math.max(50, dx * 0.4);
-    const cx = (sourceX + targetX) / 2;
-    const cy = Math.min(sourceY, targetY) - offset;
-
-    const path = `M ${sourceX} ${sourceY} C ${sourceX} ${cy}, ${targetX} ${cy}, ${targetX} ${targetY}`;
-    const labelX = cx;
-    const labelY = cy;
+    const dashLen = 5 + intensity * 7;
+    const dashGap = 5 + intensity * 4;
+    const period = dashLen + dashGap;
+    const dur = `${Math.max(0.5, 1.6 - intensity).toFixed(2)}s`;
 
     return (
       <>
+        {/* Base wire — always visible so the topology reads even when idle. */}
         <path
           d={path}
           fill="none"
           stroke={color}
-          strokeWidth={selected ? 3 : 2}
-          strokeOpacity={selected ? 0.9 : 0.5}
+          strokeWidth={selected ? 2.5 : 1.4}
+          strokeOpacity={selected ? 0.9 : 0.28}
           className="react-flow__edge-path"
         />
-        {isAnimated && intensity > 0.05 && (
+        {/* Flowing dashes when active — direction shows source → target. */}
+        {intensity > 0.05 && (
           <path
             d={path}
             fill="none"
             stroke={color}
-            strokeWidth={2.5}
-            strokeDasharray={dashArray}
-            opacity={0.4 + intensity * 0.5}
-            className="react-flow__edge-path"
-          />
-        )}
-        {data?.label && (
-          <foreignObject
-            width={80}
-            height={24}
-            x={labelX - 40}
-            y={labelY - 12}
-            className="overflow-visible"
+            strokeWidth={2.2}
+            strokeOpacity={0.45 + intensity * 0.5}
+            strokeDasharray={`${dashLen} ${dashGap}`}
+            strokeLinecap="round"
+            style={{ filter: `drop-shadow(0 0 ${2 + intensity * 4}px ${color})` }}
           >
-            <div className="flex items-center justify-center gap-1">
-              <span className="text-[10px]">{m.icon}</span>
-              <div className={cn(
-                'px-2 py-0.5 rounded-full border text-[9px] font-medium',
-                'bg-slate-800/80 border-white/20 text-white/90'
-              )}>
-                {data.label}
-              </div>
+            <animate
+              attributeName="stroke-dashoffset"
+              from={period}
+              to="0"
+              dur={dur}
+              repeatCount="indefinite"
+            />
+          </path>
+        )}
+        {/* Label only on active flow — keeps idle wires uncluttered. */}
+        {data?.label && intensity > 0.1 && (
+          <EdgeLabelRenderer>
+            <div
+              style={{
+                position: 'absolute',
+                transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+              }}
+              className="pointer-events-none rounded-full border border-white/15 bg-slate-800/90 px-1.5 py-0.5 text-[8px] font-medium text-white/85 backdrop-blur-sm"
+            >
+              {data.label}
             </div>
-          </foreignObject>
+          </EdgeLabelRenderer>
         )}
-        <defs>
-          <marker
-            id={`arrow-${color.replace('#', '')}`}
-            viewBox="0 0 10 10"
-            refX="9"
-            refY="5"
-            markerWidth="6"
-            markerHeight="6"
-            orient="auto-start-reverse"
-          >
-            <path d="M 0 0 L 10 5 L 0 10 z" fill={color} opacity={0.7} />
-          </marker>
-        </defs>
-        <path
-          d={path}
-          fill="none"
-          stroke="transparent"
-          strokeWidth={20}
-          markerEnd={`url(#arrow-${color.replace('#', '')})`}
-        />
       </>
     );
   },
 };
 
 // ── Office Layout ────────────────────────────────────────────────────────────
+//
+//  Per-client desks floor plan (driven by the live cross-process snapshot):
+//
+//        [ Mailbox Hub ]            ← lobby (top center)
+//             |
+//      [ Fleet Coordinator ]        ← executive floor
+//      /        |         \
+//  [TUI #1234] [WebUI …]  [REPL …]  ← one client node per live session
+//   |   |        |
+//  [A1][A2]    [A3]                 ← that client's agents sit at desks below it
 
-interface LayoutPosition {
-  x: number;
-  y: number;
+const CENTER_X = 600;
+const MAILBOX_Y = 0;
+const COORD_Y = 250;
+const CLIENT_Y = 520;
+const AGENT_Y0 = 790;
+const AGENT_DY = 150;
+const CLIENT_COL_W = 380;
+
+/** Horizontal x for each client id, spread symmetrically around CENTER_X. */
+function layoutClientXs(clientIds: string[]): Map<string, number> {
+  const map = new Map<string, number>();
+  const n = Math.max(1, clientIds.length);
+  clientIds.forEach((id, i) => {
+    map.set(id, CENTER_X + (i - (n - 1) / 2) * CLIENT_COL_W);
+  });
+  return map;
+}
+
+/** Map a registry surface to one of the three office client node kinds. */
+function clientNodeType(clientType: string | undefined): 'tui' | 'webui' | 'repl' {
+  if (clientType === 'tui') return 'tui';
+  if (clientType === 'cli' || clientType === 'repl') return 'repl';
+  return 'webui';
+}
+
+function surfaceLabel(kind: 'tui' | 'webui' | 'repl'): string {
+  return kind === 'tui' ? 'Terminal UI' : kind === 'repl' ? 'REPL' : 'Web UI';
+}
+
+/** Normalise a raw agent status (snapshot or fleet store) to a node status. */
+function mapAgentStatus(raw: string | undefined): ClientStatus {
+  switch (raw) {
+    case 'running':
+    case 'active':
+      return 'active';
+    case 'streaming':
+      return 'streaming';
+    case 'completed':
+      return 'completed';
+    case 'failed':
+    case 'error':
+      return 'error';
+    default:
+      return 'idle';
+  }
+}
+
+/** A resolved agent ready to render as an office desk node. */
+interface ResolvedAgent {
+  officeId: string; // `agent-<serverId>`
+  serverId: string;
+  name: string;
+  status: ClientStatus;
+  iteration: number;
+  toolCalls: number;
+  costUsd: number;
+  tokensIn: number;
+  tokensOut: number;
+  ctxPct?: number | undefined;
+  model?: string | undefined;
+  lastActivityAt?: string | undefined;
+  currentTask?: string | undefined;
+}
+
+/** A resolved client (one live session) with its agents. */
+interface ResolvedClient {
+  id: string; // `client-<pid|sessionId>`
+  type: 'tui' | 'webui' | 'repl';
+  label: string;
+  sublabel: string;
+  status: ClientStatus;
+  pid?: number | undefined;
+  branch?: string | undefined;
+  workingDir?: string | undefined;
+  startedAt?: string | undefined;
+  agents: ResolvedAgent[];
 }
 
 /**
- * Office floor plan layout:
- *
- *  ┌─────────────────────────────────────────────────────┐
- *  │  LOBBY (Mailbox Hub)                                │
- *  │  [Mailbox]                                         │
- *  └─────────────────────────────────────────────────────┘
- *  ┌─────────────────────────────────────────────────────┐
- *  │  EXECUTIVE FLOOR                                   │
- *  │  [Coordinator]                                      │
- *  └─────────────────────────────────────────────────────┘
- *  ┌─────────────────────────────────────────────────────┐
- *  │  ENGINEERING FLOOR                                 │
- *  │  [TUI]  [WebUI]  [REPL]                            │
- *  └─────────────────────────────────────────────────────┘
- *  ┌─────────────────────────────────────────────────────┐
- *  │  WORKER FLOOR                                      │
- *  │  [Agent 1] [Agent 2] [Agent 3] [Agent 4] ...       │
- *  └─────────────────────────────────────────────────────┘
+ * Build the office client/agent model from the live cross-process snapshot,
+ * preferring the richer local fleet-store data for the attached session's
+ * agents and folding any not-yet-snapshotted local agents under a WebUI client.
  */
+function resolveClients(
+  liveSessions: LiveSession[],
+  fleetAgents: Map<string, SubagentView>,
+): ResolvedClient[] {
+  const rendered = new Set<string>();
+  const clients: ResolvedClient[] = [];
 
-function getOfficeLayout(maxAgents: number): Map<string, LayoutPosition> {
-  const positions = new Map<string, LayoutPosition>();
+  for (const s of liveSessions) {
+    const type = clientNodeType(s.clientType);
+    // Office node ids must be unique across clients — two sessions can each
+    // have an agent literally named "leader", which would otherwise collide on
+    // `agent-leader` and render as a single node.
+    const clientId = `client-${s.pid ?? s.sessionId}`;
+    const agents: ResolvedAgent[] = [];
+    let anyRunning = false;
 
-  // Lobby - top center
-  positions.set('mailbox', { x: 400, y: 60 });
+    for (const a of s.agents) {
+      rendered.add(a.id);
+      const fleet = fleetAgents.get(a.id);
+      const status = mapAgentStatus(fleet?.status ?? a.status);
+      if (status === 'active' || status === 'streaming') anyRunning = true;
+      agents.push({
+        officeId: `${clientId}__agent-${a.id}`,
+        serverId: a.id,
+        name: fleet?.name ?? a.name ?? a.id,
+        status,
+        iteration: fleet?.iteration ?? a.iterations ?? 0,
+        toolCalls: fleet?.toolCalls ?? a.toolCalls ?? 0,
+        costUsd: fleet?.costUsd ?? a.costUsd ?? 0,
+        tokensIn: fleet?.tokensIn ?? a.tokensIn ?? 0,
+        tokensOut: fleet?.tokensOut ?? a.tokensOut ?? 0,
+        ctxPct: fleet?.ctxPct ?? a.ctxPct,
+        model: fleet?.model ?? a.model,
+        lastActivityAt: a.lastActivityAt,
+        currentTask: fleet?.currentTool ?? fleet?.lastTool ?? a.currentTool,
+      });
+    }
 
-  // Executive floor - coordinator
-  positions.set('coordinator', { x: 400, y: 180 });
+    const status: ClientStatus =
+      s.status === 'closing' || s.status === 'stale'
+        ? 'offline'
+        : anyRunning
+          ? 'active'
+          : 'idle';
 
-  // Engineering floor - client nodes
-  positions.set('client-tui', { x: 200, y: 300 });
-  positions.set('client-webui', { x: 400, y: 300 });
-  positions.set('client-repl', { x: 600, y: 300 });
-
-  // Worker floor - agent nodes in a row
-  const agentSpacing = 140;
-  const agentStartX = 80;
-  for (let i = 0; i < maxAgents; i++) {
-    positions.set(`agent-${i}`, { x: agentStartX + i * agentSpacing, y: 450 });
-    positions.set(`desk-${i}`, { x: agentStartX + i * agentSpacing, y: 450 });
+    clients.push({
+      id: clientId,
+      type,
+      label: s.projectName || surfaceLabel(type),
+      sublabel: [surfaceLabel(type), s.gitBranch ? `⎇ ${s.gitBranch}` : '', s.pid ? `pid ${s.pid}` : '']
+        .filter(Boolean)
+        .join(' · '),
+      status,
+      pid: s.pid,
+      branch: s.gitBranch,
+      workingDir: s.workingDir,
+      startedAt: s.startedAt,
+      agents,
+    });
   }
 
-  return positions;
+  // Local agents the 5s snapshot hasn't caught up to yet (attached session):
+  // attach them to a WebUI client so they appear immediately.
+  const leftover = [...fleetAgents.values()].filter((a) => !rendered.has(a.id));
+  if (leftover.length > 0) {
+    let host = clients.find((c) => c.type === 'webui');
+    if (!host) {
+      host = { id: 'client-self', type: 'webui', label: 'This WebUI', sublabel: 'Web UI', status: 'idle', agents: [] };
+      clients.push(host);
+    }
+    for (const a of leftover) {
+      const status = mapAgentStatus(a.status);
+      if (status === 'active' || status === 'streaming') host.status = 'active';
+      host.agents.push({
+        officeId: `${host.id}__agent-${a.id}`,
+        serverId: a.id,
+        name: a.name,
+        status,
+        iteration: a.iteration ?? 0,
+        toolCalls: a.toolCalls ?? 0,
+        costUsd: a.costUsd ?? 0,
+        tokensIn: a.tokensIn ?? 0,
+        tokensOut: a.tokensOut ?? 0,
+        ctxPct: a.ctxPct,
+        model: a.model,
+        currentTask: a.currentTool ?? a.lastTool,
+      });
+    }
+  }
+
+  // Never render a fully empty floor — show this WebUI as a connecting client.
+  if (clients.length === 0) {
+    clients.push({
+      id: 'client-self',
+      type: 'webui',
+      label: 'This WebUI',
+      sublabel: 'Web UI · connecting…',
+      status: 'idle',
+      agents: [],
+    });
+  }
+
+  return clients;
 }
 
 // ── Main Canvas Component ────────────────────────────────────────────────────
@@ -730,8 +974,18 @@ export function OfficeMapCanvas() {
   const fleetAgents = useFleetStore((s) => s.agents);
   const leaderId = useFleetStore((s) => s.leaderId);
 
+  // Live cross-process snapshot — the structural source of truth for the map.
+  const liveSessions = useMonitorStore((s) => s.liveSessions);
+
   const mailboxMessages = useMailboxStore((s) => s.messages);
   const session = useSessionStore((s) => s.session);
+
+  // Resolve the client/agent model once per snapshot/fleet change so the build
+  // effect and the viz-overlay id-maps share a single source of truth.
+  const clients = useMemo(
+    () => resolveClients(liveSessions, fleetAgents),
+    [liveSessions, fleetAgents],
+  );
 
   // Display preferences (driven from OfficeMapSettingsPanel in the secondary panel).
   const showHud = useOfficeMapStore((s) => s.showHud);
@@ -762,24 +1016,32 @@ export function OfficeMapCanvas() {
   // Node activity: keyed by office-map node id, decays over time.
   const vizActivityRef = useRef<Map<string, number>>(new Map());
 
-  const maxAgents = 8;
+  // Previous (toolCalls, iteration) per agent — drives delta-based movement so a
+  // cross-process agent's desk pulses whenever it advances between snapshots.
+  const prevAgentStatsRef = useRef<Map<string, { toolCalls: number; iteration: number }>>(new Map());
 
-  // Build nodes from store data
+  // Signature of the current node set. We only auto-fit the view when nodes are
+  // added/removed — not on every data tick — so the canvas doesn't constantly
+  // jump/recenter ("refresh atıyor") while agents are just updating counters.
+  const prevNodeSigRef = useRef<string>('');
+
+  // Build nodes from the live snapshot (clients/agents) + local fleet store.
   useEffect(() => {
     const rfNodes: Node<OfficeNodeData>[] = [];
     const rfEdges: Edge[] = [];
-    const layout = getOfficeLayout(maxAgents);
+    const now = Date.now();
+
+    const clientXs = layoutClientXs(clients.map((c) => c.id));
 
     // ── Mailbox Node ──────────────────────────────────────────────
     const unreadCount = mailboxMessages.filter(
       (m) => !m.completed && (m.readByCount ?? 0) === 0,
     ).length;
-    const mailboxPos = layout.get('mailbox')!;
 
     rfNodes.push({
       id: 'mailbox',
       type: 'mailbox',
-      position: mailboxPos,
+      position: { x: CENTER_X, y: MAILBOX_Y },
       data: {
         label: 'Mailbox Hub',
         kind: 'mailbox',
@@ -791,71 +1053,69 @@ export function OfficeMapCanvas() {
     });
 
     // ── Coordinator Node ─────────────────────────────────────────
-    const coordPos = layout.get('coordinator')!;
     const leaderAgent = leaderId ? fleetAgents.get(leaderId) : null;
+    const anyAgentRunning = clients.some((c) =>
+      c.agents.some((a) => a.status === 'active' || a.status === 'streaming'),
+    );
 
     rfNodes.push({
       id: 'coordinator',
       type: 'coordinator',
-      position: coordPos,
+      position: { x: CENTER_X, y: COORD_Y },
       data: {
         label: leaderAgent?.name || 'Fleet Coordinator',
-        sublabel: session?.model || 'claude-3-5-sonnet',
+        sublabel: session?.model || undefined,
         kind: 'coordinator',
         status:
-          leaderAgent?.status === 'running'
-            ? 'active'
-            : leaderAgent?.status === 'failed'
-              ? 'error'
+          leaderAgent?.status === 'failed'
+            ? 'error'
+            : leaderAgent?.status === 'running' || anyAgentRunning
+              ? 'active'
               : 'idle',
         iteration: leaderAgent?.iteration || 0,
-        connections: fleetAgents.size,
+        connections: clients.length,
         color: '#a855f7',
       },
     });
 
-    // ── Client Nodes ──────────────────────────────────────────────
-    const clientTypes: Array<{
-      id: string;
-      type: ClientKind;
-      label: string;
-      color: string;
-    }> = [
-      { id: 'client-tui', type: 'tui', label: 'Terminal UI', color: '#22c55e' },
-      { id: 'client-webui', type: 'webui', label: 'Web UI', color: '#3b82f6' },
-      { id: 'client-repl', type: 'repl', label: 'REPL', color: '#f59e0b' },
-    ];
+    // ── Per-client columns: client node + its agents/desks ─────────
+    const clientColor: Record<'tui' | 'webui' | 'repl', string> = {
+      tui: '#22c55e',
+      webui: '#3b82f6',
+      repl: '#f59e0b',
+    };
 
-    clientTypes.forEach((client) => {
-      const pos = layout.get(client.id)!;
-      const isConnected = client.id !== 'client-repl'; // REPL assumed offline for demo
+    for (const client of clients) {
+      const cx = clientXs.get(client.id) ?? CENTER_X;
+      const color = clientColor[client.type];
+      const clientActive = client.status === 'active';
 
       rfNodes.push({
         id: client.id,
         type: client.type,
-        position: pos,
+        position: { x: cx, y: CLIENT_Y },
         data: {
           label: client.label,
-          sublabel: isConnected ? 'Connected' : 'Offline',
+          sublabel: client.sublabel,
           kind: client.type,
-          status: isConnected ? 'active' : 'offline',
-          color: client.color,
+          status: client.status,
+          pid: client.pid,
+          branch: client.branch,
+          workingDir: client.workingDir,
+          startedAt: client.startedAt,
+          agentCount: client.agents.length,
+          color,
         },
       });
 
-      // Wire: Client → Coordinator
+      // Wire: Client → Coordinator (uplink; animated while the client is busy)
       rfEdges.push({
         id: `${client.id}->coordinator`,
         source: client.id,
         target: 'coordinator',
         type: 'wire',
-        animated: isConnected,
-        data: {
-          color: client.color,
-          animated: isConnected,
-          label: 'control',
-          flowType: 'task',
-        },
+        animated: clientActive,
+        data: { color, animated: clientActive, label: 'control', flowType: 'task' },
       });
 
       // Wire: Mailbox → Client
@@ -872,127 +1132,154 @@ export function OfficeMapCanvas() {
           flowType: 'mail',
         },
       });
-    });
 
-    // ── Agent Nodes ──────────────────────────────────────────────
-    const fleetArray = Array.from(fleetAgents.values());
+      if (client.agents.length === 0) {
+        // Idle desk placeholder so the client never looks broken.
+        rfNodes.push({
+          id: `desk-${client.id}`,
+          type: 'desk',
+          position: { x: cx, y: AGENT_Y0 },
+          data: { label: 'Idle desk', kind: 'agent', status: 'idle', color: '#374151' },
+        });
+        continue;
+      }
 
-    if (fleetArray.length > 0) {
-      fleetArray.slice(0, maxAgents).forEach((agent, i) => {
-        const pos = layout.get(`agent-${i}`)!;
-        const isActive = agent.status === 'running';
+      client.agents.forEach((agent, j) => {
+        const isActive = agent.status === 'active' || agent.status === 'streaming';
+
+        // ── Delta-driven movement ──────────────────────────────────
+        // Pulse the desk + its wires when the agent advances (more tools /
+        // iterations) or is actively running. Reuses the decay machinery.
+        const prev = prevAgentStatsRef.current.get(agent.serverId);
+        const advanced =
+          (prev ? agent.toolCalls > prev.toolCalls || agent.iteration > prev.iteration : false) ||
+          isActive;
+        if (advanced) {
+          activeNodesRef.current.set(agent.officeId, now + ACTIVE_MS);
+          const cur = vizActivityRef.current.get(agent.officeId) ?? 0;
+          vizActivityRef.current.set(agent.officeId, Math.min(1, cur + (1 - cur) * 0.5));
+          for (const edgeId of [
+            `coordinator->${agent.officeId}`,
+            `${agent.officeId}->mailbox`,
+            `${client.id}->coordinator`,
+          ]) {
+            const e = edgeIntensitiesRef.current.get(edgeId) ?? 0;
+            edgeIntensitiesRef.current.set(edgeId, Math.min(1, e + 0.5));
+          }
+        }
+        prevAgentStatsRef.current.set(agent.serverId, {
+          toolCalls: agent.toolCalls,
+          iteration: agent.iteration,
+        });
 
         rfNodes.push({
-          id: `agent-${agent.id}`,
+          id: agent.officeId,
           type: 'agent',
-          position: pos,
+          position: { x: cx, y: AGENT_Y0 + j * AGENT_DY },
           data: {
             label: agent.name,
             kind: 'agent',
-            status: isActive
-              ? 'active'
-              : agent.status === 'completed'
-                ? 'completed'
-                : agent.status === 'failed'
-                  ? 'error'
-                  : 'idle',
-            currentTask: agent.currentTool || agent.lastTool,
+            status: agent.status,
+            currentTask: agent.currentTask,
             iteration: agent.iteration,
             toolCalls: agent.toolCalls,
-            lastSeenAt: agent.startedAt,
+            costUsd: agent.costUsd,
+            tokensIn: agent.tokensIn,
+            tokensOut: agent.tokensOut,
+            ctxPct: agent.ctxPct,
+            model: agent.model,
+            lastActivityAt: agent.lastActivityAt,
             color: '#06b6d4',
           },
         });
 
-        // Wire: Coordinator → Agent
+        // Wire: Coordinator → Agent (task assignment)
         rfEdges.push({
-          id: `coordinator->agent-${agent.id}`,
+          id: `coordinator->${agent.officeId}`,
           source: 'coordinator',
-          target: `agent-${agent.id}`,
+          target: agent.officeId,
           type: 'wire',
           animated: isActive,
-          data: {
-            color: '#a855f7',
-            animated: isActive,
-            label: isActive ? 'task' : undefined,
-            flowType: 'task',
-          },
+          data: { color: '#a855f7', animated: isActive, label: isActive ? 'task' : undefined, flowType: 'task' },
         });
 
         // Wire: Agent → Mailbox
         rfEdges.push({
-          id: `agent-${agent.id}->mailbox`,
-          source: `agent-${agent.id}`,
+          id: `${agent.officeId}->mailbox`,
+          source: agent.officeId,
           target: 'mailbox',
           type: 'wire',
           animated: false,
-          data: {
-            color: '#06b6d4',
-            animated: false,
-            label: 'mail',
-            flowType: 'mail',
-          },
+          data: { color: '#06b6d4', animated: false, label: 'mail', flowType: 'mail' },
         });
       });
-    } else {
-      // Empty desks when no agents
-      for (let i = 0; i < maxAgents; i++) {
-        const pos = layout.get(`desk-${i}`)!;
-        rfNodes.push({
-          id: `desk-${i}`,
-          type: 'desk',
-          position: pos,
-          data: {
-            label: `Desk ${i + 1}`,
-            kind: 'agent',
-            status: 'idle',
-            color: '#374151',
-          },
-        });
-      }
     }
 
-    // Re-apply any still-live transient "active" highlight so the rebuild does
-    // not clobber status set by the viz-event effect below.
-    const now = Date.now();
-    const overlaid = rfNodes.map((n) => {
+    // Drop stale prev-stats for agents no longer present.
+    const liveAgentIds = new Set(clients.flatMap((c) => c.agents.map((a) => a.serverId)));
+    for (const id of [...prevAgentStatsRef.current.keys()]) {
+      if (!liveAgentIds.has(id)) prevAgentStatsRef.current.delete(id);
+    }
+
+    // Re-apply still-live transient "active" highlights + activity glow so the
+    // rebuild does not clobber state set by the viz-event/delta effects.
+    const overlaidNodes = rfNodes.map((n) => {
       const until = activeNodesRef.current.get(n.id);
       const activity = vizActivityRef.current.get(n.id) ?? 0;
-      if (until && until > now && n.data.status !== 'error') {
+      if (until && until > now && n.data.status !== 'error' && n.data.status !== 'offline') {
         return { ...n, data: { ...n.data, status: 'active' as const, vizActivity: activity } };
       }
       return { ...n, data: { ...n.data, vizActivity: activity } };
     });
 
-    setNodes(overlaid);
-    setEdges(rfEdges);
+    // Overlay live edge intensities so a rebuild keeps animating wires that the
+    // viz/delta effects lit (a fresh rebuild would otherwise reset them).
+    const overlaidEdges = rfEdges.map((e) => {
+      const intensity = edgeIntensitiesRef.current.get(e.id) ?? 0;
+      if (intensity > 0.05) {
+        return { ...e, animated: true, data: { ...e.data, animated: true, intensity } };
+      }
+      return e;
+    });
 
-    const fitTimer = setTimeout(() => fitView({ padding: 0.2, duration: 300 }), 50);
-    return () => clearTimeout(fitTimer);
-  }, [fleetAgents, leaderId, mailboxMessages, session, maxAgents, setNodes, setEdges, fitView]);
+    setNodes(overlaidNodes);
+    setEdges(overlaidEdges);
+
+    // Only re-fit when the node *set* changed (added/removed), not on every
+    // counter update — otherwise the canvas recenters on each 5s snapshot.
+    const sig = overlaidNodes.map((n) => n.id).sort().join('|');
+    if (sig !== prevNodeSigRef.current) {
+      prevNodeSigRef.current = sig;
+      const fitTimer = setTimeout(() => fitView({ padding: 0.2, duration: 300 }), 50);
+      return () => clearTimeout(fitTimer);
+    }
+    return undefined;
+  }, [clients, leaderId, fleetAgents, mailboxMessages, session, ACTIVE_MS, setNodes, setEdges, fitView]);
 
   // ── Viz event → node/edge highlight mapping ─────────────────────────
   // Maps generic viz event sources to office-map node IDs.
   // Returns the set of office-map node IDs to highlight + edge IDs to animate.
   // ── Server-agent-ID → office-map-ID helpers ──────────────────────────
-  // The fleet store uses raw server IDs (e.g. 'agent_1'), but Office Map
-  // uses positional IDs (e.g. 'agent-0', 'agent-1').  We build a reverse
-  // lookup from the fleetAgents Map on every rebuild so that viz events
-  // targeting a specific agent can produce the correct office-map node ID.
-  const serverIdToOfficeId = new Map<string, string>();
-  const officeIdToServerId = new Map<string, string>();
-  {
-    let idx = 0;
-    for (const id of fleetAgents.keys()) {
-      const officeId = `agent-${idx}`;
-      serverIdToOfficeId.set(id, officeId);
-      officeIdToServerId.set(officeId, id);
-      idx++;
+  // Office node ids mirror the server agent id 1:1 (`agent-<serverId>`), so the
+  // mapping is direct. We still build the set of currently-rendered agents (from
+  // the resolved client model) to scope mailbox/iteration fan-outs to real nodes.
+  const renderedAgents = clients.flatMap((c) =>
+    c.agents.map((a) => ({ clientId: c.id, clientType: c.type, officeId: a.officeId, serverId: a.serverId })),
+  );
+  const clientIds = clients.map((c) => c.id);
+
+  // serverId → officeId for the viz overlay. Office ids are namespaced per
+  // client, so a viz event (which only carries the bare agent id) maps to the
+  // attached WebUI client's node when the same id exists in several sessions.
+  const serverIdToOffice = new Map<string, string>();
+  for (const a of renderedAgents) {
+    if (!serverIdToOffice.has(a.serverId) || a.clientType === 'webui') {
+      serverIdToOffice.set(a.serverId, a.officeId);
     }
   }
 
   function toOfficeAgentId(serverId: string): string {
-    return serverIdToOfficeId.get(serverId) ?? `agent-${serverId.replace(/[^0-9]/g, '')}`;
+    return serverIdToOffice.get(serverId) ?? `agent-${serverId}`;
   }
 
   function vizEventToTargets(event: typeof vizEvents[0]): {
@@ -1005,13 +1292,9 @@ export function OfficeMapCanvas() {
       case 'mailbox:deliver':
         return {
           nodes: ['mailbox'],
+          // Mail flows from the hub out to every connected client.
           edges: event.kind === 'mailbox:send'
-            ? fleetAgents.size > 0
-              ? Array.from(fleetAgents.keys()).flatMap((serverId) => {
-                  const officeId = serverIdToOfficeId.get(serverId) ?? '';
-                  return officeId ? [`mailbox->${officeId}`] : [];
-                })
-              : ['mailbox->client-tui', 'mailbox->client-webui', 'mailbox->client-repl']
+            ? clientIds.map((id) => `mailbox->${id}`)
             : [],
           status: 'active',
         };
@@ -1058,14 +1341,10 @@ export function OfficeMapCanvas() {
       case 'iteration:end':
         return {
           nodes: ['coordinator'],
-          edges: fleetAgents.size > 0
-            ? Array.from(fleetAgents.keys()).flatMap((serverId) => {
-                const officeId = serverIdToOfficeId.get(serverId) ?? '';
-                return officeId
-                  ? [`coordinator->${officeId}`, `${officeId}->mailbox`]
-                  : [];
-              })
-            : [],
+          edges: renderedAgents.flatMap((a) => [
+            `coordinator->${a.officeId}`,
+            `${a.officeId}->mailbox`,
+          ]),
           status: event.kind === 'iteration:start' ? 'streaming' : 'active',
         };
 
@@ -1434,64 +1713,76 @@ export function OfficeMapCanvas() {
             </button>
           </div>
 
-          <div className="space-y-2 text-xs">
-            <div className="flex justify-between">
-              <span className="text-gray-400">Status</span>
-              <span className={cn(
-                selectedNode.data.status === 'active' && 'text-emerald-400',
-                selectedNode.data.status === 'error' && 'text-red-400',
-                selectedNode.data.status === 'idle' && 'text-gray-400',
-                selectedNode.data.status === 'offline' && 'text-gray-500',
-              )}>
-                {String(selectedNode.data.status).toUpperCase()}
-              </span>
-            </div>
-
-            {selectedNode.data.kind === 'agent' && (
-              <>
-                <div className="flex justify-between">
-                  <span className="text-gray-400">Iterations</span>
-                  <span className="text-cyan-400 font-mono">{selectedNode.data.iteration || 0}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-400">Tool Calls</span>
-                  <span className="text-cyan-400 font-mono">{selectedNode.data.toolCalls || 0}</span>
-                </div>
-              </>
-            )}
-
-            {selectedNode.data.kind === 'mailbox' && (
-              <>
-                <div className="flex justify-between">
-                  <span className="text-gray-400">Total Messages</span>
-                  <span className="text-yellow-400 font-mono">{selectedNode.data.messageCount || 0}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-400">Unread</span>
-                  <span className="text-yellow-400 font-mono">{selectedNode.data.unreadCount || 0}</span>
-                </div>
-              </>
-            )}
-
-            {selectedNode.data.kind === 'coordinator' && (
-              <>
-                <div className="flex justify-between">
-                  <span className="text-gray-400">Connections</span>
-                  <span className="text-purple-400 font-mono">{selectedNode.data.connections || 0}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-400">Iterations</span>
-                  <span className="text-purple-400 font-mono">{selectedNode.data.iteration || 0}</span>
-                </div>
-              </>
-            )}
-
-            {selectedNode.data.sublabel && (
-              <div className="pt-2 border-t border-slate-700">
-                <span className="text-gray-400">{selectedNode.data.sublabel}</span>
+          {(() => {
+            const d = selectedNode.data;
+            const now = Date.now();
+            const Row = ({ k, v, accent }: { k: string; v: React.ReactNode; accent?: string }) => (
+              <div className="flex justify-between gap-3">
+                <span className="text-gray-400 shrink-0">{k}</span>
+                <span className={cn('font-mono truncate text-right', accent ?? 'text-gray-200')}>{v}</span>
               </div>
-            )}
-          </div>
+            );
+            const isAgent = d.kind === 'agent';
+            const isClient = d.kind === 'webui' || d.kind === 'tui' || d.kind === 'repl';
+            const tokTotal = (d.tokensIn || 0) + (d.tokensOut || 0);
+            return (
+              <div className="space-y-1.5 text-xs">
+                <Row
+                  k="Status"
+                  v={String(d.status).toUpperCase()}
+                  accent={cn(
+                    d.status === 'active' && 'text-emerald-400',
+                    d.status === 'streaming' && 'text-blue-400',
+                    d.status === 'error' && 'text-red-400',
+                    d.status === 'idle' && 'text-gray-400',
+                    d.status === 'offline' && 'text-gray-500',
+                  )}
+                />
+
+                {isAgent && (
+                  <>
+                    {d.model && <Row k="Model" v={shortModel(d.model)} accent="text-cyan-400" />}
+                    {d.currentTask && <Row k="Tool" v={d.currentTask} accent="text-cyan-300" />}
+                    <Row k="Iterations" v={d.iteration || 0} accent="text-cyan-400" />
+                    <Row k="Tool calls" v={d.toolCalls || 0} accent="text-yellow-400" />
+                    <Row k="Tokens in" v={fmtCompact(d.tokensIn)} />
+                    <Row k="Tokens out" v={fmtCompact(d.tokensOut)} />
+                    <Row k="Tokens total" v={fmtCompact(tokTotal)} />
+                    {d.ctxPct != null && d.ctxPct > 0 && (
+                      <Row k="Context" v={`${d.ctxPct}%`} accent={d.ctxPct >= 90 ? 'text-red-400' : d.ctxPct >= 70 ? 'text-amber-400' : 'text-gray-300'} />
+                    )}
+                    <Row k="Cost" v={`$${(d.costUsd || 0).toFixed(4)}`} accent="text-emerald-400" />
+                    {d.lastActivityAt && <Row k="Last seen" v={fmtAgo(d.lastActivityAt, now)} accent="text-gray-400" />}
+                  </>
+                )}
+
+                {isClient && (
+                  <>
+                    <Row k="Surface" v={surfaceLabel(d.kind as 'tui' | 'webui' | 'repl')} accent="text-gray-200" />
+                    {d.branch && <Row k="Branch" v={`⎇ ${d.branch}`} accent="text-gray-300" />}
+                    {d.pid != null && <Row k="PID" v={d.pid} />}
+                    {d.workingDir && <Row k="Dir" v={d.workingDir} accent="text-gray-400" />}
+                    <Row k="Agents" v={d.agentCount ?? 0} accent="text-cyan-400" />
+                    {d.startedAt && <Row k="Uptime" v={fmtUptime(d.startedAt, now)} accent="text-gray-300" />}
+                  </>
+                )}
+
+                {d.kind === 'mailbox' && (
+                  <>
+                    <Row k="Total messages" v={d.messageCount || 0} accent="text-yellow-400" />
+                    <Row k="Unread" v={d.unreadCount || 0} accent="text-yellow-400" />
+                  </>
+                )}
+
+                {d.kind === 'coordinator' && (
+                  <>
+                    <Row k="Connections" v={d.connections || 0} accent="text-purple-400" />
+                    <Row k="Iterations" v={d.iteration || 0} accent="text-purple-400" />
+                  </>
+                )}
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>

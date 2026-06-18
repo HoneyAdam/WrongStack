@@ -549,8 +549,15 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
         const { SessionRegistry } = await import('@wrongstack/core');
         const registry = new SessionRegistry(globalRoot);
         const sessions = await registry.list();
+        // Scope Fleet HQ to the *same project* as this server. The registry lists
+        // every project's sessions, so derive our current project from our own
+        // entry (matched by pid — survives in-place project switches, unlike the
+        // launch-time `wpaths.projectSlug`). Fall back to all sessions if our
+        // entry isn't found yet (first tick before registration settles).
+        const mySlug = sessions.find((s) => s.pid === process.pid)?.projectSlug;
         const live = sessions
           .filter((s) => s.status !== 'stale')
+          .filter((s) => (mySlug ? s.projectSlug === mySlug : true))
           .map((s) => ({
             sessionId: s.sessionId,
             projectName: s.projectName,
@@ -558,6 +565,8 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
             projectRoot: s.projectRoot,
             workingDir: s.workingDir,
             gitBranch: s.gitBranch,
+            // Surface (tui/webui/cli) so Fleet HQ can label each live client node.
+            clientType: s.clientType,
             status: s.status,
             pid: s.pid,
             startedAt: s.startedAt,
@@ -569,6 +578,11 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
               currentTool: a.currentTool,
               iterations: a.iterations,
               toolCalls: a.toolCalls,
+              costUsd: a.costUsd,
+              tokensIn: a.tokensIn,
+              tokensOut: a.tokensOut,
+              ctxPct: a.ctxPct,
+              model: a.model,
               lastActivityAt: a.lastActivityAt,
             })),
           }));

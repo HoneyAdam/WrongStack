@@ -23,6 +23,92 @@ export interface MailActivity {
   seq?: number;
 }
 
+/** One agent inside a live cross-process session (from sessions.status_update). */
+export interface LiveAgent {
+  id: string;
+  name: string;
+  status: string;
+  currentTool?: string;
+  iterations?: number;
+  toolCalls?: number;
+  costUsd?: number;
+  tokensIn?: number;
+  tokensOut?: number;
+  ctxPct?: number;
+  model?: string;
+  lastActivityAt?: string;
+}
+
+/** Project-wide totals summed across every live session's agents. */
+export interface FleetAggregate {
+  toolCalls: number;
+  costUsd: number;
+  tokensIn: number;
+  tokensOut: number;
+}
+
+/** One live session across any surface, as broadcast by the server's
+ *  SessionRegistry poll (`sessions.status_update`). This is the cross-process
+ *  source of truth the Fleet HQ office map renders from. */
+export interface LiveSession {
+  sessionId: string;
+  pid?: number;
+  /** Surface that owns the session: 'tui' | 'webui' | 'cli'. */
+  clientType?: string;
+  projectName?: string;
+  projectSlug?: string;
+  gitBranch?: string;
+  status?: string;
+  /** UTC ISO when the session was registered — used for uptime. */
+  startedAt?: string;
+  /** Absolute working directory of the session. */
+  workingDir?: string;
+  agentCount?: number;
+  agents: LiveAgent[];
+}
+
+/** Map a registry surface to one of the office-map client buckets. CLI/REPL
+ *  sessions land in the `repl` bucket; anything unknown defaults to `webui`. */
+export function clientBucket(clientType: string | undefined): keyof ClientCounts {
+  switch (clientType) {
+    case 'tui':
+      return 'tui';
+    case 'cli':
+    case 'repl':
+      return 'repl';
+    case 'webui':
+      return 'webui';
+    default:
+      return 'webui';
+  }
+}
+
+/** Derive client counts, agent totals, and project-wide cost/token/tool
+ *  aggregates from a live-session snapshot. */
+export function deriveMonitorStats(sessions: LiveSession[]): {
+  clientCounts: ClientCounts;
+  totalAgents: number;
+  activeAgents: number;
+  aggregate: FleetAggregate;
+} {
+  const clientCounts: ClientCounts = { tui: 0, webui: 0, repl: 0 };
+  let totalAgents = 0;
+  let activeAgents = 0;
+  const aggregate: FleetAggregate = { toolCalls: 0, costUsd: 0, tokensIn: 0, tokensOut: 0 };
+  for (const s of sessions) {
+    clientCounts[clientBucket(s.clientType)] += 1;
+    for (const a of s.agents) {
+      totalAgents += 1;
+      if (a.status === 'running' || a.status === 'streaming') activeAgents += 1;
+      aggregate.toolCalls += a.toolCalls ?? 0;
+      aggregate.costUsd += a.costUsd ?? 0;
+      aggregate.tokensIn += a.tokensIn ?? 0;
+      aggregate.tokensOut += a.tokensOut ?? 0;
+    }
+  }
+  return { clientCounts, totalAgents, activeAgents, aggregate };
+}
+
 /** Real-time session stats from client.status_update events */
 export interface CurrentSessionStats {
   clientType?: string;
@@ -55,10 +141,16 @@ export interface MonitorState {
   activeAgents: number;
   /** Current session stats from client.status_update */
   currentSession: CurrentSessionStats;
+  /** Live cross-process sessions (the Fleet HQ map's structural source). */
+  liveSessions: LiveSession[];
+  /** Project-wide tool/cost/token totals across all live agents. */
+  aggregate: FleetAggregate;
   /** Last update timestamp */
   lastUpdated: number;
 
   setClientCounts: (counts: ClientCounts) => void;
+  /** Replace the live-session snapshot and re-derive client/agent counts. */
+  setLiveSessions: (sessions: LiveSession[]) => void;
   addMailActivity: (activity: MailActivity) => void;
   setMailStats: (total: number, open: number, unread: number) => void;
   setAgentStats: (total: number, active: number) => void;
@@ -78,10 +170,19 @@ export const useMonitorStore = create<MonitorState>()((set) => ({
   totalAgents: 0,
   activeAgents: 0,
   currentSession: {},
+  liveSessions: [],
+  aggregate: { toolCalls: 0, costUsd: 0, tokensIn: 0, tokensOut: 0 },
   lastUpdated: Date.now(),
 
   setClientCounts: (counts) =>
     set({ clientCounts: counts, lastUpdated: Date.now() }),
+
+  setLiveSessions: (sessions) =>
+    set({
+      liveSessions: sessions,
+      ...deriveMonitorStats(sessions),
+      lastUpdated: Date.now(),
+    }),
 
   addMailActivity: (activity) =>
     set((state) => ({
@@ -108,6 +209,8 @@ export const useMonitorStore = create<MonitorState>()((set) => ({
       totalAgents: 0,
       activeAgents: 0,
       currentSession: {},
+      liveSessions: [],
+      aggregate: { toolCalls: 0, costUsd: 0, tokensIn: 0, tokensOut: 0 },
       lastUpdated: Date.now(),
     }),
 }));

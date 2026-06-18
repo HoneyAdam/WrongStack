@@ -25,6 +25,7 @@ import {
   useGitInfoStore,
 } from '@/stores';
 import { useVizStore, wsToVizEvent } from '@/stores/viz-store';
+import type { LiveSession } from '@/stores/monitor-store';
 import { useLocalPrefs } from '@/stores/local-prefs';
 import { useMailboxStore, type MailboxAgent, type MailboxMessage } from '@/stores/mailbox-store';
 import type { WorktreeHandleView, WSServerMessage } from '@/types';
@@ -689,22 +690,13 @@ export const WS_HANDLERS: Record<string, (msg: WSServerMessage) => void> = {
       timestamp?: number;
     };
 
-    // Update client counts based on client type
-    if (payload.clientType) {
-      const counts = { ...useMonitorStore.getState().clientCounts };
-      const type = payload.clientType as keyof typeof counts;
-      if (type in counts) {
-        counts[type] = 1; // One client of this type
-      }
-      useMonitorStore.getState().setClientCounts(counts);
-    }
+    // NOTE: client counts + agent totals are derived from the cross-process
+    // `sessions.status_update` snapshot (setLiveSessions), which is the real
+    // multi-client source of truth. `client.status_update` only carries the
+    // *attached* session's detail, so it must NOT overwrite the fleet-wide
+    // counts here (doing so previously pinned the map to a single client).
 
-    // Update agent stats if provided
-    if (typeof payload.agentCount === 'number') {
-      useMonitorStore.getState().setAgentStats(payload.agentCount, payload.agentCount);
-    }
-
-    // Update current session stats
+    // Update current session stats (model / mode / tokens / cost for the HUD)
     useMonitorStore.getState().setCurrentSession({
       clientType: payload.clientType,
       clientId: payload.clientId,
@@ -720,7 +712,13 @@ export const WS_HANDLERS: Record<string, (msg: WSServerMessage) => void> = {
     });
   },
   'sessions.status_update': (msg: WSServerMessage) => {
-    // Pipe to viz store — creates fleet:snapshot event for AgentFlowViz
+    // Structural source of truth for the Fleet HQ office map: store the live
+    // cross-process session snapshot (this also re-derives client/agent counts).
+    const payload = msg.payload as { sessions?: LiveSession[] } | undefined;
+    useMonitorStore.getState().setLiveSessions(payload?.sessions ?? []);
+
+    // Also pipe to the viz store — creates a fleet:snapshot event so the
+    // fine-grained animation overlay reacts to each poll tick.
     const vizEv = wsToVizEvent('sessions.status_update', msg.payload as Record<string, unknown>);
     if (vizEv) {
       useVizStore.getState().pushEvent(vizEv);
