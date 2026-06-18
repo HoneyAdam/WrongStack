@@ -31,7 +31,7 @@ export { batchToolUseTool } from './batch-tool-use.js';
 export { toolHelpTool } from './tool-help.js';
 export { rememberTool, forgetTool, searchMemoryTool, relatedMemoryTool } from './memory.js';
 export { createModeTool } from './mode.js';
-export { getProcessRegistry, _resetProcessRegistry, type KillOpts, type RegistryStats, type TrackedProcess } from './process-registry.js';
+export { getProcessRegistry, _resetProcessRegistry, type ProcessRegistryImpl, type KillOpts, type RegistryStats, type TrackedProcess, type BreakerCountdown } from './process-registry.js';
 export { CircuitBreaker, type CircuitBreakerSnapshot, type CircuitBreakerConfig } from './circuit-breaker.js';
 export {
   codebaseIndexTool,

@@ -87,6 +87,17 @@ interface KillOpts {
   graceMs?: number | undefined;
 }
 
+/**
+ * Snapshot of the armed auto kill/reset countdown, or null when nothing is
+ * armed. `remainingMs` ticks down in real time; the TUI statusline renders it.
+ */
+export interface BreakerCountdown {
+  remainingMs: number;
+  totalMs: number;
+}
+
+type BreakerCountdownListener = (snapshot: BreakerCountdown | null) => void;
+
 export interface RegistryStats {
   activeCount: number;
   totalCount: number;
@@ -120,12 +131,28 @@ export function killWin32Tree(pid: number): boolean {
   }
 }
 
-class ProcessRegistryImpl {
+export class ProcessRegistryImpl {
   private readonly processes = new Map<number, TrackedProcess>();
   private readonly breaker: CircuitBreaker;
 
+  /**
+   * Auto kill/reset config. When the breaker trips and `autoKillResetMs > 0`,
+   * a countdown is armed; on expiry all tracked processes are killed and the
+   * breaker is reset to closed (forced recovery). Zero means manual recovery
+   * only (`/kill reset`).
+   */
+  private autoKillResetMs = 0;
+  private autoKillTimer: ReturnType<typeof setTimeout> | null = null;
+  private autoKillArmedAt: number | null = null;
+  private breakerCountdownListeners: BreakerCountdownListener[] = [];
+
   constructor(breakerConfig?: CircuitBreakerConfig) {
     this.breaker = new CircuitBreaker(breakerConfig);
+    // Arm on trip, cancel on recovery. Listeners are best-effort.
+    this.breaker.onTrip = () => this._armAutoKillReset();
+    this.breaker.onReset = () => this._cancelAutoKillReset();
+    // Protection is OFF by default — the user opts in via `/settings breaker on`.
+    this.breaker.setEnabled(false);
   }
 
   register(info: Omit<TrackedProcess, 'killed' | 'protected'> & { protected?: boolean | undefined }): void {
@@ -213,6 +240,104 @@ class ProcessRegistryImpl {
   /** Force-reset the circuit breaker to closed (/kill reset). */
   forceBreakerReset(): void {
     this.breaker.forceReset();
+  }
+
+  /**
+   * Configure circuit-breaker protection at runtime. Called from `/settings`
+   * (instant, all modes) and on TUI mount (applies persisted config).
+   *
+   * - `enabled` toggles whether the breaker gates `bash`/`exec`.
+   * - `autoKillResetMs` arms the auto kill/reset countdown when the breaker
+   *   trips (0 = manual recovery only).
+   *
+   * Re-applies cleanly on every call: cancels a pending countdown when the
+   * timeout is cleared or protection disabled, and re-arms if the breaker is
+   * currently open under the new settings.
+   */
+  setBreakerConfig(cfg: { enabled?: boolean | undefined; autoKillResetMs?: number | undefined }): void {
+    if (cfg.enabled !== undefined) this.breaker.setEnabled(cfg.enabled);
+    if (cfg.autoKillResetMs !== undefined) this.autoKillResetMs = Math.max(0, cfg.autoKillResetMs);
+
+    if (this.autoKillResetMs <= 0) {
+      this._cancelAutoKillReset();
+      return;
+    }
+    // If protection is active and the breaker is currently tripped, ensure a
+    // countdown is armed for the new window (covers a live config change while
+    // the breaker is already open).
+    if (this.breaker.isEnabled && this.breaker.snapshot().state === 'open') {
+      this._armAutoKillReset();
+    }
+  }
+
+  /**
+   * Live countdown to the next auto kill/reset, or null when nothing is armed.
+   * The TUI polls this on a 1s tick while armed so the statusline decrements.
+   */
+  getBreakerCountdown(): BreakerCountdown | null {
+    if (this.autoKillArmedAt === null || this.autoKillResetMs <= 0) return null;
+    const elapsed = Date.now() - this.autoKillArmedAt;
+    return { remainingMs: Math.max(0, this.autoKillResetMs - elapsed), totalMs: this.autoKillResetMs };
+  }
+
+  /**
+   * Subscribe to countdown arm/cancel events. Returns an unsubscribe function.
+   * Use {@link getBreakerCountdown} for the live ticking value between events.
+   */
+  onBreakerCountdownChange(listener: BreakerCountdownListener): () => void {
+    this.breakerCountdownListeners.push(listener);
+    return () => {
+      this.breakerCountdownListeners = this.breakerCountdownListeners.filter((l) => l !== listener);
+    };
+  }
+
+  private _emitBreakerCountdown(): void {
+    const snap = this.getBreakerCountdown();
+    for (const l of this.breakerCountdownListeners) {
+      try {
+        l(snap);
+      } catch {
+        /* listener failure must never affect breaker behavior */
+      }
+    }
+  }
+
+  /**
+   * Arm the auto kill/reset countdown. Idempotent: re-arming resets the window
+   * (a fresh trip after a failed half-open probe restarts the clock). No-op
+   * when protection is off or no timeout is configured.
+   */
+  private _armAutoKillReset(): void {
+    if (this.autoKillResetMs <= 0 || !this.breaker.isEnabled) return;
+    this._clearAutoKillTimer();
+    this.autoKillArmedAt = Date.now();
+    this.autoKillTimer = setTimeout(() => {
+      this.autoKillTimer = null;
+      this.autoKillArmedAt = null;
+      // Forced recovery: nuke runaway processes and reopen the circuit.
+      this.killAll({ force: false });
+      this.breaker.forceReset();
+      this._emitBreakerCountdown();
+    }, this.autoKillResetMs);
+    // Don't keep the event loop alive purely for auto-recovery.
+    this.autoKillTimer.unref?.();
+    this._emitBreakerCountdown();
+  }
+
+  private _cancelAutoKillReset(): void {
+    const wasArmed = this.autoKillArmedAt !== null;
+    this._clearAutoKillTimer();
+    if (wasArmed) {
+      this.autoKillArmedAt = null;
+      this._emitBreakerCountdown();
+    }
+  }
+
+  private _clearAutoKillTimer(): void {
+    if (this.autoKillTimer !== null) {
+      clearTimeout(this.autoKillTimer);
+      this.autoKillTimer = null;
+    }
   }
 
   /** Kill a single process by PID.

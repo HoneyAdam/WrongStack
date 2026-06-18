@@ -38,6 +38,9 @@ const makeProc = (overrides: Partial<Tracked> = {}): Tracked => ({
 describe('ProcessRegistry', () => {
   beforeEach(() => {
     _resetProcessRegistry();
+    // The registry disables the breaker by default (users opt in via /settings).
+    // These tests exercise breaker behavior, so enable it.
+    getProcessRegistry().setBreakerConfig({ enabled: true });
   });
   afterEach(() => {
     _resetProcessRegistry();
@@ -123,6 +126,7 @@ describe('ProcessRegistry', () => {
 
   it('forceBreakerOpen blocks further calls', () => {
     const r = getProcessRegistry();
+    r.setBreakerConfig({ enabled: true });
     r.forceBreakerOpen();
     expect(r.canProceed).toBe(false);
     expect(r.beforeCall()).toBe(false);
@@ -139,6 +143,7 @@ describe('ProcessRegistry', () => {
 
   it('afterCall feeds the breaker (consecutive failures trip)', () => {
     const r = getProcessRegistry();
+    r.setBreakerConfig({ enabled: true });
     for (let i = 0; i < 5; i++) r.afterCall(10, true);
     expect(r.canProceed).toBe(false);
   });
@@ -194,3 +199,115 @@ describe('ProcessRegistry', () => {
     expect(r.killSession('does-not-exist', { force: true })).toEqual([]);
   });
 });
+
+describe('ProcessRegistry circuit-breaker config', () => {
+  beforeEach(() => {
+    _resetProcessRegistry();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    _resetProcessRegistry();
+  });
+
+  it('defaults to disabled — calls proceed even after forceBreakerOpen', () => {
+    const r = getProcessRegistry();
+    r.forceBreakerOpen();
+    // Breaker state is open, but protection is off so calls still proceed.
+    expect(r.beforeCall()).toBe(true);
+    expect(r.canProceed).toBe(true);
+  });
+
+  it('setBreakerConfig({ enabled: true }) gates calls after a trip', () => {
+    const r = getProcessRegistry();
+    r.setBreakerConfig({ enabled: true });
+    for (let i = 0; i < 5; i++) r.afterCall(10, true);
+    expect(r.canProceed).toBe(false);
+    expect(r.beforeCall()).toBe(false);
+  });
+
+  it('disabling cancels protection and re-enables a fresh circuit', () => {
+    const r = getProcessRegistry();
+    r.setBreakerConfig({ enabled: true });
+    for (let i = 0; i < 5; i++) r.afterCall(10, true);
+    expect(r.canProceed).toBe(false);
+    r.setBreakerConfig({ enabled: false });
+    expect(r.canProceed).toBe(true);
+    expect(r.stats().breaker.state).toBe('closed');
+  });
+
+  it('auto kill/reset countdown is null until the breaker trips', () => {
+    const r = getProcessRegistry();
+    r.setBreakerConfig({ enabled: true, autoKillResetMs: 30_000 });
+    expect(r.getBreakerCountdown()).toBeNull();
+    for (let i = 0; i < 5; i++) r.afterCall(10, true);
+    // Tripped → countdown armed.
+    const cd = r.getBreakerCountdown();
+    expect(cd).not.toBeNull();
+    expect(cd?.totalMs).toBe(30_000);
+    expect(cd?.remainingMs).toBe(30_000);
+  });
+
+  it('fires killAll + reset when the countdown elapses', () => {
+    const r = getProcessRegistry();
+    r.setBreakerConfig({ enabled: true, autoKillResetMs: 10_000 });
+    r.register(makeProc({ pid: 11 }));
+    r.register(makeProc({ pid: 22 }));
+    for (let i = 0; i < 5; i++) r.afterCall(10, true);
+    expect(r.canProceed).toBe(false);
+    expect(r.getBreakerCountdown()).not.toBeNull();
+
+    vi.advanceTimersByTime(10_000);
+
+    // Forced recovery: processes killed, breaker closed, countdown cleared.
+    expect(r.get(11)?.killed).toBe(true);
+    expect(r.get(22)?.killed).toBe(true);
+    expect(r.canProceed).toBe(true);
+    expect(r.stats().breaker.state).toBe('closed');
+    expect(r.getBreakerCountdown()).toBeNull();
+  });
+
+  it('manual reset cancels the armed countdown', () => {
+    const r = getProcessRegistry();
+    r.setBreakerConfig({ enabled: true, autoKillResetMs: 10_000 });
+    r.register(makeProc({ pid: 5 }));
+    for (let i = 0; i < 5; i++) r.afterCall(10, true);
+    expect(r.getBreakerCountdown()).not.toBeNull();
+
+    r.forceBreakerReset();
+
+    expect(r.getBreakerCountdown()).toBeNull();
+    // Process not killed — reset is a recovery, not a kill.
+    expect(r.get(5)?.killed).toBe(false);
+    // Countdown never fires after cancel.
+    vi.advanceTimersByTime(10_000);
+    expect(r.get(5)?.killed).toBe(false);
+  });
+
+  it('breakertimeout=0 means manual recovery (no countdown armed)', () => {
+    const r = getProcessRegistry();
+    r.setBreakerConfig({ enabled: true, autoKillResetMs: 0 });
+    r.register(makeProc({ pid: 9 }));
+    for (let i = 0; i < 5; i++) r.afterCall(10, true);
+    expect(r.getBreakerCountdown()).toBeNull();
+    vi.advanceTimersByTime(60_000);
+    expect(r.get(9)?.killed).toBe(false);
+    expect(r.canProceed).toBe(false);
+  });
+
+  it('notifies subscribers on arm and cancel', () => {
+    const r = getProcessRegistry();
+    r.setBreakerConfig({ enabled: true, autoKillResetMs: 10_000 });
+    const events: Array<{ remainingMs: number } | null> = [];
+    const off = r.onBreakerCountdownChange((snap) => events.push(snap));
+    for (let i = 0; i < 5; i++) r.afterCall(10, true);
+    r.forceBreakerReset();
+    off();
+
+    // At least one armed snapshot then a null (cancel) snapshot.
+    expect(events.some((e) => e !== null && e.remainingMs > 0)).toBe(true);
+    expect(events.at(-1)).toBeNull();
+  });
+});
+

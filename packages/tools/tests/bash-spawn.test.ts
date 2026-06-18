@@ -153,6 +153,9 @@ describe('bashTool foreground (faked shell)', () => {
   });
 
   it('returns a circuit-breaker-open error when the breaker is open', async () => {
+    // The registry disables the breaker by default (users opt in via /settings).
+    // Enable it so beforeCall() honours the open state.
+    getProcessRegistry().setBreakerConfig({ enabled: true });
     getProcessRegistry().forceBreakerOpen();
     const out = await runFinal({ command: 'echo blocked' });
     expect(out.exit_code).toBe(1);
