@@ -10,7 +10,8 @@ export type CoordinatorEvent =
   | { type: 'task:completed'; goalId: string; taskId: string; text?: string }
   | { type: 'knowledge:added'; knowledgeId: string; title?: string; text?: string }
   | { type: 'consensus:reached'; goalId: string; text?: string; participants?: string[] }
-  | { type: 'deadlock:detected'; goalId: string; text?: string };
+  | { type: 'deadlock:detected'; goalId: string; text?: string }
+  | { type: 'coordinator:mode'; mode: 'standalone' | 'fleet' };
 
 /**
  * AutonomousCoordinator — wires all coordination components into one self-directing engine.
@@ -56,6 +57,8 @@ import type {
   FactCategory,
   GoalPriority,
 } from './knowledge-graph.js';
+import { Director } from './director.js';
+import type { SubagentConfig } from '../types/multi-agent.js';
 import { KnowledgeGraph } from './knowledge-graph.js';
 import { TaskDAG, type DAGEdgeEvent } from './task-dag.js';
 import { TaskAuctioneer } from './task-auctioneer.js';
@@ -69,6 +72,7 @@ export interface AutonomousCoordinatorOptions {
   selfAgentName: string;
   fleet?: FleetBus | undefined;
   fleetManager?: FleetManager | undefined;
+  director?: Director | undefined;
   mailbox?: Mailbox | undefined;
   events?: EventBus | undefined;
   llmProvider: LLMProvider;
@@ -133,6 +137,7 @@ export class AutonomousCoordinator {
   private readonly selfAgentId: string;
   private readonly fleet?: FleetBus | undefined;
   private readonly fleetManager?: FleetManager | undefined;
+  private readonly director?: Director | undefined;
   private readonly mailbox?: Mailbox | undefined;
   private readonly events?: EventBus | undefined;
   private readonly onCoordinatorEvent?: ((event: CoordinatorEvent) => void) | undefined;
@@ -146,6 +151,7 @@ export class AutonomousCoordinator {
     this.selfAgentId = opts.selfAgentId;
     this.fleet = opts.fleet ?? undefined;
     this.fleetManager = opts.fleetManager ?? undefined;
+    this.director = opts.director ?? undefined;
     this.mailbox = opts.mailbox ?? undefined;
     this.events = opts.events ?? undefined;
     this.onCoordinatorEvent = opts.onCoordinatorEvent;
@@ -215,6 +221,9 @@ export class AutonomousCoordinator {
       this._handledBySubagent.add(taskId);
       this._emit({ type: 'goal:failed', goalId: taskId, text: payload?.error ?? 'Task failed' });
     });
+
+    // Emit initial mode so the TUI can display standalone vs fleet indicator
+    this._emit({ type: 'coordinator:mode', mode: this.fleet ? 'fleet' : 'standalone' });
   }
 
   // ── Public API ───────────────────────────────────────────────────────
@@ -470,41 +479,45 @@ export class AutonomousCoordinator {
     const ready = this.dag.getReady();
     if (ready.length === 0) return;
 
-    const next = ready.find((n) => n.id === goalId) ?? ready[0]!;
-    this.dag.start(next.id, 'auctioneer');
+    const dagNode = ready.find((n) => n.id === goalId) ?? ready[0]!;
+    this.dag.start(dagNode.id, 'auctioneer');
 
-    // Check if an agent is already working on this
-    const existingAgent = this.auction.getTasksForAgent(this.selfAgentId)
-      .find((g) => g.id === next.id);
+    // Look up the full GoalNode from the knowledge graph to get the title
+    const goalNode = this.graph.get(goalId) as GoalNode | undefined;
+    if (!goalNode) return;
 
-    if (!existingAgent) {
-      // Publish to the auction
-      const taskId = await this.auction.publishTask({
-        title: next.description,
-        description: next.description,
-        priority: this._dagPriorityToGoal(next.priority),
-        tags: next.tags,
+    const title = goalNode.title || dagNode.description;
+
+    // Publish to the auction so the task is visible fleet-wide (other agents can bid)
+    const taskId = await this.auction.publishTask({
+      title,
+      description: goalNode.description,
+      priority: this._dagPriorityToGoal(dagNode.priority),
+      tags: dagNode.tags,
+    });
+
+    this._emit({ type: 'task:ready', goalId, taskId, title });
+
+    // Spawn a subagent to work on this goal — the director handles lifecycle
+    // (spawn → assign → listen for subagent.completed → mark done/failed).
+    // If no director is available, fall back to fleet-based claim mechanism.
+    if (this.director) {
+      const config: SubagentConfig = {
+        name: `worker-${goalId.slice(0, 8)}`,
+        role: 'general',
+        maxIterations: 100,
+        timeoutMs: 600_000, // 10 minutes per goal
+      };
+      const subagentId = await this.director.spawn(config);
+      await this.director.assign({
+        id: goalId,
+        subagentId,
+        description: goalNode.description,
       });
-      this._emit({ type: 'task:ready', goalId, taskId, title: next.description });
     }
-
-    // Wait for the task to be claimed
-    await this._waitForClaim(next.id);
-  }
-
-  private async _waitForClaim(taskId: string): Promise<void> {
-    // Poll until the task is claimed (status = in_progress) or done
-    const maxWait = 60_000; // 60s
-    const pollInterval = 2_000; // 2s
-    const start = Date.now();
-
-    while (Date.now() - start < maxWait) {
-      const goal = this.graph.get(taskId) as GoalNode | undefined;
-      if (goal?.status === 'in_progress' || goal?.status === 'done') {
-        return;
-      }
-      await this._sleep(pollInterval);
-    }
+    // When director is absent (standalone, no fleet), another agent in the
+    // fleet will pick up the published task via the auctioneer — no wait
+    // polling needed here; completion is reported via the fleet bus.
   }
 
   private async _handlePendingChange(change: { id: string; qualityGate: { passed: boolean; checks: { name: string }[] } }): Promise<void> {
@@ -615,10 +628,6 @@ export class AutonomousCoordinator {
         priority: 'normal',
       });
     } catch { /* best-effort */ }
-  }
-
-  private _sleep(ms: number): Promise<void> {
-    return new Promise((r) => setTimeout(r, ms));
   }
 
   /** Emit a CoordinatorEvent to the subscriber (e.g. TUI panel timeline). */

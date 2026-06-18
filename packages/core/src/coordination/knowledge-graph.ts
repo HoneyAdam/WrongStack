@@ -181,6 +181,11 @@ export class KnowledgeGraph {
   private readonly filePath: string;
   private readonly graphFilePath: string;
 
+  /** Exposed for unit-testing only: read current index contents. */
+  getIndex(): ReadonlyMap<string, ReadonlySet<string>> {
+    return this.index;
+  }
+
   constructor(sessionDir: string) {
     this.filePath = path.join(sessionDir, '_knowledge_graph');
     this.graphFilePath = path.join(this.filePath, 'graph.jsonl');
@@ -195,7 +200,7 @@ export class KnowledgeGraph {
   async add(node: Omit<GraphNode, 'id'>): Promise<GraphNode> {
     const full: GraphNode = { id: randomUUID(), ...node } as GraphNode;
     this.nodes.set(full.id, full);
-    this._index(full);
+    this._addToIndex(full, this._indexKeys(full));
     await this._persist(full);
     this._deliver(full);
     return full;
@@ -205,9 +210,14 @@ export class KnowledgeGraph {
   async update(id: string, patch: Partial<GraphNode>): Promise<GraphNode | null> {
     const existing = this.nodes.get(id);
     if (!existing) return null;
+
+    // Remove old index entries before applying the patch
+    this._removeFromIndex(existing, this._indexKeys(existing));
+
+    // Apply patch and re-index with new values
     const updated = { ...existing, ...patch } as GraphNode;
     this.nodes.set(id, updated);
-    // Re-index tags
+    this._addToIndex(updated, this._indexKeys(updated));
     this._deliver(updated);
     await this._append(updated);
     return updated;
@@ -323,12 +333,10 @@ export class KnowledgeGraph {
 
   // ── Private ────────────────────────────────────────────────────────────
 
-  private _index(node: GraphNode): void {
-    const add = (key: string) => {
-      let set = this.index.get(key);
-      if (!set) { set = new Set(); this.index.set(key, set); }
-      set.add(node.id);
-    };
+  /** Pure: compute the set of index keys a node would belong to. */
+  private _indexKeys(node: GraphNode): Set<string> {
+    const keys = new Set<string>();
+    const add = (key: string) => keys.add(key);
     add(`type:${node.type}`);
     if (node.type === 'fact') {
       const f = node as FactNode;
@@ -337,6 +345,10 @@ export class KnowledgeGraph {
       add(`by:${f.discoveredBy}`);
       for (const tag of f.tags) add(`tag:${tag}`);
       add(`key:${f.key}`);
+      // Subject/detail are indexed without category prefix so category changes
+      // do not leave stale entries that mislead searchFacts().
+      add(`subject:${f.subject}`);
+      if (f.detail) add(`detail:${f.detail}`);
     }
     if (node.type === 'goal') {
       const g = node as GoalNode;
@@ -350,6 +362,23 @@ export class KnowledgeGraph {
       add(`change:${c.status}`);
       add(`by:${c.proposedBy}`);
       for (const g of c.satisfiesGoals) add(`goal:${g}`);
+    }
+    return keys;
+  }
+
+  /** Mutate the index: add a node's id to every set for the given keys. */
+  private _addToIndex(node: GraphNode, keys: Set<string>): void {
+    for (const key of keys) {
+      let set = this.index.get(key);
+      if (!set) { set = new Set(); this.index.set(key, set); }
+      set.add(node.id);
+    }
+  }
+
+  /** Remove a node's id from all index sets for the given keys. */
+  private _removeFromIndex(node: GraphNode, keys: Set<string>): void {
+    for (const key of keys) {
+      this.index.get(key)?.delete(node.id);
     }
   }
 
@@ -407,11 +436,16 @@ export class KnowledgeGraph {
         try {
           const parsed = JSON.parse(line);
           if (parsed.op === 'update') {
+            const oldNode = this.nodes.get(parsed.node.id);
+            if (oldNode) {
+              // Prune stale index entries before re-indexing
+              this._removeFromIndex(oldNode, this._indexKeys(oldNode));
+            }
             this.nodes.set(parsed.node.id, parsed.node);
-            this._index(parsed.node);
+            this._addToIndex(parsed.node, this._indexKeys(parsed.node));
           } else {
             this.nodes.set(parsed.id, parsed);
-            this._index(parsed);
+            this._addToIndex(parsed, this._indexKeys(parsed));
           }
         } catch { /* skip malformed lines */ }
       }

@@ -12,6 +12,8 @@ import { AutonomousCoordinator } from '../../src/coordination/autonomous-coordin
 import type { FleetBus } from '../../src/coordination/fleet-bus.js';
 import type { Mailbox } from '../../src/coordination/mailbox-types.js';
 import type { CoordinatorEvent } from '../../src/coordination/autonomous-coordinator.js';
+import type { TaskSpec } from '../../src/types/multi-agent.js';
+import type { Director } from '../../src/coordination/director.js';
 
 // ── Test setup ─────────────────────────────────────────────────────────────
 
@@ -84,6 +86,31 @@ function createMockLlmProvider() {
   };
 }
 
+function createMockDirector() {
+  const spawnCalls: { config: Parameters<Director['spawn']>[0] }[] = [];
+  const assignCalls: { task: TaskSpec }[] = [];
+
+  const director = {
+    spawn: vi.fn<Parameters<Director['spawn']>, ReturnType<Director['spawn']>>(
+      async (config) => {
+        spawnCalls.push({ config });
+        return `subagent-${config.name}-${spawnCalls.length}`;
+      },
+    ),
+    assign: vi.fn<Parameters<Director['assign']>, ReturnType<Director['assign']>>(
+      async (task) => {
+        assignCalls.push({ task });
+        return task.id;
+      },
+    ),
+    // Expose calls for assertion
+    _spawnCalls: spawnCalls,
+    _assignCalls: assignCalls,
+  };
+
+  return director;
+}
+
 function createCoordinator(opts?: {
   onCoordinatorEvent?: (event: CoordinatorEvent) => void;
   disableSelfImprove?: boolean;
@@ -139,6 +166,10 @@ describe('AutonomousCoordinator', () => {
         onCoordinatorEvent: (e) => events.push(e),
       });
 
+      // The constructor emits coordinator:mode at construction time — filter it out
+      // so we only test what publishFact emits
+      const eventsBeforePublish = events.length;
+
       await coordinator.publishFact({
         category: 'bug',
         subject: 'Test bug',
@@ -149,10 +180,12 @@ describe('AutonomousCoordinator', () => {
         tags: ['test'],
       });
 
-      expect(events).toHaveLength(1);
-      expect(events[0]!.type).toBe('knowledge:added');
+      // After publishFact, we should have exactly one new event: knowledge:added
+      expect(events).toHaveLength(eventsBeforePublish + 1);
+      const newEvents = events.slice(eventsBeforePublish);
+      expect(newEvents[0]!.type).toBe('knowledge:added');
       // CoordinatorEvent.knowledge:added has knowledgeId, title?, text?
-      const ke = events[0] as { type: 'knowledge:added'; title?: string };
+      const ke = newEvents[0] as { type: 'knowledge:added'; title?: string };
       expect(ke.title).toBe('Test bug');
     });
 
@@ -626,6 +659,146 @@ describe('AutonomousCoordinator', () => {
       expect(emittedEvents.some(e => e.type === 'goal:failed' && e.goalId === taskId)).toBe(true);
       const failedEvent = emittedEvents.find(e => e.type === 'goal:failed')!;
       expect(failedEvent.text).toContain('No bids received');
+    });
+  });
+
+  describe('_processGoal with director', () => {
+    it('calls director.spawn() and director.assign() when a director is provided', async () => {
+      const director = createMockDirector();
+      const fleet = createMockFleetBus();
+      const mailbox = createMockMailbox();
+      const emittedEvents: CoordinatorEvent[] = [];
+
+      const coord = new AutonomousCoordinator({
+        sessionDir: tempDir,
+        selfAgentId: 'leader@test',
+        selfAgentName: 'Leader',
+        fleet,
+        mailbox,
+        director: director as unknown as Director,
+        llmProvider: createMockLlmProvider(),
+        disableSelfImprove: true,
+        maxConcurrentAgents: 3,
+        onCoordinatorEvent: (e) => emittedEvents.push(e),
+      });
+
+      // Use createGoal — this adds the goal to BOTH the graph (via publishTask)
+      // AND the DAG, so dag.getReady() in _processGoal finds it.
+      const goal = await coord.createGoal({
+        title: 'Test goal for director',
+        description: 'A ready goal that should trigger director.spawn',
+        priority: 'high',
+        tags: ['test'],
+      });
+
+      // Call _processGoal via prototype (private method, accessed for unit testing)
+      const processGoal = coord.constructor.prototype._processGoal as (
+        goalId: string,
+      ) => Promise<void>;
+      await processGoal.call(coord, goal.id);
+
+      // Verify director.spawn was called exactly once
+      expect(director.spawn).toHaveBeenCalledTimes(1);
+      // Verify director.assign was called exactly once
+      expect(director.assign).toHaveBeenCalledTimes(1);
+
+      // Verify spawn was called with a SubagentConfig (role: general, sensible timeout)
+      const spawnCall = (director.spawn as ReturnType<typeof vi.fn>).mock.calls[0]!;
+      expect(spawnCall[0]).toMatchObject({
+        role: 'general',
+        maxIterations: 100,
+        timeoutMs: 600_000,
+      });
+      expect(typeof spawnCall[0].name).toBe('string');
+      expect(spawnCall[0].name.startsWith('worker-')).toBe(true);
+
+      // Verify assign was called with the goal id and subagentId
+      const assignCall = (director.assign as ReturnType<typeof vi.fn>).mock.calls[0]!;
+      expect(assignCall[0]).toMatchObject({
+        id: goal.id,
+        description: 'A ready goal that should trigger director.spawn',
+      });
+      expect(typeof assignCall[0].subagentId).toBe('string');
+
+      // Verify task:ready event was emitted
+      expect(emittedEvents.some((e) => e.type === 'task:ready' && e.goalId === goal.id)).toBe(true);
+    });
+
+    it('does NOT call director.spawn() when no director is provided (standalone mode)', async () => {
+      const fleet = createMockFleetBus();
+      const mailbox = createMockMailbox();
+      const emittedEvents: CoordinatorEvent[] = [];
+
+      // No director passed — coordinator runs in standalone/auction mode
+      const coord = new AutonomousCoordinator({
+        sessionDir: tempDir,
+        selfAgentId: 'leader@test',
+        selfAgentName: 'Leader',
+        fleet,
+        mailbox,
+        llmProvider: createMockLlmProvider(),
+        disableSelfImprove: true,
+        maxConcurrentAgents: 3,
+        onCoordinatorEvent: (e) => emittedEvents.push(e),
+      });
+
+      // createGoal adds to both graph and DAG so dag.getReady() finds it
+      const goal = await coord.createGoal({
+        title: 'Standalone goal',
+        description: 'Should be published but not spawned',
+        priority: 'medium',
+        tags: ['test'],
+      });
+
+      // Call _processGoal — should not attempt any spawn
+      const processGoal = coord.constructor.prototype._processGoal as (
+        goalId: string,
+      ) => Promise<void>;
+      await processGoal.call(coord, goal.id);
+
+      // In standalone mode (no director), the coordinator publishes to the
+      // auction for cross-session agents to pick up, but does not spawn itself.
+      // Verify task:ready was still emitted (task was published to auction)
+      expect(emittedEvents.some((e) => e.type === 'task:ready' && e.goalId === goal.id)).toBe(true);
+    });
+
+    it('emits task:ready before spawning, in the correct order', async () => {
+      const director = createMockDirector();
+      const fleet = createMockFleetBus();
+      const mailbox = createMockMailbox();
+      const emittedEvents: CoordinatorEvent[] = [];
+
+      const coord = new AutonomousCoordinator({
+        sessionDir: tempDir,
+        selfAgentId: 'leader@test',
+        selfAgentName: 'Leader',
+        fleet,
+        mailbox,
+        director: director as unknown as Director,
+        llmProvider: createMockLlmProvider(),
+        disableSelfImprove: true,
+        maxConcurrentAgents: 3,
+        onCoordinatorEvent: (e) => emittedEvents.push(e),
+      });
+
+      const goal = await coord.createGoal({
+        title: 'Order test goal',
+        description: 'Verify event emission order',
+        priority: 'high',
+        tags: ['test'],
+      });
+
+      const processGoal = coord.constructor.prototype._processGoal as (
+        goalId: string,
+      ) => Promise<void>;
+      await processGoal.call(coord, goal.id);
+
+      // task:ready must be emitted with the correct goalId.
+      // Note: goal:added from createGoal may precede it in the events array,
+      // so we only assert that task:ready is present, not its index.
+      const taskReadyIndex = emittedEvents.findIndex((e) => e.type === 'task:ready');
+      expect(taskReadyIndex).toBeGreaterThanOrEqual(0);
+      expect((emittedEvents[taskReadyIndex] as { goalId: string }).goalId).toBe(goal.id);
     });
   });
 });

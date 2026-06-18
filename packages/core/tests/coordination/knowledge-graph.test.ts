@@ -402,4 +402,132 @@ describe('KnowledgeGraph', () => {
       expect(pending).toEqual([]);
     });
   });
+
+  describe('index maintenance on update', () => {
+    it('removes stale category index entries when a fact is updated', async () => {
+      const graph = new KnowledgeGraph(tempDir);
+
+      const fact = await graph.add({
+        type: 'fact',
+        category: 'bug',
+        subject: 'Null deref',
+        detail: '',
+        key: 'null-deref',
+        discoveredBy: 'test',
+        discoveredAt: '',
+        tags: [],
+        related: [],
+      } as Omit<FactNode, 'id'>);
+
+      const idx = graph.getIndex();
+      // Old category indexed
+      expect(idx.get('cat:bug')?.has(fact.id)).toBe(true);
+
+      // Update to a different category
+      await graph.update(fact.id, { category: 'security' });
+
+      // Old category entry must be gone from the index
+      expect(idx.get('cat:bug')?.has(fact.id)).toBe(false);
+      // New category entry is present
+      expect(idx.get('cat:security')?.has(fact.id)).toBe(true);
+
+      // Node itself has the new category
+      const updated = graph.get(fact.id) as FactNode;
+      expect(updated.category).toBe('security');
+    });
+
+    it('removes stale tag index entries when a goal is updated', async () => {
+      const graph = new KnowledgeGraph(tempDir);
+
+      const goal = await graph.add({
+        type: 'goal',
+        title: 'Fix bug',
+        description: 'Fix null deref',
+        status: 'pending',
+        priority: 'high',
+        createdBy: 'test',
+        createdAt: '',
+        updatedAt: '',
+        blockedBy: [],
+        dependsOn: [],
+        tags: ['bug'],
+        children: [],
+      } as Omit<GoalNode, 'id'>);
+
+      const idx = graph.getIndex();
+      expect(idx.get('tag:bug')?.has(goal.id)).toBe(true);
+
+      // Update goal's tags
+      await graph.update(goal.id, { tags: ['fixed', 'reviewed'] });
+
+      // Old tag must be gone
+      expect(idx.get('tag:bug')?.has(goal.id)).toBe(false);
+      // New tags are present
+      expect(idx.get('tag:fixed')?.has(goal.id)).toBe(true);
+      expect(idx.get('tag:reviewed')?.has(goal.id)).toBe(true);
+    });
+
+    it('removes stale status index entries when a goal status is updated', async () => {
+      const graph = new KnowledgeGraph(tempDir);
+
+      const goal = await graph.add({
+        type: 'goal',
+        title: 'Test goal',
+        description: '',
+        status: 'pending',
+        priority: 'medium',
+        createdBy: 'test',
+        createdAt: '',
+        updatedAt: '',
+        blockedBy: [],
+        dependsOn: [],
+        tags: [],
+        children: [],
+      } as Omit<GoalNode, 'id'>);
+
+      const idx = graph.getIndex();
+      expect(idx.get('status:pending')?.has(goal.id)).toBe(true);
+
+      // Update status
+      await graph.update(goal.id, { status: 'done' });
+
+      // Old status entry is gone
+      expect(idx.get('status:pending')?.has(goal.id)).toBe(false);
+      // New status entry is present
+      expect(idx.get('status:done')?.has(goal.id)).toBe(true);
+    });
+
+    it('load() rebuilds the index without stale entries after update', async () => {
+      const graph = new KnowledgeGraph(tempDir);
+
+      const fact = await graph.add({
+        type: 'fact',
+        category: 'bug',
+        subject: 'Original subject',
+        detail: 'Detail text',
+        key: 'orig-key',
+        discoveredBy: 'test',
+        discoveredAt: '',
+        tags: [],
+        related: [],
+      } as Omit<FactNode, 'id'>);
+
+      // Update before reload — creates a log entry with op: 'update'
+      await graph.update(fact.id, { category: 'security' });
+
+      // Reload — index is rebuilt from the log
+      const reloaded = new KnowledgeGraph(tempDir);
+      await reloaded.load();
+
+      const idx = reloaded.getIndex();
+      // Old category must not appear in the index
+      expect(idx.get('cat:bug')?.has(fact.id)).toBe(false);
+      // New category is correctly indexed
+      expect(idx.get('cat:security')?.has(fact.id)).toBe(true);
+
+      // Node itself has the new category
+      const updated = reloaded.get(fact.id) as FactNode;
+      expect(updated.category).toBe('security');
+    });
+  });
 });

@@ -337,9 +337,11 @@ export class TaskAuctioneer {
         });
         if (allUnblocked) {
           await this.graph.update(childId, { status: 'pending', updatedAt: new Date().toISOString() });
-          // Broadcast the newly unblocked task
+          // Broadcast the newly unblocked task so agents know it's available
           const unblockedGoal = this.graph.get(childId) as GoalNode;
           await this._broadcastTask(unblockedGoal);
+          // Start the bid window so _evaluateBids fires and awards the task to the best bidder
+          this._startBidWindow(childId);
         }
       }
     }
