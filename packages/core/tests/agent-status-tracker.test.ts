@@ -130,22 +130,79 @@ describe('AgentStatusTracker', () => {
 
   // ── Fleet events ───────────────────────────────────────────────────
 
-  it('adds subagent on fleet.subagent.spawned', () => {
+  it('adds subagent on subagent.spawned (running)', () => {
     tracker.start();
-    events.emit('fleet.subagent.spawned', { subagentId: 'sa-1', name: 'bug-hunter' });
+    events.emit('subagent.spawned', { subagentId: 'sa-1', name: 'bug-hunter' });
 
     const call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
     const sub = call?.find((a: AgentEntry) => a.id === 'sa-1');
     expect(sub).toBeDefined();
     expect(sub?.name).toBe('bug-hunter');
-    expect(sub?.status).toBe('idle');
+    expect(sub?.status).toBe('running');
     expect(sub?.iterations).toBe(0);
+  });
+
+  it('counts subagent tool calls on subagent.tool_executed', () => {
+    tracker.start();
+    events.emit('subagent.spawned', { subagentId: 'sa-t', name: 'worker' });
+    events.emit('subagent.tool_executed', { subagentId: 'sa-t', name: 'bash', ok: true, durationMs: 5 });
+    events.emit('subagent.tool_executed', { subagentId: 'sa-t', name: 'read', ok: true, durationMs: 3 });
+
+    const call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
+    const sub = call?.find((a: AgentEntry) => a.id === 'sa-t');
+    expect(sub?.toolCalls).toBe(2);
+    expect(sub?.currentTool).toBe('read');
+  });
+
+  it('accumulates leader cost + tokens from token.accounted', () => {
+    tracker.start();
+    events.emit('token.accounted', { usage: { input: 1000, output: 200 }, cost: { input: 0.1, output: 0.2, total: 0.3 } });
+    events.emit('token.accounted', { usage: { input: 500, output: 100 }, cost: { input: 0.05, output: 0.1, total: 0.15 } });
+
+    const call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
+    const leader = call?.find((a: AgentEntry) => a.id === 'leader');
+    expect(leader?.tokensIn).toBe(1500);
+    expect(leader?.tokensOut).toBe(300);
+    expect(leader?.costUsd).toBeCloseTo(0.45, 5);
+  });
+
+  it('captures subagent model + context fill', () => {
+    tracker.start();
+    events.emit('subagent.spawned', { subagentId: 'sa-m', name: 'worker', model: 'anthropic/claude-opus-4-8' });
+    events.emit('subagent.ctx_pct', { subagentId: 'sa-m', load: 0.42 });
+
+    const call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
+    const sub = call?.find((a: AgentEntry) => a.id === 'sa-m');
+    expect(sub?.model).toBe('anthropic/claude-opus-4-8');
+    expect(sub?.ctxPct).toBe(42);
+  });
+
+  it('records subagent cost from iteration_summary', () => {
+    tracker.start();
+    events.emit('subagent.spawned', { subagentId: 'sa-c', name: 'worker' });
+    events.emit('subagent.iteration_summary', { subagentId: 'sa-c', iteration: 10, toolCalls: 20, costUsd: 0.077 });
+
+    const call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
+    const sub = call?.find((a: AgentEntry) => a.id === 'sa-c');
+    expect(sub?.costUsd).toBeCloseTo(0.077, 5);
+  });
+
+  it('takes authoritative counts from subagent.iteration_summary', () => {
+    tracker.start();
+    events.emit('subagent.spawned', { subagentId: 'sa-i', name: 'worker' });
+    events.emit('subagent.iteration_summary', { subagentId: 'sa-i', iteration: 25, toolCalls: 47, currentTool: 'grep' });
+
+    const call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
+    const sub = call?.find((a: AgentEntry) => a.id === 'sa-i');
+    expect(sub?.iterations).toBe(25);
+    expect(sub?.toolCalls).toBe(47);
+    expect(sub?.currentTool).toBe('grep');
   });
 
   it('updates subagent to running on task_started', () => {
     tracker.start();
-    events.emit('fleet.subagent.spawned', { subagentId: 'sa-2', name: 'refactor-planner' });
-    events.emit('fleet.subagent.task_started', { subagentId: 'sa-2' });
+    events.emit('subagent.spawned', { subagentId: 'sa-2', name: 'refactor-planner' });
+    events.emit('subagent.task_started', { subagentId: 'sa-2' });
 
     const call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
     const sub = call?.find((a: AgentEntry) => a.id === 'sa-2');
@@ -153,31 +210,31 @@ describe('AgentStatusTracker', () => {
     expect(sub?.iterations).toBe(1);
   });
 
-  it('sets subagent to idle on task_completed', () => {
+  it('sets subagent to idle on successful task_completed', () => {
     tracker.start();
-    events.emit('fleet.subagent.spawned', { subagentId: 'sa-3', name: 'critic' });
-    events.emit('fleet.subagent.task_started', { subagentId: 'sa-3' });
-    events.emit('fleet.subagent.task_completed', { subagentId: 'sa-3' });
+    events.emit('subagent.spawned', { subagentId: 'sa-3', name: 'critic' });
+    events.emit('subagent.task_completed', { subagentId: 'sa-3', status: 'success', iterations: 4, toolCalls: 9 });
 
     const call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
     const sub = call?.find((a: AgentEntry) => a.id === 'sa-3');
     expect(sub?.status).toBe('idle');
+    expect(sub?.toolCalls).toBe(9);
   });
 
-  it('sets subagent to error on fleet.subagent.error', () => {
+  it('sets subagent to error on failed task_completed', () => {
     tracker.start();
-    events.emit('fleet.subagent.spawned', { subagentId: 'sa-4', name: 'worker' });
-    events.emit('fleet.subagent.error', { subagentId: 'sa-4' });
+    events.emit('subagent.spawned', { subagentId: 'sa-4', name: 'worker' });
+    events.emit('subagent.task_completed', { subagentId: 'sa-4', status: 'failed' });
 
     const call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
     const sub = call?.find((a: AgentEntry) => a.id === 'sa-4');
     expect(sub?.status).toBe('error');
   });
 
-  it('removes subagent on fleet.subagent.stopped', () => {
+  it('removes subagent on subagent.stopped', () => {
     tracker.start();
-    events.emit('fleet.subagent.spawned', { subagentId: 'sa-5', name: 'temp' });
-    events.emit('fleet.subagent.stopped', { subagentId: 'sa-5' });
+    events.emit('subagent.spawned', { subagentId: 'sa-5', name: 'temp' });
+    events.emit('subagent.stopped', { subagentId: 'sa-5' });
 
     const call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
     const sub = call?.find((a: AgentEntry) => a.id === 'sa-5');
@@ -190,9 +247,9 @@ describe('AgentStatusTracker', () => {
     tracker.start();
     events.emit('agent.run.started', {});
     events.emit('tool.started', { name: 'bash', id: 't1' });
-    events.emit('fleet.subagent.spawned', { subagentId: 's1', name: 'bug-hunter' });
-    events.emit('fleet.subagent.spawned', { subagentId: 's2', name: 'refactor' });
-    events.emit('fleet.subagent.task_started', { subagentId: 's1' });
+    events.emit('subagent.spawned', { subagentId: 's1', name: 'bug-hunter' });
+    events.emit('subagent.spawned', { subagentId: 's2', name: 'refactor' });
+    events.emit('subagent.task_started', { subagentId: 's1' });
 
     const call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
     expect(call).toHaveLength(3); // leader + 2 subagents
@@ -206,7 +263,7 @@ describe('AgentStatusTracker', () => {
     expect(s1?.iterations).toBe(1);
 
     const s2 = call?.find((a: AgentEntry) => a.id === 's2');
-    expect(s2?.status).toBe('idle');
+    expect(s2?.status).toBe('running');
     expect(s2?.iterations).toBe(0);
   });
 
@@ -240,12 +297,12 @@ describe('AgentStatusTracker', () => {
 
   // ── Edge cases ─────────────────────────────────────────────────────
 
-  it('ignores fleet events for unknown subagents', () => {
+  it('ignores a completion for an unknown subagent', () => {
     tracker.start();
     const beforeCount = registry.updateAgents.mock.calls.length;
-    events.emit('fleet.subagent.task_started', { subagentId: 'ghost' });
+    // task_completed for an agent we never saw spawn/run must not materialise it.
+    events.emit('subagent.task_completed', { subagentId: 'ghost', status: 'success' });
 
-    // Tracker only flushes when it finds a matching entry — ghost should not trigger update
     expect(registry.updateAgents.mock.calls.length).toBe(beforeCount);
   });
 

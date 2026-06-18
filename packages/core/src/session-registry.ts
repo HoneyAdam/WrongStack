@@ -38,6 +38,16 @@ export interface AgentEntry {
   iterations: number;
   /** Tool calls so far. */
   toolCalls: number;
+  /** Cumulative cost in USD for this agent, when known. */
+  costUsd?: number | undefined;
+  /** Cumulative input tokens, when known. */
+  tokensIn?: number | undefined;
+  /** Cumulative output tokens, when known. */
+  tokensOut?: number | undefined;
+  /** Context window fill 0–100 (may exceed 100 when over limit), when known. */
+  ctxPct?: number | undefined;
+  /** Model id this agent is running on, when known. */
+  model?: string | undefined;
   /** UTC ISO timestamp of last activity. */
   lastActivityAt: string;
 }
@@ -54,6 +64,12 @@ export interface SessionRegistryEntry {
   projectRoot: string;
   projectName: string;
   workingDir: string;
+  /**
+   * Which surface owns this session — `'tui'` / `'webui'` / `'cli'` (one-shot or
+   * REPL). Lets cross-process consumers (e.g. the WebUI Fleet HQ office map) label
+   * each live session by client kind. Optional for back-compat with older entries.
+   */
+  clientType?: 'tui' | 'webui' | 'cli' | 'repl' | string | undefined;
   /** Current git branch, if the project is a git repo. Detected at registration. */
   gitBranch?: string | undefined;
   status: SessionLiveStatus;
@@ -72,6 +88,9 @@ export interface SessionRegistryEntry {
 const REGISTRY_FILE = 'session-registry.json';
 const HEARTBEAT_INTERVAL_MS = 5_000;
 const STALE_TIMEOUT_MS = 30_000; // entry considered stale after 30s without heartbeat
+// A held lock is released within milliseconds; anything older is a crashed
+// owner's leftover and is safe to break so writes never wedge permanently.
+const STALE_LOCK_MS = 10_000;
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -90,6 +109,12 @@ export class SessionRegistry {
   private readonly filePath: string;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private currentSessionId: string | null = null;
+  /**
+   * Last full entry this process registered. Kept so the heartbeat can
+   * re-create our entry if it ever goes missing — e.g. our initial register()
+   * write was dropped (a wedged lock), the file was reset, or we were pruned.
+   */
+  private lastEntry: SessionRegistryEntry | null = null;
 
   constructor(globalRoot: string) {
     this.filePath = path.join(globalRoot, REGISTRY_FILE);
@@ -124,6 +149,7 @@ export class SessionRegistry {
       agentCount: entry.agents?.length ?? 0,
       agents: entry.agents ?? [],
     };
+    this.lastEntry = full;
     await this.atomicUpdate((registry) => {
       // Prune dead entries that haven't heartbeated recently.
       // A just-created entry has no heartbeat yet — don't prune it.
@@ -158,17 +184,33 @@ export class SessionRegistry {
    */
   async updateAgents(agents: AgentEntry[]): Promise<void> {
     if (!this.currentSessionId) return;
+    // Derive session status from the agent collective.
+    const hasRunning = agents.some((a) => a.status === 'running' || a.status === 'streaming');
+    const hasWaiting = agents.some((a) => a.status === 'waiting_user');
+    const hasError = agents.some((a) => a.status === 'error');
+    const status: SessionLiveStatus = hasRunning || hasWaiting || hasError ? 'active' : 'idle';
+    const nowIso = new Date().toISOString();
+
+    // Keep the cached entry current so a heartbeat re-insert carries live agents.
+    if (this.lastEntry) {
+      this.lastEntry.agents = agents;
+      this.lastEntry.agentCount = agents.length;
+      this.lastEntry.status = status;
+      this.lastEntry.lastHeartbeatAt = nowIso;
+    }
+
     await this.atomicUpdate((registry) => {
-      const entry = registry[this.currentSessionId!];
-      if (!entry) return;
+      let entry = registry[this.currentSessionId!];
+      if (!entry) {
+        // Our entry vanished (dropped write / reset / pruned) — re-create it.
+        if (!this.lastEntry) return;
+        entry = { ...this.lastEntry };
+        registry[this.currentSessionId!] = entry;
+      }
       entry.agents = agents;
       entry.agentCount = agents.length;
-      // Derive session status from agent collective
-      const hasRunning = agents.some((a) => a.status === 'running' || a.status === 'streaming');
-      const hasWaiting = agents.some((a) => a.status === 'waiting_user');
-      const hasError = agents.some((a) => a.status === 'error');
-      entry.status = hasRunning ? 'active' : hasWaiting ? 'active' : hasError ? 'active' : 'idle';
-      entry.lastHeartbeatAt = new Date().toISOString();
+      entry.status = status;
+      entry.lastHeartbeatAt = nowIso;
     });
   }
 
@@ -256,6 +298,15 @@ export class SessionRegistry {
           entry.status = hasRunning ? 'active' : 'idle';
         }
         await this.writeAtomic(registry);
+      } else if (this.lastEntry) {
+        // Our entry is gone (initial register() dropped on a wedged lock, file
+        // reset, or pruned). Re-create it through the locked path so a process
+        // that booted into a broken registry still shows up once it heals.
+        await this.atomicUpdate((reg) => {
+          if (!reg[this.currentSessionId!] && this.lastEntry) {
+            reg[this.currentSessionId!] = { ...this.lastEntry, lastHeartbeatAt: new Date().toISOString() };
+          }
+        });
       }
     } catch {
       // Best-effort heartbeat — never throw
@@ -296,7 +347,7 @@ export class SessionRegistry {
     fn: (registry: Record<string, SessionRegistryEntry>) => void,
   ): Promise<void> {
     const lockPath = `${this.filePath}.lock`;
-    const maxRetries = 5;
+    const maxRetries = 8;
     const retryDelayMs = 20;
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -305,14 +356,25 @@ export class SessionRegistry {
         await fs.mkdir(path.dirname(this.filePath), { recursive: true });
 
         // Acquire exclusive lock via O_CREAT | O_EXCL
-        const lockHandle = await fs.open(lockPath, 'wx').catch(() => null);
+        let lockHandle = await fs.open(lockPath, 'wx').catch(() => null);
         if (!lockHandle) {
-          // Lock held by another process — wait and retry
-          await new Promise((r) => setTimeout(r, retryDelayMs * (attempt + 1)));
-          continue;
+          // Lock contended. A crashed process can leave its lock file behind
+          // forever (the `finally` unlink never ran), which would wedge EVERY
+          // future write — the registry silently stops updating. Break the lock
+          // when its owner pid is dead or it has been held implausibly long
+          // (legit holds are sub-millisecond), then retry the open once.
+          if (await this.breakStaleLock(lockPath)) {
+            lockHandle = await fs.open(lockPath, 'wx').catch(() => null);
+          }
+          if (!lockHandle) {
+            await new Promise((r) => setTimeout(r, retryDelayMs * (attempt + 1)));
+            continue;
+          }
         }
 
         try {
+          // Stamp the owner pid so other processes can detect a stale lock.
+          await lockHandle.writeFile(String(process.pid)).catch(() => undefined);
           const raw = await fs.readFile(this.filePath, 'utf8').catch(() => '{}');
           const registry = JSON.parse(raw) as Record<string, SessionRegistryEntry>;
           fn(registry);
@@ -328,6 +390,34 @@ export class SessionRegistry {
       }
     }
     // All retries exhausted — registry update dropped (non-critical)
+  }
+
+  /**
+   * Break a contended lock if it is stale: the recorded owner pid is no longer
+   * alive, or the lock is older than {@link STALE_LOCK_MS}. Returns true when the
+   * lock was removed (caller should retry acquisition). Best-effort and
+   * race-tolerant — a fresh lock (age ~0, live owner) is never broken, so the
+   * common concurrent case self-heals on the next heartbeat.
+   */
+  private async breakStaleLock(lockPath: string): Promise<boolean> {
+    try {
+      const [stat, content] = await Promise.all([
+        fs.stat(lockPath),
+        fs.readFile(lockPath, 'utf8').catch(() => ''),
+      ]);
+      const ageMs = Date.now() - stat.mtimeMs;
+      const ownerPid = Number.parseInt(content.trim(), 10);
+      const ownerDead =
+        Number.isInteger(ownerPid) && ownerPid > 0 && ownerPid !== process.pid && !pidAlive(ownerPid);
+      if (ownerDead || ageMs > STALE_LOCK_MS) {
+        await fs.unlink(lockPath).catch(() => undefined);
+        return true;
+      }
+      return false;
+    } catch {
+      // stat failed → the lock vanished underneath us; let the caller retry.
+      return true;
+    }
   }
 
   private async writeAtomicLocked(registry: Record<string, SessionRegistryEntry>): Promise<void> {

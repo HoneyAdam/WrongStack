@@ -577,6 +577,9 @@ export async function main(argv: string[]): Promise<number> {
       projectName,
       workingDir: context.workingDir,
       gitBranch,
+      // The TUI and the REPL both boot through cli-main; `tuiOwnsScreen`
+      // distinguishes the surface so the Fleet HQ map can label this session.
+      clientType: tuiOwnsScreen ? 'tui' : 'cli',
       pid: process.pid,
       startedAt: new Date().toISOString(),
     });

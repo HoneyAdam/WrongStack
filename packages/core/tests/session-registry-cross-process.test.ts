@@ -268,6 +268,67 @@ describe('cross-process session discovery', () => {
   });
 });
 
+// ── Lock resilience + self-heal ───────────────────────────────────────
+// A crashed process used to leave its `.lock` file behind forever, which
+// wedged every subsequent write — the registry silently stopped updating.
+
+describe('lock resilience', () => {
+  it('breaks a stale lock left by a dead owner and still registers', async () => {
+    const root = await freshRoot();
+    const lockPath = path.join(root, 'session-registry.json.lock');
+    // Plant a leftover lock owned by a PID that is not alive.
+    await fs.writeFile(lockPath, '99999');
+
+    const reg = new SessionRegistry(root);
+    await reg.register({
+      sessionId: 'sess-wedge',
+      projectSlug: 'ws',
+      projectRoot: '/ws',
+      projectName: 'WS',
+      workingDir: '/ws',
+      pid: 6001,
+      startedAt: new Date().toISOString(),
+    });
+
+    const list = await reg.list();
+    expect(list.find((s) => s.sessionId === 'sess-wedge')).toBeDefined();
+    // The stale lock must have been cleaned up, not left to wedge future writes.
+    await expect(fs.access(lockPath)).rejects.toThrow();
+  });
+
+  it('self-heals an entry whose initial register write was dropped', async () => {
+    const root = await freshRoot();
+    const lockPath = path.join(root, 'session-registry.json.lock');
+    const reg = new SessionRegistry(root);
+
+    // Simulate a *fresh* (non-stale) lock held by another live process so
+    // register() cannot acquire it and the write is dropped.
+    await fs.writeFile(lockPath, String(process.pid + 1));
+    await reg.register({
+      sessionId: 'sess-heal',
+      projectSlug: 'ws',
+      projectRoot: '/ws',
+      projectName: 'WS',
+      workingDir: '/ws',
+      clientType: 'tui',
+      pid: 6002,
+      startedAt: new Date().toISOString(),
+    });
+    expect(await reg.list()).toHaveLength(0); // write was dropped
+
+    // Release the contended lock; the next agent update should re-create us.
+    await fs.unlink(lockPath);
+    await reg.updateAgents([
+      makeAgent({ id: 'leader', status: 'running', toolCalls: 7 }),
+    ]);
+
+    const healed = (await reg.list()).find((s) => s.sessionId === 'sess-heal');
+    expect(healed).toBeDefined();
+    expect(healed!.clientType).toBe('tui');
+    expect(healed!.agents[0]?.toolCalls).toBe(7);
+  });
+});
+
 // ── Singleton tests ───────────────────────────────────────────────────
 
 describe('SessionRegistry singleton', () => {
