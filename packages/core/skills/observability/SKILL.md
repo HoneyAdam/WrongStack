@@ -53,7 +53,7 @@ console.log(JSON.stringify({
 }));
 
 // ✅ Trace span around a tool call
-import { trace } from 'node:opentelemetry/api';
+import { trace, SpanStatusCode } from '@opentelemetry/api';
 const span = trace.getTracer('wrongstack').startSpan('bash');
 try {
   const result = await bash(cmd);
@@ -90,7 +90,7 @@ console.log(JSON.stringify({ event: 'tool_executed' })); // no correlation
 |-------|-------------|---------|
 | `DEBUG` | Dev-only detail | "entering parseArgs with 3 args" |
 | `INFO` | Normal flow | "tool executed", "session started" |
-| `WARN` | Recoverable issue | "retry attempt2/3", "cache miss" |
+| `WARN` | Recoverable issue | "retry attempt 2/3", "cache miss" |
 | `ERROR` | Needs attention | "tool timeout", "auth failure" |
 
 ## Structured log schema

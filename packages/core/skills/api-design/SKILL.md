@@ -74,7 +74,7 @@ Response.json({ error: '...' }, { status: 200 }); // lies about outcome
 
 ```
 POST /sessions
-Body: { "provider": "anthropic", "model": "claude-3-5-sonnet" }
+Body: { "provider": "anthropic", "model": "<model-id>" }
 201: { "id": "sess_abc", "provider": "anthropic", ... }
 400: { "error": { "code": "VALIDATION_ERROR", "message": "model is required" } }
 ```

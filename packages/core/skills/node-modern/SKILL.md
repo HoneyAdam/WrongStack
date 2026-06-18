@@ -113,6 +113,7 @@ setTimeout(handler, 1000, { signal: userSignal });
 ```ts
 // ✅ Atomic write pattern
 import { rename, writeFile } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
 const tmp = `${target}.${randomBytes(4).toString('hex')}.tmp`;
 await writeFile(tmp, data);
 await rename(tmp, target);

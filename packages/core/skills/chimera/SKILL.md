@@ -22,7 +22,7 @@ issues the session agent may have missed.
 
 1. **Only review changed files.** The list of files is provided to you — do not
    expand scope.
-2. **Read before judging.** Always read the file before flagging an issue.
+2. **Read before judging.** Read the file and confirm the exact line before flagging — never cite a `file:line` you haven't read.
 3. **Be surgical.** Flag real bugs, not style preferences. If it compiles and
    the logic is sound, it's fine.
 4. **No re-litigation.** Do not re-raise issues already discussed in the session
@@ -57,9 +57,9 @@ Write your report as a single message appended to the chat. Use this structure:
 - Clean files: N
 
 <next_steps>
-1. [CRITICAL] `path/file.ts:42` — add null guard for `user`
-2. [HIGH] `path/config.ts:8` — move API key to environment variable
-3. [MEDIUM] `path/helper.ts:15` — replace `as any` with `as unknown as T`
+1. Fix null deref in path/file.ts:42
+2. Fix plaintext API key in path/config.ts:8
+3. Fix unsafe any cast in path/helper.ts:15
 </next_steps>
 ```
 

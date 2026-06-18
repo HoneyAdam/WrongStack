@@ -105,8 +105,7 @@ When APPROVED:
 **Note**: <any caveats about the version, semver range, or compatibility>
 
 <next_steps>
-1. [APPROVED/REJECTED] Package decision with rationale
-2. [If rejected] Migration step to the recommended alternative
+1. Add <package>@<version> to the project auto="true"
 </next_steps>
 ```
 

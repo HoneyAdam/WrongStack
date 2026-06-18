@@ -17,7 +17,7 @@ Grep/read across target files to surface bugs, anti-patterns, and quality issues
 
 ## Rules
 
-1. Always include `file:line` in every finding — no line reference = can't be fixed.
+1. Always include a `file:line` you have actually read — verify the line exists; never invent, guess, or extrapolate a reference. No line reference = can't be fixed.
 2. Never scan `node_modules` — waste of time, false positives.
 3. Don't report style issues as bugs — those are lint findings.
 4. If >30% of findings are noise, note the false positive rate in the report.
@@ -127,10 +127,10 @@ const data: any = response.json();
 Total: 16 findings in 12 files
 
 <next_steps>
-1. [SHELL-INJ] `tools/shell.ts:42` — replace exec() with execFile()
-2. [SECRET] `lib/config.ts:8` — move API key to environment variable
-3. [MEMORY] `tools/pool.ts:89` — add cleanup in component unmount
-4. [TYPE] `core/agent.ts:103` — replace `as any` with proper type
+1. Fix the shell injection in tools/shell.ts:42
+2. Fix the hardcoded API key in lib/config.ts:8
+3. Fix the memory leak in tools/pool.ts:89
+4. Fix the unsafe any cast in core/agent.ts:103
 </next_steps>
 ```
 

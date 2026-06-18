@@ -119,7 +119,7 @@ WRONGSTACK_SESSION_ROOT=/app/sessions
 
 # Optional
 WRONGSTACK_PROVIDER=anthropic
-WRONGSTACK_MODEL=claude-3-5-sonnet-20241022
+WRONGSTACK_MODEL=<model-id>
 WRONGSTACK_API_KEY=${ANTHROPIC_API_KEY}  # from secrets manager
 ```
 

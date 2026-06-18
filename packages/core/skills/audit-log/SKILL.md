@@ -20,7 +20,7 @@ Parses WrongStack session JSONL files to extract tool usage patterns, error dist
 1. Always parse from the source JSONL — never summarize what you didn't read.
 2. Analyze one session at a time, or aggregate with clear labeling per session.
 3. Cite specific data in reports: iteration numbers, tool names, error messages.
-4. Flag repeated failures (same tool,5+ times) as a real issue, not noise.
+4. Flag repeated failures (same tool, 5+ times) as a real issue, not noise.
 5. Report cost trends in context of iteration count — a spike means context growth.
 
 ## Patterns
@@ -77,7 +77,7 @@ const errorsByType = events
 - **Tool entropy**: too many different tools in one iteration = unfocused task
 
 ### Error patterns
-- **Same error repeating**: `ToolExecutionError`47x across iterations = systemic issue
+- **Same error repeating**: `ToolExecutionError` 47x across iterations = systemic issue
 - **Error clustering**: all errors in `bash` tool = command timeout pattern
 - **Error rate by type**: which error type is most common?
 - **Error distribution**: are errors clustered in specific packages or tools?
@@ -85,7 +85,7 @@ const errorsByType = events
 ### Cost patterns
 - **Token growth**: tokens/iteration trending up = context bloat
 - **Provider cost**: which model is most expensive per call?
-- **Cost spikes**: sudden3x increase = large file reads or excessive tool calls
+- **Cost spikes**: sudden 3x increase = large file reads or excessive tool calls
 - **Iteration cost variance**: avg $0.04/iter → $0.11/iter = context growing
 
 ### Context management
@@ -154,10 +154,10 @@ When reading a session file:
 - Iteration 11-20: avg $0.11/iteration (context growth)
 
 <next_steps>
-1. Investigate bash failures — command timeout pattern in iterations 14-20
-2. Review tool call count in iteration 14 — 50+ tool calls suggests loop
-3. Run `pnpm test` to verify fixes for identified issues
+1. Run the session tests and the type checker
 </next_steps>
+
+Investigate iterations 14–20 in the session log for the bash command timeout pattern. Review iteration 14's tool call count for loop behavior.
 ```
 
 ## Anti-patterns

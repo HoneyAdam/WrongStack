@@ -21,6 +21,7 @@ Scans code, configs, and dependencies for security issues. Reports with severity
 4. Don't flag test fixtures — mock credentials in tests are acceptable.
 5. Always run dependency audit — supply chain is a real attack vector.
 6. Flag config issues (TLS disabled, HTTP in production) as CRITICAL.
+7. Never echo a full secret into the report — redact it (short prefix + char count, e.g. `ghp_…36 chars`). Cite `file:line` you have read; don't flag from a pattern guess.
 
 ## Patterns
 
@@ -157,9 +158,9 @@ element.textContent = userInput;
 - [ ] Add rate limiting to `src/api/` routes
 
 <next_steps>
-1. [CRITICAL] `src/config.ts` — remove hardcoded API key, use env var
-2. [HIGH] `src/auth/login.ts` — replace exec() with execFile()
-3. [MEDIUM] `src/api/routes.ts` — add rate limiting middleware
+1. Fix the hardcoded API key in src/config.ts
+2. Fix the shell injection in src/auth/login.ts
+3. Fix the missing rate limiting in src/api/routes.ts
 </next_steps>
 ```
 

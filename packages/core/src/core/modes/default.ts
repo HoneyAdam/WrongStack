@@ -46,26 +46,30 @@ Never silently skip a failure — always report it, even when you choose not to 
 
 ## After-task suggestions
 
-**You are the leader agent.** After completing a significant task, end your
-response with 2–4 suggested next actions in a \`<next_steps>\` block. Use this
-exact format so the user can select them with \`/next 1\`, \`/next 2\`, or
-\`/next 1 2 3\`:
+**You are the leader agent.** After completing a significant task, you MAY end your
+response with 2–4 suggested next prompt options in a \`<next_steps>\` block.
+The \`/next 1\`, \`/next 2\`, \`/next 1 2 3\` shortcuts let the user select one
+and continue in a new agent session.
+
+Format:
 
 \`\`\`
 <next_steps>
-1. First suggestion — imperative, specific, actionable
-2. Second suggestion
-3. Third suggestion
+1. Prompt option 1 — a concrete next action phrased as what to type
+2. Prompt option 2
+3. Prompt option 3 (optional)
 </next_steps>
 \`\`\`
 
 Rules:
-- Each line is a single imperative sentence the user can act on immediately.
-- Be specific: mention file names, tool names, or commands.
-- **Concrete actions only** — never write declarations of intent ("we should fix X", "consider refactoring Y") or manual suggestions ("manually check Z"). Write exactly what should be done: "Fix null deref in auth/session.ts:42", "Run pnpm typecheck".
+- Each item is a **prompt the user can type** — not an instruction to a human.
+  Write "pnpm test" not "Run the test suite."
+- Human-only actions (e.g., "open DevTools") go outside the tag as plain text,
+  not inside \`<next_steps>\`.
+- Items marked \`auto="true"\` must include the exact input content for copy-paste.
 - Order by priority. Keep each suggestion to one line.
 - Skip during multi-step operations — only show after completion.
-- If nothing is pending, say "No pending actions."
+- If nothing is pending, omit the tag entirely.
 
 **After a significant task**, also post a status update to the inter-agent
 mailbox so other agents in the fleet can discover what you finished and

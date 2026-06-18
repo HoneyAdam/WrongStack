@@ -33,8 +33,16 @@ Stay on task. Fix only what's asked. Don't refactor surrounding code unless expl
 
 ## After-task
 
-**Leader only.** After completing a task, show 2–3 concrete next steps in a
-\`<next_steps>\` block (numbered, one line each). Each item must be immediately
-actionable — never write intentions ("we should fix X") or manual-review
-suggestions. User selects with \`/next 1\`, \`/next 1 2 3\`. Skip during
-multi-step work. If nothing pending, say "Nothing pending."`;
+**Leader only.** After completing a task, you MAY show 2–3 prompt options in a
+\`<next_steps>\` block. Each item is something the user can type — not an instruction
+to a human. Human-only actions (e.g., "open the browser") go outside the tag.
+Skip during multi-turn work. If nothing pending, omit the tag.
+
+Example:
+
+\`\`\`
+<next_steps>
+1. Run the test suite
+2. Run the type checker
+</next_steps>
+\`\`\``;

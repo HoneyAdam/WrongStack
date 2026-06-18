@@ -127,9 +127,9 @@ When a leader synthesizes results from subagents:
 [Deduplicated and prioritized action items]
 
 <next_steps>
-1. [Priority] Action item 1 — file:line reference
-2. [Priority] Action item 2 — file:line reference
-3. [Priority] Action item 3 — file:line reference
+1. Fix critical issue in <file:line>
+2. Fix high-priority issue in <file:line>
+3. Fix remaining issue in <file:line>
 </next_steps>
 ```
 

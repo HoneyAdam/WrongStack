@@ -15,26 +15,25 @@ extract structured data from agent responses.
 
 ## Rules
 
-1. **Only the leader agent's final message MUST include `<next_steps>` tag** — subagents report findings only. If nothing is pending, write "No pending actions."
-2. **Tags must be properly closed** — `<next_steps>...</next_steps>` with exact tag names.
-3. **No markdown inside tags** — plain text only, one action per line.
-4. **Use imperative mood** — "Fix X", "Run Y", not "Fixed X" or "Running Y".
-5. **Be specific** — mention file paths, tool names, or exact commands.
-6. **Keep concise** — max 5 items unless the task genuinely requires more.
-7. **Items must be concrete actionable commands** — something another agent or the user can immediately execute. Never write declarations of intent ("we should fix X", "consider refactoring Y") or manual execution suggestions ("manually review file Z", "check if X is correct").
+1. **Only the leader agent's final message SHOULD include `<next_steps>`** — subagents report findings only. If nothing is pending, omit the tag and say "No pending actions."
+2. **`<next_steps>` is for prompt options only** — every item must be something the user can type into the prompt and submit. If a step is a human-only action (e.g., "open DevTools", "check the browser console"), put it outside the tag as informational text instead.
+3. **Tags must be properly closed** — `<next_steps>...</next_steps>` with exact tag names.
+4. **No markdown inside tags** — plain text only, one item per line.
+5. **Items are prompt inputs** — not imperative instructions. Write what the user would type, not what they should do.
+6. **Items marked `auto="true"` must include input content** — the user can copy and submit it directly.
+7. **Keep concise** — max 5 items unless the task genuinely requires more.
 
 ## Output Format
-
-Every agent's final message MUST end with this structure:
 
 ```
 [... task results ...]
 
 <next_steps>
-1. First actionable next step — imperative, specific
-2. Second actionable next step
-3. Third actionable next step (if needed)
+1. Prompt option the user can enter — phrased as what to type, not what to do
+2. Another prompt option
 </next_steps>
+
+Informational text for human-only actions (outside the tag, no tag wrapper).
 ```
 
 ### Format Requirements
@@ -44,29 +43,31 @@ Every agent's final message MUST end with this structure:
 | Opening tag | `<next_steps>` on its own line | `<next_steps>` |
 | Numbered items | `1. ` prefix, one per line | `1. Fix auth bug in core/session.ts` |
 | Closing tag | `</next_steps>` on its own line | `</next_steps>` |
-| Blank line before | Optional but recommended | Improves readability |
-| Blank line after | Not required | — |
+| `auto="true"` items | Include the full input content | `1. fix in core/auth.ts:42 auto="true"` |
 
 ### ✅ Correct Examples
 
 ```
-Task completed successfully.
+Bug Hunt complete. Found 3 critical issues.
 
 <next_steps>
-1. Fix shell injection in packages/cli/src/slash-commands/dev.ts:15
-2. Replace Math.random() with randomUUID() in 4 files
-3. Run pnpm run typecheck to verify fixes
+1. Fix the shell injection in packages/cli/src/slash-commands/dev.ts:15
+2. Replace Math.random() with randomUUID() in the affected files
+3. Run the type checker
 </next_steps>
+
+Open browser DevTools → Network tab to verify the WebSocket
+connection is established before testing.
 ```
 
 ```
-Analysis finished. Found 3 critical issues.
+Audit complete. Found bash command timeout pattern in iterations 14–20.
 
 <next_steps>
-1. [CRITICAL] packages/cli/src/slash-commands/dev.ts:15 — exec() → execFile()
-2. [HIGH] packages/core/src/session-registry.ts:145 — remove ! assertion
-3. [HIGH] packages/core/src/session-registry.ts:169 — remove ! assertion
+1. Run the session tests and the type checker
 </next_steps>
+
+Review iterations 14–20 in the session log to characterize the loop.
 ```
 
 ### ❌ Incorrect Examples
@@ -102,15 +103,35 @@ Next steps:
 # ❌ Missing opening/closing tags
 ```
 
+```
+<next_steps>
+1. Open the browser console and check for errors  # ❌ Human-only action, not a prompt
+</next_steps>
+```
+
+## `auto="true"` Format
+
+Items that should be auto-submitted (the user can copy-paste and send) use `auto="true"`:
+
+```
+<next_steps>
+1. Run the type checker auto="true"
+2. Fix the shell injection in packages/cli/src/slash-commands/dev.ts:15
+</next_steps>
+```
+
+The text before `auto="true"` is the exact prompt the user would type. Items without `auto="true"` are suggestions the user can select manually.
+
 ## Subagent Requirements
 
 When a **leader agent** synthesizes output from **subagents**, the leader MUST:
 
 1. Collect findings from subagents (they return results, not `<next_steps>`)
-2. Based on findings, produce a unified `<next_steps>` section
+2. Based on findings, produce a unified `<next_steps>` section with prompt options
 3. Remove duplicates (dedupe by file path + action)
 4. Re-prioritize if needed (critical > high > medium > low)
-5. Keep the unified list within the 5-item guideline, but no hard cap
+5. Human-only findings (e.g., "check the browser console") go outside the tag
+6. Keep the unified list within the 5-item guideline, but no hard cap
 
 When a **subagent** completes its task, it MUST:
 
@@ -120,13 +141,15 @@ When a **subagent** completes its task, it MUST:
 
 ## Anti-patterns
 
+- **Don't put human-only actions in `<next_steps>`** — those belong outside the tag as plain text
+- **Don't write imperative instructions** — write what the user would type, not what they should do
 - **Don't use markdown inside `<next_steps>`** — plain text only
-- **Don't skip the tag** — the leader's final message always needs one
+- **Don't skip the tag when there are prompt options** — the tag enables the `/next` workflow
 - **Don't use dashes or asterisks** — use `1.`, `2.`, `3.` numbering
-- **Don't be vague** — "fix bugs" is useless, "fix auth/session.ts:42" is actionable
+- **Don't be vague** — "fix bugs" is useless, "fix auth/session.ts:42" is a valid prompt
 - **Don't exceed 5 items without reason** — if >5, it's probably not a single task
-- **Don't write declarations of intent** — "we should refactor X" is not actionable; "Extract the parseConfig function in core/config.ts:88" is
-- **Don't suggest manual review** — "manually check if X is correct" is not a next step; "Run pnpm typecheck to verify" is
+- **Don't write declarations of intent** — "we should refactor X" is not a prompt; "refactor core/config.ts" is
+- **Don't suggest manual review as a prompt** — "manually check if X is correct" is not a valid LLM prompt; instead put it outside the tag
 - **Don't include `<next_steps>` in subagent output** — subagents report findings, leaders produce next steps
 
 ## Skills in scope

@@ -157,9 +157,9 @@ config.ts → logger.ts → path-resolver.ts
 - [ ] `Context` interface < 20 methods
 
 <next_steps>
-1. [Phase 1] Extract `ToolExecutor` interface in core/tool-executor.ts
-2. [Phase 1] Decouple `SessionStore` from Agent in core/session-store.ts
-3. [Phase 2] Break circular dep: Config ↔ Logger in core/config.ts
+1. Extract ToolExecutor interface in core/tool-executor.ts
+2. Decouple SessionStore from Agent in core/session-store.ts
+3. Break circular dep between Config and Logger in core/config.ts
 </next_steps>
 ```
 

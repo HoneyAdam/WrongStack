@@ -146,10 +146,10 @@ git rebase main && git merge --ff-only feature
 3. Open PR with description linking to issue
 
 <next_steps>
-1. `git checkout -b fix/session-leak` from `main`
-2. Commit with: `fix: correct race condition in token refresh`
-3. Open PR with description linking to issue #123
+1. Create a branch fix/session-leak, commit the token refresh fix, and push it
 </next_steps>
+
+Open a PR at GitHub linking to issue #123 with the commit message describing the fix.
 ```
 
 ## Skills in scope
