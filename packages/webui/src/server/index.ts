@@ -2754,69 +2754,6 @@ export async function startWebUI(
         break;
       }
 
-      case 'task.update': {
-        // Mutate the persisted task file at ctx.meta['task.path'].
-        const payload = (
-          msg as {
-            payload: {
-              id: string;
-              status: 'pending' | 'in_progress' | 'blocked' | 'failed' | 'review' | 'completed';
-            };
-          }
-        ).payload;
-        const taskPath = (context.meta as Record<string, unknown>)['task.path'];
-        if (typeof taskPath !== 'string' || !taskPath) {
-          sendResult(ws, false, 'Task storage not configured.');
-          break;
-        }
-        try {
-          const { mutateTasks } = await import('@wrongstack/core');
-          const file = await mutateTasks(taskPath, session.id, async (f) => {
-            const task = f.tasks.find((t) => t.id === payload.id);
-            if (!task) return f;
-            task.status = payload.status;
-            task.updatedAt = new Date().toISOString();
-            return f;
-          });
-          sendResult(ws, true, `Task status updated to "${payload.status}".`);
-          broadcast(clients, { type: 'tasks.updated', payload: { tasks: file.tasks } });
-        } catch (err) {
-          sendResult(ws, false, errMessage(err));
-        }
-        break;
-      }
-
-      case 'plan.item.update': {
-        // Mutate the persisted plan file at ctx.meta['plan.path'].
-        const payload = (
-          msg as { payload: { target: string; status: 'open' | 'in_progress' | 'done' } }
-        ).payload;
-        const planPath = (context.meta as Record<string, unknown>)['plan.path'];
-        if (typeof planPath !== 'string' || !planPath) {
-          sendResult(ws, false, 'Plan storage is not configured for this session.');
-          break;
-        }
-        try {
-          const { mutatePlan, setPlanItemStatus } = await import('@wrongstack/core');
-          let changed = false;
-          const plan = await mutatePlan(planPath, session.id, async (p) => {
-            const before = p.updatedAt;
-            const updated = setPlanItemStatus(p, payload.target, payload.status);
-            changed = updated.updatedAt !== before;
-            return updated;
-          });
-          if (!changed) {
-            sendResult(ws, false, `No plan item matched "${payload.target}".`);
-            break;
-          }
-          sendResult(ws, true, `Plan item status updated to "${payload.status}".`);
-          broadcast(clients, { type: 'plan.updated', payload: { plan } });
-        } catch (err) {
-          sendResult(ws, false, errMessage(err));
-        }
-        break;
-      }
-
       // ── File operations — delegated to shared handlers (file-handlers.ts) ──
       // These handlers are also used by the CLI's webui-server.ts. When
       // adding or modifying file-operation WebSocket messages, update
