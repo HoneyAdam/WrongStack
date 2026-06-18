@@ -254,6 +254,12 @@ export interface StatusBarProps {
     /** Circuit-breaker snapshot — 'open' means indexing is paused after repeated failures. */
     circuit?: { state: 'closed' | 'open' | 'half-open'; cooldownRemainingMs: number };
   };
+  /**
+   * Live countdown to the process circuit breaker's automatic kill/reset.
+   * Rendered as an urgent chip on line 1 ("⚡ kill/reset in Ns") while armed;
+   * null/undefined hides it. The host ticks this every second.
+   */
+  breakerCountdown?: { remainingMs: number; totalMs: number } | null | undefined;
   /** Active agent mode label with icon (e.g. "🧑‍🏫 teach", "⚡ brief"). Rendered on line 2. */
   modeLabel?: string | undefined;
   /**
@@ -339,6 +345,7 @@ export function StatusBar({
   eternalStage,
   goalSummary,
   indexState,
+  breakerCountdown,
   modeLabel,
   debugStreamStats,
   enhanceCountdown,
@@ -576,6 +583,21 @@ export function StatusBar({
                 <Text color="red">⚙ index paused (/reindex)</Text>
               </>
             ) : null}
+            {breakerCountdown ? (() => {
+              const secs = Math.ceil(breakerCountdown.remainingMs / 1000);
+              const ratio = breakerCountdown.totalMs > 0
+                ? breakerCountdown.remainingMs / breakerCountdown.totalMs
+                : 0;
+              const c = secs > 20 ? 'green' : secs > 10 ? 'yellow' : 'red';
+              return (
+                <>
+                  <Text dimColor>│</Text>
+                  <Text color={c} bold>
+                    ⚡ kill/reset in {secs}s{ratio <= 0.25 ? '!' : ''}
+                  </Text>
+                </>
+              );
+            })() : null}
           </>
         )}
       </Box>

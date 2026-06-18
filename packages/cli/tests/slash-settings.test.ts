@@ -126,4 +126,49 @@ describe('/settings slash command', () => {
     const cmd = buildSettingsCommand(ctx);
     expect(cmd.help).toContain('fs-access unrestricted|project');
   });
+
+  it('bare /settings shows the circuit breaker (default: off)', async () => {
+    const { ctx } = makeCtx();
+    const res = await buildSettingsCommand(ctx).run!('');
+    const text = stripAnsi(res!.message!);
+    expect(text).toContain('circuit breaker:     off');
+    expect(text).toContain('/settings breaker on|off');
+  });
+
+  it('view reflects an enabled circuit breaker with its timeout', async () => {
+    const { ctx } = makeCtx({ circuitBreaker: { enabled: true, autoKillResetMs: 45_000 } });
+    const res = await buildSettingsCommand(ctx).run!('');
+    expect(stripAnsi(res!.message!)).toContain('circuit breaker:     on');
+  });
+
+  it('breaker on persists circuitBreaker.enabled=true', async () => {
+    const { ctx, globalConfig } = makeCtx();
+    const res = await buildSettingsCommand(ctx).run!('breaker on');
+    expect(stripAnsi(res!.message!)).toContain('circuit breaker → on');
+
+    const written = JSON.parse(readFileSync(globalConfig, 'utf8'));
+    expect(written.circuitBreaker.enabled).toBe(true);
+  });
+
+  it('breaker-timeout persists circuitBreaker.autoKillResetMs', async () => {
+    const { ctx, globalConfig } = makeCtx();
+    await buildSettingsCommand(ctx).run!('breaker-timeout 90');
+
+    const written = JSON.parse(readFileSync(globalConfig, 'utf8'));
+    expect(written.circuitBreaker.autoKillResetMs).toBe(90_000);
+  });
+
+  it('breaker-timeout rejects invalid values without writing', async () => {
+    const { ctx, globalConfig } = makeCtx();
+    const res = await buildSettingsCommand(ctx).run!('breaker-timeout abc');
+    expect(stripAnsi(res!.message!)).toContain('Invalid number');
+    expect(existsSync(globalConfig)).toBe(false);
+  });
+
+  it('help lists the breaker subcommands', () => {
+    const { ctx } = makeCtx();
+    const cmd = buildSettingsCommand(ctx);
+    expect(cmd.help).toContain('breaker on|off');
+    expect(cmd.help).toContain('breaker-timeout');
+  });
 });

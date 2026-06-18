@@ -254,4 +254,62 @@ describe('CircuitBreaker', () => {
       expect(cb.canProceed).toBe(false);
     });
   });
+
+  describe('enabled flag', () => {
+    it('defaults to enabled', () => {
+      const cb = new CircuitBreaker();
+      expect(cb.isEnabled).toBe(true);
+    });
+
+    it('setEnabled(false) bypasses the breaker entirely', () => {
+      const cb = new CircuitBreaker({ maxConsecutiveFailures: 2 });
+      cb.setEnabled(false);
+      expect(cb.isEnabled).toBe(false);
+      // Repeated failures do not trip a disabled breaker.
+      cb.afterCall(10, true);
+      cb.afterCall(10, true);
+      cb.afterCall(10, true);
+      expect(cb.canProceed).toBe(true);
+      expect(cb.beforeCall()).toBe(true);
+      expect(cb.snapshot().state).toBe('closed');
+    });
+
+    it('disabling resets an already-tripped breaker to closed', () => {
+      const cb = new CircuitBreaker({ maxConsecutiveFailures: 2 });
+      cb.afterCall(10, true);
+      cb.afterCall(10, true);
+      expect(cb.snapshot().state).toBe('open');
+      cb.setEnabled(false);
+      expect(cb.snapshot().state).toBe('closed');
+      // Re-enabling starts fresh (no residual failure count).
+      cb.setEnabled(true);
+      expect(cb.canProceed).toBe(true);
+      expect(cb.snapshot().consecutiveFailures).toBe(0);
+    });
+
+    it('onTrip fires only on the closed→open transition', () => {
+      const cb = new CircuitBreaker({ maxConsecutiveFailures: 2 });
+      const trips = vi.fn();
+      cb.onTrip = trips;
+      cb.afterCall(10, true);
+      expect(trips).toHaveBeenCalledTimes(0);
+      cb.afterCall(10, true); // trip
+      expect(trips).toHaveBeenCalledTimes(1);
+      cb.forceOpen(); // already open — no second fire
+      expect(trips).toHaveBeenCalledTimes(1);
+    });
+
+    it('onReset fires on recovery from open/half-open, not on initial closed', () => {
+      const cb = new CircuitBreaker({ maxConsecutiveFailures: 2 });
+      const resets = vi.fn();
+      cb.onReset = resets;
+      cb.forceReset(); // closed→closed: no fire
+      expect(resets).toHaveBeenCalledTimes(0);
+      cb.afterCall(10, true);
+      cb.afterCall(10, true); // trip
+      cb.forceReset(); // open→closed: fire
+      expect(resets).toHaveBeenCalledTimes(1);
+    });
+  });
 });
+

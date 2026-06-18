@@ -1,5 +1,6 @@
 import type { SlashCommand } from '@wrongstack/core';
 import { color, noOpVault } from '@wrongstack/core';
+import { getProcessRegistry } from '@wrongstack/tools';
 import { persistAutonomySetting, persistConfigSetting } from '../settings-menu.js';
 import { formatDelay } from '../utils/delay-format.js';
 import { parseSubcommand, unknownSubcommand } from './helpers.js';
@@ -28,6 +29,8 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
     '  /settings refine-delay <seconds>   Countdown duration for refine preview',
     '  /settings refine-language original|english   Default language for refinement',
     '  /settings semver-part patch|minor|major|auto   Default part for /semver and the semver_bump tool',
+    '  /settings breaker on|off   Enable/disable the process circuit breaker (gates bash/exec)',
+    '  /settings breaker-timeout <seconds>   Auto kill/reset delay when the breaker trips (0 = manual)',
     '  /settings defaults            Show built-in default values',
     '',
     'Settings are persisted to ~/.wrongstack/config.json.',
@@ -57,6 +60,9 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
       ((
         opts.configStore.get().extensions?.['semver-bump'] as Record<string, unknown> | undefined
       )?.['defaultPart'] as string) ?? 'patch';
+    const cb = opts.configStore.get().circuitBreaker;
+    const breakerEnabled = cb?.enabled === true;
+    const breakerTimeout = cb?.autoKillResetMs ?? 60_000;
     return [
       `${color.bold('WrongStack')} ${color.dim('— Settings')}`,
       '',
@@ -70,6 +76,7 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
       `  refine-delay:        ${color.cyan(formatDelay(enhanceDelay))}   ${color.dim('change: /settings refine-delay <seconds>')}`,
       `  refine-language:     ${color.cyan(enhanceLanguage)}   ${color.dim('change: /settings refine-language original|english')}`,
       `  semver default part: ${color.cyan(semverPart)}   ${color.dim('change: /settings semver-part patch|minor|major|auto')}`,
+      `  circuit breaker:     ${breakerEnabled ? color.cyan('on') : color.dim('off')} (kill/reset ${breakerTimeout > 0 ? formatDelay(breakerTimeout) : color.dim('manual')})   ${color.dim('change: /settings breaker on|off')}`,
       '',
       color.dim('  Persisted to ~/.wrongstack/config.json · /settings help for more'),
     ].join('\n');
@@ -294,8 +301,54 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
           };
         }
 
+        if (sub === 'breaker') {
+          const raw = (rest[0] ?? '').toLowerCase();
+          if (!['on', 'off'].includes(raw)) {
+            return { message: `${color.amber('Usage:')} /settings breaker on|off` };
+          }
+          const on = raw === 'on';
+          await persistConfigSetting(persistDeps, (cfg) => {
+            const cb = (cfg as Record<string, unknown>).circuitBreaker as
+              | Record<string, unknown>
+              | undefined;
+            (cfg as Record<string, unknown>).circuitBreaker = { ...(cb ?? {}), enabled: on };
+          });
+          // Flip the runtime singleton so the toggle takes effect immediately
+          // (no restart needed) — same pattern as debug-stream.
+          getProcessRegistry().setBreakerConfig({ enabled: on });
+          return {
+            message: `${color.green('✓')} circuit breaker → ${on ? color.cyan('on') : color.dim('off')}   ${color.dim(on ? 'bash/exec gated on repeated failures; trips arm the kill/reset countdown' : 'bash/exec always proceed')}`,
+          };
+        }
+
+        if (sub === 'breaker-timeout') {
+          const raw = rest[0];
+          if (raw === undefined) {
+            return {
+              message: `${color.amber('Usage:')} /settings breaker-timeout <seconds>   ${color.dim('(0 = manual recovery only)')}`,
+            };
+          }
+          const seconds = Number.parseFloat(raw);
+          if (Number.isNaN(seconds) || seconds < 0) {
+            return {
+              message: `${color.red('Invalid number')}: "${raw}". Enter seconds, e.g. /settings breaker-timeout 60`,
+            };
+          }
+          const ms = Math.round(seconds * 1000);
+          await persistConfigSetting(persistDeps, (cfg) => {
+            const cb = (cfg as Record<string, unknown>).circuitBreaker as
+              | Record<string, unknown>
+              | undefined;
+            (cfg as Record<string, unknown>).circuitBreaker = { ...(cb ?? {}), autoKillResetMs: ms };
+          });
+          getProcessRegistry().setBreakerConfig({ autoKillResetMs: ms });
+          return {
+            message: `${color.green('✓')} breaker kill/reset timeout → ${ms > 0 ? formatDelay(ms) : color.dim('manual')}   ${color.dim(ms > 0 ? 'statusline shows a countdown when the breaker trips' : 'breaker trips require /kill reset')}`,
+          };
+        }
+
         return {
-          message: `${color.red('Unknown setting')} "${sub}". ${unknownSubcommand(sub, ['delay', 'mode', 'hints', 'debug-stream', 'config-scope', 'fs-access', 'refine', 'refine-delay', 'refine-language', 'semver-part', 'defaults'], 'settings')}`,
+          message: `${color.red('Unknown setting')} "${sub}". ${unknownSubcommand(sub, ['delay', 'mode', 'hints', 'debug-stream', 'config-scope', 'fs-access', 'refine', 'refine-delay', 'refine-language', 'semver-part', 'breaker', 'breaker-timeout', 'defaults'], 'settings')}`,
         };
       } catch (err) {
         return {

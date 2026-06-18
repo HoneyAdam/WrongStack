@@ -254,6 +254,7 @@ const PROJECT_SAFE_FIELDS = new Set([
   'indexing',
   'tools',
   'launch',
+  'circuitBreaker',
 ]);
 
 /**

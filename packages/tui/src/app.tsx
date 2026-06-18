@@ -731,6 +731,34 @@ export function App({
     return onIndexStateChange((next) => setIndexState(next));
   }, []);
 
+  // Process circuit-breaker auto kill/reset countdown — rendered as an urgent
+  // chip on status-bar line 1. Applies the persisted breaker config on mount
+  // (so a restart honours `/settings breaker on`), then subscribes to the
+  // registry's arm/cancel events and ticks every second while armed.
+  const [breakerCountdown, setBreakerCountdown] = useState(() =>
+    getProcessRegistry().getBreakerCountdown(),
+  );
+  useEffect(() => {
+    const s = getSettings?.();
+    if (s) {
+      getProcessRegistry().setBreakerConfig({
+        enabled: s.breakerEnabled ?? false,
+        autoKillResetMs: s.breakerAutoKillResetMs ?? 60_000,
+      });
+    }
+    return getProcessRegistry().onBreakerCountdownChange((snap) => setBreakerCountdown(snap));
+  }, [getSettings]);
+  // Independent 1s tick so the countdown visibly decrements between events.
+  const breakerArmed = breakerCountdown !== null;
+  useEffect(() => {
+    if (!breakerArmed) return;
+    const t = setInterval(
+      () => setBreakerCountdown(getProcessRegistry().getBreakerCountdown()),
+      1000,
+    );
+    return () => clearInterval(t);
+  }, [breakerArmed]);
+
   // Sync when parent re-loads from config file (e.g., after /statusline reset)
   useEffect(() => {
     setHiddenItems([...statuslineHiddenItems]);
@@ -5915,6 +5943,7 @@ export function App({
             eternalStage={state.eternalStage}
             goalSummary={state.goalSummary}
             indexState={indexState}
+            breakerCountdown={breakerCountdown}
             modeLabel={liveModeLabel || undefined}
             debugStreamStats={state.debugStreamStats}
             enhanceCountdown={enhanceCountdown}

@@ -290,10 +290,12 @@ describe('ProcessRegistry circuit-breaker config', () => {
     r.setBreakerConfig({ enabled: true, autoKillResetMs: 0 });
     r.register(makeProc({ pid: 9 }));
     for (let i = 0; i < 5; i++) r.afterCall(10, true);
+    // Breaker is open → canProceed false, no countdown armed.
+    expect(r.canProceed).toBe(false);
     expect(r.getBreakerCountdown()).toBeNull();
     vi.advanceTimersByTime(60_000);
+    // No auto kill/reset fired — process untouched, breaker unchanged.
     expect(r.get(9)?.killed).toBe(false);
-    expect(r.canProceed).toBe(false);
   });
 
   it('notifies subscribers on arm and cancel', () => {

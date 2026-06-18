@@ -93,6 +93,10 @@ export interface LiveSettingsInput {
   enhanceLanguage?: string | undefined;
   mouseMode?: boolean | undefined;
   autonomyNextPrompt?: string | undefined;
+  /** Whether the process circuit breaker gates bash/exec. Default false. */
+  breakerEnabled?: boolean | undefined;
+  /** Auto kill/reset delay (ms) when the breaker trips. 0 = manual recovery. */
+  breakerAutoKillResetMs?: number | undefined;
 }
 
 export interface ExecutionDeps {
@@ -915,6 +919,8 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
               autonomyNextPrompt:
                 ((cfg.autonomy as Record<string, unknown> | undefined)
                   ?.autonomyNextPrompt as string | undefined) ?? 'auto {{suggestion}}',
+              breakerEnabled: cfg.circuitBreaker?.enabled === true,
+              breakerAutoKillResetMs: cfg.circuitBreaker?.autoKillResetMs ?? 60_000,
             };
           },
           async saveSettings(s: LiveSettingsInput) {

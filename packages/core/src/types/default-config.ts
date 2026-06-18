@@ -25,6 +25,16 @@ export const DEFAULT_AUTONOMY_CONFIG = Object.freeze({
   autoProceedDelayMs: 45_000,
 });
 
+/**
+ * Default process circuit-breaker config. Protection is OFF by default — the
+ * breaker only gates `bash`/`exec` once the user opts in via `/settings breaker on`.
+ * The auto kill/reset delay is only consulted when protection is enabled.
+ */
+export const DEFAULT_CIRCUIT_BREAKER_CONFIG = Object.freeze({
+  enabled: false,
+  autoKillResetMs: 60_000,
+});
+
 /** Default session logging / audit configuration. */
 export const DEFAULT_SESSION_LOGGING_CONFIG = Object.freeze({
   auditLevel: 'standard' as const,

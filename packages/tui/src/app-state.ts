@@ -598,6 +598,10 @@ export type Settings = {
   restrictFsToRoot?: boolean | undefined;
   /** Full mouse mode: in-app managed scroll + clickable UI (SGR tracking on). */
   mouseMode?: boolean | undefined;
+  /** Whether the process circuit breaker gates bash/exec. Default false (off). */
+  breakerEnabled?: boolean | undefined;
+  /** Auto kill/reset delay (ms) when the breaker trips. 0 = manual recovery. */
+  breakerAutoKillResetMs?: number | undefined;
 };
 
 export type Action =

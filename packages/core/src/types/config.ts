@@ -33,6 +33,31 @@ export interface ContextConfig {
   llmSelector?: boolean | undefined;
 }
 
+/**
+ * Runtime configuration for the process circuit breaker (the one owned by the
+ * ProcessRegistry that gates `bash`/`exec`). Toggle via `/settings breaker`.
+ *
+ * The breaker itself is a low-level primitive (`packages/tools/.../circuit-breaker.ts`)
+ * that is on by default; this section controls whether the registry actually
+ * participates in it and how it auto-recovers.
+ */
+export interface CircuitBreakerRuntimeConfig {
+  /**
+   * Enable circuit-breaker protection. When false (the default), the breaker
+   * is bypassed — `bash`/`exec` calls always proceed regardless of failure
+   * history. When true, the breaker trips on repeated failures / slow calls /
+   * bursts and blocks further calls until it recovers.
+   */
+  enabled?: boolean | undefined;
+  /**
+   * When the breaker trips, automatically kill all tracked processes AND
+   * reset the breaker to closed after this delay (ms). 0 = disabled (manual
+   * recovery only via `/kill reset`). Only effective when `enabled` is true.
+   * While armed, the statusline shows a live countdown to the kill/reset.
+   */
+  autoKillResetMs?: number | undefined;
+}
+
 export interface ToolsConfig {
   defaultExecutionStrategy: 'parallel' | 'sequential' | 'smart';
   maxIterations: number;
@@ -368,6 +393,11 @@ export interface Config {
   configScope?: 'global' | 'project' | undefined;
   /** Automatic codebase symbol-index maintenance (session-start + live updates). */
   indexing?: IndexingConfig | undefined;
+  /**
+   * Process circuit-breaker protection (gates `bash`/`exec` on repeated
+   * failures). Default off — toggle with `/settings breaker on|off`.
+   */
+  circuitBreaker?: CircuitBreakerRuntimeConfig | undefined;
   /** Saved launch preferences — restored on next boot for one-line confirmation. */
   launch?: LaunchConfig | undefined;
 
