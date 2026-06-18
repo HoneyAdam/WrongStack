@@ -548,7 +548,7 @@ export async function main(argv: string[]): Promise<number> {
   // listens to EventBus events and pushes live status to the registry.
   let tracker: import('@wrongstack/core').AgentStatusTracker | undefined;
   try {
-    const { getSessionRegistry, AgentStatusTracker } = await import('@wrongstack/core');
+    const { getSessionRegistry, AgentStatusTracker, FleetNotifier } = await import('@wrongstack/core');
     const registry = getSessionRegistry(wpaths.globalRoot);
     const projectSlug = path.basename(wpaths.projectDir);
     const projectName = path.basename(projectRoot);
@@ -584,12 +584,20 @@ export async function main(argv: string[]): Promise<number> {
       startedAt: new Date().toISOString(),
     });
 
-    tracker = new AgentStatusTracker({ events, registry });
+    // Push-on-write: nudge same-project WebUIs the instant our agents advance,
+    // so the Fleet HQ map reflects this TUI/REPL in ~ms (not watch/poll lag).
+    const fleetNotifier = new FleetNotifier({
+      baseDir: wpaths.globalRoot,
+      projectRoot,
+      selfPid: process.pid,
+    });
+    tracker = new AgentStatusTracker({ events, registry, onUpdate: () => fleetNotifier.notify() });
     tracker.start();
 
     // Clean up on process exit
     const cleanup = async () => {
       try {
+        fleetNotifier.dispose();
         await registry.markClosing();
         tracker?.stop();
       } catch {
