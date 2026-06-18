@@ -27,6 +27,7 @@ import {
   Zap,
   LayoutGrid,
   Activity as ActivityIconSvg,
+  Building2,
 } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { useTheme } from './ThemeProvider';
@@ -64,6 +65,7 @@ const PANELS: PanelDef[] = [
   { id: 'projects', icon: <Folders size={16} />, label: 'Projects', shortcut: 'Ctrl+5' },
   { id: 'mailbox', icon: <Mail size={16} />, label: 'Mailbox', shortcut: 'Ctrl+6' },
   { id: 'skills', icon: <Sparkles size={16} />, label: 'Skills', shortcut: 'Ctrl+7' },
+  { id: 'officemap', icon: <Building2 size={16} />, label: 'Office Map', shortcut: 'Ctrl+8' },
 ];
 
 const VIEWS: ViewDef[] = [
