@@ -110,7 +110,8 @@ export class DefaultSkillLoader implements SkillLoader {
 
   async find(name: string): Promise<SkillManifest | undefined> {
     const all = await this.list();
-    return all.find((s) => s.name === name);
+    const lower = name.toLowerCase();
+    return all.find((s) => s.name.toLowerCase() === lower);
   }
 
   async manifestText(): Promise<string> {
@@ -150,17 +151,18 @@ export class DefaultSkillLoader implements SkillLoader {
   }
 
   async readBody(name: string): Promise<string> {
-    const cached = this.bodyCache.get(name);
+    const key = name.toLowerCase();
+    const cached = this.bodyCache.get(key);
     if (cached !== undefined) return cached;
     const m = await this.find(name);
     if (!m) throw new Error(`Skill "${name}" not found`);
     const body = await fs.readFile(m.path, 'utf8');
-    this.bodyCache.set(name, body);
+    this.bodyCache.set(key, body);
     return body;
   }
 
   async readSaveBody(name: string): Promise<string> {
-    const key = `save:${name}`;
+    const key = `save:${name.toLowerCase()}`;
     const cached = this.bodyCache.get(key);
     if (cached !== undefined) return cached;
     const m = await this.find(name);
