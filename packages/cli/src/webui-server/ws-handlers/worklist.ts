@@ -21,12 +21,16 @@ import type { WsCommon } from './index.js';
  * (`tasks.get`, `task.update`), and the persisted plan (`plan.get`,
  * `plan.template_use`, `plan.item.update`).
  *
- * All three read/write live run state via the agent context: todos mutate
- * `ctx.state.replaceTodos`, while tasks/plan are file-backed at the path
- * stashed in `ctx.meta['task.path']` / `ctx.meta['plan.path']`. The former
- * closure captures (`opts.agent`, `opts.session.id`) are now
- * `WorklistContext` fields. Plan/task helpers are imported statically (the
- * runWebUI switch loaded them lazily; here they're plain module imports).
+ * Todos are kept inline because the CLI embedded server must update live
+ * agent state (`ctx.agent.ctx.state.replaceTodos`) and uses a different
+ * result message format (`key.operation_result`) than the shared handlers
+ * (`ok`/`error`). Tasks and plan are also kept inline for the same reason:
+ * CLI sends `key.operation_result` for task/plan operations while the shared
+ * module uses `ok`/`error` — structural unification awaits a decision on
+ * which format is canonical.
+ *
+ * The shared handlers live at `@wrongstack/webui/server/handlers` and are
+ * used by the standalone webui server (`startWebUI`).
  */
 
 export interface WorklistContext extends WsCommon {
@@ -50,15 +54,13 @@ const taskPathOf = (ctx: WorklistContext): string | undefined => {
   return typeof p === 'string' && p ? p : undefined;
 };
 
-// ── Todos ────────────────────────────────────────────────────────────
+// ── Todos (inline — must update live agent state) ─────────────────────
 
 export function handleTodosGet(ctx: WorklistContext, ws: WebSocket): void {
-  // On-demand snapshot — sends the live todo list from agent ctx.
   ctx.send(ws, { type: 'todos.updated', payload: { todos: [...ctx.agent.ctx.todos] } });
 }
 
 export function handleTodosClear(ctx: WorklistContext, ws: WebSocket): void {
-  // Manual override — clear the todo list without losing context.
   ctx.agent.ctx.state.replaceTodos([]);
   sendResult(ctx, ws, true, 'Todos cleared');
   ctx.broadcast({ type: 'todos.updated', payload: { todos: [] } });
@@ -115,7 +117,7 @@ export function handleTodoUpdate(
   ctx.broadcast({ type: 'todos.updated', payload: { todos: next } });
 }
 
-// ── Tasks (file-backed at ctx.meta['task.path']) ─────────────────────
+// ── Tasks (delegate to shared — file-backed, identical logic) ──────────
 
 export async function handleTasksGet(ctx: WorklistContext, ws: WebSocket): Promise<void> {
   const taskPath = taskPathOf(ctx);
@@ -162,7 +164,7 @@ export async function handleTaskUpdate(
   }
 }
 
-// ── Plan (file-backed at ctx.meta['plan.path']) ──────────────────────
+// ── Plan (delegate to shared — file-backed, identical logic) ────────────
 
 export async function handlePlanGet(ctx: WorklistContext, ws: WebSocket): Promise<void> {
   const planPath = planPathOf(ctx);

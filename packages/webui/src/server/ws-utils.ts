@@ -9,13 +9,13 @@ import { randomBytes } from 'node:crypto';
 // Value import (not `import type`): we reference `WebSocket.OPEN` below, which
 // is a runtime value, not just a type.
 import { WebSocket } from 'ws';
-import type { ConnectedClient, WSServerMessage } from './types.js';
+import type { ConnectedClient } from './types.js';
 
 /**
  * Send a JSON message to a single WebSocket client.
  * No-op when the socket is not in OPEN state (disconnected / closing).
  */
-export function send(ws: WebSocket, msg: WSServerMessage): void {
+export function send(ws: WebSocket, msg: object): void {
   if (ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(msg));
   }
@@ -28,7 +28,7 @@ export function send(ws: WebSocket, msg: WSServerMessage): void {
  */
 export function broadcast(
   clients: Map<WebSocket, ConnectedClient>,
-  msg: WSServerMessage,
+  msg: object,
 ): void {
   const data = JSON.stringify(msg);
   for (const [ws] of clients) {

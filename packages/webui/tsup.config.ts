@@ -6,6 +6,7 @@ export default defineConfig({
     types: 'src/types.ts',
     'server/entry': 'src/server/entry.ts',
     'server/index': 'src/server/index.ts',
+    'server/handlers': 'src/server/handlers/index.ts',
   },
   format: ['esm'],
   target: 'es2022',

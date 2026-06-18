@@ -1,4 +1,16 @@
 import { expectDefined, GlobalMailbox, projectSlug, getSessionRegistry, AgentStatusTracker } from '@wrongstack/core';
+import {
+  handleTodosGet,
+  handleTodosClear,
+  handleTodosRemove,
+  handleTodoUpdate,
+  handleTasksGet,
+  handleTaskUpdate,
+  handlePlanGet,
+  handlePlanTemplateUse,
+  handlePlanItemUpdate,
+  type WorklistContext,
+} from './handlers/index.js';
 import { makeMailboxTool, makeMailSendTool, makeMailInboxTool, mailboxSessionTag } from '@wrongstack/core';
 import { toErrorMessage, wstackGlobalRoot, projectHash, resolveWstackPaths } from '@wrongstack/core/utils';
 import { SkillInstaller } from '@wrongstack/core/skills';
@@ -2661,177 +2673,84 @@ export async function startWebUI(
       }
 
       case 'todos.get': {
-        // On-demand snapshot — used when a UI surface first mounts and
-        // needs to render the live todo list without waiting for the next
-        // tool.executed to broadcast.
-        send(ws, {
-          type: 'todos.updated',
-          payload: { todos: [...context.todos] },
-        });
-        break;
-      }
-
-      case 'todos.clear': {
-        // Manual override — the agent normally curates this list via
-        // TodoWrite, but the user might want a clean slate without losing
-        // the rest of the context. Use state.replaceTodos so observers
-        // (checkpoint writer) stay in sync.
-        context.state.replaceTodos([]);
-        sendResult(ws, true, 'Todos cleared');
-        broadcast(clients, { type: 'todos.updated', payload: { todos: [] } });
-        break;
-      }
-
-      case 'todos.remove': {
-        // Remove a single todo item by id or 1-based index.
-        const payload = msg.payload as
-          | { id?: string | undefined; index?: number | undefined }
-          | undefined;
-        if (!payload) {
-          sendResult(ws, false, 'Missing id or index');
-          break;
-        }
-        const { id, index } = payload;
-        let targetIdx = -1;
-        if (typeof id === 'string') {
-          targetIdx = context.todos.findIndex((t) => t.id === id);
-        } else if (typeof index === 'number' && index > 0) {
-          targetIdx = index - 1;
-        }
-        if (targetIdx < 0 || !context.todos[targetIdx]) {
-          sendResult(ws, false, 'Todo not found');
-          break;
-        }
-        const removed = expectDefined(context.todos[targetIdx]);
-        const next = [...context.todos.slice(0, targetIdx), ...context.todos.slice(targetIdx + 1)];
-        context.state.replaceTodos(next);
-        sendResult(ws, true, `Removed: ${removed.content}`);
-        broadcast(clients, { type: 'todos.updated', payload: { todos: next } });
-        break;
-      }
-
-      case 'tasks.get': {
-        // On-demand task snapshot — loads from <sessionId>.tasks.json
-        const taskPath = (context.meta as Record<string, unknown>)['task.path'];
-        if (typeof taskPath === 'string' && taskPath) {
-          try {
-            const { loadTasks } = await import('@wrongstack/core');
-            const file = await loadTasks(taskPath);
-            send(ws, {
-              type: 'tasks.updated',
-              payload: { tasks: file?.tasks ?? [] },
-            });
-          } catch {
-            send(ws, { type: 'tasks.updated', payload: { tasks: [] } });
-          }
-        } else {
-          send(ws, { type: 'tasks.updated', payload: { tasks: [], error: 'Task storage not configured.' } });
-        }
-        break;
-      }
-
-      case 'plan.get': {
-        // On-demand plan snapshot — used when a UI surface first mounts
-        // and needs to render the live plan without waiting for the next
-        // tool.executed to broadcast.
-        const planPath = (context.meta as Record<string, unknown>)['plan.path'];
-        if (typeof planPath === 'string' && planPath) {
-          try {
-            const { loadPlan } = await import('@wrongstack/core');
-            const plan = await loadPlan(planPath);
-            send(ws, {
-              type: 'plan.updated',
-              payload: {
-                plan: plan ?? {
-                  version: 1,
-                  sessionId: session.id,
-                  updatedAt: new Date().toISOString(),
-                  items: [],
-                },
-              },
-            });
-          } catch {
-            send(ws, {
-              type: 'plan.updated',
-              payload: {
-                plan: {
-                  version: 1,
-                  sessionId: session.id,
-                  updatedAt: new Date().toISOString(),
-                  items: [],
-                },
-              },
-            });
-          }
-        } else {
-          send(ws, {
-            type: 'plan.updated',
-            payload: { plan: null, error: 'Plan storage is not configured for this session.' },
-          });
-        }
-        break;
-      }
-
-      case 'plan.template_use': {
-        const { template } = (msg as { payload: { template: string } }).payload;
-        const planPath = (context.meta as Record<string, unknown>)['plan.path'];
-        if (typeof planPath !== 'string' || !planPath) {
-          sendResult(ws, false, 'Plan storage is not configured for this session.');
-          break;
-        }
-        try {
-          const { getPlanTemplate, loadPlan, savePlan, emptyPlan, addPlanItem } = await import(
-            '@wrongstack/core'
-          );
-          const tpl = getPlanTemplate(template);
-          if (!tpl) {
-            sendResult(ws, false, `Unknown template "${template}".`);
-            break;
-          }
-          let plan = (await loadPlan(planPath)) ?? emptyPlan(session.id);
-          for (const item of tpl.items) {
-            ({ plan } = addPlanItem(plan, item.title, item.details));
-          }
-          await savePlan(planPath, plan);
-          sendResult(ws, true, `Applied template "${tpl.name}" — ${tpl.items.length} items added.`);
-          broadcast(clients, {
-            type: 'plan.updated',
-            payload: { plan },
-          });
-        } catch (err) {
-          sendResult(ws, false, errMessage(err));
-        }
-        break;
-      }
-
-      case 'todo.update': {
-        // Update a single todo's status / activeForm in the live agent ctx.
-        // Mirrors the CLI webui-server's worklist handler so both surfaces
-        // can drive the todo list from the UI, not just read it.
-        const payload = (
-          msg as {
-            payload: {
-              id: string;
-              status?: TodoItem['status'] | undefined;
-              activeForm?: string | undefined;
-            };
-          }
-        ).payload;
-        const idx = context.todos.findIndex((t) => t.id === payload.id);
-        if (idx === -1) {
-          sendResult(ws, false, 'Todo not found');
-          break;
-        }
-        const next = [...context.todos];
-        const existing = expectDefined(next[idx]);
-        next[idx] = {
-          ...existing,
-          status: payload.status ?? existing.status,
-          activeForm: payload.activeForm !== undefined ? payload.activeForm : existing.activeForm,
+        const ctx: WorklistContext = {
+          context: { todos: context.todos, meta: context.meta as Record<string, unknown>, session: context.session ? { id: context.session.id } : null, state: context.state },
+          send: (w, m) => send(w, m),
+          broadcast: (m) => broadcast(clients, m),
         };
-        context.state.replaceTodos(next);
-        sendResult(ws, true, `Todo "${existing.content}" updated`);
-        broadcast(clients, { type: 'todos.updated', payload: { todos: next } });
+        handleTodosGet(ctx, ws);
+        break;
+      }
+      case 'todos.clear': {
+        const ctx: WorklistContext = {
+          context: { todos: context.todos, meta: context.meta as Record<string, unknown>, session: context.session ? { id: context.session.id } : null, state: context.state },
+          send: (w, m) => send(w, m),
+          broadcast: (m) => broadcast(clients, m),
+        };
+        handleTodosClear(ctx, ws);
+        break;
+      }
+      case 'todos.remove': {
+        const ctx: WorklistContext = {
+          context: { todos: context.todos, meta: context.meta as Record<string, unknown>, session: context.session ? { id: context.session.id } : null, state: context.state },
+          send: (w, m) => send(w, m),
+          broadcast: (m) => broadcast(clients, m),
+        };
+        handleTodosRemove(ctx, ws, msg.payload as { id?: string; index?: number } | undefined);
+        break;
+      }
+      case 'tasks.get': {
+        const ctx: WorklistContext = {
+          context: { todos: context.todos, meta: context.meta as Record<string, unknown>, session: context.session ? { id: context.session.id } : null, state: context.state },
+          send: (w, m) => send(w, m),
+          broadcast: (m) => broadcast(clients, m),
+        };
+        await handleTasksGet(ctx, ws);
+        break;
+      }
+      case 'plan.get': {
+        const ctx: WorklistContext = {
+          context: { todos: context.todos, meta: context.meta as Record<string, unknown>, session: context.session ? { id: context.session.id } : null, state: context.state },
+          send: (w, m) => send(w, m),
+          broadcast: (m) => broadcast(clients, m),
+        };
+        await handlePlanGet(ctx, ws);
+        break;
+      }
+      case 'plan.template_use': {
+        const ctx: WorklistContext = {
+          context: { todos: context.todos, meta: context.meta as Record<string, unknown>, session: context.session ? { id: context.session.id } : null, state: context.state },
+          send: (w, m) => send(w, m),
+          broadcast: (m) => broadcast(clients, m),
+        };
+        await handlePlanTemplateUse(ctx, ws, (msg as { payload: { template: string } }).payload.template);
+        break;
+      }
+      case 'todo.update': {
+        const ctx: WorklistContext = {
+          context: { todos: context.todos, meta: context.meta as Record<string, unknown>, session: context.session ? { id: context.session.id } : null, state: context.state },
+          send: (w, m) => send(w, m),
+          broadcast: (m) => broadcast(clients, m),
+        };
+        handleTodoUpdate(ctx, ws, msg.payload as { id: string; status?: TodoItem['status']; activeForm?: string });
+        break;
+      }
+      case 'task.update': {
+        const ctx: WorklistContext = {
+          context: { todos: context.todos, meta: context.meta as Record<string, unknown>, session: context.session ? { id: context.session.id } : null, state: context.state },
+          send: (w, m) => send(w, m),
+          broadcast: (m) => broadcast(clients, m),
+        };
+        await handleTaskUpdate(ctx, ws, msg.payload as { id: string; status: 'pending' | 'in_progress' | 'blocked' | 'failed' | 'review' | 'completed' });
+        break;
+      }
+      case 'plan.item.update': {
+        const ctx: WorklistContext = {
+          context: { todos: context.todos, meta: context.meta as Record<string, unknown>, session: context.session ? { id: context.session.id } : null, state: context.state },
+          send: (w, m) => send(w, m),
+          broadcast: (m) => broadcast(clients, m),
+        };
+        await handlePlanItemUpdate(ctx, ws, msg.payload as { target: string; status: 'open' | 'in_progress' | 'done' });
         break;
       }
 
