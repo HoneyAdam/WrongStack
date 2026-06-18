@@ -285,6 +285,7 @@ export class AutonomousCoordinator {
           const blocked = this.dag.getBlocked();
           if (blocked.length > 0 && this.dag.hasDeadlock()) {
             (this.events?.emit as (type: string, payload: unknown) => void)('autonomous:deadlock', { blocked });
+            this._emit({ type: 'deadlock:detected', goalId: blocked[0]?.id ?? '', text: `Deadlock detected: ${blocked.map((n) => n.id).join(', ')}` });
             this.running = false;
           }
           break;
@@ -552,14 +553,11 @@ export class AutonomousCoordinator {
         (this.events?.emit as (type: string, payload: unknown) => void)('autonomous:task_ready', { taskId: event.nodeId, description: node.description });
       }
     }
-    if (event.type === 'deadlock') {
-      (this.events?.emit as (type: string, payload: unknown) => void)('autonomous:deadlock', { blocked: event.blocked });
-      this._emit({ type: 'deadlock:detected', goalId: event.blocked[0] ?? '', text: `Deadlock detected: ${event.blocked.join(', ')}` });
-      this.running = false;
-    }
     if (event.type === 'graph:done') {
       (this.events?.emit as (type: string, payload: unknown) => void)('autonomous:all_done', this.getStats());
     }
+    // Note: 'deadlock' events are handled exclusively in the main run() loop
+    // (line 286-289) to avoid duplicate autonomous:deadlock emissions.
   }
 
   private _onSubagentTerminated(e: FleetEvent): void {
