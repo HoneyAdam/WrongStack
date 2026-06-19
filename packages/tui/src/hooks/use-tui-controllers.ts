@@ -24,6 +24,12 @@ export interface UseTuiControllersOptions {
   fleetStreamController?: FleetStreamController | undefined;
   enhanceController?: EnhanceController | undefined;
   agentsMonitorController?: AgentsMonitorController | undefined;
+  /**
+   * Mutable ref for opening TUI panels from slash commands. The slash commands
+   * call `onPanelOpen.current(action)` to open panels. The App sets
+   * `onPanelOpen.current` to its actual dispatch function on mount.
+   */
+  onPanelOpen?: { current: ((action: string) => boolean) | null } | undefined;
 }
 
 /**
@@ -41,6 +47,7 @@ export function useTuiControllers({
   fleetStreamController,
   enhanceController,
   agentsMonitorController,
+  onPanelOpen,
 }: UseTuiControllersOptions): void {
   useEffect(() => {
     if (!fleetStreamController) return;
@@ -90,4 +97,18 @@ export function useTuiControllers({
   useEffect(() => {
     if (agentsMonitorController) agentsMonitorController.visible = agentsMonitorOpen;
   }, [agentsMonitorController, agentsMonitorOpen]);
+
+  // Wire onPanelOpen — slash commands call `onPanelOpen.current(action)` to open panels.
+  useEffect(() => {
+    if (!onPanelOpen) return;
+    onPanelOpen.current = (action: string) => {
+      // All known F-key panel actions are simple toggles or opens.
+      // Dispatch the action and return true to indicate success.
+      dispatch({ type: action } as Action);
+      return true;
+    };
+    return () => {
+      onPanelOpen.current = null;
+    };
+  }, [onPanelOpen, dispatch]);
 }

@@ -657,6 +657,12 @@ export const WS_HANDLERS: Record<string, (msg: WSServerMessage) => void> = {
   'diag.get': handleDiagGet,
   'stats.get': handleStatsGet,
   'todos.updated': handleTodosUpdated,
+  // The standalone server broadcasts `todos.cleared` on clear (the CLI server
+  // sends `todos.updated` with an empty list); handle both so the worklist
+  // empties in the UI regardless of which server is driving.
+  'todos.cleared': (_msg: WSServerMessage) => {
+    useSessionStore.getState().setTodos([]);
+  },
   'tasks.updated': (msg: WSServerMessage) => {
     // Handled directly by TasksPanel component via WS client.on()
   },
@@ -760,6 +766,21 @@ export const WS_HANDLERS: Record<string, (msg: WSServerMessage) => void> = {
   'mailbox.agents': (msg: WSServerMessage) => {
     const p = msg.payload as { agents?: MailboxAgent[] } | undefined;
     if (p?.agents) useMailboxStore.getState().setAgents(p.agents);
+  },
+  // A cross-session message arrived for one of this process's agents. Surface
+  // it live (activity bar) and refresh the panel + unread badge — without this
+  // the server broadcasts the event but the browser silently dropped it.
+  'mailbox.received': (msg: WSServerMessage) => {
+    const vizEv = wsToVizEvent('mailbox.received', msg.payload as Record<string, unknown>);
+    if (vizEv) {
+      useVizStore.getState().pushEvent(vizEv);
+      useVizStore.getState().setActive(true);
+    }
+    queryMailbox();
+  },
+  // A new agent registered on the project — refresh the agent roster live.
+  'mailbox.agent_registered': (_msg: WSServerMessage) => {
+    queryMailbox();
   },
   'mailbox.cleared': (_msg: WSServerMessage) => {
     // Clear the local message store and re-query so the UI stays consistent.

@@ -217,6 +217,16 @@ export interface RunTuiOptions {
     >,
   ) => void;
   /**
+   * Atomically updates in-memory state AND persists to
+   * ~/.wrongstack/statusline.json. Used by the statusline picker to
+   * make each toggle immediately durable.
+   */
+  saveStatuslineHiddenItems: (
+    items: Array<
+      'todos' | 'plan' | 'tasks' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost' | 'working_dir'
+    >,
+  ) => Promise<void>;
+  /**
    * Controller for the agents monitor overlay. App installs a dispatch-backed
    * setter on mount so the `/agents on|off` slash command can toggle the
    * overlay without a round-trip.
@@ -225,6 +235,12 @@ export interface RunTuiOptions {
     visible: boolean;
     setVisible: (visible: boolean) => void;
   } | undefined;
+  /**
+   * Mutable ref for opening TUI panels from slash commands. The slash commands
+   * call `onPanelOpen.current(action)` to open panels. The App sets
+   * `onPanelOpen.current` to its actual dispatch function on mount.
+   */
+  onPanelOpen?: { current: ((action: string) => boolean) | null } | undefined;
 
   /**
    * If set, the App boots straight into goal mode — the text is wrapped
@@ -774,6 +790,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
           enhanceEnabled: opts.enhanceController?.enabled ?? true,
           statuslineHiddenItems: opts.statuslineHiddenItems,
           setStatuslineHiddenItems: opts.setStatuslineHiddenItems,
+          saveStatuslineHiddenItems: opts.saveStatuslineHiddenItems,
           agentsMonitorController: opts.agentsMonitorController,
           initialGoal: opts.initialGoal,
           initialAsk: opts.initialAsk,
@@ -810,6 +827,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
           onSwitchToSession: opts.onSwitchToSession,
           initialAgentsMonitorOpen: opts.initialAgentsMonitorOpen,
           subscribeCoordinatorEvents: opts.subscribeCoordinatorEvents,
+          onPanelOpen: opts.onPanelOpen,
           onCoordinatorStart: opts.onCoordinatorStart,
           onCoordinatorStop: opts.onCoordinatorStop,
         }),

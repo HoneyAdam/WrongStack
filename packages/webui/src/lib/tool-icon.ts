@@ -30,7 +30,7 @@ import {
   ScrollText,
   Search,
   Settings,
-  Terminal,
+  Shell,
   Wrench,
 } from 'lucide-react';
 
@@ -40,7 +40,7 @@ export const TOOL_LUCIDE: Record<ToolIconId, LucideIcon> = {
   edit: FileEdit,
   search: Search,
   folder: FolderOpen,
-  terminal: Terminal,
+  terminal: Shell,
   web: Globe,
   git: GitBranch,
   tree: FolderTree,
@@ -120,9 +120,8 @@ function hexToColorName(hex: string): string {
     '#fbbf24': 'amber',
     '#a78bfa': 'violet',
     '#38bdf8': 'sky',
-    '#ef4444': 'red',
-    '#34d399': 'emerald',
     '#fb923c': 'orange',
+    '#34d399': 'emerald',
     '#22d3ee': 'cyan',
     '#818cf8': 'indigo',
     '#4ade80': 'green',

@@ -3,6 +3,7 @@ import { expectDefined } from '@wrongstack/core';
 // This file has NO React or Ink dependencies.
 import type { HistoryEntry } from './components/history.js';
 import type { WorktreeRow } from './components/worktree-panel.js';
+import type { ChipMeta } from './components/statusline-picker.js';
 
 import {
   AUDIT_LEVELS,
@@ -724,6 +725,67 @@ export function reducer(state: State, action: Action): State {
     }
     case 'settingsHint':
       return { ...state, settingsPicker: { ...state.settingsPicker, hint: action.text } };
+    // ── Statusline picker ───────────────────────────────────────────────
+    case 'statuslineOpen':
+      return {
+        ...state,
+        statuslinePicker: { open: true, field: 0, hiddenItems: action.hiddenItems, visibleChips: [], hint: undefined },
+      };
+    case 'statuslineClose':
+      return { ...state, statuslinePicker: { ...state.statuslinePicker, open: false, hint: undefined } };
+    case 'statuslineFieldMove': {
+      const totalFields = 13; // 9 base chips + 4 stream chips
+      const next = (state.statuslinePicker.field + action.delta + totalFields) % totalFields;
+      return { ...state, statuslinePicker: { ...state.statuslinePicker, field: next, hint: undefined } };
+    }
+    case 'statuslineFieldSet': {
+      const totalFields = 13; // 9 base chips + 4 stream chips
+      const field = action.field >= 0 && action.field < totalFields ? action.field : 0;
+      return { ...state, statuslinePicker: { ...state.statuslinePicker, field, hint: undefined } };
+    }
+    case 'statuslineToggle': {
+      const cur = state.statuslinePicker;
+      const hiddenSet = new Set(cur.hiddenItems);
+      if (hiddenSet.has(action.item)) {
+        hiddenSet.delete(action.item);
+      } else {
+        hiddenSet.add(action.item);
+      }
+      return { ...state, statuslinePicker: { ...cur, hiddenItems: [...hiddenSet] as typeof cur.hiddenItems } };
+    }
+    case 'statuslineHint':
+      return { ...state, statuslinePicker: { ...state.statuslinePicker, hint: action.text } };
+    case 'statuslineChipShow': {
+      const cur = state.statuslinePicker;
+      const existing = cur.visibleChips.findIndex((c) => c.key === action.key);
+      // Only include expiresIn if it is explicitly set — with exactOptionalPropertyTypes,
+      // assigning undefined to an optional property is a type error.
+      const meta: ChipMeta = action.expiresIn != null
+        ? { key: action.key, shownAt: Date.now(), expiresIn: action.expiresIn }
+        : { key: action.key, shownAt: Date.now() };
+      if (existing >= 0) {
+        // Reset shownAt if already visible
+        const updated = [...cur.visibleChips];
+        updated[existing] = meta;
+        return { ...state, statuslinePicker: { ...cur, visibleChips: updated } };
+      }
+      return { ...state, statuslinePicker: { ...cur, visibleChips: [...cur.visibleChips, meta] } };
+    }
+    case 'statuslineChipExpire': {
+      const cur = state.statuslinePicker;
+      return {
+        ...state,
+        statuslinePicker: {
+          ...cur,
+          visibleChips: cur.visibleChips.filter((c) => c.key !== action.key),
+        },
+      };
+    }
+    case 'statuslineVisibleChipsSync':
+      return {
+        ...state,
+        statuslinePicker: { ...state.statuslinePicker, visibleChips: action.visibleChips },
+      };
     case 'projectPickerOpen':
       return {
         ...state,
@@ -771,6 +833,15 @@ export function reducer(state: State, action: Action): State {
     }
     case 'projectPickerHint':
       return { ...state, projectPicker: { ...state.projectPicker, hint: action.text } };
+    case 'fKeyPickerOpen':
+      return { ...state, fKeyPicker: { open: true, selected: 0 } };
+    case 'fKeyPickerClose':
+      return { ...state, fKeyPicker: { open: false, selected: 0 } };
+    case 'fKeyPickerMove': {
+      const count = 12; // F1–F12
+      const next = (state.fKeyPicker.selected + action.delta + count) % count;
+      return { ...state, fKeyPicker: { ...state.fKeyPicker, selected: next } };
+    }
     case 'confirmOpen':
       return { ...state, confirmQueue: [...state.confirmQueue, action.info] };
     case 'confirmClose':

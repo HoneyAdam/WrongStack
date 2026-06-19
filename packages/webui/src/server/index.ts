@@ -94,6 +94,8 @@ import { ToolExecutor } from '@wrongstack/core/execution';
 import { decryptConfigSecrets, encryptConfigSecrets } from '@wrongstack/core/security';
 import { buildProviderFactoriesFromRegistry, makeProviderFromConfig } from '@wrongstack/providers';
 import { builtinToolsPack, forgetTool, rememberTool, searchMemoryTool, relatedMemoryTool } from '@wrongstack/tools';
+import { MCPRegistry } from '@wrongstack/mcp';
+import { allServers } from '@wrongstack/core';
 import { type WebSocket, WebSocketServer } from 'ws';
 import { createDefaultContainer } from '../../../runtime/src/container.js';
 import { bootConfig, patchConfig } from './boot.js';
@@ -448,6 +450,27 @@ export async function startWebUI(
   toolRegistry.register(makeMailSendTool({ projectDir: wpaths.projectDir, events }));
   toolRegistry.register(makeMailInboxTool({ projectDir: wpaths.projectDir, events }));
   console.log('[WebUI] Tool registry loaded:', toolRegistry.list().length, 'tools');
+
+  // ── MCP registry — the live counterpart to config.mcpServers. ────────────
+  // The standalone WebUI server now owns a real registry (the CLI's embedded
+  // server reuses the agent's), so the MCP settings panel can actually
+  // start/stop servers and surface live status + tool names, not just edit
+  // config. Enabled servers are connected at boot, mirroring the CLI host.
+  const mcpRegistry = new MCPRegistry({
+    toolRegistry,
+    events,
+    log: logger,
+    // Lazy-connect (per-server `lazy`) manifest cache + default idle auto-sleep.
+    cacheDir: wpaths.cacheDir,
+  });
+  if (config.features.mcp && config.mcpServers) {
+    for (const [name, cfg] of Object.entries(config.mcpServers)) {
+      if (cfg.enabled === false) continue;
+      void mcpRegistry.start({ ...cfg, name }).catch((err) => {
+        logger.warn(`MCP server "${name}" failed to start at boot`, err);
+      });
+    }
+  }
 
   // Session store — mutable so projects.select can swap it to the new project's dir.
   // Use the injected one if `services.session` was passed. The CLI's
@@ -2299,27 +2322,28 @@ export async function startWebUI(
       case 'memory.forget':
         return handleMemoryForget(ws, msg, memoryStore);
 
-      // ── MCP operations — delegated to shared handlers (mcp-handlers.ts) ──
+      // ── MCP operations — delegated to shared handlers (mcp-handlers.ts),
+      // backed by the live MCPRegistry constructed above. ──
       case 'mcp.list':
-        return handleMcpList(ws, msg, config, globalConfigPath, undefined);
+        return handleMcpList(ws, msg, globalConfigPath, mcpRegistry);
       case 'mcp.add':
-        return handleMcpAdd(ws, msg, config, globalConfigPath, undefined);
+        return handleMcpAdd(ws, msg, globalConfigPath, mcpRegistry);
       case 'mcp.remove':
-        return handleMcpRemove(ws, msg, config, globalConfigPath, undefined);
+        return handleMcpRemove(ws, msg, globalConfigPath, mcpRegistry);
       case 'mcp.update':
-        return handleMcpUpdate(ws, msg, config, globalConfigPath);
+        return handleMcpUpdate(ws, msg, globalConfigPath, mcpRegistry);
       case 'mcp.wake':
-        return handleMcpWake(ws, msg, config, globalConfigPath, undefined);
+        return handleMcpWake(ws, msg, globalConfigPath, mcpRegistry);
       case 'mcp.sleep':
-        return handleMcpSleep(ws, msg, config, globalConfigPath, undefined);
+        return handleMcpSleep(ws, msg, globalConfigPath, mcpRegistry);
       case 'mcp.discover':
-        return handleMcpDiscover(ws, msg, config, globalConfigPath);
+        return handleMcpDiscover(ws, msg, globalConfigPath, mcpRegistry);
       case 'mcp.enable':
-        return handleMcpEnable(ws, msg, config, globalConfigPath);
+        return handleMcpEnable(ws, msg, globalConfigPath, mcpRegistry);
       case 'mcp.disable':
-        return handleMcpDisable(ws, msg, config, globalConfigPath);
+        return handleMcpDisable(ws, msg, globalConfigPath, mcpRegistry);
       case 'mcp.restart':
-        return handleMcpRestart(ws, msg, config, globalConfigPath);
+        return handleMcpRestart(ws, msg, globalConfigPath, mcpRegistry);
 
       case 'skills.list': {
         if (!skillLoader) {
@@ -3598,6 +3622,7 @@ export async function startWebUI(
     // reality. Crash exits are healed by the next register()/list() prune pass.
     onShutdown: () => {
       brainMonitor.stop();
+      void mcpRegistry.stopAll().catch(() => undefined);
       if (disposeEvents) {
         disposeEvents();
         disposeEvents = null;

@@ -20,7 +20,7 @@ export const TOOL_GLYPHS: Record<ToolIconId, string> = {
   edit: '✎',
   search: '⌕',
   folder: '▣',
-  terminal: '▸',
+  terminal: '⌘',
   web: '◈',
   git: '⎇',
   tree: '☰',

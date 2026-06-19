@@ -272,6 +272,70 @@ export function ChatInput({
           }
           return handleNextSelect(args.trim());
         }
+        case '/f':
+        case '/f1':
+        case '/f2':
+        case '/f3':
+        case '/f4':
+        case '/f5':
+        case '/f6':
+        case '/f7':
+        case '/f8':
+        case '/f9':
+        case '/f10':
+        case '/f11':
+        case '/f12': {
+          const panelMap: Record<string, string> = {
+            '/f': '',
+            '/f1': 'projectPicker',
+            '/f2': 'fleetMonitor',
+            '/f3': 'agentsMonitor',
+            '/f4': 'worktreeMonitor',
+            '/f5': 'autonomySettings',
+            '/f6': 'todosMonitor',
+            '/f7': 'queuePanel',
+            '/f8': 'processList',
+            '/f9': 'goalPanel',
+            '/f10': 'sessionsPanel',
+            '/f11': 'coordinatorMonitor',
+            '/f12': 'statuslinePicker',
+          };
+          const panel = panelMap[cmd];
+          if (!panel) {
+            // /f with no args — show the list
+            const lines = [
+              '🎛️  **F-key panels**',
+              '',
+              '/f 1 — Project switcher',
+              '/f 2 — Fleet orchestration monitor',
+              '/f 3 — Agents live monitor',
+              '/f 4 — Worktree monitor',
+              '/f 5 — Autonomy settings',
+              '/f 6 — Todos monitor overlay',
+              '/f 7 — Queue panel',
+              '/f 8 — Process list overlay',
+              '/f 9 — Goal panel',
+              '/f 10 — Live sessions panel',
+              '/f 11 — Coordinator monitor',
+              '/f 12 — Status line picker',
+              '',
+              '_Or use /f1 … /f12 directly._',
+            ];
+            addMessage({ role: 'assistant', content: lines.join('\n') });
+            return true;
+          }
+          // Dispatch to the appropriate WebUI store action
+          const ui = useUIStore.getState();
+          if (panel === 'fleetMonitor') { ui.setFleetMonitorOpen(true); return true; }
+          if (panel === 'agentsMonitor') { ui.setAgentsMonitorOpen(true); return true; }
+          if (panel === 'queuePanel') { ui.setQueuePanelOpen(true); return true; }
+          if (panel === 'processList') { ui.setProcessMonitorOpen(true); return true; }
+          addMessage({
+            role: 'assistant',
+            content: `Panel \`${panel}\` is not available in the WebUI. Try the TUI for full F-key panel support.`,
+          });
+          return true;
+        }
         default:
           return false;
       }

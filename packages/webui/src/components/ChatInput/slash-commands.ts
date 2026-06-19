@@ -8,6 +8,8 @@ export interface SlashCommandDef {
   aliases?: string[] | undefined;
   description: string;
   category: SlashCategory;
+  /** Hidden commands don't appear in the picker when query is empty. */
+  hidden?: boolean | undefined;
 }
 
 export const SLASH_COMMANDS: SlashCommandDef[] = [
@@ -43,13 +45,32 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   // App
   { name: '/help', category: 'App', description: 'Show every slash command and what it does' },
   { name: '/exit', category: 'App', description: 'Exit the session and close WebUI' },
+
+  // F-key panels (shown as numbered options under /f)
+  { name: '/f', category: 'App', description: 'Open F-key panels (F1–F12). Type /f for numbered options.' },
+  // Hidden aliases — not shown in the main picker but dispatchable directly
+  { name: '/f1', category: 'App', description: 'Project switcher', hidden: true },
+  { name: '/f2', category: 'App', description: 'Fleet orchestration monitor', hidden: true },
+  { name: '/f3', category: 'App', description: 'Agents live monitor', hidden: true },
+  { name: '/f4', category: 'App', description: 'Worktree monitor', hidden: true },
+  { name: '/f5', category: 'App', description: 'Autonomy settings', hidden: true },
+  { name: '/f6', category: 'App', description: 'Todos monitor overlay', hidden: true },
+  { name: '/f7', category: 'App', description: 'Queue panel', hidden: true },
+  { name: '/f8', category: 'App', description: 'Process list overlay', hidden: true },
+  { name: '/f9', category: 'App', description: 'Goal panel', hidden: true },
+  { name: '/f10', category: 'App', description: 'Live sessions panel', hidden: true },
+  { name: '/f11', category: 'App', description: 'Coordinator monitor', hidden: true },
+  { name: '/f12', category: 'App', description: 'Status line picker', hidden: true },
 ];
 
 export const SLASH_CATEGORY_ORDER: SlashCategory[] = ['Run', 'Session', 'Inspect', 'Config', 'App'];
 
 export function matchSlash(query: string): SlashCommandDef[] {
   const q = query.toLowerCase();
-  if (q === '/' || q === '') return SLASH_COMMANDS;
+  if (q === '/' || q === '') {
+    // When no query is given, hide commands marked as hidden.
+    return SLASH_COMMANDS.filter((c) => !c.hidden);
+  }
   return SLASH_COMMANDS.filter(
     (c) => c.name.startsWith(q) || (c.aliases?.some((a) => a.startsWith(q)) ?? false),
   );

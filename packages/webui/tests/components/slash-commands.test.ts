@@ -40,12 +40,18 @@ describe('SLASH_COMMANDS', () => {
 });
 
 describe('matchSlash', () => {
-  it('returns all commands for empty string', () => {
-    expect(matchSlash('')).toHaveLength(SLASH_COMMANDS.length);
+  // The empty / "/" query hides commands flagged `hidden` (the f1–f12 aliases),
+  // so the visible count is the non-hidden subset, not the full registry.
+  const visibleCount = SLASH_COMMANDS.filter((c) => !c.hidden).length;
+
+  it('returns all visible commands for empty string', () => {
+    expect(matchSlash('')).toHaveLength(visibleCount);
+    expect(matchSlash('').some((c) => c.hidden)).toBe(false);
   });
 
-  it('returns all commands for "/"', () => {
-    expect(matchSlash('/')).toHaveLength(SLASH_COMMANDS.length);
+  it('returns all visible commands for "/"', () => {
+    expect(matchSlash('/')).toHaveLength(visibleCount);
+    expect(matchSlash('/').some((c) => c.hidden)).toBe(false);
   });
 
   it('matches exact command name', () => {

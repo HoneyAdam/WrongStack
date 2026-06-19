@@ -11,6 +11,7 @@ import type {
   LogLevel,
   SettingsMode,
 } from './components/settings-picker.js';
+import type { ChipMeta, StatuslineItem } from './components/statusline-picker.js';
 import type { ProjectPickerItem } from './components/project-picker.js';
 import type { WorktreeRow } from './components/worktree-panel.js';
 
@@ -301,6 +302,21 @@ export type State = {
     configScope: 'global' | 'project';
     hint?: string | undefined;
   };
+  /** Statusline editor — opened by `/statusline`. */
+  statuslinePicker: {
+    open: boolean;
+    /** Focused field index. */
+    field: number;
+    /** Current hidden-items list (user-toggled off chips). */
+    hiddenItems: StatuslineItem[];
+    /**
+     * Chips that are temporarily visible due to data/events, with expiration
+     * metadata. When a chip expires it is removed from this list. User-toggled
+     * chips stay visible via their data being truthy — they are NOT here.
+     */
+    visibleChips: ChipMeta[];
+    hint?: string | undefined;
+  };
   /** Project switcher panel — opened by F1 or `/project`. */
   projectPicker: {
     open: boolean;
@@ -311,6 +327,11 @@ export type State = {
     selected: number;
     filter: string;
     hint?: string | undefined;
+  };
+  /** F-key panel picker — opened by `/f`. Keyboard-navigable list of F1–F12 panels. */
+  fKeyPicker: {
+    open: boolean;
+    selected: number;
   };
   /** Pending tool confirmations — queue to handle multiple tools requesting confirmation. */
   confirmQueue: {
@@ -706,11 +727,37 @@ export type Action =
   | { type: 'settingsFieldSet'; field: number }
   | { type: 'settingsValueChange'; delta: number }
   | { type: 'settingsHint'; text?: string | undefined }
+  | { type: 'statuslineOpen'; hiddenItems: StatuslineItem[] }
+  | { type: 'statuslineClose' }
+  | { type: 'statuslineFieldMove'; delta: number }
+  | { type: 'statuslineFieldSet'; field: number }
+  | { type: 'statuslineToggle'; item: StatuslineItem }
+  | { type: 'statuslineHint'; text?: string | undefined }
+  /**
+   * A chip became visible due to data arriving (e.g., brain decision made,
+   * mailbox messages arrived). Adds it to visibleChips with optional expiration.
+   * If the chip is already in visibleChips, resets its shownAt timestamp.
+   */
+  | { type: 'statuslineChipShow'; key: StatuslineItem; expiresIn?: number }
+  /**
+   * Immediately remove a chip from visibleChips. Used when a stream ends
+   * (brain, mailbox, enhance, debug_stream) so it disappears right away
+   * even if it hasn't expired yet.
+   */
+  | { type: 'statuslineChipExpire'; key: StatuslineItem }
+  /**
+   * Sync visibleChips from the parent (e.g., after /statusline reset).
+   * Replaces the entire visibleChips array.
+   */
+  | { type: 'statuslineVisibleChipsSync'; visibleChips: ChipMeta[] }
   | { type: 'projectPickerOpen'; items: ProjectPickerItem[] }
   | { type: 'projectPickerClose' }
   | { type: 'projectPickerMove'; delta: number }
   | { type: 'projectPickerFilter'; filter: string }
   | { type: 'projectPickerHint'; text?: string | undefined }
+  | { type: 'fKeyPickerOpen' }
+  | { type: 'fKeyPickerClose' }
+  | { type: 'fKeyPickerMove'; delta: number }
   | { type: 'historyPush'; text: string }
   | { type: 'historyUp' }
   | { type: 'historyDown' }

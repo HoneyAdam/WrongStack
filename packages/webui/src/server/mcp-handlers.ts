@@ -1,14 +1,34 @@
 /**
- * MCP management handlers for the WebUI server.
- * Handles MCP-related WS messages from the browser client.
+ * MCP management handlers for the WebUI server (both the standalone
+ * `wrongstack webui` server and the CLI's embedded `--webui` server).
+ *
+ * These are thin WebSocket translators over the shared, surface-agnostic
+ * management core in `@wrongstack/mcp` (`manage.ts`) — the SAME core the REPL
+ * `/mcp` command writes against (same config.json, same MCPRegistry). All the
+ * config IO, url/header persistence, and live registry start/stop logic lives
+ * there; here we only map structured results to WS events the browser expects.
  */
-import type { WebSocket } from 'ws';
-import type { Config, MCPRegistryHandle } from '@wrongstack/core';
-import type { ConnectedClient, WSClientMessage, WSServerMessage } from './types.js';
-import { send } from './ws-utils.js';
-import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
 
+import { allServers } from '@wrongstack/core';
+import {
+  addMcp,
+  disableMcp,
+  discoverMcp,
+  enableMcp,
+  listMcp,
+  type MCPRegistry,
+  type McpManageDeps,
+  type McpServerInfo,
+  type McpServerInput,
+  removeMcp,
+  restartMcp,
+  updateMcp,
+} from '@wrongstack/mcp';
+import type { WebSocket } from 'ws';
+import type { WSClientMessage } from './types.js';
+import { send } from './ws-utils.js';
+
+/** Wire view of a server as the browser MCP panel consumes it. */
 export interface MCPServerView {
   name: string;
   transport: string;
@@ -18,415 +38,296 @@ export interface MCPServerView {
   tools?: string[];
   error?: string;
   pid?: number;
+  lazy?: boolean;
 }
 
-interface MCPServerConfig {
-  transport: 'stdio' | 'sse' | 'streamable-http';
-  description?: string;
-  enabled?: boolean;
-  command?: string;
-  args?: string[];
-  env?: Record<string, string>;
-  allowedTools?: string[];
+/** Map a raw registry state to the UI status union. */
+function mapStatus(raw: string): MCPServerView['status'] {
+  switch (raw) {
+    case 'connected':
+      return 'connected';
+    case 'connecting':
+    case 'reconnecting':
+      return 'connecting';
+    case 'failed':
+      return 'error';
+    case 'dormant':
+      // Lazy server registered from cache, process not spawned — show as sleeping.
+      return 'sleeping';
+    default:
+      // idle / disconnected / stopped
+      return 'stopped';
+  }
 }
 
-interface MCPServerRecord {
-  [name: string]: MCPServerConfig;
-}
-
-function isMcpServerRecord(val: unknown): val is MCPServerRecord {
-  if (typeof val !== 'object' || val === null) return false;
-  return true;
-}
-
-/** Project a config server + registry state to the wire format */
-function projectServer(
-  name: string,
-  cfg: MCPServerConfig,
-  _status: MCPServerView['status'] = 'stopped',
-  tools: string[] = [],
-): MCPServerView {
-  return {
-    name,
-    transport: cfg.transport,
-    status: _status,
-    enabled: cfg.enabled ?? true,
-    description: cfg.description,
-    tools,
+/** Project the shared {@link McpServerInfo} into the browser wire shape. */
+function toView(info: McpServerInfo): MCPServerView {
+  const view: MCPServerView = {
+    name: info.name,
+    transport: info.transport,
+    // A dormant lazy server is "asleep", not stopped — preserve that even when
+    // it's enabled in config.
+    status: info.status === 'dormant' ? 'sleeping' : info.enabled === false ? 'stopped' : mapStatus(info.status),
+    enabled: info.enabled,
+    tools: info.tools,
   };
+  if (info.description !== undefined) view.description = info.description;
+  if (info.lazy !== undefined) view.lazy = info.lazy;
+  return view;
 }
 
-/** Read the config file */
-async function readConfig(configPath: string): Promise<Record<string, unknown>> {
-  try {
-    const content = await fs.readFile(configPath, 'utf-8');
-    return JSON.parse(content);
-  } catch {
-    return {};
+/**
+ * Build the shared management deps. Returns null (and sends a failure result)
+ * when the live registry isn't wired — both WebUI servers now pass one, so this
+ * is a defensive guard rather than the normal path.
+ */
+function deps(
+  ws: WebSocket,
+  globalConfigPath: string | undefined,
+  registry: MCPRegistry | undefined,
+): McpManageDeps | null {
+  if (!registry || !globalConfigPath) {
+    send(ws, {
+      type: 'mcp.operation_result',
+      payload: { success: false, message: 'MCP registry is not available in this session.' },
+    });
+    return null;
   }
+  return { configPath: globalConfigPath, registry, presets: allServers() };
 }
 
-/** Write the config file */
-async function writeConfig(configPath: string, cfg: Record<string, unknown>): Promise<void> {
-  const dir = path.dirname(configPath);
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(configPath, JSON.stringify(cfg, null, 2), 'utf-8');
+function name(msg: WSClientMessage): string {
+  return (msg.payload as { name?: string } | undefined)?.name ?? '';
 }
 
-/** Get MCP servers from config */
-export async function getMcpServers(config: Config, globalConfigPath: string): Promise<MCPServerView[]> {
-  const servers: MCPServerView[] = [];
-  const configured = isMcpServerRecord(config.mcpServers) ? config.mcpServers : {};
-
-  for (const [name, cfg] of Object.entries(configured)) {
-    servers.push(projectServer(name, cfg));
-  }
-
-  return servers;
-}
-
-/** Get MCP server states from registry */
-function getRegistryStates(mcpRegistry?: MCPRegistryHandle): Map<string, { state: string; toolCount: number }> {
-  const states = new Map<string, { state: string; toolCount: number }>();
-  if (!mcpRegistry?.list) return states;
-
-  try {
-    const list = mcpRegistry.list();
-    for (const item of list) {
-      states.set(item.name, { state: item.state, toolCount: item.toolCount });
-    }
-  } catch {
-    // Registry may not be available
-  }
-
-  return states;
-}
-
-/** Handle mcp.list — return all configured MCP servers */
+/** mcp.list — configured servers merged with live registry status + tools. */
 export async function handleMcpList(
   ws: WebSocket,
   _msg: WSClientMessage,
-  config: Config,
-  _globalConfigPath: string,
-  mcpRegistry?: MCPRegistryHandle,
+  globalConfigPath: string,
+  mcpRegistry?: MCPRegistry,
 ): Promise<void> {
-  const servers = await getMcpServers(config, _globalConfigPath);
-  const registryStates = getRegistryStates(mcpRegistry);
-
-  // Merge registry states into server views
-  for (const server of servers) {
-    const registryState = registryStates.get(server.name);
-    if (registryState) {
-      server.status = registryState.state as MCPServerView['status'];
-      server.tools = Array.from({ length: registryState.toolCount }, (_, i) => `tool-${i + 1}`);
-    }
+  if (!mcpRegistry || !globalConfigPath) {
+    send(ws, { type: 'mcp.list', payload: { servers: [] } });
+    return;
   }
-
-  send(ws, { type: 'mcp.list', payload: { servers } });
+  const servers = await listMcp({
+    configPath: globalConfigPath,
+    registry: mcpRegistry,
+    presets: allServers(),
+  });
+  send(ws, { type: 'mcp.list', payload: { servers: servers.map(toView) } });
 }
 
-/** Handle mcp.add — add a new MCP server configuration */
+/** mcp.add — persist a new server (incl. url/headers) and start it if enabled. */
 export async function handleMcpAdd(
   ws: WebSocket,
   msg: WSClientMessage,
-  config: Config,
   globalConfigPath: string,
-  mcpRegistry?: MCPRegistryHandle,
+  mcpRegistry?: MCPRegistry,
 ): Promise<void> {
-  const payload = msg.payload as {
-    name: string;
-    transport: string;
-    description?: string;
-    enabled?: boolean;
-    command?: string;
-    args?: string[];
-    env?: Record<string, string>;
-    allowedTools?: string[];
-  };
-
-  if (!payload.name) {
-    send(ws, { type: 'mcp.operation_result', payload: { success: false, message: 'Server name is required' } });
-    return;
-  }
-
-  try {
-    const diskConfig = await readConfig(globalConfigPath);
-    const mcpServers = isMcpServerRecord(diskConfig.mcpServers) ? diskConfig.mcpServers : {};
-
-    if (mcpServers[payload.name]) {
-      send(ws, { type: 'mcp.operation_result', payload: { success: false, message: `Server "${payload.name}" already exists` } });
-      return;
+  const d = deps(ws, globalConfigPath, mcpRegistry);
+  if (!d) return;
+  const result = await addMcp(msg.payload as McpServerInput, d);
+  if (result.ok && result.server) {
+    send(ws, { type: 'mcp.server.added', payload: { server: toView(result.server) } });
+    if (result.registryError) {
+      send(ws, {
+        type: 'mcp.server.error',
+        payload: { name: result.server.name, error: result.registryError },
+      });
+    } else if (result.server.enabled) {
+      send(ws, { type: 'mcp.server.connected', payload: { name: result.server.name } });
     }
-
-    mcpServers[payload.name] = {
-      transport: payload.transport as 'stdio' | 'sse' | 'streamable-http',
-      description: payload.description,
-      enabled: payload.enabled ?? true,
-      command: payload.command,
-      args: payload.args,
-      env: payload.env,
-      allowedTools: payload.allowedTools,
-    };
-
-    diskConfig.mcpServers = mcpServers;
-    await writeConfig(globalConfigPath, diskConfig);
-
-    const newServer = projectServer(payload.name, mcpServers[payload.name]);
-    send(ws, { type: 'mcp.server.added', payload: { server: newServer } });
-
-    // If registry is available and server is enabled, start it
-    if (mcpRegistry && (payload.enabled ?? true)) {
-      const serverConfig = mcpServers[payload.name];
-      try {
-        await mcpRegistry.start({
-          name: payload.name,
-          transport: payload.transport as 'stdio' | 'sse' | 'streamable-http',
-          command: payload.command,
-          args: payload.args,
-          env: payload.env,
-          allowedTools: payload.allowedTools,
-          enabled: true,
-        });
-      } catch (err) {
-        send(ws, { type: 'mcp.server.error', payload: { name: payload.name, error: String(err) } });
-      }
-    }
-
-    send(ws, { type: 'mcp.operation_result', payload: { success: true, message: `Server "${payload.name}" added` } });
-  } catch (err) {
-    send(ws, { type: 'mcp.operation_result', payload: { success: false, message: `Failed to add server: ${err}` } });
   }
+  send(ws, {
+    type: 'mcp.operation_result',
+    payload: { success: result.ok, message: result.message },
+  });
 }
 
-/** Handle mcp.remove — remove an MCP server configuration */
-export async function handleMcpRemove(
-  ws: WebSocket,
-  msg: WSClientMessage,
-  _config: Config,
-  globalConfigPath: string,
-  mcpRegistry?: MCPRegistryHandle,
-): Promise<void> {
-  const payload = msg.payload as { name: string };
-
-  if (!payload.name) {
-    send(ws, { type: 'mcp.operation_result', payload: { success: false, message: 'Server name is required' } });
-    return;
-  }
-
-  try {
-    // Stop the server first if it's running
-    if (mcpRegistry) {
-      try {
-        await mcpRegistry.stop(payload.name);
-      } catch {
-        // Server may not be running, ignore
-      }
-    }
-
-    const diskConfig = await readConfig(globalConfigPath);
-    const mcpServers = isMcpServerRecord(diskConfig.mcpServers) ? diskConfig.mcpServers : {};
-
-    if (!mcpServers[payload.name]) {
-      send(ws, { type: 'mcp.operation_result', payload: { success: false, message: `Server "${payload.name}" not found` } });
-      return;
-    }
-
-    delete mcpServers[payload.name];
-    diskConfig.mcpServers = mcpServers;
-    await writeConfig(globalConfigPath, diskConfig);
-
-    send(ws, { type: 'mcp.server.removed', payload: { name: payload.name } });
-    send(ws, { type: 'mcp.operation_result', payload: { success: true, message: `Server "${payload.name}" removed` } });
-  } catch (err) {
-    send(ws, { type: 'mcp.operation_result', payload: { success: false, message: `Failed to remove server: ${err}` } });
-  }
-}
-
-/** Handle mcp.update — update an existing MCP server configuration */
+/** mcp.update — re-persist config (incl. url/headers) and re-apply to registry. */
 export async function handleMcpUpdate(
   ws: WebSocket,
   msg: WSClientMessage,
-  _config: Config,
   globalConfigPath: string,
+  mcpRegistry?: MCPRegistry,
 ): Promise<void> {
-  const payload = msg.payload as {
-    name: string;
-    transport?: string;
-    description?: string;
-    enabled?: boolean;
-    command?: string;
-    args?: string[];
-    env?: Record<string, string>;
-    allowedTools?: string[];
-  };
-
-  if (!payload.name) {
-    send(ws, { type: 'mcp.operation_result', payload: { success: false, message: 'Server name is required' } });
-    return;
+  const d = deps(ws, globalConfigPath, mcpRegistry);
+  if (!d) return;
+  const result = await updateMcp(msg.payload as McpServerInput, d);
+  if (result.ok && result.server) {
+    send(ws, { type: 'mcp.server.updated', payload: { server: toView(result.server) } });
   }
-
-  try {
-    const diskConfig = await readConfig(globalConfigPath);
-    const mcpServers = isMcpServerRecord(diskConfig.mcpServers) ? diskConfig.mcpServers : {};
-
-    if (!mcpServers[payload.name]) {
-      send(ws, { type: 'mcp.operation_result', payload: { success: false, message: `Server "${payload.name}" not found` } });
-      return;
-    }
-
-    const existing = mcpServers[payload.name];
-    mcpServers[payload.name] = {
-      transport: (payload.transport ?? existing.transport) as 'stdio' | 'sse' | 'streamable-http',
-      description: payload.description ?? existing.description,
-      enabled: payload.enabled ?? existing.enabled,
-      command: payload.command ?? existing.command,
-      args: payload.args ?? existing.args,
-      env: payload.env ?? existing.env,
-      allowedTools: payload.allowedTools ?? existing.allowedTools,
-    };
-
-    diskConfig.mcpServers = mcpServers;
-    await writeConfig(globalConfigPath, diskConfig);
-
-    const updatedServer = projectServer(payload.name, mcpServers[payload.name]);
-    send(ws, { type: 'mcp.server.updated', payload: { server: updatedServer } });
-    send(ws, { type: 'mcp.operation_result', payload: { success: true, message: `Server "${payload.name}" updated` } });
-  } catch (err) {
-    send(ws, { type: 'mcp.operation_result', payload: { success: false, message: `Failed to update server: ${err}` } });
-  }
+  send(ws, {
+    type: 'mcp.operation_result',
+    payload: { success: result.ok, message: result.message },
+  });
 }
 
-/** Handle mcp.wake — wake a sleeping MCP server (restart it) */
-export async function handleMcpWake(
+/** mcp.remove — stop the server and delete it from config. */
+export async function handleMcpRemove(
   ws: WebSocket,
   msg: WSClientMessage,
-  _config: Config,
-  _globalConfigPath: string,
-  mcpRegistry?: MCPRegistryHandle,
+  globalConfigPath: string,
+  mcpRegistry?: MCPRegistry,
 ): Promise<void> {
-  const payload = msg.payload as { name: string };
-
-  if (!payload.name) {
-    send(ws, { type: 'mcp.operation_result', payload: { success: false, message: 'Server name is required' } });
-    return;
+  const d = deps(ws, globalConfigPath, mcpRegistry);
+  if (!d) return;
+  const result = await removeMcp(name(msg), d);
+  if (result.ok) {
+    send(ws, { type: 'mcp.server.removed', payload: { name: name(msg) } });
   }
-
-  if (!mcpRegistry) {
-    send(ws, { type: 'mcp.operation_result', payload: { success: false, message: 'MCP registry not available' } });
-    return;
-  }
-
-  try {
-    send(ws, { type: 'mcp.server.waking', payload: { name: payload.name } });
-    await mcpRegistry.restart(payload.name);
-    send(ws, { type: 'mcp.server.connected', payload: { name: payload.name } });
-    send(ws, { type: 'mcp.operation_result', payload: { success: true, message: `Server "${payload.name}" restarted` } });
-  } catch (err) {
-    send(ws, { type: 'mcp.server.error', payload: { name: payload.name, error: String(err) } });
-    send(ws, { type: 'mcp.operation_result', payload: { success: false, message: `Failed to restart "${payload.name}": ${err}` } });
-  }
+  send(ws, {
+    type: 'mcp.operation_result',
+    payload: { success: result.ok, message: result.message },
+  });
 }
 
-/** Handle mcp.sleep — put an MCP server to sleep (stop it) */
-export async function handleMcpSleep(
-  ws: WebSocket,
-  msg: WSClientMessage,
-  _config: Config,
-  _globalConfigPath: string,
-  mcpRegistry?: MCPRegistryHandle,
-): Promise<void> {
-  const payload = msg.payload as { name: string };
-
-  if (!payload.name) {
-    send(ws, { type: 'mcp.operation_result', payload: { success: false, message: 'Server name is required' } });
-    return;
-  }
-
-  if (!mcpRegistry) {
-    send(ws, { type: 'mcp.operation_result', payload: { success: false, message: 'MCP registry not available' } });
-    return;
-  }
-
-  try {
-    await mcpRegistry.stop(payload.name);
-    send(ws, { type: 'mcp.server.sleeping', payload: { name: payload.name } });
-    send(ws, { type: 'mcp.operation_result', payload: { success: true, message: `Server "${payload.name}" stopped` } });
-  } catch (err) {
-    send(ws, { type: 'mcp.server.error', payload: { name: payload.name, error: String(err) } });
-    send(ws, { type: 'mcp.operation_result', payload: { success: false, message: `Failed to stop "${payload.name}": ${err}` } });
-  }
-}
-
-/** Handle mcp.discover — perform one-time tool discovery on an MCP server */
-export async function handleMcpDiscover(
-  ws: WebSocket,
-  msg: WSClientMessage,
-  _config: Config,
-  _globalConfigPath: string,
-  _mcpRegistry?: MCPRegistryHandle,
-): Promise<void> {
-  const payload = msg.payload as { name: string };
-
-  if (!payload.name) {
-    send(ws, { type: 'mcp.operation_result', payload: { success: false, message: 'Server name is required' } });
-    return;
-  }
-
-  // Discover is not yet implemented - servers are discovered on connect
-  send(ws, { type: 'mcp.server.discovered', payload: { name: payload.name, tools: [] } });
-  send(ws, { type: 'mcp.operation_result', payload: { success: true, message: `Server "${payload.name}" tools were discovered on connect` } });
-}
-
-/** Handle mcp.enable — enable an MCP server */
+/** mcp.enable — flip enabled:true in config and start the server. */
 export async function handleMcpEnable(
   ws: WebSocket,
   msg: WSClientMessage,
-  _config: Config,
-  _globalConfigPath: string,
+  globalConfigPath: string,
+  mcpRegistry?: MCPRegistry,
 ): Promise<void> {
-  const payload = msg.payload as { name: string };
-
-  if (!payload.name) {
-    send(ws, { type: 'mcp.operation_result', payload: { success: false, message: 'Server name is required' } });
-    return;
+  const d = deps(ws, globalConfigPath, mcpRegistry);
+  if (!d) return;
+  const result = await enableMcp(name(msg), d);
+  if (result.ok && result.server) {
+    send(ws, { type: 'mcp.server.updated', payload: { server: toView(result.server) } });
+    if (result.registryError) {
+      send(ws, {
+        type: 'mcp.server.error',
+        payload: { name: name(msg), error: result.registryError },
+      });
+    } else {
+      send(ws, { type: 'mcp.server.connected', payload: { name: name(msg) } });
+    }
   }
-
-  // TODO: Wire up to actual MCPRegistryHandle.enable()
-  send(ws, { type: 'mcp.operation_result', payload: { success: true, message: `Enable command sent for "${payload.name}"` } });
+  send(ws, {
+    type: 'mcp.operation_result',
+    payload: { success: result.ok, message: result.message },
+  });
 }
 
-/** Handle mcp.disable — disable an MCP server */
+/** mcp.disable — stop the server and flip enabled:false in config. */
 export async function handleMcpDisable(
   ws: WebSocket,
   msg: WSClientMessage,
-  _config: Config,
-  _globalConfigPath: string,
+  globalConfigPath: string,
+  mcpRegistry?: MCPRegistry,
 ): Promise<void> {
-  const payload = msg.payload as { name: string };
-
-  if (!payload.name) {
-    send(ws, { type: 'mcp.operation_result', payload: { success: false, message: 'Server name is required' } });
-    return;
+  const d = deps(ws, globalConfigPath, mcpRegistry);
+  if (!d) return;
+  const result = await disableMcp(name(msg), d);
+  if (result.ok) {
+    send(ws, { type: 'mcp.server.sleeping', payload: { name: name(msg) } });
+    if (result.server) {
+      send(ws, { type: 'mcp.server.updated', payload: { server: toView(result.server) } });
+    }
   }
-
-  // TODO: Wire up to actual MCPRegistryHandle.disable()
-  send(ws, { type: 'mcp.operation_result', payload: { success: true, message: `Disable command sent for "${payload.name}"` } });
+  send(ws, {
+    type: 'mcp.operation_result',
+    payload: { success: result.ok, message: result.message },
+  });
 }
 
-/** Handle mcp.restart — restart an MCP server */
+/** mcp.sleep — stop a running server (config stays enabled). */
+export async function handleMcpSleep(
+  ws: WebSocket,
+  msg: WSClientMessage,
+  globalConfigPath: string,
+  mcpRegistry?: MCPRegistry,
+): Promise<void> {
+  const d = deps(ws, globalConfigPath, mcpRegistry);
+  if (!d) return;
+  // Sleep == disable the live process but keep config enabled — use the
+  // registry directly so the persisted `enabled` flag is untouched.
+  try {
+    await d.registry.stop(name(msg));
+    send(ws, { type: 'mcp.server.sleeping', payload: { name: name(msg) } });
+    send(ws, {
+      type: 'mcp.operation_result',
+      payload: { success: true, message: `Server "${name(msg)}" stopped` },
+    });
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    send(ws, { type: 'mcp.server.error', payload: { name: name(msg), error } });
+    send(ws, {
+      type: 'mcp.operation_result',
+      payload: { success: false, message: `Failed to stop "${name(msg)}": ${error}` },
+    });
+  }
+}
+
+/** mcp.wake — restart a sleeping/stopped server from config. */
+export async function handleMcpWake(
+  ws: WebSocket,
+  msg: WSClientMessage,
+  globalConfigPath: string,
+  mcpRegistry?: MCPRegistry,
+): Promise<void> {
+  const d = deps(ws, globalConfigPath, mcpRegistry);
+  if (!d) return;
+  send(ws, { type: 'mcp.server.waking', payload: { name: name(msg) } });
+  const result = await restartMcp(name(msg), d);
+  if (result.ok && !result.registryError) {
+    send(ws, { type: 'mcp.server.connected', payload: { name: name(msg) } });
+  } else if (result.registryError) {
+    send(ws, {
+      type: 'mcp.server.error',
+      payload: { name: name(msg), error: result.registryError },
+    });
+  }
+  send(ws, {
+    type: 'mcp.operation_result',
+    payload: { success: result.ok, message: result.message },
+  });
+}
+
+/** mcp.restart — stop + start a server. */
 export async function handleMcpRestart(
   ws: WebSocket,
   msg: WSClientMessage,
-  _config: Config,
-  _globalConfigPath: string,
+  globalConfigPath: string,
+  mcpRegistry?: MCPRegistry,
 ): Promise<void> {
-  const payload = msg.payload as { name: string };
-
-  if (!payload.name) {
-    send(ws, { type: 'mcp.operation_result', payload: { success: false, message: 'Server name is required' } });
-    return;
+  const d = deps(ws, globalConfigPath, mcpRegistry);
+  if (!d) return;
+  const result = await restartMcp(name(msg), d);
+  if (result.ok && !result.registryError) {
+    send(ws, { type: 'mcp.server.connected', payload: { name: name(msg) } });
+  } else if (result.registryError) {
+    send(ws, {
+      type: 'mcp.server.error',
+      payload: { name: name(msg), error: result.registryError },
+    });
   }
+  send(ws, {
+    type: 'mcp.operation_result',
+    payload: { success: result.ok, message: result.message },
+  });
+}
 
-  // TODO: Wire up to actual MCPRegistryHandle.restart()
-  send(ws, { type: 'mcp.operation_result', payload: { success: true, message: `Restart command sent for "${payload.name}"` } });
+/** mcp.discover — ensure the server is running and report its live tools. */
+export async function handleMcpDiscover(
+  ws: WebSocket,
+  msg: WSClientMessage,
+  globalConfigPath: string,
+  mcpRegistry?: MCPRegistry,
+): Promise<void> {
+  const d = deps(ws, globalConfigPath, mcpRegistry);
+  if (!d) return;
+  const result = await discoverMcp(name(msg), d);
+  if (result.ok) {
+    send(ws, {
+      type: 'mcp.server.discovered',
+      payload: { name: name(msg), tools: result.tools ?? [] },
+    });
+  }
+  send(ws, {
+    type: 'mcp.operation_result',
+    payload: { success: result.ok, message: result.message },
+  });
 }

@@ -2,9 +2,46 @@ import { expectDefined } from '@wrongstack/core';
 import type { EventBus, TokenCounter, AutonomyStage } from '@wrongstack/core';
 import { Box, Text, useStdout } from '../ink.js';
 import type React from 'react';
+import { type ChipMeta } from './statusline-picker.js';
 import { useEffect, useState } from 'react';
 import { useTokenCounterRefresh } from '../hooks/use-token-counter-refresh.js';
 import type { GitInfo } from '../git-info.js';
+
+// ─── Stream chip expiration helpers ─────────────────────────────────────────
+
+/** Returns true if a chip with the given metadata has expired. */
+function chipExpired(meta: ChipMeta, now = Date.now()): boolean {
+  if (meta.expiresIn == null) return false;
+  return now >= meta.shownAt + meta.expiresIn * 60_000;
+}
+
+/**
+ * Checks if a stream chip should be visible. A chip is visible when:
+ * - Its data is present (not null/undefined)
+ * - It is NOT in the hidden set
+ * - It IS in visibleChips (registered by the useEffect)
+ * - It has NOT expired
+ *
+ * @param key - The chip key (brain, mailbox, enhance, debug_stream)
+ * @param dataIsPresent - The data for this chip (brain state, mailbox, countdown, debug stats)
+ * @param hiddenSet - Set of user-hidden chip keys
+ * @param visibleChips - Array of visible chip metadata with expiration info
+ */
+function isStreamChipVisible(
+  key: 'brain' | 'mailbox' | 'enhance' | 'debug_stream',
+  dataIsPresent: unknown,
+  hiddenSet: ReadonlySet<string>,
+  visibleChips: ChipMeta[],
+): boolean {
+  if (!dataIsPresent) return false;
+  if (hiddenSet.has(key)) return false;
+  const meta = visibleChips.find((c) => c.key === key);
+  // Not yet registered — don't flash before the useEffect registers it
+  if (!meta) return false;
+  if (chipExpired(meta)) return false;
+  return true;
+}
+
 // ─── Mode icon map ───────────────────────────────────────────────────────────
 
 /** Map mode ids to compact icons for the status bar chip. */
@@ -223,7 +260,7 @@ export interface StatusBarProps {
   /** Number of tracked bash/exec processes from the process registry. */
   processCount?: number | undefined;
   /** Items to hide from the status bar. */
-  hiddenItems?: Array<'todos' | 'plan' | 'tasks' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost' | 'working_dir'> | undefined;
+  hiddenItems?: Array<'todos' | 'plan' | 'tasks' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost' | 'working_dir' | 'brain' | 'mailbox' | 'enhance' | 'debug_stream'> | undefined;
   /** EventBus for subscribing to token.accounted events for real-time cost/token updates. */
   events?: EventBus | undefined;
   /**
@@ -308,6 +345,8 @@ export interface StatusBarProps {
    * can see how many tools are available (lower count in token-saving mode).
    */
   toolCount?: number | undefined;
+  /** Visible stream chips (brain, mailbox, enhance, debug_stream) for expiration tracking. */
+  visibleChips?: ChipMeta[] | undefined;
 }
 
 /**
@@ -356,6 +395,7 @@ export function StatusBar({
   mailbox,
   tokenSavingMode,
   toolCount,
+  visibleChips = [],
 }: StatusBarProps): React.ReactElement {
   // Track terminal width so we can adapt layout on narrow terminals.
   // We snapshot into state so that renders are stable — we don't want
@@ -435,8 +475,12 @@ export function StatusBar({
     (fleet && (fleet.running > 0 || fleet.idle > 0 || fleet.pending > 0 || fleet.completed > 0)) ||
     subagentCount > 0;
   const hasBrainActivity = !!brain && brain.state !== 'idle';
-  const hasDebugStream = !!debugStreamStats;
   const hasEnhanceCountdown = enhanceCountdown != null && enhanceCountdown > 0;
+  // Stream chip visibility — these gate both the chip render AND the separator before it.
+  // Unlike the raw hasBrainActivity flags, these respect the hidden set and expiration.
+  const showBrain = isStreamChipVisible('brain', brain, hiddenSet ?? new Set<string>(), visibleChips);
+  const showDebugStream = isStreamChipVisible('debug_stream', debugStreamStats, hiddenSet ?? new Set<string>(), visibleChips);
+  const showEnhance = isStreamChipVisible('enhance', enhanceCountdown, hiddenSet ?? new Set<string>(), visibleChips);
   const hasNextStepsAutoSubmit = nextStepsAutoSubmitCountdown != null && nextStepsAutoSubmitCountdown > 0;
 
   // Countdown color threshold helper — transitions from green through
@@ -454,8 +498,8 @@ export function StatusBar({
     (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0)) ||
     hasTaskActivity ||
     fleetHasActivity ||
-    hasBrainActivity ||
-    hasDebugStream ||
+    showBrain ||
+    showDebugStream ||
     hasEnhanceCountdown ||
     hasNextStepsAutoSubmit;
 
@@ -823,17 +867,17 @@ export function StatusBar({
               )}
             </>
           ) : null}
-          {hasBrainActivity && brain ? (
+          {showBrain ? (
             <>
               {(todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0)) ||
               (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0)) ||
               fleetHasActivity ? (
                 <Text dimColor>│</Text>
               ) : null}
-              <BrainChip brain={brain} />
+              <BrainChip brain={brain!} />
             </>
           ) : null}
-          {hasDebugStream && debugStreamStats ? (
+          {showDebugStream ? (
             <>
               {(todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0)) ||
               (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0)) ||
@@ -843,25 +887,25 @@ export function StatusBar({
               ) : null}
               <Text color="cyan">
                 <Text bold>🐛 stream</Text>
-                <Text dimColor> #{debugStreamStats.chunkCount}</Text>
-                <Text dimColor> · {debugStreamStats.lastChunkSize}B</Text>
-                <Text dimColor> · +{debugStreamStats.lastDeltaMs}ms</Text>
-                <Text dimColor> · {fmtDebugBytes(debugStreamStats.totalBytes)}</Text>
+                <Text dimColor> #{debugStreamStats!.chunkCount}</Text>
+                <Text dimColor> · {debugStreamStats!.lastChunkSize}B</Text>
+                <Text dimColor> · +{debugStreamStats!.lastDeltaMs}ms</Text>
+                <Text dimColor> · {fmtDebugBytes(debugStreamStats!.totalBytes)}</Text>
               </Text>
             </>
           ) : null}
-          {hasEnhanceCountdown && enhanceCountdown != null ? (
+          {showEnhance ? (
             <>
               {(todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0)) ||
               (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0)) ||
               fleetHasActivity ||
-              hasBrainActivity ||
-              hasDebugStream ? (
+              showBrain ||
+              showDebugStream ? (
                 <Text dimColor>│</Text>
               ) : null}
               <Text color={
-                enhanceCountdown > 15 ? 'green'
-                : enhanceCountdown > 5 ? 'yellow'
+                enhanceCountdown! > 15 ? 'green'
+                : enhanceCountdown! > 5 ? 'yellow'
                 : 'red'
               }>
                 ⏳ auto-send in {enhanceCountdown}s
@@ -873,9 +917,9 @@ export function StatusBar({
               {(todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0)) ||
               (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0)) ||
               fleetHasActivity ||
-              hasBrainActivity ||
-              hasDebugStream ||
-              hasEnhanceCountdown ? (
+              showBrain ||
+              showDebugStream ||
+              showEnhance ? (
                 <Text dimColor>│</Text>
               ) : null}
               <Text color={countdownColor} bold>
@@ -900,38 +944,38 @@ export function StatusBar({
       {/* Line 4: mailbox activity + fleet agent detail */}
       {mailbox ? (
         <Box flexDirection="row" gap={2}>
-          {mailbox.unread > 0 ? (
+          {mailbox!.unread > 0 ? (
             <Text color="yellow" bold>
-              ✉ {mailbox.unread} new
+              ✉ {mailbox!.unread} new
             </Text>
           ) : (
             <Text dimColor>✉ 0</Text>
           )}
           <Text dimColor>│</Text>
           <Text color="cyan">
-            👥 {mailbox.onlineAgents} agent{mailbox.onlineAgents === 1 ? '' : 's'}
-            {(mailbox.onlineClients.tui + mailbox.onlineClients.webui + mailbox.onlineClients.repl) > 0 ? (
+            👥 {mailbox!.onlineAgents} agent{mailbox!.onlineAgents === 1 ? '' : 's'}
+            {(mailbox!.onlineClients.tui + mailbox!.onlineClients.webui + mailbox!.onlineClients.repl) > 0 ? (
               <Text color="green">
-                {mailbox.onlineClients.tui > 0 ? (
-                  <Text color="green"> · 🖥 TUI{mailbox.onlineClients.tui > 1 ? `×${mailbox.onlineClients.tui}` : ''}</Text>
+                {mailbox!.onlineClients.tui > 0 ? (
+                  <Text color="green"> · 🖥 TUI{mailbox!.onlineClients.tui > 1 ? `×${mailbox!.onlineClients.tui}` : ''}</Text>
                 ) : null}
-                {mailbox.onlineClients.webui > 0 ? (
-                  <Text color="green"> · 🌐 WebUI{mailbox.onlineClients.webui > 1 ? `×${mailbox.onlineClients.webui}` : ''}</Text>
+                {mailbox!.onlineClients.webui > 0 ? (
+                  <Text color="green"> · 🌐 WebUI{mailbox!.onlineClients.webui > 1 ? `×${mailbox!.onlineClients.webui}` : ''}</Text>
                 ) : null}
-                {mailbox.onlineClients.repl > 0 ? (
-                  <Text color="green"> · ⌨ REPL{mailbox.onlineClients.repl > 1 ? `×${mailbox.onlineClients.repl}` : ''}</Text>
+                {mailbox!.onlineClients.repl > 0 ? (
+                  <Text color="green"> · ⌨ REPL{mailbox!.onlineClients.repl > 1 ? `×${mailbox!.onlineClients.repl}` : ''}</Text>
                 ) : null}
               </Text>
             ) : null}
           </Text>
-          {mailbox.lastSubject ? (
+          {mailbox!.lastSubject ? (
             <>
               <Text dimColor>│</Text>
               <Text dimColor>
-                {mailbox.lastFrom ? `${mailbox.lastFrom}: ` : ''}
-                {mailbox.lastSubject.length > 40
-                  ? `${mailbox.lastSubject.slice(0, 37)}…`
-                  : mailbox.lastSubject}
+                {mailbox!.lastFrom ? `${mailbox!.lastFrom}: ` : ''}
+                {mailbox!.lastSubject.length > 40
+                  ? `${mailbox!.lastSubject.slice(0, 37)}…`
+                  : mailbox!.lastSubject}
               </Text>
             </>
           ) : null}

@@ -1,8 +1,23 @@
-import { cn } from '@/lib/utils';
 import { AlertTriangle, CheckCircle2, Info, X, XCircle } from 'lucide-react';
 import { useEffect } from 'react';
-import { randomUUID } from 'node:crypto';
 import { create } from 'zustand';
+import { cn } from '@/lib/utils';
+
+/**
+ * Browser-safe unique id. Uses the Web Crypto `crypto.randomUUID()` when
+ * available (matches the pattern in `chat-store.ts` / `ws-client.ts`) and
+ * falls back to a timestamp + Math.random tag for non-secure contexts or
+ * older runtimes. A toast must never throw — this previously imported
+ * `randomUUID` from `node:crypto`, which Vite bundles as an empty stub in
+ * the browser, so every toast crashed with `…randomUUID is not a function`.
+ */
+function toastId(): string {
+  const rand =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return `toast_${rand}`;
+}
 
 /**
  * Tiny toast store + portal. We resisted pulling in shadcn-ui's full
@@ -44,7 +59,7 @@ interface ToastState {
 const useToastStore = create<ToastState>((set) => ({
   toasts: [],
   push: (t) => {
-    const id = `toast_${randomUUID()}`;
+    const id = toastId();
     set((state) => ({ toasts: [...state.toasts, { ...t, id }] }));
     return id;
   },

@@ -574,7 +574,7 @@ export class WrongStackWebSocketClient {
     this.send({ type: 'mcp.list' });
   }
 
-  addMcpServer(config: { name: string; transport: string; description?: string; enabled?: boolean; command?: string; args?: string[]; env?: Record<string, string>; allowedTools?: string[] }) {
+  addMcpServer(config: { name: string; transport: string; description?: string; enabled?: boolean; command?: string; args?: string[]; env?: Record<string, string>; allowedTools?: string[]; url?: string; headers?: Record<string, string>; lazy?: boolean }) {
     this.send({ type: 'mcp.add', payload: config });
   }
 
@@ -582,7 +582,7 @@ export class WrongStackWebSocketClient {
     this.send({ type: 'mcp.remove', payload: { name } });
   }
 
-  updateMcpServer(config: { name: string; transport?: string; description?: string; enabled?: boolean; command?: string; args?: string[]; env?: Record<string, string>; allowedTools?: string[] }) {
+  updateMcpServer(config: { name: string; transport?: string; description?: string; enabled?: boolean; command?: string; args?: string[]; env?: Record<string, string>; allowedTools?: string[]; url?: string; headers?: Record<string, string>; lazy?: boolean }) {
     this.send({ type: 'mcp.update', payload: config });
   }
 

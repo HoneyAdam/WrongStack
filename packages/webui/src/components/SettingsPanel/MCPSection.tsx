@@ -33,6 +33,7 @@ export interface MCPServer {
   error?: string;
   lastError?: string;
   pid?: number;
+  lazy?: boolean;
 }
 
 export interface MCPServerConfig {
@@ -45,6 +46,7 @@ export interface MCPServerConfig {
   env?: Record<string, string>;
   allowedTools?: string[];
   url?: string;
+  lazy?: boolean;
 }
 
 /** Map server status to a human-readable label and color */
@@ -216,6 +218,7 @@ function ServerDialog({
   const [env, setEnv] = useState('');
   const [url, setUrl] = useState(prefillConfig?.url ?? '');
   const [enabled, setEnabled] = useState(server?.enabled ?? true);
+  const [lazy, setLazy] = useState(server?.lazy ?? prefillConfig?.lazy ?? false);
 
   // Reset form when dialog opens with new prefill data
   useEffect(() => {
@@ -225,6 +228,7 @@ function ServerDialog({
         setTransport(server.transport);
         setDescription(server.description ?? '');
         setEnabled(server.enabled);
+        setLazy(server.lazy ?? false);
         setCommand('');
         setArgs('');
         setEnv('');
@@ -234,6 +238,7 @@ function ServerDialog({
         setTransport(prefillConfig.transport);
         setDescription(prefillConfig.description ?? '');
         setEnabled(true);
+        setLazy(prefillConfig.lazy ?? false);
         setCommand(prefillConfig.command ?? '');
         setArgs(prefillConfig.args?.join(' ') ?? '');
         setEnv(
@@ -249,6 +254,7 @@ function ServerDialog({
         setTransport('stdio');
         setDescription('');
         setEnabled(true);
+        setLazy(false);
         setCommand('');
         setArgs('');
         setEnv('');
@@ -280,6 +286,7 @@ function ServerDialog({
       args: args.trim() ? args.trim().split(/\s+/) : undefined,
       env: Object.keys(parsedEnv).length > 0 ? parsedEnv : undefined,
       url: url.trim() || undefined,
+      lazy,
     });
     onOpenChange(false);
   };
@@ -364,7 +371,8 @@ function ServerDialog({
               value={env}
               onChange={(e) => setEnv(e.target.value)}
               placeholder={`GITHUB_TOKEN=ghp_...\nAWS_REGION=us-east-1`}
-              disabled={isPrefill}
+              // Env stays editable even for a prefilled official server — this is
+              // where the user pastes the credentials it requires before enabling.
             />
           </div>
           <div className="space-y-2">
@@ -385,6 +393,21 @@ function ServerDialog({
             />
             <label htmlFor="server-enabled" className="text-sm">
               Enable server
+            </label>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="server-lazy"
+              checked={lazy}
+              onChange={(e) => setLazy(e.target.checked)}
+              className="rounded"
+            />
+            <label htmlFor="server-lazy" className="text-sm">
+              Lazy connect{' '}
+              <span className="text-muted-foreground font-normal">
+                (don't start until first tool call; auto-sleeps when idle)
+              </span>
             </label>
           </div>
         </div>
@@ -455,7 +478,7 @@ export function MCPSection(): ReactElement {
   const [editServer, setEditServer] = useState<MCPServer | undefined>();
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showAddDialog, setShowAddDialog] = useState(false);
-  const [_prefillConfig, setPrefillConfig] = useState<MCPServerConfig | undefined>();
+  const [prefillConfig, setPrefillConfig] = useState<MCPServerConfig | undefined>();
   const [_pendingOp, setPendingOp] = useState<string | null>(null);
 
   // Load server list on mount and when MCP events come in
@@ -593,13 +616,13 @@ export function MCPSection(): ReactElement {
     [ws],
   );
 
-  const handleAddOfficial = useCallback(
-    (official: OfficialServer) => {
-      const config = toServerConfig(official, true);
-      ws.client?.addMcpServer(config);
-    },
-    [ws],
-  );
+  const handleAddOfficial = useCallback((official: OfficialServer) => {
+    // Open the dialog pre-filled (disabled by default) so the user can add any
+    // required credentials/env before the server starts — matches the
+    // "click Add to pre-fill, then confirm" promise on the Recommended tab.
+    setPrefillConfig(toServerConfig(official, false));
+    setShowAddDialog(true);
+  }, []);
 
   const handleRemove = useCallback(
     (name: string) => {
@@ -747,13 +770,6 @@ export function MCPSection(): ReactElement {
 
         {/* Add Custom tab */}
         <TabsContent value="add">
-          <ServerDialog
-            open={showAddDialog}
-            onOpenChange={(open) => {
-              if (!open) setShowAddDialog(false);
-            }}
-            onSave={handleAddCustom}
-          />
           <div className="text-sm text-muted-foreground">
             <p>Configure a custom MCP server with stdio, SSE, or HTTP transport.</p>
             <p className="mt-1">
@@ -763,6 +779,21 @@ export function MCPSection(): ReactElement {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Add / prefill dialog — rendered at the top level (not inside a tab) so
+          it opens from any tab: the header "Add Custom" button (blank) and the
+          Recommended tab's "Add" button (prefilled) both drive it. */}
+      <ServerDialog
+        open={showAddDialog}
+        onOpenChange={(open) => {
+          if (!open) {
+            setShowAddDialog(false);
+            setPrefillConfig(undefined);
+          }
+        }}
+        prefillConfig={prefillConfig}
+        onSave={handleAddCustom}
+      />
 
       {/* Edit dialog */}
       <ServerDialog
