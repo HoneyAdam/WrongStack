@@ -31,6 +31,12 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
     '  /settings semver-part patch|minor|major|auto   Default part for /semver and the semver_bump tool',
     '  /settings breaker on|off   Enable/disable the process circuit breaker (gates bash/exec)',
     '  /settings breaker-timeout <seconds>   Auto kill/reset delay when the breaker trips (0 = manual)',
+    '  /settings context-mode balanced|frugal|deep|archival   Context window policy',
+    '  /settings context-strategy hybrid|intelligent|selective   Compactor strategy',
+    '  /settings context-auto-compact on|off   Auto-compact context when thresholds crossed',
+    '  /settings token-saving off|minimal|light|medium|aggressive   Token-saving mode',
+    '  /settings max-concurrent <n>   Max concurrent subagents (0 = unlimited)',
+    '  /settings title-animation on|off   Terminal title animation',
     '  /settings defaults            Show built-in default values',
     '',
     'Settings are persisted to ~/.wrongstack/config.json.',
@@ -63,6 +69,14 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
     const cb = opts.configStore.get().circuitBreaker;
     const breakerEnabled = cb?.enabled === true;
     const breakerTimeout = cb?.autoKillResetMs ?? 60_000;
+    const context = opts.configStore.get().context as Record<string, unknown> | undefined;
+    const contextMode = (context?.mode as string) ?? 'balanced';
+    const contextStrategy = (context?.strategy as string) ?? 'hybrid';
+    const contextAutoCompact = context?.autoCompact !== false; // default true
+    const features = opts.configStore.get().features as Record<string, unknown> | undefined;
+    const tokenSavingTier = (features?.tokenSavingMode as string) ?? 'off';
+    const maxConcurrent = opts.configStore.get().maxConcurrent ?? 0;
+    const titleAnimation = opts.configStore.get().titleAnimation !== false; // default true
     return [
       `${color.bold('WrongStack')} ${color.dim('— Settings')}`,
       '',
@@ -77,6 +91,12 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
       `  refine-language:     ${color.cyan(enhanceLanguage)}   ${color.dim('change: /settings refine-language original|english')}`,
       `  semver default part: ${color.cyan(semverPart)}   ${color.dim('change: /settings semver-part patch|minor|major|auto')}`,
       `  circuit breaker:     ${breakerEnabled ? color.cyan('on') : color.dim('off')} (kill/reset ${breakerTimeout > 0 ? formatDelay(breakerTimeout) : color.dim('manual')})   ${color.dim('change: /settings breaker on|off')}`,
+      `  context mode:        ${color.cyan(contextMode)}   ${color.dim('change: /settings context-mode balanced|frugal|deep|archival')}`,
+      `  context strategy:    ${color.cyan(contextStrategy)}   ${color.dim('change: /settings context-strategy hybrid|intelligent|selective')}`,
+      `  context auto-compact: ${contextAutoCompact ? color.cyan('on') : color.dim('off')}   ${color.dim('change: /settings context-auto-compact on|off')}`,
+      `  token-saving:       ${color.cyan(tokenSavingTier)}   ${color.dim('change: /settings token-saving off|minimal|light|medium|aggressive')}`,
+      `  max-concurrent:     ${color.cyan(maxConcurrent === 0 ? 'unlimited' : String(maxConcurrent))}   ${color.dim('change: /settings max-concurrent <n>')}`,
+      `  title animation:    ${titleAnimation ? color.cyan('on') : color.dim('off')}   ${color.dim('change: /settings title-animation on|off')}`,
       '',
       color.dim('  Persisted to ~/.wrongstack/config.json · /settings help for more'),
     ].join('\n');
@@ -86,7 +106,7 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
     name: 'settings',
     category: 'Config',
     description:
-      'View or change settings (auto-proceed delay, default autonomy mode, launch hints).',
+      'View or change settings (auto-proceed, autonomy, context, features, token-saving).',
     help,
     async run(args) {
       const { cmd, rest } = parseSubcommand(args);
@@ -351,8 +371,107 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
           };
         }
 
+        if (sub === 'context-mode') {
+          const raw = (rest[0] ?? '').toLowerCase();
+          const modes = ['balanced', 'frugal', 'deep', 'archival'];
+          if (!modes.includes(raw)) {
+            return { message: `${color.amber('Usage:')} /settings context-mode balanced|frugal|deep|archival` };
+          }
+          await persistConfigSetting(persistDeps, (cfg) => {
+            const ctx = (cfg.context as Record<string, unknown>) ?? {};
+            ctx.mode = raw;
+            cfg.context = ctx;
+          });
+          return {
+            message: `${color.green('✓')} context mode → ${color.cyan(raw)}   ${color.dim('context window policy')}`,
+          };
+        }
+
+        if (sub === 'context-strategy') {
+          const raw = (rest[0] ?? '').toLowerCase();
+          const strategies = ['hybrid', 'intelligent', 'selective'];
+          if (!strategies.includes(raw)) {
+            return { message: `${color.amber('Usage:')} /settings context-strategy hybrid|intelligent|selective` };
+          }
+          await persistConfigSetting(persistDeps, (cfg) => {
+            const ctx = (cfg.context as Record<string, unknown>) ?? {};
+            ctx.strategy = raw;
+            cfg.context = ctx;
+          });
+          return {
+            message: `${color.green('✓')} context strategy → ${color.cyan(raw)}   ${color.dim('compactor strategy')}`,
+          };
+        }
+
+        if (sub === 'context-auto-compact') {
+          const raw = (rest[0] ?? '').toLowerCase();
+          if (!['on', 'off'].includes(raw)) {
+            return { message: `${color.amber('Usage:')} /settings context-auto-compact on|off` };
+          }
+          const on = raw === 'on';
+          await persistConfigSetting(persistDeps, (cfg) => {
+            const ctx = (cfg.context as Record<string, unknown>) ?? {};
+            ctx.autoCompact = on;
+            cfg.context = ctx;
+          });
+          return {
+            message: `${color.green('✓')} context auto-compact → ${on ? color.cyan('on') : color.dim('off')}   ${color.dim('auto-compact context when thresholds crossed')}`,
+          };
+        }
+
+        if (sub === 'token-saving') {
+          const raw = (rest[0] ?? '').toLowerCase();
+          const tiers = ['off', 'minimal', 'light', 'medium', 'aggressive'];
+          if (!tiers.includes(raw)) {
+            return { message: `${color.amber('Usage:')} /settings token-saving off|minimal|light|medium|aggressive` };
+          }
+          await persistConfigSetting(persistDeps, (cfg) => {
+            const feat = (cfg.features as Record<string, unknown>) ?? {};
+            feat.tokenSavingMode = raw;
+            cfg.features = feat;
+          });
+          return {
+            message: `${color.green('✓')} token-saving → ${color.cyan(raw)}   ${color.dim('token-saving mode')}`,
+          };
+        }
+
+        if (sub === 'max-concurrent') {
+          const raw = rest[0];
+          if (raw === undefined) {
+            return {
+              message: `${color.amber('Usage:')} /settings max-concurrent <n>   ${color.dim('(0 = unlimited)')}`,
+            };
+          }
+          const n = Number.parseInt(raw, 10);
+          if (Number.isNaN(n) || n < 0) {
+            return {
+              message: `${color.red('Invalid number')}: "${raw}". Enter a non-negative integer (0 = unlimited)`,
+            };
+          }
+          await persistConfigSetting(persistDeps, (cfg) => {
+            cfg.maxConcurrent = n;
+          });
+          return {
+            message: `${color.green('✓')} max-concurrent → ${color.cyan(n === 0 ? 'unlimited' : String(n))}   ${color.dim('max concurrent subagents')}`,
+          };
+        }
+
+        if (sub === 'title-animation') {
+          const raw = (rest[0] ?? '').toLowerCase();
+          if (!['on', 'off'].includes(raw)) {
+            return { message: `${color.amber('Usage:')} /settings title-animation on|off` };
+          }
+          const on = raw === 'on';
+          await persistConfigSetting(persistDeps, (cfg) => {
+            cfg.titleAnimation = on;
+          });
+          return {
+            message: `${color.green('✓')} title animation → ${on ? color.cyan('on') : color.dim('off')}   ${color.dim('terminal title animation')}`,
+          };
+        }
+
         return {
-          message: `${color.red('Unknown setting')} "${sub}". ${unknownSubcommand(sub, ['delay', 'mode', 'hints', 'debug-stream', 'config-scope', 'fs-access', 'refine', 'refine-delay', 'refine-language', 'semver-part', 'breaker', 'breaker-timeout', 'defaults'], 'settings')}`,
+          message: `${color.red('Unknown setting')} "${sub}". ${unknownSubcommand(sub, ['delay', 'mode', 'hints', 'debug-stream', 'config-scope', 'fs-access', 'refine', 'refine-delay', 'refine-language', 'semver-part', 'breaker', 'breaker-timeout', 'context-mode', 'context-strategy', 'context-auto-compact', 'token-saving', 'max-concurrent', 'title-animation', 'defaults'], 'settings')}`,
         };
       } catch (err) {
         return {
