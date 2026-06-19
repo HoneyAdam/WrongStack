@@ -4545,15 +4545,13 @@ export function App({
         return;
       }
     }
-    // ── Hidden-input guard (process list only) ────────────────────────
-    // The process list is the one monitor that keeps the Input hidden (its
-    // single-key kill actions own the keyboard). The overlay-control keys above
-    // (F8 toggle) have already had their turn; swallow every remaining key so
-    // nothing types into the hidden buffer and so the panel's own
-    // ↑↓/Enter/Del/a/A/r shortcuts aren't echoed as text. ProcessList reads
-    // these keys through its OWN useInput, which is unaffected by this return.
-    // The other monitor panels deliberately fall through so the live chat input
-    // below them keeps receiving text.
+    // ── ProcessList owns the keyboard ──────────────────────────────
+    // The ProcessList panel captures every keystroke through its own
+    // useInput (↑↓/PgUp/PgDn/Home/End/g/G navigation, Enter/Del/a/A/r
+    // actions). We return early here so NONE of those keys ever reach
+    // the chat input buffer — no typing, no backspace, no cursor
+    // movement, nothing. Only the F8 toggle and Esc close (handled
+    // above) bypass this guard so the panel can be dismissed.
     if (state.processListOpen) {
       return;
     }
@@ -4591,12 +4589,10 @@ export function App({
       dispatch({ type: 'toggleHelp' });
       return;
     }
-    // Enter when an overlay is open → ignore (the overlay's own useInput
-    // handles it, or it's a no-op). This prevents accidentally submitting
-    // the chat buffer while a monitor overlay (FleetMonitor, TodosMonitor,
-    // etc.) is visible. ProcessList has its own dedicated guard above.
-    if (overlayOpen && isEnter) return;
-
+    // No panel below uses Enter for itself (ProcessList has its own
+    // dedicated guard above; every other panel either has no useInput
+    // or only captures ↑↓/Esc/letter shortcuts). Enter always reaches
+    // the submit path so the live input stays usable behind overlays.
     if (isEnter) {
       // Shift+Enter inserts a literal newline instead of submitting.
       if (key.shift) {

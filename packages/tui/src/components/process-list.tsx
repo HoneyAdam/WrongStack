@@ -7,8 +7,12 @@ import { getProcessRegistry } from '@wrongstack/tools';
  * F8 — Process List Monitor.
  *
  * Live view of all background bash/exec processes tracked by the global
- * ProcessRegistry. Navigate with ↑↓, kill with Enter (SIGTERM) or
- * Delete (SIGKILL), kill all with 'a', reset circuit breaker with 'r'.
+ * ProcessRegistry. This panel OWNS the keyboard while open:
+ * every keystroke is captured here and NEVER reaches the chat input,
+ * because handleKey in app.tsx returns early when processListOpen is true
+ * (before it can modify the input buffer). This two-layer design —
+ * ProcessList's own useInput for shortcuts, handleKey's guard to suppress
+ * everything else — keeps the input field completely unaffected.
  */
 export function ProcessListMonitor(): React.ReactElement {
   const [, setTick] = useState(0);
@@ -25,7 +29,14 @@ export function ProcessListMonitor(): React.ReactElement {
   const all = registry.list();
   const stats = registry.stats();
 
+  // Clamp selection when the list shrinks (process exited / killed / removed).
+  // Without this, safeIndex fixes the render but selectedIndex stays stale,
+  // causing a jump when a new process appears later.
   const safeIndex = Math.min(selectedIndex, Math.max(0, all.length - 1));
+  if (safeIndex !== selectedIndex) {
+    // Eagerly sync so the next keystroke works from the correct position.
+    setSelectedIndex(safeIndex);
+  }
   const selected = all[safeIndex];
 
   const now = Date.now();
@@ -40,22 +51,38 @@ export function ProcessListMonitor(): React.ReactElement {
         ? '🟡 half-open'
         : '🔴 open';
 
+  const pageSize = Math.max(1, Math.floor(all.length / 2));
+
   useInput((input, key) => {
+    // Navigation — these NEVER touch the chat input buffer
     if (key.upArrow) {
       setSelectedIndex((prev) => Math.max(0, prev - 1));
     } else if (key.downArrow) {
       setSelectedIndex((prev) => Math.min(all.length - 1, prev + 1));
-    } else if (key.return && selected) {
+    } else if (key.pageUp) {
+      setSelectedIndex((prev) => Math.max(0, prev - pageSize));
+    } else if (key.pageDown) {
+      setSelectedIndex((prev) => Math.min(all.length - 1, prev + pageSize));
+    } else if (key.home || (key.ctrl && input === 'a') || input === 'g') {
+      setSelectedIndex(0);
+    } else if (key.end || (key.ctrl && input === 'e') || input === 'G') {
+      setSelectedIndex(Math.max(0, all.length - 1));
+    }
+    // Actions — also NEVER touch the chat input buffer
+    else if (key.return && selected) {
       getProcessRegistry().kill(selected.pid);
     } else if (key.delete && selected) {
       getProcessRegistry().kill(selected.pid, { force: true });
-    } else if (input === 'a') {
+    } else if (input === 'a' && !key.ctrl) {
       getProcessRegistry().killAll();
     } else if (input === 'A') {
       getProcessRegistry().killAll({ force: true });
     } else if (input === 'r') {
       getProcessRegistry().forceBreakerReset();
     }
+    // Every other key is deliberately ignored — it will fall through
+    // to handleKey in app.tsx, which returns early when processListOpen
+    // is true, so nothing ever reaches the input buffer.
   });
 
   return (
@@ -105,6 +132,13 @@ export function ProcessListMonitor(): React.ReactElement {
       <Box flexDirection="row" gap={1} marginTop={1}>
         <Text dimColor>↑↓ nav</Text>
         <Text dimColor>·</Text>
+        <Text dimColor>PgUp/PgDn page</Text>
+        <Text dimColor>·</Text>
+        <Text dimColor>Home/Ctrl+A/g first</Text>
+        <Text dimColor>·</Text>
+        <Text dimColor>End/Ctrl+E/G last</Text>
+      </Box>
+      <Box flexDirection="row" gap={1}>
         <Text dimColor>Enter kill (SIGTERM)</Text>
         <Text dimColor>·</Text>
         <Text dimColor>Del force kill (SIGKILL)</Text>
