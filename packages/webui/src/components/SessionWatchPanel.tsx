@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { useMonitorStore } from '@/stores/monitor-store';
+import { WatchMessageBubble } from './WatchMessageBubble.js';
 
 interface WatchEntry {
   ts: string;
@@ -27,14 +28,6 @@ interface WatchResponse {
   total: number;
   entries: WatchEntry[];
 }
-
-const ROLE_STYLE: Record<WatchEntry['role'], { label: string; color: string }> = {
-  user: { label: 'You', color: '#3b82f6' },
-  assistant: { label: 'Claude', color: '#a855f7' },
-  tool: { label: 'Tool', color: '#eab308' },
-  system: { label: 'System', color: '#9ca3af' },
-  error: { label: 'Error', color: '#ef4444' },
-};
 
 /** A message in the human↔leader mailbox thread (read-receipts + replies). */
 interface ThreadMsg {
@@ -131,7 +124,7 @@ export function SessionWatchPanel({
         (x) => x.partialText && (x.status === 'streaming' || x.status === 'running'),
       ) ?? targetSession.agents.find((x) => x.partialText);
     if (!a?.partialText) return null;
-    const label = a.id === 'leader' ? ROLE_STYLE.assistant.label : a.name || a.id;
+    const label = a.id === 'leader' ? 'Claude' : a.name || a.id;
     return { label, text: a.partialText };
   }, [targetSession]);
 
@@ -293,28 +286,32 @@ export function SessionWatchPanel({
         {entries.length === 0 && !error && (
           <div className="text-[11px] text-gray-500 italic">Loading session…</div>
         )}
-        {entries.map((e, i) => {
-          const s = ROLE_STYLE[e.role];
-          return (
-            <div key={`${e.ts}-${i}`} className="text-[11px] leading-snug">
-              <span className="font-semibold mr-1.5" style={{ color: s.color }}>
-                {e.role === 'tool' && e.tool ? `🔧 ${e.tool}` : s.label}
-              </span>
-              {e.text && (
-                <span className="text-gray-300 whitespace-pre-wrap break-words">{e.text}</span>
-              )}
-            </div>
-          );
-        })}
+        {entries.map((e, i) => (
+          <WatchMessageBubble
+            key={`${e.ts}-${i}`}
+            entry={e}
+            isContinuation={i > 0 && entries[i - 1].role === e.role}
+          />
+        ))}
         {livePartial && (
-          <div className="text-[11px] leading-snug">
-            <span className="font-semibold mr-1.5" style={{ color: ROLE_STYLE.assistant.color }}>
-              {livePartial.label}
-            </span>
-            <span className="text-gray-300 whitespace-pre-wrap break-words">
-              {livePartial.text}
-              <span className="animate-pulse text-cyan-400">▋</span>
-            </span>
+          <div className="flex gap-3 animate-message">
+            <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-violet-500/10 text-violet-600 dark:text-violet-400 ring-2 ring-offset-2 ring-offset-background ring-violet-500/20">
+              <svg className="h-4 w-4 animate-pulse" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z" />
+                <path d="M9 21h6M10 17v4M14 17v4" />
+              </svg>
+            </div>
+            <div className="flex flex-col gap-1 max-w-[85%] min-w-0">
+              <span className="text-[11px] font-semibold text-violet-600 dark:text-violet-400 px-1">
+                {livePartial.label}
+              </span>
+              <div className="rounded-2xl rounded-bl-md px-3 py-2 bg-violet-500/[0.06] border border-violet-500/20">
+                <span className="text-sm leading-relaxed text-violet-900 dark:text-violet-200 whitespace-pre-wrap break-words">
+                  {livePartial.text}
+                  <span className="animate-pulse text-cyan-500">▋</span>
+                </span>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -333,8 +330,10 @@ export function SessionWatchPanel({
             return (
               <div key={m.id} className="text-[10px] leading-snug">
                 <span
-                  className="font-semibold mr-1.5"
-                  style={{ color: m.fromLeader ? ROLE_STYLE.assistant.color : ROLE_STYLE.user.color }}
+                  className={cn(
+                    'font-semibold mr-1.5',
+                    m.fromLeader ? 'text-violet-400' : 'text-blue-400',
+                  )}
                 >
                   {m.fromLeader ? 'Agent' : 'You'}
                 </span>
