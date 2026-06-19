@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { statSync } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
-import { buildChildEnv } from '@wrongstack/core';
+import { assessCommitSafety, buildChildEnv } from '@wrongstack/core';
 import type { Tool } from '@wrongstack/core';
 import { COMMAND_OUTPUT_MAX_BYTES, normalizeCommandOutput } from './_util.js';
 
@@ -49,6 +49,13 @@ interface GitOutput {
   truncated: boolean;
   /** Staged diff shown for commit commands so the caller can verify. */
   diff?: string | undefined;
+  /**
+   * Shared-worktree warning for `commit`: present when uncommitted changes
+   * were authored by another agent/session (or a concurrent non-wrongstack
+   * process). The commit still proceeds — this is advisory so the caller can
+   * reconsider committing work it did not write.
+   */
+  warning?: string | undefined;
 }
 
 const TIMEOUT_MS = 30_000;
@@ -67,6 +74,9 @@ export const gitTool: Tool<GitInput, GitOutput> = {
     '- Use `message` only for commit operations.\n' +
     '- Use `files` array for operations that take paths (status, diff, add, etc.).\n' +
     '- Non-mutating commands (status, log, diff, branch, fetch) are still permission:confirm for safety.\n' +
+    '- For `commit` in a possibly-shared working tree, pass an explicit `files` list scoped to ' +
+    'what YOU changed. A bare commit (no `files`) includes ALL staged changes and may capture ' +
+    "another agent's half-done work. Heed the `warning` field on the result.\n" +
     'Never pass raw git flags through `args` for dangerous operations — use the structured fields.',
   permission: 'confirm',
   icon: 'git',
@@ -166,6 +176,33 @@ export const gitTool: Tool<GitInput, GitOutput> = {
 
     const args = buildArgs(input);
 
+    // For commits, check whether the working tree holds changes this session
+    // did not author (a concurrent agent / separate wrongstack process / human).
+    // Warn-only: the commit still runs, but the caller sees the risk of sweeping
+    // up another agent's half-done work. Best-effort — never blocks the commit.
+    let safetyWarning: string | undefined;
+    if (input.command === 'commit') {
+      try {
+        const report = await assessCommitSafety({
+          cwd: ctx.cwd,
+          projectRoot: ctx.projectRoot,
+          sessionId: ctx.session?.id,
+          signal: opts.signal,
+        });
+        if (report.warning) {
+          // Committing without an explicit file list stages/commits everything
+          // already staged — the highest-risk path for capturing foreign work.
+          const scopeNote = input.files
+            ? ''
+            : '\nNote: this commit has no explicit `files` list, so it will include ALL ' +
+              'staged changes. Pass `files` to scope the commit to only what you changed.';
+          safetyWarning = report.warning + scopeNote;
+        }
+      } catch {
+        // commit-safety is advisory; ignore failures
+      }
+    }
+
     // For commits, capture the staged diff BEFORE committing so the caller
     // can verify what is about to land without another tool call.
     let stagedDiff: string | undefined;
@@ -186,6 +223,7 @@ export const gitTool: Tool<GitInput, GitOutput> = {
 
     const result = await runGit(args, gitDir, opts.signal);
     if (stagedDiff !== undefined) result.diff = stagedDiff;
+    if (safetyWarning !== undefined) result.warning = safetyWarning;
     return result;
   },
 };

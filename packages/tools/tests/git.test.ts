@@ -1,5 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import { gitTool } from '../src/git.js';
+import { projectSlug } from '@wrongstack/core';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -54,6 +56,75 @@ describe('gitTool', () => {
     const result = await gitTool.execute({ command: 'stash', message: 'wip' }, ctx, makeOpts());
     expect(result).toHaveProperty('exitCode');
   });
+});
+
+describe('gitTool — shared-worktree commit warning', () => {
+  let repo: string;
+  let home: string;
+  let prevHome: string | undefined;
+
+  beforeEach(async () => {
+    repo = await fs.mkdtemp(path.join(os.tmpdir(), 'git-tool-repo-'));
+    home = await fs.mkdtemp(path.join(os.tmpdir(), 'git-tool-home-'));
+    prevHome = process.env['WRONGSTACK_HOME'];
+    process.env['WRONGSTACK_HOME'] = home;
+    execFileSync('git', ['init', '-q'], { cwd: repo, stdio: 'ignore' });
+  });
+
+  afterEach(async () => {
+    if (prevHome === undefined) delete process.env['WRONGSTACK_HOME'];
+    else process.env['WRONGSTACK_HOME'] = prevHome;
+    await fs.rm(repo, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(home, { recursive: true, force: true }).catch(() => {});
+  });
+
+  async function seedTracker(entries: Record<string, unknown>[]): Promise<void> {
+    const dir = path.join(home, 'projects', projectSlug(repo));
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(
+      path.join(dir, 'file-authors.json'),
+      JSON.stringify({ projectRoot: repo, entries }, null, 2),
+    );
+  }
+
+  const ctxFor = () =>
+    ({ cwd: repo, tools: [], projectRoot: repo, session: { id: 'mine' } }) as Parameters<
+      typeof gitTool.execute
+    >[1];
+
+  it('attaches a warning when a dirty file was authored by another session', async () => {
+    await fs.writeFile(path.join(repo, 'foreign.ts'), 'not mine');
+    await seedTracker([
+      { filePath: 'foreign.ts', action: 'edit', agentId: 'leader', agentName: 'Other', sessionId: 'other', timestamp: new Date(0).toISOString() },
+    ]);
+
+    const result = await gitTool.execute(
+      { command: 'commit', dry_run: true, message: 'x' },
+      ctxFor(),
+      { signal: new AbortController().signal },
+    );
+
+    expect(result.warning).toBeDefined();
+    expect(result.warning).toContain('foreign.ts');
+    expect(result.warning).toContain('Other');
+    // No explicit files → scope-note nudges toward a narrower commit.
+    expect(result.warning).toContain('no explicit `files` list');
+  }, 30_000);
+
+  it('omits the warning when the only dirty file is ours', async () => {
+    await fs.writeFile(path.join(repo, 'mine.ts'), 'my work');
+    await seedTracker([
+      { filePath: 'mine.ts', action: 'edit', agentId: 'leader', sessionId: 'mine', timestamp: new Date(0).toISOString() },
+    ]);
+
+    const result = await gitTool.execute(
+      { command: 'commit', dry_run: true, message: 'x' },
+      ctxFor(),
+      { signal: new AbortController().signal },
+    );
+
+    expect(result.warning).toBeUndefined();
+  }, 30_000);
 });
 
 describe('buildArgs (via execute in non-git dir)', () => {

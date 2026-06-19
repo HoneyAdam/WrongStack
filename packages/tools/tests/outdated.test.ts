@@ -66,7 +66,9 @@ describe('outdatedTool', () => {
     expect(outdatedTool.permission).toBe('confirm');
     expect(outdatedTool.mutating).toBe(true);
     // H7 invariant: mutating tools must declare capabilities.
-    expect(outdatedTool.capabilities).toEqual(['network']);
+    // Canonical `net.outbound` (not the legacy `network` string) so the
+    // subagent capability allowlist recognises read-only registry lookups.
+    expect(outdatedTool.capabilities).toEqual(['net.outbound']);
   });
 
   it('handles default params', async () => {

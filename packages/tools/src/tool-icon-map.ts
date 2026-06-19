@@ -194,7 +194,7 @@ export const TOOL_ICON_CONFIG: Record<ToolIconId, ToolIconConfig> = {
   edit:        { icon: 'edit',        color: '#f59e0b' }, // amber
   search:      { icon: 'search',      color: '#10b981' }, // emerald
   folder:      { icon: 'folder',      color: '#8b5cf6' }, // violet
-  terminal:    { icon: 'terminal',    color: '#ef4444' }, // red
+  terminal:    { icon: 'terminal',    color: '#fb923c' }, // orange
   web:         { icon: 'web',         color: '#06b6d4' }, // cyan
   git:         { icon: 'git',         color: '#f97316' }, // orange
   tree:        { icon: 'tree',        color: '#22c55e' }, // green

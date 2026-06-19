@@ -43,7 +43,7 @@ export const TOOL_ICON_CONFIG: Record<ToolIconId, { color: string }> = {
   edit: { color: '#fbbf24' }, // amber
   search: { color: '#a78bfa' }, // violet
   folder: { color: '#38bdf8' }, // sky
-  terminal: { color: '#ef4444' }, // red
+  terminal: { color: '#fb923c' }, // orange
   web: { color: '#34d399' }, // emerald
   git: { color: '#fb923c' }, // orange
   tree: { color: '#22d3ee' }, // cyan

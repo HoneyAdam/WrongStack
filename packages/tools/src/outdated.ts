@@ -50,12 +50,15 @@ export const outdatedTool: Tool<OutdatedInput, OutdatedOutput> = {
   // fixed four sibling tools (mcp_control, shellcheck, shellcheck_scan,
   // web_search) but missed this one; applying the same contract here.
   mutating: true,
-  // Capability is just "network" — the tool only hits the package
+  // Capability is outbound network — the tool only hits the package
   // registry over HTTP, never touches the filesystem or runs shell.
+  // Use the canonical `net.outbound` capability (not the non-existent
+  // `network` string) so the subagent allowlist recognises it and
+  // permits read-only registry lookups under a director.
   // The H7 invariant test requires this array to be non-empty for
   // any mutating:true tool (meta-tools whitelisted). See
   // tests/permission-mutating-invariant.test.ts:92.
-  capabilities: ['network'],
+  capabilities: ['net.outbound'],
   timeoutMs: 60_000,
   inputSchema: {
     type: 'object',
