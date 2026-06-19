@@ -16,8 +16,22 @@ export type AuditLevel = (typeof AUDIT_LEVELS)[number];
 export const COMPACTOR_STRATEGIES = ['hybrid', 'intelligent', 'selective'] as const;
 export type CompactorStrategy = (typeof COMPACTOR_STRATEGIES)[number];
 
+/** Context window mode options — cyclable via ←/→. */
+export const CONTEXT_MODES = ['balanced', 'frugal', 'deep', 'archival'] as const;
+export type ContextMode = (typeof CONTEXT_MODES)[number];
+
+export const CONTEXT_MODE_DESCS: Record<ContextMode, string> = {
+  balanced: 'Normal context usage (default)',
+  frugal: 'Conservative token use',
+  deep: 'Larger context for complex tasks',
+  archival: 'Maximize context retention',
+};
+
 /** Presets for max iterations — cyclable via ←/→. 0 = unlimited. */
 export const MAX_ITERATIONS_PRESETS = [100, 200, 500, 1000, 0];
+
+/** Presets for max concurrent subagents. 0 = unlimited. */
+export const MAX_CONCURRENT_PRESETS = [1, 3, 5, 10, 25, 50, 0];
 
 /** Presets for auto-proceed max iterations. 0 = unlimited, 50 default. */
 export const AUTO_PROCEED_MAX_PRESETS = [10, 25, 50, 100, 250, 0];
@@ -88,6 +102,9 @@ export interface SettingsPickerProps {
   // ── Context ──
   contextAutoCompact: boolean;
   contextStrategy: CompactorStrategy;
+  contextMode: ContextMode;
+  // ── Fleet ──
+  maxConcurrent: number;
   // ── Logging ──
   logLevel: LogLevel;
   // ── Session ──
@@ -112,7 +129,7 @@ export interface SettingsPickerProps {
 }
 
 /** Total number of settings rows (used for wrap-around navigation). */
-export const SETTINGS_FIELD_COUNT = 27;
+export const SETTINGS_FIELD_COUNT = 29;
 
 export const CONFIG_SCOPES = ['global', 'project'] as const;
 export type ConfigScope = (typeof CONFIG_SCOPES)[number];
@@ -136,6 +153,8 @@ export function SettingsPicker({
   allowOutsideProjectRoot,
   contextAutoCompact,
   contextStrategy,
+  contextMode,
+  maxConcurrent,
   logLevel,
   auditLevel,
   indexOnStart,
@@ -246,6 +265,18 @@ export function SettingsPicker({
       label: 'Compactor strategy',
       value: contextStrategy,
       detail: 'hybrid (fast) | intelligent (LLM) | selective',
+    },
+    {
+      label: 'Context mode',
+      value: contextMode,
+      detail: CONTEXT_MODE_DESCS[contextMode],
+    },
+    // ── Fleet ──
+    { section: 'Fleet' },
+    {
+      label: 'Max concurrent',
+      value: maxConcurrent === 0 ? 'unlimited' : String(maxConcurrent),
+      detail: 'Max subagents (0 = unlimited)',
     },
     // ── Logging ──
     { section: 'Logging' },

@@ -60,7 +60,7 @@ import { PlanPanel } from './components/plan-panel.js';
 import { CoordinatorPanel } from './components/coordinator-panel.js';
 import { ResumePicker } from './components/resume-picker.js';
 import { SessionsPanel } from './components/sessions-panel.js';
-import { SettingsPicker } from './components/settings-picker.js';
+import { SettingsPicker, type ContextMode } from './components/settings-picker.js';
 import { SlashMenu } from './components/slash-menu.js';
 import { KeyHintBar, type KeyHintContext } from './components/key-hint-bar.js';
 import {
@@ -883,7 +883,7 @@ export function App({
     },
     autonomyPicker: { open: false, options: [], selected: 0 },
     resumePicker: { open: false, sessions: [], selected: 0, busy: false, hint: undefined, error: undefined },
-    settingsPicker: { open: false, field: 0, mode: 'off', delayMs: 0, titleAnimation: true, yolo: false, streamFleet: true, chime: false, confirmExit: true, nextPrediction: false, featureMcp: true, featurePlugins: true, featureMemory: true, featureSkills: true, featureModelsRegistry: true, tokenSavingTier: 'off' as TokenSavingTier, allowOutsideProjectRoot: true, contextAutoCompact: true, contextStrategy: 'hybrid', logLevel: 'info', auditLevel: 'standard', indexOnStart: true, maxIterations: 500, autoProceedMaxIterations: 50, enhanceDelayMs: 60_000, enhanceEnabled: true, enhanceLanguage: 'original', debugStream: false, configScope: 'global' },
+    settingsPicker: { open: false, field: 0, mode: 'off', delayMs: 0, titleAnimation: true, yolo: false, streamFleet: true, chime: false, confirmExit: true, nextPrediction: false, featureMcp: true, featurePlugins: true, featureMemory: true, featureSkills: true, featureModelsRegistry: true, tokenSavingTier: 'off' as TokenSavingTier, allowOutsideProjectRoot: true, contextAutoCompact: true, contextStrategy: 'hybrid', contextMode: 'balanced' as ContextMode, maxConcurrent: 10, logLevel: 'info', auditLevel: 'standard', indexOnStart: true, maxIterations: 500, autoProceedMaxIterations: 50, enhanceDelayMs: 60_000, enhanceEnabled: true, enhanceLanguage: 'original', debugStream: false, configScope: 'global' },
     projectPicker: { open: false, allItems: [], items: [], selected: 0, filter: '', hint: undefined },
     confirmQueue: [],
     enhance: null,
@@ -1835,6 +1835,8 @@ export function App({
             allowOutsideProjectRoot: sp.allowOutsideProjectRoot,
             contextAutoCompact: sp.contextAutoCompact,
             contextStrategy: sp.contextStrategy,
+            contextMode: sp.contextMode,
+            maxConcurrent: sp.maxConcurrent,
             logLevel: sp.logLevel,
             auditLevel: sp.auditLevel,
             indexOnStart: sp.indexOnStart,
@@ -2373,6 +2375,8 @@ export function App({
       allowOutsideProjectRoot: s.allowOutsideProjectRoot ?? true,
       contextAutoCompact: s.contextAutoCompact ?? true,
       contextStrategy: s.contextStrategy ?? 'hybrid',
+      contextMode: (s.contextMode as ContextMode) ?? 'balanced',
+      maxConcurrent: s.maxConcurrent ?? 10,
       logLevel: s.logLevel ?? 'info',
       auditLevel: s.auditLevel ?? 'standard',
       indexOnStart: s.indexOnStart ?? true,
@@ -2581,6 +2585,8 @@ export function App({
       allowOutsideProjectRoot: sp.allowOutsideProjectRoot,
       contextAutoCompact: sp.contextAutoCompact,
       contextStrategy: sp.contextStrategy,
+      contextMode: sp.contextMode,
+      maxConcurrent: sp.maxConcurrent,
       logLevel: sp.logLevel,
       auditLevel: sp.auditLevel,
       indexOnStart: sp.indexOnStart,
@@ -2613,6 +2619,8 @@ export function App({
     state.settingsPicker.allowOutsideProjectRoot,
     state.settingsPicker.contextAutoCompact,
     state.settingsPicker.contextStrategy,
+    state.settingsPicker.contextMode,
+    state.settingsPicker.maxConcurrent,
     state.settingsPicker.logLevel,
     state.settingsPicker.auditLevel,
     state.settingsPicker.indexOnStart,
@@ -4285,6 +4293,8 @@ export function App({
           allowOutsideProjectRoot: cfg.allowOutsideProjectRoot ?? true,
           contextAutoCompact: cfg.contextAutoCompact ?? true,
           contextStrategy: cfg.contextStrategy ?? 'hybrid',
+          contextMode: (cfg.contextMode as ContextMode) ?? 'balanced',
+          maxConcurrent: cfg.maxConcurrent ?? 10,
           logLevel: cfg.logLevel ?? 'info',
           auditLevel: cfg.auditLevel ?? 'standard',
           indexOnStart: cfg.indexOnStart ?? true,
@@ -5749,6 +5759,8 @@ export function App({
               allowOutsideProjectRoot={state.settingsPicker.allowOutsideProjectRoot}
               contextAutoCompact={state.settingsPicker.contextAutoCompact}
               contextStrategy={state.settingsPicker.contextStrategy}
+              contextMode={state.settingsPicker.contextMode}
+              maxConcurrent={state.settingsPicker.maxConcurrent}
               logLevel={state.settingsPicker.logLevel}
               auditLevel={state.settingsPicker.auditLevel}
               indexOnStart={state.settingsPicker.indexOnStart}

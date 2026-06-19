@@ -7,6 +7,7 @@ import type { ProviderOption } from './components/model-picker.js';
 import type {
   AuditLevel,
   CompactorStrategy,
+  ContextMode,
   LogLevel,
   SettingsMode,
 } from './components/settings-picker.js';
@@ -275,6 +276,9 @@ export type State = {
     // Context
     contextAutoCompact: boolean;
     contextStrategy: CompactorStrategy;
+    contextMode: ContextMode;
+    // Fleet
+    maxConcurrent: number;
     // Logging
     logLevel: LogLevel;
     // Session
@@ -576,6 +580,8 @@ export type Settings = {
   allowOutsideProjectRoot: boolean;
   contextAutoCompact: boolean;
   contextStrategy: 'hybrid' | 'intelligent' | 'selective';
+  contextMode: ContextMode;
+  maxConcurrent: number;
   logLevel: 'error' | 'warn' | 'info' | 'debug' | 'trace';
   auditLevel: 'minimal' | 'standard' | 'full';
   indexOnStart: boolean;
@@ -682,6 +688,8 @@ export type Action =
       allowOutsideProjectRoot: boolean;
       contextAutoCompact: boolean;
       contextStrategy: CompactorStrategy;
+      contextMode: ContextMode;
+      maxConcurrent: number;
       logLevel: LogLevel;
       auditLevel: AuditLevel;
       indexOnStart: boolean;
