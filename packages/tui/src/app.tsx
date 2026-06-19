@@ -3842,10 +3842,12 @@ export function App({
 
     // Statusline picker — interactive status bar chip editor.
     if (state.statuslinePicker.open) {
-      if (key.escape || key.fn === 5) {
+      if (key.escape) {
         dispatch({ type: 'statuslineClose' });
         return;
       }
+      // F5 deliberately NOT handled here — it falls through to the plan-panel
+      // toggle below. Esc is the close key for the statusline picker.
       if (key.mouse?.kind === 'wheel') {
         dispatch({ type: 'statuslineFieldMove', delta: key.mouse.wheel > 0 ? -1 : 1 });
         return;
@@ -4556,33 +4558,44 @@ export function App({
       return;
     }
 
+    // overlayOpen tracks whether any monitor or panel overlay is active.
+    // Defined here (before the ?-handler and Enter submit) so both can
+    // check it. Also used below in the multi-line input navigation and
+    // scroll sections to prevent arrow-key conflicts with overlay internals.
+    const overlayOpen =
+      state.monitorOpen ||
+      state.agentsMonitorOpen ||
+      state.worktreeMonitorOpen ||
+      state.todosMonitorOpen ||
+      state.queuePanelOpen ||
+      state.processListOpen ||
+      state.goalPanelOpen ||
+      state.sessionsPanelOpen ||
+      state.coordinator.monitorOpen ||
+      state.helpOpen ||
+      (state.autoPhase?.monitorOpen ?? false) ||
+      state.rewindOverlay !== null;
+
     // `?` on an empty prompt opens the keys-&-commands help overlay (lazygit
     // style). With any draft text it types normally, so a literal `?` mid-
-    // message is never swallowed. Guarded against every other overlay/picker so
-    // it never steals their `?`.
+    // message is never swallowed. Guarded via overlayOpen — when any panel
+    // or picker is active the key is ignored so overlay-internal `?` usage
+    // (none currently) is never stolen.
     if (
       input === '?' &&
       !key.ctrl &&
       !key.meta &&
       draftRef.current.buffer === '' &&
-      !state.slashPicker.open &&
-      !state.picker.open &&
-      !state.modelPicker.open &&
-      !state.autonomyPicker.open &&
-      !state.settingsPicker.open &&
-      !state.statuslinePicker.open &&
-      !state.rewindOverlay &&
-      !state.monitorOpen &&
-      !state.agentsMonitorOpen &&
-      !state.worktreeMonitorOpen &&
-      !state.todosMonitorOpen &&
-      !state.goalPanelOpen &&
-      !state.sessionsPanelOpen &&
-      !state.autoPhase?.monitorOpen
+      !overlayOpen
     ) {
       dispatch({ type: 'toggleHelp' });
       return;
     }
+    // Enter when an overlay is open → ignore (the overlay's own useInput
+    // handles it, or it's a no-op). This prevents accidentally submitting
+    // the chat buffer while a monitor overlay (FleetMonitor, TodosMonitor,
+    // etc.) is visible. ProcessList has its own dedicated guard above.
+    if (overlayOpen && isEnter) return;
 
     if (isEnter) {
       // Shift+Enter inserts a literal newline instead of submitting.
@@ -4742,19 +4755,7 @@ export function App({
     // PageUp/PageDown jump by a screenful (half the terminal height).
     // Skipped when any overlay is open — the overlay owns the arrow keys
     // (e.g. AgentsMonitor's own useInput handles ↑↓ for list navigation).
-    const overlayOpen =
-      state.monitorOpen ||
-      state.agentsMonitorOpen ||
-      state.worktreeMonitorOpen ||
-      state.todosMonitorOpen ||
-      state.queuePanelOpen ||
-      state.processListOpen ||
-      state.goalPanelOpen ||
-      state.sessionsPanelOpen ||
-      state.coordinator.monitorOpen ||
-      state.helpOpen ||
-      (state.autoPhase?.monitorOpen ?? false) ||
-      state.rewindOverlay !== null;
+    // (overlayOpen is defined above, before the ?-handler.)
     if (!overlayOpen && (key.upArrow || key.downArrow || key.pageUp || key.pageDown)) {
       const width = stdout?.columns ?? 80;
       const rows = layoutInputRows(INPUT_PROMPT, buffer, cursor, width);
