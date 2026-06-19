@@ -1,0 +1,156 @@
+import { describe, expect, it } from 'vitest';
+import { reducer } from '../src/app.js';
+import { TOKEN_SAVING_TIERS } from '../src/components/settings-picker.js';
+
+// Minimal settingsPicker with all required fields for the token-saving tier tests.
+// The reducer only reads/writes tokenSavingTier for field-13 operations, so
+// other fields can be any valid value.
+function settingsBase(overrides: Record<string, unknown> = {}) {
+  return {
+    settingsPicker: {
+      open: true,
+      field: 13, // token-saving tier field
+      mode: 'off' as const,
+      delayMs: 0,
+      titleAnimation: true,
+      yolo: false,
+      streamFleet: true,
+      chime: false,
+      confirmExit: true,
+      nextPrediction: false,
+      featureMcp: true,
+      featurePlugins: true,
+      featureMemory: true,
+      featureSkills: true,
+      featureModelsRegistry: true,
+      tokenSavingTier: 'off' as const,
+      allowOutsideProjectRoot: true,
+      contextAutoCompact: true,
+      contextStrategy: 'hybrid' as const,
+      logLevel: 'info' as const,
+      auditLevel: 'standard' as const,
+      indexOnStart: true,
+      maxIterations: 500,
+      autoProceedMaxIterations: 50,
+      enhanceDelayMs: 60_000,
+      enhanceEnabled: true,
+      enhanceLanguage: 'original' as const,
+      debugStream: false,
+      configScope: 'global' as const,
+      restrictFsToRoot: false,
+      hint: undefined as string | undefined,
+      ...overrides,
+    },
+  };
+}
+
+describe('token-saving tier in settings picker', () => {
+  it('settingsOpen initialises tokenSavingTier from the action payload', () => {
+    const s = reducer(
+      { ...settingsBase() } as unknown as Parameters<typeof reducer>[0],
+      {
+        type: 'settingsOpen',
+        mode: 'off',
+        delayMs: 45_000,
+        titleAnimation: true,
+        yolo: false,
+        streamFleet: true,
+        chime: false,
+        confirmExit: true,
+        nextPrediction: false,
+        featureMcp: true,
+        featurePlugins: true,
+        featureMemory: true,
+        featureSkills: true,
+        featureModelsRegistry: true,
+        tokenSavingTier: 'minimal',
+        allowOutsideProjectRoot: true,
+        contextAutoCompact: true,
+        contextStrategy: 'hybrid',
+        logLevel: 'info',
+        auditLevel: 'standard',
+        indexOnStart: true,
+        maxIterations: 500,
+        autoProceedMaxIterations: 50,
+        enhanceDelayMs: 60_000,
+        enhanceEnabled: true,
+        enhanceLanguage: 'original',
+        debugStream: false,
+        configScope: 'global',
+        restrictFsToRoot: false,
+      },
+    );
+    expect(s.settingsPicker.tokenSavingTier).toBe('minimal');
+  });
+
+  it('settingsValueChange cycles off → minimal → light → medium → aggressive → off', () => {
+    let tier: (typeof TOKEN_SAVING_TIERS)[number] = 'off';
+    let s = {
+      ...settingsBase({ tokenSavingTier: tier }),
+    } as unknown as Parameters<typeof reducer>[0];
+
+    for (let i = 0; i < TOKEN_SAVING_TIERS.length; i++) {
+      expect(s.settingsPicker.tokenSavingTier).toBe(tier);
+      s = reducer(s, { type: 'settingsValueChange', delta: 1 });
+      tier = TOKEN_SAVING_TIERS[(i + 1) % TOKEN_SAVING_TIERS.length];
+      expect(s.settingsPicker.tokenSavingTier).toBe(tier);
+    }
+  });
+
+  it('settingsValueChange cycles backwards with delta -1', () => {
+    let tier: (typeof TOKEN_SAVING_TIERS)[number] = 'aggressive';
+    let s = {
+      ...settingsBase({ tokenSavingTier: tier }),
+    } as unknown as Parameters<typeof reducer>[0];
+
+    for (let i = TOKEN_SAVING_TIERS.length - 1; i >= 0; i--) {
+      expect(s.settingsPicker.tokenSavingTier).toBe(tier);
+      s = reducer(s, { type: 'settingsValueChange', delta: -1 });
+      tier = TOKEN_SAVING_TIERS[(i - 1 + TOKEN_SAVING_TIERS.length) % TOKEN_SAVING_TIERS.length];
+      expect(s.settingsPicker.tokenSavingTier).toBe(tier);
+    }
+  });
+
+  it('settingsValueChange wraps aggressive → off on forward delta', () => {
+    const s = reducer(
+      { ...settingsBase({ tokenSavingTier: 'aggressive' }) } as unknown as Parameters<typeof reducer>[0],
+      { type: 'settingsValueChange', delta: 1 },
+    );
+    expect(s.settingsPicker.tokenSavingTier).toBe('off');
+  });
+
+  it('settingsValueChange wraps off → aggressive on backward delta', () => {
+    const s = reducer(
+      { ...settingsBase({ tokenSavingTier: 'off' }) } as unknown as Parameters<typeof reducer>[0],
+      { type: 'settingsValueChange', delta: -1 },
+    );
+    expect(s.settingsPicker.tokenSavingTier).toBe('aggressive');
+  });
+
+  it('settingsValueChange on field 13 sets restart hint (boot-only)', () => {
+    const s = reducer(
+      { ...settingsBase({ hint: undefined }) } as unknown as Parameters<typeof reducer>[0],
+      { type: 'settingsValueChange', delta: 1 },
+    );
+    expect(s.settingsPicker.hint).toBe('↻ Takes effect next session');
+  });
+
+  it('TOKEN_SAVING_TIERS exports all five tiers', () => {
+    expect(TOKEN_SAVING_TIERS).toEqual(['off', 'minimal', 'light', 'medium', 'aggressive']);
+  });
+
+  it('field 13 is the token-saving tier field', () => {
+    // Verify that field 13 is indeed token-saving tier by checking that field 12
+    // (featureModelsRegistry) does NOT change when we issue a field-13 value change.
+    const s = reducer(
+      {
+        ...settingsBase({ field: 13, featureModelsRegistry: true }),
+      } as unknown as Parameters<typeof reducer>[0],
+      { type: 'settingsValueChange', delta: 1 },
+    );
+    // featureModelsRegistry should be unchanged (it's in field 12)
+    expect(s.settingsPicker.featureModelsRegistry).toBe(true);
+    // tokenSavingTier should have changed
+    expect(s.settingsPicker.tokenSavingTier).not.toBe('off');
+  });
+});

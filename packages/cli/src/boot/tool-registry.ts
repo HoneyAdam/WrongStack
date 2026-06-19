@@ -42,16 +42,39 @@
 //     not a tool-registry concern.
 
 import type { EventBus, MemoryStore, ToolRegistry, WstackPaths } from '@wrongstack/core';
-import { createContextManagerTool, makeMailboxTool, makeMailInboxTool, makeMailSendTool } from '@wrongstack/core';
-import { builtinToolsPack, forgetTool, relatedMemoryTool, rememberTool, searchMemoryTool, TIER1_TOOLS } from '@wrongstack/tools';
+import { createContextManagerTool, makeMailboxTool, makeMailInboxTool, makeMailSendTool, normalizeTokenSavingTier } from '@wrongstack/core';
+import { builtinToolsPack, forgetTool, relatedMemoryTool, rememberTool, searchMemoryTool, TIER1_TOOLS, TIER2_TOOLS, TIER3_TOOLS } from '@wrongstack/tools';
+import type { TokenSavingTier } from '@wrongstack/core';
+import type { Tool } from '@wrongstack/core';
 
 export interface RegisterBuiltinToolsDeps {
   toolRegistry: ToolRegistry;
   compactor: unknown;
-  config: { features: { memory: boolean; tokenSavingMode?: boolean | undefined } };
+  config: { features: { memory: boolean; tokenSavingMode?: TokenSavingTier | boolean | undefined } };
   memoryStore: MemoryStore | null | undefined;
   events: EventBus;
   wpaths: Pick<WstackPaths, 'projectDir'>;
+}
+
+/**
+ * Returns the tool subset for the given token-saving tier.
+ * @see getToolsForTier in `wiring/tools.ts` — kept in sync
+ */
+function toolsForTier(tier: TokenSavingTier, allTools: Tool[]): Tool[] {
+  switch (tier) {
+    case 'off':
+      return allTools;
+    case 'minimal':
+    case 'light':
+      return TIER1_TOOLS;
+    case 'medium':
+      return [...TIER1_TOOLS, ...TIER2_TOOLS];
+    case 'aggressive': {
+      const t2WithoutTask = TIER2_TOOLS.filter((t) => t.name !== 'task');
+      const t3WithoutSetCwd = TIER3_TOOLS.filter((t) => t.name !== 'setWorkingDir');
+      return [...TIER1_TOOLS, ...t2WithoutTask, ...t3WithoutSetCwd];
+    }
+  }
 }
 
 /**
@@ -62,14 +85,11 @@ export interface RegisterBuiltinToolsDeps {
  * memory feature flag.
  */
 export function registerBuiltinTools(deps: RegisterBuiltinToolsDeps): void {
-  // Bulk register the builtin tool pack. When token-saving mode is
-  // enabled (Tier 1), register only the 10 minimal tools (read, write,
-  // edit, bash, grep, glob, diff, patch, json, search) to save ~4-6K
-  // tokens per request. In full mode (Tier 2), register all tools.
+  // Bulk register the builtin tool pack. Token-saving tier determines which
+  // tools are included (see `toolsForTier`).
+  const tier = normalizeTokenSavingTier(deps.config.features.tokenSavingMode);
   const allTools = builtinToolsPack.tools ?? [];
-  const toolsToRegister = deps.config.features.tokenSavingMode
-    ? TIER1_TOOLS
-    : allTools;
+  const toolsToRegister = toolsForTier(tier, allTools);
   deps.toolRegistry.registerAllOrThrow([...toolsToRegister], builtinToolsPack.name);
 
   // Context manager tool: the model uses this to

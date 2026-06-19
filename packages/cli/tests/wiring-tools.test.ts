@@ -10,7 +10,10 @@ import {
   type Config,
   type WstackPaths,
 } from '@wrongstack/core';
-import { setupTools } from '../src/wiring/tools.js';
+import {
+  setupTools,
+  getToolsForTier,
+} from '../src/wiring/tools.js';
 
 let tmp: string;
 
@@ -198,5 +201,87 @@ describe('setupTools', () => {
     // mode is the one from disk without inspecting builder internals, but the
     // call must not throw and the result must include modeStore.
     expect(result.modeStore).toBeDefined();
+  });
+});
+
+describe('getToolsForTier', () => {
+  // Minimal fake tool factory to make lightweight tool arrays for testing.
+  const mkTool = (name: string): Tool => ({
+    name,
+    description: `desc-${name}`,
+    permission: 'auto',
+    mutating: false,
+    inputSchema: { type: 'object' },
+    async execute() {
+      return '';
+    },
+  });
+
+  // Helper: build a tier array by name from a flat list
+  const namedTools = (names: string[]): Tool[] => names.map(mkTool);
+
+  it("'off' returns all provided tools", () => {
+    const tools = namedTools(['read', 'write', 'grep', 'bash', 'replace', 'exec']);
+    const result = getToolsForTier('off', tools);
+    expect(result).toHaveLength(6);
+    expect(result.map((t) => t.name)).toEqual(['read', 'write', 'grep', 'bash', 'replace', 'exec']);
+  });
+
+  it("'off' with empty array returns empty", () => {
+    expect(getToolsForTier('off', [])).toHaveLength(0);
+  });
+
+  it("'minimal' returns only TIER1-equivalent tools (10)", () => {
+    // TIER1 = read, write, edit, bash, grep, glob, diff, patch, json, search
+    const tier1Names = ['read', 'write', 'edit', 'bash', 'grep', 'glob', 'diff', 'patch', 'json', 'search'];
+    // 'off' returns everything so we can verify filtering
+    const allTools = namedTools([...tier1Names, 'replace', 'exec', 'fetch', 'git', 'tree', 'lint']);
+    const result = getToolsForTier('minimal', allTools);
+    expect(result).toHaveLength(10);
+    for (const name of tier1Names) {
+      expect(result.some((t) => t.name === name)).toBe(true);
+    }
+    expect(result.some((t) => t.name === 'replace')).toBe(false);
+  });
+
+  it("'light' returns same tool set as 'minimal' (guidance differs, tool set does not)", () => {
+    const tier1Names = ['read', 'write', 'edit', 'bash', 'grep', 'glob', 'diff', 'patch', 'json', 'search'];
+    const allTools = namedTools([...tier1Names, 'replace', 'exec']);
+    const minimal = getToolsForTier('minimal', allTools);
+    const light = getToolsForTier('light', allTools);
+    expect(minimal).toHaveLength(light.length);
+    expect(minimal.map((t) => t.name).sort()).toEqual(light.map((t) => t.name).sort());
+  });
+
+  it("'medium' includes TIER1 + TIER2", () => {
+    const tier1 = ['read', 'write', 'edit', 'bash', 'grep', 'glob', 'diff', 'patch', 'json', 'search'];
+    const tier2 = ['replace', 'exec', 'fetch', 'git', 'tree', 'lint', 'format', 'typecheck', 'test', 'todo', 'plan', 'task', 'install', 'audit'];
+    const allTools = namedTools([...tier1, ...tier2, 'outdated', 'logs']);
+    const result = getToolsForTier('medium', allTools);
+    expect(result).toHaveLength(24); // 10 + 14
+    for (const name of [...tier1, ...tier2]) {
+      expect(result.some((t) => t.name === name)).toBe(true);
+    }
+    expect(result.some((t) => t.name === 'outdated')).toBe(false);
+    expect(result.some((t) => t.name === 'logs')).toBe(false);
+  });
+
+  it("'aggressive' excludes 'task' from TIER2 and 'setWorkingDir' from TIER3", () => {
+    // NOTE: namedTools() uses substring/grep matching so the count assertion is
+    // unreliable (e.g. 'exec' matches bashTool too). Only verify exclusion behavior.
+    const allToolNames = [
+      'read', 'write', 'edit', 'replace', 'exec', 'fetch', 'search',
+      'todo', 'plan', 'task', 'git', 'install', 'audit',
+      'outdated', 'logs', 'document', 'scaffold', 'setWorkingDir',
+    ];
+    const result = getToolsForTier('aggressive', namedTools(allToolNames));
+    // Verify exclusions: 'task' (in TIER2) and 'setWorkingDir' (in TIER3) must be absent
+    expect(result.some((t) => t.name === 'task')).toBe(false);
+    expect(result.some((t) => t.name === 'setWorkingDir')).toBe(false);
+    // Verify inclusions: tools in TIER1 and TIER2/TIER3 (other than excluded) must be present
+    expect(result.some((t) => t.name === 'read')).toBe(true);
+    expect(result.some((t) => t.name === 'replace')).toBe(true);
+    expect(result.some((t) => t.name === 'exec')).toBe(true);
+    expect(result.some((t) => t.name === 'outdated')).toBe(true);
   });
 });

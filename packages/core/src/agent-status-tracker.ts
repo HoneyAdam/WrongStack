@@ -17,6 +17,15 @@ import type {
   SessionRegistry,
 } from './session-registry.js';
 
+/** A finished (idle/error) subagent older than this is reaped from the fleet view. */
+const AGENT_REAP_MS = 30_000;
+/** How often the reaper sweeps for finished subagents. */
+const AGENT_SWEEP_INTERVAL_MS = 10_000;
+/** Max chars of streamed assistant text kept in the registry (the live tail). */
+const PARTIAL_TEXT_CAP = 1200;
+/** Min gap between registry flushes triggered purely by streamed text. */
+const PARTIAL_FLUSH_THROTTLE_MS = 300;
+
 export interface AgentStatusTrackerOptions {
   events: EventBus;
   registry: SessionRegistry;
@@ -48,9 +57,12 @@ export class AgentStatusTracker {
   private leaderTokensOut = 0;
   private leaderCtxPct: number | undefined;
   private leaderModel: string | undefined;
+  private leaderPartialText = '';
 
   private unsubscribers: Array<() => void> = [];
   private readonly onUpdate: (() => void) | undefined;
+  private sweepTimer: ReturnType<typeof setInterval> | null = null;
+  private partialTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(opts: AgentStatusTrackerOptions) {
     this.events = opts.events;
@@ -86,6 +98,7 @@ export class AgentStatusTracker {
       this.events.onPattern('agent.run.completed', () => {
         this.leaderStatus = 'idle';
         this.leaderCurrentTool = undefined;
+        this.leaderPartialText = '';
         this.flush();
       }),
     );
@@ -94,6 +107,7 @@ export class AgentStatusTracker {
       this.events.onPattern('agent.run.error', () => {
         this.leaderStatus = 'error';
         this.leaderCurrentTool = undefined;
+        this.leaderPartialText = '';
         this.flush();
       }),
     );
@@ -130,7 +144,24 @@ export class AgentStatusTracker {
     this.unsubscribers.push(
       this.events.onPattern('llm.stream_started', () => {
         this.leaderStatus = 'streaming';
+        // A new response is starting — drop the previous turn's live tail.
+        this.leaderPartialText = '';
         this.flush();
+      }),
+    );
+
+    // Live assistant text — accumulate the streamed tail so a cross-process
+    // watcher sees the response form. Flushed on a throttle, NOT per token
+    // (text_delta fires once per chunk → would thrash the shared registry).
+    this.unsubscribers.push(
+      this.events.onPattern('provider.text_delta', (_e, payload) => {
+        const text = (payload as { text?: string } | undefined)?.text;
+        if (!text) return;
+        this.leaderStatus = 'streaming';
+        const next = this.leaderPartialText + text;
+        this.leaderPartialText =
+          next.length > PARTIAL_TEXT_CAP ? next.slice(next.length - PARTIAL_TEXT_CAP) : next;
+        this.schedulePartialFlush();
       }),
     );
 
@@ -211,7 +242,14 @@ export class AgentStatusTracker {
     this.unsubscribers.push(
       this.events.onPattern('subagent.iteration_summary', (_e, payload) => {
         const p = payload as
-          | { subagentId?: string; iteration?: number; toolCalls?: number; currentTool?: string; costUsd?: number }
+          | {
+              subagentId?: string;
+              iteration?: number;
+              toolCalls?: number;
+              currentTool?: string;
+              costUsd?: number;
+              partialText?: string;
+            }
           | undefined;
         if (!p?.subagentId) return;
         const entry = touch(p.subagentId);
@@ -220,6 +258,14 @@ export class AgentStatusTracker {
         if (typeof p.toolCalls === 'number') entry.toolCalls = p.toolCalls;
         if (typeof p.costUsd === 'number') entry.costUsd = p.costUsd;
         if (p.currentTool) entry.currentTool = p.currentTool;
+        // Live streamed tail of THIS subagent's current response (the runner
+        // already accumulates it) — capped to the same budget as the leader.
+        if (typeof p.partialText === 'string') {
+          entry.partialText =
+            p.partialText.length > PARTIAL_TEXT_CAP
+              ? p.partialText.slice(p.partialText.length - PARTIAL_TEXT_CAP)
+              : p.partialText;
+        }
         this.flush();
       }),
     );
@@ -236,6 +282,7 @@ export class AgentStatusTracker {
         if (!entry) return;
         entry.status = p.status === 'failed' || p.status === 'timeout' ? 'error' : 'idle';
         entry.currentTool = undefined;
+        entry.partialText = undefined;
         if (typeof p.iterations === 'number') entry.iterations = p.iterations;
         if (typeof p.toolCalls === 'number') entry.toolCalls = p.toolCalls;
         entry.lastActivityAt = new Date().toISOString();
@@ -250,6 +297,12 @@ export class AgentStatusTracker {
         if (this.agents.delete(p.subagentId)) this.flush();
       }),
     );
+
+    // Reap finished subagents so the fleet view doesn't fill with dead/idle
+    // desks. The leader is synthesised in flush() (never in `this.agents`), so
+    // it is never reaped — it represents the live session.
+    this.sweepTimer = setInterval(() => this.sweep(), AGENT_SWEEP_INTERVAL_MS);
+    if (typeof this.sweepTimer.unref === 'function') this.sweepTimer.unref();
   }
 
   stop(): void {
@@ -257,6 +310,47 @@ export class AgentStatusTracker {
       try { unsub(); } catch { /* ignore */ }
     }
     this.unsubscribers = [];
+    if (this.sweepTimer) {
+      clearInterval(this.sweepTimer);
+      this.sweepTimer = null;
+    }
+    if (this.partialTimer) {
+      clearTimeout(this.partialTimer);
+      this.partialTimer = null;
+    }
+  }
+
+  /**
+   * Coalesce streamed-text flushes: at most one registry write per
+   * {@link PARTIAL_FLUSH_THROTTLE_MS} while text streams in, so per-token
+   * deltas never thrash the cross-process registry file.
+   */
+  private schedulePartialFlush(): void {
+    if (this.partialTimer) return;
+    this.partialTimer = setTimeout(() => {
+      this.partialTimer = null;
+      this.flush();
+    }, PARTIAL_FLUSH_THROTTLE_MS);
+    if (typeof this.partialTimer.unref === 'function') this.partialTimer.unref();
+  }
+
+  /**
+   * Remove subagents that have been finished (idle/error) for longer than
+   * {@link AGENT_REAP_MS}. Running / streaming / waiting_user agents are kept
+   * regardless of age — only *not-working* agents are reaped.
+   */
+  private sweep(): void {
+    const now = Date.now();
+    let removed = false;
+    for (const [id, a] of this.agents) {
+      const finished = a.status !== 'running' && a.status !== 'streaming' && a.status !== 'waiting_user';
+      const age = now - Date.parse(a.lastActivityAt);
+      if (finished && Number.isFinite(age) && age > AGENT_REAP_MS) {
+        this.agents.delete(id);
+        removed = true;
+      }
+    }
+    if (removed) this.flush();
   }
 
   private flush(): void {
@@ -272,6 +366,7 @@ export class AgentStatusTracker {
       tokensOut: this.leaderTokensOut,
       ctxPct: this.leaderCtxPct,
       model: this.leaderModel,
+      partialText: this.leaderPartialText || undefined,
       lastActivityAt: new Date().toISOString(),
     };
 

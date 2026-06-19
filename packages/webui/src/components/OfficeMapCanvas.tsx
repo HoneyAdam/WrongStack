@@ -23,6 +23,7 @@ import {
   useReactFlow,
   Handle,
   Position,
+  Panel,
   getBezierPath,
   EdgeLabelRenderer,
 } from '@xyflow/react';
@@ -47,6 +48,9 @@ import {
   Activity,
   Hash,
   DollarSign,
+  LayoutGrid,
+  ScrollText,
+  Maximize2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -58,7 +62,9 @@ import {
   useOfficeMapStore,
 } from '@/stores';
 import type { LiveSession } from '@/stores/monitor-store';
+import type { VizEvent } from '@/stores/viz-store';
 import type { SubagentView } from '@/stores/types';
+import { SessionWatchPanel } from './SessionWatchPanel';
 
 // ── Client Types ─────────────────────────────────────────────────────────────
 
@@ -83,7 +89,11 @@ interface OfficeNodeData extends Record<string, unknown> {
   lastActivityAt?: string;
   lastSeenAt?: number;
   connections?: number;
+  // Coordinator / fleet-summary extras
+  agentsActive?: number;
+  agentsTotal?: number;
   // Client-node extras
+  sessionId?: string;
   pid?: number;
   branch?: string;
   workingDir?: string;
@@ -505,19 +515,31 @@ function CoordinatorNode({ data }: { data: OfficeNodeData }) {
         </div>
         <div className="flex-1 min-w-0">
           <div className="text-sm font-bold truncate" style={{ color }}>{data.label}</div>
-          <div className="text-[10px] text-gray-500">Fleet Coordinator</div>
+          <div className="text-[10px] text-gray-500">{data.sublabel || 'Fleet summary'}</div>
         </div>
         <StatusLED status={data.status} activity={data.vizActivity ?? 0} />
       </div>
 
       <div className="grid grid-cols-2 gap-2 text-[10px] mb-2">
         <div className="bg-black/20 rounded p-1.5 text-center">
-          <div className="font-mono text-purple-400">{data.connections || 0}</div>
-          <div className="text-gray-500">Connections</div>
+          <div className="font-mono">
+            <span className="text-emerald-400">{data.agentsActive || 0}</span>
+            <span className="text-gray-500"> / </span>
+            <span className="text-purple-400">{data.agentsTotal || 0}</span>
+          </div>
+          <div className="text-gray-500">Agents</div>
         </div>
         <div className="bg-black/20 rounded p-1.5 text-center">
-          <div className="font-mono text-purple-400">{data.iteration || 0}</div>
-          <div className="text-gray-500">Iterations</div>
+          <div className="font-mono text-yellow-400">{(data.toolCalls || 0).toLocaleString()}</div>
+          <div className="text-gray-500">Tool calls</div>
+        </div>
+        <div className="bg-black/20 rounded p-1.5 text-center">
+          <div className="font-mono text-gray-300">{fmtCompact(data.tokensIn)}</div>
+          <div className="text-gray-500">Tokens</div>
+        </div>
+        <div className="bg-black/20 rounded p-1.5 text-center">
+          <div className="font-mono text-emerald-400">${(data.costUsd || 0).toFixed(3)}</div>
+          <div className="text-gray-500">Cost</div>
         </div>
       </div>
 
@@ -585,9 +607,13 @@ function AgentNode({ data }: { data: OfficeNodeData }) {
         </div>
       )}
 
-      {/* Last activity */}
+      {/* Last seen — prominent for finished agents (they reap ~30s after). */}
       {data.lastActivityAt && (
-        <div className="text-[8px] text-gray-600">{fmtAgo(data.lastActivityAt, Date.now())}</div>
+        <div className={cn('flex items-center gap-1 text-[8px]', isActive ? 'text-gray-600' : 'text-gray-500')}>
+          {isCompleted && <span className="text-emerald-500/70">✓ done ·</span>}
+          {isError && <span className="text-red-400/80">✕ failed ·</span>}
+          <span>seen {fmtAgo(data.lastActivityAt, Date.now())}</span>
+        </div>
       )}
     </div>
   );
@@ -661,6 +687,13 @@ function MailboxNode({ data }: { data: OfficeNodeData }) {
           <div className="text-gray-500">Unread</div>
         </div>
       </div>
+
+      {/* Most recent message subject — shows mail is actually flowing. */}
+      {data.sublabel && (
+        <div className="mt-2 truncate border-t border-white/5 pt-1.5 text-[9px] text-gray-400">
+          ✉ {data.sublabel}
+        </div>
+      )}
     </div>
   );
 }
@@ -777,21 +810,42 @@ const edgeTypes: EdgeTypes = {
 //  [A1][A2]    [A3]                 ← that client's agents sit at desks below it
 
 const CENTER_X = 600;
-const MAILBOX_Y = 0;
-const COORD_Y = 250;
-const CLIENT_Y = 520;
-const AGENT_Y0 = 790;
-const AGENT_DY = 150;
+// Mailbox Hub + Fleet Coordinator share the top row, side by side (not stacked).
+const HUB_Y = 50;
+const HUB_GAP = 230; // each hub offset horizontally from CENTER_X
+const MAILBOX_Y = HUB_Y;
+const COORD_Y = HUB_Y;
+const CLIENT_Y = 370;
+const AGENT_Y0 = 640;
 const CLIENT_COL_W = 380;
 
-/** Horizontal x for each client id, spread symmetrically around CENTER_X. */
-function layoutClientXs(clientIds: string[]): Map<string, number> {
+/** Horizontal x for each client id, spread symmetrically around CENTER_X.
+ *  `colW` is widened by the caller when clients hold many fanned-out agents. */
+function layoutClientXs(clientIds: string[], colW: number = CLIENT_COL_W): Map<string, number> {
   const map = new Map<string, number>();
   const n = Math.max(1, clientIds.length);
   clientIds.forEach((id, i) => {
-    map.set(id, CENTER_X + (i - (n - 1) / 2) * CLIENT_COL_W);
+    map.set(id, CENTER_X + (i - (n - 1) / 2) * colW);
   });
   return map;
+}
+
+// Agent fan-out under a client: a centered grid (≤ AGENT_COLS per row) so each
+// client→agent wire lands on a distinct desk instead of stacking on one column.
+const AGENT_COLS = 3;
+const AGENT_FAN_W = 190; // horizontal gap between fanned desks (≥ desk width)
+const AGENT_ROW_H = 150; // vertical gap between fan rows
+
+/** Position (relative to the client's x) of agent `j` of `total`. */
+function agentFanPos(cx: number, j: number, total: number): { x: number; y: number } {
+  const cols = Math.min(AGENT_COLS, total);
+  const row = Math.floor(j / cols);
+  const col = j % cols;
+  const inRow = Math.min(cols, total - row * cols); // last row may be shorter
+  return {
+    x: cx + (col - (inRow - 1) / 2) * AGENT_FAN_W,
+    y: AGENT_Y0 + row * AGENT_ROW_H,
+  };
 }
 
 /** Map a registry surface to one of the three office client node kinds. */
@@ -847,6 +901,7 @@ interface ResolvedClient {
   label: string;
   sublabel: string;
   status: ClientStatus;
+  sessionId?: string | undefined;
   pid?: number | undefined;
   branch?: string | undefined;
   workingDir?: string | undefined;
@@ -912,6 +967,7 @@ function resolveClients(
         .filter(Boolean)
         .join(' · '),
       status,
+      sessionId: s.sessionId,
       pid: s.pid,
       branch: s.gitBranch,
       workingDir: s.workingDir,
@@ -964,6 +1020,58 @@ function resolveClients(
   return clients;
 }
 
+// ── Live Activity feed ───────────────────────────────────────────────────────
+
+/** Dot colour for a viz event, by kind prefix. */
+function feedColor(kind: string): string {
+  if (kind.startsWith('tool')) return '#eab308';
+  if (kind.startsWith('mailbox')) return '#06b6d4';
+  if (kind.startsWith('provider')) return '#a855f7';
+  if (kind.startsWith('agent') || kind.startsWith('subagent')) return '#22c55e';
+  if (kind.includes('error')) return '#ef4444';
+  return '#6366f1';
+}
+
+/**
+ * Bottom Live Activity strip — the most recent cross-process viz events
+ * (tool calls, mail, provider/agent activity), newest first. Gives a running
+ * log of "what just happened across the office" alongside the spatial map.
+ */
+function LiveFeed({ events, now }: { events: VizEvent[]; now: number }) {
+  const recent = events.slice(0, 14);
+  return (
+    <div className="absolute bottom-0 left-0 right-0 z-10 pointer-events-none px-3 pb-3">
+      <div className="pointer-events-auto rounded-lg bg-slate-900/85 border border-slate-700/70 backdrop-blur px-3 py-2 max-w-3xl mx-auto">
+        <div className="flex items-center gap-1.5 mb-1.5 text-[10px] uppercase tracking-wide text-cyan-400/80">
+          <Activity className="h-3 w-3" />
+          Live activity
+        </div>
+        {recent.length === 0 ? (
+          <div className="text-[11px] text-gray-500 italic">Waiting for activity…</div>
+        ) : (
+          <div className="flex flex-col gap-0.5 max-h-32 overflow-hidden">
+            {recent.map((e) => {
+              const ago = Math.max(0, Math.round((now - e.timestamp) / 1000));
+              return (
+                <div key={e.id} className="flex items-center gap-2 text-[11px] leading-tight">
+                  <span
+                    className="w-1.5 h-1.5 rounded-full shrink-0"
+                    style={{ backgroundColor: feedColor(e.kind) }}
+                  />
+                  <span className="text-gray-300 truncate flex-1">{e.label}</span>
+                  <span className="text-gray-600 shrink-0 tabular-nums">
+                    {ago < 1 ? 'now' : `${ago}s`}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main Canvas Component ────────────────────────────────────────────────────
 
 export function OfficeMapCanvas() {
@@ -993,11 +1101,44 @@ export function OfficeMapCanvas() {
   const showMinimap = useOfficeMapStore((s) => s.showMinimap);
   const showControls = useOfficeMapStore((s) => s.showControls);
   const animateEdges = useOfficeMapStore((s) => s.animateEdges);
+  const showFeed = useOfficeMapStore((s) => s.showFeed);
+  const setShowFeed = useOfficeMapStore((s) => s.setShowFeed);
   const background = useOfficeMapStore((s) => s.background);
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<OfficeNodeData>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [selectedNode, setSelectedNode] = useState<Node<OfficeNodeData> | null>(null);
+  // Expanded watch drawer — a full-height, wide overlay on the right of the
+  // React-Flow canvas showing a selected agent/client's COMPLETE operation
+  // stream (full history + composer), vs. the cramped popover preview.
+  const [watch, setWatch] = useState<{ sessionId: string; label: string } | null>(null);
+  // Broadcast composer — one message to every live session's leader.
+  const [broadcastOpen, setBroadcastOpen] = useState(false);
+  const [broadcastDraft, setBroadcastDraft] = useState('');
+  const [broadcasting, setBroadcasting] = useState(false);
+  const [broadcastResult, setBroadcastResult] = useState<string | null>(null);
+
+  const sendBroadcast = useCallback(async () => {
+    const text = broadcastDraft.trim();
+    if (!text || broadcasting) return;
+    setBroadcasting(true);
+    setBroadcastResult(null);
+    try {
+      const res = await fetch('/api/fleet/broadcast', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = (await res.json()) as { delivered?: number; targets?: number };
+      setBroadcastDraft('');
+      setBroadcastResult(`Delivered to ${json.delivered ?? 0}/${json.targets ?? 0} session(s)`);
+    } catch (e) {
+      setBroadcastResult(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBroadcasting(false);
+    }
+  }, [broadcastDraft, broadcasting]);
 
   // Transient "active" highlights from viz events, keyed by node id → expiry ts.
   // The build effect overlays these so a full rebuild (triggered by any
@@ -1016,6 +1157,10 @@ export function OfficeMapCanvas() {
   // Node activity: keyed by office-map node id, decays over time.
   const vizActivityRef = useRef<Map<string, number>>(new Map());
 
+  // Computed floor-plan position per node id — the "home" the Arrange button
+  // snaps dragged nodes back to. Refreshed every rebuild.
+  const layoutPosRef = useRef<Map<string, { x: number; y: number }>>(new Map());
+
   // Previous (toolCalls, iteration) per agent — drives delta-based movement so a
   // cross-process agent's desk pulses whenever it advances between snapshots.
   const prevAgentStatsRef = useRef<Map<string, { toolCalls: number; iteration: number }>>(new Map());
@@ -1031,49 +1176,74 @@ export function OfficeMapCanvas() {
     const rfEdges: Edge[] = [];
     const now = Date.now();
 
-    const clientXs = layoutClientXs(clients.map((c) => c.id));
+    // Widen client columns when any client fans out multiple agents, so one
+    // client's agent fan never overlaps the neighbouring client's.
+    const maxAgents = Math.max(1, ...clients.map((c) => c.agents.length || 1));
+    const fanCols = Math.min(AGENT_COLS, maxAgents);
+    const dynamicColW = Math.max(CLIENT_COL_W, fanCols * AGENT_FAN_W + 80);
+    const clientXs = layoutClientXs(clients.map((c) => c.id), dynamicColW);
 
     // ── Mailbox Node ──────────────────────────────────────────────
     const unreadCount = mailboxMessages.filter(
       (m) => !m.completed && (m.readByCount ?? 0) === 0,
     ).length;
 
+    // Most recent message (by timestamp) — surfaced on the node + detail panel.
+    const lastMsg = mailboxMessages.length
+      ? [...mailboxMessages].sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))[0]
+      : undefined;
+
     rfNodes.push({
       id: 'mailbox',
       type: 'mailbox',
-      position: { x: CENTER_X, y: MAILBOX_Y },
+      position: { x: CENTER_X + HUB_GAP, y: MAILBOX_Y },
       data: {
         label: 'Mailbox Hub',
         kind: 'mailbox',
         status: unreadCount > 0 ? 'active' : 'idle',
         unreadCount,
         messageCount: mailboxMessages.length,
+        sublabel: lastMsg ? `${lastMsg.from} → ${lastMsg.to}: ${lastMsg.subject}` : undefined,
         color: '#eab308',
       },
     });
 
-    // ── Coordinator Node ─────────────────────────────────────────
+    // ── Fleet totals (project-wide, summed across every client's agents) ──
+    let fleetActive = 0;
+    let fleetAgentsTotal = 0;
+    let fleetTools = 0;
+    let fleetCost = 0;
+    let fleetTokens = 0;
+    for (const c of clients) {
+      for (const a of c.agents) {
+        fleetAgentsTotal += 1;
+        if (a.status === 'active' || a.status === 'streaming') fleetActive += 1;
+        fleetTools += a.toolCalls;
+        fleetCost += a.costUsd;
+        fleetTokens += a.tokensIn + a.tokensOut;
+      }
+    }
+
+    // ── Coordinator Node — live fleet summary ─────────────────────
     const leaderAgent = leaderId ? fleetAgents.get(leaderId) : null;
-    const anyAgentRunning = clients.some((c) =>
-      c.agents.some((a) => a.status === 'active' || a.status === 'streaming'),
-    );
+    const anyAgentRunning = fleetActive > 0;
 
     rfNodes.push({
       id: 'coordinator',
       type: 'coordinator',
-      position: { x: CENTER_X, y: COORD_Y },
+      position: { x: CENTER_X - HUB_GAP, y: COORD_Y },
       data: {
-        label: leaderAgent?.name || 'Fleet Coordinator',
-        sublabel: session?.model || undefined,
+        label: 'Fleet HQ',
+        sublabel: `${clients.length} client${clients.length === 1 ? '' : 's'}`,
         kind: 'coordinator',
         status:
-          leaderAgent?.status === 'failed'
-            ? 'error'
-            : leaderAgent?.status === 'running' || anyAgentRunning
-              ? 'active'
-              : 'idle',
-        iteration: leaderAgent?.iteration || 0,
+          leaderAgent?.status === 'failed' ? 'error' : anyAgentRunning ? 'active' : 'idle',
         connections: clients.length,
+        agentsActive: fleetActive,
+        agentsTotal: fleetAgentsTotal,
+        toolCalls: fleetTools,
+        costUsd: fleetCost,
+        tokensIn: fleetTokens,
         color: '#a855f7',
       },
     });
@@ -1099,6 +1269,7 @@ export function OfficeMapCanvas() {
           sublabel: client.sublabel,
           kind: client.type,
           status: client.status,
+          sessionId: client.sessionId,
           pid: client.pid,
           branch: client.branch,
           workingDir: client.workingDir,
@@ -1159,8 +1330,7 @@ export function OfficeMapCanvas() {
           const cur = vizActivityRef.current.get(agent.officeId) ?? 0;
           vizActivityRef.current.set(agent.officeId, Math.min(1, cur + (1 - cur) * 0.5));
           for (const edgeId of [
-            `coordinator->${agent.officeId}`,
-            `${agent.officeId}->mailbox`,
+            `${client.id}->${agent.officeId}`,
             `${client.id}->coordinator`,
           ]) {
             const e = edgeIntensitiesRef.current.get(edgeId) ?? 0;
@@ -1175,11 +1345,12 @@ export function OfficeMapCanvas() {
         rfNodes.push({
           id: agent.officeId,
           type: 'agent',
-          position: { x: cx, y: AGENT_Y0 + j * AGENT_DY },
+          position: agentFanPos(cx, j, client.agents.length),
           data: {
             label: agent.name,
             kind: 'agent',
             status: agent.status,
+            sessionId: client.sessionId,
             currentTask: agent.currentTask,
             iteration: agent.iteration,
             toolCalls: agent.toolCalls,
@@ -1193,24 +1364,20 @@ export function OfficeMapCanvas() {
           },
         });
 
-        // Wire: Coordinator → Agent (task assignment)
+        // Wire: Client → Agent. Agents belong to their owning client/session,
+        // not the coordinator — so each desk hangs off its own client node.
         rfEdges.push({
-          id: `coordinator->${agent.officeId}`,
-          source: 'coordinator',
+          id: `${client.id}->${agent.officeId}`,
+          source: client.id,
           target: agent.officeId,
           type: 'wire',
           animated: isActive,
-          data: { color: '#a855f7', animated: isActive, label: isActive ? 'task' : undefined, flowType: 'task' },
-        });
-
-        // Wire: Agent → Mailbox
-        rfEdges.push({
-          id: `${agent.officeId}->mailbox`,
-          source: agent.officeId,
-          target: 'mailbox',
-          type: 'wire',
-          animated: false,
-          data: { color: '#06b6d4', animated: false, label: 'mail', flowType: 'mail' },
+          data: {
+            color: '#06b6d4',
+            animated: isActive,
+            label: isActive ? agent.currentTask ?? 'task' : undefined,
+            flowType: 'task',
+          },
         });
       });
     }
@@ -1241,6 +1408,11 @@ export function OfficeMapCanvas() {
       }
       return e;
     });
+
+    // Remember each node's computed home so "Arrange" can snap drags back.
+    const home = new Map<string, { x: number; y: number }>();
+    for (const n of overlaidNodes) home.set(n.id, { ...n.position });
+    layoutPosRef.current = home;
 
     setNodes(overlaidNodes);
     setEdges(overlaidEdges);
@@ -1282,6 +1454,14 @@ export function OfficeMapCanvas() {
     return serverIdToOffice.get(serverId) ?? `agent-${serverId}`;
   }
 
+  // The structural wire for an agent is `client->agent`. Office ids are
+  // namespaced `${clientId}__agent-${serverId}`, so the owning client id is the
+  // prefix before `__agent-` (falls back to the coordinator edge for un-namespaced ids).
+  function agentEdgeId(officeId: string): string {
+    const clientId = officeId.split('__agent-')[0];
+    return clientId && clientId !== officeId ? `${clientId}->${officeId}` : `coordinator->${officeId}`;
+  }
+
   function vizEventToTargets(event: typeof vizEvents[0]): {
     nodes: string[];
     edges: string[];
@@ -1303,7 +1483,7 @@ export function OfficeMapCanvas() {
         const officeId = toOfficeAgentId(event.source);
         return {
           nodes: ['coordinator', officeId],
-          edges: [`coordinator->${officeId}`],
+          edges: [agentEdgeId(officeId)],
           status: 'active',
         };
       }
@@ -1314,7 +1494,7 @@ export function OfficeMapCanvas() {
         const officeId = toOfficeAgentId(event.source);
         return {
           nodes: ['coordinator', officeId],
-          edges: [`coordinator->${officeId}`],
+          edges: [agentEdgeId(officeId)],
           status: event.kind === 'tool:progress' ? 'streaming' : event.kind === 'tool:started' ? 'streaming' : 'active',
         };
       }
@@ -1323,7 +1503,7 @@ export function OfficeMapCanvas() {
         const officeId = toOfficeAgentId(event.target ?? event.source);
         return {
           nodes: [officeId],
-          edges: [`coordinator->${officeId}`],
+          edges: [agentEdgeId(officeId)],
           status: 'active',
         };
       }
@@ -1341,10 +1521,7 @@ export function OfficeMapCanvas() {
       case 'iteration:end':
         return {
           nodes: ['coordinator'],
-          edges: renderedAgents.flatMap((a) => [
-            `coordinator->${a.officeId}`,
-            `${a.officeId}->mailbox`,
-          ]),
+          edges: renderedAgents.map((a) => agentEdgeId(a.officeId)),
           status: event.kind === 'iteration:start' ? 'streaming' : 'active',
         };
 
@@ -1352,7 +1529,7 @@ export function OfficeMapCanvas() {
         const officeId = toOfficeAgentId(event.source);
         return {
           nodes: [officeId],
-          edges: [`coordinator->${officeId}`],
+          edges: [agentEdgeId(officeId)],
           status: 'streaming',
         };
       }
@@ -1361,7 +1538,7 @@ export function OfficeMapCanvas() {
         const officeId = toOfficeAgentId(event.source);
         return {
           nodes: ['coordinator', officeId],
-          edges: [`coordinator->${officeId}`],
+          edges: [agentEdgeId(officeId)],
           status: event.data && typeof event.data === 'object' && 'status' in event.data && String((event.data as Record<string, unknown>).status) === 'failed' ? 'error' : 'completed',
         };
       }
@@ -1550,6 +1727,29 @@ export function OfficeMapCanvas() {
     setSelectedNode(null);
   }, []);
 
+  // Esc closes the expanded watch drawer first (leaving the node selected),
+  // so a single Esc dismisses the big overlay without also deselecting.
+  useEffect(() => {
+    if (!watch) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setWatch(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [watch]);
+
+  // Snap every node back to its computed floor-plan home, then re-fit. Lets the
+  // user tidy the office after dragging nodes around.
+  const onArrange = useCallback(() => {
+    setNodes((nds) =>
+      nds.map((n) => {
+        const home = layoutPosRef.current.get(n.id);
+        return home ? { ...n, position: { ...home } } : n;
+      }),
+    );
+    setTimeout(() => fitView({ padding: 0.2, duration: 300 }), 50);
+  }, [setNodes, fitView]);
+
   // Live indicator pulse
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -1647,6 +1847,45 @@ export function OfficeMapCanvas() {
         }}
         proOptions={{ hideAttribution: true }}
       >
+        <Panel position="top-right" className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onArrange}
+            title="Snap nodes back to the floor plan"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-slate-800/90 border border-slate-700 text-xs text-slate-200 hover:bg-slate-700 transition-colors"
+          >
+            <LayoutGrid className="h-3.5 w-3.5" />
+            Arrange
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowFeed(!showFeed)}
+            title="Toggle the live activity feed"
+            className={cn(
+              'flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border text-xs transition-colors',
+              showFeed
+                ? 'bg-cyan-500/20 border-cyan-500/40 text-cyan-300'
+                : 'bg-slate-800/90 border-slate-700 text-slate-300 hover:bg-slate-700',
+            )}
+          >
+            <ScrollText className="h-3.5 w-3.5" />
+            Feed
+          </button>
+          <button
+            type="button"
+            onClick={() => setBroadcastOpen((v) => !v)}
+            title="Broadcast a message to every live session in this project"
+            className={cn(
+              'flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border text-xs transition-colors',
+              broadcastOpen
+                ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
+                : 'bg-slate-800/90 border-slate-700 text-slate-300 hover:bg-slate-700',
+            )}
+          >
+            <Send className="h-3.5 w-3.5" />
+            Broadcast
+          </button>
+        </Panel>
         {background !== 'none' && (
           <Background
             variant={
@@ -1693,9 +1932,61 @@ export function OfficeMapCanvas() {
         )}
       </ReactFlow>
 
+      {showFeed && <LiveFeed events={vizEvents} now={Date.now()} />}
+
+      {/* Broadcast composer — fan one message out to every live session's leader. */}
+      {broadcastOpen && (
+        <div className="absolute top-16 right-4 z-30 w-80 rounded-lg border border-amber-500/40 bg-slate-900/97 p-3 shadow-2xl backdrop-blur">
+          <div className="mb-1.5 flex items-center justify-between">
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-300">
+              <Send className="h-3.5 w-3.5" /> Broadcast to all sessions
+            </div>
+            <button
+              type="button"
+              onClick={() => setBroadcastOpen(false)}
+              className="text-gray-400 hover:text-white text-base leading-none"
+            >
+              ×
+            </button>
+          </div>
+          <textarea
+            value={broadcastDraft}
+            onChange={(ev) => setBroadcastDraft(ev.target.value)}
+            onKeyDown={(ev) => {
+              if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) {
+                ev.preventDefault();
+                void sendBroadcast();
+              }
+            }}
+            rows={3}
+            placeholder="Message every live agent in this project…"
+            className="w-full resize-none rounded-md border border-slate-700 bg-slate-900/70 px-2 py-1 text-[11px] text-gray-200 placeholder:text-gray-600 focus:border-amber-500/50 focus:outline-none"
+          />
+          <div className="mt-1.5 flex items-center justify-between">
+            <span className="text-[9px] text-gray-600">⌘/Ctrl+Enter to send</span>
+            <button
+              type="button"
+              onClick={() => void sendBroadcast()}
+              disabled={broadcasting || !broadcastDraft.trim()}
+              className="rounded-md border border-amber-500/40 bg-amber-500/20 px-2.5 py-1 text-[11px] text-amber-200 transition-colors hover:bg-amber-500/30 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {broadcasting ? '…' : 'Broadcast'}
+            </button>
+          </div>
+          {broadcastResult && (
+            <div className="mt-1 text-[10px] text-gray-400">{broadcastResult}</div>
+          )}
+        </div>
+      )}
+
       {/* Selected node detail panel */}
       {selectedNode && (
-        <div className="absolute top-20 right-4 w-64 bg-slate-800/95 backdrop-blur border border-slate-700 rounded-lg p-4 shadow-xl z-20">
+        <div
+          className={cn(
+            'absolute top-20 right-4 bg-slate-800/95 backdrop-blur border border-slate-700 rounded-lg p-4 shadow-xl z-20',
+            selectedNode.data.sessionId ? 'w-80' : 'w-64',
+          )}
+        >
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               {selectedNode.data.kind === 'webui' && <Monitor className="h-4 w-4 text-blue-500" />}
@@ -1705,12 +1996,29 @@ export function OfficeMapCanvas() {
               {selectedNode.data.kind === 'mailbox' && <Mail className="h-4 w-4 text-yellow-500" />}
               <span className="text-sm font-bold text-white">{selectedNode.data.label}</span>
             </div>
-            <button
-              onClick={onPaneClick}
-              className="text-gray-400 hover:text-white text-lg"
-            >
-              ×
-            </button>
+            <div className="flex items-center gap-1.5">
+              {selectedNode.data.sessionId && (
+                <button
+                  type="button"
+                  title="Open full operation view"
+                  onClick={() =>
+                    setWatch({
+                      sessionId: selectedNode.data.sessionId!,
+                      label: selectedNode.data.label,
+                    })
+                  }
+                  className="text-gray-400 hover:text-cyan-300"
+                >
+                  <Maximize2 className="h-3.5 w-3.5" />
+                </button>
+              )}
+              <button
+                onClick={onPaneClick}
+                className="text-gray-400 hover:text-white text-lg leading-none"
+              >
+                ×
+              </button>
+            </div>
           </div>
 
           {(() => {
@@ -1771,6 +2079,33 @@ export function OfficeMapCanvas() {
                   <>
                     <Row k="Total messages" v={d.messageCount || 0} accent="text-yellow-400" />
                     <Row k="Unread" v={d.unreadCount || 0} accent="text-yellow-400" />
+                    {mailboxMessages.length > 0 && (
+                      <div className="mt-1 space-y-1 border-t border-slate-700 pt-2">
+                        <div className="text-[10px] uppercase tracking-wide text-gray-500">Recent</div>
+                        {[...mailboxMessages]
+                          .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
+                          .slice(0, 6)
+                          .map((m) => {
+                            const unread = !m.completed && (m.readByCount ?? 0) === 0;
+                            return (
+                              <div key={m.id} className="flex items-start gap-1.5 text-[10px]">
+                                <span
+                                  className={cn(
+                                    'mt-1 h-1.5 w-1.5 shrink-0 rounded-full',
+                                    unread ? 'bg-yellow-400' : m.completed ? 'bg-emerald-500' : 'bg-gray-600',
+                                  )}
+                                />
+                                <div className="min-w-0 flex-1">
+                                  <div className="truncate text-gray-300">{m.subject || '(no subject)'}</div>
+                                  <div className="truncate font-mono text-[9px] text-gray-500">
+                                    {m.from} → {m.to} · {fmtAgo(m.timestamp, now)}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    )}
                   </>
                 )}
 
@@ -1780,9 +2115,44 @@ export function OfficeMapCanvas() {
                     <Row k="Iterations" v={d.iteration || 0} accent="text-purple-400" />
                   </>
                 )}
+
+                {(isAgent || isClient) && d.sessionId && (
+                  <div className="mt-2 border-t border-slate-700 pt-2 h-72">
+                    <SessionWatchPanel sessionId={d.sessionId} />
+                  </div>
+                )}
               </div>
             );
           })()}
+        </div>
+      )}
+
+      {/* Expanded watch drawer — full-height, wide overlay on the right showing
+          the selected agent/client's COMPLETE operation stream + composer. */}
+      {watch && (
+        <div className="absolute inset-y-0 right-0 z-30 flex w-[min(680px,92%)] flex-col border-l border-slate-700 bg-slate-900/97 shadow-2xl backdrop-blur">
+          <div className="flex items-center justify-between border-b border-slate-700 px-4 py-2.5 shrink-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <Bot className="h-4 w-4 text-cyan-400 shrink-0" />
+              <div className="min-w-0">
+                <div className="truncate text-sm font-bold text-white">{watch.label}</div>
+                <div className="text-[10px] uppercase tracking-wide text-cyan-400/70">
+                  Full operation stream
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setWatch(null)}
+              title="Close (Esc)"
+              className="text-gray-400 hover:text-white text-xl leading-none shrink-0"
+            >
+              ×
+            </button>
+          </div>
+          <div className="flex-1 min-h-0 p-4">
+            <SessionWatchPanel sessionId={watch.sessionId} limit={500} />
+          </div>
         </div>
       )}
     </div>

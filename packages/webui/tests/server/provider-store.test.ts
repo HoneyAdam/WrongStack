@@ -124,7 +124,7 @@ describe('ProviderStore', () => {
       expect(cfg.activeKey).toBeUndefined();
     });
 
-    it('writes keys back and sets apiKey to first key when no prior activeKey', () => {
+    it('writes keys back and points activeKey at the first key when none prior', () => {
       const store = makeStore();
       const cfg: ProviderConfig = { type: 'anthropic' };
       store.writeKeysBack(cfg, [
@@ -132,8 +132,10 @@ describe('ProviderStore', () => {
         { label: 'personal', apiKey: 'sk-personal', createdAt: '2025-01-02' },
       ]);
       expect(cfg.apiKeys).toHaveLength(2);
-      expect(cfg.apiKey).toBe('sk-work');
       expect(cfg.activeKey).toBe('work');
+      // No plaintext mirror to the legacy `apiKey`; the secret lives in apiKeys[].
+      expect(cfg.apiKey).toBeUndefined();
+      expect(cfg.apiKeys?.find((k) => k.label === cfg.activeKey)?.apiKey).toBe('sk-work');
     });
 
     it('preserves existing activeKey if it still exists in new keys', () => {
@@ -148,7 +150,8 @@ describe('ProviderStore', () => {
       };
       store.writeKeysBack(cfg, cfg.apiKeys!);
       expect(cfg.activeKey).toBe('personal');
-      expect(cfg.apiKey).toBe('sk-personal');
+      expect(cfg.apiKey).toBeUndefined();
+      expect(cfg.apiKeys?.find((k) => k.label === cfg.activeKey)?.apiKey).toBe('sk-personal');
     });
 
     it('resets activeKey to first key if prior activeKey is gone', () => {
@@ -161,7 +164,8 @@ describe('ProviderStore', () => {
       };
       store.writeKeysBack(cfg, cfg.apiKeys!);
       expect(cfg.activeKey).toBe('work');
-      expect(cfg.apiKey).toBe('sk-work');
+      expect(cfg.apiKey).toBeUndefined();
+      expect(cfg.apiKeys?.find((k) => k.label === cfg.activeKey)?.apiKey).toBe('sk-work');
     });
   });
 

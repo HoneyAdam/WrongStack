@@ -16,6 +16,7 @@ import * as path from 'node:path';
 import {
   buildCspHeader,
   createHttpServer,
+  decodeSessionId,
   injectWsPort,
   isInsideDist,
 } from '../../src/server/http-server.js';
@@ -57,6 +58,27 @@ describe('buildCspHeader', () => {
     expect(csp).toContain('wss://127.0.0.1:3457');
     expect(csp).toContain('ws://[::1]:3457');
     expect(csp).toContain("frame-ancestors 'none'");
+  });
+});
+
+describe('decodeSessionId', () => {
+  it('decodes the %2F-encoded slash in a session id (regression for Fleet HQ 404s)', () => {
+    // Session ids carry a literal slash (`YYYY-MM-DD/HH-MM-SSZ_…`); the frontend
+    // sends it as `%2F` via encodeURIComponent. The registry is keyed by the
+    // decoded id, so the route must decode before lookup — otherwise every
+    // /api/sessions/:id/{events,message,agents} request 404s.
+    const encoded = '2026-06-19%2F06-47-34Z_MiniMax-M2-7-highspeed_439b';
+    expect(decodeSessionId(encoded)).toBe('2026-06-19/06-47-34Z_MiniMax-M2-7-highspeed_439b');
+  });
+
+  it('passes through an already-decoded id unchanged', () => {
+    expect(decodeSessionId('plain-id')).toBe('plain-id');
+  });
+
+  it('falls back to the raw segment on malformed percent-encoding (no throw)', () => {
+    // A lone `%` makes decodeURIComponent throw; the helper must swallow it so
+    // the caller still produces a clean 404 instead of a 500.
+    expect(decodeSessionId('bad%')).toBe('bad%');
   });
 });
 
@@ -139,5 +161,132 @@ describe('createHttpServer', () => {
     expect(res.headers.get('x-content-type-options')).toBe('nosniff');
     expect(res.headers.get('x-frame-options')).toBe('DENY');
     expect(res.headers.get('referrer-policy')).toBe('strict-origin-when-cross-origin');
+  });
+});
+
+describe('GET /api/sessions/:id/events (watch stream)', () => {
+  let gRoot: string;
+  let evServer: import('node:http').Server;
+  let evBase: string;
+  const sessionId = 'test-watch-1';
+  const projectRoot = path.join(os.tmpdir(), 'watch-proj-fixture');
+
+  beforeAll(async () => {
+    const { resolveWstackPaths } = await import('@wrongstack/core');
+    gRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'webui-watch-'));
+
+    // One live session in the registry pointing at our fixture project.
+    const entry = {
+      sessionId,
+      projectSlug: 'fixture',
+      projectName: 'Fixture',
+      projectRoot,
+      workingDir: projectRoot,
+      status: 'active',
+      clientType: 'tui',
+      pid: 1234,
+      startedAt: new Date().toISOString(),
+      lastHeartbeatAt: new Date().toISOString(),
+      agentCount: 0,
+      agents: [],
+    };
+    await fs.writeFile(
+      path.join(gRoot, 'session-registry.json'),
+      JSON.stringify({ [sessionId]: entry }),
+    );
+
+    // The session's JSONL, written to the same path the handler resolves.
+    const paths = resolveWstackPaths({ projectRoot, globalRoot: gRoot });
+    await fs.mkdir(paths.projectSessions, { recursive: true });
+    const lines =
+      [
+        { type: 'session_start', ts: '2026-06-18T00:00:00Z', id: sessionId, model: 'm', provider: 'p' },
+        { type: 'user_input', ts: '2026-06-18T00:00:01Z', content: 'hello there' },
+        { type: 'tool_use', ts: '2026-06-18T00:00:02Z', name: 'read_file', id: 't1', input: {} },
+        {
+          type: 'llm_response',
+          ts: '2026-06-18T00:00:03Z',
+          content: [{ type: 'text', text: 'hi back' }],
+          stopReason: 'end',
+          usage: {},
+        },
+      ]
+        .map((e) => JSON.stringify(e))
+        .join('\n') + '\n';
+    await fs.writeFile(path.join(paths.projectSessions, `${sessionId}.jsonl`), lines);
+
+    evServer = createHttpServer({ host: '127.0.0.1', distDir, wsPort: 9998, globalRoot: gRoot });
+    await new Promise<void>((resolve) => evServer.listen(0, '127.0.0.1', resolve));
+    const addr = evServer.address();
+    if (!addr || typeof addr === 'string') throw new Error('bad listen address');
+    evBase = `http://127.0.0.1:${addr.port}`;
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((resolve) => evServer.close(() => resolve()));
+    await fs.rm(gRoot, { recursive: true, force: true });
+  });
+
+  it('replays a session into compact watch entries (user / tool / assistant)', async () => {
+    const res = await fetch(`${evBase}/api/sessions/${sessionId}/events`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      sessionId: string;
+      clientType?: string;
+      entries: Array<{ role: string; text: string; tool?: string }>;
+    };
+    expect(body.sessionId).toBe(sessionId);
+    expect(body.clientType).toBe('tui');
+    const roles = body.entries.map((e) => e.role);
+    expect(roles).toContain('user');
+    expect(roles).toContain('tool');
+    expect(roles).toContain('assistant');
+    expect(body.entries.find((e) => e.role === 'user')?.text).toContain('hello there');
+    expect(body.entries.find((e) => e.role === 'tool')?.tool).toBe('read_file');
+    expect(body.entries.find((e) => e.role === 'assistant')?.text).toContain('hi back');
+  });
+
+  it('404s an unknown session', async () => {
+    const res = await fetch(`${evBase}/api/sessions/does-not-exist/events`);
+    expect(res.status).toBe(404);
+  });
+
+  it('POST .../message delivers a steer message to the session mailbox', async () => {
+    const { mailboxSessionTag, GlobalMailbox, resolveWstackPaths } = await import(
+      '@wrongstack/core'
+    );
+    const res = await fetch(`${evBase}/api/sessions/${sessionId}/message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: 'please run the tests' }),
+    });
+    expect(res.status).toBe(200);
+    const out = (await res.json()) as { to: string };
+    const tag = mailboxSessionTag(sessionId);
+    expect(out.to).toBe(`leader@${tag}`);
+
+    // It must actually land in the project mailbox the target session reads.
+    const paths = resolveWstackPaths({ projectRoot, globalRoot: gRoot });
+    const mailbox = new GlobalMailbox(paths.projectDir);
+    const msgs = await mailbox.query({ to: `leader@${tag}` });
+    expect(msgs.some((m) => m.body === 'please run the tests' && m.type === 'steer')).toBe(true);
+  });
+
+  it('POST .../message 400s on empty text', async () => {
+    const res = await fetch(`${evBase}/api/sessions/${sessionId}/message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: '   ' }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('POST .../message 404s an unknown session', async () => {
+    const res = await fetch(`${evBase}/api/sessions/nope/message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: 'hi' }),
+    });
+    expect(res.status).toBe(404);
   });
 });

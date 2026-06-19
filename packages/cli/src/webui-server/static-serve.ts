@@ -36,6 +36,15 @@ export interface StaticServeOptions {
   httpPort: number;
   wsPort: number;
   globalRoot: string;
+  /** Push-on-write hook for `POST /api/fleet/ping` (immediate fleet re-broadcast). */
+  onFleetPing?: (() => void) | undefined;
+  /**
+   * Shared auth token for `/ws-auth` and `/api/*` endpoints. Required for
+   * the cookie-based auth flow: the frontend extracts this from the URL,
+   * calls `/ws-auth?token=...` to get an HttpOnly cookie, then uses the
+   * cookie for subsequent WS upgrades (closing C-598 query-string exposure).
+   */
+  apiToken?: string | undefined;
 }
 
 /**
@@ -84,6 +93,8 @@ export function startStaticServe(
     distDir,
     wsPort: opts.wsPort,
     globalRoot: opts.globalRoot,
+    onFleetPing: opts.onFleetPing,
+    apiToken: opts.apiToken,
   });
 
   server.listen(opts.httpPort, opts.host);

@@ -39,8 +39,10 @@ export function normalizeKeys(cfg: ProviderConfig): ProviderApiKey[] {
 
 /**
  * Write a normalized key list back onto a provider config: drop all key fields
- * when empty, otherwise sync `apiKeys`, the legacy `apiKey` mirror (the active
- * key), and re-point `activeKey` if it no longer names a present key.
+ * when empty, otherwise sync `apiKeys` and re-point `activeKey` if it no longer
+ * names a present key. Does NOT mirror the plaintext key to the legacy `apiKey`
+ * field — that would leak the secret on accidental serialization. Consumers
+ * that need the real key should read from `apiKeys[]` directly.
  */
 export function writeKeysBack(cfg: ProviderConfig, keys: ProviderApiKey[]): void {
   if (keys.length === 0) {
@@ -51,7 +53,8 @@ export function writeKeysBack(cfg: ProviderConfig, keys: ProviderApiKey[]): void
   }
   cfg.apiKeys = keys;
   const active = keys.find((k) => k.label === cfg.activeKey) ?? expectDefined(keys[0]);
-  cfg.apiKey = active.apiKey;
+  // Do NOT mirror plaintext to cfg.apiKey — cleared to prevent serialization leaks.
+  delete cfg.apiKey;
   if (!cfg.activeKey || !keys.some((k) => k.label === cfg.activeKey)) {
     cfg.activeKey = active.label;
   }

@@ -73,6 +73,7 @@ export function OfficeMapSettings() {
   const animateEdges = useOfficeMapStore((s) => s.animateEdges);
   const showLegend = useOfficeMapStore((s) => s.showLegend);
   const showHud = useOfficeMapStore((s) => s.showHud);
+  const showFeed = useOfficeMapStore((s) => s.showFeed);
   const background = useOfficeMapStore((s) => s.background);
 
   const setShowMinimap = useOfficeMapStore((s) => s.setShowMinimap);
@@ -80,6 +81,7 @@ export function OfficeMapSettings() {
   const setAnimateEdges = useOfficeMapStore((s) => s.setAnimateEdges);
   const setShowLegend = useOfficeMapStore((s) => s.setShowLegend);
   const setShowHud = useOfficeMapStore((s) => s.setShowHud);
+  const setShowFeed = useOfficeMapStore((s) => s.setShowFeed);
   const setBackground = useOfficeMapStore((s) => s.setBackground);
 
   const runningAgents = Array.from(fleetAgents.values()).filter((a) => a.status === 'running').length;
@@ -163,6 +165,13 @@ export function OfficeMapSettings() {
               checked={showLegend}
               onChange={setShowLegend}
               label="Toggle legend"
+            />
+          </SettingRow>
+          <SettingRow label="Live feed" description="Bottom strip of recent cross-process activity">
+            <Toggle
+              checked={showFeed}
+              onChange={setShowFeed}
+              label="Toggle live feed"
             />
           </SettingRow>
         </div>

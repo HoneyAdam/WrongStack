@@ -79,6 +79,8 @@ export interface AnnounceWebuiReadyParams {
   httpPort: number;
   wsPort: number;
   open: boolean;
+  /** Auth token for WS connections. Included in the URL so the frontend can exchange it for an HttpOnly cookie via /ws-auth. */
+  wsToken?: string;
   log?: (msg: string) => void;
   openBrowserFn?: (url: string) => void;
 }
@@ -90,7 +92,11 @@ export interface AnnounceWebuiReadyParams {
 export function announceWebuiReady(p: AnnounceWebuiReadyParams): void {
   const log = p.log ?? ((m: string) => console.log(m));
   const launch = p.openBrowserFn ?? openBrowser;
-  const openUrl = `http://${p.host}:${p.httpPort}`;
+  // Include the auth token in the URL so the frontend can exchange it for an HttpOnly cookie.
+  // This closes C-598 (query-string token exposure) after the first /ws-auth request.
+  const openUrl = p.wsToken
+    ? `http://${p.host}:${p.httpPort}?token=${encodeURIComponent(p.wsToken)}`
+    : `http://${p.host}:${p.httpPort}`;
   p.server.on('listening', () => {
     log(
       `\n  ▸ WebUI ready — open \x1b[1m${openUrl}\x1b[0m in your browser` +

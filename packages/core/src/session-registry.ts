@@ -48,6 +48,12 @@ export interface AgentEntry {
   ctxPct?: number | undefined;
   /** Model id this agent is running on, when known. */
   model?: string | undefined;
+  /**
+   * Tail of the assistant text currently being streamed (capped, throttled).
+   * Lets a cross-process watcher see the response form in near-real-time
+   * instead of waiting for the completed turn to land in the session log.
+   */
+  partialText?: string | undefined;
   /** UTC ISO timestamp of last activity. */
   lastActivityAt: string;
 }
@@ -88,6 +94,9 @@ export interface SessionRegistryEntry {
 const REGISTRY_FILE = 'session-registry.json';
 const HEARTBEAT_INTERVAL_MS = 5_000;
 const STALE_TIMEOUT_MS = 30_000; // entry considered stale after 30s without heartbeat
+// A session that announced `closing` (heartbeat stopped) is dropped this long
+// after its last heartbeat, so the fleet view doesn't keep a dead client around.
+const CLOSING_GRACE_MS = 15_000;
 // A held lock is released within milliseconds; anything older is a crashed
 // owner's leftover and is safe to break so writes never wedge permanently.
 const STALE_LOCK_MS = 10_000;
@@ -322,6 +331,13 @@ export class SessionRegistry {
 
       for (const [id, entry] of Object.entries(registry)) {
         const heartbeatAge = now - new Date(entry.lastHeartbeatAt).getTime();
+        // Cleanly-closed session: drop after a short grace (handles both a fully
+        // exited process and one still alive but done) so no dead client lingers.
+        if (entry.status === 'closing' && heartbeatAge > CLOSING_GRACE_MS) {
+          delete registry[id];
+          pruned = true;
+          continue;
+        }
         if (heartbeatAge > STALE_TIMEOUT_MS && !pidAlive(entry.pid)) {
           entry.status = 'stale';
           // Keep stale entries for 5 minutes so UIs can show "recently closed"

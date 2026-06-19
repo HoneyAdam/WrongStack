@@ -29,6 +29,18 @@ export const ENHANCE_DELAY_PRESETS = [30_000, 45_000, 60_000, 90_000, 120_000];
 export const ENHANCE_LANGUAGES = ['original', 'english'] as const;
 export type EnhanceLanguage = (typeof ENHANCE_LANGUAGES)[number];
 
+/** Token-saving tier options — cyclable via ←/→ in the settings picker. */
+export const TOKEN_SAVING_TIERS = ['off', 'minimal', 'light', 'medium', 'aggressive'] as const;
+export type TokenSavingTierTui = (typeof TOKEN_SAVING_TIERS)[number];
+
+export const TOKEN_SAVING_TIER_DESCS: Record<TokenSavingTierTui, string> = {
+  off: 'All tools enabled (full prompt)',
+  minimal: '~3–4k tokens — core tools only',
+  light: '~2–3k tokens — core + patterns',
+  medium: '~1.5–2k tokens — most tools enabled',
+  aggressive: '~4–5k tokens — trimmed prompt',
+};
+
 export function formatSettingsDelay(ms: number): string {
   if (ms === 0) return 'disabled';
   if (ms >= 60_000) return `${Math.round(ms / 60_000)}m`;
@@ -69,8 +81,8 @@ export interface SettingsPickerProps {
   featureMemory: boolean;
   featureSkills: boolean;
   featureModelsRegistry: boolean;
-  /** Token-saving mode: omits non-essential tools and trims system prompt. */
-  featureTokenSaving: boolean;
+  /** Token-saving tier: off | minimal | light | medium | aggressive. */
+  tokenSavingTier: TokenSavingTierTui;
   /** Allow tools to read/write paths outside the project root directory. Default: true. */
   allowOutsideProjectRoot: boolean;
   // ── Context ──
@@ -122,7 +134,7 @@ export function SettingsPicker({
   featureMemory,
   featureSkills,
   featureModelsRegistry,
-  featureTokenSaving,
+  tokenSavingTier,
   allowOutsideProjectRoot,
   contextAutoCompact,
   contextStrategy,
@@ -218,8 +230,8 @@ export function SettingsPicker({
     },
     {
       label: 'Token-saving mode',
-      value: boolVal(featureTokenSaving),
-      detail: 'Omit non-essential tools and trim system prompt to save tokens',
+      value: tokenSavingTier,
+      detail: TOKEN_SAVING_TIER_DESCS[tokenSavingTier],
     },
     {
       label: 'Allow outside project',

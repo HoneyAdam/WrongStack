@@ -13,6 +13,7 @@ import type {
   QueueStore,
   SlashCommandRegistry,
   TokenCounter,
+  TokenSavingTier,
 } from '@wrongstack/core';
 import { type AutonomyStage, DefaultSessionRewinder } from '@wrongstack/core';
 import { loadGoal, resolveWstackPaths } from '@wrongstack/core';
@@ -882,7 +883,7 @@ export function App({
     },
     autonomyPicker: { open: false, options: [], selected: 0 },
     resumePicker: { open: false, sessions: [], selected: 0, busy: false, hint: undefined, error: undefined },
-    settingsPicker: { open: false, field: 0, mode: 'off', delayMs: 0, titleAnimation: true, yolo: false, streamFleet: true, chime: false, confirmExit: true, nextPrediction: false, featureMcp: true, featurePlugins: true, featureMemory: true, featureSkills: true, featureModelsRegistry: true, featureTokenSaving: false, allowOutsideProjectRoot: true, restrictFsToRoot: false, contextAutoCompact: true, contextStrategy: 'hybrid', logLevel: 'info', auditLevel: 'standard', indexOnStart: true, maxIterations: 500, autoProceedMaxIterations: 50, enhanceDelayMs: 60_000, enhanceEnabled: true, enhanceLanguage: 'original', debugStream: false, configScope: 'global' },
+    settingsPicker: { open: false, field: 0, mode: 'off', delayMs: 0, titleAnimation: true, yolo: false, streamFleet: true, chime: false, confirmExit: true, nextPrediction: false, featureMcp: true, featurePlugins: true, featureMemory: true, featureSkills: true, featureModelsRegistry: true, tokenSavingTier: 'off' as TokenSavingTier, allowOutsideProjectRoot: true, restrictFsToRoot: false, contextAutoCompact: true, contextStrategy: 'hybrid', logLevel: 'info', auditLevel: 'standard', indexOnStart: true, maxIterations: 500, autoProceedMaxIterations: 50, enhanceDelayMs: 60_000, enhanceEnabled: true, enhanceLanguage: 'original', debugStream: false, configScope: 'global' },
     projectPicker: { open: false, allItems: [], items: [], selected: 0, filter: '', hint: undefined },
     confirmQueue: [],
     enhance: null,
@@ -1830,7 +1831,7 @@ export function App({
             featureMemory: sp.featureMemory,
             featureSkills: sp.featureSkills,
             featureModelsRegistry: sp.featureModelsRegistry,
-            featureTokenSaving: sp.featureTokenSaving,
+            tokenSavingTier: sp.tokenSavingTier,
             allowOutsideProjectRoot: sp.allowOutsideProjectRoot,
             contextAutoCompact: sp.contextAutoCompact,
             contextStrategy: sp.contextStrategy,
@@ -2369,7 +2370,7 @@ export function App({
       featureMemory: s.featureMemory ?? true,
       featureSkills: s.featureSkills ?? true,
       featureModelsRegistry: s.featureModelsRegistry ?? true,
-      featureTokenSaving: s.featureTokenSaving ?? false,
+      tokenSavingTier: s.featureTokenSaving ?? 'off' as TokenSavingTier,
       allowOutsideProjectRoot: s.allowOutsideProjectRoot ?? true,
       contextAutoCompact: s.contextAutoCompact ?? true,
       contextStrategy: s.contextStrategy ?? 'hybrid',
@@ -2578,7 +2579,7 @@ export function App({
       featureMemory: sp.featureMemory,
       featureSkills: sp.featureSkills,
       featureModelsRegistry: sp.featureModelsRegistry,
-      featureTokenSaving: sp.featureTokenSaving,
+      featureTokenSaving: sp.tokenSavingTier,
       allowOutsideProjectRoot: sp.allowOutsideProjectRoot,
       contextAutoCompact: sp.contextAutoCompact,
       contextStrategy: sp.contextStrategy,
@@ -2611,7 +2612,7 @@ export function App({
     state.settingsPicker.featureMemory,
     state.settingsPicker.featureSkills,
     state.settingsPicker.featureModelsRegistry,
-    state.settingsPicker.featureTokenSaving,
+    state.settingsPicker.tokenSavingTier,
     state.settingsPicker.allowOutsideProjectRoot,
     state.settingsPicker.contextAutoCompact,
     state.settingsPicker.contextStrategy,
@@ -4283,7 +4284,7 @@ export function App({
           featureMemory: cfg.featureMemory ?? true,
           featureSkills: cfg.featureSkills ?? true,
           featureModelsRegistry: cfg.featureModelsRegistry ?? true,
-          featureTokenSaving: cfg.featureTokenSaving ?? false,
+          tokenSavingTier: cfg.featureTokenSaving ?? 'off' as TokenSavingTier,
           allowOutsideProjectRoot: cfg.allowOutsideProjectRoot ?? true,
           contextAutoCompact: cfg.contextAutoCompact ?? true,
           contextStrategy: cfg.contextStrategy ?? 'hybrid',
@@ -5748,7 +5749,7 @@ export function App({
               featureMemory={state.settingsPicker.featureMemory}
               featureSkills={state.settingsPicker.featureSkills}
               featureModelsRegistry={state.settingsPicker.featureModelsRegistry}
-              featureTokenSaving={state.settingsPicker.featureTokenSaving}
+              tokenSavingTier={state.settingsPicker.tokenSavingTier}
               allowOutsideProjectRoot={state.settingsPicker.allowOutsideProjectRoot}
               contextAutoCompact={state.settingsPicker.contextAutoCompact}
               contextStrategy={state.settingsPicker.contextStrategy}
@@ -5952,7 +5953,7 @@ export function App({
             autoProceedCountdown={state.countdown?.remainingSeconds ?? null}
             sessionCount={sessionCount}
             mailbox={mailboxStatus}
-            tokenSavingMode={getSettings ? getSettings().featureTokenSaving : tokenSavingMode}
+            tokenSavingMode={getSettings ? getSettings().featureTokenSaving !== 'off' : tokenSavingMode}
             toolCount={toolCount}
           />
           </Box>

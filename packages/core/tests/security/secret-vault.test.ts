@@ -8,6 +8,7 @@ import {
   decryptConfigSecrets,
   encryptConfigSecrets,
   rewriteConfigEncrypted,
+  rotateConfigKeys,
 } from '../../src/security/secret-vault.js';
 
 async function makeVault() {
@@ -218,6 +219,233 @@ describe('DefaultSecretVault', () => {
     expect(raw.version).toBe(1);
     expect(raw.providers.foo.apiKey.startsWith('enc:v1:')).toBe(true);
     expect(vault.decrypt(raw.providers.foo.apiKey)).toBe('newkey');
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+});
+
+describe('Key rotation', () => {
+  it('starts at keyVersion 1 for new vaults', async () => {
+    const { dir, vault } = await makeVault();
+    expect(vault.keyVersion).toBe(1);
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it('encrypt emits enc:v1: prefix before rotation', async () => {
+    const { dir, vault } = await makeVault();
+    const enc = vault.encrypt('secret');
+    expect(enc.startsWith('enc:v1:')).toBe(true);
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it('rotateKey increments version and writes versioned key file', async () => {
+    const { dir, keyFile, vault } = await makeVault();
+    // Encrypt something with v1 key
+    const v1Enc = vault.encrypt('secret-v1');
+    expect(v1Enc.startsWith('enc:v1:')).toBe(true);
+    expect(vault.keyVersion).toBe(1);
+
+    // Rotate the key
+    const result = vault.rotateKey();
+    expect(result.oldVersion).toBe(1);
+    expect(result.newVersion).toBe(2);
+    expect(vault.keyVersion).toBe(2);
+
+    // Key file should now be 37 bytes (4 magic + 1 version + 32 key)
+    const stat = fsSync.statSync(keyFile);
+    expect(stat.size).toBe(37);
+
+    // New encryptions should use v2 prefix
+    const v2Enc = vault.encrypt('secret-v2');
+    expect(v2Enc.startsWith('enc:v2:')).toBe(true);
+
+    // v1-encrypted values CANNOT be decrypted after rotation
+    // because the key material changed (this is the whole point of rotation)
+    expect(() => vault.decrypt(v1Enc)).toThrow();
+    // But v2-encrypted values work fine
+    expect(vault.decrypt(v2Enc)).toBe('secret-v2');
+
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it('rotateKey generates a new key that differs from the old one', async () => {
+    const { dir, keyFile, vault } = await makeVault();
+    const v1Enc = vault.encrypt('test');
+
+    // Read the old key
+    const oldKey = fsSync.readFileSync(keyFile);
+
+    // Rotate
+    vault.rotateKey();
+
+    // Read the new key
+    const newKey = fsSync.readFileSync(keyFile);
+
+    // Keys should differ (after stripping the 5-byte header from new key)
+    expect(newKey.length).toBe(37);
+    expect(oldKey.length).toBe(32);
+    // The actual key material (last 32 bytes of new key) should differ from old key
+    const newKeyMaterial = newKey.subarray(5);
+    expect(newKeyMaterial.equals(oldKey)).toBe(false);
+
+    // Old encrypted value should fail to decrypt with new key
+    // (because the key material changed, not just the prefix)
+    expect(() => vault.decrypt(v1Enc)).toThrow();
+
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it('multiple rotations increment version correctly', async () => {
+    const { dir, vault } = await makeVault();
+    expect(vault.keyVersion).toBe(1);
+
+    vault.rotateKey();
+    expect(vault.keyVersion).toBe(2);
+
+    vault.rotateKey();
+    expect(vault.keyVersion).toBe(3);
+
+    vault.rotateKey();
+    expect(vault.keyVersion).toBe(4);
+
+    const enc = vault.encrypt('test');
+    expect(enc.startsWith('enc:v4:')).toBe(true);
+
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it('isEncrypted recognizes all version prefixes', async () => {
+    const { dir, vault } = await makeVault();
+    expect(vault.isEncrypted('enc:v1:abc:def:ghi')).toBe(true);
+    expect(vault.isEncrypted('enc:v2:abc:def:ghi')).toBe(true);
+    expect(vault.isEncrypted('enc:v99:abc:def:ghi')).toBe(true);
+    expect(vault.isEncrypted('enc:v0:abc:def:ghi')).toBe(true);
+    expect(vault.isEncrypted('plaintext')).toBe(false);
+    expect(vault.isEncrypted('enc:invalid')).toBe(false);
+    expect(vault.isEncrypted('')).toBe(false);
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it('new vault instance reads versioned key file correctly', async () => {
+    const { dir, keyFile, vault: vault1 } = await makeVault();
+    vault1.rotateKey(); // Now at v2
+    const enc = vault1.encrypt('secret');
+    expect(enc.startsWith('enc:v2:')).toBe(true);
+
+    // Create a new vault instance pointing to the same key file
+    const vault2 = new DefaultSecretVault({ keyFile });
+    expect(vault2.keyVersion).toBe(2);
+    expect(vault2.decrypt(enc)).toBe('secret');
+
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it('legacy 32-byte key file is still readable', async () => {
+    const { dir, keyFile } = await makeVault();
+    // Write a legacy 32-byte key file
+    const legacyKey = Buffer.alloc(32, 0xAB);
+    fsSync.writeFileSync(keyFile, legacyKey);
+
+    const vault = new DefaultSecretVault({ keyFile });
+    expect(vault.keyVersion).toBe(1);
+
+    // Should be able to encrypt/decrypt
+    const enc = vault.encrypt('test');
+    expect(enc.startsWith('enc:v1:')).toBe(true);
+    expect(vault.decrypt(enc)).toBe('test');
+
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it('rotateConfigKeys re-encrypts all secrets with new key', async () => {
+    const { dir, keyFile, vault } = await makeVault();
+    const cfgPath = path.join(dir, 'config.json');
+
+    // Write a config with v1-encrypted secrets
+    const secret1 = 'api-key-1';
+    const secret2 = 'api-key-2';
+    const enc1 = vault.encrypt(secret1);
+    const enc2 = vault.encrypt(secret2);
+    expect(enc1.startsWith('enc:v1:')).toBe(true);
+
+    await fs.writeFile(
+      cfgPath,
+      JSON.stringify({
+        version: 1,
+        providers: {
+          anthropic: { apiKey: enc1 },
+          openai: { apiKey: enc2 },
+        },
+      }),
+    );
+
+    // Rotate
+    const result = await rotateConfigKeys(cfgPath, vault);
+    expect(result.oldVersion).toBe(1);
+    expect(result.newVersion).toBe(2);
+    expect(result.rotated).toBe(2);
+
+    // Read back the config
+    const after = JSON.parse(await fs.readFile(cfgPath, 'utf8')) as {
+      providers: { anthropic: { apiKey: string }; openai: { apiKey: string } };
+    };
+
+    // All secrets should now be v2-encrypted
+    expect(after.providers.anthropic.apiKey.startsWith('enc:v2:')).toBe(true);
+    expect(after.providers.openai.apiKey.startsWith('enc:v2:')).toBe(true);
+
+    // Should decrypt correctly with the new key
+    expect(vault.decrypt(after.providers.anthropic.apiKey)).toBe(secret1);
+    expect(vault.decrypt(after.providers.openai.apiKey)).toBe(secret2);
+
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it('rotateConfigKeys handles missing config file gracefully', async () => {
+    const { dir, vault } = await makeVault();
+    const cfgPath = path.join(dir, 'nonexistent.json');
+
+    const result = await rotateConfigKeys(cfgPath, vault);
+    expect(result.rotated).toBe(0);
+    expect(result.oldVersion).toBe(1);
+    expect(result.newVersion).toBe(2);
+    expect(vault.keyVersion).toBe(2);
+
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it('rotateConfigKeys handles config with no encrypted fields', async () => {
+    const { dir, vault } = await makeVault();
+    const cfgPath = path.join(dir, 'config.json');
+
+    await fs.writeFile(
+      cfgPath,
+      JSON.stringify({
+        version: 1,
+        providers: {
+          anthropic: { type: 'anthropic', baseUrl: 'https://api.example.com' },
+        },
+      }),
+    );
+
+    const result = await rotateConfigKeys(cfgPath, vault);
+    expect(result.rotated).toBe(0);
+    expect(result.oldVersion).toBe(1);
+    expect(result.newVersion).toBe(2);
+
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it('rotateConfigKeys handles malformed JSON gracefully', async () => {
+    const { dir, vault } = await makeVault();
+    const cfgPath = path.join(dir, 'config.json');
+
+    await fs.writeFile(cfgPath, 'not valid json {{{');
+
+    const result = await rotateConfigKeys(cfgPath, vault);
+    expect(result.rotated).toBe(0);
+    // Key should NOT be rotated if config is malformed
+    expect(vault.keyVersion).toBe(1);
+
     await fs.rm(dir, { recursive: true, force: true });
   });
 });

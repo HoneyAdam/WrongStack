@@ -299,7 +299,8 @@ full payload/outcome schema and the security model.
     "plugins": true,
     "memory": true,
     "modelsRegistry": true,
-    "skills": true
+    "skills": true,
+    "tokenSavingMode": "off"
   }
 }
 ```
@@ -311,6 +312,28 @@ full payload/outcome schema and the security model.
 | `memory` | `boolean` | `true` | Register `remember`/`forget` tools backed by memory store. |
 | `modelsRegistry` | `boolean` | `true` | Fetch models.dev catalog at startup. Set `false` for offline use. |
 | `skills` | `boolean` | `true` | Discover and load skills from disk. |
+| `tokenSavingMode` | `TokenSavingTier` | `"off"` | Token-saving level for the system prompt. Controls tool count, description length, and guidance sections. |
+
+### Token-saving tiers
+
+`tokenSavingMode` replaces the old boolean `--token-saving-mode` flag with a multi-level system:
+
+| Tier | Tools | Tool descriptions | Est. savings |
+|------|-------|-----------------|-------------|
+| `off` | All 36 | 80 chars | 0 tokens |
+| `minimal` | 10 (TIER1 only) | 40 chars | ~3–4k tokens |
+| `light` | 10 (TIER1 only) | 50 chars | ~2–3k tokens |
+| `medium` | 24 (TIER1 + TIER2) | 60 chars | ~1.5–2k tokens |
+| `aggressive` | 34 (TIER1 + TIER2 + TIER3 − task) | 70 chars | ~4–5k tokens |
+
+CLI flags:
+- `--token-saving-tier minimal` — set tier directly
+- `--token-saving-mode` — still works, maps to `medium` tier (backward compatible)
+- `--token-saving-tier off` — disable (same as omitting the flag)
+
+In the TUI, use `/settings` and navigate to the **Token Saving** row. Press `←`/`→` to cycle through tiers. A `↻ Takes effect next session` hint appears because the setting requires a restart.
+
+**Deprecated:** `true`/`false` boolean values for `tokenSavingMode` are still accepted and mapped: `true` → `"medium"`, `false` → `"off"`.
 
 All flags are independent. `--no-features` sets all to `false`.
 

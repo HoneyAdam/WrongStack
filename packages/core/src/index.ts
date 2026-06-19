@@ -165,8 +165,8 @@ export type {
 export type { Logger, LogLevel } from './types/logger.js';
 export type { CacheStats, TokenCounter } from './types/token-counter.js';
 export type { ProviderRunner, RunProviderOptions } from './types/provider-runner.js';
-export type { SecretVault } from './types/secret-vault.js';
-export { noOpVault } from './types/secret-vault.js';
+export type { SecretVault, RotatableSecretVault } from './types/secret-vault.js';
+export { noOpVault, encryptedPrefixForVersion, parseEncryptedVersion } from './types/secret-vault.js';
 export type { Compactor, CompactReport } from './types/compactor.js';
 export { DefaultSecretScrubber } from './security/secret-scrubber.js';
 export type { SecretScrubber } from './types/secret-scrubber.js';

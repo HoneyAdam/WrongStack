@@ -3,9 +3,12 @@ import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import type { Logger } from '../types/logger.js';
-import type { SecretVault } from '../types/secret-vault.js';
+import type { RotatableSecretVault, SecretVault } from '../types/secret-vault.js';
 import { ConfigError, ERROR_CODES } from '../types/errors.js';
-import { ENCRYPTED_PREFIX } from '../types/secret-vault.js';
+import {
+  ENCRYPTED_PREFIX_PATTERN,
+  encryptedPrefixForVersion,
+} from '../types/secret-vault.js';
 import { atomicWrite } from '../utils/atomic-write.js';
 
 export interface SecretVaultOptions {
@@ -19,6 +22,13 @@ const TAG_BYTES = 16;
 const ALGO = 'aes-256-gcm';
 // Desired file mode for the key file on POSIX systems.
 const KEY_FILE_MODE = 0o600;
+
+/**
+ * Key file format v2+: 4-byte magic + 1-byte version + 32-byte key = 37 bytes.
+ * The magic header distinguishes versioned key files from legacy 32-byte raw keys.
+ */
+const KEY_FILE_MAGIC = Buffer.from('WSKV', 'ascii');
+const VERSIONED_KEY_FILE_SIZE = KEY_FILE_MAGIC.length + 1 + KEY_BYTES; // 37 bytes
 
 /**
  * Check and warn if the key file has incorrect permissions on POSIX.
@@ -51,17 +61,32 @@ function checkKeyFilePermissions(keyFile: string): void {
  * The key is loaded lazily on first encrypt/decrypt; if it does not exist,
  * a fresh one is generated. Decryption of plaintext values is a no-op so
  * legacy configs continue to work.
+ *
+ * Key file format:
+ *   - Legacy (v1): exactly 32 raw bytes
+ *   - Versioned (v2+): 4-byte magic `WSKV` + 1-byte version + 32-byte key (37 bytes)
+ *
+ * Encrypted value format: `enc:v<N>:<iv>:<tag>:<ciphertext>` where N is the
+ * key version. After rotation, encrypt() emits the new version prefix.
  */
-export class DefaultSecretVault implements SecretVault {
+export class DefaultSecretVault implements RotatableSecretVault {
   private readonly keyFile: string;
   private key?: Buffer | undefined;
+  private _keyVersion: number = 1;
 
   constructor(opts: SecretVaultOptions) {
     this.keyFile = opts.keyFile;
   }
 
+  /** Current key version. Starts at 1; incremented by rotateKey(). */
+  get keyVersion(): number {
+    // Ensure key is loaded so version is accurate
+    if (!this.key) this.loadOrCreateKey();
+    return this._keyVersion;
+  }
+
   isEncrypted(value: string): boolean {
-    return typeof value === 'string' && value.startsWith(ENCRYPTED_PREFIX);
+    return typeof value === 'string' && ENCRYPTED_PREFIX_PATTERN.test(value);
   }
 
   encrypt(plaintext: string): string {
@@ -71,12 +96,22 @@ export class DefaultSecretVault implements SecretVault {
     const cipher = createCipheriv(ALGO, key, iv);
     const ct = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
     const tag = cipher.getAuthTag();
-    return `${ENCRYPTED_PREFIX}${iv.toString('base64')}:${tag.toString('base64')}:${ct.toString('base64')}`;
+    const prefix = encryptedPrefixForVersion(this._keyVersion);
+    return `${prefix}${iv.toString('base64')}:${tag.toString('base64')}:${ct.toString('base64')}`;
   }
 
   decrypt(value: string): string {
     if (!this.isEncrypted(value)) return value;
-    const rest = value.slice(ENCRYPTED_PREFIX.length);
+    // Strip the versioned prefix (enc:v1:, enc:v2:, etc.)
+    const prefixMatch = value.match(ENCRYPTED_PREFIX_PATTERN);
+    if (!prefixMatch) {
+      throw new ConfigError({
+        message: 'SecretVault: malformed encrypted value',
+        code: ERROR_CODES.CONFIG_PARSE_FAILED,
+        context: { field: 'encrypted_value' },
+      });
+    }
+    const rest = value.slice(prefixMatch[0].length);
     const parts = rest.split(':');
     if (parts.length !== 3) {
       throw new ConfigError({
@@ -106,6 +141,31 @@ export class DefaultSecretVault implements SecretVault {
     return pt.toString('utf8');
   }
 
+  /**
+   * Generate a new encryption key, write it to disk, and increment the key version.
+   * After rotation, encrypt() emits the new version prefix (e.g. enc:v2:).
+   * The caller must re-encrypt existing config values (see rotateConfigKeys()).
+   */
+  rotateKey(): { oldVersion: number; newVersion: number } {
+    const oldVersion = this._keyVersion;
+    const newKey = randomBytes(KEY_BYTES);
+    const newVersion = oldVersion + 1;
+
+    // Write versioned key file: WSKV + version byte + key
+    const keyFileBuf = Buffer.alloc(VERSIONED_KEY_FILE_SIZE);
+    KEY_FILE_MAGIC.copy(keyFileBuf, 0);
+    keyFileBuf[KEY_FILE_MAGIC.length] = newVersion;
+    newKey.copy(keyFileBuf, KEY_FILE_MAGIC.length + 1);
+
+    fs.mkdirSync(path.dirname(this.keyFile), { recursive: true });
+    fs.writeFileSync(this.keyFile, keyFileBuf, { mode: 0o600 });
+    checkKeyFilePermissions(this.keyFile);
+
+    this.key = newKey;
+    this._keyVersion = newVersion;
+    return { oldVersion, newVersion };
+  }
+
   private loadOrCreateKey(): Buffer {
     // readFileSync blocks the event loop, but this is a one-time cost per
     // process: the key is cached after the first load and reused for every
@@ -117,23 +177,50 @@ export class DefaultSecretVault implements SecretVault {
     if (this.key) return this.key;
     try {
       const buf = fs.readFileSync(this.keyFile);
-      if (buf.length !== KEY_BYTES) {
-        // A wrong-size key is not ENOENT — the file is corrupted or was
-        // tampered with. Throwing instead of falling through to create a
-        // new key protects all secrets encrypted under this key; the user
-        // can remove the file manually to generate a fresh key.
-        throw new ConfigError({
-          message:
-            `SecretVault: key file ${this.keyFile} is ${buf.length} bytes ` +
-            `(expected ${KEY_BYTES}). Remove it manually to generate a new key.`,
-          code: ERROR_CODES.CONFIG_INVALID,
-          context: { keyFile: this.keyFile, expectedBytes: KEY_BYTES, actualBytes: buf.length },
-        });
+
+      // Detect key file format:
+      if (buf.length === KEY_BYTES) {
+        // Legacy v1: raw 32-byte key
+        this.key = buf;
+        this._keyVersion = 1;
+        checkKeyFilePermissions(this.keyFile);
+        return this.key;
       }
-      this.key = buf;
-      // Warn if the key file has wrong permissions (defense-in-depth).
-      checkKeyFilePermissions(this.keyFile);
-      return this.key;
+
+      if (buf.length === VERSIONED_KEY_FILE_SIZE) {
+        // Versioned v2+: WSKV magic + version byte + 32-byte key
+        const magic = buf.subarray(0, KEY_FILE_MAGIC.length);
+        if (!magic.equals(KEY_FILE_MAGIC)) {
+          throw new ConfigError({
+            message: `SecretVault: key file ${this.keyFile} has invalid magic header`,
+            code: ERROR_CODES.CONFIG_INVALID,
+            context: { keyFile: this.keyFile },
+          });
+        }
+        const version = buf[KEY_FILE_MAGIC.length]!;
+        const key = buf.subarray(KEY_FILE_MAGIC.length + 1);
+        if (key.length !== KEY_BYTES) {
+          throw new ConfigError({
+            message: `SecretVault: key file ${this.keyFile} has wrong key size (${key.length} bytes, expected ${KEY_BYTES})`,
+            code: ERROR_CODES.CONFIG_INVALID,
+            context: { keyFile: this.keyFile, expectedBytes: KEY_BYTES, actualBytes: key.length },
+          });
+        }
+        this.key = Buffer.from(key);
+        this._keyVersion = version;
+        checkKeyFilePermissions(this.keyFile);
+        return this.key;
+      }
+
+      // Wrong size — neither legacy nor versioned format
+      throw new ConfigError({
+        message:
+          `SecretVault: key file ${this.keyFile} is ${buf.length} bytes ` +
+          `(expected ${KEY_BYTES} for v1 or ${VERSIONED_KEY_FILE_SIZE} for v2+). ` +
+          `Remove it manually to generate a new key.`,
+        code: ERROR_CODES.CONFIG_INVALID,
+        context: { keyFile: this.keyFile, expectedBytes: KEY_BYTES, actualBytes: buf.length },
+      });
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
     }
@@ -149,25 +236,41 @@ export class DefaultSecretVault implements SecretVault {
       if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
       // Another process won the race — re-read what they wrote.
       const buf = fs.readFileSync(this.keyFile);
-      if (buf.length !== KEY_BYTES) {
-        // A wrong-size key is not ENOENT — the file is corrupted or was
-        // tampered with. Throwing instead of falling through to create a
-        // new key protects all secrets encrypted under this key; the user
-        // can remove the file manually to generate a fresh key.
-        throw new ConfigError({
-          message:
-            `SecretVault: key file ${this.keyFile} is ${buf.length} bytes ` +
-            `(expected ${KEY_BYTES}). Remove it manually to generate a new key.`,
-          code: ERROR_CODES.CONFIG_INVALID,
-          context: { keyFile: this.keyFile, expectedBytes: KEY_BYTES, actualBytes: buf.length },
-        });
+      if (buf.length === KEY_BYTES) {
+        // Legacy v1 format
+        this.key = buf;
+        this._keyVersion = 1;
+        checkKeyFilePermissions(this.keyFile);
+        return this.key;
       }
-      this.key = buf;
-      // Warn if the key file has wrong permissions (defense-in-depth).
-      checkKeyFilePermissions(this.keyFile);
-      return this.key;
+      if (buf.length === VERSIONED_KEY_FILE_SIZE) {
+        // Versioned format
+        const magic = buf.subarray(0, KEY_FILE_MAGIC.length);
+        if (!magic.equals(KEY_FILE_MAGIC)) {
+          throw new ConfigError({
+            message: `SecretVault: key file ${this.keyFile} has invalid magic header`,
+            code: ERROR_CODES.CONFIG_INVALID,
+            context: { keyFile: this.keyFile },
+          });
+        }
+        const version = buf[KEY_FILE_MAGIC.length]!;
+        const winnerKey = buf.subarray(KEY_FILE_MAGIC.length + 1);
+        this.key = Buffer.from(winnerKey);
+        this._keyVersion = version;
+        checkKeyFilePermissions(this.keyFile);
+        return this.key;
+      }
+      throw new ConfigError({
+        message:
+          `SecretVault: key file ${this.keyFile} is ${buf.length} bytes ` +
+          `(expected ${KEY_BYTES} for v1 or ${VERSIONED_KEY_FILE_SIZE} for v2+). ` +
+          `Remove it manually to generate a new key.`,
+        code: ERROR_CODES.CONFIG_INVALID,
+        context: { keyFile: this.keyFile, expectedBytes: KEY_BYTES, actualBytes: buf.length },
+      });
     }
     this.key = key;
+    this._keyVersion = 1;
     return key;
   }
 }
@@ -308,6 +411,128 @@ export async function migratePlaintextSecrets(
     logger ? { warn: (msg) => logger.warn(msg) } : undefined,
   );
   return { migrated: counter.n, file: configPath };
+}
+
+/**
+ * Rotate the vault's encryption key and re-encrypt all secret-bearing
+ * fields in a config file. This is the atomic key rotation operation:
+ *
+ * 1. Read the config file
+ * 2. Decrypt all encrypted values with the old key
+ * 3. Generate a new key (vault.rotateKey())
+ * 4. Re-encrypt all values with the new key (new version prefix)
+ * 5. Write the config file atomically
+ *
+ * Returns the number of fields re-encrypted and the version transition.
+ * If the config file doesn't exist or has no encrypted fields, returns
+ * { rotated: 0 } without modifying the key.
+ */
+export async function rotateConfigKeys(
+  configPath: string,
+  vault: RotatableSecretVault,
+  logger?: Pick<Logger, 'warn' | 'info'>,
+): Promise<{ rotated: number; oldVersion: number; newVersion: number; file: string }> {
+  const log = logger?.info ?? (() => {});
+  const warn = logger?.warn ?? ((msg: string) => console.warn(msg));
+
+  // Read the config file
+  let raw: string;
+  try {
+    raw = await fsp.readFile(configPath, 'utf8');
+  } catch {
+    // No config file — just rotate the key without re-encrypting anything
+    const { oldVersion, newVersion } = vault.rotateKey();
+    log(`[secret-vault] Key rotated (v${oldVersion} → v${newVersion}) — no config file to re-encrypt`);
+    return { rotated: 0, oldVersion, newVersion, file: configPath };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    warn(`[secret-vault] Config file ${configPath} is not valid JSON — skipping rotation`);
+    return { rotated: 0, oldVersion: vault.keyVersion, newVersion: vault.keyVersion, file: configPath };
+  }
+
+  // Count encrypted fields and decrypt them
+  const counter = { n: 0 };
+  const decrypted = walkDecryptCount(parsed, vault, counter);
+
+  if (counter.n === 0) {
+    // No encrypted fields — just rotate the key
+    const { oldVersion, newVersion } = vault.rotateKey();
+    log(`[secret-vault] Key rotated (v${oldVersion} → v${newVersion}) — no encrypted fields to re-encrypt`);
+    return { rotated: 0, oldVersion, newVersion, file: configPath };
+  }
+
+  // Rotate the key (generates new key, increments version)
+  const { oldVersion, newVersion } = vault.rotateKey();
+
+  // Re-encrypt all secret fields with the new key
+  const reencrypted = walkReencrypt(decrypted, vault);
+
+  // Write the config file atomically
+  await atomicWrite(configPath, JSON.stringify(reencrypted, null, 2), { mode: 0o600 });
+  await restrictFilePermissions(configPath, { warn });
+
+  log(`[secret-vault] Key rotated (v${oldVersion} → v${newVersion}) — re-encrypted ${counter.n} field(s)`);
+  return { rotated: counter.n, oldVersion, newVersion, file: configPath };
+}
+
+/**
+ * Walk a config object, decrypt all encrypted values, and count them.
+ * Returns a new object with decrypted values.
+ */
+function walkDecryptCount<T>(node: T, vault: SecretVault, counter: { n: number }): T {
+  if (node === null || node === undefined) return node;
+  if (typeof node !== 'object') return node;
+  if (Array.isArray(node)) {
+    return node.map((item) => walkDecryptCount(item, vault, counter)) as unknown as T;
+  }
+  const out: Record<string, unknown> = Object.create(null);
+  for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+    if (typeof v === 'string' && vault.isEncrypted(v)) {
+      try {
+        out[k] = vault.decrypt(v);
+        counter.n++;
+      } catch {
+        // Decryption failed — leave the value as-is (will be re-encrypted as plaintext)
+        out[k] = v;
+      }
+    } else if (typeof v === 'object' && v !== null) {
+      out[k] = walkDecryptCount(v, vault, counter);
+    } else {
+      out[k] = v;
+    }
+  }
+  return out as T;
+}
+
+/**
+ * Walk a config object and re-encrypt all secret-bearing fields.
+ * Unlike encryptConfigSecrets, this encrypts ALL string values that
+ * were previously decrypted (they're now plaintext), not just those
+ * matching the secret field pattern. This ensures we re-encrypt values
+ * that were successfully decrypted in walkDecryptCount.
+ */
+function walkReencrypt<T>(node: T, vault: SecretVault): T {
+  if (node === null || node === undefined) return node;
+  if (typeof node !== 'object') return node;
+  if (Array.isArray(node)) {
+    return node.map((item) => walkReencrypt(item, vault)) as unknown as T;
+  }
+  const out: Record<string, unknown> = Object.create(null);
+  for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+    if (typeof v === 'string' && isSecretField(k) && v.length > 0 && !vault.isEncrypted(v)) {
+      // This was a decrypted secret — re-encrypt it
+      out[k] = vault.encrypt(v);
+    } else if (typeof v === 'object' && v !== null) {
+      out[k] = walkReencrypt(v, vault);
+    } else {
+      out[k] = v;
+    }
+  }
+  return out as T;
 }
 
 /**

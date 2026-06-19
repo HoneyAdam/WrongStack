@@ -23,6 +23,8 @@ interface OfficeMapState {
   showControls: boolean;
   /** Animate the dashed flow along active wires. */
   animateEdges: boolean;
+  /** Bottom Live Activity feed (recent cross-process viz events). */
+  showFeed: boolean;
   /** Background grid style. */
   background: BackgroundStyle;
 
@@ -31,6 +33,7 @@ interface OfficeMapState {
   setShowMinimap: (v: boolean) => void;
   setShowControls: (v: boolean) => void;
   setAnimateEdges: (v: boolean) => void;
+  setShowFeed: (v: boolean) => void;
   setBackground: (v: BackgroundStyle) => void;
 }
 
@@ -42,6 +45,7 @@ export const useOfficeMapStore = create<OfficeMapState>()(
       showMinimap: true,
       showControls: true,
       animateEdges: true,
+      showFeed: true,
       background: 'dots',
 
       setShowHud: (v) => set({ showHud: v }),
@@ -49,6 +53,7 @@ export const useOfficeMapStore = create<OfficeMapState>()(
       setShowMinimap: (v) => set({ showMinimap: v }),
       setShowControls: (v) => set({ showControls: v }),
       setAnimateEdges: (v) => set({ animateEdges: v }),
+      setShowFeed: (v) => set({ showFeed: v }),
       setBackground: (v) => set({ background: v }),
     }),
     { name: 'wrongstack-officemap' },

@@ -83,12 +83,35 @@ describe('startStaticServe', () => {
       distDir: '/resolved/dist',
       wsPort: 3457,
       globalRoot: '/tmp/.wrongstack',
+      apiToken: undefined,
     });
     // Binds the *http* port, not the ws port.
     expect(fake.listenCalls).toEqual([[3456, '127.0.0.1']]);
     // Returns the requested http port (see function doc).
     expect(handle.port).toBe(3456);
     expect(handle.server).toBe(fake);
+  });
+
+  it('passes apiToken to createHttpServer when provided', () => {
+    const fake = new FakeServer();
+    const createServer = vi.fn(() => fake as unknown as Server);
+
+    const handle = startStaticServe(
+      { ...baseOpts, apiToken: 'test-token-123' },
+      {
+        resolveDist: () => '/resolved/dist',
+        createServer,
+      },
+    ) as StaticServeHandle;
+
+    expect(handle).not.toBeNull();
+    expect(createServer).toHaveBeenCalledWith({
+      host: '127.0.0.1',
+      distDir: '/resolved/dist',
+      wsPort: 3457,
+      globalRoot: '/tmp/.wrongstack',
+      apiToken: 'test-token-123',
+    });
   });
 
   it('does not swallow a real createServer failure', () => {

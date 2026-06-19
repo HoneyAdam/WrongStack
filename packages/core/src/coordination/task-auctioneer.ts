@@ -582,9 +582,15 @@ export class TaskAuctioneer {
 
   private _startBidWindow(taskId: string): void {
     this._cancelBidWindow(taskId);
-    const timer = setTimeout(async () => {
+    const timer = setTimeout(() => {
       this.bidTimers.delete(taskId);
-      await this._evaluateBids(taskId);
+      // Fire-and-forget: the timer owns this promise, so swallow rejections
+      // (e.g. a graph write that lands after the surrounding scope has torn
+      // down — EPERM on a removed dir) instead of letting them escape as an
+      // unhandled rejection that fails the whole run.
+      void this._evaluateBids(taskId).catch(() => {
+        /* best-effort — bid window fired with nothing left to write to */
+      });
     }, this.bidWindowMs);
     this.bidTimers.set(taskId, timer);
   }

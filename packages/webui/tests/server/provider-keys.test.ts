@@ -53,21 +53,22 @@ describe('writeKeysBack', () => {
     expect(cfg.activeKey).toBeUndefined();
   });
 
-  it('mirrors the active key into the legacy apiKey field', () => {
+  it('clears the legacy apiKey field to prevent serialization leaks', () => {
     const cfg: ProviderConfig = { type: 'x', activeKey: 'b' };
     writeKeysBack(cfg, [
       { label: 'a', apiKey: 'ka', createdAt: NOW },
       { label: 'b', apiKey: 'kb', createdAt: NOW },
     ]);
-    expect(cfg.apiKey).toBe('kb');
+    expect(cfg.apiKey).toBeUndefined();
     expect(cfg.activeKey).toBe('b');
+    expect(cfg.apiKeys).toHaveLength(2);
   });
 
   it('re-points activeKey to the first key when it no longer exists', () => {
     const cfg: ProviderConfig = { type: 'x', activeKey: 'gone' };
     writeKeysBack(cfg, [{ label: 'a', apiKey: 'ka', createdAt: NOW }]);
     expect(cfg.activeKey).toBe('a');
-    expect(cfg.apiKey).toBe('ka');
+    expect(cfg.apiKey).toBeUndefined();
   });
 });
 
@@ -148,7 +149,7 @@ describe('setActiveKey', () => {
     });
   });
 
-  it('switches the active key and mirrors its secret', () => {
+  it('switches the active key; the secret stays in apiKeys (no plaintext mirror)', () => {
     const providers: ProvidersRecord = {
       openai: {
         type: 'openai',
@@ -162,7 +163,12 @@ describe('setActiveKey', () => {
     const r = setActiveKey(providers, 'openai', 'b');
     expect(r.ok).toBe(true);
     expect(providers.openai?.activeKey).toBe('b');
-    expect(providers.openai?.apiKey).toBe('kb');
+    // The legacy plaintext `apiKey` mirror is intentionally not written — the
+    // real secret is read from `apiKeys[]` keyed by the active label.
+    expect(providers.openai?.apiKey).toBeUndefined();
+    expect(
+      providers.openai?.apiKeys?.find((k) => k.label === providers.openai?.activeKey)?.apiKey,
+    ).toBe('kb');
   });
 });
 

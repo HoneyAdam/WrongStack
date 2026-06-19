@@ -16,6 +16,7 @@ import {
   MAX_ITERATIONS_PRESETS,
   SETTINGS_FIELD_COUNT,
   SETTINGS_MODES,
+  TOKEN_SAVING_TIERS,
 } from './components/settings-picker.js';
 import type {
   Action,
@@ -558,7 +559,7 @@ export function reducer(state: State, action: Action): State {
           featureMemory: action.featureMemory,
           featureSkills: action.featureSkills,
           featureModelsRegistry: action.featureModelsRegistry,
-          featureTokenSaving: action.featureTokenSaving,
+          tokenSavingTier: action.tokenSavingTier,
           allowOutsideProjectRoot: action.allowOutsideProjectRoot,
           contextAutoCompact: action.contextAutoCompact,
           contextStrategy: action.contextStrategy,
@@ -629,8 +630,13 @@ export function reducer(state: State, action: Action): State {
       if (f === 10) return { ...state, settingsPicker: { ...sp, featureMemory: !sp.featureMemory, hint: bootHint } };
       if (f === 11) return { ...state, settingsPicker: { ...sp, featureSkills: !sp.featureSkills, hint: bootHint } };
       if (f === 12) return { ...state, settingsPicker: { ...sp, featureModelsRegistry: !sp.featureModelsRegistry, hint: bootHint } };
-      // Field 13: Token-saving mode (boolean)
-      if (f === 13) return { ...state, settingsPicker: { ...sp, featureTokenSaving: !sp.featureTokenSaving, hint: bootHint } };
+      // Field 13: Token-saving tier (cycle via ←/→)
+      if (f === 13) {
+        const i = TOKEN_SAVING_TIERS.indexOf(sp.tokenSavingTier as (typeof TOKEN_SAVING_TIERS)[number]);
+        const base = i < 0 ? 0 : i;
+        const next = (base + action.delta + TOKEN_SAVING_TIERS.length) % TOKEN_SAVING_TIERS.length;
+        return { ...state, settingsPicker: { ...sp, tokenSavingTier: TOKEN_SAVING_TIERS[next] ?? 'off', hint: bootHint } };
+      }
       // Field 14: allow outside project root (boolean)
       if (f === 14) return { ...state, settingsPicker: { ...sp, allowOutsideProjectRoot: !sp.allowOutsideProjectRoot, hint: undefined } };
       // Field 15: context auto-compact (boolean)

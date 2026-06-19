@@ -15,6 +15,7 @@ import type {
   SystemPromptBuilder,
 } from '../types/system-prompt.js';
 import type { MailboxAgentStatus } from '../coordination/mailbox-types.js';
+import type { TokenSavingTier } from '../types/config.js';
 import type { Tool } from '../types/tool.js';
 
 export const LAYER_1_IDENTITY = DEFAULT_PROMPT;
@@ -52,13 +53,22 @@ export interface DefaultSystemPromptBuilderOptions {
    */
   contributors?: readonly SystemPromptContributor[] | undefined;
   /**
-   * Token-saving mode: when enabled, skill bodies are omitted, tool usage
-   * hints are trimmed, and optional guidance sections (delegation, mailbox,
-   * context management) use minimal versions to reduce per-request tokens.
-   * Enabled via `--token-saving-mode` CLI flag or `features.tokenSavingMode`
-   * in config.
+   * Token-saving mode tier. Controls how aggressively the system prompt is
+   * compacted: skill bodies are omitted/trimmed, tool hints are shortened,
+   * and optional guidance sections (delegation, mailbox, context management)
+   * use minimal versions to reduce per-request tokens.
+   *
+   * - 'off'        — Full guidance (no reduction)
+   * - 'minimal'    — TIER1 tools, stripped guidance
+   * - 'light'     — TIER1 + memory tools, minimal patterns
+   * - 'medium'    — TIER1 + TIER2 tools, some guidance
+   * - 'aggressive' — Maximum reduction before tools become unusable
+   *
+   * Boolean values are accepted for backward compatibility:
+   * - `true`  → 'medium'
+   * - `false` → 'off'
    */
-  tokenSavingMode?: boolean | undefined;
+  tokenSavingMode?: TokenSavingTier | boolean | undefined;
 }
 
 export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
@@ -80,6 +90,41 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
   /** Cached full buildToolUsage output — keyed by tools array + online agents refs. */
   private _toolsUsageCache?: { toolsRef: readonly Tool[]; agentsRef: readonly MailboxAgentStatus[] | undefined; text: string } | undefined;
   constructor(private readonly opts: DefaultSystemPromptBuilderOptions = {}) {}
+
+  /**
+   * Normalizes `tokenSavingMode` to a boolean for backward-compatible boolean checks.
+   * - `undefined` / `false` / `'off'` → false
+   * - `true` / any tier string other than `'off'` → true
+   */
+  private get isCompact(): boolean {
+    const val = this.opts.tokenSavingMode;
+    if (!val) return false;
+    if (typeof val === 'boolean') return val;
+    return val !== 'off';
+  }
+
+  /** Exposes the normalized `TokenSavingTier` for tier-aware guidance decisions. */
+  private get tier(): TokenSavingTier {
+    const val = this.opts.tokenSavingMode;
+    if (typeof val === 'string') return val;
+    if (val === true) return 'medium';
+    return 'off';
+  }
+
+  /**
+   * Returns the max tool description length for the current tier.
+   * Per the design doc: off=80, minimal=40, light=50, medium=60, aggressive=70.
+   */
+  private toolDescLimit(): number {
+    switch (this.tier) {
+      case 'minimal':    return 40;
+      case 'light':      return 50;
+      case 'medium':     return 60;
+      case 'aggressive': return 70;
+      case 'off':
+      default:            return 80;
+    }
+  }
 
   async build(ctx: BuildContext): Promise<TextBlock[]> {
     this._lastBuildTools = ctx.tools;
@@ -280,20 +325,18 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
     }
 
     const lines = ['## Tool usage'];
+    const descLimit = this.toolDescLimit();
 
     // Categorized tools
     for (const [cat, catTools] of byCat) {
       lines.push(`\n### ${cat}`);
       for (const t of catTools) {
         const hint = t.usageHint ?? t.description;
-        // In token-saving mode, trim descriptions aggressively:
-        // keep only the first sentence or 60 chars, whichever is shorter.
-        const desc = this.opts.tokenSavingMode
-          ? hint.length > 60
-            ? hint.slice(0, hint.indexOf('.', 20) + 1 || 60) + (hint.length > 60 ? '…' : '')
-            : hint.trim()
-          : hint.length > 80
-            ? `${hint.slice(0, 77)}...`
+        // Trim to the tier-specific limit, preferring sentence boundaries.
+        const desc =
+          hint.length > descLimit
+            ? hint.slice(0, hint.indexOf('.', 20) + 1 || descLimit) +
+              (hint.length > descLimit ? '…' : '')
             : hint.trim();
         lines.push(`- **${t.name}** — ${desc}`);
       }
@@ -309,8 +352,8 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
     }
 
     // Common tool chain patterns — teaches model how to compose tools effectively.
-    // Skipped in token-saving mode — the model already knows these patterns.
-    if (!this.opts.tokenSavingMode) {
+    // Skipped in minimal tier — model already knows these patterns.
+    if (this.tier !== 'minimal') {
       lines.push(`
 ## Common patterns
 
@@ -327,7 +370,10 @@ When unsure about a file's current state, read it first rather than assuming.`);
     // Without this block the model doesn't know that multi-agent work is
     // even an option, and `delegate` sits unused while the host agent
     // tries to do everything in one expensive context.
-    // In token-saving mode, use a short one-liner instead of the full block.
+    // Tier behaviour:
+    // - 'off' / 'medium' / 'aggressive' → full block
+    // - 'light' → minimal one-liner
+    // - 'minimal' → skipped
     const hasDelegate = tools.some((t) => t.name === 'delegate');
     if (hasDelegate) {
       const delegateTool = tools.find((t) => t.name === 'delegate');
@@ -340,7 +386,9 @@ When unsure about a file's current state, read it first rather than assuming.`);
         return Array.isArray(role) ? (role.filter((r) => typeof r === 'string') as string[]) : [];
       })();
       const roleList = enumValues.length > 0 ? enumValues.join(', ') : '(no roster configured)';
-      if (this.opts.tokenSavingMode) {
+      if (this.tier === 'minimal') {
+        // Skip — don't emit any delegation guidance
+      } else if (this.tier === 'light') {
         lines.push(`## Delegation\n\nUse \`delegate\` to hand work to a subagent (roles: ${roleList}).`);
       } else {
         lines.push(`
@@ -410,16 +458,20 @@ one by one, roll up results), use \`spawn_subagent\` + \`assign_task\` +
     }
 
     // Mailbox guidance — included when any mailbox tool is present.
+    // Tier behaviour:
+    // - 'off' / 'aggressive' → full block
+    // - 'light' / 'medium' → minimal one-liner
+    // - 'minimal' → skipped
     const hasMailbox = tools.some(
       (t) => t.name === 'mailbox' || t.name === 'mail_send' || t.name === 'mail_inbox',
     );
-    if (hasMailbox) {
+    if (hasMailbox && this.tier !== 'minimal') {
       // Build online agents info — cached by array reference since the
       // agents list changes at join/leave pace (seconds to minutes) while
       // the prompt builds happen every iteration (hundreds of ms).
       const onlineAgentsInfo = this.renderOnlineAgents(ctx.onlineAgents);
-      if (this.opts.tokenSavingMode) {
-        // Token-saving: keep just the header and agent count.
+      if (this.tier === 'light' || this.tier === 'medium') {
+        // Minimal: keep just the header and agent count.
         lines.push(`\n## Inter-agent mailbox${onlineAgentsInfo}\n\nUse \`mail_inbox\` for new messages, \`mail_send\` to communicate with other agents.`);
       } else {
         lines.push(`\n## Inter-agent mailbox${onlineAgentsInfo}
@@ -492,15 +544,23 @@ To catch up explicitly:
       }
     }
 
-    // MCP lazy-loading guidance — in token-saving mode, MCP tools are not
-    // registered at startup. The model uses mcp_use or mcp_control activate/deactivate
-    // to temporarily enable specific servers' tools when needed.
+    // MCP lazy-loading guidance — shown whenever mcp_control is registered.
+    // Tier behaviour:
+    // - 'off' / 'medium' / 'aggressive' → full guidance block
+    // - 'minimal' / 'light' → minimal one-liner
     const hasMcpControl = tools.some((t) => t.name === 'mcp_control');
     const hasMcpUse = tools.some((t) => t.name === 'mcp_use');
-    if (hasMcpControl && this.opts.tokenSavingMode) {
-      if (hasMcpUse) {
-        // `mcp_use` is the preferred one-shot meta-tool
-        lines.push(`
+    if (hasMcpControl) {
+      if (this.tier === 'minimal' || this.tier === 'light') {
+        // Minimal one-liner
+        lines.push(
+          hasMcpUse
+            ? `\n## MCP tools (lazy-loaded)\n\nUse \`mcp_use({ server: "<name>", tool: "<bare-tool>", input: { ... } })\` to activate and call MCP tools.`
+            : `\n## MCP tools (lazy-loaded)\n\nUse \`mcp_control({ action: "list" })\` to see available servers, \`mcp_control({ action: "activate", server: "<name>" })\` to register tools.`,
+        );
+      } else {
+        // Full block
+        lines.push(hasMcpUse ? `
 ## MCP tools (lazy-loaded)
 
 MCP server tools are NOT registered by default in token-saving mode to keep
@@ -519,9 +579,7 @@ deactivates — all in one call. No need to track activate/deactivate state.
 4. \`mcp_control({ action: "deactivate", server: "<name>" })\` — clean up
 
 Activation/deactivation is ephemeral (no config writes) and does NOT affect
-the server connection — only tool visibility changes.`);
-      } else {
-        lines.push(`
+the server connection — only tool visibility changes.` : `
 ## MCP tools (lazy-loaded)
 
 MCP server tools are NOT registered by default in token-saving mode to keep
@@ -539,17 +597,23 @@ the server connection — only tool visibility changes.`);
       }
     }
 
-    // Context management guidance — included when context_manager is present.
-    // This layer teaches the model WHEN and HOW to use it proactively.
-    // Skipped in token-saving mode — the model is already instructed to
-    // compact proactively in the core identity prompt.
+    // Context management guidance — shown when context_manager is registered.
+    // Tier behaviour:
+    // - 'off' / 'aggressive' → full block
+    // - 'medium' → minimal one-liner
+    // - 'minimal' / 'light' → skipped
     const hasContextManager = tools.some((t) => t.name === 'context_manager');
-    if (hasContextManager && !this.opts.tokenSavingMode) {
-      // Adaptive threshold based on model context window size.
-      // Small context (<=32k) → trigger earlier; large context (>=128k) → more relaxed.
-      const maxCtx = this.opts.modelCapabilities?.maxContextTokens ?? 128000;
-      const threshold = maxCtx <= 32000 ? '50' : '70';
-      lines.push(`
+    if (hasContextManager) {
+      if (this.tier === 'minimal' || this.tier === 'light') {
+        // Skip
+      } else if (this.tier === 'medium') {
+        lines.push(`\n## Context management\n\nUse \`context_manager\` to manage context. Call \`{"action":"check"}\` to see token budget.`);
+      } else {
+        // Adaptive threshold based on model context window size.
+        // Small context (<=32k) → trigger earlier; large context (>=128k) → more relaxed.
+        const maxCtx = this.opts.modelCapabilities?.maxContextTokens ?? 128000;
+        const threshold = maxCtx <= 32000 ? '50' : '70';
+        lines.push(`
 ## Context management
 
 When the conversation grows long and context window usage exceeds what you can track,
@@ -562,6 +626,7 @@ use the context_manager tool proactively — do NOT wait to be told:
 
 **Never** stuff redundant information into a tool result. If you summarize a file, do not paste its full content —
 summarize it, and let the tool result hold only the summary.`);
+      }
     }
 
     // Store cache — keyed by reference so it auto-invalidates when tools
@@ -577,6 +642,10 @@ summarize it, and let the tool result hold only the summary.`);
    * build turn (hundreds of ms). Reference equality avoids re-stringifying
    * the same array on every iteration while still being correct when the
    * caller passes a fresh array.
+   *
+   * Tier behaviour:
+   * - 'off' / 'medium' / 'aggressive' → full list with names, sessions, sources
+   * - 'minimal' / 'light' → count only (no list)
    */
   private renderOnlineAgents(
     agents: readonly MailboxAgentStatus[] | undefined,
@@ -590,6 +659,13 @@ summarize it, and let the tool result hold only the summary.`);
     }
 
     const totalCount = agents.length;
+    // minimal / light tiers: count only, no list
+    if (this.tier === 'minimal' || this.tier === 'light') {
+      const text = ` (${totalCount} agent${totalCount !== 1 ? 's' : ''} online)`;
+      this._lastOnlineAgents = { ref: agents, text };
+      return text;
+    }
+
     const agentList = agents
       .map(
         (a) =>
@@ -617,36 +693,63 @@ summarize it, and let the tool result hold only the summary.`);
       this.detectLanguages(ctx.projectRoot),
     ]);
 
-    const lines = [
-      '## Environment',
-      '',
-      `- Operating system: ${platform}`,
-      `- Shell: ${shell}`,
-      `- Node.js: ${node}`,
-      `- Detected languages: ${langs}`,
-      `- Git status: ${git}`,
-      `- Today's date: ${today}`,
-    ];
-    if (ctx.provider || ctx.model) {
-      lines.push(
-        `- Running on: ${ctx.provider ?? '<unknown provider>'}/${ctx.model ?? '<unknown model>'}`,
-      );
+    // Tier-aware environment block content.
+    // - 'off':        Full — all fields
+    // - 'minimal':    Compact single line — git + date only
+    // - 'light':      +platform
+    // - 'medium':     +languages
+    // - 'aggressive': +capabilities (context window, provider/model)
+    const tier = this.tier;
+    const lines: string[] = ['## Environment'];
+
+    if (tier === 'minimal') {
+      // Single compact line
+      lines.push(`- Git: ${git} | Date: ${today}`);
+    } else {
+      lines.push(`- Operating system: ${platform}`);
+      if (tier !== 'light') {
+        lines.push(`- Shell: ${shell}`);
+        lines.push(`- Node.js: ${node}`);
+      }
+      if (tier === 'medium' || tier === 'aggressive') {
+        lines.push(`- Detected languages: ${langs}`);
+      }
+      lines.push(`- Git status: ${git}`);
+      lines.push(`- Today's date: ${today}`);
+      if (tier === 'aggressive') {
+        if (ctx.provider || ctx.model) {
+          lines.push(
+            `- Running on: ${ctx.provider ?? '<unknown provider>'}/${ctx.model ?? '<unknown model>'}`,
+          );
+        }
+        if (this.opts.modelCapabilities) {
+          lines.push(
+            `- Context window: ${this.opts.modelCapabilities.maxContextTokens.toLocaleString()} tokens max`,
+          );
+        }
+      }
+      if (tier !== 'aggressive' && this.opts.modelCapabilities) {
+        lines.push(
+          `- Context window: ${this.opts.modelCapabilities.maxContextTokens.toLocaleString()} tokens max`,
+        );
+      }
+      if (tier !== 'aggressive' && (ctx.provider || ctx.model)) {
+        lines.push(
+          `- Running on: ${ctx.provider ?? '<unknown provider>'}/${ctx.model ?? '<unknown model>'}`,
+        );
+      }
+      if (tier !== 'aggressive' && this.opts.modeId && this.opts.modeId !== 'default') {
+        lines.push(`- Mode: ${this.opts.modeId}`);
+      }
     }
-    if (this.opts.modeId && this.opts.modeId !== 'default') {
-      lines.push(`- Mode: ${this.opts.modeId}`);
-    }
-    if (this.opts.modelCapabilities) {
-      lines.push(
-        `- Context window: ${this.opts.modelCapabilities.maxContextTokens.toLocaleString()} tokens max`,
-      );
-    }
+
     if (this.skillCache) {
       lines.push(
         '',
         '## Skills in scope for this session',
         this.skillCache,
         '',
-        this.opts.tokenSavingMode
+        this.isCompact
           ? 'Compact skill instructions are injected in the Active Skills block below (Overview + Rules only).'
           : 'Full skill instructions are injected in the Active Skills block below.',
       );
@@ -658,6 +761,9 @@ summarize it, and let the tool result hold only the summary.`);
 
   private async buildMemoryAndSkills(): Promise<string> {
     const parts: string[] = [];
+    // Memory injection count per tier: off=8, minimal=3, light=5, medium=8, aggressive=8
+    const memoryCount = this.tier === 'minimal' ? 3 : this.tier === 'light' ? 5 : 8;
+    const compactMemory = this.tier === 'minimal'; // compact = text only, no badges/tags
     if (this.opts.memoryStore) {
       try {
         // Use relevance scoring when available, fall back to full dump.
@@ -669,16 +775,18 @@ summarize it, and let the tool result hold only the summary.`);
               toolNames,
             },
             'project-memory',
-            8,
+            memoryCount,
           );
           if (scored.length > 0) {
             const lines: string[] = ['# Relevant Memory'];
             for (const e of scored) {
-              const badge = e.type
-                ? `[\`${e.type.replace('_', '-')}\`] `
-                : '';
-              const priorityMark = e.priority === 'critical' ? '⚡' : e.priority === 'high' ? '▲' : '';
-              lines.push(`- ${priorityMark}${badge}${e.text}${e.tags ? ` \`#${e.tags.join(' #')}\`` : ''}`);
+              if (compactMemory) {
+                lines.push(`- ${e.text}`);
+              } else {
+                const badge = e.type ? `[\`${e.type.replace('_', '-')}\`] ` : '';
+                const priorityMark = e.priority === 'critical' ? '⚡' : e.priority === 'high' ? '▲' : '';
+                lines.push(`- ${priorityMark}${badge}${e.text}${e.tags ? ` \`#${e.tags.join(' #')}\`` : ''}`);
+              }
             }
             parts.push(lines.join('\n'));
           }
@@ -697,7 +805,7 @@ summarize it, and let the tool result hold only the summary.`);
     // In token-saving mode, skill bodies are compacted to save tokens:
     // only the Overview and Rules sections (~400 chars max per skill).
     if (this.opts.skillLoader) {
-      if (this.opts.tokenSavingMode) {
+      if (this.isCompact) {
         // Compact mode — build once, cache
         if (this.skillBodyCache === undefined) {
           await this.buildCompactSkillBodies();

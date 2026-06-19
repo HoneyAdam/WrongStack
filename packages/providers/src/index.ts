@@ -118,12 +118,28 @@ export async function buildProviderFactoriesFromRegistry(
   return factories;
 }
 
+/**
+ * Resolve the active API key from a ProviderConfig. Prefers `apiKeys[]`
+ * (using `activeKey` to select), falls back to the legacy `apiKey` field.
+ * This avoids reading `cfg.apiKey` directly, which may be absent after
+ * `writeKeysBack` clears it to prevent serialization leaks.
+ */
+function resolveActiveKey(cfg: ProviderConfig): string | undefined {
+  if (Array.isArray(cfg.apiKeys) && cfg.apiKeys.length > 0) {
+    const active = cfg.activeKey
+      ? cfg.apiKeys.find((k) => k.label === cfg.activeKey)
+      : undefined;
+    return (active ?? cfg.apiKeys[0])?.apiKey;
+  }
+  return cfg.apiKey && cfg.apiKey.length > 0 ? cfg.apiKey : undefined;
+}
+
 function makeProvider(p: ResolvedProvider, cfg: ProviderConfig): Provider {
   // Config overrides the catalog. This is the path that lets users wire
   // up internal proxies / self-hosted endpoints without needing models.dev.
   const family: WireFamily = cfg.family ?? p.family;
   const envVars = cfg.envVars && cfg.envVars.length > 0 ? cfg.envVars : p.envVars;
-  const apiKey = cfg.apiKey ?? readFromEnv(envVars);
+  const apiKey = resolveActiveKey(cfg) ?? readFromEnv(envVars);
   if (!apiKey && family !== 'unsupported') {
     throw new Error(
       `Provider "${p.id}" requires an API key. Set ${
@@ -202,7 +218,8 @@ function readFromEnv(vars: string[]): string | undefined {
 }
 
 function requireKey(cfg: ProviderConfig): string {
-  if (cfg.apiKey) return cfg.apiKey;
+  const key = resolveActiveKey(cfg);
+  if (key) return key;
   throw new Error('Provider config requires apiKey (or set the corresponding env var).');
 }
 

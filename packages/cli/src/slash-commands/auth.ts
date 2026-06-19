@@ -73,6 +73,7 @@ export function buildAuthCommand(opts: SlashCommandContext): SlashCommand {
             encrypt: (v: string) => v,
             decrypt: (v: string) => v,
             isEncrypted: () => false,
+            keyVersion: 1,
           },
         );
       } catch {

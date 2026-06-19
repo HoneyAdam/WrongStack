@@ -20,7 +20,6 @@ import { SessionsDashboard } from './components/SessionsDashboard';
 import { ShortcutsOverlay } from './components/ShortcutsOverlay';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
 import { Toaster } from './components/Toaster';
-import { AgentFlowGraph } from './components/AgentFlowGraph';
 import { SidePanel } from './components/SidePanel';
 import { WorkspaceDock } from './components/WorkspaceDock';
 import { AgentsMonitor } from './components/AgentsMonitor';
@@ -330,11 +329,6 @@ function AppInner() {
         {currentView === 'setup' && <SetupScreen />}
         {currentView === 'autophase' && (
           <AutoPhaseView onClose={() => setCurrentView('chat')} />
-        )}
-        {currentView === 'agentflow' && (
-          <div className="flex-1 flex flex-col overflow-hidden">
-            <AgentFlowGraph />
-          </div>
         )}
         {currentView === 'sessions' && (
           <div className="flex-1 overflow-y-auto">

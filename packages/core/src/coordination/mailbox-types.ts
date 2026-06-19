@@ -35,7 +35,9 @@ export type MailboxMessageType =
   | 'btw'        // "by the way" — non-urgent info
   | 'broadcast'  // sent to all agents
   | 'status'     // agent status update
-  | 'result';    // task result / completion notice
+  | 'result'     // task result / completion notice
+  | 'control';   // out-of-band control signal (e.g. interrupt) — handled by
+                 // the agent loop, NOT folded into the conversation as content
 
 // ── Read receipt ─────────────────────────────────────────────────────────
 

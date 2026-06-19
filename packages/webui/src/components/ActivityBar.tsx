@@ -14,7 +14,6 @@ import {
   Command,
   FolderOpen,
   Folders,
-  GitBranch,
   Keyboard,
   Mail,
   MessageSquare,
@@ -58,7 +57,7 @@ interface PanelDef {
  */
 const PANEL_OWNED_VIEWS = ['chat', 'files', 'skill', 'officemap'] as const;
 
-type MainView = 'autophase' | 'agentflow' | 'settings';
+type MainView = 'autophase' | 'settings';
 
 interface ViewDef {
   id: MainView;
@@ -79,7 +78,6 @@ const PANELS: PanelDef[] = [
 
 const VIEWS: ViewDef[] = [
   { id: 'autophase', icon: <Rocket size={16} />, label: 'Phases' },
-  { id: 'agentflow', icon: <GitBranch size={16} />, label: 'Flow' },
   { id: 'settings', icon: <SettingsIcon size={16} />, label: 'Settings' },
 ];
 

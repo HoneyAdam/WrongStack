@@ -1,0 +1,437 @@
+# Multi-Tier Token Saving Mode — Design Document
+
+## Problem Statement
+
+The current `tokenSavingMode: boolean` is binary — it either applies maximum reduction or none. This forces an all-or-nothing trade-off: maximum savings may degrade the model's ability to handle complex tasks, while full mode wastes tokens on elements that could safely be simplified.
+
+A better model is a **sliding scale with named tiers**, where each tier specifies which elements to reduce and by how much. The user picks a tier that matches their use case.
+
+---
+
+## Proposed Solution
+
+Replace `boolean` with a string union type for `tokenSavingMode`:
+
+```typescript
+type TokenSavingTier = 
+  | 'off'        // Full mode — no reduction
+  | 'minimal'    // Maximum savings — essential tools + minimal guidance
+  | 'light'      // Light savings — core tools + common patterns
+  | 'medium'     // Moderate savings — extended tools + some guidance
+  | 'aggressive'; // Maximum savings before tools become unusable
+```
+
+### Tier Comparison Matrix
+
+| Element | off | minimal | light | medium | aggressive |
+|---------|-----|---------|-------|--------|------------|
+| **Tools** | All 36 | TIER1 (10) | TIER1+memory (14) | TIER1+TIER2 (24) | TIER1+TIER2+some (28) |
+| **Tool desc length** | 80 chars | 40 chars | 50 chars | 60 chars | 70 chars |
+| **Common patterns** | ✅ | ❌ | ✅ | ✅ | ✅ |
+| **Delegation guidance** | Full | ❌ | Minimal | Full | Full |
+| **Mailbox guidance** | Full | ❌ | Minimal | Minimal | Full |
+| **Context management** | ✅ | ❌ | ❌ | Minimal | ✅ |
+| **MCP guidance** | Full | Minimal | Minimal | Full | Full |
+| **Skill bodies** | Full | Compact | Compact | Compact | Compact |
+| **Environment details** | Full | Git+date only | +platform | +languages | +capabilities |
+| **Online agents** | Full list | Count only | Count only | Full list | Full list |
+| **Memory injection** | 8 items | 3 items | 5 items | 8 items | 8 items |
+
+### Estimated Token Savings by Tier
+
+| Tier | Est. Prompt Reduction | Use Case |
+|------|----------------------|----------|
+| `off` | 0 tokens | Complex tasks, multi-file refactors |
+| `minimal` | ~3,000–4,000 tokens | Quick fixes, single-file edits |
+| `light` | ~2,000–3,000 tokens | Standard development, most tasks |
+| `medium` | ~1,500–2,000 tokens | When extra tools are needed |
+| `aggressive` | ~4,000–5,000 tokens | Extreme context pressure |
+
+---
+
+## Configuration Changes
+
+### Config Type (`packages/core/src/types/config.ts`)
+
+```typescript
+export interface FeaturesConfig {
+  // ... existing fields ...
+  
+  /**
+   * Token-saving mode level. Controls how aggressively the system prompt
+   * is compacted to reduce per-request token consumption.
+   * 
+   * - 'off'        — Full prompt, all tools, complete guidance
+   * - 'minimal'    — TIER1 tools only, stripped guidance (~3-4k tokens saved)
+   * - 'light'      — Core + memory tools, common patterns, minimal guidance
+   * - 'medium'     — Most development tools, some guidance
+   * - 'aggressive' — Maximum savings before tools become unusable (~4-5k tokens)
+   * 
+   * Default: 'off'
+   */
+  tokenSavingMode?: TokenSavingTier | boolean | undefined;
+  
+  // DEPRECATED: boolean values for tokenSavingMode — use tier string instead
+  // true  → 'medium'
+  // false → 'off'
+}
+```
+
+### Backward Compatibility
+
+Boolean values for `tokenSavingMode` are deprecated but still supported:
+
+```typescript
+function normalizeTokenSavingTier(val?: boolean | TokenSavingTier): TokenSavingTier {
+  if (val === undefined) return 'off';
+  if (typeof val === 'boolean') return val ? 'medium' : 'off';
+  return val;
+}
+```
+
+---
+
+## Tool Tier Definitions
+
+### TIER1 — Core Essentials (~10 tools, ~600 tokens)
+
+Must-have tools for any meaningful work:
+
+```
+read, write, edit, bash, grep, glob, diff, patch, json, search
+```
+
+**Memory tools** (always included in minimal+ tiers):
+```
+remember, forget, searchMemory, relatedMemory
+```
+
+### TIER2 — Standard Development (~14 tools, ~900 tokens)
+
+Useful for development but not every turn:
+
+```
+replace, exec, fetch, git, tree,
+lint, format, typecheck, test,
+install, audit,
+todo, plan, task
+```
+
+### TIER3 — Specialized/Optional (~12 tools, ~800 tokens)
+
+Can be disabled without impacting typical development:
+
+```
+outdated, logs, document, scaffold,
+toolSearch, toolUse, batchToolUse, toolHelp,
+codebaseIndex, codebaseSearch, codebaseStats,
+setWorkingDir
+```
+
+### Tool Set by Tier
+
+```typescript
+function getToolsForTier(tier: TokenSavingTier): Tool[] {
+  const core = [readTool, writeTool, editTool, bashTool, grepTool, globTool, 
+                diffTool, patchTool, jsonTool, searchTool];
+  
+  const memory = [rememberTool, forgetTool, searchMemoryTool, relatedMemoryTool];
+  
+  const t2 = [replaceTool, execTool, fetchTool, gitTool, treeTool,
+              lintTool, formatTool, typecheckTool, testTool,
+              installTool, auditTool,
+              todoTool, planTool, taskTool];
+  
+  const t3 = [outdatedTool, logsTool, documentTool, scaffoldTool,
+              toolSearchTool, toolUseTool, batchToolUseTool, toolHelpTool,
+              codebaseIndexTool, codebaseSearchTool, codebaseStatsTool,
+              setWorkingDirTool];
+  
+  switch (tier) {
+    case 'off':
+      return [...core, ...memory, ...t2, ...t3];
+    case 'minimal':
+      return [...core, ...memory];
+    case 'light':
+      return [...core, ...memory]; // Same as minimal — guidance differs
+    case 'medium':
+      return [...core, ...memory, ...t2];
+    case 'aggressive':
+      return [...core, ...memory, ...t2.slice(0, 8)]; // Skip task/plan/todo
+  }
+}
+```
+
+---
+
+## Guidance Sections by Tier
+
+### Common Tool Patterns
+
+| Tier | Behavior |
+|------|----------|
+| off | ✅ Full patterns block (~200 tokens) |
+| minimal | ❌ Skipped |
+| light | ✅ Full patterns block |
+| medium | ✅ Full patterns block |
+| aggressive | ✅ Full patterns block |
+
+### Delegation Guidance
+
+| Tier | Behavior |
+|------|----------|
+| off | Full delegation block (~600 tokens) |
+| minimal | ❌ Skipped |
+| light | Minimal one-liner: "Use `delegate` to hand work to subagents." |
+| medium | Full delegation block |
+| aggressive | Full delegation block |
+
+### Mailbox Guidance
+
+| Tier | Behavior |
+|------|----------|
+| off | Full mailbox block (~400 tokens) |
+| minimal | ❌ Skipped |
+| light | Minimal: "Use `mail_inbox` for messages, `mail_send` to communicate." |
+| medium | Minimal one-liner with agent count |
+| aggressive | Full mailbox block |
+
+### Context Management Guidance
+
+| Tier | Behavior |
+|------|----------|
+| off | Full context management block (~300 tokens) |
+| minimal | ❌ Skipped (model knows this already) |
+| light | ❌ Skipped |
+| medium | Minimal one-liner: "Use `context_manager` to manage context." |
+| aggressive | Full context management block |
+
+### MCP Lazy-Loading Guidance
+
+| Tier | Behavior |
+|------|----------|
+| off | Full MCP guidance with mcp_use and manual approach |
+| minimal | Minimal: "Use `mcp_use({ server, tool, input })` for MCP tools." |
+| light | Same as minimal |
+| medium | Full MCP guidance |
+| aggressive | Full MCP guidance |
+
+---
+
+## Environment Block by Tier
+
+### Full (off)
+```
+## Environment
+
+- Operating system: linux 5.15.0
+- Shell: /bin/bash
+- Node.js: v22.0.0
+- Detected languages: JavaScript/TypeScript
+- Git status: branch=main, 3 modified, 0 staged
+- Today's date: 2026-06-19
+- Running on: anthropic/claude-sonnet-4-20250514
+- Context window: 200,000 tokens max
+- Mode: default
+```
+
+### Minimal (minimal)
+```
+## Environment
+
+- OS: linux | Shell: bash | Node: v22.0.0
+- Git: branch=main, 3 modified
+- Date: 2026-06-19
+- Context: 200k tokens max
+```
+
+### Light (light)
+```
+## Environment
+
+- Operating system: linux 5.15.0
+- Shell: /bin/bash
+- Detected languages: JavaScript/TypeScript
+- Git status: branch=main, 3 modified
+- Today's date: 2026-06-19
+- Context window: 200,000 tokens max
+```
+
+### Medium (medium)
+```
+## Environment
+
+- Operating system: linux 5.15.0
+- Shell: /bin/bash
+- Node.js: v22.0.0
+- Detected languages: JavaScript/TypeScript
+- Git status: branch=main, 3 modified
+- Today's date: 2026-06-19
+- Context window: 200,000 tokens max
+```
+
+### Aggressive (aggressive)
+Same as medium but without `Detected languages`.
+
+---
+
+## Online Agents by Tier
+
+| Tier | Behavior |
+|------|----------|
+| off | Full list with names, sessions, sources (~100 tokens for 5 agents) |
+| minimal | " (5 agents online)" — just count, no list |
+| light | " (5 agents online)" — just count |
+| medium | Full list |
+| aggressive | Full list |
+
+---
+
+## Memory Injection by Tier
+
+| Tier | Max Items | Content |
+|------|-----------|---------|
+| off | 8 | Full entries with type badges, priority marks, tags |
+| minimal | 3 | Compact entries: text only |
+| light | 5 | Full entries with type badges |
+| medium | 8 | Full entries |
+| aggressive | 8 | Full entries |
+
+---
+
+## Skill Bodies by Tier
+
+| Tier | Behavior |
+|------|----------|
+| off | Full `SKILL.md` body content (~400-800 chars/skill) |
+| minimal | `SKILL.save.md` or auto-compacted to Overview+Rules (~200 chars/skill) |
+| light | `SKILL.save.md` or auto-compacted |
+| medium | `SKILL.save.md` or auto-compacted |
+| aggressive | `SKILL.save.md` or auto-compacted |
+
+---
+
+## Tool Description Length by Tier
+
+| Tier | Max Description Length |
+|------|----------------------|
+| off | 80 chars |
+| minimal | 40 chars (first sentence only) |
+| light | 50 chars |
+| medium | 60 chars |
+| aggressive | 70 chars |
+
+```typescript
+function getDescLength(tier: TokenSavingTier): number {
+  switch (tier) {
+    case 'off': return 80;
+    case 'minimal': return 40;
+    case 'light': return 50;
+    case 'medium': return 60;
+    case 'aggressive': return 70;
+  }
+}
+```
+
+---
+
+## Implementation Plan
+
+### Phase 1: Type System (`packages/core/src/types/config.ts`)
+
+1. Add `TokenSavingTier` type
+2. Update `FeaturesConfig.tokenSavingMode` to accept `TokenSavingTier | boolean`
+3. Add migration helper `normalizeTokenSavingTier()`
+
+### Phase 2: Tool Filtering (`packages/cli/src/wiring/tools.ts`)
+
+1. Refactor `getToolsForTier()` function
+2. Update `toolsToRegister` logic to use tier
+3. Keep `TIER1_TOOLS` and `OPTIONAL_TOOLS` exports for backward compat
+
+### Phase 3: System Prompt Builder (`packages/core/src/core/system-prompt-builder.ts`)
+
+1. Change `tokenSavingMode?: boolean` to `tokenSavingTier?: TokenSavingTier`
+2. Add helper methods for each guidance section:
+   - `shouldIncludeCommonPatterns()`
+   - `shouldIncludeFullDelegation()`
+   - `shouldIncludeFullMailbox()`
+   - `shouldIncludeContextManagement()`
+3. Add `getToolDescLength()` helper
+4. Add `getEnvironmentFormat()` helper
+5. Update `buildMemoryAndSkills()` to use tier
+
+### Phase 4: Skill Loader Enhancement (`packages/core/src/types/skill.ts`)
+
+1. Add `readCompactBody(name, maxChars)` method to `SkillLoader`
+2. Implement auto-compaction that extracts Overview + Rules + one Pattern section
+3. Update `readSaveBody()` to respect tier length limits
+
+### Phase 5: Deprecations and CLI (`packages/cli/src/cli-main.ts`)
+
+1. Add `--token-saving-tier <level>` CLI flag
+2. Update `--token-saving-mode` to map to `medium` tier
+3. Add config file support for `tokenSavingMode: "minimal"`
+4. Print tier level on startup
+
+### Phase 6: Documentation
+
+1. Update `docs/slash/tools.md` with tier documentation
+2. Update `docs/configuration.md` with tier descriptions
+3. Update `README.md` CLI flags section
+
+---
+
+## Files to Modify
+
+| File | Changes |
+|------|---------|
+| `packages/core/src/types/config.ts` | Add `TokenSavingTier` type, update `FeaturesConfig` |
+| `packages/cli/src/wiring/tools.ts` | Refactor tool filtering with `getToolsForTier()` |
+| `packages/core/src/core/system-prompt-builder.ts` | Update all tier-aware logic |
+| `packages/core/src/types/skill.ts` | Add compact body read method |
+| `packages/core/src/execution/skill-loader.ts` | Implement skill auto-compaction |
+| `packages/cli/src/cli-main.ts` | Add `--token-saving-tier` flag |
+| `packages/tools/src/builtin.ts` | Update `TIER1_TOOLS`, `OPTIONAL_TOOLS` docs |
+
+---
+
+## Example Configurations
+
+### Quick Fix (minimal)
+```json
+{
+  "features": {
+    "tokenSavingMode": "minimal"
+  }
+}
+```
+
+### Standard Development (light)
+```json
+{
+  "features": {
+    "tokenSavingMode": "light"
+  }
+}
+```
+
+### Multi-Agent Complex Task (off)
+```json
+{
+  "features": {
+    "tokenSavingMode": "off"
+  }
+}
+```
+
+---
+
+## Backward Compatibility Notes
+
+1. `tokenSavingMode: true` → `tokenSavingMode: "medium"`
+2. `tokenSavingMode: false` → `tokenSavingMode: "off"`
+3. `TIER1_TOOLS` export still valid — maps to `minimal`/`light` tier
+4. `OPTIONAL_TOOLS` export still valid — tools not in current tier
+5. CLI `--token-saving-mode` flag still works — maps to `"medium"`
+6. New `--token-saving-tier <level>` flag supersedes `--token-saving-mode`

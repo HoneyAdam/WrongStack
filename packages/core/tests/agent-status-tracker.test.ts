@@ -128,6 +128,33 @@ describe('AgentStatusTracker', () => {
     expect(leader?.status).toBe('streaming');
   });
 
+  it('accumulates streamed assistant text into leader.partialText (throttled)', () => {
+    vi.useFakeTimers();
+    try {
+      tracker.start();
+      events.emit('provider.text_delta', { text: 'Hello ' });
+      events.emit('provider.text_delta', { text: 'world' });
+      // Throttled — the flush fires after the debounce window.
+      vi.advanceTimersByTime(350);
+      const call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
+      const leader = call?.find((a: AgentEntry) => a.id === 'leader');
+      expect(leader?.partialText).toBe('Hello world');
+      expect(leader?.status).toBe('streaming');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('clears leader.partialText when the turn completes', () => {
+    tracker.start();
+    events.emit('llm.stream_started', {});
+    events.emit('provider.text_delta', { text: 'partial answer' });
+    events.emit('agent.run.completed', {});
+    const call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
+    const leader = call?.find((a: AgentEntry) => a.id === 'leader');
+    expect(leader?.partialText).toBeUndefined();
+  });
+
   // ── Fleet events ───────────────────────────────────────────────────
 
   it('adds subagent on subagent.spawned (running)', () => {
@@ -199,6 +226,25 @@ describe('AgentStatusTracker', () => {
     expect(sub?.currentTool).toBe('grep');
   });
 
+  it('captures + clears subagent live partialText', () => {
+    tracker.start();
+    events.emit('subagent.spawned', { subagentId: 'sa-p', name: 'worker' });
+    events.emit('subagent.iteration_summary', {
+      subagentId: 'sa-p',
+      iteration: 1,
+      toolCalls: 0,
+      partialText: 'thinking about the fix…',
+    });
+    let call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
+    expect(call?.find((a: AgentEntry) => a.id === 'sa-p')?.partialText).toBe(
+      'thinking about the fix…',
+    );
+
+    events.emit('subagent.task_completed', { subagentId: 'sa-p', status: 'completed' });
+    call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
+    expect(call?.find((a: AgentEntry) => a.id === 'sa-p')?.partialText).toBeUndefined();
+  });
+
   it('updates subagent to running on task_started', () => {
     tracker.start();
     events.emit('subagent.spawned', { subagentId: 'sa-2', name: 'refactor-planner' });
@@ -229,6 +275,41 @@ describe('AgentStatusTracker', () => {
     const call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
     const sub = call?.find((a: AgentEntry) => a.id === 'sa-4');
     expect(sub?.status).toBe('error');
+  });
+
+  it('reaps a finished subagent after the TTL, keeping the leader', async () => {
+    vi.useFakeTimers({ now: new Date('2026-01-01T00:00:00Z').getTime() });
+    try {
+      tracker.start();
+      events.emit('subagent.spawned', { subagentId: 'sa-reap', name: 'tmp' });
+      events.emit('subagent.task_completed', { subagentId: 'sa-reap', status: 'success' });
+
+      // Present immediately after completion.
+      let last = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
+      expect(last.find((a) => a.id === 'sa-reap')).toBeDefined();
+
+      // 45s later (> 30s TTL), a sweep should have removed it...
+      await vi.advanceTimersByTimeAsync(45_000);
+      last = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
+      expect(last.find((a) => a.id === 'sa-reap')).toBeUndefined();
+      // ...but the leader is never reaped.
+      expect(last.find((a) => a.id === 'leader')).toBeDefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does NOT reap a still-running subagent regardless of age', async () => {
+    vi.useFakeTimers({ now: new Date('2026-01-01T00:00:00Z').getTime() });
+    try {
+      tracker.start();
+      events.emit('subagent.spawned', { subagentId: 'sa-busy', name: 'worker' }); // status running
+      await vi.advanceTimersByTimeAsync(120_000);
+      const last = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
+      expect(last.find((a) => a.id === 'sa-busy')).toBeDefined();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('removes subagent on subagent.stopped', () => {

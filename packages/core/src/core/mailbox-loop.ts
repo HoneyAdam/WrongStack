@@ -155,16 +155,24 @@ export function buildMailboxBlock(messages: MailboxMessage[]): { type: 'text'; t
 // in ../mailbox-attach.ts — the composition layer — so this file stays free
 // of runtime coordination/ imports (architecture Rule 3).
 
+/** Result of an inject pass — signals an out-of-band control request. */
+export interface MailboxInjectResult {
+  /** A fresh `control:interrupt` message asked this agent to stop. */
+  interrupt: boolean;
+  /** Operator-supplied reason for the interrupt, if any. */
+  interruptReason?: string | undefined;
+}
+
 export async function injectPendingMailboxMessages(
   checkMailbox: () => Promise<MailboxMessage[]>,
   foldFn: (block: { type: 'text'; text: string }) => void,
   a: { events: { emit: (type: string, payload: unknown) => void }; logger: { debug?: (...args: unknown[]) => void } },
-): Promise<void> {
+): Promise<MailboxInjectResult> {
   let messages: MailboxMessage[];
   try {
     messages = await checkMailbox();
   } catch {
-    return;
+    return { interrupt: false };
   }
 
   // Emit events for all found messages
@@ -174,15 +182,30 @@ export async function injectPendingMailboxMessages(
     });
   }
 
-  if (messages.length === 0) return;
+  if (messages.length === 0) return { interrupt: false };
 
-  // Inject ALL message types inline — subagent results, asks, assigns,
-  // notes, and steer/btw all need the leader's attention even mid-task.
-  // The summary-only approach for non-steer/btw types caused subagent
-  // mail to be silently missed when the leader was busy.
-  try { foldFn(buildMailboxBlock(messages)); } catch (err) {
-    (a.logger.debug ?? console.debug)?.(
-      `mailbox: failed to fold messages: ${toErrorMessage(err)}`,
-    );
+  // `control` messages are out-of-band signals (e.g. an operator interrupt
+  // from Fleet HQ), NOT conversation content — keep them out of the folded
+  // block so they never pollute the transcript. Everything else (results,
+  // asks, assigns, notes, steer/btw) is injected inline so the leader sees
+  // and acts on it even mid-task.
+  const control = messages.filter((m) => m.type === 'control');
+  const content = messages.filter((m) => m.type !== 'control');
+
+  if (content.length > 0) {
+    try { foldFn(buildMailboxBlock(content)); } catch (err) {
+      (a.logger.debug ?? console.debug)?.(
+        `mailbox: failed to fold messages: ${toErrorMessage(err)}`,
+      );
+    }
   }
+
+  // An interrupt control message (subject/body naming a stop) asks the loop to
+  // halt cooperatively at the next iteration boundary.
+  const interruptMsg = control.find(
+    (m) => /\b(interrupt|stop|halt|abort|cancel)\b/i.test(`${m.subject} ${m.body}`),
+  );
+  return interruptMsg
+    ? { interrupt: true, interruptReason: interruptMsg.body || interruptMsg.subject || 'operator interrupt' }
+    : { interrupt: false };
 }

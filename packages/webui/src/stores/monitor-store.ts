@@ -36,6 +36,7 @@ export interface LiveAgent {
   tokensOut?: number;
   ctxPct?: number;
   model?: string;
+  partialText?: string;
   lastActivityAt?: string;
 }
 

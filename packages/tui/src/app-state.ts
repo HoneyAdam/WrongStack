@@ -1,6 +1,6 @@
 // State, Action, and supporting types extracted from app-reducer.ts.
 // This file has NO React or Ink dependencies — pure type definitions.
-import type { AutonomyStage, ContentBlock } from '@wrongstack/core';
+import type { AutonomyStage, ContentBlock, TokenSavingTier } from '@wrongstack/core';
 import type { AutonomyOption } from './components/autonomy-picker.js';
 import type { HistoryEntry } from './components/history.js';
 import type { ProviderOption } from './components/model-picker.js';
@@ -270,7 +270,7 @@ export type State = {
     featureMemory: boolean;
     featureSkills: boolean;
     featureModelsRegistry: boolean;
-    featureTokenSaving: boolean;
+    tokenSavingTier: TokenSavingTier;
     allowOutsideProjectRoot: boolean;
     // Context
     contextAutoCompact: boolean;
@@ -572,8 +572,8 @@ export type Settings = {
   featureMemory: boolean;
   featureSkills: boolean;
   featureModelsRegistry: boolean;
-  /** Token-saving mode: omits non-essential tools and trims system prompt. */
-  featureTokenSaving: boolean;
+  /** Token-saving tier: off | minimal | light | medium | aggressive. */
+  featureTokenSaving: TokenSavingTier;
   /** Allow tools to access paths outside the project root. Default: true (open). */
   allowOutsideProjectRoot: boolean;
   contextAutoCompact: boolean;
@@ -682,7 +682,7 @@ export type Action =
       featureMemory: boolean;
       featureSkills: boolean;
       featureModelsRegistry: boolean;
-      featureTokenSaving: boolean;
+      tokenSavingTier: TokenSavingTier;
       allowOutsideProjectRoot: boolean;
       contextAutoCompact: boolean;
       contextStrategy: CompactorStrategy;

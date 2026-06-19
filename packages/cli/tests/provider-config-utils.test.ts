@@ -5,6 +5,7 @@ import {
   maskedKey,
   normalizeKeys,
   nowIso,
+  resolveActiveApiKey,
   writeKeysBack,
 } from '../src/provider-config-utils.js';
 
@@ -75,24 +76,28 @@ describe('writeKeysBack', () => {
     expect(cfg.activeKey).toBeUndefined();
   });
 
-  it('mirrors the active entry into the legacy apiKey field', () => {
+  it('clears the legacy apiKey field to prevent serialization leaks', () => {
     const cfg = { activeKey: 'b' } as ProviderConfig;
     const keys = [
       { label: 'a', apiKey: 'sk-a', createdAt: '' },
       { label: 'b', apiKey: 'sk-b', createdAt: '' },
     ];
     writeKeysBack(cfg, keys);
-    expect(cfg.apiKey).toBe('sk-b');
+    // apiKey is cleared — consumers must use resolveActiveApiKey() instead
+    expect(cfg.apiKey).toBeUndefined();
     expect(cfg.activeKey).toBe('b');
     expect(cfg.apiKeys).toHaveLength(2);
+    // resolveActiveApiKey returns the real key from apiKeys[]
+    expect(resolveActiveApiKey(cfg)).toBe('sk-b');
   });
 
   it('falls back to first key when activeKey points at a missing label', () => {
     const cfg = { activeKey: 'ghost' } as ProviderConfig;
     const keys = [{ label: 'real', apiKey: 'sk-real', createdAt: '' }];
     writeKeysBack(cfg, keys);
-    expect(cfg.apiKey).toBe('sk-real');
+    expect(cfg.apiKey).toBeUndefined();
     expect(cfg.activeKey).toBe('real');
+    expect(resolveActiveApiKey(cfg)).toBe('sk-real');
   });
 
   it('falls back to first key when activeKey is unset', () => {
@@ -102,8 +107,9 @@ describe('writeKeysBack', () => {
       { label: 'second', apiKey: 'sk-second', createdAt: '' },
     ];
     writeKeysBack(cfg, keys);
-    expect(cfg.apiKey).toBe('sk-first');
+    expect(cfg.apiKey).toBeUndefined();
     expect(cfg.activeKey).toBe('first');
+    expect(resolveActiveApiKey(cfg)).toBe('sk-first');
   });
 
   it('preserves activeKey when it matches an entry', () => {
@@ -114,7 +120,45 @@ describe('writeKeysBack', () => {
     ];
     writeKeysBack(cfg, keys);
     expect(cfg.activeKey).toBe('work');
-    expect(cfg.apiKey).toBe('sk-work');
+    expect(cfg.apiKey).toBeUndefined();
+    expect(resolveActiveApiKey(cfg)).toBe('sk-work');
+  });
+});
+
+describe('resolveActiveApiKey', () => {
+  it('returns the active key from apiKeys[] when activeKey is set', () => {
+    const cfg: ProviderConfig = {
+      apiKeys: [
+        { label: 'a', apiKey: 'sk-a', createdAt: '' },
+        { label: 'b', apiKey: 'sk-b', createdAt: '' },
+      ],
+      activeKey: 'b',
+    } as ProviderConfig;
+    expect(resolveActiveApiKey(cfg)).toBe('sk-b');
+  });
+
+  it('returns the first key when activeKey is unset', () => {
+    const cfg: ProviderConfig = {
+      apiKeys: [
+        { label: 'first', apiKey: 'sk-first', createdAt: '' },
+        { label: 'second', apiKey: 'sk-second', createdAt: '' },
+      ],
+    } as ProviderConfig;
+    expect(resolveActiveApiKey(cfg)).toBe('sk-first');
+  });
+
+  it('falls back to legacy apiKey when apiKeys is empty', () => {
+    const cfg: ProviderConfig = { apiKey: 'sk-legacy' } as ProviderConfig;
+    expect(resolveActiveApiKey(cfg)).toBe('sk-legacy');
+  });
+
+  it('returns undefined when no key is configured', () => {
+    expect(resolveActiveApiKey({} as ProviderConfig)).toBeUndefined();
+  });
+
+  it('returns undefined for empty-string legacy apiKey', () => {
+    const cfg = { apiKey: '' } as ProviderConfig;
+    expect(resolveActiveApiKey(cfg)).toBeUndefined();
   });
 });
 
@@ -200,7 +244,9 @@ describe('normalizeKeys ↔ writeKeysBack roundtrip', () => {
     writeKeysBack(target, keys);
     expect(target.apiKeys).toEqual(original.apiKeys);
     expect(target.activeKey).toBe('home');
-    expect(target.apiKey).toBe('sk-home-456');
+    // apiKey is cleared — use resolveActiveApiKey to read the real key
+    expect(target.apiKey).toBeUndefined();
+    expect(resolveActiveApiKey(target)).toBe('sk-home-456');
   });
 
   it('migrates legacy + writes back as a clean modern shape', () => {
@@ -211,7 +257,9 @@ describe('normalizeKeys ↔ writeKeysBack roundtrip', () => {
     expect(target.apiKeys).toEqual([
       { label: 'default', apiKey: 'sk-old', createdAt: '' },
     ]);
-    expect(target.apiKey).toBe('sk-old');
+    // apiKey is cleared — use resolveActiveApiKey to read the real key
+    expect(target.apiKey).toBeUndefined();
+    expect(resolveActiveApiKey(target)).toBe('sk-old');
     expect(target.activeKey).toBe('default');
   });
 });

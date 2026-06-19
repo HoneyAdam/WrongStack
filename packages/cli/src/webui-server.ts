@@ -40,6 +40,7 @@
  */
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
+import { watch as fsWatch } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type {
@@ -86,6 +87,7 @@ import {
   handleMemoryList,
   handleMemoryRemember,
   handleShellOpen,
+  verifyClient as verifyWsClient,
   type SkillsContext,
   handleSkillsContent,
   handleSkillsInstall,
@@ -107,6 +109,7 @@ import {
 } from './webui-server/provider-config.js';
 import { startStaticServe } from './webui-server/static-serve.js';
 import { WebSocket, WebSocketServer } from 'ws';
+import { generateAuthToken } from '@wrongstack/webui/server';
 import {
   type AgentConfigContext,
   type BrainHandlerContext,
@@ -588,11 +591,6 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     }
   };
 
-  // Generate a random auth token to prevent unauthorized local connections.
-  // The WebUI frontend reads this from the session.start payload and uses it
-  // for subsequent reconnections. Loopback connections are exempt for
-  // convenience (matches standalone WebUI server behavior).
-  const authToken = crypto.randomBytes(16).toString('hex');
   // Captured once at startup so stats.get can report elapsed time since the
   // session was opened, rather than the hardcoded 0 it used to send.
   const sessionStartedAt = Date.now();
@@ -702,6 +700,12 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   // Register immediately (fire-and-forget so it doesn't block server startup)
   registerWebuiClient();
 
+  // Generate auth token for WS connections and HTTP /ws-auth endpoint.
+  // The token is passed to the frontend via the URL query param, which the
+  // frontend then exchanges for an HttpOnly cookie via /ws-auth?token=...
+  // This closes C-598 (query-string token exposure) after the first request.
+  const wsToken = generateAuthToken();
+
   const wss = new WebSocketServer({ port, host, maxPayload: 1 * 1024 * 1024 });
 
   console.log(`[WebUI] WebSocket server starting on ws://${host}:${port}`);
@@ -713,11 +717,16 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   // wire the open-browser callback on top. If the webui package
   // isn't built, `startStaticServe` returns null and we degrade
   // gracefully to WS-only (the original behavior).
+  // Captured from the status block below so `POST /api/fleet/ping` can trigger
+  // an immediate fleet re-broadcast (push-on-write from a TUI/REPL).
+  let fleetBroadcastCli: (() => Promise<void>) | null = null;
   const httpServer = startStaticServe({
     host,
     httpPort,
     wsPort,
     globalRoot: path.dirname(opts.globalConfigPath ?? ''),
+    onFleetPing: () => { void fleetBroadcastCli?.(); },
+    apiToken: wsToken,
   });
   if (httpServer) {
     announceWebuiReady({
@@ -726,6 +735,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       httpPort,
       wsPort,
       open: !!opts.open,
+      wsToken,
     });
   } else {
     console.warn(
@@ -1232,14 +1242,18 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       // run in background (project switches, multiple processes).
       const globalRoot = opts.globalConfigPath ? path.dirname(opts.globalConfigPath) : undefined;
       if (globalRoot) {
-        const statusInterval = setInterval(async () => {
+        const broadcastSessions = async () => {
           try {
             // Lazy import to avoid bundling core into the webui runtime
             const { SessionRegistry } = await import('@wrongstack/core');
             const registry = new SessionRegistry(globalRoot);
             const sessions = await registry.list();
+            // Scope Fleet HQ to our own project (derive from our pid's entry —
+            // survives in-place project switches). Fall back to all if not found.
+            const mySlug = sessions.find((s) => s.pid === process.pid)?.projectSlug;
             const live = sessions
               .filter((s) => s.status !== 'stale')
+              .filter((s) => (mySlug ? s.projectSlug === mySlug : true))
               .map((s) => ({
                 sessionId: s.sessionId,
                 projectName: s.projectName,
@@ -1247,6 +1261,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
                 projectRoot: s.projectRoot,
                 workingDir: s.workingDir,
                 gitBranch: s.gitBranch,
+                clientType: s.clientType,
                 status: s.status,
                 pid: s.pid,
                 startedAt: s.startedAt,
@@ -1258,6 +1273,12 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
                   currentTool: a.currentTool,
                   iterations: a.iterations,
                   toolCalls: a.toolCalls,
+                  costUsd: a.costUsd,
+                  tokensIn: a.tokensIn,
+                  tokensOut: a.tokensOut,
+                  ctxPct: a.ctxPct,
+                  model: a.model,
+                  partialText: a.partialText,
                   lastActivityAt: a.lastActivityAt,
                 })),
               }));
@@ -1265,77 +1286,61 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
           } catch {
             // Best-effort — never crash the WebSocket relay for status errors
           }
-        }, 5_000);
+        };
+        // Expose to the /api/fleet/ping HTTP route (push-on-write).
+        fleetBroadcastCli = broadcastSessions;
+
+        // Fallback poll (also prunes stale entries on read).
+        const statusInterval = setInterval(() => void broadcastSessions(), 5_000);
         if (statusInterval.unref) statusInterval.unref();
         eventUnsubscribers.push(() => clearInterval(statusInterval));
+
+        // Event-driven: watch the registry file so a TUI/REPL write reaches the
+        // map in ~150ms. Atomic writes go `<file>.<uuid>.tmp`→rename → watch the
+        // dir and match any `session-registry.json*` change (ignore .lock).
+        let regDebounce: ReturnType<typeof setTimeout> | undefined;
+        try {
+          const regWatcher = fsWatch(globalRoot, { persistent: false }, (_event, filename) => {
+            const name = filename ? String(filename) : '';
+            if (!name.startsWith('session-registry.json') || name.endsWith('.lock')) return;
+            if (regDebounce) clearTimeout(regDebounce);
+            regDebounce = setTimeout(() => void broadcastSessions(), 150);
+          });
+          eventUnsubscribers.push(() => {
+            if (regDebounce) clearTimeout(regDebounce);
+            regWatcher.close();
+          });
+        } catch {
+          // Watch unsupported on this platform — the 5s poll still covers it.
+        }
+
+        void broadcastSessions();
       }
     });
 
     wss.on('connection', async (ws, req) => {
-      // --- Auth token + Origin validation ---
-      // Loopback connections (from the WebUI frontend on localhost) are
-      // allowed without a token for convenience. Non-loopback connections
-      // require the token passed as ?token=<authToken>.
-      const isLoopback = (hostname: string) =>
-        hostname === 'localhost' ||
-        hostname === '127.0.0.1' ||
-        hostname === '::1' ||
-        hostname === '[::1]';
-
-      // Constant-time token compare (length mismatch short-circuits).
-      const tokenMatches = (provided: string | null): boolean => {
-        if (!provided) return false;
-        const a = Buffer.from(provided);
-        const b = Buffer.from(authToken);
-        return a.length === b.length && crypto.timingSafeEqual(a, b);
-      };
-
-      try {
-        const url = new URL(req.url ?? '/', `http://localhost:${port}`);
-        const token = url.searchParams.get('token');
-        const tokenOk = tokenMatches(token);
-
-        // DNS-rebinding defense: the server is bound to loopback, so the Host
-        // header of any legitimate client is a loopback name. A rebound
-        // attacker page sends `Host: <attacker-domain>` even though the socket
-        // peer is 127.0.0.1 — reject it.
-        const hostHeader = (req.headers.host ?? '').trim();
-        let hostOk = false;
-        try {
-          hostOk = !!hostHeader && isLoopback(new URL(`http://${hostHeader}`).hostname);
-        } catch {
-          hostOk = false;
-        }
-        if (!hostOk) {
-          ws.close(4003, 'Forbidden: non-loopback Host header');
-          return;
-        }
-
-        // Origin validation
-        const origin = req.headers.origin;
-        if (origin) {
-          try {
-            const { hostname } = new URL(origin);
-            if (!isLoopback(hostname) && !tokenOk) {
-              ws.close(4003, 'Forbidden: non-loopback origin requires auth token');
-              return;
-            }
-          } catch {
-            ws.close(4003, 'Forbidden: invalid origin');
-            return;
-          }
-        } else {
-          // Non-browser client (no origin header): require token for
-          // defense-in-depth. Even though we bind to 127.0.0.1, a
-          // compromised local process or DNS rebinding attack could
-          // connect without an origin.
-          if (!tokenOk) {
-            ws.close(4003, 'Forbidden: auth token required for non-browser clients');
-            return;
-          }
-        }
-      } catch {
-        ws.close(4001, 'Unauthorized: malformed request');
+      // --- Auth: DNS-rebinding guard + token (cookie or URL) + loopback
+      // bootstrap. Delegated to the shared `verifyClient` (ws-auth.ts) so the
+      // embedded server enforces the SAME policy as the standalone one — most
+      // importantly the HttpOnly `ws_token` cookie set by `/ws-auth`, and a
+      // SINGLE token (`wsToken`).
+      //
+      // This used to be an inline check that (a) validated `?token=` against a
+      // SECOND, unrelated `authToken` (never the `wsToken` that lands in the
+      // URL / cookie / `/api/*`), and (b) ignored the cookie entirely. On
+      // loopback the origin bootstrap masked the mismatch, but the cookie path
+      // was dead and a LAN bind (`WS_HOST=0.0.0.0`) could never authenticate.
+      const ok = verifyWsClient({
+        origin: req.headers.origin,
+        url: req.url ?? '/',
+        hostHeader: req.headers.host,
+        remoteAddress: req.socket.remoteAddress,
+        cookieHeader: req.headers.cookie,
+        wsHost: host,
+        expectedToken: wsToken,
+      });
+      if (!ok) {
+        ws.close(4003, 'Forbidden');
         return;
       }
 

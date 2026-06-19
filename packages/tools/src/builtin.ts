@@ -86,6 +86,55 @@ export const TIER1_TOOLS: Tool[] = [
   searchTool,
 ];
 
+/**
+ * Tier 2 tool set — standard development tools useful for non-trivial work.
+ * Adds ~14 tools: replace, exec, fetch, git, tree, lint, format, typecheck,
+ * test, todo, plan, task, install, audit.
+ *
+ * These tools are used regularly during development but are not essential for
+ * every turn. Omitting them in minimal/light tier saves ~900 tokens per prompt.
+ */
+export const TIER2_TOOLS: Tool[] = [
+  replaceTool,
+  execTool,
+  fetchTool,
+  gitTool,
+  treeTool,
+  lintTool,
+  formatTool,
+  typecheckTool,
+  testTool,
+  todoTool,
+  planTool,
+  taskTool,
+  installTool,
+  auditTool,
+];
+
+/**
+ * Tier 3 tool set — specialized/optional tools for specific workflows.
+ * Adds ~14 tools: outdated, logs, document, scaffold, toolSearch, toolUse,
+ * batchToolUse, toolHelp, codebaseIndex, codebaseSearch, codebaseStats, setWorkingDir.
+ *
+ * These tools are rarely used in typical development (once-per-session,
+ * debugging, or one-time generation) and can be safely omitted in any
+ * token-saving tier to save ~800 tokens per prompt.
+ */
+export const TIER3_TOOLS: Tool[] = [
+  outdatedTool,
+  logsTool,
+  documentTool,
+  scaffoldTool,
+  toolSearchTool,
+  toolUseTool,
+  batchToolUseTool,
+  toolHelpTool,
+  codebaseIndexTool,
+  codebaseSearchTool,
+  codebaseStatsTool,
+  setWorkingDirTool,
+];
+
 export const builtinTools: Tool[] = [
   readTool,
   writeTool,

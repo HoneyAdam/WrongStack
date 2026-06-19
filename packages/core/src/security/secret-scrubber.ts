@@ -46,6 +46,27 @@ const PATTERNS: Pattern[] = [
   { type: 'postgres_uri', regex: /postgres(?:ql)?:\/\/[^\s"'`]+/g },
   { type: 'mysql_uri', regex: /mysql:\/\/[^\s"'`]+/g },
   { type: 'redis_uri', regex: /redis:\/\/[^\s"'`]+/g },
+  // AI/ML provider keys — modern LLM services with well-known prefixes
+  {
+    type: 'huggingface_token',
+    // HuggingFace tokens: hf_ followed by 34 alphanumeric chars
+    regex: /(?<![A-Za-z0-9])hf_[A-Za-z0-9]{34}(?![A-Za-z0-9])/g,
+  },
+  {
+    type: 'replicate_token',
+    // Replicate tokens: r8_ followed by 40+ alphanumeric chars
+    regex: /(?<![A-Za-z0-9])r8_[A-Za-z0-9]{40,}(?![A-Za-z0-9])/g,
+  },
+  {
+    type: 'perplexity_key',
+    // Perplexity API keys: pplx- followed by 40+ alphanumeric chars
+    regex: /(?<![A-Za-z0-9])pplx-[A-Za-z0-9]{40,}(?![A-Za-z0-9])/g,
+  },
+  {
+    type: 'groq_key',
+    // Groq API keys: gsk_ followed by 40+ alphanumeric chars
+    regex: /(?<![A-Za-z0-9])gsk_[A-Za-z0-9]{40,}(?![A-Za-z0-9])/g,
+  },
   {
     type: 'bearer_token',
     // Anchored with alternation instead of negative lookahead — avoids V8
@@ -119,6 +140,10 @@ function hasCredentialAnchors(text: string): boolean {
     text.includes('xox') ||           // Slack token (xoxa/xoxb/xoxp/xoxo/xoxs)
     text.includes('Bearer ') ||       // Bearer token (space suffix reduces false positives)
     text.includes('/bot') ||          // Telegram bot token (URL path pattern)
+    text.includes('hf_') ||           // HuggingFace token
+    text.includes('r8_') ||           // Replicate token
+    text.includes('pplx-') ||         // Perplexity API key
+    text.includes('gsk_') ||          // Groq API key
     text.includes('_KEY=') ||         // High-entropy env vars: API_KEY=, SECRET_KEY=, ...
     text.includes('_TOKEN=') ||       // ACCESS_TOKEN=, AUTH_TOKEN=, ...
     text.includes('_SECRET=') ||      // API_SECRET=, CLIENT_SECRET=, ...

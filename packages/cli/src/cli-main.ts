@@ -70,6 +70,7 @@ import {
   ToolRegistry,
   writeErr,
   writeOut,
+  normalizeTokenSavingTier,
 } from '@wrongstack/core';
 import { MCPRegistry } from '@wrongstack/mcp';
 import { makeProviderFromConfig } from '@wrongstack/providers';
@@ -885,7 +886,7 @@ export async function main(argv: string[]): Promise<number> {
     toolRegistry,
     events,
     log: logger,
-    lazyMode: config.features.tokenSavingMode,
+    lazyMode: normalizeTokenSavingTier(config.features.tokenSavingMode) !== 'off',
   });
   if (config.features.mcp) {
     for (const cfg of Object.values(config.mcpServers ?? {})) {

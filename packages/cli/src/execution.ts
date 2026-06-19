@@ -27,6 +27,8 @@ import {
   type SlashCommandRegistry,
   type SubagentConfig,
   type TokenCounter,
+  normalizeTokenSavingTier,
+  type TokenSavingTier,
   type WstackPaths,
 } from '@wrongstack/core';
 import {
@@ -51,6 +53,7 @@ import { type PredictLLMProvider, predictNextTasks } from './next-task-predictor
 import type { TerminalRenderer } from './renderer.js';
 import { parseSuggestionsFromOutput, runRepl } from './repl.js';
 import type { SessionStats } from './session-stats.js';
+import { resolveActiveApiKey } from './provider-config-utils.js';
 import { filterSafeForProject, persistAutonomySetting } from './settings-menu.js';
 import { setSuggestions } from './slash-commands/suggestion-store.js';
 import { fmtTok } from './utils.js';
@@ -75,7 +78,7 @@ export interface LiveSettingsInput {
   featureMemory?: boolean | undefined;
   featureSkills?: boolean | undefined;
   featureModelsRegistry?: boolean | undefined;
-  featureTokenSaving?: boolean | undefined;
+  featureTokenSaving?: TokenSavingTier | undefined;
   allowOutsideProjectRoot?: boolean | undefined;
   contextAutoCompact?: boolean | undefined;
   contextStrategy?: string | undefined;
@@ -622,7 +625,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
       renderer.setSilent(true);
       const banneredFamily = savedProviderCfg?.family ?? resolvedProvider?.family;
       const banneredKey =
-        savedProviderCfg?.apiKey ??
+        (savedProviderCfg ? resolveActiveApiKey(savedProviderCfg) : undefined) ??
         config.apiKey ??
         (resolvedProvider?.envVars ?? savedProviderCfg?.envVars ?? [])
           .map((v) => process.env[v])
@@ -892,7 +895,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
               featureMemory: cfg.features?.memory !== false,
               featureSkills: cfg.features?.skills !== false,
               featureModelsRegistry: cfg.features?.modelsRegistry !== false,
-              featureTokenSaving: cfg.features?.tokenSavingMode ?? false,
+              featureTokenSaving: normalizeTokenSavingTier(cfg.features?.tokenSavingMode),
               allowOutsideProjectRoot: cfg.features?.allowOutsideProjectRoot ?? true,
               contextAutoCompact: cfg.context?.autoCompact !== false,
               contextStrategy: cfg.context?.strategy ?? 'hybrid',
@@ -1634,7 +1637,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
           },
           // `wrongstack quick` sets flags.quick — open the F3 agents monitor by default.
           initialAgentsMonitorOpen: !!flags.quick,
-          tokenSavingMode: config.features.tokenSavingMode,
+          tokenSavingMode: normalizeTokenSavingTier(config.features.tokenSavingMode) !== 'off',
           toolCount: agent.tools.list().length,
         });
 
@@ -1742,6 +1745,23 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
         modeStore,
         modeId,
         needsSetup,
+        // Print the "open this" banner only once the server is actually
+        // listening, using the RESOLVED ports. The requested port
+        // (flags.port) auto-advances past busy ports inside runWebUI, so a
+        // banner printed up-front with flags.port lies whenever 3456/3457 are
+        // taken (a second instance, leftover sockets). Bind is 127.0.0.1-only,
+        // so the host must be the literal IPv4 loopback — `localhost` resolves
+        // to `::1` first on Windows and never reaches the server.
+        onListening: ({ httpPort: boundHttpPort }) => {
+          renderer.writeInfo(
+            color.green(
+              `  ✦ WebUI running → ${color.bold(`http://127.0.0.1:${boundHttpPort}`)}`,
+            ),
+          );
+          renderer.writeInfo(
+            color.dim('  Press Ctrl+C in this terminal to stop the WebUI server.\n'),
+          );
+        },
         // Make autonomy.switch from the browser flip the CLI's real
         // autonomy mode — context.meta alone never reaches the run loop.
         onAutonomySwitch: (mode: string) => {
@@ -1759,12 +1779,9 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
       // In --webui mode, skip the full REPL — just keep the process alive
       // until the WebUI server shuts down. The WebUI WS handler listens for
       // /exit or abort signals and resolves webuiPromise when the server stops.
-      renderer.writeInfo(
-        color.green(
-          `  ✦ WebUI running → ${color.bold(`http://localhost:${Number.parseInt(String(flags.port ?? '3457'), 10)}`)}`,
-        ),
-      );
-      renderer.writeInfo(color.dim('  Press Ctrl+C in this terminal to stop the WebUI server.\n'));
+      // The ready banner is printed from `onListening` above (with the resolved
+      // ports), not here — printing it up-front with the requested port lied
+      // whenever the port auto-advanced.
       const webuiExit = new Promise<number>((resolve) => {
         const onSigint = () => {
           renderer.setSilent(false);

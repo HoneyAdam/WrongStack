@@ -1,33 +1,27 @@
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Edit3,
+  Loader2,
+  Moon,
+  Plus,
+  Search,
+  Server,
+  Star,
+  Sun,
+  Trash2,
+} from 'lucide-react';
+import { type ReactElement, useCallback, useEffect, useState } from 'react';
 import { toast } from '@/components/Toaster';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import type { WSServerMessage } from '@/types';
-import { type ReactElement, useState, useEffect, useCallback } from 'react';
-import { Button } from '../ui/button';
-import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Input } from '../ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '../ui/dialog';
-import {
-  Server,
-  Power,
-  PowerOff,
-  Search,
-  Plus,
-  Trash2,
-  Edit3,
-  ChevronDown,
-  ChevronRight,
-  Loader2,
-  Moon,
-  Sun,
-  Zap,
-} from 'lucide-react';
+import { OFFICIAL_SERVERS, type OfficialServer, toServerConfig } from './official-servers';
 
 export interface MCPServer {
   name: string;
@@ -50,18 +44,26 @@ export interface MCPServerConfig {
   args?: string[];
   env?: Record<string, string>;
   allowedTools?: string[];
+  url?: string;
 }
 
 /** Map server status to a human-readable label and color */
 function statusInfo(status: MCPServer['status']): { label: string; color: string } {
   switch (status) {
-    case 'connected': return { label: 'Connected', color: 'bg-green-500' };
-    case 'connecting': return { label: 'Connecting', color: 'bg-yellow-500' };
-    case 'sleeping': return { label: 'Sleeping', color: 'bg-blue-500' };
-    case 'discovering': return { label: 'Discovering', color: 'bg-purple-500' };
-    case 'error': return { label: 'Error', color: 'bg-red-500' };
-    case 'stopped': return { label: 'Stopped', color: 'bg-gray-500' };
-    default: return { label: 'Unknown', color: 'bg-gray-400' };
+    case 'connected':
+      return { label: 'Connected', color: 'bg-green-500' };
+    case 'connecting':
+      return { label: 'Connecting', color: 'bg-yellow-500' };
+    case 'sleeping':
+      return { label: 'Sleeping', color: 'bg-blue-500' };
+    case 'discovering':
+      return { label: 'Discovering', color: 'bg-purple-500' };
+    case 'error':
+      return { label: 'Error', color: 'bg-red-500' };
+    case 'stopped':
+      return { label: 'Stopped', color: 'bg-gray-500' };
+    default:
+      return { label: 'Unknown', color: 'bg-gray-400' };
   }
 }
 
@@ -102,7 +104,9 @@ function ServerCard({
           <span className="font-medium">{server.name}</span>
           <span className="text-xs text-muted-foreground">{server.transport}</span>
           {!server.enabled && (
-            <Badge variant="outline" className="text-xs">Disabled</Badge>
+            <Badge variant="outline" className="text-xs">
+              Disabled
+            </Badge>
           )}
         </button>
         <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
@@ -124,7 +128,13 @@ function ServerCard({
           <Button variant="ghost" size="sm" onClick={onEdit} title="Edit">
             <Edit3 className="w-4 h-4" />
           </Button>
-          <Button variant="ghost" size="sm" onClick={onRemove} title="Remove" className="text-destructive hover:text-destructive">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onRemove}
+            title="Remove"
+            className="text-destructive hover:text-destructive"
+          >
             <Trash2 className="w-4 h-4" />
           </Button>
         </div>
@@ -186,39 +196,80 @@ function ServerDialog({
   onOpenChange,
   server,
   onSave,
+  prefillConfig,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   server?: MCPServer;
+  prefillConfig?: MCPServerConfig;
   onSave: (config: MCPServerConfig) => void;
 }) {
-  const [name, setName] = useState(server?.name ?? '');
-  const [transport, setTransport] = useState(server?.transport ?? 'stdio');
-  const [description, setDescription] = useState(server?.description ?? '');
-  const [command, setCommand] = useState('');
-  const [args, setArgs] = useState('');
+  const [name, setName] = useState(server?.name ?? prefillConfig?.name ?? '');
+  const [transport, setTransport] = useState(
+    server?.transport ?? prefillConfig?.transport ?? 'stdio',
+  );
+  const [description, setDescription] = useState(
+    server?.description ?? prefillConfig?.description ?? '',
+  );
+  const [command, setCommand] = useState(prefillConfig?.command ?? '');
+  const [args, setArgs] = useState(prefillConfig?.args?.join(' ') ?? '');
+  const [env, setEnv] = useState('');
+  const [url, setUrl] = useState(prefillConfig?.url ?? '');
   const [enabled, setEnabled] = useState(server?.enabled ?? true);
 
+  // Reset form when dialog opens with new prefill data
   useEffect(() => {
-    if (server) {
-      setName(server.name);
-      setTransport(server.transport);
-      setDescription(server.description ?? '');
-      setEnabled(server.enabled);
-    } else {
-      setName('');
-      setTransport('stdio');
-      setDescription('');
-      setCommand('');
-      setArgs('');
-      setEnabled(true);
+    if (open) {
+      if (server) {
+        setName(server.name);
+        setTransport(server.transport);
+        setDescription(server.description ?? '');
+        setEnabled(server.enabled);
+        setCommand('');
+        setArgs('');
+        setEnv('');
+        setUrl('');
+      } else if (prefillConfig) {
+        setName(prefillConfig.name);
+        setTransport(prefillConfig.transport);
+        setDescription(prefillConfig.description ?? '');
+        setEnabled(true);
+        setCommand(prefillConfig.command ?? '');
+        setArgs(prefillConfig.args?.join(' ') ?? '');
+        setEnv(
+          prefillConfig.env
+            ? Object.entries(prefillConfig.env)
+                .map(([k, v]) => `${k}=${v}`)
+                .join('\n')
+            : '',
+        );
+        setUrl(prefillConfig.url ?? '');
+      } else {
+        setName('');
+        setTransport('stdio');
+        setDescription('');
+        setEnabled(true);
+        setCommand('');
+        setArgs('');
+        setEnv('');
+        setUrl('');
+      }
     }
-  }, [server, open]);
+  }, [server, prefillConfig, open]);
 
   const handleSave = () => {
     if (!name.trim()) {
       toast.error('Server name is required');
       return;
+    }
+    const parsedEnv: Record<string, string> = {};
+    if (env.trim()) {
+      for (const line of env.trim().split('\n')) {
+        const idx = line.indexOf('=');
+        if (idx > 0) {
+          parsedEnv[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
+        }
+      }
     }
     onSave({
       name: name.trim(),
@@ -227,15 +278,22 @@ function ServerDialog({
       enabled,
       command: command.trim() || undefined,
       args: args.trim() ? args.trim().split(/\s+/) : undefined,
+      env: Object.keys(parsedEnv).length > 0 ? parsedEnv : undefined,
+      url: url.trim() || undefined,
     });
     onOpenChange(false);
   };
+
+  const isEdit = !!server;
+  const isPrefill = !!prefillConfig;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{server ? 'Edit MCP Server' : 'Add MCP Server'}</DialogTitle>
+          <DialogTitle>
+            {isEdit ? 'Edit MCP Server' : isPrefill ? 'Add MCP Server' : 'Add Custom MCP Server'}
+          </DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-4">
           <div className="space-y-2">
@@ -244,7 +302,7 @@ function ServerDialog({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g., github, filesystem"
-              disabled={!!server}
+              disabled={isEdit || isPrefill}
             />
           </div>
           <div className="space-y-2">
@@ -253,30 +311,64 @@ function ServerDialog({
               className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
               value={transport}
               onChange={(e) => setTransport(e.target.value)}
+              disabled={isPrefill}
             >
               <option value="stdio">stdio</option>
               <option value="sse">sse</option>
+              <option value="streamable-http">streamable-http</option>
               <option value="http">http</option>
             </select>
           </div>
+          {(transport === 'streamable-http' || transport === 'sse' || transport === 'http') && (
+            <div className="space-y-2">
+              <label className="text-sm font-medium">URL</label>
+              <Input
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="https://mcp.example.com/mcp"
+                disabled={isPrefill}
+              />
+            </div>
+          )}
+          {transport === 'stdio' && (
+            <>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Command</label>
+                <Input
+                  value={command}
+                  onChange={(e) => setCommand(e.target.value)}
+                  placeholder="e.g., npx"
+                  disabled={isPrefill}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  Args <span className="text-muted-foreground font-normal">(space-separated)</span>
+                </label>
+                <Input
+                  value={args}
+                  onChange={(e) => setArgs(e.target.value)}
+                  placeholder="e.g., -y @modelcontextprotocol/server-github"
+                  disabled={isPrefill}
+                />
+              </div>
+            </>
+          )}
           <div className="space-y-2">
-            <label className="text-sm font-medium">Command (optional)</label>
-            <Input
-              value={command}
-              onChange={(e) => setCommand(e.target.value)}
-              placeholder="e.g., npx"
+            <label className="text-sm font-medium">
+              Env vars{' '}
+              <span className="text-muted-foreground font-normal">(KEY=value, one per line)</span>
+            </label>
+            <textarea
+              className="w-full h-20 px-3 py-2 rounded-md border border-input bg-background text-sm font-mono resize-none"
+              value={env}
+              onChange={(e) => setEnv(e.target.value)}
+              placeholder={`GITHUB_TOKEN=ghp_...\nAWS_REGION=us-east-1`}
+              disabled={isPrefill}
             />
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium">Args (optional, space-separated)</label>
-            <Input
-              value={args}
-              onChange={(e) => setArgs(e.target.value)}
-              placeholder="e.g., -y @modelcontextprotocol/server-github"
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Description (optional)</label>
+            <label className="text-sm font-medium">Description</label>
             <Input
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -286,20 +378,72 @@ function ServerDialog({
           <div className="flex items-center gap-2">
             <input
               type="checkbox"
-              id="enabled"
+              id="server-enabled"
               checked={enabled}
               onChange={(e) => setEnabled(e.target.checked)}
               className="rounded"
             />
-            <label htmlFor="enabled" className="text-sm">Enable server</label>
+            <label htmlFor="server-enabled" className="text-sm">
+              Enable server
+            </label>
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={handleSave}>{server ? 'Save Changes' : 'Add Server'}</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={handleSave}>{isEdit ? 'Save Changes' : 'Add Server'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Official/recommended server card */
+function OfficialServerCard({
+  server,
+  isAdded,
+  onAdd,
+}: {
+  server: OfficialServer;
+  isAdded: boolean;
+  onAdd: () => void;
+}) {
+  return (
+    <div className="border rounded-lg p-3 bg-card flex items-start justify-between gap-3">
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-medium text-sm">{server.name}</span>
+          {server.badge && (
+            <Badge variant="secondary" className="text-xs shrink-0">
+              {server.badge}
+            </Badge>
+          )}
+          <Badge variant="outline" className="text-xs shrink-0">
+            {server.transport}
+          </Badge>
+        </div>
+        <p className="text-xs text-muted-foreground mt-1">{server.description}</p>
+        {server.requiresEnvVars && server.requiresEnvVars.length > 0 && (
+          <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+            Requires: {server.requiresEnvVars.join(', ')}
+          </p>
+        )}
+      </div>
+      <div className="shrink-0">
+        {isAdded ? (
+          <Button variant="ghost" size="sm" disabled>
+            <Check className="w-4 h-4 mr-1" />
+            Added
+          </Button>
+        ) : (
+          <Button size="sm" variant="outline" onClick={onAdd}>
+            <Plus className="w-4 h-4 mr-1" />
+            Add
+          </Button>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -307,10 +451,12 @@ export function MCPSection(): ReactElement {
   const ws = useWebSocket();
   const [servers, setServers] = useState<MCPServer[]>([]);
   const [loading, setLoading] = useState(false);
-  const [tab, setTab] = useState<'list' | 'add'>('list');
+  const [tab, setTab] = useState<'list' | 'add' | 'recommended'>('list');
   const [editServer, setEditServer] = useState<MCPServer | undefined>();
   const [showEditDialog, setShowEditDialog] = useState(false);
-  const [pendingOp, setPendingOp] = useState<string | null>(null);
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [_prefillConfig, setPrefillConfig] = useState<MCPServerConfig | undefined>();
+  const [_pendingOp, setPendingOp] = useState<string | null>(null);
 
   // Load server list on mount and when MCP events come in
   useEffect(() => {
@@ -375,9 +521,7 @@ export function MCPSection(): ReactElement {
       if (msg.type === 'mcp.server.waking') {
         const p = msg.payload as { name: string };
         setServers((prev) =>
-          prev.map((s) =>
-            s.name === p.name ? { ...s, status: 'connecting' as const } : s,
-          ),
+          prev.map((s) => (s.name === p.name ? { ...s, status: 'connecting' as const } : s)),
         );
       }
     };
@@ -386,9 +530,7 @@ export function MCPSection(): ReactElement {
       if (msg.type === 'mcp.server.connected') {
         const p = msg.payload as { name: string; pid?: number };
         setServers((prev) =>
-          prev.map((s) =>
-            s.name === p.name ? { ...s, status: 'connected', pid: p.pid } : s,
-          ),
+          prev.map((s) => (s.name === p.name ? { ...s, status: 'connected', pid: p.pid } : s)),
         );
         setPendingOp(null);
         toast.success(`Server "${p.name}" connected`);
@@ -399,9 +541,7 @@ export function MCPSection(): ReactElement {
       if (msg.type === 'mcp.server.error') {
         const p = msg.payload as { name: string; error: string };
         setServers((prev) =>
-          prev.map((s) =>
-            s.name === p.name ? { ...s, status: 'error', error: p.error } : s,
-          ),
+          prev.map((s) => (s.name === p.name ? { ...s, status: 'error', error: p.error } : s)),
         );
         setPendingOp(null);
         toast.error(`Server "${p.name}" error: ${p.error}`);
@@ -429,7 +569,6 @@ export function MCPSection(): ReactElement {
     const off9 = ws.client.on('mcp.server.error', handleMcpServerError);
     const off10 = ws.client.on('mcp.operation_result', handleMcpOperationResult);
 
-    // Request initial list using proper WS client method
     setLoading(true);
     ws.client?.listMcpServers();
 
@@ -447,10 +586,17 @@ export function MCPSection(): ReactElement {
     };
   }, [ws.client]);
 
-  const handleAdd = useCallback(
+  const handleAddCustom = useCallback(
     (config: MCPServerConfig) => {
       ws.client?.addMcpServer(config);
-      setTab('list');
+    },
+    [ws],
+  );
+
+  const handleAddOfficial = useCallback(
+    (official: OfficialServer) => {
+      const config = toServerConfig(official, true);
+      ws.client?.addMcpServer(config);
     },
     [ws],
   );
@@ -464,13 +610,11 @@ export function MCPSection(): ReactElement {
     [ws],
   );
 
-  const handleEdit = useCallback(
-    (server: MCPServer) => {
-      setEditServer(server);
-      setShowEditDialog(true);
-    },
-    [],
-  );
+  const handleEdit = useCallback((server: MCPServer) => {
+    setEditServer(server);
+    setPrefillConfig(undefined);
+    setShowEditDialog(true);
+  }, []);
 
   const handleSaveEdit = useCallback(
     (config: MCPServerConfig) => {
@@ -511,6 +655,8 @@ export function MCPSection(): ReactElement {
   const connectedCount = servers.filter((s) => s.status === 'connected').length;
   const sleepingCount = servers.filter((s) => s.status === 'sleeping').length;
 
+  const addedServerNames = new Set(servers.map((s) => s.name));
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -528,19 +674,48 @@ export function MCPSection(): ReactElement {
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
             Refresh
           </Button>
-          <Button size="sm" onClick={() => setTab('add')}>
+          <Button
+            size="sm"
+            onClick={() => {
+              setPrefillConfig(undefined);
+              setShowAddDialog(true);
+            }}
+          >
             <Plus className="w-4 h-4 mr-1" />
-            Add Server
+            Add Custom
           </Button>
         </div>
       </div>
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as 'list' | 'add')}>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
         <TabsList>
+          <TabsTrigger value="recommended">
+            <Star className="w-3.5 h-3.5 mr-1" />
+            Recommended
+          </TabsTrigger>
           <TabsTrigger value="list">Servers</TabsTrigger>
-          <TabsTrigger value="add">Add New</TabsTrigger>
+          <TabsTrigger value="add">Add Custom</TabsTrigger>
         </TabsList>
 
+        {/* Recommended tab — official MCP servers from the community */}
+        <TabsContent value="recommended" className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            One-click add for popular MCP servers. Click Add to pre-fill the configuration, then
+            confirm. Servers requiring credentials will need their env vars set before use.
+          </p>
+          <div className="grid gap-2">
+            {OFFICIAL_SERVERS.map((server) => (
+              <OfficialServerCard
+                key={server.name}
+                server={server}
+                isAdded={addedServerNames.has(server.name)}
+                onAdd={() => handleAddOfficial(server)}
+              />
+            ))}
+          </div>
+        </TabsContent>
+
+        {/* My Servers tab */}
         <TabsContent value="list" className="space-y-3">
           {loading && servers.length === 0 ? (
             <div className="flex items-center justify-center py-8 text-muted-foreground">
@@ -551,7 +726,9 @@ export function MCPSection(): ReactElement {
             <div className="text-center py-8 text-muted-foreground">
               <Server className="w-10 h-10 mx-auto mb-2 opacity-50" />
               <p>No MCP servers configured</p>
-              <p className="text-sm">Add a server to get started</p>
+              <p className="text-sm">
+                Switch to the Recommended tab to add popular servers, or Add Custom for your own.
+              </p>
             </div>
           ) : (
             servers.map((server) => (
@@ -568,22 +745,26 @@ export function MCPSection(): ReactElement {
           )}
         </TabsContent>
 
+        {/* Add Custom tab */}
         <TabsContent value="add">
           <ServerDialog
-            open={showEditDialog || tab === 'add'}
+            open={showAddDialog}
             onOpenChange={(open) => {
-              setShowEditDialog(false);
-              if (!open) setTab('list');
+              if (!open) setShowAddDialog(false);
             }}
-            onSave={handleAdd}
+            onSave={handleAddCustom}
           />
           <div className="text-sm text-muted-foreground">
-            <p>Enter server details to add a new MCP server.</p>
-            <p className="mt-1">After adding, use "Discover" to fetch available tools.</p>
+            <p>Configure a custom MCP server with stdio, SSE, or HTTP transport.</p>
+            <p className="mt-1">
+              For popular servers, use the Recommended tab instead — everything is pre-configured
+              for you.
+            </p>
           </div>
         </TabsContent>
       </Tabs>
 
+      {/* Edit dialog */}
       <ServerDialog
         open={showEditDialog}
         onOpenChange={setShowEditDialog}

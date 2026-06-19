@@ -1,8 +1,3 @@
-import { toast } from '@/components/Toaster';
-import { useWebSocket } from '@/hooks/useWebSocket';
-import { useConfigStore, useUIStore } from '@/stores';
-import { useLocalPrefs } from '@/stores/local-prefs';
-import type { WSServerMessage } from '@/types';
 import {
   Activity,
   Bot,
@@ -15,26 +10,33 @@ import {
   Palette,
   Puzzle,
   Send,
+  Server,
   Shield,
   Sun,
   X,
   Zap,
 } from 'lucide-react';
-import { type ReactElement, useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { toast } from '@/components/Toaster';
+import { useWebSocket } from '@/hooks/useWebSocket';
+import { useConfigStore, useUIStore } from '@/stores';
+import { useLocalPrefs } from '@/stores/local-prefs';
+import type { WSServerMessage } from '@/types';
 import { useTheme } from '../ThemeProvider';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { ScrollArea } from '../ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
-import { PreferenceToggle } from './PreferenceToggle';
-import { PreferenceSelect, PreferenceSlider } from './PreferenceControls';
-import {
-  ProviderSection,
-  type CatalogProvider,
-  type SavedProvider,
-  type ProviderTab,
-} from './ProviderSection';
+import { MCPSection } from './MCPSection';
 import { ModelSection } from './ModelSection';
+import { PreferenceSelect, PreferenceSlider } from './PreferenceControls';
+import { PreferenceToggle } from './PreferenceToggle';
+import {
+  type CatalogProvider,
+  ProviderSection,
+  type ProviderTab,
+  type SavedProvider,
+} from './ProviderSection';
 
 interface CatalogModel {
   id: string;
@@ -48,7 +50,7 @@ interface CatalogModel {
 
 export function SettingsPanel() {
   const { setCurrentView } = useUIStore();
-  const { provider, model, setProvider, setModel, wsConnected } = useConfigStore();
+  const { provider, setProvider, setModel, wsConnected } = useConfigStore();
   const { theme, setTheme } = useTheme();
   const ws = useWebSocket();
   const wsClient = ws.client;
@@ -196,7 +198,7 @@ export function SettingsPanel() {
       <ScrollArea className="flex-1">
         <div className="p-6 max-w-2xl mx-auto">
           <Tabs defaultValue="provider">
-            <TabsList className="w-full justify-start mb-6 grid grid-cols-5">
+            <TabsList className="w-full justify-start mb-6 grid grid-cols-6">
               <TabsTrigger value="provider" className="gap-1 text-xs">
                 <Network className="h-3.5 w-3.5" />
                 Provider
@@ -216,6 +218,10 @@ export function SettingsPanel() {
               <TabsTrigger value="features" className="gap-1 text-xs">
                 <Puzzle className="h-3.5 w-3.5" />
                 Feat.
+              </TabsTrigger>
+              <TabsTrigger value="mcp" className="gap-1 text-xs">
+                <Server className="h-3.5 w-3.5" />
+                MCP
               </TabsTrigger>
             </TabsList>
 
@@ -359,7 +365,10 @@ export function SettingsPanel() {
                     { value: 'suggest' as const, label: 'Suggest — suggests next steps' },
                     { value: 'auto' as const, label: 'Auto — brief confirmation delay' },
                     { value: 'eternal' as const, label: 'Eternal — autonomous until goal done' },
-                    { value: 'eternal-parallel' as const, label: 'Eternal Parallel — multi-agent fleet' },
+                    {
+                      value: 'eternal-parallel' as const,
+                      label: 'Eternal Parallel — multi-agent fleet',
+                    },
                   ]}
                   onChange={(v) => {
                     localPrefs.set({ autonomy: v });
@@ -503,19 +512,16 @@ export function SettingsPanel() {
                         syncPref('tgLongToolMs', localPrefs.tgLongToolMs > 0 ? 0 : 30_000)
                       }
                     />
-                    <p className="text-xs text-muted-foreground mt-2">
-                      Changes apply immediately.
-                    </p>
+                    <p className="text-xs text-muted-foreground mt-2">Changes apply immediately.</p>
                   </>
                 ) : (
                   <p className="text-xs text-muted-foreground">
                     Telegram is not configured. Run{' '}
-                    <code className="bg-muted px-1 py-0.5 rounded">/telegram-setup</code> in the
-                    CLI to connect a bot first.
+                    <code className="bg-muted px-1 py-0.5 rounded">/telegram-setup</code> in the CLI
+                    to connect a bot first.
                   </p>
                 )}
               </div>
-
             </TabsContent>
 
             {/* Features Tab */}
@@ -553,7 +559,9 @@ export function SettingsPanel() {
                   label="Models registry"
                   hint="Use the models.dev catalog for provider discovery."
                   value={localPrefs.featureModelsRegistry}
-                  onChange={() => syncPref('featureModelsRegistry', !localPrefs.featureModelsRegistry)}
+                  onChange={() =>
+                    syncPref('featureModelsRegistry', !localPrefs.featureModelsRegistry)
+                  }
                 />
                 <PreferenceToggle
                   label="Index on start"
@@ -609,6 +617,21 @@ export function SettingsPanel() {
                   onChange={(v) => syncPref('auditLevel', v)}
                 />
               </div>
+            </TabsContent>
+
+            {/* MCP Servers Tab */}
+            <TabsContent value="mcp" className="space-y-4">
+              {!localPrefs.featureMcp ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Server className="w-10 h-10 mx-auto mb-2 opacity-50" />
+                  <p>MCP servers are disabled.</p>
+                  <p className="text-sm mt-1">
+                    Enable the "MCP servers" feature flag in the Features tab to use this section.
+                  </p>
+                </div>
+              ) : (
+                <MCPSection />
+              )}
             </TabsContent>
           </Tabs>
         </div>

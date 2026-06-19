@@ -7,6 +7,7 @@ export {
   encryptConfigSecrets,
   rewriteConfigEncrypted,
   migratePlaintextSecrets,
+  rotateConfigKeys,
 } from './secret-vault.js';
 export { isSecretField } from './secret-vault.js';
 export {

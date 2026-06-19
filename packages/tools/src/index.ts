@@ -58,7 +58,7 @@ export type { CircuitState, CircuitSnapshot } from './codebase-index/index.js';
 
 // builtinTools moved to './builtin.ts' so consumers that only need a subset of
 // tools don't transitively import all 30. Use `@wrongstack/tools/builtin`.
-export { builtinTools, OPTIONAL_TOOLS, TIER1_TOOLS } from './builtin.js';
+export { builtinTools, OPTIONAL_TOOLS, TIER1_TOOLS, TIER2_TOOLS, TIER3_TOOLS } from './builtin.js';
 export { builtinToolsPack } from './pack.js';
 
 // Tool icon mapping — shared across all UIs (WebUI, TUI, REPL)

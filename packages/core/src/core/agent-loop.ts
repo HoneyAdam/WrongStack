@@ -338,12 +338,24 @@ export function createAgentLoopHandler(
 
         // Check inter-agent mailbox for steer/btw messages from other agents.
         // Non-blocking best-effort — a broken mailbox must not stop the agent.
-        await injectPendingMailboxMessages(checkMailbox, foldBlockIntoConversation, {
-          // Cast to the broad parameter type — injectPendingMailboxMessages only
-          // calls emit('mailbox.received', ...) and uses logger.debug optionally.
-          events: a.events as unknown as { emit: (type: string, payload: unknown) => void },
-          logger: a.logger as unknown as { debug?: (...args: unknown[]) => void },
-        });
+        const mailboxResult = await injectPendingMailboxMessages(
+          checkMailbox,
+          foldBlockIntoConversation,
+          {
+            // Cast to the broad parameter type — injectPendingMailboxMessages only
+            // calls emit('mailbox.received', ...) and uses logger.debug optionally.
+            events: a.events as unknown as { emit: (type: string, payload: unknown) => void },
+            logger: a.logger as unknown as { debug?: (...args: unknown[]) => void },
+          },
+        );
+        // Cooperative interrupt: an operator (e.g. Fleet HQ) dropped a
+        // `control:interrupt` message in our mailbox. Stop gracefully at this
+        // iteration boundary — before the next LLM call — rather than killing
+        // the process. Mirrors the abort-signal exit shape.
+        if (mailboxResult.interrupt) {
+          const reason = `interrupted: ${mailboxResult.interruptReason ?? 'operator request'}`;
+          return { status: 'aborted', iterations, abortReason: reason, finalText };
+        }
 
         const req = await handlers.response.buildAndRunRequestPipeline(opts);
 

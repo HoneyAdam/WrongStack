@@ -4,6 +4,40 @@ import type { WireFamily } from './models-registry.js';
 import type { Capabilities } from './provider.js';
 import type { Permission } from './tool.js';
 
+/**
+ * Token-saving mode tier levels. Controls how aggressively the system prompt
+ * is compacted to reduce per-request token consumption.
+ *
+ * - 'off'        — Full prompt, all tools, complete guidance (no reduction)
+ * - 'minimal'    — TIER1 tools only (~10), stripped guidance (~3-4k tokens saved)
+ * - 'light'     — Core + memory tools (~14), common patterns, minimal guidance
+ * - 'medium'    — Most development tools (~24), some guidance (default when `true`)
+ * - 'aggressive' — Maximum savings before tools become unusable (~4-5k tokens saved)
+ */
+export type TokenSavingTier = 'off' | 'minimal' | 'light' | 'medium' | 'aggressive';
+
+/**
+ * Normalize a TokenSavingTier value, handling backward-compatible boolean inputs.
+ * - `true`  → 'medium' (existing behavior)
+ * - `false` → 'off'
+ * - string values are returned as-is after validation
+ * - `undefined` → 'off'
+ */
+export function normalizeTokenSavingTier(
+  val?: TokenSavingTier | boolean,
+): TokenSavingTier {
+  if (val === undefined) return 'off';
+  if (typeof val === 'boolean') return val ? 'medium' : 'off';
+  const validTiers = new Set<TokenSavingTier>([
+    'off',
+    'minimal',
+    'light',
+    'medium',
+    'aggressive',
+  ]);
+  return validTiers.has(val) ? val : 'off';
+}
+
 export interface ContextConfig {
   /** Context-window policy mode. Controls compaction thresholds and preservation depth. */
   mode?: ContextWindowModeId | undefined;
@@ -94,10 +128,12 @@ export interface ProviderApiKey {
 export interface ProviderConfig {
   type: string;
   /**
-   * Legacy single-key field. Still honored as a fallback when `apiKeys`
-   * is empty. When `apiKeys`/`activeKey` are present, the config loader
-   * mirrors the active entry into this field so downstream consumers
-   * (provider construction, wire adapters) need no changes.
+   * Legacy single-key field. Still honored as a read fallback when `apiKeys`
+   * is empty (for configs not yet migrated to multi-key format). After key
+   * management operations (`writeKeysBack`), this field is **cleared** to
+   * prevent accidental serialization of the plaintext key. Consumers that
+   * need the active API key should use `resolveActiveApiKey()` (cli) or
+   * resolve from `apiKeys[]` directly — never read `cfg.apiKey` in new code.
    */
   apiKey?: string | undefined;
   /** Multiple keys for the same provider — pick one with `activeKey`. */
@@ -196,13 +232,23 @@ export interface FeaturesConfig {
   /** Discover + load skills from disk. */
   skills: boolean;
   /**
-   * Token-saving mode: when enabled, non-essential tools are omitted,
-   * skill descriptions are trimmed, and the system prompt is shortened
-   * to reduce per-request token consumption without compromising core
-   * functionality. Enable with `--token-saving-mode` or
-   * `features.tokenSavingMode: true` in config.
+   * Token-saving mode tier. Controls how aggressively the system prompt
+   * is compacted to reduce per-request token consumption.
+   *
+   * - 'off'        — Full prompt, all tools, complete guidance
+   * - 'minimal'    — TIER1 tools only, stripped guidance (~3-4k tokens saved)
+   * - 'light'     — Core + memory tools, common patterns, minimal guidance
+   * - 'medium'    — Most development tools, some guidance
+   * - 'aggressive' — Maximum savings before tools become unusable (~4-5k tokens)
+   *
+   * Boolean values are accepted for backward compatibility:
+   * - `true`  → 'medium'
+   * - `false` → 'off'
+   *
+   * Enable via CLI: `--token-saving-tier <level>` or `--token-saving-mode` (maps to 'medium').
+   * Configure via: `features.tokenSavingMode: "minimal"` in config.
    */
-  tokenSavingMode?: boolean | undefined;
+  tokenSavingMode?: TokenSavingTier | boolean | undefined;
   /**
    * Allow tools to read/write paths outside the project root directory.
    * When true (default), tools can access any path on the filesystem.

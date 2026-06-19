@@ -87,7 +87,8 @@ export function createProviderStore(deps: ProviderStoreDeps): ProviderStore {
     }
     cfg.apiKeys = keys;
     const active = keys.find((k) => k.label === cfg.activeKey) ?? expectDefined(keys[0]);
-    cfg.apiKey = active.apiKey;
+    // Do NOT mirror plaintext to cfg.apiKey — cleared to prevent serialization leaks.
+    delete cfg.apiKey;
     if (!cfg.activeKey || !keys.some((k) => k.label === cfg.activeKey)) {
       cfg.activeKey = active.label;
     }

@@ -61,4 +61,50 @@ describe('SecretScrubber', () => {
     expect(out.length).toBeGreaterThan(70_000);
     expect(out).toContain('safe-text');
   });
+
+  // AI/ML provider key patterns
+  it('redacts HuggingFace tokens', () => {
+    // HuggingFace tokens: hf_ followed by exactly 34 alphanumeric chars
+    const token = 'hf_abcdefghijklmnopqrstuvwxyz12345678'; // 34 chars after hf_
+    expect(token.length).toBe(37); // hf_ (3) + 34 = 37
+    const scrubbed = s.scrub(`token: ${token}`);
+    expect(scrubbed).toContain('[REDACTED:huggingface_token]');
+    expect(scrubbed).not.toContain(token);
+  });
+
+  it('redacts Replicate tokens', () => {
+    // Replicate tokens: r8_ followed by 40+ alphanumeric chars
+    const token = 'r8_abcdefghijklmnopqrstuvwxyz1234567890abcd'; // 40+ chars after r8_
+    const scrubbed = s.scrub(`REPLICATE_API_TOKEN=${token}`);
+    expect(scrubbed).toContain('[REDACTED:replicate_token]');
+    expect(scrubbed).not.toContain(token);
+  });
+
+  it('redacts Perplexity API keys', () => {
+    // Perplexity keys: pplx- followed by 40+ alphanumeric chars
+    const key = 'pplx-abcdefghijklmnopqrstuvwxyz1234567890abcd'; // 40+ chars after pplx-
+    const scrubbed = s.scrub(`PERPLEXITY_API_KEY: ${key}`);
+    expect(scrubbed).toContain('[REDACTED:perplexity_key]');
+    expect(scrubbed).not.toContain(key);
+  });
+
+  it('redacts Groq API keys', () => {
+    // Groq keys: gsk_ followed by 40+ alphanumeric chars
+    const key = 'gsk_abcdefghijklmnopqrstuvwxyz1234567890ABCDEFGH'; // 40+ chars after gsk_
+    const scrubbed = s.scrub(`GROQ_API_KEY="${key}"`);
+    expect(scrubbed).toContain('[REDACTED:groq_key]');
+    expect(scrubbed).not.toContain(key);
+  });
+
+  it('does not redact short HuggingFace-like strings', () => {
+    // Too short - should not match (needs exactly 34 chars after hf_)
+    const short = 'hf_abc123';
+    expect(s.scrub(short)).toBe(short);
+  });
+
+  it('does not redact short Replicate-like strings', () => {
+    // Too short - should not match (needs 40+ chars after r8_)
+    const short = 'r8_abc123';
+    expect(s.scrub(short)).toBe(short);
+  });
 });

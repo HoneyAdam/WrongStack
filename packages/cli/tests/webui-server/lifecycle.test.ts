@@ -116,6 +116,40 @@ describe('announceWebuiReady', () => {
     server.fire();
     expect(opened).toEqual([]);
   });
+
+  it('includes the auth token in the URL when wsToken is provided', () => {
+    const server = fakeServer();
+    const opened: string[] = [];
+    announceWebuiReady({
+      server,
+      host: '127.0.0.1',
+      httpPort: 3456,
+      wsPort: 3457,
+      open: true,
+      wsToken: 'abc123',
+      log: () => {},
+      openBrowserFn: (u) => opened.push(u),
+    });
+    server.fire();
+    expect(opened).toEqual(['http://127.0.0.1:3456?token=abc123']);
+  });
+
+  it('URL-encodes the auth token', () => {
+    const server = fakeServer();
+    const opened: string[] = [];
+    announceWebuiReady({
+      server,
+      host: '127.0.0.1',
+      httpPort: 3456,
+      wsPort: 3457,
+      open: true,
+      wsToken: 'abc+def/ghi=',
+      log: () => {},
+      openBrowserFn: (u) => opened.push(u),
+    });
+    server.fire();
+    expect(opened).toEqual(['http://127.0.0.1:3456?token=abc%2Bdef%2Fghi%3D']);
+  });
 });
 
 describe('createWebuiShutdown', () => {

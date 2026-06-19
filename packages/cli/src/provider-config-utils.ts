@@ -28,9 +28,10 @@ export function normalizeKeys(cfg: ProviderConfig): ProviderApiKey[] {
 }
 
 /**
- * Write a normalized key list back into a ProviderConfig. Keeps the
- * legacy `apiKey` field mirrored to the active entry so code that
- * bypasses the config loader still sees a usable key.
+ * Write a normalized key list back into a ProviderConfig. Does NOT mirror
+ * the plaintext key to the legacy `apiKey` field — that would leak the
+ * secret on any accidental JSON.stringify of the config. Consumers that
+ * need the real key must call {@link resolveActiveApiKey}.
  */
 export function writeKeysBack(cfg: ProviderConfig, keys: ProviderApiKey[]): void {
   if (keys.length === 0) {
@@ -41,10 +42,34 @@ export function writeKeysBack(cfg: ProviderConfig, keys: ProviderApiKey[]): void
   }
   cfg.apiKeys = keys;
   const active = keys.find((k) => k.label === cfg.activeKey) ?? expectDefined(keys[0]);
-  cfg.apiKey = active.apiKey;
+  // Do NOT mirror plaintext to cfg.apiKey — the legacy field is cleared so
+  // that accidental serialization (logging, error messages, WS payloads)
+  // cannot leak the active key. Use resolveActiveApiKey() to read the real key.
+  delete cfg.apiKey;
   if (!cfg.activeKey || !keys.some((k) => k.label === cfg.activeKey)) {
     cfg.activeKey = active.label;
   }
+}
+
+/**
+ * Extract the active (decrypted) API key from a ProviderConfig.
+ *
+ * Resolution order:
+ *   1. `apiKeys[]` — pick the entry matching `activeKey`, or the first one
+ *   2. Legacy `apiKey` field — only for configs not yet migrated to multi-key
+ *
+ * This is the **preferred** way to read the API key. Never read `cfg.apiKey`
+ * directly in new code — after {@link writeKeysBack} it is cleared, and even
+ * when present on a freshly-loaded config it may contain a masked value.
+ */
+export function resolveActiveApiKey(cfg: ProviderConfig): string | undefined {
+  if (Array.isArray(cfg.apiKeys) && cfg.apiKeys.length > 0) {
+    const active = cfg.activeKey
+      ? cfg.apiKeys.find((k) => k.label === cfg.activeKey)
+      : undefined;
+    return (active ?? cfg.apiKeys[0])?.apiKey;
+  }
+  return cfg.apiKey && cfg.apiKey.length > 0 ? cfg.apiKey : undefined;
 }
 
 /**

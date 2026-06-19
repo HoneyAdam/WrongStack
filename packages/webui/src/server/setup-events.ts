@@ -591,6 +591,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
               tokensOut: a.tokensOut,
               ctxPct: a.ctxPct,
               model: a.model,
+              partialText: a.partialText,
               lastActivityAt: a.lastActivityAt,
             })),
           }));

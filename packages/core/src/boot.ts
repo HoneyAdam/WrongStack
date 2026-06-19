@@ -6,7 +6,7 @@ import { DefaultLogger, noOpLogger } from './infrastructure/logger.js';
 import { DefaultPathResolver } from './infrastructure/path-resolver.js';
 import { DefaultSecretVault, migratePlaintextSecrets } from './security/secret-vault.js';
 import { DefaultConfigLoader } from './storage/config-loader.js';
-import type { Config } from './types/config.js';
+import { type Config, normalizeTokenSavingTier } from './types/config.js';
 import { writeErr } from './utils/term.js';
 import { toErrorMessage } from './utils/error.js';
 import { type WstackPaths, resolveWstackPaths } from './utils/wstack-paths.js';
@@ -192,6 +192,14 @@ export function flagsToConfigPatch(flags: Record<string, string | boolean>): Par
   if (flags['token-saving-mode']) {
     patch.features ??= {} as Config['features'];
     patch.features.tokenSavingMode = true;
+  }
+  // `--token-saving-tier <level>` takes precedence over `--token-saving-mode`.
+  // Supported values: off, minimal, light, medium, aggressive.
+  if (typeof flags['token-saving-tier'] === 'string') {
+    patch.features ??= {} as Config['features'];
+    patch.features.tokenSavingMode = normalizeTokenSavingTier(
+      flags['token-saving-tier'] as 'off' | 'minimal' | 'light' | 'medium' | 'aggressive',
+    );
   }
   return patch;
 }

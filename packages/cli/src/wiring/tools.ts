@@ -1,4 +1,4 @@
-import type { TextBlock } from '@wrongstack/core';
+import type { TextBlock, Tool } from '@wrongstack/core';
 import {
   type Config,
   createContextManagerTool,
@@ -10,6 +10,8 @@ import {
   makeMailboxTool,
   makeMailInboxTool,
   makeMailSendTool,
+  normalizeTokenSavingTier,
+  type TokenSavingTier,
   TOKENS,
   type ToolRegistry,
   type WstackPaths,
@@ -21,6 +23,8 @@ import {
   rememberTool,
   searchMemoryTool,
   TIER1_TOOLS,
+  TIER2_TOOLS,
+  TIER3_TOOLS,
 } from '@wrongstack/tools';
 import { resolveBundledSkillsDir } from '../cli-bundled-skills.js';
 
@@ -44,15 +48,56 @@ export interface ToolsWiringResult {
   memoryStore: DefaultMemoryStore;
 }
 
+/**
+ * Returns the tools to register, filtered from `allTools` by tier.
+ *
+ * | Tier        | Tools returned                              |
+ * |-------------|---------------------------------------------|
+ * | 'off'       | allTools (no filtering)                    |
+ * | 'minimal'   | TIER1 tools only                           |
+ * | 'light'     | TIER1 tools only (guidance differs only)  |
+ * | 'medium'    | TIER1 + TIER2 tools                       |
+ * | 'aggressive'| TIER1 + TIER2 (minus task) + TIER3 (minus setWorkingDir) |
+ *
+ * Memory tools (remember, forget, searchMemory, relatedMemory) are NOT
+ * included here — they are registered conditionally in setupTools() based
+ * on `config.features.memory`.
+ */
+export function getToolsForTier(tier: TokenSavingTier, allTools: Tool[]): Tool[] {
+  const t1Names = new Set(TIER1_TOOLS.map((t) => t.name));
+  const t2Names = new Set(TIER2_TOOLS.map((t) => t.name));
+  const t3Names = new Set(TIER3_TOOLS.map((t) => t.name));
+
+  switch (tier) {
+    case 'off':
+      return allTools;
+
+    case 'minimal':
+    case 'light':
+      return allTools.filter((t) => t1Names.has(t.name));
+
+    case 'medium':
+      return allTools.filter((t) => t1Names.has(t.name) || t2Names.has(t.name));
+
+    case 'aggressive':
+      return allTools.filter(
+        (t) =>
+          t1Names.has(t.name) ||
+          (t2Names.has(t.name) && t.name !== 'task') ||
+          (t3Names.has(t.name) && t.name !== 'setWorkingDir'),
+      );
+  }
+}
+
 export async function setupTools(params: ToolsWiringDeps): Promise<ToolsWiringResult> {
   const { config, toolRegistry, modelsRegistry, memoryStore, wpaths, container, projectRoot, cwd } =
     params;
 
   // Tool registry — already created by caller, just configure it here.
-  // Token-saving mode (Tier 1): register only the 10 minimal tools.
-  // Full mode (Tier 2): register all tools.
+  // Determine token-saving tier (handles boolean backward-compat: true → 'medium')
+  const tier = normalizeTokenSavingTier(config.features.tokenSavingMode);
   const allTools = builtinToolsPack.tools ?? [];
-  const toolsToRegister = config.features.tokenSavingMode ? TIER1_TOOLS : allTools;
+  const toolsToRegister = getToolsForTier(tier, allTools);
   toolRegistry.registerAllOrThrow([...toolsToRegister], builtinToolsPack.name);
   toolRegistry.registerDefault(
     createContextManagerTool({ compactor: container.resolve(TOKENS.Compactor) }),
@@ -104,7 +149,7 @@ export async function setupTools(params: ToolsWiringDeps): Promise<ToolsWiringRe
     modeId,
     modePrompt,
     modelCapabilities,
-    tokenSavingMode: config.features.tokenSavingMode,
+    tokenSavingMode: tier,
   });
 
   const systemPrompt = promptBuilder.build({
