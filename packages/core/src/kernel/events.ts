@@ -142,21 +142,41 @@ export interface EventMap {
     decision: 'always' | 'deny';
   };
   /**
-   * Fired when the agent loop detects that the model is calling the exact same
-   * tool(s) with the exact same input(s) repeatedly — a tight loop that would
-   * otherwise burn iterations indefinitely. The loop breaks with status
-   * `max_iterations` after `repeatCount` consecutive identical calls.
-   * Common with models that have weak instruction-following (e.g. k2p7) when
-   * a tool returns an unexpected empty result. UIs can render a warning.
+   * Fired when the agent loop detects that the model is repeating the same
+   * response shape over and over — a tight loop that would otherwise burn
+   * iterations indefinitely. The loop breaks with status `max_iterations`
+   * after `repeatCount` consecutive identical iterations.
+   *
+   * Two flavours caught by the same safety valve:
+   *  - `kind: 'tool'` — the same tool(s) called with effectively the same
+   *    inputs (catches k2p7's tendency to retry identical tool calls when
+   *    a tool returns an unexpected empty result).
+   *  - `kind: 'message'` — the same assistant text repeated, with no tool
+   *    calls. K2P7 and other weak-instruction-following models can echo
+   *    their last assistant turn verbatim across many iterations in
+   *    autonomous-continue mode. The fingerprint also matches this case
+   *    so the safety valve catches it too.
+   *  - `kind: 'mixed'` — both: the response contains tool calls AND text,
+   *    and the combined fingerprint (tool names + text) repeats.
+   *
+   * UIs can render a warning chip. The `kind` field is additive — older
+   * subscribers that only read `tools` continue to work.
    */
   'tool.loop_detected': {
     ctx: Context;
-    /** Comma-separated tool names involved in the loop. */
+    /** Comma-separated tool names involved in the loop, or empty string for pure message loops. */
     tools: string;
-    /** Number of consecutive identical calls detected. */
+    /** Number of consecutive identical iterations detected. */
     repeatCount: number;
     /** 0-based iteration index where the loop was detected. */
     iteration: number;
+    /**
+     * Shape of the loop. `tool` = identical tool calls; `message` = identical
+     * text-only response; `mixed` = both tool calls and text repeated.
+     * Defaults to `tool` for backward compatibility with subscribers that
+     * pre-date the field.
+     */
+    kind?: 'tool' | 'message' | 'mixed' | undefined;
   };
   /**
    * `output` is a truncated preview of the tool's serialized result text

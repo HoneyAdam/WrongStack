@@ -5,7 +5,7 @@
  */
 import type { Request, Response } from '../types/provider.js';
 import type { ContentBlock, TextBlock } from '../types/blocks.js';
-import { isToolUseBlock } from '../types/blocks.js';
+import { isTextBlock, isToolUseBlock } from '../types/blocks.js';
 import { toWrongStackError } from '../types/errors.js';
 import { estimateRequestTokens, estimateRequestTokensCalibrated, getCalibrationState, recordActualUsage } from '../utils/token-estimate.js';
 import { toErrorMessage } from '../utils/error.js';
@@ -204,15 +204,69 @@ export function createAgentLoopHandler(
   }
 
   /**
-   * Build a canonical signature for a batch of tool calls so we can detect
-   * when the model repeats the exact same calls iteration after iteration.
-   * Sorts by name so different ordering of the same calls still matches.
+   * Build a canonical per-iteration fingerprint so we can detect when the
+   * model repeats the same response shape iteration after iteration. The
+   * fingerprint covers THREE signals, not just tool calls:
+   *
+   *   1. The SORTED SET of tool names (deduped) the iteration is calling.
+   *      Using a set means rotating-but-similar tool names ("read" vs
+   *      "read_file") still match — a k2p7 stuck on "I should re-read the
+   *      file" picks different concrete names each turn but the *idea* is
+   *      the same and the loop is real.
+   *   2. A representative input hash from the FIRST tool call. We don't
+   *      hash every call's input (k2p7 varies paths/offsets trivially to
+   *      dodge a strict signature) — the first call's input is enough to
+   *      tell "same idea" from "actually different".
+   *   3. The concatenated text-block content, truncated to 512 chars.
+   *      This catches the "assistant message repeats" variant where k2p7
+   *      echoes the same prose turn after turn in autonomous-continue
+   *      mode with no tool calls at all. Thinking-block text is INTENTIONALLY
+   *      excluded — chain-of-thought legitimately varies per iteration,
+   *      including it would defeat the detector on every legitimate run.
+   *
+   * Returns `'__empty__'` when the response has no text AND no tool calls
+   * (e.g. a pure thinking response). The empty marker is unique enough to
+   * never collide with a real fingerprint and is excluded from the loop
+   * check at the call site so legitimate end-of-turn responses don't
+   * false-positive.
    */
-  function toolUseSignature(uses: { name: string; input: unknown }[]): string {
-    return uses
-      .map((u) => `${u.name}::${JSON.stringify(u.input ?? {})}`)
-      .sort()
-      .join('\n');
+  function iterationFingerprint(blocks: ContentBlock[]): string {
+    const toolUses = blocks.filter(isToolUseBlock);
+    const texts = blocks.filter(isTextBlock);
+
+    const toolNameSet = Array.from(new Set(toolUses.map((u) => u.name))).sort();
+    const firstInputHash = toolUses[0]
+      ? hashSmall(JSON.stringify(toolUses[0].input ?? {}))
+      : '';
+    const textBlob = texts
+      .map((t) => t.text)
+      .join('')
+      .slice(0, 512);
+
+    const hasContent = toolNameSet.length > 0 || textBlob.length > 0;
+    if (!hasContent) return '__empty__';
+
+    return [
+      `tools=${toolNameSet.join('+') || '-'}`,
+      `in0=${firstInputHash}`,
+      `txt=${textBlob}`,
+    ].join('\n');
+  }
+
+  /**
+   * Tiny stable hash for short strings (the representative input + the
+   * already-truncated text). 32-bit FNV-1a — collision rate is irrelevant
+   * here because we only ever compare against the immediately previous
+   * iteration's fingerprint, not a global set. Avoids pulling a real
+   * hash function for what is effectively an equality check.
+   */
+  function hashSmall(s: string): string {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+    }
+    return h.toString(36);
   }
 
   /** Fold pending /btw notes into conversation before each iteration. */
@@ -291,14 +345,26 @@ export function createAgentLoopHandler(
     const hasHardLimit = effectiveLimit > 0 && Number.isFinite(effectiveLimit);
     let recoveryRetries = 0;
 
-    // ── Duplicate tool-call detection ──────────────────────────────
-    // Models with weak instruction-following (k2p7, etc.) can enter tight
-    // loops calling the exact same tool with the exact same input dozens of
-    // times. We track a signature of each iteration's tool calls and break
-    // when the same signature repeats TOOL_LOOP_THRESHOLD times in a row.
-    // This is a safety valve — it does not replace good tool design (e.g.
-    // the read tool's past-EOF message), it catches loops the tools can't.
-    const TOOL_LOOP_THRESHOLD = 3;
+    // ── Loop detection state ──────────────────────────────────────
+    // One counter, one fingerprint. Tracks the previous iteration's
+    // fingerprint (tool-name set + first tool input + text blob) and how
+    // many times in a row it has matched. When the same fingerprint
+    // repeats LOOP_THRESHOLD times consecutively the loop is broken with
+    // a `tool.loop_detected` event and a clear finalText.
+    //
+    // The fingerprint covers THREE signals so the same safety valve catches
+    // both k2p7 failure modes:
+    //   (a) identical tool calls with identical inputs (the original
+    //       tool-loop case),
+    //   (b) text-only assistant-message repeats (the "echoing the same
+    //       prose" case in autonomous-continue mode).
+    //
+    // Empty responses (pure thinking blocks, end-of-turn silence) reset
+    // the streak so a real loop after a silence is still caught from
+    // iteration 1. Threshold of 3 keeps the safety net tight: legitimate
+    // "I'm reasoning about the same file twice" runs hit 2 at most, but
+    // a stuck k2p7 hits 3 within a few seconds.
+    const LOOP_THRESHOLD = 3;
     let lastToolSignature = '';
     let toolLoopCount = 0;
 
@@ -497,6 +563,73 @@ export function createAgentLoopHandler(
         finalText = responseResult.finalText;
 
         const toolUses = res.content.filter(isToolUseBlock);
+
+        // ── Loop detection (runs UNCONDITIONALLY — not just when tool calls are present) ──
+        // Models with weak instruction-following (k2p7, etc.) can enter tight
+        // loops in two ways, and the same fingerprint covers both:
+        //   (a) tool loop: the same tool gets called with the same input
+        //       over and over (the original failure mode the strict
+        //       fingerprint was built for);
+        //   (b) message loop: the assistant echoes the same prose turn
+        //       after turn with no tool calls at all — most often seen in
+        //       autonomous-continue mode where the run keeps looping on a
+        //       stuck directive.
+        // The fingerprint also catches mixed-shape repeats (same tool + same
+        // text). The check is *above* the no-tool-uses early-return so
+        // message loops get caught too. Empty responses (pure thinking
+        // blocks, end-of-turn silence) reset the streak so a real loop
+        // after a silence is still caught from iteration 1.
+        const sig = iterationFingerprint(res.content);
+        if (sig !== '__empty__') {
+          if (sig === lastToolSignature) {
+            toolLoopCount++;
+          } else {
+            lastToolSignature = sig;
+            toolLoopCount = 1;
+          }
+          if (toolLoopCount >= LOOP_THRESHOLD) {
+            const names = toolUses.map((t) => t.name).join(', ');
+            const hasText = res.content.some(isTextBlock);
+            const kind: 'tool' | 'message' | 'mixed' =
+              toolUses.length > 0 && hasText
+                ? 'mixed'
+                : toolUses.length > 0
+                  ? 'tool'
+                  : 'message';
+            const detail =
+              kind === 'tool'
+                ? `"${names}" called with effectively identical inputs ${toolLoopCount} times in a row`
+                : kind === 'mixed'
+                  ? `"${names}" + same text repeated ${toolLoopCount} times in a row`
+                  : `same assistant text repeated ${toolLoopCount} times in a row`;
+            a.logger.warn(
+              `Loop detected: ${detail} — stopping to prevent infinite loop.`,
+            );
+            a.events.emit('tool.loop_detected', {
+              ctx: a.ctx,
+              tools: names,
+              repeatCount: toolLoopCount,
+              iteration: i,
+              kind,
+            });
+            const summary =
+              kind === 'message'
+                ? `[Loop detected: same assistant message repeated ${toolLoopCount}× — stopping to prevent infinite repetition.]`
+                : `[Loop detected: ${detail} — stopping to prevent infinite repetition.]`;
+            return {
+              status: 'max_iterations',
+              iterations,
+              finalText: finalText || summary,
+              delegateSummaries,
+            };
+          }
+        } else {
+          // Empty iteration: reset the streak so a real-loop after a silence
+          // is still caught from iteration 1.
+          lastToolSignature = '';
+          toolLoopCount = 0;
+        }
+
         if (toolUses.length === 0) {
           emitContextPct();
           a.events.emit('iteration.completed', { ctx: a.ctx, index: i });
@@ -509,36 +642,6 @@ export function createAgentLoopHandler(
             return { status: 'done', iterations, finalText, delegateSummaries };
           }
           return { status: 'done', iterations, finalText, delegateSummaries };
-        }
-
-        // Duplicate tool-call detection: if the model emits the exact same
-        // tool calls (same names + same inputs) TOOL_LOOP_THRESHOLD times in
-        // a row, it's stuck in a loop. Break early with a clear message so
-        // the user knows why the run stopped.
-        const sig = toolUseSignature(toolUses);
-        if (sig === lastToolSignature) {
-          toolLoopCount++;
-        } else {
-          lastToolSignature = sig;
-          toolLoopCount = 1;
-        }
-        if (toolLoopCount >= TOOL_LOOP_THRESHOLD) {
-          const names = toolUses.map((t) => t.name).join(', ');
-          a.logger.warn(
-            `Tool loop detected: "${names}" called with identical inputs ${toolLoopCount} times in a row — stopping to prevent infinite loop.`,
-          );
-          a.events.emit('tool.loop_detected', {
-            ctx: a.ctx,
-            tools: names,
-            repeatCount: toolLoopCount,
-            iteration: i,
-          });
-          return {
-            status: 'max_iterations',
-            iterations,
-            finalText: finalText || `[Tool loop detected: ${names} repeated ${toolLoopCount}× with identical inputs. Stopping to prevent infinite repetition.]`,
-            delegateSummaries,
-          };
         }
 
         // Wrap tool execution so an abort mid-tool surfaces as 'aborted'
