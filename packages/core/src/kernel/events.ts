@@ -142,6 +142,23 @@ export interface EventMap {
     decision: 'always' | 'deny';
   };
   /**
+   * Fired when the agent loop detects that the model is calling the exact same
+   * tool(s) with the exact same input(s) repeatedly — a tight loop that would
+   * otherwise burn iterations indefinitely. The loop breaks with status
+   * `max_iterations` after `repeatCount` consecutive identical calls.
+   * Common with models that have weak instruction-following (e.g. k2p7) when
+   * a tool returns an unexpected empty result. UIs can render a warning.
+   */
+  'tool.loop_detected': {
+    ctx: Context;
+    /** Comma-separated tool names involved in the loop. */
+    tools: string;
+    /** Number of consecutive identical calls detected. */
+    repeatCount: number;
+    /** 0-based iteration index where the loop was detected. */
+    iteration: number;
+  };
+  /**
    * `output` is a truncated preview of the tool's serialized result text
    * (capped at ~400 chars by the emitter). UIs render this inline in the
    * tool history line without re-fetching from the session log.

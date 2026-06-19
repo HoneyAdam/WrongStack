@@ -203,6 +203,18 @@ export function createAgentLoopHandler(
     }
   }
 
+  /**
+   * Build a canonical signature for a batch of tool calls so we can detect
+   * when the model repeats the exact same calls iteration after iteration.
+   * Sorts by name so different ordering of the same calls still matches.
+   */
+  function toolUseSignature(uses: { name: string; input: unknown }[]): string {
+    return uses
+      .map((u) => `${u.name}::${JSON.stringify(u.input ?? {})}`)
+      .sort()
+      .join('\n');
+  }
+
   /** Fold pending /btw notes into conversation before each iteration. */
   function injectPendingBtwNotes(): void {
     const notes = consumeBtwNotes(a.ctx);
@@ -278,6 +290,17 @@ export function createAgentLoopHandler(
     let effectiveLimit = opts.maxIterations ?? a.maxIterations;
     const hasHardLimit = effectiveLimit > 0 && Number.isFinite(effectiveLimit);
     let recoveryRetries = 0;
+
+    // ── Duplicate tool-call detection ──────────────────────────────
+    // Models with weak instruction-following (k2p7, etc.) can enter tight
+    // loops calling the exact same tool with the exact same input dozens of
+    // times. We track a signature of each iteration's tool calls and break
+    // when the same signature repeats TOOL_LOOP_THRESHOLD times in a row.
+    // This is a safety valve — it does not replace good tool design (e.g.
+    // the read tool's past-EOF message), it catches loops the tools can't.
+    const TOOL_LOOP_THRESHOLD = 3;
+    let lastToolSignature = '';
+    let toolLoopCount = 0;
 
     const onSubagentDone = ({ summary, ok }: { summary: string; ok: boolean }) => {
       delegateSummaries.push({ summary, ok });
@@ -486,6 +509,36 @@ export function createAgentLoopHandler(
             return { status: 'done', iterations, finalText, delegateSummaries };
           }
           return { status: 'done', iterations, finalText, delegateSummaries };
+        }
+
+        // Duplicate tool-call detection: if the model emits the exact same
+        // tool calls (same names + same inputs) TOOL_LOOP_THRESHOLD times in
+        // a row, it's stuck in a loop. Break early with a clear message so
+        // the user knows why the run stopped.
+        const sig = toolUseSignature(toolUses);
+        if (sig === lastToolSignature) {
+          toolLoopCount++;
+        } else {
+          lastToolSignature = sig;
+          toolLoopCount = 1;
+        }
+        if (toolLoopCount >= TOOL_LOOP_THRESHOLD) {
+          const names = toolUses.map((t) => t.name).join(', ');
+          a.logger.warn(
+            `Tool loop detected: "${names}" called with identical inputs ${toolLoopCount} times in a row — stopping to prevent infinite loop.`,
+          );
+          a.events.emit('tool.loop_detected', {
+            ctx: a.ctx,
+            tools: names,
+            repeatCount: toolLoopCount,
+            iteration: i,
+          });
+          return {
+            status: 'max_iterations',
+            iterations,
+            finalText: finalText || `[Tool loop detected: ${names} repeated ${toolLoopCount}× with identical inputs. Stopping to prevent infinite repetition.]`,
+            delegateSummaries,
+          };
         }
 
         // Wrap tool execution so an abort mid-tool surfaces as 'aborted'
