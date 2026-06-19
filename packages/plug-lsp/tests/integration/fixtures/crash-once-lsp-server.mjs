@@ -46,6 +46,7 @@ function handle(msg) {
       capabilities: {
         textDocumentSync: 1,
         hoverProvider: true,
+        definitionProvider: true,
       },
     });
     if (shouldCrash) setTimeout(() => process.exit(42), 25);
@@ -62,5 +63,9 @@ function handle(msg) {
   }
   if (msg.method === 'textDocument/hover') {
     respond(msg.id, { contents: { kind: 'markdown', value: 'recovered hover' } });
+  }
+  if (msg.method === 'textDocument/definition') {
+    const uri = msg.params.textDocument.uri;
+    respond(msg.id, [{ uri, range: { start: { line: 0, character: 0 }, end: { line: 0, character: 6 } } }]);
   }
 }

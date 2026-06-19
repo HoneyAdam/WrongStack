@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { formatDiagnostics } from '../../src/formatters/diagnostics.js';
-import { formatHover } from '../../src/formatters/hover.js';
 import { formatLocations } from '../../src/formatters/location.js';
-import { formatDocumentSymbols, formatWorkspaceSymbols } from '../../src/formatters/symbols.js';
+
 import { editsByPath, summarizeWorkspaceEdit } from '../../src/formatters/workspace-edit.js';
 import { pathToUri } from '../../src/utils/uri.js';
 
@@ -38,20 +37,6 @@ describe('formatters', () => {
     ).toBe('No LSP diagnostics.');
   });
 
-  it('formats hover variants', () => {
-    expect(formatHover(null)).toBe('No hover information.');
-    expect(formatHover({ contents: '' })).toBe('No hover information.');
-    expect(formatHover({ contents: 'hello' })).toBe('hello');
-    expect(formatHover({ contents: { kind: 'markdown', value: '**x**' } })).toBe('**x**');
-    expect(formatHover({ contents: { language: 'ts', value: 'let x: number' } })).toContain(
-      'let x',
-    );
-    expect(
-      formatHover({ contents: [{ language: 'ts', value: 'const x = 1' }, 'plain'] }),
-    ).toContain('```ts');
-    expect(formatHover({ contents: 'abcdef' }, 3)).toBe('abc\n...[truncated]');
-  });
-
   it('formats locations and symbols', () => {
     const uri = pathToUri(`${cwd}/a.ts`);
     expect(formatLocations(null, cwd)).toBe('No locations found.');
@@ -66,39 +51,6 @@ describe('formatters', () => {
         2,
       ),
     ).toContain('... truncated 1 more');
-
-    expect(formatDocumentSymbols(`${cwd}/a.ts`, null, cwd)).toBe('No symbols found.');
-    expect(
-      formatDocumentSymbols(
-        `${cwd}/a.ts`,
-        [
-          {
-            name: 'Root',
-            kind: 5,
-            range: range(0, 0),
-            selectionRange: range(0, 0),
-            children: [
-              { name: 'child', kind: 12, range: range(1, 0), selectionRange: range(1, 0) },
-            ],
-          },
-          { name: 'flat', kind: 999, location: { uri, range: range(2, 0) } },
-        ],
-        cwd,
-      ),
-    ).toContain('symbol flat');
-
-    expect(formatWorkspaceSymbols(null, 'x', cwd)).toBe('No symbols matching "x".');
-    expect(
-      formatWorkspaceSymbols(
-        [
-          { name: 'Thing', kind: 5, location: { uri, range: range(0, 0) } },
-          { name: 'Other', kind: 12, location: { uri, range: range(1, 0) } },
-        ],
-        't',
-        cwd,
-        1,
-      ),
-    ).toContain('truncated 1 more');
   });
 
   it('summarizes workspace edits from both change shapes', () => {

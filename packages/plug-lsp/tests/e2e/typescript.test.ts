@@ -76,10 +76,10 @@ describe.skipIf(!hasTypeScriptLanguageServer)('typescript-language-server E2E', 
     const ctx = { cwd: root, projectRoot: root } as never;
     const signal = new AbortController().signal;
 
-    const hover = await tools
-      .get('lsp_hover')!
+    const definition = await tools
+      .get('lsp_definition')!
       .execute({ path: source, line: 1, character: 14 }, ctx, { signal });
-    expect(String(hover)).toContain('answer');
+    expect(String(definition)).toContain('sample.ts:1:1');
 
     const diagnostics = await tools
       .get('lsp_diagnostics')!

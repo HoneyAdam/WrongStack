@@ -2,18 +2,14 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { createCodeActionsTool } from '../../src/tools/code-actions.js';
 import { createDefinitionTool } from '../../src/tools/definition.js';
 import { createDiagnosticsTool } from '../../src/tools/diagnostics.js';
-import { createHoverTool } from '../../src/tools/hover.js';
-import { createReferencesTool } from '../../src/tools/references.js';
 import { createRenameTool } from '../../src/tools/rename.js';
 import {
   resolveInputPath,
   stringifyToolError,
   textDocumentPosition,
 } from '../../src/tools/shared.js';
-import { createSymbolsTool } from '../../src/tools/symbols.js';
 import { applyWorkspaceEdit } from '../../src/tools/workspace-edit.js';
 import { LSPError, LSPErrorCode, type PlugLSPConfig } from '../../src/types.js';
 import { pathToUri } from '../../src/utils/uri.js';
@@ -44,7 +40,7 @@ describe('tool error and edge paths', () => {
     expect(stringifyToolError('wat')).toContain('wat');
   });
 
-  it('returns capability and not-found errors from read-only tools', async () => {
+  it('returns capability and not-found errors from kept tools', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'plug-lsp-tools-'));
     const file = path.join(root, 'a.ts');
     await fs.writeFile(file, 'const a = 1;');
@@ -53,30 +49,14 @@ describe('tool error and edge paths', () => {
     const ctx = { cwd: root } as never;
     const opts = { signal: new AbortController().signal };
     expect(
-      await createHoverTool(deps).execute({ path: file, line: 1, character: 1 }, ctx, opts),
-    ).toContain('does not support hover');
-    expect(await createCodeActionsTool(deps).execute({ path: file, line: 1 }, ctx, opts)).toContain(
-      'does not support code actions',
-    );
-    expect(
       await createDefinitionTool(deps).execute({ path: file, line: 1, character: 1 }, ctx, opts),
     ).toContain('does not support definition');
-    expect(
-      await createReferencesTool(deps).execute(
-        { path: file, line: 1, character: 1, include_declaration: false, limit: 1 },
-        ctx,
-        opts,
-      ),
-    ).toContain('does not support references');
-    expect(await createSymbolsTool(deps).execute({ path: file }, ctx, opts)).toContain(
-      'does not support document symbols',
-    );
     expect(
       await createDiagnosticsTool(makeDeps(null)).execute({ path: file }, ctx, opts),
     ).toContain('LSP_SERVER_NOT_FOUND');
   });
 
-  it('covers diagnostics workspace mode, rename no-edit, and code action edge cases', async () => {
+  it('covers diagnostics workspace mode and rename no-edit edge cases', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'plug-lsp-tools-'));
     const file = path.join(root, 'a.ts');
     await fs.writeFile(file, 'const a = 1;');
@@ -85,16 +65,10 @@ describe('tool error and edge paths', () => {
       capabilities: {
         diagnosticProvider: {},
         renameProvider: true,
-        codeActionProvider: true,
-        documentSymbolProvider: true,
-        workspaceSymbolProvider: true,
       },
       pullDiagnostics: vi.fn(async () => [{ range: r(0, 0), severity: 1, message: 'pulled' }]),
       getDiagnostics: vi.fn(() => [{ range: r(0, 0), severity: 2, message: 'buffered' }]),
       rename: vi.fn(async () => null),
-      codeAction: vi.fn(async () => []),
-      documentSymbol: vi.fn(async () => null),
-      workspaceSymbol: vi.fn(async () => null),
     });
     const deps = makeDeps(server, [{ path: file, uri }]);
     const ctx = { cwd: root } as never;
@@ -106,13 +80,7 @@ describe('tool error and edge paths', () => {
     expect(
       await createDiagnosticsTool(deps).execute({ path: file, limit: 1 }, ctx, opts),
     ).toContain('buffered');
-    server.capabilities = {
-      diagnosticProvider: {},
-      renameProvider: true,
-      codeActionProvider: true,
-      documentSymbolProvider: true,
-      workspaceSymbolProvider: true,
-    };
+    server.capabilities = { diagnosticProvider: {}, renameProvider: true };
     expect(await createDiagnosticsTool(deps).execute({}, ctx, opts)).toContain('buffered');
     expect(
       await createRenameTool(deps).execute(
@@ -121,56 +89,12 @@ describe('tool error and edge paths', () => {
         opts,
       ),
     ).toBe('Rename produced no edits.');
-    expect(await createSymbolsTool(deps).execute({ path: file }, ctx, opts)).toBe(
-      'No symbols found.',
-    );
-    expect(await createCodeActionsTool(deps).execute({ path: file, line: 1 }, ctx, opts)).toBe(
-      'No code actions available.',
-    );
-    expect(
-      await createCodeActionsTool(deps).execute(
-        { path: file, line: 1, kind_filter: 'quickfix' },
-        ctx,
-        opts,
-      ),
-    ).toBe('No code actions available.');
-    expect(
-      await createCodeActionsTool(deps).execute({ path: file, line: 1, apply: 1 }, ctx, opts),
-    ).toBe('No code action at index 1.');
-    expect(await createSymbolsTool(deps).execute({ query: 'x', limit: 1 }, ctx, opts)).toBe(
-      'No symbols matching "x".',
-    );
-    expect(
-      await createSymbolsTool(
-        makeDeps([
-          {
-            state: 'failed',
-            capabilities: { workspaceSymbolProvider: true },
-            workspaceSymbol: vi.fn(),
-          },
-          { state: 'ready', capabilities: {}, workspaceSymbol: vi.fn() },
-        ]),
-      ).execute({ query: 'x' }, ctx, opts),
-    ).toBe('No symbols matching "x".');
   });
 
-  it('applies command-only actions and rolls back failed workspace edits', async () => {
+  it('rolls back failed workspace edits', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'plug-lsp-tools-'));
     const file = path.join(root, 'a.ts');
     await fs.writeFile(file, 'const a = 1;');
-    const server = fakeServer({
-      capabilities: { codeActionProvider: true },
-      codeAction: vi.fn(async () => [{ title: 'Run command', command: { command: 'do.it' } }]),
-      executeCommand: vi.fn(async () => 'ok'),
-    });
-    const deps = makeDeps(server);
-    const out = await createCodeActionsTool(deps).execute(
-      { path: file, line: 1, apply: 0 },
-      { cwd: root } as never,
-      { signal: new AbortController().signal },
-    );
-    expect(out).toContain('Executed command: do.it');
-
     const missing = path.join(root, 'missing.ts');
     await expect(
       applyWorkspaceEdit(
@@ -222,14 +146,8 @@ function fakeServer(overrides: Record<string, unknown>) {
     name: 'fake',
     state: 'ready',
     capabilities: {},
-    hover: vi.fn(),
     definition: vi.fn(),
-    references: vi.fn(),
-    documentSymbol: vi.fn(),
-    workspaceSymbol: vi.fn(),
     rename: vi.fn(),
-    codeAction: vi.fn(),
-    executeCommand: vi.fn(),
     pullDiagnostics: vi.fn(),
     getDiagnostics: vi.fn(() => []),
     ...overrides,

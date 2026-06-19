@@ -46,7 +46,7 @@ const plugin: Plugin = {
 
     const tools = makeLSPTools({ registry, tracker, cfg, log: api.log });
     for (const tool of tools) api.tools.register(tool);
-    const commandNames = registerSlashCommands(api, registry);
+    const commandNames = registerSlashCommands(api, registry, tracker, cfg, cwd);
 
     const offs = [
       api.events.on('session.started', () => {

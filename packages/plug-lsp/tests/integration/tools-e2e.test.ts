@@ -71,30 +71,10 @@ describe('LSP tools with mock server', () => {
       .execute({ path: source }, ctx as never, { signal });
     expect(String(diagnostics)).toContain('MOCK001');
 
-    const hover = await tools
-      .get('lsp_hover')!
-      .execute({ path: source, line: 1, character: 7 }, ctx as never, { signal });
-    expect(String(hover)).toContain('const answer: number');
-
     const definition = await tools
       .get('lsp_definition')!
       .execute({ path: source, line: 1, character: 7 }, ctx as never, { signal });
     expect(String(definition)).toContain('sample.ts:1:1');
-
-    const references = await tools
-      .get('lsp_references')!
-      .execute({ path: source, line: 1, character: 7 }, ctx as never, { signal });
-    expect(String(references)).toContain('sample.ts:2:1');
-
-    const symbols = await tools
-      .get('lsp_symbols')!
-      .execute({ path: source }, ctx as never, { signal });
-    expect(String(symbols)).toContain('answer');
-
-    const workspaceSymbols = await tools
-      .get('lsp_symbols')!
-      .execute({ query: 'answer' }, ctx as never, { signal });
-    expect(String(workspaceSymbols)).toContain('answer');
 
     const rename = await tools
       .get('lsp_rename')!
@@ -103,19 +83,6 @@ describe('LSP tools with mock server', () => {
       });
     expect(String(rename)).toContain('Applied: 1 edits');
     expect(await fs.readFile(source, 'utf8')).toContain('const renamed = 42');
-
-    await fs.writeFile(source, 'const answer = 42;\nanswer;\n');
-    await tracker.fileWritten(source);
-    const codeActions = await tools
-      .get('lsp_code_actions')!
-      .execute({ path: source, line: 1 }, ctx as never, { signal });
-    expect(String(codeActions)).toContain('[0] quickfix Replace answer');
-
-    const applyAction = await tools
-      .get('lsp_code_actions')!
-      .execute({ path: source, line: 1, apply: 0 }, ctx as never, { signal });
-    expect(String(applyAction)).toContain('Applied: 1 edits');
-    expect(await fs.readFile(source, 'utf8')).toContain('const fixed = 42');
 
     await registry.shutdown();
   });

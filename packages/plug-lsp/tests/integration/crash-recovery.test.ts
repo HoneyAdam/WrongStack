@@ -70,12 +70,12 @@ describe('crash recovery', () => {
     const tools = new Map(
       makeLSPTools({ registry, tracker, cfg, log }).map((tool) => [tool.name, tool]),
     );
-    const hover = await tools
-      .get('lsp_hover')!
+    const definition = await tools
+      .get('lsp_definition')!
       .execute({ path: source, line: 1, character: 7 }, { cwd: root, projectRoot: root } as never, {
         signal: new AbortController().signal,
       });
-    expect(String(hover)).toContain('recovered hover');
+    expect(String(definition)).toContain('sample.ts:1:1');
 
     await registry.shutdown();
   }, 10_000);

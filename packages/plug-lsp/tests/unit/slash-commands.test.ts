@@ -60,7 +60,7 @@ describe('slash commands', () => {
       } as never,
       { list: () => [] } as never,
     );
-    expect(names).toEqual(['list', 'start', 'stop', 'restart', 'diagnostics']);
+    expect(names).toEqual(['lsp', 'list', 'start', 'stop', 'restart', 'diagnostics']);
     expect(registered).toEqual(names);
   });
 });
