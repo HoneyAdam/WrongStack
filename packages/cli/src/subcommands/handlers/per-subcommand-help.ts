@@ -330,12 +330,12 @@ function renderBlock(help: PerSubcommandHelp, renderer: TerminalRenderer): void 
 const helpTable: Record<string, PerSubcommandHelp> = {
   init: {
     name: 'init',
-    title: 'wstack init — pick provider + model from models.dev',
+    title: 'wstack init — DEPRECATED (use wstack auth)',
     description:
-      'Interactive first-run setup. Detects existing API keys in env, ' +
-      'suggests a default provider, and writes the encrypted config.',
-    usage: 'wstack init',
-    seeAlso: 'wstack auth (manage keys after init)',
+      '⚠ This command is deprecated. Use wstack auth for setup, key management, ' +
+      'and model selection in one interactive workflow.',
+    usage: 'wstack init (deprecated)',
+    seeAlso: 'wstack auth (interactive setup + key manager)',
   },
   version: {
     name: 'version',

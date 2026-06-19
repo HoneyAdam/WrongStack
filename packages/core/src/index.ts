@@ -129,7 +129,7 @@ export {
   SlashCommandRegistry,
   type SlashCommand,
 } from './registry/slash-command-registry.js';
-export { DefaultPluginAPI, type PluginAPIInit } from './plugin/api.js';
+export { DefaultPluginAPI, definePlugin, type PluginAPIInit } from './plugin/api.js';
 export {
   loadPlugins,
   unloadPlugins,

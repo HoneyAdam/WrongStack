@@ -32,16 +32,29 @@ export function resolvePath(input: string, ctx: Context): string {
   return path.isAbsolute(input) ? path.normalize(input) : path.resolve(ctx.workingDir ?? ctx.cwd, input);
 }
 
+/**
+ * Roots every file tool may always reach, even in restricted mode: the
+ * project root and the user-global `~/.wrongstack` directory (config, memory,
+ * sessions, skills). `~/.wrongstack` honors the `WRONGSTACK_HOME` override.
+ */
+function allowedRoots(ctx: Context): string[] {
+  return [path.resolve(ctx.projectRoot), path.resolve(Core.wstackGlobalRoot())];
+}
+
+/** True if `target` is `root` itself or nested inside any of `roots`. */
+function isInsideAny(target: string, roots: string[]): boolean {
+  return roots.some((root) => {
+    const rel = path.relative(root, target);
+    return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+  });
+}
+
 export function ensureInsideRoot(absPath: string, ctx: Context): string {
   const target = path.resolve(absPath);
   // Unrestricted filesystem access: skip the project-root containment check.
   if (ctx.allowOutsideProjectRoot) return target;
-  const root = path.resolve(ctx.projectRoot);
-  const rel = path.relative(root, target);
-  if (rel.startsWith('..') || path.isAbsolute(rel)) {
-    throw new Error(`Path "${absPath}" is outside project root "${root}"`);
-  }
-  return target;
+  if (isInsideAny(target, allowedRoots(ctx))) return target;
+  throw new Error(`Path "${absPath}" is outside project root "${path.resolve(ctx.projectRoot)}"`);
 }
 
 export function safeResolve(input: string, ctx: Context): string {
@@ -64,9 +77,12 @@ export function safeResolve(input: string, ctx: Context): string {
  */
 export async function assertRealInsideRoot(absPath: string, ctx: Context): Promise<void> {
   // Unrestricted filesystem access: no symlink-escape check to perform.
-  // `=== false` (not falsy) so a ctx lacking the field stays confined.
-  if (ctx.restrictFsToRoot === false || ctx.allowOutsideProjectRoot) return;
-  const realRoot = await fsp.realpath(ctx.projectRoot).catch(() => path.resolve(ctx.projectRoot));
+  if (ctx.allowOutsideProjectRoot) return;
+  // Compare like-for-like against the realpath of each always-allowed root
+  // (project root + ~/.wrongstack), since a root may itself be a symlink.
+  const realRoots = await Promise.all(
+    allowedRoots(ctx).map((r) => fsp.realpath(r).catch(() => path.resolve(r))),
+  );
   let probe = absPath;
   for (;;) {
     let real: string;
@@ -81,13 +97,10 @@ export async function assertRealInsideRoot(absPath: string, ctx: Context): Promi
       }
       throw err;
     }
-    const rel = path.relative(realRoot, real);
-    if (rel.startsWith('..') || path.isAbsolute(rel)) {
-      throw new Error(
-        `Path "${absPath}" resolves through a symlink outside project root "${realRoot}"`,
-      );
-    }
-    return;
+    if (isInsideAny(real, realRoots)) return;
+    throw new Error(
+      `Path "${absPath}" resolves through a symlink outside project root "${realRoots[0]}"`,
+    );
   }
 }
 

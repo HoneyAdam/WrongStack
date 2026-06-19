@@ -50,6 +50,18 @@ export interface LoadPluginsOptions {
    * manifest honesty. Default: false (log-only, backward-compatible).
    */
   enforceCapabilities?: boolean | undefined;
+  /**
+   * Timeout in milliseconds for each plugin's `setup()` call. If the
+   * plugin's setup exceeds this deadline it is treated as a failure
+   * and the plugin is not loaded. Default: 30 000 ms.
+   */
+  setupTimeoutMs?: number | undefined;
+  /**
+   * Timeout in milliseconds for each plugin's `teardown()` call. If the
+   * plugin's teardown exceeds this deadline it is treated as a best-effort
+   * failure (logged but not propagated). Default: 10 000 ms.
+   */
+  teardownTimeoutMs?: number | undefined;
 }
 
 function parseSemver(v: string): [number, number, number] {
@@ -252,12 +264,23 @@ export async function loadPlugins(
       const api = plugin.capabilities
         ? wrapApiForCapabilityCheck(plugin, rawApi, opts.log, opts.enforceCapabilities)
         : rawApi;
-      await plugin.setup(api);
+      const setupTimeoutMs = opts.setupTimeoutMs ?? 30_000;
+      const setupController = new AbortController();
+      const setupTimeout = setTimeout(() => setupController.abort(), setupTimeoutMs);
+      try {
+        await plugin.setup(api, { signal: setupController.signal });
+      } finally {
+        clearTimeout(setupTimeout);
+      }
       pluginApiMap.set(plugin, api);
       loaded.push(plugin);
       opts.log.info(`Plugin "${plugin.name}" loaded`);
     } catch (err) {
-      opts.log.error(`Plugin "${plugin.name}" setup failed`, err);
+      const isAbort = err instanceof DOMException && err.name === 'AbortError';
+      opts.log.error(
+        `Plugin "${plugin.name}" setup failed`,
+        isAbort ? { err, reason: 'setup timed out or aborted' } : { err },
+      );
       failed.push({ plugin, err });
     }
   }
@@ -293,11 +316,22 @@ export async function unloadPlugins(
           `Plugin "${plugin.name}" API not found in pluginApiMap — was setup() called?`,
         );
       }
-      await plugin.teardown(api);
+      const teardownTimeoutMs = opts.teardownTimeoutMs ?? 10_000;
+      const teardownController = new AbortController();
+      const teardownTimeout = setTimeout(() => teardownController.abort(), teardownTimeoutMs);
+      try {
+        await plugin.teardown!(api, { signal: teardownController.signal });
+      } finally {
+        clearTimeout(teardownTimeout);
+      }
       pluginApiMap.delete(plugin);
       opts.log.info(`Plugin "${plugin.name}" torn down`);
     } catch (err) {
-      opts.log.error(`Plugin "${plugin.name}" teardown failed`, err);
+      const isAbort = err instanceof DOMException && err.name === 'AbortError';
+      opts.log.error(
+        `Plugin "${plugin.name}" teardown failed`,
+        isAbort ? { err, reason: 'teardown timed out or aborted' } : { err },
+      );
     }
   }
 }

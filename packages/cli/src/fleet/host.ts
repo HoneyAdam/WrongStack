@@ -557,7 +557,8 @@ export class MultiAgentHost {
         cwd: subCwd,
         projectRoot: this.deps.projectRoot,
         // Subagents inherit the leader's filesystem-access scope.
-        restrictFsToRoot: config.tools?.restrictToProjectRoot ?? false,
+        allowOutsideProjectRoot:
+          config.features?.allowOutsideProjectRoot ?? !(config.tools?.restrictToProjectRoot ?? false),
         model: effModel,
         tools: this.filterTools(tools),
         // Distinct mailbox identity: without these, every subagent fell back

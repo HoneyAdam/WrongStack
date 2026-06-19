@@ -232,8 +232,19 @@ export interface Plugin {
    * defaultConfig: { ttl: 3600, maxSize: 100 }
    */
   defaultConfig?: Record<string, unknown>;
-  setup(api: PluginAPI): void | Promise<void>;
-  teardown?(api: PluginAPI): void | Promise<void>;
+  /**
+   * Called by the host to activate the plugin. Receives the `PluginAPI`
+   * and an optional `AbortSignal` the plugin should respect for
+   * cancellation and timeout. `setup` must complete before the plugin is
+   * considered loaded; if it times out the plugin is rejected.
+   */
+  setup(api: PluginAPI, opts?: { signal?: AbortSignal | undefined }): void | Promise<void>;
+  /**
+   * Called by the host during unload. Receives the same `PluginAPI` instance
+   * the plugin saw during `setup` and an optional `AbortSignal`. Teardown
+   * is best-effort — a timeout does not prevent other plugins from unloading.
+   */
+  teardown?(api: PluginAPI, opts?: { signal?: AbortSignal | undefined }): void | Promise<void>;
   /**
    * Optional health check. Called by the host (e.g. `/diag plugins` slash
    * command or health endpoint) to surface plugin status. Return

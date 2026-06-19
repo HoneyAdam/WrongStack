@@ -72,24 +72,28 @@ The loader scans each directory for subdirectories containing `SKILL.md`. Files 
 
 ## Bundled skills
 
-WrongStack ships with 16 bundled skills:
+WrongStack ships with 20 bundled skills:
 
 | Skill | Description |
 |---|---|
 | `api-design` | REST API design, error codes, pagination, auth patterns |
-| `audit-log` | Log parsing, anomaly detection, pattern recognition across sessions |
+| `audit-log` | Session log parsing, anomaly detection, cost and tool usage analysis |
 | `bug-hunter` | Systematic bug and code smell detection, severity ranking |
+| `chimera` | Post-session code quality review of changed files |
 | `docker-deploy` | Docker containerization, multi-stage builds, image scanning |
 | `git-flow` | Commit message style, branch hygiene, safe history operations |
-| `multi-agent` | Leader/worker roles, task delegation, done conditions, result aggregation |
+| `multi-agent` | Leader/worker roles, task delegation, result aggregation, fleet management |
 | `node-modern` | Node.js ≥ 22 idioms: ESM-only, native fetch, AbortSignal patterns |
 | `observability` | Structured logging, traces, metrics, redaction, instrumentation |
-| `prompt-engineering` | System prompt design, tool descriptions, task instructions for LLMs |
+| `output-standards` | Output formatting standards, `<next_steps>` conventions |
+| `prompt-engineering` | System prompt design, tool descriptions, trigger sentences |
 | `react-modern` | React 19+ Server Components, useTransition, Suspense, the `use` hook |
 | `refactor-planner` | Dependency mapping, risk assessment, phased planning, migration strategy |
+| `research-web` | Web research methodology, source validation, cross-referencing |
 | `sdd` | Spec parsing, task graph generation, dependency tracking, done-condition execution |
 | `security-scanner` | Code and configuration security vulnerability scanning |
 | `skill-creator` | Guide to creating new WrongStack skills with YAML frontmatter |
+| `tech-stack` | Package version validation, ecosystem preference maps, dead-package detection |
 | `testing` | vitest patterns, mocking, coverage, unit/integration/e2e test strategy |
 | `typescript-strict` | Strict null checks, exhaustive switch, branded types, discriminated unions |
 

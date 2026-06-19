@@ -653,7 +653,7 @@ export async function startWebUI(
       }
     } else {
       throw new Error(
-        'No provider configured. Run `wrongstack init` first, or configure via the WebUI.',
+        'No provider configured. Run `wrongstack auth` to set up, or configure via the WebUI.',
       );
     }
   }

@@ -134,29 +134,17 @@ describe('subcommands', () => {
     const text = stripAnsi(rig.out.buf);
     expect(text).toContain('wstack');
     expect(text).toContain('resume');
-    expect(text).toContain('init');
+    // `init` is deprecated and hidden from help; `auth` is its replacement.
+    expect(text).toContain('auth');
   });
 
-  it('init writes system-prompt project brief AGENTS.md', async () => {
+  it('init is a deprecated stub that points to `wstack auth`', async () => {
     const rig = withRig();
-    await fs.writeFile(
-      path.join(tmp, 'package.json'),
-      JSON.stringify({ scripts: { test: 'vitest' }, packageManager: 'pnpm@11.0.0' }),
-    );
-    const paths = resolveWstackPaths({
-      projectRoot: tmp,
-      globalRoot: path.join(tmp, 'g'),
-      userHome: tmp,
-    });
-    const code = await subcommands['init']!(
-      [],
-      mkDeps({ renderer: rig.renderer, paths, projectRoot: tmp, cwd: tmp, userHome: tmp }),
-    );
+    const code = await subcommands['init']!([], mkDeps({ renderer: rig.renderer }));
     expect(code).toBe(0);
-    const agents = await fs.readFile(path.join(tmp, '.wrongstack', 'AGENTS.md'), 'utf8');
-    expect(agents).toContain("loaded into WrongStack's system prompt");
-    expect(agents).toContain('## Project brief');
-    expect(agents).toContain('`pnpm test`');
+    const text = stripAnsi(rig.out.buf);
+    expect(text).toMatch(/deprecated/i);
+    expect(text).toContain('wstack auth');
   });
 
   it('config show prints redacted config', async () => {

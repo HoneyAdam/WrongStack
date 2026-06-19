@@ -2495,8 +2495,12 @@ export async function main(argv: string[]): Promise<number> {
           // Toggle the live filesystem-access scope on the leader context so
           // file tools immediately honor the new boundary. Subagents spawned
           // afterwards read the patched config below.
-          context.restrictFsToRoot = s.restrictFsToRoot;
+          context.allowOutsideProjectRoot = !s.restrictFsToRoot;
+          // Dual-write both config keys in sync (inverses): the new canonical
+          // features.allowOutsideProjectRoot plus the legacy
+          // tools.restrictToProjectRoot, so older readers don't break.
           config = patchConfig(config, {
+            features: { ...config.features, allowOutsideProjectRoot: !s.restrictFsToRoot },
             tools: { ...config.tools, restrictToProjectRoot: s.restrictFsToRoot },
           });
         }

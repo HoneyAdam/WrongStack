@@ -52,6 +52,40 @@ The host loads this from one of:
 
 ---
 
+## Isolation Model — In-Process Only
+
+WrongStack plugins run **in the same Node.js process as the host**. There is no
+process boundary, no worker thread sandbox, and no VM isolation between a plugin
+and the core. This is a deliberate architectural decision — in-process loading
+keeps latency near zero and avoids the serialization overhead of IPC.
+
+This has direct consequences for plugin authors:
+
+| What this means | Why it matters |
+|----------------|----------------|
+| **A plugin that calls `process.exit()` kills the entire CLI.** | There is no boundary to catch it. |
+| **A plugin with an infinite loop hangs the entire agent.** | No separate thread or process to timeout independently. |
+| **A plugin with excessive CPU or memory use affects the whole process.** | No cgroup or container-level resource cap. |
+| **A plugin with a security flaw has full host privileges.** | It can access `process.env`, the filesystem, and the network just like the core. |
+| **`plugin.setup()` and `plugin.teardown()` are wrapped in timeouts** (30 s and 10 s by default), so a hung plugin won't permanently block boot or shutdown. | This is the only host-level safety net for in-process hangs. |
+
+**Implication for plugin authors:** treat your plugin code as production-grade
+Node.js — no `while (true) {}`, no unbounded recursion, no synchronous
+heavy computation without a way to yield. If your plugin initiates external
+work (subprocesses, network requests), manage its lifecycle in `teardown`.
+
+**Implication for operators:** only install plugins from sources you trust.
+There is no sandbox between a plugin and the host. If you need to run
+untrusted code, that would require a future out-of-process plugin architecture
+(which does not exist yet).
+
+This tradeoff is the same model used by Webpack, Rollup, Babel, ESLint, and
+Fastify — the dominant pattern in the JS/TS ecosystem. VS Code is the notable
+counterexample (per-extension Node.js process), chosen because its marketplace
+distributes extensions from unknown third parties.
+
+---
+
 ## The `api` surface
 
 `setup(api)` receives a scoped `PluginAPI`:
@@ -437,6 +471,12 @@ buffered writes. Errors thrown from `teardown` are logged but do not
 prevent other plugins from tearing down. Make every cleanup
 best-effort.
 
+`teardown` is wrapped in a **10-second timeout** (configurable via
+`loadPlugins({ teardownTimeoutMs: ... })`). If your cleanup logic is
+slow (e.g., a remote flush), split it into a fast critical path that
+synchronously closes handles and a background path that fires and forgets
+the slow part.
+
 ```ts
 async teardown(api) {
   clearInterval(this.heartbeat);
@@ -502,8 +542,16 @@ detection paths.
   function with the current config, log and return early — don't throw.
 - **Registering inside a pipeline handler.** Registries are not append-safe
   during iteration. Do registrations only in `setup`.
+- **`setup` or `teardown` hangs.** Both are wrapped in timeouts (30 s / 10 s).
+  If you have genuinely slow startup (e.g., establishing a remote connection),
+  do it asynchronously after `setup` returns, and handle the timeout in your
+  own code by listening to the `AbortSignal` passed as `setup(api, { signal })`.
 
 ## Security Considerations for Plugin Authors
+
+> ⚠️ **First read:** [Isolation Model — In-Process Only](#isolation-model--in-process-only) above.
+> WrongStack plugins run in the same process as the host with full privileges.
+> Only install plugins from sources you trust.
 
 Plugins run with significant power (they can register tools, wrap existing tools,
 register slash commands, contribute pipelines, and load MCP servers).

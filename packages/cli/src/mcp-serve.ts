@@ -73,7 +73,7 @@ export function makeServeContext(
     tokenCounter,
     cwd,
     projectRoot,
-    restrictFsToRoot,
+    allowOutsideProjectRoot: !restrictFsToRoot,
     model: 'mcp-serve',
     tools: [],
   });

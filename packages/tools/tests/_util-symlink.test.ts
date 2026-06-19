@@ -45,8 +45,9 @@ describe('assertRealInsideRoot — realpath error handling', () => {
 
   it('throws when the realpath escapes the project root via a symlink', async () => {
     realpathMock
-      .mockResolvedValueOnce('/tmp/project') // realRoot
-      .mockResolvedValueOnce('/tmp/elsewhere/secret'); // target resolves outside
+      .mockResolvedValueOnce('/tmp/project') // realRoot[0] = project root
+      .mockResolvedValueOnce('/home/u/.wrongstack') // realRoot[1] = ~/.wrongstack (always-allowed)
+      .mockResolvedValueOnce('/tmp/elsewhere/secret'); // target resolves outside both
     await expect(assertRealInsideRoot('/tmp/project/link.txt', ctx())).rejects.toThrow(
       /outside project root/,
     );

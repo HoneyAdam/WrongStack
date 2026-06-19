@@ -39,14 +39,14 @@ export const doctorCmd: SubcommandHandler = async (_args, deps) => {
     checks.push({
       name: 'provider',
       status: 'fail',
-      detail: 'no provider configured — run `wstack init` or `wstack auth`',
+      detail: 'no provider configured — run `wstack auth` to set up',
     });
   else checks.push({ name: 'provider', status: 'ok', detail: cfg.provider });
   if (!cfg.model)
     checks.push({
       name: 'model',
       status: 'fail',
-      detail: 'no model configured — run `wstack init`',
+      detail: 'no model configured — run `wstack auth` to configure',
     });
   else checks.push({ name: 'model', status: 'ok', detail: cfg.model });
   if (cfg.provider) {

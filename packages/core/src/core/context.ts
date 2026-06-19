@@ -117,11 +117,6 @@ export class Context implements RunEnv {
    * so storage operations can include it in `storage.*` events.
    */
   traceId: string | undefined;
-  /**
-   * When true, tools can access any path on the filesystem.
-   * When false or undefined, tools are restricted to the project root.
-   */
-  allowOutsideProjectRoot: boolean;
 
   /** Callbacks fired when `setWorkingDir()` changes the working directory. */
   private _onWorkingDirChanged: Array<(newDir: string, oldDir: string) => void> = [];

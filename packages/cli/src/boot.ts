@@ -111,7 +111,7 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
   // `--help` / `--version` are conventional flags. Route the bare forms to the
   // `help` / `version` subcommands so they behave the same as `wstack help` /
   // `wstack version` instead of falling through to the launch path. Only when
-  // no subcommand was given (so `wstack init --help` still runs `init`).
+  // no subcommand was given (so `wstack init --help` still runs `init` with a deprecation notice).
   if (positional.length === 0) {
     if (flags['help'] === true) positional.push('help');
     else if (flags['version'] === true) positional.push('version');

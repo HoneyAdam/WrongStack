@@ -52,6 +52,17 @@ WrongStack's REPL supports core slash commands plus commands registered by built
 | `/telegram-setup` | `packages/cli/src/slash-commands/telegram-setup.ts` | Configure Telegram bot token and default chat; `/tg-setup` alias |
 | `/collab` | `packages/cli/src/slash-commands/collab.ts` | Live collaboration helpers |
 | `/statusline` | `packages/cli/src/slash-commands/statusline.ts` | Toggle TUI status bar items; `/sl` alias |
+| `/interrupt` | `packages/cli/src/slash-commands/interrupt.ts` | Abort the in-flight leader iteration |
+| `/brain` | `packages/cli/src/slash-commands/brain.ts` | View and configure Brain risk arbiter; `/brain ask <q>`, `/brain risk <level>` |
+| `/coordinator` | `packages/cli/src/slash-commands/coordinator.ts` | Start/stop the AutonomousCoordinator for multi-session goal tracking |
+| `/review` | `packages/cli/src/slash-commands/review.ts` | Run a review pass (LLM-driven code review) |
+| `/mailbox` | `packages/cli/src/slash-commands/mailbox.ts` | Inter-agent mailbox inspection and messaging |
+| `/mailbox-demo` | `packages/cli/src/slash-commands/mailbox-demo.ts` | Demo mailbox routing for development |
+| `/fallback` | `packages/cli/src/slash-commands/fallback.ts` | Configure fallback model behavior |
+| `/working-dir` | `packages/cli/src/slash-commands/working-dir.ts` | Inspect and manage working directory state |
+| `/project` | `packages/cli/src/slash-commands/project.ts` | Project-level operations (list, pick, create) |
+| `/mouse` | `packages/cli/src/slash-commands/mouse.ts` | Mouse event capture for UI testing |
+| `/telegram-settings` | `packages/cli/src/slash-commands/telegram-settings.ts` | Configure Telegram notification preferences |
 
 ## Built-in plugin commands
 

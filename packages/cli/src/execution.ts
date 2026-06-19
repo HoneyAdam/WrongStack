@@ -1062,6 +1062,12 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
                     tools.restrictToProjectRoot = s.restrictFsToRoot;
                   decrypted.tools = tools;
                 }
+                if (s.restrictFsToRoot !== undefined) {
+                  // Dual-write the new canonical key in sync (inverse of restrict).
+                  const features = (decrypted.features as Record<string, unknown>) ?? {};
+                  features.allowOutsideProjectRoot = !s.restrictFsToRoot;
+                  decrypted.features = features;
+                }
                 if (s.debugStream !== undefined) {
                   decrypted.debugStream = s.debugStream;
                   // Flip the runtime singleton so the toggle takes effect

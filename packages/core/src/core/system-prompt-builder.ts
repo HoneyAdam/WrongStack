@@ -388,7 +388,9 @@ When unsure about a file's current state, read it first rather than assuming.`);
       const roleList = enumValues.length > 0 ? enumValues.join(', ') : '(no roster configured)';
       if (this.tier === 'minimal') {
         // Skip — don't emit any delegation guidance
-      } else if (this.tier === 'light') {
+      } else if (this.tier === 'light' || this.tier === 'medium') {
+        // Token-saving tiers get the compact one-liner instead of the full
+        // multi-paragraph guidance (reserved for 'off'/'aggressive').
         lines.push(`## Delegation\n\nUse \`delegate\` to hand work to a subagent (roles: ${roleList}).`);
       } else {
         lines.push(`
@@ -711,7 +713,11 @@ summarize it, and let the tool result hold only the summary.`);
         lines.push(`- Shell: ${shell}`);
         lines.push(`- Node.js: ${node}`);
       }
-      if (tier === 'medium' || tier === 'aggressive') {
+      // Languages appear in the full ('off') block and the richer trimming
+      // tiers; only 'minimal' (single line) and 'light' (platform only) omit
+      // them. 'off' is the most complete tier (no token saving), per the
+      // toolDescLimit ordering off=80 > aggressive=70 > … > minimal=40.
+      if (tier === 'off' || tier === 'medium' || tier === 'aggressive') {
         lines.push(`- Detected languages: ${langs}`);
       }
       lines.push(`- Git status: ${git}`);

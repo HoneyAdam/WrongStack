@@ -219,6 +219,10 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
             const tools = (cfg.tools as Record<string, unknown> | undefined) ?? {};
             tools.restrictToProjectRoot = restrict;
             cfg.tools = tools;
+            // Dual-write the new canonical key in sync (inverse of restrict).
+            const features = (cfg.features as Record<string, unknown> | undefined) ?? {};
+            features.allowOutsideProjectRoot = !restrict;
+            cfg.features = features;
           });
           const label = restrict
             ? `${color.cyan('project')} — file tools confined to the project root`
