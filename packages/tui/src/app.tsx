@@ -42,6 +42,7 @@ import { EscConfirmPrompt } from './components/esc-confirm-prompt.js';
 import { FilePicker } from './components/file-picker.js';
 import { FleetMonitor } from './components/fleet-monitor.js';
 import { FleetPanel } from './components/fleet-panel.js';
+import { FKeyPicker, F_KEY_ENTRIES } from './components/f-key-picker.js';
 import { MailboxPanel } from './components/mailbox-panel.js';
 import { HelpOverlay } from './components/help-overlay.js';
 import { History, type HistoryEntry } from './components/history.js';
@@ -61,6 +62,7 @@ import { CoordinatorPanel } from './components/coordinator-panel.js';
 import { ResumePicker } from './components/resume-picker.js';
 import { SessionsPanel } from './components/sessions-panel.js';
 import { SettingsPicker, type ContextMode } from './components/settings-picker.js';
+import { StatuslinePicker, STATUSLINE_ITEMS, isChipExpired } from './components/statusline-picker.js';
 import { SlashMenu } from './components/slash-menu.js';
 import { KeyHintBar, type KeyHintContext } from './components/key-hint-bar.js';
 import {
@@ -518,6 +520,15 @@ export interface AppProps {
     >,
   ) => void;
   /**
+   * Atomically persists statusline hidden items to disk. Used by the
+   * statusline picker so each toggle is immediately durable.
+   */
+  saveStatuslineHiddenItems: (
+    items: Array<
+      'todos' | 'plan' | 'tasks' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost' | 'working_dir'
+    >,
+  ) => Promise<void>;
+  /**
    * Controller for the agents monitor overlay. App installs a dispatch-backed
    * setter on mount so the `/agents on|off` slash command can toggle the
    * overlay without a round-trip.
@@ -528,6 +539,12 @@ export interface AppProps {
         setVisible: (visible: boolean) => void;
       }
     | undefined;
+  /**
+   * Mutable ref for opening TUI panels from slash commands. The slash commands
+   * call `onPanelOpen.current(action)` to open panels. The App sets
+   * `onPanelOpen.current` to its actual dispatch function on mount.
+   */
+  onPanelOpen?: { current: ((action: string) => boolean) | null } | undefined;
   /** Active agent mode label shown in the status bar (e.g. "teach", "brief"). */
   modeLabel?: string | undefined;
   /**
@@ -600,6 +617,9 @@ export interface AppProps {
 
 const PASTE_THRESHOLD_CHARS = 200;
 
+/** Horizontal padding used by StatusBar line content (column where chips start). Must match the SB_PADX constant in status-bar.tsx. */
+const SB_PADX = 2;
+
 // Re-exported for backward compatibility with tests importing from '../src/app.js'.
 // Actual implementation lives in ./steering-preamble.ts.
 export { buildSteeringPreamble } from './steering-preamble.js';
@@ -669,6 +689,7 @@ export function App({
   interruptController,
   statuslineHiddenItems,
   setStatuslineHiddenItems,
+  saveStatuslineHiddenItems,
   agentsMonitorController,
   initialGoal,
   initialAsk,
@@ -684,6 +705,7 @@ export function App({
   getLiveSessions,
   onSwitchToSession,
   initialAgentsMonitorOpen,
+  onPanelOpen,
   subscribeCoordinatorEvents,
   onCoordinatorStart,
   onCoordinatorStop,
@@ -765,10 +787,17 @@ export function App({
     setHiddenItems([...statuslineHiddenItems]);
   }, [statuslineHiddenItems]);
 
-  // Push local changes back to the parent controller so /statusline sees them
+  // Push local changes back to the parent controller (in-memory) AND persist
+  // to disk so they survive a restart. `saveStatuslineHiddenItems` is async
+  // but we intentionally fire-and-forget — the caller handles errors.
   useEffect(() => {
     setStatuslineHiddenItems(hiddenItems);
-  }, [setStatuslineHiddenItems, hiddenItems]);
+    saveStatuslineHiddenItems(hiddenItems).catch?.((err: unknown) => {
+      console.error('[statusline] failed to persist hidden items:', err);
+    });
+  }, [setStatuslineHiddenItems, saveStatuslineHiddenItems, hiddenItems]);
+
+  // Stream chip auto-expiration code lives after useReducer (see below).
 
   const projectRoot = agent.ctx.projectRoot;
 
@@ -884,7 +913,9 @@ export function App({
     autonomyPicker: { open: false, options: [], selected: 0 },
     resumePicker: { open: false, sessions: [], selected: 0, busy: false, hint: undefined, error: undefined },
     settingsPicker: { open: false, field: 0, mode: 'off', delayMs: 0, titleAnimation: true, yolo: false, streamFleet: true, chime: false, confirmExit: true, nextPrediction: false, featureMcp: true, featurePlugins: true, featureMemory: true, featureSkills: true, featureModelsRegistry: true, tokenSavingTier: 'off' as TokenSavingTier, allowOutsideProjectRoot: true, contextAutoCompact: true, contextStrategy: 'hybrid', contextMode: 'balanced' as ContextMode, maxConcurrent: 10, logLevel: 'info', auditLevel: 'standard', indexOnStart: true, maxIterations: 500, autoProceedMaxIterations: 50, enhanceDelayMs: 60_000, enhanceEnabled: true, enhanceLanguage: 'original', debugStream: false, configScope: 'global' },
+    statuslinePicker: { open: false, field: 0, hiddenItems: [], visibleChips: [], hint: undefined },
     projectPicker: { open: false, allItems: [], items: [], selected: 0, filter: '', hint: undefined },
+    fKeyPicker: { open: false, selected: 0 },
     confirmQueue: [],
     enhance: null,
     enhanceEnabled,
@@ -938,6 +969,52 @@ export function App({
     debugStreamStats: null,
     countdown: null,
   });
+
+  // ── Stream chip auto-expiration ────────────────────────────────────────
+  // Show/hide stream chips (brain, mailbox, enhance, debug_stream) based on
+  // data availability. These chips auto-expire unless the user has toggled them on.
+  const prevBrainPromptRef = useRef(state.brainPrompt);
+  const prevEnhanceRef = useRef(state.enhance);
+
+  useEffect(() => {
+    // brain: show when prompt appears, expire when it clears
+    if (state.brainPrompt && !prevBrainPromptRef.current) {
+      dispatch({ type: 'statuslineChipShow', key: 'brain', expiresIn: 5 });
+    } else if (!state.brainPrompt && prevBrainPromptRef.current) {
+      if (state.statuslinePicker.visibleChips.some((c) => c.key === 'brain')) {
+        dispatch({ type: 'statuslineChipExpire', key: 'brain' });
+      }
+    }
+    prevBrainPromptRef.current = state.brainPrompt;
+
+    // enhance: show when enhance panel opens, expire when it closes
+    if (state.enhance && !prevEnhanceRef.current) {
+      dispatch({ type: 'statuslineChipShow', key: 'enhance', expiresIn: 5 });
+    } else if (!state.enhance && prevEnhanceRef.current) {
+      if (state.statuslinePicker.visibleChips.some((c) => c.key === 'enhance')) {
+        dispatch({ type: 'statuslineChipExpire', key: 'enhance' });
+      }
+    }
+    prevEnhanceRef.current = state.enhance;
+  }, [
+    state.brainPrompt,
+    state.enhance,
+    state.statuslinePicker.visibleChips,
+    dispatch,
+  ]);
+
+  // Periodic expiration checker — runs every 30 s to remove chips whose
+  // time window has elapsed. Chips with no expiresIn are permanent.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now();
+      const expired = state.statuslinePicker.visibleChips.filter((c) => isChipExpired(c, now));
+      for (const chip of expired) {
+        dispatch({ type: 'statuslineChipExpire', key: chip.key });
+      }
+    }, 30_000);
+    return () => clearInterval(interval);
+  }, [state.statuslinePicker.visibleChips, dispatch]);
 
   // ── AutonomousCoordinator bridge ─────────────────────────────────────
   // Wire project-level coordinator events into the TUI reducer so the
@@ -1938,6 +2015,10 @@ export function App({
     const CATEGORY_ORDER = ['Run', 'Session', 'Inspect', 'Agent', 'Config', 'App'] as const;
     const matches: SlashCommandMatch[] = allCommands
       .filter(({ cmd }) => {
+        // Hidden commands only appear when the user types a matching prefix.
+        // When the picker is open with no query (user typed `/` alone),
+        // hidden commands are excluded from the list.
+        if (query === '' && cmd.hidden) return false;
         const name = cmd.name.toLowerCase();
         const aliases = cmd.aliases ?? [];
         return name.includes(query) || aliases.some((a) => a.toLowerCase().includes(query));
@@ -2331,6 +2412,9 @@ export function App({
     const items = await getProjectPickerItems();
     dispatch({ type: 'projectPickerOpen', items });
   }, [getProjectPickerItems]);
+  const openFKeyPicker = React.useCallback(() => {
+    dispatch({ type: 'fKeyPickerOpen' });
+  }, [dispatch]);
   const loadLiveSessions = React.useCallback(async () => {
     if (!getLiveSessions) {
       // No-op: show empty state (busy stays false from initial state).
@@ -2655,6 +2739,24 @@ export function App({
     };
   }, [slashRegistry, getPickableProviders, switchProviderAndModel, openModelPicker]);
 
+  // Register the TUI-only `/f` command — opens the keyboard-navigable F-key panel picker.
+  useEffect(() => {
+    const cmd = {
+      name: 'f',
+      description: 'Open F-key panel picker. Arrow keys to navigate, Enter to open, Esc to close.',
+      async run() {
+        openFKeyPicker();
+        return { message: undefined };
+      },
+    };
+    // Register as an official TUI plugin so it overrides the CLI's text-based
+    // /f command. Without this, only /f 1..12 would work.
+    slashRegistry.register(cmd, 'tui', { official: true });
+    return () => {
+      slashRegistry.unregister('f');
+    };
+  }, [slashRegistry, openFKeyPicker]);
+
   // Register the TUI-only `/settings` command — opens the interactive
   // SettingsPicker immediately, same as Ctrl+S. Gated on the settings
   // accessors being wired by the host (CLI passes them in).
@@ -2676,6 +2778,31 @@ export function App({
       slashRegistry.unregister('settings');
     };
   }, [slashRegistry, getSettings, saveSettings, openSettings]);
+
+  // Register the TUI-only `/statusline` command — opens the interactive
+  // StatuslinePicker overlay. Arguments (item, on|off) delegate to the CLI's
+  // built-in command. When called with no args, opens the picker.
+  useEffect(() => {
+    const cmd = {
+      name: 'statusline',
+      aliases: ['sl'],
+      description: 'Customize status bar chips: /statusline (interactive) or /statusline <item> [on|off]',
+      async run(args: string) {
+        // If there are arguments, don't open the picker — let the CLI builtin handle it.
+        if (args.trim()) return { message: undefined };
+        // Open the interactive picker with the current hiddenItems.
+        const hiddenItems = stateRef.current.statuslinePicker.hiddenItems;
+        dispatch({ type: 'statuslineOpen', hiddenItems });
+        return { message: undefined };
+      },
+    };
+    // Register as an official TUI plugin so it overrides the CLI's text-based
+    // /statusline command when called without arguments.
+    slashRegistry.register(cmd, 'tui', { official: true });
+    return () => {
+      slashRegistry.unregister('statusline');
+    };
+  }, [slashRegistry]);
 
   // Register the TUI-only `/mailbox` command — toggles the mailbox panel.
   useEffect(() => {
@@ -3102,6 +3229,7 @@ export function App({
     fleetStreamController,
     enhanceController,
     agentsMonitorController,
+    onPanelOpen,
   });
 
   // Install the leader-abort handler for the /interrupt slash command. Slash
@@ -3712,6 +3840,36 @@ export function App({
       return;
     }
 
+    // Statusline picker — interactive status bar chip editor.
+    if (state.statuslinePicker.open) {
+      if (key.escape || key.fn === 5) {
+        dispatch({ type: 'statuslineClose' });
+        return;
+      }
+      if (key.mouse?.kind === 'wheel') {
+        dispatch({ type: 'statuslineFieldMove', delta: key.mouse.wheel > 0 ? -1 : 1 });
+        return;
+      }
+      // ↑/↓ navigate chips; ←/→ toggle the focused chip on/off.
+      if (key.upArrow) {
+        dispatch({ type: 'statuslineFieldMove', delta: -1 });
+        return;
+      }
+      if (key.downArrow) {
+        dispatch({ type: 'statuslineFieldMove', delta: 1 });
+        return;
+      }
+      if (key.leftArrow || key.rightArrow) {
+        const focused = STATUSLINE_ITEMS[state.statuslinePicker.field];
+        if (focused) {
+          dispatch({ type: 'statuslineToggle', item: focused });
+        }
+        return;
+      }
+      // Enter is deliberately a no-op — ↑/↓ navigate, ←/→ toggle.
+      return;
+    }
+
     // Project picker — keyboard-driven project switching panel.
     if (state.projectPicker.open) {
       if (key.escape) {
@@ -3932,6 +4090,31 @@ export function App({
         return;
       }
       // Any other key falls through to normal text handling.
+    }
+
+    // F-key panel picker — keyboard navigation
+    if (state.fKeyPicker.open) {
+      if (key.escape) {
+        dispatch({ type: 'fKeyPickerClose' });
+        return;
+      }
+      if (key.upArrow) {
+        dispatch({ type: 'fKeyPickerMove', delta: -1 });
+        return;
+      }
+      if (key.downArrow) {
+        dispatch({ type: 'fKeyPickerMove', delta: 1 });
+        return;
+      }
+      if (isEnter) {
+        const selected = state.fKeyPicker.selected;
+        const entry = F_KEY_ENTRIES[selected];
+        if (!entry) return;
+        dispatch({ type: 'fKeyPickerClose' });
+        dispatch({ type: entry.action as 'toggleMonitor' });
+        return;
+      }
+      return;
     }
 
     // Picker takes precedence over normal input handling when open.
@@ -4289,11 +4472,11 @@ export function App({
           featureMemory: cfg.featureMemory ?? true,
           featureSkills: cfg.featureSkills ?? true,
           featureModelsRegistry: cfg.featureModelsRegistry ?? true,
-          tokenSavingTier: cfg.featureTokenSaving ?? 'off' as TokenSavingTier,
+          tokenSavingTier: (cfg as any).tokenSavingTier ?? 'off',
           allowOutsideProjectRoot: cfg.allowOutsideProjectRoot ?? true,
           contextAutoCompact: cfg.contextAutoCompact ?? true,
           contextStrategy: cfg.contextStrategy ?? 'hybrid',
-          contextMode: (cfg.contextMode as ContextMode) ?? 'balanced',
+          contextMode: cfg.contextMode ?? 'balanced',
           maxConcurrent: cfg.maxConcurrent ?? 10,
           logLevel: cfg.logLevel ?? 'info',
           auditLevel: cfg.auditLevel ?? 'standard',
@@ -4302,7 +4485,7 @@ export function App({
           autoProceedMaxIterations: cfg.autoProceedMaxIterations ?? 50,
           enhanceDelayMs: cfg.enhanceDelayMs ?? 60_000,
           enhanceEnabled: cfg.enhanceEnabled ?? true,
-          enhanceLanguage: (cfg.enhanceLanguage as 'original' | 'english') ?? 'original',
+          enhanceLanguage: cfg.enhanceLanguage ?? 'original',
           debugStream: cfg.debugStream ?? false,
           configScope: cfg.configScope ?? 'global',
         });
@@ -4387,6 +4570,7 @@ export function App({
       !state.modelPicker.open &&
       !state.autonomyPicker.open &&
       !state.settingsPicker.open &&
+      !state.statuslinePicker.open &&
       !state.rewindOverlay &&
       !state.monitorOpen &&
       !state.agentsMonitorOpen &&
@@ -4705,6 +4889,43 @@ export function App({
         if (todosShown && my === rowFor(2) && inSpan(statusBarTodosSpan())) {
           dispatch({ type: 'toggleTodosMonitor' });
           return;
+        }
+        // Statusline chips — click to open statusline picker focused on that chip.
+        // Line 3 (rowFor(2)): todos(0), plan(1), tasks(2)
+        // Line 4 (rowFor(3)): fleet(3)
+        const hiddenSet = new Set(state.statuslinePicker.hiddenItems);
+        if (my === rowFor(2)) {
+          const mxLocal = mx - SB_PADX - 1;
+          if (!hiddenSet.has('todos') && mxLocal >= 0 && mxLocal < 20) {
+            dispatch({ type: 'statuslineFieldSet', field: 0 });
+            dispatch({ type: 'statuslineOpen', hiddenItems: state.statuslinePicker.hiddenItems });
+            return;
+          }
+          if (!hiddenSet.has('plan')) {
+            const planStart = 21;
+            if (mxLocal >= planStart && mxLocal < planStart + 22) {
+              dispatch({ type: 'statuslineFieldSet', field: 1 });
+              dispatch({ type: 'statuslineOpen', hiddenItems: state.statuslinePicker.hiddenItems });
+              return;
+            }
+          }
+          if (!hiddenSet.has('tasks')) {
+            const tasksStart = 44;
+            if (mxLocal >= tasksStart && mxLocal < tasksStart + 26) {
+              dispatch({ type: 'statuslineFieldSet', field: 2 });
+              dispatch({ type: 'statuslineOpen', hiddenItems: state.statuslinePicker.hiddenItems });
+              return;
+            }
+          }
+        }
+        if (my === rowFor(3) && !hiddenSet.has('fleet')) {
+          const mxLocal = mx - SB_PADX - 1;
+          const fleetStart = 0;
+          if (mxLocal >= fleetStart && mxLocal < fleetStart + 22) {
+            dispatch({ type: 'statuslineFieldSet', field: 3 });
+            dispatch({ type: 'statuslineOpen', hiddenItems: state.statuslinePicker.hiddenItems });
+            return;
+          }
         }
       }
       if (key.pageUp) {
@@ -5774,6 +5995,14 @@ export function App({
               hint={state.settingsPicker.hint}
             />
           ) : null}
+          {state.statuslinePicker.open ? (
+            <StatuslinePicker
+              field={state.statuslinePicker.field}
+              hiddenItems={state.statuslinePicker.hiddenItems}
+              visibleChips={state.statuslinePicker.visibleChips}
+              hint={state.statuslinePicker.hint}
+            />
+          ) : null}
           {state.projectPicker.open ? (
             <ProjectPicker
               items={state.projectPicker.items}
@@ -5781,6 +6010,9 @@ export function App({
               filter={state.projectPicker.filter}
               hint={state.projectPicker.hint}
             />
+          ) : null}
+          {state.fKeyPicker.open ? (
+            <FKeyPicker selected={state.fKeyPicker.selected} />
           ) : null}
           {state.sessionsPanelOpen ? (
             <SessionsPanel
@@ -5947,6 +6179,7 @@ export function App({
             subagentCount={Object.keys(state.fleet).length}
             processCount={getProcessRegistry().activeCount}
             hiddenItems={hiddenItems}
+            visibleChips={state.statuslinePicker.visibleChips}
             events={events}
             eternalStage={state.eternalStage}
             goalSummary={state.goalSummary}
