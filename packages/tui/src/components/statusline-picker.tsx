@@ -204,7 +204,7 @@ export function StatuslinePicker({
       <Text color="cyan" bold>
         ━━ Statusline ━━
       </Text>
-      <Text dimColor>↑/↓ move · ←/→ toggle · Esc/F5 to close</Text>
+      <Text dimColor>↑/↓ move · ←/→ toggle · Esc to close</Text>
       {hasAbove ? (
         <Text dimColor>{`  ↑ ${windowStart} item${windowStart === 1 ? '' : 's'} above`}</Text>
       ) : null}
