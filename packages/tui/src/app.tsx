@@ -4740,7 +4740,22 @@ export function App({
     // ── Multi-line input navigation ──────────────────────────────────────
     // Up/Down arrows move between lines when the buffer contains newlines.
     // PageUp/PageDown jump by a screenful (half the terminal height).
-    if (key.upArrow || key.downArrow || key.pageUp || key.pageDown) {
+    // Skipped when any overlay is open — the overlay owns the arrow keys
+    // (e.g. AgentsMonitor's own useInput handles ↑↓ for list navigation).
+    const overlayOpen =
+      state.monitorOpen ||
+      state.agentsMonitorOpen ||
+      state.worktreeMonitorOpen ||
+      state.todosMonitorOpen ||
+      state.queuePanelOpen ||
+      state.processListOpen ||
+      state.goalPanelOpen ||
+      state.sessionsPanelOpen ||
+      state.coordinator.monitorOpen ||
+      state.helpOpen ||
+      (state.autoPhase?.monitorOpen ?? false) ||
+      state.rewindOverlay !== null;
+    if (!overlayOpen && (key.upArrow || key.downArrow || key.pageUp || key.pageDown)) {
       const width = stdout?.columns ?? 80;
       const rows = layoutInputRows(INPUT_PROMPT, buffer, cursor, width);
       if (rows.length <= 1) {
@@ -4800,19 +4815,7 @@ export function App({
     // use arrow keys for their own navigation (↑↓ selection, scrolling).
     // Pickers (settings/model/autonomy) are already intercepted earlier
     // and never reach this point, so they don't need listing here.
-    const overlayOpen =
-      state.monitorOpen ||
-      state.agentsMonitorOpen ||
-      state.worktreeMonitorOpen ||
-      state.todosMonitorOpen ||
-      state.queuePanelOpen ||
-      state.processListOpen ||
-      state.goalPanelOpen ||
-      state.sessionsPanelOpen ||
-      state.coordinator.monitorOpen ||
-      state.helpOpen ||
-      (state.autoPhase?.monitorOpen ?? false) ||
-      state.rewindOverlay !== null;
+    // (overlayOpen is defined above in the multi-line input navigation section.)
 
     // In-app chat scroll (mouse mode). SGR tracking captures the terminal's
     // native wheel, so the managed ScrollableHistory viewport must be scrolled
@@ -5022,7 +5025,7 @@ export function App({
     // a control byte (no native paste) and we don't enable bracketed-paste mode,
     // so we read the clipboard ourselves. Must run before the `key.ctrl` bail
     // below, which would otherwise swallow it.
-    if (key.ctrl) {
+    if (key.ctrl && input === 'v') {
       await pasteClipboardText();
       return;
     }
