@@ -67,6 +67,12 @@ export interface SlashCommandContext {
       model?: string | undefined;
       tools?: string[] | undefined;
       name?: string | undefined;
+      /** Explicit capability allowlist for the subagent's auto-approve policy.
+       *  When omitted the host applies the WIDE working default (read/write/
+       *  net/shell/install) — or, for a scoped tools slice, that plus the
+       *  tools' own capabilities. Pass this to narrow (e.g. read-only) or to
+       *  grant an escape-hatch cap (fs.write.outside-project, config.mutate). */
+      allowedCapabilities?: readonly string[] | undefined;
     },
   ) => Promise<string>;
   /**
@@ -81,6 +87,12 @@ export interface SlashCommandContext {
       model?: string | undefined;
       tools?: string[] | undefined;
       name?: string | undefined;
+      /** Explicit capability allowlist for the subagent's auto-approve policy.
+       *  When omitted the host applies the WIDE working default (read/write/
+       *  net/shell/install) — or, for a scoped tools slice, that plus the
+       *  tools' own capabilities. Pass this to narrow (e.g. read-only) or to
+       *  grant an escape-hatch cap (fs.write.outside-project, config.mutate). */
+      allowedCapabilities?: readonly string[] | undefined;
     },
   ) => Promise<string>;
   onAgents?: ((subagentId?: string) => string) | undefined;
@@ -256,6 +268,15 @@ export interface SlashCommandContext {
     >,
   ) => void;
   /**
+   * Atomically updates the in-memory hidden items list AND persists to
+   * ~/.wrongstack/statusline.json. Used by the TUI's statusline picker.
+   */
+  saveStatuslineHiddenItems?: (
+    items: Array<
+      'todos' | 'plan' | 'tasks' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost' | 'working_dir'
+    >,
+  ) => Promise<void>;
+  /**
    * Controller for the agents monitor overlay. The TUI installs the actual
    * setter on mount via a shared controller; before that, calls are buffered
    * into the initial-value field so `/agents off` issued before mount still takes effect.
@@ -333,6 +354,13 @@ export interface SlashCommandContext {
   modelsRegistry?: import('@wrongstack/core').ModelsRegistry | undefined;
   /** Terminal reader for interactive user input (e.g. settings menu, auth menu). */
   reader: import('@wrongstack/core').InputReader;
+  /**
+   * Mutable ref for opening a TUI panel by dispatching its action type.
+   * The slash commands call `onPanelOpen.current(action)` to open panels.
+   * The TUI sets `onPanelOpen.current` to its actual dispatch function on mount.
+   * This indirection lets the TUI set the function after slash commands are registered.
+   */
+  onPanelOpen: { current: ((action: string) => boolean) | null };
 }
 
 // Re-export helpers for external consumers (pre-launch.ts)
@@ -358,6 +386,7 @@ import { buildEnsembleCommand } from './ensemble.js';
 import { buildFallbackCommand } from './fallback.js';
 import { buildFixCommand } from './fix.js';
 import { buildFleetCommand } from './fleet.js';
+import { buildFKeysCommand, buildFKeyAliasCommands } from './f-keys.js';
 import { buildGoalCommand } from './goal.js';
 import { buildHelpCommand } from './help.js';
 import { buildInitCommand } from './init.js';
@@ -421,6 +450,8 @@ export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashComma
     buildAgentsCommand(opts),
     buildDirectorCommand(opts),
     buildFleetCommand(opts),
+    buildFKeysCommand(opts),
+    ...buildFKeyAliasCommands(opts),
     buildEnhanceCommand(opts),
     buildEnsembleCommand(opts),
     buildMemoryCommand(opts),
@@ -461,6 +492,7 @@ export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashComma
       setHiddenItems: opts.setStatuslineHiddenItems ?? (() => {}),
       getConfig: opts.statuslineConfig?.get ?? (async () => ({})),
       setConfig: opts.statuslineConfig?.set ?? (async () => {}),
+      saveStatuslineHiddenItems: opts.saveStatuslineHiddenItems ?? (async () => {}),
     }),
   ];
 }

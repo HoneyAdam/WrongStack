@@ -98,7 +98,7 @@ import { generateCommitMessageWithLLM } from './slash-commands/commit-llm.js';
 import { makeProviderClassifier } from './slash-commands/dispatch-llm.js';
 import { buildBuiltinSlashCommands } from './slash-commands/index.js';
 import { parseMcpArgs, runMcpManagementCommand } from './slash-commands/mcp-utils.js';
-import { loadStatuslineConfig, saveStatuslineConfig } from './slash-commands/statusline.js';
+import { DEFAULTS, loadStatuslineConfig, saveStatuslineConfig } from './slash-commands/statusline.js';
 import { getSuggestions, setSuggestions } from './slash-commands/suggestion-store.js';
 import { Spinner } from './spinner.js';
 import { fmtTaskResultLine, patchConfig } from './utils.js';
@@ -887,6 +887,9 @@ export async function main(argv: string[]): Promise<number> {
     events,
     log: logger,
     lazyMode: normalizeTokenSavingTier(config.features.tokenSavingMode) !== 'off',
+    // Lazy-connect (per-server `lazy`) needs a manifest cache to register tools
+    // cold; idle auto-sleep uses the default timeout.
+    cacheDir: wpaths.cacheDir,
   });
   if (config.features.mcp) {
     for (const cfg of Object.values(config.mcpServers ?? {})) {
@@ -1499,6 +1502,20 @@ export async function main(argv: string[]): Promise<number> {
   ) => {
     currentHiddenItems = items;
   };
+  /** Atomically saves hidden items to disk and updates in-memory state. */
+  const ALL_STATUSLINE_KEYS = ['todos', 'plan', 'tasks', 'fleet', 'git', 'elapsed', 'context', 'cost', 'working_dir'] as const;
+  const saveStatuslineHiddenItems = async (
+    items: Array<
+      'todos' | 'plan' | 'tasks' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost' | 'working_dir'
+    >,
+  ): Promise<void> => {
+    currentHiddenItems = items;
+    const cfg: import('./slash-commands/statusline.js').StatuslineConfig = { ...DEFAULTS };
+    for (const k of ALL_STATUSLINE_KEYS) {
+      cfg[k] = !items.includes(k);
+    }
+    await saveStatuslineConfig(cfg);
+  };
 
   // Shared controller for the `/agents on|off` toggle. The TUI
   // replaces `setVisible` with a dispatch-backed setter on mount; before
@@ -1509,6 +1526,13 @@ export async function main(argv: string[]): Promise<number> {
     setVisible(visible: boolean) {
       this.visible = visible;
     },
+  };
+
+  // Mutable ref for opening TUI panels from slash commands. The slash
+  // commands call `onPanelOpen.current(action)` to open panels. The TUI
+  // sets `onPanelOpen.current` to its actual dispatch function on mount.
+  const onPanelOpen: { current: ((action: string) => boolean) | null } = {
+    current: null,
   };
 
   // AutoPhase host — plans phases+todos via a subagent, then drives the
@@ -1557,7 +1581,9 @@ export async function main(argv: string[]): Promise<number> {
     statuslineConfig: statuslineConfigDeps,
     statuslineHiddenItems: [...currentHiddenItems],
     setStatuslineHiddenItems,
+    saveStatuslineHiddenItems,
     agentsMonitorController,
+    onPanelOpen,
     configStore,
     reader,
     brain,
@@ -2440,6 +2466,7 @@ export async function main(argv: string[]): Promise<number> {
     enhanceController,
     statuslineHiddenItems,
     setStatuslineHiddenItems,
+    saveStatuslineHiddenItems,
     getYolo: () => {
       const policy = container.resolve(TOKENS.PermissionPolicy);
       return policy.getYolo?.() ?? config.yolo ?? false;

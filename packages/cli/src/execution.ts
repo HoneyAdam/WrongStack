@@ -161,18 +161,30 @@ export interface ExecutionDeps {
   };
   /** Status bar hidden items controller (passed to TUI). */
   statuslineHiddenItems: Array<
-    'todos' | 'plan' | 'tasks' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost'
+    'todos' | 'plan' | 'tasks' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost' | 'working_dir'
   >;
   setStatuslineHiddenItems: (
     items: Array<
       'todos' | 'plan' | 'tasks' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost' | 'working_dir'
     >,
   ) => void;
+  /** Atomically updates in-memory state AND persists statusline hidden items. */
+  saveStatuslineHiddenItems: (
+    items: Array<
+      'todos' | 'plan' | 'tasks' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost' | 'working_dir'
+    >,
+  ) => Promise<void>;
   /** Agents monitor overlay controller (passed to TUI). */
   agentsMonitorController?: {
     visible: boolean;
     setVisible: (visible: boolean) => void;
   };
+  /**
+   * Mutable ref for opening TUI panels from slash commands. The slash commands
+   * call `onPanelOpen.current(action)` to open panels. The TUI sets
+   * `onPanelOpen.current` to its actual dispatch function on mount.
+   */
+  onPanelOpen?: { current: ((action: string) => boolean) | null } | undefined;
   /** Query the live YOLO state from the permission policy. */
   getYolo?: (() => boolean) | undefined;
   /** Query the live autonomy mode. */
@@ -323,7 +335,9 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
     enhanceController,
     statuslineHiddenItems,
     setStatuslineHiddenItems,
+    saveStatuslineHiddenItems,
     agentsMonitorController,
+    onPanelOpen,
     getYolo,
     getAutonomy,
     onAutonomy,
@@ -899,6 +913,13 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
               allowOutsideProjectRoot: cfg.features?.allowOutsideProjectRoot ?? true,
               contextAutoCompact: cfg.context?.autoCompact !== false,
               contextStrategy: cfg.context?.strategy ?? 'hybrid',
+              contextMode: ((): 'balanced' | 'frugal' | 'deep' | 'archival' => {
+                const m = (cfg.context as unknown as Record<string, unknown> | undefined)?.[
+                  'mode'
+                ] as string | undefined;
+                return m === 'frugal' || m === 'deep' || m === 'archival' ? m : 'balanced';
+              })(),
+              maxConcurrent: cfg.maxConcurrent ?? 0,
               logLevel: cfg.log?.level ?? 'info',
               auditLevel: cfg.session?.auditLevel ?? 'standard',
               indexOnStart: cfg.indexing?.onSessionStart !== false,
@@ -1241,6 +1262,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
           enhanceController,
           statuslineHiddenItems,
           setStatuslineHiddenItems,
+          saveStatuslineHiddenItems,
           agentsMonitorController,
           getLiveSessions: async () => {
             const { SessionRegistry } = await import('@wrongstack/core');
@@ -1645,6 +1667,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
           initialAgentsMonitorOpen: !!flags.quick,
           tokenSavingMode: normalizeTokenSavingTier(config.features.tokenSavingMode) !== 'off',
           toolCount: agent.tools.list().length,
+          onPanelOpen,
         });
 
         // After TUI exits with PROJECT_SWITCH_EXIT_CODE, spawn wstack in the new project.
@@ -1731,6 +1754,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
         open: !!flags.open,
         modelsRegistry,
         globalConfigPath: wpaths.globalConfig,
+        mcpRegistry,
         subscribeEternalIteration,
         sessionStore,
         sessionsDir: wpaths.projectSessions,

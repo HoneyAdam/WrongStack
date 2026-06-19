@@ -39,8 +39,8 @@
  * message shapes. Everything else is internal to the run.
  */
 import * as crypto from 'node:crypto';
-import * as fs from 'node:fs/promises';
 import { watch as fsWatch } from 'node:fs';
+import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type {
@@ -72,106 +72,110 @@ import {
   decryptConfigSecrets,
   encryptConfigSecrets,
 } from '@wrongstack/core/security';
+import { SkillInstaller } from '@wrongstack/core/skills';
+import type { MCPRegistry } from '@wrongstack/mcp';
 import {
   AutoPhaseWebSocketHandler,
   type CustomModeStore,
   createCustomModeStore,
   createEternalSubscription,
   findFreePort,
-  handleGitInfo,
+  generateAuthToken,
   handleFilesList,
   handleFilesRead,
   handleFilesTree,
   handleFilesWrite,
+  handleGitInfo,
+  handleMcpAdd,
+  handleMcpDisable,
+  handleMcpDiscover,
+  handleMcpEnable,
+  handleMcpList,
+  handleMcpRemove,
+  handleMcpRestart,
+  handleMcpSleep,
+  handleMcpUpdate,
+  handleMcpWake,
   handleMemoryForget,
   handleMemoryList,
   handleMemoryRemember,
   handleShellOpen,
-  verifyClient as verifyWsClient,
-  type SkillsContext,
   handleSkillsContent,
-  handleSkillsInstall,
-  handleSkillsUninstall,
-  handleSkillsUpdate,
   handleSkillsCreate,
   handleSkillsEdit,
   handleSkillsExport,
+  handleSkillsInstall,
+  handleSkillsUninstall,
+  handleSkillsUpdate,
+  type SkillsContext,
+  verifyClient as verifyWsClient,
 } from '@wrongstack/webui/server';
-import { SkillInstaller } from '@wrongstack/core/skills';
+import { WebSocket, WebSocketServer } from 'ws';
+// ── Cost computation helpers (inlined from @wrongstack/webui/server/usage-cost.ts) ──
+// PR 2 of Issue #30: extracted to `./webui-server/cost-helpers.js`.
+import { getCostRates } from './webui-server/cost-helpers.js';
 import {
   announceWebuiReady,
   createWebuiShutdown,
   registerWebuiInstance,
   registerWebuiSignalHandlers,
 } from './webui-server/lifecycle.js';
-import {
-  createProviderConfigStore,
-} from './webui-server/provider-config.js';
+// ── Console logger adapter for AutoPhaseWebSocketHandler ──────────────────────
+// AutoPhaseWebSocketHandler requires a Logger. The CLI uses console.log/error
+// directly, so we adapt that to the Logger interface expected by the handler.
+// PR 1 of Issue #30: extracted to `./webui-server/logger-shim.js`.
+import { consoleLogger } from './webui-server/logger-shim.js';
+import { createProviderConfigStore } from './webui-server/provider-config.js';
 import { startStaticServe } from './webui-server/static-serve.js';
-import { WebSocket, WebSocketServer } from 'ws';
-import { generateAuthToken } from '@wrongstack/webui/server';
 import {
   type AgentConfigContext,
   type BrainHandlerContext,
   type ConnectionContext,
   type ContextHandlerContext,
-  type IntrospectionContext,
-  type PrefsContext,
-  type ProjectsContext,
-  type SessionsContext,
-  type WorklistContext,
-  type WsCommon,
-  type WsHandlerContext,
   handleAbort,
   handleAutonomySwitch,
   handleBrainAsk,
   handleBrainRisk,
   handleBrainStatus,
-  handlePing,
-  handleToolConfirmResult,
-  handleUserMessage,
   handleContextClear,
   handleContextCompact,
   handleContextDebug,
   handleContextModeCreate,
   handleContextModeDelete,
   handleContextModeSwitch,
-  handleContextModeUpdate,
   handleContextModesList,
+  handleContextModeUpdate,
   handleContextRepair,
   handleDiagGet,
-  handlePrefsGet,
-  handlePrefsUpdate,
+  handleGoalGet,
   handleKeyDelete,
   handleKeySetActive,
   handleKeyUpsert,
-  handleModeSwitch,
   handleModelRefine,
   handleModelSwitch,
+  handleModeSwitch,
   handleModesList,
+  handlePing,
   handlePlanGet,
   handlePlanItemUpdate,
   handlePlanTemplateUse,
+  handlePrefsGet,
+  handlePrefsUpdate,
+  handleProcessKill,
+  handleProcessKillAll,
+  handleProcessList,
   handleProjectsAdd,
   handleProjectsList,
   handleProjectsSelect,
   handleProviderAdd,
-  handleProviderModels,
-  handleProviderRemove,
   handleProviderClearModels,
-  handleProviderUndoClear,
-  handleProviderUpdate,
+  handleProviderModels,
   handleProviderProbe,
+  handleProviderRemove,
   handleProvidersList,
   handleProvidersSaved,
-  handleSkillsList,
-  handleStatsGet,
-  handleTaskUpdate,
-  handleTasksGet,
-  handleProcessKill,
-  handleProcessKillAll,
-  handleProcessList,
-  handleGoalGet,
+  handleProviderUndoClear,
+  handleProviderUpdate,
   handleSessionCheckpoints,
   handleSessionDelete,
   handleSessionNew,
@@ -179,23 +183,26 @@ import {
   handleSessionRewind,
   handleSessionSave,
   handleSessionsList,
-  handleTodoUpdate,
+  handleSkillsList,
+  handleStatsGet,
+  handleTasksGet,
+  handleTaskUpdate,
   handleTodosClear,
   handleTodosGet,
   handleTodosRemove,
+  handleTodoUpdate,
+  handleToolConfirmResult,
   handleToolsList,
+  handleUserMessage,
   handleWorkingDirSet,
+  type IntrospectionContext,
+  type PrefsContext,
+  type ProjectsContext,
+  type SessionsContext,
+  type WorklistContext,
+  type WsCommon,
+  type WsHandlerContext,
 } from './webui-server/ws-handlers/index.js';
-
-// ── Console logger adapter for AutoPhaseWebSocketHandler ──────────────────────
-// AutoPhaseWebSocketHandler requires a Logger. The CLI uses console.log/error
-// directly, so we adapt that to the Logger interface expected by the handler.
-// PR 1 of Issue #30: extracted to `./webui-server/logger-shim.js`.
-import { consoleLogger } from './webui-server/logger-shim.js';
-
-// ── Cost computation helpers (inlined from @wrongstack/webui/server/usage-cost.ts) ──
-// PR 2 of Issue #30: extracted to `./webui-server/cost-helpers.js`.
-import { getCostRates } from './webui-server/cost-helpers.js';
 
 // Re-export types from webui for type checking
 // At runtime, the actual types are resolved via workspace resolution
@@ -244,6 +251,13 @@ interface CliWebUIOptions {
   onListening?: (info: { httpPort: number; wsPort: number; host: string }) => void;
   modelsRegistry?: ModelsRegistry | undefined;
   globalConfigPath?: string | undefined;
+  /**
+   * Live MCP registry — the SAME instance the agent loop and `/mcp` use. When
+   * provided, the WebUI MCP settings panel can add/remove/enable/disable and
+   * actually start/stop servers (not just edit config). Threaded in from the
+   * CLI host (`execution.ts`), where the registry is constructed.
+   */
+  mcpRegistry?: MCPRegistry | undefined;
   /**
    * Subscribe to live per-iteration events from the eternal-autonomy
    * engine. When provided, the WebUI broadcasts each iteration to every
@@ -442,8 +456,11 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       meta['maxIterations'] = (cfg.tools as Record<string, unknown>)?.['maxIterations'] ?? 500;
       // Telegram plugin notification settings live under extensions.telegram —
       // same path the standalone server seeds and /telegram-settings writes.
-      const tgExt = (cfg.extensions as Record<string, Record<string, unknown>> | undefined)?.['telegram'];
-      meta['tgConfigured'] = typeof tgExt?.['botToken'] === 'string' && (tgExt['botToken'] as string).length > 0;
+      const tgExt = (cfg.extensions as Record<string, Record<string, unknown>> | undefined)?.[
+        'telegram'
+      ];
+      meta['tgConfigured'] =
+        typeof tgExt?.['botToken'] === 'string' && (tgExt['botToken'] as string).length > 0;
       meta['tgSessionEnd'] = tgExt?.['notifyOnSessionEnd'] === true;
       meta['tgDelegate'] = tgExt?.['notifyOnDelegate'] !== false; // default true
       const tgMs = tgExt?.['longToolThresholdMs'];
@@ -562,9 +579,12 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       if (tgTouched) {
         const ext = (decrypted.extensions as Record<string, Record<string, unknown>>) ?? {};
         const tg = ext['telegram'] ?? {};
-        if (typeof payload['tgSessionEnd'] === 'boolean') tg['notifyOnSessionEnd'] = payload['tgSessionEnd'];
-        if (typeof payload['tgDelegate'] === 'boolean') tg['notifyOnDelegate'] = payload['tgDelegate'];
-        if (typeof payload['tgLongToolMs'] === 'number') tg['longToolThresholdMs'] = payload['tgLongToolMs'];
+        if (typeof payload['tgSessionEnd'] === 'boolean')
+          tg['notifyOnSessionEnd'] = payload['tgSessionEnd'];
+        if (typeof payload['tgDelegate'] === 'boolean')
+          tg['notifyOnDelegate'] = payload['tgDelegate'];
+        if (typeof payload['tgLongToolMs'] === 'number')
+          tg['longToolThresholdMs'] = payload['tgLongToolMs'];
         ext['telegram'] = tg;
         decrypted.extensions = ext;
       }
@@ -639,7 +659,8 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       projectName: opts.projectRoot ? path.basename(opts.projectRoot) : undefined,
       // Frontend reads `projectRoot` from session.start (ws-handlers setEnv) —
       // omitting it left the store's projectRoot empty after a project switch.
-      projectRoot: opts.projectRoot ?? (opts.agent.ctx as { projectRoot?: string }).projectRoot ?? '',
+      projectRoot:
+        opts.projectRoot ?? (opts.agent.ctx as { projectRoot?: string }).projectRoot ?? '',
       cwd: opts.projectRoot ?? (opts.agent.ctx as { projectRoot?: string }).projectRoot ?? '',
       needsSetup, // true when provider/model not configured and running in --webui mode
       contextMode: String(
@@ -725,7 +746,9 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     httpPort,
     wsPort,
     globalRoot: path.dirname(opts.globalConfigPath ?? ''),
-    onFleetPing: () => { void fleetBroadcastCli?.(); },
+    onFleetPing: () => {
+      void fleetBroadcastCli?.();
+    },
     apiToken: wsToken,
   });
   if (httpServer) {
@@ -1517,7 +1540,13 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       case 'key.add':
       case 'key.update': {
         const m = msg as { payload: { providerId: string; label: string; apiKey: string } };
-        await handleKeyUpsert(wsHandlerCtx, ws, m.payload.providerId, m.payload.label, m.payload.apiKey);
+        await handleKeyUpsert(
+          wsHandlerCtx,
+          ws,
+          m.payload.providerId,
+          m.payload.label,
+          m.payload.apiKey,
+        );
         break;
       }
 
@@ -1773,73 +1802,39 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
         return handleMemoryForget(ws, msg, opts.memoryStore);
       }
 
-      // ── MCP operations — MCP servers are read directly from config file ──
-      case 'mcp.list': {
-        const servers: Array<{
-          name: string;
-          transport: string;
-          status: string;
-          enabled: boolean;
-          description?: string;
-          tools?: string[];
-          error?: string;
-          pid?: number;
-        }> = [];
-        if (opts.globalConfigPath) {
-          try {
-            const raw = await fs.readFile(opts.globalConfigPath, 'utf8');
-            const cfg = JSON.parse(raw) as Record<string, unknown>;
-            const mcpServers = cfg.mcpServers as Record<string, {
-              transport?: string;
-              description?: string;
-              enabled?: boolean;
-              command?: string;
-              args?: string[];
-              env?: Record<string, string>;
-              allowedTools?: string[];
-            }> | undefined;
-            if (mcpServers) {
-              for (const [name, serverCfg] of Object.entries(mcpServers)) {
-                servers.push({
-                  name,
-                  transport: serverCfg.transport ?? 'stdio',
-                  status: 'stopped',
-                  enabled: serverCfg.enabled ?? true,
-                  // Conditional spreads keep these absent (not explicitly
-                  // `undefined`) to satisfy exactOptionalPropertyTypes.
-                  ...(serverCfg.description !== undefined && { description: serverCfg.description }),
-                  ...(serverCfg.allowedTools !== undefined && { tools: serverCfg.allowedTools }),
-                });
-              }
-            }
-          } catch {
-            // best-effort — config read failure returns empty list
-          }
-        }
-        send(ws, { type: 'mcp.list', payload: { servers } });
+      // ── MCP operations — delegated to the shared handlers in
+      // @wrongstack/webui/server, which run against the same on-disk config
+      // and the live MCPRegistry the agent loop + `/mcp` use. ──
+      case 'mcp.list':
+        await handleMcpList(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry);
         break;
-      }
       case 'mcp.add':
-      case 'mcp.remove':
-      case 'mcp.update':
-      case 'mcp.wake':
-      case 'mcp.sleep':
-      case 'mcp.discover':
-      case 'mcp.enable':
-      case 'mcp.disable':
-      case 'mcp.restart': {
-        // These operations require the full MCP handler with a Config object
-        // and MCP registry — not available in the CLI embedded server context.
-        // The standalone WebUI server handles these correctly.
-        send(ws, {
-          type: 'mcp.operation_result',
-          payload: {
-            success: false,
-            message: 'MCP management operations require the standalone WebUI server. Please run "wrongstack webui" instead of "wrongstack --webui".',
-          },
-        });
+        await handleMcpAdd(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry);
         break;
-      }
+      case 'mcp.remove':
+        await handleMcpRemove(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry);
+        break;
+      case 'mcp.update':
+        await handleMcpUpdate(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry);
+        break;
+      case 'mcp.wake':
+        await handleMcpWake(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry);
+        break;
+      case 'mcp.sleep':
+        await handleMcpSleep(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry);
+        break;
+      case 'mcp.discover':
+        await handleMcpDiscover(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry);
+        break;
+      case 'mcp.enable':
+        await handleMcpEnable(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry);
+        break;
+      case 'mcp.disable':
+        await handleMcpDisable(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry);
+        break;
+      case 'mcp.restart':
+        await handleMcpRestart(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry);
+        break;
 
       case 'skills.list': {
         await handleSkillsList(introspectionCtx, ws);
@@ -1969,7 +1964,11 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
                 name?: string | undefined;
                 description?: string | undefined;
                 thresholds?:
-                  | { warn?: number | undefined; soft?: number | undefined; hard?: number | undefined }
+                  | {
+                      warn?: number | undefined;
+                      soft?: number | undefined;
+                      hard?: number | undefined;
+                    }
                   | undefined;
                 preserveK?: number | undefined;
                 eliseThreshold?: number | undefined;
@@ -2104,7 +2103,11 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       }
 
       case 'model.refine': {
-        await handleModelRefine(agentConfigCtx, ws, (msg as { payload: { text: string } }).payload.text);
+        await handleModelRefine(
+          agentConfigCtx,
+          ws,
+          (msg as { payload: { text: string } }).payload.text,
+        );
         break;
       }
 
@@ -2253,7 +2256,10 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
         try {
           const mbDir = resolveProjectDir(projectRoot, globalRoot);
           const mb = new GlobalMailbox(mbDir);
-          const payload = msg as { type: 'mailbox.purge'; payload?: { completedMaxAgeMs?: number; incompleteMaxAgeMs?: number } };
+          const payload = msg as {
+            type: 'mailbox.purge';
+            payload?: { completedMaxAgeMs?: number; incompleteMaxAgeMs?: number };
+          };
           const result = await mb.purgeStale(payload.payload);
           send(ws, { type: 'mailbox.purged', payload: result });
         } catch (err) {

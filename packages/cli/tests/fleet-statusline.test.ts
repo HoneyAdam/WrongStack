@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { EventBus } from '@wrongstack/core';
 import {
   FleetStatusLine,
@@ -157,6 +157,91 @@ describe('FleetStatusLine', () => {
     sl.start();
     events.emit('subagent.spawned', { subagentId: 's1', taskId: 't1', name: 'X' });
     expect(out.writes.length).toBe(0);
+    sl.stop();
+  });
+
+  it('task_completed success transitions agent to done and shows ✓', () => {
+    const events = new EventBus();
+    const out = new FakeTty();
+    const sl = new FleetStatusLine({ events, out: out as unknown as NodeJS.WriteStream, throttleMs: 0 });
+    sl.start();
+    events.emit('subagent.spawned', { subagentId: 's1', taskId: 't1', name: 'E2E' });
+    events.emit('subagent.task_completed', {
+      subagentId: 's1',
+      status: 'success',
+      iterations: 12,
+      toolCalls: 45,
+    });
+    const all = out.all();
+    expect(strip(all)).toContain('✓1');
+    sl.stop();
+  });
+
+  it('task_completed failure transitions agent to failed and shows ✗', () => {
+    const events = new EventBus();
+    const out = new FakeTty();
+    const sl = new FleetStatusLine({ events, out: out as unknown as NodeJS.WriteStream, throttleMs: 0 });
+    sl.start();
+    events.emit('subagent.spawned', { subagentId: 's1', taskId: 't1', name: 'E2E' });
+    events.emit('subagent.task_completed', {
+      subagentId: 's1',
+      status: 'failed',
+      iterations: 3,
+      toolCalls: 7,
+    });
+    expect(strip(out.all())).toContain('✗1');
+    sl.stop();
+  });
+
+  it('auto-deactivates after 800ms when all agents finish', () => {
+    vi.useFakeTimers();
+    const events = new EventBus();
+    const out = new FakeTty();
+    const sl = new FleetStatusLine({ events, out: out as unknown as NodeJS.WriteStream, throttleMs: 0 });
+    sl.start();
+    events.emit('subagent.spawned', { subagentId: 's1', taskId: 't1', name: 'E2E' });
+    events.emit('subagent.task_completed', { subagentId: 's1', status: 'success', iterations: 1, toolCalls: 1 });
+    // At this point nothing is running — auto-deactivate is scheduled with setTimeout 800ms
+    out.writes.length = 0;
+    vi.advanceTimersByTime(799);
+    // Not yet — needs 800ms
+    expect(out.writes.join('')).not.toContain('\x1b[r');
+    vi.advanceTimersByTime(1);
+    // Now the scroll region should be reset
+    expect(out.writes.join('')).toContain('\x1b[r');
+    sl.stop();
+    vi.useRealTimers();
+  });
+
+  it('iteration_summary updates agent iteration and tool call counts', () => {
+    const events = new EventBus();
+    const out = new FakeTty();
+    const sl = new FleetStatusLine({ events, out: out as unknown as NodeJS.WriteStream, throttleMs: 0 });
+    sl.start();
+    events.emit('subagent.spawned', { subagentId: 's1', taskId: 't1', name: 'Debugger' });
+    events.emit('subagent.iteration_summary', {
+      subagentId: 's1',
+      iteration: 50,
+      toolCalls: 200,
+      currentTool: 'read',
+    });
+    const line = strip(out.all());
+    expect(line).toContain('L50');
+    expect(line).toContain('200t');
+    expect(line).toContain('read');
+    sl.stop();
+  });
+
+  it('task_started marks agent as running', () => {
+    const events = new EventBus();
+    const out = new FakeTty();
+    const sl = new FleetStatusLine({ events, out: out as unknown as NodeJS.WriteStream, throttleMs: 0 });
+    sl.start();
+    events.emit('subagent.spawned', { subagentId: 's1', taskId: 't1', name: 'E2E' });
+    events.emit('subagent.task_completed', { subagentId: 's1', status: 'success', iterations: 1, toolCalls: 1 });
+    events.emit('subagent.task_started', { subagentId: 's1', taskId: 't2' });
+    // Agent should now show as running again (▶1, no ✓)
+    expect(strip(out.all())).toContain('▶1');
     sl.stop();
   });
 });

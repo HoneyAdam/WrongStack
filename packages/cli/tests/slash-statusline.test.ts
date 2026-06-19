@@ -184,4 +184,50 @@ describe('buildStatuslineCommand', () => {
     await cmd.run('working_dir on');
     expect(setHidden).toHaveBeenCalledWith(['cost']);
   });
+
+  it('all off sets every item to false and populates hiddenItems', async () => {
+    const setHidden = vi.fn();
+    const setConfig = vi.fn();
+    const deps = { ...makeDeps(), hiddenItems: [], setHiddenItems: setHidden, setConfig } as never as StatuslineCommandDeps;
+    const cmd = buildStatuslineCommand(deps);
+    const res = await cmd.run('all off');
+    expect(res?.message ?? '').toBe('statusline all: hiding all chips');
+    expect(setConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        todos: false, plan: false, tasks: false, fleet: false,
+        git: false, elapsed: false, context: false, cost: false, working_dir: false,
+      }),
+    );
+    expect(setHidden).toHaveBeenCalledWith(
+      expect.arrayContaining(['todos', 'plan', 'tasks', 'fleet', 'git', 'elapsed', 'context', 'cost', 'working_dir']),
+    );
+  });
+
+  it('all on sets every item to true and clears hiddenItems', async () => {
+    const setHidden = vi.fn();
+    const setConfig = vi.fn();
+    const deps = { ...makeDeps(), hiddenItems: ['git', 'cost'], setHiddenItems: setHidden, setConfig } as never as StatuslineCommandDeps;
+    const cmd = buildStatuslineCommand(deps);
+    const res = await cmd.run('all on');
+    expect(res?.message ?? '').toBe('statusline all: showing all chips');
+    expect(setConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        todos: true, plan: true, tasks: true, fleet: true,
+        git: true, elapsed: true, context: true, cost: true, working_dir: true,
+      }),
+    );
+    expect(setHidden).toHaveBeenCalledWith([]);
+  });
+
+  it('all without on|off returns usage error', async () => {
+    const cmd = buildStatuslineCommand(makeDeps());
+    const res = await cmd.run('all');
+    expect(res?.message ?? '').toContain('Usage: /statusline all on|off');
+  });
+
+  it('all with invalid action returns usage error', async () => {
+    const cmd = buildStatuslineCommand(makeDeps());
+    const res = await cmd.run('all maybe');
+    expect(res?.message ?? '').toContain('Usage: /statusline all on|off');
+  });
 });

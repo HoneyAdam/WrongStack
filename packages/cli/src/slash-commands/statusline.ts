@@ -17,7 +17,7 @@ export interface StatuslineConfig {
   working_dir?: boolean | undefined;
 }
 
-const DEFAULTS: StatuslineConfig = {
+export const DEFAULTS: StatuslineConfig = {
   todos: true,
   plan: true,
   tasks: true,
@@ -78,6 +78,15 @@ export interface StatuslineCommandDeps {
   ) => void;
   getConfig: () => Promise<StatuslineConfig>;
   setConfig: (cfg: StatuslineConfig) => Promise<void>;
+  /**
+   * Atomically updates hidden items in memory AND persists to disk.
+   * Used by the TUI statusline picker.
+   */
+  saveStatuslineHiddenItems?: (
+    items: Array<
+      'todos' | 'plan' | 'tasks' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost' | 'working_dir'
+    >,
+  ) => Promise<void>;
 }
 
 /** Item descriptions for help display */

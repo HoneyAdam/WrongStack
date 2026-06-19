@@ -38,6 +38,7 @@ import {
   type TokenCounter,
   type Tool,
   ToolRegistry,
+  WIDE_SUBAGENT_CAPABILITIES,
 } from '@wrongstack/core';
 import { ToolExecutor } from '@wrongstack/core/execution';
 import { makeProviderFromConfig } from '@wrongstack/providers';
@@ -572,8 +573,12 @@ export class MultiAgentHost {
       const baseRegistry = this.subagentToolRegistry(tools);
       if (injectedFleetEmit) baseRegistry.register(injectedFleetEmit);
       if (injectedFleetStatus) baseRegistry.register(injectedFleetStatus);
+      // Per-spawn capability allowlist. The ToolExecutor and the Agent must
+      // share the same policy semantics — resolve one allowlist and pass it to
+      // both. See `resolveSubagentCapabilities` for the precedence rules.
+      const subAllowedCaps = this.resolveSubagentCapabilities(subCfg);
       const toolExecutor = new ToolExecutor(baseRegistry, {
-        permissionPolicy: new AutoApprovePermissionPolicy(),
+        permissionPolicy: new AutoApprovePermissionPolicy(subAllowedCaps),
         secretScrubber: this.deps.secretScrubber,
         renderer: this.deps.renderer,
         events,
@@ -592,9 +597,9 @@ export class MultiAgentHost {
         context: ctx,
         // Subagents cannot answer interactive permission prompts — they
         // run under a director, not the user. Auto-approve everything
-        // (except tool-level hard denies); the user already authorized
-        // the work when they invoked the leader.
-        permissionPolicy: new AutoApprovePermissionPolicy(),
+        // whose capability is in the (possibly widened) allowlist; the
+        // user already authorized the work when they invoked the leader.
+        permissionPolicy: new AutoApprovePermissionPolicy(subAllowedCaps),
         toolExecutor,
       });
 
@@ -809,6 +814,40 @@ export class MultiAgentHost {
     return all.filter((t) => allowSet.has(t.name));
   }
 
+  /**
+   * Resolve the capability allowlist for a subagent's auto-approve policy.
+   *
+   * Precedence:
+   *   1. Explicit `subCfg.allowedCapabilities` — the spawn site knows best
+   *      (e.g. `/techstack` grants exactly `fs.write` on top of the safe set).
+   *   2. A scoped `subCfg.tools` slice — the granted tool slice IS the intended
+   *      capability grant. The leader/roster deliberately chose these tools, so
+   *      allow exactly the capabilities they declare (plus the read-only safe
+   *      floor). Without this, a role given the `write`/`build` tool presets
+   *      could *see* those tools but the policy would deny execution (`fs.write`
+   *      and `shell.*` are not in the read-only default), silently crippling
+   *      every code-writing / build role in the catalog.
+   *   3. No tool restriction (full registry) → the WIDE working set
+   *      (`WIDE_SUBAGENT_CAPABILITIES`: read, write, net, shell, install). The
+   *      user authorized full developer work when they invoked the leader, so a
+   *      delegated agent runs the same toolchain end-to-end. The genuinely
+   *      blast-radius-escaping capabilities (fs.write.outside-project, mcp.proxy,
+   *      subagent.spawn, config.mutate) stay off and need an explicit (1) grant.
+   */
+  private resolveSubagentCapabilities(subCfg: SubagentConfig): readonly string[] | undefined {
+    if (subCfg.allowedCapabilities) return subCfg.allowedCapabilities;
+    const allow = subCfg.tools;
+    if (!allow || allow.length === 0) return WIDE_SUBAGENT_CAPABILITIES;
+    // Scoped slice: the granted tools' own capabilities ARE the grant, atop the
+    // wide working floor so a scoped agent is never *more* restricted than an
+    // unscoped one for the capabilities its tools actually need.
+    const caps = new Set<string>(WIDE_SUBAGENT_CAPABILITIES);
+    for (const tool of this.filterTools([...allow])) {
+      for (const c of tool.capabilities ?? []) caps.add(c);
+    }
+    return [...caps];
+  }
+
   private subagentToolRegistry(allow?: string[]): ToolRegistry {
     if (!allow || allow.length === 0) return this.deps.toolRegistry;
     // Build a *filtered* registry containing only the allow-listed tools.
@@ -836,6 +875,7 @@ export class MultiAgentHost {
       model?: string | undefined;
       tools?: string[] | undefined;
       name?: string | undefined;
+      allowedCapabilities?: readonly string[] | undefined;
     },
   ): Promise<{ subagentId: string; taskId: string }> {
     // Always build a Director (directorMode or not) so that spawn routes
@@ -847,6 +887,7 @@ export class MultiAgentHost {
       provider: opts?.provider,
       model: opts?.model,
       tools: opts?.tools,
+      allowedCapabilities: opts?.allowedCapabilities,
     };
     // In director mode we route through `Director.spawn` / `Director.assign`
     // so the director's manifest entries get populated. Calling the
@@ -881,6 +922,7 @@ export class MultiAgentHost {
       model?: string | undefined;
       tools?: string[] | undefined;
       name?: string | undefined;
+      allowedCapabilities?: readonly string[] | undefined;
     },
   ): Promise<TaskResult> {
     const { taskId } = await this.spawn(description, opts);
@@ -910,6 +952,7 @@ export class MultiAgentHost {
       provider?: string | undefined;
       model?: string | undefined;
       tools?: string[] | undefined;
+      allowedCapabilities?: readonly string[] | undefined;
     },
     description: string = '',
   ): Promise<{ subagentId: string; taskId: string }> {

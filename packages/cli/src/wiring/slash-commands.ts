@@ -55,6 +55,12 @@ export interface SlashCommandsDeps {
   configStore: ConfigStore;
   /** Called by /clear after wiping the session on disk — tells the TUI to reset its UI state. */
   onNewSession?: (() => Promise<void>) | undefined;
+  /**
+   * Mutable ref for opening a TUI panel by dispatching its action type.
+   * The slash commands call `onPanelOpen.current(action)` to open panels.
+   * The TUI sets `onPanelOpen.current` to its actual dispatch function on mount.
+   */
+  onPanelOpen: { current: ((action: string) => boolean) | null };
 }
 
 export interface StatuslineConfigDeps {
@@ -89,6 +95,7 @@ export async function setupSlashCommands(params: SlashCommandsDeps): Promise<voi
     compactor,
     configStore,
     onNewSession,
+    onPanelOpen,
   } = params;
 
   const statuslineConfigDeps: StatuslineConfigDeps = {
@@ -194,6 +201,7 @@ export async function setupSlashCommands(params: SlashCommandsDeps): Promise<voi
     configStore,
     reader,
     onNewSession,
+    onPanelOpen,
   });
 
   for (const cmd of commands) {

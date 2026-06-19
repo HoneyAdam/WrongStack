@@ -41,11 +41,13 @@ This is also triggered automatically when `/init` runs for the first time on a n
 ## How it works
 
 ```
-1. discoverPackageFiles()        → Finds package.json in root + workspace packages
-2. buildTechStackTask()          → Constructs detailed subagent instructions
-3. opts.onSpawn(task, { name })  → Spawns general-purpose subagent
-4. Subagent executes             → Reads package.json files → fetches npm registry → writes report
-5. Subagent reports              → Chat summary appears when done
+1. discoverPackageFiles()                → Finds package.json in root + workspace packages
+2. Tier guard                            → Aborts with a hint if the `fetch` tool is not registered
+3. buildTechStackTask()                  → Constructs detailed subagent instructions
+4. opts.onSpawnAndWait(task, { tools,    → Spawns a scoped subagent and waits for the result
+     allowedCapabilities })
+5. Subagent executes                     → Reads package.json files → `fetch` npm registry → `write` report
+6. Subagent reports                      → Chat summary returned inline when done
 ```
 
 ### Package discovery
@@ -54,12 +56,22 @@ The command reads `pnpm-workspace.yaml` (if present) to find workspace packages,
 
 ### Subagent design
 
-The subagent is a general-purpose coding agent — not a fleet role. The task description activates the `tech-stack` skill by using its trigger keywords ("install", "package", "dependency", "version", etc.). The subagent gets:
+The subagent is a general-purpose coding agent — not a fleet role. The task description activates the `tech-stack` skill by using its trigger keywords ("install", "package", "dependency", "version", etc.).
 
-- Full access to `fetch()` for npm registry lookups
-- `read` and `write` tools for the report file
-- `AbortSignal.timeout(10000)` guard on every network call
-- Instruction to parallel-fetch where possible and complete in 2-3 iterations
+Subagents run **non-interactively under a director** and cannot answer permission prompts, so their `AutoApprovePermissionPolicy` auto-approves only tools whose declared capabilities are on an allowlist. The CLI fleet host gives subagents a **wide working default** (`WIDE_SUBAGENT_CAPABILITIES`: read, write, net, shell, install) so delegated agents can do real work end-to-end; only blast-radius-escaping capabilities (`fs.write.outside-project`, `mcp.proxy`, `subagent.spawn`, `config.mutate`) require an explicit per-spawn grant. `/techstack` doesn't need the wide set — it spawns with an explicit, minimal grant scoped to exactly what the audit needs:
+
+- `tools: ['read', 'glob', 'grep', 'tree', 'fetch', 'write']` — scoped to exactly what the audit needs
+- `allowedCapabilities: ['fs.read', 'net.outbound', 'fs.write']` — widens the default to permit the report `write`
+
+Consequences encoded in the task prompt:
+
+- **Network is only via the `fetch` tool** — `bash curl`/`wget` and Node `fetch()` scripts are blocked (no `shell.*` capability), so the prompt forbids those fallbacks and tells the model to retry the `fetch` tool instead.
+- **File writes are only via the `write` tool** — granted explicitly via `fs.write`.
+- Shell capabilities are deliberately **not** granted; widening `fs.write` does not open arbitrary command execution.
+
+### Token-saving tier requirement
+
+The subagent inherits the leader's tool registry. A token-saving tier of **`minimal`/`light` strips the `fetch` tool** (it is not in Tier 1), leaving the subagent unable to reach the npm registry. `/techstack` detects this up front and aborts with a hint to raise the tier to `medium` or higher rather than letting the subagent fail with a misleading "fetch appears blocked" error.
 
 ## Hook into /init
 

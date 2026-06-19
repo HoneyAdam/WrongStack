@@ -736,4 +736,102 @@ describe('MultiAgentHost.makeSubagentFactory', () => {
     expect(agent.ctx.provider.capabilities.maxContext).toBe(32_000);
     await dispose?.();
   });
+
+  // SubagentConfig.allowedCapabilities must reach the subagent's
+  // AutoApprovePermissionPolicy via the factory — otherwise widening the
+  // allowlist (e.g. /techstack granting fs.write) is silently inert and the
+  // subagent can never write its report.
+  function writerTool(): Tool {
+    return {
+      name: 'writer',
+      description: 'fake fs.write tool',
+      inputSchema: { type: 'object' },
+      permission: 'auto',
+      mutating: true,
+      capabilities: ['fs.write'],
+      execute: vi.fn().mockResolvedValue('WROTE'),
+    } as Tool;
+  }
+
+  async function runWriter(
+    cfg: Partial<SubagentConfig>,
+  ): Promise<{ result: { type: string; is_error?: boolean }; tool: Tool; dispose?: () => void }> {
+    const deps = depsWithTools();
+    const tool = writerTool();
+    deps.toolRegistry.register(tool);
+    const host = new MultiAgentHost(deps);
+    const { agent, dispose } = await host.makeSubagentFactory(config)({
+      id: cfg.id ?? 'slot',
+      name: cfg.name ?? 'w',
+      role: 'general',
+      ...cfg,
+    });
+    const r = await agent.toolExecutor.executeBatch(
+      [{ type: 'tool_use', id: 'u1', name: 'writer', input: {} }],
+      agent.ctx,
+      'sequential',
+    );
+    return { result: r.outputs[0]!.result as never, tool, dispose };
+  }
+
+  it('explicit allowedCapabilities lets a granted fs.write tool run', async () => {
+    const { result, tool, dispose } = await runWriter({
+      tools: ['writer'],
+      allowedCapabilities: ['fs.read', 'net.outbound', 'fs.write'],
+    });
+    expect(result.type).toBe('tool_result');
+    expect(result.is_error).toBeFalsy();
+    expect(tool.execute).toHaveBeenCalledTimes(1);
+    await dispose?.();
+  });
+
+  it('derives fs.write from a scoped tools slice (no explicit caps)', async () => {
+    // The granted tool slice IS the capability grant: a subagent handed the
+    // `writer` (fs.write) tool may execute it without an explicit allowlist.
+    const { result, tool, dispose } = await runWriter({ tools: ['writer'] });
+    expect(result.type).toBe('tool_result');
+    expect(result.is_error).toBeFalsy();
+    expect(tool.execute).toHaveBeenCalledTimes(1);
+    await dispose?.();
+  });
+
+  it('allows fs.write for an unscoped (full-registry) subagent — wide default', async () => {
+    // No `tools` restriction → WIDE working capabilities (read/write/net/shell/
+    // install). The user authorized full developer work by invoking the leader.
+    const { result, tool, dispose } = await runWriter({});
+    expect(result.type).toBe('tool_result');
+    expect(result.is_error).toBeFalsy();
+    expect(tool.execute).toHaveBeenCalledTimes(1);
+    await dispose?.();
+  });
+
+  it('still denies an escape-hatch capability (fs.write.outside-project) by default', async () => {
+    // WIDE covers in-project work but NOT the blast-radius-escaping caps —
+    // writing outside the repo needs an explicit per-spawn grant.
+    const deps = depsWithTools();
+    const escaper = {
+      name: 'escaper',
+      description: 'writes outside the project',
+      inputSchema: { type: 'object' },
+      permission: 'auto',
+      mutating: true,
+      capabilities: ['fs.write.outside-project'],
+      execute: vi.fn().mockResolvedValue('ESCAPED'),
+    } as Tool;
+    deps.toolRegistry.register(escaper);
+    const host = new MultiAgentHost(deps);
+    const { agent, dispose } = await host.makeSubagentFactory(config)({
+      id: 'esc',
+      name: 'esc',
+      role: 'general',
+    });
+    const r = await agent.toolExecutor.executeBatch(
+      [{ type: 'tool_use', id: 'u1', name: 'escaper', input: {} }],
+      agent.ctx,
+      'sequential',
+    );
+    expect((r.outputs[0]!.result as { is_error?: boolean }).is_error).toBe(true);
+    expect(escaper.execute).not.toHaveBeenCalled();
+    await dispose?.();
+  });
 });

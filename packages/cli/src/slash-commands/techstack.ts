@@ -106,8 +106,10 @@ function buildTechStackTask(opts: {
     '1. **Read** each package.json and extract ALL dependencies (dependencies +',
     '   devDependencies + peerDependencies). Include the workspace root.',
     '',
-    '2. **For every dependency**, look up its latest version from the npm registry:',
-    '   - `fetch("https://registry.npmjs.org/<package>/latest")`',
+    '2. **For every dependency**, look up its latest version from the npm registry',
+    '   using the `fetch` tool (NOT shell `curl`/`wget`, and NOT a Node script —',
+    '   you run under a director and only the `fetch` tool is permitted for network):',
+    '   - Call the `fetch` tool with `url: "https://registry.npmjs.org/<package>/latest"`',
     '   - Extract the `version` field from the JSON response',
     '   - Also check `description`, `license`, and `time` fields for age/dead checks',
     '',
@@ -122,7 +124,7 @@ function buildTechStackTask(opts: {
     '   - Flag dead packages (no release >2 years + critical issues)',
     '   - Prefer Node.js built-ins over third-party packages',
     '',
-    `5. **Write the report** to \`${outputPath}\` in the project root:`,
+    `5. **Write the report** to \`${outputPath}\` in the project root using the \`write\` tool:`,
     '   - Markdown format: grouped by category, with version tables and warnings',
     '   - JSON format: structured array with name, current, latest, status, notes',
     '',
@@ -155,11 +157,15 @@ function buildTechStackTask(opts: {
     '',
     '### Guardrails',
     '',
-    '- Use `fetch()` with `AbortSignal.timeout(10000)` on every npm registry call.',
-    '- Skip packages that return 404 (private/internal packages).',
+    '- Network access is ONLY via the `fetch` tool. The `bash`, `exec`, and other',
+    '  shell tools are denied for this subagent — do NOT try `curl`, `wget`, or a',
+    '  Node/`fetch()` script as a fallback; they will be blocked. If a `fetch`',
+    '  call fails, retry the `fetch` tool, do not switch transports.',
+    '- File writes are ONLY via the `write` tool (it is permitted for this run).',
+    '- Skip packages whose `fetch` returns HTTP 404 (private/internal packages).',
     '- Deduplicate: same package in multiple package.json files = one row.',
     '- Do NOT modify any files except writing the report.',
-    '- Run in 2-3 iterations max. Parallel fetch where possible.',
+    '- Run in 2-3 iterations max. Issue several `fetch` calls per turn where possible.',
     '- **IMPORTANT**: Output the chat summary FIRST, then write the file. I need to see results.',
   ].join('\n');
 }
@@ -221,6 +227,25 @@ export function buildTechStackCommand(opts: SlashCommandContext): SlashCommand {
         return { message: msg };
       }
 
+      // Tier guard: the subagent inherits the leader's tool registry, and a
+      // token-saving tier (minimal/light) strips `fetch` from it — leaving the
+      // subagent unable to reach the npm registry no matter how the prompt is
+      // worded. Detect that here and tell the user how to fix it instead of
+      // letting the subagent fail mysteriously with "fetch appears blocked".
+      const hasFetchTool = opts.toolRegistry.list().some((t) => t.name === 'fetch');
+      if (!hasFetchTool) {
+        opts.renderer.writeWarning(
+          'The `fetch` tool is not registered in this session — a token-saving tier ' +
+            '(minimal/light) omits it. The techstack subagent cannot query the npm ' +
+            'registry without it. Raise the tier to `medium` or higher (/settings → ' +
+            'token saving) and re-run /techstack.',
+        );
+        return {
+          message:
+            'techstack aborted: `fetch` tool unavailable in the current token-saving tier.',
+        };
+      }
+
       const header = isInit ? 'Tech Stack Init Audit' : 'Tech Stack Audit';
       const label = `${color.cyan('🔍')} ${color.bold(header)} ${color.dim(`(${packageFiles.length} package files)`)}`;
       opts.renderer.write(label);
@@ -234,7 +259,16 @@ export function buildTechStackCommand(opts: SlashCommandContext): SlashCommand {
 
       try {
         const name = isInit ? 'techstack-init' : 'techstack-audit';
-        const summary = await opts.onSpawnAndWait(task, { name });
+        // Scope the subagent to exactly the tools this task needs, and widen
+        // its capability allowlist to include `fs.write` so it can write the
+        // report (the default subagent allowlist is read-only + net.outbound,
+        // which would deny the write and the shell fallbacks the model reaches
+        // for). Shell tools are deliberately NOT granted.
+        const summary = await opts.onSpawnAndWait(task, {
+          name,
+          tools: ['read', 'glob', 'grep', 'tree', 'fetch', 'write'],
+          allowedCapabilities: ['fs.read', 'net.outbound', 'fs.write'],
+        });
         return { message: summary };
       } catch (err) {
         const msg = `Tech stack scan failed: ${toErrorMessage(err)}`;
