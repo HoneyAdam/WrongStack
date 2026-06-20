@@ -141,7 +141,10 @@ describe('AnthropicProvider', () => {
       }),
       text: async () => '',
     }));
-    const p = new AnthropicProvider({ apiKey: 'sk-ant-XYZ', fetchImpl: spy as unknown as typeof fetch });
+    const p = new AnthropicProvider({
+      apiKey: 'sk-ant-XYZ',
+      fetchImpl: spy as unknown as typeof fetch,
+    });
     await p.complete(
       { model: 'm', messages: [{ role: 'user', content: 'x' }], maxTokens: 1 },
       { signal: new AbortController().signal },
@@ -244,5 +247,75 @@ describe('AnthropicProvider', () => {
         { signal: new AbortController().signal },
       ),
     ).rejects.toMatchObject({ status: 0, retryable: true });
+  });
+
+  it('strips non-Anthropic fields (tool_result.name, providerMeta) from blocks', async () => {
+    const sse = [
+      'event: message_start',
+      'data: {"type":"message_start","message":{"model":"m","usage":{"input_tokens":1,"output_tokens":0}}}',
+      '',
+      'event: message_stop',
+      'data: {"type":"message_stop"}',
+      '',
+    ].join('\n');
+    let captured: Record<string, unknown> = {};
+    const fetchImpl = (async (_url: string, init: { body?: string }) => {
+      captured = JSON.parse(init.body ?? '{}');
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          pull(c) {
+            c.enqueue(new TextEncoder().encode(sse));
+            c.close();
+          },
+        }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+
+    const p = new AnthropicProvider({ apiKey: 'k', fetchImpl });
+    await p.complete(
+      {
+        model: 'm',
+        maxTokens: 10,
+        messages: [
+          {
+            role: 'assistant',
+            content: [
+              {
+                type: 'tool_use',
+                id: 'toolu_1',
+                name: 'read',
+                input: { p: 'x' },
+                providerMeta: { a: 1 },
+              },
+            ],
+          },
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: 'toolu_1',
+                name: 'read',
+                content: 'ok',
+                is_error: false,
+              },
+            ],
+          },
+        ],
+      },
+      { signal: new AbortController().signal },
+    );
+
+    const msgs = captured['messages'] as Array<{ content: Array<Record<string, unknown>> }>;
+    const toolUse = msgs[0]!.content[0]!;
+    const toolResult = msgs[1]!.content[0]!;
+    expect(toolUse).not.toHaveProperty('providerMeta');
+    expect(toolResult).not.toHaveProperty('name');
+    expect(toolResult).toMatchObject({
+      type: 'tool_result',
+      tool_use_id: 'toolu_1',
+      content: 'ok',
+    });
   });
 });

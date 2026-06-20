@@ -1,5 +1,6 @@
 import type {
   Capabilities,
+  ContentBlock,
   Message,
   Request,
   StopReason,
@@ -104,10 +105,45 @@ export class AnthropicProvider extends WireAdapter {
   }
 
   private normalizeMessage(m: Message): Record<string, unknown> {
-    return {
-      role: m.role === 'system' ? 'user' : m.role,
-      content: typeof m.content === 'string' ? m.content : m.content,
-    };
+    const role = m.role === 'system' ? 'user' : m.role;
+    if (typeof m.content === 'string') return { role, content: m.content };
+    return { role, content: m.content.map((b) => sanitizeAnthropicBlock(b)) };
+  }
+}
+
+/**
+ * Reduce a canonical ContentBlock to exactly the fields the Anthropic Messages
+ * API accepts. The canonical blocks carry extra fields for other wires that
+ * Anthropic rejects with 400 "Extra inputs are not permitted":
+ *   - `tool_result.name`        — set by ToolExecutor for Google's functionResponse
+ *   - `tool_use.providerMeta`   — e.g. Gemini thought-signatures
+ *   - `thinking.providerMeta`   — provider-specific metadata
+ */
+function sanitizeAnthropicBlock(b: ContentBlock): Record<string, unknown> {
+  switch (b.type) {
+    case 'text':
+      return b.cache_control
+        ? { type: 'text', text: b.text, cache_control: b.cache_control }
+        : { type: 'text', text: b.text };
+    case 'tool_use':
+      return { type: 'tool_use', id: b.id, name: b.name, input: b.input };
+    case 'tool_result': {
+      const out: Record<string, unknown> = {
+        type: 'tool_result',
+        tool_use_id: b.tool_use_id,
+        content: b.content,
+      };
+      if (b.is_error) out['is_error'] = true;
+      return out;
+    }
+    case 'thinking':
+      return b.signature
+        ? { type: 'thinking', thinking: b.thinking, signature: b.signature }
+        : { type: 'thinking', thinking: b.thinking };
+    case 'image':
+      return { type: 'image', source: b.source };
+    default:
+      return b as unknown as Record<string, unknown>;
   }
 }
 
