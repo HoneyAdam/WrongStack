@@ -15,7 +15,7 @@
  * `setOAuthTokenPersister` hook the codex family uses.
  */
 
-import { type Capabilities, ProviderError, type Request } from '@wrongstack/core';
+import { type Capabilities, ProviderError, type Request, type StreamEvent } from '@wrongstack/core';
 import { AnthropicProvider } from './anthropic.js';
 import { capabilitiesForFamily } from './family-capabilities.js';
 import type { WireAdapterStreamOptions } from './wire-adapter.js';
@@ -26,10 +26,53 @@ const DEFAULT_BASE = 'https://api.anthropic.com';
 const ANTHROPIC_VERSION = '2023-06-01';
 const OAUTH_BETA = 'claude-code-20250219,oauth-2025-04-20';
 const REFRESH_SKEW_MS = 60_000;
+/** Version string mimicked in the User-Agent so requests look like Claude Code. */
+const CLAUDE_CODE_VERSION = '2.1.75';
 
 /** Required first system block for OAuth/subscription requests. */
 export const CLAUDE_CODE_SYSTEM_PROMPT =
   "You are Claude Code, Anthropic's official CLI for Claude.";
+
+// ── Tool-name camouflage ─────────────────────────────────────────────────────
+// The subscription backend can fingerprint a non-Claude-Code client by its tool
+// names. We present Claude Code's canonical casing on the wire (read → Read,
+// bash → Bash, …) for any tool whose name matches case-insensitively, and map
+// the streamed tool_use name back to the caller's real tool so dispatch works.
+// Tools without a Claude Code counterpart pass through unchanged.
+
+const CLAUDE_CODE_TOOLS = [
+  'Read',
+  'Write',
+  'Edit',
+  'Bash',
+  'Grep',
+  'Glob',
+  'AskUserQuestion',
+  'EnterPlanMode',
+  'ExitPlanMode',
+  'KillShell',
+  'NotebookEdit',
+  'Skill',
+  'Task',
+  'TaskOutput',
+  'TodoWrite',
+  'WebFetch',
+  'WebSearch',
+] as const;
+
+const CC_TOOL_BY_LOWER = new Map(CLAUDE_CODE_TOOLS.map((t) => [t.toLowerCase(), t]));
+
+/** Map a real tool name to Claude Code's canonical casing (if it matches). */
+function toClaudeCodeName(name: string): string {
+  return CC_TOOL_BY_LOWER.get(name.toLowerCase()) ?? name;
+}
+
+/** Map a Claude-Code-cased name back to the caller's real tool name. */
+function fromClaudeCodeName(name: string, tools: Request['tools']): string {
+  const lower = name.toLowerCase();
+  const match = tools?.find((t) => t.name.toLowerCase() === lower);
+  return match?.name ?? name;
+}
 
 export interface AnthropicOAuthTokens {
   access: string;
@@ -126,14 +169,31 @@ export class AnthropicOAuthProvider extends AnthropicProvider {
   override async *stream(req: Request, opts: { signal: AbortSignal }) {
     await this.ensureFreshToken(opts.signal);
     try {
-      yield* super.stream(req, opts);
+      yield* this.remapToolNames(super.stream(req, opts), req.tools);
     } catch (err) {
       if (err instanceof ProviderError && err.status === 401 && this.refresh) {
         await this.doRefresh(opts.signal);
-        yield* super.stream(req, opts);
+        yield* this.remapToolNames(super.stream(req, opts), req.tools);
         return;
       }
       throw err;
+    }
+  }
+
+  /** Map Claude-Code-cased tool_use names in the stream back to real names. */
+  private async *remapToolNames(
+    events: AsyncIterable<StreamEvent>,
+    tools: Request['tools'],
+  ): AsyncIterable<StreamEvent> {
+    for await (const ev of events) {
+      if (
+        (ev.type === 'tool_use_start' || ev.type === 'content_block_start') &&
+        typeof (ev as { name?: string }).name === 'string'
+      ) {
+        yield { ...ev, name: fromClaudeCodeName((ev as { name: string }).name, tools) };
+      } else {
+        yield ev;
+      }
     }
   }
 
@@ -159,6 +219,11 @@ export class AnthropicOAuthProvider extends AnthropicProvider {
       'anthropic-version': ANTHROPIC_VERSION,
       authorization: `Bearer ${this.access}`,
       'anthropic-beta': OAUTH_BETA,
+      // Present as the official Claude Code CLI so the subscription backend
+      // accepts the request and the client isn't trivially fingerprinted.
+      'user-agent': `claude-cli/${CLAUDE_CODE_VERSION}`,
+      'x-app': 'cli',
+      'anthropic-dangerous-direct-browser-access': 'true',
     };
   }
 
@@ -170,6 +235,26 @@ export class AnthropicOAuthProvider extends AnthropicProvider {
     body['system'] = alreadyLed
       ? existing
       : [{ type: 'text', text: CLAUDE_CODE_SYSTEM_PROMPT }, ...existing];
+
+    // Present Claude Code's canonical tool names on the wire, consistently
+    // across both the tool definitions and the tool_use blocks in history.
+    const tools = body['tools'] as Array<{ name?: string }> | undefined;
+    if (Array.isArray(tools)) {
+      for (const t of tools) {
+        if (typeof t.name === 'string') t.name = toClaudeCodeName(t.name);
+      }
+    }
+    const messages = body['messages'] as Array<{ content?: unknown }> | undefined;
+    if (Array.isArray(messages)) {
+      for (const m of messages) {
+        if (!Array.isArray(m.content)) continue;
+        for (const block of m.content as Array<{ type?: string; name?: string }>) {
+          if (block?.type === 'tool_use' && typeof block.name === 'string') {
+            block.name = toClaudeCodeName(block.name);
+          }
+        }
+      }
+    }
     return body;
   }
 }

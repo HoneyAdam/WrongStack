@@ -153,3 +153,61 @@ describe('AnthropicOAuthProvider token refresh', () => {
     expect(res.stopReason).toBe('end_turn');
   });
 });
+
+describe('AnthropicOAuthProvider Claude Code camouflage', () => {
+  it('sends a claude-cli User-Agent + x-app header', async () => {
+    const captured: Captured = {};
+    const p = new AnthropicOAuthProvider({
+      credentials: { accessToken: 'sk-ant-oat-XYZ', expiresAt: Date.now() + 3_600_000 },
+      fetchImpl: capturingFetch(ANTHROPIC_SSE, captured),
+    });
+    await p.complete(baseReq, { signal: new AbortController().signal });
+    const h = captured.init?.headers ?? {};
+    expect(h['user-agent']).toMatch(/^claude-cli\//);
+    expect(h['x-app']).toBe('cli');
+    expect(h['anthropic-dangerous-direct-browser-access']).toBe('true');
+  });
+
+  it('canonicalizes tool names on the wire and maps tool_use back', async () => {
+    const captured: Captured = {};
+    const toolSse = [
+      'event: message_start',
+      'data: {"type":"message_start","message":{"model":"claude-sonnet-4-6","usage":{"input_tokens":5,"output_tokens":0}}}',
+      '',
+      'event: content_block_start',
+      'data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"Read","input":{}}}',
+      '',
+      'event: content_block_delta',
+      'data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\"path\\":\\"x\\"}"}}',
+      '',
+      'event: content_block_stop',
+      'data: {"type":"content_block_stop","index":0}',
+      '',
+      'event: message_delta',
+      'data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":1}}',
+      '',
+      'event: message_stop',
+      'data: {"type":"message_stop"}',
+      '',
+    ].join('\n');
+
+    const p = new AnthropicOAuthProvider({
+      credentials: { accessToken: 'sk-ant-oat-XYZ', expiresAt: Date.now() + 3_600_000 },
+      fetchImpl: capturingFetch(toolSse, captured),
+    });
+    const req: Request = {
+      model: 'claude-sonnet-4-6',
+      messages: [{ role: 'user', content: 'read x' }],
+      maxTokens: 100,
+      tools: [{ name: 'read', description: 'read a file', inputSchema: { type: 'object' } }],
+    };
+    const res = await p.complete(req, { signal: new AbortController().signal });
+
+    // Wire: tool presented to Anthropic as Claude Code's "Read".
+    const body = JSON.parse(captured.init?.body ?? '{}');
+    expect(body.tools[0].name).toBe('Read');
+    // Back: the returned tool_use is mapped to the caller's real "read".
+    const toolUse = res.content.find((b) => b.type === 'tool_use');
+    expect(toolUse).toMatchObject({ type: 'tool_use', name: 'read' });
+  });
+});
