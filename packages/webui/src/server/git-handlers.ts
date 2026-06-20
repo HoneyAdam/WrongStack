@@ -9,6 +9,7 @@
  */
 
 import type { WebSocket } from 'ws';
+import nodePath from 'node:path';
 import { send } from './ws-utils.js';
 
 /**
@@ -222,7 +223,7 @@ export async function handleGitDiff(
   const reply = (extra: Record<string, unknown>): void =>
     send(ws, { type: 'git.diff', payload: { path, ...extra } });
 
-  if (!path || path.includes('\0') || path.includes('..')) {
+  if (!path || path.includes('\0') || path.includes('..') || nodePath.isAbsolute(path)) {
     reply({ oldText: '', newText: '', error: 'invalid path' });
     return;
   }

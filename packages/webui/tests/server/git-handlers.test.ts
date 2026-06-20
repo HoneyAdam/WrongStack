@@ -147,6 +147,13 @@ describe('git change-set handlers', () => {
       expect(p.error).toBe('invalid path');
     });
 
+    it('rejects absolute paths', async () => {
+      const ws = createMockWs();
+      await handleGitDiff(ws, repo, path.resolve(repo, 'keep.txt'));
+      const p = ws.sent[0]?.payload as { error?: string };
+      expect(p.error).toBe('invalid path');
+    });
+
     it('flags a binary file', async () => {
       fsSync.writeFileSync(path.join(repo, 'bin.dat'), Buffer.from([0, 1, 2, 0, 3]));
       const ws = createMockWs();
