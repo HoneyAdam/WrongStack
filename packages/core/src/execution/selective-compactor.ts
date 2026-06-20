@@ -7,7 +7,10 @@ import type { Provider, Request } from '../types/provider.js';
 import type { MessageSelector, SelectorResult } from '../types/selector.js';
 import { estimateRequestTokens } from '../utils/token-estimate.js';
 import { repairToolUseAdjacency } from '../utils/message-invariants.js';
-import { eliseOldToolResults as coreEliseOldToolResults } from './compaction-core.js';
+import {
+  eliseOldToolResults as coreEliseOldToolResults,
+  estimateMessages,
+} from './compaction-core.js';
 
 /**
  * Options for SelectiveCompactor — the most configurable compactor.
@@ -57,7 +60,7 @@ export class SelectiveCompactor implements Compactor {
   private readonly maxContext: number;
   private readonly preserveK: number;
   private readonly eliseThreshold: number;
-  private readonly summarizerModel: string;
+  private readonly summarizerModel: string | undefined;
   private readonly summarizerPrompt: string;
 
   constructor(opts: SelectiveCompactorOptions) {
@@ -70,13 +73,17 @@ export class SelectiveCompactor implements Compactor {
     this.maxContext = opts.maxContext ?? 128_000;
     this.preserveK = opts.preserveK ?? 4;
     this.eliseThreshold = opts.eliseThreshold ?? 500;
-    this.summarizerModel = opts.summarizerModel ?? opts.selectorModel ?? 'unknown';
+    // Leave undefined when unset so summarizeRange() can fall back to the
+    // live ctx.model (mirrors IntelligentCompactor). Never send a 'unknown'
+    // sentinel to the provider — that yields a 400 in non-dev deployments
+    // where the warning below is suppressed.
+    this.summarizerModel = opts.summarizerModel ?? opts.selectorModel;
     if (
-      this.summarizerModel === 'unknown' &&
+      this.summarizerModel === undefined &&
       (process.env['NODE_ENV'] === 'development' || process.env['WRONGSTACK_DEBUG'] === '1')
     ) {
       console.warn(
-        '[SelectiveCompactor] summarizerModel not set — will use provider default. Set `summarizerModel` explicitly to silence this warning.',
+        '[SelectiveCompactor] summarizerModel not set — will fall back to ctx.model at summarize time. Set `summarizerModel` explicitly to silence this warning.',
       );
     }
     this.summarizerPrompt =
@@ -217,7 +224,7 @@ export class SelectiveCompactor implements Compactor {
     const body = messages.map((m, i) => `[${i}] ${m.role}: ${this.messagePreview(m)}`).join('\n');
 
     const req: Request = {
-      model: this.summarizerModel,
+      model: this.summarizerModel ?? ctx.model,
       system: [{ type: 'text', text: systemText }],
       messages: [{ role: 'user', content: body }],
       maxTokens: 512,
@@ -312,27 +319,15 @@ export class SelectiveCompactor implements Compactor {
     return m.content.some((b) => b.type === 'text' && b.text.trim().length > 0);
   }
 
+  /**
+   * Estimate message-array tokens via the shared `estimateMessages` primitive
+   * so SelectiveCompactor's before/after/load figures agree with the
+   * middleware threshold math and the other compactors. Previously this used a
+   * private `ceil(len/3.5)` walk that diverged from the calibrated shared
+   * estimator, causing the selective `load`/`targetBudget` comparison to mix
+   * two incompatible token scales.
+   */
   private estimateTokens(messages: Message[]): number {
-    let total = 0;
-    for (const m of messages) {
-      if (typeof m.content === 'string') {
-        total += this.roughTokenEstimate(m.content);
-      } else {
-        for (const b of m.content) {
-          if (b.type === 'text') total += this.roughTokenEstimate(b.text);
-          else if (b.type === 'tool_use') total += this.roughTokenEstimate(JSON.stringify(b.input));
-          else if (b.type === 'tool_result') {
-            total += this.roughTokenEstimate(
-              typeof b.content === 'string' ? b.content : JSON.stringify(b.content),
-            );
-          }
-        }
-      }
-    }
-    return total;
-  }
-
-  private roughTokenEstimate(text: string): number {
-    return Math.max(1, Math.ceil(text.length / 3.5));
+    return estimateMessages(messages);
   }
 }
