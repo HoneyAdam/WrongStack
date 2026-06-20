@@ -82,31 +82,21 @@ export class DefaultMailbox implements Mailbox {
   async query(q: MailboxQuery): Promise<MailboxMessage[]> {
     const all = await this._readAll();
     const limit = q.limit ?? 50;
-    let filtered = all;
-    if (q.to !== undefined) {
-      filtered = filtered.filter((m) => m.to === q.to || m.to === '*');
+    const order = q.minPriority !== undefined ? { low: 0, normal: 1, high: 2 } as const : null;
+    const minPriorityRank = order && q.minPriority !== undefined ? order[q.minPriority] : 0;
+    const filtered: MailboxMessage[] = [];
+
+    for (const msg of all) {
+      if (q.to !== undefined && msg.to !== q.to && msg.to !== '*') continue;
+      if (q.from !== undefined && msg.from !== q.from) continue;
+      if (q.unreadBy !== undefined && q.unreadBy in msg.readBy) continue;
+      if (q.incompleteOnly && msg.completed) continue;
+      if (q.type !== undefined && msg.type !== q.type) continue;
+      if (order !== null && (order[msg.priority as keyof typeof order] ?? 1) < minPriorityRank) continue;
+      if (q.since !== undefined && msg.timestamp <= q.since) continue;
+      filtered.push(msg);
     }
-    if (q.from !== undefined) {
-      filtered = filtered.filter((m) => m.from === q.from);
-    }
-    if (q.unreadBy !== undefined) {
-      filtered = filtered.filter((m) => !(q.unreadBy! in m.readBy));
-    }
-    if (q.incompleteOnly) {
-      filtered = filtered.filter((m) => !m.completed);
-    }
-    if (q.type !== undefined) {
-      filtered = filtered.filter((m) => m.type === q.type);
-    }
-    if (q.minPriority !== undefined) {
-      const order = { low: 0, normal: 1, high: 2 } as const;
-      const min = order[q.minPriority];
-      filtered = filtered.filter((m) => (order[m.priority as keyof typeof order] ?? 1) >= min);
-    }
-    if (q.since !== undefined) {
-      const since = q.since;
-      filtered = filtered.filter((m) => m.timestamp > since);
-    }
+
     filtered.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
     return filtered.slice(0, limit);
   }
