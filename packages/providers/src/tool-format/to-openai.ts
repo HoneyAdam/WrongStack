@@ -7,6 +7,7 @@ import type {
   ToolResultBlock,
   ToolUseBlock,
 } from '@wrongstack/core';
+import { compactToolDefinitionForWire } from '@wrongstack/core';
 
 export interface OpenAIToolSchema {
   type: 'function';
@@ -30,17 +31,17 @@ const _cache = new WeakMap<Tool[], OpenAIToolSchema[]>();
 export function toolsToOpenAI(tools: Tool[]): OpenAIToolSchema[] {
   const hit = _cache.get(tools);
   if (hit) return hit;
-  const result = tools.map((t) => ({
-    type: 'function' as const,
-    function: {
-      name: t.name,
-      description: t.description ?? '',
-      parameters: (t.inputSchema as Record<string, unknown>) ?? {
-        type: 'object' as const,
-        properties: {},
+  const result = tools.map((t) => {
+    const compact = compactToolDefinitionForWire(t);
+    return {
+      type: 'function' as const,
+      function: {
+        name: compact.name,
+        description: compact.description,
+        parameters: compact.inputSchema,
       },
-    },
-  }));
+    };
+  });
   _cache.set(tools, result);
   return result;
 }
@@ -111,8 +112,7 @@ export function messagesToOpenAI(
   // tool-call-only messages. See ConvertOptions.emptyToolCallContent
   // for the rationale. Callers can opt back into the pre-2024
   // behaviour with `emptyToolCallContent: 'null'`.
-  const emptyContentMode: 'null' | 'empty_string' =
-    opts.emptyToolCallContent ?? 'empty_string';
+  const emptyContentMode: 'null' | 'empty_string' = opts.emptyToolCallContent ?? 'empty_string';
   const out: OpenAIMessage[] = [];
 
   if (system && system.length > 0) {

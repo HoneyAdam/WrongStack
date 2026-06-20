@@ -315,6 +315,7 @@ export async function main(argv: string[]): Promise<number> {
     modePrompt,
     modelCapabilities,
     skillsEnabled: config.features.skills,
+    tokenSavingMode: config.features.tokenSavingMode,
     paths: {
       projectGoal: wpaths.projectGoal,
       projectSessions: wpaths.projectSessions,

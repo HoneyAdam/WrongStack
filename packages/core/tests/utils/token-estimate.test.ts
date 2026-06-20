@@ -103,6 +103,22 @@ describe('estimateToolDefTokens', () => {
   it('handles missing description', () => {
     expect(estimateToolDefTokens({ name: 'x', inputSchema: {} })).toBeGreaterThan(0);
   });
+
+  it('estimates compact wire descriptions instead of raw repeated prose', () => {
+    const long = 'This field has verbose guidance. '.repeat(100);
+    const compact = estimateToolDefTokens({
+      name: 'x',
+      description: long,
+      inputSchema: {
+        type: 'object',
+        properties: {
+          value: { type: 'string', description: long },
+        },
+      },
+    });
+    const rawish = estimateTextTokens(long) * 2;
+    expect(compact).toBeLessThan(rawish);
+  });
 });
 
 describe('estimateRequestTokens', () => {
@@ -121,11 +137,7 @@ describe('estimateRequestTokens', () => {
   });
 
   it('handles array messages with string content', () => {
-    const r = estimateRequestTokens(
-      [{ role: 'user', content: 'hello there' }],
-      '',
-      [],
-    );
+    const r = estimateRequestTokens([{ role: 'user', content: 'hello there' }], '', []);
     expect(r.messages).toBeGreaterThan(0);
   });
 
@@ -165,14 +177,10 @@ describe('estimateRequestTokens', () => {
   });
 
   it('sums tool definitions into the tools bucket', () => {
-    const r = estimateRequestTokens(
-      [],
-      undefined,
-      [
-        { name: 'a', description: 'first', inputSchema: {} },
-        { name: 'b', description: 'second', inputSchema: { x: 1 } },
-      ],
-    );
+    const r = estimateRequestTokens([], undefined, [
+      { name: 'a', description: 'first', inputSchema: {} },
+      { name: 'b', description: 'second', inputSchema: { x: 1 } },
+    ]);
     expect(r.tools).toBeGreaterThan(0);
     // Empty messages array + non-string non-array system prompt
     // contribute 0; total === tools.
@@ -180,11 +188,9 @@ describe('estimateRequestTokens', () => {
   });
 
   it('total equals sum of components', () => {
-    const r = estimateRequestTokens(
-      [{ role: 'user', content: 'msg' }],
-      'sys',
-      [{ name: 't', inputSchema: {} }],
-    );
+    const r = estimateRequestTokens([{ role: 'user', content: 'msg' }], 'sys', [
+      { name: 't', inputSchema: {} },
+    ]);
     expect(r.total).toBe(r.messages + r.systemPrompt + r.tools);
   });
 
@@ -237,7 +243,7 @@ describe('recordActualUsage + estimateRequestTokensCalibrated', () => {
 
     // Calibrated should be roughly 75% of uncalibrated (within rounding tolerance)
     expect(cal.total).toBeLessThan(uncal.total);
-    expect(cal.total).toBeGreaterThan(Math.floor(uncal.total * 0.70));
+    expect(cal.total).toBeGreaterThan(Math.floor(uncal.total * 0.7));
   });
 
   it('ratio is capped to [0.5, 1.5] as sanity bound', () => {
@@ -298,7 +304,7 @@ describe('recordActualUsage + estimateRequestTokensCalibrated', () => {
     // Before any samples, _cal.ratio = 1.0
     // The explicit estimate is used directly in the ratio calculation.
     // After 1 sample with actual=60 and explicit estimate=60, ratio = 1.0.
-    const rough = estimateRequestTokens(messages, system, tools); // _cal.prevEst = rough.total
+    estimateRequestTokens(messages, system, tools); // sets _cal.prevEst
     recordActualUsage(60, 60); // explicit est=60, overriding prevEst
 
     const state = getCalibrationState();

@@ -15,10 +15,13 @@ import type { Message } from '../../src/types/index.js';
 
 afterEach(() => vi.restoreAllMocks());
 
-const text = (role: Message['role'], t: string): Message => ({ role, content: [{ type: 'text', text: t }] }) as Message;
+const text = (role: Message['role'], t: string): Message =>
+  ({ role, content: [{ type: 'text', text: t }] }) as Message;
 const strMsg = (role: Message['role'], t: string): Message => ({ role, content: t }) as Message;
-const toolUse = (role: Message['role'] = 'assistant'): Message => ({ role, content: [{ type: 'tool_use', id: 'u1', name: 'bash', input: {} }] }) as Message;
-const toolResult = (content: unknown, role: Message['role'] = 'user'): Message => ({ role, content: [{ type: 'tool_result', tool_use_id: 'u1', content }] }) as Message;
+const toolUse = (role: Message['role'] = 'assistant'): Message =>
+  ({ role, content: [{ type: 'tool_use', id: 'u1', name: 'bash', input: {} }] }) as Message;
+const toolResult = (content: unknown, role: Message['role'] = 'user'): Message =>
+  ({ role, content: [{ type: 'tool_result', tool_use_id: 'u1', content }] }) as Message;
 
 describe('extractText / hasToolUse / hasLargeToolResult', () => {
   it('extracts text from string and block content', () => {
@@ -70,7 +73,13 @@ describe('scoreMessage', () => {
 
   it('marks large tool results and grep/list output as low (1)', () => {
     // A large tool result with accompanying text (a bare result with no text is noise).
-    const bigWithText: Message = { role: 'user', content: [{ type: 'text', text: 'here is the output' }, { type: 'tool_result', tool_use_id: 'u1', content: 'z'.repeat(4000) }] } as Message;
+    const bigWithText: Message = {
+      role: 'user',
+      content: [
+        { type: 'text', text: 'here is the output' },
+        { type: 'tool_result', tool_use_id: 'u1', content: 'z'.repeat(4000) },
+      ],
+    } as Message;
     expect(scoreMessage(bigWithText)).toBe(1);
     expect(scoreMessage(text('user', 'found 12 match in the tree'))).toBe(1);
   });
@@ -83,7 +92,8 @@ describe('scoreMessage', () => {
 
 describe('buildSmartDigest', () => {
   it('applies tiered treatment and collapses noise', () => {
-    const longMedium = 'First sentence here. Second sentence that should be dropped from the digest entirely.';
+    const longMedium =
+      'First sentence here. Second sentence that should be dropped from the digest entirely.';
     const messages: Message[] = [
       text('user', 'no, stop'), // 5 → verbatim
       text('assistant', longMedium), // 3 → first sentence
@@ -107,7 +117,13 @@ describe('buildSmartDigest', () => {
   });
 
   it('renders a tool-call marker and handles short text without a sentence break', () => {
-    const m: Message = { role: 'assistant', content: [{ type: 'text', text: 'quick note' }, { type: 'tool_use', id: 'u1', name: 'bash', input: {} }] } as Message;
+    const m: Message = {
+      role: 'assistant',
+      content: [
+        { type: 'text', text: 'quick note' },
+        { type: 'tool_use', id: 'u1', name: 'bash', input: {} },
+      ],
+    } as Message;
     const digest = buildSmartDigest([m]);
     expect(digest).toContain('[1 tool call(s)]');
     expect(digest).toContain('quick note');
@@ -124,10 +140,22 @@ describe('buildSmartDigest empty / countToolBlocks edge', () => {
 });
 
 describe('eliseOldToolResults', () => {
-  const big = (n: number): Message => ({ role: 'user', content: [{ type: 'text', text: 'output below' }, { type: 'tool_result', tool_use_id: 'u1', content: 'z'.repeat(n) }] }) as Message;
+  const big = (n: number): Message =>
+    ({
+      role: 'user',
+      content: [
+        { type: 'text', text: 'output below' },
+        { type: 'tool_result', tool_use_id: 'u1', content: 'z'.repeat(n) },
+      ],
+    }) as Message;
 
   it('elides oversized tool results before the preserved window, keeping text blocks', () => {
-    const messages: Message[] = [big(8000), text('user', 'recent 1'), text('assistant', 'recent 2'), text('user', 'recent 3')];
+    const messages: Message[] = [
+      big(8000),
+      text('user', 'recent 1'),
+      text('assistant', 'recent 2'),
+      text('user', 'recent 3'),
+    ];
     const res = eliseOldToolResults(messages, { preserveK: 2, eliseThreshold: 100 });
     expect(res.changed).toBe(true);
     expect(res.saved).toBeGreaterThan(0);
@@ -162,6 +190,64 @@ describe('eliseOldToolResults', () => {
     expect(JSON.stringify(res.messages[0])).toContain('Error: failed to parse');
   });
 
+  it('elides oversized old tool_use inputs without breaking the pair id', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'write-1',
+            name: 'write',
+            input: {
+              path: 'src/generated.ts',
+              content: 'export const value = 1;\n'.repeat(1200),
+              nested: { a: 1, b: 2 },
+            },
+          },
+        ],
+      } as Message,
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'write-1', content: 'write: ok' }],
+      } as Message,
+      text('user', 'recent'),
+    ];
+
+    const res = eliseOldToolResults(messages, { preserveK: 1, eliseThreshold: 100 });
+
+    expect(res.changed).toBe(true);
+    expect(res.saved).toBeGreaterThan(0);
+    const first = res.messages[0];
+    const block = Array.isArray(first?.content) ? first.content[0] : undefined;
+    expect(block).toMatchObject({ type: 'tool_use', id: 'write-1', name: 'write' });
+    expect(JSON.stringify(block)).toContain('__elided_tool_input');
+    expect(JSON.stringify(block)).toContain('src/generated.ts');
+    expect(JSON.stringify(block)).not.toContain(
+      'export const value = 1;\\nexport const value = 1;',
+    );
+  });
+
+  it('does not elide recent oversized tool_use inputs inside the preserved window', () => {
+    const input = { content: 'x'.repeat(8000) };
+    const messages: Message[] = [
+      text('user', 'old'),
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'recent-use', name: 'write', input }],
+      } as Message,
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'recent-use', content: 'ok' }],
+      } as Message,
+    ];
+
+    const res = eliseOldToolResults(messages, { preserveK: 2, eliseThreshold: 100 });
+
+    expect(res.changed).toBe(false);
+    expect(JSON.stringify(res.messages)).toContain('x'.repeat(100));
+  });
+
   it('returns unchanged when nothing is oversized', () => {
     const messages: Message[] = [big(10), text('user', 'a'), text('user', 'b')];
     const res = eliseOldToolResults(messages, { preserveK: 1, eliseThreshold: 100000 });
@@ -175,8 +261,15 @@ describe('eliseOldToolResults', () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
       // 15 tool_result blocks on one message → fullPassInner/fullPass ratio > 10
-      const blocks = Array.from({ length: 15 }, (_, i) => ({ type: 'tool_result' as const, tool_use_id: `u${i}`, content: i === 0 ? 'z'.repeat(8000) : 'small' }));
-      const messages: Message[] = [{ role: 'user', content: blocks } as Message, text('user', 'recent')];
+      const blocks = Array.from({ length: 15 }, (_, i) => ({
+        type: 'tool_result' as const,
+        tool_use_id: `u${i}`,
+        content: i === 0 ? 'z'.repeat(8000) : 'small',
+      }));
+      const messages: Message[] = [
+        { role: 'user', content: blocks } as Message,
+        text('user', 'recent'),
+      ];
       eliseOldToolResults(messages, { preserveK: 1, eliseThreshold: 100 });
       expect(err).toHaveBeenCalled();
     } finally {
@@ -202,9 +295,30 @@ describe('buildLosslessDigest', () => {
 
 describe('findPreserveStart', () => {
   it('walks back K user/assistant turns', () => {
-    const messages: Message[] = [text('user', '1'), text('assistant', '2'), text('user', '3'), text('assistant', '4')];
+    const messages: Message[] = [
+      text('user', '1'),
+      text('assistant', '2'),
+      text('user', '3'),
+      text('assistant', '4'),
+    ];
     expect(findPreserveStart(messages, 2)).toBe(2);
     expect(findPreserveStart(messages, 10)).toBe(0); // more than available
+  });
+
+  it('widens backward when the preserved window starts on a tool_result', () => {
+    const messages: Message[] = [
+      text('user', 'old'),
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'u1', name: 'read', input: { path: 'a.ts' } }],
+      } as Message,
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'u1', content: 'ok' }],
+      } as Message,
+    ];
+
+    expect(findPreserveStart(messages, 1)).toBe(1);
   });
 });
 

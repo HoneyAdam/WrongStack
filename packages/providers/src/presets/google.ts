@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
  * turns.
  */
 import type { Message, Request, StopReason, StreamEvent, Tool, Usage } from '@wrongstack/core';
-import { safeParse } from '@wrongstack/core';
+import { compactToolDefinitionForWire, safeParse } from '@wrongstack/core';
 import { capabilitiesForFamily } from '../family-capabilities.js';
 import { normalizeGemini } from '../stop-reason.js';
 import { defineWireFormat } from '../wire-format.js';
@@ -147,14 +147,17 @@ function buildGenConfig(req: Request): Record<string, unknown> {
 }
 
 function toolsToGemini(tools: Tool[]): Array<Record<string, unknown>> {
-  return tools.map((t) => ({
-    name: t.name,
-    description: t.description,
-    parameters: sanitizeSchemaForGemini(t.inputSchema as Record<string, unknown> | undefined) ?? {
-      type: 'object',
-      properties: {},
-    },
-  }));
+  return tools.map((t) => {
+    const compact = compactToolDefinitionForWire(t);
+    return {
+      name: compact.name,
+      description: compact.description,
+      parameters: sanitizeSchemaForGemini(compact.inputSchema) ?? {
+        type: 'object',
+        properties: {},
+      },
+    };
+  });
 }
 
 const GEMINI_ALLOWED_KEYS = new Set([

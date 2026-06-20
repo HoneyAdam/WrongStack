@@ -50,7 +50,11 @@
 //     call site in main(). The unit test exercises the
 //     helper with fakes that satisfy the local interfaces.
 
-import { DefaultSystemPromptBuilder, makeAutonomyPromptContributor } from '@wrongstack/core';
+import {
+  DefaultSystemPromptBuilder,
+  makeAutonomyPromptContributor,
+  type TokenSavingTier,
+} from '@wrongstack/core';
 import type { AutonomyMode } from '../slash-commands/autonomy.js';
 
 export interface MutableRef<T> {
@@ -113,6 +117,8 @@ export interface BindSystemPromptBuilderDeps {
   /** `config.features.skills` \u2014 if false, the skillLoader
    *  is not passed to the builder. */
   skillsEnabled: boolean;
+  /** `config.features.tokenSavingMode` — forwarded so prompt guidance matches tool tiering. */
+  tokenSavingMode?: TokenSavingTier | boolean | undefined;
   paths: SystemPromptBuilderPaths;
   /** `path.join`-shaped helper from the runtime. */
   pathJoiner: PathJoiner;
@@ -131,9 +137,7 @@ export interface BindSystemPromptBuilderDeps {
  * `sessionRef.current` and `autonomyModeRef.current`. This
  * matches the pre-refactor inline behavior exactly.
  */
-export function bindSystemPromptBuilder(
-  deps: BindSystemPromptBuilderDeps,
-): void {
+export function bindSystemPromptBuilder(deps: BindSystemPromptBuilderDeps): void {
   deps.container.bind(
     deps.systemPromptBuilderToken,
     () =>
@@ -151,6 +155,7 @@ export function bindSystemPromptBuilder(
         modeId: deps.modeId,
         modePrompt: deps.modePrompt,
         modelCapabilities: deps.modelCapabilities,
+        tokenSavingMode: deps.tokenSavingMode,
         planPath: () =>
           deps.sessionRef.current
             ? deps.pathJoiner.join(

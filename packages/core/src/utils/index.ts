@@ -1,63 +1,73 @@
+export * from './assert-never.js';
 export * from './atomic-write.js';
-export * from './safe-json.js';
-export * from './newline-normalize.js';
+export * from './child-env.js';
 export * from './color.js';
+export {
+  buildContextEvidenceDigest,
+  createContextEvidenceState,
+  markAssistantReferencedEvidence,
+  type RecordToolOutputEvidenceInput,
+  recordToolOutputEvidence,
+  recordUserIntentEvidence,
+  repeatedReadPressure,
+} from './context-evidence.js';
+export {
+  type DeepMergeOptions,
+  deepMerge,
+  FORBIDDEN_PROTO_KEYS,
+  isPrimitiveArray,
+} from './deep-merge.js';
+export * from './diff.js';
+export type { HttpDispatcher, HttpsAgentAsDispatcher } from './dispatcher-types.js';
+export { toErrorMessage } from './error.js';
+export * from './expect-defined.js';
+export { expandGlob } from './glob-expand.js';
+export * from './glob-match.js';
+export { assertNotPrivateHost, expandIPv6, isPrivateIPv4, isPrivateIPv6 } from './ip-guard.js';
+export { completePartialObject } from './json-repair.js';
+export {
+  type ValidationError,
+  type ValidationResult,
+  validateAgainstSchema,
+} from './json-schema-validate.js';
+export { mergeCustomModelDefs } from './merge-custom-models.js';
+export { mergeModelsPayload } from './merge-models-payload.js';
+export {
+  type MessageRepairReport,
+  type MessageRepairResult,
+  repairToolUseAdjacency,
+} from './message-invariants.js';
+export * from './newline-normalize.js';
+export { type CompileFail, type CompileResult, compileUserRegex } from './regex-guard.js';
+export * from './safe-json.js';
+export * from './sleep.js';
+export * from './string.js';
+export * from './task-format.js';
 export * from './term.js';
 export * from './todos-format.js';
-export * from './task-format.js';
-export * from './string.js';
-export * from './glob-match.js';
-export * from './diff.js';
-export * from './wstack-paths.js';
-export * from './child-env.js';
-export * from './sleep.js';
-export * from './expect-defined.js';
-export * from './assert-never.js';
-export { toErrorMessage } from './error.js';
-export { deepMerge, FORBIDDEN_PROTO_KEYS, isPrimitiveArray, type DeepMergeOptions } from './deep-merge.js';
+export {
+  computeMessageTokens,
+  estimateMessageTokens,
+  estimateRequestTokens,
+  estimateRequestTokensCalibrated,
+  estimateTextTokens,
+  estimateToolDefTokens,
+  estimateToolInputTokens,
+  estimateToolResultTokens,
+  getCalibrationState,
+  type RequestTokenBreakdown,
+  recordActualUsage,
+  resetCalibration,
+} from './token-estimate.js';
 export {
   createToolOutputSerializer,
   type ToolOutputSerializerOptions,
 } from './tool-output-serializer.js';
 export {
-  estimateToolInputTokens,
-  estimateToolResultTokens,
-  estimateTextTokens,
-  computeMessageTokens,
-  estimateMessageTokens,
-  estimateToolDefTokens,
-  estimateRequestTokens,
-  estimateRequestTokensCalibrated,
-  recordActualUsage,
-  getCalibrationState,
-  resetCalibration,
-  type RequestTokenBreakdown,
-} from './token-estimate.js';
-export {
-  repairToolUseAdjacency,
-  type MessageRepairReport,
-  type MessageRepairResult,
-} from './message-invariants.js';
-export {
-  buildContextEvidenceDigest,
-  createContextEvidenceState,
-  markAssistantReferencedEvidence,
-  recordToolOutputEvidence,
-  recordUserIntentEvidence,
-  repeatedReadPressure,
-  type RecordToolOutputEvidenceInput,
-} from './context-evidence.js';
-export {
-  validateAgainstSchema,
-  type ValidationError,
-  type ValidationResult,
-} from './json-schema-validate.js';
-export { compileUserRegex, type CompileResult, type CompileFail } from './regex-guard.js';
-export { expandGlob } from './glob-expand.js';
-export {
-  completePartialObject,
-} from './json-repair.js';
-export { mergeModelsPayload } from './merge-models-payload.js';
-export { mergeCustomModelDefs } from './merge-custom-models.js';
-export { isPrivateIPv4, isPrivateIPv6, expandIPv6, assertNotPrivateHost } from './ip-guard.js';
-export type { HttpDispatcher, HttpsAgentAsDispatcher } from './dispatcher-types.js';
+  type CompactToolDefinitionForWireOptions,
+  type CompactWireToolDefinition,
+  compactSchemaDescriptions,
+  compactToolDefinitionForWire,
+  type ToolWireDefinitionLike,
+} from './tool-wire-compact.js';
+export * from './wstack-paths.js';

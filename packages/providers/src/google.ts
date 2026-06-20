@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { type ProviderError, safeParse } from '@wrongstack/core';
 import type {
   Capabilities,
   Message,
@@ -9,6 +8,7 @@ import type {
   Tool,
   Usage,
 } from '@wrongstack/core';
+import { compactToolDefinitionForWire, type ProviderError, safeParse } from '@wrongstack/core';
 import { parseProviderHttpError } from './error-parse.js';
 import { capabilitiesForFamily } from './family-capabilities.js';
 import { parseSSE } from './sse.js';
@@ -69,7 +69,6 @@ export class GoogleProvider extends WireAdapter {
   override readonly id: string;
   override readonly capabilities: Capabilities;
 
-
   constructor(opts: GoogleProviderOptions) {
     super(opts.apiKey, opts.baseUrl ?? DEFAULT_BASE, opts.fetchImpl, opts.streamOpts);
     this.id = opts.id ?? 'google';
@@ -126,14 +125,17 @@ export class GoogleProvider extends WireAdapter {
 }
 
 function toolsToGemini(tools: Tool[]): Array<Record<string, unknown>> {
-  return tools.map((t) => ({
-    name: t.name,
-    description: t.description,
-    parameters: sanitizeSchemaForGemini(t.inputSchema as Record<string, unknown> | undefined) ?? {
-      type: 'object',
-      properties: {},
-    },
-  }));
+  return tools.map((t) => {
+    const compact = compactToolDefinitionForWire(t);
+    return {
+      name: compact.name,
+      description: compact.description,
+      parameters: sanitizeSchemaForGemini(compact.inputSchema) ?? {
+        type: 'object',
+        properties: {},
+      },
+    };
+  });
 }
 
 /**

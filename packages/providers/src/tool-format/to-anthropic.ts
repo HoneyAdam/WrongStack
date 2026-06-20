@@ -1,4 +1,4 @@
-import type { Tool } from '@wrongstack/core';
+import { compactToolDefinitionForWire, type Tool } from '@wrongstack/core';
 
 export interface AnthropicToolSchema {
   name: string;
@@ -19,14 +19,14 @@ const _cache = new WeakMap<Tool[], AnthropicToolSchema[]>();
 export function toolsToAnthropic(tools: Tool[]): AnthropicToolSchema[] {
   const hit = _cache.get(tools);
   if (hit) return hit;
-  const result = tools.map((t) => ({
-    name: t.name,
-    description: t.description,
-    input_schema: (t.inputSchema as Record<string, unknown>) ?? {
-      type: 'object',
-      properties: {},
-    },
-  }));
+  const result = tools.map((t) => {
+    const compact = compactToolDefinitionForWire(t);
+    return {
+      name: compact.name,
+      description: compact.description,
+      input_schema: compact.inputSchema,
+    };
+  });
   _cache.set(tools, result);
   return result;
 }

@@ -224,6 +224,38 @@ describe('tool-format conversions', () => {
     expect(out[0]?.function.parameters).toEqual({ type: 'object', properties: {} });
   });
 
+  it('compacts tool descriptions and schema prose for wire formats', () => {
+    const long = 'Very detailed operational guidance. '.repeat(80);
+    const t: Tool = {
+      name: 'verbose',
+      description: long,
+      inputSchema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: long, minLength: 2 },
+        },
+        required: ['query'],
+      },
+      permission: 'auto',
+      mutating: false,
+      async execute() {
+        return '';
+      },
+    };
+
+    const openai = toolsToOpenAI([t])[0]?.function;
+    const anthropic = toolsToAnthropic([t])[0];
+    expect(openai?.description.length).toBeLessThan(long.length);
+    expect(anthropic?.description).toBe(openai?.description);
+    expect(openai?.parameters).toMatchObject({
+      type: 'object',
+      required: ['query'],
+      properties: { query: { type: 'string', minLength: 2 } },
+    });
+    const props = openai?.parameters['properties'] as Record<string, Record<string, unknown>>;
+    expect(String(props['query']?.['description']).length).toBeLessThan(long.length);
+  });
+
   it('messagesToOpenAI prepends system as system role by default', () => {
     const out = messagesToOpenAI(
       [{ type: 'text', text: 'be terse' }],
@@ -646,7 +678,9 @@ describe('tool-format conversions', () => {
         inputSchema: { type: 'object', properties: { path: { type: 'string' } } },
         permission: 'auto',
         mutating: false,
-        async execute() { return ''; },
+        async execute() {
+          return '';
+        },
       };
       const tools = [t];
       const first = toolsToAnthropic(tools);
@@ -662,7 +696,9 @@ describe('tool-format conversions', () => {
         inputSchema: { type: 'object', properties: { pattern: { type: 'string' } } },
         permission: 'auto',
         mutating: false,
-        async execute() { return ''; },
+        async execute() {
+          return '';
+        },
       };
       const a = toolsToAnthropic([t]);
       const b = toolsToAnthropic([t]);
@@ -681,7 +717,9 @@ describe('tool-format conversions', () => {
         inputSchema: { type: 'object', properties: { path: { type: 'string' } } },
         permission: 'confirm',
         mutating: true,
-        async execute() { return ''; },
+        async execute() {
+          return '';
+        },
       };
       const tools = [t];
       const first = toolsToOpenAI(tools);
@@ -696,7 +734,9 @@ describe('tool-format conversions', () => {
         inputSchema: { type: 'object', properties: { command: { type: 'string' } } },
         permission: 'confirm',
         mutating: true,
-        async execute() { return ''; },
+        async execute() {
+          return '';
+        },
       };
       const a = toolsToOpenAI([t]);
       const b = toolsToOpenAI([t]);

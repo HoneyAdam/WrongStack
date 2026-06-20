@@ -37,20 +37,26 @@ interface CapturedBuilder {
     modeId: string;
     modePrompt: string;
     skillsEnabled: boolean;
+    tokenSavingMode?: string | boolean | undefined;
   };
 }
 
-function makeDeps(overrides: Partial<{
-  modeId: string;
-  modePrompt: string;
-  skillsEnabled: boolean;
-  autonomyMode: 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel';
-  sessionId: string | undefined;
-  projectGoal: string;
-  projectSessions: string;
-}> = {}) {
+function makeDeps(
+  overrides: Partial<{
+    modeId: string;
+    modePrompt: string;
+    skillsEnabled: boolean;
+    tokenSavingMode: string | boolean | undefined;
+    autonomyMode: 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel';
+    sessionId: string | undefined;
+    projectGoal: string;
+    projectSessions: string;
+  }> = {},
+) {
   const token = Symbol('SystemPromptBuilder');
-  const sessionRef = { current: overrides.sessionId !== undefined ? { id: overrides.sessionId } : undefined };
+  const sessionRef = {
+    current: overrides.sessionId !== undefined ? { id: overrides.sessionId } : undefined,
+  };
   const autonomyModeRef = { current: overrides.autonomyMode ?? 'off' };
   let capturedFactory: (() => unknown) | null = null;
   const container = {
@@ -70,6 +76,7 @@ function makeDeps(overrides: Partial<{
     modePrompt: overrides.modePrompt ?? '',
     modelCapabilities: undefined,
     skillsEnabled: overrides.skillsEnabled ?? true,
+    tokenSavingMode: overrides.tokenSavingMode,
     paths: {
       projectGoal: overrides.projectGoal ?? '/tmp/goal.md',
       projectSessions: overrides.projectSessions ?? '/tmp/sessions',
@@ -80,7 +87,12 @@ function makeDeps(overrides: Partial<{
   if (capturedFactory === null) {
     throw new Error('container.bind was not called');
   }
-  return { sessionRef, autonomyModeRef, container, capturedFactory: capturedFactory as () => CapturedBuilder };
+  return {
+    sessionRef,
+    autonomyModeRef,
+    container,
+    capturedFactory: capturedFactory as () => CapturedBuilder,
+  };
 }
 
 describe('bindSystemPromptBuilder (PR 5 of #29)', () => {
@@ -112,7 +124,11 @@ describe('bindSystemPromptBuilder (PR 5 of #29)', () => {
   it('planPath tracks subsequent sessionRef updates (lazy reads, not a snapshot)', () => {
     const sessionRef = { current: undefined as { id: string } | undefined };
     const autonomyModeRef = { current: 'off' as const };
-    const container = { bind: vi.fn((_t: unknown, f: () => unknown) => { container._f = f as () => unknown; }) as unknown as { bind: ReturnType<typeof vi.fn>; _f?: () => unknown } };
+    const container = {
+      bind: vi.fn((_t: unknown, f: () => unknown) => {
+        container._f = f as () => unknown;
+      }) as unknown as { bind: ReturnType<typeof vi.fn>; _f?: () => unknown },
+    };
     bindSystemPromptBuilder({
       container: container as never,
       modeStore: {},
@@ -124,6 +140,7 @@ describe('bindSystemPromptBuilder (PR 5 of #29)', () => {
       modePrompt: '',
       modelCapabilities: undefined,
       skillsEnabled: true,
+      tokenSavingMode: 'medium',
       paths: { projectGoal: '/tmp/goal.md', projectSessions: '/tmp/sessions' },
       pathJoiner: { join: (a, b) => `${a}/${b}` },
       systemPromptBuilderToken: Symbol('s'),
@@ -140,6 +157,12 @@ describe('bindSystemPromptBuilder (PR 5 of #29)', () => {
     // pick up the new id, not a stale snapshot.
     sessionRef.current = { id: 'sess-2' };
     expect(planPath()).toBe('/tmp/sessions/sess-2.plan.json');
+  });
+
+  it('passes tokenSavingMode through to DefaultSystemPromptBuilder', () => {
+    const { capturedFactory } = makeDeps({ tokenSavingMode: 'aggressive' });
+    const builder = capturedFactory();
+    expect(builder.opts.tokenSavingMode).toBe('aggressive');
   });
 
   it('autonomy contributor is the only contributor wired into the builder', () => {

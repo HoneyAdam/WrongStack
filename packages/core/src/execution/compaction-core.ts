@@ -1,7 +1,11 @@
-import type { ContentBlock, ToolResultBlock } from '../types/blocks.js';
+import type { ContentBlock, ToolResultBlock, ToolUseBlock } from '../types/blocks.js';
 import { isTextBlock } from '../types/blocks.js';
 import type { Message } from '../types/messages.js';
-import { estimateMessageTokens, estimateToolResultTokens } from '../utils/token-estimate.js';
+import {
+  estimateMessageTokens,
+  estimateToolInputTokens,
+  estimateToolResultTokens,
+} from '../utils/token-estimate.js';
 
 /**
  * Instrumentation state for compaction hot-path analysis.
@@ -45,10 +49,7 @@ interface CompactionMetrics {
  * in production. Matches the guard at the ratio-guard site (line ~281).
  */
 function compactionDebugEnabled(): boolean {
-  return (
-    process.env['NODE_ENV'] === 'development' ||
-    process.env['WRONGSTACK_DEBUG'] === '1'
-  );
+  return process.env['NODE_ENV'] === 'development' || process.env['WRONGSTACK_DEBUG'] === '1';
 }
 
 /** Emit compaction instrumentation as a structured log event (debug-only). */
@@ -127,33 +128,29 @@ export function findPreserveStart(messages: readonly Message[], preserveK: numbe
     }
   }
 
-  // Forward walk: if a preserved assistant message has a tool_use, also keep the
-  // immediately following tool_result so the protocol pair stays complete.
-  let forwardWalkIterations = 0;
-  let forwardWalkInnerIterations = 0;
-  for (let i = preserveStart; i < messages.length; i++) {
-    forwardWalkIterations++;
-    const m = messages[i];
-    if (!m || typeof m.content === 'string' || !Array.isArray(m.content)) continue;
-    const hasToolUse = m.content.some((b) => {
-      forwardWalkInnerIterations++;
-      return b.type === 'tool_use';
-    });
-    if (hasToolUse && i + 1 < messages.length) {
-      const next = messages[i + 1];
-      if (
-        next &&
-        next.role === 'user' &&
-        typeof next.content !== 'string' &&
-        Array.isArray(next.content) &&
-        next.content.some((b) => {
-          forwardWalkInnerIterations++;
-          return b.type === 'tool_result';
-        })
-      ) {
-        preserveStart = i + 1;
-      }
+  // If the preserved window starts on a user tool_result, widen backward to
+  // include the immediately preceding assistant tool_use. This keeps provider
+  // protocol adjacency intact and avoids orphaned results after compaction.
+  let pairRepairIterations = 0;
+  let pairRepairInnerIterations = 0;
+  while (preserveStart > 0) {
+    pairRepairIterations++;
+    const first = messages[preserveStart];
+    const prev = messages[preserveStart - 1];
+    if (!first || !prev || first.role !== 'user' || prev.role !== 'assistant') break;
+    if (typeof first.content === 'string' || typeof prev.content === 'string') break;
+    const resultIds = new Set<string>();
+    for (const block of first.content) {
+      pairRepairInnerIterations++;
+      if (block.type === 'tool_result') resultIds.add(block.tool_use_id);
     }
+    if (resultIds.size === 0) break;
+    const hasMatchingUse = prev.content.some((block) => {
+      pairRepairInnerIterations++;
+      return block.type === 'tool_use' && resultIds.has(block.id);
+    });
+    if (!hasMatchingUse) break;
+    preserveStart--;
   }
 
   if (compactionDebugEnabled()) {
@@ -164,10 +161,10 @@ export function findPreserveStart(messages: readonly Message[], preserveK: numbe
         messageCount: messages.length,
         preserveK,
         preserveStart,
-        forwardWalkIterations,
-        forwardWalkInnerIterations,
-        forwardWalkInnerPerOuter:
-          forwardWalkIterations > 0 ? forwardWalkInnerIterations / forwardWalkIterations : 0,
+        pairRepairIterations,
+        pairRepairInnerIterations,
+        pairRepairInnerPerOuter:
+          pairRepairIterations > 0 ? pairRepairInnerIterations / pairRepairIterations : 0,
       }),
     );
   }
@@ -184,7 +181,7 @@ export interface EliseResult {
 }
 
 /**
- * Elide oversized tool_results that fall before the preserve window. Pure:
+ * Elide oversized tool I/O that falls before the preserve window. Pure:
  * returns a fresh array (or the same reference when unchanged). Replaces the
  * duplicate copies that lived in all three compactors.
  */
@@ -194,7 +191,7 @@ export function eliseOldToolResults(
 ): EliseResult {
   const preserveStart = findPreserveStart(messages, opts.preserveK);
 
-  // ── Fast path: probe for oversized tool_results ─────────────────────────
+  // ── Fast path: probe for oversized tool I/O ─────────────────────────────
   //
   // Instruments the ratio of actual iterations to message count so we can
   // detect whether the inner block-scan loop is O(n·m) as expected or has
@@ -208,7 +205,10 @@ export function eliseOldToolResults(
     if (!msg || !Array.isArray(msg.content)) continue;
     for (const b of msg.content) {
       fastPathInnerIterations++;
-      if (b.type === 'tool_result' && estimateToolResultTokens(b.content) >= opts.eliseThreshold) {
+      const oversized =
+        (b.type === 'tool_result' && estimateToolResultTokens(b.content) >= opts.eliseThreshold) ||
+        (b.type === 'tool_use' && estimateToolInputTokens(b.input) >= opts.eliseThreshold);
+      if (oversized) {
         hasOversized = true;
         break;
       }
@@ -217,7 +217,9 @@ export function eliseOldToolResults(
 
   // ── Emit fast-path metrics (covers both fast-path hit and the early-exit) ──
   emitCompactionMetrics(
-    hasOversized ? 'compaction.elision.fast_path.oversized_found' : 'compaction.elision.fast_path.no_oversized',
+    hasOversized
+      ? 'compaction.elision.fast_path.oversized_found'
+      : 'compaction.elision.fast_path.no_oversized',
     {
       messageCount: messages.length,
       preserveStart,
@@ -234,7 +236,7 @@ export function eliseOldToolResults(
 
   // ── Full elision pass ──────────────────────────────────────────────────
   //
-  // Optimisation: once we've found the first oversized tool_result and
+  // Optimisation: once we've found the first oversized tool I/O block and
   // applied the elision, we can break out of the outer loop early. The
   // preserveStart boundary is already fixed by findPreserveStart(); any
   // remaining messages before it are either (a) already copied as-is by the
@@ -258,6 +260,14 @@ export function eliseOldToolResults(
     }
     const original = msg.content;
     const newContent: ContentBlock[] = original.map((b) => {
+      if (b.type === 'tool_use') {
+        const tokens = estimateToolInputTokens(b.input);
+        if (tokens < opts.eliseThreshold) return b;
+        const elidedInput = summarizeToolUseInputElision(b, tokens);
+        saved += Math.max(0, tokens - estimateToolInputTokens(elidedInput));
+        return { ...b, input: elidedInput };
+      }
+
       if (b.type !== 'tool_result') return b;
       const tokens = estimateToolResultTokens(b.content);
       if (tokens < opts.eliseThreshold) return b;
@@ -333,6 +343,39 @@ export function eliseOldToolResults(
   return { messages: changed ? next : (messages as Message[]), saved, changed };
 }
 
+function summarizeToolUseInputElision(
+  block: ToolUseBlock,
+  tokens: number,
+): Record<string, unknown> {
+  const fields: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(block.input ?? {})) {
+    fields[key] = summarizeToolUseInputValue(value);
+  }
+
+  return {
+    __elided_tool_input: `~${tokens} tokens; original arguments are in the session log`,
+    tool: block.name,
+    fields,
+  };
+}
+
+function summarizeToolUseInputValue(value: unknown): unknown {
+  if (value === null || value === undefined) return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const oneLine = value.replace(/\s+/g, ' ').trim();
+    return oneLine.length <= 160 ? oneLine : `${oneLine.slice(0, 120)}...(${oneLine.length} chars)`;
+  }
+  if (Array.isArray(value)) {
+    return `[array:${value.length}]`;
+  }
+  if (typeof value === 'object') {
+    const keys = Object.keys(value as Record<string, unknown>);
+    return `[object:${keys.slice(0, 8).join(',')}${keys.length > 8 ? ',...' : ''}]`;
+  }
+  return String(value);
+}
+
 function summarizeToolResultElision(block: ToolResultBlock, tokens: number): string {
   const parts = [`elided: ~${tokens} tokens`];
   if (block.name) parts.push(`tool=${block.name}`);
@@ -358,7 +401,12 @@ function extractPathHints(content: unknown): string[] {
 function firstErrorLine(content: unknown): string | undefined {
   const text = typeof content === 'string' ? content : JSON.stringify(content);
   for (const line of text.split(/\r?\n/)) {
-    if (!/\b(error|exception|failed|failure|fatal|panic|timeout|denied|enoent|eacces|eperm)\b/i.test(line)) continue;
+    if (
+      !/\b(error|exception|failed|failure|fatal|panic|timeout|denied|enoent|eacces|eperm)\b/i.test(
+        line,
+      )
+    )
+      continue;
     const trimmed = line.replace(/\s+/g, ' ').trim();
     if (trimmed) return trimmed.slice(0, 180);
   }
@@ -409,7 +457,10 @@ export type ContentScore = 0 | 1 | 2 | 3 | 4 | 5;
  */
 export function extractText(m: Message): string {
   if (typeof m.content === 'string') return m.content;
-  return m.content.filter(isTextBlock).map((b) => b.text).join(' ');
+  return m.content
+    .filter(isTextBlock)
+    .map((b) => b.text)
+    .join(' ');
 }
 
 /** Check if a message contains a tool_use block. */
@@ -449,19 +500,21 @@ export function scoreMessage(
 
   // ── Noise detection: pure tool I/O with no text ─────────────────────
   if (text.trim().length === 0 && (hasToolUse(m) || typeof m.content !== 'string')) {
-    const hasResult = typeof m.content !== 'string' && m.content.some((b) => b.type === 'tool_result');
+    const hasResult =
+      typeof m.content !== 'string' && m.content.some((b) => b.type === 'tool_result');
     if (hasToolUse(m) || hasResult) return 0;
   }
 
   // ── Repeated failure detection ─────────────────────────────────────
   if (context?.failureCounts && m.role === 'user' && hasToolUse(m) === false) {
     // Check if this is a tool_result that matches a failure pattern
-    const isFailure =
-      /error|fail|exception|timeout|enonet|eacces|eperm|enoent|abort/i.test(text);
+    const isFailure = /error|fail|exception|timeout|enonet|eacces|eperm|enoent|abort/i.test(text);
     if (isFailure) {
       // Build a key from the error type
       const errKey =
-        /(error|fail|exception|timeout|enonet|eacces|eperm|enoent|abort)/i.exec(text)?.[0]?.toLowerCase() ?? 'error';
+        /(error|fail|exception|timeout|enonet|eacces|eperm|enoent|abort)/i
+          .exec(text)?.[0]
+          ?.toLowerCase() ?? 'error';
       const count = (context.failureCounts.get(errKey) ?? 0) + 1;
       context.failureCounts.set(errKey, count);
       if (count >= 5) return 0; // 5th+ identical failure → noise
@@ -513,7 +566,8 @@ export function scoreMessage(
 
   // ── Low: grep / list / tree outputs ────────────────────────────────
   if (
-    m.role === 'user' && !hasToolUse(m) &&
+    m.role === 'user' &&
+    !hasToolUse(m) &&
     /\b(files_with_matches|count|found \d+ match|directory tree|\.\.\. and \d+ more)\b/i.test(text)
   ) {
     return 1;
@@ -570,7 +624,9 @@ export function buildSmartDigest(messages: readonly Message[]): string {
   }
 
   if (noiseCount > 0) {
-    lines.push(`[system]: ${noiseCount} low-importance turn(s) collapsed (repeated failures / pure tool I/O)`);
+    lines.push(
+      `[system]: ${noiseCount} low-importance turn(s) collapsed (repeated failures / pure tool I/O)`,
+    );
   }
 
   return lines.join('\n');
@@ -578,9 +634,7 @@ export function buildSmartDigest(messages: readonly Message[]): string {
 
 function countToolBlocks(m: Message): number {
   if (typeof m.content === 'string') return 0;
-  return m.content.filter(
-    (b) => b.type === 'tool_use' || b.type === 'tool_result',
-  ).length;
+  return m.content.filter((b) => b.type === 'tool_use' || b.type === 'tool_result').length;
 }
 
 function firstSentence(text: string): string {

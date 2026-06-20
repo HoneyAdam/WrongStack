@@ -1,4 +1,6 @@
 import type { Message } from '../types/messages.js';
+import { compactToolDefinitionForWire } from './tool-wire-compact.js';
+
 /**
  * Shared token estimation with JSON.stringify caching.
  * Avoids repeated stringification of tool input objects.
@@ -157,14 +159,21 @@ export function estimateMessageTokens(messages: readonly Message[]): number {
  * Accounts for the JSON-serialized inputSchema which is sent to the API
  * but NOT included in roughEstimate(content).
  */
-export function estimateToolDefTokens(tool: { name: string; description?: string | undefined; inputSchema: unknown }): number {
+export function estimateToolDefTokens(tool: {
+  name: string;
+  description?: string | undefined;
+  inputSchema: unknown;
+}): number {
   // Fast path: pre-computed by ToolRegistry at registration time.
   const cached = (tool as { _estDefTokens?: number | undefined })._estDefTokens;
   if (typeof cached === 'number' && cached > 0) return cached;
 
-  return RoughTokenEstimate(tool.name) +
-    RoughTokenEstimate(tool.description ?? '') +
-    RoughTokenEstimate(JSON.stringify(tool.inputSchema));
+  const compact = compactToolDefinitionForWire(tool);
+  return (
+    RoughTokenEstimate(tool.name) +
+    RoughTokenEstimate(compact.description) +
+    RoughTokenEstimate(JSON.stringify(compact.inputSchema))
+  );
 }
 
 /**
@@ -231,7 +240,11 @@ export function estimateRequestTokens(
     systemTokens = RoughTokenEstimate(systemPrompt);
   } else if (Array.isArray(systemPrompt)) {
     for (const b of systemPrompt) {
-      if (typeof b === 'object' && b !== null && (b as { type?: string | undefined }).type === 'text') {
+      if (
+        typeof b === 'object' &&
+        b !== null &&
+        (b as { type?: string | undefined }).type === 'text'
+      ) {
         systemTokens += RoughTokenEstimate((b as { text: string }).text);
       }
     }
@@ -299,9 +312,11 @@ export function recordActualUsage(
  * Returns the current calibration state for a bucket. Exposed for debugging
  * and tests — not needed by normal callers.
  */
-export function getCalibrationState(
-  calibrationKey: string = CALIBRATION_GLOBAL_KEY,
-): { ratio: number; count: number; calibrated: boolean } {
+export function getCalibrationState(calibrationKey: string = CALIBRATION_GLOBAL_KEY): {
+  ratio: number;
+  count: number;
+  calibrated: boolean;
+} {
   const cal = calState(calibrationKey);
   return {
     ratio: cal.ratio,

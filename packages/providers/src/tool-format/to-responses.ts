@@ -23,6 +23,7 @@ import type {
   ToolResultBlock,
   ToolUseBlock,
 } from '@wrongstack/core';
+import { compactToolDefinitionForWire } from '@wrongstack/core';
 
 export interface ResponsesTool {
   type: 'function';
@@ -37,15 +38,16 @@ const _toolCache = new WeakMap<Tool[], ResponsesTool[]>();
 export function toolsToResponses(tools: Tool[]): ResponsesTool[] {
   const hit = _toolCache.get(tools);
   if (hit) return hit;
-  const result = tools.map(
-    (t): ResponsesTool => ({
+  const result = tools.map((t): ResponsesTool => {
+    const compact = compactToolDefinitionForWire(t);
+    return {
       type: 'function',
-      name: t.name,
-      description: t.description ?? '',
-      parameters: (t.inputSchema as Record<string, unknown>) ?? { type: 'object', properties: {} },
+      name: compact.name,
+      description: compact.description,
+      parameters: compact.inputSchema,
       strict: false,
-    }),
-  );
+    };
+  });
   _toolCache.set(tools, result);
   return result;
 }
