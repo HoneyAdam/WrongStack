@@ -117,27 +117,34 @@ export async function runProviderWithRetry(opts: RunProviderOptions): Promise<Re
       }
       await new Promise<void>((resolve, reject) => {
         let settled = false;
+        // Single teardown for both outcomes (timer fires OR signal aborts) so
+        // the two branches can't drift: always clear the pending timer AND
+        // remove the abort listener. removeEventListener is a no-op once the
+        // listener has fired, but calling it unconditionally guarantees no
+        // listener survives the wait — even on the abort-wins path — which is
+        // what prevents abort listeners from accumulating across retries on a
+        // long-lived signal.
+        const cleanup = () => {
+          clearTimeout(t);
+          signal.removeEventListener('abort', onAbort);
+        };
         const onAbort = () => {
           if (settled) return;
           settled = true;
-          clearTimeout(t);
+          cleanup();
           reject(new Error('aborted'));
         };
         const t = setTimeout(() => {
           if (settled) return;
           settled = true;
-          clearTimeout(t);
-          // safe to call even though { once: true } auto-removes — idempotent
-          // (the once option removes the listener after the first trigger, so
-          // calling removeEventListener here is a no-op but kept for explicitness)
-          signal.removeEventListener('abort', onAbort);
+          cleanup();
           resolve();
         }, delay);
         if (signal.aborted) {
           onAbort();
           return;
         }
-        signal.addEventListener('abort', onAbort, { once: true });
+        signal.addEventListener('abort', onAbort);
       });
       attempt++;
     }
