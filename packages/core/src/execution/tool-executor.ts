@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { Context } from '../core/context.js';
@@ -702,8 +703,7 @@ async function maybePersistLargeToolOutput(
     await fs.mkdir(dir, { recursive: true });
     const safeTool = toolName.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 40) || 'tool';
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const rand = Math.random().toString(36).slice(2, 8);
-    const filePath = path.join(dir, `${stamp}-${safeTool}-${rand}.log`);
+    const filePath = path.join(dir, `${stamp}-${safeTool}-${randomUUID()}.log`);
     await fs.writeFile(filePath, content, 'utf8');
     return (
       content +
