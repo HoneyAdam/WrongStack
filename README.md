@@ -4,7 +4,7 @@
 
 ### _Built on the wrong stack. Shipped anyway._
 
-**A terminal-native AI coding agent that reads your code, edits files, runs commands, and reasons through bugs — while you keep your hand on every permission.**
+**An AI coding agent that reads your code, edits files, runs commands, and reasons through bugs — across a terminal REPL, a full-screen TUI, and a browser UI, while you keep your hand on every permission.**
 
 [![npm](https://img.shields.io/npm/v/wrongstack?style=flat-square&color=0b7285&label=npm)](https://www.npmjs.com/package/wrongstack)
 [![downloads](https://img.shields.io/npm/dm/wrongstack?style=flat-square&color=0b7285)](https://www.npmjs.com/package/wrongstack)
@@ -30,6 +30,7 @@ WrongStack drives **autonomous goal loops**, **parallel subagent fan-out**, **mu
 - 🧠 **Brain as an authority seam** — risky AutoPhase and Director choices can be auto-decided by policy, denied, or escalated to the human through the TUI.
 - ♾️ **Set a goal, walk away** — `/goal` locks in a contract and the eternal / parallel engines grind until it's _verifiably_ done.
 - 🔌 **~110 providers, zero lock-in** — Anthropic, OpenAI, Google, and ~100 OpenAI-compatible endpoints, catalog refreshed from models.dev at boot.
+- 🔑 **Sign in with a subscription** — authenticate with a **ChatGPT (Codex)**, **Claude Pro/Max**, or **GitHub Copilot** subscription over OAuth, *alongside* (not instead of) API keys. See [`docs/oauth-signin.md`](docs/oauth-signin.md).
 - 🔎 **Fast model switching** — the TUI `/model` picker supports type-to-search filtering with scroll-window navigation, and `wstack models` supports search + pagination.
 - 🔐 **Locked down by default** — encrypted secrets, SSRF guards on every redirect hop, fail-closed subagents, symlink containment, plugin trust tiers, WebUI redaction, and cloud-sync path guards.
 - 🪶 **A 505-line kernel** — `Container · Pipeline · EventBus · RunController`. Everything above it is swappable; `--no-features` boots it fully offline.
@@ -265,7 +266,31 @@ wstack plugin remove telegram
 ```
 `telegram` and `lsp` are bundled aliases for `@wrongstack/telegram` and `@wrongstack/plug-lsp`.
 
-### Provider catalog (~110 providers, 4 wire families + 1 stub)
+### Sign in with a subscription (OAuth)
+
+Authenticate against a vendor **subscription** instead of a metered API key — an
+orthogonal credential layer that sits *next to* the API-key providers, not in
+place of them:
+
+```bash
+wstack auth login chatgpt     # ChatGPT Plus/Pro/Team (Codex) → provider openai-codex
+wstack auth login claude      # Claude Pro/Max               → provider anthropic-oauth
+wstack auth login copilot     # GitHub Copilot               → provider github-copilot
+# or: wstack auth → "s) Sign in with a subscription"
+```
+
+Codex and Claude use a PKCE loopback flow; Copilot uses GitHub's device flow.
+Tokens self-refresh (near-expiry + once on `401`) and are AES-256-GCM encrypted
+at rest like any other secret. After login, select the provider/model from the
+`/model` picker or with `--provider … --model …` — modern Claude (Opus 4.8,
+Sonnet 4.6) serves its full **1M-token** context on this path automatically.
+
+> ⚠️ **Using a subscription outside its official client is a ToS gray area and
+> can get your account rate-limited or banned.** The sanctioned path for
+> programmatic use is an API key; sign in with a subscription only if you accept
+> that risk. Full reference + per-provider details: [`docs/oauth-signin.md`](docs/oauth-signin.md).
+
+### Provider catalog (~110 providers, 4 API-key families + 3 subscription families + 1 stub)
 
 | Family | Transport | Providers |
 |--------|-----------|-----------|
@@ -273,6 +298,9 @@ wstack plugin remove telegram
 | `openai` | Native OpenAI Chat Completions + SSE | OpenAI, Perplexity Agent, Vivgrid |
 | `openai-compatible` | OpenAI-spec endpoints + SSE | ~100 providers: Mistral, Groq, DeepSeek, OpenRouter, Together, xAI, Cerebras, Ollama, Fireworks, Moonshot, GLM, Alibaba, … |
 | `google` | Gemini `:streamGenerateContent?alt=sse` | Google AI Studio |
+| `anthropic-oauth` | Claude Messages API + Bearer (OAuth) | Claude Pro/Max — *Sign in with Claude* |
+| `openai-codex` | ChatGPT Responses API (OAuth) | ChatGPT Plus/Pro/Team — *Sign in with ChatGPT* |
+| `github-copilot` | Copilot proxy, OpenAI wire (OAuth) | GitHub Copilot — *Sign in with Copilot* |
 | `unsupported` | Needs plugin | Cohere, Bedrock, Vertex (non-Anthropic), Azure |
 
 All four supported families implement **real streaming** end-to-end: `provider.stream()` is the source of truth, `complete()` is `aggregateStream(stream(...))`. Mid-stream aborts preserve any partial assistant text already received. Catalog comes from `models.dev/api.json` — no hardcoded pricing, no hardcoded model names — and is refreshed synchronously on boot so provider resolution, model capabilities, and the TUI picker see fresh data before the app starts. The refresh has a 15-second timeout and falls back to cache with a warning; use `--no-models-refresh` for offline or CI runs.
@@ -366,14 +394,17 @@ Flips off MCP, plugins, memory tools, models.dev fetch, and skill discovery. Wha
 
 ## Recent changes
 
-**Current release: 0.264.0.** Performance release addressing session/mailbox
-file-size scaling on the per-iteration hot path. Key changes: **GlobalMailbox
-refactored** with in-memory ring buffer + ack sidecar + batched persistence
-(eliminates full-file rewrite per query/ack); **replay-log-store** now uses
-append-only writes with cached tail hash instead of full-file rewrites;
-**session flush de-awaited** from the inner loop so disk I/O no longer blocks
-iteration throughput; plus mailbox-loop, agent-loop, and agent-response
-tuning. Additive only — no breaking changes.
+**Current release: 0.267.0.** The subscription sign-in release. Adds **Sign in
+with a subscription** — OAuth login for **ChatGPT/Codex** (`openai-codex`),
+**Claude Pro/Max** (`anthropic-oauth`), and **GitHub Copilot** (`github-copilot`)
+as three new wire families that sit alongside the API-key providers without
+touching them (see [`docs/oauth-signin.md`](docs/oauth-signin.md)). Tokens
+self-refresh and are encrypted at rest. Plus a **per-model context-window fix**
+so subscription models resolve their real window from the sibling catalog
+(Claude Opus 4.8 → 1M, gpt-5.5 → ~1.05M) instead of a flat family default, and an
+**Anthropic block-sanitization fix** that strips non-Anthropic fields
+(`tool_result.name`, `providerMeta`) the Messages API rejected on multi-turn
+tool conversations. Additive only — no breaking changes.
 
 See **[CHANGELOG.md](CHANGELOG.md)** for the full, versioned history.
 
@@ -644,6 +675,7 @@ For the full walk-through — including the L1-A reactive `ConversationState`, h
 | [`docs/tool-author-guide.md`](docs/tool-author-guide.md) | Writing a tool: streaming `executeStream`, permission semantics, `cleanup` vs `registerAbortHook` |
 | [`docs/yolo-mode.md`](docs/yolo-mode.md) | YOLO mode: permission pipeline, runtime toggle, trust file, subagent policy |
 | [`docs/skills.md`](docs/skills.md) | Writing skills: frontmatter format, discovery layers, description quality, token budget |
+| [`docs/oauth-signin.md`](docs/oauth-signin.md) | Sign in with a ChatGPT/Codex, Claude, or GitHub Copilot subscription (OAuth); flows, models, token storage, ToS caveat |
 | [`docs/configuration.md`](docs/configuration.md) | Full config reference: every field with type, default, and example |
 | [`docs/troubleshooting.md`](docs/troubleshooting.md) | Common issues, diagnosis steps, `wstack diag`, exit codes, reset commands |
 

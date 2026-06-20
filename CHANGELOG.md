@@ -5,6 +5,93 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.267.0] — 2026-06-20
+
+> The **subscription sign-in** release. The headline is **Sign in with a
+> subscription** — OAuth login for **ChatGPT/Codex**, **Claude Pro/Max**, and
+> **GitHub Copilot** as three new wire families that sit *alongside* the API-key
+> providers without changing them. Plus a **per-model context-window fix** so
+> those subscription families resolve their real window from the sibling catalog
+> (Claude Opus 4.8 → 1M, gpt-5.5 → ~1.05M) instead of a flat family default, and
+> an **Anthropic block-sanitization fix** for multi-turn tool conversations.
+> Consolidates the `0.265`–`0.267` line. Additive only; no breaking changes. All
+> 16 workspace packages and the marketing site are aligned to `0.267.0` in
+> lockstep.
+
+### Added
+
+- **Sign in with a subscription (OAuth) — three new wire families.** A new
+  credential layer authenticates against a vendor subscription instead of a
+  metered API key, orthogonal to the existing ~110 API-key providers (nothing
+  about the API-key `openai` / `anthropic` families changes):
+  - **Sign in with ChatGPT** (`wstack auth login chatgpt`) → provider
+    `openai-codex`. PKCE loopback flow against `auth.openai.com`, mirroring the
+    Codex CLI; talks to the ChatGPT **Responses API** at
+    `chatgpt.com/backend-api`. Seeds `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`,
+    `gpt-5.3-codex-spark`.
+  - **Sign in with Claude** (`wstack auth login claude`) → provider
+    `anthropic-oauth`. PKCE loopback against `claude.ai/oauth/authorize` (the
+    Claude Code grant); Messages API at `api.anthropic.com` with Bearer auth +
+    Claude Code beta/identity headers. Models fetched live from the account's
+    `/v1/models`.
+  - **Sign in with GitHub Copilot** (`wstack auth login copilot`) → provider
+    `github-copilot`. GitHub **device flow**; mints short-lived Copilot tokens
+    from the long-lived GitHub token and talks to the Copilot proxy over the
+    OpenAI Chat Completions wire.
+  - **Self-refreshing tokens.** Access tokens refresh near expiry and once on a
+    `401`; rotated tokens persist back to `config.json` via a one-time
+    `setOAuthTokenPersister` hook installed at boot. Tokens are AES-256-GCM
+    encrypted at rest like every other secret.
+  - **Surfaces.** Interactive `wstack auth` → *"s) Sign in with a subscription
+    (ChatGPT / Claude / Copilot)"*, plus `wstack auth login <chatgpt|claude|copilot>`
+    direct. OAuth providers appear in the TUI `/model` picker automatically once
+    signed in.
+  - **ToS caveat surfaced everywhere.** Each flow and the login help warn that
+    using a subscription outside its official client is a Terms-of-Service gray
+    area with account-ban risk; an API key remains the sanctioned path. Full
+    reference: [`docs/oauth-signin.md`](docs/oauth-signin.md).
+  (`packages/cli/src/auth-menu/{openai-codex-oauth,anthropic-oauth,github-copilot-oauth}.ts`,
+  `packages/providers/src/{openai-codex,anthropic-oauth,github-copilot}.ts`,
+  `packages/providers/src/tool-format/to-responses.ts`,
+  `packages/cli/src/subcommands/handlers/auth.ts`)
+
+### Fixed
+
+- **Per-model context window for OAuth/subscription families.** `anthropic-oauth`,
+  `openai-codex`, and `github-copilot` aren't published in the models.dev catalog
+  under their own id, so the context window fell back to a flat family default
+  (200k for `anthropic-oauth`) — showing Claude Opus 4.8 as 200k when it natively
+  serves 1M, and gpt-5.5 as a guess when the catalog lists ~1.05M. Because these
+  families serve the *same* models as a canonical catalog provider,
+  `resolveRuntimeMaxContext` now maps them to their **sibling catalog**
+  (`anthropic-oauth` → `anthropic`, `openai-codex` / `github-copilot` → `openai`)
+  and resolves the published per-model window there, bypassing the
+  baseUrl-divergence guard (the configured endpoint is an auth/proxy detail, not a
+  context-shrinking gateway). Explicit per-provider/session overrides still win.
+  No beta header or model-id suffix is involved — modern Claude (4.6+/4.8) serves
+  1M natively and the `context-1m-2025-08-07` beta was retired on 2026-04-30.
+  (`packages/cli/src/context-limit.ts`)
+
+- **Anthropic block sanitization — `tool_result.name` / `providerMeta` stripped.**
+  The Anthropic adapter passed canonical `ContentBlock`s to the wire verbatim, so
+  fields that exist for other providers leaked through and the Messages API
+  rejected them with `400 "Extra inputs are not permitted"` —
+  `tool_result.name` (set by the ToolExecutor for Google's `functionResponse`)
+  and `tool_use`/`thinking` `providerMeta`. Each block is now reduced to exactly
+  the fields Anthropic accepts. Fixes multi-turn tool-using conversations on both
+  the API-key `anthropic` and OAuth `anthropic-oauth` families; surfaced during
+  live Claude OAuth testing. (`packages/providers/src/anthropic.ts`)
+
+### Changed — versions
+
+- **All workspace packages aligned to 0.267.0**: `wrongstack`,
+  `@wrongstack/cli`, `@wrongstack/core`, `@wrongstack/mcp`,
+  `@wrongstack/plug-lsp`, `@wrongstack/plugins`, `@wrongstack/providers`,
+  `@wrongstack/runtime`, `@wrongstack/skills`, `@wrongstack/telegram`,
+  `@wrongstack/tools`, `@wrongstack/tui`, `@wrongstack/webui`,
+  `@wrongstack/acp`, and `@wrongstack/bench`. The marketing site (`website/`)
+  is aligned in lockstep.
+
 ## [0.264.0] — 2026-06-17
 
 > Performance release addressing session/mailbox file-size scaling on the
