@@ -743,6 +743,12 @@ export function App({
     statuslineHiddenItems,
   });
 
+  // Ref mirror of the hook's hiddenItems so the /statusline slash handler
+  // (registered in a useEffect below) can read the latest value without
+  // capturing a stale closure.
+  const hiddenItemsRef = useRef(hiddenItems);
+  hiddenItemsRef.current = hiddenItems;
+
   // Track previous git branch to detect switches
   const prevBranchRef = useRef<string | null>(null);
 
@@ -796,6 +802,11 @@ export function App({
       console.error('[statusline] failed to persist hidden items:', err);
     });
   }, [setStatuslineHiddenItems, saveStatuslineHiddenItems, hiddenItems]);
+
+  // Statusline picker → status bar sync lives after useReducer (see below) —
+  // it reads `state.statuslinePicker`, which doesn't exist until the reducer
+  // is declared. Keeping it here would reference `state` in the temporal dead
+  // zone ("Cannot access 'state' before initialization").
 
   // Stream chip auto-expiration code lives after useReducer (see below).
 
@@ -969,6 +980,30 @@ export function App({
     debugStreamStats: null,
     countdown: null,
   });
+
+  // Sync picker toggles instantly to the status bar — when the user toggles an
+  // item in the statusline picker, the reducer updates
+  // state.statuslinePicker.hiddenItems. We mirror that change into the
+  // useStatuslineState hook so the StatusBar re-renders immediately.
+  // (Declared after useReducer: it reads `state`.)
+  useEffect(() => {
+    if (state.statuslinePicker.open) {
+      const pickerHidden = state.statuslinePicker.hiddenItems;
+      // Only sync if the lists differ (avoid infinite loops). Compare as plain
+      // strings: the picker's hiddenItems is typed StatuslineItem[] (the wide
+      // union incl. stream chips), while hiddenItems is the narrower
+      // StatuslineHiddenItem[] — membership checks don't care about the union.
+      const currentHidden = new Set<string>(hiddenItems);
+      const pickerHiddenSet = new Set<string>(pickerHidden);
+      const differs =
+        currentHidden.size !== pickerHiddenSet.size ||
+        pickerHidden.some((item) => !currentHidden.has(item)) ||
+        hiddenItems.some((item) => !pickerHiddenSet.has(item));
+      if (differs) {
+        setHiddenItems([...pickerHidden] as typeof hiddenItems);
+      }
+    }
+  }, [state.statuslinePicker.hiddenItems, state.statuslinePicker.open, setHiddenItems, hiddenItems]);
 
   // ── Stream chip auto-expiration ────────────────────────────────────────
   // Show/hide stream chips (brain, mailbox, enhance, debug_stream) based on
@@ -2790,9 +2825,14 @@ export function App({
       async run(args: string) {
         // If there are arguments, don't open the picker — let the CLI builtin handle it.
         if (args.trim()) return { message: undefined };
-        // Open the interactive picker with the current hiddenItems.
-        const hiddenItems = stateRef.current.statuslinePicker.hiddenItems;
-        dispatch({ type: 'statuslineOpen', hiddenItems });
+        // Open the interactive picker with the current hiddenItems from the
+        // hook state (config-backed), merged with any stream chips that were
+        // toggled in a previous picker session (tracked in reducer state).
+        const hookHidden = hiddenItemsRef.current as string[];
+        const reducerStreamHidden = stateRef.current.statuslinePicker.hiddenItems.filter(
+          (item: string) => !hookHidden.includes(item),
+        );
+        dispatch({ type: 'statuslineOpen', hiddenItems: [...hookHidden, ...reducerStreamHidden] as import('./components/statusline-picker.js').StatuslineItem[] });
         return { message: undefined };
       },
     };
@@ -4891,20 +4931,20 @@ export function App({
           return;
         }
         // Statusline chips — click to open statusline picker focused on that chip.
-        // Line 3 (rowFor(2)): todos(0), plan(1), tasks(2)
-        // Line 4 (rowFor(3)): fleet(3)
+        // Line 3 (rowFor(2)): todos(11), plan(9), tasks(10)
+        // Line 4 (rowFor(3)): fleet(12)
         const hiddenSet = new Set(state.statuslinePicker.hiddenItems);
         if (my === rowFor(2)) {
           const mxLocal = mx - SB_PADX - 1;
           if (!hiddenSet.has('todos') && mxLocal >= 0 && mxLocal < 20) {
-            dispatch({ type: 'statuslineFieldSet', field: 0 });
+            dispatch({ type: 'statuslineFieldSet', field: 11 });
             dispatch({ type: 'statuslineOpen', hiddenItems: state.statuslinePicker.hiddenItems });
             return;
           }
           if (!hiddenSet.has('plan')) {
             const planStart = 21;
             if (mxLocal >= planStart && mxLocal < planStart + 22) {
-              dispatch({ type: 'statuslineFieldSet', field: 1 });
+              dispatch({ type: 'statuslineFieldSet', field: 9 });
               dispatch({ type: 'statuslineOpen', hiddenItems: state.statuslinePicker.hiddenItems });
               return;
             }
@@ -4912,7 +4952,7 @@ export function App({
           if (!hiddenSet.has('tasks')) {
             const tasksStart = 44;
             if (mxLocal >= tasksStart && mxLocal < tasksStart + 26) {
-              dispatch({ type: 'statuslineFieldSet', field: 2 });
+              dispatch({ type: 'statuslineFieldSet', field: 10 });
               dispatch({ type: 'statuslineOpen', hiddenItems: state.statuslinePicker.hiddenItems });
               return;
             }
@@ -4922,7 +4962,7 @@ export function App({
           const mxLocal = mx - SB_PADX - 1;
           const fleetStart = 0;
           if (mxLocal >= fleetStart && mxLocal < fleetStart + 22) {
-            dispatch({ type: 'statuslineFieldSet', field: 3 });
+            dispatch({ type: 'statuslineFieldSet', field: 12 });
             dispatch({ type: 'statuslineOpen', hiddenItems: state.statuslinePicker.hiddenItems });
             return;
           }

@@ -729,7 +729,7 @@ export function reducer(state: State, action: Action): State {
     case 'statuslineOpen':
       return {
         ...state,
-        statuslinePicker: { open: true, field: 0, hiddenItems: action.hiddenItems, visibleChips: [], hint: undefined },
+        statuslinePicker: { open: true, field: 0, hiddenItems: action.hiddenItems, visibleChips: state.statuslinePicker.visibleChips, hint: undefined },
       };
     case 'statuslineClose':
       return { ...state, statuslinePicker: { ...state.statuslinePicker, open: false, hint: undefined } };

@@ -474,8 +474,6 @@ export function StatusBar({
   const fleetHasActivity =
     (fleet && (fleet.running > 0 || fleet.idle > 0 || fleet.pending > 0 || fleet.completed > 0)) ||
     subagentCount > 0;
-  const hasBrainActivity = !!brain && brain.state !== 'idle';
-  const hasEnhanceCountdown = enhanceCountdown != null && enhanceCountdown > 0;
   // Stream chip visibility — these gate both the chip render AND the separator before it.
   // Unlike the raw hasBrainActivity flags, these respect the hidden set and expiration.
   const showBrain = isStreamChipVisible('brain', brain, hiddenSet ?? new Set<string>(), visibleChips);
@@ -494,13 +492,13 @@ export function StatusBar({
 
   const hasTaskActivity = tasks && (tasks.pending > 0 || tasks.inProgress > 0 || tasks.completed > 0 || tasks.blocked > 0 || tasks.failed > 0);
   const hasThirdLine =
-    (todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0)) ||
-    (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0)) ||
-    hasTaskActivity ||
-    fleetHasActivity ||
+    (todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0) && !hiddenSet.has('todos')) ||
+    (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0) && !hiddenSet.has('plan')) ||
+    (hasTaskActivity && !hiddenSet.has('tasks')) ||
+    (fleetHasActivity && !hiddenSet.has('fleet')) ||
     showBrain ||
     showDebugStream ||
-    hasEnhanceCountdown ||
+    showEnhance ||
     hasNextStepsAutoSubmit;
 
   return (
@@ -588,7 +586,7 @@ export function StatusBar({
                 <Text dimColor>cache {(cache.hitRatio * 100).toFixed(0)}%</Text>
               </>
             ) : null}
-            {cost && cost.total > 0 ? (
+            {cost && cost.total > 0 && !hiddenSet.has('cost') ? (
               <>
                 <Text dimColor>│</Text>
                 <Text color="yellow">${cost.total.toFixed(4)}</Text>
@@ -752,7 +750,7 @@ export function StatusBar({
               </Text>
             </>
           ) : null}
-          {git ? (
+          {git && !hiddenSet.has('git') ? (
             <>
               {yolo || startedAt != null || projectName || workingDir ? <Text dimColor>│</Text> : null}
               <Text>
@@ -764,19 +762,19 @@ export function StatusBar({
           ) : null}
           {sessionCount != null && sessionCount > 0 ? (
             <>
-              {yolo || startedAt != null || projectName || workingDir || git ? <Text dimColor>│</Text> : null}
+              {yolo || startedAt != null || projectName || workingDir || (git && !hiddenSet.has('git')) ? <Text dimColor>│</Text> : null}
               <Text color="cyan">⧉ {sessionCount} session{sessionCount === 1 ? '' : 's'}</Text>
             </>
           ) : null}
           {toolCount != null ? (
             <>
-              {yolo || startedAt != null || projectName || workingDir || git || sessionCount ? <Text dimColor>│</Text> : null}
+              {yolo || startedAt != null || projectName || workingDir || (git && !hiddenSet.has('git')) || sessionCount ? <Text dimColor>│</Text> : null}
               <Text color="cyan">🔧 {toolCount} tool{toolCount === 1 ? '' : 's'}</Text>
             </>
           ) : null}
           {tokenSavingMode ? (
             <>
-              {yolo || startedAt != null || projectName || workingDir || git || sessionCount || toolCount ? <Text dimColor>│</Text> : null}
+              {yolo || startedAt != null || projectName || workingDir || (git && !hiddenSet.has('git')) || sessionCount || toolCount ? <Text dimColor>│</Text> : null}
               <Text color="yellow" bold>💾 save</Text>
             </>
           ) : null}
@@ -790,7 +788,7 @@ export function StatusBar({
       {/* Line 3 always rendered — same stability guarantee as line 2. */}
       {hasThirdLine ? (
         <Box flexDirection="row" gap={2}>
-          {todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0) ? (
+          {todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0) && !hiddenSet.has('todos') ? (
             <Text>
               <Text dimColor>todos </Text>
               {todos.inProgress > 0 ? <Text color="yellow">⌛{todos.inProgress}</Text> : null}
@@ -800,9 +798,9 @@ export function StatusBar({
               {todos.completed > 0 ? <Text color="green">✓{todos.completed}</Text> : null}
             </Text>
           ) : null}
-          {plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0) ? (
+          {plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0) && !hiddenSet.has('plan') ? (
             <>
-              {todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0) ? (
+              {todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0) && !hiddenSet.has('todos') ? (
                 <Text dimColor>│</Text>
               ) : null}
               <Text>
@@ -818,10 +816,10 @@ export function StatusBar({
               </Text>
             </>
           ) : null}
-          {hasTaskActivity ? (
+          {hasTaskActivity && !hiddenSet.has('tasks') ? (
             <>
-              {(todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0)) ||
-              (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0)) ? (
+              {(todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0) && !hiddenSet.has('todos')) ||
+              (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0) && !hiddenSet.has('plan')) ? (
                 <Text dimColor>│</Text>
               ) : null}
               <Text>
@@ -841,10 +839,10 @@ export function StatusBar({
               </Text>
             </>
           ) : null}
-          {fleetHasActivity ? (
+          {fleetHasActivity && !hiddenSet.has('fleet') ? (
             <>
-              {(todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0)) ||
-              (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0)) ? (
+              {(todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0) && !hiddenSet.has('todos')) ||
+              (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0) && !hiddenSet.has('plan')) ? (
                 <Text dimColor>│</Text>
               ) : null}
               {fleet ? (
@@ -869,9 +867,10 @@ export function StatusBar({
           ) : null}
           {showBrain ? (
             <>
-              {(todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0)) ||
-              (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0)) ||
-              fleetHasActivity ? (
+              {(todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0) && !hiddenSet.has('todos')) ||
+              (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0) && !hiddenSet.has('plan')) ||
+              (hasTaskActivity && !hiddenSet.has('tasks')) ||
+              (fleetHasActivity && !hiddenSet.has('fleet')) ? (
                 <Text dimColor>│</Text>
               ) : null}
               <BrainChip brain={brain!} />
@@ -879,10 +878,11 @@ export function StatusBar({
           ) : null}
           {showDebugStream ? (
             <>
-              {(todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0)) ||
-              (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0)) ||
-              fleetHasActivity ||
-              hasBrainActivity ? (
+              {(todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0) && !hiddenSet.has('todos')) ||
+              (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0) && !hiddenSet.has('plan')) ||
+              (hasTaskActivity && !hiddenSet.has('tasks')) ||
+              (fleetHasActivity && !hiddenSet.has('fleet')) ||
+              showBrain ? (
                 <Text dimColor>│</Text>
               ) : null}
               <Text color="cyan">
@@ -896,9 +896,10 @@ export function StatusBar({
           ) : null}
           {showEnhance ? (
             <>
-              {(todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0)) ||
-              (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0)) ||
-              fleetHasActivity ||
+              {(todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0) && !hiddenSet.has('todos')) ||
+              (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0) && !hiddenSet.has('plan')) ||
+              (hasTaskActivity && !hiddenSet.has('tasks')) ||
+              (fleetHasActivity && !hiddenSet.has('fleet')) ||
               showBrain ||
               showDebugStream ? (
                 <Text dimColor>│</Text>
@@ -914,9 +915,10 @@ export function StatusBar({
           ) : null}
           {hasNextStepsAutoSubmit && nextStepsAutoSubmitCountdown != null ? (
             <>
-              {(todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0)) ||
-              (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0)) ||
-              fleetHasActivity ||
+              {(todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0) && !hiddenSet.has('todos')) ||
+              (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0) && !hiddenSet.has('plan')) ||
+              (hasTaskActivity && !hiddenSet.has('tasks')) ||
+              (fleetHasActivity && !hiddenSet.has('fleet')) ||
               showBrain ||
               showDebugStream ||
               showEnhance ? (
@@ -942,7 +944,7 @@ export function StatusBar({
       )}
 
       {/* Line 4: mailbox activity + fleet agent detail */}
-      {mailbox ? (
+      {mailbox && !hiddenSet.has('mailbox') ? (
         <Box flexDirection="row" gap={2}>
           {mailbox!.unread > 0 ? (
             <Text color="yellow" bold>
