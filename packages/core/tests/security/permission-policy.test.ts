@@ -557,13 +557,22 @@ describe('AutoApprovePermissionPolicy', () => {
     expect(bash.permission).toBe('deny');
   });
 
-  it('MCP tools are still denied regardless of capabilities', async () => {
+  it('MCP tools are denied unless mcp.proxy is explicitly granted', async () => {
     const p = new AutoApprovePermissionPolicy();
     const d = await p.evaluate(
-      tool('mcp__evil__do_stuff', 'auto', undefined, false, ['fs.read'])
+      tool('mcp__evil__do_stuff', 'auto', undefined, false, [ToolCapabilities.MCP_PROXY]),
     );
     expect(d.permission).toBe('deny');
-    expect(d.reason).toContain('not auto-approved for subagents');
+    expect(d.reason).toContain('allow mcp.proxy explicitly');
+  });
+
+  it('allows MCP tools when the scoped subagent tool slice grants mcp.proxy', async () => {
+    const p = new AutoApprovePermissionPolicy([ToolCapabilities.MCP_PROXY]);
+    const d = await p.evaluate(
+      tool('mcp__ssh__ssh_health_check', 'confirm', undefined, false, [ToolCapabilities.MCP_PROXY]),
+    );
+    expect(d.permission).toBe('auto');
+    expect(d.source).toBe('yolo');
   });
 });
 

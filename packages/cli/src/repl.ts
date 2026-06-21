@@ -10,6 +10,7 @@ import type {
 } from '@wrongstack/core';
 import {
   color,
+  createHqPublisherFromEnv,
   estimateRequestTokensCalibrated,
   expectDefined,
   GlobalMailbox,
@@ -284,7 +285,9 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
   const replProjectRoot = opts.projectRoot ?? process.cwd();
   const projectDir = resolveProjectDir(replProjectRoot, wstackGlobalRoot());
   const clientId = `repl@${crypto.randomUUID().slice(0, 8)}`;
-  const clientMailbox = new GlobalMailbox(projectDir);
+  const hqPublisher = createHqPublisherFromEnv({ clientKind: 'repl', projectRoot: replProjectRoot, projectName: path.basename(replProjectRoot) });
+  hqPublisher?.connect();
+  const clientMailbox = new GlobalMailbox(projectDir, undefined, hqPublisher);
   let clientHeartbeat: ReturnType<typeof setInterval> | undefined;
   clientMailbox
     .registerClient({

@@ -42,6 +42,10 @@ function makeAgent(over: Partial<AgentEntry> = {}): AgentEntry {
   };
 }
 
+async function forceHeartbeat(registry: SessionRegistry): Promise<void> {
+  await (registry as unknown as { heartbeat(): Promise<void> }).heartbeat();
+}
+
 describe('cross-process session discovery', () => {
   it('a single process can register and discover itself', async () => {
     const root = await freshRoot();
@@ -326,6 +330,30 @@ describe('lock resilience', () => {
     expect(healed).toBeDefined();
     expect(healed!.clientType).toBe('tui');
     expect(healed!.agents[0]?.toolCalls).toBe(7);
+  });
+
+  it('self-heals a missing entry on heartbeat', async () => {
+    const root = await freshRoot();
+    const registryPath = path.join(root, 'session-registry.json');
+    const reg = new SessionRegistry(root);
+
+    await reg.register({
+      sessionId: 'sess-heartbeat-heal',
+      projectSlug: 'ws',
+      projectRoot: '/ws',
+      projectName: 'WS',
+      workingDir: '/ws',
+      clientType: 'cli',
+      pid: 6003,
+      startedAt: new Date().toISOString(),
+    });
+
+    await fs.writeFile(registryPath, JSON.stringify({}, null, 2));
+    await forceHeartbeat(reg);
+
+    const healed = (await reg.list()).find((s) => s.sessionId === 'sess-heartbeat-heal');
+    expect(healed).toBeDefined();
+    expect(healed!.clientType).toBe('cli');
   });
 });
 

@@ -18,6 +18,7 @@ import {
   DEFAULT_CONTEXT_CONFIG,
   DEFAULT_SESSION_LOGGING_CONFIG,
 } from '../types/default-config.js';
+import { playwrightServer } from '../infrastructure/mcp-servers.js';
 import type { EventBus } from '../kernel/events.js';
 
 /**
@@ -68,6 +69,9 @@ const BEHAVIOR_DEFAULTS: Omit<Config, 'provider' | 'model'> = {
     memory: true,
     modelsRegistry: true,
     skills: true,
+  },
+  mcpServers: {
+    playwright: { ...playwrightServer(), enabled: true },
   },
   indexing: {
     onSessionStart: true,

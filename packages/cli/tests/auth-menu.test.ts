@@ -2,10 +2,31 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { DefaultSecretVault, type ModelsRegistry, type ResolvedProvider } from '@wrongstack/core';
-import { describe, expect, it, vi } from 'vitest';
-import { type AuthMenuDeps, runAuthDirect, runAuthMenu } from '../src/auth-menu/index.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReadlineInputReader } from '../src/input-reader.js';
 import type { TerminalRenderer } from '../src/renderer.js';
+
+const oauthMocks = vi.hoisted(() => ({
+  runCodexOAuthLogin: vi.fn(async () => 0),
+  runClaudeOAuthLogin: vi.fn(async () => 0),
+  runCopilotOAuthLogin: vi.fn(async () => 0),
+}));
+
+vi.mock('../src/auth-menu/openai-codex-oauth.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/auth-menu/openai-codex-oauth.js')>()),
+  runCodexOAuthLogin: oauthMocks.runCodexOAuthLogin,
+}));
+vi.mock('../src/auth-menu/anthropic-oauth.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/auth-menu/anthropic-oauth.js')>()),
+  runClaudeOAuthLogin: oauthMocks.runClaudeOAuthLogin,
+}));
+vi.mock('../src/auth-menu/github-copilot-oauth.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/auth-menu/github-copilot-oauth.js')>()),
+  runCopilotOAuthLogin: oauthMocks.runCopilotOAuthLogin,
+}));
+
+const { runAuthDirect, runAuthMenu } = await import('../src/auth-menu/index.js');
+type AuthMenuDeps = import('../src/auth-menu/index.js').AuthMenuDeps;
 
 /**
  * V0-C: `auth-menu` is the 776-line entry point for every API-key
@@ -88,6 +109,10 @@ async function setupDeps(opts: {
   };
   return { deps, configPath, tmpDir };
 }
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 describe('runAuthDirect', () => {
   it('writes encrypted key for a known catalog provider', async () => {
@@ -200,6 +225,38 @@ describe('runAuthMenu', () => {
       const code = await runAuthMenu(deps);
       expect(code).toBe(0);
     }
+  });
+
+  it('starts ChatGPT OAuth from the main menu login option', async () => {
+    const { deps } = await setupDeps({ scripted: { lines: ['s', 'chatgpt', 'q'] } });
+
+    const code = await runAuthMenu(deps);
+
+    expect(code).toBe(0);
+    expect(oauthMocks.runCodexOAuthLogin).toHaveBeenCalledWith(deps);
+    expect(oauthMocks.runClaudeOAuthLogin).not.toHaveBeenCalled();
+    expect(oauthMocks.runCopilotOAuthLogin).not.toHaveBeenCalled();
+  });
+
+  it('shows OAuth login options in the add menu and starts provider-specific login', async () => {
+    const { deps } = await setupDeps({
+      catalog: {
+        anthropic: {
+          id: 'anthropic',
+          name: 'Anthropic',
+          family: 'anthropic',
+          apiBase: 'https://api.anthropic.com',
+          envVars: ['ANTHROPIC_API_KEY'],
+        },
+      },
+      scripted: { lines: ['a', '', 'copilot', 'q'] },
+    });
+
+    const code = await runAuthMenu(deps);
+
+    expect(code).toBe(0);
+    expect(deps.renderer.write).toHaveBeenCalledWith(expect.stringContaining('OAuth login options'));
+    expect(oauthMocks.runCopilotOAuthLogin).toHaveBeenCalledWith(deps);
   });
 
   it('writes a key after picking a catalog entry by number', async () => {

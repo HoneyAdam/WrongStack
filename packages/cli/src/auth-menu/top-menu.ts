@@ -1,37 +1,10 @@
 import { color } from '@wrongstack/core';
 import { addCustomProvider, addFromCatalog } from './add-provider.js';
-import { runClaudeOAuthLogin } from './anthropic-oauth.js';
-import { runCopilotOAuthLogin } from './github-copilot-oauth.js';
 import { loadProviders } from './helpers.js';
-import { runCodexOAuthLogin } from './openai-codex-oauth.js';
+import { runOAuthLoginMenu } from './oauth-menu.js';
 import { manageProvider } from './provider-menu.js';
 import { renderTopMenu } from './shared.js';
 import type { AuthMenuDeps } from './types.js';
-
-/** Sub-menu: pick a subscription to sign in with (OAuth). */
-async function runSignInMenu(deps: AuthMenuDeps): Promise<void> {
-  deps.renderer.write(
-    `\n  ${color.bold('Sign in with a subscription:')}\n` +
-      color.amber('  ⚠ Subscription tokens used outside official clients may violate provider\n') +
-      color.amber('    Terms — your account could be rate-limited or banned. An API key is the\n') +
-      color.dim('    sanctioned path for programmatic use.\n') +
-      `    ${color.bold('1')}  ChatGPT Plus/Pro  ${color.dim('(→ openai-codex)')}\n` +
-      `    ${color.bold('2')}  Claude Pro/Max    ${color.dim('(→ anthropic-oauth)')}\n` +
-      `    ${color.bold('3')}  GitHub Copilot    ${color.dim('(→ github-copilot)')}\n`,
-  );
-  const pick = (
-    await deps.reader.readLine(`  ${color.amber('?')} Pick ${color.dim('(or b to go back)')}: `)
-  )
-    .trim()
-    .toLowerCase();
-  if (pick === '1' || pick === 'chatgpt' || pick === 'openai' || pick === 'codex') {
-    await runCodexOAuthLogin(deps);
-  } else if (pick === '2' || pick === 'claude' || pick === 'anthropic') {
-    await runClaudeOAuthLogin(deps);
-  } else if (pick === '3' || pick === 'copilot' || pick === 'github') {
-    await runCopilotOAuthLogin(deps);
-  }
-}
 
 /**
  * Interactive auth manager. Shows saved providers + keys, lets the user
@@ -70,8 +43,8 @@ export async function runTopMenu(deps: AuthMenuDeps): Promise<number> {
     }
 
     // Sign in with a subscription (OAuth)
-    if (choice === 's' || choice === 'signin' || choice === 'login') {
-      await runSignInMenu(deps);
+    if (choice === 's' || choice === 'signin' || choice === 'login' || choice === 'oauth') {
+      await runOAuthLoginMenu(deps);
       continue;
     }
 

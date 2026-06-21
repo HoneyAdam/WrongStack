@@ -106,8 +106,6 @@ Working rules:
       role: 'devops',
       tools: [
         ...TOOLS.build,
-        'mcp_control',
-        'mcp_use',
         'mcp__ssh__ssh_list_servers',
         'mcp__ssh__ssh_connection_status',
         'mcp__ssh__ssh_execute',

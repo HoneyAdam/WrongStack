@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createMcpUseTool } from '../../src/tools/mcp-use.js';
+import { ToolCapabilities } from '../../src/security/capabilities.js';
 import type { MCPRegistryHandle } from '../../src/tools/mcp-control.js';
 import type { ToolRegistry } from '../../src/index.js';
 import type { Tool } from '../../src/types/tool.js';
@@ -35,6 +36,7 @@ describe('createMcpUseTool', () => {
     const tool = createMcpUseTool({ registry: fakeRegistry(), toolRegistry: fakeToolRegistry() });
     expect(tool.name).toBe('mcp_use');
     expect(tool.mutating).toBe(true);
+    expect(tool.capabilities).toContain(ToolCapabilities.MCP_PROXY);
     expect(tool.inputSchema.required).toEqual(['server', 'tool', 'input']);
   });
 

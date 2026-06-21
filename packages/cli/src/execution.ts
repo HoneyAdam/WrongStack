@@ -20,7 +20,7 @@ import {
   type ModelsRegistry,
   type ModeStore,
   type ProviderConfig,
-  type RecoveryLock,
+  RecoveryLock,
   type ResolvedProvider,
   type SessionStore,
   type SessionWriter,
@@ -33,17 +33,21 @@ import {
 } from '@wrongstack/core';
 import {
   type AutonomyStage,
+  attachTodosCheckpoint,
   atomicWrite,
   CHIMERA_REVIEW_PROMPT,
   color,
+  DefaultSystemPromptBuilder,
   decryptConfigSecrets,
   encryptConfigSecrets,
   mergeCustomModelDefs,
   noOpVault,
   setQueuedMessagesSnapshot,
   writeOut,
+  resolveWstackPaths,
 } from '@wrongstack/core';
 import type { MCPRegistry } from '@wrongstack/mcp';
+import { DefaultSessionStore } from '@wrongstack/core/storage';
 import { capabilitiesFor } from '@wrongstack/providers';
 import { createToolVisionAdapters } from '@wrongstack/runtime/vision';
 import { contextOverflowHint } from './context-overflow-diagnostic.js';
@@ -100,6 +104,8 @@ export interface LiveSettingsInput {
   breakerEnabled?: boolean | undefined;
   /** Auto kill/reset delay (ms) when the breaker trips. 0 = manual recovery. */
   breakerAutoKillResetMs?: number | undefined;
+  /** TUI statusline density. Defaults to detailed when unset. */
+  statuslineMode?: 'minimum' | 'detailed' | undefined;
 }
 
 export interface ExecutionDeps {
@@ -312,10 +318,10 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
     reader,
     session,
     mcpRegistry,
-    recoveryLock,
-    wpaths,
+    recoveryLock: initialRecoveryLock,
+    wpaths: initialWpaths,
     modelsRegistry,
-    projectRoot,
+    projectRoot: initialProjectRoot,
     flags,
     positional,
     effectiveMaxContext,
@@ -365,6 +371,12 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
     restoredToolCalls,
     needsSetup,
   } = deps;
+
+  let wpaths = initialWpaths;
+  let projectRoot = initialProjectRoot;
+  let activeSessionStore = sessionStore;
+  let activeRecoveryLock = initialRecoveryLock;
+  let detachActiveTodosCheckpoint: (() => void | Promise<void>) | undefined = detachTodosCheckpoint;
 
   // ── Storage observability: relay storage.* events to stdout as structured JSON ──
   // The root traceId from the Context is the primary correlation ID. Storage
@@ -825,6 +837,117 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
         if (dir) { offDirectorSpawned(); onDirectorReady(dir); }
       });
 
+      const switchProjectInPlace = async (targetRoot: string, displayName: string): Promise<string | null> => {
+        const resolved = path.resolve(targetRoot);
+        const stat = await fs.stat(resolved).catch(() => null);
+        if (!stat?.isDirectory()) return `Cannot switch: not a directory: ${resolved}`;
+
+        const oldWriter = context.session;
+        const oldUsage = tokenCounter.total();
+        const oldRecoveryLock = activeRecoveryLock;
+        const oldProjectRoot = projectRoot;
+        const nextWpaths = resolveWstackPaths({ projectRoot: resolved, globalRoot: wpaths.globalRoot });
+        await fs.mkdir(nextWpaths.projectSessions, { recursive: true });
+        const nextSessionStore = new DefaultSessionStore({ dir: nextWpaths.projectSessions });
+        const nextWriter = await nextSessionStore.create({
+          id: '',
+          title: '',
+          model: context.model,
+          provider: (context.provider as { id?: string }).id ?? config.provider,
+        });
+
+        detachActiveTodosCheckpoint?.();
+        process.chdir(resolved);
+        projectRoot = resolved;
+        wpaths = nextWpaths;
+        activeSessionStore = nextSessionStore;
+        activeRecoveryLock = new RecoveryLock({ dir: nextWpaths.projectSessions, sessionStore: nextSessionStore });
+
+        context.cwd = resolved;
+        context.projectRoot = resolved;
+        context.workingDir = resolved;
+        context.session = nextWriter;
+        context.state.replaceMessages([]);
+        context.state.replaceTodos([]);
+        context.clearFileTracking();
+        context.tokenCounter.reset();
+        context.meta['packageTrackerOpts'] = { storageDir: nextWpaths.projectDir, projectRoot: resolved };
+        context.state.setMeta('plan.path', path.join(nextWpaths.projectSessions, `${nextWriter.id}.plan.json`));
+        context.state.setMeta('task.path', path.join(nextWpaths.projectSessions, `${nextWriter.id}.tasks.json`));
+        detachActiveTodosCheckpoint = attachTodosCheckpoint(
+          context.state,
+          path.join(nextWpaths.projectSessions, `${nextWriter.id}.todos.json`),
+          nextWriter.id,
+          events,
+          context.traceId,
+        );
+        setQueuedMessagesSnapshot(context, []);
+
+        try {
+          const switchMode =
+            modeId && modeId !== 'default' && modeStore
+              ? await modeStore.getMode(modeId)
+              : undefined;
+          const switchBuilder = new DefaultSystemPromptBuilder({
+            memoryStore: memoryStore ?? undefined,
+            skillLoader,
+            modeStore,
+            modeId: modeId ?? 'default',
+            modePrompt: switchMode?.prompt ?? '',
+          });
+          context.systemPrompt = await switchBuilder.build({
+            cwd: resolved,
+            projectRoot: resolved,
+            tools: agent.tools.list(),
+            provider: (context.provider as { id?: string }).id,
+            model: context.model,
+          });
+        } catch (err) {
+          console.error(
+            JSON.stringify({
+              level: 'warn',
+              event: 'execution.project_switch_prompt_rebuild_failed',
+              message: err instanceof Error ? err.message : String(err),
+              timestamp: new Date().toISOString(),
+            }),
+          );
+        }
+
+        void (async () => {
+          try {
+            await oldWriter.append({ type: 'session_end', ts: new Date().toISOString(), usage: oldUsage });
+            await oldWriter.close();
+          } catch (err) {
+            console.error(
+              JSON.stringify({
+                level: 'warn',
+                event: 'execution.project_switch_old_session_close_failed',
+                message: err instanceof Error ? err.message : String(err),
+                timestamp: new Date().toISOString(),
+              }),
+            );
+          }
+          await oldRecoveryLock.clear().catch(() => undefined);
+        })();
+
+        try {
+          await activeRecoveryLock.write(nextWriter.id);
+        } catch (err) {
+          console.error(
+            JSON.stringify({
+              level: 'error',
+              event: 'execution.project_switch_recovery_lock_failed',
+              message: err instanceof Error ? err.message : String(err),
+              timestamp: new Date().toISOString(),
+            }),
+          );
+        }
+
+        const emitUntyped = events.emit as unknown as (event: string, payload: unknown) => void;
+        emitUntyped('project.switched', { from: oldProjectRoot, to: resolved, name: displayName });
+        return null;
+      };
+
       try {
         code = await runTui({
           agent,
@@ -929,6 +1052,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
                 ((cfg.autonomy as Record<string, unknown> | undefined)
                   ?.autoProceedMaxIterations as number) ?? 50,
               debugStream: cfg.debugStream ?? false,
+              statuslineMode: autonomy?.statuslineMode === 'minimum' ? 'minimum' : 'detailed',
               configScope: cfg.configScope ?? 'global',
               enhanceDelayMs:
                 ((cfg.autonomy as Record<string, unknown> | undefined)?.enhanceDelayMs as number) ??
@@ -972,6 +1096,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
                   if (s.mouseMode !== undefined) a['mouseMode'] = s.mouseMode;
                   if (s.enhanceEnabled !== undefined) a['enhance'] = s.enhanceEnabled;
                   if (s.enhanceLanguage !== undefined) a['enhanceLanguage'] = s.enhanceLanguage;
+                  if (s.statuslineMode !== undefined) a['statuslineMode'] = s.statuslineMode;
                   if (s.autonomyNextPrompt !== undefined) a['autonomyNextPrompt'] = s.autonomyNextPrompt;
                   // Sync autoProceedMaxIterations through persistAutonomySetting so
                   // it lands in the in-memory configStore (and on disk) atomically
@@ -1395,9 +1520,9 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
           restoredToolCalls,
           // ── Session resume support ──────────────────────────────────
           listSessions: async (limit = 20) => {
-            if (!sessionStore) return [];
-            const summaries = await sessionStore.list(limit);
-            const currentId = session.id;
+            if (!activeSessionStore) return [];
+            const summaries = await activeSessionStore.list(limit);
+            const currentId = agent.ctx.session?.id ?? session.id;
             return summaries.map((s) => ({
               id: s.id,
               title: s.title ?? '',
@@ -1412,7 +1537,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
             }));
           },
           onResumeSession: async (sessionId: string) => {
-            if (!sessionStore) return null;
+            if (!activeSessionStore) return null;
             // Refuse to resume a session that a LIVE process owns — two
             // writers on one session JSONL corrupt it. Thrown (not null) so
             // the resume picker surfaces the reason instead of a generic
@@ -1433,7 +1558,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
               // registry unreadable — fall through to the normal resume path
             }
             try {
-              const resumed = await sessionStore.resume(sessionId);
+              const resumed = await activeSessionStore.resume(sessionId);
               const meta = resumed.data.metadata;
 
               // Rebuild the agent's conversation context from the resumed
@@ -1525,7 +1650,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
                 // lock pointing to the old session is worse than pointing to the
                 // new one (which may not yet be fully initialized).
                 try {
-                  await recoveryLock.clear();
+                  await activeRecoveryLock.clear();
                 } catch (err) {
                   console.error(
                     JSON.stringify({
@@ -1537,7 +1662,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
                   );
                 }
                 try {
-                  await recoveryLock.write(resumed.writer.id);
+                  await activeRecoveryLock.write(resumed.writer.id);
                 } catch (err) {
                   console.error(
                     JSON.stringify({
@@ -1584,77 +1709,54 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
           },
           /**
            * Called when the user selects a project in the picker.
-           * For projects: loads manifest, validates the project, updates lastSeen,
-           * stores the pending switch, and returns. The TUI calls requestExit(42)
-           * which causes runTui to return. The host CLI then spawns wstack in
-           * the target directory.
-           * For actions: handled by the slash command path (no-op here).
+           * Re-roots the live TUI process in place: new Context root, fresh
+           * per-project session writer, rebuilt system prompt, and no spawned
+           * replacement process.
            */
           onProjectSelect: async (slug: string, kind: 'project' | 'action') => {
-            if (kind === 'action') {
-              if (slug === 'new-session') {
-                // Fresh session in the CURRENT project — same clean
-                // exit-42 + respawn mechanism as a project switch.
-                pendingProjectSwitch = {
-                  root: projectRoot,
-                  name: path.basename(projectRoot) || projectRoot,
-                };
-              }
-              // prev-sessions is handled inside the TUI (/resume picker).
-              return;
-            }
-
-            const { loadManifest } = await import('./slash-commands/project-utils.js');
-
             try {
+              if (kind === 'action') {
+                if (slug === 'new-session') {
+                  const name = path.basename(projectRoot) || projectRoot;
+                  const err = await switchProjectInPlace(projectRoot, name);
+                  if (err) renderer.write(color.red(`Project switch failed: ${err}\n`));
+                }
+                // prev-sessions is handled inside the TUI (/resume picker).
+                return;
+              }
+
+              const { loadManifest, saveManifest } = await import('./slash-commands/project-utils.js');
               const manifest = await loadManifest(wpaths.globalConfig);
               const project = manifest.projects.find((p) => p.slug === slug);
               if (!project) return;
 
-              // Already in the selected project — no-op.
-              if (project.root === projectRoot) return;
+              const targetRoot = path.resolve(project.root);
+              if (path.resolve(projectRoot) === targetRoot) return;
 
-              // ── Notify about running agents (they keep running) ────
               const fleetStatus = director?.status();
               const fleetRunning =
                 fleetStatus?.subagents.filter((a) => a.status === 'running').length ?? 0;
-              const eternalEngine = getEternalEngine?.();
-              const parallelEngine = getParallelEngine?.();
-              const eternalActive = eternalEngine?.currentState === 'running';
-              const parallelActive = parallelEngine?.currentState === 'running';
+              const eternalActive = getEternalEngine?.()?.currentState === 'running';
+              const parallelActive = getParallelEngine?.()?.currentState === 'running';
               const hasActiveAgents = fleetRunning > 0 || eternalActive || parallelActive;
 
               if (hasActiveAgents) {
-                // Truthful warning: a project switch EXITS this process after
-                // spawning the new one, so in-process agents/engines die with
-                // it. (An older message claimed they "continue running".)
                 const parts: string[] = [
-                  color.yellow(
-                    '⚠  Switching projects exits this wstack — running agents will stop:',
-                  ),
+                  color.yellow('⚠  Switching project in place; active background work is still tied to the previous project:'),
                 ];
-                if (fleetRunning > 0) {
-                  parts.push(color.dim(`  • ${fleetRunning} subagent(s) currently running`));
-                }
-                if (eternalActive) {
-                  parts.push(color.dim('  • Eternal engine is active'));
-                }
-                if (parallelActive) {
-                  parts.push(color.dim('  • Parallel engine is active'));
-                }
+                if (fleetRunning > 0) parts.push(color.dim(`  • ${fleetRunning} subagent(s) currently running`));
+                if (eternalActive) parts.push(color.dim('  • Eternal engine is active'));
+                if (parallelActive) parts.push(color.dim('  • Parallel engine is active'));
                 parts.push('');
-                parts.push(color.dim(`  Opening new session in: ${project.name}`));
+                parts.push(color.dim(`  New project: ${project.name}`));
                 renderer.write(`\n${parts.join('\n')}\n`);
               }
 
-              // Update lastSeen in manifest and store pending switch.
-              // The actual spawning happens after runTui returns PROJECT_SWITCH_EXIT_CODE.
               project.lastSeen = new Date().toISOString();
-              const { saveManifest } = await import('./slash-commands/project-utils.js');
               await saveManifest(manifest, wpaths.globalConfig);
 
-              // Store the pending project switch — will be read after runTui returns
-              pendingProjectSwitch = { root: project.root, name: project.name };
+              const err = await switchProjectInPlace(targetRoot, project.name);
+              if (err) renderer.write(color.red(`Project switch failed: ${err}\n`));
             } catch (err) {
               renderer.write(
                 color.red(
@@ -1756,7 +1858,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
         globalConfigPath: wpaths.globalConfig,
         mcpRegistry,
         subscribeEternalIteration,
-        sessionStore,
+        sessionStore: activeSessionStore,
         sessionsDir: wpaths.projectSessions,
         brain,
         brainSettings,
@@ -1765,9 +1867,9 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
           // Re-point crash recovery (active.json) at the resumed session —
           // otherwise a crash after an in-app resume would offer recovery
           // for the OLD (cleanly finalized) session and miss the live one.
-          void recoveryLock
+          void activeRecoveryLock
             .clear()
-            .then(() => recoveryLock.write(newSessionId))
+            .then(() => activeRecoveryLock.write(newSessionId))
             .catch(() => undefined);
         },
         memoryStore,
@@ -1925,7 +2027,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
     // and the review text is silently dropped because append returns early on closed.
     await pendingChimeraWork;
     await activeSession.close();
-    await recoveryLock
+    await activeRecoveryLock
       .clear()
       .catch(() => undefined); /* best-effort: stale lock will be recovered on next startup */
     await reader.close();

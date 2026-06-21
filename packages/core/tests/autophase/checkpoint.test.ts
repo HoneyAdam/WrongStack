@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -18,6 +18,8 @@ describe('CheckpointManager', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -71,7 +73,7 @@ describe('CheckpointManager', () => {
     expect(checkpoints[0]!.label).toBe('Second checkpoint');
   });
 
-  it('should prune old checkpoints when max exceeded', async () => {
+  it('should prune old checkpoints per graph when max exceeded', async () => {
     const builder = new PhaseGraphBuilder({
       title: 'Prune Test',
       phases: [
@@ -80,16 +82,46 @@ describe('CheckpointManager', () => {
     });
 
     const graph = await builder.build();
+    const otherGraph = await new PhaseGraphBuilder({
+      title: 'Other Prune Test',
+      phases: [
+        { name: 'Phase B', description: 'B', priority: 'medium', estimateHours: 1, parallelizable: false },
+      ],
+    }).build();
     await store.save(graph);
+    await store.save(otherGraph);
 
-    // Save 5 checkpoints (max is 3)
+    let timestamp = 1_700_000_000_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => timestamp++);
+
+    await manager.saveCheckpoint(otherGraph, 'Other checkpoint 1');
+    await manager.saveCheckpoint(otherGraph, 'Other checkpoint 2');
+
+    // Save 5 checkpoints for one graph (max is 3)
     for (let i = 1; i <= 5; i++) {
       await manager.saveCheckpoint(graph, `Checkpoint ${i}`);
     }
 
-    const checkpoints = manager.listCheckpoints();
+    const checkpoints = manager.listCheckpoints(graph.id);
     expect(checkpoints.length).toBe(3);
     expect(checkpoints[0]!.label).toBe('Checkpoint 5');
+    expect(manager.listCheckpoints(otherGraph.id).map((checkpoint) => checkpoint.label)).toEqual([
+      'Other checkpoint 2',
+      'Other checkpoint 1',
+    ]);
+
+    const reloaded = new CheckpointManager({ store, maxCheckpoints: 3 });
+    await reloaded.initialize();
+
+    expect(reloaded.listCheckpoints(graph.id).map((checkpoint) => checkpoint.label)).toEqual([
+      'Checkpoint 5',
+      'Checkpoint 4',
+      'Checkpoint 3',
+    ]);
+    expect(reloaded.listCheckpoints(otherGraph.id).map((checkpoint) => checkpoint.label)).toEqual([
+      'Other checkpoint 2',
+      'Other checkpoint 1',
+    ]);
   });
 
   it('should delete a checkpoint', async () => {
@@ -109,6 +141,28 @@ describe('CheckpointManager', () => {
 
     const list = manager.listCheckpoints();
     expect(list.length).toBe(0);
+  });
+
+  it('should preserve concurrent checkpoints for the same graph', async () => {
+    manager = new CheckpointManager({ store, maxCheckpoints: 10 });
+    const builder = new PhaseGraphBuilder({
+      title: 'Concurrent Test',
+      phases: [
+        { name: 'Phase A', description: 'A', priority: 'high', estimateHours: 1, parallelizable: false },
+      ],
+    });
+
+    const graph = await builder.build();
+    await store.save(graph);
+
+    await Promise.all(
+      Array.from({ length: 8 }, (_, i) => manager.saveCheckpoint(graph, `Checkpoint ${i + 1}`)),
+    );
+
+    const reloaded = new CheckpointManager({ store, maxCheckpoints: 10 });
+    await reloaded.initialize();
+
+    expect(reloaded.listCheckpoints(graph.id)).toHaveLength(8);
   });
 
   it('should return null for non-existent checkpoint', async () => {

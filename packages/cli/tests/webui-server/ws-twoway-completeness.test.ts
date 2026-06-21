@@ -65,6 +65,9 @@ function serverSendTypes(): Set<string> {
 /** Types the client handles: WS_HANDLERS keys + .on()/.on?.() + internal. */
 function clientHandledTypes(): Set<string> {
   const handlerMap = fs.readFileSync(path.join(webui, 'src/hooks/ws-handlers.ts'), 'utf8');
+  // Also scan sub-handler modules extracted from ws-handlers.ts
+  const subHandlerDir = path.join(webui, 'src/hooks/ws-handlers');
+  const subHandlers = fs.existsSync(subHandlerDir) ? read(srcFiles(subHandlerDir)) : '';
   const all = read(srcFiles(path.join(webui, 'src')));
   const types = new Set<string>([
     // Consumed inside ws-client.handleMessage / heartbeat, not via .on().
@@ -73,6 +76,7 @@ function clientHandledTypes(): Set<string> {
     'pong',
   ]);
   for (const m of handlerMap.matchAll(/^\s*'([a-z0-9_.]+)'\s*:/gm)) types.add(m[1] as string);
+  for (const m of subHandlers.matchAll(/^\s*'([a-z0-9_.]+)'\s*:/gm)) types.add(m[1] as string);
   for (const m of all.matchAll(/\.on\??\.?\(\s*'([^']+)'/g)) types.add(m[1] as string);
   return types;
 }

@@ -38,6 +38,7 @@ import {
   createAutonomyBrain,
   type AuditLevel,
   createDelegateTool,
+  createHqPublisherFromEnv,
   createMcpControlTool,
   createSessionEventBridge,
   createTieredBrainArbiter,
@@ -163,6 +164,32 @@ export async function main(argv: string[]): Promise<number> {
     } as unknown as Parameters<typeof helpCmd>[1]['renderer'];
     const handler = earlyFlags['help'] === true ? helpCmd : versionCmd;
     return await handler([], { renderer: stubRenderer } as Parameters<typeof helpCmd>[1]);
+  }
+
+  // --hq starts the HQ command center server (no project root, no agent).
+  // Short-circuit before boot() — HQ is project-independent.
+  if (earlyFlags['hq'] === true) {
+    const { startHqServer } = await import('./hq-server.js');
+    const host = typeof earlyFlags['host'] === 'string' ? earlyFlags['host'] : '127.0.0.1';
+    const port = typeof earlyFlags['port'] === 'string' ? Number.parseInt(earlyFlags['port'], 10) : 3499;
+    const handle = await startHqServer({ host, port, strictPort: earlyFlags['strict-port'] === true });
+    if (earlyFlags['open'] === true) {
+      try {
+        const { openBrowser } = await import('@wrongstack/webui/server');
+        openBrowser(`http://${handle.host}:${handle.port}`);
+      } catch {
+        // best-effort
+      }
+    }
+    // Keep the process alive until SIGINT/SIGTERM
+    await new Promise<void>((resolve) => {
+      const shutdown = () => {
+        void handle.close().then(() => resolve());
+      };
+      process.on('SIGINT', shutdown);
+      process.on('SIGTERM', shutdown);
+    });
+    return 0;
   }
 
   const ctx = await boot(argv);
@@ -520,7 +547,10 @@ export async function main(argv: string[]): Promise<number> {
   // Fetch online agents from the shared mailbox to include in system prompt
   let onlineAgents: Awaited<ReturnType<GlobalMailbox['getAgentStatuses']>> = [];
   try {
-    const systemMailbox = new GlobalMailbox(wpaths.projectDir);
+    const hqPublisher = createHqPublisherFromEnv({ clientKind: 'cli', projectRoot, projectName: path.basename(projectRoot) });
+    hqPublisher?.connect();
+    if (hqPublisher) teardownHandlers.push(() => hqPublisher.close());
+    const systemMailbox = new GlobalMailbox(wpaths.projectDir, undefined, hqPublisher);
     onlineAgents = await systemMailbox.getAgentStatuses();
   } catch {
     // Non-fatal — mailbox errors should not block prompt building
@@ -1257,7 +1287,10 @@ export async function main(argv: string[]): Promise<number> {
   // Tool-failure streaks and error storms engage the Brain proactively; a
   // "steer" decision lands in THIS session's leader inbox and is injected
   // before the agent's next step.
-  const brainMailbox = new GlobalMailbox(wpaths.projectDir, events);
+  const hqPublisher = createHqPublisherFromEnv({ clientKind: 'cli', projectRoot, projectName: path.basename(projectRoot) });
+  hqPublisher?.connect();
+  if (hqPublisher) teardownHandlers.push(() => hqPublisher.close());
+  const brainMailbox = new GlobalMailbox(wpaths.projectDir, events, hqPublisher);
   const brainMonitor = new BrainMonitor({
     events,
     brain,

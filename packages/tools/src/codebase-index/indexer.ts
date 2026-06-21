@@ -15,7 +15,7 @@ import * as path from 'node:path';
 import type { Dirent, Stats } from 'node:fs';
 import type { Context } from '@wrongstack/core';
 import { compileGlob } from '@wrongstack/core';
-import type { FileMeta, IndexResult, Ref, Symbol as IndexSymbol } from './schema.js';
+import type { FileMeta, IndexResult, Ref, Symbol as IndexSymbol, SymbolLang } from './schema.js';
 import { IndexStore } from './writer.js';
 import { parseSymbols as parseTs, detectLang } from './ts-parser.js';
 import { parseSymbols as parseGo } from './go-parser.js';
@@ -26,6 +26,7 @@ import { parseSymbols as parseYaml } from './yaml-parser.js';
 import { loadGitignoreMatcher, type IgnoreMatcher } from './gitignore.js';
 /** Yield the event loop every N files so the main thread stays responsive. */
 const YIELD_EVERY_N = 50;
+const PARALLEL_BATCH = 20;
 
 function yieldEventLoop(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
@@ -237,127 +238,139 @@ async function runIndexerWithStore(store: IndexStore, opts: IndexerOptions): Pro
     for (const meta of store.getAllFileMetas()) existingMeta.set(meta.file, meta);
   }
 
-  for (let fi = 0; fi < files.length; fi++) {
-    const file = expectDefined(files[fi]);
+  // Process files in batches for parallel I/O and parsing.
+  // SQLite writes remain sequential (they're synchronous and CPU-bound).
+  for (let batchStart = 0; batchStart < files.length; batchStart += PARALLEL_BATCH) {
+    const batchEnd = Math.min(batchStart + PARALLEL_BATCH, files.length);
+    const batchFiles = files.slice(batchStart, batchEnd);
 
     // Report progress to the caller so UIs can show indexing status.
-    opts.onProgress?.(fi + 1, files.length);
+    opts.onProgress?.(batchEnd, files.length);
 
     // Yield the event loop periodically so the main thread stays responsive
     // (TUI rendering, input handling, etc.) during large index builds.
     // Also check for cancellation — the tool executor's timeout or a
     // session abort propagates through `signal`.
-    if (fi > 0 && fi % YIELD_EVERY_N === 0) {
+    if (batchStart > 0 && batchStart % YIELD_EVERY_N === 0) {
       await yieldEventLoop();
       throwIfAborted(signal);
     }
 
-    let stat: Stats;
-    try {
-      // @types/node hasn't added `signal` to StatOptions yet (runtime
-      // support added in Node 20.15+). Cast to the signature Node 22 uses.
-      const statOpts = signal ? { signal } : {};
-      stat = await (fs.stat as (path: string, opts: { signal?: AbortSignal }) => Promise<Stats>)(file, statOpts);
-    } catch (e) {
-      // If the signal fired, stop immediately — don't mutate the store.
-      if (isAbortError(e)) throw e;
-      store.deleteFile(file);
-      continue;
-    }
-    if (!stat.isFile()) continue;
-
-    const lang = detectLang(file);
-    if (!lang) continue;
-
-    const meta = existingMeta.get(file);
-    if (!force && meta && meta.mtimeMs === Math.floor(stat.mtimeMs)) {
-      langStats[lang] = (langStats[lang] ?? 0) + meta.symbolCount;
-      symbolsIndexed += meta.symbolCount;
-      filesIndexed++;
-      continue;
-    }
-
-    // Refs first: deleteRefsForFile resolves the file's symbol ids via the
-    // symbols table, so it must run before those symbols are deleted (otherwise
-    // the lookup finds nothing and orphan refs are left behind).
-    store.deleteRefsForFile(file);
-    store.deleteSymbolsForFile(file);
-
-    let content: string;
-    try {
-      content = await fs.readFile(file, { encoding: 'utf8', signal });
-    } catch (e) {
-      if (isAbortError(e)) throw e;
-      errors.push(`read error: ${file}: ${e instanceof Error ? e.message : String(e)}`);
-      continue;
-    }
-
-    let parsed: ReturnType<typeof parseTs>;
-    try {
-      parsed = await parseFile(file, content, lang);
-    } catch (e) {
-      errors.push(`parse error: ${file}: ${e instanceof Error ? e.message : String(e)}`);
-      continue;
-    }
-
-    if (parsed.symbols.length === 0) {
-      store.upsertFile({
-        file,
-        lang,
-        mtimeMs: Math.floor(stat.mtimeMs),
-        symbolCount: 0,
-        lastIndexed: Date.now(),
-      });
-      filesIndexed++;
-      continue;
-    }
-
-    // Allocate ids from MAX(id), not COUNT(*): incremental reindexes leave gaps,
-    // so a count-based id would collide with a surviving row (symbols.id UNIQUE).
-    const nextId = store.getMaxSymbolId() + 1;
-    const symbolsWithIds: IndexSymbol[] = parsed.symbols.map((s, i) => ({ ...s, id: nextId + i }));
-    store.insertSymbols(symbolsWithIds, nextId);
-    const count = symbolsWithIds.length;
-    symbolsIndexed += count;
-    langStats[lang] = (langStats[lang] ?? 0) + count;
-
-    // Insert cross-references. Group refs by line once (O(refs)) instead of
-    // re-filtering the whole list per symbol (O(refs × symbols) per file), then
-    // emit a single batched insert — one transaction for the file, not one per
-    // symbol. deleteRefsForFile already ran above, so no per-source DELETE needed.
-    if (parsed.refs && parsed.refs.length > 0) {
-      const refsByLine = new Map<number, Ref[]>();
-      for (const r of parsed.refs) {
-        let arr = refsByLine.get(r.line);
-        if (!arr) {
-          arr = [];
-          refsByLine.set(r.line, arr);
+    // Phase 1: Parallel stat + read + parse
+    const statOpts = signal ? { signal } : {};
+    const statReadParse = await Promise.allSettled(
+      batchFiles.map(async (file): Promise<{ file: string; stat: Stats; lang: string; parsed: Awaited<ReturnType<typeof parseFile>> | null; content?: string; error?: string }> => {
+        let stat: Stats;
+        try {
+          stat = await (fs.stat as (path: string, opts: { signal?: AbortSignal }) => Promise<Stats>)(file, statOpts);
+        } catch (e) {
+          if (isAbortError(e)) throw e;
+          return { file, stat: null as unknown as Stats, lang: '', parsed: null, error: `stat error: ${e instanceof Error ? e.message : String(e)}` };
         }
-        arr.push(r);
+        if (!stat.isFile()) return { file, stat, lang: '', parsed: null };
+
+        const lang = detectLang(file);
+        if (!lang) return { file, stat, lang: '', parsed: null };
+
+        let content: string;
+        try {
+          content = await fs.readFile(file, { encoding: 'utf8', signal });
+        } catch (e) {
+          if (isAbortError(e)) throw e;
+          return { file, stat, lang, parsed: null, error: `read error: ${e instanceof Error ? e.message : String(e)}` };
+        }
+
+        let parsed: Awaited<ReturnType<typeof parseFile>>;
+        try {
+          parsed = await parseFile(file, content, lang);
+        } catch (e) {
+          return { file, stat, lang, parsed: null, error: `parse error: ${e instanceof Error ? e.message : String(e)}` };
+        }
+        return { file, stat, lang, parsed, content };
+      })
+    );
+
+    // Phase 2: Sequential SQLite writes (must be ordered for id allocation)
+    for (let fi = 0; fi < statReadParse.length; fi++) {
+      const settled = statReadParse[fi]!;
+      const file = expectDefined(batchFiles[fi]);
+
+      if (settled.status === 'rejected') {
+        const err = settled.reason;
+        if (err instanceof Error && isAbortError(err)) throw err;
+        errors.push(`batch error: ${file}: ${err instanceof Error ? err.message : String(err)}`);
+        continue;
       }
-      const batch: Ref[] = [];
-      for (const sym of symbolsWithIds) {
-        const symRefs = refsByLine.get(sym.line);
-        if (symRefs) {
-          for (const r of symRefs) {
-            batch.push({ ...r, fromId: sym.id });
+
+      const result = settled.value;
+      if (result.error) {
+        if (result.stat) store.deleteFile(file);
+        if (result.error.includes('error:')) errors.push(result.error);
+        continue;
+      }
+
+      const { stat, lang, parsed } = result;
+      if (!lang || !parsed) {
+        if (lang) {
+          store.upsertFile({ file, lang: lang as SymbolLang, mtimeMs: Math.floor(stat.mtimeMs), symbolCount: 0, lastIndexed: Date.now() });
+          filesIndexed++;
+        }
+        continue;
+      }
+
+      const meta = existingMeta.get(file);
+      if (!force && meta && meta.mtimeMs === Math.floor(stat.mtimeMs)) {
+        langStats[lang] = (langStats[lang] ?? 0) + meta.symbolCount;
+        symbolsIndexed += meta.symbolCount;
+        filesIndexed++;
+        continue;
+      }
+
+      // Refs first: deleteRefsForFile resolves the file's symbol ids via the
+      // symbols table, so it must run before those symbols are deleted (otherwise
+      // the lookup finds nothing and orphan refs are left behind).
+      store.deleteRefsForFile(file);
+      store.deleteSymbolsForFile(file);
+
+      if (parsed.symbols.length === 0) {
+        store.upsertFile({ file, lang: lang as SymbolLang, mtimeMs: Math.floor(stat.mtimeMs), symbolCount: 0, lastIndexed: Date.now() });
+        filesIndexed++;
+        continue;
+      }
+
+      // Allocate ids from MAX(id), not COUNT(*): incremental reindexes leave gaps,
+      // so a count-based id would collide with a surviving row (symbols.id UNIQUE).
+      const nextId = store.getMaxSymbolId() + 1;
+      const symbolsWithIds: IndexSymbol[] = parsed.symbols.map((s: IndexSymbol, i: number) => ({ ...s, id: nextId + i }));
+      store.insertSymbols(symbolsWithIds, nextId);
+      const count = symbolsWithIds.length;
+      symbolsIndexed += count;
+      langStats[lang] = (langStats[lang] ?? 0) + count;
+
+      // Insert cross-references. Group refs by line once (O(refs)) instead of
+      // re-filtering the whole list per symbol (O(refs × symbols) per file), then
+      // emit a single batched insert — one transaction for the file, not one per
+      // symbol. deleteRefsForFile already ran above, so no per-source DELETE needed.
+      if (parsed.refs && parsed.refs.length > 0) {
+        const refsByLine = new Map<number, Ref[]>();
+        for (const r of parsed.refs) {
+          let arr = refsByLine.get(r.line);
+          if (!arr) { arr = []; refsByLine.set(r.line, arr); }
+          arr.push(r);
+        }
+        const batch: Ref[] = [];
+        for (const sym of symbolsWithIds) {
+          const symRefs = refsByLine.get(sym.line);
+          if (symRefs) {
+            for (const r of symRefs) batch.push({ ...r, fromId: sym.id });
           }
         }
+        if (batch.length > 0) store.insertRefsBatch(batch);
       }
-      if (batch.length > 0) {
-        store.insertRefsBatch(batch);
-      }
+
+      store.upsertFile({ file, lang: lang as SymbolLang, mtimeMs: Math.floor(stat.mtimeMs), symbolCount: count, lastIndexed: Date.now() });
+      filesIndexed++;
     }
-
-    store.upsertFile({
-      file,
-      lang,
-      mtimeMs: Math.floor(stat.mtimeMs),
-      symbolCount: count,
-      lastIndexed: Date.now(),
-    });
-
-    filesIndexed++;
   }
 
   // Remove stale entries for files deleted since last run

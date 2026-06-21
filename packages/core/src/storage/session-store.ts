@@ -314,6 +314,10 @@ export class DefaultSessionStore implements SessionStore {
       const cached = this._loadCache.get(id);
       if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
         cacheHit = true;
+        // Update insertion order to prevent frequent-access sessions from being
+        // evicted by the LRU eviction logic.
+        this._loadCache.delete(id);
+        this._loadCache.set(id, cached);
         return cached.data;
       }
 

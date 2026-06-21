@@ -1,4 +1,5 @@
 import type { JSONSchema, ToolRegistry } from '../index.js';
+import { ToolCapabilities } from '../security/capabilities.js';
 import type { MCPRegistryHandle } from './mcp-control.js';
 import type { Tool } from '../types/tool.js';
 
@@ -55,6 +56,7 @@ export function createMcpUseTool(opts: CreateMcpUseToolOptions): Tool {
     permission: 'auto',
     mutating: true,
     riskTier: 'standard',
+    capabilities: [ToolCapabilities.MCP_PROXY],
     inputSchema,
     async execute(raw) {
       const input = raw as {

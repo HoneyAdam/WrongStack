@@ -7,6 +7,7 @@ import {
   writeKeysBack,
 } from '../provider-config-utils.js';
 import { loadProviders } from './helpers.js';
+import { renderOAuthLoginOptions, runOAuthLoginChoice } from './oauth-menu.js';
 import { readKeyInput, suggestLabel, validateFamily } from './shared.js';
 import type { AuthMenuDeps } from './types.js';
 
@@ -73,7 +74,9 @@ export async function addFromCatalog(deps: AuthMenuDeps): Promise<boolean> {
     );
   }
 
-  // Render grouped by family
+  // Render OAuth choices first, then grouped API-key providers from the catalog.
+  renderOAuthLoginOptions(deps);
+  deps.renderer.write('\n');
   const ordered: ResolvedProvider[] = [];
   const familyOrder: WireFamily[] = ['anthropic', 'openai', 'google', 'openai-compatible'];
   let idx = 1;
@@ -97,10 +100,14 @@ export async function addFromCatalog(deps: AuthMenuDeps): Promise<boolean> {
 
   const answer = (
     await deps.reader.readLine(
-      `\n${color.amber('?')} Pick (1-${ordered.length}) or type provider id ${color.dim('[q to quit]')}: `,
+      `\n${color.amber('?')} Pick (1-${ordered.length}), type provider id, or OAuth option ${color.dim('[chatgpt/claude/copilot, q to quit]')}: `,
     )
   ).trim();
   if (!answer || answer === 'q') return false;
+
+  if (await runOAuthLoginChoice(deps, answer, { allowNumeric: false })) {
+    return true;
+  }
 
   let chosen: ResolvedProvider | undefined;
   const num = Number.parseInt(answer, 10);

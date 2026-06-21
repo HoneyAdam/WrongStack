@@ -94,6 +94,25 @@ describe('execTool runCommand (faked child)', () => {
     expect(result.exitCode).toBe(0);
   });
 
+  it('rejects cwd that escapes project root through a symlink', async () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'exec-outside-'));
+    const link = path.join(dir, 'outside-link');
+    try {
+      try {
+        fs.symlinkSync(outside, link, 'dir');
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'EPERM') return;
+        throw err;
+      }
+
+      const result = await execTool.execute({ command: 'echo', cwd: 'outside-link' }, ctx(), opts());
+      expect(result.allowed).toBe(false);
+      expect(result.stderr).toContain('outside project root');
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
   it('surfaces a non-zero exit code', async () => {
     cfg.code = 2;
     const result = await execTool.execute({ command: 'echo' }, ctx(), opts());

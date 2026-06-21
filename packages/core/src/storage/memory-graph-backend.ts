@@ -167,32 +167,31 @@ export class GraphMemoryBackend implements MemoryBackend {
     return limit ? enriched.slice(0, limit) : enriched;
   }
 
-  async search(scope: MemoryScope, query: string, filePath: string, limit?: number): Promise<MemoryEntry[]> {
+  async search(scope: MemoryScope, query: string, _filePath: string, limit?: number): Promise<MemoryEntry[]> {
     await this.loadGraph(scope);
     const needle = query.toLowerCase().split(/\s+/);
 
-    // Get all entries (file-canonical, graph-enriched)
-    const all = await this.list(scope, filePath);
+    // Use in-memory nodes directly instead of re-reading the file.
+    // loadGraph() already keeps nodes/edges synchronized incrementally.
+    const scored: { entry: MemoryEntry; score: number }[] = [];
+    for (const node of this.nodes.values()) {
+      // Skip nodes from other scopes
+      if (node.entry.scope !== scope) continue;
 
-    // Score by word overlap + tag match + graph metadata
-    const scored = all.map((entry) => {
-      const words = entry.text.toLowerCase().split(/\s+/);
+      const words = node.entry.text.toLowerCase().split(/\s+/);
       let score = 0;
       for (const n of needle) {
         if (words.some((w) => w.includes(n))) score += 1;
-        if (entry.tags?.some((t) => t.toLowerCase().includes(n))) score += 2;
+        if (node.entry.tags?.some((t) => t.toLowerCase().includes(n))) score += 2;
       }
-      const node = this.nodes.get(this.nodeId(entry));
-      if (node) {
-        if (node.priority === 'critical') score += 3;
-        else if (node.priority === 'high') score += 2;
-        score += node.count * 0.5;
-      }
-      return { entry, score };
-    });
+      if (node.priority === 'critical') score += 3;
+      else if (node.priority === 'high') score += 2;
+      score += node.count * 0.5;
+      if (score > 0) scored.push({ entry: node.entry, score });
+    }
 
     scored.sort((a, b) => b.score - a.score);
-    const matched = scored.filter((s) => s.score > 0).map((s) => s.entry);
+    const matched = scored.map((s) => s.entry);
     return limit ? matched.slice(0, limit) : matched;
   }
 

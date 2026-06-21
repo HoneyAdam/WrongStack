@@ -25,14 +25,26 @@ import { describe, expect, it } from 'vitest';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, '../../../..');
 const embeddedPath = path.join(repoRoot, 'packages/cli/src/webui-server.ts');
-const standalonePath = path.join(repoRoot, 'packages/webui/src/server/index.ts');
+const standalonePaths = [
+  path.join(repoRoot, 'packages/webui/src/server/index.ts'),
+  path.join(repoRoot, 'packages/webui/src/server/provider-routes.ts'),
+  path.join(repoRoot, 'packages/webui/src/server/session-routes.ts'),
+  path.join(repoRoot, 'packages/webui/src/server/project-routes.ts'),
+  path.join(repoRoot, 'packages/webui/src/server/mode-routes.ts'),
+  path.join(repoRoot, 'packages/webui/src/server/shell-git-routes.ts'),
+  path.join(repoRoot, 'packages/webui/src/server/mailbox-routes.ts'),
+  path.join(repoRoot, 'packages/webui/src/server/brain-routes.ts'),
+  path.join(repoRoot, 'packages/webui/src/server/autophase-routes.ts'),
+];
 
-/** Extract the set of `case '<label>'` labels from a source file. */
-function caseLabels(file: string): Set<string> {
-  const src = fs.readFileSync(file, 'utf8');
+/** Extract the set of `case '<label>'` labels from one or more source files. */
+function caseLabels(files: string | readonly string[]): Set<string> {
   const labels = new Set<string>();
-  for (const m of src.matchAll(/case\s+'([^']+)'\s*:/g)) {
-    labels.add(m[1] as string);
+  for (const file of Array.isArray(files) ? files : [files]) {
+    const src = fs.readFileSync(file, 'utf8');
+    for (const m of src.matchAll(/case\s+'([^']+)'\s*:/g)) {
+      labels.add(m[1] as string);
+    }
   }
   return labels;
 }
@@ -40,14 +52,16 @@ function caseLabels(file: string): Set<string> {
 describe('WebUI WS-handler parity (embedded vs standalone)', () => {
   it('both server files exist and have message-type cases', () => {
     expect(fs.existsSync(embeddedPath)).toBe(true);
-    expect(fs.existsSync(standalonePath)).toBe(true);
+    for (const standalonePath of standalonePaths) {
+      expect(fs.existsSync(standalonePath)).toBe(true);
+    }
     expect(caseLabels(embeddedPath).size).toBeGreaterThan(50);
-    expect(caseLabels(standalonePath).size).toBeGreaterThan(50);
+    expect(caseLabels(standalonePaths).size).toBeGreaterThan(50);
   });
 
   it('handles an identical set of WS message types in both servers', () => {
     const embedded = caseLabels(embeddedPath);
-    const standalone = caseLabels(standalonePath);
+    const standalone = caseLabels(standalonePaths);
 
     const onlyEmbedded = [...embedded].filter((t) => !standalone.has(t)).sort();
     const onlyStandalone = [...standalone].filter((t) => !embedded.has(t)).sort();

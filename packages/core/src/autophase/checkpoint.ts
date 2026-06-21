@@ -1,7 +1,8 @@
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
-import type { PhaseGraph, PhaseNode } from './types.js';
+import { atomicWrite, withFileLock } from '../utils/atomic-write.js';
 import type { PhaseStore } from './phase-store.js';
+import type { PhaseGraph, PhaseNode } from './types.js';
 
 export interface Checkpoint {
   id: string;
@@ -86,8 +87,8 @@ export class CheckpointManager {
     // Save to disk.
     await this.saveToDisk(checkpoint);
 
-    // Clean up old checkpoints.
-    await this.pruneCheckpoints();
+    // Clean up old checkpoints for this graph only.
+    await this.pruneCheckpoints(graph.id);
 
     return checkpoint;
   }
@@ -143,27 +144,28 @@ export class CheckpointManager {
   }
 
   private async saveToDisk(checkpoint: Checkpoint): Promise<void> {
-    await fsp.mkdir(this.baseDir, { recursive: true });
     const filePath = path.join(this.baseDir, `${checkpoint.graphId}.json`);
     const serialized: SerializedCheckpoint = {
       ...checkpoint,
     };
 
-    // Read current on-disk state first
-    let existing: SerializedCheckpoint[] = [];
-    try {
-      const raw = await fsp.readFile(filePath, 'utf8');
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        existing = parsed as SerializedCheckpoint[];
+    await withFileLock(filePath, async () => {
+      // Read current on-disk state first
+      let existing: SerializedCheckpoint[] = [];
+      try {
+        const raw = await fsp.readFile(filePath, 'utf8');
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          existing = parsed as SerializedCheckpoint[];
+        }
+      } catch {
+        // File doesn't exist or is invalid — start fresh
       }
-    } catch {
-      // File doesn't exist or is invalid — start fresh
-    }
 
-    // Write to disk BEFORE updating in-memory state — ensures consistency
-    existing.push(serialized);
-    await fsp.writeFile(filePath, JSON.stringify(existing, null, 2), 'utf8');
+      // Write to disk BEFORE updating in-memory state — ensures consistency
+      existing.push(serialized);
+      await atomicWrite(filePath, JSON.stringify(existing, null, 2), { mode: 0o600 });
+    });
   }
 
   private async deleteFromDisk(checkpointId: string): Promise<void> {
@@ -179,19 +181,21 @@ export class CheckpointManager {
 
       const filePath = path.join(this.baseDir, filename);
       try {
-        const raw = await fsp.readFile(filePath, 'utf8');
-        const parsed = JSON.parse(raw);
-        if (!Array.isArray(parsed)) continue;
-        const existing = parsed as SerializedCheckpoint[];
-        const filtered = existing.filter((c) => c.id !== checkpointId);
+        await withFileLock(filePath, async () => {
+          const raw = await fsp.readFile(filePath, 'utf8');
+          const parsed = JSON.parse(raw);
+          if (!Array.isArray(parsed)) return;
+          const existing = parsed as SerializedCheckpoint[];
+          const filtered = existing.filter((c) => c.id !== checkpointId);
 
-        if (filtered.length !== existing.length) {
-          if (filtered.length === 0) {
-            await fsp.unlink(filePath);
-          } else {
-            await fsp.writeFile(filePath, JSON.stringify(filtered, null, 2), 'utf8');
+          if (filtered.length !== existing.length) {
+            if (filtered.length === 0) {
+              await fsp.unlink(filePath);
+            } else {
+              await atomicWrite(filePath, JSON.stringify(filtered, null, 2), { mode: 0o600 });
+            }
           }
-        }
+        });
       } catch {
         // Skip invalid files
       }
@@ -235,13 +239,13 @@ export class CheckpointManager {
     }
   }
 
-  private async pruneCheckpoints(): Promise<void> {
-    const all = Array.from(this.checkpoints.values()).sort(
-      (a, b) => a.timestamp - b.timestamp,
-    );
+  private async pruneCheckpoints(graphId: string): Promise<void> {
+    const graphCheckpoints = Array.from(this.checkpoints.values())
+      .filter((checkpoint) => checkpoint.graphId === graphId)
+      .sort((a, b) => a.timestamp - b.timestamp);
 
-    while (all.length > this.maxCheckpoints) {
-      const oldest = all.shift();
+    while (graphCheckpoints.length > this.maxCheckpoints) {
+      const oldest = graphCheckpoints.shift();
       if (oldest) {
         this.checkpoints.delete(oldest.id);
         await this.deleteFromDisk(oldest.id);

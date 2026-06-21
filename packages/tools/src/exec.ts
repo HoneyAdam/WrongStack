@@ -1,9 +1,8 @@
 import { spawn } from 'node:child_process';
-import * as path from 'node:path';
 import type { Tool } from '@wrongstack/core';
 import { buildChildEnv } from './_env.js';
 import { createOutputSpool, spoolNote } from './_output-spool.js';
-import { COMMAND_OUTPUT_MAX_BYTES, normalizeCommandOutput } from './_util.js';
+import { COMMAND_OUTPUT_MAX_BYTES, normalizeCommandOutput, safeResolveReal } from './_util.js';
 import { getProcessRegistry, redactCommand } from './process-registry.js';
 import { resolveWin32Command } from './_win32-resolve.js';
 
@@ -237,22 +236,22 @@ export const execTool: Tool<ExecInput, ExecOutput> = {
       };
     }
 
-    // Resolve cwd inside the project root. Model-supplied paths like '/etc'
-    // would otherwise let allowlisted commands operate anywhere on disk.
-    const requestedCwd = input.cwd ? path.resolve(ctx.projectRoot, input.cwd) : ctx.cwd;
-    const rel = path.relative(ctx.projectRoot, requestedCwd);
-    if (rel.startsWith('..') || path.isAbsolute(rel)) {
+    let cwd: string;
+    try {
+      // Resolve cwd inside the project root and verify realpath containment so
+      // an in-project symlink cannot redirect allowlisted commands outside.
+      cwd = input.cwd ? await safeResolveReal(input.cwd, ctx) : await safeResolveReal(ctx.cwd, ctx);
+    } catch {
       return {
         command: cmd,
         args,
         stdout: '',
-        stderr: `cwd "${input.cwd}" resolves outside project root`,
+        stderr: `cwd "${input.cwd ?? ctx.cwd}" resolves outside project root`,
         exitCode: 1,
         truncated: false,
         allowed: false,
       };
     }
-    const cwd = requestedCwd;
     const signal = opts.signal;
 
     return runCommand(cmd, args, cwd, timeout, signal, ctx.session?.id);

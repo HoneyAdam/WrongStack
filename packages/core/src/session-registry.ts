@@ -292,31 +292,29 @@ export class SessionRegistry {
 
   private async heartbeat(): Promise<void> {
     if (!this.currentSessionId) return;
-    // Only update heartbeat timestamp — avoid full read-modify-write for perf
     try {
-      const raw = await fs.readFile(this.filePath, 'utf8').catch(() => '{}');
-      const registry = JSON.parse(raw) as Record<string, SessionRegistryEntry>;
-      const entry = registry[this.currentSessionId];
-      if (entry) {
-        entry.lastHeartbeatAt = new Date().toISOString();
-        // Status bound: if closing, don't revert
-        if (entry.status !== 'closing') {
-          const hasRunning = (entry.agents ?? []).some(
-            (a) => a.status === 'running' || a.status === 'streaming',
-          );
-          entry.status = hasRunning ? 'active' : 'idle';
-        }
-        await this.writeAtomic(registry);
-      } else if (this.lastEntry) {
-        // Our entry is gone (initial register() dropped on a wedged lock, file
-        // reset, or pruned). Re-create it through the locked path so a process
-        // that booted into a broken registry still shows up once it heals.
-        await this.atomicUpdate((reg) => {
-          if (!reg[this.currentSessionId!] && this.lastEntry) {
-            reg[this.currentSessionId!] = { ...this.lastEntry, lastHeartbeatAt: new Date().toISOString() };
+      const sessionId = this.currentSessionId;
+      const nowIso = new Date().toISOString();
+      await this.atomicUpdate((registry) => {
+        const entry = registry[sessionId];
+        if (entry) {
+          entry.lastHeartbeatAt = nowIso;
+          // Status bound: if closing, don't revert
+          if (entry.status !== 'closing') {
+            const hasRunning = (entry.agents ?? []).some(
+              (a) => a.status === 'running' || a.status === 'streaming',
+            );
+            entry.status = hasRunning ? 'active' : 'idle';
           }
-        });
-      }
+          return;
+        }
+        if (this.lastEntry) {
+          // Our entry is gone (initial register() dropped on a wedged lock, file
+          // reset, or pruned). Re-create it through the locked path so a process
+          // that booted into a broken registry still shows up once it heals.
+          registry[sessionId] = { ...this.lastEntry, lastHeartbeatAt: nowIso };
+        }
+      });
     } catch {
       // Best-effort heartbeat — never throw
     }

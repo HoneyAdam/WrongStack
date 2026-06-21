@@ -94,14 +94,14 @@ describe('execTool', () => {
   });
 
   it('accepts cwd resolving inside projectRoot', async () => {
-    const ctx = makeCtx();
-    // ctx.projectRoot is '/fake'; an in-root relative path should pass
-    // the gate (the actual spawn may fail because /fake doesn't exist,
-    // but `allowed` must remain true for the resolved path check).
-    const result = await execTool.execute({ command: 'echo', cwd: 'sub' }, ctx, makeOpts());
-    // either allowed:true (resolved) or some spawn error — but NOT the
-    // "outside project root" rejection.
-    expect(result.stderr).not.toMatch(/outside project root/);
+    const sb = await mkRealSandbox();
+    try {
+      await fs.mkdir(path.join(sb.ctx.projectRoot, 'sub'));
+      const result = await execTool.execute({ command: 'echo', cwd: 'sub' }, sb.ctx, makeOpts());
+      expect(result.stderr).not.toMatch(/outside project root/);
+    } finally {
+      await sb.cleanup();
+    }
   });
 
   it('blocks rm with absolute path /etc', async () => {

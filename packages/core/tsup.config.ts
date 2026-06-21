@@ -21,6 +21,8 @@ export default defineConfig({
     'src/observability/index.ts',
     'src/tools/index.ts',
     'src/extension/index.ts',
+    // HQ command center protocol + publisher
+    'src/hq/index.ts',
     // Skill installer
     'src/skills/index.ts',
   ],

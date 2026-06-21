@@ -45,6 +45,7 @@ export * from './string.js';
 export * from './task-format.js';
 export * from './term.js';
 export * from './todos-format.js';
+export * from './tool-subject.js';
 export {
   computeMessageTokens,
   estimateMessageTokens,

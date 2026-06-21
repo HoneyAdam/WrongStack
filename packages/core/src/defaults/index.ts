@@ -429,5 +429,7 @@ export {
   sentinelServer,
   zaiVisionServer,
   miniMaxVisionServer,
+  playwrightServer,
+  sshManagerServer,
   allServers,
 } from '../infrastructure/mcp-servers.js';

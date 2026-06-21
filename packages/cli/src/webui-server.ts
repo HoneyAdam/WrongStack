@@ -61,6 +61,7 @@ import {
   DEFAULT_CONTEXT_WINDOW_MODE_ID,
   DefaultSecretScrubber,
   GlobalMailbox,
+  createHqPublisherFromEnv,
   projectHash,
   resolveProjectDir,
   TOKENS,
@@ -688,7 +689,9 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     if (!opts.projectRoot) return null;
     try {
       const projectDir = resolveProjectDir(opts.projectRoot, wstackGlobalRoot());
-      const mailbox = new GlobalMailbox(projectDir, opts.events);
+      const hqPublisher = createHqPublisherFromEnv({ clientKind: 'webui', projectRoot: opts.projectRoot, projectName: path.basename(opts.projectRoot) });
+      hqPublisher?.connect();
+      const mailbox = new GlobalMailbox(projectDir, opts.events, hqPublisher);
       webuiClientId = `webui@${crypto.randomUUID().slice(0, 8)}`;
       const projectName = opts.projectRoot ? path.basename(opts.projectRoot) : 'unknown';
       await mailbox.registerClient({

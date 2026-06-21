@@ -1,5 +1,6 @@
 import { expectDefined } from '../utils/expect-defined.js';
 import { toErrorMessage } from '../utils/error.js';
+import { ToolCapabilities } from '../security/capabilities.js';
 /**
  * `mcp_control` — LLM-driven MCP server lifecycle management.
  *
@@ -96,6 +97,7 @@ export function createMcpControlTool(opts: CreateMcpControlToolOptions): Tool {
     permission: 'auto',
     mutating: true,
     riskTier: 'standard',
+    capabilities: [ToolCapabilities.CONFIG_MUTATE],
     inputSchema,
     async execute(raw) {
       const input = raw as { action: string; query?: string | undefined; server?: string | undefined };

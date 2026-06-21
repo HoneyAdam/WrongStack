@@ -63,6 +63,24 @@ describe('DefaultConfigLoader', () => {
     expect(cfg.context.mode).toBe('balanced');
     expect(cfg.context.softThreshold).toBe(0.75);
     expect(cfg.tools.maxIterations).toBe(100);
+    expect(cfg.features.mcp).toBe(true);
+    expect(cfg.mcpServers?.playwright?.enabled).toBe(true);
+    expect(cfg.mcpServers?.playwright?.transport).toBe('stdio');
+    expect(cfg.mcpServers?.playwright?.command).toBe('npx');
+  });
+
+  it('user config can disable the internally enabled Playwright MCP preset', async () => {
+    const { loader: l, paths } = loader();
+    await fs.mkdir(path.dirname(paths.globalConfig), { recursive: true });
+    await fs.writeFile(
+      paths.globalConfig,
+      JSON.stringify({ mcpServers: { playwright: { enabled: false } } }),
+    );
+
+    const cfg = await l.load();
+    expect(cfg.features.mcp).toBe(true);
+    expect(cfg.mcpServers?.playwright?.enabled).toBe(false);
+    expect(cfg.mcpServers?.playwright?.command).toBe('npx');
   });
 
   it('user-global config sets provider/model', async () => {

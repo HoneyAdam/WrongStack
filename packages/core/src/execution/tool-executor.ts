@@ -18,6 +18,7 @@ import type {
 import { toErrorMessage } from '../utils/error.js';
 import { expectDefined } from '../utils/expect-defined.js';
 import { validateAgainstSchema } from '../utils/json-schema-validate.js';
+import { subjectForToolInput } from '../utils/tool-subject.js';
 import { createToolOutputSerializer } from '../utils/tool-output-serializer.js';
 import { wstackGlobalRoot } from '../utils/wstack-paths.js';
 export class ToolExecutor {
@@ -213,8 +214,7 @@ export class ToolExecutor {
           }
           // fall through to execute
         } else {
-          const suggestedPattern =
-            this.subjectFor(tool.name, use.input, tool.subjectKey) ?? tool.name;
+          const suggestedPattern = subjectForToolInput(tool.name, use.input, tool.subjectKey) ?? tool.name;
           const pending: ToolConfirmPendingResult = {
             type: 'tool_confirm_pending',
             toolUseId: use.id,
@@ -599,42 +599,6 @@ export class ToolExecutor {
     return Math.max(0, budget - Buffer.byteLength(content, 'utf8'));
   }
 
-  /**
-   * Compute the suggestedPattern string for a tool+input pair.
-   * Matches the logic in DefaultPermissionPolicy so the TUI shows the
-   * same subject that the trust file would use.
-   */
-  private subjectFor(toolName: string, input: unknown, subjectKey?: string): string | undefined {
-    if (!input || typeof input !== 'object') return undefined;
-    const obj = input as Record<string, unknown>;
-    const globChars = /[*?[\]]/g;
-    const escapeGlob = (s: string) => s.replace(globChars, (c) => `\\${c}`);
-    const normalizePath = (s: string) => escapeGlob(s.replace(/\\/g, '/'));
-
-    // Mirror DefaultPermissionPolicy.subjectFor — keep both in sync so the
-    // TUI's "suggested pattern" matches what the trust file actually uses.
-    if (subjectKey) {
-      const v = obj[subjectKey];
-      if (typeof v === 'string') {
-        const isPathKey = subjectKey === 'path' || subjectKey === 'file' || subjectKey === 'files';
-        return isPathKey ? normalizePath(v) : escapeGlob(v);
-      }
-    }
-
-    if (toolName === 'bash' && typeof obj.command === 'string') {
-      return escapeGlob(obj.command);
-    }
-    if (typeof obj.path === 'string') {
-      return normalizePath(obj.path);
-    }
-    if (typeof obj.url === 'string') {
-      return escapeGlob(obj.url);
-    }
-    if (typeof obj.name === 'string') {
-      return escapeGlob(obj.name);
-    }
-    return undefined;
-  }
 }
 
 function clampTimeoutMs(timeoutMs: number, maxTimeoutMs: number): number {

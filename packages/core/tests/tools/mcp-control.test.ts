@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { createMcpControlTool, type MCPRegistryHandle } from '../../src/tools/mcp-control.js';
+import { ToolCapabilities } from '../../src/security/capabilities.js';
 import type { Config } from '../../src/index.js';
 
 function fakeConfig(overrides: Partial<Config> = {}): Config {
@@ -53,6 +54,10 @@ describe('createMcpControlTool', () => {
     // mcp_control enable/disable writes the config file and spawns/kills MCP
     // server processes, so it must trip the permission confirmation gate.
     expect(tool.mutating).toBe(true);
+  });
+
+  it('declares config mutation capability', () => {
+    expect(tool.capabilities).toContain(ToolCapabilities.CONFIG_MUTATE);
   });
 
   it('has riskTier "standard"', () => {

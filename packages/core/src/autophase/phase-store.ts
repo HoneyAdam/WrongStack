@@ -1,7 +1,8 @@
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
-import type { PhaseGraph, PhaseNode } from './types.js';
 import type { TaskGraph, TaskNode, TaskEdge } from '../types/task-graph.js';
+import { atomicWrite, withFileLock } from '../utils/atomic-write.js';
+import type { PhaseGraph, PhaseNode } from './types.js';
 
 export interface PhaseStoreOptions {
   baseDir: string;
@@ -88,10 +89,11 @@ export class PhaseStore {
 
   async save(graph: PhaseGraph): Promise<void> {
     const filePath = this.getFilePath(graph.id);
-    await fsp.mkdir(path.dirname(filePath), { recursive: true });
-
     const serialized = this.serializeGraph(graph);
-    await fsp.writeFile(filePath, JSON.stringify(serialized, null, 2), 'utf8');
+
+    await withFileLock(filePath, async () => {
+      await atomicWrite(filePath, JSON.stringify(serialized, null, 2), { mode: 0o600 });
+    });
   }
 
   async load(graphId: string): Promise<PhaseGraph | null> {
