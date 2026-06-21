@@ -52,6 +52,7 @@ import { createToolVisionAdapters } from '@wrongstack/runtime/vision';
 import { FleetStatusLine } from './fleet-statusline.js';
 import { runWebUIDispatch } from './boot/dispatch-webui.js';
 import { runSingleShotDispatch } from './boot/dispatch-singleshot.js';
+import { wireAutoPhase } from './boot/tui-autophase-wiring.js';
 import type { ReadlineInputReader } from './input-reader.js';
 import { type PredictLLMProvider, predictNextTasks } from './next-task-predictor.js';
 import type { TerminalRenderer } from './renderer.js';
@@ -603,66 +604,8 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
       // AutoPhase event forwarding — subscribes to PhaseOrchestrator events
       // on the main EventBus and forwards them to the TUI handler so the
       // PhaseMonitor/PhasePanel stay in sync with the running graph.
-      const autoPhaseHandlers = new Map<string, (payload: unknown) => void>();
-      const subscribeAutoPhase = (
-        handler: (event: string, payload: unknown) => void,
-      ): (() => void) => {
-        const registrations: Array<() => void> = [];
-        const autoPhaseEvents = [
-          'phase.started',
-          'phase.completed',
-          'phase.failed',
-          'phase.statusChange',
-          'phase.taskCompleted',
-          'phase.taskFailed',
-          'phase.taskRetrying',
-          'phase.verifying',
-          'phase.verifyFailed',
-          'phase.repairing',
-          'phase.conflictResolving',
-          'phase.conflictResolved',
-          'autonomous.tick',
-          'graph.completed',
-          'graph.failed',
-          'agent.assigned',
-          'agent.released',
-          // Git-worktree isolation lifecycle → TUI worktree panel/monitor.
-          'worktree.allocated',
-          'worktree.committed',
-          'worktree.merged',
-          'worktree.conflict',
-          'worktree.released',
-          'worktree.failed',
-          // Auto-proceed countdown tick events
-          'countdown.tick',
-        ];
-        // AutoPhase events are emitted on the untyped surface of the bus
-        // (the orchestrator casts `emit` to a string-keyed signature), so we
-        // subscribe through the same untyped view rather than the typed
-        // event-name overloads.
-        // Bind to `events` — pulling the method off the bus as a bare
-        // reference loses `this`, so `on`/`off` would read `this.listeners`
-        // off `undefined` and throw ("Cannot read properties of undefined
-        // (reading 'listeners')") the moment AutoPhase subscribes.
-        const onUntyped = events.on.bind(events) as unknown as (
-          event: string,
-          handler: (payload: unknown) => void,
-        ) => void;
-        const offUntyped = events.off.bind(events) as unknown as (
-          event: string,
-          handler: (payload: unknown) => void,
-        ) => void;
-        for (const ev of autoPhaseEvents) {
-          const h = (p: unknown) => handler(ev, p);
-          autoPhaseHandlers.set(ev, h);
-          onUntyped(ev, h);
-          registrations.push(() => offUntyped(ev, h));
-        }
-        return () => {
-          for (const unregister of registrations) unregister();
-          autoPhaseHandlers.clear();
-        };
-      };
+      const autoPhaseWiring = wireAutoPhase(events);
+      const subscribeAutoPhase = autoPhaseWiring.subscribe;
 
       // Special exit code for project switch — triggers a clean wstack restart
       // in the target project directory after the TUI unmounts.
