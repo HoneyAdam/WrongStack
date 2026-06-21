@@ -36,16 +36,13 @@ import {
   atomicWrite,
   CHIMERA_REVIEW_PROMPT,
   color,
-  DefaultSystemPromptBuilder,
   decryptConfigSecrets,
   encryptConfigSecrets,
   mergeCustomModelDefs,
   noOpVault,
   setQueuedMessagesSnapshot,
-  resolveWstackPaths,
 } from '@wrongstack/core';
 import type { MCPRegistry } from '@wrongstack/mcp';
-import { DefaultSessionStore } from '@wrongstack/core/storage';
 import { capabilitiesFor } from '@wrongstack/providers';
 import { createToolVisionAdapters } from '@wrongstack/runtime/vision';
 import { FleetStatusLine } from './fleet-statusline.js';
@@ -54,6 +51,7 @@ import { runSingleShotDispatch } from './boot/dispatch-singleshot.js';
 import { wireAutoPhase } from './boot/tui-autophase-wiring.js';
 import { handleProjectSwitchSpawn } from './boot/tui-project-spawn.js';
 import { setupAutonomousCoordinator } from './boot/tui-coordinator-setup.js';
+import { switchProjectInPlace as switchProjectInPlaceExtracted, type ProjectSwitchContext } from './boot/tui-project-switch.js';
 import type { TuiRuntimeState } from './boot/tui-runtime-state.js';
 import type { ReadlineInputReader } from './input-reader.js';
 import { type PredictLLMProvider, predictNextTasks } from './next-task-predictor.js';
@@ -656,116 +654,21 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
       const ensureAutonomousCoordinator = coordinatorSetup.ensure;
       const offDirectorSpawned = coordinatorSetup.cleanup;
 
-      const switchProjectInPlace = async (targetRoot: string, displayName: string): Promise<string | null> => {
-        const resolved = path.resolve(targetRoot);
-        const stat = await fs.stat(resolved).catch(() => null);
-        if (!stat?.isDirectory()) return `Cannot switch: not a directory: ${resolved}`;
-
-        const oldWriter = context.session;
-        const oldUsage = tokenCounter.total();
-        const oldRecoveryLock = activeRecoveryLock;
-        const oldProjectRoot = projectRoot;
-        const nextWpaths = resolveWstackPaths({ projectRoot: resolved, globalRoot: wpaths.globalRoot });
-        await fs.mkdir(nextWpaths.projectSessions, { recursive: true });
-        const nextSessionStore = new DefaultSessionStore({ dir: nextWpaths.projectSessions });
-        const nextWriter = await nextSessionStore.create({
-          id: '',
-          title: '',
-          model: context.model,
-          provider: (context.provider as { id?: string }).id ?? config.provider,
-        });
-
-        detachActiveTodosCheckpoint?.();
-        process.chdir(resolved);
-        projectRoot = resolved;
-        wpaths = nextWpaths;
-        activeSessionStore = nextSessionStore;
-        activeRecoveryLock = new RecoveryLock({ dir: nextWpaths.projectSessions, sessionStore: nextSessionStore });
-
-        context.cwd = resolved;
-        context.projectRoot = resolved;
-        context.workingDir = resolved;
-        context.session = nextWriter;
-        context.state.replaceMessages([]);
-        context.state.replaceTodos([]);
-        context.clearFileTracking();
-        context.tokenCounter.reset();
-        context.meta['packageTrackerOpts'] = { storageDir: nextWpaths.projectDir, projectRoot: resolved };
-        context.state.setMeta('plan.path', path.join(nextWpaths.projectSessions, `${nextWriter.id}.plan.json`));
-        context.state.setMeta('task.path', path.join(nextWpaths.projectSessions, `${nextWriter.id}.tasks.json`));
-        detachActiveTodosCheckpoint = attachTodosCheckpoint(
-          context.state,
-          path.join(nextWpaths.projectSessions, `${nextWriter.id}.todos.json`),
-          nextWriter.id,
-          events,
-          context.traceId,
-        );
-        setQueuedMessagesSnapshot(context, []);
-
-        try {
-          const switchMode =
-            modeId && modeId !== 'default' && modeStore
-              ? await modeStore.getMode(modeId)
-              : undefined;
-          const switchBuilder = new DefaultSystemPromptBuilder({
-            memoryStore: memoryStore ?? undefined,
-            skillLoader,
-            modeStore,
-            modeId: modeId ?? 'default',
-            modePrompt: switchMode?.prompt ?? '',
-          });
-          context.systemPrompt = await switchBuilder.build({
-            cwd: resolved,
-            projectRoot: resolved,
-            tools: agent.tools.list(),
-            provider: (context.provider as { id?: string }).id,
-            model: context.model,
-          });
-        } catch (err) {
-          console.error(
-            JSON.stringify({
-              level: 'warn',
-              event: 'execution.project_switch_prompt_rebuild_failed',
-              message: err instanceof Error ? err.message : String(err),
-              timestamp: new Date().toISOString(),
-            }),
-          );
-        }
-
-        void (async () => {
-          try {
-            await oldWriter.append({ type: 'session_end', ts: new Date().toISOString(), usage: oldUsage });
-            await oldWriter.close();
-          } catch (err) {
-            console.error(
-              JSON.stringify({
-                level: 'warn',
-                event: 'execution.project_switch_old_session_close_failed',
-                message: err instanceof Error ? err.message : String(err),
-                timestamp: new Date().toISOString(),
-              }),
-            );
-          }
-          await oldRecoveryLock.clear().catch(() => undefined);
-        })();
-
-        try {
-          await activeRecoveryLock.write(nextWriter.id);
-        } catch (err) {
-          console.error(
-            JSON.stringify({
-              level: 'error',
-              event: 'execution.project_switch_recovery_lock_failed',
-              message: err instanceof Error ? err.message : String(err),
-              timestamp: new Date().toISOString(),
-            }),
-          );
-        }
-
-        const emitUntyped = events.emit as unknown as (event: string, payload: unknown) => void;
-        emitUntyped('project.switched', { from: oldProjectRoot, to: resolved, name: displayName });
-        return null;
+      const switchCtx: ProjectSwitchContext = {
+        state,
+        context,
+        events,
+        agent,
+        config,
+        tokenCounter,
+        modeId,
+        modeStore,
+        memoryStore,
+        skillLoader,
+        attachTodosCheckpoint,
       };
+      const switchProjectInPlace = (targetRoot: string, displayName: string) =>
+        switchProjectInPlaceExtracted(switchCtx, targetRoot, displayName);
 
       try {
         code = await runTui({
