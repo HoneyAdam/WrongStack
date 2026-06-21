@@ -89,6 +89,7 @@ All presets are available via `allServers()` and can be added with either
 | `zai-vision` | Image analysis and screenshot understanding | `auto` |
 | `minimax-vision` | MiniMax image understanding (read-only) | `auto` |
 | `playwright` | Browser automation — navigate, screenshot, click, type, evaluate JS | `confirm` |
+| `ssh` | Remote SSH management — execute commands, transfer files, tunnels, health checks | `confirm` |
 
 ### Playwright + Browser Agent
 
@@ -97,13 +98,14 @@ browser tasks. Instead of cluttering the main agent's context with
 screenshots and page HTML, delegate browser work to a dedicated subagent:
 
 ```bash
-# 1. Start the Playwright MCP server
+# Playwright is enabled by default in the internal config.
+# If a user config disabled it, re-enable it with:
 /mcp enable playwright
 
-# 2. Delegate to the browser agent (lightweight: no bash/write)
+# Delegate to the browser agent (lightweight: no bash/write)
 /delegate browser "Open https://example.com, take a screenshot, extract the page title"
 
-# 3. (Optional) Stop Playwright when done
+# Optional: stop Playwright when done
 /mcp disable playwright
 ```
 
@@ -116,6 +118,39 @@ flows that need the build toolchain, use the **e2e** agent instead:
 |---|---|---|
 | `browser` | Playwright + read/grep/glob/fetch | Quick browser tasks: screenshot, scrape, form fill |
 | `e2e` | Playwright + full build (bash, exec, test, …) | Full end-to-end scenarios across UI + API + CLI |
+
+### SSH Manager + Remote Hosts
+
+The `ssh` preset runs `mcp-ssh-manager`, which exposes remote SSH, SFTP,
+tunnel, health-check, backup, database, and deployment tools. The preset is
+**disabled by default** and `confirm`-gated because remote commands and file
+transfers can mutate production systems.
+
+```bash
+# 1. Add the preset to config
+wstack mcp add ssh
+
+# 2. Configure remote hosts using mcp-ssh-manager's env/TOML format.
+#    Prefer SSH keys or ssh-agent; do not store passwords in the repo.
+#    Example env names:
+#    SSH_SERVER_PRODUCTION_HOST=prod.example.com
+#    SSH_SERVER_PRODUCTION_USER=deploy
+#    SSH_SERVER_PRODUCTION_KEYPATH=~/.ssh/prod_deploy
+
+# 3. Enable when needed
+/mcp enable ssh
+
+# 4. Delegate remote ops to DevOps or use MCP tools directly
+/delegate devops "Check disk space and service health on production over SSH"
+
+# 5. Disable when done
+/mcp disable ssh
+```
+
+The server package also supports per-server security modes (`readonly` and
+`restricted`) and audit logs. Use those upstream controls for production hosts;
+WrongStack's preset only starts the MCP server and applies its normal tool
+permission prompts.
 
 ## Connection states
 

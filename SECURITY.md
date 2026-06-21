@@ -174,6 +174,69 @@ when permission prompts are approved out of habit.
   array cannot be mutated by external plugins at all. This is a safe default:
   legacy tools are protected until explicitly tagged.
 
+### HQ command center (Phase 1)
+
+`wstack --hq` starts a project-independent command center on a single HTTP /
+WebSocket port (default `3499`). It accepts telemetry from local WrongStack
+clients (TUI / REPL / WebUI / brain mailbox / agent-loop checker mailbox)
+and serves a self-contained dashboard at `/`. The implementation lives in
+[`packages/cli/src/hq-server.ts`](packages/cli/src/hq-server.ts); the
+protocol types live in
+[`packages/core/src/hq/protocol.ts`](packages/core/src/hq/protocol.ts) and
+the publisher in
+[`packages/core/src/hq/publisher.ts`](packages/core/src/hq/publisher.ts).
+The full deployment plan is in
+[`docs/plans/hq-command-center-2026-06.md`](docs/plans/hq-command-center-2026-06.md).
+
+**Threat model.** HQ receives developer-machine telemetry and may
+eventually expose control commands. Treat it as sensitive infrastructure
+even though Phase 1 is read-only. The HQ channel carries, at minimum:
+
+- `clientId`, `machineId`, `hostname`, `pid`, `version`, `startedAt`
+  (`HqClientIdentity`),
+- `projectRoot`, `projectName`, `gitRemote`, `gitBranch` (`HqProjectIdentity`),
+- session / fleet / worklist / git state,
+- mailbox message summaries (subjects, previews, agent identity, status)
+  — **never raw bodies** unless `WRONGSTACK_HQ_RAW_CONTENT=1` is set,
+- tool names, durations, costs, error classes — **never raw tool inputs /
+  outputs / files** by default,
+- everything is redaction-passed before publish
+  ([`packages/core/src/hq/redaction.ts`](packages/core/src/hq/redaction.ts)):
+  paths are project-relative, tool args are summarized, raw prompt /
+  output / file / log fields are dropped unless `rawContent: true`,
+  secret patterns are scrubbed via `DefaultSecretScrubber`.
+
+**Defaults (Phase 1).**
+
+- Bind to `127.0.0.1` by default (configurable via `--host`, defaults to
+  loopback in `cli-main.ts:173`).
+- Protocol version is negotiated — `payload.protocolVersion !==
+  HQ_PROTOCOL_VERSION` closes the socket with WebSocket close code `1008`
+  (`hq-server.ts:806-808`).
+- Frame size is capped at 1 MiB (`WebSocketServer({ maxPayload: 1 * 1024 *
+  1024 })`, `hq-server.ts:715`).
+- Client identity is verified only via `client.hello.client.clientId` —
+  there is no challenge / response or token exchange yet.
+- Browser channel is unauthenticated in Phase 1 — any web page that can
+  reach the port can open a `/ws/browser` socket and read the global
+  snapshot.
+- Client channel is unauthenticated — any process that can reach the
+  port can publish telemetry under any `clientId` / `projectId`.
+
+**Phase 1 non-goals (deferred to Phase 2).**
+
+- No authentication / authorization on `/ws/browser` or `/ws/client`.
+- No CORS / origin enforcement.
+- No rate limiting on HTTP endpoints or WebSocket frames.
+- No TLS termination (HQ speaks plain HTTP/WS; reverse-proxy it).
+- No audit log of who connected, when, and from which IP.
+- No persistence of client / browser state beyond the process lifetime.
+
+See [HQ command center — Remote / relay deployment](docs/subcommands/hq.md#remote--relay-deployment)
+for what is and is not safe to expose today, and the
+[Phase 2 roadmap](#hq-phase-2-auth-roadmap) below for the planned
+controls.
+
 ## Known limitations / deliberate non-goals
 
 - **Multi-tenant hostile environments are not the target.** The agent
@@ -202,6 +265,11 @@ when permission prompts are approved out of habit.
   repo, or a tampered MCP response, can carry prompt-injection content
   that the next LLM turn might act on. The user is the last line of
   defense via the `confirm` permission prompt.
+- **HQ command center is unauthenticated in Phase 1.** See
+  [HQ command center (Phase 1)](#hq-command-center-phase-1) above. The
+  server has no auth, CORS, origin, or rate-limit controls on any route
+  or WebSocket channel. Do not expose `--host 0.0.0.0` on a public VPS or
+  any network you do not fully trust until Phase 2 auth ships.
 
 ### Accepted risks & deliberate trade-offs (from 2026 security audits)
 
@@ -235,7 +303,105 @@ The two rules that keep things safe:
    this; new tools should declare `subjectKey` rather than rely on the
    policy's fallback heuristic.
 
+## HQ Phase 2 auth roadmap
+
+The HQ plan
+([`docs/plans/hq-command-center-2026-06.md`](docs/plans/hq-command-center-2026-06.md))
+specifies the following controls for Phase 2. None of these have shipped
+yet; Phase 1 is unauthenticated by design.
+
+### Browser auth
+
+- Local loopback can bootstrap a browser session automatically.
+- Remote browser access requires password login.
+- Password hash stored with a slow KDF (`scrypt`, or `argon2` if already
+  available and approved).
+- Issue an HTTP-only session cookie for browser access.
+
+```bash
+wstack --hq --password             # prompt / set password on first run
+wstack hq auth set-password        # rotate password
+wstack hq auth reset               # revoke all browser sessions
+```
+
+### Client auth (enrollment tokens)
+
+Clients should use enrollment tokens, not the browser password. Tokens
+are distinct from browser cookies so a stolen browser cookie cannot be
+reused to publish telemetry.
+
+```bash
+wstack hq token create --name laptop-tui
+wstack hq token list
+wstack hq token revoke <id>
+```
+
+Token storage:
+
+```text
+~/.wrongstack/hq/auth.json
+```
+
+Token model:
+
+- Generated random token, shown once at creation.
+- Server stores only the token hash (salted slow KDF).
+- Token metadata: `id`, `label`, `createdAt`, `lastUsedAt`, optional
+  `expiresAt`.
+- Optional capability scope: `telemetry.publish`, `control.receive`.
+- Client passes the raw token via the `?token=…` query parameter on the
+  `/ws/client` upgrade. The publisher's `toClientUrl()` already supports
+  this via `WRONGSTACK_HQ_TOKEN` (see [`packages/core/src/hq/publisher.ts`](packages/core/src/hq/publisher.ts)).
+
+### Frame & endpoint hygiene
+
+- Rate-limit WebSocket frames and HTTP endpoints (token bucket per IP,
+  per channel).
+- Tighten `maxPayload` per route (1 MiB today; mailbox snapshots could
+  justify a separate larger cap).
+- Add an audit log of `connect` / `disconnect` / `auth_fail` / `token_used`
+  events with `clientId`, `projectId`, IP, and timestamp.
+- Reject messages that exceed the redaction policy (e.g. raw tool args
+  arriving despite `rawContent: false`).
+
+### Persistence
+
+- Add an optional `--data-dir <path>` flag (default
+  `~/.wrongstack/hq`) for auth state, audit log, and any future
+  persistence (snapshot retention, event log spill-to-disk).
+- Add retention knobs (default keep `MAX_EVENT_LOG = 500` events in
+  memory; configurable TTL or size cap).
+
+### TLS / deployment
+
+- HQ itself stays plain HTTP/WS. TLS terminates in front via Cloudflare
+  Tunnel or an HTTPS reverse proxy.
+- When `WRONGSTACK_HQ_URL` is `https://…` or `wss://…`, the publisher's
+  `toClientUrl()` rewrites the scheme automatically; no client-side
+  changes needed.
+- Cloudflare Access can be layered in front, but does **not** replace
+  client enrollment tokens on `/ws/client`.
+
+### Flags & subcommands to add
+
+| Flag / subcommand | Purpose |
+|---|---|
+| `--password` | Prompt / set the browser password on first run |
+| `--data-dir <path>` | HQ storage directory (default `~/.wrongstack/hq`) |
+| `wstack hq auth set-password` | Rotate the browser password |
+| `wstack hq auth reset` | Revoke all browser sessions |
+| `wstack hq token create --name <label>` | Generate an enrollment token |
+| `wstack hq token list` | List active tokens (id, label, lastUsedAt) |
+| `wstack hq token revoke <id>` | Revoke an enrollment token |
+
+Until these land, the supported deployment is: loopback on the
+developer's own machine, optional LAN exposure on a trusted network,
+with any TLS / tunnel handled by an external proxy that does not
+forward unauthenticated traffic from the public internet.
+
 ## See also
 
 - [CHANGELOG.md](CHANGELOG.md) — security-relevant changes by version
 - [README.md](README.md) — usage and configuration
+- [docs/plans/hq-command-center-2026-06.md](docs/plans/hq-command-center-2026-06.md) — HQ command center architecture and phased plan (Access Control section)
+- [docs/subcommands/hq.md](docs/subcommands/hq.md) — `wstack --hq` user command reference (flags, routes, env vars, deployment)

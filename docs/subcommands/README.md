@@ -30,6 +30,7 @@ WrongStack exposes top-level subcommands via `wstack <subcommand>` (also availab
 | `wstack help` | `version-help.ts` | Show help |
 | `wstack projects` | `projects.ts` | List projects with WrongStack state |
 | `wstack bench` | `bench.ts` | Model-independent agentic benchmarks (Aider polyglot, SWE-bench Verified) — see [bench.md](bench.md) |
+| `wstack --hq` | `hq-server.ts` | Start the HQ command center (single-port HTTP + WebSocket dashboard that aggregates client telemetry and mailbox events) — see [hq.md](hq.md) |
 
 ## Subcommand handler interface
 

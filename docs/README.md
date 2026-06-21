@@ -15,6 +15,7 @@ This is the on-ramp to the WrongStack documentation. If you're new to the projec
 | Read the architectural decision history | [ADRs](#architecture-decision-records-adrs) |
 | Configure runtime behavior | [configuration.md](configuration.md) |
 | Debug a problem | [troubleshooting.md](troubleshooting.md) |
+| Understand the security posture / report a vulnerability | [SECURITY.md](../SECURITY.md) |
 
 ---
 
@@ -63,6 +64,7 @@ How to add new things. Each guide is self-contained — read the one for the sur
 |---|---|
 | [configuration.md](configuration.md) | Configuration model, secret vault, environment variables, config migration |
 | [troubleshooting.md](troubleshooting.md) | Common problems and their fixes: provider failures, model registry, session replay, MCP issues |
+| [SECURITY.md](../SECURITY.md) | Threat model, security posture, controls in place, known limitations, HQ Phase 2 auth roadmap, vulnerability reporting |
 
 ---
 
@@ -79,6 +81,7 @@ Per-subcommand documentation. Each entry in `docs/subcommands/` documents one su
 | `bench` | [subcommands/bench.md](subcommands/bench.md) |
 | `diag` / `doctor` | [subcommands/diag-doctor.md](subcommands/diag-doctor.md) |
 | `export` | [subcommands/export.md](subcommands/export.md) |
+| `hq` (`--hq`) | [subcommands/hq.md](subcommands/hq.md) |
 | `mcp` | [subcommands/mcp.md](subcommands/mcp.md) |
 | `plugin` | [subcommands/plugin.md](subcommands/plugin.md) |
 | `projects` | [subcommands/projects.md](subcommands/projects.md) |
@@ -124,6 +127,7 @@ ADRs capture significant architectural decisions, the alternatives considered, a
 | [wrongstack-architecture-analysis.md](wrongstack-architecture-analysis.md) | Earlier architecture analysis (pre-ADR-001) |
 | [tui-feature-inventory.md](tui-feature-inventory.md) | TUI feature inventory — what the Ink/React surface does and doesn't do |
 | [plans/security-hardening-2026-06.md](plans/security-hardening-2026-06.md) | Security hardening plan (2026-06) |
+| [plans/hq-command-center-2026-06.md](plans/hq-command-center-2026-06.md) | HQ command center plan for cross-project fleet/client monitoring |
 | [notes/refactor.md](notes/refactor.md) | Refactor notes (running log) |
 | [notes/refactor-2026-06-05.md](notes/refactor-2026-06-05.md) | Refactor notes (2026-06-05 snapshot) |
 | [notes/bugs.md](notes/bugs.md) | Bug notes (running log) |
