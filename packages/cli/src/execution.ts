@@ -33,7 +33,6 @@ import {
   type AutonomyStage,
   attachTodosCheckpoint,
   CHIMERA_REVIEW_PROMPT,
-  color,
   mergeCustomModelDefs,
   setQueuedMessagesSnapshot,
 } from '@wrongstack/core';
@@ -49,6 +48,7 @@ import { setupAutonomousCoordinator } from './boot/tui-coordinator-setup.js';
 import { switchProjectInPlace as switchProjectInPlaceExtracted, type ProjectSwitchContext } from './boot/tui-project-switch.js';
 import { createSettingsAdapter } from './boot/tui-settings-adapter.js';
 import { resumeSession } from './boot/tui-session-resume.js';
+import { getProjectPickerItems, onProjectSelect, type ProjectPickerContext } from './boot/tui-project-picker-callback.js';
 import type { TuiRuntimeState } from './boot/tui-runtime-state.js';
 import type { ReadlineInputReader } from './input-reader.js';
 import { type PredictLLMProvider, predictNextTasks } from './next-task-predictor.js';
@@ -666,6 +666,16 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
       const switchProjectInPlace = (targetRoot: string, displayName: string) =>
         switchProjectInPlaceExtracted(switchCtx, targetRoot, displayName);
 
+      const pickerCtx: ProjectPickerContext = {
+        state,
+        renderer,
+        director,
+        getEternalEngine,
+        getParallelEngine,
+        switchCtx,
+        switchProjectInPlace,
+      };
+
       try {
         code = await runTui({
           agent,
@@ -1046,75 +1056,8 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
             }));
           },
           onResumeSession: (sessionId: string) => resumeSession({ state, agent, tokenCounter, switchProviderAndModel }, sessionId),
-          /**
-           * Load project picker items from the global manifest.
-           * Called each time the project picker panel opens (F1).
-           */
-          getProjectPickerItems: async () => {
-            const { buildPickerItems } = await import('./project-picker.js');
-            return buildPickerItems({
-              globalConfigPath: wpaths.globalConfig,
-              currentProjectRoot: projectRoot,
-            });
-          },
-          /**
-           * Called when the user selects a project in the picker.
-           * Re-roots the live TUI process in place: new Context root, fresh
-           * per-project session writer, rebuilt system prompt, and no spawned
-           * replacement process.
-           */
-          onProjectSelect: async (slug: string, kind: 'project' | 'action') => {
-            try {
-              if (kind === 'action') {
-                if (slug === 'new-session') {
-                  const name = path.basename(projectRoot) || projectRoot;
-                  const err = await switchProjectInPlace(projectRoot, name);
-                  if (err) renderer.write(color.red(`Project switch failed: ${err}\n`));
-                }
-                // prev-sessions is handled inside the TUI (/resume picker).
-                return;
-              }
-
-              const { loadManifest, saveManifest } = await import('./slash-commands/project-utils.js');
-              const manifest = await loadManifest(wpaths.globalConfig);
-              const project = manifest.projects.find((p) => p.slug === slug);
-              if (!project) return;
-
-              const targetRoot = path.resolve(project.root);
-              if (path.resolve(projectRoot) === targetRoot) return;
-
-              const fleetStatus = director?.status();
-              const fleetRunning =
-                fleetStatus?.subagents.filter((a) => a.status === 'running').length ?? 0;
-              const eternalActive = getEternalEngine?.()?.currentState === 'running';
-              const parallelActive = getParallelEngine?.()?.currentState === 'running';
-              const hasActiveAgents = fleetRunning > 0 || eternalActive || parallelActive;
-
-              if (hasActiveAgents) {
-                const parts: string[] = [
-                  color.yellow('⚠  Switching project in place; active background work is still tied to the previous project:'),
-                ];
-                if (fleetRunning > 0) parts.push(color.dim(`  • ${fleetRunning} subagent(s) currently running`));
-                if (eternalActive) parts.push(color.dim('  • Eternal engine is active'));
-                if (parallelActive) parts.push(color.dim('  • Parallel engine is active'));
-                parts.push('');
-                parts.push(color.dim(`  New project: ${project.name}`));
-                renderer.write(`\n${parts.join('\n')}\n`);
-              }
-
-              project.lastSeen = new Date().toISOString();
-              await saveManifest(manifest, wpaths.globalConfig);
-
-              const err = await switchProjectInPlace(targetRoot, project.name);
-              if (err) renderer.write(color.red(`Project switch failed: ${err}\n`));
-            } catch (err) {
-              renderer.write(
-                color.red(
-                  `Project switch failed: ${err instanceof Error ? err.message : String(err)}\n`,
-                ),
-              );
-            }
-          },
+          getProjectPickerItems: () => getProjectPickerItems(pickerCtx),
+          onProjectSelect: (slug: string, kind: 'project' | 'action') => onProjectSelect(pickerCtx, slug, kind),
           // `wrongstack quick` sets flags.quick — open the F3 agents monitor by default.
           initialAgentsMonitorOpen: !!flags.quick,
           tokenSavingMode: normalizeTokenSavingTier(config.features.tokenSavingMode) !== 'off',
