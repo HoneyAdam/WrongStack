@@ -394,25 +394,23 @@ Flips off MCP, plugins, memory tools, models.dev fetch, and skill discovery. Wha
 
 ## Recent changes
 
-**Current release: 0.267.0.** The subscription sign-in release. Adds **Sign in
-with a subscription** — OAuth login for **ChatGPT/Codex** (`openai-codex`),
-**Claude Pro/Max** (`anthropic-oauth`), and **GitHub Copilot** (`github-copilot`)
-as three new wire families that sit alongside the API-key providers without
-touching them (see [`docs/oauth-signin.md`](docs/oauth-signin.md)). Tokens
-self-refresh and are encrypted at rest. Plus a **per-model context-window fix**
-so subscription models resolve their real window from the sibling catalog
-(Claude Opus 4.8 → 1M, gpt-5.5 → ~1.05M) instead of a flat family default, and an
-**Anthropic block-sanitization fix** that strips non-Anthropic fields
-(`tool_result.name`, `providerMeta`) the Messages API rejected on multi-turn
-tool conversations. Additive only — no breaking changes.
+**Current release: 0.268.0.** The HQ command center hardening release. It
+ships the Phase 1 `hq.welcome` handshake, validates HQ client frames with
+`parseHqFrame()`, documents the browser/client protocol and Phase 2 auth
+roadmap, expands mailbox drawer/live-feed jsdom coverage, and includes the
+release-check cleanup needed to keep audit, typecheck, tests, and build green.
+Additive only — no breaking changes.
 
 See **[CHANGELOG.md](CHANGELOG.md)** for the full, versioned history.
 
 ## Quick start
 
 ```bash
-# First run — interactive setup wizard
-wrongstack init
+# First run — interactive auth/setup
+wrongstack auth
+
+# Sign in with ChatGPT/Codex subscription OAuth
+wstack auth login chatgpt
 
 # No config? Interactive picker launches automatically:
 wrongstack          # provider list → model list → save prompt → REPL
@@ -439,7 +437,8 @@ wrongstack resume <session-id>       # same
 
 Three ways to configure:
 
-1. **`wrongstack init`** — interactive wizard, saves to `~/.wrongstack/config.json`
+1. **`wrongstack auth`** — interactive credential manager, saves encrypted credentials to `~/.wrongstack/config.json`
+   - Shortcut: **`wstack auth login chatgpt`** starts the ChatGPT/Codex OAuth flow directly.
 2. **Automatic picker** — just run `wrongstack` with no config; saves after selection
 3. **CLI flags** — `wrongstack --provider <id> --model <id>` — skips all interactivity
 

@@ -32,7 +32,7 @@ const steps = [
     n: 2,
     title: 'Configure',
     desc: 'Run the wizard, or just launch — with no config the interactive provider picker appears.',
-    cmd: 'wrongstack init',
+    cmd: 'wrongstack auth',
   },
   {
     n: 3,

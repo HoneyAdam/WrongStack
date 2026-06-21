@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.268.0] — 2026-06-21
+
+> The **HQ command center hardening and release-check cleanup** release. Documents
+> the HQ browser/client protocol, ships the Phase 1 `hq.welcome` handshake,
+> enforces `parseHqFrame()` validation on the wire, expands mailbox drawer and
+> live-feed jsdom coverage, and records the final `pnpm release:check` cleanup.
+> Additive only; no breaking changes. All workspace packages and the marketing
+> site are aligned to `0.268.0` in lockstep.
+
 ### Added — Documentation
 
 - **`docs/subcommands/hq.md` — `wstack --hq` user command reference (new file, ~785 lines).**
