@@ -90,6 +90,7 @@ import { applyNodeEnvDefault, runPreflight } from './preflight.js';
 import { wireContainer } from './boot/container-wiring.js';
 import { bindSystemPromptBuilder } from './boot/system-prompt-builder.js';
 import { handleHelpVersionShortCircuit } from './boot/short-circuit-flags.js';
+import { handleHqShortCircuit } from './boot/short-circuit-hq.js';
 import { resolveRuntimeMaxContext } from './context-limit.js';
 import { type ExecutionDeps, execute } from './execution.js';
 import { createFallbackModelExtension } from './fallback-model.js';
@@ -160,30 +161,8 @@ export async function main(argv: string[]): Promise<number> {
 
   // --hq starts the HQ command center server (no project root, no agent).
   // Short-circuit before boot() — HQ is project-independent.
-  if (earlyFlags['hq'] === true) {
-    const { startHqServer } = await import('./hq-server.js');
-    const host = typeof earlyFlags['host'] === 'string' ? earlyFlags['host'] : '127.0.0.1';
-    const port = typeof earlyFlags['port'] === 'string' ? Number.parseInt(earlyFlags['port'], 10) : 3499;
-    const dataDir = typeof earlyFlags['data-dir'] === 'string' ? earlyFlags['data-dir'] : undefined;
-    const handle = await startHqServer({ host, port, strictPort: earlyFlags['strict-port'] === true, ...(dataDir !== undefined ? { dataDir } : {}) });
-    if (earlyFlags['open'] === true) {
-      try {
-        const { openBrowser } = await import('@wrongstack/webui/server');
-        openBrowser(handle.firstRunSetup?.browserUrl ?? `http://${handle.host}:${handle.port}`);
-      } catch {
-        // best-effort
-      }
-    }
-    // Keep the process alive until SIGINT/SIGTERM
-    await new Promise<void>((resolve) => {
-      const shutdown = () => {
-        void handle.close().then(() => resolve());
-      };
-      process.on('SIGINT', shutdown);
-      process.on('SIGTERM', shutdown);
-    });
-    return 0;
-  }
+  const hqExit = await handleHqShortCircuit(earlyFlags);
+  if (hqExit !== null) return hqExit;
 
   const ctx = await boot(argv);
   // `wrongstack quick` sets flags.quick = true in boot() and removes 'quick' from
