@@ -277,7 +277,7 @@ export async function runEnsemble(opts: EnsembleRunnerOptions): Promise<Ensemble
   const runnable: { id: string; cmd: ACPSubagentRunnerOptions }[] = [];
   for (const id of requested) {
     const det = detectedById.get(id);
-    if (!det || !det.installed) {
+    if (!det?.installed) {
       setResult(results, id, {
         status: 'skipped',
         reason: det?.reason ?? 'not in catalog',

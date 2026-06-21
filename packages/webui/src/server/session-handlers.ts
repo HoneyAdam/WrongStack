@@ -17,7 +17,7 @@ import {
   type DefaultTokenCounter,
   type SessionStore,
   type ToolRegistry,
-  createStrategyCompactor,
+  type createStrategyCompactor,
   repairToolUseAdjacency,
   resolveContextWindowPolicy,
 } from '@wrongstack/core';

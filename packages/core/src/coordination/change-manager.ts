@@ -168,7 +168,7 @@ export class ChangeManager {
    */
   async submitForReview(changeId: string): Promise<void> {
     const change = this.graph.get(changeId) as ChangeNode | undefined;
-    if (!change || change.type !== 'change') {
+    if (change?.type !== 'change') {
       throw new Error(`ChangeManager: no change found "${changeId}"`);
     }
     if (change.status !== 'proposed') {
@@ -245,7 +245,7 @@ export class ChangeManager {
     reason: string,
   ): Promise<ChangeNode | null> {
     const original = this.graph.get(appliedChangeId) as ChangeNode | undefined;
-    if (!original || original.type !== 'change') return null;
+    if (original?.type !== 'change') return null;
 
     // For now, rollback reverses the file list (create↔delete, modify is harder)
     // A full implementation would parse the original diff and create a reverse diff.

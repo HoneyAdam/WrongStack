@@ -108,7 +108,7 @@ function buildSyncCommand(
             };
           }
           const [repo, token, ...cats] = parts;
-          if (!repo || !repo.includes('/')) {
+          if (!repo?.includes('/')) {
             return { message: 'Invalid repo format. Expected "owner/repo".' };
           }
 

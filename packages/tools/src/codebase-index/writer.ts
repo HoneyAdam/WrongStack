@@ -187,7 +187,7 @@ export class IndexStore {
         }
         // Exponential backoff: 50ms → 100ms → 200ms, capped at 500ms.
         const delay = Math.min(
-          LOCK_RETRY_BASE_DELAY_MS * Math.pow(2, attempt),
+          LOCK_RETRY_BASE_DELAY_MS * 2 ** attempt,
           LOCK_RETRY_MAX_DELAY_MS,
         );
         sleepSync(delay);

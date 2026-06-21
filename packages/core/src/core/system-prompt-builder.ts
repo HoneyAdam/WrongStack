@@ -121,7 +121,6 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
       case 'light':      return 50;
       case 'medium':     return 60;
       case 'aggressive': return 70;
-      case 'off':
       default:            return 80;
     }
   }
@@ -592,7 +591,7 @@ editing this SAME working tree while you run. Before you commit:
 ## MCP tools (lazy-loaded)
 
 MCP server tools are NOT registered by default in token-saving mode to keep
-the prompt compact. Each server\'s process is running in the background; only
+the prompt compact. Each server's process is running in the background; only
 tool registration is deferred.
 
 **Preferred approach** — one-shot meta-tool:
@@ -611,10 +610,10 @@ the server connection — only tool visibility changes.` : `
 ## MCP tools (lazy-loaded)
 
 MCP server tools are NOT registered by default in token-saving mode to keep
-the prompt compact. Each server\'s process is running in the background; only
+the prompt compact. Each server's process is running in the background; only
 tool registration is deferred.
 
-When you need a specific MCP server\'s tools:
+When you need a specific MCP server's tools:
 1. \`mcp_control({ action: "list" })\` — see which servers are connected
 2. \`mcp_control({ action: "activate", server: "<name>" })\` — register its tools
 3. Use the tools as needed

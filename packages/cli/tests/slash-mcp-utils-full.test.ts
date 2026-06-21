@@ -5,7 +5,6 @@ import * as os from 'node:os';
 import { parseMcpArgs, runMcpManagementCommand } from '../src/slash-commands/mcp-utils.js';
 import type { Config, MCPServerConfig } from '@wrongstack/core';
 
-// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape sequences are valid here
 const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, '');
 
 let tmp: string;

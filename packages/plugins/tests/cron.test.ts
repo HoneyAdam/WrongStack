@@ -113,7 +113,7 @@ describe('cron plugin', () => {
       if (parts.length === 5) {
         const minutePart = parts[1];
         if (minutePart?.startsWith('*/')) {
-          return Number.parseInt(minutePart.slice(2)) * 60_000;
+          return Number.parseInt(minutePart.slice(2), 10) * 60_000;
         }
       }
     }

@@ -1,4 +1,4 @@
-const fs = require('fs');
+const fs = require('node:fs');
 const path = 'D:/Codebox/PROJECTS/WrongStack/packages/webui/src/components/AgentFlowGraph';
 try {
   fs.rmSync(path, { recursive: true, force: true });

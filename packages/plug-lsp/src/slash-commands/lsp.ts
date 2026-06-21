@@ -144,7 +144,6 @@ export function buildLspCommand(ctx: LspContext): SlashCommand {
           return { message: 'To enable a server, ensure `enabled: true` is set (or absent — it defaults to true)\nin its config entry, then run `/lsp start <name>`.' };
         case 'disable':
           return { message: 'To disable a server, set `enabled: false` in its config entry,\nthen run `/lsp stop <name>` to stop it.' };
-        case 'help':
         default:
           return { message: this.help ?? this.description };
       }

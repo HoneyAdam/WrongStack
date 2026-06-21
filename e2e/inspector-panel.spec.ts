@@ -112,7 +112,7 @@ test.describe('InspectorPanel', () => {
       const agentsTab = page.getByRole('tab', { name: /agent/i }).first();
       if (await agentsTab.isVisible()) {
         // Tab should be active
-        const isActive = await agentsTab.getAttribute('aria-selected');
+        const _isActive = await agentsTab.getAttribute('aria-selected');
         // Any outcome is fine — just verify no crash
       }
     }

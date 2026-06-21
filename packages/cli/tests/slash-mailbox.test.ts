@@ -8,7 +8,6 @@ import { touchProjectInManifest, loadManifest } from '../src/slash-commands/proj
 import type { SlashCommandContext } from '../src/slash-commands/index.js';
 
 function stripAnsi(s: string): string {
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI stripping
   return s.replace(/\[[0-9;]*m/g, '');
 }
 

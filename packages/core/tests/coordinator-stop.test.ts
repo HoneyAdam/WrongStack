@@ -42,7 +42,7 @@ describe('AutonomousCoordinator stop()', () => {
 
     // Start run() — it will exit quickly since brain denies immediately,
     // but we call stop() BEFORE it exits by using a synchronous spy on the loop
-    let runningDuringStop = false;
+    const runningDuringStop = false;
     const originalStop = coordinator.stop.bind(coordinator);
     coordinator.stop = () => {
       // Access running state indirectly by checking if stop log was emitted

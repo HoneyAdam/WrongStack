@@ -300,15 +300,8 @@ export class DefaultSessionStore implements SessionStore {
       // Stat the file first to check the cache. The stat is cheap (no content
       // read) and lets us skip the full readFile + JSON parse when the file
       // hasn't changed since the last load.
-      let stat: { mtimeMs: number; size: number };
-      try {
-        const s = await fsp.stat(file);
-        stat = { mtimeMs: s.mtimeMs, size: s.size };
-      } catch (err) {
-        // File doesn't exist or can't be stat'd — fall through to the
-        // readFile path which will throw the original ENOENT.
-        throw err;
-      }
+      const s = await fsp.stat(file);
+      const stat: { mtimeMs: number; size: number } = { mtimeMs: s.mtimeMs, size: s.size };
 
       // Check cache: if mtimeMs AND size match, the file hasn't changed.
       const cached = this._loadCache.get(id);

@@ -99,7 +99,7 @@ function parseRawNumbered(content: string): ParseNextStepsResult {
     if (!m) continue; // skip non-item lines in raw mode
 
     const numPart = m[1];
-    let text = m[2]!.trim();
+    const text = m[2]!.trim();
     const hasAuto = !!m[3]; // auto="true" captured in group 3
     let index: number;
 
@@ -148,7 +148,7 @@ function parseWithHeading(content: string, strict: boolean): ParseNextStepsResul
     if (!m) break; // non-item line — block ends
 
     const numPart = m[1];
-    let text = m[2]!.trim();
+    const text = m[2]!.trim();
     const hasAuto = !!m[3]; // auto="true" captured in group 3
     let index: number;
 

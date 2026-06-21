@@ -1,10 +1,10 @@
 import type { Mailbox, MailboxAgentStatus, MailboxMessage } from '../coordination/mailbox-types.js';
-import {
-  type HqMailboxAgentSummary,
-  type HqMailboxEventPayload,
-  type HqMailboxMessageSummary,
-  type HqMailboxSnapshotPayload,
-  type HqRedactionPolicy,
+import type {
+  HqMailboxAgentSummary,
+  HqMailboxEventPayload,
+  HqMailboxMessageSummary,
+  HqMailboxSnapshotPayload,
+  HqRedactionPolicy,
 } from './protocol.js';
 import { redactHqValue } from './redaction.js';
 

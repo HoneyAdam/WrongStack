@@ -88,8 +88,6 @@ describe('T1: denied pre-empt falls through to deadline', () => {
     const timeoutMs = 100;
     const preEmptEvents: Array<{ kind: string; used: number; limit: number }> = [];
     const deadlineEvents: Array<{ kind: string; used: number; limit: number }> = [];
-    let preEmptDenials = 0;
-    let deadlineDenials = 0;
 
     const factory = async () => {
       const events = new EventBus();

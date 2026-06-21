@@ -29,7 +29,6 @@ const { registerBuiltinTools } = await import('../../src/boot/tool-registry.js')
 
 function makeFakeToolRegistry() {
   const calls: { kind: string; toolName: string; isDefault: boolean }[] = [];
-  let nextDefault = false;
   return {
     registry: {
       registerAllOrThrow: vi.fn((_tools: unknown, packName: string) => {
@@ -38,7 +37,7 @@ function makeFakeToolRegistry() {
       registerDefault: vi.fn((_tool: unknown) => {
         calls.push({ kind: 'default', toolName: '<default>', isDefault: true });
       }),
-      register: vi.fn((tool: unknown) => {
+      register: vi.fn((_tool: unknown) => {
         // Each tool factory is a function; we capture the
         // shape by storing the function reference. The
         // helper calls register(tool) with a tool instance.

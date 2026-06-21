@@ -497,7 +497,7 @@ export class SubagentBudget {
     limit: number;
   }): Promise<BudgetThresholdDecision> {
     const bus = this._events;
-    if (!bus || !bus.hasListenerFor('budget.threshold_reached')) {
+    if (!bus?.hasListenerFor('budget.threshold_reached')) {
       return Promise.resolve('stop');
     }
     return new Promise<BudgetThresholdDecision>((resolve) => {

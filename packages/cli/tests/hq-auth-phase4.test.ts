@@ -13,7 +13,6 @@
  */
 import {
   HQ_AUTH_FILE_VERSION,
-  HQ_PROTOCOL_VERSION,
   readHqAuthFile,
   writeHqAuthFile,
   type HqAuthFile,

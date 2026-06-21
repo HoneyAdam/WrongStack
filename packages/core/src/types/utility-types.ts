@@ -28,7 +28,7 @@
  * type Working = DistributiveOmit<Entry, 'id'>; // { kind: 'user'; text } | { kind: 'tool'; name }
  * ```
  */
-export type DistributiveOmit<T, K extends keyof any> = T extends unknown
+export type DistributiveOmit<T, K extends string | number | symbol> = T extends unknown
   ? Omit<T, K>
   : never;
 
@@ -47,6 +47,6 @@ export type DistributiveOmit<T, K extends keyof any> = T extends unknown
  * type Working = DistributivePick<Entry, 'id' | 'kind'>; // { id; kind: 'user' } | { id; kind: 'tool' }
  * ```
  */
-export type DistributivePick<T, K extends keyof any> = T extends unknown
+export type DistributivePick<T, K extends string | number | symbol> = T extends unknown
   ? Pick<T, K & keyof T>
   : never;

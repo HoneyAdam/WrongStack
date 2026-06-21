@@ -41,7 +41,7 @@ function runCommand(
       windowsHide: true,
       // On POSIX: no shell → command string is a literal argument.
       // On Windows: shell:true → cmd.exe /c "..." handles quoting.
-      shell: process.platform === 'win32' ? true : false,
+      shell: process.platform === 'win32',
     };
     execFile(cmd, [], opts, (error, stdout, stderr) => {
       resolve({

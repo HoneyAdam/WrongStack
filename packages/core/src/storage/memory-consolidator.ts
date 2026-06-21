@@ -143,7 +143,7 @@ export class SessionMemoryConsolidator implements AgentExtension {
     if (result.iterations < this.minIterations) return;
 
     const provider = this.provider ?? ctx.provider;
-    if (!provider || !provider.complete) return;
+    if (!provider?.complete) return;
 
     try {
       // Load existing memory for dedup context
@@ -201,7 +201,7 @@ export class SessionMemoryConsolidator implements AgentExtension {
             break;
           }
           case 'edit': {
-            if (op.query && op.text && op.text.trim()) {
+            if (op.query && op.text?.trim()) {
               await this.memoryStore.forget(op.query);
               await this.memoryStore.remember(op.text.trim(), undefined, {
                 type: op.type as MemoryEntry['type'],

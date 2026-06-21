@@ -91,7 +91,7 @@ function hasToolResult(msg: Message | undefined): boolean {
 
 function toolUseIds(msg: Message | undefined): Set<string> {
   const ids = new Set<string>();
-  if (!msg || msg.role !== 'assistant') return ids;
+  if (msg?.role !== 'assistant') return ids;
   for (const block of contentBlocks(msg)) {
     if (block.type === 'tool_use') ids.add(block.id);
   }
@@ -100,7 +100,7 @@ function toolUseIds(msg: Message | undefined): Set<string> {
 
 function toolResultIds(msg: Message | undefined): Set<string> {
   const ids = new Set<string>();
-  if (!msg || msg.role !== 'user') return ids;
+  if (msg?.role !== 'user') return ids;
   for (const block of contentBlocks(msg)) {
     if (block.type === 'tool_result') ids.add(block.tool_use_id);
   }

@@ -93,7 +93,7 @@ export function expandIPv6(addr: string): number[] | null {
 
   if (parts.length === 1) {
     const groups = parseGroups(parts[0] ?? '');
-    if (!groups || groups.length !== 8) return null;
+    if (groups?.length !== 8) return null;
     return groups;
   }
 

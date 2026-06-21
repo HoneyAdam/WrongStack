@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildWorktreeCommand } from '../src/slash-commands/worktree.js';
 import { buildBuiltinSlashCommands } from '../src/slash-commands/index.js';
-import type { Context, SlashCommandContext } from '@wrongstack/core';
+import type { SlashCommandContext } from '@wrongstack/core';
 import type { ToolRegistry, TokenCounter } from '../src/slash-commands/index.js';
 
 function ctx(extra: object = {}): SlashCommandContext {

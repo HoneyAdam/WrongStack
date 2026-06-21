@@ -90,7 +90,7 @@ export function onResize(
  * `if (input.isTTY) input.setRawMode(...)` ceremony at every call site.
  */
 export function setRawMode(input: NodeJS.ReadStream, mode: boolean): boolean {
-  if (!input || input.isTTY !== true) return false;
+  if (input?.isTTY !== true) return false;
   if (typeof input.setRawMode !== 'function') return false;
   input.setRawMode(mode);
   return true;

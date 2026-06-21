@@ -12,7 +12,7 @@
  * This test verifies that ordering: append must be called and resolved
  * before close() is allowed to proceed.
  */
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { EventBus } from '@wrongstack/core';
 import type { SessionWriter, SessionEvent } from '@wrongstack/core';
 
@@ -215,8 +215,6 @@ describe('chimera session.close ordering', () => {
   it('no chimera files → close proceeds immediately', async () => {
     const events = new EventBus();
     const session = makeSessionWriter();
-    const director = makeDirector();
-
     // Emit session.ended without chimera files
     events.emit('session.ended', { id: session.id, usage: { input: 0, output: 0 } });
     await session.close();

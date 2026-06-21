@@ -102,7 +102,7 @@ export class ConsensusProtocol {
    */
   async initiateVote(changeId: string): Promise<void> {
     const change = this.graph.get(changeId) as ChangeNode | undefined;
-    if (!change || change.type !== 'change') {
+    if (change?.type !== 'change') {
       throw new Error(`ConsensusProtocol: no change found with id "${changeId}"`);
     }
     await this.graph.update(changeId, { status: 'proposed', votes: [] });
@@ -121,7 +121,7 @@ export class ConsensusProtocol {
     rationale?: string,
   ): Promise<ConsensusResult> {
     const change = this.graph.get(changeId) as ChangeNode | undefined;
-    if (!change || change.type !== 'change') {
+    if (change?.type !== 'change') {
       throw new Error(`ConsensusProtocol: no change found for "${changeId}"`);
     }
 
@@ -193,7 +193,7 @@ export class ConsensusProtocol {
    */
   getStatus(changeId: string): ConsensusResult | null {
     const change = this.graph.get(changeId) as ChangeNode | undefined;
-    if (!change || change.type !== 'change') return null;
+    if (change?.type !== 'change') return null;
     const eligible = this._eligibleVoters(change);
     return this._resolve(changeId, change.votes, eligible);
   }

@@ -159,7 +159,7 @@ export async function runShellHook(
 
 function parseOutcome(stdout: string): HookOutcome | null {
   const trimmed = stdout.trim();
-  if (!trimmed || trimmed[0] !== '{') return null;
+  if (trimmed?.[0] !== '{') return null;
   try {
     const obj = JSON.parse(trimmed) as Record<string, unknown>;
     const outcome: HookOutcome = {};

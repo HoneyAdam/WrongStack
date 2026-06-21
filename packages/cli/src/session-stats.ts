@@ -92,8 +92,7 @@ export class SessionStats {
   destroy(events: EventBus): void {
     for (const { event, handler } of this._handlers) {
       // event is a string literal known to be a valid EventName — safe cast
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (events.off as (e: string, h: (...args: any) => void) => void)(event, handler);
+      (events.off as (e: string, h: (...args: unknown[]) => void) => void)(event, handler);
     }
     this._handlers.length = 0;
   }

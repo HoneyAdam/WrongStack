@@ -124,7 +124,7 @@ export class TaskDAG {
     // Mark dependents with no remaining deps as ready
     for (const depId of node.dependents) {
       const dep = this.nodes.get(depId);
-      if (dep && dep.deps.every((d) => !this.nodes.has(d) || this.nodes.get(d)!.status === 'done')) {
+      if (dep?.deps.every((d) => !this.nodes.has(d) || this.nodes.get(d)!.status === 'done')) {
         this._transition(depId, 'pending', 'ready');
       }
     }

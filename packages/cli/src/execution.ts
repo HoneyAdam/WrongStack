@@ -862,7 +862,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
             if (!autonomousCoordinator) return 'No coordinator is active.';
             await autonomousCoordinator.graph.load();
             const goal = autonomousCoordinator.graph.get(taskId) as import('@wrongstack/core').GoalNode | undefined;
-            if (!goal || goal.type !== 'goal') return `Task ${taskId.slice(0, 8)} not found.`;
+            if (goal?.type !== 'goal') return `Task ${taskId.slice(0, 8)} not found.`;
             if (goal.status !== 'pending') return `Task ${taskId.slice(0, 8)} is ${goal.status}, not claimable.`;
             const ok = await autonomousCoordinator.auction.claim(
               taskId, `terminal@${context.session.id ?? 'unknown'}`, 'Terminal worker',
@@ -874,7 +874,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
             if (!autonomousCoordinator) return 'No coordinator is active.';
             await autonomousCoordinator.graph.load();
             const goal = autonomousCoordinator.graph.get(taskId) as import('@wrongstack/core').GoalNode | undefined;
-            if (!goal || goal.type !== 'goal') return `Task ${taskId.slice(0, 8)} not found.`;
+            if (goal?.type !== 'goal') return `Task ${taskId.slice(0, 8)} not found.`;
             if (goal.status !== 'in_progress') return `Task ${taskId.slice(0, 8)} is ${goal.status}, cannot complete.`;
             await autonomousCoordinator.reportTaskCompletion(taskId, result ?? 'Terminal worker completed the task');
             return null;
@@ -883,7 +883,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
             if (!autonomousCoordinator) return 'No coordinator is active.';
             await autonomousCoordinator.graph.load();
             const goal = autonomousCoordinator.graph.get(taskId) as import('@wrongstack/core').GoalNode | undefined;
-            if (!goal || goal.type !== 'goal') return `Task ${taskId.slice(0, 8)} not found.`;
+            if (goal?.type !== 'goal') return `Task ${taskId.slice(0, 8)} not found.`;
             if (goal.status !== 'in_progress') return `Task ${taskId.slice(0, 8)} is ${goal.status}, cannot fail.`;
             await autonomousCoordinator.reportTaskFailure(taskId, error);
             return null;
@@ -1487,7 +1487,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
             const goal = coordinator.graph.get(taskId) as
               | import('@wrongstack/core').GoalNode
               | undefined;
-            if (!goal || goal.type !== 'goal') {
+            if (goal?.type !== 'goal') {
               return `Task ${taskId.slice(0, 8)} not found in the coordinator graph.`;
             }
             if (goal.status !== 'pending') {
@@ -1510,7 +1510,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
             const goal = coordinator.graph.get(taskId) as
               | import('@wrongstack/core').GoalNode
               | undefined;
-            if (!goal || goal.type !== 'goal') {
+            if (goal?.type !== 'goal') {
               return `Task ${taskId.slice(0, 8)} not found in the coordinator graph.`;
             }
             if (goal.status !== 'in_progress') {
@@ -1526,7 +1526,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
             const goal = coordinator.graph.get(taskId) as
               | import('@wrongstack/core').GoalNode
               | undefined;
-            if (!goal || goal.type !== 'goal') {
+            if (goal?.type !== 'goal') {
               return `Task ${taskId.slice(0, 8)} not found in the coordinator graph.`;
             }
             if (goal.status !== 'in_progress') {

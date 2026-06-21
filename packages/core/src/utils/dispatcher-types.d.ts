@@ -61,4 +61,3 @@ declare global {
  */
 export type HttpsAgentAsDispatcher = https.Agent;
 
-export {};

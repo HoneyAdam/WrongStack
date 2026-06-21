@@ -1,6 +1,3 @@
-import * as path from 'node:path';
-import * as os from 'node:os';
-import * as fs from 'node:fs/promises';
 import { Writable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 

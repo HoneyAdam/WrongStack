@@ -2,7 +2,7 @@ import { expectDefined } from '@wrongstack/core';
 import type { EventBus, TokenCounter, AutonomyStage } from '@wrongstack/core';
 import { Box, Text, useStdout } from '../ink.js';
 import type React from 'react';
-import { type ChipMeta } from './statusline-picker.js';
+import type { ChipMeta } from './statusline-picker.js';
 import type { StatuslineMode } from './settings-picker.js';
 import { useEffect, useState } from 'react';
 import { useTokenCounterRefresh } from '../hooks/use-token-counter-refresh.js';

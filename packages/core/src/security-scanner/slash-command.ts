@@ -230,7 +230,7 @@ function parseArgs(args: string): Record<string, string> {
 
   for (let i = 0; i < parts.length; i++) {
     const part = parts[i];
-    if (!part || !part.startsWith('--')) continue;
+    if (!part?.startsWith('--')) continue;
 
     const key = part.slice(2);
     const next = parts[i + 1];

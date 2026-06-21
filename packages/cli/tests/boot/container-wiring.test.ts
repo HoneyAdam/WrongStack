@@ -131,7 +131,7 @@ describe('wireContainer (PR 3 of #29)', () => {
     // that the subscriber receives the payload \u2014 the logger
     // is attached internally and not observable from outside,
     // but the call returns successfully.
-    let received: unknown = undefined;
+    let received: unknown;
     events.on('test.topic', (msg: unknown) => {
       received = msg;
     });

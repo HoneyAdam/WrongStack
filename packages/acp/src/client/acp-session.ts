@@ -422,7 +422,7 @@ export class ACPSession {
     }
 
     // terminal/* requests
-    if (msg.method && msg.method.startsWith('terminal/')) {
+    if (msg.method?.startsWith('terminal/')) {
       void this.handleTerminalRequest(msg);
       return;
     }

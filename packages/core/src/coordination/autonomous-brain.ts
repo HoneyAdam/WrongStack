@@ -47,7 +47,7 @@ import type { DecisionNode, GoalNode, FactNode, ChangeNode } from './knowledge-g
 import type { KnowledgeGraph } from './knowledge-graph.js';
 import type { FleetBus } from './fleet-bus.js';
 
-export { type BrainRisk };
+export type { BrainRisk };
 
 // ── Extended decision request types ─────────────────────────────────────
 

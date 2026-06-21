@@ -247,7 +247,7 @@ export class TaskAuctioneer {
     agentRole: string;
   }, rationale: string): Promise<boolean> {
     const goal = this.graph.get(taskId) as GoalNode | undefined;
-    if (!goal || goal.type !== 'goal') return false;
+    if (goal?.type !== 'goal') return false;
     if (goal.status !== 'pending') return false;
 
     // Check agent capacity
@@ -312,7 +312,7 @@ export class TaskAuctioneer {
    */
   async claim(taskId: string, agentId: string, agentName: string): Promise<boolean> {
     const goal = this.graph.get(taskId) as GoalNode | undefined;
-    if (!goal || goal.type !== 'goal') return false;
+    if (goal?.type !== 'goal') return false;
     if (goal.status !== 'pending') return false;
 
     // Clear any bid window

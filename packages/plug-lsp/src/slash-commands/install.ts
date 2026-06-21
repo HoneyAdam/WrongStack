@@ -205,7 +205,7 @@ function detectPackageManagerSync(cwd: string): PackageManager {
 
 function existsSync(filePath: string): boolean {
   try {
-    require('fs').accessSync(filePath);
+    require('node:fs').accessSync(filePath);
     return true;
   } catch {
     return false;

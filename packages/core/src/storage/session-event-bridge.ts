@@ -202,7 +202,7 @@ export function createSessionEventBridge(
 
       try {
         await target.append(event);
-      } catch (err) {
+      } catch (_err) {
         // Best-effort: never let session logging break the agent.
         // The existing FileSessionWriter already does throttled warnings,
         // but we keep this wrapper silent by default to avoid log spam.

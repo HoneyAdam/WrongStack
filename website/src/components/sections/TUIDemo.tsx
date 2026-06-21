@@ -57,7 +57,6 @@ export function TUIDemo() {
   const [runId, setRunId] = useState(0);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: runId is a replay trigger — bumping it restarts the animation even though it isn't read here.
   useEffect(() => {
     timers.current.forEach(clearTimeout);
     timers.current = [];
