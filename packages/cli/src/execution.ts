@@ -8,7 +8,6 @@ import * as path from 'node:path';
 import {
   type Agent,
   type AttachmentStore,
-  AutonomousCoordinator,
   type CoordinatorEvent,
   type ChimeraReviewNeededPayload,
   type Config,
@@ -54,6 +53,8 @@ import { runWebUIDispatch } from './boot/dispatch-webui.js';
 import { runSingleShotDispatch } from './boot/dispatch-singleshot.js';
 import { wireAutoPhase } from './boot/tui-autophase-wiring.js';
 import { handleProjectSwitchSpawn } from './boot/tui-project-spawn.js';
+import { setupAutonomousCoordinator } from './boot/tui-coordinator-setup.js';
+import type { TuiRuntimeState } from './boot/tui-runtime-state.js';
 import type { ReadlineInputReader } from './input-reader.js';
 import { type PredictLLMProvider, predictNextTasks } from './next-task-predictor.js';
 import type { TerminalRenderer } from './renderer.js';
@@ -587,6 +588,22 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
         runTui: (opts: import('@wrongstack/tui').RunTuiOptions) => Promise<number>;
       };
       renderer.setSilent(true);
+
+      // Shared mutable runtime state for extracted TUI sub-modules.
+      // Phase B modules (coordinator setup, project switch) mutate these
+      // fields through the shared object rather than closure capture.
+      const state: TuiRuntimeState = {
+        projectRoot,
+        wpaths,
+        activeSessionStore,
+        activeRecoveryLock,
+        detachActiveTodosCheckpoint,
+        pendingProjectSwitch: null,
+        autonomousCoordinator: null,
+        coordinatorRun: null,
+        coordinatorEvents: new Set(),
+      };
+
       const banneredFamily = savedProviderCfg?.family ?? resolvedProvider?.family;
       const banneredKey =
         (savedProviderCfg ? resolveActiveApiKey(savedProviderCfg) : undefined) ??
@@ -617,172 +634,27 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
       // runTui returns PROJECT_SWITCH_EXIT_CODE to spawn the new wstack
       // process. `resumeSessionId` makes the new instance resume that
       // session (`--resume <id>`) instead of starting fresh.
-      let pendingProjectSwitch: {
-        root: string;
-        name: string;
-        resumeSessionId?: string | undefined;
-      } | null = null;
+      // (Lives on `state.pendingProjectSwitch` — set by TUI callbacks, read by handleProjectSwitchSpawn.)
 
       // ── AutonomousCoordinator: project-level multi-session coordination ─────────
       // The coordinator tracks goals, tasks, knowledge, and consensus across all
       // active sessions in the same project. Initialized lazily when the Director
       // becomes available so we have access to director.fleet for cross-session events.
       const coordinatorEvents = new Set<(event: CoordinatorEvent) => void>();
-      let autonomousCoordinator: AutonomousCoordinator | null = null;
-      let coordinatorRun: Promise<void> | null = null;
-
-      const ensureAutonomousCoordinator = (): AutonomousCoordinator | null => {
-        if (autonomousCoordinator) return autonomousCoordinator;
-        const currentDirector = getDirector?.() ?? director;
-        if (!currentDirector) return null;
-
-        // Resolve the session dir from the transcript path (e.g.
-        // "~/.wrongstack/.../sessions/<id>.jsonl" → parent dir). Fall back
-        // to the global project dir when the writer is in-memory.
-        const transcript = context.session.transcriptPath;
-        const sessionDir = transcript
-          ? path.dirname(transcript)
-          : wpaths.projectDir;
-        // Adapt Context.provider (Wire provider) to AutonomousBrain.LLMProvider
-        // (one-method LLM call). The brain calls decide(prompt) → option+rationale.
-        const llmProvider: import('@wrongstack/core').LLMProvider = {
-          decide: async (prompt) => {
-            const sysPrompt = [
-              {
-                type: 'text' as const,
-                text: 'You are the autonomous brain of a multi-agent coordination system. '
-                  + 'Pick the best option for the decision described and reply with JSON: '
-                  + '{"optionId":"<id>","rationale":"<short why>"}.',
-              },
-            ];
-            const userPrompt = {
-              type: 'text' as const,
-              text: `Decision: ${prompt.question}\n\n`
-                + `Context: ${JSON.stringify(prompt.context)}\n\n`
-                + `Options:\n${prompt.options
-                  .map((o, i) => `  ${i + 1}. [${o.id}] ${o.label}${o.consequence ? ` — ${o.consequence}` : ''}`)
-                  .join('\n')}\n\n`
-                + `Risk: ${prompt.risk}\n\n`
-                + 'Reply with ONLY the JSON object.',
-            };
-            const resp = await context.provider.complete(
-              {
-                model: context.model,
-                system: sysPrompt,
-                messages: [
-                  {
-                    role: 'user',
-                    content: [userPrompt],
-                  },
-                ],
-                maxTokens: 1024,
-                temperature: 0,
-              },
-              { signal: context.signal },
-            );
-            const text = resp.content
-              .filter((b): b is { type: 'text'; text: string } => (b as { type?: string }).type === 'text')
-              .map((b) => b.text)
-              .join('\n')
-              .trim();
-            // Parse the JSON, tolerate code fences.
-            const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/```$/, '').trim();
-            try {
-              const parsed = JSON.parse(cleaned) as { optionId?: string; rationale?: string };
-              const optId = parsed.optionId ?? prompt.options[0]?.id ?? '';
-              return { optionId: optId, rationale: parsed.rationale ?? '' };
-            } catch {
-              // Fallback: pick the first option.
-              return { optionId: prompt.options[0]?.id ?? '', rationale: text };
-            }
-          },
-        };
-        autonomousCoordinator = new AutonomousCoordinator({
-          sessionDir,
-          fleet: currentDirector.fleet,
-          fleetManager: currentDirector.fleetManager,
-          director: currentDirector,
-          mailbox: mailbox as unknown as import('@wrongstack/core').Mailbox,
-          selfAgentId: `leader@${context.session.id ?? 'unknown'}`,
-          selfAgentName: 'Leader',
-          llmProvider,
-          onCoordinatorEvent: (event) => {
-            for (const fn of coordinatorEvents) fn(event);
-          },
-        });
-        // Wire the stop call so execute()'s finally block can cleanly shut down
-        // the coordinator when the TUI exits (Ctrl+C, /exit, or session end).
-        deps.onCoordinatorStop = () => autonomousCoordinator?.dispose();
-
-        // Populate the mutable controller so slash commands (built before
-        // execute() was called) can reach the coordinator callbacks.
-        if (coordinatorController) {
-          coordinatorController['onCoordinatorStart'] = (goal?: string) => {
-            const coordinator = autonomousCoordinator;
-            if (!coordinator) return;
-            coordinator.run({ goal: goal ?? 'Improve the codebase', runUntilComplete: true })
-              .then(() => undefined)
-              .catch((err: unknown) => console.error('[coordinator] run() failed:', err));
-          };
-          coordinatorController['onCoordinatorStop'] = () => autonomousCoordinator?.stop();
-          coordinatorController['onCoordinatorTasks'] = async () => {
-            if (!autonomousCoordinator) return null;
-            await autonomousCoordinator.graph.load();
-            return autonomousCoordinator.auction
-              .getPendingTasks()
-              .map((task) => ({ id: task.id, title: task.title, priority: task.priority, tags: task.tags }));
-          };
-          coordinatorController['onCoordinatorClaim'] = async (taskId: string) => {
-            if (!autonomousCoordinator) return 'No coordinator is active.';
-            await autonomousCoordinator.graph.load();
-            const goal = autonomousCoordinator.graph.get(taskId) as import('@wrongstack/core').GoalNode | undefined;
-            if (goal?.type !== 'goal') return `Task ${taskId.slice(0, 8)} not found.`;
-            if (goal.status !== 'pending') return `Task ${taskId.slice(0, 8)} is ${goal.status}, not claimable.`;
-            const ok = await autonomousCoordinator.auction.claim(
-              taskId, `terminal@${context.session.id ?? 'unknown'}`, 'Terminal worker',
-            );
-            if (!ok) return `Task ${taskId.slice(0, 8)} could not be claimed.`;
-            return { description: goal.description };
-          };
-          coordinatorController['onCoordinatorComplete'] = async (taskId: string, result?: string) => {
-            if (!autonomousCoordinator) return 'No coordinator is active.';
-            await autonomousCoordinator.graph.load();
-            const goal = autonomousCoordinator.graph.get(taskId) as import('@wrongstack/core').GoalNode | undefined;
-            if (goal?.type !== 'goal') return `Task ${taskId.slice(0, 8)} not found.`;
-            if (goal.status !== 'in_progress') return `Task ${taskId.slice(0, 8)} is ${goal.status}, cannot complete.`;
-            await autonomousCoordinator.reportTaskCompletion(taskId, result ?? 'Terminal worker completed the task');
-            return null;
-          };
-          coordinatorController['onCoordinatorFail'] = async (taskId: string, error: string) => {
-            if (!autonomousCoordinator) return 'No coordinator is active.';
-            await autonomousCoordinator.graph.load();
-            const goal = autonomousCoordinator.graph.get(taskId) as import('@wrongstack/core').GoalNode | undefined;
-            if (goal?.type !== 'goal') return `Task ${taskId.slice(0, 8)} not found.`;
-            if (goal.status !== 'in_progress') return `Task ${taskId.slice(0, 8)} is ${goal.status}, cannot fail.`;
-            await autonomousCoordinator.reportTaskFailure(taskId, error);
-            return null;
-          };
-          coordinatorController['onCoordinatorStatus'] = async () => {
-            if (!autonomousCoordinator) return null;
-            await autonomousCoordinator.syncFromGraph();
-            const stats = autonomousCoordinator.getStats();
-            return {
-              goals: { total: stats.goals.total, done: stats.goals.done, pending: stats.goals.pending, failed: stats.goals.failed },
-              dag: { running: stats.dag.running, ready: stats.dag.ready, done: stats.dag.done, failed: stats.dag.failed },
-              auction: { pending: stats.auction.pending, inProgress: stats.auction.in_progress },
-            };
-          };
-        }
-
-        return autonomousCoordinator;
-      };
-
-      // Hook into Director lifecycle: Director is created lazily on first subagent.spawned.
-      // If it already exists, wire immediately; otherwise wait for the spawn event.
-      if (director) ensureAutonomousCoordinator();
-      const offDirectorSpawned = events.onPattern('subagent.spawned', () => {
-        if (ensureAutonomousCoordinator()) offDirectorSpawned();
+      state.coordinatorEvents = coordinatorEvents;
+      const coordinatorSetup = setupAutonomousCoordinator({
+        state,
+        events,
+        context,
+        wpaths,
+        mailbox,
+        director,
+        getDirector,
+        coordinatorController,
+        onCoordinatorStopSetter: (fn) => { deps.onCoordinatorStop = fn ?? undefined; },
       });
+      const ensureAutonomousCoordinator = coordinatorSetup.ensure;
+      const offDirectorSpawned = coordinatorSetup.cleanup;
 
       const switchProjectInPlace = async (targetRoot: string, displayName: string): Promise<string | null> => {
         const resolved = path.resolve(targetRoot);
@@ -1328,18 +1200,18 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
               console.error('[coordinator] not ready — no director available');
               return;
             }
-            if (coordinatorRun) return;
-            coordinatorRun = coordinator.run({ goal: goal ?? 'Improve the codebase', runUntilComplete: true })
+            if (state.coordinatorRun) return;
+            state.coordinatorRun = coordinator.run({ goal: goal ?? 'Improve the codebase', runUntilComplete: true })
               .then(() => undefined)
               .catch((err) => {
                 console.error('[coordinator] run() failed:', err);
               })
               .finally(() => {
-                coordinatorRun = null;
+                state.coordinatorRun = null;
               });
           },
           onCoordinatorStop: () => {
-            autonomousCoordinator?.stop();
+            state.autonomousCoordinator?.stop();
           },
           onCoordinatorTasks: async () => {
             const coordinator = ensureAutonomousCoordinator();
@@ -1501,7 +1373,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
             // running: two raw-mode processes fighting over one terminal,
             // and a stray `AbortSignal.timeout(30_000)` that SIGTERM'd the
             // new instance 30 seconds in.
-            pendingProjectSwitch = { root: targetRoot, name: projectName };
+            state.pendingProjectSwitch = { root: targetRoot, name: projectName };
           },
           initialGoal: goalFlag,
           initialAsk: askFlag,
@@ -1844,7 +1716,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
         // After TUI exits with PROJECT_SWITCH_EXIT_CODE, spawn wstack in the new project.
         // This replaces the old behavior of spawning mid-session (which left the TUI
         // running and corrupted the terminal state).
-        const spawnResult = await handleProjectSwitchSpawn({ code, pendingProjectSwitch });
+        const spawnResult = await handleProjectSwitchSpawn({ code, pendingProjectSwitch: state.pendingProjectSwitch });
         if (spawnResult !== null) return spawnResult;
       } finally {
         renderer.setSilent(false);
