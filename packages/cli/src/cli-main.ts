@@ -89,7 +89,7 @@ import { promptRecovery } from './cli-recovery-prompt.js';
 import { applyNodeEnvDefault, runPreflight } from './preflight.js';
 import { wireContainer } from './boot/container-wiring.js';
 import { bindSystemPromptBuilder } from './boot/system-prompt-builder.js';
-import { helpCmd, versionCmd } from './subcommands/handlers/version-help.js';
+import { handleHelpVersionShortCircuit } from './boot/short-circuit-flags.js';
 import { resolveRuntimeMaxContext } from './context-limit.js';
 import { type ExecutionDeps, execute } from './execution.js';
 import { createFallbackModelExtension } from './fallback-model.js';
@@ -155,13 +155,8 @@ export async function main(argv: string[]): Promise<number> {
   // `write` calls — we don't need a TTY-aware renderer for `--help`
   // to `wstack --help` on stdout.
   const earlyFlags = parseArgs(argv).flags;
-  if (earlyFlags['help'] === true || earlyFlags['version'] === true) {
-    const stubRenderer = {
-      write: (line: string) => { process.stdout.write(line); },
-    } as unknown as Parameters<typeof helpCmd>[1]['renderer'];
-    const handler = earlyFlags['help'] === true ? helpCmd : versionCmd;
-    return await handler([], { renderer: stubRenderer } as Parameters<typeof helpCmd>[1]);
-  }
+  const earlyExit = await handleHelpVersionShortCircuit(argv);
+  if (earlyExit !== null) return earlyExit;
 
   // --hq starts the HQ command center server (no project root, no agent).
   // Short-circuit before boot() — HQ is project-independent.
