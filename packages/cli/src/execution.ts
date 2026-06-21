@@ -1,7 +1,34 @@
 /**
  * Execution phase — single-shot, TUI, REPL, and WebUI dispatch.
- * Extracted from index.ts so the main() function focuses on
- * boot + wiring; this file owns the three run modes and cleanup.
+ *
+ * Composition root for the three run modes. The dispatch fork at the
+ * tail of `execute()` selects a mode based on flags:
+ *
+ *   `if (positional.length > 0)`        → single-shot  (boot/dispatch-singleshot.ts)
+ *   `else if (flags.tui)`               → TUI          (this file + boot/tui-*.ts)
+ *   `else if (flags.webui)`             → WebUI        (boot/dispatch-webui.ts)
+ *   `else`                              → REPL         (repl.ts)
+ *
+ * ## Extracted modules (boot/)
+ *
+ * The TUI branch was decomposed into focused sub-modules. Each owns
+ * one concern and mutates shared state through `TuiRuntimeState`:
+ *
+ *   boot/tui-runtime-state.ts            — shared mutable context type
+ *   boot/tui-autophase-wiring.ts         — AutoPhase event forwarding
+ *   boot/tui-coordinator-setup.ts        — AutonomousCoordinator factory + lifecycle hook
+ *   boot/tui-project-switch.ts           — switchProjectInPlace (re-root live process)
+ *   boot/tui-project-spawn.ts            — post-runTui project-switch spawn
+ *   boot/tui-project-picker-callback.ts  — getProjectPickerItems + onProjectSelect
+ *   boot/tui-settings-adapter.ts         — getSettings + saveSettings
+ *   boot/tui-session-resume.ts           — onResumeSession
+ *   boot/tui-live-sessions.ts            — getLiveSessions + onSwitchToSession
+ *   boot/tui-sdd-callback.ts             — getSDDContext + onSDDOutput
+ *   boot/tui-debug-stream.ts             — registerDebugStreamCallback + restoreDebugStreamCallback
+ *
+ * Adding a new TUI callback: create a `boot/tui-<name>.ts` module,
+ * receive `TuiRuntimeState` as a parameter, and add a thin reference
+ * in the `runTui()` options literal below. Do NOT grow this file.
  */
 import * as path from 'node:path';
 import {

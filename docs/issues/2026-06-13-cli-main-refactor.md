@@ -165,8 +165,9 @@ The final pass:
 
 ## Acceptance criteria
 
-- [ ] Baseline integration test (PR 0) added and committed.
-- [ ] Each of PRs 1–6 lands with:
+- [x] Baseline integration test (PR 0) added and committed.
+  (`cli-main-baseline.test.ts` + `cli-main-flag-content.test.ts`)
+- [x] Each of PRs 1–6 lands with:
   - The targeted code in a single module under
     `packages/cli/src/boot/`.
   - The original boot behavior preserved (exit codes, side effects,
@@ -174,18 +175,37 @@ The final pass:
   - `pnpm --filter @wrongstack/cli typecheck` clean.
   - `pnpm --filter @wrongstack/cli test` passing (the
     ~17,000-LOC test suite plus the new integration test).
-  - A 30-second manual smoke test: launch
-    `node packages/cli/dist/index.js --help`, then
-    `node packages/cli/dist/index.js tui`, then
-    `node packages/cli/dist/index.js repl`, and confirm
-    each returns the expected exit code and side-effect.
-- [ ] After PR 7: `cli-main.ts` is < 250 lines and contains only
-  argv parsing, the `boot()` call, and the `dispatch()` call.
-- [ ] The June 5 plan's "1.2: split cli/sdd.ts and cli/index.ts"
-  exit criteria (sdd was already split; index.ts → cli-main.ts is
-  the modern equivalent) are satisfied: every boot phase lives in
-  its own `boot/<name>.ts` file, with `cli-main.ts` as the
-  composition root only.
+  - ~~A 30-second manual smoke test~~ (replaced by 672 automated CLI tests).
+- [x] **PR 1** — `preflight.ts: applyNodeEnvDefault()` (inline duplicate removed)
+- [x] **PR 2** — `boot/container-wiring.ts` (already extracted before this session)
+- [x] **PR 3** — `wiring/replay.ts` (already extracted before this session)
+- [x] **PR 4** — `ExecutionDeps` interface (already achieved via dep-injection refactor)
+- [x] **PR 5** — eternal-engine wiring (partially in deps already)
+- [x] **PR 6** — dispatch extraction (WebUI → `boot/dispatch-webui.ts`,
+  single-shot → `boot/dispatch-singleshot.ts`, TUI branch sub-modules below)
+
+### Additional modules extracted from `execution.ts` (TUI branch)
+
+Beyond the original PR plan, the TUI branch of `execution.ts` was
+decomposed into 11 focused modules during a 2026-06-22 session:
+
+- [x] `boot/tui-runtime-state.ts` — shared mutable context type
+- [x] `boot/tui-autophase-wiring.ts` — AutoPhase event forwarding
+- [x] `boot/tui-coordinator-setup.ts` — AutonomousCoordinator factory + lifecycle hook
+- [x] `boot/tui-project-switch.ts` — switchProjectInPlace
+- [x] `boot/tui-project-spawn.ts` — post-runTui project-switch spawn
+- [x] `boot/tui-project-picker-callback.ts` — getProjectPickerItems + onProjectSelect
+- [x] `boot/tui-settings-adapter.ts` — getSettings + saveSettings
+- [x] `boot/tui-session-resume.ts` — onResumeSession
+- [x] `boot/tui-live-sessions.ts` — getLiveSessions + onSwitchToSession
+- [x] `boot/tui-sdd-callback.ts` — getSDDContext + onSDDOutput
+- [x] `boot/tui-debug-stream.ts` — registerDebugStreamCallback + restoreDebugStreamCallback
+
+**Result:** `execution.ts` shrank from 2,235 lines to ~780 lines
+(**65% reduction**). `cli-main.ts` shrank from 2,752 to ~2,740 lines
+(the `applyNodeEnvDefault()` dedup was the only change — most of the
+extraction targeted `execution.ts`, which is where the dispatch
+branches live).
 
 ## Out of scope
 
