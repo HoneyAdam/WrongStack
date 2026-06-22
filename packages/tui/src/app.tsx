@@ -2838,6 +2838,7 @@ export function App({
     state.settingsPicker.reasoningPreserve,
     state.settingsPicker.thinkingWord,
     state.settingsPicker.cacheTtl,
+    state.settingsPicker.configScope,
     saveSettings,
   ]);
 
@@ -3962,8 +3963,8 @@ export function App({
         const now = Date.now();
         if (now - lastEnterAtRef.current < 50) return;
         lastEnterAtRef.current = now;
-        // Changes are auto-saved by the useEffect on each ←/→ press.
-        dispatch({ type: 'settingsClose' });
+        // Enter cycles the current field's value (same as ←/→).
+        dispatch({ type: 'settingsValueChange', delta: 1 });
         return;
       }
       return;
@@ -6150,6 +6151,7 @@ export function App({
               logLevel={state.settingsPicker.logLevel}
               auditLevel={state.settingsPicker.auditLevel}
               indexOnStart={state.settingsPicker.indexOnStart}
+              thinkingWord={state.settingsPicker.thinkingWord}
               maxIterations={state.settingsPicker.maxIterations}
               autoProceedMaxIterations={state.settingsPicker.autoProceedMaxIterations}
               enhanceDelayMs={state.settingsPicker.enhanceDelayMs}

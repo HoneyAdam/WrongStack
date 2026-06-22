@@ -89,6 +89,11 @@ function initial() {
       enhanceLanguage: 'original' as const,
       debugStream: false,
       statuslineMode: 'detailed' as const,
+      reasoningMode: 'auto' as const,
+      reasoningEffort: 'medium' as const,
+      reasoningPreserve: false,
+      thinkingWord: 'thinking',
+      cacheTtl: 'default' as const,
       configScope: 'global' as const,
     },
     statuslinePicker: { open: false, field: 0, hiddenItems: [], visibleChips: [] },
@@ -685,8 +690,12 @@ describe('settings picker reducer', () => {
         featureMemory: true,
         featureSkills: true,
         featureModelsRegistry: true,
+        tokenSavingTier: 'off' as const,
+        allowOutsideProjectRoot: true,
         contextAutoCompact: true,
         contextStrategy: 'hybrid' as const,
+        contextMode: 'balanced' as const,
+        maxConcurrent: 3,
         logLevel: 'info' as const,
         auditLevel: 'standard' as const,
         indexOnStart: true,
@@ -695,9 +704,14 @@ describe('settings picker reducer', () => {
         enhanceDelayMs: 60_000,
         enhanceEnabled: true,
         enhanceLanguage: 'original' as const,
+        reasoningMode: 'auto' as const,
+        reasoningEffort: 'medium' as const,
+        reasoningPreserve: false,
+        thinkingWord: 'thinking',
+        cacheTtl: 'default' as const,
         debugStream: false,
-      statuslineMode: 'detailed' as const,
-      configScope: 'global' as const,
+        statuslineMode: 'detailed' as const,
+        configScope: 'global' as const,
         ...over,
       },
     }) as unknown as Parameters<typeof reducer>[0];
@@ -718,8 +732,12 @@ describe('settings picker reducer', () => {
       featureMemory: true,
       featureSkills: true,
       featureModelsRegistry: true,
+      tokenSavingTier: 'off',
+      allowOutsideProjectRoot: true,
       contextAutoCompact: true,
       contextStrategy: 'hybrid',
+      contextMode: 'balanced',
+      maxConcurrent: 3,
       logLevel: 'info',
       auditLevel: 'standard',
       indexOnStart: true,
@@ -728,6 +746,11 @@ describe('settings picker reducer', () => {
       enhanceDelayMs: 60_000,
       enhanceEnabled: true,
       enhanceLanguage: 'original',
+      reasoningMode: 'auto',
+      reasoningEffort: 'medium',
+      reasoningPreserve: false,
+      thinkingWord: 'thinking',
+      cacheTtl: 'default',
       debugStream: false,
       statuslineMode: 'detailed' as const,
       configScope: 'global',
@@ -787,15 +810,65 @@ describe('settings picker reducer', () => {
     expect(down.settingsPicker.delayMs).toBe(120_000);
   });
 
-  it('cycles the statusline mode on the dedicated field', () => {
-    let s = reducer(base({ open: true, field: 28, statuslineMode: 'detailed' }), {
+  // New field order (reordered sections, thinkingWord added at field 21):
+  // 0-14: Autonomy + UX + Features (unchanged)
+  // 15-20: Tools (indexOnStart moved here), 21: thinkingWord
+  // 22: reasoningMode, 23: reasoningEffort, 24: reasoningPreserve, 25: cacheTtl
+  // 26-28: Context, 29: Fleet, 30-31: Logging, 32-34: Debug
+  it('changes the setting that matches the visible tail field order', () => {
+    // Field 22: reasoningMode cycles auto → on
+    let s = reducer(base({ open: true, field: 22, reasoningMode: 'auto', thinkingWord: 'thinking' }), {
+      type: 'settingsValueChange',
+      delta: 1,
+    });
+    expect(s.settingsPicker.reasoningMode).toBe('on');
+    expect(s.settingsPicker.thinkingWord).toBe('thinking'); // unaffected
+
+    // Field 23: reasoningEffort cycles medium → high
+    s = reducer(base({ open: true, field: 23, reasoningEffort: 'medium', statuslineMode: 'detailed' }), {
+      type: 'settingsValueChange',
+      delta: 1,
+    });
+    expect(s.settingsPicker.reasoningEffort).toBe('high');
+    expect(s.settingsPicker.statuslineMode).toBe('detailed'); // unaffected
+
+    // Field 24: reasoningPreserve cycles false → true
+    s = reducer(base({ open: true, field: 24, reasoningPreserve: false, reasoningMode: 'auto' }), {
+      type: 'settingsValueChange',
+      delta: 1,
+    });
+    expect(s.settingsPicker.reasoningPreserve).toBe(true);
+    expect(s.settingsPicker.reasoningMode).toBe('auto'); // unaffected
+
+    // Field 25: cacheTtl cycles default → 5m
+    s = reducer(base({ open: true, field: 25, cacheTtl: 'default', configScope: 'global' }), {
+      type: 'settingsValueChange',
+      delta: 1,
+    });
+    expect(s.settingsPicker.cacheTtl).toBe('5m');
+    expect(s.settingsPicker.configScope).toBe('global'); // unaffected
+
+    // Field 32: debugStream toggles false → true
+    s = reducer(base({ open: true, field: 32, debugStream: false }), {
+      type: 'settingsValueChange',
+      delta: 1,
+    });
+    expect(s.settingsPicker.debugStream).toBe(true);
+
+    // Field 33: statuslineMode cycles detailed → minimum
+    s = reducer(base({ open: true, field: 33, statuslineMode: 'detailed' }), {
       type: 'settingsValueChange',
       delta: 1,
     });
     expect(s.settingsPicker.statuslineMode).toBe('minimum');
 
-    s = reducer(s, { type: 'settingsValueChange', delta: 1 });
-    expect(s.settingsPicker.statuslineMode).toBe('detailed');
+    // Field 34: configScope cycles global → project
+    s = reducer(base({ open: true, field: 34, configScope: 'global', cacheTtl: 'default' }), {
+      type: 'settingsValueChange',
+      delta: 1,
+    });
+    expect(s.settingsPicker.configScope).toBe('project');
+    expect(s.settingsPicker.cacheTtl).toBe('default'); // unaffected
   });
 
 });

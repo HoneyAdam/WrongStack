@@ -689,7 +689,7 @@ export function reducer(state: State, action: Action): State {
       if (f === 10) return { ...state, settingsPicker: { ...sp, featureMemory: !sp.featureMemory, hint: bootHint } };
       if (f === 11) return { ...state, settingsPicker: { ...sp, featureSkills: !sp.featureSkills, hint: bootHint } };
       if (f === 12) return { ...state, settingsPicker: { ...sp, featureModelsRegistry: !sp.featureModelsRegistry, hint: bootHint } };
-      // Field 13: Token-saving tier (cycle via ←/→)
+      // Field 13: Token-saving tier (cycle)
       if (f === 13) {
         const i = TOKEN_SAVING_TIERS.indexOf(sp.tokenSavingTier as (typeof TOKEN_SAVING_TIERS)[number]);
         const base = i < 0 ? 0 : i;
@@ -698,113 +698,121 @@ export function reducer(state: State, action: Action): State {
       }
       // Field 14: allow outside project root (boolean)
       if (f === 14) return { ...state, settingsPicker: { ...sp, allowOutsideProjectRoot: !sp.allowOutsideProjectRoot, hint: undefined } };
-      // Field 15: context auto-compact (boolean)
-      if (f === 15) return { ...state, settingsPicker: { ...sp, contextAutoCompact: !sp.contextAutoCompact, hint: undefined } };
-      // Field 16: compactor strategy (cycle)
-      if (f === 16) {
-        const i = COMPACTOR_STRATEGIES.indexOf(sp.contextStrategy);
-        const base = i < 0 ? 0 : i;
-        const next = (base + action.delta + COMPACTOR_STRATEGIES.length) % COMPACTOR_STRATEGIES.length;
-        return { ...state, settingsPicker: { ...sp, contextStrategy: expectDefined(COMPACTOR_STRATEGIES[next]), hint: bootHint } };
-      }
-      // Field 17: context mode (cycle)
-      if (f === 17) {
-        const i = CONTEXT_MODES.indexOf(sp.contextMode);
-        const base = i < 0 ? 0 : i;
-        const next = (base + action.delta + CONTEXT_MODES.length) % CONTEXT_MODES.length;
-        return { ...state, settingsPicker: { ...sp, contextMode: expectDefined(CONTEXT_MODES[next]), hint: bootHint } };
-      }
-      // Field 18: max concurrent (cycle presets)
-      if (f === 18) {
-        const j = MAX_CONCURRENT_PRESETS.indexOf(sp.maxConcurrent);
-        const base = j < 0 ? 0 : j;
-        const next = (base + action.delta + MAX_CONCURRENT_PRESETS.length) % MAX_CONCURRENT_PRESETS.length;
-        return { ...state, settingsPicker: { ...sp, maxConcurrent: expectDefined(MAX_CONCURRENT_PRESETS[next]), hint: undefined } };
-      }
-      // Field 19: log level (cycle)
-      if (f === 19) {
-        const i = LOG_LEVELS.indexOf(sp.logLevel);
-        const base = i < 0 ? 0 : i;
-        const next = (base + action.delta + LOG_LEVELS.length) % LOG_LEVELS.length;
-        return { ...state, settingsPicker: { ...sp, logLevel: expectDefined(LOG_LEVELS[next]), hint: undefined } };
-      }
-      // Field 20: audit level (cycle)
-      if (f === 20) {
-        const i = AUDIT_LEVELS.indexOf(sp.auditLevel);
-        const base = i < 0 ? 0 : i;
-        const next = (base + action.delta + AUDIT_LEVELS.length) % AUDIT_LEVELS.length;
-        return { ...state, settingsPicker: { ...sp, auditLevel: expectDefined(AUDIT_LEVELS[next]), hint: undefined } };
-      }
-      // Field 21: index on start (boolean)
-      if (f === 21) return { ...state, settingsPicker: { ...sp, indexOnStart: !sp.indexOnStart, hint: bootHint } };
-      // Field 22: max iterations (cycle presets)
-      if (f === 22) {
+      // ── Tools ──────────────────────────────────────────────────────────────
+      // Field 15: max iterations (cycle presets)
+      if (f === 15) {
         const j = MAX_ITERATIONS_PRESETS.indexOf(sp.maxIterations);
         const base = j < 0 ? 0 : j;
         const next = (base + action.delta + MAX_ITERATIONS_PRESETS.length) % MAX_ITERATIONS_PRESETS.length;
         return { ...state, settingsPicker: { ...sp, maxIterations: expectDefined(MAX_ITERATIONS_PRESETS[next]), hint: undefined } };
       }
-      // Field 23: auto-proceed max iterations (cycle presets)
-      if (f === 23) {
+      // Field 16: auto-proceed max iterations (cycle presets)
+      if (f === 16) {
         const aj = AUTO_PROCEED_MAX_PRESETS.indexOf(sp.autoProceedMaxIterations);
         const abase = aj < 0 ? 0 : aj;
         const anext = (abase + action.delta + AUTO_PROCEED_MAX_PRESETS.length) % AUTO_PROCEED_MAX_PRESETS.length;
         return { ...state, settingsPicker: { ...sp, autoProceedMaxIterations: expectDefined(AUTO_PROCEED_MAX_PRESETS[anext]), hint: undefined } };
       }
-      // Field 24: enhance delay (cycle presets)
-      if (f === 24) {
+      // Field 17: enhance delay (cycle presets)
+      if (f === 17) {
         const ej = ENHANCE_DELAY_PRESETS.indexOf(sp.enhanceDelayMs);
         const ebase = ej < 0 ? 0 : ej;
         const enext = (ebase + action.delta + ENHANCE_DELAY_PRESETS.length) % ENHANCE_DELAY_PRESETS.length;
         return { ...state, settingsPicker: { ...sp, enhanceDelayMs: expectDefined(ENHANCE_DELAY_PRESETS[enext]), hint: undefined } };
       }
-      // Field 25: enhance enabled (boolean toggle)
-      if (f === 25) return { ...state, settingsPicker: { ...sp, enhanceEnabled: !sp.enhanceEnabled, hint: undefined } };
-      // Field 26: enhance language (cycle original/english)
-      if (f === 26) {
+      // Field 18: enhance enabled (boolean)
+      if (f === 18) return { ...state, settingsPicker: { ...sp, enhanceEnabled: !sp.enhanceEnabled, hint: undefined } };
+      // Field 19: enhance language (cycle original/english)
+      if (f === 19) {
         const i = ENHANCE_LANGUAGES.indexOf(sp.enhanceLanguage);
         const base = i < 0 ? 0 : i;
         const next = (base + action.delta + ENHANCE_LANGUAGES.length) % ENHANCE_LANGUAGES.length;
         return { ...state, settingsPicker: { ...sp, enhanceLanguage: expectDefined(ENHANCE_LANGUAGES[next]), hint: undefined } };
       }
-      // Field 27: debug stream (boolean toggle)
-      if (f === 27) return { ...state, settingsPicker: { ...sp, debugStream: !sp.debugStream, hint: undefined } };
-      // Field 28: statusline mode (cycle minimum/detailed)
-      if (f === 28) {
-        const i = STATUSLINE_MODES.indexOf(sp.statuslineMode);
-        const base = i < 0 ? STATUSLINE_MODES.indexOf('detailed') : i;
-        const next = (base + action.delta + STATUSLINE_MODES.length) % STATUSLINE_MODES.length;
-        return { ...state, settingsPicker: { ...sp, statuslineMode: expectDefined(STATUSLINE_MODES[next]), hint: undefined } };
-      }
-      // Field 29: config scope (cycle global/project)
-      if (f === 29) {
-        const i = CONFIG_SCOPES.indexOf(sp.configScope);
-        const base = i < 0 ? 0 : i;
-        const next = (base + action.delta + CONFIG_SCOPES.length) % CONFIG_SCOPES.length;
-        return { ...state, settingsPicker: { ...sp, configScope: expectDefined(CONFIG_SCOPES[next]), hint: undefined } };
-      }
-      // Field 30: reasoning mode (cycle auto/on/off)
-      if (f === 30) {
+      // Field 20: index on start (boolean)
+      if (f === 20) return { ...state, settingsPicker: { ...sp, indexOnStart: !sp.indexOnStart, hint: bootHint } };
+      // Field 21: thinking word (display-only, change via /thinking command)
+      if (f === 21) return state;
+      // ── Reasoning ───────────────────────────────────────────────────────────
+      // Field 22: reasoning mode (cycle auto/on/off)
+      if (f === 22) {
         const i = REASONING_MODES.indexOf(sp.reasoningMode as (typeof REASONING_MODES)[number]);
         const base = i < 0 ? 0 : i;
         const next = (base + action.delta + REASONING_MODES.length) % REASONING_MODES.length;
         return { ...state, settingsPicker: { ...sp, reasoningMode: expectDefined(REASONING_MODES[next]), hint: undefined } };
       }
-      // Field 31: reasoning effort (cycle)
-      if (f === 31) {
+      // Field 23: reasoning effort (cycle)
+      if (f === 23) {
         const i = REASONING_EFFORTS.indexOf(sp.reasoningEffort as (typeof REASONING_EFFORTS)[number]);
         const base = i < 0 ? REASONING_EFFORTS.indexOf('high') : i;
         const next = (base + action.delta + REASONING_EFFORTS.length) % REASONING_EFFORTS.length;
         return { ...state, settingsPicker: { ...sp, reasoningEffort: expectDefined(REASONING_EFFORTS[next]), hint: undefined } };
       }
-      // Field 32: reasoning preserve (boolean toggle)
-      if (f === 32) return { ...state, settingsPicker: { ...sp, reasoningPreserve: !sp.reasoningPreserve, hint: undefined } };
-      // Field 33: cache TTL (cycle default/5m/1h)
-      if (f === 33) {
+      // Field 24: reasoning preserve (boolean toggle)
+      if (f === 24) return { ...state, settingsPicker: { ...sp, reasoningPreserve: !sp.reasoningPreserve, hint: undefined } };
+      // Field 25: cache TTL (cycle default/5m/1h)
+      if (f === 25) {
         const i = CACHE_TTLS.indexOf(sp.cacheTtl as (typeof CACHE_TTLS)[number]);
         const base = i < 0 ? 0 : i;
         const next = (base + action.delta + CACHE_TTLS.length) % CACHE_TTLS.length;
         return { ...state, settingsPicker: { ...sp, cacheTtl: expectDefined(CACHE_TTLS[next]), hint: undefined } };
+      }
+      // ── Context ────────────────────────────────────────────────────────────
+      // Field 26: context auto-compact (boolean)
+      if (f === 26) return { ...state, settingsPicker: { ...sp, contextAutoCompact: !sp.contextAutoCompact, hint: undefined } };
+      // Field 27: compactor strategy (cycle)
+      if (f === 27) {
+        const i = COMPACTOR_STRATEGIES.indexOf(sp.contextStrategy);
+        const base = i < 0 ? 0 : i;
+        const next = (base + action.delta + COMPACTOR_STRATEGIES.length) % COMPACTOR_STRATEGIES.length;
+        return { ...state, settingsPicker: { ...sp, contextStrategy: expectDefined(COMPACTOR_STRATEGIES[next]), hint: bootHint } };
+      }
+      // Field 28: context mode (cycle)
+      if (f === 28) {
+        const i = CONTEXT_MODES.indexOf(sp.contextMode);
+        const base = i < 0 ? 0 : i;
+        const next = (base + action.delta + CONTEXT_MODES.length) % CONTEXT_MODES.length;
+        return { ...state, settingsPicker: { ...sp, contextMode: expectDefined(CONTEXT_MODES[next]), hint: bootHint } };
+      }
+      // ── Fleet ──────────────────────────────────────────────────────────────
+      // Field 29: max concurrent (cycle presets)
+      if (f === 29) {
+        const j = MAX_CONCURRENT_PRESETS.indexOf(sp.maxConcurrent);
+        const base = j < 0 ? 0 : j;
+        const next = (base + action.delta + MAX_CONCURRENT_PRESETS.length) % MAX_CONCURRENT_PRESETS.length;
+        return { ...state, settingsPicker: { ...sp, maxConcurrent: expectDefined(MAX_CONCURRENT_PRESETS[next]), hint: undefined } };
+      }
+      // ── Logging ────────────────────────────────────────────────────────────
+      // Field 30: log level (cycle)
+      if (f === 30) {
+        const i = LOG_LEVELS.indexOf(sp.logLevel);
+        const base = i < 0 ? 0 : i;
+        const next = (base + action.delta + LOG_LEVELS.length) % LOG_LEVELS.length;
+        return { ...state, settingsPicker: { ...sp, logLevel: expectDefined(LOG_LEVELS[next]), hint: undefined } };
+      }
+      // Field 31: audit level (cycle)
+      if (f === 31) {
+        const i = AUDIT_LEVELS.indexOf(sp.auditLevel);
+        const base = i < 0 ? 0 : i;
+        const next = (base + action.delta + AUDIT_LEVELS.length) % AUDIT_LEVELS.length;
+        return { ...state, settingsPicker: { ...sp, auditLevel: expectDefined(AUDIT_LEVELS[next]), hint: undefined } };
+      }
+      // ── Debug ──────────────────────────────────────────────────────────────
+      // Field 32: debug stream (boolean toggle)
+      if (f === 32) return { ...state, settingsPicker: { ...sp, debugStream: !sp.debugStream, hint: undefined } };
+      // Field 33: statusline mode (cycle minimum/detailed)
+      if (f === 33) {
+        const i = STATUSLINE_MODES.indexOf(sp.statuslineMode);
+        const base = i < 0 ? STATUSLINE_MODES.indexOf('detailed') : i;
+        const next = (base + action.delta + STATUSLINE_MODES.length) % STATUSLINE_MODES.length;
+        return { ...state, settingsPicker: { ...sp, statuslineMode: expectDefined(STATUSLINE_MODES[next]), hint: undefined } };
+      }
+      // Field 34: config scope (cycle global/project)
+      if (f === 34) {
+        const i = CONFIG_SCOPES.indexOf(sp.configScope);
+        const base = i < 0 ? 0 : i;
+        const next = (base + action.delta + CONFIG_SCOPES.length) % CONFIG_SCOPES.length;
+        return { ...state, settingsPicker: { ...sp, configScope: expectDefined(CONFIG_SCOPES[next]), hint: undefined } };
       }
       return state;
     }

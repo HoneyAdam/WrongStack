@@ -116,18 +116,6 @@ export interface SettingsPickerProps {
   tokenSavingTier: TokenSavingTierTui;
   /** Allow tools to read/write paths outside the project root directory. Default: true. */
   allowOutsideProjectRoot: boolean;
-  // ── Context ──
-  contextAutoCompact: boolean;
-  contextStrategy: CompactorStrategy;
-  contextMode: ContextMode;
-  // ── Fleet ──
-  maxConcurrent: number;
-  // ── Logging ──
-  logLevel: LogLevel;
-  // ── Session ──
-  auditLevel: AuditLevel;
-  // ── Indexing ──
-  indexOnStart: boolean;
   // ── Tools ──
   maxIterations: number;
   /** Maximum auto-proceed iterations before stopping (0 = unlimited). */
@@ -138,10 +126,11 @@ export interface SettingsPickerProps {
   enhanceEnabled: boolean;
   /** Default language for refinement: original (keep user's language) or english. */
   enhanceLanguage: EnhanceLanguage;
-  /** Raw SSE stream debugging toggle — hex-dump every byte received from providers. */
-  debugStream: boolean;
-  /** Statusline density: minimum single-line or detailed multi-line. */
-  statuslineMode: StatuslineMode;
+  /** Run incremental index at session start. */
+  indexOnStart: boolean;
+  // ── Reasoning ──
+  /** Thinking word displayed in status bar while agent is working. */
+  thinkingWord: string;
   /** Reasoning mode: auto (provider default) | on | off. */
   reasoningMode: ReasoningMode;
   /** Reasoning effort level. */
@@ -150,13 +139,27 @@ export interface SettingsPickerProps {
   reasoningPreserve: boolean;
   /** Prompt cache TTL. */
   cacheTtl: CacheTtl;
+  // ── Context ──
+  contextAutoCompact: boolean;
+  contextStrategy: CompactorStrategy;
+  contextMode: ContextMode;
+  // ── Fleet ──
+  maxConcurrent: number;
+  // ── Logging ──
+  logLevel: LogLevel;
+  auditLevel: AuditLevel;
+  // ── Debug ──
+  /** Raw SSE stream debugging toggle — hex-dump every byte received from providers. */
+  debugStream: boolean;
+  /** Statusline density: minimum single-line or detailed multi-line. */
+  statuslineMode: StatuslineMode;
   /** Where settings are persisted. */
   configScope: ConfigScope;
   hint?: string | undefined;
 }
 
 /** Total number of settings rows (used for wrap-around navigation). */
-export const SETTINGS_FIELD_COUNT = 34;
+export const SETTINGS_FIELD_COUNT = 35;
 
 export const CONFIG_SCOPES = ['global', 'project'] as const;
 export type ConfigScope = (typeof CONFIG_SCOPES)[number];
@@ -178,24 +181,25 @@ export function SettingsPicker({
   featureModelsRegistry,
   tokenSavingTier,
   allowOutsideProjectRoot,
+  maxIterations,
+  autoProceedMaxIterations,
+  enhanceDelayMs,
+  enhanceEnabled,
+  enhanceLanguage,
+  indexOnStart,
+  thinkingWord,
+  reasoningMode,
+  reasoningEffort,
+  reasoningPreserve,
+  cacheTtl,
   contextAutoCompact,
   contextStrategy,
   contextMode,
   maxConcurrent,
   logLevel,
   auditLevel,
-  indexOnStart,
-  maxIterations,
-  autoProceedMaxIterations,
-  enhanceDelayMs,
-  enhanceEnabled,
-  enhanceLanguage,
   debugStream,
   statuslineMode,
-  reasoningMode,
-  reasoningEffort,
-  reasoningPreserve,
-  cacheTtl,
   configScope,
   hint,
 }: SettingsPickerProps): React.ReactElement {
@@ -286,6 +290,65 @@ export function SettingsPicker({
       value: boolVal(allowOutsideProjectRoot),
       detail: 'Allow tools to access paths outside project root',
     },
+    // ── Tools ──
+    { section: 'Tools' },
+    {
+      label: 'Max iterations',
+      value: formatMaxIterations(maxIterations),
+      detail: '100–1000 or unlimited (0)',
+    },
+    {
+      label: 'Auto-proceed max iterations',
+      value: formatMaxIterations(autoProceedMaxIterations),
+      detail: 'Stop auto-proceed after N iterations (0 = unlimited, default 50)',
+    },
+    {
+      label: 'Refine preview countdown',
+      value: formatEnhanceDelay(enhanceDelayMs),
+      detail: 'Timeout for prompt refinement preview (30s–120s)',
+    },
+    {
+      label: 'Refine',
+      value: boolVal(enhanceEnabled),
+      detail: 'Enable prompt refinement before sending',
+    },
+    {
+      label: 'Refine language',
+      value: enhanceLanguage,
+      detail: 'original (keep language) | english (translate)',
+    },
+    {
+      label: 'Index on session start',
+      value: boolVal(indexOnStart),
+      detail: 'Run incremental index at session start',
+    },
+    // ── Reasoning ──
+    { section: 'Reasoning' },
+    {
+      label: 'Thinking word',
+      value: thinkingWord,
+      detail: 'Word shown in status bar while agent works',
+    },
+    {
+      label: 'Reasoning mode',
+      value: reasoningMode,
+      detail: 'auto (provider default) | on | off',
+    },
+    {
+      label: 'Reasoning effort',
+      value: reasoningEffort,
+      detail: 'none–max (model-dependent)',
+    },
+    {
+      label: 'Preserve thinking',
+      value: boolVal(reasoningPreserve),
+      detail: 'Keep reasoning across turns',
+    },
+    {
+      label: 'Cache TTL',
+      value: cacheTtl,
+      detail: 'Prompt cache TTL (5m | 1h)',
+    },
     // ── Context ──
     { section: 'Context' },
     {
@@ -317,68 +380,10 @@ export function SettingsPicker({
       value: logLevel,
       detail: 'Console log verbosity',
     },
-    // ── Session ──
-    { section: 'Session' },
     {
       label: 'Audit level',
       value: auditLevel,
       detail: 'minimal | standard | full (large)',
-    },
-    // ── Indexing ──
-    { section: 'Indexing' },
-    {
-      label: 'Index on session start',
-      value: boolVal(indexOnStart),
-      detail: 'Run incremental index at session start',
-    },
-    // ── Tools ──
-    { section: 'Tools' },
-    {
-      label: 'Max iterations',
-      value: formatMaxIterations(maxIterations),
-      detail: '100–1000 or unlimited (0)',
-    },
-    {
-      label: 'Auto-proceed max iterations',
-      value: formatMaxIterations(autoProceedMaxIterations),
-      detail: 'Stop auto-proceed after N iterations (0 = unlimited, default 50)',
-    },
-    {
-      label: 'Refine preview countdown',
-      value: formatEnhanceDelay(enhanceDelayMs),
-      detail: 'Timeout for prompt refinement preview (30s–120s)',
-    },
-    {
-      label: 'Refine',
-      value: boolVal(enhanceEnabled),
-      detail: 'Enable prompt refinement before sending',
-    },
-    {
-      label: 'Refine language',
-      value: enhanceLanguage,
-      detail: 'original (keep language) | english (translate)',
-    },
-    // ── Reasoning ──
-    { section: 'Reasoning' },
-    {
-      label: 'Reasoning mode',
-      value: reasoningMode,
-      detail: 'auto (provider default) | on | off',
-    },
-    {
-      label: 'Reasoning effort',
-      value: reasoningEffort,
-      detail: 'none–max (model-dependent)',
-    },
-    {
-      label: 'Preserve thinking',
-      value: boolVal(reasoningPreserve),
-      detail: 'Keep reasoning across turns',
-    },
-    {
-      label: 'Cache TTL',
-      value: cacheTtl,
-      detail: 'Prompt cache TTL (5m | 1h)',
     },
     // ── Debug ──
     { section: 'Debug' },
@@ -411,7 +416,7 @@ export function SettingsPicker({
   // we show at most VISIBLE_FIELDS around the current selection so every
   // field stays reachable.
   const VISIBLE_FIELDS = 8;
-  const totalFields = fieldRowIndex.length; // = SETTINGS_FIELD_COUNT = 25
+  const totalFields = fieldRowIndex.length; // = SETTINGS_FIELD_COUNT
   const windowStart =
     totalFields <= VISIBLE_FIELDS
       ? 0
