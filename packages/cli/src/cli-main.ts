@@ -23,7 +23,6 @@
  * order shown above. Do not inline it.
  */
 import { spawn } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import {
@@ -107,7 +106,6 @@ import { buildBuiltinSlashCommands } from './slash-commands/index.js';
 import { parseMcpArgs, runMcpManagementCommand } from './slash-commands/mcp-utils.js';
 import { DEFAULTS, loadStatuslineConfig, saveStatuslineConfig } from './slash-commands/statusline.js';
 import { getSuggestions, setSuggestions } from './slash-commands/suggestion-store.js';
-import { Spinner } from './spinner.js';
 import { fmtTaskResultLine, patchConfig } from './utils.js';
 import { CLI_VERSION } from './version.js';
 import { setupCodebaseIndexing } from './wiring/codebase-index.js';
@@ -117,6 +115,7 @@ import { setupPlugins } from './wiring/plugins.js';
 import { bindReplayToContainer } from './wiring/replay.js';
 import { setupSession } from './wiring/session.js';
 import { resolveModeAndCapabilities } from './boot/system-prompt.js';
+import { wireEventWiring } from './boot/event-wiring.js';
 
 export { CLI_VERSION };
 
@@ -358,15 +357,6 @@ export async function main(argv: string[]): Promise<number> {
   // fighting Ink's cursor math.
   const tuiOwnsScreen = flags.tui === true && flags['no-tui'] !== true;
 
-  // Spinner: visible "thinking…" line during each model request. Disabled
-  // under the TUI — it writes to stderr on an 80ms timer, which the Ink
-  // renderer can't account for, leaking the input row into scrollback and
-  // painting a stray bottom-of-screen tracker.
-  const spinner = new Spinner(process.stderr, { enabled: !tuiOwnsScreen });
-  // Track the latest provider request's input-token count so the spinner
-  // can render a live context-window fullness bar (TUI parity).
-  let lastInputTokens = 0;
-
   // Collect unsubscriber handles so we can detach on process exit. In the
   // default single-shot flow the process exits right after agent.run(), but
   // REPL/TUI modes keep the EventBus alive across multiple runs — stale
@@ -390,128 +380,16 @@ export async function main(argv: string[]): Promise<number> {
     );
   };
 
-  evOn('provider.response', (e) => {
-    lastInputTokens = e.usage?.input ?? 0;
-    updateSpinnerContext();
+  const eventWiring = wireEventWiring({
+    evOn,
+    events,
+    renderer,
+    getProvider: () => config.provider,
+    getModel: () => config.model,
+    projectSlug: wpaths.projectSlug,
+    getActiveModeId: () => activeMode?.id ?? 'off',
+    tuiOwnsScreen,
   });
-  evOn('iteration.started', () => {
-    updateSpinnerContext();
-    spinner.start(color.dim(`${config.provider}/${config.model} thinking…`));
-  });
-  evOn('provider.response', () => {
-    spinner.stop();
-  });
-  evOn('error', () => {
-    spinner.stop();
-  });
-
-  // Live streaming output: first text_delta stops the spinner and starts
-  // writing tokens directly so the user sees the model "type".
-  let streamingActive = false;
-  evOn('provider.text_delta', (p) => {
-    if (!streamingActive) {
-      spinner.stop();
-      streamingActive = true;
-    }
-    renderer.write(p.text);
-  });
-  evOn('iteration.completed', () => {
-    if (streamingActive) {
-      renderer.write('\n');
-      streamingActive = false;
-    }
-  });
-
-  // Provider hiccups — render a single friendly line instead of leaving the
-  // raw JSON body in logger output. retry events show a countdown; error
-  // events surface a final failure that won't be retried.
-  evOn('provider.retry', (p) => {
-    spinner.stop();
-    if (streamingActive) {
-      renderer.write('\n');
-      streamingActive = false;
-    }
-    const secs = (p.delayMs / 1000).toFixed(p.delayMs >= 1000 ? 1 : 2);
-    writeErr(color.yellow(`  ⟳ retry ${p.attempt} in ${secs}s — ${p.description}\n`));
-    spinner.start(color.dim(`${config.provider}/${config.model} thinking…`));
-  });
-  // Fallback hop — the primary exhausted its retries and we rotated to the next
-  // model in the chain. Tell the user which model is now answering.
-  evOn('provider.fallback', (p) => {
-    spinner.stop();
-    if (streamingActive) {
-      renderer.write('\n');
-      streamingActive = false;
-    }
-    writeErr(
-      color.yellow(`  ↻ rate-limited (${p.status}) — switched to ${p.to.providerId}/${p.to.model}\n`),
-    );
-    spinner.start(color.dim(`${p.to.providerId}/${p.to.model} thinking…`));
-  });
-  evOn('provider.error', (p) => {
-    spinner.stop();
-    if (streamingActive) {
-      renderer.write('\n');
-      streamingActive = false;
-    }
-    writeErr(color.red(`  ✗ ${p.description}\n`));
-  });
-
-  // ── Client status reporting ────────────────────────────────────────────────
-  // Emit client.status events for real-time monitoring in WebUI StatsHUD.
-  // Similar to TUI's client.status emission pattern.
-  const cliClientId = `cli@${randomBytes(4).toString('hex')}`;
-  let cliToolCalls = 0;
-  let cliInputTokens = 0;
-  let cliOutputTokens = 0;
-  let cliCacheTokens = 0;
-  let cliCostUsd = 0;
-
-  const emitClientStatus = () => {
-    events.emit('client.status', {
-      clientType: 'cli',
-      clientId: cliClientId,
-      projectHash: wpaths.projectSlug,
-      agentCount: 1,
-      model: config.model,
-      mode: activeMode?.id ?? 'off',
-      toolCalls: cliToolCalls,
-      inputTokens: cliInputTokens,
-      outputTokens: cliOutputTokens,
-      cacheTokens: cliCacheTokens,
-      costUsd: cliCostUsd,
-      timestamp: Date.now(),
-      projectSlug: wpaths.projectSlug,
-    });
-  };
-
-  evOn('tool.executed', () => {
-    cliToolCalls++;
-    emitClientStatus();
-  });
-
-  evOn('provider.response', (e) => {
-    if (e.usage) {
-      cliInputTokens = e.usage.input ?? cliInputTokens;
-      cliOutputTokens = e.usage.output ?? cliOutputTokens;
-      cliCacheTokens = (e.usage.cacheRead ?? 0) + (e.usage.cacheWrite ?? 0);
-    }
-    emitClientStatus();
-  });
-
-  // Cost comes from token.accounted (carries `cost.total`); `Usage` has no
-  // `cost` field, so the previous `e.usage.cost` was always undefined → $0.
-  evOn('token.accounted', (e) => {
-    cliCostUsd = e.cost.total;
-    emitClientStatus();
-  });
-
-  evOn('iteration.completed', () => {
-    emitClientStatus();
-  });
-
-  // Emit initial status
-  emitClientStatus();
 
   // Provider instance — registry-driven by default, but falls through to
   // Build system prompt
@@ -908,14 +786,7 @@ export async function main(argv: string[]): Promise<number> {
       autoCompactor?.setMaxContext(effectiveMaxContext);
     }
     events.emit('ctx.max_context', { providerId, modelId, maxContext: effectiveMaxContext });
-    updateSpinnerContext();
-  };
-
-  // Helper: keep the spinner's context chip in sync
-  const updateSpinnerContext = () => {
-    if (effectiveMaxContext > 0 && lastInputTokens > 0) {
-      spinner.setContext({ used: lastInputTokens, max: effectiveMaxContext });
-    } else spinner.setContext(undefined);
+    eventWiring.setEffectiveMaxContext(effectiveMaxContext);
   };
 
   const agent = createAgent({
@@ -2192,7 +2063,7 @@ export async function main(argv: string[]): Promise<number> {
           modelId: context.model,
           maxContext: tokens,
         });
-        updateSpinnerContext();
+        eventWiring.setEffectiveMaxContext(tokens);
       }
       return effectiveMaxContext;
     },
