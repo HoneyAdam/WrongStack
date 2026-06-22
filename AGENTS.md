@@ -7,7 +7,7 @@
 
 ## Project brief
 
-WrongStack is a terminal AI coding agent built in TypeScript. It runs an LLM that reads code, edits files, runs shell commands, and reasons through bugs — with a permission policy that auto-approves trusted/YOLO-normal project work while gating clearly destructive or project-escaping calls unless explicitly overridden. The project is a monorepo of 10+ packages.
+WrongStack is a terminal AI coding agent built in TypeScript. It runs an LLM that reads code, edits files, runs shell commands, and reasons through bugs — with a permission policy that auto-approves trusted/YOLO-normal project work while gating clearly destructive or project-escaping calls unless explicitly overridden. The project is a monorepo of 14 packages.
 
 **Runtime:** CLI (REPL), optional TUI (React/Ink), optional WebUI (Vite/React)
 **Primary users:** Individual developers, teams
@@ -28,7 +28,7 @@ packages/runtime/     — Default runtime wiring: makeDefaultRuntime()
 packages/telegram/    — Telegram bridge plugin
 packages/webui/       — Vite+React web UI: standalone `webui` binary + CLI `--webui` (see docs/webui.md)
 packages/plugins/     — Built-in plugin host: cron, file-watcher, session-tracker, subagent
-packages/skills/      — Bundled skill registry (16 SKILL.md files shipped in core/skills/)
+packages/skills/      — Bundled skill registry (20 SKILL.md files shipped in core/skills/)
 packages/bench/       — Model-independent benchmark harness (Aider polyglot + SWE-bench Verified); see docs/subcommands/bench.md
 apps/wrongstack/      — bin entry (wrongstack / wstack)
 ```
@@ -37,9 +37,9 @@ apps/wrongstack/      — bin entry (wrongstack / wstack)
 
 ## Key architectural concepts
 
-### Kernel (≤600 lines total)
+### Kernel (~1670 lines incl. event types)
 
-`packages/core/src/kernel/` has four primitives:
+`packages/core/src/kernel/` has six modules:
 
 **Container** — Typed DI indexed by `Token<T>` (branded symbol). Bindings: `factory`, `value`, `decorator`. Resolution is lazy and memoized. Well-known tokens in `tokens.ts`:
 

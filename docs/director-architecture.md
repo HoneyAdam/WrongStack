@@ -2,7 +2,7 @@
 
 > Comprehensive analysis and improvement roadmap for the Director / multi-agent fleet system.
 
-**Status as of 0.1.7** — Core phases shipped; Phase 6 (Safety & Polish) is the primary gap.
+**Status as of 0.270.0** — All core phases shipped; ongoing refinement of subagent budget negotiation, error classification, and fleet observability.
 
 ---
 

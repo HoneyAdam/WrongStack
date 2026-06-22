@@ -31,10 +31,11 @@ WrongStack-internal; `providers`/`tools`/`mcp`/`plug-lsp`/`runtime`/`acp`/`plugi
 
 ---
 
-## The kernel (≤600 lines total)
+## The kernel (~1670 lines total)
 
-`packages/core/src/kernel/` holds four primitives. Nothing else in the codebase
-is allowed to expand it without a strong reason.
+`packages/core/src/kernel/` holds six modules (Container, Pipeline, EventBus,
+RunController, Tokens, plus the full event type catalog). Nothing else in the
+codebase is allowed to expand it without a strong reason.
 
 ### `Container`
 

@@ -14,7 +14,7 @@ Monorepo is pnpm + Node ≥ 22. All commands run from the repo root.
 |---|---|
 | Install | `pnpm install` |
 | Build all packages | `pnpm run build` |
-| Run all tests | `pnpm test` (vitest, 3091+ tests across all packages) |
+| Run all tests | `pnpm test` (vitest, 3300+ tests across all packages) |
 | Watch tests | `pnpm run test:watch` |
 | Single test file | `pnpm vitest run path/to/file.test.ts` |
 | Single test by name | `pnpm vitest run -t "test name pattern"` |
@@ -50,7 +50,7 @@ packages/bench/           — Model-independent benchmark harness (polyglot + SW
 **Dependency direction (do not reverse):**
 `core` → nothing internal. `providers / tools / mcp / plug-lsp / runtime / telegram` → `core`. `cli / tui / webui` → everything beneath.
 
-**Kernel primitives** (all in `packages/core/src/kernel/`, ≤600 LOC total):
+**Kernel primitives** (all in `packages/core/src/kernel/`, ~1670 LOC incl. event types):
 
 - **Container** — typed DI keyed by `Token<T>` (branded symbol, *not* string). Bindings: `factory`/`value`/`decorator`, lazy + memoized. Well-known tokens in `tokens.ts`. Plugins rebind tokens before `Agent.run`.
 - **Pipeline\<T\>** — linear middleware chain. Six pipelines fire per agent step: `userInput`, `request`, `response`, `assistantOutput`, `toolCall`, `contextWindow`. Middleware can `replace` a step — the last `replace` in the chain wins (position-aware).

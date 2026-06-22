@@ -21,7 +21,7 @@ npm i -g wrongstack && wrongstack
 
 ---
 
-WrongStack drives **autonomous goal loops**, **parallel subagent fan-out**, **multi-agent Director orchestration**, **Brain-governed policy decisions**, and **collaborative debugging** — and walks you through full **Spec-Driven Development** cycles. It ships with **37 built-in tools**, **17 skills**, **7 first-party plugins**, **10 more** in `@wrongstack/plugins`, and **~110 providers** pulled live from [models.dev](https://models.dev) — no hardcoded model names, no hardcoded pricing, no hardcoded lists. Secrets are **AES-256-GCM** encrypted at rest with a per-machine key; every tool call clears a **per-tool permission policy**. Everything lives under `~/.wrongstack/` — the only thing you'd ever commit is `.wrongstack/AGENTS.md`.
+WrongStack drives **autonomous goal loops**, **parallel subagent fan-out**, **multi-agent Director orchestration**, **Brain-governed policy decisions**, and **collaborative debugging** — and walks you through full **Spec-Driven Development** cycles. It ships with **36 built-in tools**, **20 skills**, **8 core plugins** + **10 bundled** in `@wrongstack/plugins`, and **~110 providers** pulled live from [models.dev](https://models.dev) — no hardcoded model names, no hardcoded pricing, no hardcoded lists. Secrets are **AES-256-GCM** encrypted at rest with a per-machine key; every tool call clears a **per-tool permission policy**. Everything lives under `~/.wrongstack/` — the only thing you'd ever commit is `.wrongstack/AGENTS.md`.
 
 ### ✨ Why it slaps
 
@@ -33,7 +33,7 @@ WrongStack drives **autonomous goal loops**, **parallel subagent fan-out**, **mu
 - 🔑 **Sign in with a subscription** — authenticate with a **ChatGPT (Codex)**, **Claude Pro/Max**, or **GitHub Copilot** subscription over OAuth, *alongside* (not instead of) API keys. See [`docs/oauth-signin.md`](docs/oauth-signin.md).
 - 🔎 **Fast model switching** — the TUI `/model` picker supports type-to-search filtering with scroll-window navigation, and `wstack models` supports search + pagination.
 - 🔐 **Locked down by default** — encrypted secrets, SSRF guards on every redirect hop, fail-closed subagents, symlink containment, plugin trust tiers, WebUI redaction, and cloud-sync path guards.
-- 🪶 **A 505-line kernel** — `Container · Pipeline · EventBus · RunController`. Everything above it is swappable; `--no-features` boots it fully offline.
+- 🪶 **A compact kernel** — `Container · Pipeline · EventBus · RunController` (~1670 lines including the full event type catalog). Everything above it is swappable; `--no-features` boots it fully offline.
 
 ## Requirements
 
@@ -90,7 +90,7 @@ WS_HOST=0.0.0.0 webui          # expose on the LAN
 wrongstack --webui
 ```
 
-### 37 built-in tools
+### 36 built-in tools
 
 All tools are registered out of the box — no plugin required.
 
@@ -388,7 +388,7 @@ saving indicator and the current registered-tool count.
 
 ### `--no-features` minimal kernel
 
-Flips off MCP, plugins, memory tools, models.dev fetch, and skill discovery. What's left: kernel (`Container` + `Pipeline` + `EventBus` + `RunController`, 505 lines) + agent (525 lines) + 37 tools + permission policy + curated system prompt. The minimal-viable WrongStack runs offline with no network calls at startup. Provider family must be declared explicitly in config when using this mode.
+Flips off MCP, plugins, memory tools, models.dev fetch, and skill discovery. What's left: kernel (`Container` + `Pipeline` + `EventBus` + `RunController`, ~1670 lines incl. events) + agent (525 lines) + 36 tools + permission policy + curated system prompt. The minimal-viable WrongStack runs offline with no network calls at startup. Provider family must be declared explicitly in config when using this mode.
 
 ---
 
@@ -610,11 +610,11 @@ Commit this file to share project conventions with the agent across all develope
 
 ## Four contracts
 
-**1. Minimal kernel.** `Container`, `Pipeline`, `EventBus`, `RunController`, and the token table total **505 lines**. The agent loop adds another **525 lines**. Everything else is replaceable.
+**1. Minimal kernel.** `Container`, `Pipeline`, `EventBus`, `RunController`, and the token table total **~1670 lines** (including the full event type catalog). The agent loop adds another **525 lines**. Everything else is replaceable.
 
 **2. Zero non-overridable behavior.** 16 services bound through `Container` (Logger, TokenCounter, SessionStore, MemoryStore, PermissionPolicy, Compactor, PathResolver, ConfigLoader, Renderer, InputReader, ErrorHandler, RetryPolicy, SkillLoader, SystemPromptBuilder, SecretScrubber, ModelsRegistry). 6 pipelines as middleware chains. Tools, providers, MCP servers, and slash commands all live in registries.
 
-**3. Standalone sufficiency.** Works with 37 built-in tools, 4 wire-family transports, permission policy, and a curated system prompt — no plugins required.
+**3. Standalone sufficiency.** Works with 36 built-in tools, 4 wire-family transports, permission policy, and a curated system prompt — no plugins required.
 
 **4. Layered, not monolithic.** `--no-features` flips off MCP, plugins, memory tools, models.dev fetch, and skill discovery. The minimal-viable WrongStack runs offline with no network calls at startup.
 
@@ -625,7 +625,7 @@ Commit this file to share project conventions with the agent across all develope
 | `@wrongstack/core` | Kernel, agent, types, registries, plugin contract |
 | `@wrongstack/runtime` | Default runtime implementations, host composition helpers, extension pack contracts |
 | `@wrongstack/providers` | Anthropic/OpenAI/OpenAI-compatible/Google wire adapters + SSE |
-| `@wrongstack/tools` | 37 built-in tools (incl. SQLite codebase index) |
+| `@wrongstack/tools` | 36 built-in tools (incl. SQLite codebase index) |
 | `@wrongstack/mcp` | MCP server registry + reconnection logic |
 | `@wrongstack/cli` | REPL, subcommands, slash commands, terminal renderer |
 | `@wrongstack/tui` | Ink-based TUI (lazy-loaded behind `--tui`) |

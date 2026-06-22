@@ -44,7 +44,7 @@ core (zero internal dependencies)
  └── types/      — All type definitions
       ↓
 providers/  — Anthropic/OpenAI/Google/OpenAI-compatible adapters
-tools/      — 33 built-in tools (read, write, bash, grep...)
+tools/      — 36 built-in tools (read, write, bash, grep...)
 mcp/        — MCP client + registry + transports
 runtime/    — Default runtime implementations
 acp/        — ACP server/client for external agent protocols
@@ -66,7 +66,7 @@ apps/wrongstack/ — Binary entry point
 |---------|------|
 | `core` | Runtime kernel, types, agent loop, tool execution, compaction, coordination, security, persistence |
 | `providers` | LLM provider adapters: Anthropic, OpenAI, Google, OpenAI-compatible via WireFormatConfig |
-| `tools` | 33 built-in tools for filesystem, shell, search, git, dependencies, scaffolding |
+| `tools` | 36 built-in tools for filesystem, shell, search, git, dependencies, scaffolding |
 | `mcp` | MCP client with stdio/SSE/streamable-http transports, registry, tool wrapping |
 | `cli` | REPL, slash commands, subcommands, interactive pickers, plugin management |
 | `tui` | React/Ink terminal UI with live streaming, history, fleet monitoring, status bar |
@@ -76,14 +76,14 @@ apps/wrongstack/ — Binary entry point
 
 ## 2. Kernel Primitives
 
-The kernel (`packages/core/src/kernel/`) is ≤600 lines total. Four primitives:
+The kernel (`packages/core/src/kernel/`) is ~1670 lines total (including the full event type catalog). Six modules:
 
 ### Container
 
 A typed DI container indexed by `Token<T>` (branded symbols). Bindings support
 `factory`, `value`, and `decorator` forms. Resolution is lazy and memoized.
 
-25+ well-known tokens:
+22 well-known tokens (as of v0.270.0):
 
 ```
 TOKENS.Logger              TOKENS.TokenCounter      TOKENS.SessionStore
@@ -1875,7 +1875,7 @@ packages/acp/                    v1 client + server + ensemble
 3      MCP transports
 3      skill discovery paths
 2      permission policies (normal + subagent)
-1      kernel (≤600 lines)
+1      kernel (~1670 lines incl. event types)
 ```
 
 ---

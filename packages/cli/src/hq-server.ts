@@ -102,6 +102,15 @@ const DEFAULT_PORT = 3499;
 const MAX_EVENT_LOG = 5000;
 const MAX_NON_STRICT_PORT_SCAN = 50;
 
+/**
+ * Stale client cleanup: clients that have not sent a message within this
+ * window are considered dead and their sockets are terminated.  This handles
+ * crash / network-drop disconnects where the WebSocket close event never
+ * fires from the remote side.
+ */
+const CLIENT_TTL_MS = 60_000; // 60 s
+const CLIENT_CLEANUP_INTERVAL_MS = 30_000; // every 30 s
+
 function displayHost(host: string): string {
   return host === '0.0.0.0' ? '127.0.0.1' : host;
 }
@@ -1004,6 +1013,22 @@ function startHqServerWithAuth(
     const eventLog: HqEventEnvelope[] = [];
     const snapshotBroadcaster = createSnapshotBroadcaster(clients, browsers);
 
+    // Stale-client cleanup: periodically evict clients that have gone silent.
+    // This catches crash / network-drop disconnects where the remote never
+    // sent a WebSocket close frame, so the 'close' event never fires.
+    const cleanupTimer = setInterval(() => {
+      const cutoff = Date.now() - CLIENT_TTL_MS;
+      for (const [ws, client] of clients.entries()) {
+        if (new Date(client.lastSeenAt).getTime() < cutoff) {
+          // terminate() forces the socket closed immediately without going
+          // through the WS close handshake — appropriate for dead peers.
+          ws.terminate();
+          clients.delete(ws);
+        }
+      }
+      if (clients.size > 0) snapshotBroadcaster.broadcast();
+    }, CLIENT_CLEANUP_INTERVAL_MS);
+
     const httpServer: HttpServer = http.createServer((req, res) => {
       const url = new URL(req.url ?? '/', `http://${host}:${port}`);
 
@@ -1202,6 +1227,7 @@ function startHqServerWithAuth(
                 return;
               }
               closed = true;
+              clearInterval(cleanupTimer);
               authWatcher.close();
               snapshotBroadcaster.close();
               for (const ws of browsers) ws.close(1001, 'HQ shutting down');
