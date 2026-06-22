@@ -39,9 +39,9 @@ export function hintsFor(ctx: KeyHintContext): Hint[] {
   if (ctx.monitor) {
     const hints: Hint[] = [
       { key: 'Esc', label: 'close' },
-      { key: '^F', label: 'fleet' },
-      { key: '^G', label: 'agents' },
-      { key: '^T', label: 'worktrees' },
+      { key: 'F2', label: 'fleet' },
+      { key: 'F3', label: 'agents' },
+      { key: 'F4', label: 'worktrees' },
       { key: 'F6', label: 'todos' },
       { key: 'F9', label: 'goal' },
     ];
@@ -53,7 +53,7 @@ export function hintsFor(ctx: KeyHintContext): Hint[] {
   // Idle / chat.
   const base: Hint[] = [{ key: '?', label: 'help' }];
   if (ctx.managed) base.push({ key: 'PgUp/PgDn', label: 'scroll' });
-  base.push({ key: '^G', label: 'agents' }, { key: '^C', label: 'stop' });
+  base.push({ key: 'F3', label: 'agents' }, { key: '^C', label: 'stop' });
   if (ctx.nextPanelHint) {
     base.push({ key: ctx.nextPanelHint.key, label: ctx.nextPanelHint.label, discovery: true });
   }

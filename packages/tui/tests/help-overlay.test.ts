@@ -13,13 +13,13 @@ describe('helpSections', () => {
 
   it('always lists the monitor + help keys', () => {
     const keys = flat();
-    // Monitor chords are listed with their terminal-safe F-key aliases.
-    expect(keys).toContain('Ctrl+F / F2');
-    expect(keys).toContain('Ctrl+G / F3');
-    expect(keys).toContain('Ctrl+T / F4');
+    // Monitor chords are listed with terminal-safe alternatives first.
+    expect(keys).toContain('F2 or /fleet');
+    expect(keys).toContain('F3 or Ctrl+G');
+    expect(keys).toContain('F4 or /worktree');
     expect(keys).toContain('?');
     expect(keys).toContain('/help');
-    expect(keys).toContain('Ctrl+S');
+    expect(keys).toContain('Ctrl+S or /settings');
     expect(keys).toContain('/settings');
   });
 
@@ -38,8 +38,14 @@ describe('helpSections', () => {
     expect(f12).toMatchObject({ label: 'Status line picker', action: 'statuslineOpen' });
 
     const monitorEntries = helpSections().find((section) => section.title === 'Monitors')?.entries ?? [];
-    expect(monitorEntries).toContainEqual({ keys: 'F5', desc: 'plan panel' });
-    expect(monitorEntries).toContainEqual({ keys: 'F12', desc: 'status line picker' });
+    expect(monitorEntries).toContainEqual({
+      keys: 'F5 or /plan',
+      desc: 'plan panel (F5 may be host refresh/run)',
+    });
+    expect(monitorEntries).toContainEqual({
+      keys: 'F12 or /sl',
+      desc: 'status line picker (F12 may be host/devtools)',
+    });
   });
 
   it('never produces an empty section', () => {

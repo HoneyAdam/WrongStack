@@ -12,13 +12,15 @@ describe('KeyHintBar context priority', () => {
     expect(keys({ picker: true })).toEqual(['↑↓', '↵', 'Esc']);
   });
 
-  it('monitor shows close + switch keys', () => {
+  it('monitor shows close + terminal-safe switch keys', () => {
     expect(keys({ monitor: true })).toContain('Esc');
-    expect(keys({ monitor: true })).toContain('^F');
+    expect(keys({ monitor: true })).toContain('F2');
+    expect(keys({ monitor: true })).toContain('F3');
+    expect(keys({ monitor: true })).toContain('F4');
   });
 
   it('idle shows help and stop; adds scroll hints in managed viewport', () => {
-    expect(keys({})).toEqual(['?', '^G', '^C']);
+    expect(keys({})).toEqual(['?', 'F3', '^C']);
     expect(keys({ managed: true })).toContain('PgUp/PgDn');
   });
 });

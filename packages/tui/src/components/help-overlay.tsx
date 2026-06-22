@@ -45,8 +45,11 @@ export function helpSections(): HelpSection[] {
       entries: [
         { keys: 'Enter', desc: 'send (queues while the agent is busy)' },
         { keys: 'Esc Esc', desc: 'clear the input buffer' },
-        { keys: 'Ctrl+Backspace', desc: 'delete the previous word' },
-        { keys: 'Ctrl+S', desc: 'edit autonomy settings' },
+        { keys: 'Ctrl+←/→', desc: 'word navigation (terminal-dependent)' },
+        { keys: 'Ctrl+Backspace', desc: 'delete previous word/chip' },
+        { keys: 'Ctrl+S or /settings', desc: 'settings (Ctrl+S may be reserved)' },
+        { keys: 'Ctrl+V', desc: 'paste text (may be host paste)' },
+        { keys: 'Alt+V', desc: 'paste image (terminal-dependent)' },
         { keys: 'Ctrl+C', desc: 'interrupt the run · twice to exit' },
       ],
     },

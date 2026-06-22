@@ -183,23 +183,24 @@ Each overlay can be open simultaneously with the chat input. The Input stays mou
 
 ### Overlay toggle keys
 
-All toggles close any other overlay before opening. Key sequence: function keys preferred; Ctrl+chord as secondary when the terminal doesn't intercept it.
+All toggles close any other overlay before opening. Prefer slash commands or F-key aliases over Ctrl chords when a terminal host intercepts a shortcut.
 
-| Key | Overlay | Notes |
-|---|---|---|
-| F1 | Project switcher | Opens project picker |
-| Ctrl+F, F2 | Fleet orchestration monitor | Live subagent orchestration view |
-| Ctrl+G, F3 | Agents live monitor | Per-agent tool/stream status |
-| Ctrl+T, F4 | Worktree monitor | Git worktree lifecycle |
-| F5 | Plan panel | Session/project-scoped plan items |
-| F6 | Todos monitor | Full-screen todos from /todos |
-| F7 | Queue panel | Pending queue items |
-| F8 | Process list | Background tool processes |
-| F9 | Goal panel | Autonomous goal & coordinator controls |
-| F10 | Sessions panel | Live session list (F10 toggles open/close; Enter selects) |
-| F11 | Coordinator monitor | AutonomousCoordinator goals, tasks, knowledge |
-| Ctrl+S | Settings picker | (also closed by Enter or Esc) |
-| Ctrl+P | PhaseMonitor | AutoPhase progress (only when AutoPhase active) |
+| Key | Overlay | Preferred fallback | Terminal conflict notes |
+|---|---|---|---|
+| F1 | Project switcher | `/project` | F1 is commonly reserved for terminal/app help |
+| Ctrl+F, F2 | Fleet orchestration monitor | F2 or `/fleet` | Ctrl+F is commonly intercepted for Find/Search |
+| Ctrl+G, F3 | Agents live monitor | F3 or `/agents` | Ctrl+G is usually safe, but F3 is the safer terminal alias |
+| Ctrl+T, F4 | Worktree monitor | F4 or `/worktree` | Ctrl+T may be used by shells/terminal hosts |
+| F5 | Plan panel | `/plan` | F5 may be reserved for refresh/run/debug by host apps |
+| F6 | Todos monitor | `/todos` | Usually low risk |
+| F7 | Queue panel | `/queue` | Usually low risk |
+| F8 | Process list | `/ps` | Usually low risk |
+| F9 | Goal panel | `/goal` | Usually low risk |
+| F10 | Sessions panel | `/resume` | F10 may activate terminal/app menus |
+| F11 | Coordinator monitor | `/coordinator` | F11 is commonly reserved for fullscreen |
+| F12 | Statusline picker | `/statusline` or `/sl` | F12 may be reserved by host tools/devtools |
+| Ctrl+S | Settings picker | `/settings` | Ctrl+S may trigger terminal flow-control or host Save |
+| Ctrl+P | PhaseMonitor | `/autophase status` | Ctrl+P may be used for history/command-palette navigation |
 
 ### Esc close fallback
 
@@ -257,16 +258,16 @@ These keys are active only when the input buffer is focused (no picker or overla
 
 ### Cursor movement
 
-| Key | Effect |
-|---|---|
-| ← | Move cursor left by one character |
-| → | Move cursor right by one character |
-| Ctrl+← | Move cursor to previous word start |
-| Ctrl+→ | Move cursor to next word end |
-| Home | Move cursor to start of line |
-| End | Move cursor to end of line |
-| Ctrl+A | Move cursor to start of line |
-| Ctrl+E | Move cursor to end of line |
+| Key | Effect | Terminal conflict notes |
+|---|---|---|
+| ← | Move cursor left by one character | Standard terminal input |
+| → | Move cursor right by one character | Standard terminal input |
+| Ctrl+← | Move cursor to previous word start | Terminal-dependent; host pane/tab navigation may intercept it |
+| Ctrl+→ | Move cursor to next word end | Terminal-dependent; host pane/tab navigation may intercept it |
+| Home | Move cursor to start of line | Standard terminal input |
+| End | Move cursor to end of line | Standard terminal input |
+| Ctrl+A | Move cursor to start of line | Readline-compatible fallback when Home is unavailable |
+| Ctrl+E | Move cursor to end of line | Readline-compatible fallback when End is unavailable |
 
 ### Multi-line navigation (when buffer contains newlines)
 
@@ -281,18 +282,18 @@ On single-line buffers, ↑/↓ fall through to history navigation (see below).
 
 ### Text editing
 
-| Key | Effect |
-|---|---|
-| Backspace | Delete character before cursor (token-aware: deletes whole chips like `[pasted ...]`) |
-| Ctrl+Backspace, Alt+Backspace | Delete previous word (space-delimited) |
-| Delete | Delete character at cursor (token-aware) |
-| Ctrl+Delete | Delete next word |
-| Ctrl+U | Delete entire line (clear buffer) |
-| Ctrl+K | Delete from cursor to end of line |
-| Ctrl+D | Delete character at cursor (forward delete) |
-| Ctrl+V | Paste text from system clipboard |
-| Alt+V | Paste image from clipboard → inserts `[image #N]` chip |
-| Any printable char | Insert at cursor position |
+| Key | Effect | Terminal conflict notes |
+|---|---|---|
+| Backspace | Delete character before cursor (token-aware: deletes whole chips like `[pasted ...]`) | Standard terminal input |
+| Ctrl+Backspace, Alt+Backspace | Delete previous word (chip-aware) | Terminal-dependent; Alt may arrive as Esc-prefixed input |
+| Delete | Delete character at cursor (token-aware) | Standard terminal input |
+| Ctrl+Delete | Delete next word (chip-aware) | Terminal-dependent; host pane/tab navigation may intercept it |
+| Ctrl+U | Delete entire line (clear buffer) | Readline-compatible |
+| Ctrl+K | Delete from cursor to end of line | Readline-compatible |
+| Ctrl+D | Delete character at cursor (forward delete) | Shell EOF in normal terminals; safe inside TUI raw input |
+| Ctrl+V | Paste text from system clipboard | May be intercepted by terminal/IDE paste bindings |
+| Alt+V | Paste image from clipboard → inserts `[image #N]` chip | Terminal-dependent; use a slash command fallback if your terminal reserves Alt chords |
+| Any printable char | Insert at cursor position | Standard terminal input |
 
 ### History navigation
 
