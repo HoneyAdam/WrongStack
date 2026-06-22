@@ -14,6 +14,7 @@ import { safeParse } from '../utils/safe-json.js';
 import { deepMerge as deepMergeCore, type DeepMergeOptions } from '../utils/deep-merge.js';
 import type { WstackPaths } from '../utils/wstack-paths.js';
 import {
+  DEFAULT_AUTONOMY_CONFIG,
   DEFAULT_TOOLS_CONFIG,
   DEFAULT_CONTEXT_CONFIG,
   DEFAULT_SESSION_LOGGING_CONFIG,
@@ -68,6 +69,8 @@ const BEHAVIOR_DEFAULTS: Omit<Config, 'provider' | 'model'> = {
     memory: true,
     modelsRegistry: true,
     skills: true,
+    tokenSavingMode: 'off',
+    allowOutsideProjectRoot: true,
   },
   mcpServers: {},
   indexing: {
@@ -77,6 +80,7 @@ const BEHAVIOR_DEFAULTS: Omit<Config, 'provider' | 'model'> = {
     debounceMs: 400,
   },
   session: { ...DEFAULT_SESSION_LOGGING_CONFIG },
+  autonomy: { autoProceedDelayMs: DEFAULT_AUTONOMY_CONFIG.autoProceedDelayMs },
 };
 
 /** Parse a boolean-ish env var: "0"/"false"/"no"/"off" → false, anything else → true. */
