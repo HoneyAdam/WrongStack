@@ -6,6 +6,7 @@ import type { ChipMeta } from './statusline-picker.js';
 import type { StatuslineMode } from './settings-picker.js';
 import { useEffect, useState } from 'react';
 import { useTokenCounterRefresh } from '../hooks/use-token-counter-refresh.js';
+import { normalizeTuiThinkingWord } from '../thinking-word.js';
 import type { GitInfo } from '../git-info.js';
 
 // ─── Stream chip expiration helpers ─────────────────────────────────────────
@@ -93,6 +94,28 @@ const COMFORTABLE_THRESHOLD = 90;
 // Animated braille spinner shown when the agent is thinking/streaming.
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const SPINNER_INTERVAL_MS = 250;
+
+export interface TokenDisplayTotals {
+  input: number;
+  output: number;
+}
+
+export function tokenDisplayTotals(
+  usage: { input: number; output: number; cacheRead?: number | undefined; cacheWrite?: number | undefined } | undefined,
+  currentRequest: { input: number; cacheRead: number } | undefined,
+): TokenDisplayTotals {
+  const usageInput = usage ? usage.input + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0) : 0;
+  const usageOutput = usage?.output ?? 0;
+  const fallbackInput = currentRequest ? currentRequest.input + currentRequest.cacheRead : 0;
+  return {
+    input: usageInput > 0 ? usageInput : fallbackInput,
+    output: usageOutput,
+  };
+}
+
+export function hasTokenDisplay(tokens: TokenDisplayTotals): boolean {
+  return tokens.input > 0 || tokens.output > 0;
+}
 
 export interface TodoCounts {
   pending: number;
@@ -195,6 +218,8 @@ export interface StatusBarProps {
    */
   version?: string | undefined;
   state: 'idle' | 'running' | 'streaming' | 'aborting';
+  /** Single word rendered in the rainbow working-state chip. */
+  thinkingWord?: string | undefined;
   tokenCounter?: TokenCounter | undefined;
   hint?: string | undefined;
   queueCount?: number | undefined;
@@ -363,6 +388,7 @@ export function StatusBar({
   model,
   version,
   state,
+  thinkingWord,
   tokenCounter,
   hint,
   queueCount = 0,
@@ -422,6 +448,8 @@ export function StatusBar({
   // the provider responds, instead of waiting for the next nowTick poll.
   const tokenData = useTokenCounterRefresh(tokenCounter, events);
   const usage = tokenData?.usage;
+  const displayTokens = tokenDisplayTotals(usage, tokenData?.currentRequest);
+  const showTokenDisplay = hasTokenDisplay(displayTokens);
   const cost = tokenData?.cost;
   const cache = tokenData?.cacheStats;
 
@@ -447,7 +475,7 @@ export function StatusBar({
   }, [state]);
   const spinner = expectDefined(SPINNER_FRAMES[spinnerIdx]);
 
-  const { label: stateLabel, color: stateColor } = stateChip(state, fleet?.running ?? 0);
+  const { label: stateLabel, color: stateColor } = stateChip(state, fleet?.running ?? 0, thinkingWord);
   // Animated spinner for thinking/streaming; static ● for idle/aborting.
   const statePrefix = state === 'idle' || state === 'aborting' ? '●' : spinner;
   // When the agent is actively working, paint the state chip as a moving
@@ -555,6 +583,15 @@ export function StatusBar({
               </Text>
             </>
           ) : null}
+          {showTokenDisplay ? (
+            <>
+              <Text dimColor>│</Text>
+              <Text>
+                ↑ <Text color="cyan">{fmtTok(displayTokens.input)}</Text> ↓{' '}
+                <Text color="cyan">{fmtTok(displayTokens.output)}</Text>
+              </Text>
+            </>
+          ) : null}
           {cost && cost.total > 0 && !hiddenSet.has('cost') ? (
             <>
               <Text dimColor>│</Text>
@@ -639,15 +676,12 @@ export function StatusBar({
                 })()}
               </>
             ) : null}
-            {usage && isComfortable ? (
+            {showTokenDisplay ? (
               <>
                 <Text dimColor>│</Text>
                 <Text>
-                  ↑{' '}
-                  <Text color="cyan">
-                    {fmtTok(usage.input + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0))}
-                  </Text>{' '}
-                  ↓ <Text color="cyan">{fmtTok(usage.output)}</Text>
+                  ↑ <Text color="cyan">{fmtTok(displayTokens.input)}</Text> ↓{' '}
+                  <Text color="cyan">{fmtTok(displayTokens.output)}</Text>
                 </Text>
               </>
             ) : null}
@@ -1222,6 +1256,7 @@ export function statusBarModelSpan(opts: {
   version?: string | undefined;
   state: 'idle' | 'running' | 'streaming' | 'aborting';
   fleetRunning?: number | undefined;
+  thinkingWord?: string | undefined;
   model: string;
 }): { start: number; len: number } {
   let col = SB_PADX;
@@ -1229,7 +1264,7 @@ export function statusBarModelSpan(opts: {
     col += `WS v${opts.version}`.length + SB_GAP; // WS chip
     col += 1 + SB_GAP; // │ separator
   }
-  const { label } = stateChip(opts.state, opts.fleetRunning ?? 0);
+  const { label } = stateChip(opts.state, opts.fleetRunning ?? 0, opts.thinkingWord);
   col += 2 + label.length + SB_GAP; // "● " + label
   col += 1 + SB_GAP; // │ separator
   return { start: col, len: opts.model.length };
@@ -1270,13 +1305,14 @@ export function statusBarTodosSpan(): { start: number; len: number } {
 export function stateChip(
   state: 'idle' | 'running' | 'streaming' | 'aborting',
   fleetRunning: number,
+  thinkingWord?: string | undefined,
 ): { label: string; color: string } {
   if (state === 'idle' && fleetRunning > 0) {
     return { label: `agents ▶${fleetRunning}`, color: 'magenta' };
   }
   if (state === 'idle') return { label: 'idle', color: 'cyan' };
   if (state === 'aborting') return { label: 'aborting…', color: 'yellow' };
-  return { label: 'thinking…', color: 'green' };
+  return { label: `${normalizeTuiThinkingWord(thinkingWord)}…`, color: 'green' };
 }
 
 // Pastel (Catppuccin Mocha) hue-wheel for the animated "thinking…" wave. 12

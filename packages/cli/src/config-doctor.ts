@@ -16,6 +16,10 @@
 
 import type { JSONSchema } from '@wrongstack/core';
 import { isSecretField, validateAgainstSchema } from '@wrongstack/core';
+import {
+  MAX_TUI_THINKING_WORD_LENGTH,
+  normalizeTuiThinkingWord,
+} from './tui-thinking-word.js';
 
 export type DoctorSeverity = 'error' | 'warning';
 
@@ -284,6 +288,18 @@ export function diagnoseConfig(
             fix: `set to ${repaired}`,
           });
           autonomy[key] = repaired;
+        }
+      }
+      if ('thinkingWord' in autonomy) {
+        const normalized = normalizeTuiThinkingWord(autonomy.thinkingWord);
+        if (autonomy.thinkingWord !== normalized) {
+          findings.push({
+            path: 'autonomy.thinkingWord',
+            problem: `expected a single word up to ${MAX_TUI_THINKING_WORD_LENGTH} characters, got ${JSON.stringify(autonomy.thinkingWord)}`,
+            severity: 'error',
+            fix: 'removed (built-in default applies)',
+          });
+          delete autonomy.thinkingWord;
         }
       }
     }

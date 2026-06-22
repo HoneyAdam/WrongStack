@@ -358,7 +358,7 @@ describe('/semver slash command', () => {
     const { slash } = setup();
     const res = await slash.semver!.run('');
     expect(res.message).toMatch(/Current version: 1.2.3/);
-    expect(res.message).toMatch(/Suggested bump:  minor/);
+    expect(res.message).toMatch(/Suggested bump: {2}minor/);
   });
 
   it('status reports no package.json', async () => {
@@ -371,14 +371,14 @@ describe('/semver slash command', () => {
     gitHandler = () => { throw new Error('no git'); };
     const { slash } = setup();
     const res = await slash.semver!.run('status');
-    expect(res.message).toMatch(/Latest tag:      \(none\)/);
+    expect(res.message).toMatch(/Latest tag: {6}\(none\)/);
   });
 
   it('status shows (none) when describe returns empty', async () => {
     gitHandler = (args) => (args[0] === 'log' ? 'h1 feat: x' : ''); // describe '' → no tag
     const { slash } = setup();
     const res = await slash.semver!.run('status');
-    expect(res.message).toMatch(/Latest tag:      \(none\)/);
+    expect(res.message).toMatch(/Latest tag: {6}\(none\)/);
   });
 
   it('reports the error message when a bump fails', async () => {

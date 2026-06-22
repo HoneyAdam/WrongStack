@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react';
 
 export interface TokenRefreshData {
   usage: Usage;
+  /** Last request prompt tokens from the counter, used when provider usage is unavailable. */
+  currentRequest: { input: number; cacheRead: number };
   cost: { input: number; output: number; total: number; currency: 'USD' };
   cacheStats: CacheStats;
 }
@@ -10,6 +12,7 @@ export interface TokenRefreshData {
 export function snapshotTokenCounter(tokenCounter: TokenCounter): TokenRefreshData {
   return {
     usage: tokenCounter.total(),
+    currentRequest: tokenCounter.currentRequestTokens(),
     cost: tokenCounter.estimateCost(),
     cacheStats: tokenCounter.cacheStats(),
   };
@@ -30,13 +33,7 @@ export function useTokenCounterRefresh(
   events: EventBus | undefined,
 ): TokenRefreshData | undefined {
   const [data, setData] = useState<TokenRefreshData | undefined>(() =>
-    tokenCounter
-      ? {
-          usage: tokenCounter.total(),
-          cost: tokenCounter.estimateCost(),
-          cacheStats: tokenCounter.cacheStats(),
-        }
-      : undefined,
+    tokenCounter ? snapshotTokenCounter(tokenCounter) : undefined,
   );
 
   useEffect(() => {

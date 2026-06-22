@@ -96,6 +96,23 @@ export function normalizeTokenSavingTier(
   return validTiers.has(val) ? val : 'off';
 }
 
+export const DEFAULT_TUI_THINKING_WORD = 'thinking';
+export const MAX_TUI_THINKING_WORD_LENGTH = 16;
+
+/**
+ * Normalize the configurable statusline word shown while the TUI is working.
+ * The value must be a single short word; invalid values fall back to the default.
+ */
+export function normalizeTuiThinkingWord(value: unknown): string {
+  if (typeof value !== 'string') return DEFAULT_TUI_THINKING_WORD;
+  const word = value.trim();
+  if (word.length === 0 || word.length > MAX_TUI_THINKING_WORD_LENGTH) {
+    return DEFAULT_TUI_THINKING_WORD;
+  }
+  if (!/^[\p{L}\p{N}_-]+$/u.test(word)) return DEFAULT_TUI_THINKING_WORD;
+  return word;
+}
+
 export interface ContextConfig {
   /** Context-window policy mode. Controls compaction thresholds and preservation depth. */
   mode?: ContextWindowModeId | undefined;
@@ -369,6 +386,8 @@ export interface FeaturesConfig {
 export interface AutonomyConfig {
   /** ms to wait before auto-proceeding in 'auto' mode. Default: 45000. */
   autoProceedDelayMs?: number | undefined;
+  /** Single short word shown in the TUI rainbow working-state chip. Default: "thinking". */
+  thinkingWord?: string | undefined;
 }
 
 /**

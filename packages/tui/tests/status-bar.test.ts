@@ -6,6 +6,8 @@ import {
   stateChip,
   statusBarAutonomySpan,
   statusBarModelSpan,
+  hasTokenDisplay,
+  tokenDisplayTotals,
 } from '../src/components/status-bar.js';
 
 describe('statusBarModelSpan (hit-test geometry)', () => {
@@ -26,6 +28,13 @@ describe('statusBarModelSpan (hit-test geometry)', () => {
     const busy = statusBarModelSpan({ state: 'running', model: 'm' });
     // "thinking…"(9) vs "idle"(4) → +5
     expect(busy.start - idle.start).toBe(5);
+  });
+
+  it('accounts for a configured thinking word', () => {
+    const idle = statusBarModelSpan({ state: 'idle', model: 'm' });
+    const busy = statusBarModelSpan({ state: 'running', thinkingWord: 'working', model: 'm' });
+    // "working…"(8) vs "idle"(4) → +4
+    expect(busy.start - idle.start).toBe(4);
   });
 });
 
@@ -91,6 +100,15 @@ describe('stateChip', () => {
     expect(stateChip('streaming', 5)).toEqual({ label: 'thinking…', color: 'green' });
     expect(stateChip('aborting', 5)).toEqual({ label: 'aborting…', color: 'yellow' });
   });
+
+  it('uses a configured single-word foreground label', () => {
+    expect(stateChip('running', 0, 'working')).toEqual({ label: 'working…', color: 'green' });
+  });
+
+  it('falls back to thinking for invalid configured words', () => {
+    expect(stateChip('running', 0, 'two words')).toEqual({ label: 'thinking…', color: 'green' });
+    expect(stateChip('running', 0, 'x'.repeat(17))).toEqual({ label: 'thinking…', color: 'green' });
+  });
 });
 
 describe('renderProgress', () => {
@@ -149,5 +167,31 @@ describe('renderMeter (sub-cell precision)', () => {
   it('clamps out-of-range ratios', () => {
     expect(renderMeter(-1, 8)).toBe('░░░░░░░░');
     expect(renderMeter(2, 8)).toBe('████████');
+  });
+});
+
+describe('tokenDisplayTotals', () => {
+  it('falls back to current request input tokens when provider usage totals are zero', () => {
+    expect(tokenDisplayTotals({ input: 0, output: 0 }, { input: 3210, cacheRead: 40 })).toEqual({
+      input: 3250,
+      output: 0,
+    });
+  });
+
+  it('prefers accounted provider usage once it is available', () => {
+    expect(
+      tokenDisplayTotals(
+        { input: 1000, output: 200, cacheRead: 300, cacheWrite: 400 },
+        { input: 3210, cacheRead: 40 },
+      ),
+    ).toEqual({ input: 1700, output: 200 });
+  });
+
+  it('marks the token chip visible when only outgoing request tokens exist', () => {
+    expect(hasTokenDisplay(tokenDisplayTotals(undefined, { input: 3210, cacheRead: 40 }))).toBe(true);
+  });
+
+  it('keeps the token chip hidden when no input or output tokens exist', () => {
+    expect(hasTokenDisplay(tokenDisplayTotals({ input: 0, output: 0 }, undefined))).toBe(false);
   });
 });

@@ -23,6 +23,7 @@ import {
   normalizeTokenSavingTier,
 } from '@wrongstack/core';
 import { persistAutonomySetting, filterSafeForProject } from '../settings-menu.js';
+import { normalizeTuiThinkingWord } from '../tui-thinking-word.js';
 import type { LiveSettingsInput } from '../execution.js';
 
 export interface SettingsAdapterContext {
@@ -94,6 +95,7 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
           ?.autoProceedMaxIterations as number) ?? 50,
       debugStream: cfg.debugStream ?? false,
       statuslineMode: autonomy?.statuslineMode === 'minimum' ? 'minimum' : 'detailed',
+      thinkingWord: normalizeTuiThinkingWord(autonomy?.thinkingWord),
       configScope: cfg.configScope ?? 'global',
       enhanceDelayMs:
         ((cfg.autonomy as Record<string, unknown> | undefined)?.enhanceDelayMs as number) ??
@@ -146,6 +148,7 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
           if (s.enhanceEnabled !== undefined) a['enhance'] = s.enhanceEnabled;
           if (s.enhanceLanguage !== undefined) a['enhanceLanguage'] = s.enhanceLanguage;
           if (s.statuslineMode !== undefined) a['statuslineMode'] = s.statuslineMode;
+          if (s.thinkingWord !== undefined) a['thinkingWord'] = normalizeTuiThinkingWord(s.thinkingWord);
           if (s.autonomyNextPrompt !== undefined) a['autonomyNextPrompt'] = s.autonomyNextPrompt;
           if (s.autoProceedMaxIterations !== undefined)
             a['autoProceedMaxIterations'] = s.autoProceedMaxIterations;

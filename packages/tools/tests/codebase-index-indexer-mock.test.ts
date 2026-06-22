@@ -43,6 +43,7 @@ vi.mock('../src/codebase-index/ts-parser.js', async (orig) => {
 });
 
 const realFs = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+const mockedFs = await import('node:fs/promises');
 const { runIndexer } = await import('../src/codebase-index/indexer.js');
 
 const ctx = {} as Context;
@@ -85,5 +86,20 @@ describe('runIndexer defensive branches', () => {
     const res = await runIndexer(ctx, { projectRoot: dir, indexDir: indexDir(), files: [f] });
     expect(res.filesIndexed).toBe(0);
     expect(res.errors.some((e) => /parse error/.test(e))).toBe(true);
+  });
+
+  it('does not read or parse unchanged files during incremental indexing', async () => {
+    const f = path.join(dir, 'a.ts');
+    await realFs.writeFile(f, 'export class A {}');
+    const first = await runIndexer(ctx, { projectRoot: dir, indexDir: indexDir(), files: [f] });
+    expect(first.filesIndexed).toBe(1);
+
+    vi.mocked(mockedFs.readFile).mockClear();
+    parserCfg.throw = true;
+    const second = await runIndexer(ctx, { projectRoot: dir, indexDir: indexDir(), files: [f] });
+
+    expect(second.filesIndexed).toBe(1);
+    expect(second.errors).toEqual([]);
+    expect(mockedFs.readFile).not.toHaveBeenCalledWith(f, expect.anything());
   });
 });

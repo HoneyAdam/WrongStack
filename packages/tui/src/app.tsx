@@ -986,7 +986,7 @@ export function App({
     },
     autonomyPicker: { open: false, options: [], selected: 0 },
     resumePicker: { open: false, sessions: [], selected: 0, busy: false, hint: undefined, error: undefined },
-    settingsPicker: { open: false, field: 0, mode: 'off', delayMs: 0, titleAnimation: true, yolo: false, streamFleet: true, chime: false, confirmExit: true, nextPrediction: false, featureMcp: true, featurePlugins: true, featureMemory: true, featureSkills: true, featureModelsRegistry: true, tokenSavingTier: 'off' as TokenSavingTier, allowOutsideProjectRoot: true, contextAutoCompact: true, contextStrategy: 'hybrid', contextMode: 'balanced' as ContextMode, maxConcurrent: 10, logLevel: 'info', auditLevel: 'standard', indexOnStart: true, maxIterations: 500, autoProceedMaxIterations: 50, enhanceDelayMs: 60_000, enhanceEnabled: true, enhanceLanguage: 'original', debugStream: false, statuslineMode: 'detailed' as StatuslineMode, reasoningMode: 'auto' as 'auto', reasoningEffort: 'high', reasoningPreserve: false, cacheTtl: 'default', configScope: 'global' },
+    settingsPicker: { open: false, field: 0, mode: 'off', delayMs: 0, titleAnimation: true, yolo: false, streamFleet: true, chime: false, confirmExit: true, nextPrediction: false, featureMcp: true, featurePlugins: true, featureMemory: true, featureSkills: true, featureModelsRegistry: true, tokenSavingTier: 'off' as TokenSavingTier, allowOutsideProjectRoot: true, contextAutoCompact: true, contextStrategy: 'hybrid', contextMode: 'balanced' as ContextMode, maxConcurrent: 10, logLevel: 'info', auditLevel: 'standard', indexOnStart: true, maxIterations: 500, autoProceedMaxIterations: 50, enhanceDelayMs: 60_000, enhanceEnabled: true, enhanceLanguage: 'original', debugStream: false, statuslineMode: 'detailed' as StatuslineMode, reasoningMode: 'auto' as 'auto', reasoningEffort: 'high', reasoningPreserve: false, thinkingWord: 'thinking', cacheTtl: 'default', configScope: 'global' },
     statuslinePicker: { open: false, field: 0, hiddenItems: [], visibleChips: [], hint: undefined },
     projectPicker: { open: false, allItems: [], items: [], selected: 0, filter: '', hint: undefined },
     fKeyPicker: { open: false, selected: 0 },
@@ -1196,6 +1196,7 @@ export function App({
   // session without a restart. Falls back to the boot prop when unavailable.
   const liveSettings = getSettings?.();
   const liveStatuslineMode = liveSettings?.statuslineMode ?? 'detailed';
+  const liveThinkingWord = liveSettings?.thinkingWord ?? 'thinking';
   const chimeRef = useRef(chime);
   chimeRef.current = liveSettings?.chime ?? chime;
   const confirmExitRef = useRef(confirmExit);
@@ -2026,6 +2027,7 @@ export function App({
             reasoningMode: sp.reasoningMode,
             reasoningEffort: sp.reasoningEffort,
             reasoningPreserve: sp.reasoningPreserve,
+            thinkingWord: sp.thinkingWord,
             cacheTtl: sp.cacheTtl,
             configScope: sp.configScope,
           });
@@ -2578,6 +2580,7 @@ export function App({
       reasoningMode: (s as any).reasoningMode ?? 'auto',
       reasoningEffort: (s as any).reasoningEffort ?? 'high',
       reasoningPreserve: (s as any).reasoningPreserve ?? false,
+      thinkingWord: s.thinkingWord ?? 'thinking',
       cacheTtl: (s as any).cacheTtl ?? 'default',
       configScope: s.configScope ?? 'global',
     });
@@ -2793,6 +2796,7 @@ export function App({
       reasoningMode: sp.reasoningMode,
       reasoningEffort: sp.reasoningEffort,
       reasoningPreserve: sp.reasoningPreserve,
+      thinkingWord: sp.thinkingWord,
       cacheTtl: sp.cacheTtl,
       configScope: sp.configScope,
     })).then((err: string | null) => {
@@ -2832,6 +2836,7 @@ export function App({
     state.settingsPicker.reasoningMode,
     state.settingsPicker.reasoningEffort,
     state.settingsPicker.reasoningPreserve,
+    state.settingsPicker.thinkingWord,
     state.settingsPicker.cacheTtl,
     saveSettings,
   ]);
@@ -4626,6 +4631,7 @@ export function App({
           reasoningMode: (cfg as any).reasoningMode ?? 'auto',
           reasoningEffort: (cfg as any).reasoningEffort ?? 'high',
           reasoningPreserve: (cfg as any).reasoningPreserve ?? false,
+          thinkingWord: cfg.thinkingWord ?? 'thinking',
           cacheTtl: (cfg as any).cacheTtl ?? 'default',
           configScope: cfg.configScope ?? 'global',
         });
@@ -6324,6 +6330,7 @@ export function App({
             model={`${liveProvider}/${liveModel}`}
             version={appVersion}
             state={state.status}
+            thinkingWord={liveThinkingWord}
             tokenCounter={tokenCounter}
             hint={renderRunningTools(state.runningTools) || state.hint}
             queueCount={state.queue.length}

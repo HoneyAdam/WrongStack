@@ -256,10 +256,10 @@ async function runIndexerWithStore(store: IndexStore, opts: IndexerOptions): Pro
       throwIfAborted(signal);
     }
 
-    // Phase 1: Parallel stat + read + parse
+    // Phase 1: Parallel stat + incremental skip + read + parse
     const statOpts = signal ? { signal } : {};
     const statReadParse = await Promise.allSettled(
-      batchFiles.map(async (file): Promise<{ file: string; stat: Stats; lang: string; parsed: Awaited<ReturnType<typeof parseFile>> | null; content?: string; error?: string }> => {
+      batchFiles.map(async (file): Promise<{ file: string; stat: Stats; lang: string; parsed: Awaited<ReturnType<typeof parseFile>> | null; content?: string; skippedMeta?: FileMeta; error?: string }> => {
         let stat: Stats;
         try {
           stat = await (fs.stat as (path: string, opts: { signal?: AbortSignal }) => Promise<Stats>)(file, statOpts);
@@ -271,6 +271,11 @@ async function runIndexerWithStore(store: IndexStore, opts: IndexerOptions): Pro
 
         const lang = detectLang(file);
         if (!lang) return { file, stat, lang: '', parsed: null };
+
+        const meta = existingMeta.get(file);
+        if (!force && meta && meta.mtimeMs === Math.floor(stat.mtimeMs)) {
+          return { file, stat, lang, parsed: null, skippedMeta: meta };
+        }
 
         let content: string;
         try {
@@ -310,19 +315,18 @@ async function runIndexerWithStore(store: IndexStore, opts: IndexerOptions): Pro
       }
 
       const { stat, lang, parsed } = result;
+      if (result.skippedMeta) {
+        langStats[lang] = (langStats[lang] ?? 0) + result.skippedMeta.symbolCount;
+        symbolsIndexed += result.skippedMeta.symbolCount;
+        filesIndexed++;
+        continue;
+      }
+
       if (!lang || !parsed) {
         if (lang) {
           store.upsertFile({ file, lang: lang as SymbolLang, mtimeMs: Math.floor(stat.mtimeMs), symbolCount: 0, lastIndexed: Date.now() });
           filesIndexed++;
         }
-        continue;
-      }
-
-      const meta = existingMeta.get(file);
-      if (!force && meta && meta.mtimeMs === Math.floor(stat.mtimeMs)) {
-        langStats[lang] = (langStats[lang] ?? 0) + meta.symbolCount;
-        symbolsIndexed += meta.symbolCount;
-        filesIndexed++;
         continue;
       }
 

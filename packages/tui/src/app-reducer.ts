@@ -630,6 +630,7 @@ export function reducer(state: State, action: Action): State {
           reasoningMode: action.reasoningMode,
           reasoningEffort: action.reasoningEffort,
           reasoningPreserve: action.reasoningPreserve,
+          thinkingWord: action.thinkingWord,
           cacheTtl: action.cacheTtl,
           configScope: action.configScope,
           hint: undefined,

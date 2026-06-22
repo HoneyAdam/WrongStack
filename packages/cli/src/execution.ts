@@ -132,6 +132,8 @@ export interface LiveSettingsInput {
   breakerAutoKillResetMs?: number | undefined;
   /** TUI statusline density. Defaults to detailed when unset. */
   statuslineMode?: 'minimum' | 'detailed' | undefined;
+  /** Single word shown in the TUI rainbow working-state chip. */
+  thinkingWord?: string | undefined;
 }
 
 export interface ExecutionDeps {

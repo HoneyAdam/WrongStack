@@ -309,6 +309,8 @@ export type State = {
     reasoningEffort: ReasoningEffort;
     /** Preserve thinking across turns. */
     reasoningPreserve: boolean;
+    /** Single word shown in the TUI rainbow working-state chip. */
+    thinkingWord: string;
     /** Prompt cache TTL. */
     cacheTtl: CacheTtl;
     /** Where to persist settings: 'global' or 'project'. */
@@ -638,6 +640,8 @@ export type Settings = {
   reasoningEffort: ReasoningEffort;
   /** Preserve thinking across turns. */
   reasoningPreserve: boolean;
+  /** Single word shown in the TUI rainbow working-state chip. */
+  thinkingWord: string;
   /** Prompt cache TTL. */
   cacheTtl: CacheTtl;
   /** Where to persist settings: 'global' or 'project'. */
@@ -747,6 +751,7 @@ export type Action =
       reasoningMode: 'auto' | 'on' | 'off';
       reasoningEffort: ReasoningEffort;
       reasoningPreserve: boolean;
+      thinkingWord: string;
       cacheTtl: CacheTtl;
       configScope: 'global' | 'project';
     }
