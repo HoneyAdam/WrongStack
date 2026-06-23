@@ -42,11 +42,23 @@ describe('verifyClient (WebSocket auth)', () => {
     }
   });
 
-  it('requires a token for a non-loopback browser origin', () => {
+  it('requires the cookie for a non-loopback browser origin — URL token is rejected (C-598)', () => {
     const base = { hostHeader: LOOPBACK_HOST, wsHost: '127.0.0.1', expectedToken: TOKEN } as const;
+    // No credential at all → rejected.
     expect(verifyClient({ origin: 'http://192.168.1.5:3000', url: '/', ...base })).toBe(false);
+    // URL `?token=` is NO LONGER accepted for a browser client (would leak the
+    // token into history / referrer / proxy logs).
     expect(
       verifyClient({ origin: 'http://192.168.1.5:3000', url: `/?token=${TOKEN}`, ...base }),
+    ).toBe(false);
+    // The HttpOnly cookie is the accepted browser credential.
+    expect(
+      verifyClient({
+        origin: 'http://192.168.1.5:3000',
+        url: '/',
+        cookieHeader: `ws_token=${TOKEN}`,
+        ...base,
+      }),
     ).toBe(true);
   });
 
@@ -109,7 +121,17 @@ describe('verifyClient (WebSocket auth)', () => {
     ).toBe(false);
   });
 
-  it('allows a non-loopback browser with the correct token on a public bind', () => {
+  it('allows a non-loopback browser with the correct cookie on a public bind', () => {
+    expect(
+      verifyClient({
+        origin: 'http://10.0.0.5:3000',
+        url: '/',
+        cookieHeader: `ws_token=${TOKEN}`,
+        wsHost: '0.0.0.0',
+        expectedToken: TOKEN,
+      }),
+    ).toBe(true);
+    // Same client presenting the token only in the URL is rejected.
     expect(
       verifyClient({
         origin: 'http://10.0.0.5:3000',
@@ -117,7 +139,7 @@ describe('verifyClient (WebSocket auth)', () => {
         wsHost: '0.0.0.0',
         expectedToken: TOKEN,
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it('rejects DNS-rebinding: a non-loopback Host on a loopback bind', () => {
@@ -270,15 +292,26 @@ describe('verifyClient — cookie auth (C-2 path)', () => {
     ).toBe(false);
   });
 
-  it('still accepts the legacy URL-token path for browser clients (back-compat)', () => {
-    // While the frontend migrates to /ws-auth, browser clients still
-    // work via `?token=…`. The full C-2 fix removes this path once the
-    // migration is complete; until then, this is intentional backward
-    // compatibility, not a regression.
+  it('rejects the URL-token path for browser clients (C-598 fully closed)', () => {
+    // The legacy `?token=…` URL path is no longer honored for browser clients
+    // (it leaks the token into history / referrer / proxy logs). The frontend
+    // bootstraps the HttpOnly cookie via /ws-auth before connecting, so browser
+    // clients authenticate via the cookie; a URL-only token is rejected.
     expect(
       verifyClient({
         origin: 'https://wrongstack.example.com',
         url: `/?token=${TOKEN}`,
+        hostHeader: LAN_HOST,
+        wsHost: '0.0.0.0',
+        expectedToken: TOKEN,
+      }),
+    ).toBe(false);
+    // The same browser client authenticates successfully via the cookie.
+    expect(
+      verifyClient({
+        origin: 'https://wrongstack.example.com',
+        url: '/',
+        cookieHeader: `ws_token=${TOKEN}`,
         hostHeader: LAN_HOST,
         wsHost: '0.0.0.0',
         expectedToken: TOKEN,

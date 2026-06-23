@@ -13,14 +13,14 @@
  *  3. **Loopback bootstrap** — same-machine browser origins are allowed without
  *     a token; the Host-header guard above already blocks cross-site pages.
  *
- * Browser clients (those that send an `Origin` header) MAY use either the
- * cookie path (preferred; set via `/ws-auth`) or the URL-token path
- * (legacy, still accepted for backward compat while the frontend migrates).
- * Once the frontend is updated to call `/ws-auth` on startup, the URL
- * token path can be removed entirely, closing the C-598
- * (Information Exposure Through Query String) class. Non-browser
- * clients always use the URL-token path for ergonomics (curl, scripts,
- * tests).
+ * Browser clients (those that send an `Origin` header) authenticate via the
+ * HttpOnly cookie ONLY — the URL `?token=` path is rejected for them, closing
+ * the C-598 (Information Exposure Through Query String) class (token in browser
+ * history / referrer / proxy logs). The frontend bootstraps the cookie via
+ * `ensureAuthCookie()` (a same-origin `/ws-auth` GET) before its first connect,
+ * so the cookie is present on the WS upgrade. Non-browser clients (no `Origin`:
+ * curl, scripts, tests) keep the URL-token path for ergonomics — query-string
+ * exposure is a browser-only concern.
  *
  * Extracted from `index.ts` as pure functions so the auth contract can be unit
  * tested without standing up a real `http.Server`/`WebSocketServer`. `index.ts`
@@ -167,9 +167,8 @@ export interface VerifyClientInput {
  */
 export function verifyClient(input: VerifyClientInput): boolean {
   const { origin, url, hostHeader, remoteAddress, cookieHeader, wsHost, expectedToken } = input;
-  const urlToken = extractToken(url ?? '');
-  const cookieToken = extractTokenFromCookie(cookieHeader);
-  const tokenOk = tokenMatches(urlToken, expectedToken) || tokenMatches(cookieToken, expectedToken);
+  const urlTokenOk = tokenMatches(extractToken(url ?? ''), expectedToken);
+  const cookieTokenOk = tokenMatches(extractTokenFromCookie(cookieHeader), expectedToken);
 
   // DNS-rebinding guard runs first on a loopback bind — independent of token
   // and Origin. Blocks a rebound attacker page (Host = attacker domain) even
@@ -178,12 +177,15 @@ export function verifyClient(input: VerifyClientInput): boolean {
 
   if (!origin) {
     // Non-browser clients (curl, scripts): require token unless on loopback.
+    // The URL `?token=` path stays valid here for ergonomics (curl/tests have
+    // no cookie jar) — query-string token exposure (C-598) is a *browser*
+    // history/log concern, which non-browser clients don't have.
     // When wsHost=0.0.0.0 the server accepts connections from any network
     // interface — a non-loopback peer is denied outright.
     const remoteIp = remoteAddress ?? '';
     const isRemoteLoopback = remoteIp === '127.0.0.1' || remoteIp === '::1';
     if (!isRemoteLoopback && wsHost === '0.0.0.0') return false; // LAN exposure = deny
-    return tokenOk || isLoopbackBind(wsHost);
+    return urlTokenOk || cookieTokenOk || isLoopbackBind(wsHost);
   }
   try {
     const { hostname } = new URL(origin);
@@ -197,13 +199,14 @@ export function verifyClient(input: VerifyClientInput): boolean {
       }
       return true;
     }
-    // Non-loopback browser origin: token is mandatory. Both the cookie
-    // path (C-2 fix, preferred — set via /ws-auth) and the URL-token
-    // path (legacy, still accepted for backward compat) authenticate
-    // the connection. The token in the URL is no longer required —
-    // once the frontend is updated to call /ws-auth on startup, it can
-    // drop the `?token=` from the WS URL entirely.
-    return tokenOk;
+    // Non-loopback BROWSER origin: the HttpOnly cookie (set via /ws-auth) is the
+    // ONLY accepted credential. The URL `?token=` path is rejected for browser
+    // clients — it would leak the token into browser history, referrer headers,
+    // and reverse-proxy access logs (CWE-598). The frontend bootstraps the
+    // cookie via `ensureAuthCookie()` before its first connect, so the cookie is
+    // present on the WS upgrade; the URL token it still appends is simply
+    // ignored here.
+    return cookieTokenOk;
   } catch {
     return false;
   }

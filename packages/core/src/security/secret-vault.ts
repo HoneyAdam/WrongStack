@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
@@ -29,6 +29,107 @@ const KEY_FILE_MODE = 0o600;
  */
 const KEY_FILE_MAGIC = Buffer.from('WSKV', 'ascii');
 const VERSIONED_KEY_FILE_SIZE = KEY_FILE_MAGIC.length + 1 + KEY_BYTES; // 37 bytes
+
+// ── WS-03: opt-in passphrase-wrapped key file (KEK) ─────────────────────────
+//
+// When WRONGSTACK_VAULT_PASSPHRASE is set, the data key is NOT stored in the
+// clear. Instead the key file holds the data key encrypted (AES-256-GCM) under
+// a key-encryption-key (KEK) derived from the passphrase with scrypt. This adds
+// at-rest protection beyond the file's 0o600 perms: an attacker who copies
+// ~/.wrongstack/.key + config.json off the disk still cannot decrypt without the
+// passphrase. When the env var is unset, behavior is byte-for-byte identical to
+// before (legacy raw / versioned formats) — this is purely additive and opt-in.
+//
+// Wrapped format v3: magic 'WSKW' (4) + keyVersion (1) + salt (16) + iv (12) +
+//                    tag (16) + ciphertext (32) = 81 bytes.
+const KEK_MAGIC = Buffer.from('WSKW', 'ascii');
+const KEK_SALT_BYTES = 16;
+const WRAPPED_KEY_FILE_SIZE =
+  KEK_MAGIC.length + 1 + KEK_SALT_BYTES + IV_BYTES + TAG_BYTES + KEY_BYTES; // 81 bytes
+// scrypt cost parameters. N=2^15 keeps derivation ~50-100ms — strong against
+// offline brute force while imperceptible for a one-time-per-process unlock.
+const SCRYPT_N = 1 << 15;
+const SCRYPT_R = 8;
+const SCRYPT_P = 1;
+const SCRYPT_MAXMEM = 64 * 1024 * 1024; // headroom above N*r*128 so derivation never throws
+
+/** Read the optional vault passphrase from the environment. Empty = unset. */
+function getVaultPassphrase(): string | undefined {
+  const v = process.env['WRONGSTACK_VAULT_PASSPHRASE'];
+  return v && v.length > 0 ? v : undefined;
+}
+
+/** True if `buf` is a passphrase-wrapped (v3) key file. */
+function isWrappedKeyFile(buf: Buffer): boolean {
+  return buf.length === WRAPPED_KEY_FILE_SIZE && buf.subarray(0, KEK_MAGIC.length).equals(KEK_MAGIC);
+}
+
+/** Derive the 32-byte KEK from a passphrase + salt via scrypt. */
+function deriveKEK(passphrase: string, salt: Buffer): Buffer {
+  return scryptSync(passphrase, salt, KEY_BYTES, {
+    N: SCRYPT_N,
+    r: SCRYPT_R,
+    p: SCRYPT_P,
+    maxmem: SCRYPT_MAXMEM,
+  });
+}
+
+/** Serialize a data key into the wrapped (v3) on-disk format under `passphrase`. */
+function wrapDataKey(dataKey: Buffer, keyVersion: number, passphrase: string): Buffer {
+  const salt = randomBytes(KEK_SALT_BYTES);
+  const iv = randomBytes(IV_BYTES);
+  const kek = deriveKEK(passphrase, salt);
+  const cipher = createCipheriv(ALGO, kek, iv);
+  const ct = Buffer.concat([cipher.update(dataKey), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  const out = Buffer.alloc(WRAPPED_KEY_FILE_SIZE);
+  let off = 0;
+  KEK_MAGIC.copy(out, off); off += KEK_MAGIC.length;
+  out[off] = keyVersion & 0xff; off += 1;
+  salt.copy(out, off); off += KEK_SALT_BYTES;
+  iv.copy(out, off); off += IV_BYTES;
+  tag.copy(out, off); off += TAG_BYTES;
+  ct.copy(out, off);
+  return out;
+}
+
+/**
+ * Parse a wrapped (v3) key file and return the data key + version. Throws a
+ * clear ConfigError when the passphrase is missing or wrong (GCM auth failure).
+ */
+function unwrapDataKey(buf: Buffer, keyFile: string): { key: Buffer; version: number } {
+  const passphrase = getVaultPassphrase();
+  if (!passphrase) {
+    throw new ConfigError({
+      message:
+        `SecretVault: key file ${keyFile} is passphrase-protected — set the ` +
+        `WRONGSTACK_VAULT_PASSPHRASE environment variable to unlock it.`,
+      code: ERROR_CODES.CONFIG_INVALID,
+      context: { keyFile },
+    });
+  }
+  let off = KEK_MAGIC.length;
+  const version = buf[off]!; off += 1;
+  const salt = buf.subarray(off, off + KEK_SALT_BYTES); off += KEK_SALT_BYTES;
+  const iv = buf.subarray(off, off + IV_BYTES); off += IV_BYTES;
+  const tag = buf.subarray(off, off + TAG_BYTES); off += TAG_BYTES;
+  const ct = buf.subarray(off, off + KEY_BYTES);
+  const kek = deriveKEK(passphrase, salt);
+  const decipher = createDecipheriv(ALGO, kek, iv);
+  decipher.setAuthTag(tag);
+  try {
+    const key = Buffer.concat([decipher.update(ct), decipher.final()]);
+    return { key: Buffer.from(key), version };
+  } catch {
+    throw new ConfigError({
+      message:
+        `SecretVault: failed to unlock key file ${keyFile} — wrong ` +
+        `WRONGSTACK_VAULT_PASSPHRASE (key unwrap authentication failed).`,
+      code: ERROR_CODES.CONFIG_INVALID,
+      context: { keyFile },
+    });
+  }
+}
 
 /**
  * Check and warn if the key file has incorrect permissions on POSIX.
@@ -151,19 +252,45 @@ export class DefaultSecretVault implements RotatableSecretVault {
     const newKey = randomBytes(KEY_BYTES);
     const newVersion = oldVersion + 1;
 
-    // Write versioned key file: WSKV + version byte + key
-    const keyFileBuf = Buffer.alloc(VERSIONED_KEY_FILE_SIZE);
-    KEY_FILE_MAGIC.copy(keyFileBuf, 0);
-    keyFileBuf[KEY_FILE_MAGIC.length] = newVersion;
-    newKey.copy(keyFileBuf, KEY_FILE_MAGIC.length + 1);
-
     fs.mkdirSync(path.dirname(this.keyFile), { recursive: true });
-    fs.writeFileSync(this.keyFile, keyFileBuf, { mode: 0o600 });
+    const passphrase = getVaultPassphrase();
+    if (passphrase) {
+      // Keep the rotated key passphrase-wrapped (v3) so rotation never
+      // downgrades a protected key file to plaintext.
+      fs.writeFileSync(this.keyFile, wrapDataKey(newKey, newVersion, passphrase), { mode: 0o600 });
+    } else {
+      // Write versioned key file: WSKV + version byte + key
+      const keyFileBuf = Buffer.alloc(VERSIONED_KEY_FILE_SIZE);
+      KEY_FILE_MAGIC.copy(keyFileBuf, 0);
+      keyFileBuf[KEY_FILE_MAGIC.length] = newVersion;
+      newKey.copy(keyFileBuf, KEY_FILE_MAGIC.length + 1);
+      fs.writeFileSync(this.keyFile, keyFileBuf, { mode: 0o600 });
+    }
     checkKeyFilePermissions(this.keyFile);
 
     this.key = newKey;
     this._keyVersion = newVersion;
     return { oldVersion, newVersion };
+  }
+
+  /**
+   * If WRONGSTACK_VAULT_PASSPHRASE is set but the key on disk is still stored
+   * unwrapped (legacy v1 / versioned v2), re-write it in passphrase-wrapped (v3)
+   * form. The data key is preserved, so all existing ciphertext keeps
+   * decrypting. Best-effort: a write failure leaves the working unwrapped file
+   * in place and is not fatal to load.
+   */
+  private migrateToWrappedIfPassphrase(): void {
+    const passphrase = getVaultPassphrase();
+    if (!passphrase || !this.key) return;
+    try {
+      fs.writeFileSync(this.keyFile, wrapDataKey(this.key, this._keyVersion, passphrase), {
+        mode: 0o600,
+      });
+      checkKeyFilePermissions(this.keyFile);
+    } catch {
+      // Non-fatal: the at-rest upgrade failed, but the loaded key is valid.
+    }
   }
 
   private loadOrCreateKey(): Buffer {
@@ -178,12 +305,24 @@ export class DefaultSecretVault implements RotatableSecretVault {
     try {
       const buf = fs.readFileSync(this.keyFile);
 
+      // Passphrase-wrapped (v3): unwrap with WRONGSTACK_VAULT_PASSPHRASE.
+      // Checked first because its size/magic are distinct from the others.
+      if (isWrappedKeyFile(buf)) {
+        const { key, version } = unwrapDataKey(buf, this.keyFile);
+        this.key = key;
+        this._keyVersion = version;
+        checkKeyFilePermissions(this.keyFile);
+        return this.key;
+      }
+
       // Detect key file format:
       if (buf.length === KEY_BYTES) {
         // Legacy v1: raw 32-byte key
         this.key = buf;
         this._keyVersion = 1;
         checkKeyFilePermissions(this.keyFile);
+        // Upgrade to passphrase-wrapped at rest if a passphrase is configured.
+        this.migrateToWrappedIfPassphrase();
         return this.key;
       }
 
@@ -209,6 +348,8 @@ export class DefaultSecretVault implements RotatableSecretVault {
         this.key = Buffer.from(key);
         this._keyVersion = version;
         checkKeyFilePermissions(this.keyFile);
+        // Upgrade to passphrase-wrapped at rest if a passphrase is configured.
+        this.migrateToWrappedIfPassphrase();
         return this.key;
       }
 
@@ -228,14 +369,25 @@ export class DefaultSecretVault implements RotatableSecretVault {
     // remains synchronous from the caller's perspective.
     fs.mkdirSync(path.dirname(this.keyFile), { recursive: true });
     const key = randomBytes(KEY_BYTES);
+    // When a passphrase is configured, a brand-new key is written wrapped (v3)
+    // from the start; otherwise the legacy raw-32-byte format is preserved.
+    const passphrase = getVaultPassphrase();
+    const initialBytes = passphrase ? wrapDataKey(key, 1, passphrase) : key;
     // Use exclusive-create flag 'wx' to prevent races: if two processes race
     // to create the key file, only one succeeds and the loser gets EEXIST.
     try {
-      fs.writeFileSync(this.keyFile, key, { mode: 0o600, flag: 'wx' });
+      fs.writeFileSync(this.keyFile, initialBytes, { mode: 0o600, flag: 'wx' });
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
       // Another process won the race — re-read what they wrote.
       const buf = fs.readFileSync(this.keyFile);
+      if (isWrappedKeyFile(buf)) {
+        const { key: winnerKey, version } = unwrapDataKey(buf, this.keyFile);
+        this.key = winnerKey;
+        this._keyVersion = version;
+        checkKeyFilePermissions(this.keyFile);
+        return this.key;
+      }
       if (buf.length === KEY_BYTES) {
         // Legacy v1 format
         this.key = buf;
