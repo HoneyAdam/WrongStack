@@ -43,6 +43,8 @@ It is **on by default** and persisted to `~/.wrongstack/config.json` (`autonomy.
 
 The refiner is instructed to **preserve intent and scope exactly** — it restates, it does not solve. It keeps concrete details verbatim (file paths, identifiers, code, error text, numbers, URLs), resolves obvious ambiguity by making the implied subject explicit (never by inventing specifics), stays concise, and preserves your language (a Turkish prompt is refined in Turkish). If a message is already clear, it comes back essentially unchanged.
 
+When you write in a non-English language, the refiner returns **two** versions — one in your language and one in English (the panel offers both). When you write in **English**, it returns a single version, skipping the redundant second copy — that halves the refiner's output for English prompts with no change to what you see.
+
 ## When it is skipped
 
 Refinement is bypassed (the message is sent verbatim) for:
@@ -59,10 +61,11 @@ The refined output is also discarded automatically when it is effectively identi
 
 - TUI only. The plain (non-TUI) CLI submits prompts verbatim.
 - The refiner call goes through the session provider directly (outside the agent loop), so its small token use is not counted in the statusline cost.
+- Refinement is a shallow rewrite, so the refiner asks the model for **minimal reasoning** — a low-effort hint (or thinking disabled) that is gated to what the active model advertises via `gatedEnhancerReasoning()`. On reasoning models this cuts the refiner's latency and hidden thinking-token cost; on models that can't reduce it (always-on / unknown), no reasoning field is sent and behavior is unchanged.
 
 ## Code reference
 
-- `packages/core/src/execution/prompt-enhancer.ts` — `enhanceUserPrompt()`, `shouldEnhance()`, `ENHANCER_SYSTEM_PROMPT` (pure, React-free)
+- `packages/core/src/execution/prompt-enhancer.ts` — `enhanceUserPrompt()`, `shouldEnhance()`, `gatedEnhancerReasoning()`, `ENHANCER_SYSTEM_PROMPT` (pure, React-free)
 - `packages/tui/src/components/enhance-panel.tsx` — the countdown preview panel
 - `packages/tui/src/app.tsx` — refine flow wired into `submit()`
 - `packages/cli/src/slash-commands/enhance.ts` — the `/enhance` toggle (persists `autonomy.enhance`)

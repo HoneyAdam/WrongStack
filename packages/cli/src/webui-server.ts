@@ -40,7 +40,6 @@
  */
 import * as crypto from 'node:crypto';
 import { watch as fsWatch } from 'node:fs';
-import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type {
@@ -57,7 +56,6 @@ import type {
   SkillLoader,
 } from '@wrongstack/core';
 import {
-  atomicWrite,
   DEFAULT_CONTEXT_WINDOW_MODE_ID,
   DefaultSecretScrubber,
   GlobalMailbox,
@@ -68,11 +66,6 @@ import {
   type TodoItem,
   wstackGlobalRoot,
 } from '@wrongstack/core';
-import {
-  DefaultSecretVault,
-  decryptConfigSecrets,
-  encryptConfigSecrets,
-} from '@wrongstack/core/security';
 import { SkillInstaller } from '@wrongstack/core/skills';
 import type { MCPRegistry } from '@wrongstack/mcp';
 import {
@@ -80,8 +73,10 @@ import {
   type CustomModeStore,
   createCustomModeStore,
   createEternalSubscription,
+  createToolLspCompletionSource,
   findFreePort,
   generateAuthToken,
+  handleCompletionRequest,
   handleFilesList,
   handleFilesRead,
   handleFilesTree,
@@ -112,11 +107,14 @@ import {
   handleSkillsUpdate,
   type SkillsContext,
   verifyClient as verifyWsClient,
+  WorktreeWebSocketHandler,
 } from '@wrongstack/webui/server';
 import { WebSocket, WebSocketServer } from 'ws';
 // ── Cost computation helpers (inlined from @wrongstack/webui/server/usage-cost.ts) ──
 // PR 2 of Issue #30: extracted to `./webui-server/cost-helpers.js`.
 import { getCostRates } from './webui-server/cost-helpers.js';
+// PR 8 of Issue #30: extracted to `./webui-server/prefs-seeding.js`.
+import { createPrefsSeeding, seedConfigToMeta } from './webui-server/prefs-seeding.js';
 import {
   announceWebuiReady,
   createWebuiShutdown,
@@ -199,6 +197,7 @@ import {
   handleUserMessage,
   handleWorkingDirSet,
   type IntrospectionContext,
+  type MailboxContext,
   type PrefsContext,
   type ProjectsContext,
   type SessionsContext,
@@ -206,6 +205,12 @@ import {
   type WsCommon,
   type WsHandlerContext,
 } from './webui-server/ws-handlers/index.js';
+import {
+  handleMailboxAgents,
+  handleMailboxClear,
+  handleMailboxMessages,
+  handleMailboxPurge,
+} from './webui-server/ws-handlers/mailbox.js';
 
 // Re-export types from webui for type checking
 // At runtime, the actual types are resolved via workspace resolution
@@ -305,6 +310,14 @@ interface CliWebUIOptions {
   modeStore?: ModeStore | undefined;
   /** Active agent mode id passed to the frontend via session.start. */
   modeId?: string | undefined;
+  /**
+   * Host callback invoked after model.switch resolves the active model's
+   * context window. The CLI uses this to refresh the shared auto-compactor
+   * denominator and context chip state.
+   */
+  onModelContextResolved?:
+    | ((providerId: string, modelId: string, maxContext: number) => void)
+    | undefined;
   /** When true, the frontend shows a provider/model setup screen instead of the chat. */
   needsSetup?: boolean | undefined;
   /**
@@ -382,262 +395,14 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     opts.events,
     opts.projectRoot,
   );
+  const worktreeHandler = new WorktreeWebSocketHandler(opts.events, consoleLogger);
 
   // ── Settings parity with the TUI ─────────────────────────────────────
-  // The browser settings panel reads prefs via `prefs.get` → context.meta.
-  // Seed the meta from config.json so the panel shows the REAL persisted
-  // values (otherwise every browser shows its localStorage defaults —
-  // autonomy "off" etc.), and persist pref changes back to config.json with
-  // the same key mapping the TUI settings picker writes.
-  const PREF_KEYS = [
-    'autonomy',
-    'autonomyDelayMs',
-    'autoProceedMaxIterations',
-    'yolo',
-    'maxIterations',
-    'chime',
-    'confirmExit',
-    'streamFleet',
-    'nextPrediction',
-    'enhanceEnabled',
-    'enhanceDelayMs',
-    'enhanceLanguage',
-    'featureMcp',
-    'featurePlugins',
-    'featureMemory',
-    'featureSkills',
-    'featureModelsRegistry',
-    'indexOnStart',
-    'contextAutoCompact',
-    'contextStrategy',
-    'logLevel',
-    'auditLevel',
-    'hqEnabled',
-    'hqUrl',
-    'hqToken',
-    'hqRawContent',
-    // Telegram plugin notification settings (parity with the standalone server).
-    'tgConfigured',
-    'tgSessionEnd',
-    'tgDelegate',
-    'tgLongToolMs',
-  ] as const;
+  // Seed agent.ctx.meta from config.json on startup, then snapshot/persist
+  // via the prefs handlers. Extracted to prefs-seeding.ts (PR 8 of Issue #30).
+  await seedConfigToMeta(opts);
 
-  const prefSnapshot = (): Record<string, unknown> => {
-    const snapshot: Record<string, unknown> = {};
-    for (const k of PREF_KEYS) {
-      if (k in opts.agent.ctx.meta) snapshot[k] = opts.agent.ctx.meta[k];
-    }
-    return snapshot;
-  };
-
-  if (opts.globalConfigPath) {
-    try {
-      const raw = await fs.readFile(opts.globalConfigPath, 'utf8');
-      const cfg = JSON.parse(raw) as Record<string, unknown>;
-      const autonomyCfg = (cfg.autonomy as Record<string, unknown>) ?? {};
-      const features = (cfg.features as Record<string, unknown>) ?? {};
-      const meta = opts.agent.ctx.meta;
-      const rawMode = autonomyCfg['defaultMode'];
-      meta['autonomy'] = rawMode === 'suggest' || rawMode === 'auto' ? rawMode : 'off';
-      meta['autonomyDelayMs'] = (autonomyCfg['autoProceedDelayMs'] as number) ?? 45_000;
-      meta['autoProceedMaxIterations'] = (autonomyCfg['autoProceedMaxIterations'] as number) ?? 50;
-      meta['yolo'] = (autonomyCfg['yolo'] as boolean) ?? (cfg.yolo as boolean) ?? false;
-      meta['chime'] = (autonomyCfg['chime'] as boolean) ?? false;
-      meta['confirmExit'] = autonomyCfg['confirmExit'] !== false;
-      meta['streamFleet'] = autonomyCfg['streamFleet'] !== false;
-      meta['enhanceEnabled'] = (autonomyCfg['enhance'] as boolean) ?? true;
-      meta['enhanceDelayMs'] = (autonomyCfg['enhanceDelayMs'] as number) ?? 60_000;
-      meta['enhanceLanguage'] = (autonomyCfg['enhanceLanguage'] as string) ?? 'original';
-      meta['nextPrediction'] = (cfg.nextPrediction as boolean) ?? false;
-      meta['featureMcp'] = features['mcp'] !== false;
-      meta['featurePlugins'] = features['plugins'] !== false;
-      meta['featureMemory'] = features['memory'] !== false;
-      meta['featureSkills'] = features['skills'] !== false;
-      meta['featureModelsRegistry'] = features['modelsRegistry'] !== false;
-      meta['indexOnStart'] =
-        (cfg.indexing as Record<string, unknown>)?.['onSessionStart'] !== false;
-      meta['contextAutoCompact'] =
-        (cfg.context as Record<string, unknown>)?.['autoCompact'] !== false;
-      meta['contextStrategy'] = (cfg.context as Record<string, unknown>)?.['strategy'] ?? 'hybrid';
-      meta['logLevel'] = (cfg.log as Record<string, unknown>)?.['level'] ?? 'info';
-      meta['auditLevel'] = (cfg.session as Record<string, unknown>)?.['auditLevel'] ?? 'standard';
-      meta['maxIterations'] = (cfg.tools as Record<string, unknown>)?.['maxIterations'] ?? 500;
-      const hqCfg = (cfg.hq as Record<string, unknown>) ?? {};
-      meta['hqEnabled'] = hqCfg['enabled'] === true;
-      meta['hqUrl'] = typeof hqCfg['url'] === 'string' ? hqCfg['url'] : '';
-      meta['hqToken'] = typeof hqCfg['token'] === 'string' ? hqCfg['token'] : '';
-      meta['hqRawContent'] = hqCfg['rawContent'] === true;
-      // Telegram plugin notification settings live under extensions.telegram —
-      // same path the standalone server seeds and /telegram-settings writes.
-      const tgExt = (cfg.extensions as Record<string, Record<string, unknown>> | undefined)?.[
-        'telegram'
-      ];
-      meta['tgConfigured'] =
-        typeof tgExt?.['botToken'] === 'string' && (tgExt['botToken'] as string).length > 0;
-      meta['tgSessionEnd'] = tgExt?.['notifyOnSessionEnd'] === true;
-      meta['tgDelegate'] = tgExt?.['notifyOnDelegate'] !== false; // default true
-      const tgMs = tgExt?.['longToolThresholdMs'];
-      meta['tgLongToolMs'] = typeof tgMs === 'number' ? tgMs : 30_000;
-    } catch {
-      // best-effort — missing/corrupt config just leaves prefs unseeded
-    }
-  }
-
-  let prefWriteLock: Promise<void> = Promise.resolve();
-  const persistPrefsToConfig = async (payload: Record<string, unknown>): Promise<void> => {
-    const configPath = opts.globalConfigPath;
-    if (!configPath) return;
-    const write = async (): Promise<void> => {
-      let raw: string;
-      try {
-        raw = await fs.readFile(configPath, 'utf8');
-      } catch {
-        raw = '{}';
-      }
-      let parsed: Record<string, unknown>;
-      try {
-        parsed = JSON.parse(raw) as Record<string, unknown>;
-      } catch {
-        return; // refuse to overwrite a corrupt-but-existing config
-      }
-      const vault = new DefaultSecretVault({
-        keyFile: path.join(path.dirname(configPath), '.key'),
-      });
-      const decrypted = decryptConfigSecrets(parsed, vault) as Record<string, unknown>;
-
-      const autonomyCfg = (decrypted.autonomy as Record<string, unknown>) ?? {};
-      let autonomyTouched = false;
-      const setAutonomy = (key: string, val: unknown): void => {
-        autonomyCfg[key] = val;
-        autonomyTouched = true;
-      };
-      if (
-        typeof payload['autonomy'] === 'string' &&
-        ['off', 'suggest', 'auto'].includes(payload['autonomy'])
-      ) {
-        setAutonomy('defaultMode', payload['autonomy']);
-      }
-      if (typeof payload['autonomyDelayMs'] === 'number')
-        setAutonomy('autoProceedDelayMs', payload['autonomyDelayMs']);
-      if (typeof payload['autoProceedMaxIterations'] === 'number')
-        setAutonomy('autoProceedMaxIterations', payload['autoProceedMaxIterations']);
-      if (typeof payload['yolo'] === 'boolean') setAutonomy('yolo', payload['yolo']);
-      if (typeof payload['chime'] === 'boolean') setAutonomy('chime', payload['chime']);
-      if (typeof payload['confirmExit'] === 'boolean')
-        setAutonomy('confirmExit', payload['confirmExit']);
-      if (typeof payload['streamFleet'] === 'boolean')
-        setAutonomy('streamFleet', payload['streamFleet']);
-      if (typeof payload['enhanceEnabled'] === 'boolean')
-        setAutonomy('enhance', payload['enhanceEnabled']);
-      if (typeof payload['enhanceDelayMs'] === 'number')
-        setAutonomy('enhanceDelayMs', payload['enhanceDelayMs']);
-      if (typeof payload['enhanceLanguage'] === 'string')
-        setAutonomy('enhanceLanguage', payload['enhanceLanguage']);
-      if (autonomyTouched) decrypted.autonomy = autonomyCfg;
-
-      if (typeof payload['nextPrediction'] === 'boolean')
-        decrypted.nextPrediction = payload['nextPrediction'];
-      const FEATURE_MAP: Record<string, string> = {
-        featureMcp: 'mcp',
-        featurePlugins: 'plugins',
-        featureMemory: 'memory',
-        featureSkills: 'skills',
-        featureModelsRegistry: 'modelsRegistry',
-      };
-      for (const [prefKey, cfgKey] of Object.entries(FEATURE_MAP)) {
-        if (typeof payload[prefKey] === 'boolean') {
-          const feats = (decrypted.features as Record<string, unknown>) ?? {};
-          feats[cfgKey] = payload[prefKey];
-          decrypted.features = feats;
-        }
-      }
-      if (
-        typeof payload['contextAutoCompact'] === 'boolean' ||
-        typeof payload['contextStrategy'] === 'string'
-      ) {
-        const ctxCfg = (decrypted.context as Record<string, unknown>) ?? {};
-        if (typeof payload['contextAutoCompact'] === 'boolean')
-          ctxCfg.autoCompact = payload['contextAutoCompact'];
-        if (typeof payload['contextStrategy'] === 'string')
-          ctxCfg.strategy = payload['contextStrategy'];
-        decrypted.context = ctxCfg;
-      }
-      if (typeof payload['logLevel'] === 'string') {
-        const logCfg = (decrypted.log as Record<string, unknown>) ?? {};
-        logCfg.level = payload['logLevel'];
-        decrypted.log = logCfg;
-      }
-      if (typeof payload['auditLevel'] === 'string') {
-        const sessionCfg = (decrypted.session as Record<string, unknown>) ?? {};
-        sessionCfg.auditLevel = payload['auditLevel'];
-        decrypted.session = sessionCfg;
-      }
-      if (typeof payload['indexOnStart'] === 'boolean') {
-        const indexingCfg = (decrypted.indexing as Record<string, unknown>) ?? {};
-        indexingCfg.onSessionStart = payload['indexOnStart'];
-        decrypted.indexing = indexingCfg;
-      }
-      if (typeof payload['maxIterations'] === 'number') {
-        const toolsCfg = (decrypted.tools as Record<string, unknown>) ?? {};
-        toolsCfg.maxIterations = payload['maxIterations'];
-        decrypted.tools = toolsCfg;
-      }
-
-      const hqTouched =
-        typeof payload['hqEnabled'] === 'boolean' ||
-        typeof payload['hqUrl'] === 'string' ||
-        typeof payload['hqToken'] === 'string' ||
-        typeof payload['hqRawContent'] === 'boolean';
-      if (hqTouched) {
-        const hqCfg = (decrypted.hq as Record<string, unknown>) ?? {};
-        if (typeof payload['hqEnabled'] === 'boolean') hqCfg.enabled = payload['hqEnabled'];
-        if (typeof payload['hqUrl'] === 'string') hqCfg.url = payload['hqUrl'];
-        if (typeof payload['hqToken'] === 'string') hqCfg.token = payload['hqToken'];
-        if (typeof payload['hqRawContent'] === 'boolean') hqCfg.rawContent = payload['hqRawContent'];
-        decrypted.hq = hqCfg;
-      }
-
-      // Telegram plugin notification settings → extensions.telegram (parity
-      // with the standalone server / the path /telegram-settings writes).
-      const tgTouched =
-        typeof payload['tgSessionEnd'] === 'boolean' ||
-        typeof payload['tgDelegate'] === 'boolean' ||
-        typeof payload['tgLongToolMs'] === 'number';
-      if (tgTouched) {
-        const ext = (decrypted.extensions as Record<string, Record<string, unknown>>) ?? {};
-        const tg = ext['telegram'] ?? {};
-        if (typeof payload['tgSessionEnd'] === 'boolean')
-          tg['notifyOnSessionEnd'] = payload['tgSessionEnd'];
-        if (typeof payload['tgDelegate'] === 'boolean')
-          tg['notifyOnDelegate'] = payload['tgDelegate'];
-        if (typeof payload['tgLongToolMs'] === 'number')
-          tg['longToolThresholdMs'] = payload['tgLongToolMs'];
-        ext['telegram'] = tg;
-        decrypted.extensions = ext;
-      }
-
-      const encrypted = encryptConfigSecrets(decrypted, vault);
-      await atomicWrite(configPath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
-    };
-    const next = prefWriteLock.then(write);
-    prefWriteLock = next.then(
-      () => undefined,
-      () => undefined,
-    );
-    try {
-      await next;
-    } catch (err) {
-      console.error(
-        JSON.stringify({
-          level: 'warn',
-          event: 'webui.prefs.persist_failed',
-          message: err instanceof Error ? err.message : String(err),
-          timestamp: new Date().toISOString(),
-        }),
-      );
-    }
-  };
+  const { prefSnapshot, persistPrefs } = createPrefsSeeding(opts);
 
   // Captured once at startup so stats.get can report elapsed time since the
   // session was opened, rather than the hardcoded 0 it used to send.
@@ -708,6 +473,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   // Clients heartbeat more frequently than agents (15s vs 30s).
   let webuiClientId: string | null = null;
   let webuiHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  let stopWebuiHqBridge: (() => void) | undefined;
   const CLIENT_HEARTBEAT_MS = 15_000;
 
   const registerWebuiClient = async (): Promise<string | null> => {
@@ -716,6 +482,23 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       const projectDir = resolveProjectDir(opts.projectRoot, wstackGlobalRoot());
       const hqPublisher = createHqPublisherFromEnv({ clientKind: 'webui', projectRoot: opts.projectRoot, projectName: path.basename(opts.projectRoot), appConfig: opts.appConfig } as never as Parameters<typeof createHqPublisherFromEnv>[0]);
       hqPublisher?.connect();
+      // Stream this WebUI's live session + full transcript to HQ, reusing the
+      // mailbox publisher so the process holds a single HQ socket.
+      if (hqPublisher) {
+        try {
+          const { startSessionTelemetryBridge } = await import('@wrongstack/core');
+          stopWebuiHqBridge = startSessionTelemetryBridge({
+            publisher: hqPublisher,
+            events: opts.events,
+            sessionId: opts.session.id,
+            projectRoot: opts.projectRoot,
+            projectName: path.basename(opts.projectRoot),
+            startedAt: new Date().toISOString(),
+          });
+        } catch {
+          // telemetry optional
+        }
+      }
       const mailbox = new GlobalMailbox(projectDir, opts.events, hqPublisher);
       webuiClientId = `webui@${crypto.randomUUID().slice(0, 8)}`;
       const projectName = opts.projectRoot ? path.basename(opts.projectRoot) : 'unknown';
@@ -745,6 +528,10 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     if (webuiHeartbeatTimer) {
       clearInterval(webuiHeartbeatTimer);
       webuiHeartbeatTimer = null;
+    }
+    if (stopWebuiHqBridge) {
+      stopWebuiHqBridge();
+      stopWebuiHqBridge = undefined;
     }
   };
 
@@ -823,11 +610,11 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   let fleetConcurrency = 0;
   // Default max matches the CLI default fleet size (4). A future
   // fleet.max_concurrency kernel event could override this dynamically.
-  const FLEET_CONCURRENCY_MAX = 4;
+  let fleetConcurrencyMax = 4;
   const emitConcurrency = () =>
     broadcast({
       type: 'fleet.concurrency_update',
-      payload: { fleetConcurrency, fleetConcurrencyMax: FLEET_CONCURRENCY_MAX },
+      payload: { fleetConcurrency, fleetConcurrencyMax },
     });
 
   // Coalesce high-volume live events on the server before they hit every
@@ -1002,6 +789,24 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       }),
     );
 
+    eventUnsubscribers.push(
+      opts.events.on('iteration.completed', (e) => {
+        broadcast({
+          type: 'iteration.completed',
+          payload: { index: e.index, totalIterations: e.index + 1 },
+        });
+      }),
+      opts.events.on('iteration.limit_reached', (e) => {
+        broadcast({
+          type: 'iteration.limit_reached',
+          payload: {
+            currentIterations: e.currentIterations,
+            currentLimit: e.currentLimit,
+          },
+        });
+      }),
+    );
+
     // provider.text_delta
     eventUnsubscribers.push(
       opts.events.on('provider.text_delta', (e) => {
@@ -1017,6 +822,15 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     eventUnsubscribers.push(
       opts.events.on('provider.thinking_delta', (e) => {
         queueThinkingDelta(e.text);
+      }),
+    );
+
+    eventUnsubscribers.push(
+      opts.events.on('provider.stream_error', (e) => {
+        broadcast({
+          type: 'provider.stream_error',
+          payload: { eventType: e.eventType, message: e.msg },
+        });
       }),
     );
 
@@ -1112,6 +926,49 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       }),
     );
 
+    eventUnsubscribers.push(
+      opts.events.on('tool.loop_detected', (e) => {
+        broadcast({
+          type: 'tool.loop_detected',
+          payload: {
+            tools: e.tools,
+            repeatCount: e.repeatCount,
+            iteration: e.iteration,
+            kind: e.kind,
+          },
+        });
+      }),
+      opts.events.on('trust.persisted', (e) => {
+        broadcast({
+          type: 'trust.persisted',
+          payload: { tool: e.tool, pattern: e.pattern, decision: e.decision },
+        });
+      }),
+      opts.events.on('delegate.started', (e) => {
+        broadcast({
+          type: 'delegate.started',
+          payload: { target: e.target, task: e.task },
+        });
+      }),
+      opts.events.on('delegate.completed', (e) => {
+        broadcast({
+          type: 'delegate.completed',
+          payload: {
+            target: e.target,
+            task: e.task,
+            ok: e.ok,
+            status: e.status,
+            summary: e.summary,
+            durationMs: e.durationMs,
+            iterations: e.iterations,
+            toolCalls: e.toolCalls,
+            costUsd: e.costUsd,
+            subagentId: e.subagentId,
+          },
+        });
+      }),
+    );
+
     // provider.response
     eventUnsubscribers.push(
       opts.events.on('provider.response', (e) => {
@@ -1127,6 +984,143 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       }),
     );
 
+    eventUnsubscribers.push(
+      opts.events.on('ctx.pct', (e) => {
+        broadcast({
+          type: 'ctx.pct',
+          payload: { load: e.load, tokens: e.tokens, maxContext: e.maxContext },
+        });
+        broadcast({
+          type: 'subagent.event',
+          payload: {
+            kind: 'ctx_pct',
+            subagentId: 'leader',
+            load: e.load,
+            tokens: e.tokens,
+            maxContext: e.maxContext,
+          },
+        });
+      }),
+      opts.events.on('ctx.max_context', (e) => {
+        broadcast({
+          type: 'ctx.max_context',
+          payload: { providerId: e.providerId, modelId: e.modelId, maxContext: e.maxContext },
+        });
+      }),
+      opts.events.on('token.threshold', (e) => {
+        broadcast({
+          type: 'token.threshold',
+          payload: { used: e.used, limit: e.limit },
+        });
+      }),
+      opts.events.on('token.cost_estimate_unavailable', (e) => {
+        broadcast({
+          type: 'token.cost_estimate_unavailable',
+          payload: { model: e.model },
+        });
+      }),
+    );
+
+    eventUnsubscribers.push(
+      opts.events.on('provider.retry', (e) => {
+        broadcast({
+          type: 'provider.retry',
+          payload: {
+            providerId: e.providerId,
+            attempt: e.attempt,
+            delayMs: e.delayMs,
+            status: e.status,
+            description: e.description,
+          },
+        });
+      }),
+      opts.events.on('provider.error', (e) => {
+        broadcast({
+          type: 'provider.error',
+          payload: {
+            providerId: e.providerId,
+            status: e.status,
+            description: e.description,
+            retryable: e.retryable,
+          },
+        });
+      }),
+      opts.events.on('provider.fallback', (e) => {
+        broadcast({
+          type: 'provider.fallback',
+          payload: {
+            from: e.from,
+            to: e.to,
+            status: e.status,
+            providerSwitched: e.providerSwitched,
+          },
+        });
+      }),
+      opts.events.on('compaction.fired', (e) => {
+        broadcast({
+          type: 'context.compacted',
+          payload: {
+            before: e.report.before,
+            after: e.report.after,
+            saved: Math.max(0, e.report.before - e.report.after),
+            reductions: e.report.reductions,
+          },
+        });
+      }),
+      opts.events.on('compaction.failed', (e) => {
+        broadcast({
+          type: 'compaction.failed',
+          payload: {
+            message: e.err.message,
+            aggressive: e.aggressive,
+            level: e.level,
+            tokens: e.tokens,
+            maxContext: e.maxContext,
+            load: e.load,
+            fatal: e.fatal,
+          },
+        });
+      }),
+      opts.events.on('mcp.server.connected', (e) => {
+        broadcast({
+          type: 'mcp.server.connected',
+          payload: { name: e.name, toolCount: e.toolCount },
+        });
+      }),
+      opts.events.on('mcp.server.reconnected', (e) => {
+        broadcast({
+          type: 'mcp.server.reconnected',
+          payload: { name: e.name, toolCount: e.toolCount },
+        });
+      }),
+      opts.events.on('mcp.server.disconnected', (e) => {
+        broadcast({
+          type: 'mcp.server.disconnected',
+          payload: { name: e.name, reason: e.reason },
+        });
+      }),
+      opts.events.on('coordinator.stats', (e) => {
+        broadcast({
+          type: 'coordinator.stats',
+          payload: {
+            total: e.total,
+            running: e.running,
+            idle: e.idle,
+            stopped: e.stopped,
+            inFlight: e.inFlight,
+            pending: e.pending,
+            completed: e.completed,
+            subagentStatuses: e.subagentStatuses.map((s) => ({
+              id: s.subagentId,
+              name: s.subagentId,
+              status: s.status,
+              currentTask: s.taskId,
+            })),
+          },
+        });
+      }),
+    );
+
     // error
     eventUnsubscribers.push(
       opts.events.on('error', (e) => {
@@ -1137,6 +1131,52 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
             message: e.err instanceof Error ? e.err.message : String(e.err),
           },
         });
+      }),
+    );
+
+    eventUnsubscribers.push(
+      opts.events.on('session.damaged', (e) => {
+        broadcast({
+          type: 'session.damaged',
+          payload: { sessionId: e.sessionId, detail: e.detail },
+        });
+      }),
+      opts.events.on('session.rewound', (e) => {
+        broadcast({
+          type: 'session.rewound',
+          payload: {
+            toPromptIndex: e.toPromptIndex,
+            revertedFiles: e.revertedFiles,
+            removedEvents: e.removedEvents,
+          },
+        });
+      }),
+      opts.events.on('checkpoint.written', (e) => {
+        broadcast({
+          type: 'checkpoint.written',
+          payload: {
+            promptIndex: e.promptIndex,
+            promptPreview: e.promptPreview,
+            ts: e.ts,
+            fileCount: e.fileCount,
+          },
+        });
+      }),
+      opts.events.on('in_flight.started', (e) => {
+        broadcast({
+          type: 'in_flight.started',
+          payload: { context: e.context, ts: e.ts },
+        });
+      }),
+      opts.events.on('in_flight.ended', (e) => {
+        broadcast({
+          type: 'in_flight.ended',
+          payload: { reason: e.reason, ts: e.ts },
+        });
+      }),
+      opts.events.on('concurrency.changed', (e) => {
+        fleetConcurrencyMax = Math.max(1, e.n);
+        emitConcurrency();
       }),
     );
 
@@ -1204,11 +1244,22 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
           toolCalls: e.toolCalls,
           costUsd: e.costUsd,
           currentTool: e.currentTool,
+          partialText: e.partialText,
+        }),
+      ),
+      opts.events.on('subagent.budget_warning', (e) =>
+        forwardSubagent('budget_warning', {
+          subagentId: e.subagentId,
+          budgetKind: e.kind,
+          used: e.used,
+          limit: e.limit,
         }),
       ),
       opts.events.on('subagent.budget_extended', (e) =>
         forwardSubagent('budget_extended', {
           subagentId: e.subagentId,
+          budgetKind: e.kind,
+          newLimit: e.newLimit,
           totalExtensions: e.totalExtensions,
         }),
       ),
@@ -1228,6 +1279,8 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
           status: e.status,
           iterations: e.iterations,
           toolCalls: e.toolCalls,
+          finalText: (e as Record<string, unknown>).finalText as string | undefined,
+          failureReason: e.error?.kind,
           error: e.error ? { kind: e.error.kind, message: e.error.message } : undefined,
         });
       }),
@@ -1375,6 +1428,8 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     modeStore: opts.modeStore,
     globalConfigPath: opts.globalConfigPath,
     buildSessionStart: (overrides) => buildSessionStartPayload(overrides),
+    modelsRegistry: opts.modelsRegistry,
+    onMaxContextResolved: opts.onModelContextResolved,
     send,
     broadcast,
     log: (m) => console.log(m),
@@ -1383,7 +1438,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   const prefsCtx: PrefsContext = {
     agent: opts.agent,
     prefSnapshot,
-    persistPrefs: persistPrefsToConfig,
+    persistPrefs,
     onAutonomySwitch: opts.onAutonomySwitch,
     send,
     broadcast,
@@ -1419,21 +1474,14 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   // Bare messaging surface for handler groups that need no run-loop state.
   const wsCommon: WsCommon = { send, broadcast, log: (m) => console.log(m) };
 
-  // Reuse per-project mailbox instances so WebUI mailbox panels benefit from
-  // GlobalMailbox's in-process message/registry caches. `opts.projectRoot` can
-  // change during project switches, so cache by resolved mailbox directory.
-  const mailboxCache = new Map<string, GlobalMailbox>();
-  const getWebuiMailbox = (): GlobalMailbox | null => {
-    const projectRoot = opts.projectRoot ?? (opts.agent.ctx as { projectRoot?: string }).projectRoot ?? '';
-    const globalRoot = opts.globalConfigPath ? path.dirname(opts.globalConfigPath) : '';
-    if (!projectRoot || !globalRoot) return null;
-    const mbDir = resolveProjectDir(projectRoot, globalRoot);
-    let mailbox = mailboxCache.get(mbDir);
-    if (!mailbox) {
-      mailbox = new GlobalMailbox(mbDir, opts.events);
-      mailboxCache.set(mbDir, mailbox);
-    }
-    return mailbox;
+  // Bare mailbox context for the mailbox ws-handlers (PR 8 of Issue #30).
+  const mailboxCtx: MailboxContext = {
+    agent: opts.agent as MailboxContext['agent'],
+    globalConfigPath: opts.globalConfigPath ?? '',
+    events: opts.events,
+    send: send as unknown as (ws: unknown, msg: Record<string, unknown>) => void,
+    broadcast: broadcast as unknown as (msg: Record<string, unknown>) => void,
+    log: (m: string) => console.log(m),
   };
 
   // `opts` is passed by reference so the session handlers read live
@@ -1577,6 +1625,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
 
       // Register this client with the AutoPhase handler so it receives phase events
       autoPhaseHandler.addClient(ws);
+      worktreeHandler.addClient(ws);
 
       // Per-connection rate limiting — disabled unless WEBUI_RATE_LIMIT > 0.
       let msgCount = 0;
@@ -1949,6 +1998,21 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
         const projectRoot = opts.projectRoot ?? opts.agent.ctx.projectRoot;
         return handleFilesWrite(ws, msg, projectRoot);
       }
+      case 'completion.request': {
+        const projectRoot = opts.projectRoot ?? opts.agent.ctx.projectRoot;
+        return handleCompletionRequest(ws, msg, {
+          projectRoot,
+          provider: opts.agent.ctx.provider,
+          model: opts.agent.ctx.model,
+          indexDir: typeof opts.agent.ctx.meta['codebaseIndexDir'] === 'string'
+            ? opts.agent.ctx.meta['codebaseIndexDir']
+            : undefined,
+          lspCompletion: createToolLspCompletionSource(
+            opts.agent.ctx.tools.find((tool) => tool.name === 'lsp_completion'),
+            opts.agent.ctx,
+          ),
+        });
+      }
 
       case 'session.delete': {
         await handleSessionDelete(sessionsCtx, ws, (msg as { payload: { id: string } }).payload.id);
@@ -2249,15 +2313,18 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
 
       // Collaboration messages — the CLI webui-server doesn't run a
       // full collab hub; silently acknowledge and ignore. request_pause /
-      // resume are included so the CollabPanel's pause/resume buttons don't
-      // trip the "Unhandled message type" warning (the standalone webui
-      // server is the one that wires the real CollaborationWebSocketHandler).
+      // resume / grant_control / inject_tool are included so the CollabPanel's
+      // controller actions don't trip the "Unhandled message type" warning (the
+      // standalone webui server is the one that wires the real
+      // CollaborationWebSocketHandler).
       case 'collab.join':
       case 'collab.leave':
       case 'collab.annotate':
       case 'collab.resolve':
       case 'collab.request_pause':
       case 'collab.resume':
+      case 'collab.grant_control':
+      case 'collab.inject_tool':
         break;
 
       // Integrated terminal — the CLI embedded server doesn't run a pty
@@ -2346,139 +2413,22 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
         shutdown();
         break;
 
-      // ── Mailbox operations — project-level inter-agent messaging ────
-      case 'mailbox.messages': {
-        const mb = getWebuiMailbox();
-        if (!mb) {
-          send(ws, {
-            type: 'mailbox.messages',
-            payload: { messages: [], error: 'No project root available' },
-          });
-          break;
-        }
-        try {
-          const payload = (
-            msg as { payload?: { limit?: number; agentId?: string; unreadOnly?: boolean; incompleteOnly?: boolean } }
-          ).payload;
-          const messages = await mb.query({
-            limit: payload?.limit ?? 30,
-            to: payload?.agentId,
-            unreadBy: payload?.unreadOnly ? payload.agentId : undefined,
-            incompleteOnly: payload?.incompleteOnly,
-          });
-          send(ws, {
-            type: 'mailbox.messages',
-            payload: {
-              messages: messages.map((m) => ({
-                id: m.id,
-                from: m.from,
-                to: m.to,
-                type: m.type,
-                subject: m.subject,
-                body: m.body,
-                priority: m.priority,
-                readBy: m.readBy,
-                readByCount: Object.keys(m.readBy).length,
-                completed: m.completed,
-                completedBy: m.completedBy,
-                outcome: m.outcome,
-                timestamp: m.timestamp,
-                replyTo: m.replyTo,
-                senderSessionId: m.senderSessionId,
-              })),
-            },
-          });
-        } catch (err) {
-          send(ws, {
-            type: 'mailbox.messages',
-            payload: { messages: [], error: err instanceof Error ? err.message : String(err) },
-          });
-        }
+      // ── Mailbox operations — project-level inter-agent messaging (PR 8 of #30) ────
+      case 'mailbox.messages':
+        await handleMailboxMessages(mailboxCtx, msg as any, ws);
         break;
-      }
 
-      case 'mailbox.agents': {
-        const mb = getWebuiMailbox();
-        if (!mb) {
-          send(ws, {
-            type: 'mailbox.agents',
-            payload: { agents: [], error: 'No project root available' },
-          });
-          break;
-        }
-        try {
-          const payload = (msg as { payload?: { onlineOnly?: boolean } }).payload;
-          const agents = payload?.onlineOnly
-            ? await mb.getOnlineAgents()
-            : await mb.getAgentStatuses();
-          send(ws, {
-            type: 'mailbox.agents',
-            payload: {
-              agents: agents.map((a) => ({
-                agentId: a.agentId,
-                name: a.name,
-                role: a.role,
-                sessionId: a.sessionId,
-                status: a.status,
-                currentTool: a.currentTool,
-                currentTask: a.currentTask,
-                iterations: a.iterations,
-                toolCalls: a.toolCalls,
-                lastSeenAt: a.lastSeenAt,
-                online: a.online,
-                pid: a.pid,
-                source: a.source,
-              })),
-            },
-          });
-        } catch (err) {
-          send(ws, {
-            type: 'mailbox.agents',
-            payload: { agents: [], error: err instanceof Error ? err.message : String(err) },
-          });
-        }
+      case 'mailbox.agents':
+        await handleMailboxAgents(mailboxCtx, msg as any, ws);
         break;
-      }
 
-      case 'mailbox.clear': {
-        const mb = getWebuiMailbox();
-        if (!mb) {
-          send(ws, { type: 'mailbox.cleared', payload: { error: 'No project root available' } });
-          break;
-        }
-        try {
-          await mb.clearAll();
-          send(ws, { type: 'mailbox.cleared', payload: {} });
-        } catch (err) {
-          send(ws, {
-            type: 'mailbox.cleared',
-            payload: { error: err instanceof Error ? err.message : String(err) },
-          });
-        }
+      case 'mailbox.clear':
+        await handleMailboxClear(mailboxCtx, ws);
         break;
-      }
 
-      case 'mailbox.purge': {
-        const mb = getWebuiMailbox();
-        if (!mb) {
-          send(ws, { type: 'mailbox.purged', payload: { error: 'No project root available' } });
-          break;
-        }
-        try {
-          const payload = msg as {
-            type: 'mailbox.purge';
-            payload?: { completedMaxAgeMs?: number; incompleteMaxAgeMs?: number };
-          };
-          const result = await mb.purgeStale(payload.payload);
-          send(ws, { type: 'mailbox.purged', payload: result });
-        } catch (err) {
-          send(ws, {
-            type: 'mailbox.purged',
-            payload: { error: err instanceof Error ? err.message : String(err) },
-          });
-        }
+      case 'mailbox.purge':
+        await handleMailboxPurge(mailboxCtx, msg as any, ws);
         break;
-      }
 
       case 'git.info': {
         // Delegates to the shared handler (single source — see git-handlers.ts).
@@ -2514,6 +2464,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   function shutdown(): void {
     console.log('[WebUI] Shutting down...');
     flushAllStreamBuffers();
+    worktreeHandler.dispose();
     unregisterWebuiClient();
     httpServer?.server.close();
     opts.onExit?.();

@@ -74,7 +74,10 @@ export function resolveHqConfig(options: {
 }
 
 function stableMachineId(): string {
-  return createHash('sha256').update(`${hostname()}:${process.pid}`).digest('hex').slice(0, 12);
+  // Stable per *physical machine*, NOT per process — every terminal on the
+  // same computer must share one machineId so HQ groups them under a single
+  // machine node. (Process identity already lives in clientId via the pid.)
+  return createHash('sha256').update(hostname()).digest('hex').slice(0, 12);
 }
 
 function deriveProjectId(projectRoot: string): string {

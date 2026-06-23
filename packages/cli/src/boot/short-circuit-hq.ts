@@ -8,9 +8,67 @@
  * when the flag was absent (caller should proceed to boot()).
  */
 
+import * as fs from 'node:fs/promises';
+import * as net from 'node:net';
+import * as path from 'node:path';
 import * as readline from 'node:readline';
-import { color } from '@wrongstack/core';
+import { color, resolveHqDataDir } from '@wrongstack/core';
 import { DEFAULT_PORT } from '../hq-server.js';
+
+interface HqRuntimeMarker {
+  url?: string;
+  pid?: number;
+  updatedAt?: string;
+}
+
+/**
+ * Returns true if there is an HQ server already running for this data dir
+ * (runtime.json exists and its PID is still alive).
+ */
+async function isHqAlreadyRunning(dataDir: string): Promise<HqRuntimeMarker | null> {
+  const markerPath = path.join(dataDir, 'runtime.json');
+  let fd;
+  try {
+    fd = await fs.open(markerPath, 'r');
+    const content = await fd.read().then(({ buffer }) => buffer.toString('utf8'));
+    const marker = JSON.parse(content) as HqRuntimeMarker;
+    if (marker.pid) {
+      try {
+        // Signal 0 checks if the process exists without sending anything.
+        process.kill(marker.pid, 0);
+        return marker; // PID is alive
+      } catch {
+        // PID is dead — stale marker, ignore.
+      }
+    }
+    return null;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    return null;
+  } finally {
+    if (fd) await fd.close();
+  }
+}
+
+/**
+ * Returns true if the port is already in use on the given host.
+ */
+async function isPortInUse(host: string, port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE') {
+        resolve(true);
+      } else {
+        resolve(false);
+      }
+    });
+    server.once('listening', () => {
+      server.close(() => resolve(false));
+    });
+    server.listen(port, host);
+  });
+}
 
 /**
  * Ask the user for a port, accepting Enter to use the default.
@@ -68,12 +126,51 @@ export async function handleHqShortCircuit(
   }
 
   const dataDir = typeof flags['data-dir'] === 'string' ? flags['data-dir'] : undefined;
-  const handle = await startHqServer({
-    host,
-    port,
-    strictPort: flags['strict-port'] === true,
-    ...(dataDir !== undefined ? { dataDir } : {}),
-  });
+  // User explicitly chose a port if they either passed --port OR accepted
+  // a non-default value from the interactive prompt.
+  const userProvidedPort =
+    (typeof flags['port'] === 'string' && flags['port'].trim() !== '') ||
+    port !== DEFAULT_PORT;
+
+  // Resolve data dir the same way startHqServer does so we can check for a
+  // running HQ instance before attempting to start a new one.
+  const resolvedDataDir = dataDir ?? resolveHqDataDir();
+  const existing = await isHqAlreadyRunning(resolvedDataDir);
+  if (existing) {
+    process.stderr.write(
+      `${color.red('✗')} HQ is already running at ${existing.url} ` +
+        `(PID ${existing.pid}). Stop it first or use a different --data-dir.\n`,
+    );
+    return 1;
+  }
+
+  // Probe the port before binding — fail fast with a clear message.
+  if (await isPortInUse(host, port)) {
+    process.stderr.write(
+      `${color.red('✗')} Port ${port} is already in use. ` +
+        `Choose a different port or stop the process using it.\n`,
+    );
+    return 1;
+  }
+
+  let handle;
+  try {
+    handle = await startHqServer({
+      host,
+      port,
+      strictPort: flags['strict-port'] === true,
+      exactPort: userProvidedPort,
+      ...(dataDir !== undefined ? { dataDir } : {}),
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (err instanceof Error && 'code' in err && err.code === 'EADDRINUSE') {
+      process.stderr.write(`${color.red('✗')} Port ${port} is already in use. Please choose a different port.\n`);
+    } else {
+      process.stderr.write(`${color.red('✗')} Failed to start HQ server: ${msg}\n`);
+    }
+    return 1;
+  }
   if (flags['open'] === true) {
     try {
       const { openBrowser } = await import('@wrongstack/webui/server');

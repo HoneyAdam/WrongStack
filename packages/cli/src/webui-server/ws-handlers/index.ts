@@ -143,3 +143,11 @@ export {
   handleTodoUpdate,
   type WorklistContext,
 } from './worklist.js';
+export {
+  type MailboxContext,
+  getMailbox,
+  handleMailboxMessages,
+  handleMailboxAgents,
+  handleMailboxClear,
+  handleMailboxPurge,
+} from './mailbox.js';

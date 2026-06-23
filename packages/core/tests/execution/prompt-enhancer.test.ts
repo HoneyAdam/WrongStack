@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { Provider, Request, Response } from '../../src/types/provider.js';
-import type { Message } from '../../src/types/messages.js';
 import {
   enhanceUserPrompt,
+  gatedEnhancerReasoning,
   normalizedEqual,
   recentTextTurns,
   shouldEnhance,
 } from '../../src/execution/prompt-enhancer.js';
+import type { Message } from '../../src/types/messages.js';
+import type { Provider, ReasoningConfig, Request, Response } from '../../src/types/provider.js';
 
 function makeProvider(
   impl: (req: Request, opts: { signal: AbortSignal }) => Promise<Response>,
@@ -61,6 +62,57 @@ describe('shouldEnhance', () => {
   });
 });
 
+describe('gatedEnhancerReasoning', () => {
+  const rc = (over: Partial<ReasoningConfig>): ReasoningConfig => ({
+    default: 'adaptive',
+    disableSupported: false,
+    effortSupported: false,
+    effortLevels: [],
+    preserveThinking: 'unsupported',
+    ...over,
+  });
+
+  it('returns undefined when capabilities are unknown', () => {
+    expect(gatedEnhancerReasoning(undefined)).toBeUndefined();
+  });
+
+  it('picks the lowest advertised effort level (prefers "low")', () => {
+    expect(
+      gatedEnhancerReasoning(
+        rc({ effortSupported: true, effortLevels: ['low', 'medium', 'high'] }),
+      ),
+    ).toEqual({ effort: 'low' });
+  });
+
+  it('falls back to "minimal" when "low" is not advertised', () => {
+    expect(
+      gatedEnhancerReasoning(rc({ effortSupported: true, effortLevels: ['minimal', 'medium'] })),
+    ).toEqual({ effort: 'minimal' });
+  });
+
+  it('uses "none" only when it is the sole advertised level', () => {
+    expect(gatedEnhancerReasoning(rc({ effortSupported: true, effortLevels: ['none'] }))).toEqual({
+      effort: 'none',
+    });
+  });
+
+  it('disables thinking when effort is unsupported but disabling is', () => {
+    expect(gatedEnhancerReasoning(rc({ disableSupported: true }))).toEqual({ enabled: false });
+  });
+
+  it('returns undefined for an always-on model (no effort, no disable)', () => {
+    expect(gatedEnhancerReasoning(rc({ default: 'always_on' }))).toBeUndefined();
+  });
+
+  it('falls through to disable when effortSupported but no levels are listed', () => {
+    expect(
+      gatedEnhancerReasoning(
+        rc({ effortSupported: true, effortLevels: [], disableSupported: true }),
+      ),
+    ).toEqual({ enabled: false });
+  });
+});
+
 describe('normalizedEqual', () => {
   it('treats whitespace/case differences as equal', () => {
     expect(normalizedEqual('Fix  the   Bug', 'fix the bug')).toBe(true);
@@ -69,7 +121,7 @@ describe('normalizedEqual', () => {
 });
 
 describe('enhanceUserPrompt', () => {
-  it('returns the refined text from the provider', async () => {
+  it('returns a single English version for both fields (no "---")', async () => {
     const provider = makeProvider(async () =>
       textResponse('Fix the null-deref in auth.ts login() when the token is missing.'),
     );
@@ -77,6 +129,47 @@ describe('enhanceUserPrompt', () => {
     expect(out).toEqual({
       refined: 'Fix the null-deref in auth.ts login() when the token is missing.',
       english: 'Fix the null-deref in auth.ts login() when the token is missing.',
+    });
+  });
+
+  it('does NOT report an error for a single-version (English) response', async () => {
+    const onError = vi.fn();
+    const provider = makeProvider(async () => textResponse('Refined English instruction.'));
+    const out = await enhanceUserPrompt({
+      provider,
+      model: 'm',
+      text: 'refine this please',
+      onError,
+    });
+    expect(out).toEqual({
+      refined: 'Refined English instruction.',
+      english: 'Refined English instruction.',
+    });
+    // A single version is now the legitimate English fast path, not a format error.
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('splits two "---"-separated versions into distinct refined/english', async () => {
+    const provider = makeProvider(async () =>
+      textResponse(
+        'auth.ts login() içindeki null-deref hatasını düzelt.\n---\nFix the null-deref in auth.ts login().',
+      ),
+    );
+    const out = await enhanceUserPrompt({ provider, model: 'm', text: 'hatayı düzelt' });
+    expect(out).toEqual({
+      refined: 'auth.ts login() içindeki null-deref hatasını düzelt.',
+      english: 'Fix the null-deref in auth.ts login().',
+    });
+  });
+
+  it('keeps a "---" that appears inside the English version (splits on the first only)', async () => {
+    const provider = makeProvider(async () =>
+      textResponse('Türkçe sürüm.\n---\nEnglish version.\n---\nstill English.'),
+    );
+    const out = await enhanceUserPrompt({ provider, model: 'm', text: 'bir şey yap' });
+    expect(out).toEqual({
+      refined: 'Türkçe sürüm.',
+      english: 'English version.\n---\nstill English.',
     });
   });
 
@@ -112,6 +205,27 @@ describe('enhanceUserPrompt', () => {
     expect(content).toContain('Assistant: Fixed auth.ts login().');
     expect(content).toContain('Latest message to refine:');
     expect(content).toContain('do the same for the other file');
+  });
+
+  it('forwards a reasoning directive when supplied', async () => {
+    const complete = vi.fn(async () => textResponse('refined'));
+    const provider = makeProvider(complete);
+    await enhanceUserPrompt({
+      provider,
+      model: 'm',
+      text: 'do the thing properly',
+      reasoning: { effort: 'low' },
+    });
+    const req = complete.mock.calls[0]![0] as Request;
+    expect(req.reasoning).toEqual({ effort: 'low' });
+  });
+
+  it('sends no reasoning field when none is supplied (default behavior)', async () => {
+    const complete = vi.fn(async () => textResponse('refined'));
+    const provider = makeProvider(complete);
+    await enhanceUserPrompt({ provider, model: 'm', text: 'do the thing properly' });
+    const req = complete.mock.calls[0]![0] as Request;
+    expect(req.reasoning).toBeUndefined();
   });
 
   it('returns null on provider error (best-effort, never throws)', async () => {

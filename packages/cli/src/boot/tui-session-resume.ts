@@ -16,7 +16,9 @@ export interface SessionResumeContext {
   state: TuiRuntimeState;
   agent: Agent;
   tokenCounter: TokenCounter;
-  switchProviderAndModel: ((providerId: string, modelId: string) => void) | undefined;
+  switchProviderAndModel:
+    | ((providerId: string, modelId: string) => string | null | void | Promise<unknown>)
+    | undefined;
 }
 
 export interface SessionResumeResult {
@@ -69,18 +71,25 @@ export async function resumeSession(
     // adjacency is re-checked on the next request.
     agent.ctx.state.replaceMessages(resumed.data.messages);
 
-    // Sync the agent's model/provider to what was used in the
-    // resumed session. If the resumed session used a different
-    // provider or model, switch to it so the agent uses the
-    // correct API endpoint and context window.
-    if (meta.model && meta.model !== agent.ctx.model) {
-      agent.ctx.model = meta.model;
-    }
-    if (meta.provider) {
-      const currentProviderId = (agent.ctx.provider as { id?: string }).id;
-      if (meta.provider !== currentProviderId && switchProviderAndModel) {
-        switchProviderAndModel(meta.provider as string, meta.model ?? agent.ctx.model);
-      }
+    // Sync the agent's provider/model to what was used in the resumed session.
+    // Route all changes through the live switch callback when available so the
+    // provider instance, ConfigStore, auto-compactor denominator, and context
+    // chip are refreshed together.
+    const currentProviderId = (agent.ctx.provider as { id?: string }).id;
+    const targetProviderId =
+      typeof meta.provider === 'string' && meta.provider.length > 0
+        ? meta.provider
+        : currentProviderId;
+    const targetModel =
+      typeof meta.model === 'string' && meta.model.length > 0 ? meta.model : agent.ctx.model;
+    if (
+      switchProviderAndModel &&
+      targetProviderId &&
+      (targetProviderId !== currentProviderId || targetModel !== agent.ctx.model)
+    ) {
+      await switchProviderAndModel(targetProviderId, targetModel);
+    } else if (targetModel !== agent.ctx.model) {
+      agent.ctx.model = targetModel;
     }
 
     // Finalize the current session: append a session_end (so the

@@ -19,6 +19,7 @@ import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import type { Server as HttpServer } from 'node:http';
 import * as http from 'node:http';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   DEFAULT_HQ_REDACTION_POLICY,
@@ -28,14 +29,20 @@ import {
   type HqClientCapability,
   type HqClientRecord,
   type HqEventEnvelope,
+  type HqMachineRecord,
   type HqMailboxEventPayload,
   type HqMailboxSnapshotPayload,
   type HqMailboxSummary,
   type HqProjectIdentity,
   type HqProjectRecord,
   type HqRedactionPolicy,
+  type HqSessionEndedPayload,
+  type HqSessionSnapshotPayload,
   type HqSnapshot,
+  type HqTranscriptAppendPayload,
+  type HqTranscriptEntry,
   type HqWelcomePayload,
+  buildTranscriptFromEvents,
   ensureHqFirstRunAuthFile,
   parseHqEventPayload,
   parseHqFrame,
@@ -45,11 +52,18 @@ import {
 } from '@wrongstack/core';
 // Inlined from @wrongstack/webui/server — avoids a hard dependency on the webui package.
 import { WebSocket, WebSocketServer } from 'ws';
+import { HQ_HTML } from './hq-dashboard-html.js';
 
 export interface HqServerOptions {
   host?: string;
   port?: number;
   strictPort?: boolean;
+  /**
+   * When true, the server binds exactly to `port` and fails with an error
+   * if that port is already in use — no port scanning. Use this when the
+   * user explicitly selected a port and we should not silently pick another.
+   */
+  exactPort?: boolean;
   /**
    * HQ data directory. When omitted, the server resolves one via
    * `resolveHqDataDir()` (honoring `WRONGSTACK_HQ_DATA_DIR` then falling
@@ -96,6 +110,60 @@ interface ConnectedClient {
    * each new `mailbox.snapshot` envelope from this client.
    */
   mailboxes: Map<string, HqMailboxSnapshotPayload>;
+  machineId?: string;
+  /**
+   * Latest live session/terminal snapshot keyed by sessionId — replaced on
+   * each `session.snapshot` envelope and removed on `session.ended`.
+   */
+  sessions: Map<string, HqSessionSnapshotPayload>;
+}
+
+/**
+ * Per-session transcript ring buffer (most-recent-capped). Fed by
+ * `session.transcript` envelopes from remote clients so the HQ browser can
+ * render a remote terminal's full chat history even though HQ can't read that
+ * machine's on-disk JSONL. Local sessions are served from disk instead.
+ */
+const TRANSCRIPT_RING_MAX = 4000;
+/** Bound how many distinct sessions/subagents we keep transcripts for, so a
+ * long-lived HQ doesn't accumulate rings for every session that ever connected.
+ * Eviction is least-recently-active (the maps are kept in LRU order). */
+const MAX_TRANSCRIPT_SESSIONS = 400;
+const MAX_AGENT_RINGS = 800;
+
+/** Evict least-recently-active entries until the map is within `max`. The maps
+ * are maintained in LRU order (callers re-insert on each write). */
+function evictOldest(map: Map<string, unknown>, max: number): void {
+  while (map.size > max) {
+    const oldest = map.keys().next().value;
+    if (oldest === undefined) break;
+    map.delete(oldest);
+  }
+}
+
+interface TranscriptRing {
+  entries: HqTranscriptEntry[];
+  /** machineId of the publishing client, so the server can tell local from remote. */
+  machineId?: string;
+}
+
+/** Map a raw `agent.message` payload to a transcript entry for the subagent ring. */
+function agentMessageToEntry(p: Record<string, unknown>): HqTranscriptEntry {
+  const kind = typeof p['kind'] === 'string' ? p['kind'] : 'text';
+  const role: HqTranscriptEntry['role'] =
+    kind === 'tool_use' || kind === 'tool_result'
+      ? 'tool'
+      : kind === 'error'
+        ? 'error'
+        : kind === 'status'
+          ? 'system'
+          : 'assistant';
+  return {
+    ts: typeof p['ts'] === 'string' ? p['ts'] : new Date().toISOString(),
+    role,
+    text: typeof p['content'] === 'string' ? p['content'] : '',
+    ...(typeof p['toolName'] === 'string' ? { tool: p['toolName'] } : {}),
+  };
 }
 
 const DEFAULT_HOST = '127.0.0.1';
@@ -155,12 +223,38 @@ async function clearHqRuntimeMarker(dataDir: string, url: string): Promise<void>
   }
 }
 
+/** Non-internal IPv4 addresses, so we can print URLs reachable from other machines. */
+function lanIPv4Addresses(): string[] {
+  const out: string[] = [];
+  try {
+    const ifaces = os.networkInterfaces();
+    for (const name of Object.keys(ifaces)) {
+      for (const ni of ifaces[name] ?? []) {
+        if (ni.family === 'IPv4' && !ni.internal) out.push(ni.address);
+      }
+    }
+  } catch {
+    // best-effort
+  }
+  return out;
+}
+
+function browserTokenFromUrl(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  try {
+    return new URL(url).searchParams.get('token') ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function writeHqStartupInfo(write: (line: string) => void, handle: HqServerHandle): void {
   const startup = handle.firstRunSetup;
   write(`WrongStack HQ listening on http://${handle.host}:${handle.port}\n`);
   if (!startup) {
     write(`Browser endpoint: ${buildHttpUrl(handle.host, handle.port)}\n`);
     write(`Client endpoint:  ${buildClientWsUrl(handle.host, handle.port)}\n`);
+    writeHqLanEndpoints(write, handle, undefined);
     return;
   }
 
@@ -176,835 +270,29 @@ function writeHqStartupInfo(write: (line: string) => void, handle: HqServerHandl
   if (startup.clientEnv.WRONGSTACK_HQ_TOKEN) {
     write(`  WRONGSTACK_HQ_TOKEN=${startup.clientEnv.WRONGSTACK_HQ_TOKEN}\n`);
   }
+  writeHqLanEndpoints(write, handle, browserTokenFromUrl(startup.browserUrl));
 }
 
-export const HQ_HTML = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>WrongStack HQ</title>
-<style>
-  :root {
-    --bg: #0d1117;
-    --panel: #161b22;
-    --border: #30363d;
-    --text: #c9d1d9;
-    --muted: #8b949e;
-    --dim: #6e7681;
-    --accent: #58a6ff;
-    --live: #3fb950;
-    --warn: #d29922;
-    --high: #f85149;
+/** When bound to all interfaces, print LAN URLs so other machines can reach HQ. */
+function writeHqLanEndpoints(
+  write: (line: string) => void,
+  handle: HqServerHandle,
+  browserToken: string | undefined,
+): void {
+  if (handle.host !== '0.0.0.0' && handle.host !== '::') return;
+  const ips = lanIPv4Addresses();
+  if (ips.length === 0) return;
+  write(`\nReachable from other machines on your network:\n`);
+  for (const ip of ips) {
+    write(`  ${buildHttpUrl(ip, handle.port, browserToken)}\n`);
   }
-  * { box-sizing: border-box; }
-  body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 24px; }
-  h1 { margin: 0 0 4px; color: var(--accent); font-size: 22px; }
-  .hq-sub { color: var(--muted); font-size: 13px; margin-bottom: 24px; display: flex; align-items: center; gap: 8px; }
-  .hq-led { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
-  .hq-led.live { background: var(--live); box-shadow: 0 0 6px var(--live); }
-  .hq-led.dead { background: var(--dim); }
-  .hq-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 24px; }
-  .hq-flow { position: relative; min-height: 320px; overflow-x: auto; overflow-y: visible; background: radial-gradient(circle at 1px 1px, rgba(139,148,158,0.18) 1px, transparent 0), #0d1117; background-size: 22px 22px; border: 1px solid var(--border); border-radius: 10px; }
-  .hq-flow svg { position: absolute; top: 0; left: 0; height: 100%; pointer-events: none; z-index: 0; }
-  .hq-flow .flow-node { position: absolute; width: 168px; min-height: 74px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: rgba(22,27,34,0.96); box-shadow: 0 8px 18px rgba(0,0,0,0.28); z-index: 1; }
-  .hq-flow .flow-node.core { border-color: rgba(88,166,255,0.65); box-shadow: 0 0 0 1px rgba(88,166,255,0.08), 0 8px 18px rgba(0,0,0,0.28); }
-  .hq-flow .flow-node.project { border-color: rgba(63,185,80,0.45); }
-  .hq-flow .flow-node.mailbox { border-color: rgba(210,153,34,0.45); }
-  .hq-flow .flow-node .node-title { font-size: 12px; font-weight: 700; color: #f0f6fc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .hq-flow .flow-node .node-kind { margin-top: 2px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--dim); }
-  .hq-flow .flow-node .node-meta { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px; font-size: 10px; color: var(--muted); }
-  .hq-flow .flow-node .node-meta span { padding: 1px 5px; border-radius: 999px; background: #21262d; }
-  .hq-flow .flow-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--dim); font-style: italic; font-size: 13px; text-align: center; padding: 24px; }
-  .hq-stat { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
-  .hq-stat .num { font-size: 26px; font-weight: 700; color: #f0f6fc; line-height: 1.1; }
-  .hq-stat .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--dim); margin-top: 4px; }
-  .hq-stat.warn .num { color: var(--warn); }
-  .hq-stat.high .num { color: var(--high); }
-  section { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
-  section h2 { margin: 0 0 12px; font-size: 14px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); font-weight: 600; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { text-align: left; font-weight: 600; color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; padding: 8px 10px; border-bottom: 1px solid var(--border); }
-  td { padding: 10px; border-bottom: 1px solid #21262d; }
-  tr:last-child td { border-bottom: none; }
-  td.num { text-align: right; font-variant-numeric: tabular-nums; }
-  td .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; background: #21262d; color: var(--muted); }
-  td .pill.project { background: rgba(88,166,255,0.15); color: var(--accent); }
-  td .pill.global { background: rgba(63,185,80,0.15); color: var(--live); }
-  .empty { color: var(--dim); font-style: italic; padding: 12px 0; font-size: 13px; }
-  .badge { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; background: #21262d; color: var(--muted); margin-right: 4px; }
-  .project-link { color: var(--accent); cursor: pointer; text-decoration: none; }
-  .project-link:hover { text-decoration: underline; }
-  .drawer-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; z-index: 50; }
-  .drawer-backdrop.open { display: block; }
-  .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(720px, 90vw); background: var(--panel); border-left: 1px solid var(--border); box-shadow: -8px 0 24px rgba(0,0,0,0.5); transform: translateX(100%); transition: transform 0.18s ease; overflow-y: auto; z-index: 51; padding: 24px; }
-  .drawer.open { transform: translateX(0); }
-  .drawer h2 { margin: 0 0 4px; color: var(--accent); font-size: 18px; }
-  .drawer .drawer-meta { color: var(--muted); font-size: 12px; margin-bottom: 20px; }
-  .drawer .drawer-close { float: right; background: transparent; border: 1px solid var(--border); color: var(--text); padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; }
-  .drawer .drawer-close:hover { background: #21262d; }
-  .msg-row { padding: 10px; border-bottom: 1px solid #21262d; font-size: 13px; }
-  .msg-row:last-child { border-bottom: none; }
-  .msg-row .msg-subject { font-weight: 600; color: #f0f6fc; }
-  .msg-row .msg-meta { color: var(--dim); font-size: 11px; margin-top: 2px; }
-  .msg-row .msg-preview { color: var(--muted); font-size: 12px; margin-top: 4px; font-style: italic; }
-  .pill.priority-high { background: rgba(248,81,73,0.18); color: var(--high); }
-  .pill.priority-normal { background: rgba(88,166,255,0.15); color: var(--accent); }
-  .pill.priority-low { background: #21262d; color: var(--dim); }
-  code.mail-id { font-size: 10px; color: var(--muted); background: var(--row-alt); padding: 1px 4px; border-radius: 4px; margin-right: 4px; }
-  .hq-toolbar { display: flex; align-items: center; gap: 8px; margin: 12px 0 16px; padding: 8px 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
-  .hq-toolbar label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--dim); }
-  .hq-toolbar select { background: #0d1117; color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font-size: 13px; min-width: 280px; }
-  .hq-toolbar select:focus { outline: none; border-color: var(--accent); }
-  .feed-status { float: right; font-size: 10px; text-transform: none; letter-spacing: 0; color: var(--dim); }
-  .feed-status.live { color: var(--live); }
-  .feed-row { padding: 8px 10px; border-bottom: 1px solid #21262d; font-size: 12px; animation: feed-flash 0.6s ease-out; }
-  .feed-row:last-child { border-bottom: none; }
-  .feed-row .feed-action { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; margin-right: 6px; background: #21262d; color: var(--muted); font-family: ui-monospace, monospace; }
-  .feed-row .feed-action.message-sent { background: rgba(88,166,255,0.18); color: var(--accent); }
-  .feed-row .feed-action.message-completed { background: rgba(63,185,80,0.18); color: var(--live); }
-  .feed-row .feed-action.message-read { background: rgba(139,148,158,0.18); color: var(--muted); }
-  .feed-row .feed-action.agent-offline { background: rgba(248,81,73,0.18); color: var(--high); }
-  .feed-row .feed-action.agent-registered { background: rgba(63,185,80,0.18); color: var(--live); }
-  .feed-row .feed-meta { color: var(--dim); font-size: 10px; margin-top: 2px; }
-  @keyframes feed-flash { 0% { background: rgba(88,166,255,0.25); } 100% { background: transparent; } }
-</style>
-</head>
-<body>
-<h1>📋 WrongStack HQ</h1>
-<p class="hq-sub" id="hq-conn"><span class="hq-led dead" id="hq-led"></span>Connecting…</p>
-<div class="hq-toolbar">
-  <label for="project-picker">Project:</label>
-  <select id="project-picker" aria-label="Select project">
-    <option value="">— Select project —</option>
-  </select>
-</div>
+  write(`  On another machine, set WRONGSTACK_HQ_URL=http://${ips[0]}:${handle.port}\n`);
+}
 
-<div class="hq-grid">
-  <div class="hq-stat"><span class="num" id="stat-clients">0</span><div class="label">Active clients</div></div>
-  <div class="hq-stat"><span class="num" id="stat-projects">0</span><div class="label">Projects</div></div>
-  <div class="hq-stat warn"><span class="num" id="stat-mailboxes">0</span><div class="label">Mailboxes</div></div>
-  <div class="hq-stat warn"><span class="num" id="stat-unread">0</span><div class="label">Unread messages</div></div>
-  <div class="hq-stat warn"><span class="num" id="stat-incomplete">0</span><div class="label">Open messages</div></div>
-  <div class="hq-stat high"><span class="num" id="stat-high">0</span><div class="label">High priority</div></div>
-  <div class="hq-stat"><span class="num" id="stat-agents">0</span><div class="label">Online agents</div></div>
-</div>
-
-<section>
-  <h2>🧭 Fleet flow</h2>
-  <div class="hq-flow" id="hq-flow" aria-label="Fleet HQ flow diagram">
-    <p class="flow-empty">No flow data yet. Connect clients to see HQ → projects → mailboxes.</p>
-  </div>
-</section>
-
-<section>
-  <h2>📬 Mailboxes</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Mailbox</th>
-        <th>Scope</th>
-        <th>Project</th>
-        <th>Project Root</th>
-        <th>Git Branch</th>
-        <th class="num">Messages</th>
-        <th class="num">Unread</th>
-        <th class="num">Open</th>
-        <th class="num">High</th>
-        <th class="num">Agents</th>
-      </tr>
-    </thead>
-    <tbody id="tbody-mailboxes">
-      <tr><td colspan="10" class="empty">No mailboxes yet. Connect a TUI/REPL/WebUI client with WRONGSTACK_HQ_URL set.</td></tr>
-    </tbody>
-  </table>
-</section>
-
-<section>
-  <h2>👥 Clients</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Client ID</th>
-        <th>Kind</th>
-        <th>Project</th>
-        <th>Hostname / PID</th>
-        <th>Version</th>
-        <th>Capabilities</th>
-        <th>Last seen</th>
-      </tr>
-    </thead>
-    <tbody id="tbody-clients">
-      <tr><td colspan="7" class="empty">No clients connected yet.</td></tr>
-    </tbody>
-  </table>
-</section>
-
-<section id="agent-timeline-section" style="display:none">
-  <h2>🤖 Agent timeline
-    <span style="float:right;font-size:10px;text-transform:none;letter-spacing:0;color:var(--dim);cursor:pointer" id="agent-timeline-clear">clear</span>
-  </h2>
-  <div id="agent-timeline" style="max-height:480px;overflow-y:auto;font-size:12px;">
-    <p class="empty">Waiting for agent activity…</p>
-  </div>
-</section>
-
-<div class="drawer-backdrop" id="drawer-backdrop"></div>
-<aside class="drawer" id="drawer" aria-hidden="true">
-  <button class="drawer-close" id="drawer-close">Close</button>
-  <h2 id="drawer-title">Project</h2>
-  <p class="drawer-meta" id="drawer-meta"></p>
-  <section>
-    <h2>📬 Mailboxes</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>Mailbox</th>
-          <th>Scope</th>
-          <th class="num">Messages</th>
-          <th class="num">Unread</th>
-          <th class="num">Agents</th>
-        </tr>
-      </thead>
-      <tbody id="drawer-mailboxes">
-        <tr><td colspan="5" class="empty">Loading…</td></tr>
-      </tbody>
-    </table>
-  </section>
-  <section>
-    <h2>📨 Recent messages</h2>
-    <div id="drawer-messages">
-      <p class="empty">Loading…</p>
-    </div>
-  </section>
-  <section>
-    <h2>📡 Live mailbox events
-      <span class="feed-status" id="feed-status">(idle)</span>
-    </h2>
-    <div id="drawer-event-feed">
-      <p class="empty">No mailbox events yet for this project.</p>
-    </div>
-  </section>
-  <section>
-    <h2>👥 Clients</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>Client ID</th>
-          <th>Kind</th>
-          <th>Last seen</th>
-        </tr>
-      </thead>
-      <tbody id="drawer-clients">
-        <tr><td colspan="3" class="empty">Loading…</td></tr>
-      </tbody>
-    </table>
-  </section>
-</aside>
-
-<script>
-  const led = document.getElementById('hq-led');
-  const connText = document.getElementById('hq-conn');
-
-  function el(id) { return document.getElementById(id); }
-
-  function fmtTime(iso) {
-    if (!iso) return '—';
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return '—';
-    return d.toLocaleTimeString();
-  }
-
-  function shortId(s) {
-    if (!s) return '—';
-    return s.length > 12 ? s.slice(0, 6) + '…' + s.slice(-4) : s;
-  }
-
-  function renderMailboxes(mailboxes, projects) {
-    const tbody = el('tbody-mailboxes');
-    if (!mailboxes || mailboxes.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="10" class="empty">No mailboxes yet. Connect a TUI/REPL/WebUI client with WRONGSTACK_HQ_URL set.</td></tr>';
-      return;
-    }
-    const projectById = new Map((projects || []).map((p) => [p.projectId, p]));
-    tbody.innerHTML = mailboxes.map((m) => {
-      const scopeClass = m.scope === 'global' ? 'global' : 'project';
-      const projectCell = '<a href="#' + encodeURIComponent(m.projectId) + '" class="project-link" data-project="' + escapeHtml(m.projectId) + '">' + escapeHtml(shortId(m.projectId)) + '</a>';
-      const project = projectById.get(m.projectId);
-      const projectRoot = project ? escapeHtml(project.projectRootDisplay || project.projectId) : '—';
-      const gitBranch = project && project.gitBranch ? escapeHtml(project.gitBranch) : '—';
-      return '<tr>' +
-        '<td><code>' + escapeHtml(shortId(m.mailboxId)) + '</code></td>' +
-        '<td><span class="pill ' + scopeClass + '">' + escapeHtml(m.scope) + '</span></td>' +
-        '<td>' + projectCell + '</td>' +
-        '<td><code>' + (projectRoot.length > 24 ? escapeHtml(projectRoot.slice(0, 22) + '…') : projectRoot) + '</code></td>' +
-        '<td><code>' + gitBranch + '</code></td>' +
-        '<td class="num">' + m.messageCount + '</td>' +
-        '<td class="num">' + (m.unreadCount > 0 ? '<strong>' + m.unreadCount + '</strong>' : '0') + '</td>' +
-        '<td class="num">' + m.incompleteCount + '</td>' +
-        '<td class="num">' + (m.highPriorityCount > 0 ? '<strong style="color:var(--high)">' + m.highPriorityCount + '</strong>' : '0') + '</td>' +
-        '<td class="num">' + m.onlineAgentCount + '</td>' +
-      '</tr>';
-    }).join('');
-    wireProjectLinks();
-  }
-
-  function renderClients(clients) {
-    const tbody = el('tbody-clients');
-    if (!clients || clients.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" class="empty">No clients connected yet.</td></tr>';
-      return;
-    }
-    tbody.innerHTML = clients.map((c) => {
-      const caps = (c.capabilities || []).map((cap) => '<span class="badge">' + escapeHtml(cap) + '</span>').join('');
-      const hostInfo = c.hostname ? escapeHtml(c.hostname) + (c.pid ? ' / PID ' + c.pid : '') : (c.pid ? 'PID ' + c.pid : '—');
-      const version = c.version ? escapeHtml(c.version) : '—';
-      return '<tr>' +
-        '<td><code>' + escapeHtml(shortId(c.clientId)) + '</code></td>' +
-        '<td><span class="pill project">' + escapeHtml(c.kind) + '</span></td>' +
-        '<td><code>' + escapeHtml(shortId(c.projectId)) + '</code></td>' +
-        '<td>' + hostInfo + '</td>' +
-        '<td><code>' + version + '</code></td>' +
-        '<td>' + caps + '</td>' +
-        '<td>' + fmtTime(c.lastSeenAt) + '</td>' +
-      '</tr>';
-    }).join('');
-  }
-
-  function renderFlow(snapshot) {
-    const root = el('hq-flow');
-    if (!root) return;
-    const projects = snapshot.projects || [];
-    const mailboxes = snapshot.mailboxes || [];
-    const clients = snapshot.clients || [];
-    if (projects.length === 0 && mailboxes.length === 0 && clients.length === 0) {
-      root.innerHTML = '<p class="flow-empty">No flow data yet. Connect clients to see HQ → projects → mailboxes.</p>';
-      return;
-    }
-
-    const projectIds = new Set(projects.map((p) => p.projectId));
-    for (const c of clients) if (c.projectId) projectIds.add(c.projectId);
-    for (const m of mailboxes) if (m.projectId) projectIds.add(m.projectId);
-    const orderedProjects = Array.from(projectIds).sort();
-    const projectIndex = new Map(orderedProjects.map((id, index) => [id, index]));
-    const rows = Math.max(1, orderedProjects.length);
-    const height = Math.max(320, 150 + rows * 112);
-    // Grid layout: each project gets a row band; mailboxes stack vertically within their project column.
-    // This prevents overlap that occurred with the old formula:
-    //   y: y + mailboxIdx * 92 - Math.max(0, projectMailboxes.length - 1) * 28
-    // which produced negative offsets when projectMailboxes.length > 1.
-    const HQ_X = 20;
-    const PROJECT_X = 280;
-    const MAILBOX_X = 540;
-    const NODE_W = 168;
-    const ROW_HEIGHT = 100; // vertical spacing per project row
-    const MAILBOX_ROW_H = 80; // vertical spacing per mailbox under same project
-    const TOP_PADDING = 20;
-    const HQ_HEIGHT = 74;
-
-    const nodes = [{
-      id: 'hq',
-      kind: 'core',
-      title: 'WrongStack HQ',
-      x: HQ_X,
-      y: TOP_PADDING,
-      meta: [clients.length + ' clients', orderedProjects.length + ' projects'],
-    }];
-    const edges = [];
-    const projectById = new Map(projects.map((p) => [p.projectId, p]));
-
-    for (const projectId of orderedProjects) {
-      const idx = projectIndex.get(projectId) || 0;
-      const project = projectById.get(projectId) || { projectId, projectName: projectId, activeClients: 0 };
-      const projectY = TOP_PADDING + idx * ROW_HEIGHT;
-      const projectNodeId = 'project:' + projectId;
-      nodes.push({
-        id: projectNodeId,
-        kind: 'project',
-        title: project.projectName || projectId,
-        x: PROJECT_X,
-        y: projectY,
-        meta: [(project.activeClients || 0) + ' clients', shortId(projectId)],
-      });
-      edges.push({ from: 'hq', to: projectNodeId });
-
-      // Mailboxes for this project: stack horizontally side-by-side within the row
-      const projectMailboxes = mailboxes.filter((m) => m.projectId === projectId).slice(0, 6);
-      projectMailboxes.forEach((m, mailboxIdx) => {
-        const mailboxNodeId = 'mailbox:' + m.mailboxId;
-        nodes.push({
-          id: mailboxNodeId,
-          kind: 'mailbox',
-          title: shortId(m.mailboxId),
-          x: MAILBOX_X + mailboxIdx * (NODE_W + 16), // horizontal spacing for multiple mailbox columns
-          y: projectY,
-          meta: [m.messageCount + ' msgs', m.unreadCount + ' unread'],
-        });
-        edges.push({ from: projectNodeId, to: mailboxNodeId });
-      });
-    }
-
-    // Recalculate height to fit all rows
-    const usedHeight = TOP_PADDING + orderedProjects.length * ROW_HEIGHT + 80;
-    const usedWidth = MAILBOX_X + 4 * (NODE_W + 16) + NODE_W + 20;
-    root.style.minHeight = Math.max(height, usedHeight) + 'px';
-    root.style.minWidth = Math.max(720, usedWidth) + 'px';
-
-    const pos = new Map(nodes.map((n) => [n.id, n]));
-    const svgViewW = Math.max(720, usedWidth);
-    const svgViewH = Math.max(height, usedHeight);
-    const svgWidth = svgViewW + 'px';
-    const svg = '<svg viewBox="0 0 ' + svgViewW + ' ' + svgViewH + '" width="' + svgWidth + '" preserveAspectRatio="none" aria-hidden="true">' +
-      '<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#58a6ff" opacity="0.8" /></marker></defs>' +
-      edges.map((e) => {
-        const from = pos.get(e.from);
-        const to = pos.get(e.to);
-        if (!from || !to) return '';
-        const x1 = from.x + 168;
-        const y1 = from.y + 37;
-        const x2 = to.x;
-        const y2 = to.y + 37;
-        const mid = Math.round((x1 + x2) / 2);
-        return '<path d="M ' + x1 + ' ' + y1 + ' C ' + mid + ' ' + y1 + ', ' + mid + ' ' + y2 + ', ' + x2 + ' ' + y2 + '" fill="none" stroke="#58a6ff" stroke-width="1.5" opacity="0.72" marker-end="url(#arrow)" />';
-      }).join('') +
-      '</svg>';
-    const htmlNodes = nodes.map((n) =>
-      '<div class="flow-node ' + n.kind + '" data-flow-node="' + escapeHtml(n.id) + '" style="left:' + n.x + 'px;top:' + n.y + 'px">' +
-        '<div class="node-title">' + escapeHtml(n.title) + '</div>' +
-        '<div class="node-kind">' + escapeHtml(n.kind) + '</div>' +
-        '<div class="node-meta">' + n.meta.map((m) => '<span>' + escapeHtml(m) + '</span>').join('') + '</div>' +
-      '</div>'
-    ).join('');
-    root.innerHTML = svg + htmlNodes;
-  }
-
-  function escapeHtml(s) {
-    if (s === null || s === undefined) return '';
-    return String(s).replace(/[&<>"']/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-    });
-  }
-
-  function applySnapshot(s) {
-    el('stat-clients').textContent = s.totals.activeClients;
-    el('stat-projects').textContent = s.totals.activeProjects;
-    el('stat-unread').textContent = s.totals.unreadMailboxMessages;
-    el('stat-incomplete').textContent = s.totals.incompleteMailboxMessages;
-
-    let totalMessages = 0;
-    let highPriority = 0;
-    let onlineAgents = 0;
-    for (const m of (s.mailboxes || [])) {
-      totalMessages += m.messageCount;
-      highPriority += m.highPriorityCount;
-      onlineAgents += m.onlineAgentCount;
-    }
-    el('stat-mailboxes').textContent = (s.mailboxes || []).length;
-    el('stat-high').textContent = highPriority;
-    el('stat-agents').textContent = onlineAgents;
-
-    renderFlow(s);
-    renderMailboxes(s.mailboxes || [], s.projects || []);
-    renderClients(s.clients || []);
-    renderProjectPicker(s.projects || []);
-
-    // Auto-refresh the open drawer if the open project is still active in
-    // the live snapshot. Debounced so rapid burst updates trigger one fetch.
-    if (currentDetailProjectId) {
-      const stillActive = (s.projects || []).some((p) => p.projectId === currentDetailProjectId);
-      if (stillActive) scheduleAutoRefresh();
-    }
-  }
-
-  // ---------- Project drilldown drawer ----------
-
-  // Current detail request token; if the URL changes (e.g. user picks a
-  // different project) we discard stale responses.
-  let currentDetailToken = 0;
-  let currentDetailProjectId = null;
-  let autoRefreshTimer = null;
-  let lastAutoRefreshAt = null;
-  // Per-project live event feed (ring buffer per project). Keyed by
-  // projectId so switching drawers keeps each project's history.
-  const eventFeeds = new Map();
-  const FEED_MAX = 500;
-  let feedIdleTimer = null;
-
-  function currentBrowserToken() {
-    return new URL(location.href).searchParams.get('token') || '';
-  }
-
-  function withBrowserToken(path) {
-    const url = new URL(path, location.href);
-    const token = currentBrowserToken();
-    if (token) url.searchParams.set('token', token);
-    return url.pathname + url.search;
-  }
-
-  function parseInitialProject() {
-    // Prefer ?project=ID over #ID so URL copy/paste stays predictable even
-    // when fragments would otherwise be lost on server round-trips.
-    const url = new URL(location.href);
-    const fromQuery = url.searchParams.get('project');
-    if (fromQuery) return fromQuery;
-    if (location.hash.length > 1) {
-      try { return decodeURIComponent(location.hash.slice(1)); } catch { return null; }
-    }
-    return null;
-  }
-
-  function pushProjectUrl(projectId) {
-    const url = new URL(location.href);
-    url.searchParams.set('project', projectId);
-    url.hash = '';
-    history.replaceState(null, '', url.pathname + url.search);
-  }
-
-  function clearProjectUrl() {
-    const url = new URL(location.href);
-    url.searchParams.delete('project');
-    url.hash = '';
-    history.replaceState(null, '', url.pathname + (url.searchParams.toString() ? '?' + url.searchParams.toString() : ''));
-  }
-
-  function renderProjectPicker(projects) {
-    const sel = el('project-picker');
-    if (!sel) return;
-    const current = currentDetailProjectId || '';
-    sel.innerHTML =
-      '<option value="">— Select project —</option>' +
-      (projects || []).map((p) =>
-        '<option value="' + escapeHtml(p.projectId) + '"' +
-          (p.projectId === current ? ' selected' : '') +
-        '>' + escapeHtml(p.projectName || p.projectId) + ' (' + (p.activeClients || 0) + ')</option>'
-      ).join('');
-    sel.onchange = () => {
-      const v = sel.value;
-      if (v) openProject(v);
-      else closeProject();
-    };
-  }
-
-  function setDrawerMeta(detail) {
-    if (!detail || !detail.project) return;
-    const p = detail.project;
-    const refreshed = lastAutoRefreshAt ? ' · Last refreshed ' + fmtTime(lastAutoRefreshAt) : '';
-    el('drawer-meta').textContent =
-      'Active clients: ' + (p.activeClients || 0) +
-      ' · Generated: ' + fmtTime(detail.generatedAt) +
-      refreshed;
-  }
-
-  function fetchProjectDetail(projectId, opts) {
-    const token = ++currentDetailToken;
-    const silent = opts && opts.silent;
-    if (!silent) {
-      el('drawer-meta').textContent = 'Refreshing…';
-    }
-    fetch(withBrowserToken('/api/projects/' + encodeURIComponent(projectId)))
-      .then((r) => {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.json();
-      })
-      .then((d) => {
-        if (token !== currentDetailToken) return; // stale
-        renderProjectDetail(d);
-        lastAutoRefreshAt = new Date();
-        setDrawerMeta(d);
-      })
-      .catch((err) => {
-        if (token !== currentDetailToken) return;
-        if (!silent) {
-          el('drawer-meta').textContent = 'Failed to load: ' + escapeHtml(String(err.message || err));
-        }
-      });
-  }
-
-  function scheduleAutoRefresh() {
-    if (autoRefreshTimer) clearTimeout(autoRefreshTimer);
-    autoRefreshTimer = setTimeout(() => {
-      autoRefreshTimer = null;
-      if (currentDetailProjectId) fetchProjectDetail(currentDetailProjectId, { silent: true });
-    }, 250);
-  }
-
-  function openProject(projectId) {
-    if (!projectId) return;
-    const drawer = el('drawer');
-    const backdrop = el('drawer-backdrop');
-    el('drawer-title').textContent = projectId;
-    el('drawer-meta').textContent = 'Loading…';
-    el('drawer-mailboxes').innerHTML = '<tr><td colspan="5" class="empty">Loading…</td></tr>';
-    el('drawer-messages').innerHTML = '<p class="empty">Loading…</p>';
-    el('drawer-clients').innerHTML = '<tr><td colspan="3" class="empty">Loading…</td></tr>';
-    drawer.classList.add('open');
-    backdrop.classList.add('open');
-    drawer.setAttribute('aria-hidden', 'false');
-    pushProjectUrl(projectId);
-    currentDetailProjectId = projectId;
-    lastAutoRefreshAt = null;
-    // Render any mailbox events the project received while the drawer was
-    // closed so the live feed ring buffer is visible immediately on open.
-    const existingFeed = eventFeeds.get(projectId);
-    if (existingFeed) renderEventFeed(existingFeed);
-    fetchProjectDetail(projectId, { silent: false });
-  }
-
-  function closeProject() {
-    const drawer = el('drawer');
-    const backdrop = el('drawer-backdrop');
-    drawer.classList.remove('open');
-    backdrop.classList.remove('open');
-    drawer.setAttribute('aria-hidden', 'true');
-    currentDetailProjectId = null;
-    currentDetailToken++;
-    if (autoRefreshTimer) {
-      clearTimeout(autoRefreshTimer);
-      autoRefreshTimer = null;
-    }
-    lastAutoRefreshAt = null;
-    clearProjectUrl();
-    const sel = el('project-picker');
-    if (sel) sel.value = '';
-  }
-
-  function renderProjectDetail(detail) {
-    if (!detail || !detail.project) {
-      el('drawer-meta').textContent = 'No data.';
-      return;
-    }
-    setDrawerMeta(detail);
-
-    // Mailboxes
-    const mbs = detail.mailboxes || [];
-    el('drawer-mailboxes').innerHTML = mbs.length === 0
-      ? '<tr><td colspan="5" class="empty">No mailboxes reported for this project yet.</td></tr>'
-      : mbs.map((m) => {
-          const scopeClass = m.scope === 'global' ? 'global' : 'project';
-          return '<tr>' +
-            '<td><code>' + escapeHtml(shortId(m.mailboxId)) + '</code></td>' +
-            '<td><span class="pill ' + scopeClass + '">' + escapeHtml(m.scope) + '</span></td>' +
-            '<td class="num">' + m.totals.messages + '</td>' +
-            '<td class="num">' + (m.totals.unread > 0 ? '<strong>' + m.totals.unread + '</strong>' : '0') + '</td>' +
-            '<td class="num">' + m.totals.onlineAgents + '</td>' +
-          '</tr>';
-        }).join('');
-
-    // Recent messages — flatten + sort by timestamp desc, take 20
-    const allMessages = [];
-    for (const m of mbs) {
-      for (const msg of (m.messages || [])) allMessages.push(msg);
-    }
-    allMessages.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
-    const recent = allMessages.slice(0, 20);
-    el('drawer-messages').innerHTML = recent.length === 0
-      ? '<p class="empty">No messages in any mailbox snapshot yet.</p>'
-      : recent.map((m) => {
-          const priorityClass = 'priority-' + (m.priority || 'normal');
-          const preview = m.bodyPreview ? '<div class="msg-preview">' + escapeHtml(m.bodyPreview) + '</div>' : '';
-          const task = m.task ? ' · task: ' + escapeHtml(m.task.status || '?') : '';
-          return '<div class="msg-row">' +
-            '<span class="pill ' + priorityClass + '">' + escapeHtml(m.priority || 'normal') + '</span>' +
-            '<span class="pill">' + escapeHtml(m.type || '?') + '</span>' +
-            '<code class="mail-id">' + escapeHtml(m.mailId || m.messageId || '') + '</code>' +
-            '<span class="msg-subject"> ' + escapeHtml(m.subject || '(no subject)') + '</span>' +
-            '<div class="msg-meta">' + escapeHtml(m.from || '?') + ' → ' + escapeHtml(m.to || '?') + ' · ' + fmtTime(m.timestamp) + (m.completed ? ' · ✓ completed' : '') + task + '</div>' +
-            preview +
-          '</div>';
-        }).join('');
-
-    // Clients
-    const cs = detail.clients || [];
-    el('drawer-clients').innerHTML = cs.length === 0
-      ? '<tr><td colspan="3" class="empty">No clients for this project.</td></tr>'
-      : cs.map((c) =>
-          '<tr>' +
-            '<td><code>' + escapeHtml(shortId(c.clientId)) + '</code></td>' +
-            '<td>' + escapeHtml(c.kind) + '</td>' +
-            '<td>' + fmtTime(c.lastSeenAt) + '</td>' +
-          '</tr>'
-        ).join('');
-  }
-
-  function wireProjectLinks() {
-    const links = document.querySelectorAll('a.project-link');
-    links.forEach((a) => {
-      a.onclick = (ev) => {
-        ev.preventDefault();
-        const pid = a.getAttribute('data-project') || '';
-        openProject(pid);
-      };
-    });
-  }
-
-  el('drawer-close').onclick = closeProject;
-  el('drawer-backdrop').onclick = closeProject;
-  document.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Escape') closeProject();
-  });
-
-  // Clear button for agent timeline
-  document.addEventListener('DOMContentLoaded', () => {
-    const clearBtn = el('agent-timeline-clear');
-    if (clearBtn) {
-      clearBtn.addEventListener('click', () => {
-        agentTimeline.length = 0;
-        renderAgentTimeline();
-      });
-    }
-  });
-
-  // Respond to browser back/forward to switch projects.
-  window.addEventListener('popstate', () => {
-    const pid = parseInitialProject();
-    if (pid) {
-      if (pid !== currentDetailProjectId) openProject(pid);
-    } else if (currentDetailProjectId) {
-      closeProject();
-    }
-  });
-
-  // Open drawer automatically if URL has ?project=ID or #projectId.
-  const initialProject = parseInitialProject();
-  if (initialProject) openProject(initialProject);
-
-  function connect() {
-    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(proto + '//' + location.host + withBrowserToken('/ws/browser'));
-    ws.onopen = () => {
-      led.className = 'hq-led live';
-      connText.innerHTML = '<span class="hq-led live"></span>Connected to HQ';
-    };
-    ws.onmessage = (ev) => {
-      try {
-        const msg = JSON.parse(ev.data);
-        if (msg.type === 'hq.snapshot') applySnapshot(msg.snapshot);
-        else if (msg.type === 'hq.event') handleHqEvent(msg.event);
-      } catch {}
-    };
-    ws.onclose = () => {
-      led.className = 'hq-led dead';
-      connText.innerHTML = '<span class="hq-led dead"></span>Disconnected — reconnecting…';
-      setTimeout(connect, 2000);
-    };
-    ws.onerror = () => ws.close();
-  }
-
-  // ---------- Live mailbox event feed ----------
-
-  const agentTimeline = []; // { ts, agentName, content, kind, subagentId, projectId }
-  const AGENT_TIMELINE_MAX = 200;
-
-  function handleHqEvent(event) {
-    // Accept all event types — each may carry project-scoped data for the live feed.
-    if (!event || !event.projectId) return;
-    const projectId = event.projectId;
-    const list = eventFeeds.get(projectId) || [];
-    list.unshift(event); // newest first
-    if (list.length > FEED_MAX) list.length = FEED_MAX;
-    eventFeeds.set(projectId, list);
-
-    // Only re-render if the open drawer matches this project's id.
-    if (projectId === currentDetailProjectId) {
-      renderEventFeed(list);
-      flashFeedStatus();
-    }
-
-    // ── Agent timeline events ─────────────────────────────────────────
-    if (event.type === 'agent.message' || event.type === 'agent.status') {
-      const p = event.payload || {};
-      const entry = {
-        ts: event.timestamp || p.ts,
-        agentName: p.agentName || p.subagentId || 'agent',
-        content: p.content || p.summary || '',
-        kind: event.type === 'agent.message' ? (p.kind || 'text') : 'status',
-        subagentId: p.subagentId,
-        status: p.status,
-        projectId: event.projectId,
-      };
-      agentTimeline.push(entry);
-      if (agentTimeline.length > AGENT_TIMELINE_MAX) agentTimeline.splice(0, agentTimeline.length - AGENT_TIMELINE_MAX);
-      renderAgentTimeline();
-    }
-  }
-
-  function renderAgentTimeline() {
-    const section = el('agent-timeline-section');
-    const container = el('agent-timeline');
-    if (!section || !container) return;
-    if (agentTimeline.length === 0) {
-      section.style.display = 'none';
-      return;
-    }
-    section.style.display = 'block';
-    container.innerHTML = agentTimeline.map((e) => {
-      const kindIcon = { text: '', tool_use: '\u{1F527}', error: '\u{274C}', status: '\u{1F4AC}' };
-      const icon = kindIcon[e.kind] || '';
-      const agentLabel = '<strong style="color:var(--accent)">' + escapeHtml(e.agentName) + '</strong>';
-      const time = e.ts ? fmtTime(e.ts) : '';
-      const chip = e.kind === 'status' && e.status
-        ? '<span class="pill" style="background:' + (e.status === 'running' || e.status === 'spawned' ? 'rgba(63,185,80,0.18)' : e.status === 'failed' || e.status === 'timeout' ? 'rgba(248,81,73,0.18)' : '#21262d') + ';color:' + (e.status === 'running' || e.status === 'spawned' ? 'var(--live)' : e.status === 'failed' || e.status === 'timeout' ? 'var(--high)' : 'var(--muted)') + '">' + escapeHtml(e.status) + '</span>'
-        : '';
-      const contentHtml = e.kind === 'text' || e.kind === 'status'
-        ? '<span>' + escapeHtml(e.content.slice(0, 300)) + '</span>'
-        : '<code style="color:var(--accent);font-size:11px">' + escapeHtml(e.content) + '</code>';
-      return '<div class="feed-row" style="animation:feed-flash 0.4s ease-out">' +
-        icon + ' ' + agentLabel + ' ' + chip + ' ' + contentHtml +
-        '<div class="feed-meta">' + time + '</div>' +
-      '</div>';
-    }).join('');
-  }
-
-  function renderEventFeed(list) {
-    const elFeed = el('drawer-event-feed');
-    if (!elFeed) return;
-    if (!list || list.length === 0) {
-      elFeed.innerHTML = '<p class="empty">No events yet for this project.</p>';
-      return;
-    }
-    elFeed.innerHTML = list.map((evt) => {
-      const p = evt.payload || {};
-      const action = escapeHtml(p.action || '?');
-      let detail = '';
-      if (p.summary) detail = escapeHtml(p.summary);
-      else if (p.message) detail = escapeHtml((p.message.subject || '(no subject)') + ' · ' + (p.message.from || '?') + ' → ' + (p.message.to || '?'));
-      else if (p.agent) detail = escapeHtml((p.agent.name || p.agent.agentId || '?') + ' (' + (p.agent.status || '?') + ')');
-      else detail = '<em>no detail</em>';
-      const mailboxShort = p.mailboxId ? ' · ' + escapeHtml(shortId(p.mailboxId)) : '';
-      return '<div class="feed-row">' +
-        '<span class="feed-action ' + action + '">' + action + '</span>' +
-        '<span>' + detail + '</span>' +
-        '<div class="feed-meta">' + fmtTime(evt.timestamp) + mailboxShort + '</div>' +
-      '</div>';
-    }).join('');
-  }
-
-  function clearEventFeed(projectId) {
-    eventFeeds.delete(projectId);
-  }
-
-  function flashFeedStatus() {
-    const status = el('feed-status');
-    if (!status) return;
-    status.textContent = '(live)';
-    status.className = 'feed-status live';
-    if (feedIdleTimer) clearTimeout(feedIdleTimer);
-    feedIdleTimer = setTimeout(() => {
-      status.textContent = '(idle)';
-      status.className = 'feed-status';
-      feedIdleTimer = null;
-    }, 1500);
-  }
-
-  // Load initial snapshot via HTTP so the dashboard renders without waiting for WS.
-  fetch(withBrowserToken('/api/snapshot'))
-    .then((r) => r.ok ? r.json() : null)
-    .then((s) => { if (s) applySnapshot(s); })
-    .catch(() => null)
-    .finally(() => connect());
-</script>
-</body>
-</html>`;
+// The HQ dashboard HTML lives in its own module (a large self-contained
+// React + React Flow document). Import it for local use by the `/` route and
+// re-export it so existing importers keep working unchanged.
+export { HQ_HTML };
 
 /** GET /api/sessions — list live sessions from the cross-process registry. */
 async function handleApiSessions(res: http.ServerResponse): Promise<void> {
@@ -1039,99 +327,81 @@ async function handleApiSessions(res: http.ServerResponse): Promise<void> {
 }
 
 /** GET /api/sessions/:id/events — replay JSONL events for a session watch. */
-async function handleApiSessionEvents(res: http.ServerResponse, sessionId: string, limit: number): Promise<void> {
-  const { SessionRegistry, resolveWstackPaths, DefaultSessionStore, DefaultSessionReader } = await import('@wrongstack/core');
+/**
+ * GET /api/sessions/:id/events — full chat history for a terminal.
+ *
+ * Local sessions (present in this host's registry) are replayed from disk so
+ * the operator sees the complete, correlated transcript. Remote sessions are
+ * served from the in-memory transcript ring fed by `session.transcript`
+ * envelopes. `full` drops the tail cap and returns everything available.
+ */
+async function handleApiSessionEvents(
+  res: http.ServerResponse,
+  sessionId: string,
+  limit: number,
+  full: boolean,
+  transcripts: Map<string, TranscriptRing>,
+): Promise<void> {
+  const { SessionRegistry, resolveWstackPaths, DefaultSessionStore } = await import('@wrongstack/core');
   const globalRoot = path.dirname(resolveHqDataDir());
   try {
     const registry = new SessionRegistry(globalRoot);
-    const entry = await registry.get(sessionId);
-    if (!entry) {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Session not found' }));
-      return;
-    }
-    const paths = resolveWstackPaths({ projectRoot: entry.projectRoot, globalRoot });
-    const store = new DefaultSessionStore({ dir: paths.projectSessions });
-    const reader = new DefaultSessionReader({ store });
-    // Map JSONL events to WatchEntry (same logic as webui api-handlers.ts)
-    function blocksToText(content: unknown): string {
-      if (typeof content === 'string') return content;
-      if (Array.isArray(content)) {
-        return content
-          .filter((b): b is { type: string; text: string } => !!b && typeof b === 'object' && (b as { type?: unknown }).type === 'text' && typeof (b as { text?: unknown }).text === 'string')
-          .map((b) => b.text).join('\n');
+    const entry = await registry.get(sessionId).catch(() => null);
+
+    let entries: HqTranscriptEntry[] = [];
+    let source: 'disk' | 'stream' = 'stream';
+    let status: string | undefined;
+    let clientType: string | undefined;
+    let projectName: string | undefined;
+
+    if (entry) {
+      // Local session — replay the full JSONL from disk.
+      const paths = resolveWstackPaths({ projectRoot: entry.projectRoot, globalRoot });
+      const store = new DefaultSessionStore({ dir: paths.projectSessions });
+      const data = await store.load(sessionId).catch(() => null);
+      if (data) {
+        entries = buildTranscriptFromEvents(
+          (data.events as unknown[]).map((e) => e as Record<string, unknown>),
+        );
+        source = 'disk';
+        status = entry.status;
+        clientType = entry.clientType;
+        projectName = entry.projectName;
       }
-      return '';
     }
-    function asString(v: unknown): string {
-      if (typeof v === 'string') return v;
-      try { return JSON.stringify(v, null, 2); } catch { return String(v); }
-    }
-    interface WatchEntry { ts: string; role: string; text: string; tool: string | undefined; input: unknown | undefined; output: unknown | undefined; durationMs: number | undefined; isError: boolean | undefined; toolUseId: string | undefined; }
-    const rawEntries: WatchEntry[] = [];
-    for await (const ev of reader.replay(sessionId)) {
-      const e = ev as Record<string, unknown>;
-      const ts = typeof e['ts'] === 'string' ? e['ts'] as string : '';
-      let mapped: WatchEntry | null = null;
-      switch (e['type']) {
-        case 'user_input': { const t = blocksToText(e['content']); if (t.trim()) mapped = { ts, role: 'user', text: t, tool: undefined, input: undefined, output: undefined, durationMs: undefined, isError: undefined, toolUseId: undefined }; break; }
-        case 'llm_response': { const t = blocksToText(e['content']); if (t.trim()) mapped = { ts, role: 'assistant', text: t, tool: undefined, input: undefined, output: undefined, durationMs: undefined, isError: undefined, toolUseId: undefined }; break; }
-        case 'tool_use':
-        case 'tool_call_start': {
-          const toolName = String(e['name'] ?? 'tool');
-          const input = e['input'] ?? e['args'];
-          const text = input !== undefined && input !== null ? asString(input) : '';
-          mapped = { ts, role: 'tool', tool: toolName, text, input: input ?? undefined, output: undefined, durationMs: undefined, isError: undefined, toolUseId: typeof e['id'] === 'string' ? e['id'] : undefined };
-          break;
-        }
-        case 'tool_call_end':
-        case 'tool_result': {
-          const isError = e['isError'] === true;
-          const content = e['output'] ?? e['content'];
-          const outStr = content !== undefined && content !== null ? asString(content) : '';
-          const durationMs = typeof e['durationMs'] === 'number' ? e['durationMs'] : undefined;
-          const toolUseId = typeof e['id'] === 'string' ? e['id'] : undefined;
-          const toolName = typeof e['name'] === 'string' ? String(e['name']) : '↳ result';
-          if (!outStr.trim() && !isError) break;
-          mapped = { ts, role: isError ? 'error' : 'tool', tool: toolName, text: outStr, input: undefined, output: content ?? undefined, durationMs, isError: isError || undefined, toolUseId };
-          break;
-        }
-        case 'error':
-        case 'provider_error':
-          mapped = { ts, role: 'error', text: String(e['message'] ?? 'error'), tool: undefined, input: undefined, output: undefined, durationMs: undefined, isError: undefined, toolUseId: undefined }; break;
-        case 'agent_spawned':
-          mapped = { ts, role: 'system', text: `spawned ${String(e['role'] ?? 'agent')}`, tool: undefined, input: undefined, output: undefined, durationMs: undefined, isError: undefined, toolUseId: undefined }; break;
-        case 'task_completed':
-          mapped = { ts, role: 'system', text: `task done: ${String(e['title'] ?? '')}`, tool: undefined, input: undefined, output: undefined, durationMs: undefined, isError: undefined, toolUseId: undefined }; break;
-        case 'task_failed':
-          mapped = { ts, role: 'system', text: `task failed: ${String(e['title'] ?? '')}`, tool: undefined, input: undefined, output: undefined, durationMs: undefined, isError: undefined, toolUseId: undefined }; break;
+
+    if (entries.length === 0) {
+      // Remote (or not-yet-on-disk) session — serve the streamed ring.
+      const ring = transcripts.get(sessionId);
+      if (!ring && !entry) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Session not found' }));
+        return;
       }
-      if (mapped) rawEntries.push(mapped);
-    }
-    // Correlate paired tool events by toolUseId
-    const pending = new Map<string, WatchEntry>();
-    const correlated: WatchEntry[] = [];
-    for (const we of rawEntries) {
-      if (we.role === 'tool' && we.toolUseId && we.output === undefined && we.durationMs === undefined) {
-        pending.set(we.toolUseId, we);
-        continue;
+      entries = ring ? ring.entries : [];
+      source = 'stream';
+      if (entry) {
+        status = entry.status;
+        clientType = entry.clientType;
+        projectName = entry.projectName;
       }
-      if (we.toolUseId && pending.has(we.toolUseId)) {
-        const s = pending.get(we.toolUseId)!;
-        pending.delete(we.toolUseId);
-        correlated.push({ ts: s.ts, role: we.isError ? 'error' : 'tool', text: we.text || s.text, tool: s.tool, input: s.input, output: we.output, durationMs: we.durationMs, isError: we.isError, toolUseId: we.toolUseId });
-        continue;
-      }
-      correlated.push(we);
     }
-    for (const e of pending.values()) correlated.push(e);
-    const tail = correlated.slice(-limit);
+
+    const total = entries.length;
+    const tail = full ? entries : entries.slice(-limit);
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({
-      sessionId, status: entry.status, clientType: entry.clientType,
-      projectName: entry.projectName, total: correlated.length, entries: tail,
-    }));
+    res.end(
+      JSON.stringify({
+        sessionId,
+        source,
+        ...(status !== undefined ? { status } : {}),
+        ...(clientType !== undefined ? { clientType } : {}),
+        ...(projectName !== undefined ? { projectName } : {}),
+        total,
+        entries: tail,
+      }),
+    );
   } catch (err) {
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: String(err) }));
@@ -1216,6 +486,11 @@ function startHqServerWithAuth(
     const clients = new Map<WebSocket, ConnectedClient>();
     const browsers = new Set<WebSocket>();
     const eventLog: HqEventEnvelope[] = [];
+    const transcripts = new Map<string, TranscriptRing>();
+    // Per-subagent message history (keyed by subagentId), fed by agent.message
+    // events so a late-connecting browser — including one on another machine —
+    // can replay a subagent's full conversation, not just messages seen live.
+    const agentMessages = new Map<string, HqTranscriptEntry[]>();
     const snapshotBroadcaster = createSnapshotBroadcaster(clients, browsers);
 
     // Stale-client cleanup: periodically evict clients that have gone silent.
@@ -1302,7 +577,14 @@ function startHqServerWithAuth(
         return;
       }
 
-      // ── WrongStack session API — enables SessionWatchPanel ─────────
+      // ── Fleet tree (machines → projects → terminals → agents) ──────
+      if (url.pathname === '/api/fleet' && req.method === 'GET') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(buildSnapshot(clients)));
+        return;
+      }
+
+      // ── WrongStack session API — full chat history per terminal ────
       if (url.pathname === '/api/sessions' && req.method === 'GET') {
         await handleApiSessions(res);
         return;
@@ -1310,9 +592,22 @@ function startHqServerWithAuth(
 
       const eventsMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/events$/);
       if (eventsMatch && req.method === 'GET') {
+        const full = url.searchParams.get('full') === '1';
         const rawLimit = Number.parseInt(url.searchParams.get('limit') ?? '200', 10);
-        const limit = Math.min(500, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 200));
-        await handleApiSessionEvents(res, decodeURIComponent(eventsMatch[1]!), limit);
+        const limit = Math.min(5000, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 200));
+        await handleApiSessionEvents(res, decodeURIComponent(eventsMatch[1]!), limit, full, transcripts);
+        return;
+      }
+
+      // ── Subagent message history (full conversation of one shadow agent) ──
+      const agentMsgMatch = url.pathname.match(/^\/api\/agents\/([^/]+)\/messages$/);
+      if (agentMsgMatch && req.method === 'GET') {
+        const id = decodeURIComponent(agentMsgMatch[1]!);
+        const full = url.searchParams.get('full') === '1';
+        const ring = agentMessages.get(id) ?? [];
+        const entries = full ? ring : ring.slice(-200);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ subagentId: id, total: ring.length, entries }));
         return;
       }
 
@@ -1372,7 +667,7 @@ function startHqServerWithAuth(
       if (pathname === '/ws/browser') {
         handleBrowser(ws, snapshotBroadcaster, browsers);
       } else {
-        handleClient(ws, clients, browsers, eventLog, mutableAuth.operatorPolicy, snapshotBroadcaster);
+        handleClient(ws, clients, browsers, eventLog, mutableAuth.operatorPolicy, snapshotBroadcaster, transcripts, agentMessages);
       }
     });
 
@@ -1413,7 +708,7 @@ function startHqServerWithAuth(
       httpServer.listen(nextPort, host);
     };
     const onError = (err: NodeJS.ErrnoException) => {
-      if (err.code === 'EADDRINUSE' && !options.strictPort && bindAttempts < MAX_NON_STRICT_PORT_SCAN) {
+      if (err.code === 'EADDRINUSE' && !options.strictPort && !options.exactPort && bindAttempts < MAX_NON_STRICT_PORT_SCAN) {
         bindAttempts += 1;
         listen(port + bindAttempts);
       } else {
@@ -1499,6 +794,8 @@ function handleClient(
   eventLog: HqEventEnvelope[],
   operatorPolicy: HqRedactionPolicy,
   snapshotBroadcaster: HqSnapshotBroadcaster,
+  transcripts: Map<string, TranscriptRing>,
+  agentMessages: Map<string, HqTranscriptEntry[]>,
 ): void {
   let registered = false;
 
@@ -1539,6 +836,8 @@ function handleClient(
         ...(payload.client.version ? { version: payload.client.version } : {}),
         capabilities: payload.capabilities,
         mailboxes: new Map(),
+        machineId: payload.client.machineId || payload.project.machineId,
+        sessions: new Map(),
       };
       clients.set(ws, client);
       registered = true;
@@ -1627,6 +926,69 @@ function handleClient(
         return;
       }
 
+      // ── Session telemetry — the spine of the fleet tree ────────────────
+      if (event.type === 'session.snapshot' && client !== undefined) {
+        const result = parseHqEventPayload(event.type, event.payload);
+        if (result.ok) {
+          const payload = result.payload as HqSessionSnapshotPayload;
+          client.sessions.set(payload.sessionId, payload);
+          snapshotBroadcaster.broadcast();
+        }
+        return;
+      }
+
+      if (event.type === 'session.ended' && client !== undefined) {
+        const result = parseHqEventPayload(event.type, event.payload);
+        if (result.ok) {
+          const payload = result.payload as HqSessionEndedPayload;
+          client.sessions.delete(payload.sessionId);
+          snapshotBroadcaster.broadcast();
+        }
+        return;
+      }
+
+      if (event.type === 'session.transcript' && client !== undefined) {
+        const result = parseHqEventPayload(event.type, event.payload);
+        if (result.ok) {
+          const payload = result.payload as HqTranscriptAppendPayload;
+          let ring = transcripts.get(payload.sessionId);
+          if (!ring) {
+            ring = { entries: [], ...(client.machineId ? { machineId: client.machineId } : {}) };
+          }
+          for (const entry of payload.entries) ring.entries.push(entry);
+          if (ring.entries.length > TRANSCRIPT_RING_MAX) {
+            ring.entries.splice(0, ring.entries.length - TRANSCRIPT_RING_MAX);
+          }
+          // Re-insert to keep LRU order, then bound the number of sessions kept.
+          transcripts.delete(payload.sessionId);
+          transcripts.set(payload.sessionId, ring);
+          evictOldest(transcripts, MAX_TRANSCRIPT_SESSIONS);
+          // Forward to browsers so an open history pane streams live.
+          broadcastEvent(event, browsers);
+        }
+        return;
+      }
+
+      // Subagent conversation — buffer per subagentId so late-connecting
+      // browsers (incl. on other machines) can replay the full history.
+      if (event.type === 'agent.message') {
+        const p = event.payload as Record<string, unknown> | undefined;
+        const subId = p && typeof p['subagentId'] === 'string' ? (p['subagentId'] as string) : undefined;
+        if (subId) {
+          let ring = agentMessages.get(subId);
+          if (!ring) ring = [];
+          ring.push(agentMessageToEntry(p as Record<string, unknown>));
+          if (ring.length > TRANSCRIPT_RING_MAX) ring.splice(0, ring.length - TRANSCRIPT_RING_MAX);
+          agentMessages.delete(subId);
+          agentMessages.set(subId, ring);
+          evictOldest(agentMessages, MAX_AGENT_RINGS);
+        }
+        eventLog.push(event);
+        if (eventLog.length > MAX_EVENT_LOG) eventLog.splice(0, eventLog.length - MAX_EVENT_LOG);
+        broadcastEvent(event, browsers);
+        return;
+      }
+
       // Other event types pass through unchanged.
       eventLog.push(event);
       if (eventLog.length > MAX_EVENT_LOG) eventLog.splice(0, eventLog.length - MAX_EVENT_LOG);
@@ -1640,29 +1002,43 @@ function handleClient(
   });
 }
 
+/**
+ * Stable per-machine key. Prefers hostname so the same physical computer maps
+ * to one machine even when clients report different per-process machineIds
+ * (older builds hashed `hostname:pid`). Falls back to machineId.
+ */
+function hqMachineKey(hostname: string | undefined, machineId: string | undefined): string {
+  const hn = hostname?.trim();
+  return hn ? `host:${hn.toLowerCase()}` : `mid:${machineId || 'local'}`;
+}
+
 function buildSnapshot(clients: Map<WebSocket, ConnectedClient>): HqSnapshot {
   const now = new Date().toISOString();
-  const clientRecords: HqClientRecord[] = [];
+  // Dedupe client records by clientId — one process may hold two sockets (a
+  // mailbox publisher + a telemetry publisher) sharing the same clientId.
+  const clientRecordById = new Map<string, HqClientRecord>();
   const projectMap = new Map<string, HqProjectRecord>();
-  // Mailbox summaries are keyed by (projectId, mailboxId) so a project with
-  // multiple mailboxes still shows each separately, but the global rollup
-  // dedupes by mailboxId across clients.
   const mailboxSummaries: HqMailboxSummary[] = [];
+  // Live sessions, deduped by sessionId across sockets (latest wins).
+  const sessionById = new Map<string, HqSessionSnapshotPayload>();
 
   for (const client of clients.values()) {
-    clientRecords.push({
-      clientId: client.clientId,
-      kind: client.kind as HqClientRecord['kind'],
-      machineId: '',
-      ...(client.hostname ? { hostname: client.hostname } : {}),
-      ...(client.pid ? { pid: client.pid } : {}),
-      ...(client.version ? { version: client.version } : {}),
-      connected: true,
-      connectedAt: client.connectedAt,
-      lastSeenAt: client.lastSeenAt,
-      projectId: client.projectId,
-      capabilities: client.capabilities as readonly HqClientCapability[],
-    });
+    const machineId = client.machineId || client.project.machineId || '';
+    if (!clientRecordById.has(client.clientId)) {
+      clientRecordById.set(client.clientId, {
+        clientId: client.clientId,
+        kind: client.kind as HqClientRecord['kind'],
+        machineId,
+        ...(client.hostname ? { hostname: client.hostname } : {}),
+        ...(client.pid ? { pid: client.pid } : {}),
+        ...(client.version ? { version: client.version } : {}),
+        connected: true,
+        connectedAt: client.connectedAt,
+        lastSeenAt: client.lastSeenAt,
+        projectId: client.projectId,
+        capabilities: client.capabilities as readonly HqClientCapability[],
+      });
+    }
 
     let project = projectMap.get(client.projectId);
     if (!project) {
@@ -1670,7 +1046,7 @@ function buildSnapshot(clients: Map<WebSocket, ConnectedClient>): HqSnapshot {
         projectId: client.projectId,
         projectName: client.project.projectName || client.projectId,
         projectRootDisplay: client.project.projectRoot,
-        machineIds: [client.project.machineId],
+        machineIds: [machineId],
         ...(client.project.gitBranch ? { gitBranch: client.project.gitBranch } : {}),
         activeClients: 0,
         activeSessions: 0,
@@ -1680,10 +1056,13 @@ function buildSnapshot(clients: Map<WebSocket, ConnectedClient>): HqSnapshot {
         status: 'active',
       };
       projectMap.set(client.projectId, project);
-    } else if (!project.machineIds.includes(client.project.machineId)) {
-      project.machineIds = [...project.machineIds, client.project.machineId];
+    } else if (machineId && !project.machineIds.includes(machineId)) {
+      project.machineIds = [...project.machineIds, machineId];
     }
-    project.activeClients++;
+
+    for (const session of client.sessions.values()) {
+      sessionById.set(session.sessionId, session);
+    }
 
     for (const snapshot of client.mailboxes.values()) {
       mailboxSummaries.push({
@@ -1700,12 +1079,123 @@ function buildSnapshot(clients: Map<WebSocket, ConnectedClient>): HqSnapshot {
     }
   }
 
+  // Per-project active-client counts from deduped client records.
+  for (const rec of clientRecordById.values()) {
+    const project = projectMap.get(rec.projectId);
+    if (project) project.activeClients++;
+  }
+
+  // Fold live sessions into projects + machines.
+  const liveSessions = Array.from(sessionById.values());
+  const machineMap = new Map<string, { record: HqMachineRecord; projects: Set<string> }>();
+  let totalAgents = 0;
+  let totalSubagents = 0;
+  let totalCostUsd = 0;
+
+  for (const session of liveSessions) {
+    // Ensure the project exists even if only a session (no mailbox/client
+    // record under this projectId yet) reported it.
+    let project = projectMap.get(session.projectId);
+    if (!project) {
+      project = {
+        projectId: session.projectId,
+        projectName: session.projectName || session.projectId,
+        projectRootDisplay: session.projectRoot,
+        machineIds: [session.machineId],
+        ...(session.gitBranch ? { gitBranch: session.gitBranch } : {}),
+        activeClients: 0,
+        activeSessions: 0,
+        activeSubagents: 0,
+        totalCostUsd: 0,
+        lastActivityAt: session.lastActivityAt,
+        status: 'active',
+      };
+      projectMap.set(session.projectId, project);
+    } else if (session.machineId && !project.machineIds.includes(session.machineId)) {
+      project.machineIds = [...project.machineIds, session.machineId];
+    }
+    project.activeSessions++;
+
+    let sessionCost = 0;
+    for (const agent of session.agents) {
+      totalAgents++;
+      if (agent.id !== 'leader') totalSubagents++;
+      if (typeof agent.costUsd === 'number') {
+        sessionCost += agent.costUsd;
+      }
+    }
+    project.activeSubagents += session.agents.filter((a) => a.id !== 'leader').length;
+    project.totalCostUsd += sessionCost;
+    totalCostUsd += sessionCost;
+
+    // Machine aggregation — keyed by hostname so the SAME computer is one
+    // machine even when clients report different per-process machineIds.
+    const mKey = hqMachineKey(session.hostname, session.machineId);
+    let machine = machineMap.get(mKey);
+    if (!machine) {
+      machine = {
+        record: {
+          machineId: session.machineId,
+          ...(session.hostname ? { hostname: session.hostname } : {}),
+          clientCount: 0,
+          sessionCount: 0,
+          agentCount: 0,
+          projectIds: [],
+          lastActivityAt: session.lastActivityAt,
+        },
+        projects: new Set<string>(),
+      };
+      machineMap.set(mKey, machine);
+    }
+    machine.record.sessionCount++;
+    machine.record.agentCount += session.agents.length;
+    machine.projects.add(session.projectId);
+    if (session.lastActivityAt > machine.record.lastActivityAt) {
+      machine.record.lastActivityAt = session.lastActivityAt;
+    }
+  }
+
+  // Attribute connected clients to machines too (so a machine with a client
+  // but no session yet still appears).
+  for (const rec of clientRecordById.values()) {
+    if (!rec.machineId && !rec.hostname) continue;
+    const rKey = hqMachineKey(rec.hostname, rec.machineId);
+    let machine = machineMap.get(rKey);
+    if (!machine) {
+      machine = {
+        record: {
+          machineId: rec.machineId,
+          ...(rec.hostname ? { hostname: rec.hostname } : {}),
+          clientCount: 0,
+          sessionCount: 0,
+          agentCount: 0,
+          projectIds: [],
+          lastActivityAt: rec.lastSeenAt,
+        },
+        projects: new Set<string>(),
+      };
+      machineMap.set(rKey, machine);
+    }
+    machine.record.clientCount++;
+    machine.projects.add(rec.projectId);
+    if (rec.hostname && !machine.record.hostname) machine.record.hostname = rec.hostname;
+  }
+
+  const machines: HqMachineRecord[] = Array.from(machineMap.values()).map((m) => ({
+    ...m.record,
+    projectIds: Array.from(m.projects),
+  }));
+
+  const clientRecords = Array.from(clientRecordById.values());
   const projects = Array.from(projectMap.values());
-  const totals = computeTotals({
-    projects: projects.length,
-    clients: clientRecords.length,
-    mailboxes: mailboxSummaries,
-  });
+
+  let unread = 0;
+  let incomplete = 0;
+  for (const m of mailboxSummaries) {
+    unread += m.unreadCount;
+    incomplete += m.incompleteCount;
+  }
+
   return {
     generatedAt: now,
     clients: clientRecords,
@@ -1713,29 +1203,19 @@ function buildSnapshot(clients: Map<WebSocket, ConnectedClient>): HqSnapshot {
     sessions: [],
     fleets: [],
     mailboxes: mailboxSummaries,
-    totals,
-  };
-}
-
-function computeTotals(input: {
-  projects: number;
-  clients: number;
-  mailboxes: readonly HqMailboxSummary[];
-}): HqSnapshot['totals'] {
-  let unread = 0;
-  let incomplete = 0;
-  for (const m of input.mailboxes) {
-    unread += m.unreadCount;
-    incomplete += m.incompleteCount;
-  }
-  return {
-    activeProjects: input.projects,
-    activeClients: input.clients,
-    activeSessions: 0,
-    activeSubagents: 0,
-    unreadMailboxMessages: unread,
-    incompleteMailboxMessages: incomplete,
-    totalCostUsd: 0,
+    machines,
+    liveSessions,
+    totals: {
+      activeProjects: projects.length,
+      activeClients: clientRecords.length,
+      activeSessions: liveSessions.length,
+      activeSubagents: totalSubagents,
+      unreadMailboxMessages: unread,
+      incompleteMailboxMessages: incomplete,
+      totalCostUsd,
+      activeMachines: machines.length,
+      activeAgents: totalAgents,
+    },
   };
 }
 

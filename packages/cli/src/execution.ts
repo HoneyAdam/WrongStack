@@ -34,58 +34,69 @@ import * as path from 'node:path';
 import {
   type Agent,
   type AttachmentStore,
-  type CoordinatorEvent,
+  type AutonomyStage,
+  attachTodosCheckpoint,
+  CHIMERA_REVIEW_PROMPT,
   type ChimeraReviewNeededPayload,
   type Config,
   type ConfigStore,
+  type CoordinatorEvent,
   type Director,
   type EventBus,
   type GlobalMailbox,
   type MemoryStore,
   type ModelsRegistry,
   type ModeStore,
+  mergeCustomModelDefs,
+  normalizeTokenSavingTier,
   type ProviderConfig,
-  RecoveryLock,
+  type RecoveryLock,
   type ResolvedProvider,
   type SessionStore,
   type SessionWriter,
   type SlashCommandRegistry,
   type SubagentConfig,
+  setQueuedMessagesSnapshot,
   type TokenCounter,
-  normalizeTokenSavingTier,
   type TokenSavingTier,
   type WstackPaths,
-} from '@wrongstack/core';
-import {
-  type AutonomyStage,
-  attachTodosCheckpoint,
-  CHIMERA_REVIEW_PROMPT,
-  mergeCustomModelDefs,
-  setQueuedMessagesSnapshot,
 } from '@wrongstack/core';
 import type { MCPRegistry } from '@wrongstack/mcp';
 import { capabilitiesFor } from '@wrongstack/providers';
 import { createToolVisionAdapters } from '@wrongstack/runtime/vision';
-import { FleetStatusLine } from './fleet-statusline.js';
-import { runWebUIDispatch } from './boot/dispatch-webui.js';
 import { runSingleShotDispatch } from './boot/dispatch-singleshot.js';
+import { runWebUIDispatch } from './boot/dispatch-webui.js';
 import { wireAutoPhase } from './boot/tui-autophase-wiring.js';
-import { handleProjectSwitchSpawn } from './boot/tui-project-spawn.js';
 import { setupAutonomousCoordinator } from './boot/tui-coordinator-setup.js';
-import { switchProjectInPlace as switchProjectInPlaceExtracted, type ProjectSwitchContext } from './boot/tui-project-switch.js';
-import { createSettingsAdapter } from './boot/tui-settings-adapter.js';
-import { resumeSession } from './boot/tui-session-resume.js';
-import { getProjectPickerItems, onProjectSelect, type ProjectPickerContext } from './boot/tui-project-picker-callback.js';
+import {
+  registerDebugStreamCallback,
+  restoreDebugStreamCallback,
+} from './boot/tui-debug-stream.js';
 import { getLiveSessions, onSwitchToSession } from './boot/tui-live-sessions.js';
-import { getSDDContext as getSDDContextExtracted, onSDDOutput as onSDDOutputExtracted } from './boot/tui-sdd-callback.js';
-import { registerDebugStreamCallback, restoreDebugStreamCallback } from './boot/tui-debug-stream.js';
+import {
+  getProjectPickerItems,
+  onProjectSelect,
+  type ProjectPickerContext,
+} from './boot/tui-project-picker-callback.js';
+import { handleProjectSwitchSpawn } from './boot/tui-project-spawn.js';
+import {
+  type ProjectSwitchContext,
+  switchProjectInPlace as switchProjectInPlaceExtracted,
+} from './boot/tui-project-switch.js';
 import type { TuiRuntimeState } from './boot/tui-runtime-state.js';
+import {
+  getSDDContext as getSDDContextExtracted,
+  onSDDOutput as onSDDOutputExtracted,
+} from './boot/tui-sdd-callback.js';
+import { resumeSession } from './boot/tui-session-resume.js';
+import { createSettingsAdapter } from './boot/tui-settings-adapter.js';
+import { FleetStatusLine } from './fleet-statusline.js';
 import type { ReadlineInputReader } from './input-reader.js';
 import { type PredictLLMProvider, predictNextTasks } from './next-task-predictor.js';
+import { resolveActiveApiKey } from './provider-config-utils.js';
 import type { TerminalRenderer } from './renderer.js';
 import { parseSuggestionsFromOutput, runRepl } from './repl.js';
 import type { SessionStats } from './session-stats.js';
-import { resolveActiveApiKey } from './provider-config-utils.js';
 import { setSuggestions } from './slash-commands/suggestion-store.js';
 import { CLI_VERSION } from './version.js';
 
@@ -156,6 +167,7 @@ export interface ExecutionDeps {
   flags: Record<string, string | boolean>;
   positional: string[];
   effectiveMaxContext: number;
+  getEffectiveMaxContext?: (() => number | undefined) | undefined;
   queueStore: import('@wrongstack/core').QueueStore;
   context: import('@wrongstack/core').Context;
   /**
@@ -169,7 +181,8 @@ export interface ExecutionDeps {
   savedProviderCfg: ProviderConfig | undefined;
   resolvedProvider: ResolvedProvider | undefined;
   getPickableProviders: () => Promise<Array<{ id: string; family: string; models: string[] }>>;
-  switchProviderAndModel: (providerId: string, modelId: string) => string | null;
+  switchProviderAndModel: (providerId: string, modelId: string) => string | null | Promise<string | null>;
+  onModelContextResolved?: ((providerId: string, modelId: string, maxContext: number) => void) | undefined;
   /** Initial director snapshot for the TUI fleet panel. Null when director mode is off. */
   director: Director | null;
   /** Read the current director; unlike `director`, this sees lazy promotion after startup. */
@@ -197,6 +210,14 @@ export interface ExecutionDeps {
     enabled: boolean;
     setEnabled: (enabled: boolean) => void;
   };
+  /**
+   * Returns a capability-gated low-effort reasoning hint for the prompt
+   * refiner (or undefined when nothing can be safely reduced). Recomputed per
+   * call so it tracks the active model. The TUI forwards it to
+   * `enhanceUserPrompt` so the refiner does not waste thinking on this shallow
+   * rewrite task.
+   */
+  getEnhancerReasoning?: () => import('@wrongstack/core').ReasoningRequest | undefined;
   /** Status bar hidden items controller (passed to TUI). */
   statuslineHiddenItems: Array<
     'todos' | 'plan' | 'tasks' | 'fleet' | 'git' | 'elapsed' | 'context' | 'cost' | 'working_dir'
@@ -357,6 +378,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
     flags,
     positional,
     effectiveMaxContext,
+    getEffectiveMaxContext,
     queueStore,
     context,
     mailbox,
@@ -366,6 +388,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
     resolvedProvider,
     getPickableProviders,
     switchProviderAndModel,
+    onModelContextResolved,
     director,
     getDirector,
     coordinatorController,
@@ -373,6 +396,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
     fleetStreamController,
     interruptController,
     enhanceController,
+    getEnhancerReasoning,
     statuslineHiddenItems,
     setStatuslineHiddenItems,
     saveStatuslineHiddenItems,
@@ -406,11 +430,12 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
     needsSetup,
   } = deps;
 
-  let wpaths = initialWpaths;
-  let projectRoot = initialProjectRoot;
-  let activeSessionStore = sessionStore;
-  let activeRecoveryLock = initialRecoveryLock;
-  let detachActiveTodosCheckpoint: (() => void | Promise<void>) | undefined = detachTodosCheckpoint;
+  const wpaths = initialWpaths;
+  const projectRoot = initialProjectRoot;
+  const activeSessionStore = sessionStore;
+  const activeRecoveryLock = initialRecoveryLock;
+  const detachActiveTodosCheckpoint: (() => void | Promise<void>) | undefined =
+    detachTodosCheckpoint;
 
   // ── Storage observability: relay storage.* events to stdout as structured JSON ──
   // The root traceId from the Context is the primary correlation ID. Storage
@@ -423,17 +448,22 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
     // the root traceId when both are present, so Fleet/spans are precisely keyed.
     const traceId = (payload.traceId as string | undefined) ?? rootTraceId;
     // eslint-disable-next-line no-console
-    console.warn(JSON.stringify({
-      level: 'info',
-      event,
-      timestamp: new Date().toISOString(),
-      traceId,
-      ...payload,
-    }));
+    console.warn(
+      JSON.stringify({
+        level: 'info',
+        event,
+        timestamp: new Date().toISOString(),
+        traceId,
+        ...payload,
+      }),
+    );
   };
-  const onStorageRead = (...args: unknown[]) => storageLog('storage.read', args[0] as Record<string, unknown>);
-  const onStorageWrite = (...args: unknown[]) => storageLog('storage.write', args[0] as Record<string, unknown>);
-  const onStorageError = (...args: unknown[]) => storageLog('storage.error', args[0] as Record<string, unknown>);
+  const onStorageRead = (...args: unknown[]) =>
+    storageLog('storage.read', args[0] as Record<string, unknown>);
+  const onStorageWrite = (...args: unknown[]) =>
+    storageLog('storage.write', args[0] as Record<string, unknown>);
+  const onStorageError = (...args: unknown[]) =>
+    storageLog('storage.error', args[0] as Record<string, unknown>);
   events.on('storage.read', onStorageRead);
   events.on('storage.write', onStorageWrite);
   events.on('storage.error', onStorageError);
@@ -677,7 +707,9 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
         director,
         getDirector,
         coordinatorController,
-        onCoordinatorStopSetter: (fn) => { deps.onCoordinatorStop = fn ?? undefined; },
+        onCoordinatorStopSetter: (fn) => {
+          deps.onCoordinatorStop = fn ?? undefined;
+        },
       });
       const ensureAutonomousCoordinator = coordinatorSetup.ensure;
       const offDirectorSpawned = coordinatorSetup.cleanup;
@@ -802,7 +834,9 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
           getAutonomousCoordinator: () => ensureAutonomousCoordinator(),
           subscribeCoordinatorEvents: (fn: (event: CoordinatorEvent) => void) => {
             coordinatorEvents.add(fn);
-            return () => { coordinatorEvents.delete(fn); };
+            return () => {
+              coordinatorEvents.delete(fn);
+            };
           },
           onCoordinatorStart: (goal?: string) => {
             const coordinator = ensureAutonomousCoordinator();
@@ -811,7 +845,8 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
               return;
             }
             if (state.coordinatorRun) return;
-            state.coordinatorRun = coordinator.run({ goal: goal ?? 'Improve the codebase', runUntilComplete: true })
+            state.coordinatorRun = coordinator
+              .run({ goal: goal ?? 'Improve the codebase', runUntilComplete: true })
               .then(() => undefined)
               .catch((err) => {
                 console.error('[coordinator] run() failed:', err);
@@ -827,14 +862,12 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
             const coordinator = ensureAutonomousCoordinator();
             if (!coordinator) return null;
             await coordinator.graph.load();
-            return coordinator.auction
-              .getPendingTasks()
-              .map((task) => ({
-                id: task.id,
-                title: task.title,
-                priority: task.priority,
-                tags: task.tags,
-              }));
+            return coordinator.auction.getPendingTasks().map((task) => ({
+              id: task.id,
+              title: task.title,
+              priority: task.priority,
+              tags: task.tags,
+            }));
           },
           onCoordinatorClaim: async (taskId: string) => {
             const coordinator = ensureAutonomousCoordinator();
@@ -872,7 +905,10 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
             if (goal.status !== 'in_progress') {
               return `Task ${taskId.slice(0, 8)} is ${goal.status}, cannot complete.`;
             }
-            await coordinator.reportTaskCompletion(taskId, result ?? 'Terminal worker completed the task');
+            await coordinator.reportTaskCompletion(
+              taskId,
+              result ?? 'Terminal worker completed the task',
+            );
             return null;
           },
           onCoordinatorFail: async (taskId: string, error: string) => {
@@ -935,12 +971,14 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
           fleetStreamController,
           interruptController,
           enhanceController,
+          getEnhancerReasoning,
           statuslineHiddenItems,
           setStatuslineHiddenItems,
           saveStatuslineHiddenItems,
           agentsMonitorController,
           getLiveSessions: () => getLiveSessions({ state }),
-          onSwitchToSession: (_sessionId: string, targetRoot: string, projectName: string) => onSwitchToSession({ state }, _sessionId, targetRoot, projectName),
+          onSwitchToSession: (_sessionId: string, targetRoot: string, projectName: string) =>
+            onSwitchToSession({ state }, _sessionId, targetRoot, projectName),
           initialGoal: goalFlag,
           initialAsk: askFlag,
           projectRoot,
@@ -974,9 +1012,11 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
               isCurrent: s.id === currentId,
             }));
           },
-          onResumeSession: (sessionId: string) => resumeSession({ state, agent, tokenCounter, switchProviderAndModel }, sessionId),
+          onResumeSession: (sessionId: string) =>
+            resumeSession({ state, agent, tokenCounter, switchProviderAndModel }, sessionId),
           getProjectPickerItems: () => getProjectPickerItems(pickerCtx),
-          onProjectSelect: (slug: string, kind: 'project' | 'action') => onProjectSelect(pickerCtx, slug, kind),
+          onProjectSelect: (slug: string, kind: 'project' | 'action') =>
+            onProjectSelect(pickerCtx, slug, kind),
           // `wrongstack quick` sets flags.quick — open the F3 agents monitor by default.
           initialAgentsMonitorOpen: !!flags.quick,
           tokenSavingMode: normalizeTokenSavingTier(config.features.tokenSavingMode) !== 'off',
@@ -987,7 +1027,10 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
         // After TUI exits with PROJECT_SWITCH_EXIT_CODE, spawn wstack in the new project.
         // This replaces the old behavior of spawning mid-session (which left the TUI
         // running and corrupted the terminal state).
-        const spawnResult = await handleProjectSwitchSpawn({ code, pendingProjectSwitch: state.pendingProjectSwitch });
+        const spawnResult = await handleProjectSwitchSpawn({
+          code,
+          pendingProjectSwitch: state.pendingProjectSwitch,
+        });
         if (spawnResult !== null) return spawnResult;
       } finally {
         renderer.setSilent(false);
@@ -1019,6 +1062,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
         renderer,
         onAutonomy,
         activeRecoveryLock,
+        onModelContextResolved,
       });
     } else {
       code = await runRepl({
@@ -1031,6 +1075,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
         supportsVision,
         attachments,
         effectiveMaxContext,
+        getEffectiveMaxContext,
         projectName: path.basename(projectRoot) || undefined,
         projectRoot,
         appConfig: config,

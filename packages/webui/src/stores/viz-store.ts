@@ -25,13 +25,16 @@ export type VizEventKind =
   | 'tool:progress'        // Tool progress update
   | 'mailbox:send'         // Mailbox message sent
   | 'mailbox:deliver'      // Mailbox message delivered/read
+  | 'collab:event'         // Collaboration observer/control event
   | 'session:start'        // Session started/resumed
   | 'session:end'          // Session ended
   | 'iteration:start'      // Iteration started
   | 'iteration:end'        // Iteration completed
+  | 'eternal:iteration'    // Eternal-autonomy journal tick
   | 'error'                // Error occurred
   | 'context:compacted'    // Context compaction
   | 'context:repaired'     // Context repair
+  | 'budget:warning'       // Agent budget warning
   | 'budget:extended'      // Agent budget extended
   | 'cost:update'          // Cost/token update
   | 'fleet:snapshot'       // Cross-process fleet snapshot (sessions + agents)
@@ -168,6 +171,7 @@ function inferKind(event: VizEvent, isTarget = false): VizNode['kind'] {
     case 'agent:status':
     case 'agent:text':
     case 'agent:ctx':
+    case 'budget:warning':
     case 'budget:extended':
       return 'agent';
     case 'tool:started':
@@ -177,10 +181,13 @@ function inferKind(event: VizEvent, isTarget = false): VizNode['kind'] {
     case 'mailbox:send':
     case 'mailbox:deliver':
       return 'mailbox';
+    case 'collab:event':
+      return 'system';
     case 'session:start':
     case 'session:end':
     case 'iteration:start':
     case 'iteration:end':
+    case 'eternal:iteration':
     case 'fleet:snapshot':
       return 'session';
     case 'context:compacted':
@@ -435,6 +442,18 @@ export function wsToVizEvent(
         flowGroup: 'provider',
       };
     }
+    case 'provider.stream_error': {
+      const message = payload.message as string ?? 'Provider stream error';
+      return {
+        id: nextId(), kind: 'error', timestamp: Date.now(),
+        source: 'provider', target: 'leader',
+        label: message.slice(0, 80),
+        magnitude: 1,
+        data: payload as Record<string, unknown>,
+        color: NODE_COLORS.error,
+        flowGroup: 'provider',
+      };
+    }
     case 'tool.started': {
       const name = payload.name as string ?? 'tool';
       return {
@@ -470,6 +489,45 @@ export function wsToVizEvent(
         data: payload as Record<string, unknown>,
         color: NODE_COLORS.tool,
         flowGroup: `tool:${name}`,
+      };
+    }
+    case 'tool.loop_detected': {
+      const tools = payload.tools as string ?? '';
+      const kind = payload.kind as string ?? 'loop';
+      return {
+        id: nextId(), kind: 'error', timestamp: Date.now(),
+        source: tools || kind, target: 'leader',
+        label: `${kind} loop x${payload.repeatCount as number ?? 0}`,
+        magnitude: payload.repeatCount as number ?? 1,
+        data: payload as Record<string, unknown>,
+        color: NODE_COLORS.error,
+        flowGroup: 'tool',
+      };
+    }
+    case 'delegate.started': {
+      const target = payload.target as string ?? 'delegate';
+      const task = payload.task as string ?? '';
+      return {
+        id: nextId(), kind: 'agent:status', timestamp: Date.now(),
+        source: 'leader', target,
+        label: task.slice(0, 80) || `Delegating to ${target}`,
+        magnitude: 1,
+        data: payload as Record<string, unknown>,
+        color: NODE_COLORS.agent,
+        flowGroup: `delegate:${target}`,
+      };
+    }
+    case 'delegate.completed': {
+      const target = payload.subagentId as string ?? payload.target as string ?? 'delegate';
+      const ok = payload.ok as boolean ?? false;
+      return {
+        id: nextId(), kind: ok ? 'agent:status' : 'error', timestamp: Date.now(),
+        source: target, target: 'leader',
+        label: (payload.summary as string ?? payload.status as string ?? 'delegate completed').slice(0, 80),
+        magnitude: payload.durationMs as number ?? 1,
+        data: payload as Record<string, unknown>,
+        color: ok ? NODE_COLORS.agent : NODE_COLORS.error,
+        flowGroup: `delegate:${target}`,
       };
     }
     case 'subagent.event': {
@@ -542,6 +600,16 @@ export function wsToVizEvent(
             color: 'hsl(40, 90%, 55%)',
             flowGroup: `agent:${agentId}`,
           };
+        case 'budget_warning':
+          return {
+            id: nextId(), kind: 'budget:warning', timestamp: Date.now(),
+            source: agentId, target: 'session',
+            label: `${agentName} hit ${payload.budgetKind as string ?? 'budget'} ${payload.used as number ?? 0}/${payload.limit as number ?? 0}`,
+            magnitude: payload.used as number ?? 1,
+            data: payload as Record<string, unknown>,
+            color: NODE_COLORS.error,
+            flowGroup: `agent:${agentId}`,
+          };
       }
       return null;
     }
@@ -573,6 +641,31 @@ export function wsToVizEvent(
         flowGroup: 'iteration',
       };
     }
+    case 'iteration.completed': {
+      const idx = payload.index as number ?? 0;
+      return {
+        id: nextId(), kind: 'iteration:end', timestamp: Date.now(),
+        source: 'leader', target: 'session',
+        label: `Iteration ${idx} done`,
+        magnitude: idx,
+        data: payload as Record<string, unknown>,
+        color: NODE_COLORS.session,
+        flowGroup: 'iteration',
+      };
+    }
+    case 'ctx.pct': {
+      const load = payload.load as number ?? 0;
+      const tokens = payload.tokens as number ?? 0;
+      return {
+        id: nextId(), kind: 'agent:ctx', timestamp: Date.now(),
+        source: 'leader', target: 'session',
+        label: `ctx ${Math.round(load * 100)}%`,
+        magnitude: tokens,
+        data: payload as Record<string, unknown>,
+        color: NODE_COLORS.agent,
+        flowGroup: 'leader',
+      };
+    }
     case 'error': {
       const msg = payload.message as string ?? 'Error';
       return {
@@ -595,6 +688,18 @@ export function wsToVizEvent(
         color: 'hsl(220, 60%, 50%)',
         flowGroup: 'context',
       };
+    case 'compaction.failed': {
+      const message = payload.message as string ?? 'Compaction failed';
+      return {
+        id: nextId(), kind: 'error', timestamp: Date.now(),
+        source: 'compactor', target: 'session',
+        label: message.slice(0, 80),
+        magnitude: payload.tokens as number ?? 1,
+        data: payload as Record<string, unknown>,
+        color: NODE_COLORS.error,
+        flowGroup: 'context',
+      };
+    }
     case 'context.repaired':
       return {
         id: nextId(), kind: 'context:repaired', timestamp: Date.now(),

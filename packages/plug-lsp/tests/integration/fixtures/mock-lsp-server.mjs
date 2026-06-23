@@ -55,6 +55,7 @@ function handle(msg) {
       capabilities: {
         textDocumentSync: 1,
         diagnosticProvider: { interFileDependencies: false, workspaceDiagnostics: false },
+        completionProvider: { triggerCharacters: ['.', '_'] },
         definitionProvider: true,
         referencesProvider: true,
         hoverProvider: true,
@@ -111,6 +112,20 @@ function handle(msg) {
   }
   if (msg.method === 'textDocument/hover') {
     respond(msg.id, { contents: { kind: 'markdown', value: '```ts\nconst answer: number\n```' } });
+    return;
+  }
+  if (msg.method === 'textDocument/completion') {
+    respond(msg.id, {
+      isIncomplete: false,
+      items: [
+        {
+          label: 'answer',
+          kind: 6,
+          detail: 'const answer: number',
+          insertText: 'answer',
+        },
+      ],
+    });
     return;
   }
   if (msg.method === 'textDocument/documentSymbol') {

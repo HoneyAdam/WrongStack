@@ -404,6 +404,19 @@ export interface SlashCommandContext {
    * This indirection lets the TUI set the function after slash commands are registered.
    */
   onPanelOpen: { current: ((action: string) => boolean) | null };
+  /**
+   * Tracks the active Shadow Agent subagent. Set by the host when a shadow
+   * agent is spawned; cleared when the shadow agent terminates. Used by
+   * /shadow start to reject spawn attempts when one is already running.
+   */
+  shadowController?: {
+    /** id of the currently active Shadow Agent subagent, or null if none */
+    activeId: string | null;
+    /** Register a new shadow agent id. Throws if one is already active. */
+    register(id: string): void;
+    /** Clear the active shadow agent id (called on termination). */
+    clear(): void;
+  } | undefined;
 }
 
 // Re-export helpers for external consumers (pre-launch.ts)
@@ -456,6 +469,7 @@ import { buildMouseCommand } from './mouse.js';
 import { buildProjectCommand } from './project.js';
 import { buildReviewCommand } from './review.js';
 import { buildSettingsCommand } from './settings.js';
+import { buildHqCommand } from './hq.js';
 import { buildAgentsCommand } from './agents.js';
 import { buildDirectorCommand, buildSpawnCommand } from './spawn-agents.js';
 import { buildStatuslineCommand } from './statusline.js';
@@ -468,6 +482,7 @@ import { buildToolsCommand } from './tools.js';
 import { buildWorkingDirCommand } from './working-dir.js';
 import { buildWorktreeCommand } from './worktree.js';
 import { buildYoloCommand } from './yolo.js';
+import { buildShadowCommand } from './shadow.js';
 
 export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashCommand[] {
   return [
@@ -520,6 +535,7 @@ export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashComma
     buildAutoPhaseCommand(opts),
     buildWorktreeCommand(opts),
     buildSettingsCommand(opts),
+    buildHqCommand(opts),
     buildTelegramSetupCommand(opts),
     buildTelegramSettingsCommand(opts),
     buildSetModelCommand(opts),
@@ -538,5 +554,6 @@ export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashComma
       setConfig: opts.statuslineConfig?.set ?? (async () => {}),
       saveStatuslineHiddenItems: opts.saveStatuslineHiddenItems ?? (async () => {}),
     }),
+    buildShadowCommand(opts),
   ];
 }

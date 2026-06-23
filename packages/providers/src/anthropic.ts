@@ -1,10 +1,9 @@
-import type { Capabilities, Request } from '@wrongstack/core';
-import { type ProviderError } from '@wrongstack/core';
+import type { Capabilities, ProviderError, Request } from '@wrongstack/core';
 import { parseProviderHttpError } from './error-parse.js';
-import { anthropicWireFormat } from './presets/anthropic.js';
 import type { AnthropicStreamState } from './presets/anthropic.js';
-import { WireFormatProvider } from './wire-format.js';
+import { anthropicWireFormat } from './presets/anthropic.js';
 import type { WireAdapterStreamOptions } from './wire-adapter.js';
+import { WireFormatProvider } from './wire-format.js';
 
 export interface AnthropicProviderOptions {
   apiKey: string;

@@ -9,6 +9,7 @@ import { DocumentTracker } from '../../src/document-tracker.js';
 import { LSPRegistry } from '../../src/registry.js';
 import {
   supportsCodeAction,
+  supportsCompletion,
   supportsDefinition,
   supportsDocumentSymbol,
   supportsHover,
@@ -45,6 +46,7 @@ describe('runtime helpers', () => {
   it('checks capabilities and lifecycle transitions', () => {
     const cap = {
       hoverProvider: true,
+      completionProvider: { triggerCharacters: ['.', '_'] },
       definitionProvider: true,
       referencesProvider: true,
       documentSymbolProvider: true,
@@ -54,6 +56,7 @@ describe('runtime helpers', () => {
       diagnosticProvider: {},
     };
     expect(supportsHover(cap)).toBe(true);
+    expect(supportsCompletion(cap)).toBe(true);
     expect(supportsDefinition(cap)).toBe(true);
     expect(supportsReferences(cap)).toBe(true);
     expect(supportsDocumentSymbol(cap)).toBe(true);
@@ -145,6 +148,9 @@ describe('runtime helpers', () => {
     await tracker.handleToolExecuted({ name: 'write', ok: true, input: { path: source } } as never);
     expect(changed).toHaveBeenCalledOnce();
     expect(tracker.get(source)?.version).toBe(2);
+    await tracker.open(source, 'const a = 3;');
+    expect(changed).toHaveBeenCalledTimes(2);
+    expect(tracker.get(source)?.version).toBe(3);
     await tracker.reopenForServer(server as never);
     await tracker.reopenForServer({ ...server, state: 'failed' } as never);
     await tracker.forceCloseAll();

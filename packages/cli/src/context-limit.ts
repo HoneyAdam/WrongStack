@@ -2,10 +2,12 @@ import type {
   Capabilities,
   Config,
   CustomModelDefinition,
+  Logger,
   ModelsRegistry,
   Provider,
   ProviderConfig,
 } from '@wrongstack/core';
+import { toErrorMessage } from '@wrongstack/core/utils';
 import { mergeCustomModelDefs } from '@wrongstack/core';
 import { capabilitiesFor } from '@wrongstack/providers';
 
@@ -147,6 +149,26 @@ export async function resolveRuntimeMaxContext(input: ResolveMaxContextInput): P
   // This may be 0 for catch-all families like openai-compatible, which
   // signals "unknown context window" to callers.
   return positiveNumber(input.provider.capabilities.maxContext) ?? 0;
+}
+
+export async function refreshRuntimeModelCatalog(input: {
+  modelsRegistry?: ModelsRegistry | undefined;
+  logger?: Pick<Logger, 'debug' | 'warn'> | undefined;
+  reason?: string | undefined;
+}): Promise<boolean> {
+  if (!input.modelsRegistry) return false;
+  try {
+    await input.modelsRegistry.refresh();
+    input.logger?.debug?.(
+      `models.dev catalog refreshed${input.reason ? ` (${input.reason})` : ''}`,
+    );
+    return true;
+  } catch (err) {
+    input.logger?.warn?.(
+      `models.dev refresh failed${input.reason ? ` (${input.reason})` : ''}: ${toErrorMessage(err)}; using cached catalog`,
+    );
+    return false;
+  }
 }
 
 /**

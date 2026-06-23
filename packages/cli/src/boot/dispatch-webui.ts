@@ -43,6 +43,7 @@ export interface WebUIDispatchContext {
   needsSetup: boolean | undefined;
   renderer: TerminalRenderer;
   onAutonomy: ((mode: AutonomyMode) => void) | undefined;
+  onModelContextResolved?: ((providerId: string, modelId: string, maxContext: number) => void) | undefined;
   activeRecoveryLock: {
     clear: () => Promise<void>;
     write: (sessionId: string) => Promise<void>;
@@ -78,6 +79,7 @@ export async function runWebUIDispatch(ctx: WebUIDispatchContext): Promise<numbe
     needsSetup,
     renderer,
     onAutonomy,
+    onModelContextResolved,
     activeRecoveryLock,
   } = ctx;
 
@@ -118,6 +120,7 @@ export async function runWebUIDispatch(ctx: WebUIDispatchContext): Promise<numbe
         .then(() => activeRecoveryLock.write(newSessionId))
         .catch(() => undefined);
     },
+    onModelContextResolved,
     memoryStore,
     skillLoader,
     modeStore,

@@ -67,7 +67,7 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   { name: '/f2', category: 'App', description: 'Fleet orchestration monitor', hidden: true },
   { name: '/f3', category: 'App', description: 'Agents live monitor', hidden: true },
   { name: '/f4', category: 'App', description: 'Worktree monitor', hidden: true },
-  { name: '/f5', category: 'App', description: 'Autonomy settings', hidden: true },
+  { name: '/f5', category: 'App', description: 'Plan panel', hidden: true },
   { name: '/f6', category: 'App', description: 'Todos monitor overlay', hidden: true },
   { name: '/f7', category: 'App', description: 'Queue panel', hidden: true },
   { name: '/f8', category: 'App', description: 'Process list overlay', hidden: true },

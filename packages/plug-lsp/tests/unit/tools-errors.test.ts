@@ -2,10 +2,12 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import { createCompletionTool } from '../../src/tools/completion.js';
 import { createDefinitionTool } from '../../src/tools/definition.js';
 import { createDiagnosticsTool } from '../../src/tools/diagnostics.js';
 import { createRenameTool } from '../../src/tools/rename.js';
 import {
+  type ToolDeps,
   resolveInputPath,
   stringifyToolError,
   textDocumentPosition,
@@ -52,6 +54,9 @@ describe('tool error and edge paths', () => {
       await createDefinitionTool(deps).execute({ path: file, line: 1, character: 1 }, ctx, opts),
     ).toContain('does not support definition');
     expect(
+      await createCompletionTool(deps).execute({ path: file, line: 1, character: 1 }, ctx, opts),
+    ).toContain('does not support completion');
+    expect(
       await createDiagnosticsTool(makeDeps(null)).execute({ path: file }, ctx, opts),
     ).toContain('LSP_SERVER_NOT_FOUND');
   });
@@ -91,6 +96,47 @@ describe('tool error and edge paths', () => {
     ).toBe('Rename produced no edits.');
   });
 
+  it('uses provided unsaved content for completion requests', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'plug-lsp-completion-'));
+    const file = path.join(root, 'a.ts');
+    await fs.writeFile(file, 'const saved = 1;');
+    const content = 'const unsaved = 1;\nuns';
+    const server = fakeServer({
+      capabilities: { completionProvider: {} },
+      completion: vi.fn(async () => [
+        { label: 'unsaved', kind: 6, detail: 'const unsaved: number' },
+      ]),
+    });
+    const deps = makeDeps(server);
+    const ctx = { cwd: root } as never;
+    const opts = { signal: new AbortController().signal };
+
+    const output = await createCompletionTool(deps).execute(
+      { path: file, line: 2, character: 4, content, limit: 5, format: 'json' },
+      ctx,
+      opts,
+    );
+    const parsed = JSON.parse(String(output)) as {
+      items: Array<{ label: string; insertText: string; kind: string; detail: string }>;
+    };
+
+    expect(deps.tracker.open).toHaveBeenCalledWith(file, content);
+    expect(server.completion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        textDocument: { uri: pathToUri(file) },
+        position: { line: 1, character: 3 },
+      }),
+      expect.any(Number),
+      opts.signal,
+    );
+    expect(parsed.items[0]).toMatchObject({
+      label: 'unsaved',
+      insertText: 'unsaved',
+      kind: 'Variable',
+      detail: 'const unsaved: number',
+    });
+  });
+
   it('rolls back failed workspace edits', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'plug-lsp-tools-'));
     const file = path.join(root, 'a.ts');
@@ -125,20 +171,29 @@ describe('tool error and edge paths', () => {
   });
 });
 
-function makeDeps(server: unknown, docs: Array<{ path: string; uri: string }> = []) {
+function makeDeps(server: unknown, docs: Array<{ path: string; uri: string }> = []): ToolDeps & {
+  tracker: {
+    get: ReturnType<typeof vi.fn>;
+    list: ReturnType<typeof vi.fn>;
+    open: ReturnType<typeof vi.fn>;
+    fileWritten: ReturnType<typeof vi.fn>;
+  };
+} {
+  const tracker = {
+    get: vi.fn(() => null),
+    list: vi.fn(() => docs),
+    open: vi.fn(async () => undefined),
+    fileWritten: vi.fn(async () => undefined),
+  };
   return {
     registry: {
       findForPath: vi.fn(async () => server),
       list: vi.fn(() => (Array.isArray(server) ? server : server ? [server] : [])),
     },
-    tracker: {
-      get: vi.fn(() => null),
-      list: vi.fn(() => docs),
-      fileWritten: vi.fn(async () => undefined),
-    },
+    tracker,
     cfg,
     log: {},
-  } as never;
+  } as unknown as ToolDeps & { tracker: typeof tracker };
 }
 
 function fakeServer(overrides: Record<string, unknown>) {
@@ -146,6 +201,7 @@ function fakeServer(overrides: Record<string, unknown>) {
     name: 'fake',
     state: 'ready',
     capabilities: {},
+    completion: vi.fn(),
     definition: vi.fn(),
     rename: vi.fn(),
     pullDiagnostics: vi.fn(),

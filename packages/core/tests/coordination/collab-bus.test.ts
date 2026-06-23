@@ -303,4 +303,38 @@ describe('collabInjectMiddleware', () => {
     await mw(payload, next);
     expect(payload.result.content).toBe(JSON.stringify({ foo: 'bar', n: 42 }));
   });
+
+  it('notifies onInjectionConsumed with the resolved tool name when matched', async () => {
+    const bus = new CollaborationBus();
+    bus.injectToolResult({
+      toolUseId: 'tu-9',
+      content: 'synthetic',
+      isError: true,
+      reason: 'controller override',
+      authorId: 'p-author',
+    });
+    const consumed: Array<Record<string, unknown>> = [];
+    bus.onInjectionConsumed((info) => consumed.push(info));
+    const { collabInjectMiddleware } = await import('../../src/middleware/collab-pause.js');
+    const mw = collabInjectMiddleware(bus, { logger: noopLogger });
+    await mw(makePayload('tu-9', 'bash'), vi.fn().mockResolvedValue(undefined));
+    expect(consumed).toHaveLength(1);
+    expect(consumed[0]).toMatchObject({
+      toolUseId: 'tu-9',
+      toolName: 'bash',
+      authorId: 'p-author',
+      reason: 'controller override',
+      isError: true,
+    });
+  });
+
+  it('does not notify onInjectionConsumed when no injection was queued', async () => {
+    const bus = new CollaborationBus();
+    const consumed: unknown[] = [];
+    bus.onInjectionConsumed((info) => consumed.push(info));
+    const { collabInjectMiddleware } = await import('../../src/middleware/collab-pause.js');
+    const mw = collabInjectMiddleware(bus, { logger: noopLogger });
+    await mw(makePayload('tu-x', 'read'), vi.fn().mockResolvedValue(undefined));
+    expect(consumed).toHaveLength(0);
+  });
 });

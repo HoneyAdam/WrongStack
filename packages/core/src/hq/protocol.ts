@@ -94,7 +94,10 @@ export type HqEventType =
   | 'worklist.snapshot'
   | 'git.snapshot'
   | 'agent.message'
-  | 'agent.status';
+  | 'agent.status'
+  | 'session.snapshot'
+  | 'session.transcript'
+  | 'session.ended';
 
 export interface HqClientHeartbeatPayload {
   uptimeMs: number;
@@ -192,6 +195,101 @@ export interface HqFleetEventPayload {
   event: string;
   summary?: string;
   data?: unknown;
+}
+
+// ── Session telemetry (live terminals + full chat transcript) ──────────────
+//
+// Every surface (tui / repl / webui / cli) streams its own live session state
+// and conversation transcript to HQ so the command center can render a true
+// machine → project → terminal → agent → full-history tree across every
+// connected machine — not just the one HQ happens to run on.
+
+export type HqSessionLiveStatus = 'active' | 'idle' | 'closing' | 'stale';
+
+export type HqSessionAgentLiveStatus =
+  | 'idle'
+  | 'running'
+  | 'streaming'
+  | 'waiting_user'
+  | 'error';
+
+/** A single live agent inside a session snapshot (mirrors SessionRegistry's AgentEntry). */
+export interface HqSessionAgentSummary {
+  id: string;
+  name: string;
+  status: HqSessionAgentLiveStatus;
+  currentTool?: string;
+  iterations: number;
+  toolCalls: number;
+  costUsd?: number;
+  tokensIn?: number;
+  tokensOut?: number;
+  ctxPct?: number;
+  model?: string;
+  /** Throttled tail of the response currently streaming, when known. */
+  partialText?: string;
+  lastActivityAt: string;
+}
+
+/** Payload for `session.snapshot` — one connected terminal's live state. */
+export interface HqSessionSnapshotPayload {
+  sessionId: string;
+  clientKind: HqClientKind;
+  machineId: string;
+  hostname?: string;
+  pid?: number;
+  projectId: string;
+  projectName: string;
+  projectRoot: string;
+  gitBranch?: string;
+  status: HqSessionLiveStatus;
+  startedAt: string;
+  lastActivityAt: string;
+  agentCount: number;
+  agents: readonly HqSessionAgentSummary[];
+}
+
+export type HqTranscriptRole = 'user' | 'assistant' | 'tool' | 'system' | 'error';
+
+/** One rendered conversation turn. Canonical shape shared by client streaming
+ * and server-side JSONL replay so both planes agree. */
+export interface HqTranscriptEntry {
+  ts: string;
+  role: HqTranscriptRole;
+  text: string;
+  tool?: string;
+  /** Stringified tool input/arguments, for tool calls (shown alongside the result). */
+  toolInput?: string;
+  durationMs?: number;
+  isError?: boolean;
+  toolUseId?: string;
+  /** Which agent/subagent produced this turn, when attribution is known. */
+  agentId?: string;
+}
+
+/** Payload for `session.transcript` — an incremental batch of new turns. */
+export interface HqTranscriptAppendPayload {
+  sessionId: string;
+  /** Monotonic sequence index of the FIRST entry in this batch within the session. */
+  fromSeq: number;
+  entries: readonly HqTranscriptEntry[];
+}
+
+/** Payload for `session.ended` — a terminal closed. */
+export interface HqSessionEndedPayload {
+  sessionId: string;
+  endedAt: string;
+}
+
+/** A physical machine, aggregated by HQ from connected clients' machineId. */
+export interface HqMachineRecord {
+  machineId: string;
+  hostname?: string;
+  clientCount: number;
+  sessionCount: number;
+  agentCount: number;
+  projectIds: readonly string[];
+  lastActivityAt: string;
 }
 
 export type HqMailboxMessageType =
@@ -382,6 +480,10 @@ export interface HqSnapshot {
   sessions: readonly HqSessionSummary[];
   fleets: readonly HqFleetSummary[];
   mailboxes: readonly HqMailboxSummary[];
+  /** Physical machines aggregated from connected clients (optional, additive). */
+  machines?: readonly HqMachineRecord[];
+  /** Live terminal sessions with their agents — the spine of the fleet tree. */
+  liveSessions?: readonly HqSessionSnapshotPayload[];
   totals: {
     activeProjects: number;
     activeClients: number;
@@ -390,6 +492,10 @@ export interface HqSnapshot {
     unreadMailboxMessages: number;
     incompleteMailboxMessages: number;
     totalCostUsd: number;
+    /** Distinct physical machines currently connected. */
+    activeMachines?: number;
+    /** Total live agents across all sessions. */
+    activeAgents?: number;
   };
 }
 
@@ -622,7 +728,13 @@ export function parseHqFrame(raw: string | Buffer): HqParseResult {
 }
 
 /** Known `client.event` envelope event types whose payload shape we validate. */
-const KNOWN_HQ_EVENT_PAYLOAD_TYPES = new Set<string>(['mailbox.snapshot', 'mailbox.event']);
+const KNOWN_HQ_EVENT_PAYLOAD_TYPES = new Set<string>([
+  'mailbox.snapshot',
+  'mailbox.event',
+  'session.snapshot',
+  'session.transcript',
+  'session.ended',
+]);
 
 function isHqMailboxMessageSummary(x: unknown): x is HqMailboxMessageSummary {
   if (typeof x !== 'object' || x === null) return false;
@@ -710,6 +822,86 @@ function isHqMailboxEventPayload(x: unknown): x is HqMailboxEventPayload {
   return true;
 }
 
+const HQ_SESSION_AGENT_STATUSES = new Set<string>([
+  'idle',
+  'running',
+  'streaming',
+  'waiting_user',
+  'error',
+]);
+
+function isHqSessionAgentSummary(x: unknown): x is HqSessionAgentSummary {
+  if (typeof x !== 'object' || x === null) return false;
+  const v = x as Record<string, unknown>;
+  return (
+    typeof v.id === 'string' &&
+    typeof v.name === 'string' &&
+    typeof v.status === 'string' &&
+    HQ_SESSION_AGENT_STATUSES.has(v.status) &&
+    typeof v.iterations === 'number' &&
+    typeof v.toolCalls === 'number' &&
+    typeof v.lastActivityAt === 'string'
+  );
+}
+
+const HQ_SESSION_STATUSES = new Set<string>(['active', 'idle', 'closing', 'stale']);
+
+function isHqSessionSnapshotPayload(x: unknown): x is HqSessionSnapshotPayload {
+  if (typeof x !== 'object' || x === null) return false;
+  const v = x as Record<string, unknown>;
+  if (
+    typeof v.sessionId !== 'string' ||
+    typeof v.clientKind !== 'string' ||
+    typeof v.machineId !== 'string' ||
+    typeof v.projectId !== 'string' ||
+    typeof v.projectName !== 'string' ||
+    typeof v.projectRoot !== 'string' ||
+    typeof v.status !== 'string' ||
+    !HQ_SESSION_STATUSES.has(v.status) ||
+    typeof v.startedAt !== 'string' ||
+    typeof v.lastActivityAt !== 'string' ||
+    typeof v.agentCount !== 'number' ||
+    !Array.isArray(v.agents)
+  ) {
+    return false;
+  }
+  for (const agent of v.agents) {
+    if (!isHqSessionAgentSummary(agent)) return false;
+  }
+  return true;
+}
+
+const HQ_TRANSCRIPT_ROLES = new Set<string>(['user', 'assistant', 'tool', 'system', 'error']);
+
+function isHqTranscriptEntry(x: unknown): x is HqTranscriptEntry {
+  if (typeof x !== 'object' || x === null) return false;
+  const v = x as Record<string, unknown>;
+  return (
+    typeof v.ts === 'string' &&
+    typeof v.role === 'string' &&
+    HQ_TRANSCRIPT_ROLES.has(v.role) &&
+    typeof v.text === 'string'
+  );
+}
+
+function isHqTranscriptAppendPayload(x: unknown): x is HqTranscriptAppendPayload {
+  if (typeof x !== 'object' || x === null) return false;
+  const v = x as Record<string, unknown>;
+  if (typeof v.sessionId !== 'string' || typeof v.fromSeq !== 'number' || !Array.isArray(v.entries)) {
+    return false;
+  }
+  for (const entry of v.entries) {
+    if (!isHqTranscriptEntry(entry)) return false;
+  }
+  return true;
+}
+
+function isHqSessionEndedPayload(x: unknown): x is HqSessionEndedPayload {
+  if (typeof x !== 'object' || x === null) return false;
+  const v = x as Record<string, unknown>;
+  return typeof v.sessionId === 'string' && typeof v.endedAt === 'string';
+}
+
 /**
  * Validate the `payload` field of a {@link HqEventEnvelope} for known
  * event types. Returns `{ ok: true, payload }` with a narrowed payload
@@ -743,6 +935,18 @@ export function parseHqEventPayload(
         : { ok: false, reason: 'malformed-payload' };
     case 'mailbox.event':
       return isHqMailboxEventPayload(payload)
+        ? { ok: true, payload }
+        : { ok: false, reason: 'malformed-payload' };
+    case 'session.snapshot':
+      return isHqSessionSnapshotPayload(payload)
+        ? { ok: true, payload }
+        : { ok: false, reason: 'malformed-payload' };
+    case 'session.transcript':
+      return isHqTranscriptAppendPayload(payload)
+        ? { ok: true, payload }
+        : { ok: false, reason: 'malformed-payload' };
+    case 'session.ended':
+      return isHqSessionEndedPayload(payload)
         ? { ok: true, payload }
         : { ok: false, reason: 'malformed-payload' };
     default: {

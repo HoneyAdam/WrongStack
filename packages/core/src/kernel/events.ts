@@ -10,6 +10,28 @@ import type { Usage } from '../types/provider.js';
 import type { Tool, ToolProgressEvent } from '../types/tool.js';
 import type { ToolOutputMetadata } from '../types/context-evidence.js';
 
+/**
+ * Structural shape of a tracked agent as flushed by AgentStatusTracker. Kept
+ * structural (not imported from the root `session-registry` module) so the
+ * low-level kernel layer takes on no dependency on composition modules. The
+ * real `AgentEntry` is assignable to this.
+ */
+export interface TrackedAgentSnapshot {
+  id: string;
+  name: string;
+  status: string;
+  currentTool?: string | undefined;
+  iterations: number;
+  toolCalls: number;
+  costUsd?: number | undefined;
+  tokensIn?: number | undefined;
+  tokensOut?: number | undefined;
+  ctxPct?: number | undefined;
+  model?: string | undefined;
+  partialText?: string | undefined;
+  lastActivityAt: string;
+}
+
 export interface EventMap {
   'brain.decision_requested': { request: BrainDecisionRequest; at: number };
   'brain.decision_answered': { request: BrainDecisionRequest; decision: BrainDecision; at: number };
@@ -43,6 +65,13 @@ export interface EventMap {
   'session.started': { id: string };
   'session.ended': { id: string; usage: Usage };
   'session.damaged': { sessionId: string; detail: string };
+  /**
+   * Fired by AgentStatusTracker after every flush with the full agent list
+   * (leader + subagents). In-process consumers (e.g. the HQ session-telemetry
+   * bridge) read this to build live snapshots without re-reading the shared
+   * session-registry file.
+   */
+  'session.agents_updated': { agents: readonly TrackedAgentSnapshot[] };
   'iteration.started': { ctx: Context; index: number };
   'iteration.completed': { ctx: Context; index: number };
   /**

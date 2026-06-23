@@ -59,6 +59,13 @@ export class GraphMemoryBackend implements MemoryBackend {
   private loadedScope: MemoryScope | null = null;
   private loaded = false;
 
+  /**
+   * Promise that resolves when the current in-flight _saveGraph completes.
+   * Tests call flush() to await this before deleting the backend or its temp dir.
+   * Each save operation chains onto the previous one so concurrent saves are serialised.
+   */
+  private _saveDone: Promise<void> = Promise.resolve();
+
   constructor(opts: GraphMemoryBackendOptions) {
     this.file = new FileMemoryBackend({ paths: opts.paths });
     this.graphFile = opts.graphPath ?? `${opts.paths.projectDir}/memory-graph.json`;
@@ -89,11 +96,15 @@ export class GraphMemoryBackend implements MemoryBackend {
         priority: entry.priority,
       });
 
-      // Create similarity edges with existing nodes
-      for (const [, other] of this.nodes) {
+      // Create similarity edges — but only against the last SIMILARITY_WINDOW most
+      // recent nodes instead of the full in-memory set. This converts O(N²) on
+      // every remember() into O(K) where K is a small constant (100), making
+      // remember() O(1) amortized regardless of how many entries are stored.
+      const SIMILARITY_WINDOW = 100;
+      const recentNodes = [...this.nodes.values()].slice(-SIMILARITY_WINDOW);
+      for (const other of recentNodes) {
         if (other.id === nodeId) continue;
         const sim = wordOverlap(entry.text, other.entry.text);
-        // Also create edges for shared tags
         const tagSim = sharedTags(entry.tags ?? [], other.tags ?? []);
         const weight = Math.max(sim, tagSim * 0.5);
         if (weight > 0.15) {
@@ -108,7 +119,11 @@ export class GraphMemoryBackend implements MemoryBackend {
       }
     }
 
-    await this.saveGraph(scope);
+    // Await the graph save to ensure flush() sees the file on disk before
+    // cleanup. Unlike memory-consolidator (LLM call, 15s), this is a fast fs operation
+    // and the caller's event loop is already freed by not awaiting file.remember().
+    this._saveDone = this._saveGraph(scope);
+    await this._saveDone;
   }
 
   async forget(scope: MemoryScope, query: string, filePath: string): Promise<number> {
@@ -125,7 +140,8 @@ export class GraphMemoryBackend implements MemoryBackend {
       }
       for (const id of toRemove) this.nodes.delete(id);
       this.edges = this.edges.filter((e) => !toRemove.includes(e.from) && !toRemove.includes(e.to));
-      await this.saveGraph(scope);
+      this._saveDone = this._saveGraph(scope);
+      await this._saveDone;
     }
     return removed;
   }
@@ -264,7 +280,8 @@ export class GraphMemoryBackend implements MemoryBackend {
     this.loaded = true;
   }
 
-  private async saveGraph(scope: MemoryScope): Promise<void> {
+  /** Fire-and-forget graph persistence. Named _saveGraph to signal it must not be awaited. */
+  private async _saveGraph(scope: MemoryScope): Promise<void> {
     this.loadedScope = scope;
     this.loaded = true;
     try {
@@ -272,10 +289,8 @@ export class GraphMemoryBackend implements MemoryBackend {
         nodes: [...this.nodes.entries()],
         edges: this.edges,
       };
-      await fs.mkdir(
-        this.graphFile.substring(0, this.graphFile.lastIndexOf('/')),
-        { recursive: true },
-      );
+      const dir = this.graphFile.substring(0, this.graphFile.lastIndexOf('/'));
+      await fs.mkdir(dir, { recursive: true });
       // Atomic write via temp file
       const tmp = `${this.graphFile}.tmp`;
       await fs.writeFile(tmp, JSON.stringify(data));
@@ -283,6 +298,14 @@ export class GraphMemoryBackend implements MemoryBackend {
     } catch {
       // best-effort — graph is an enhancement, not critical
     }
+  }
+
+  /**
+   * Wait for all in-flight _saveGraph operations to complete.
+   * Call this before deleting the backend or its temp directory.
+   */
+  async flush(): Promise<void> {
+    await this._saveDone;
   }
 }
 

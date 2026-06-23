@@ -24,7 +24,7 @@ export interface FallbackModelDeps {
    * restore) so the host can refresh the auto-compaction / context-window
    * denominator — important when a fallback crosses to a smaller-window model.
    */
-  onModelSwitch?: (providerId: string, modelId: string) => void;
+  onModelSwitch?: (providerId: string, modelId: string) => void | Promise<void>;
   events: EventBus;
   /** Optional — warnings about un-buildable fallback providers. */
   logger?: Logger | undefined;
@@ -170,7 +170,7 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
       try {
         ctx.provider = await deps.buildProvider(cfg.provider);
         ctx.model = cfg.model;
-        deps.onModelSwitch?.(cfg.provider, cfg.model);
+        await deps.onModelSwitch?.(cfg.provider, cfg.model);
       } catch (err) {
         deps.logger?.warn(
           `fallback-model: could not restore primary "${cfg.provider}/${cfg.model}": ${
@@ -216,7 +216,7 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
           ctx.model = parsed.model;
           request.model = parsed.model;
           dirty = true;
-          deps.onModelSwitch?.(targetProviderId, parsed.model);
+          await deps.onModelSwitch?.(targetProviderId, parsed.model);
 
           deps.events.emit('provider.fallback', {
             from,

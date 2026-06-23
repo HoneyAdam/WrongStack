@@ -114,13 +114,14 @@ When the plugin is active, these tools are available to the agent:
 | `lsp_diagnostics` | `auto` | Get type/lint diagnostics for a file or workspace |
 | `lsp_definition` | `auto` | Go to definition of a symbol (more precise than grep) |
 | `lsp_rename` | `confirm` | Semantic rename across the workspace |
+| `lsp_completion` | `auto` | Semantic completions for editor/agent cursor context |
 | `codebase-lsp-search` | `auto` | Fast symbol search via WrongStack's index, with LSP fallback |
 
-> **Why only 4 tools?** `lsp_references`, `lsp_hover`, `lsp_symbols`, and `lsp_code_actions`
+> **Why only 5 tools?** `lsp_references`, `lsp_hover`, `lsp_symbols`, and `lsp_code_actions`
 > are intentionally excluded. They are marginal over basic read/grep — they return data the agent
 > would have to read anyway, or surface cosmetic fixes in well-maintained code.
-> `lsp_diagnostics`, `lsp_definition`, and `lsp_rename` are kept because they provide
-> genuinely unique data or capability the agent cannot replicate at comparable cost.
+> `lsp_diagnostics`, `lsp_definition`, `lsp_completion`, and `lsp_rename` are kept because
+> they provide genuinely unique data or capability the agent cannot replicate at comparable cost.
 
 All tools use **1-based line numbers** and **1-based UTF-8 byte columns** as input
 — matching the convention used by grep and other WrongStack tools.

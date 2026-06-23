@@ -56,7 +56,7 @@ describe('buildCspHeader', () => {
     expect(csp).toContain("default-src 'self'");
     expect(csp).toContain('ws://127.0.0.1:3457');
     expect(csp).toContain('wss://127.0.0.1:3457');
-    expect(csp).toContain('ws://[::1]:3457');
+    expect(csp).not.toContain('[::1]');
     expect(csp).toContain("frame-ancestors 'none'");
   });
 });

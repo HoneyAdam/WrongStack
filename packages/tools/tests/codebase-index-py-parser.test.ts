@@ -1,56 +1,43 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-const execFileSyncMock = vi.fn();
-
-vi.mock('node:child_process', async (orig) => ({
-  ...(await orig<typeof import('node:child_process')>()),
-  execFileSync: (...a: unknown[]) => execFileSyncMock(...a),
-}));
-
-vi.mock('node:fs', async (orig) => ({
-  ...(await orig<typeof import('node:fs')>()),
-  writeFileSync: vi.fn(),
-  mkdirSync: vi.fn(),
-}));
-
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
 import { parseSymbols } from '../src/codebase-index/py-parser.js';
 
-const parse = (file = 'mod.py') => parseSymbols({ file, content: 'x = 1', lang: 'py' });
+async function withPythonFile(content: string, run: (file: string) => Promise<void>) {
+  const dir = await mkdtemp(join(tmpdir(), 'ws-py-parser-'));
+  const file = join(dir, 'mod.py');
+  try {
+    await writeFile(file, content, 'utf8');
+    await run(file);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
 
-beforeEach(() => execFileSyncMock.mockReset());
-afterEach(() => vi.restoreAllMocks());
+const parse = (file: string) => parseSymbols({ file, content: 'ignored by py-parser', lang: 'py' });
 
 describe('py-parser parseSymbols', () => {
-  it('maps the python runner JSON output into symbols', () => {
-    execFileSyncMock.mockReturnValue(
-      JSON.stringify([
-        { name: 'Widget', kind: 'class', line: 1, col: 0, signature: 'class Widget: ...', scope: 'mod.Widget' },
-      ]),
+  it('extracts symbols from Python source', async () => {
+    await withPythonFile(
+      ['class Widget:', '    pass', '', 'def build():', '    return Widget()', '', 'y = 1'].join(
+        '\n',
+      ),
+      async (file) => {
+        const res = await parse(file);
+        expect(res.file).toBe(file);
+        expect(res.symbols.find((s) => s.name === 'Widget')?.kind).toBe('class');
+        expect(res.symbols.find((s) => s.name === 'build')?.kind).toBe('function');
+        expect(res.symbols.find((s) => s.name === 'y')?.kind).toBe('var');
+      },
     );
-    const res = parse();
-    expect(res.symbols).toHaveLength(1);
-    expect(res.symbols[0]?.name).toBe('Widget');
-    expect(res.symbols[0]?.kind).toBe('class');
-    expect(res.symbols[0]?.scope).toBe('mod.Widget');
   });
 
-  it('defaults missing signature/scope to empty strings', () => {
-    execFileSyncMock.mockReturnValue(JSON.stringify([{ name: 'y', kind: 'var', line: 2, col: 0 }]));
-    const sym = parse().symbols[0];
-    expect(sym?.signature).toBe('');
-    expect(sym?.scope).toBe('');
-    expect(sym?.text).toBe('y');
-  });
-
-  it('returns no symbols when the runner emits empty output', () => {
-    execFileSyncMock.mockReturnValue('  ');
-    expect(parse().symbols).toEqual([]);
-  });
-
-  it('returns no symbols when the runner output is invalid JSON (exercises the catch)', () => {
-    execFileSyncMock.mockReturnValue('boom');
-    const res = parse();
-    expect(res.symbols).toEqual([]);
-    expect(res.file).toBe('mod.py');
+  it('returns no symbols for invalid Python source', async () => {
+    await withPythonFile('def broken(:', async (file) => {
+      const res = await parse(file);
+      expect(res.symbols).toEqual([]);
+      expect(res.file).toBe(file);
+    });
   });
 });

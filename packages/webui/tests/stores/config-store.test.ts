@@ -5,6 +5,7 @@ function resetStore() {
   useConfigStore.setState({
     provider: 'anthropic',
     model: 'claude-sonnet-4-20250514',
+    wsUrl: 'ws://127.0.0.1:3457',
     wsConnected: false,
     wsStatus: { state: 'connecting' },
     theme: 'system',
@@ -171,5 +172,18 @@ describe('wsUrl initialization', () => {
   it('wsUrl is a valid ws:// URL', () => {
     const state = useConfigStore.getState();
     expect(state.wsUrl).toMatch(/^ws:\/\/.+:/);
+  });
+
+  it('does not persist runtime wsUrl or transient connection state', () => {
+    const partialize = useConfigStore.persist.getOptions().partialize;
+    const persisted = partialize?.({
+      ...useConfigStore.getState(),
+      wsUrl: 'ws://127.0.0.1:9999',
+      wsConnected: true,
+      wsStatus: { state: 'open' },
+    });
+    expect(persisted).not.toHaveProperty('wsUrl');
+    expect(persisted).not.toHaveProperty('wsConnected');
+    expect(persisted).not.toHaveProperty('wsStatus');
   });
 });

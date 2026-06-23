@@ -137,6 +137,16 @@ export function collabInjectMiddleware(
           : JSON.stringify(injected.content),
       is_error: injected.isError,
     };
+    // Close the feedback loop: tell listeners (the webui collab handler) that
+    // the queued injection was actually applied, carrying the now-known real
+    // tool name so observers see "injection applied to <tool>".
+    bus.notifyInjectionConsumed({
+      toolUseId: payload.toolUse.id,
+      toolName: payload.toolUse.name,
+      authorId: injected.authorId,
+      reason: injected.reason,
+      isError: injected.isError,
+    });
     // Don't call next() — the executor path is skipped because
     // `payload.result` is already populated.
   };

@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { describe, expect, it, vi } from 'vitest';
 import type { WebSocket } from 'ws';
 import type { AgentConfigContext } from '../../src/webui-server/ws-handlers/agent-config.js';
 import type { WsServerMessage } from '../../src/webui-server/ws-handlers/index.js';
@@ -145,6 +148,40 @@ describe('handleModelSwitch', () => {
     expect(agentCtx.model).toBe('claude-test');
     expect(result(sent)).toBeDefined();
   });
+
+  it('delegates resolved maxContext to the host callback without duplicate broadcast', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-webui-agent-config-'));
+    const configPath = path.join(tmp, 'config.json');
+    await fs.writeFile(
+      configPath,
+      JSON.stringify({
+        providers: {
+          local: {
+            family: 'openai-compatible',
+            baseUrl: 'http://127.0.0.1:1234/v1',
+            apiKey: 'test-key',
+          },
+        },
+      }),
+    );
+    const onMaxContextResolved = vi.fn();
+    const modelsRegistry = {
+      refresh: async () => undefined,
+      getModel: async () => ({ capabilities: { maxContext: 1_000_000 } }),
+    } as never;
+    const { ctx, bc } = makeCtx({
+      globalConfigPath: configPath,
+      modelsRegistry,
+      onMaxContextResolved,
+    });
+
+    await handleModelSwitch(ctx, FAKE_WS, { provider: 'local', model: 'local-model' });
+
+    expect(onMaxContextResolved).toHaveBeenCalledWith('local', 'local-model', 1_000_000);
+    expect(lastOf(bc, 'ctx.max_context')).toBeUndefined();
+    expect(lastOf(bc, 'session.start')).toBeDefined();
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
 });
 
 describe('handleModelRefine', () => {
@@ -152,5 +189,67 @@ describe('handleModelRefine', () => {
     const { ctx, sent } = makeCtx();
     await handleModelRefine(ctx, FAKE_WS, '   ');
     expect(lastOf(sent, 'model.refine_result')?.payload).toMatchObject({ error: 'Empty text' });
+  });
+
+  it('forwards a gated low-effort reasoning hint resolved from the registry', async () => {
+    let captured: { reasoning?: unknown } | undefined;
+    const provider = {
+      id: 'openai',
+      capabilities: { reasoning: true } as never,
+      stream: () => (async function* () {})(),
+      complete: async (req: { reasoning?: unknown }) => {
+        captured = req;
+        return {
+          content: [{ type: 'text', text: 'Refined.' }],
+          stopReason: 'end_turn',
+          usage: { input: 1, output: 1 },
+          model: 'gpt-x',
+        };
+      },
+    };
+    const modelsRegistry = {
+      getModel: async () => ({
+        capabilities: {
+          reasoningConfig: {
+            default: 'adaptive',
+            disableSupported: false,
+            effortSupported: true,
+            effortLevels: ['low', 'medium', 'high'],
+            preserveThinking: 'unsupported',
+          },
+        },
+      }),
+    } as never;
+    const { ctx, sent, agentCtx } = makeCtx({ modelsRegistry });
+    agentCtx.provider = provider;
+    agentCtx.model = 'gpt-x';
+    await handleModelRefine(ctx, FAKE_WS, 'please refine this text');
+    expect(captured?.reasoning).toEqual({ effort: 'low' });
+    expect(lastOf(sent, 'model.refine_result')?.payload).toMatchObject({
+      refined: 'Refined.',
+      english: 'Refined.',
+    });
+  });
+
+  it('sends no reasoning field when no registry is wired', async () => {
+    let captured: { reasoning?: unknown } | undefined;
+    const provider = {
+      id: 'openai',
+      capabilities: { reasoning: true } as never,
+      stream: () => (async function* () {})(),
+      complete: async (req: { reasoning?: unknown }) => {
+        captured = req;
+        return {
+          content: [{ type: 'text', text: 'Refined.' }],
+          stopReason: 'end_turn',
+          usage: { input: 1, output: 1 },
+          model: 'gpt-x',
+        };
+      },
+    };
+    const { ctx, agentCtx } = makeCtx(); // no modelsRegistry
+    agentCtx.provider = provider;
+    await handleModelRefine(ctx, FAKE_WS, 'please refine this text');
+    expect(captured?.reasoning).toBeUndefined();
   });
 });

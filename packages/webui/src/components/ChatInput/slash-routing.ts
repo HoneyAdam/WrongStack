@@ -95,6 +95,13 @@ export function runChatSlashCommand(options: RunChatSlashCommandOptions): boolea
   const head = (sp === -1 ? trimmed : trimmed.slice(0, sp)).toLowerCase();
   const args = sp === -1 ? '' : trimmed.slice(sp + 1).trim();
   const cmd = head;
+  const openWorkTab = (tab: 'todos' | 'tasks' | 'plan') => {
+    const ui = useUIStore.getState();
+    ui.setCurrentView('chat');
+    ui.setDockSection('work');
+    ui.setWorkDashboardTab(tab);
+  };
+
   switch (cmd) {
     case '/help': {
       // Render the registry inline as an assistant message.
@@ -277,7 +284,7 @@ export function runChatSlashCommand(options: RunChatSlashCommandOptions): boolea
       ws.getPlan();
       setCurrentView('chat');
       // Surface the Work section of the dock strip above the chat.
-      useUIStore.getState().setDockSection('work');
+      openWorkTab('plan');
       return true;
     case '/todos': {
       // Sub-commands: `/todos` (default = list), `/todos clear`. We
@@ -288,6 +295,7 @@ export function runChatSlashCommand(options: RunChatSlashCommandOptions): boolea
         client?.clearTodos?.();
         return true;
       }
+      openWorkTab('todos');
       const list = useSessionStore.getState().todos;
       if (list.length === 0) {
         addMessage({
@@ -420,7 +428,7 @@ export function runChatSlashCommand(options: RunChatSlashCommandOptions): boolea
         '/f2': 'fleetMonitor',
         '/f3': 'agentsMonitor',
         '/f4': 'worktreeMonitor',
-        '/f5': 'autonomySettings',
+        '/f5': 'planPanel',
         '/f6': 'todosMonitor',
         '/f7': 'queuePanel',
         '/f8': 'processList',
@@ -429,7 +437,7 @@ export function runChatSlashCommand(options: RunChatSlashCommandOptions): boolea
         '/f11': 'coordinatorMonitor',
         '/f12': 'statuslinePicker',
       };
-      const panel = panelMap[cmd];
+      const panel = cmd === '/f' && args ? panelMap[`/f${args.trim()}`] : panelMap[cmd];
       if (!panel) {
         // /f with no args — show the list
         const lines = [
@@ -439,7 +447,7 @@ export function runChatSlashCommand(options: RunChatSlashCommandOptions): boolea
           '/f 2 — Fleet orchestration monitor',
           '/f 3 — Agents live monitor',
           '/f 4 — Worktree monitor',
-          '/f 5 — Autonomy settings',
+          '/f 5 — Plan panel',
           '/f 6 — Todos monitor overlay',
           '/f 7 — Queue panel',
           '/f 8 — Process list overlay',
@@ -455,12 +463,34 @@ export function runChatSlashCommand(options: RunChatSlashCommandOptions): boolea
       }
       // Dispatch to the appropriate WebUI store action
       const ui = useUIStore.getState();
+      ui.setCurrentView('chat');
+      ui.setDockCustomizeOpen(false);
+      if (panel === 'projectPicker') {
+        ui.setSidebarOpen(true);
+        ui.selectActivity('projects');
+        return true;
+      }
       if (panel === 'fleetMonitor') {
         ui.setFleetMonitorOpen(true);
         return true;
       }
       if (panel === 'agentsMonitor') {
         ui.setAgentsMonitorOpen(true);
+        return true;
+      }
+      if (panel === 'worktreeMonitor') {
+        ui.setDockSection('worktrees');
+        return true;
+      }
+      if (panel === 'planPanel') {
+        ws.getPlan();
+        ui.setDockSection('work');
+        ui.setWorkDashboardTab('plan');
+        return true;
+      }
+      if (panel === 'todosMonitor') {
+        ui.setDockSection('work');
+        ui.setWorkDashboardTab('todos');
         return true;
       }
       if (panel === 'queuePanel') {
@@ -471,10 +501,27 @@ export function runChatSlashCommand(options: RunChatSlashCommandOptions): boolea
         ui.setProcessMonitorOpen(true);
         return true;
       }
-      addMessage({
-        role: 'assistant',
-        content: `Panel \`${panel}\` is not available in the WebUI. Try the TUI for full F-key panel support.`,
-      });
+      if (panel === 'goalPanel') {
+        client?.send?.({ type: 'goal.get' });
+        ui.setDockSection('goal');
+        return true;
+      }
+      if (panel === 'sessionsPanel') {
+        ws.listSessions(50);
+        setCurrentView('sessions');
+        return true;
+      }
+      if (panel === 'coordinatorMonitor') {
+        ui.setSidebarOpen(true);
+        ui.selectActivity('officemap');
+        ui.setCurrentView('officemap');
+        return true;
+      }
+      if (panel === 'statuslinePicker') {
+        ui.setDockSection('work');
+        ui.setDockCustomizeOpen(true);
+        return true;
+      }
       return true;
     }
     default:

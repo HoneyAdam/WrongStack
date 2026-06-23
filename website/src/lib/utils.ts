@@ -11,7 +11,7 @@ export function cn(...inputs: ClassValue[]) {
    ========================================================================= */
 
 export const META = {
-  version: '0.270.0',
+  version: '0.269.0',
   repo: 'https://github.com/WrongStack/WrongStack',
   npm: 'wrongstack',
   node: '22',
@@ -20,7 +20,7 @@ export const META = {
 } as const;
 
 export const heroStats = [
-  { value: '37', label: 'built-in tools' },
+  { value: '36', label: 'built-in tools' },
   { value: '17', label: 'bundled skills' },
   { value: '~110', label: 'model providers' },
   { value: '10', label: 'official plugins' },
@@ -187,6 +187,8 @@ export const packages = [
   '@wrongstack/telegram',
   '@wrongstack/plugins',
   '@wrongstack/skills',
+  '@wrongstack/bench',
+  '@wrongstack/acp',
 ] as const;
 
 /** 10 official plugins — README plugin table. */
@@ -221,10 +223,87 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: '0.269.0',
+    date: '2026-06-22',
+    latest: true,
+    tagline: 'HQ command center runtime and discovery hardening',
+    highlights: [
+      'Runtime endpoint auto-discovery — HQ writes runtime.json after port selection so clients find HQ on custom/auto-advanced ports',
+      'Stale-pid runtime endpoint protection — readHqRuntimeFileSync ignores runtime.json when the recorded pid is no longer alive',
+      'Publisher reconnect hardening — HqPublisher.connect() catches URL/socket factory failures and schedules reconnect instead of throwing',
+      'Project metadata preserved in snapshots — ConnectedClient stores HqProjectIdentity from client.hello',
+      'Dashboard token forwarding to WS and API — dashboard inline JS forwards ?token= to /ws/browser and /api/projects/:id',
+      'BEHAVIOR_DEFAULTS autonomy and feature fields fixed — fresh configs now include autoProceedDelayMs, tokenSavingMode, allowOutsideProjectRoot',
+      'HQ welcome Phase 1 handshake — server replies with protocolVersion, serverTime, acceptedCapabilities, redactionPolicy',
+      'parseHqFrame() discriminated dispatcher — enforces wire contract on every client frame before processing',
+    ],
+  },
+  {
+    version: '0.268.0',
+    date: '2026-06-21',
+    tagline: 'HQ command center hardening and release-check cleanup',
+    highlights: [
+      'HQ browser/client protocol documented in docs/subcommands/hq.md (~785 lines)',
+      'parseHqFrame() validated on the wire — invalid JSON → close(1003), unknown type/malformed → close(1008)',
+      'hq.welcome server reply — Phase 1 handshake with protocolVersion, serverTime, acceptedCapabilities, redactionPolicy',
+      'scrubAndTruncateHqPreview() helper — scrubs secrets and truncates preview fields to 280 chars for broadcast',
+      'SECURITY.md threat model for HQ Phase 1 + Phase 2 auth roadmap (browser password, client enrollment tokens, TLS)',
+      'Mailbox drawer and live-feed jsdom test coverage expanded (10th–13th tests in hq-dashboard.test.ts)',
+      'DuckDuckGo parser hardened — parses newer markup, decodes /l/?uddg redirect URLs, returns ok:false for blocked markup',
+    ],
+  },
+  {
+    version: '0.267.0',
+    date: '2026-06-20',
+    tagline: 'Subscription sign-in',
+    highlights: [
+      'Sign in with ChatGPT (OAuth) — wstack auth login chatgpt → provider openai-codex, PKCE loopback, ChatGPT Responses API',
+      'Sign in with Claude (OAuth) — wstack auth login claude → provider anthropic-oauth, PKCE loopback, Claude Messages API',
+      'Sign in with GitHub Copilot (OAuth) — wstack auth login copilot → provider github-copilot, GitHub device flow',
+      'Self-refreshing tokens — access tokens refresh near expiry and on 401, AES-256-GCM encrypted at rest',
+      'Per-model context window for OAuth families — resolves real window from sibling catalog (1M for Claude Opus 4.8)',
+      'Anthropic block sanitization fix — tool_result.name and providerMeta stripped from ContentBlocks before wire',
+    ],
+  },
+  {
+    version: '0.264.0',
+    date: '2026-06-17',
+    tagline: 'Performance release — session/mailbox scaling',
+    highlights: [
+      'GlobalMailbox refactored with in-memory ring buffer + ack sidecar + batched persistence — eliminates per-call full-file I/O',
+      'replay-log-store switched to append-only — ring buffer + appendFile with cached tail hash for O(1) appends',
+      'Session flush de-awaited from inner loop — await ctx.session.flush() moved to background so disk I/O no longer stalls iteration',
+      'mailbox-types.ts — typed mailbox interfaces for ring buffer state and flush semantics',
+    ],
+  },
+  {
+    version: '0.262.0',
+    date: '2026-06-16',
+    tagline: 'Biome 2.5 lint gate and missing subpath exports',
+    highlights: [
+      'Missing @wrongstack/core/tools and @wrongstack/webui/types subpath exports — dist files now emitted by tsup entry lists',
+      'Biome 2.5 migration — $schema bumped to 2.5.0, recommended:true removed, trailing comma fixed, 8 lint errors corrected',
+      'css.parser.tailwindDirectives: true added for @theme inline (Tailwind v4) in website/src/index.css',
+    ],
+  },
+  {
+    version: '0.260.0',
+    date: '2026-06-14',
+    tagline: 'Benchmark, observability & capability-authorization',
+    highlights: [
+      '@wrongstack/bench package + wstack bench subcommand — model-independent harness, Aider polyglot + SWE-bench Verified suites',
+      'storage.* EventBus observability — config-loader, memory-store, session-store, todos, queue, annotations emit typed storage.read/write/error events',
+      'Capability-based plugin tool-mutation authorization — wrap/override/unregister gated on declared P4-6/P4-7/P4-8 capabilities',
+      'AutoApprovePermissionPolicy is allowlist-by-default (fail-closed) — newly-added mutating tools denied to prompt-injected subagents',
+      'Subagent mail inline injection — all message types folded into leader conversation before every step',
+      'WebUI Fleet Monitor and Agent Monitor sliding sidebars — real-time per-subagent status and diagnostics',
+      'buildToolUsage() output cached by reference — reuses rendered tool-usage section when tool list unchanged',
+    ],
+  },
+  {
     version: '0.257.0',
     date: '2026-06-14',
     consolidated: true,
-    latest: true,
     tagline: 'Token-saving mode & resilience',
     highlights: [
       'Token-saving mode (--token-saving-mode) — 10 Tier-1 tools, compact skills, lazy MCP, ~4–6K fewer prompt tokens',

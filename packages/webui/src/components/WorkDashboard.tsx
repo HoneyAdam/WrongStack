@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils';
-import { useState } from 'react';
+import { useUIStore } from '@/stores';
 import { TodosPanel } from './TodosPanel';
 import { TasksPanel } from './TasksPanel';
 import { PlanPanel } from './PlanPanel';
@@ -28,7 +28,8 @@ const TABS: TabInfo[] = [
  * Auto-hides when all three panels are empty.
  */
 export function WorkDashboard(): React.ReactElement | null {
-  const [activeTab, setActiveTab] = useState<TabId>('todos');
+  const activeTab = useUIStore((s) => s.workDashboardTab);
+  const setActiveTab = useUIStore((s) => s.setWorkDashboardTab);
 
   return (
     <div className="rounded-lg border border-border bg-card/50 backdrop-blur-sm overflow-hidden">

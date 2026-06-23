@@ -214,6 +214,38 @@ describe('DefaultSystemPromptBuilder', () => {
     expect(env).toMatch(/Context window:.*\d+.*tokens max/);
   });
 
+  it('reads lazy modelCapabilities on each build so model switches update context window text', async () => {
+    let maxContextTokens = 200_000;
+    const b = new DefaultSystemPromptBuilder({
+      modelCapabilities: () => ({
+        maxContextTokens,
+        supportsTools: true,
+        supportsVision: false,
+        supportsReasoning: false,
+      }),
+      todayIso: '2026-05-13',
+    });
+
+    const first = await b.build({
+      cwd: tmp,
+      projectRoot: tmp,
+      tools: [],
+      provider: 'zai',
+      model: 'glm-5-turbo',
+    });
+    expect(first[2]?.text ?? '').toMatch(/Context window:.*200[,.]?000.*tokens max/);
+
+    maxContextTokens = 1_000_000;
+    const second = await b.build({
+      cwd: tmp,
+      projectRoot: tmp,
+      tools: [],
+      provider: 'zai',
+      model: 'glm-5.2',
+    });
+    expect(second[2]?.text ?? '').toMatch(/Context window:.*1[,.]?000[,.]?000.*tokens max/);
+  });
+
   it('uses 50% threshold for small context windows in context management', async () => {
     const ctxManagerTool: Tool = {
       name: 'context_manager',

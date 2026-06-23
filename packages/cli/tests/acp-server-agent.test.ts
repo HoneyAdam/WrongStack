@@ -10,9 +10,16 @@
  * throw if actually called — the factory only needs the Provider type slot
  * filled to construct Context + Agent.
  */
-import { Agent } from '@wrongstack/core';
-import type { Config, ModelsRegistry, Provider, ProviderRegistry, ResolvedProvider, WstackPaths } from '@wrongstack/core';
-import { ToolRegistry as RealToolRegistry } from '@wrongstack/core';
+
+import type {
+  Config,
+  ModelsRegistry,
+  Provider,
+  ProviderRegistry,
+  ResolvedProvider,
+  WstackPaths,
+} from '@wrongstack/core';
+import { Agent, ToolRegistry as RealToolRegistry } from '@wrongstack/core';
 import { builtinToolsPack } from '@wrongstack/tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -69,7 +76,6 @@ function makeDeps(overrides: Partial<SubcommandDeps> = {}): SubcommandDeps {
       projectRoot: '/tmp',
     } as never,
     reader: { readLine: vi.fn(), readKey: vi.fn(), readSecret: vi.fn(), close: vi.fn() } as never,
-    paths: {} as never as WstackPaths,
     paths: {} as WstackPaths,
     vault: { encrypt: vi.fn((s: string) => s), decrypt: vi.fn((s: string) => s) } as never,
     cwd: '/tmp',

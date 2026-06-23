@@ -8,23 +8,23 @@ import { expectDefined } from '@wrongstack/core';
  * The regex fallback extracts: fn, struct, enum, trait, impl, type, const, static, mod
  */
 
-import { execFileSync, spawnSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { execFileSync, spawn } from 'node:child_process';
+import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { FileSymbols, Symbol as IndexSymbol, SymbolLang } from './schema.js';
 // ─── Public API ─────────────────────────────────────────────────────────────
 
-export function parseSymbols(opts: {
+export async function parseSymbols(opts: {
   file: string;
   content: string;
   lang: SymbolLang;
-}): FileSymbols {
+}): Promise<FileSymbols> {
   const { file, content, lang } = opts;
 
   // Try native parser first, fall back to regex
   const nativeAvailable = checkNativeParser();
   if (nativeAvailable) {
-    const result = tryNativeParse(file, content);
+    const result = await tryNativeParse(file, content);
     if (result) return result;
   }
 
@@ -63,29 +63,37 @@ function checkNativeParser(): boolean {
   }
 }
 
-function tryNativeParse(file: string, content: string): FileSymbols | null {
+async function tryNativeParse(file: string, content: string): Promise<FileSymbols | null> {
   try {
     const toolsDir = path.join(process.cwd(), 'tools');
     const crateDir = path.join(toolsDir, 'syn-parser');
 
-    // Write source to temp file for cargo to read
+    // Write source to temp file for cargo to read (async — non-blocking)
     const tmpFile = path.join(crateDir, 'src', 'input.rs');
-    writeFileSync(tmpFile, content, 'utf8');
+    await fs.writeFile(tmpFile, content, 'utf8');
 
-    const result = spawnSync(
-      'cargo',
-      ['run', '--manifest-path', path.join(toolsDir, 'Cargo.toml')],
-      {
-        cwd: process.cwd(),
-        encoding: 'utf8',
-        timeout: 15000,
-        stdio: ['pipe', 'pipe', 'pipe'],
-        windowsHide: true,
-      },
-    );
+    // Use spawn for full async control with timeout via Promise.race + setTimeout kill
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const proc: any = spawn('cargo', ['run', '--manifest-path', path.join(toolsDir, 'Cargo.toml')], {
+      cwd: process.cwd(),
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
 
-    if (result.status === 0 && result.stdout) {
-      const symbols: IndexSymbol[] = JSON.parse(result.stdout);
+    let stdout = '';
+    proc.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
+
+    const { code } = await Promise.race([
+      new Promise<{ code: number | null }>((resolve) => {
+        proc.on('close', (c: number | null) => resolve({ code: c }));
+      }),
+      new Promise<{ code: number | null }>((_, reject) =>
+        setTimeout(() => { proc.kill('SIGKILL'); reject(new Error('timeout')); }, 15_000)
+      ),
+    ]).catch(() => ({ code: -1 }));
+
+    if (code === 0 && stdout.trim()) {
+      const symbols: IndexSymbol[] = JSON.parse(stdout.trim());
       return {
         file,
         lang: 'rs',

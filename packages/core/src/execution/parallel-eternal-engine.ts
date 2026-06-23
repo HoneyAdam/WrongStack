@@ -416,8 +416,14 @@ export class ParallelEternalEngine {
             subagentIds.push(subagentId);
             taskIds.push(taskId);
             await coordinator.assign(spec);
-          } catch {
-            // non-fatal: individual spawn failure doesn't block other slots
+          } catch (err) {
+            console.error(JSON.stringify({
+              level: 'warn',
+              event: 'parallel_engine.spawn_failed',
+              message: toErrorMessage(err),
+              context: { slot: i, task, subagentId },
+              timestamp: new Date().toISOString(),
+            }));
           }
         })(),
       );
@@ -448,7 +454,14 @@ export class ParallelEternalEngine {
       } finally {
         clearTimeout(timer);
       }
-    } catch {
+    } catch (err) {
+      console.error(JSON.stringify({
+        level: 'warn',
+        event: 'parallel_engine.brainstorm_results_failed',
+        message: toErrorMessage(err),
+        context: { slotCount, taskIds },
+        timestamp: new Date().toISOString(),
+      }));
       results = coordinator.results().slice(-taskIds.length);
     }
 
@@ -500,8 +513,14 @@ export class ParallelEternalEngine {
             if (file) tasks.push(`[git] inspect and fix: ${file}`);
           }
         }
-      } catch {
-        // ignore
+      } catch (err) {
+        console.error(JSON.stringify({
+          level: 'warn',
+          event: 'parallel_engine.git_status_failed',
+          message: toErrorMessage(err),
+          context: { projectRoot: this.opts.projectRoot },
+          timestamp: new Date().toISOString(),
+        }));
       }
     }
 

@@ -302,6 +302,14 @@ export interface AppProps {
   /** Auto-send countdown (ms) for the refinement preview panel. Default 4000. */
   enhanceDelayMs?: number | undefined;
   /**
+   * Returns a capability-gated low-effort reasoning hint for the prompt
+   * refiner (or undefined when nothing can be safely reduced). Forwarded to
+   * `enhanceUserPrompt` so a slow reasoning model does not burn thinking
+   * tokens on this shallow rewrite. Absent → the refiner sends no reasoning
+   * field, exactly as before.
+   */
+  getEnhancerReasoning?: (() => import('@wrongstack/core').ReasoningRequest | undefined) | undefined;
+  /**
    * Query the live YOLO state from the permission policy. Called after
    * every slash-command dispatch so `/yolo off` (which mutates the
    * policy inside the CLI) is immediately reflected in the status bar.
@@ -424,7 +432,9 @@ export interface AppProps {
    * an error message on failure; null on success. The host owns the
    * actual Provider construction + Context mutation.
    */
-  switchProviderAndModel?: ((providerId: string, modelId: string) => string | null) | undefined;
+  switchProviderAndModel?:
+    | ((providerId: string, modelId: string) => string | null | Promise<string | null>)
+    | undefined;
   /**
    * Apply an autonomy mode after the picker confirms. Returns
    * an error string on failure; null on success.
@@ -712,6 +722,7 @@ export function App({
   enhanceEnabled = true,
   enhanceController,
   enhanceDelayMs = 15_000,
+  getEnhancerReasoning,
   getYolo,
   getAutonomy,
   getEternalEngine,
@@ -3822,7 +3833,7 @@ export function App({
           const providerId = state.modelPicker.pickedProviderId;
           const modelId = state.modelPicker.filteredOptions[state.modelPicker.selected];
           if (!providerId || !modelId) return;
-          const err = switchProviderAndModel?.(providerId, modelId);
+          const err = await switchProviderAndModel?.(providerId, modelId);
           if (err) {
             dispatch({ type: 'modelPickerHint', text: err });
             return;
@@ -5819,6 +5830,10 @@ export function App({
       enhanceAbortRef.current = ac;
       let result: { refined: string; english: string } | null = null;
       let enhanceErr: string | null = null;
+      // Refinement is a shallow rewrite — ask the model to spend minimal
+      // reasoning (gated to what the model accepts). undefined → no reasoning
+      // field is sent, exactly as before.
+      const enhanceReasoning = getEnhancerReasoning?.();
       try {
         result = await enhanceUserPrompt({
           provider: agent.ctx.provider,
@@ -5831,6 +5846,7 @@ export function App({
           // Feed recent conversation so follow-ups ("do the same", "that file")
           // resolve against context instead of being refined blind.
           history: recentTextTurns(agent.ctx.messages),
+          ...(enhanceReasoning ? { reasoning: enhanceReasoning } : {}),
         }) as { refined: string; english: string } | null;
       } finally {
         enhanceAbortRef.current = null;

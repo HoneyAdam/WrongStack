@@ -457,8 +457,14 @@ export class EternalAutonomyEngine {
     try {
       const reloaded = await loadGoal(this.goalPath, this.opts.events);
       iterationIndex = reloaded?.iterations ?? 0;
-    } catch {
-      // best-effort
+    } catch (err) {
+      console.error(JSON.stringify({
+        level: 'warn',
+        event: 'autonomy.goal_reload_failed',
+        message: toErrorMessage(err),
+        context: { goalPath: this.goalPath },
+        timestamp: new Date().toISOString(),
+      }));
     }
     this.opts.onIteration?.({
       at: (this.opts.now?.() ?? new Date()).toISOString(),
@@ -753,7 +759,14 @@ export class EternalAutonomyEngine {
       } finally {
         clearTimeout(timer);
       }
-    } catch {
+    } catch (err) {
+      console.error(JSON.stringify({
+        level: 'warn',
+        event: 'autonomy.brainstorm_failed',
+        message: toErrorMessage(err),
+        context: { goal: goal.goal.slice(0, 100) },
+        timestamp: new Date().toISOString(),
+      }));
       return null;
     }
   }

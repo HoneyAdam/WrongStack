@@ -139,6 +139,26 @@ export class CollaborationBus {
   // injection is matched by tool_use_id, consumed once, and discarded.
 
   private readonly injectionQueue = new Map<string, InjectedToolResult>();
+  private onConsumed?: ((info: ConsumedInjectionInfo) => void) | undefined;
+
+  /**
+   * Register a listener fired when `collabInjectMiddleware` actually splices a
+   * queued injection into a tool call (Phase 4 feedback loop). The webui's
+   * CollaborationWebSocketHandler uses it to broadcast a
+   * `collab.injection.granted` with phase `'consumed'` so observers learn the
+   * injection was applied (and to which real tool). Last registration wins.
+   */
+  onInjectionConsumed(fn: (info: ConsumedInjectionInfo) => void): void {
+    this.onConsumed = fn;
+  }
+
+  /**
+   * Invoked by `collabInjectMiddleware` immediately after it replaces a tool
+   * call's result with a queued injection. No-op when no listener is set.
+   */
+  notifyInjectionConsumed(info: ConsumedInjectionInfo): void {
+    this.onConsumed?.(info);
+  }
 
   /**
    * Queue a manual tool result. The next time the agent's toolCall
@@ -189,4 +209,17 @@ export interface InjectedToolResult {
   reason: string;
   /** Participant id of the controller who issued the injection. */
   authorId: string;
+}
+
+/**
+ * Emitted to `onInjectionConsumed` listeners when the middleware splices a
+ * queued injection into a real tool call. Carries the resolved tool NAME
+ * (unknown at queue time — the injection is keyed only by tool_use_id).
+ */
+export interface ConsumedInjectionInfo {
+  toolUseId: string;
+  toolName: string;
+  authorId: string;
+  reason: string;
+  isError: boolean;
 }

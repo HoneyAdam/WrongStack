@@ -1,6 +1,6 @@
 import type { ModelsRegistry, Provider } from '@wrongstack/core';
-import { describe, expect, it } from 'vitest';
-import { resolveRuntimeMaxContext } from '../src/context-limit.js';
+import { describe, expect, it, vi } from 'vitest';
+import { refreshRuntimeModelCatalog, resolveRuntimeMaxContext } from '../src/context-limit.js';
 
 /**
  * Minimal fake catalog: the canonical `anthropic` and `openai` providers expose
@@ -137,5 +137,39 @@ describe('resolveRuntimeMaxContext — OAuth sibling-catalog resolution', () => 
       modelId: 'claude-unknown-9',
     });
     expect(max).toBe(200_000);
+  });
+});
+
+describe('refreshRuntimeModelCatalog', () => {
+  it('refreshes the models registry before runtime max-context re-resolution', async () => {
+    const registry = {
+      refresh: vi.fn(async () => ({})),
+    } as never as ModelsRegistry;
+    const logger = { debug: vi.fn(), warn: vi.fn() };
+
+    await expect(
+      refreshRuntimeModelCatalog({ modelsRegistry: registry, logger, reason: 'zai/glm-5.2' }),
+    ).resolves.toBe(true);
+
+    expect(registry.refresh).toHaveBeenCalledTimes(1);
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('falls back to cached catalog when refresh fails', async () => {
+    const registry = {
+      refresh: vi.fn(async () => {
+        throw new Error('offline');
+      }),
+    } as never as ModelsRegistry;
+    const logger = { debug: vi.fn(), warn: vi.fn() };
+
+    await expect(
+      refreshRuntimeModelCatalog({ modelsRegistry: registry, logger, reason: 'zai/glm-5.2' }),
+    ).resolves.toBe(false);
+
+    expect(registry.refresh).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('using cached catalog'),
+    );
   });
 });

@@ -219,17 +219,17 @@ describe('DefaultSystemPromptBuilder — edge cases', () => {
     expect(b.map((x) => x.text).join('\n')).toContain('MCP tools (lazy-loaded)');
   });
 
-  it('renders an empty online-agents string and reuses it by reference', async () => {
+  it('renders an empty online-agents string and reuses cached output across fresh arrays', async () => {
     // mailbox present but no online agents → renderOnlineAgents returns ''
     const empty = new DefaultSystemPromptBuilder({ todayIso: '2026-06-15' });
     const blocks = await empty.build({ cwd: tmp, projectRoot: tmp, tools: [mkTool('mailbox')] } as never);
     expect(blocks.map((x) => x.text).join('\n')).toContain('Inter-agent mailbox');
 
-    // Same agents array across two builds with distinct tool arrays → cache hit.
-    const agents = [{ name: 'X', source: 'tui' }];
+    // Two builds with DIFFERENT array objects but identical content → cache hit
+    // (the fingerprint detects membership equality, not reference equality).
     const b = new DefaultSystemPromptBuilder({ todayIso: '2026-06-15' });
-    await b.build({ cwd: tmp, projectRoot: tmp, tools: [mkTool('mailbox')], onlineAgents: agents } as never);
-    const second = await b.build({ cwd: tmp, projectRoot: tmp, tools: [mkTool('mailbox')], onlineAgents: agents } as never);
+    await b.build({ cwd: tmp, projectRoot: tmp, tools: [mkTool('mailbox')], onlineAgents: [{ name: 'X', source: 'tui' }] } as never);
+    const second = await b.build({ cwd: tmp, projectRoot: tmp, tools: [mkTool('mailbox')], onlineAgents: [{ name: 'X', source: 'tui' }] } as never);
     expect(second.map((x) => x.text).join('\n')).toContain('Currently online (1 agent)');
   });
 

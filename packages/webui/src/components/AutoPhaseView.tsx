@@ -24,6 +24,8 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
   const overallPercent = useAutoPhaseStore((s) => s.overallPercent);
   const autonomous = useAutoPhaseStore((s) => s.autonomous);
   const title = useAutoPhaseStore((s) => s.title);
+  const status = useAutoPhaseStore((s) => s.status);
+  const lastError = useAutoPhaseStore((s) => s.lastError);
 
   const worktrees = useWorktreeStore((s) => s.worktrees);
   const baseBranch = useWorktreeStore((s) => s.baseBranch);
@@ -88,6 +90,23 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
               </p>
             )}
           </div>
+          {hasPhases && (
+            <span
+              className={cn(
+                'rounded border px-2 py-0.5 text-[11px] font-medium capitalize',
+                status === 'failed'
+                  ? 'border-destructive/40 bg-destructive/10 text-destructive'
+                  : status === 'paused' || status === 'stopped'
+                    ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                    : status === 'completed'
+                      ? 'border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-300'
+                      : 'border-primary/30 bg-primary/10 text-primary',
+              )}
+              title={lastError ?? undefined}
+            >
+              {status}
+            </span>
+          )}
         </div>
         <Button variant="ghost" size="icon" onClick={onClose}>
           <X className="h-4 w-4" />

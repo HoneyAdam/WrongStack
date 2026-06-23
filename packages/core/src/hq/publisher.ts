@@ -23,6 +23,9 @@ import {
   type HqQueuedCommand,
   type HqRedactionPolicy,
   type HqServerCommandBatchMessage,
+  type HqSessionEndedPayload,
+  type HqSessionSnapshotPayload,
+  type HqTranscriptAppendPayload,
 } from './protocol.js';
 
 export interface HqSocketLike {
@@ -252,6 +255,55 @@ export class HqPublisher {
       payload,
       ...(input.sessionId !== undefined ? { sessionId: input.sessionId } : {}),
       ...(input.timestamp !== undefined ? { timestamp: input.timestamp } : {}),
+    });
+  }
+
+  /** The client identity this publisher announced (clientId, kind, machineId, …). */
+  get identity(): HqClientIdentity {
+    return this.options.client;
+  }
+
+  /** The project identity this publisher is bound to. */
+  get project(): HqProjectIdentity {
+    return this.options.project;
+  }
+
+  /** Publish a live session/terminal snapshot (state + agents). */
+  publishSessionSnapshot(
+    payload: HqSessionSnapshotPayload,
+    opts?: { timestamp?: string },
+  ): HqEventEnvelope<HqSessionSnapshotPayload> {
+    return this.publishEvent({
+      type: 'session.snapshot',
+      payload,
+      sessionId: payload.sessionId,
+      ...(opts?.timestamp !== undefined ? { timestamp: opts.timestamp } : {}),
+    });
+  }
+
+  /** Publish an incremental batch of transcript turns for a session. */
+  publishTranscriptAppend(
+    payload: HqTranscriptAppendPayload,
+    opts?: { timestamp?: string },
+  ): HqEventEnvelope<HqTranscriptAppendPayload> {
+    return this.publishEvent({
+      type: 'session.transcript',
+      payload,
+      sessionId: payload.sessionId,
+      ...(opts?.timestamp !== undefined ? { timestamp: opts.timestamp } : {}),
+    });
+  }
+
+  /** Mark a session/terminal as ended. */
+  publishSessionEnded(
+    payload: HqSessionEndedPayload,
+    opts?: { timestamp?: string },
+  ): HqEventEnvelope<HqSessionEndedPayload> {
+    return this.publishEvent({
+      type: 'session.ended',
+      payload,
+      sessionId: payload.sessionId,
+      ...(opts?.timestamp !== undefined ? { timestamp: opts.timestamp } : {}),
     });
   }
 

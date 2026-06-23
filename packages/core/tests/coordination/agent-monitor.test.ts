@@ -5,14 +5,18 @@
  * entries, that virtual chat history is maintained, that JSONL files
  * are written, and that the stream toggle controls local EventBus emission.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import * as fsp from 'node:fs/promises';
-import * as path from 'node:path';
 import * as os from 'node:os';
+import * as path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AgentTimelineEntry } from '../../src/coordination/agent-monitor.js';
+import {
+  type AgentMonitorService,
+  createAgentMonitorService,
+} from '../../src/coordination/agent-monitor.js';
 import { FleetBus } from '../../src/coordination/fleet-bus.js';
 import { EventBus } from '../../src/kernel/events.js';
-import { AgentMonitorService, createAgentMonitorService } from '../../src/coordination/agent-monitor.js';
-import type { AgentTimelineEntry } from '../../src/coordination/agent-monitor.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -150,7 +154,9 @@ describe('AgentMonitorService', () => {
     monitor.trackSubagent('a1', 'Agent 1');
     timelineEntries.length = 0; // clear spawn entry
 
-    fleetBus.emit(makeFleetEvent('a1', 'provider.text_delta', { text: 'Hello world', iteration: 0 }));
+    fleetBus.emit(
+      makeFleetEvent('a1', 'provider.text_delta', { text: 'Hello world', iteration: 0 }),
+    );
 
     // Timeline entry emitted via EventBus
     expect(timelineEntries).toHaveLength(1);
@@ -183,7 +189,14 @@ describe('AgentMonitorService', () => {
     timelineEntries.length = 0; // clear spawn entry
 
     fleetBus.emit(makeFleetEvent('a1', 'tool.started', { name: 'read', iteration: 1 }));
-    fleetBus.emit(makeFleetEvent('a1', 'tool.executed', { name: 'read', ok: true, durationMs: 42, iteration: 1 }));
+    fleetBus.emit(
+      makeFleetEvent('a1', 'tool.executed', {
+        name: 'read',
+        ok: true,
+        durationMs: 42,
+        iteration: 1,
+      }),
+    );
 
     expect(timelineEntries).toHaveLength(2);
     expect(timelineEntries[0].kind).toBe('tool_use');
@@ -196,7 +209,9 @@ describe('AgentMonitorService', () => {
   it('ignores events from unknown subagents', () => {
     monitor.start();
     // Emit before trackSubagent — should be silently dropped
-    fleetBus.emit(makeFleetEvent('unknown', 'provider.text_delta', { text: 'should not appear', iteration: 0 }));
+    fleetBus.emit(
+      makeFleetEvent('unknown', 'provider.text_delta', { text: 'should not appear', iteration: 0 }),
+    );
 
     expect(timelineEntries).toHaveLength(0);
     expect(monitor.getSession('unknown')).toBeUndefined();
@@ -224,7 +239,9 @@ describe('AgentMonitorService', () => {
     monitor.trackSubagent('a1', 'Agent 1');
 
     for (let i = 0; i < 10; i++) {
-      fleetBus.emit(makeFleetEvent('a1', 'provider.text_delta', { text: `msg ${i}`, iteration: i }));
+      fleetBus.emit(
+        makeFleetEvent('a1', 'provider.text_delta', { text: `msg ${i}`, iteration: i }),
+      );
     }
 
     const transcript = monitor.getTranscript('a1', 3);
@@ -241,7 +258,9 @@ describe('AgentMonitorService', () => {
 
     // Emit more events than the ring buffer size
     for (let i = 0; i < 60; i++) {
-      fleetBus.emit(makeFleetEvent('a1', 'provider.text_delta', { text: `msg ${i}`, iteration: i }));
+      fleetBus.emit(
+        makeFleetEvent('a1', 'provider.text_delta', { text: `msg ${i}`, iteration: i }),
+      );
     }
 
     const session = monitor.getSession('a1');
@@ -261,7 +280,9 @@ describe('AgentMonitorService', () => {
     monitor.trackSubagent('a1', 'Agent 1');
     monitor.setStreamEnabled(false);
 
-    fleetBus.emit(makeFleetEvent('a1', 'provider.text_delta', { text: 'stream off', iteration: 0 }));
+    fleetBus.emit(
+      makeFleetEvent('a1', 'provider.text_delta', { text: 'stream off', iteration: 0 }),
+    );
 
     // Stream is off, but the entry still appears in the transcript
     const session = monitor.getSession('a1');
@@ -281,7 +302,9 @@ describe('AgentMonitorService', () => {
     monitor.start();
     monitor.trackSubagent('a1', 'Agent 1');
 
-    fleetBus.emit(makeFleetEvent('a1', 'provider.text_delta', { text: 'persisted entry', iteration: 0 }));
+    fleetBus.emit(
+      makeFleetEvent('a1', 'provider.text_delta', { text: 'persisted entry', iteration: 0 }),
+    );
 
     // Wait for async file write
     await waitForEvents(100);
@@ -305,8 +328,12 @@ describe('AgentMonitorService', () => {
     monitor.trackSubagent('agent-a', 'A');
     monitor.trackSubagent('agent-b', 'B');
 
-    fleetBus.emit(makeFleetEvent('agent-a', 'provider.text_delta', { text: 'from a', iteration: 0 }));
-    fleetBus.emit(makeFleetEvent('agent-b', 'provider.text_delta', { text: 'from b', iteration: 0 }));
+    fleetBus.emit(
+      makeFleetEvent('agent-a', 'provider.text_delta', { text: 'from a', iteration: 0 }),
+    );
+    fleetBus.emit(
+      makeFleetEvent('agent-b', 'provider.text_delta', { text: 'from b', iteration: 0 }),
+    );
 
     await waitForEvents(50);
 
@@ -315,8 +342,14 @@ describe('AgentMonitorService', () => {
     const fileA = path.join(dirA, 'transcript.jsonl');
     const fileB = path.join(dirB, 'transcript.jsonl');
 
-    const dirAExists = await fsp.stat(dirA).then(() => true).catch(() => false);
-    const dirBExists = await fsp.stat(dirB).then(() => true).catch(() => false);
+    const dirAExists = await fsp
+      .stat(dirA)
+      .then(() => true)
+      .catch(() => false);
+    const dirBExists = await fsp
+      .stat(dirB)
+      .then(() => true)
+      .catch(() => false);
     expect(dirAExists).toBe(true);
     expect(dirBExists).toBe(true);
 

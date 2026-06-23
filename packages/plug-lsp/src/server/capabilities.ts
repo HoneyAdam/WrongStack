@@ -4,6 +4,10 @@ export function supportsHover(cap: ServerCapabilities): boolean {
   return !!cap.hoverProvider;
 }
 
+export function supportsCompletion(cap: ServerCapabilities): boolean {
+  return !!cap.completionProvider;
+}
+
 export function supportsDefinition(cap: ServerCapabilities): boolean {
   return !!cap.definitionProvider;
 }

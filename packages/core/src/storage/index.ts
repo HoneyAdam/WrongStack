@@ -3,6 +3,7 @@ export {
   DefaultSessionStore,
   type SessionStoreOptions,
 } from './session-store.js';
+export { generateSessionId, sanitizeModel } from './session-id.js';
 export {
   QueueStore,
   type PersistedQueueItem,

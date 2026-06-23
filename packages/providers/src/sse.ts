@@ -1,3 +1,5 @@
+import { isNodeReadable } from './object-utils.js';
+
 /**
  * Minimal Server-Sent Events parser for HTTP streaming responses.
  *
@@ -127,13 +129,4 @@ function splitBuffer(buf: string): { lines: string[]; tail: string } {
   const tail = parts.pop() ?? '';
   const lines = parts.map((p) => (p.endsWith('\r') ? p.slice(0, -1) : p));
   return { lines, tail };
-}
-
-function isNodeReadable(b: unknown): boolean {
-  return (
-    !!b &&
-    typeof b === 'object' &&
-    typeof (b as { pipe?: unknown | undefined }).pipe === 'function' &&
-    typeof (b as { on?: unknown | undefined }).on === 'function'
-  );
 }

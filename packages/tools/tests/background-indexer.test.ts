@@ -225,6 +225,19 @@ describe('UNIQUE constraint auto-recovery', () => {
     expect(secondCallArgs).toMatchObject({ force: true });
   });
 
+  it('retries with force=true on generic SQLite constraint failure', async () => {
+    // better-sqlite3 can surface some constraint failures without the table
+    // name detail. Treat this like the UNIQUE form: wipe/rebuild the index DB.
+    runIndexerMock.mockRejectedValueOnce(new Error('constraint failed'));
+    runIndexerMock.mockResolvedValueOnce(OK_RESULT);
+
+    const result = await runStartupIndex({ projectRoot: '/proj' });
+
+    expect(result).toMatchObject({ filesIndexed: 1 });
+    expect(runIndexerMock).toHaveBeenCalledTimes(2);
+    expect(runIndexerMock.mock.calls[1]?.[1]).toMatchObject({ force: true });
+  });
+
   it('does not retry if force=true already (prevents infinite recursion)', async () => {
     // Even with force=true, if it fails, it should not retry again
     runIndexerMock.mockRejectedValueOnce(new Error('UNIQUE constraint failed: symbols.id'));

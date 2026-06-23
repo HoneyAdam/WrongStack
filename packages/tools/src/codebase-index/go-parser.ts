@@ -7,19 +7,19 @@
  * Extracts: package, func, type, const, var
  */
 
-import { execFileSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import * as fs from 'node:fs/promises';
 import type { FileSymbols, Symbol as IndexSymbol, SymbolLang } from './schema.js';
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
-export function parseSymbols(opts: { file: string; content: string; lang: SymbolLang }): FileSymbols {
+export async function parseSymbols(opts: { file: string; content: string; lang: SymbolLang }): Promise<FileSymbols> {
   const { file, content, lang } = opts;
 
   try {
-    return syncGoParse(file, content, lang);
+    return await syncGoParse(file, content, lang);
   } catch {
     /* v8 ignore next -- syncGoParse has its own catch; this outer guard is defensive. */
     return { file, lang, symbols: [], mtimeMs: Date.now() };
@@ -263,7 +263,7 @@ func formatType(t ast.Expr) string {
 }
 `;
 
-function syncGoParse(filePath: string, content: string, lang: SymbolLang): FileSymbols {
+async function syncGoParse(filePath: string, content: string, lang: SymbolLang): Promise<FileSymbols> {
 	// Feed the source over stdin — never pass the target .go file as a CLI arg.
 	// `go run script.go target.go` makes the toolchain treat target.go as a
 	// second package file ("named files must all be in one directory") and
@@ -271,20 +271,32 @@ function syncGoParse(filePath: string, content: string, lang: SymbolLang): FileS
 	// us parse the in-memory content without touching disk.
 	const tmpDir = path.join(os.tmpdir(), 'ws-go-parse');
 	try {
-		mkdirSync(tmpDir, { recursive: true });
+		await fs.mkdir(tmpDir, { recursive: true });
 		const scriptPath = path.join(tmpDir, 'parse.go');
-		writeFileSync(scriptPath, GO_PARSE_SCRIPT, 'utf8');
+		await fs.writeFile(scriptPath, GO_PARSE_SCRIPT, 'utf8');
 
 		// argv-array form (no shell): avoids any quoting/metachar issues in the
 		// temp script path. The target source is fed via stdin, not as an arg.
-		const stdout = execFileSync('go', ['run', scriptPath], {
-			input: content,
-			timeout: 15_000,
-			encoding: 'utf8',
+		const proc = spawn('go', ['run', scriptPath], {
+			stdio: ['pipe', 'pipe', 'pipe'],
 			windowsHide: true,
 		});
 
-		if (!stdout.trim()) {
+		let stdout = '';
+		proc.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
+
+		// Write source via stdin so `go run` receives it without touching disk
+		proc.stdin?.write(content);
+		proc.stdin?.end();
+
+		const { code } = await Promise.race([
+			new Promise<{ code: number | null }>((resolve) => { proc.on('close', (c) => resolve({ code: c })); }),
+			new Promise<{ code: number | null }>((_, reject) =>
+				setTimeout(() => { proc.kill('SIGKILL'); reject(new Error('timeout')); }, 15_000)
+			),
+		]).catch(() => ({ code: -1 }));
+
+		if (code !== 0 || !stdout.trim()) {
 			return { file: filePath, lang, symbols: [], mtimeMs: Date.now() };
 		}
 

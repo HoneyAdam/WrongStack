@@ -9,6 +9,10 @@ describe('auto phase store', () => {
       overallPercent: 0,
       autonomous: false,
       title: null,
+      status: 'idle',
+      lastEvent: null,
+      lastError: null,
+      progress: null,
     });
   });
 
@@ -19,10 +23,23 @@ describe('auto phase store', () => {
 
   it('setState preserves unspecified fields', () => {
     useAutoPhaseStore.setState({ phases: [{ id: 'p1', label: 'Thinking', status: 'active' }], autonomous: true });
-    useAutoPhaseStore.getState().setState({ title: 'My Title' });
+    useAutoPhaseStore.getState().setState({ title: 'My Title', status: 'running' });
     // autonomous should still be true (not reset)
     expect(useAutoPhaseStore.getState().title).toBe('My Title');
     expect(useAutoPhaseStore.getState().autonomous).toBe(true);
+    expect(useAutoPhaseStore.getState().status).toBe('running');
+  });
+
+  it('stores lifecycle and progress metadata', () => {
+    useAutoPhaseStore.getState().setState({
+      status: 'running',
+      lastEvent: 'progress',
+      progress: { totalPhases: 4, completed: 2, failed: 0, totalTasks: 8, completedTasks: 3, failedTasks: 0 },
+    });
+    const s = useAutoPhaseStore.getState();
+    expect(s.status).toBe('running');
+    expect(s.lastEvent).toBe('progress');
+    expect(s.progress?.completedTasks).toBe(3);
   });
 
   it('clear resets all fields', () => {
@@ -32,6 +49,10 @@ describe('auto phase store', () => {
       overallPercent: 50,
       autonomous: true,
       title: 'Test',
+      status: 'failed',
+      lastEvent: 'failed',
+      lastError: 'boom',
+      progress: { totalPhases: 1, completed: 0, failed: 1, totalTasks: 2, completedTasks: 1, failedTasks: 1 },
     });
     useAutoPhaseStore.getState().clear();
     const s = useAutoPhaseStore.getState();
@@ -40,5 +61,9 @@ describe('auto phase store', () => {
     expect(s.overallPercent).toBe(0);
     expect(s.autonomous).toBe(false);
     expect(s.title).toBeNull();
+    expect(s.status).toBe('idle');
+    expect(s.lastEvent).toBeNull();
+    expect(s.lastError).toBeNull();
+    expect(s.progress).toBeNull();
   });
 });

@@ -13,6 +13,7 @@ import { parseToolInput } from '../_tool-input.js';
 import { capabilitiesForFamily } from '../family-capabilities.js';
 import { messagesToOpenAI, toolsToOpenAI } from '../tool-format/to-openai.js';
 import { defineWireFormat } from '../wire-format.js';
+import { stripCacheControl } from '../object-utils.js';
 
 interface MistralStreamState {
   model: string;
@@ -165,12 +166,4 @@ function mapStopReason(reason: string): StopReason {
     default:
       return 'end_turn';
   }
-}
-
-function stripCacheControl(system: Request['system']): Request['system'] {
-  if (!system) return undefined;
-  return system.map((b) => {
-    const { cache_control: _cc, ...rest } = b;
-    return rest;
-  });
 }

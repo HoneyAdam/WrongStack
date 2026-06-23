@@ -27,6 +27,7 @@ const KIND_ICONS: Record<FleetTimelineEvent['kind'], string> = {
   task_started: '▶',
   tool_executed: '⚡',
   iteration_summary: '🔄',
+  budget_warning: '!',
   budget_extended: '⚡',
   task_completed: '✅',
   ctx_pct: '💬',

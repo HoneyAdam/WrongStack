@@ -206,6 +206,7 @@ export {
 export {
   ENHANCER_SYSTEM_PROMPT,
   shouldEnhance,
+  gatedEnhancerReasoning,
   normalizedEqual,
   enhanceUserPrompt,
   recentTextTurns,
@@ -383,6 +384,7 @@ export {
 export {
   CollaborationBus,
   type CollabBusState,
+  type ConsumedInjectionInfo,
 } from './coordination/collab-bus.js';
 // ── Mailbox — inter-agent messaging ──────────────────────────────────────
 export { DefaultMailbox } from './coordination/mailbox.js';

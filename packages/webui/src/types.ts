@@ -115,12 +115,59 @@ export interface WSIterationCompleted {
   };
 }
 
+export interface WSIterationLimitReached {
+  type: 'iteration.limit_reached';
+  payload: {
+    currentIterations: number;
+    currentLimit: number;
+  };
+}
+
 export interface WSProviderResponse {
   type: 'provider.response';
   payload: {
     usage: Usage;
     stopReason: string;
     messageId: string;
+  };
+}
+
+export interface WSProviderRetry {
+  type: 'provider.retry';
+  payload: {
+    providerId: string;
+    attempt: number;
+    delayMs: number;
+    status: number;
+    description: string;
+  };
+}
+
+export interface WSProviderError {
+  type: 'provider.error';
+  payload: {
+    providerId: string;
+    status: number;
+    description: string;
+    retryable: boolean;
+  };
+}
+
+export interface WSProviderFallback {
+  type: 'provider.fallback';
+  payload: {
+    from: { providerId: string; model: string };
+    to: { providerId: string; model: string };
+    status: number;
+    providerSwitched: boolean;
+  };
+}
+
+export interface WSProviderStreamError {
+  type: 'provider.stream_error';
+  payload: {
+    eventType: string;
+    message: string;
   };
 }
 
@@ -177,6 +224,49 @@ export interface WSToolConfirmResult {
   };
 }
 
+export interface WSTrustPersisted {
+  type: 'trust.persisted';
+  payload: {
+    tool: string;
+    pattern: string;
+    decision: 'always' | 'deny';
+  };
+}
+
+export interface WSToolLoopDetected {
+  type: 'tool.loop_detected';
+  payload: {
+    tools: string;
+    repeatCount: number;
+    iteration: number;
+    kind?: 'tool' | 'message' | 'mixed' | undefined;
+  };
+}
+
+export interface WSDelegateStarted {
+  type: 'delegate.started';
+  payload: {
+    target: string;
+    task: string;
+  };
+}
+
+export interface WSDelegateCompleted {
+  type: 'delegate.completed';
+  payload: {
+    target: string;
+    task: string;
+    ok: boolean;
+    status?: string | undefined;
+    summary: string;
+    durationMs: number;
+    iterations: number;
+    toolCalls: number;
+    costUsd?: number | undefined;
+    subagentId?: string | undefined;
+  };
+}
+
 export interface WSModelSwitch {
   type: 'model.switch';
   payload: {
@@ -222,6 +312,19 @@ export interface WSContextCompacted {
   };
 }
 
+export interface WSCompactionFailed {
+  type: 'compaction.failed';
+  payload: {
+    message: string;
+    aggressive: boolean;
+    level: 'warn' | 'soft' | 'hard';
+    tokens: number;
+    maxContext: number;
+    load: number;
+    fatal: boolean;
+  };
+}
+
 export interface WSContextRepaired {
   type: 'context.repaired';
   payload: {
@@ -230,6 +333,39 @@ export interface WSContextRepaired {
     removedMessages: number;
     beforeMessages?: number | undefined;
     afterMessages?: number | undefined;
+  };
+}
+
+export interface WSContextPct {
+  type: 'ctx.pct';
+  payload: {
+    load: number;
+    tokens: number;
+    maxContext: number;
+  };
+}
+
+export interface WSContextMaxContext {
+  type: 'ctx.max_context';
+  payload: {
+    providerId: string;
+    modelId: string;
+    maxContext: number;
+  };
+}
+
+export interface WSTokenThreshold {
+  type: 'token.threshold';
+  payload: {
+    used: number;
+    limit: number;
+  };
+}
+
+export interface WSTokenCostEstimateUnavailable {
+  type: 'token.cost_estimate_unavailable';
+  payload: {
+    model: string;
   };
 }
 
@@ -509,6 +645,60 @@ export interface WSFilesList {
   };
 }
 
+export type CompletionItemKind =
+  | 'text'
+  | 'method'
+  | 'function'
+  | 'constructor'
+  | 'field'
+  | 'variable'
+  | 'class'
+  | 'interface'
+  | 'module'
+  | 'property'
+  | 'unit'
+  | 'value'
+  | 'enum'
+  | 'keyword'
+  | 'snippet'
+  | 'file'
+  | 'reference';
+
+export interface WSCompletionRequest {
+  type: 'completion.request';
+  payload: {
+    requestId: string;
+    filePath: string;
+    language: string;
+    lineNumber: number;
+    column: number;
+    content?: string | undefined;
+    prefix: string;
+    suffix?: string | undefined;
+    triggerCharacter?: string | undefined;
+    triggerKind?: number | undefined;
+    allowLlm?: boolean | undefined;
+  };
+}
+
+export interface WSCompletionResult {
+  type: 'completion.result';
+  payload: {
+    requestId: string;
+    filePath: string;
+    items: Array<{
+      label: string;
+      insertText: string;
+      kind?: CompletionItemKind | undefined;
+      detail?: string | undefined;
+      documentation?: string | undefined;
+      sortText?: string | undefined;
+      source?: 'llm' | 'index' | 'lsp' | undefined;
+    }>;
+    error?: string | undefined;
+  };
+}
+
 export interface WSTodosUpdated {
   type: 'todos.updated';
   payload: {
@@ -519,6 +709,11 @@ export interface WSTodosUpdated {
       activeForm?: string | undefined;
     }>;
   };
+}
+
+export interface WSTodosCleared {
+  type: 'todos.cleared';
+  payload?: Record<string, never>;
 }
 
 export interface WSModesList {
@@ -538,6 +733,59 @@ export interface WSModesList {
 export interface WSAutoPhaseState {
   type: 'autophase.state';
   payload: Record<string, unknown>;
+}
+
+export interface WSAutoPhaseProgress {
+  type: 'autophase.progress';
+  payload: Record<string, unknown>;
+}
+
+export interface WSAutoPhaseLifecycle {
+  type:
+    | 'autophase.paused'
+    | 'autophase.resumed'
+    | 'autophase.stopped'
+    | 'autophase.saved'
+    | 'autophase.completed'
+    | 'autophase.failed'
+    | 'autophase.error';
+  payload: Record<string, unknown>;
+}
+
+export interface WSAutoPhaseList {
+  type: 'autophase.list';
+  payload: { graphs: unknown[] };
+}
+
+export interface WSEternalIteration {
+  type: 'eternal.iteration';
+  payload: { entry: Record<string, unknown> };
+}
+
+export interface WSAgentTimelineMessage {
+  type: 'agent.timeline.message';
+  payload: {
+    subagentId: string;
+    agentName: string;
+    content: string;
+    kind: 'text' | 'tool_use' | 'error' | 'status';
+    iteration: number;
+    ts: string;
+    toolName?: string | undefined;
+    costUsd?: number | undefined;
+  };
+}
+
+export interface WSAgentStatusChanged {
+  type: 'agent.status_changed';
+  payload: {
+    subagentId: string;
+    agentName: string;
+    status: 'spawned' | 'running' | 'completed' | 'failed' | 'timeout' | 'stopped' | 'budget_exhausted';
+    ts: string;
+    summary?: string | undefined;
+    task?: string | undefined;
+  };
 }
 
 /** One worktree lane in the swim-lane / DAG view. */
@@ -583,6 +831,10 @@ export type WSClientMessage =
   | { type: 'autophase.pause'; payload: Record<string, never> }
   | { type: 'autophase.resume'; payload: Record<string, never> }
   | { type: 'autophase.stop'; payload: Record<string, never> }
+  | { type: 'autophase.status'; payload?: Record<string, never> }
+  | { type: 'autophase.save'; payload?: Record<string, never> }
+  | { type: 'autophase.list'; payload?: Record<string, never> }
+  | { type: 'autophase.load'; payload: { graphId: string } }
   | { type: 'autophase.toggleAutonomous'; payload: { autonomous?: boolean | undefined } }
   | { type: 'autophase.selectPhase'; payload: { phaseId: string } }
   | { type: 'autophase.taskStatus'; payload: { taskId: string; status: string } }
@@ -643,6 +895,7 @@ export type WSClientMessage =
   | { type: 'files.tree'; payload: { path?: string | undefined } | Record<string, never> }
   | { type: 'files.read'; payload: { filePath: string } }
   | { type: 'files.write'; payload: { filePath: string; content: string } }
+  | WSCompletionRequest
   | { type: 'todos.get' }
   | { type: 'todos.clear' }
   | { type: 'todos.remove'; payload: { id?: string | undefined; index?: number | undefined } }
@@ -721,14 +974,28 @@ export type WSServerMessage =
   | WSToolExecuted
   | WSIterationStarted
   | WSIterationCompleted
+  | WSIterationLimitReached
   | WSProviderResponse
+  | WSProviderRetry
+  | WSProviderError
+  | WSProviderFallback
+  | WSProviderStreamError
   | WSRunResult
   | WSSessionStats
   | WSError
   | WSToolConfirmNeeded
+  | WSTrustPersisted
+  | WSToolLoopDetected
+  | WSDelegateStarted
+  | WSDelegateCompleted
   | WSContextDebug
   | WSContextCompacted
+  | WSCompactionFailed
   | WSContextRepaired
+  | WSContextPct
+  | WSContextMaxContext
+  | WSTokenThreshold
+  | WSTokenCostEstimateUnavailable
   | WSContextModesList
   | WSContextModeChanged
   | WSToolsList
@@ -753,11 +1020,20 @@ export type WSServerMessage =
   | { type: 'files.tree'; payload: { root: string; tree: unknown[]; error?: string | undefined } }
   | { type: 'files.read'; payload: { filePath: string; content: string; error?: string | undefined } }
   | { type: 'files.written'; payload: { filePath: string; success: boolean; error?: string | undefined } }
+  | WSCompletionResult
   | WSTodosUpdated
+  | WSTodosCleared
   | { type: 'tasks.updated'; payload: { tasks: unknown[]; error?: string | undefined } }
   | { type: 'plan.updated'; payload: { plan: unknown | null; error?: string | undefined } }
   | WSModesList
   | WSAutoPhaseState
+  | WSAutoPhaseProgress
+  | WSAutoPhaseLifecycle
+  | WSAutoPhaseList
+  | WSEternalIteration
+  | WSAgentTimelineMessage
+  | WSAgentStatusChanged
+  | { type: 'subagent.event'; payload: Record<string, unknown> & { kind: string } }
   | WSWorktreeState
   | WSWorktreeEvent
   | WSCollabState
@@ -772,6 +1048,11 @@ export type WSServerMessage =
   | { type: 'session.checkpoints'; payload: { checkpoints: Array<{ index: number; iteration: number; timestamp: string; label: string; messageCount: number; tokens: number }> } }
   | { type: 'goal.updated'; payload: Record<string, unknown> | null }
   | { type: 'prefs.updated'; payload: Record<string, unknown> }
+  | { type: 'client.status_update'; payload: Record<string, unknown> }
+  | { type: 'sessions.status_update'; payload: { sessions: unknown[] } }
+  | { type: 'mailbox.event'; payload: Record<string, unknown> & { event: string } }
+  | { type: 'mailbox.received'; payload: Record<string, unknown> }
+  | { type: 'mailbox.agent_registered'; payload: Record<string, unknown> }
   | { type: 'process.list'; payload: { processes: Array<{ pid: number; command: string; tool: string; startedAt: number; status: 'running' | 'exited' | 'killed'; protected?: boolean | undefined }> } }
   | { type: 'git.info'; payload: { branch: string; added: number; deleted: number; untracked: number; behind: number; ahead: number } }
   | { type: 'git.changes'; payload: { files: Array<{ path: string; status: string; added: number; deleted: number; staged: boolean }>; error?: string | undefined } }
@@ -783,10 +1064,16 @@ export type WSServerMessage =
   | { type: 'brain.status'; payload: { maxAutoRisk: string; log: Array<{ at: number; kind: string; question: string; outcome: string }> } }
   | { type: 'brain.answer'; payload: { question: string; decision: { type: string; optionId?: string | undefined; text?: string | undefined; rationale?: string | undefined; reason?: string | undefined; prompt?: string | undefined } } }
   | { type: 'brain.event'; payload: Record<string, unknown> & { event: string } }
+  | { type: 'session.damaged'; payload: { sessionId: string; detail: string } }
+  | { type: 'session.rewound'; payload: { toPromptIndex: number; revertedFiles: string[]; removedEvents: number } }
+  | { type: 'checkpoint.written'; payload: { promptIndex: number; promptPreview: string; ts: string; fileCount: number } }
+  | { type: 'in_flight.started'; payload: { context: string; ts: string } }
+  | { type: 'in_flight.ended'; payload: { reason: 'clean' | 'aborted' | 'recovered'; ts: string } }
   | { type: 'model.refine_result'; payload: { refined: string; english: string; error?: string | undefined } }
   // ── Coordinator / autonomous fleet events ──────────────────────────────
   | { type: 'coordinator.status'; payload: { status: 'idle' | 'running' | 'draining' | 'stopped'; mode?: string; subagentCount?: number; taskQueue?: { pending: number; running: number; completed: number; failed: number } } }
   | { type: 'coordinator.stats'; payload: { total: number; running: number; idle: number; stopped: number; inFlight: number; pending: number; completed: number; subagentStatuses?: Array<{ id: string; name: string; status: string; currentTask?: string }> } }
+  | { type: 'fleet.concurrency_update'; payload: { fleetConcurrency: number; fleetConcurrencyMax: number } }
   | { type: 'budget.threshold_reached'; payload: { subagentId: string; taskId?: string; ts: number; kind: string; used: number; limit: number; timeoutMs: number } }
   | { type: 'budget.decision'; payload: { subagentId: string; kind: string; decision: 'extend' | 'deny'; extended?: { timeoutMs?: number; maxIterations?: number; maxToolCalls?: number } } }
   | { type: 'subagent.budget_extended'; payload: { subagentId: string; kind: string; extendedMs?: number; extendedTo?: number } }
@@ -805,9 +1092,13 @@ export type WSServerMessage =
   | { type: 'mcp.server.discovered'; payload: { name: string; tools: string[] } }
   | { type: 'mcp.server.sleeping'; payload: { name: string } }
   | { type: 'mcp.server.waking'; payload: { name: string } }
-  | { type: 'mcp.server.connected'; payload: { name: string; pid?: number } }
+  | { type: 'mcp.server.connected'; payload: { name: string; pid?: number; toolCount?: number } }
+  | { type: 'mcp.server.reconnected'; payload: { name: string; toolCount: number } }
+  | { type: 'mcp.server.disconnected'; payload: { name: string; reason: string } }
   | { type: 'mcp.server.error'; payload: { name: string; error: string } }
   | { type: 'mcp.operation_result'; payload: { success: boolean; message: string } }
+  | { type: 'mailbox.cleared'; payload: { error?: string | undefined } }
+  | { type: 'mailbox.purged'; payload: Record<string, unknown> & { error?: string | undefined } }
   // ── Integrated terminal (node-pty) server events ──────────────────────────────
   | { type: 'terminal.output'; payload: { id: string; data: string } }
   | { type: 'terminal.exit'; payload: { id: string; exitCode: number; signal?: number | undefined } };

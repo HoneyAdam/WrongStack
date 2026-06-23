@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { defaultWsUrl } from '@/lib/ws-client-utils';
 
 // ============================================
 // Config Store
@@ -43,16 +44,7 @@ export const useConfigStore = create<ConfigState>()(
     (set) => ({
       provider: 'anthropic',
       model: 'claude-sonnet-4-20250514',
-      wsUrl: (() => {
-        if (typeof window === 'undefined' || !window.location?.hostname) {
-          return 'ws://127.0.0.1:3457';
-        }
-        const h = window.location.hostname.toLowerCase();
-        if (h === 'localhost' || h === '127.0.0.1' || h === '[::1]' || h === '::1') {
-          return 'ws://127.0.0.1:3457';
-        }
-        return `ws://${window.location.hostname}:3457`;
-      })(),
+      wsUrl: defaultWsUrl(),
       wsConnected: false,
       wsStatus: { state: 'connecting' },
       theme: 'system',
@@ -68,6 +60,22 @@ export const useConfigStore = create<ConfigState>()(
     }),
     {
       name: 'wrongstack-config',
+      partialize: (state) => ({
+        provider: state.provider,
+        model: state.model,
+        baseUrl: state.baseUrl,
+        apiKey: state.apiKey,
+        theme: state.theme,
+        autoConnect: state.autoConnect,
+        soundOnComplete: state.soundOnComplete,
+      }),
+      merge: (persisted, current) => ({
+        ...current,
+        ...(persisted as Partial<ConfigState> | undefined),
+        wsUrl: defaultWsUrl(),
+        wsConnected: false,
+        wsStatus: { state: 'connecting' },
+      }),
     },
   ),
 );

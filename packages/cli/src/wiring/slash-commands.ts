@@ -49,6 +49,12 @@ export interface SlashCommandsDeps {
     visible: boolean;
     setVisible: (visible: boolean) => void;
   };
+  /** Tracks the active Shadow Agent subagent id. Set after spawn; cleared on terminate. */
+  shadowController?: {
+    activeId: string | null;
+    register(id: string): void;
+    clear(): void;
+  };
   /** Agent Monitor Service — subagent conversation tracking and HQ streaming. */
   agentMonitor?: import('@wrongstack/core/coordination').AgentMonitorService | undefined;
   compactor: {
@@ -94,6 +100,7 @@ export async function setupSlashCommands(params: SlashCommandsDeps): Promise<voi
     multiAgentHost,
     fleetStreamController,
     agentsMonitorController,
+    shadowController,
     compactor,
     configStore,
     onNewSession,
@@ -151,9 +158,13 @@ export async function setupSlashCommands(params: SlashCommandsDeps): Promise<voi
     statuslineHiddenItems: [...currentHiddenItems],
     setStatuslineHiddenItems,
     agentsMonitorController,
+    shadowController,
     agentMonitor: params.agentMonitor,
     onSpawn: async (description, spawnOpts) => {
       const { subagentId, taskId } = await multiAgentHost.spawn(description, spawnOpts);
+      if (shadowController && spawnOpts?.name === 'shadow') {
+        shadowController.register(subagentId);
+      }
       const tags: string[] = [];
       if (spawnOpts?.provider) tags.push(spawnOpts.provider);
       if (spawnOpts?.model) tags.push(spawnOpts.model);

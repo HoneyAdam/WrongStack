@@ -34,12 +34,16 @@ function resetStore() {
     fileExplorerWidth: 260,
     refineEnabled: false,
     dockSection: null,
+    workDashboardTab: 'todos',
+    dockCustomizeOpen: false,
     fleetMonitorOpen: false,
     agentsMonitorOpen: false,
     inspectorOpen: false,
     inspectorTab: 'fleet' as const,
     processMonitorOpen: false,
     queuePanelOpen: false,
+    terminalOpen: false,
+    selectedMailMessage: null,
     skillsState: {
       selectedSkill: null,
       navHistory: [],
@@ -136,6 +140,24 @@ describe('dockSection', () => {
     useUIStore.getState().toggleDockSection('autophase');
     expect(useUIStore.getState().dockSection).toBe('autophase');
     useUIStore.getState().setDockSection(null);
+  });
+});
+
+describe('workDashboardTab', () => {
+  it('switches between work tabs', () => {
+    useUIStore.getState().setWorkDashboardTab('plan');
+    expect(useUIStore.getState().workDashboardTab).toBe('plan');
+    useUIStore.getState().setWorkDashboardTab('todos');
+    expect(useUIStore.getState().workDashboardTab).toBe('todos');
+  });
+});
+
+describe('dockCustomizeOpen', () => {
+  it('opens and closes the dock customization menu', () => {
+    useUIStore.getState().setDockCustomizeOpen(true);
+    expect(useUIStore.getState().dockCustomizeOpen).toBe(true);
+    useUIStore.getState().setDockCustomizeOpen(false);
+    expect(useUIStore.getState().dockCustomizeOpen).toBe(false);
   });
 });
 

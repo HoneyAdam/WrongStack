@@ -127,6 +127,8 @@ export function WorkspaceDock({ sessionId }: { sessionId: string }) {
   const setCurrentView = useUIStore((s) => s.setCurrentView);
   const hiddenChips = useUIStore((s) => s.hiddenChips);
   const toggleChipHidden = useUIStore((s) => s.toggleChipHidden);
+  const dockCustomizeOpen = useUIStore((s) => s.dockCustomizeOpen);
+  const setDockCustomizeOpen = useUIStore((s) => s.setDockCustomizeOpen);
 
   const goal = useGoalStore((s) => s.goal);
   const autoPhase = useAutoPhaseStore((s) => s);
@@ -299,7 +301,7 @@ export function WorkspaceDock({ sessionId }: { sessionId: string }) {
         />
 
         {/* Chip customization menu — TUI F12 status-line picker parity. */}
-        <DropdownMenu>
+        <DropdownMenu open={dockCustomizeOpen} onOpenChange={setDockCustomizeOpen}>
           <DropdownMenuTrigger asChild>
             <button
               type="button"

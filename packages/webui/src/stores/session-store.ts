@@ -73,6 +73,7 @@ interface SessionState {
     cacheReadCost?: number | undefined;
   }) => void;
   setIteration: (it: { index: number; max: number } | null) => void;
+  setContextUsage: (tokens: number, maxContext?: number | undefined) => void;
   setModes: (modes: Array<{ id: string; name: string; description: string }>) => void;
   setContextModes: (modes: SessionState['contextModes']) => void;
   setTodos: (todos: SessionState['todos']) => void;
@@ -151,6 +152,11 @@ export const useSessionStore = create<SessionState>()(
         })),
 
       setIteration: (iteration) => set({ iteration }),
+      setContextUsage: (tokens, maxContext) =>
+        set((state) => ({
+          lastInputTokens: tokens,
+          maxContext: maxContext ?? state.maxContext,
+        })),
       setModes: (modes) => set({ modes }),
       setContextModes: (contextModes) => set({ contextModes }),
       setTodos: (todos) => set({ todos }),

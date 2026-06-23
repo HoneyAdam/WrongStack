@@ -1,10 +1,9 @@
-import type { Capabilities } from '@wrongstack/core';
-import { type ProviderError } from '@wrongstack/core';
+import type { Capabilities, ProviderError } from '@wrongstack/core';
 import { parseProviderHttpError } from './error-parse.js';
-import { googleWireFormat } from './presets/google.js';
 import type { GoogleStreamState } from './presets/google.js';
-import { WireFormatProvider } from './wire-format.js';
+import { googleWireFormat } from './presets/google.js';
 import type { WireAdapterStreamOptions } from './wire-adapter.js';
+import { WireFormatProvider } from './wire-format.js';
 
 export interface GoogleProviderOptions {
   apiKey: string;

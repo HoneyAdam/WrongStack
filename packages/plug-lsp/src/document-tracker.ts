@@ -89,6 +89,14 @@ export class DocumentTracker {
       };
       this.docs.set(absPath, doc);
       this.events?.emit('lsp.document.opened', { path: absPath, language: languageId });
+    } else if (knownText !== undefined && knownText !== doc.text) {
+      doc.version++;
+      doc.text = knownText;
+      for (const server of this.registry().list()) {
+        if (server.state !== 'ready' || !server.config.languages.includes(languageId)) continue;
+        if (!doc.serverNames.has(server.name)) continue;
+        server.notifyDidChange({ uri: doc.uri, version: doc.version }, knownText);
+      }
     }
     for (const server of this.registry().list()) {
       if (server.state !== 'ready' || !server.config.languages.includes(languageId)) continue;

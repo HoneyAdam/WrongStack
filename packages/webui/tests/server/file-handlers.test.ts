@@ -190,11 +190,13 @@ describe('file handlers integration', () => {
     it('writes file successfully', async () => {
       const { handleFilesWrite } = await import('../../src/server/file-handlers.js');
       const ws = createMockWs();
+      const onWritten = vi.fn();
 
       await handleFilesWrite(
         ws,
         { type: 'files.write', payload: { filePath: 'new-file.txt', content: 'test content' } },
-        tempDir
+        tempDir,
+        { onWritten },
       );
 
       expect(ws.sent).toHaveLength(1);
@@ -204,6 +206,7 @@ describe('file handlers integration', () => {
       // Verify file was written
       const content = fsSync.readFileSync(path.join(tempDir, 'new-file.txt'), 'utf8');
       expect(content).toBe('test content');
+      expect(onWritten).toHaveBeenCalledWith(path.join(tempDir, 'new-file.txt'));
     });
 
     it('returns error for path traversal', async () => {

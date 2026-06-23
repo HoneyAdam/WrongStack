@@ -7,19 +7,19 @@
  * Extracts: class, function, async function, const, var, import, import_from
  */
 
-import { execFileSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { FileSymbols, Symbol as IndexSymbol, SymbolLang } from './schema.js';
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
-export function parseSymbols(opts: { file: string; content: string; lang: SymbolLang }): FileSymbols {
+export async function parseSymbols(opts: { file: string; content: string; lang: SymbolLang }): Promise<FileSymbols> {
   const { file, lang } = opts;
 
   try {
-    return syncPyParse(file, lang);
+    return await syncPyParse(file, lang);
   } catch {
     /* v8 ignore next -- syncPyParse has its own catch; this outer guard is defensive. */
     return { file, lang, symbols: [], mtimeMs: Date.now() };
@@ -237,26 +237,35 @@ print(json.dumps([s.to_dict() for s in syms]))
 
 // ─── Synchronous Python parse via child process ─────────────────────────────
 
-function syncPyParse(filePath: string, lang: SymbolLang): FileSymbols {
+async function syncPyParse(filePath: string, lang: SymbolLang): Promise<FileSymbols> {
 	try {
 		// Write the parser to a temp .py and run it as a script. Passing the
 		// whole 200-line program via `python -c "..."` breaks under cmd.exe on
 		// Windows (embedded newlines truncate the command), so the child saw a
 		// mangled script and emitted nothing. A real file sidesteps all quoting.
 		const tmpDir = path.join(os.tmpdir(), 'ws-py-parse');
-		mkdirSync(tmpDir, { recursive: true });
+		await fs.mkdir(tmpDir, { recursive: true });
 		const scriptPath = path.join(tmpDir, 'parse.py');
-		writeFileSync(scriptPath, PY_PARSE_SCRIPT, 'utf8');
+		await fs.writeFile(scriptPath, PY_PARSE_SCRIPT, 'utf8');
 
 		// argv-array form: no shell, so a hostile filename (e.g. one containing
 		// shell metacharacters or command substitution) cannot inject commands.
-		const stdout = execFileSync('python', [scriptPath, filePath], {
-			timeout: 15_000,
-			encoding: 'utf8',
+		const proc = spawn('python', [scriptPath, filePath], {
+			stdio: ['pipe', 'pipe', 'pipe'],
 			windowsHide: true,
 		});
 
-		if (!stdout.trim()) {
+		let stdout = '';
+		proc.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
+
+		const { code } = await Promise.race([
+			new Promise<{ code: number | null }>((resolve) => { proc.on('close', (c) => resolve({ code: c })); }),
+			new Promise<{ code: number | null }>((_, reject) =>
+				setTimeout(() => { proc.kill('SIGKILL'); reject(new Error('timeout')); }, 15_000)
+			),
+		]).catch(() => ({ code: -1 }));
+
+		if (code !== 0 || !stdout.trim()) {
 			return { file: filePath, lang, symbols: [], mtimeMs: Date.now() };
 		}
 

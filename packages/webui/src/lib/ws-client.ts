@@ -1,4 +1,4 @@
-import type { WSClientMessage, WSServerMessage } from '../types';
+import type { WSClientMessage, WSCompletionRequest, WSServerMessage } from '../types';
 import {
   buildClearModelsMessage,
   buildProviderUpdateMessage,
@@ -659,6 +659,10 @@ export class WrongStackWebSocketClient {
 
   listFiles(query?: string, limit?: number, path?: string) {
     this.send({ type: 'files.list', payload: { query, limit, path } });
+  }
+
+  requestCompletion(payload: WSCompletionRequest['payload']) {
+    this.send({ type: 'completion.request', payload });
   }
 
   getTodos() {

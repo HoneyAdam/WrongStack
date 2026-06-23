@@ -230,6 +230,22 @@ export const useFleetStore = create<FleetState>()((set, get) => ({
             value: e.costUsd,
           });
           break;
+        case 'budget_warning': {
+          const kind = e.budgetKind ?? 'budget';
+          const used = typeof e.used === 'number' ? e.used : 0;
+          const limit = typeof e.limit === 'number' ? e.limit : 0;
+          next.budgetWarning = { kind, used, limit };
+          timeline = pushTimeline(timeline, {
+            id: makeTimelineId(),
+            kind: 'budget_warning',
+            agentId: e.subagentId,
+            agentName: next.name,
+            timestamp: now,
+            message: `${next.name} hit ${kind} budget ${used}/${limit}`,
+            value: used,
+          });
+          break;
+        }
         case 'budget_extended':
           next.extensions = e.totalExtensions ?? next.extensions + 1;
           // Clear any stale budget warning — the extension resolved it

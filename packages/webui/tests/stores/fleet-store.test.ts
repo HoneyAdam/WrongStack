@@ -181,6 +181,19 @@ describe('ctx_pct', () => {
 // ── budget_extended ───────────────────────────────────────────────
 
 describe('budget_extended', () => {
+  it('records explicit budget warnings from the backend', () => {
+    fleet().applyEvent({ kind: 'spawned', subagentId: 'a1', name: 'Alan' });
+    fleet().applyEvent({
+      kind: 'budget_warning',
+      subagentId: 'a1',
+      budgetKind: 'tool_calls',
+      used: 40,
+      limit: 40,
+    });
+    expect(get('a1')!.budgetWarning).toEqual({ kind: 'tool_calls', used: 40, limit: 40 });
+    expect(fleet().eventTimeline[0].kind).toBe('budget_warning');
+  });
+
   it('tracks self-extensions', () => {
     fleet().applyEvent({ kind: 'spawned', subagentId: 'a1', name: 'Alan' });
     fleet().applyEvent({ kind: 'budget_extended', subagentId: 'a1', totalExtensions: 3 });

@@ -28,12 +28,14 @@ beforeEach(async () => {
   });
 });
 afterEach(async () => {
+  await backend.flush();
   await fs.rm(tmp, { recursive: true, force: true });
 });
 
 describe('GraphMemoryBackend.remember', () => {
   it('creates a node and persists the graph', async () => {
     await backend.remember(scope, entry('the build uses pnpm workspaces'), memFile);
+    await backend.flush(); // _saveGraph is fire-and-forget; flush ensures write completes.
     const g = backend.getGraph();
     expect(g.nodes.length).toBe(1);
     // Graph file written

@@ -80,6 +80,8 @@ const MODEL_FAMILY_RATIO: Record<string, number> = {
  * repeated stringifications of the same structure share a single entry.
  */
 const ESTIMATE_CACHE = new Map<string, number>();
+/** Insertion-order queue for O(1) LRU eviction: shift from front on overcapacity. */
+const _estimateCacheOrder: string[] = [];
 
 const ESTIMATE_CACHE_MAX_SIZE = 50_000;
 
@@ -87,16 +89,16 @@ function getCachedEstimate(key: string, compute: (key: string) => number): numbe
   const existing = ESTIMATE_CACHE.get(key);
   if (existing !== undefined) return existing;
   if (ESTIMATE_CACHE.size >= ESTIMATE_CACHE_MAX_SIZE) {
-    // Evict oldest half when at capacity — O(1) instead of O(n) iteration.
-    // 5 000 surviving entries still give a high cache hit rate for the
-    // common case of repeated context-window checks on the same messages.
-    for (const k of ESTIMATE_CACHE.keys()) {
-      if (ESTIMATE_CACHE.size <= Math.floor(ESTIMATE_CACHE_MAX_SIZE / 2)) break;
-      ESTIMATE_CACHE.delete(k);
+    // Evict oldest half — O(1) per eviction (array shift + Map.delete) instead
+    // of O(n) iteration over all 50 000 keys in the Map.
+    while (ESTIMATE_CACHE.size > Math.floor(ESTIMATE_CACHE_MAX_SIZE / 2)) {
+      const oldest = _estimateCacheOrder.shift();
+      if (oldest !== undefined) ESTIMATE_CACHE.delete(oldest);
     }
   }
   const estimate = compute(key);
   ESTIMATE_CACHE.set(key, estimate);
+  _estimateCacheOrder.push(key);
   return estimate;
 }
 

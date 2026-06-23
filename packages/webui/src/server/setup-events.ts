@@ -79,12 +79,36 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
     });
   });
 
+  events.on('iteration.completed', (e) => {
+    broadcast(clients, {
+      type: 'iteration.completed',
+      payload: { index: e.index, totalIterations: e.index + 1 },
+    });
+  });
+
+  events.on('iteration.limit_reached', (e) => {
+    broadcast(clients, {
+      type: 'iteration.limit_reached',
+      payload: {
+        currentIterations: e.currentIterations,
+        currentLimit: e.currentLimit,
+      },
+    });
+  });
+
   events.on('provider.text_delta', (e) => {
     broadcast(clients, { type: 'provider.text_delta', payload: { text: e.text, messageId: 'current' } });
   });
 
   events.on('provider.thinking_delta', (e) => {
     broadcast(clients, { type: 'provider.thinking_delta', payload: { text: e.text } });
+  });
+
+  events.on('provider.stream_error', (e) => {
+    broadcast(clients, {
+      type: 'provider.stream_error',
+      payload: { eventType: e.eventType, message: e.msg },
+    });
   });
 
   events.on('tool.started', (e) => {
@@ -168,8 +192,90 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
     }
   });
 
+  events.on('tool.loop_detected', (e) => {
+    broadcast(clients, {
+      type: 'tool.loop_detected',
+      payload: {
+        tools: e.tools,
+        repeatCount: e.repeatCount,
+        iteration: e.iteration,
+        kind: e.kind,
+      },
+    });
+  });
+
+  events.on('trust.persisted', (e) => {
+    broadcast(clients, {
+      type: 'trust.persisted',
+      payload: { tool: e.tool, pattern: e.pattern, decision: e.decision },
+    });
+  });
+
+  events.on('delegate.started', (e) => {
+    broadcast(clients, {
+      type: 'delegate.started',
+      payload: { target: e.target, task: e.task },
+    });
+  });
+
+  events.on('delegate.completed', (e) => {
+    broadcast(clients, {
+      type: 'delegate.completed',
+      payload: {
+        target: e.target,
+        task: e.task,
+        ok: e.ok,
+        status: e.status,
+        summary: e.summary,
+        durationMs: e.durationMs,
+        iterations: e.iterations,
+        toolCalls: e.toolCalls,
+        costUsd: e.costUsd,
+        subagentId: e.subagentId,
+      },
+    });
+  });
+
   events.on('provider.response', (e) => {
     broadcast(clients, { type: 'provider.response', payload: { usage: e.usage, stopReason: e.stopReason, messageId: 'current' } });
+  });
+
+  events.on('ctx.pct', (e) => {
+    broadcast(clients, {
+      type: 'ctx.pct',
+      payload: { load: e.load, tokens: e.tokens, maxContext: e.maxContext },
+    });
+    broadcast(clients, {
+      type: 'subagent.event',
+      payload: {
+        kind: 'ctx_pct',
+        subagentId: 'leader',
+        load: e.load,
+        tokens: e.tokens,
+        maxContext: e.maxContext,
+      },
+    });
+  });
+
+  events.on('ctx.max_context', (e) => {
+    broadcast(clients, {
+      type: 'ctx.max_context',
+      payload: { providerId: e.providerId, modelId: e.modelId, maxContext: e.maxContext },
+    });
+  });
+
+  events.on('token.threshold', (e) => {
+    broadcast(clients, {
+      type: 'token.threshold',
+      payload: { used: e.used, limit: e.limit },
+    });
+  });
+
+  events.on('token.cost_estimate_unavailable', (e) => {
+    broadcast(clients, {
+      type: 'token.cost_estimate_unavailable',
+      payload: { model: e.model },
+    });
   });
 
   events.on('context.repaired', (e) => {
@@ -194,9 +300,63 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
       .catch(() => { /* best-effort */ });
   });
 
+  events.on('session.damaged', (e) => {
+    broadcast(clients, {
+      type: 'session.damaged',
+      payload: { sessionId: e.sessionId, detail: e.detail },
+    });
+  });
+
+  events.on('session.rewound', (e) => {
+    broadcast(clients, {
+      type: 'session.rewound',
+      payload: {
+        toPromptIndex: e.toPromptIndex,
+        revertedFiles: e.revertedFiles,
+        removedEvents: e.removedEvents,
+      },
+    });
+  });
+
+  events.on('checkpoint.written', (e) => {
+    broadcast(clients, {
+      type: 'checkpoint.written',
+      payload: {
+        promptIndex: e.promptIndex,
+        promptPreview: e.promptPreview,
+        ts: e.ts,
+        fileCount: e.fileCount,
+      },
+    });
+  });
+
+  events.on('in_flight.started', (e) => {
+    broadcast(clients, {
+      type: 'in_flight.started',
+      payload: { context: e.context, ts: e.ts },
+    });
+  });
+
+  events.on('in_flight.ended', (e) => {
+    broadcast(clients, {
+      type: 'in_flight.ended',
+      payload: { reason: e.reason, ts: e.ts },
+    });
+  });
+
   // Provider visibility — retry storms and provider failures in the JSONL
   // for forensics, mirroring the CLI's bridge wiring.
   events.on('provider.retry', (e) => {
+    broadcast(clients, {
+      type: 'provider.retry',
+      payload: {
+        providerId: e.providerId,
+        attempt: e.attempt,
+        delayMs: e.delayMs,
+        status: e.status,
+        description: e.description,
+      },
+    });
     sessionBridge
       ?.append({
         type: 'provider_retry',
@@ -211,6 +371,15 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
   });
 
   events.on('provider.error', (e) => {
+    broadcast(clients, {
+      type: 'provider.error',
+      payload: {
+        providerId: e.providerId,
+        status: e.status,
+        description: e.description,
+        retryable: e.retryable,
+      },
+    });
     sessionBridge
       ?.append({
         type: 'provider_error',
@@ -221,6 +390,87 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
         retryable: e.retryable,
       })
       .catch(() => { /* best-effort */ });
+  });
+
+  events.on('provider.fallback', (e) => {
+    broadcast(clients, {
+      type: 'provider.fallback',
+      payload: {
+        from: e.from,
+        to: e.to,
+        status: e.status,
+        providerSwitched: e.providerSwitched,
+      },
+    });
+  });
+
+  events.on('compaction.fired', (e) => {
+    broadcast(clients, {
+      type: 'context.compacted',
+      payload: {
+        before: e.report.before,
+        after: e.report.after,
+        saved: Math.max(0, e.report.before - e.report.after),
+        reductions: e.report.reductions,
+      },
+    });
+  });
+
+  events.on('compaction.failed', (e) => {
+    broadcast(clients, {
+      type: 'compaction.failed',
+      payload: {
+        message: e.err.message,
+        aggressive: e.aggressive,
+        level: e.level,
+        tokens: e.tokens,
+        maxContext: e.maxContext,
+        load: e.load,
+        fatal: e.fatal,
+      },
+    });
+  });
+
+  events.on('mcp.server.connected', (e) => {
+    broadcast(clients, {
+      type: 'mcp.server.connected',
+      payload: { name: e.name, toolCount: e.toolCount },
+    });
+  });
+
+  events.on('mcp.server.reconnected', (e) => {
+    broadcast(clients, {
+      type: 'mcp.server.reconnected',
+      payload: { name: e.name, toolCount: e.toolCount },
+    });
+  });
+
+  events.on('mcp.server.disconnected', (e) => {
+    broadcast(clients, {
+      type: 'mcp.server.disconnected',
+      payload: { name: e.name, reason: e.reason },
+    });
+  });
+
+  events.on('coordinator.stats', (e) => {
+    broadcast(clients, {
+      type: 'coordinator.stats',
+      payload: {
+        total: e.total,
+        running: e.running,
+        idle: e.idle,
+        stopped: e.stopped,
+        inFlight: e.inFlight,
+        pending: e.pending,
+        completed: e.completed,
+        subagentStatuses: e.subagentStatuses.map((s) => ({
+          id: s.subagentId,
+          name: s.subagentId,
+          status: s.status,
+          currentTask: s.taskId,
+        })),
+      },
+    });
   });
 
   // ── Inter-agent mailbox visibility ───────────────────────────────────
@@ -244,9 +494,39 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
   events.on('subagent.task_started', (e) => forwardSubagent('task_started', { subagentId: e.subagentId, taskId: e.taskId, description: e.description }));
   events.on('subagent.tool_executed', (e) => forwardSubagent('tool_executed', { subagentId: e.subagentId, toolName: e.name, durationMs: e.durationMs, ok: e.ok }));
   events.on('subagent.iteration_summary', (e) => forwardSubagent('iteration_summary', { subagentId: e.subagentId, iteration: e.iteration, toolCalls: e.toolCalls, costUsd: e.costUsd, currentTool: e.currentTool, partialText: e.partialText }));
-  events.on('subagent.budget_extended', (e) => forwardSubagent('budget_extended', { subagentId: e.subagentId, totalExtensions: e.totalExtensions }));
+  events.on('subagent.budget_warning', (e) => forwardSubagent('budget_warning', { subagentId: e.subagentId, budgetKind: e.kind, used: e.used, limit: e.limit }));
+  events.on('subagent.budget_extended', (e) => forwardSubagent('budget_extended', { subagentId: e.subagentId, budgetKind: e.kind, newLimit: e.newLimit, totalExtensions: e.totalExtensions }));
   events.on('subagent.ctx_pct', (e) => forwardSubagent('ctx_pct', { subagentId: e.subagentId, load: e.load, tokens: e.tokens, maxContext: e.maxContext }));
-  events.on('subagent.task_completed', (e) => forwardSubagent('task_completed', { subagentId: e.subagentId, status: e.status, iterations: e.iterations, toolCalls: e.toolCalls, finalText: (e as Record<string, unknown>).finalText as string | undefined, error: e.error ? { kind: e.error.kind, message: e.error.message } : undefined }));
+  events.on('subagent.task_completed', (e) => forwardSubagent('task_completed', { subagentId: e.subagentId, status: e.status, iterations: e.iterations, toolCalls: e.toolCalls, finalText: (e as Record<string, unknown>).finalText as string | undefined, failureReason: e.error?.kind, error: e.error ? { kind: e.error.kind, message: e.error.message } : undefined }));
+
+  events.on('agent.timeline.message', (e) => {
+    broadcast(clients, {
+      type: 'agent.timeline.message',
+      payload: {
+        subagentId: e.subagentId,
+        agentName: e.agentName,
+        content: e.content,
+        kind: e.kind,
+        iteration: e.iteration,
+        ts: e.ts,
+        toolName: e.toolName,
+        costUsd: e.costUsd,
+      },
+    });
+  });
+  events.on('agent.status_changed', (e) => {
+    broadcast(clients, {
+      type: 'agent.status_changed',
+      payload: {
+        subagentId: e.subagentId,
+        agentName: e.agentName,
+        status: e.status,
+        ts: e.ts,
+        summary: e.summary,
+        task: e.task,
+      },
+    });
+  });
 
   // ── Leader (main session) events — forwarded as subagent.event with subagentId 'leader' ──
   // These give the AgentsPage a live leader row with real-time tool tracking,

@@ -8,6 +8,10 @@ const mocks = vi.hoisted(() => ({
   setQueuePanelOpen: vi.fn(),
   setProcessMonitorOpen: vi.fn(),
   setDockSection: vi.fn(),
+  setWorkDashboardTab: vi.fn(),
+  setDockCustomizeOpen: vi.fn(),
+  setSidebarOpen: vi.fn(),
+  selectActivity: vi.fn(),
   setCurrentViewUI: vi.fn(),
   setTerminalOpen: vi.fn(),
 }));
@@ -30,6 +34,10 @@ vi.mock('@/stores', () => ({
       setQueuePanelOpen: mocks.setQueuePanelOpen,
       setProcessMonitorOpen: mocks.setProcessMonitorOpen,
       setDockSection: mocks.setDockSection,
+      setWorkDashboardTab: mocks.setWorkDashboardTab,
+      setDockCustomizeOpen: mocks.setDockCustomizeOpen,
+      setSidebarOpen: mocks.setSidebarOpen,
+      selectActivity: mocks.selectActivity,
       setCurrentView: mocks.setCurrentViewUI,
       setTerminalOpen: mocks.setTerminalOpen,
     }),
@@ -82,6 +90,7 @@ describe('runChatSlashCommand', () => {
   let options: RunChatSlashCommandOptions;
 
   beforeEach(() => {
+    vi.clearAllMocks();
     options = makeOptions();
   });
 
@@ -238,11 +247,52 @@ describe('runChatSlashCommand — /f', () => {
     expect(runChatSlashCommand(opts)).toBe(true);
     expect(mocks.setAgentsMonitorOpen).toHaveBeenCalledWith(true);
   });
+
+  it('/f 5 opens the Work dock on the plan tab', () => {
+    const opts = makeOptions({ raw: '/f 5' });
+    expect(runChatSlashCommand(opts)).toBe(true);
+    expect(opts.ws.getPlan).toHaveBeenCalledTimes(1);
+    expect(mocks.setDockSection).toHaveBeenCalledWith('work');
+    expect(mocks.setWorkDashboardTab).toHaveBeenCalledWith('plan');
+  });
+
+  it('/f6 opens the Work dock on the todos tab', () => {
+    const opts = makeOptions({ raw: '/f6' });
+    expect(runChatSlashCommand(opts)).toBe(true);
+    expect(mocks.setDockSection).toHaveBeenCalledWith('work');
+    expect(mocks.setWorkDashboardTab).toHaveBeenCalledWith('todos');
+  });
+
+  it('/f10 refreshes sessions and opens the sessions dashboard', () => {
+    const opts = makeOptions({ raw: '/f10' });
+    expect(runChatSlashCommand(opts)).toBe(true);
+    expect(opts.ws.listSessions).toHaveBeenCalledWith(50);
+    expect(opts.setCurrentView).toHaveBeenCalledWith('sessions');
+  });
+
+  it('/f11 opens the coordinator office map surface', () => {
+    const opts = makeOptions({ raw: '/f11' });
+    expect(runChatSlashCommand(opts)).toBe(true);
+    expect(mocks.setSidebarOpen).toHaveBeenCalledWith(true);
+    expect(mocks.selectActivity).toHaveBeenCalledWith('officemap');
+    expect(mocks.setCurrentViewUI).toHaveBeenCalledWith('officemap');
+  });
+
+  it('/f12 opens the dock chip picker', () => {
+    const opts = makeOptions({ raw: '/f12' });
+    expect(runChatSlashCommand(opts)).toBe(true);
+    expect(mocks.setDockSection).toHaveBeenCalledWith('work');
+    expect(mocks.setDockCustomizeOpen).toHaveBeenCalledWith(true);
+  });
 });
 
 describe('runChatSlashCommand — agent/autonomy commands', () => {
   beforeEach(() => {
     mocks.setDockSection.mockClear();
+    mocks.setWorkDashboardTab.mockClear();
+    mocks.setDockCustomizeOpen.mockClear();
+    mocks.setSidebarOpen.mockClear();
+    mocks.selectActivity.mockClear();
     mocks.setFleetMonitorOpen.mockClear();
     mocks.setCurrentViewUI.mockClear();
   });

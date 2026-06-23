@@ -29,7 +29,9 @@ export interface PickerKeysHost {
   /** Ref-like re-entrancy guard for input handling. */
   inputGateRef: { current: boolean } | React.RefObject<boolean>;
   /** Live model switch. Returns `null`/`undefined` on success or a hint string. */
-  switchProviderAndModel: ((providerId: string, modelId: string) => string | null) | undefined;
+  switchProviderAndModel:
+    | ((providerId: string, modelId: string) => string | null | Promise<string | null>)
+    | undefined;
   /** Setter for the live provider mirror (status bar). Accepts the wider
    *  `Dispatch<SetStateAction<string>>` shape so the React state setters
    *  the caller already has can be passed directly without wrapping. */
@@ -117,19 +119,28 @@ export function usePickerKeys(
             const providerId = state.modelPicker.pickedProviderId;
             const modelId = state.modelPicker.filteredOptions[state.modelPicker.selected];
             if (!providerId || !modelId) return true;
-            const err = host.switchProviderAndModel?.(providerId, modelId);
-            if (err) {
-              dispatch({ type: 'modelPickerHint', text: err });
+            const complete = (err: string | null | undefined) => {
+              if (err) {
+                dispatch({ type: 'modelPickerHint', text: err });
+                return;
+              }
+              host.setLiveProvider?.(providerId);
+              host.setLiveModel?.(modelId);
+              host.setActiveMaxContext?.(host.agentCtxMaxContext);
+              dispatch({
+                type: 'addEntry',
+                entry: { kind: 'info', text: `Switched to ${providerId} / ${modelId}.` },
+              });
+              dispatch({ type: 'modelPickerClose' });
+            };
+            const result = host.switchProviderAndModel?.(providerId, modelId);
+            if (result && typeof (result as Promise<string | null>).then === 'function') {
+              void (result as Promise<string | null>).then(complete).catch((err: unknown) => {
+                complete(err instanceof Error ? err.message : String(err));
+              });
               return true;
             }
-            host.setLiveProvider?.(providerId);
-            host.setLiveModel?.(modelId);
-            host.setActiveMaxContext?.(host.agentCtxMaxContext);
-            dispatch({
-              type: 'addEntry',
-              entry: { kind: 'info', text: `Switched to ${providerId} / ${modelId}.` },
-            });
-            dispatch({ type: 'modelPickerClose' });
+            complete(result as string | null | undefined);
             return true;
           } finally {
             host.inputGateRef.current = false;

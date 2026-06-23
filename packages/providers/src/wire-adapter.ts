@@ -2,6 +2,7 @@ import type { Capabilities, Provider, Request, Response, StreamEvent } from '@wr
 import { ProviderError, StreamHangError } from '@wrongstack/core';
 import { parseProviderHttpError } from './error-parse.js';
 import { isDebugStreamEnabled, pushDebugChunkStats } from './stream-debug-state.js';
+import { isNodeReadable } from './object-utils.js';
 import { Readable } from 'node:stream';
 import { toErrorMessage } from '@wrongstack/core/utils';
 
@@ -331,13 +332,4 @@ export abstract class WireAdapter implements Provider {
   protected translateError(status: number, body: string): ProviderError {
     return parseProviderHttpError(this.id, status, body);
   }
-}
-
-function isNodeReadable(b: unknown): boolean {
-  return (
-    !!b &&
-    typeof b === 'object' &&
-    typeof (b as { pipe?: unknown | undefined }).pipe === 'function' &&
-    typeof (b as { on?: unknown | undefined }).on === 'function'
-  );
 }

@@ -1,9 +1,25 @@
 import { useFileStore } from '@/stores/file-store';
+import { useConfigStore } from '@/stores/config-store';
+import {
+  COMPLETION_CACHE_TTL_MS,
+  COMPLETION_DOCUMENT_CHARS,
+  COMPLETION_LANGUAGES,
+  COMPLETION_PREFIX_CHARS,
+  COMPLETION_SUFFIX_CHARS,
+  COMPLETION_TIMEOUT_MS,
+  buildCompletionCacheKey,
+  currentToken,
+  getLanguage,
+  shouldAllowCompletionLlm,
+  shouldAskCompletionServer,
+} from '@/lib/completion';
+import { getWSClient } from '@/lib/ws-client';
 import { cn } from '@/lib/utils';
 import { X, Circle } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import Editor, { type OnMount, loader } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
+import type { WSCompletionResult } from '@/types';
 import { useTheme } from './ThemeProvider';
 // Side-effect import: defines Monaco themes on module load
 import './monaco-theme';
@@ -12,40 +28,43 @@ import { getMonacoTheme } from './monaco-theme';
 // Configure Monaco to use the local package (not CDN)
 loader.config({ monaco });
 
-// ── Language mapping by extension ──────────────────────────────────────
-
-const LANG_MAP: Record<string, string> = {
-  ts: 'typescript',
-  tsx: 'typescript',
-  js: 'javascript',
-  jsx: 'javascript',
-  json: 'json',
-  css: 'css',
-  html: 'html',
-  svg: 'xml',
-  md: 'markdown',
-  yml: 'yaml',
-  yaml: 'yaml',
-  toml: 'toml',
-  sh: 'shell',
-  bash: 'shell',
-  ps1: 'powershell',
-  py: 'python',
-  rs: 'rust',
-  go: 'go',
-  rb: 'ruby',
-  java: 'java',
-  c: 'c',
-  cpp: 'cpp',
-  h: 'c',
-  hpp: 'cpp',
-  sql: 'sql',
-  xml: 'xml',
-};
-
-function getLanguage(filePath: string): string {
-  const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
-  return LANG_MAP[ext] ?? 'plaintext';
+function completionKind(kind: string | undefined): monaco.languages.CompletionItemKind {
+  switch (kind) {
+    case 'method':
+      return monaco.languages.CompletionItemKind.Method;
+    case 'function':
+      return monaco.languages.CompletionItemKind.Function;
+    case 'constructor':
+      return monaco.languages.CompletionItemKind.Constructor;
+    case 'field':
+      return monaco.languages.CompletionItemKind.Field;
+    case 'variable':
+      return monaco.languages.CompletionItemKind.Variable;
+    case 'class':
+      return monaco.languages.CompletionItemKind.Class;
+    case 'interface':
+      return monaco.languages.CompletionItemKind.Interface;
+    case 'module':
+      return monaco.languages.CompletionItemKind.Module;
+    case 'property':
+      return monaco.languages.CompletionItemKind.Property;
+    case 'unit':
+      return monaco.languages.CompletionItemKind.Unit;
+    case 'value':
+      return monaco.languages.CompletionItemKind.Value;
+    case 'enum':
+      return monaco.languages.CompletionItemKind.Enum;
+    case 'keyword':
+      return monaco.languages.CompletionItemKind.Keyword;
+    case 'snippet':
+      return monaco.languages.CompletionItemKind.Snippet;
+    case 'file':
+      return monaco.languages.CompletionItemKind.File;
+    case 'reference':
+      return monaco.languages.CompletionItemKind.Reference;
+    default:
+      return monaco.languages.CompletionItemKind.Text;
+  }
 }
 
 // ── Tab bar ────────────────────────────────────────────────────────────
@@ -112,6 +131,10 @@ export function CodeEditor() {
   const updateContent = useFileStore((s) => s.updateContent);
   const { theme: appTheme } = useTheme();
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const activeFilePathRef = useRef<string | null>(activeFilePath);
+  const completionCacheRef = useRef<
+    Map<string, { expiresAt: number; items: WSCompletionResult['payload']['items'] }>
+  >(new Map());
 
   const activeFile = useMemo(
     () => openFiles.find((f) => f.path === activeFilePath) ?? null,
@@ -121,11 +144,128 @@ export function CodeEditor() {
   const language = activeFilePath ? getLanguage(activeFilePath) : 'plaintext';
   const monacoTheme = getMonacoTheme();
 
+  useEffect(() => {
+    activeFilePathRef.current = activeFilePath;
+  }, [activeFilePath]);
+
   // Sync Monaco theme with app theme
   useEffect(() => {
     const resolved = getMonacoTheme();
     monaco.editor.setTheme(resolved);
   }, [appTheme]);
+
+  useEffect(() => {
+    const disposables = COMPLETION_LANGUAGES.map((registeredLanguage) =>
+      monaco.languages.registerCompletionItemProvider(registeredLanguage, {
+        triggerCharacters: ['.', '_'],
+        provideCompletionItems: async (model, position, context, token) => {
+          const filePath = activeFilePathRef.current;
+          if (!filePath) return { suggestions: [] };
+
+          const offset = model.getOffsetAt(position);
+          const value = model.getValue();
+          const prefix = value.slice(Math.max(0, offset - COMPLETION_PREFIX_CHARS), offset);
+          const suffix = value.slice(offset, offset + COMPLETION_SUFFIX_CHARS);
+          const linePrefix = model
+            .getLineContent(position.lineNumber)
+            .slice(0, Math.max(0, position.column - 1));
+          const tokenText = currentToken(linePrefix);
+          const trigger = {
+            triggerCharacter: context.triggerCharacter,
+            triggerKind: context.triggerKind,
+          };
+          if (!shouldAskCompletionServer(trigger, tokenText)) return { suggestions: [] };
+
+          const requestId = `cmp_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+          const word = model.getWordUntilPosition(position);
+          const range: monaco.IRange = {
+            startLineNumber: position.lineNumber,
+            endLineNumber: position.lineNumber,
+            startColumn: word.startColumn,
+            endColumn: position.column,
+          };
+          const client = getWSClient(useConfigStore.getState().wsUrl);
+          const toSuggestions = (
+            items: WSCompletionResult['payload']['items'],
+          ): monaco.languages.CompletionItem[] =>
+            items.map((item, index) => ({
+              label: item.label,
+              kind: completionKind(item.kind),
+              insertText: item.insertText,
+              detail: item.detail ?? (item.source ? `WrongStack ${item.source}` : undefined),
+              documentation: item.documentation,
+              sortText: item.sortText ?? `${String(index).padStart(3, '0')}-${item.label}`,
+              range,
+              insertTextRules: item.kind === 'snippet'
+                ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
+                : undefined,
+            }));
+          const cacheKey = buildCompletionCacheKey({
+            filePath,
+            language: model.getLanguageId(),
+            lineNumber: position.lineNumber,
+            column: position.column,
+            versionId: model.getVersionId(),
+            triggerCharacter: context.triggerCharacter,
+            linePrefix,
+            suffix,
+          });
+          const cached = completionCacheRef.current.get(cacheKey);
+          if (cached && cached.expiresAt > Date.now()) {
+            return { suggestions: toSuggestions(cached.items) };
+          }
+
+          return await new Promise<monaco.languages.ProviderResult<monaco.languages.CompletionList>>(
+            (resolve) => {
+              let settled = false;
+              let unsubscribe: () => void = () => {};
+              let cancelDisposable: monaco.IDisposable | null = null;
+              let timer: number | undefined;
+              const finish = (suggestions: monaco.languages.CompletionItem[]) => {
+                if (settled) return;
+                settled = true;
+                unsubscribe();
+                if (timer !== undefined) window.clearTimeout(timer);
+                cancelDisposable?.dispose();
+                resolve({ suggestions });
+              };
+
+              unsubscribe = client.on('completion.result', (message) => {
+                const result = message as WSCompletionResult;
+                if (result.payload.requestId !== requestId) return;
+                completionCacheRef.current.set(cacheKey, {
+                  expiresAt: Date.now() + COMPLETION_CACHE_TTL_MS,
+                  items: result.payload.items,
+                });
+                finish(toSuggestions(result.payload.items));
+              });
+
+              timer = window.setTimeout(() => finish([]), COMPLETION_TIMEOUT_MS);
+              cancelDisposable = token.onCancellationRequested(() => finish([]));
+
+              client.requestCompletion({
+                requestId,
+                filePath,
+                language: model.getLanguageId(),
+                lineNumber: position.lineNumber,
+                column: position.column,
+                content: value.length <= COMPLETION_DOCUMENT_CHARS ? value : undefined,
+                prefix,
+                suffix,
+                triggerCharacter: context.triggerCharacter,
+                triggerKind: context.triggerKind,
+                allowLlm: shouldAllowCompletionLlm(trigger, tokenText),
+              });
+            },
+          );
+        },
+      }),
+    );
+
+    return () => {
+      disposables.forEach((disposable) => disposable.dispose());
+    };
+  }, []);
 
   const handleMount: OnMount = useCallback((editor) => {
     editorRef.current = editor;

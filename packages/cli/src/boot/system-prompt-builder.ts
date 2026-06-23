@@ -113,6 +113,14 @@ export interface BindSystemPromptBuilderDeps {
         supportsVision: boolean;
         supportsReasoning: boolean;
       }
+    | (() =>
+        | {
+            maxContextTokens: number;
+            supportsTools: boolean;
+            supportsVision: boolean;
+            supportsReasoning: boolean;
+          }
+        | undefined)
     | undefined;
   /** `config.features.skills` \u2014 if false, the skillLoader
    *  is not passed to the builder. */

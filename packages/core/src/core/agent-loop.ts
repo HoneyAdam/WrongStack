@@ -77,15 +77,18 @@ export function createAgentLoopHandler(
    */
   async function compactContextIfNeeded(): Promise<void> {
     const msgCount = a.ctx.messages.length;
+    const maxContext = currentMaxContext();
     if (
       _lastCompactionMsgCount === msgCount &&
       _lastCompactionWasNoop &&
-      _maxContext > 0
+      _lastCompactionMaxContext === maxContext &&
+      maxContext > 0
     ) {
       return;
     }
     await a.pipelines.contextWindow.run(a.ctx);
     _lastCompactionMsgCount = msgCount;
+    _lastCompactionMaxContext = maxContext;
     // Mark as noop when the cached token count is below the warn fraction.
     // The middleware's own noop-retry check (lastNoopAttempt) tracks a more
     // nuanced "tried but couldn't reduce" state — this flag is coarser: it
@@ -94,7 +97,7 @@ export function createAgentLoopHandler(
     const tokens = typeof stashed === 'number' && stashed > 0
       ? stashed
       : 0;
-    const load = _maxContext > 0 ? tokens / _maxContext : 0;
+    const load = maxContext > 0 ? tokens / maxContext : 0;
     // 0.5 is the soft default warn threshold used by `defaultConfig`; we
     // hard-code it here to avoid a context.options lookup. The middleware
     // is the authority on the actual policy threshold — this is just a
@@ -114,11 +117,18 @@ export function createAgentLoopHandler(
     // when nothing has changed since the last emit.
     const msgCount = a.ctx.messages.length;
     const toolCount = (a.ctx.tools ?? []).length;
-    if (msgCount === _lastEmittedMsgCount && toolCount === _lastEmittedToolCount && _maxContext > 0) {
+    const maxContext = currentMaxContext();
+    if (
+      msgCount === _lastEmittedMsgCount &&
+      toolCount === _lastEmittedToolCount &&
+      maxContext === _lastEmittedMaxContext &&
+      maxContext > 0
+    ) {
       return;
     }
     _lastEmittedMsgCount = msgCount;
     _lastEmittedToolCount = toolCount;
+    _lastEmittedMaxContext = maxContext;
 
     // H1: the pre-flight stash is stale if tool results have been appended
     // since. Recompute and refresh so the bar and the next middleware
@@ -133,20 +143,6 @@ export function createAgentLoopHandler(
       a.ctx.meta['lastRequestTokensAt'] = { msgCount, toolCount };
     }
 
-    // Mirror the denominator AutoCompactionMiddleware uses: an explicit
-    // effectiveMaxContext override (ctx.meta) wins, then the provider window,
-    // then a safe default. Avoids divide-by-zero when the window is unknown (0).
-    // Cached — maxContext does not change during a session run.
-    if (!_maxContext) {
-      const metaLimit = a.ctx.meta?.['effectiveMaxContext'];
-      const providerMax = a.ctx.provider.capabilities.maxContext;
-      _maxContext =
-        typeof metaLimit === 'number' && metaLimit > 0
-          ? metaLimit
-          : typeof providerMax === 'number' && providerMax > 0
-            ? providerMax
-            : 200_000;
-    }
     // H1: prefer the pre-flight stash so the bar and the middleware see
     // the same number. Fall back to a fresh compute only on cold start
     // (no pre-flight yet) — emitContextPct is called at the end of an
@@ -167,11 +163,26 @@ export function createAgentLoopHandler(
       );
       total = est.total;
     }
-    a.events.emit('ctx.pct', { load: total / _maxContext, tokens: total, maxContext: _maxContext });
+    a.events.emit('ctx.pct', { load: total / maxContext, tokens: total, maxContext });
   }
-  let _maxContext = 0;
+
+  function currentMaxContext(): number {
+    // Mirror the denominator AutoCompactionMiddleware uses: an explicit
+    // effectiveMaxContext override (ctx.meta) wins, then the provider window,
+    // then a safe default. This must be read live: /model, fallback, and
+    // /context limit can all change it after the session starts.
+    const metaLimit = a.ctx.meta?.['effectiveMaxContext'];
+    const providerMax = a.ctx.provider.capabilities.maxContext;
+    return typeof metaLimit === 'number' && metaLimit > 0
+      ? metaLimit
+      : typeof providerMax === 'number' && providerMax > 0
+        ? providerMax
+        : 200_000;
+  }
+
   let _lastEmittedMsgCount = -1;
   let _lastEmittedToolCount = -1;
+  let _lastEmittedMaxContext = -1;
   // H1: tracks the message count at the most recent pre-flight. emitContextPct
   // uses it to detect when tool results have been appended since the
   // pre-flight and the stash needs a restash. -1 = no pre-flight yet.
@@ -183,6 +194,7 @@ export function createAgentLoopHandler(
   // pipeline materialization itself (chain walk, await plumbing) is
   // pure overhead in this case.
   let _lastCompactionMsgCount = -1;
+  let _lastCompactionMaxContext = -1;
   let _lastCompactionWasNoop = false;
 
   /**
@@ -331,10 +343,17 @@ export function createAgentLoopHandler(
       ts: new Date().toISOString(),
       content: inputPayload.content,
     });
-    // Ensure user input is durable before we make the (expensive) LLM call.
-    // Without this, a SIGKILL mid-run leaves the user's message in the buffer
-    // and the resumed session shows only orphaned tool_call_end events.
-    await a.ctx.session.flush();
+    // Drain the user_input to disk before the LLM call. Fire-and-forget
+    // (matching the llm_response path in agent-response.ts) — the write
+    // starts immediately so the durability window is only the disk round-
+    // trip (~1-5ms), not the full tool-execution phase. The writeCheckpoint
+    // below adds a second event to the buffer and schedules a 500ms deferred
+    // flush, which acts as a backup if the async flush is interrupted.
+    // Synchronous durability is still guaranteed at close()/checkpoint
+    // boundaries for the SIGKILL-mid-tool case.
+    void a.ctx.session.flush().catch(() => {
+      /* best-effort — buffered write is retried at the next boundary flush */
+    });
 
     const promptIndex = a.ctx.messages.filter((m) => m.role === 'user').length - 1;
     const preview = inputPayload.text.slice(0, 80) + (inputPayload.text.length > 80 ? '…' : '');

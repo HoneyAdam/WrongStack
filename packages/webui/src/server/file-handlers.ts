@@ -35,6 +35,10 @@ interface FilesWritePayload {
   content: string;
 }
 
+export interface FilesWriteOptions {
+  onWritten?: ((filePath: string) => void | Promise<void>) | undefined;
+}
+
 // ── Shared handlers ───────────────────────────────────────────────────
 
 /**
@@ -168,6 +172,7 @@ export async function handleFilesWrite(
   ws: WebSocket,
   msg: unknown,
   projectRoot: string,
+  opts: FilesWriteOptions = {},
 ): Promise<void> {
   const { filePath, content } = (msg as { payload: FilesWritePayload }).payload;
 
@@ -181,6 +186,9 @@ export async function handleFilesWrite(
   try {
     await atomicWrite(resolved, content);
     send(ws, { type: 'files.written', payload: { filePath, success: true } });
+    if (opts.onWritten) {
+      void Promise.resolve(opts.onWritten(resolved)).catch(() => undefined);
+    }
   } catch (err) {
     send(ws, {
       type: 'files.written',

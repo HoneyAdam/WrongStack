@@ -76,6 +76,12 @@ describe('LSP tools with mock server', () => {
       .execute({ path: source, line: 1, character: 7 }, ctx as never, { signal });
     expect(String(definition)).toContain('sample.ts:1:1');
 
+    const completion = await tools
+      .get('lsp_completion')!
+      .execute({ path: source, line: 1, character: 7, limit: 5 }, ctx as never, { signal });
+    expect(String(completion)).toContain('answer [Variable]');
+    expect(String(completion)).toContain('const answer: number');
+
     const rename = await tools
       .get('lsp_rename')!
       .execute({ path: source, line: 1, character: 7, new_name: 'renamed' }, ctx as never, {

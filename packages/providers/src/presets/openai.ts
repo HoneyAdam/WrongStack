@@ -10,6 +10,7 @@ import { capabilitiesForFamily } from '../family-capabilities.js';
 import { normalizeOpenAI } from '../stop-reason.js';
 import { messagesToOpenAI, toolsToOpenAI } from '../tool-format/to-openai.js';
 import { defineWireFormat } from '../wire-format.js';
+import { stripCacheControl } from '../object-utils.js';
 
 export interface OpenAIStreamState {
   model: string;
@@ -243,14 +244,6 @@ export const openaiWireFormat = defineWireFormat<OpenAIStreamState>({
     return out;
   },
 });
-
-function stripCacheControl(system: Request['system']): Request['system'] {
-  if (!system) return undefined;
-  return system.map((b) => {
-    const { cache_control: _cc, ...rest } = b;
-    return rest;
-  });
-}
 
 /**
  * OpenAI's Chat Completions API accepts `reasoning_effort` only for these

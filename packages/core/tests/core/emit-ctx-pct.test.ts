@@ -164,6 +164,28 @@ describe('B5 — emitContextPct elision on idle loops', () => {
     expect(ctxPctEvents[1]!.tokens).toBeGreaterThan(ctxPctEvents[0]!.tokens);
   });
 
+  it('uses the live provider maxContext after a model switch', async () => {
+    const { agent, events, ctx, tmp, session } = await buildAgent();
+    cleanup = async () => {
+      await session.close();
+      await fs.rm(tmp, { recursive: true, force: true });
+    };
+
+    const ctxPctEvents: Array<{ maxContext: number }> = [];
+    events.on('ctx.pct', (payload) => {
+      ctxPctEvents.push({ maxContext: payload.maxContext });
+    });
+
+    await agent.run('first model', {});
+    expect(ctxPctEvents[ctxPctEvents.length - 1]?.maxContext).toBe(200_000);
+
+    ctx.provider.capabilities.maxContext = 1_000_000;
+    ctx.model = 'larger-context-model';
+
+    await agent.run('second model', {});
+    expect(ctxPctEvents[ctxPctEvents.length - 1]?.maxContext).toBe(1_000_000);
+  });
+
   it('stops emitting ctx.pct when messages stop growing (idle loop simulation)', async () => {
     // This test simulates the B5 elision guard by verifying that the
     // _lastEmittedMsgCount / _lastEmittedToolCount cache effectively

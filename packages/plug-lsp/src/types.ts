@@ -1,5 +1,7 @@
 export type {
   CodeAction,
+  CompletionItem,
+  CompletionList,
   Diagnostic,
   DocumentSymbol,
   Hover,

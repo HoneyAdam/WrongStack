@@ -46,6 +46,9 @@ export class AgentStatusTracker {
 
   // Live agent map: agentId → AgentEntry
   private agents = new Map<string, AgentEntry>();
+  // Last full agent list flushed (leader + subagents). Lets external consumers
+  // read the current state synchronously without re-deriving it.
+  private lastAgents: AgentEntry[] = [];
 
   // Leader tracking
   private leaderStatus: AgentLiveStatus = 'idle';
@@ -69,6 +72,11 @@ export class AgentStatusTracker {
     this.registry = opts.registry;
     this.leaderName = opts.leaderName ?? 'leader';
     this.onUpdate = opts.onUpdate;
+  }
+
+  /** Current full agent list (leader + subagents) as of the last flush. */
+  getAgents(): AgentEntry[] {
+    return this.lastAgents.length > 0 ? [...this.lastAgents] : [];
   }
 
   start(): void {
@@ -371,6 +379,15 @@ export class AgentStatusTracker {
     };
 
     const allAgents = [leaderEntry, ...this.agents.values()];
+    this.lastAgents = allAgents;
+    // Broadcast the fresh agent list on the local bus so in-process consumers
+    // (e.g. the HQ session-telemetry bridge) can build snapshots without
+    // re-reading the shared registry file. Best-effort, never throws here.
+    try {
+      this.events.emit('session.agents_updated', { agents: allAgents });
+    } catch {
+      /* best-effort */
+    }
     // Nudge local WebUIs only AFTER the write settles, so they re-read fresh
     // data. Best-effort — never let a notifier failure surface here.
     this.registry

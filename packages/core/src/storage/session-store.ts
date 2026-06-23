@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import type { Dirent } from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
@@ -18,37 +17,7 @@ import type {
 import { atomicWrite, ensureDir } from '../utils/atomic-write.js';
 import { repairToolUseAdjacency } from '../utils/message-invariants.js';
 import { toErrorMessage } from '../utils/index.js';
-// ─── Session ID naming ───────────────────────────────────────────────────────
-
-/** Sanitize a model name for use in filenames: alphanumeric + dash + underscore. */
-function sanitizeModel(model: string): string {
-  return model
-    .replace(/[^a-zA-Z0-9_-]/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 40);
-}
-
-/**
- * Generate a session ID in the format:
- *   `YYYY-MM-DD/HH-MM-SSZ[_model]_xxxx.jsonl`
- *
- * Examples:
- *   `2026-06-06/12-30-45Z_claude-sonnet_a1b2.jsonl`
- *   `2026-06-06/14-22-10Z_a1b2.jsonl`          (no model)
- *
- * The date prefix becomes a subdirectory so sessions group naturally by day.
- * The model name (when available) lets you see at a glance which provider was
- * used, without opening the file. The 4-byte random suffix prevents collisions
- * within the same second.
- */
-function generateSessionId(startedAt: string, model?: string): string {
-  const date = startedAt.slice(0, 10);                       // "2026-06-06"
-  const time = startedAt.slice(11, 19).replace(/:/g, '-');   // "12-30-45"
-  const suffix = randomBytes(2).toString('hex');              // "a1b2"
-  const modelPart = model ? `_${sanitizeModel(model)}` : '';
-  return `${date}/${time}Z${modelPart}_${suffix}`;
-}
+import { generateSessionId } from './session-id.js';
 
 export interface SessionStoreOptions {
   dir: string;
@@ -556,33 +525,39 @@ export class DefaultSessionStore implements SessionStore {
     prefix = '',
     depth = 0,
   ): Promise<string[]> {
-    const ids: string[] = [];
     let entries: Dirent[];
     try {
       entries = await fsp.readdir(dir, { withFileTypes: true });
     } catch {
-      return ids;
+      return [];
     }
+
+    // Separate dirs and files in one pass — avoids a second iteration.
+    const dirEntries: Dirent[] = [];
+    const fileIds: string[] = [];
     for (const entry of entries) {
-      // Skip dot-files and known non-session directories
       if (entry.name.startsWith('.') && entry.name !== '.wrongstack') continue;
       if (entry.name === 'shared' || entry.name === 'subagents' || entry.name === 'attachments')
         continue;
       if (entry.isDirectory()) {
-        // Date-shard directories become the prefix for their contents
-        const childPrefix = depth === 0 ? entry.name : `${prefix}/${entry.name}`;
-        ids.push(...(await this.collectSessionIds(path.join(dir, entry.name), childPrefix, depth + 1)));
+        dirEntries.push(entry);
       } else if (entry.isFile() && entry.name.endsWith('.jsonl')) {
-        // Skip the session index itself — it's bookkeeping, not a session log.
-        // (Only skip THIS file at root, not every root-level jsonl: flat/legacy
-        // sessions and the test fixtures live directly under the sessions dir.)
         if (entry.name === '_index.jsonl') continue;
         const base = entry.name.replace(/\.jsonl$/, '');
-        // Subagent session logs live under subagents/ which we skip above.
-        ids.push(prefix ? `${prefix}/${base}` : base);
+        fileIds.push(prefix ? `${prefix}/${base}` : base);
       }
     }
-    return ids;
+
+    // At depth 0 the date-shard directories are independent — parallelize across
+    // them. Deeper recursion (intra-shard) is sequential since shards are small.
+    const childIdArrays = await Promise.all(
+      dirEntries.map((entry) => {
+        const childPrefix = depth === 0 ? entry.name : `${prefix}/${entry.name}`;
+        return this.collectSessionIds(path.join(dir, entry.name), childPrefix, depth + 1);
+      }),
+    );
+
+    return [...childIdArrays.flat(), ...fileIds];
   }
 
   private async summaryFor(id: string): Promise<SessionSummary> {

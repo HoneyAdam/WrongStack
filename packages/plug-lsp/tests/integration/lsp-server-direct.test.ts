@@ -86,6 +86,12 @@ describe('LSPServer direct API', () => {
         new AbortController().signal,
       ),
     ).toBeTruthy();
+    const completion = await server.completion(
+      { textDocument: { uri }, position: { line: 0, character: 0 } },
+      5000,
+      new AbortController().signal,
+    );
+    expect(Array.isArray(completion) ? completion : completion?.items).toHaveLength(1);
     expect(
       await server.documentSymbol({ textDocument: { uri } }, 5000, new AbortController().signal),
     ).toHaveLength(1);

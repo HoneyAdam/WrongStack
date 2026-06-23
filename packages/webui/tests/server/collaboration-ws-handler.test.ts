@@ -689,6 +689,115 @@ describe('CollaborationWebSocketHandler', () => {
     expect(bus.pendingInjectionCount()).toBe(1);
     h.dispose();
   });
+
+  // ── 26. Controller grants control; target is promoted to controller ─────
+  it('controller grant_control promotes the target and broadcasts the new roster', async () => {
+    const { h } = makeWithBus();
+    const a = fakeWs(); // controller (granter)
+    const b = fakeWs(); // observer (grantee)
+    h.addClient(a);
+    h.addClient(b);
+    h.handleMessage(a, { type: 'collab.join', payload: { sessionId: 'sess-g', role: 'controller' } });
+    h.handleMessage(b, { type: 'collab.join', payload: { sessionId: 'sess-g', role: 'observer' } });
+
+    // Discover the observer's participantId from the latest state snapshot.
+    const stateBefore = lastOfType(a, 'collab.state');
+    const targetId = stateBefore.payload.participants.find(
+      (p: { role: string; participantId: string }) => p.role === 'observer',
+    ).participantId;
+    a.sent.length = 0;
+    b.sent.length = 0;
+
+    h.handleMessage(a, {
+      type: 'collab.grant_control',
+      payload: { sessionId: 'sess-g', toParticipant: targetId },
+    });
+    await new Promise((r) => setImmediate(r));
+
+    // The roster broadcast now lists the former observer as a controller.
+    const state = lastOfType(a, 'collab.state');
+    const target = state.payload.participants.find(
+      (p: { participantId: string }) => p.participantId === targetId,
+    );
+    expect(target.role).toBe('controller');
+
+    // And the promoted participant can now pause (a controller-only action).
+    b.sent.length = 0;
+    h.handleMessage(b, { type: 'collab.request_pause', payload: { sessionId: 'sess-g' } });
+    await new Promise((r) => setImmediate(r));
+    expect(lastOfType(b, 'error')).toBeUndefined();
+    h.dispose();
+  });
+
+  // ── 27. Observer cannot grant control ───────────────────────────────────
+  it('observer role cannot grant_control; gets an error', async () => {
+    const { h } = makeWithBus();
+    const ws = fakeWs();
+    h.addClient(ws);
+    h.handleMessage(ws, { type: 'collab.join', payload: { sessionId: 'sess-g2', role: 'observer' } });
+    ws.sent.length = 0;
+    h.handleMessage(ws, {
+      type: 'collab.grant_control',
+      payload: { sessionId: 'sess-g2', toParticipant: 'whoever' },
+    });
+    await new Promise((r) => setImmediate(r));
+    const err = lastOfType(ws, 'error');
+    expect(err).toBeDefined();
+    expect(err.payload.message).toMatch(/controller.*role/);
+    h.dispose();
+  });
+
+  // ── 29. Bus reports a consumed injection → broadcast phase 'consumed' ────
+  it('broadcasts a consumed injection grant (with the real tool name) on bus notify', async () => {
+    const { bus, h } = makeWithBus();
+    const a = fakeWs(); // controller (author)
+    const b = fakeWs(); // observer
+    h.addClient(a);
+    h.addClient(b);
+    h.handleMessage(a, { type: 'collab.join', payload: { sessionId: 'sess-c', role: 'controller' } });
+    h.handleMessage(b, { type: 'collab.join', payload: { sessionId: 'sess-c', role: 'observer' } });
+    const controllerId = lastOfType(a, 'collab.state').payload.participants.find(
+      (p: { role: string; participantId: string }) => p.role === 'controller',
+    ).participantId;
+    a.sent.length = 0;
+    b.sent.length = 0;
+
+    // Simulate the inject middleware applying a queued injection.
+    bus.notifyInjectionConsumed({
+      toolUseId: 'tu-7',
+      toolName: 'bash',
+      authorId: controllerId,
+      reason: 'controller override',
+      isError: false,
+    });
+
+    const grant = lastOfType(a, 'collab.injection.granted');
+    expect(grant).toBeDefined();
+    expect(grant.payload.phase).toBe('consumed');
+    expect(grant.payload.toolName).toBe('bash');
+    expect(grant.payload.toolUseId).toBe('tu-7');
+    // The observer sees it too.
+    expect(lastOfType(b, 'collab.injection.granted')?.payload.phase).toBe('consumed');
+    h.dispose();
+  });
+
+  // ── 28. Granting to an unknown participant errors ───────────────────────
+  it('grant_control to an unknown participant returns an error', async () => {
+    const { h } = makeWithBus();
+    const a = fakeWs();
+    h.addClient(a);
+    h.handleMessage(a, { type: 'collab.join', payload: { sessionId: 'sess-g3', role: 'controller' } });
+    a.sent.length = 0;
+    h.handleMessage(a, {
+      type: 'collab.grant_control',
+      payload: { sessionId: 'sess-g3', toParticipant: 'does-not-exist' },
+    });
+    await new Promise((r) => setImmediate(r));
+    const err = lastOfType(a, 'error');
+    expect(err).toBeDefined();
+    expect(err.payload.message).toMatch(/no participant/);
+    h.dispose();
+  });
 });
 
 // Minimal wiring helper: a fresh handler with a real bus (no

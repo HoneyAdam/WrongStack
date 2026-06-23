@@ -42,7 +42,7 @@ import {
 } from '@wrongstack/core';
 import { ToolExecutor } from '@wrongstack/core/execution';
 import { makeProviderFromConfig } from '@wrongstack/providers';
-import { resolveRuntimeMaxContext } from '../context-limit.js';
+import { refreshRuntimeModelCatalog, resolveRuntimeMaxContext } from '../context-limit.js';
 import { createFallbackModelExtension } from '../fallback-model.js';
 import { buildRoutingRunner } from './routing.js';
 
@@ -325,6 +325,7 @@ export class MultiAgentHost {
       modelMatrix: () => this.deps.configStore.get().modelMatrix,
       fleetManager, // pass so director.fleetManager is never undefined
       brain: this.opts.brain,
+      roster: FLEET_ROSTER, // pass so spawn_subagent recognizes shadow-agent role
     });
     this.director.on('task.completed', ({ task, result }) => {
       this.fleetManager?.removePendingTask(task.id);
@@ -443,6 +444,63 @@ export class MultiAgentHost {
     if (!this.directorRunnerSet) {
       this.getCoordinator().setRunner(runner);
       this.directorRunnerSet = true;
+    }
+
+    // Auto-start Shadow Agent if configured
+    await this.spawnShadowAgentIfNeeded();
+  }
+
+  /**
+   * Spawn Shadow Agent automatically on first Director build.
+   * Shadow Agent monitors the fleet, detects anomalies, and can intervene via 'hoop'.
+   */
+  private async spawnShadowAgentIfNeeded(): Promise<void> {
+    // Always auto-start shadow agent - it runs silently in background
+    const intervalMs = 30_000; // 30 second heartbeat
+
+    try {
+      // Use director.spawn() which takes SubagentConfig and returns subagentId (string)
+      const subagentId = await this.director!.spawn({
+        name: 'shadow',
+        role: 'shadow-agent',
+        prompt: `You are the Shadow Agent — a silent background monitor for the WrongStack fleet.
+
+Your job: observe, detect anomalies, and intervene when commanded via 'hoop'.
+
+## Behavior
+
+1. **Start immediately** — broadcast 'shadow:started' to all agents via mailbox
+2. **Heartbeat every ${intervalMs}ms**:
+   - Call \`fleet_status\` + \`fleet_health\` to track all agents
+   - Call \`mail_inbox\` to monitor broadcasts and status messages
+   - Detect: stuck agents (>5min no events), spike tasks (<5s), orphan assigns
+3. **Deterministic evaluation first** — use rules-based detection before LLM
+4. **LLM only when needed** — for complex anomaly classification or decision-making
+5. **'hoop <agentId>' command** — when received via mailbox:
+   - Terminate the target agent immediately via \`terminate_subagent\`
+   - Send email/telegram notification: "Shadow Agent: terminated rogue agent <id>"
+   - Log the action with timestamp and reason
+
+## Operating Rules
+- Silent by default — only speak when anomaly detected or commanded
+- Use \`mailbox\` to communicate with other agents
+- Log all interventions with full context
+
+Start your heartbeat loop now.`,
+        maxTokens: 4096,
+        maxCostUsd: 5,
+        timeoutMs: 3_600_000, // 1 hour max
+        idleTimeoutMs: intervalMs * 2,
+        maxIterations: 1000,
+        maxToolCalls: 500,
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-20250514',
+      });
+
+      // Log to console
+      console.log(`[shadow] Auto-started ${subagentId} with interval=${intervalMs}ms`);
+    } catch (err) {
+      console.warn(`[shadow] Auto-start failed: ${err}`);
     }
   }
 
@@ -791,6 +849,10 @@ export class MultiAgentHost {
     // leader's compaction denominator.
     if (this.deps.modelsRegistry) {
       const resolvedModel = model ?? config.model;
+      await refreshRuntimeModelCatalog({
+        modelsRegistry: this.deps.modelsRegistry,
+        reason: `${providerId}/${resolvedModel}`,
+      });
       const mc = await resolveRuntimeMaxContext({
         modelsRegistry: this.deps.modelsRegistry,
         config,

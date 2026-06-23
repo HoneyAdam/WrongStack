@@ -243,6 +243,21 @@ export async function streamProviderToResponse(
   const state = createStreamingState(req.model);
   logger.debug('Stream started', { providerId: provider.id, model: req.model });
 
+  // Batch text_delta EventBus emissions to cut fan-out ~4×. Subscribers
+  // treat `text` as an appendable chunk, so concatenating deltas before
+  // emitting is semantically identical. Flush before any non-text event
+  // and at stream end to preserve ordering.
+  const TEXT_BATCH_SIZE = 4;
+  let pendingText = '';
+  let pendingCount = 0;
+  const flushText = (): void => {
+    if (pendingCount > 0) {
+      events.emit('provider.text_delta', { ctx, text: pendingText });
+      pendingText = '';
+      pendingCount = 0;
+    }
+  };
+
   const iter = provider.stream(req, { signal })[Symbol.asyncIterator]();
   try {
     for (;;) {
@@ -262,9 +277,12 @@ export async function streamProviderToResponse(
             break;
           case 'text_delta':
             handleTextDelta(state, ev.text);
-            events.emit('provider.text_delta', { ctx, text: ev.text });
+            pendingText += ev.text;
+            pendingCount++;
+            if (pendingCount >= TEXT_BATCH_SIZE) flushText();
             break;
           case 'tool_use_start': {
+            flushText();
             const idVal = ev.id;
             const nameVal = ev.name;
             handleToolUseStart(state, { id: idVal, name: nameVal });
@@ -276,6 +294,7 @@ export async function streamProviderToResponse(
             handleToolUseInputDelta(state, ev as Parameters<typeof handleToolUseInputDelta>[1]);
             break;
           case 'tool_use_stop': {
+            flushText();
             const stoppedName = state.tools.get(ev.id)?.name ?? 'unknown';
             handleToolUseStop(state, ev as Parameters<typeof handleToolUseStop>[1]);
             events.emit('provider.tool_use_stop', { ctx, id: ev.id, name: stoppedName });
@@ -285,6 +304,7 @@ export async function streamProviderToResponse(
             handleThinkingStart(state, ev as Parameters<typeof handleThinkingStart>[1]);
             break;
           case 'thinking_delta':
+            flushText();
             handleThinkingDelta(state, ev.text);
             events.emit('provider.thinking_delta', { ctx, text: ev.text });
             break;
@@ -319,6 +339,7 @@ export async function streamProviderToResponse(
           eventType: String(evAny.type),
           errorMessage: errMsg,
         });
+        flushText();
         events.emit('provider.stream_error', {
           ctx,
           eventType: String(evAny.type),
@@ -339,6 +360,7 @@ export async function streamProviderToResponse(
       // `max_tokens`, which corrupted telemetry and broke retry logic
       // that branches on max_tokens specifically).
       state.stopReason = 'end_turn';
+      flushText();
       logger.debug('Stream aborted — returning partial state', {
         providerId: provider.id,
         model: req.model,
@@ -375,6 +397,7 @@ export async function streamProviderToResponse(
       // best-effort
     }
   }
+  flushText();
   logger.debug('Stream completed', {
     providerId: provider.id,
     model: req.model,

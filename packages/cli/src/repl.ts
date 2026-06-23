@@ -156,6 +156,8 @@ export interface ReplOptions {
   getParallelEngine?: (() => import('@wrongstack/core').ParallelEternalEngine | null) | undefined;
   /** Model-specific max context window (tokens). Used for the context bar in turn summaries. */
   effectiveMaxContext?: number | undefined;
+  /** Live model-specific max context window. Prefer this over the startup snapshot when provided. */
+  getEffectiveMaxContext?: (() => number | undefined) | undefined;
   /** Project / folder name shown in the banner. Usually `path.basename(projectRoot)`. */
   projectName?: string | undefined;
   /** Absolute project root — used to locate .wrongstack/goal.json for the goal banner. */
@@ -851,9 +853,11 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
         if (opts.tokenCounter && before) {
           const after = opts.tokenCounter.total();
           const costAfter = opts.tokenCounter.estimateCost().total;
+          const effectiveMaxContext =
+            opts.getEffectiveMaxContext?.() ?? opts.effectiveMaxContext;
           const ctxChip =
-            opts.effectiveMaxContext && opts.effectiveMaxContext > 0
-              ? `  ctx: ${renderContextChip(after.input, opts.effectiveMaxContext)}`
+            effectiveMaxContext && effectiveMaxContext > 0
+              ? `  ctx: ${renderContextChip(after.input, effectiveMaxContext)}`
               : '';
           opts.renderer.write(
             `\n${color.dim(

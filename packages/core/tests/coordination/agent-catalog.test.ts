@@ -102,8 +102,8 @@ describe('agent catalog integrity', () => {
 });
 
 describe('fleet roster derivation', () => {
-  it('FLEET_ROSTER is the 44 catalog agents + 4 legacy = 48', () => {
-    expect(Object.keys(FLEET_ROSTER).length).toBe(48);
+  it('FLEET_ROSTER is the 45 catalog agents + 4 legacy = 49', () => {
+    expect(Object.keys(FLEET_ROSTER).length).toBe(49);
     // Legacy four are preserved alongside the catalog.
     for (const legacy of ['audit-log', 'bug-hunter', 'refactor-planner', 'security-scanner']) {
       expect(FLEET_ROSTER[legacy]).toBeDefined();
@@ -138,7 +138,7 @@ describe('catalog spawnability (real Director + spawn tool)', () => {
     });
   }
 
-  it('spawns every one of the 48 roster roles without error', async () => {
+  it('spawns every one of the 49 roster roles without error', async () => {
     const director = makeDirector();
     const spawn = makeSpawnTool(director, FLEET_ROSTER);
     const spawnedIds: string[] = [];
@@ -150,10 +150,10 @@ describe('catalog spawnability (real Director + spawn tool)', () => {
       spawnedIds.push(result.subagentId!);
     }
 
-    // All 48 produced distinct subagent ids (instantiateRosterConfig must not
+    // All 49 produced distinct subagent ids (instantiateRosterConfig must not
     // reuse the template id) and the director registered each one.
-    expect(new Set(spawnedIds).size).toBe(48);
-    expect(director.status().subagents.length).toBe(48);
+    expect(new Set(spawnedIds).size).toBe(49);
+    expect(director.status().subagents.length).toBe(49);
   });
 
   it('reports a clean error for an unknown role instead of throwing', async () => {

@@ -156,7 +156,7 @@ function AppInner() {
         useUIStore.getState().toggleTerminal();
         return;
       }
-      // Ctrl+1..7 — jump straight to a side panel (same logic as clicking
+      // Ctrl+1..9 — jump straight to a side panel (same logic as clicking
       // its ActivityBar icon, including close-on-repeat).
       if (mod && !e.shiftKey && !e.altKey && e.key >= '1' && e.key <= String(PANEL_ORDER.length)) {
         const activity = PANEL_ORDER[Number(e.key) - 1];
@@ -164,6 +164,67 @@ function AppInner() {
           e.preventDefault();
           openPanel(activity);
           return;
+        }
+      }
+      // F1..F12 — browser equivalents of the TUI function-key panels.
+      // These are skipped while typing so editor/text-input conventions keep
+      // working inside the chat box and code editor.
+      if (!inField && !mod && !e.altKey && /^F([1-9]|1[0-2])$/.test(e.key)) {
+        e.preventDefault();
+        const ui = useUIStore.getState();
+        const ws = getWSClient(useConfigStore.getState().wsUrl);
+        const n = Number(e.key.slice(1));
+        ui.setDockCustomizeOpen(false);
+        switch (n) {
+          case 1:
+            openPanel('projects');
+            return;
+          case 2:
+            ui.setFleetMonitorOpen(true);
+            return;
+          case 3:
+            ui.setAgentsMonitorOpen(true);
+            return;
+          case 4:
+            ui.setCurrentView('chat');
+            ui.setDockSection('worktrees');
+            return;
+          case 5:
+            ws?.getPlan?.();
+            ui.setCurrentView('chat');
+            ui.setDockSection('work');
+            ui.setWorkDashboardTab('plan');
+            return;
+          case 6:
+            ui.setCurrentView('chat');
+            ui.setDockSection('work');
+            ui.setWorkDashboardTab('todos');
+            return;
+          case 7:
+            ui.setQueuePanelOpen(true);
+            return;
+          case 8:
+            ui.setProcessMonitorOpen(true);
+            return;
+          case 9:
+            ws?.send?.({ type: 'goal.get' });
+            ui.setCurrentView('chat');
+            ui.setDockSection('goal');
+            return;
+          case 10:
+            ws?.listSessions?.(50);
+            ui.setCurrentView('sessions');
+            return;
+          case 11:
+            ui.setSidebarOpen(true);
+            ui.selectActivity('officemap');
+            ui.setCurrentView('officemap');
+            return;
+          case 12:
+            ui.setCurrentView('chat');
+            ui.setDockSection('work');
+            ui.setDockCustomizeOpen(true);
+            return;
         }
       }
       if (mod && e.key.toLowerCase() === 'f') {

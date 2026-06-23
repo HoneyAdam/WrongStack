@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { WebSocket } from 'ws';
-import type { CollaborationBus, EventBus, Logger } from '@wrongstack/core';
+import type { CollaborationBus, ConsumedInjectionInfo, EventBus, Logger } from '@wrongstack/core';
 import type { AnnotationsStore, SessionReader } from '@wrongstack/core/storage';
 import { toErrorMessage } from '@wrongstack/core/utils';
 import type {
@@ -83,6 +83,9 @@ export class CollaborationWebSocketHandler {
     private readonly bus?: CollaborationBus | undefined,
   ) {
     this.subscribe();
+    // Phase 4 feedback loop: when the inject middleware applies a queued
+    // injection, broadcast a `consumed` grant so observers see it landed.
+    this.bus?.onInjectionConsumed((info) => this.broadcastInjectionConsumed(info));
   }
 
   // ── Public API (called by server/index.ts per WS connection) ───────────
@@ -277,6 +280,15 @@ export class CollaborationWebSocketHandler {
       for (const p of bucket) {
         if (p.ws === ws) return p;
       }
+    }
+    return null;
+  }
+
+  private findParticipantById(sessionId: string, participantId: string): Participant | null {
+    const bucket = this.bySession.get(sessionId);
+    if (!bucket) return null;
+    for (const p of bucket) {
+      if (p.participantId === participantId) return p;
     }
     return null;
   }
@@ -724,13 +736,23 @@ export class CollaborationWebSocketHandler {
   }
 
   private async handleGrantControl(ws: WebSocket, raw: unknown): Promise<void> {
-    // Phase 3 metadata-only: record the grant in the log; the
-    // existing controller's effective permissions do not change.
-    // A future iteration can wire this to a per-participant RBAC
-    // table that the `handleRequestPause`/`handleResume` checks read.
+    // Promote a target participant to `controller` so the pause/resume and
+    // inject_tool checks (which gate on role === 'controller') accept it. Only
+    // a current controller may grant; the granter itself already passed the
+    // bus requirement when it joined as controller, so no extra bus check is
+    // needed here. The new roster is broadcast so every client reflects it.
     const participant = this.findParticipant(ws);
     if (!participant) {
       this.send(ws, this.errorMessage('grant_control requires an active join'));
+      return;
+    }
+    if (participant.role !== 'controller') {
+      this.send(
+        ws,
+        this.errorMessage(
+          `grant_control requires the 'controller' role (current: '${participant.role}')`,
+        ),
+      );
       return;
     }
     const payload = raw as
@@ -744,9 +766,21 @@ export class CollaborationWebSocketHandler {
       this.send(ws, this.errorMessage('grant_control requires { sessionId, toParticipant }'));
       return;
     }
+    const target = this.findParticipantById(payload.sessionId, payload.toParticipant);
+    if (!target) {
+      this.send(
+        ws,
+        this.errorMessage(
+          `grant_control: no participant '${payload.toParticipant}' in this session`,
+        ),
+      );
+      return;
+    }
+    target.role = 'controller';
     this.logger.debug?.(
-      `collab: control granted from ${participant.participantId} to ${payload.toParticipant} in ${payload.sessionId}`,
+      `collab: control granted from ${participant.participantId} to ${target.participantId} in ${payload.sessionId}`,
     );
+    this.broadcast(payload.sessionId, this.stateMessage(payload.sessionId));
   }
 
   /**
@@ -841,6 +875,43 @@ export class CollaborationWebSocketHandler {
         at: new Date().toISOString(),
       },
     });
+  }
+
+  /**
+   * Bus callback: a queued injection was spliced into a real tool call. Re-emit
+   * `collab.injection.granted` with phase `'consumed'` and the now-known tool
+   * name. The injection carries no sessionId, so resolve it from the author's
+   * current session; if they've already left, fall back to every live session.
+   */
+  private broadcastInjectionConsumed(info: ConsumedInjectionInfo): void {
+    let sessionId: string | null = null;
+    for (const [sid, bucket] of this.bySession) {
+      for (const p of bucket) {
+        if (p.participantId === info.authorId) {
+          sessionId = sid;
+          break;
+        }
+      }
+      if (sessionId) break;
+    }
+    const message = (sid: string): WSServerMessage => ({
+      type: 'collab.injection.granted',
+      payload: {
+        sessionId: sid,
+        toolUseId: info.toolUseId,
+        toolName: info.toolName,
+        authorId: info.authorId,
+        reason: info.reason,
+        isError: info.isError,
+        phase: 'consumed',
+        at: new Date().toISOString(),
+      },
+    });
+    if (sessionId) {
+      this.broadcast(sessionId, message(sessionId));
+    } else {
+      for (const sid of this.bySession.keys()) this.broadcast(sid, message(sid));
+    }
   }
 }
 

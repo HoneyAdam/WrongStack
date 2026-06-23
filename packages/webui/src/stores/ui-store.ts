@@ -29,6 +29,7 @@ export const SIDEBAR_DEFAULT_WIDTH = 304;
 
 /** Sections of the WorkspaceDock strip above the chat transcript. */
 export type DockSection = 'autophase' | 'goal' | 'fleet' | 'work' | 'worktrees' | 'collab';
+export type WorkDashboardTab = 'todos' | 'tasks' | 'plan';
 
 interface UIState {
   sidebarOpen: boolean;
@@ -65,10 +66,14 @@ interface UIState {
   refineEnabled: boolean;
   /** Which WorkspaceDock section is expanded above the chat. Null = all collapsed. */
   dockSection: DockSection | null;
+  /** Active tab in the Work dock section. Mirrors TUI F5/F6 panel jumps. */
+  workDashboardTab: WorkDashboardTab;
   /** Dock chips the user has explicitly hidden via the customization menu.
    *  Empty = all chips visible (subject to each chip's own data condition).
    *  Mirrors the TUI's F12 status-line chip picker. */
   hiddenChips: DockSection[];
+  /** Controlled open state for the dock chip customization menu. */
+  dockCustomizeOpen: boolean;
   /** Full-screen Fleet Monitor overlay. */
   fleetMonitorOpen: boolean;
   /** Full-screen Agents Monitor overlay. */
@@ -142,10 +147,12 @@ interface UIState {
   toggleRefineEnabled: () => void;
   setRefinePanel: (panel: UIState['refinePanel']) => void;
   setDockSection: (section: DockSection | null) => void;
+  setWorkDashboardTab: (tab: WorkDashboardTab) => void;
   /** Click-a-chip semantics: same section again collapses the dock. */
   toggleDockSection: (section: DockSection) => void;
   /** Show/hide a dock chip from the customization menu. */
   toggleChipHidden: (section: DockSection) => void;
+  setDockCustomizeOpen: (open: boolean) => void;
   setFleetMonitorOpen: (open: boolean) => void;
   setAgentsMonitorOpen: (open: boolean) => void;
   setInspectorOpen: (open: boolean) => void;
@@ -178,7 +185,9 @@ export const useUIStore = create<UIState>()(
       refineEnabled: true,
       refinePanel: null,
       dockSection: null,
+      workDashboardTab: 'todos',
       hiddenChips: [],
+      dockCustomizeOpen: false,
       fleetMonitorOpen: false,
       agentsMonitorOpen: false,
       inspectorOpen: false,
@@ -250,6 +259,7 @@ export const useUIStore = create<UIState>()(
       toggleRefineEnabled: () => set((s) => ({ refineEnabled: !s.refineEnabled })),
       setRefinePanel: (panel) => set({ refinePanel: panel }),
       setDockSection: (section) => set({ dockSection: section }),
+      setWorkDashboardTab: (tab) => set({ workDashboardTab: tab }),
       toggleDockSection: (section) =>
         set((s) => ({ dockSection: s.dockSection === section ? null : section })),
       toggleChipHidden: (section) =>
@@ -263,6 +273,7 @@ export const useUIStore = create<UIState>()(
             dockSection: !hidden && s.dockSection === section ? null : s.dockSection,
           };
         }),
+      setDockCustomizeOpen: (open) => set({ dockCustomizeOpen: open }),
       setFleetMonitorOpen: (open: boolean) => set({ fleetMonitorOpen: open }),
       setAgentsMonitorOpen: (open: boolean) => set({ agentsMonitorOpen: open }),
       setInspectorOpen: (open: boolean) => set({ inspectorOpen: open }),
@@ -310,6 +321,7 @@ export const useUIStore = create<UIState>()(
         fileExplorerWidth: s.fileExplorerWidth,
         refineEnabled: s.refineEnabled,
         hiddenChips: s.hiddenChips,
+        workDashboardTab: s.workDashboardTab,
         inspectorOpen: s.inspectorOpen,
         inspectorTab: s.inspectorTab,
         skillsState: s.skillsState,

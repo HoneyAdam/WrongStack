@@ -123,8 +123,7 @@ export function injectWsPort(html: string, wsPort: number): string {
 export function buildCspHeader(wsPort: number): string {
   return (
     `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; ` +
-    `connect-src 'self' ws://127.0.0.1:${wsPort} wss://127.0.0.1:${wsPort} ` +
-    `ws://[::1]:${wsPort} wss://[::1]:${wsPort}; ` +
+    `connect-src 'self' ws://127.0.0.1:${wsPort} wss://127.0.0.1:${wsPort}; ` +
     `img-src 'self' data:; font-src 'self' data:; worker-src 'self' blob:; object-src 'none'; ` +
     `base-uri 'self'; frame-ancestors 'none'; form-action 'self'`
   );

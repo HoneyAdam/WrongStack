@@ -234,6 +234,7 @@ describe('runRepl', () => {
       banner: false,
       tokenCounter,
       effectiveMaxContext: 200_000,
+      getEffectiveMaxContext: () => 1_000_000,
     });
 
     const writes = (renderer.write as ReturnType<typeof vi.fn>).mock.calls;
@@ -241,6 +242,7 @@ describe('runRepl', () => {
       (c: unknown[]) => String(c[0] ?? '').includes('in:') && String(c[0] ?? '').includes('out:'),
     );
     expect(statsLine).toBeDefined();
+    expect(String(statsLine?.[0] ?? '')).toContain('/1.0M');
   });
 
   it('writes error on agent failure', async () => {

@@ -5,3 +5,5 @@ export * from './publisher.js';
 export * from './factory.js';
 export * from './auth-store.js';
 export * from './agent-bridge.js';
+export * from './session-bridge.js';
+export * from './transcript-mapper.js';

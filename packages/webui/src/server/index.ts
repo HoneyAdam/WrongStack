@@ -21,12 +21,14 @@ import * as http from 'node:http';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { createHttpServer } from './http-server.js';
+import { setupWebUICodebaseIndexing } from './codebase-indexing.js';
 import {
   handleFilesTree,
   handleFilesRead,
   handleFilesWrite,
   handleFilesList,
 } from './file-handlers.js';
+import { createToolLspCompletionSource, handleCompletionRequest } from './completion-handlers.js';
 import {
   validateMailboxAgentsPayload,
   validateMailboxMessagesPayload,
@@ -100,6 +102,7 @@ import {
   listContextWindowModes,
   resolveContextWindowPolicy,
   enhanceUserPrompt,
+  gatedEnhancerReasoning,
   recentTextTurns,
   resolveProviderModelList,
 } from '@wrongstack/core';
@@ -167,6 +170,7 @@ export { createHttpServer, buildCspHeader, injectWsPort } from './http-server.js
 export type { CreateHttpServerOptions } from './http-server.js';
 export { findFreePort, isPortFree } from './port-utils.js';
 export { openBrowser, browserOpenCommand } from './open-browser.js';
+export { WorktreeWebSocketHandler } from './worktree-ws-handler.js';
 // Token estimator primitives — exposed for the CLI's embedded webui
 // (which historically inlined its own copy and let it drift). Now
 // there's exactly one definition. See
@@ -218,6 +222,15 @@ export {
   handleFilesWrite,
   handleFilesList,
 } from './file-handlers.js';
+export {
+  createToolLspCompletionSource,
+  handleCompletionRequest,
+  type CompletionHandlerOptions,
+  type CompletionItemKind,
+  type CompletionSuggestion,
+  type LspCompletionSource,
+  type LspCompletionSourceRequest,
+} from './completion-handlers.js';
 
 // Git info handler shared with CLI (git.info) — single source so the two
 // servers can't drift on ahead/behind / insertion-deletion parsing.
@@ -619,11 +632,40 @@ export async function startWebUI(
     });
     statusTracker = new AgentStatusTracker({ events, registry, onUpdate: () => fleetNotifier.notify() });
     statusTracker.start();
+
+    // ── HQ session telemetry — stream live state + full transcript to HQ ──
+    let stopHqSessionBridge: (() => void) | undefined;
+    let hqTelemetryPublisher: { close(): void } | undefined;
+    try {
+      const { createHqPublisherFromEnv, startSessionTelemetryBridge } = await import('@wrongstack/core');
+      const hqTelemetry = createHqPublisherFromEnv({
+        clientKind: 'webui',
+        projectRoot,
+        projectName: path.basename(projectRoot),
+        appConfig: config as never as Parameters<typeof createHqPublisherFromEnv>[0]['appConfig'],
+      });
+      if (hqTelemetry) {
+        hqTelemetry.connect();
+        hqTelemetryPublisher = hqTelemetry;
+        stopHqSessionBridge = startSessionTelemetryBridge({
+          publisher: hqTelemetry,
+          events,
+          sessionId: session.id,
+          projectRoot,
+          projectName: path.basename(projectRoot),
+          globalRoot: wpaths.globalRoot,
+          startedAt: new Date().toISOString(),
+        });
+      }
+    } catch { /* telemetry optional */ }
+
     const stopTracking = async () => {
       try {
         fleetNotifier.dispose();
         await registry.markClosing();
         statusTracker?.stop();
+        stopHqSessionBridge?.();
+        hqTelemetryPublisher?.close();
       } catch { /* ignore */ }
     };
     process.once('beforeExit', () => { void stopTracking(); });
@@ -663,6 +705,9 @@ export async function startWebUI(
         supportsReasoning: resolvedModel.capabilities.reasoning,
       }
     : undefined;
+  const modelCapabilitiesRef: { current: typeof modelCapabilities } = {
+    current: modelCapabilities,
+  };
 
   const skillLoader = config.features.skills
     ? new DefaultSkillLoader({ paths: wpaths })
@@ -682,7 +727,7 @@ export async function startWebUI(
     modeStore,
     modeId,
     modePrompt,
-    modelCapabilities,
+    modelCapabilities: () => modelCapabilitiesRef.current,
   });
 
   // Fetch online agents from the shared mailbox to include in system prompt
@@ -1000,6 +1045,12 @@ export async function startWebUI(
   const collabInject = collabInjectMiddleware(collabBus, { logger });
   Object.defineProperty(collabInject, 'name', { value: 'collab-inject' });
   pipelines.toolCall.prepend(collabInject as never);
+  const codebaseIndexing = setupWebUICodebaseIndexing({
+    config,
+    context,
+    projectRoot,
+    logger,
+  });
   // Compactor — honors config.context.strategy ('hybrid' default, lossless
   // rules; 'intelligent'/'selective' resolve their provider from ctx at
   // compact()-time). eliseThreshold is a TOKEN COUNT (not a fraction).
@@ -1060,7 +1111,11 @@ export async function startWebUI(
 
   /** Refresh AutoCompactionMiddleware denominator when the active model changes. */
   async function updateAutoCompactionMaxContext(newProvider: Provider): Promise<void> {
-    if (!autoCompactor) return;
+    await modelsRegistry.refresh().catch((err) => {
+      logger.warn(
+        `models.dev refresh failed for ${newProvider.id}/${context.model}: ${toErrorMessage(err)}; using cached catalog`,
+      );
+    });
     let newMaxContext = config.context?.effectiveMaxContext ?? newProvider.capabilities.maxContext;
     try {
       const m = await modelsRegistry.getModel(newProvider.id, context.model);
@@ -1068,7 +1123,29 @@ export async function startWebUI(
     } catch {
       // best-effort: use provider capability
     }
-    autoCompactor.setMaxContext(newMaxContext);
+    newProvider.capabilities.maxContext = newMaxContext;
+    modelCapabilitiesRef.current =
+      newMaxContext > 0
+        ? {
+            maxContextTokens: newMaxContext,
+            supportsTools: !!newProvider.capabilities.tools,
+            supportsVision: !!newProvider.capabilities.vision,
+            supportsReasoning: !!newProvider.capabilities.reasoning,
+          }
+        : undefined;
+    if (newMaxContext > 0) {
+      context.meta['effectiveMaxContext'] = newMaxContext;
+      autoCompactor?.setMaxContext(newMaxContext);
+      autoCompactor?.setEnabled(config.context?.autoCompact !== false);
+    } else {
+      delete context.meta['effectiveMaxContext'];
+      autoCompactor?.setEnabled(false);
+    }
+    events.emit('ctx.max_context', {
+      providerId: newProvider.id,
+      modelId: context.model,
+      maxContext: newMaxContext,
+    });
   }
 
   // Agent
@@ -1684,7 +1761,9 @@ export async function startWebUI(
       case 'collab.annotate':
       case 'collab.resolve':
       case 'collab.request_pause':
-      case 'collab.resume': {
+      case 'collab.resume':
+      case 'collab.grant_control':
+      case 'collab.inject_tool': {
         collabHandler.handleMessage(ws, msg as { type: string; payload?: unknown | undefined });
         return;
       }
@@ -1915,7 +1994,19 @@ export async function startWebUI(
       case 'files.read':
         return handleFilesRead(ws, msg, projectRoot);
       case 'files.write':
-        return handleFilesWrite(ws, msg, projectRoot);
+        return handleFilesWrite(ws, msg, projectRoot, {
+          onWritten: (filePath) => codebaseIndexing.onFileWritten(filePath),
+        });
+      case 'completion.request':
+        return handleCompletionRequest(ws, msg, {
+          projectRoot,
+          provider: context.provider,
+          model: context.model,
+          indexDir: typeof context.meta['codebaseIndexDir'] === 'string'
+            ? context.meta['codebaseIndexDir']
+            : undefined,
+          lspCompletion: createToolLspCompletionSource(toolRegistry.get('lsp_completion'), context),
+        });
 
       case 'stats.get': {
         // Mirror of the CLI's /stats: detailed session report.
@@ -2174,7 +2265,7 @@ export async function startWebUI(
         // backend threshold triggers (warn/soft/hard) use the correct denominator.
         // sessionStartPayload is called below (after this block) and uses
         // the new provider for its modelsRegistry lookup.
-        updateAutoCompactionMaxContext?.(newProv);
+        await updateAutoCompactionMaxContext(newProv);
 
         // Persist to global config file via the unified config mutation helper.
         await updateGlobalConfig((cfg) => {
@@ -2211,12 +2302,21 @@ export async function startWebUI(
       }
       try {
         const history = recentTextTurns(context.messages);
+        // Gate a low-effort reasoning hint to the active model's capabilities
+        // (config is patched live on model.switch). Refinement is a shallow
+        // rewrite, so this trims wasted thinking on reasoning models; resolves
+        // to undefined → no reasoning field, as before.
+        const resolved = await modelsRegistry
+          .getModel(config.provider, config.model)
+          .catch(() => undefined);
+        const reasoning = gatedEnhancerReasoning(resolved?.capabilities.reasoningConfig);
         const result = await enhanceUserPrompt({
           provider: context.provider,
           model: context.model,
           text,
           history,
           timeoutMs: 90000,
+          ...(reasoning ? { reasoning } : {}),
           onError: (reason: unknown) => {
             console.warn(JSON.stringify({
               level: 'warn',
@@ -2282,7 +2382,7 @@ export async function startWebUI(
     modeStore,
     memoryStore,
     skillLoader,
-    modelCapabilities,
+    modelCapabilities: () => modelCapabilitiesRef.current,
     toolRegistry,
     tokenCounter,
     config,
@@ -2317,7 +2417,7 @@ export async function startWebUI(
     modeStore,
     memoryStore,
     skillLoader,
-    modelCapabilities,
+    modelCapabilities: () => modelCapabilitiesRef.current,
     context,
     toolRegistry,
     config,
@@ -2520,6 +2620,7 @@ export async function startWebUI(
         eternalSubscription.dispose();
         eternalSubscription = null;
       }
+      codebaseIndexing.dispose();
       return unregisterInstance(process.pid, registryBaseDir);
     },
   });

@@ -599,43 +599,44 @@ describe('HQ server', () => {
     expect(body.error.code).toBe('NOT_FOUND');
   });
 
-  it('HQ_HTML fallback dashboard exposes dashboard shell, drawer markup, and project-link wiring', () => {
-    // HQ_HTML is the inline fallback served from `/` when @wrongstack/webui
-    // is not built. Assert its markup against the constant directly so the
-    // coverage is independent of whether the webui dist exists at test time.
+  it('HQ_HTML serves the React Flow fleet dashboard with a dependency-free fallback', () => {
+    // HQ_HTML is the single self-contained document served from `/`. It loads
+    // React + React Flow from a CDN and falls back to a dependency-free nested
+    // tree when offline. Assert the markup against the constant directly so the
+    // coverage is independent of network access at test time.
     const html = HQ_HTML;
-    // Dashboard shell: header, mailbox/clients tables, stat cards, render fns.
+    expect(html.toLowerCase()).toContain('<!doctype html>');
     expect(html).toContain('WrongStack HQ');
-    expect(html).toContain('id="tbody-mailboxes"');
-    expect(html).toContain('id="tbody-clients"');
-    expect(html).toContain('id="stat-mailboxes"');
-    expect(html).toContain('id="stat-high"');
-    expect(html).toContain('id="stat-agents"');
-    expect(html).toContain('Mailboxes');
-    expect(html).toContain('High priority');
-    expect(html).toContain('renderMailboxes');
-    expect(html).toContain('renderClients');
-    // Project drilldown drawer.
-    expect(html).toContain('id="drawer"');
-    expect(html).toContain('id="drawer-mailboxes"');
-    expect(html).toContain('id="drawer-messages"');
-    expect(html).toContain('id="drawer-event-feed"');
-    expect(html).toContain('id="drawer-clients"');
-    expect(html).toContain('id="project-picker"');
-    expect(html).toContain('id="feed-status"');
-    expect(html).toContain('openProject');
-    expect(html).toContain('renderProjectDetail');
-    expect(html).toContain('renderProjectPicker');
-    expect(html).toContain('wireProjectLinks');
-    expect(html).toContain('fetchProjectDetail');
-    expect(html).toContain('scheduleAutoRefresh');
-    expect(html).toContain('renderEventFeed');
-    expect(html).toContain('handleHqEvent');
-    expect(html).toContain('/api/projects/');
-    expect(html).toContain('class="project-link"');
-    // URL deep-link must support both ?project= and #projectId forms.
-    expect(html).toContain("searchParams.get('project')");
-    expect(html).toContain('popstate');
+    // React Flow + React loaded from esm.sh, with the stylesheet.
+    expect(html).toContain('esm.sh/react@');
+    expect(html).toContain('esm.sh/reactflow@');
+    expect(html).toContain('reactflow@11.11.4/dist/style.css');
+    // The fleet spine: machine → project → terminal → agent.
+    expect(html).toContain('buildTree');
+    expect(html).toContain('buildGraph');
+    expect(html).toContain('FleetView');
+    expect(html).toContain('machineNode');
+    expect(html).toContain('termNode');
+    expect(html).toContain('agentNode');
+    // Live data plane: WS + fleet/transcript endpoints.
+    expect(html).toContain('connectWs');
+    expect(html).toContain('/api/fleet');
+    expect(html).toContain('/api/sessions/');
+    expect(html).toContain('?full=1');
+    expect(html).toContain('session.transcript');
+    // Stat bar + tabs: Console (primary) · Map (React Flow) · Mailbox.
+    expect(html).toContain('Machines');
+    expect(html).toContain('Terminals');
+    expect(html).toContain('Agents');
+    expect(html).toContain('🛰️ Console');
+    expect(html).toContain('🧭 Map');
+    expect(html).toContain('📬 Mailbox');
+    // Console view: live fleet tree + agent cards + click-to-watch chat.
+    expect(html).toContain('FleetTree');
+    expect(html).toContain('AgentGrid');
+    expect(html).toContain('ChatView');
+    // Dependency-free offline fallback.
+    expect(html).toContain('renderFallback');
   });
 
   it('surfaces fresh mailbox.snapshot data through /api/projects/:id (powers drawer auto-refresh)', async () => {
@@ -1158,6 +1159,157 @@ describe('HQ server frame validation', () => {
     );
 
     client.close();
-  
+
+  });
+});
+
+describe('HQ server fleet telemetry', () => {
+  function helloFrame(clientId: string, machineId: string, projectId: string, kind = 'tui'): string {
+    return JSON.stringify({
+      type: 'client.hello',
+      payload: {
+        protocolVersion: HQ_PROTOCOL_VERSION,
+        client: { clientId, kind, machineId, hostname: machineId + '.local', pid: 4242, startedAt: new Date().toISOString() },
+        project: { projectId, projectRoot: '/r/' + projectId, projectName: projectId, machineId, workspaceKind: 'git' },
+        capabilities: ['telemetry.publish'],
+      },
+    });
+  }
+
+  function sessionSnapshotFrame(clientId: string, machineId: string, projectId: string, sessionId: string): string {
+    return JSON.stringify({
+      type: 'client.event',
+      event: {
+        id: 'snap-' + sessionId, type: 'session.snapshot', schemaVersion: HQ_PROTOCOL_VERSION,
+        timestamp: new Date().toISOString(), clientId, projectId, sessionId, seq: 1,
+        payload: {
+          sessionId, clientKind: 'tui', machineId, hostname: machineId + '.local', pid: 4242,
+          projectId, projectName: projectId, projectRoot: '/r/' + projectId, gitBranch: 'main',
+          status: 'active', startedAt: new Date().toISOString(), lastActivityAt: new Date().toISOString(),
+          agentCount: 2,
+          agents: [
+            { id: 'leader', name: 'leader', status: 'running', iterations: 3, toolCalls: 5, costUsd: 0.12, model: 'opus', lastActivityAt: new Date().toISOString() },
+            { id: 'sub-1', name: 'bug-hunter', status: 'streaming', iterations: 1, toolCalls: 2, currentTool: 'grep', lastActivityAt: new Date().toISOString() },
+          ],
+        },
+      },
+    });
+  }
+
+  it('aggregates session.snapshot into the machine → project → terminal → agent tree via /api/fleet', async () => {
+    const port = getPort();
+    handle = await startOpenHqServer({ port });
+
+    const client = new WebSocket(`ws://127.0.0.1:${handle.port}/ws/client`);
+    await waitForOpen(client);
+    client.send(helloFrame('c1', 'mach-A', 'projX'));
+    await new Promise((r) => setTimeout(r, 20));
+    client.send(sessionSnapshotFrame('c1', 'mach-A', 'projX', 's-1'));
+    await new Promise((r) => setTimeout(r, 30));
+
+    const fleet = (await (await fetch(`http://127.0.0.1:${handle.port}/api/fleet`)).json()) as {
+      machines: { machineId: string; hostname?: string; sessionCount: number; agentCount: number }[];
+      liveSessions: { sessionId: string; agents: { id: string }[] }[];
+      totals: { activeMachines: number; activeSessions: number; activeAgents: number; activeSubagents: number; totalCostUsd: number };
+    };
+
+    expect(fleet.totals.activeMachines).toBe(1);
+    expect(fleet.totals.activeSessions).toBe(1);
+    expect(fleet.totals.activeAgents).toBe(2);
+    expect(fleet.totals.activeSubagents).toBe(1);
+    expect(fleet.totals.totalCostUsd).toBeCloseTo(0.12, 5);
+    const m = fleet.machines.find((x) => x.machineId === 'mach-A');
+    expect(m).toBeDefined();
+    expect(m!.hostname).toBe('mach-A.local');
+    expect(m!.sessionCount).toBe(1);
+    expect(m!.agentCount).toBe(2);
+    expect(fleet.liveSessions).toHaveLength(1);
+    expect(fleet.liveSessions[0]?.agents).toHaveLength(2);
+
+    client.close();
+  });
+
+  it('serves a remote terminal full transcript from the stream ring via /api/sessions/:id/events', async () => {
+    const prevEnv = process.env['WRONGSTACK_HQ_DATA_DIR'];
+    process.env['WRONGSTACK_HQ_DATA_DIR'] = dataDir; // keep registry lookup hermetic (empty tmp)
+    try {
+      const port = getPort();
+      handle = await startOpenHqServer({ port });
+
+      const client = new WebSocket(`ws://127.0.0.1:${handle.port}/ws/client`);
+      await waitForOpen(client);
+      client.send(helloFrame('c1', 'mach-A', 'projX'));
+      await new Promise((r) => setTimeout(r, 20));
+      client.send(sessionSnapshotFrame('c1', 'mach-A', 'projX', 's-remote'));
+      client.send(
+        JSON.stringify({
+          type: 'client.event',
+          event: {
+            id: 'tr-1', type: 'session.transcript', schemaVersion: HQ_PROTOCOL_VERSION,
+            timestamp: new Date().toISOString(), clientId: 'c1', projectId: 'projX', sessionId: 's-remote', seq: 2,
+            payload: {
+              sessionId: 's-remote', fromSeq: 0,
+              entries: [
+                { ts: new Date().toISOString(), role: 'user', text: 'hello there' },
+                { ts: new Date().toISOString(), role: 'assistant', text: 'hi! working on it' },
+                { ts: new Date().toISOString(), role: 'tool', text: 'ls -la', tool: 'bash' },
+              ],
+            },
+          },
+        }),
+      );
+      await new Promise((r) => setTimeout(r, 30));
+
+      const res = await fetch(`http://127.0.0.1:${handle.port}/api/sessions/s-remote/events?full=1`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        source: string; total: number; entries: { role: string; text: string; tool?: string }[];
+      };
+      expect(body.source).toBe('stream');
+      expect(body.total).toBe(3);
+      expect(body.entries[0]).toMatchObject({ role: 'user', text: 'hello there' });
+      expect(body.entries[2]).toMatchObject({ role: 'tool', tool: 'bash' });
+
+      client.close();
+    } finally {
+      if (prevEnv === undefined) delete process.env['WRONGSTACK_HQ_DATA_DIR'];
+      else process.env['WRONGSTACK_HQ_DATA_DIR'] = prevEnv;
+    }
+  });
+
+  it('buffers agent.message per subagentId and serves it via /api/agents/:id/messages', async () => {
+    const port = getPort();
+    handle = await startOpenHqServer({ port });
+
+    const client = new WebSocket(`ws://127.0.0.1:${handle.port}/ws/client`);
+    await waitForOpen(client);
+    client.send(helloFrame('c1', 'mach-A', 'projX'));
+    await new Promise((r) => setTimeout(r, 20));
+
+    function agentMsg(seq: number, content: string, kind: string): string {
+      return JSON.stringify({
+        type: 'client.event',
+        event: {
+          id: 'am-' + seq, type: 'agent.message', schemaVersion: HQ_PROTOCOL_VERSION,
+          timestamp: new Date().toISOString(), clientId: 'c1', projectId: 'projX', seq,
+          payload: { subagentId: 'sub-9', agentName: 'bug-hunter', content, kind, iteration: seq, ts: new Date().toISOString() },
+        },
+      });
+    }
+    client.send(agentMsg(1, 'starting investigation', 'text'));
+    client.send(agentMsg(2, 'grep', 'tool_use'));
+    client.send(agentMsg(3, 'found the bug', 'text'));
+    await new Promise((r) => setTimeout(r, 30));
+
+    const res = await fetch(`http://127.0.0.1:${handle.port}/api/agents/sub-9/messages?full=1`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { subagentId: string; total: number; entries: { role: string; text: string }[] };
+    expect(body.subagentId).toBe('sub-9');
+    expect(body.total).toBe(3);
+    expect(body.entries[0]).toMatchObject({ role: 'assistant', text: 'starting investigation' });
+    expect(body.entries[1]!.role).toBe('tool');
+    expect(body.entries[2]).toMatchObject({ role: 'assistant', text: 'found the bug' });
+
+    client.close();
   });
 });

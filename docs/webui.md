@@ -141,6 +141,16 @@ the same registry as standalone ones.
   `subagent.*` catalog (spawn → task → per-tool → periodic summary → completion)
   and reduced in `useFleetStore`. The panel self-hides when no fleet is running,
   so solo sessions are unaffected.
+- **Context-aware code completion** — Monaco completion providers in
+  `src/components/CodeEditor.tsx` send `completion.request` frames for supported
+  code languages. The shared handler (`src/server/completion-handlers.ts`) merges
+  three sources in order: LSP (`lsp_completion`, when the plugin/tool is active),
+  a short JSON-only provider call, and the WrongStack codebase index. Client and
+  server both gate LLM usage so low-value typing stays local; member access (`.`)
+  and semantic prefixes such as `findBy`, `create`, `getUser`, and `setStatus`
+  can use the provider. Unsaved editor content is included for LSP completion when
+  the buffer is reasonably sized, so the language server sees the live Monaco
+  document instead of only the file on disk.
 
 ## Internals (for contributors)
 
@@ -152,3 +162,6 @@ the same registry as standalone ones.
 - Static serve + WS-port `<meta>` injection + CSP: `packages/webui/src/server/http-server.ts`.
 - Free-port discovery: `port-utils.ts`. Instance registry: `instance-registry.ts`.
   Browser opener: `open-browser.ts`. Frontend WS-URL resolution: `src/lib/ws-client.ts`.
+- Completion trigger/cache heuristics: `src/lib/completion.ts`. Completion WS
+  types: `src/types.ts`. Both standalone and CLI-embedded servers route
+  `completion.request` through the same handler.

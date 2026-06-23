@@ -1,9 +1,16 @@
-import { type Agent, enhanceUserPrompt, type ModeStore, recentTextTurns } from '@wrongstack/core';
+import {
+  type Agent,
+  enhanceUserPrompt,
+  gatedEnhancerReasoning,
+  type ModelsRegistry,
+  type ModeStore,
+  recentTextTurns,
+} from '@wrongstack/core';
+import { toErrorMessage } from '@wrongstack/core/utils';
 import { makeProviderFromConfig } from '@wrongstack/providers';
 import type { WebSocket } from 'ws';
 import { loadSavedProviders } from '../provider-config.js';
 import type { WsCommon } from './index.js';
-import { toErrorMessage } from '@wrongstack/core/utils';
 
 /**
  * PR 5e of Issue #30: agent-configuration WebSocket handlers —
@@ -27,6 +34,15 @@ export interface AgentConfigContext extends WsCommon {
   globalConfigPath: string | undefined;
   /** Build the session.start payload (runWebUI's closure), broadcast on a config change. */
   buildSessionStart: (overrides?: Record<string, unknown>) => Promise<unknown>;
+  /**
+   * Models registry, used to look up the active model's reasoning capabilities
+   * so the prompt refiner can send a gated low-effort hint. Optional — when
+   * absent the refiner sends no reasoning field (unchanged behavior).
+   */
+  modelsRegistry?: ModelsRegistry | undefined;
+  onMaxContextResolved?:
+    | ((providerId: string, modelId: string, maxContext: number) => void)
+    | undefined;
 }
 
 function sendResult(ctx: WsCommon, ws: WebSocket, success: boolean, message: string): void {
@@ -109,17 +125,41 @@ export async function handleModelSwitch(
     const saved = await loadSavedProviders(ctx.globalConfigPath);
     const providerCfg = saved[newProvider] ?? { type: newProvider };
     actx.provider = makeProviderFromConfig(newProvider, providerCfg);
+    await ctx.modelsRegistry?.refresh().catch((err) => {
+      ctx.log(
+        JSON.stringify({
+          level: 'warn',
+          event: 'models.refresh_failed',
+          provider: newProvider,
+          model: newModel,
+          message: toErrorMessage(err),
+          timestamp: new Date().toISOString(),
+        }),
+      );
+    });
+    const catalogId =
+      providerCfg.type && providerCfg.type !== newProvider ? providerCfg.type : newProvider;
+    const resolved = await ctx.modelsRegistry
+      ?.getModel(catalogId, newModel)
+      .catch(() => undefined);
+    const maxContext = resolved?.capabilities.maxContext ?? actx.provider.capabilities.maxContext;
+    actx.provider.capabilities.maxContext = maxContext;
 
     sendResult(ctx, ws, true, `Switched to ${newProvider} / ${newModel}`);
+    if (ctx.onMaxContextResolved) {
+      ctx.onMaxContextResolved(newProvider, newModel, maxContext);
+    } else {
+      if (maxContext > 0) actx.meta['effectiveMaxContext'] = maxContext;
+      else delete actx.meta['effectiveMaxContext'];
+      ctx.broadcast({
+        type: 'ctx.max_context',
+        payload: { providerId: newProvider, modelId: newModel, maxContext },
+      });
+    }
     const payloadOut = await ctx.buildSessionStart();
     ctx.broadcast({ type: 'session.start', payload: payloadOut });
   } catch (err) {
-    sendResult(
-      ctx,
-      ws,
-      false,
-      `Switch failed: ${toErrorMessage(err)}`,
-    );
+    sendResult(ctx, ws, false, `Switch failed: ${toErrorMessage(err)}`);
   }
 }
 
@@ -138,12 +178,21 @@ export async function handleModelRefine(
   try {
     const actx = ctx.agent.ctx;
     const history = recentTextTurns(actx.messages);
+    // Gate a low-effort reasoning hint to the active model so the refiner does
+    // not waste thinking on this shallow rewrite. Resolves to undefined (→ no
+    // reasoning field, unchanged behavior) when the registry is absent, the
+    // lookup fails, or the model can't safely reduce reasoning.
+    const resolved = await ctx.modelsRegistry
+      ?.getModel((actx.provider as { id: string }).id, actx.model)
+      .catch(() => undefined);
+    const reasoning = gatedEnhancerReasoning(resolved?.capabilities.reasoningConfig);
     const result = await enhanceUserPrompt({
       provider: actx.provider,
       model: actx.model,
       text,
       history,
       timeoutMs: 90000,
+      ...(reasoning ? { reasoning } : {}),
       onError: (reason) => {
         ctx.log(
           JSON.stringify({

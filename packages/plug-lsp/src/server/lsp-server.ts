@@ -3,6 +3,9 @@ import type { EventBus, Logger } from '@wrongstack/core';
 import type {
   CodeAction,
   CodeActionParams,
+  CompletionItem,
+  CompletionList,
+  CompletionParams,
   Diagnostic,
   DocumentSymbol,
   DocumentSymbolParams,
@@ -187,6 +190,14 @@ export class LSPServer {
 
   async hover(params: HoverParams, timeoutMs: number, signal: AbortSignal): Promise<Hover | null> {
     return await this.request('textDocument/hover', params, timeoutMs, signal);
+  }
+
+  async completion(
+    params: CompletionParams,
+    timeoutMs: number,
+    signal: AbortSignal,
+  ): Promise<CompletionItem[] | CompletionList | null> {
+    return await this.request('textDocument/completion', params, timeoutMs, signal);
   }
 
   async documentSymbol(

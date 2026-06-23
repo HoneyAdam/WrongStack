@@ -381,4 +381,62 @@ describe('streamProviderToResponse', () => {
     await streamProviderToResponse(fakeProvider(events), req, ctrl.signal, fakeCtx, bus, noopLogger);
     expect(seen).toEqual(['text', 'tool_start', 'tool_stop', 'think']);
   });
+
+  it('batches text_delta emissions to reduce fan-out', async () => {
+    // 8 text deltas with batch-size 4 should yield exactly 2 emits.
+    const events: Array<Record<string, unknown>> = [
+      { type: 'message_start', model: 'm' },
+      { type: 'text_delta', text: '1' },
+      { type: 'text_delta', text: '2' },
+      { type: 'text_delta', text: '3' },
+      { type: 'text_delta', text: '4' },
+      { type: 'text_delta', text: '5' },
+      { type: 'text_delta', text: '6' },
+      { type: 'text_delta', text: '7' },
+      { type: 'text_delta', text: '8' },
+      { type: 'message_stop' },
+    ];
+    const bus = new EventBus();
+    const texts: string[] = [];
+    bus.on('provider.text_delta', (p) => texts.push(p.text));
+    const ctrl = new AbortController();
+    await streamProviderToResponse(fakeProvider(events), req, ctrl.signal, fakeCtx, bus, noopLogger);
+    // 8 deltas batched at 4 = 2 emits, each containing concatenated text.
+    expect(texts).toEqual(['1234', '5678']);
+  });
+
+  it('flushes remaining text deltas at stream end', async () => {
+    // 3 deltas (< batch-size 4) should still flush as 1 emit at the end.
+    const events: Array<Record<string, unknown>> = [
+      { type: 'message_start', model: 'm' },
+      { type: 'text_delta', text: 'a' },
+      { type: 'text_delta', text: 'b' },
+      { type: 'text_delta', text: 'c' },
+      { type: 'message_stop' },
+    ];
+    const bus = new EventBus();
+    const texts: string[] = [];
+    bus.on('provider.text_delta', (p) => texts.push(p.text));
+    const ctrl = new AbortController();
+    await streamProviderToResponse(fakeProvider(events), req, ctrl.signal, fakeCtx, bus, noopLogger);
+    expect(texts).toEqual(['abc']);
+  });
+
+  it('flushes pending text before a tool_use_start event', async () => {
+    const events: Array<Record<string, unknown>> = [
+      { type: 'message_start', model: 'm' },
+      { type: 'text_delta', text: 'hello' },
+      { type: 'tool_use_start', id: 't1', name: 'doit' },
+      { type: 'tool_use_stop', id: 't1' },
+      { type: 'message_stop' },
+    ];
+    const bus = new EventBus();
+    const seen: string[] = [];
+    bus.on('provider.text_delta', (p) => seen.push(`text:${p.text}`));
+    bus.on('provider.tool_use_start', () => seen.push('tool_start'));
+    const ctrl = new AbortController();
+    await streamProviderToResponse(fakeProvider(events), req, ctrl.signal, fakeCtx, bus, noopLogger);
+    // Text must appear before tool_start to preserve event ordering.
+    expect(seen).toEqual(['text:hello', 'tool_start']);
+  });
 });

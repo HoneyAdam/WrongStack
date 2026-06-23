@@ -85,7 +85,7 @@ The primary interface for all LSP operations:
 
 ## Registered Tools
 
-The plugin registers 4 tools into WrongStack's tool system. These are kept because
+The plugin registers 5 tools into WrongStack's tool system. These are kept because
 LSP provides genuinely unique data or capability the agent cannot replicate with
 basic tools (read, grep, edit) at comparable cost.
 
@@ -93,6 +93,7 @@ basic tools (read, grep, edit) at comparable cost.
 |---|---|---|
 | `lsp_diagnostics` | `auto` | Get type/lint diagnostics for a file or whole workspace |
 | `lsp_definition` | `auto` | Jump to the definition of a symbol (more precise than grep) |
+| `lsp_completion` | `auto` | Semantic completions for a cursor location, including live editor content when provided |
 | `lsp_rename` | `confirm` | Safe semantic rename across the workspace |
 | `codebase-lsp-search` | `auto` | Fast symbol search via WrongStack's index, with LSP fallback |
 
@@ -236,7 +237,7 @@ packages/plug-lsp/src/
 │   ├── lsp-server.ts   — per-server LSP client (one process per server)
 │   ├── connection.ts    — JSON-RPC 2.0 over stdio transport
 │   └── lifecycle.ts     — state machine for server lifecycle
-├── tools/              — 4 LSP-backed agent tools (diagnostics, definition, rename, codebase-search)
+├── tools/              — 5 LSP-backed agent tools (diagnostics, definition, completion, rename, codebase-search)
 ├── registry.ts         — manages all server instances
 ├── document-tracker.ts — tracks open/edited files across sessions
 ├── auto-discover.ts    — PATH and node_modules discovery

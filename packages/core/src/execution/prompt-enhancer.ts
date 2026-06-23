@@ -1,7 +1,13 @@
-import { isTextBlock } from '../types/blocks.js';
 import type { ContentBlock } from '../types/blocks.js';
+import { isTextBlock } from '../types/blocks.js';
 import type { Message } from '../types/messages.js';
-import type { Provider, Request } from '../types/provider.js';
+import type {
+  Provider,
+  ReasoningConfig,
+  ReasoningEffort,
+  ReasoningRequest,
+  Request,
+} from '../types/provider.js';
 import { toErrorMessage } from '../utils/error.js';
 
 /**
@@ -28,18 +34,21 @@ Rules:
 - Be concise: one tight instruction per version (a few sentences at most). No preamble, no explanation, no quotes, no markdown headers.
 - If the message is already clear and complete, return it essentially unchanged.
 
-You MUST output TWO versions of the refined request, separated by a line containing only "---".
-- First version: refined in the SAME LANGUAGE the user wrote in (if Turkish → Turkish, if Spanish → Spanish, etc.).
-- Second version: refined in ENGLISH (translate the intent into clear English while preserving all concrete details).
+Detect the language of the user's LATEST message and output accordingly:
 
-Output format:
+- If that message is ALREADY in English: output exactly ONE refined version, in English. Nothing else — no "---" line, no second copy.
+- If that message is in ANY OTHER language (Turkish, Spanish, …): output TWO versions separated by a line containing only "---":
+    - First version: refined in the SAME LANGUAGE the user wrote in.
+    - Second version: refined in ENGLISH (translate the intent into clear English while preserving all concrete details).
+
+Output format for non-English input:
 <refined in user's language>
 ---
 <refined in English>
 
-When earlier conversation turns are provided, they are CONTEXT ONLY. Use them to resolve references in the user's latest message — "it", "that", "the same", "the other one", "this file", "again" — so the refined instruction is self-contained. Refine ONLY the user's latest message; do not answer it, do not act on or restate earlier turns, and do not summarize the conversation.
+When earlier conversation turns are provided, they are CONTEXT ONLY. Use them to resolve references in the user's latest message — "it", "that", "the same", "the other one", "this file", "again" — so the refined instruction is self-contained. Refine ONLY the user's latest message; do not answer it, do not act on or restate earlier turns, and do not summarize the conversation. The conversation language does NOT decide the output language — only the language of the latest message does.
 
-Output ONLY the two versions separated by "---" — nothing else.`;
+Output ONLY the refined request(s) in the format above — nothing else.`;
 
 /** Words/phrases that are control answers, not refinable requests. */
 const AFFIRMATION_RE =
@@ -64,6 +73,55 @@ export function shouldEnhance(text: string): boolean {
 }
 
 /**
+ * Preference order when picking an effort level: the cheapest level that still
+ * does SOME reasoning first ('low', then 'minimal'), then up the ladder, with
+ * fully-off ('none') last so it's only chosen when it's the sole advertised
+ * option. This keeps the refiner cheap without dropping reasoning entirely when
+ * a little still helps. 'low' leads because it's the most widely accepted low
+ * level across adapters (e.g. OpenAI's reasoning_effort set).
+ */
+const EFFORT_PREFERENCE: ReasoningEffort[] = [
+  'low',
+  'minimal',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+  'none',
+];
+
+/**
+ * Build a reasoning directive for the refiner that minimizes wasted thinking,
+ * gated to what the model actually accepts. Refinement is a shallow rewrite
+ * task — extended thinking adds latency and (hidden) token cost for little
+ * gain — so we ask the model to spend as little reasoning as it safely can.
+ *
+ * The gating mirrors `resolveReasoningForRequest` so we never send a field the
+ * model would reject:
+ *   - effort-capable model      → its lowest advertised effort level;
+ *   - else disable-capable model → disable thinking (`enabled: false`);
+ *   - else (always-on / unknown) → `undefined` (leave the provider default).
+ *
+ * Returns `undefined` whenever nothing can be safely reduced. Callers forward
+ * that verbatim to `enhanceUserPrompt`, which then sends no reasoning field —
+ * identical to the behavior before this hint existed. Pure + exported for unit
+ * testing.
+ */
+export function gatedEnhancerReasoning(
+  rc: ReasoningConfig | undefined,
+): ReasoningRequest | undefined {
+  // Capabilities unknown → don't risk an unsupported field (matches the
+  // conservative "capabilities unknown" branch in resolveReasoningForRequest).
+  if (!rc) return undefined;
+  if (rc.effortSupported && rc.effortLevels.length > 0) {
+    const lowest = EFFORT_PREFERENCE.find((e) => rc.effortLevels.includes(e)) ?? rc.effortLevels[0];
+    if (lowest) return { effort: lowest };
+  }
+  if (rc.disableSupported) return { enabled: false };
+  return undefined;
+}
+
+/**
  * Normalize for "did the refiner actually change anything?" comparison —
  * collapse whitespace and lowercase so trivial reformatting doesn't trigger
  * the confirmation panel.
@@ -80,13 +138,15 @@ export interface ConversationTurn {
 }
 
 /**
- * Result of a successful prompt refinement. Contains both the
- * original-language and English versions so the UI can offer both.
+ * Result of a successful prompt refinement. Carries the original-language and
+ * English versions so the UI can offer both. When the input was already in
+ * English the refiner emits a single version and both fields hold the same
+ * text (the UI then offers two identical choices, which is correct).
  */
 export interface EnhanceResult {
   /** Refined in the user's original language. */
   refined: string;
-  /** Refined in English. */
+  /** Refined in English. Equals `refined` when the input was already English. */
   english: string;
 }
 
@@ -108,6 +168,16 @@ export interface EnhanceUserPromptOptions {
   timeoutMs?: number | undefined;
   /** Max tokens for the refined output. Default 2048. */
   maxTokens?: number | undefined;
+  /**
+   * Reasoning directive for the refiner call. Refinement is a shallow
+   * restate-this-more-clearly task that does not benefit from extended
+   * thinking, so callers pass a low-effort / thinking-disabled hint here to
+   * cut latency and (hidden) reasoning-token cost — most impactful on slow
+   * reasoning models. Build it with `gatedEnhancerReasoning(rc)` so the field
+   * is gated to what the model accepts. Omit (undefined) to send no reasoning
+   * directive at all (the provider's own default applies).
+   */
+  reasoning?: ReasoningRequest | undefined;
   /**
    * Called with a short reason when refinement fails (provider error, timeout,
    * empty response). NOT called when the caller cancels via `signal`. Lets the
@@ -160,15 +230,19 @@ export async function enhanceUserPrompt(
     // and reasoning models (DeepSeek reasoner, o1/o3, …) return HTTP 400 when
     // `temperature` is present — which would make every refine call fail and
     // silently fall back to the original (no panel shown).
+    //
+    // A reasoning hint is forwarded ONLY when the caller supplies one (it must
+    // already be gated to the model's advertised support — see
+    // `gatedEnhancerReasoning`). Absent it, no reasoning field is sent, which
+    // is identical to the original behavior.
+    ...(opts.reasoning ? { reasoning: opts.reasoning } : {}),
   };
 
   // Link a local timeout to the parent signal so a stuck provider call can't
   // hang the submit path. AbortSignal.any keeps both cancellation sources.
   const timer = new AbortController();
   const to = setTimeout(() => timer.abort(new Error('enhancer timeout')), timeoutMs);
-  const signal = opts.signal
-    ? AbortSignal.any([opts.signal, timer.signal])
-    : timer.signal;
+  const signal = opts.signal ? AbortSignal.any([opts.signal, timer.signal]) : timer.signal;
 
   try {
     const res = await provider.complete(req, { signal });
@@ -182,13 +256,15 @@ export async function enhanceUserPrompt(
       return null;
     }
 
-    // The model outputs two versions separated by a line with only "---".
-    // Split on the first occurrence so the delimiter can appear in the text.
+    // English input → ONE version (no "---"); other languages → two versions
+    // separated by a line with only "---". Split on the first occurrence so the
+    // delimiter can still appear inside the second version's text.
     const sepIdx = raw.indexOf('\n---\n');
     if (sepIdx === -1) {
-      // Model didn't follow the format — treat the whole response as a
-      // single refined version (best-effort fallback).
-      opts.onError?.('model did not produce two versions');
+      // Single version: the input was already English (or the model chose not
+      // to translate). Use it for both fields — the UI offers identical
+      // "refined" / "english" options, which is correct and saves the model
+      // from generating a redundant second copy. NOT an error.
       return { refined: raw, english: raw };
     }
     const refined = raw.slice(0, sepIdx).trim();

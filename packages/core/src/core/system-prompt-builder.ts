@@ -28,8 +28,8 @@ export interface DefaultSystemPromptBuilderOptions {
   modeId?: string | undefined;
   /** Pre-resolved mode prompt — avoids redundant modeStore.getActiveMode() call. */
   modePrompt?: string | undefined;
-  /** Pre-resolved model capabilities — enables adaptive context thresholds. */
-  modelCapabilities?: ModelCapabilities | undefined;
+  /** Model capabilities — object snapshot or lazy getter for live model switches. */
+  modelCapabilities?: ModelCapabilities | (() => ModelCapabilities | undefined) | undefined;
   todayIso?: string | undefined;
   /**
    * Path to the session's plan JSON, or a getter that returns it. When
@@ -85,10 +85,10 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
   private skillBodyCache?: string | undefined;
   /** Tools from last build — used for memory relevance scoring. */
   private _lastBuildTools?: Tool[] | undefined;
-  /** Cached rendered online agents string, keyed by array reference. */
-  private _lastOnlineAgents?: { ref: readonly MailboxAgentStatus[]; text: string } | undefined;
-  /** Cached full buildToolUsage output — keyed by tools array + online agents refs. */
-  private _toolsUsageCache?: { toolsRef: readonly Tool[]; agentsRef: readonly MailboxAgentStatus[] | undefined; text: string } | undefined;
+  /** Cached rendered online agents string, keyed by content fingerprint. */
+  private _lastOnlineAgents?: { hash: string; text: string } | undefined;
+  /** Cached full buildToolUsage output — keyed by tools array ref + agents fingerprint. */
+  private _toolsUsageCache?: { toolsRef: readonly Tool[]; agentsHash: string; text: string } | undefined;
   constructor(private readonly opts: DefaultSystemPromptBuilderOptions = {}) {}
 
   /**
@@ -297,12 +297,14 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
     if (tools.length === 0) return '## Tool usage\n\nNo tools registered.';
 
     // Cache: tools array is stable (same reference) until a registry mutation
-    // thanks to B2 (ToolRegistry snapshot). Online agents are cached by reference
-    // in renderOnlineAgents(). When both references match the previous build,
+    // thanks to B2 (ToolRegistry snapshot). Online agents are keyed by content
+    // fingerprint — the mailbox rebuilds the array on every status check, so
+    // reference equality would always miss. When both match the previous build,
     // the full output is identical — return the cached string.
+    const agentsHash = this.agentsFingerprint(ctx.onlineAgents);
     if (
       this._toolsUsageCache?.toolsRef === tools &&
-      this._toolsUsageCache?.agentsRef === ctx.onlineAgents
+      this._toolsUsageCache?.agentsHash === agentsHash
     ) {
       return this._toolsUsageCache.text;
     }
@@ -638,7 +640,7 @@ the server connection — only tool visibility changes.`);
       } else {
         // Adaptive threshold based on model context window size.
         // Small context (<=32k) → trigger earlier; large context (>=128k) → more relaxed.
-        const maxCtx = this.opts.modelCapabilities?.maxContextTokens ?? 128000;
+        const maxCtx = this.modelCapabilities()?.maxContextTokens ?? 128000;
         const threshold = maxCtx <= 32000 ? '50' : '70';
         lines.push(`
 ## Context management
@@ -656,19 +658,43 @@ summarize it, and let the tool result hold only the summary.`);
       }
     }
 
-    // Store cache — keyed by reference so it auto-invalidates when tools
-    // array changes (B2 snapshot) or online agents join/leave.
+    // Store cache — keyed by tools reference (B2 snapshot) + agents content
+    // fingerprint, so it auto-invalidates when tools change or agents join/leave.
     const text = lines.join('\n');
-    this._toolsUsageCache = { toolsRef: tools, agentsRef: ctx.onlineAgents, text };
+    this._toolsUsageCache = { toolsRef: tools, agentsHash, text };
     return text;
   }
 
   /**
-   * Render the online agents list, cached by array reference. The agents
+   * Cheap content fingerprint of the online agents array. The mailbox
+   * rebuilds the array as a fresh object on every status check, so caching
+   * by reference always misses — this lets the renderOnlineAgents and
+   * buildToolUsage caches detect membership changes instead.
+   *
+   * O(n) over agent names with no per-element string concatenation. Uses
+   * FNV-1a over character codes so two different agent sets collide only
+   * if they produce the identical sequence of name characters — astronomically
+   * unlikely. A collision would produce a stale agent list in the prompt,
+   * a cosmetic issue, not a correctness bug.
+   */
+  private agentsFingerprint(agents: readonly MailboxAgentStatus[] | undefined): string {
+    if (!agents || agents.length === 0) return '0';
+    let h = 0x811c9dc5;
+    for (const a of agents) {
+      for (let i = 0; i < a.name.length; i++) {
+        h ^= a.name.charCodeAt(i);
+        h = Math.imul(h, 0x01000193) >>> 0;
+      }
+    }
+    return `${agents.length}:${h.toString(36)}`;
+  }
+
+  /**
+   * Render the online agents list, cached by content fingerprint. The agents
    * list changes at join/leave pace (seconds to minutes), not every prompt
-   * build turn (hundreds of ms). Reference equality avoids re-stringifying
-   * the same array on every iteration while still being correct when the
-   * caller passes a fresh array.
+   * build turn (hundreds of ms). The fingerprint detects membership changes
+   * without holding the array reference — the mailbox rebuilds the array as
+   * a fresh object on every status check, so reference equality always misses.
    *
    * Tier behaviour:
    * - 'off' / 'medium' / 'aggressive' → full list with names, sessions, sources
@@ -679,9 +705,10 @@ summarize it, and let the tool result hold only the summary.`);
   ): string {
     if (!agents || agents.length === 0) return '';
 
-    // Reference equality: if the same array object was passed last time,
-    // reuse the cached string without re-mapping the list.
-    if (this._lastOnlineAgents?.ref === agents) {
+    // Content fingerprint: detects membership changes without holding the
+    // array reference, which is rebuilt as a fresh object on every status check.
+    const hash = this.agentsFingerprint(agents);
+    if (this._lastOnlineAgents?.hash === hash) {
       return this._lastOnlineAgents.text;
     }
 
@@ -689,7 +716,7 @@ summarize it, and let the tool result hold only the summary.`);
     // minimal / light tiers: count only, no list
     if (this.tier === 'minimal' || this.tier === 'light') {
       const text = ` (${totalCount} agent${totalCount !== 1 ? 's' : ''} online)`;
-      this._lastOnlineAgents = { ref: agents, text };
+      this._lastOnlineAgents = { hash, text };
       return text;
     }
 
@@ -700,12 +727,22 @@ summarize it, and let the tool result hold only the summary.`);
       )
       .join('\n');
     const text = `\n\n**Currently online (${totalCount} agent${totalCount !== 1 ? 's' : ''}):**\n${agentList}`;
-    this._lastOnlineAgents = { ref: agents, text };
+    this._lastOnlineAgents = { hash, text };
     return text;
   }
 
   private async buildEnvironment(ctx: BuildContext): Promise<string> {
-    const cached = this.envCacheByRoot.get(ctx.projectRoot);
+    const modelCapabilities = this.modelCapabilities();
+    const cacheKey = [
+      ctx.projectRoot,
+      ctx.provider ?? '',
+      ctx.model ?? '',
+      modelCapabilities?.maxContextTokens ?? 0,
+      modelCapabilities?.supportsTools ? 1 : 0,
+      modelCapabilities?.supportsVision ? 1 : 0,
+      modelCapabilities?.supportsReasoning ? 1 : 0,
+    ].join('\0');
+    const cached = this.envCacheByRoot.get(cacheKey);
     if (cached) return cached;
     const today = this.opts.todayIso ?? new Date().toISOString().slice(0, 10);
     const platform = `${os.platform()} ${os.release()}`;
@@ -753,15 +790,15 @@ summarize it, and let the tool result hold only the summary.`);
             `- Running on: ${ctx.provider ?? '<unknown provider>'}/${ctx.model ?? '<unknown model>'}`,
           );
         }
-        if (this.opts.modelCapabilities) {
+        if (modelCapabilities) {
           lines.push(
-            `- Context window: ${this.opts.modelCapabilities.maxContextTokens.toLocaleString()} tokens max`,
+            `- Context window: ${modelCapabilities.maxContextTokens.toLocaleString()} tokens max`,
           );
         }
       }
-      if (tier !== 'aggressive' && this.opts.modelCapabilities) {
+      if (tier !== 'aggressive' && modelCapabilities) {
         lines.push(
-          `- Context window: ${this.opts.modelCapabilities.maxContextTokens.toLocaleString()} tokens max`,
+          `- Context window: ${modelCapabilities.maxContextTokens.toLocaleString()} tokens max`,
         );
       }
       if (tier !== 'aggressive' && (ctx.provider || ctx.model)) {
@@ -786,8 +823,13 @@ summarize it, and let the tool result hold only the summary.`);
       );
     }
     const text = lines.join('\n');
-    this.envCacheByRoot.set(ctx.projectRoot, text);
+    this.envCacheByRoot.set(cacheKey, text);
     return text;
+  }
+
+  private modelCapabilities(): ModelCapabilities | undefined {
+    const caps = this.opts.modelCapabilities;
+    return typeof caps === 'function' ? caps() : caps;
   }
 
   private async buildMemoryAndSkills(): Promise<string> {

@@ -47,6 +47,7 @@ import {
   expectDefined,
   type FileAuthorTrackerOptions,
   FLEET_ROSTER,
+  gatedEnhancerReasoning,
   GlobalMailbox,
   HookRegistry,
   HookRunner,
@@ -90,7 +91,7 @@ import { wireContainer } from './boot/container-wiring.js';
 import { bindSystemPromptBuilder } from './boot/system-prompt-builder.js';
 import { handleHelpVersionShortCircuit } from './boot/short-circuit-flags.js';
 import { handleHqShortCircuit } from './boot/short-circuit-hq.js';
-import { resolveRuntimeMaxContext } from './context-limit.js';
+import { refreshRuntimeModelCatalog, resolveRuntimeMaxContext } from './context-limit.js';
 import { type ExecutionDeps, execute } from './execution.js';
 import { createFallbackModelExtension } from './fallback-model.js';
 import { createLifecycleHooksExtension, createUserPromptSubmitMiddleware } from './hooks-wiring.js';
@@ -288,6 +289,9 @@ export async function main(argv: string[]): Promise<number> {
     modePrompt,
     modelCapabilities,
   } = modeResult;
+  const modelCapabilitiesRef: { current: typeof modelCapabilities } = {
+    current: modelCapabilities,
+  };
 
   const memoryStore = container.resolve(TOKENS.MemoryStore);
   const skillLoader = container.resolve(TOKENS.SkillLoader);
@@ -313,7 +317,7 @@ export async function main(argv: string[]): Promise<number> {
     autonomyModeRef,
     modeId,
     modePrompt,
-    modelCapabilities,
+    modelCapabilities: () => modelCapabilitiesRef.current,
     skillsEnabled: config.features.skills,
     tokenSavingMode: config.features.tokenSavingMode,
     paths: {
@@ -765,30 +769,79 @@ export async function main(argv: string[]): Promise<number> {
   });
   let effectiveMaxContext = compactionSetup.effectiveMaxContext;
   context.provider.capabilities.maxContext = effectiveMaxContext;
+  modelCapabilitiesRef.current =
+    effectiveMaxContext > 0
+      ? {
+          maxContextTokens: effectiveMaxContext,
+          supportsTools: !!context.provider.capabilities.tools,
+          supportsVision: !!context.provider.capabilities.vision,
+          supportsReasoning: !!context.provider.capabilities.reasoning,
+        }
+      : undefined;
   const { autoCompactor } = compactionSetup;
 
   // Refresh the active model's context denominator when provider/model changes.
   // This feeds auto-compaction, the leader context chip, and Director spawn guards.
+  let maxContextRefreshSeq = 0;
+  const applyMaxContext = (
+    providerId: string,
+    modelId: string,
+    mc: number,
+    seq?: number | undefined,
+  ): void => {
+    if (seq !== undefined && seq !== maxContextRefreshSeq) return;
+    effectiveMaxContext = mc;
+    context.provider.capabilities.maxContext = effectiveMaxContext; // may be 0 (unknown)
+    modelCapabilitiesRef.current =
+      effectiveMaxContext > 0
+        ? {
+            maxContextTokens: effectiveMaxContext,
+            supportsTools: !!context.provider.capabilities.tools,
+            supportsVision: !!context.provider.capabilities.vision,
+            supportsReasoning: !!context.provider.capabilities.reasoning,
+          }
+        : undefined;
+    if (effectiveMaxContext > 0) {
+      context.meta['effectiveMaxContext'] = effectiveMaxContext;
+      autoCompactor?.setMaxContext(effectiveMaxContext);
+      autoCompactor?.setEnabled(config.context.autoCompact !== false);
+    } else {
+      delete context.meta['effectiveMaxContext'];
+      autoCompactor?.setEnabled(false);
+    }
+    events.emit('ctx.max_context', { providerId, modelId, maxContext: effectiveMaxContext });
+    eventWiring.setEffectiveMaxContext(effectiveMaxContext);
+  };
+
   const refreshMaxContext = async (
     providerId: string,
     modelId: string,
     runtimeProviderConfig?: import('@wrongstack/core').ProviderConfig | undefined,
   ) => {
-    const mc = await resolveRuntimeMaxContext({
+    const seq = ++maxContextRefreshSeq;
+    const resolveAndApply = async (): Promise<void> => {
+      const mc = await resolveRuntimeMaxContext({
+        modelsRegistry,
+        config,
+        provider: context.provider,
+        runtimeProviderConfig,
+        providerId,
+        modelId,
+      });
+      applyMaxContext(providerId, modelId, mc, seq);
+    };
+
+    // Apply the best-known cached value immediately, then refresh the catalog
+    // and re-apply. Model metadata (especially context windows) changes after
+    // release; model switches should converge to current catalog data without
+    // blocking the TUI picker or fallback path.
+    await resolveAndApply();
+    const refreshed = await refreshRuntimeModelCatalog({
       modelsRegistry,
-      config,
-      provider: context.provider,
-      runtimeProviderConfig,
-      providerId,
-      modelId,
+      logger,
+      reason: `${providerId}/${modelId}`,
     });
-    effectiveMaxContext = mc;
-    context.provider.capabilities.maxContext = effectiveMaxContext; // may be 0 (unknown)
-    if (effectiveMaxContext > 0) {
-      autoCompactor?.setMaxContext(effectiveMaxContext);
-    }
-    events.emit('ctx.max_context', { providerId, modelId, maxContext: effectiveMaxContext });
-    eventWiring.setEffectiveMaxContext(effectiveMaxContext);
+    if (refreshed) await resolveAndApply();
   };
 
   const agent = createAgent({
@@ -912,9 +965,9 @@ export async function main(argv: string[]): Promise<number> {
   // Refresh the auto-compaction / context-chip denominator for a (provider,
   // model) pair. Used by both the `/model` switch and the fallback extension so
   // a switch to a smaller-window model recomputes thresholds.
-  const refreshMaxContextFor = (providerId: string, modelId: string): void => {
+  const refreshMaxContextFor = async (providerId: string, modelId: string): Promise<void> => {
     const { resolvedProviderId, cfgWithType } = resolveProviderCfg(providerId);
-    void refreshMaxContext(resolvedProviderId, modelId, cfgWithType);
+    await refreshMaxContext(resolvedProviderId, modelId, cfgWithType);
   };
 
   // Cross-provider fallback: switch to the next configured model when the
@@ -946,7 +999,10 @@ export async function main(argv: string[]): Promise<number> {
   // calls this after the user confirms a (provider, model) pair; we
   // construct a fresh Provider instance, swap it onto the live context,
   // and rebuild the frozen config so other consumers see the new ids.
-  const switchProviderAndModel = (providerId: string, modelId: string): string | null => {
+  const switchProviderAndModel = async (
+    providerId: string,
+    modelId: string,
+  ): Promise<string | null> => {
     try {
       context.provider = buildProviderForId(providerId);
       context.model = modelId;
@@ -957,7 +1013,7 @@ export async function main(argv: string[]): Promise<number> {
       configStore.update({ provider: providerId, model: modelId });
       // Refresh AutoCompactionMiddleware denominator for the new model's
       // maxContext so threshold triggers (warn/soft/hard) use the correct denominator.
-      refreshMaxContextFor(providerId, modelId);
+      await refreshMaxContextFor(providerId, modelId);
       return null;
     } catch (err) {
       return err instanceof Error ? err.message : String(err);
@@ -1514,6 +1570,18 @@ export async function main(argv: string[]): Promise<number> {
   // the AutonomousCoordinator is created lazily. Slash commands read from it.
   const coordinatorController: NonNullable<Parameters<typeof buildBuiltinSlashCommands>[0]['coordinatorController']> = {};
 
+  // Shadow controller — tracks the active shadow agent so /shadow start can
+  // reject spawn attempts when one is already running.
+  const shadowController: NonNullable<Parameters<typeof buildBuiltinSlashCommands>[0]['shadowController']> = {
+    activeId: null,
+    register(id) {
+      this.activeId = id;
+    },
+    clear() {
+      this.activeId = null;
+    },
+  };
+
   const slashCmds = buildBuiltinSlashCommands({
     registry: slashRegistry,
     toolRegistry,
@@ -1557,6 +1625,7 @@ export async function main(argv: string[]): Promise<number> {
     brainSettings,
     getBrainLog: () => brainLog,
     coordinatorController,
+    shadowController,
     confirm: async (question, defaultYes = true): Promise<boolean | null> => {
       // Non-TTY / piped stdin → don't block. For destructive or surprising
       // actions (e.g. starting eternal mode against a stale goal) the safe
@@ -1578,6 +1647,10 @@ export async function main(argv: string[]): Promise<number> {
     },
     onSpawn: async (description, spawnOpts) => {
       const { subagentId, taskId } = await multiAgentHost.spawn(description, spawnOpts);
+      // Auto-register shadow agents in the shadow controller
+      if (shadowController && spawnOpts?.name === 'shadow') {
+        shadowController.register(subagentId);
+      }
       const tags: string[] = [];
       if (spawnOpts?.provider) tags.push(spawnOpts.provider);
       if (spawnOpts?.model) tags.push(spawnOpts.model);
@@ -2419,14 +2492,25 @@ export async function main(argv: string[]): Promise<number> {
     flags,
     positional,
     effectiveMaxContext,
+    getEffectiveMaxContext: () => effectiveMaxContext,
     queueStore,
     context,
     stats,
     detachTodosCheckpoint,
     savedProviderCfg: savedProviderCfg as ExecutionDeps['savedProviderCfg'],
     resolvedProvider: resolvedProvider ?? undefined,
-    getPickableProviders: () => buildPickableProviders(modelsRegistry, config),
+    getPickableProviders: async () => {
+      await refreshRuntimeModelCatalog({
+        modelsRegistry,
+        logger,
+        reason: 'model-picker',
+      });
+      return buildPickableProviders(modelsRegistry, config);
+    },
     switchProviderAndModel,
+    onModelContextResolved: (providerId, modelId, maxContext) => {
+      applyMaxContext(providerId, modelId, maxContext);
+    },
     director: director ?? null,
     getDirector: () => director,
     coordinatorController,
@@ -2434,6 +2518,11 @@ export async function main(argv: string[]): Promise<number> {
     fleetStreamController,
     interruptController,
     enhanceController,
+    // Low-effort reasoning hint for the prompt refiner, recomputed each call
+    // from the active model's live capabilities so it is always gated to what
+    // the current model accepts (returns undefined when nothing can be safely
+    // reduced → refiner sends no reasoning field, as before).
+    getEnhancerReasoning: () => gatedEnhancerReasoning(activeReasoningConfig),
     statuslineHiddenItems,
     setStatuslineHiddenItems,
     saveStatuslineHiddenItems,

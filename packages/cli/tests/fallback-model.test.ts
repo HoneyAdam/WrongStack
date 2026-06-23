@@ -175,6 +175,45 @@ describe('createFallbackModelExtension', () => {
     expect(switches).toContainEqual(['anthropic', 'opus']); // primary restore
   });
 
+  it('waits for async onModelSwitch before retrying on the fallback model', async () => {
+    const order: string[] = [];
+    let releaseSwitch!: () => void;
+    const switchGate = new Promise<void>((resolve) => {
+      releaseSwitch = resolve;
+    });
+    const ext = createFallbackModelExtension({
+      getConfig: () => cfg({ fallbackModels: ['openai/gpt-x'] }),
+      buildProvider: fakeProvider,
+      onModelSwitch: async () => {
+        order.push('switch-start');
+        await switchGate;
+        order.push('switch-done');
+      },
+      events: new EventBus(),
+      logger,
+    })!;
+    const ctx = makeCtx('anthropic', 'opus');
+    let call = 0;
+    const inner = vi.fn(async () => {
+      call++;
+      order.push(`inner-${call}`);
+      if (call === 1) throw overload('anthropic');
+      return { stopReason: 'end_turn', usage: { input: 0, output: 0 } } as never;
+    });
+
+    const run = ext.wrapProviderRunner!(ctx, { model: 'opus' } as never, inner as never);
+    for (let i = 0; i < 5 && !order.includes('switch-start'); i++) {
+      await Promise.resolve();
+    }
+    expect(order).toEqual(['inner-1', 'switch-start']);
+    expect(inner).toHaveBeenCalledTimes(1);
+
+    releaseSwitch();
+    await run;
+
+    expect(order).toEqual(['inner-1', 'switch-start', 'switch-done', 'inner-2']);
+  });
+
   it('restores the primary at the start of the next turn (beforeRun)', async () => {
     const ext = createFallbackModelExtension({
       getConfig: () => cfg({ fallbackModels: ['haiku'] }),

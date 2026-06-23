@@ -204,6 +204,28 @@ describe('useGoalStore', () => {
     });
   });
 
+  describe('appendJournalEntry', () => {
+    it('adds live eternal iteration entries to the current goal', () => {
+      useGoalStore.getState().setGoal(makeGoal({ iterations: 5, journal: [] }));
+      useGoalStore.getState().appendJournalEntry({
+        iteration: 6,
+        task: 'Run verification',
+        status: 'success',
+        timestamp: '2026-06-23T00:00:00Z',
+      });
+      const goal = useGoalStore.getState().goal!;
+      expect(goal.iterations).toBe(6);
+      expect(goal.lastTask).toBe('Run verification');
+      expect(goal.lastStatus).toBe('success');
+      expect(goal.journal?.[0]).toMatchObject({ iteration: 6, task: 'Run verification' });
+    });
+
+    it('is a no-op when no goal is loaded', () => {
+      useGoalStore.getState().appendJournalEntry({ iteration: 1, task: 'noop' });
+      expect(useGoalStore.getState().goal).toBeNull();
+    });
+  });
+
   describe('refresh', () => {
     beforeEach(() => resetStore());
 

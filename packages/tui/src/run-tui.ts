@@ -86,7 +86,9 @@ export interface RunTuiOptions {
   /** Snapshot of keyed providers + their model lists for the `/model` picker. Async — the catalog fetch may need to hit disk/network. */
   getPickableProviders?: (() => Promise<import('./components/model-picker.js').ProviderOption[]>) | undefined;
   /** Apply a (provider, model) pair after the picker confirms. Returns an error string on failure. */
-  switchProviderAndModel?: ((providerId: string, modelId: string) => string | null) | undefined;
+  switchProviderAndModel?:
+    | ((providerId: string, modelId: string) => string | null | Promise<string | null>)
+    | undefined;
   /** Apply an autonomy mode after the picker confirms. Returns an error string on failure. */
   switchAutonomy?: ((
     mode: 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel',

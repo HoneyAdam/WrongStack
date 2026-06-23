@@ -92,6 +92,12 @@ function pipeViz(msg: WSServerMessage) {
   }
 }
 
+const warnedCostModels = new Set<string>();
+
+function truncateLine(text: string, max = 140): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
 export function handleSessionStart(msg: WSServerMessage) {
   const vizStart = wsToVizEvent('session.start', msg.payload as Record<string, unknown>);
   if (vizStart) {
@@ -245,6 +251,24 @@ export function handleContextCompacted(msg: WSServerMessage) {
   useSessionStore.setState({ lastInputTokens: payload.after });
 }
 
+export function handleCompactionFailed(msg: WSServerMessage) {
+  pipeViz(msg);
+  const payload = msg.payload as {
+    message: string;
+    level: string;
+    tokens: number;
+    maxContext: number;
+    fatal: boolean;
+  };
+  const load = payload.maxContext > 0 ? Math.round((payload.tokens / payload.maxContext) * 100) : 0;
+  useChatStore.getState().addMessage({
+    role: 'assistant',
+    content: `Compaction failed at ${payload.level} (${load}% context): ${payload.message}`,
+    isError: payload.fatal,
+  });
+  toast.error(`Compaction failed: ${payload.message}`);
+}
+
 export function handleProviderResponse(msg: WSServerMessage) {
   pipeViz(msg);
   const payload = msg.payload as { usage: { input: number; output: number; cacheRead?: number | undefined; cacheWrite?: number | undefined }; stopReason: string; messageId: string };
@@ -268,12 +292,248 @@ export function handleProviderResponse(msg: WSServerMessage) {
   useChatStore.getState().clearThinking();
 }
 
+export function handleIterationCompleted(msg: WSServerMessage) {
+  pipeViz(msg);
+  const p = msg.payload as { index: number; totalIterations?: number | undefined };
+  const current = useSessionStore.getState().iteration;
+  if (current) {
+    useSessionStore.getState().setIteration({
+      index: p.index,
+      max: current.max,
+    });
+  }
+}
+
+export function handleIterationLimitReached(msg: WSServerMessage) {
+  const p = msg.payload as { currentIterations: number; currentLimit: number };
+  useChatStore.getState().addMessage({
+    role: 'assistant',
+    content: `Iteration limit reached: ${p.currentIterations}/${p.currentLimit}.`,
+    isError: true,
+  });
+  toast.warn(`Iteration limit reached (${p.currentIterations}/${p.currentLimit})`);
+}
+
+export function handleProviderRetry(msg: WSServerMessage) {
+  const payload = msg.payload as {
+    providerId: string;
+    attempt: number;
+    delayMs: number;
+    status: number;
+    description: string;
+  };
+  const seconds = Math.max(0, Math.round(payload.delayMs / 100) / 10);
+  toast.warn(
+    `${payload.providerId} retry ${payload.attempt} after ${seconds}s (${payload.status})`,
+  );
+}
+
+export function handleProviderError(msg: WSServerMessage) {
+  const payload = msg.payload as {
+    providerId: string;
+    status: number;
+    description: string;
+    retryable: boolean;
+  };
+  useChatStore.getState().addMessage({
+    role: 'assistant',
+    content: [
+      `Provider error from \`${payload.providerId}\` (${payload.status}).`,
+      payload.description,
+      payload.retryable ? '_Retryable; WrongStack may recover automatically._' : '',
+    ]
+      .filter(Boolean)
+      .join('\n\n'),
+    isError: true,
+  });
+  toast.error(`${payload.providerId} provider error (${payload.status})`);
+}
+
+export function handleProviderFallback(msg: WSServerMessage) {
+  const payload = msg.payload as {
+    from: { providerId: string; model: string };
+    to: { providerId: string; model: string };
+    status: number;
+    providerSwitched: boolean;
+  };
+  const from = `${payload.from.providerId}/${payload.from.model}`;
+  const to = `${payload.to.providerId}/${payload.to.model}`;
+  useChatStore.getState().addMessage({
+    role: 'assistant',
+    content: `Provider fallback: \`${from}\` returned ${payload.status}; switching to \`${to}\`${payload.providerSwitched ? ' with provider change' : ''}.`,
+  });
+  toast.warn(`Fallback to ${to}`);
+}
+
+export function handleProviderStreamError(msg: WSServerMessage) {
+  pipeViz(msg);
+  const p = msg.payload as { eventType: string; message: string };
+  toast.warn(`Provider stream event skipped: ${p.eventType}`);
+  useChatStore.getState().addMessage({
+    role: 'assistant',
+    content: `Provider stream warning (${p.eventType}): ${p.message}`,
+    isError: true,
+  });
+}
+
+export function handleToolLoopDetected(msg: WSServerMessage) {
+  pipeViz(msg);
+  const p = msg.payload as {
+    tools: string;
+    repeatCount: number;
+    iteration: number;
+    kind?: string | undefined;
+  };
+  const subject = p.tools || p.kind || 'assistant response';
+  useChatStore.getState().addMessage({
+    role: 'assistant',
+    content: `Loop guard triggered: ${subject} repeated ${p.repeatCount} time(s) at iteration ${p.iteration}.`,
+    isError: true,
+  });
+  toast.warn('Loop guard triggered');
+}
+
+export function handleDelegateStarted(msg: WSServerMessage) {
+  pipeViz(msg);
+  const p = msg.payload as { target: string; task: string };
+  const task = truncateLine(p.task, 180);
+  useChatStore.getState().addMessage({
+    role: 'assistant',
+    content: `Delegating to \`${p.target}\`: ${task}`,
+  });
+  useFleetStore.getState().pushAgentTimelineEntry({
+    subagentId: p.target,
+    agentName: p.target,
+    content: task,
+    kind: 'status',
+    iteration: 0,
+    ts: new Date().toISOString(),
+    status: 'delegating',
+  });
+}
+
+export function handleDelegateCompleted(msg: WSServerMessage) {
+  pipeViz(msg);
+  const p = msg.payload as {
+    target: string;
+    task: string;
+    ok: boolean;
+    status?: string | undefined;
+    summary: string;
+    durationMs: number;
+    iterations: number;
+    toolCalls: number;
+    costUsd?: number | undefined;
+    subagentId?: string | undefined;
+  };
+  const seconds = Math.max(0, Math.round(p.durationMs / 100) / 10);
+  const cost = typeof p.costUsd === 'number' && p.costUsd > 0 ? ` · $${p.costUsd.toFixed(4)}` : '';
+  const stats = `${p.iterations} iteration(s), ${p.toolCalls} tool call(s), ${seconds}s${cost}`;
+  useChatStore.getState().addMessage({
+    role: 'assistant',
+    content: [
+      `Delegate ${p.ok ? 'completed' : 'failed'} for \`${p.target}\`${p.status ? ` (${p.status})` : ''}.`,
+      p.summary,
+      stats,
+    ].join('\n'),
+    isError: !p.ok,
+  });
+  useFleetStore.getState().pushAgentTimelineEntry({
+    subagentId: p.subagentId ?? p.target,
+    agentName: p.target,
+    content: p.summary,
+    kind: p.ok ? 'status' : 'error',
+    iteration: p.iterations,
+    ts: new Date().toISOString(),
+    status: p.status ?? (p.ok ? 'completed' : 'failed'),
+  });
+  if (!p.ok) toast.warn(`Delegate failed: ${p.target}`);
+}
+
+export function handleTrustPersisted(msg: WSServerMessage) {
+  const p = msg.payload as { tool: string; pattern: string; decision: 'always' | 'deny' };
+  const label = `${p.tool}: ${p.pattern}`;
+  if (p.decision === 'always') toast.success(`Always allowed ${label}`);
+  else toast.warn(`Denied ${label}`);
+}
+
 export function handleContextRepaired(msg: WSServerMessage) {
   pipeViz(msg);
   const payload = msg.payload as { removedToolUses: string[]; removedToolResults: string[]; removedMessages: number; beforeMessages?: number | undefined; afterMessages?: number | undefined };
   const removed = payload.removedToolUses.length + payload.removedToolResults.length + payload.removedMessages;
   const msgCount = payload.beforeMessages !== undefined && payload.afterMessages !== undefined ? ` Messages: ${payload.beforeMessages} -> ${payload.afterMessages}.` : '';
   useChatStore.getState().addMessage({ role: 'assistant', content: `Context repaired: removed ${removed} orphan protocol item(s).${msgCount} tool_use ${payload.removedToolUses.length}, tool_result ${payload.removedToolResults.length}.` });
+}
+
+export function handleContextPct(msg: WSServerMessage) {
+  pipeViz(msg);
+  const p = msg.payload as { load: number; tokens: number; maxContext: number };
+  useSessionStore.getState().setContextUsage(p.tokens, p.maxContext);
+}
+
+export function handleContextMaxContext(msg: WSServerMessage) {
+  const p = msg.payload as { maxContext: number };
+  useSessionStore.getState().setEnv({ maxContext: p.maxContext });
+}
+
+export function handleTokenThreshold(msg: WSServerMessage) {
+  const p = msg.payload as { used: number; limit: number };
+  useSessionStore.getState().setContextUsage(p.used, p.limit);
+  const pct = p.limit > 0 ? Math.round((p.used / p.limit) * 100) : 0;
+  toast.warn(`Token threshold reached (${pct}%)`);
+}
+
+export function handleTokenCostEstimateUnavailable(msg: WSServerMessage) {
+  const p = msg.payload as { model: string };
+  const model = p.model || '<unknown>';
+  if (warnedCostModels.has(model)) return;
+  warnedCostModels.add(model);
+  toast.warn(`Cost estimate unavailable for ${model}`);
+}
+
+export function handleSessionDamaged(msg: WSServerMessage) {
+  const p = msg.payload as { sessionId: string; detail: string };
+  useChatStore.getState().addMessage({
+    role: 'assistant',
+    content: `Session ${p.sessionId} is damaged: ${p.detail}`,
+    isError: true,
+  });
+  toast.error('Session damage detected');
+}
+
+export function handleSessionRewound(msg: WSServerMessage) {
+  const p = msg.payload as { toPromptIndex: number; revertedFiles: string[]; removedEvents: number };
+  useChatStore.getState().addMessage({
+    role: 'assistant',
+    content: `Session rewound to prompt #${p.toPromptIndex}. Removed ${p.removedEvents} event(s); reverted ${p.revertedFiles.length} file(s).`,
+  });
+  toast.info('Session rewound');
+}
+
+export function handleCheckpointWritten(msg: WSServerMessage) {
+  const p = msg.payload as { promptIndex: number; promptPreview: string; fileCount: number };
+  toast.success(`Checkpoint #${p.promptIndex} written (${p.fileCount} file(s))`);
+}
+
+export function handleInFlightStarted(msg: WSServerMessage) {
+  const p = msg.payload as { context: string };
+  useVizStore.getState().pushEvent({
+    id: `inflight_${Date.now()}`,
+    kind: 'session:start',
+    timestamp: Date.now(),
+    source: 'session',
+    target: 'leader',
+    label: `In-flight: ${p.context}`,
+    magnitude: 1,
+    data: p,
+    raw: msg.payload,
+    flowGroup: 'session',
+  });
+}
+
+export function handleInFlightEnded(msg: WSServerMessage) {
+  const p = msg.payload as { reason: 'clean' | 'aborted' | 'recovered' };
+  if (p.reason === 'recovered') toast.info('Recovered previous in-flight operation');
 }
 
 export function handleSessionEnd() {
@@ -306,9 +566,29 @@ export const sessionHandlerMap: Partial<Record<string, (msg: WSServerMessage) =>
   'context.debug': handleContextDebug,
   'key.operation_result': handleKeyOperationResult,
   'context.compacted': handleContextCompacted,
+  'compaction.failed': handleCompactionFailed,
   'provider.response': handleProviderResponse,
+  'iteration.completed': handleIterationCompleted,
+  'iteration.limit_reached': handleIterationLimitReached,
+  'provider.retry': handleProviderRetry,
+  'provider.error': handleProviderError,
+  'provider.fallback': handleProviderFallback,
+  'provider.stream_error': handleProviderStreamError,
+  'tool.loop_detected': handleToolLoopDetected,
+  'delegate.started': handleDelegateStarted,
+  'delegate.completed': handleDelegateCompleted,
+  'trust.persisted': handleTrustPersisted,
   'context.repaired': handleContextRepaired,
+  'ctx.pct': handleContextPct,
+  'ctx.max_context': handleContextMaxContext,
+  'token.threshold': handleTokenThreshold,
+  'token.cost_estimate_unavailable': handleTokenCostEstimateUnavailable,
   'session.end': handleSessionEnd,
+  'session.damaged': handleSessionDamaged,
+  'session.rewound': handleSessionRewound,
+  'checkpoint.written': handleCheckpointWritten,
+  'in_flight.started': handleInFlightStarted,
+  'in_flight.ended': handleInFlightEnded,
   'context.modes.list': handleContextModesList,
   'context.mode.changed': handleContextModeChanged,
   'sessions.list': handleSessionsList,

@@ -551,12 +551,46 @@ export function MCPSection(): ReactElement {
 
     const handleMcpServerConnected = (msg: WSServerMessage) => {
       if (msg.type === 'mcp.server.connected') {
-        const p = msg.payload as { name: string; pid?: number };
+        const p = msg.payload as { name: string; pid?: number; toolCount?: number };
         setServers((prev) =>
-          prev.map((s) => (s.name === p.name ? { ...s, status: 'connected', pid: p.pid } : s)),
+          prev.map((s) =>
+            s.name === p.name
+              ? { ...s, status: 'connected', pid: p.pid, error: undefined, lastError: undefined }
+              : s,
+          ),
         );
         setPendingOp(null);
         toast.success(`Server "${p.name}" connected`);
+      }
+    };
+
+    const handleMcpServerReconnected = (msg: WSServerMessage) => {
+      if (msg.type === 'mcp.server.reconnected') {
+        const p = msg.payload as { name: string; toolCount?: number };
+        setServers((prev) =>
+          prev.map((s) =>
+            s.name === p.name
+              ? { ...s, status: 'connected', error: undefined, lastError: undefined }
+              : s,
+          ),
+        );
+        setPendingOp(null);
+        toast.success(`Server "${p.name}" reconnected`);
+      }
+    };
+
+    const handleMcpServerDisconnected = (msg: WSServerMessage) => {
+      if (msg.type === 'mcp.server.disconnected') {
+        const p = msg.payload as { name: string; reason: string };
+        setServers((prev) =>
+          prev.map((s) =>
+            s.name === p.name
+              ? { ...s, status: 'error', error: p.reason, lastError: p.reason, pid: undefined }
+              : s,
+          ),
+        );
+        setPendingOp(null);
+        toast.warn(`Server "${p.name}" disconnected: ${p.reason}`);
       }
     };
 
@@ -591,6 +625,8 @@ export function MCPSection(): ReactElement {
     const off8 = ws.client.on('mcp.server.connected', handleMcpServerConnected);
     const off9 = ws.client.on('mcp.server.error', handleMcpServerError);
     const off10 = ws.client.on('mcp.operation_result', handleMcpOperationResult);
+    const off11 = ws.client.on('mcp.server.reconnected', handleMcpServerReconnected);
+    const off12 = ws.client.on('mcp.server.disconnected', handleMcpServerDisconnected);
 
     setLoading(true);
     ws.client?.listMcpServers();
@@ -606,6 +642,8 @@ export function MCPSection(): ReactElement {
       off8?.();
       off9?.();
       off10?.();
+      off11?.();
+      off12?.();
     };
   }, [ws.client]);
 

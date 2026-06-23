@@ -1,6 +1,5 @@
 import * as fs from 'node:fs/promises';
-import type { Tool } from '@wrongstack/core';
-import { toErrorMessage } from '@wrongstack/core/utils';
+import { type Tool, toErrorMessage } from '@wrongstack/core';
 import { isBinaryBuffer, safeResolveReal } from './_util.js';
 
 interface ReadInput {

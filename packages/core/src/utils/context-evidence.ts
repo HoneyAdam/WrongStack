@@ -9,6 +9,12 @@ const MAX_TOOL_CALLS = 80;
 const MAX_FACTS = 40;
 const MAX_ERRORS = 20;
 const MAX_DIGEST_CHARS = 4_000;
+/** Cap for the per-iteration reference scan — see markAssistantReferencedEvidence. */
+const RECENT_TOOL_CALL_SCAN_LIMIT = 20;
+/** Cap content fed to file/symbol regex extractors (first N chars). */
+const EXTRACT_CONTENT_CAP_CHARS = 10_000;
+/** Only scan the last N lines for error patterns — errors surface at the bottom. */
+const EXTRACT_ERROR_TAIL_LINES = 200;
 
 const WRITE_TOOLS = new Set(['edit', 'write', 'replace', 'patch']);
 const READ_TOOLS = new Set(['read', 'grep', 'glob', 'ls', 'tree']);
@@ -52,8 +58,16 @@ export function recordToolOutputEvidence(
   input: RecordToolOutputEvidenceInput,
 ): ToolOutputMetadata {
   const state = ensureEvidence(ctx);
-  const files = extractFiles(ctx, input.toolName, input.input, input.content);
-  const symbols = extractSymbols(input.content, input.input);
+  // Cap content for regex extraction. File paths and symbol declarations
+  // appear near the top of tool output (import blocks, function definitions),
+  // so the first 10KB captures them. Without this cap, matchAll() runs over
+  // the full output — e.g. a 50KB file read triggers ~100KB of regex scanning
+  // across two patterns in extractSymbols plus the extractFiles pass.
+  const scanContent = input.content.length > EXTRACT_CONTENT_CAP_CHARS
+    ? input.content.slice(0, EXTRACT_CONTENT_CAP_CHARS)
+    : input.content;
+  const files = extractFiles(ctx, input.toolName, input.input, scanContent);
+  const symbols = extractSymbols(scanContent, input.input);
   const commands = extractCommands(input.toolName, input.input);
   const errors = extractErrors(input.content);
   const summary = summarizeToolOutput(input.toolName, input.input, input.content, {
@@ -102,7 +116,16 @@ export function markAssistantReferencedEvidence(ctx: Context, text: string): voi
   const haystack = text.toLowerCase();
   if (!haystack.trim()) return;
 
-  for (const tool of state.toolCalls) {
+  // Only scan the most recent tool calls. The assistant almost always
+  // references the files/symbols it just worked on — older entries are
+  // rarely re-referenced. Scanning the full list (up to 80 entries) means
+  // worst case: 80 × (files + symbols) includes() calls per iteration,
+  // each O(responseText.length), which degrades as the conversation grows.
+  // The last 20 captures the realistic reference window at ¼ the cost.
+  const recent = state.toolCalls.length > RECENT_TOOL_CALL_SCAN_LIMIT
+    ? state.toolCalls.slice(-RECENT_TOOL_CALL_SCAN_LIMIT)
+    : state.toolCalls;
+  for (const tool of recent) {
     if (!metadataReferencedByText(tool, haystack)) continue;
     tool.status = 'referenced';
     tool.referenceCount++;
@@ -295,7 +318,14 @@ function extractCommands(toolName: string, input: unknown): string[] {
 }
 
 function extractErrors(content: string): string[] {
-  const lines = content.split(/\r?\n/);
+  const allLines = content.split(/\r?\n/);
+  // Only scan the last N lines — errors and stack traces surface at the
+  // bottom of tool output. Scanning all lines means one regex test per line,
+  // so a 2000-line file read costs 2000 regex evaluations for no gain since
+  // the interesting errors are always at the tail.
+  const lines = allLines.length > EXTRACT_ERROR_TAIL_LINES
+    ? allLines.slice(-EXTRACT_ERROR_TAIL_LINES)
+    : allLines;
   const errors: string[] = [];
   for (const line of lines) {
     if (!/\b(error|exception|failed|failure|fatal|panic|timeout|denied|enoent|eacces|eperm|typeerror|syntaxerror)\b/i.test(line)) continue;

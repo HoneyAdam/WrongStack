@@ -146,6 +146,7 @@ export interface SubagentEvent {
     | 'task_started'
     | 'tool_executed'
     | 'iteration_summary'
+    | 'budget_warning'
     | 'budget_extended'
     | 'ctx_pct'
     | 'task_completed'
@@ -168,6 +169,10 @@ export interface SubagentEvent {
   tokens?: number | undefined;
   maxContext?: number | undefined;
   totalExtensions?: number | undefined;
+  /** Budget warning details from subagent.budget_warning. */
+  budgetKind?: string | undefined;
+  used?: number | undefined;
+  limit?: number | undefined;
   status?: 'success' | 'failed' | 'timeout' | 'stopped' | undefined;
   iterations?: number | undefined;
   error?: { kind: string | undefined; message: string };
@@ -196,6 +201,7 @@ export interface FleetTimelineEvent {
     | 'task_started'
     | 'tool_executed'
     | 'iteration_summary'
+    | 'budget_warning'
     | 'budget_extended'
     | 'task_completed'
     | 'ctx_pct'
