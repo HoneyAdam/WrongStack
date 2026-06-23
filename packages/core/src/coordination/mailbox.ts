@@ -41,6 +41,10 @@ export class DefaultMailbox implements Mailbox {
   private _messageCache: MailboxMessage[] | null = null;
   private _messageCacheMtime = -1;
   private _messageCacheSize = -1;
+  /** Primary index: recipient → Set of messages (points into _messageCache). */
+  private _byTo = new Map<string, Set<MailboxMessage>>();
+  /** Secondary index: sender → Set of messages (points into _messageCache). */
+  private _byFrom = new Map<string, Set<MailboxMessage>>();
 
   constructor(sessionDir: string) {
     this.filePath = path.join(sessionDir, MAILBOX_FILE);
@@ -85,13 +89,41 @@ export class DefaultMailbox implements Mailbox {
   // ── Query ─────────────────────────────────────────────────────────────
 
   async query(q: MailboxQuery): Promise<MailboxMessage[]> {
-    const all = await this._readAllCached();
+    // unreadBy and since require a full scan because they depend on per-message
+    // mutable state (readBy) and wall-clock time respectively — no index helps.
+    // When either is present, fall back to a scan; otherwise use the _byTo/_byFrom
+    // indexes to narrow candidates O(1) before applying remaining filters.
+    const needFullScan = q.unreadBy !== undefined || q.since !== undefined;
+
+    let candidates: MailboxMessage[];
+    if (needFullScan) {
+      candidates = await this._readAllCached();
+    } else {
+      // Ensure cache + indexes are populated and fresh before reading from
+      // them. _readAllCached() compares mtime/size to detect external file
+      // changes and calls _setMessageCache() → _buildIndexes() when stale.
+      await this._readAllCached();
+      if (q.to !== undefined) {
+        const direct = this._byTo.get(q.to);
+        const broadcast = this._byTo.get('*');
+        // Combine direct + broadcast candidates; deduplicate via Map insertion order
+        const combined = new Map<string, MailboxMessage>();
+        if (direct) for (const m of direct) combined.set(m.id, m);
+        if (broadcast) for (const m of broadcast) combined.set(m.id, m);
+        candidates = Array.from(combined.values());
+      } else if (q.from !== undefined) {
+        candidates = Array.from(this._byFrom.get(q.from) ?? []);
+      } else {
+        candidates = await this._readAllCached();
+      }
+    }
+
     const limit = q.limit ?? 50;
     const order = q.minPriority !== undefined ? { low: 0, normal: 1, high: 2 } as const : null;
     const minPriorityRank = order && q.minPriority !== undefined ? order[q.minPriority] : 0;
     const filtered: MailboxMessage[] = [];
 
-    for (const msg of all) {
+    for (const msg of candidates) {
       if (q.to !== undefined && msg.to !== q.to && msg.to !== '*') continue;
       if (q.from !== undefined && msg.from !== q.from) continue;
       if (q.unreadBy !== undefined && q.unreadBy in msg.readBy) continue;
@@ -217,6 +249,8 @@ export class DefaultMailbox implements Mailbox {
     this._messageCache = null;
     this._messageCacheMtime = -1;
     this._messageCacheSize = -1;
+    this._byTo.clear();
+    this._byFrom.clear();
   }
 
   async clearAll(): Promise<void> {
@@ -350,9 +384,12 @@ export class DefaultMailbox implements Mailbox {
       this._messageCache = null;
       this._messageCacheMtime = -1;
       this._messageCacheSize = -1;
+      this._byTo.clear();
+      this._byFrom.clear();
       return;
     }
     this._messageCache = messages;
+    this._buildIndexes(messages);
     if (mtime !== undefined && size !== undefined) {
       this._messageCacheMtime = mtime;
       this._messageCacheSize = size;
@@ -375,8 +412,37 @@ export class DefaultMailbox implements Mailbox {
       this._messageCache = null;
       this._messageCacheMtime = -1;
       this._messageCacheSize = -1;
+      this._byTo.clear();
+      this._byFrom.clear();
       return;
     }
     this._messageCache.push(msg);
+    this._indexMsg(msg);
+  }
+
+  /** Rebuild both indexes from a full message list. */
+  private _buildIndexes(messages: MailboxMessage[]): void {
+    this._byTo.clear();
+    this._byFrom.clear();
+    for (const msg of messages) {
+      this._indexMsg(msg);
+    }
+  }
+
+  /** Add a single message to both indexes. */
+  private _indexMsg(msg: MailboxMessage): void {
+    const toSet = this._byTo.get(msg.to);
+    if (toSet) {
+      toSet.add(msg);
+    } else {
+      this._byTo.set(msg.to, new Set([msg]));
+    }
+
+    const fromSet = this._byFrom.get(msg.from);
+    if (fromSet) {
+      fromSet.add(msg);
+    } else {
+      this._byFrom.set(msg.from, new Set([msg]));
+    }
   }
 }
