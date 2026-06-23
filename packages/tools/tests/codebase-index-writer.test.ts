@@ -164,9 +164,9 @@ describe('IndexStore refs', () => {
 
 describe('IndexStore file ops + ranked fallback', () => {
   it('deleteFile removes symbols, refs, and the file row', () => {
-    const next = store.insertSymbols([sym({ name: 'gone', file: '/p/gone.ts' })], 1);
+    const inserted = store.insertSymbols([sym({ name: 'gone', file: '/p/gone.ts' })]);
+    const id = inserted[0].id;
     store.upsertFile({ file: '/p/gone.ts', mtimeMs: 1, lang: 'ts', symbolCount: 1, lastIndexed: 1 });
-    const id = next - 1;
     store.insertRefs(id, [{ fromId: id, toName: 'x', callType: 'call', line: 1 }]);
     store.deleteFile('/p/gone.ts');
     expect(store.search('', { file: 'gone' })).toEqual([]);

@@ -41,6 +41,34 @@ export interface ModelRuntimeCacheConfig {
 export interface ModelRuntimeConfig {
   reasoning?: ModelRuntimeReasoningConfig | undefined;
   cache?: ModelRuntimeCacheConfig | undefined;
+  /**
+   * Generic generation parameters mapped directly onto `Request` fields.
+   * Only sent when the active model's `Capabilities` advertise support.
+   */
+  parameters?: ModelRuntimeParametersConfig | undefined;
+}
+
+/**
+ * Generic generation parameters the user can set per-session / per-project.
+ * Each field maps to a `Request` field of the same name and is gated by the
+ * corresponding `Capabilities` flag so unsupported models don't receive
+ * parameters they'd reject.
+ */
+export interface ModelRuntimeParametersConfig {
+  /** Top-K sampling (Anthropic, Gemini). Gated by `capabilities.topK`. */
+  topK?: number | undefined;
+  /** Frequency penalty (OpenAI, Gemini). Gated by `capabilities.frequencyPenalty`. */
+  frequencyPenalty?: number | undefined;
+  /** Presence penalty (OpenAI, Gemini). Gated by `capabilities.presencePenalty`. */
+  presencePenalty?: number | undefined;
+  /** Random seed (OpenAI, Gemini). Gated by `capabilities.seed`. */
+  seed?: number | undefined;
+  /** End-user identifier for abuse monitoring. */
+  user?: string | undefined;
+  /** Log probabilities (OpenAI, Gemini). Gated by `capabilities.logprobs`. */
+  logprobs?: boolean | undefined;
+  /** Number of top logprobs to return (OpenAI). Only when `logprobs` is true. */
+  topLogprobs?: number | undefined;
 }
 
 /**

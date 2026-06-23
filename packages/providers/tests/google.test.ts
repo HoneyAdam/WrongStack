@@ -294,4 +294,88 @@ describe('GoogleProvider', () => {
     expect((props['tags']?.['items'] as Record<string, unknown>)?.['$ref']).toBeUndefined();
     expect((props['tags']?.['items'] as Record<string, unknown>)?.['type']).toBe('string');
   });
+
+  it('sends topK, candidateCount in generationConfig', async () => {
+    let captured: Record<string, unknown> | undefined;
+    const fetchImpl = vi.fn(async (_url: unknown, init: { body?: string } = {}) => {
+      captured = JSON.parse(init.body ?? '{}');
+      return { ok: true, status: 200, json: async () => ({ candidates: [{ content: { role: 'model', parts: [{ text: 'k' }] }, finishReason: 'stop' }], usageMetadata: {} }), text: async () => '' };
+    }) as never as typeof fetch;
+    const p = new GoogleProvider({ apiKey: 'k', fetchImpl });
+    await p.complete({ model: 'm', messages: [{ role: 'user', content: 'hi' }], maxTokens: 100, topK: 40, candidateCount: 3 }, { signal: new AbortController().signal });
+    const cfg = captured?.['generationConfig'] as Record<string, unknown>;
+    expect(cfg['topK']).toBe(40);
+    expect(cfg['candidateCount']).toBe(3);
+  });
+
+  it('sends frequencyPenalty, presencePenalty, seed in generationConfig', async () => {
+    let captured: Record<string, unknown> | undefined;
+    const fetchImpl = vi.fn(async (_url: unknown, init: { body?: string } = {}) => {
+      captured = JSON.parse(init.body ?? '{}');
+      return { ok: true, status: 200, json: async () => ({ candidates: [{ content: { role: 'model', parts: [{ text: 'k' }] }, finishReason: 'stop' }], usageMetadata: {} }), text: async () => '' };
+    }) as never as typeof fetch;
+    const p = new GoogleProvider({ apiKey: 'k', fetchImpl });
+    await p.complete({ model: 'm', messages: [{ role: 'user', content: 'hi' }], maxTokens: 100, frequencyPenalty: 0.5, presencePenalty: 0.3, seed: 42 }, { signal: new AbortController().signal });
+    const cfg = captured?.['generationConfig'] as Record<string, unknown>;
+    expect(cfg['frequencyPenalty']).toBe(0.5);
+    expect(cfg['presencePenalty']).toBe(0.3);
+    expect(cfg['seed']).toBe(42);
+  });
+
+  it('sends logprobs in generationConfig when set', async () => {
+    let captured: Record<string, unknown> | undefined;
+    const fetchImpl = vi.fn(async (_url: unknown, init: { body?: string } = {}) => {
+      captured = JSON.parse(init.body ?? '{}');
+      return { ok: true, status: 200, json: async () => ({ candidates: [{ content: { role: 'model', parts: [{ text: 'k' }] }, finishReason: 'stop' }], usageMetadata: {} }), text: async () => '' };
+    }) as never as typeof fetch;
+    const p = new GoogleProvider({ apiKey: 'k', fetchImpl });
+    await p.complete({ model: 'm', messages: [{ role: 'user', content: 'hi' }], maxTokens: 100, logprobs: true }, { signal: new AbortController().signal });
+    const cfg = captured?.['generationConfig'] as Record<string, unknown>;
+    expect(cfg['logprobs']).toBe(true);
+  });
+
+  it('sends thinkingConfig when reasoning is enabled', async () => {
+    let captured: Record<string, unknown> | undefined;
+    const fetchImpl = vi.fn(async (_url: unknown, init: { body?: string } = {}) => {
+      captured = JSON.parse(init.body ?? '{}');
+      return { ok: true, status: 200, json: async () => ({ candidates: [{ content: { role: 'model', parts: [{ text: 'k' }] }, finishReason: 'stop' }], usageMetadata: {} }), text: async () => '' };
+    }) as never as typeof fetch;
+    const p = new GoogleProvider({ apiKey: 'k', fetchImpl });
+    await p.complete({ model: 'm', messages: [{ role: 'user', content: 'hi' }], maxTokens: 100, reasoning: { enabled: true } }, { signal: new AbortController().signal });
+    const cfg = captured?.['generationConfig'] as Record<string, unknown>;
+    expect(cfg['thinkingConfig']).toEqual({ type: 'enabled' });
+  });
+
+  it('sends responseMimeType when responseFormat is json_schema', async () => {
+    let captured: Record<string, unknown> | undefined;
+    const fetchImpl = vi.fn(async (_url: unknown, init: { body?: string } = {}) => {
+      captured = JSON.parse(init.body ?? '{}');
+      return { ok: true, status: 200, json: async () => ({ candidates: [{ content: { role: 'model', parts: [{ text: '{}' }] }, finishReason: 'stop' }], usageMetadata: {} }), text: async () => '' };
+    }) as never as typeof fetch;
+    const p = new GoogleProvider({ apiKey: 'k', fetchImpl });
+    await p.complete({ model: 'm', messages: [{ role: 'user', content: 'hi' }], maxTokens: 100, responseFormat: { type: 'json_schema', jsonSchema: { name: 'p', schema: { type: 'object' } } } }, { signal: new AbortController().signal });
+    const cfg = captured?.['generationConfig'] as Record<string, unknown>;
+    expect(cfg['responseMimeType']).toBe('application/json');
+    expect(cfg['responseSchema']).toEqual({ type: 'object' });
+  });
+
+  it('sends safetySettings when set', async () => {
+    let captured: Record<string, unknown> | undefined;
+    const fetchImpl = vi.fn(async (_url: unknown, init: { body?: string } = {}) => {
+      captured = JSON.parse(init.body ?? '{}');
+      return { ok: true, status: 200, json: async () => ({ candidates: [{ content: { role: 'model', parts: [{ text: 'ok' }] }, finishReason: 'stop' }], usageMetadata: {} }), text: async () => '' };
+    }) as never as typeof fetch;
+    const p = new GoogleProvider({ apiKey: 'k', fetchImpl });
+    await p.complete({
+      model: 'm', messages: [{ role: 'user', content: 'hi' }], maxTokens: 100,
+      safetySettings: [
+        { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
+        { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_LOW_AND_ABOVE' },
+      ],
+    }, { signal: new AbortController().signal });
+    expect(captured?.['safetySettings']).toEqual([
+      { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
+      { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_LOW_AND_ABOVE' },
+    ]);
+  });
 });

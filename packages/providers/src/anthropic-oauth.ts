@@ -16,7 +16,9 @@
  */
 
 import { type Capabilities, ProviderError, type Request, type StreamEvent } from '@wrongstack/core';
-import { AnthropicProvider } from './anthropic.js';
+import { anthropicWireFormat } from './presets/anthropic.js';
+import type { AnthropicStreamState } from './presets/anthropic.js';
+import { WireFormatProvider } from './wire-format.js';
 import { capabilitiesForFamily } from './family-capabilities.js';
 import type { WireAdapterStreamOptions } from './wire-adapter.js';
 
@@ -137,7 +139,7 @@ export interface AnthropicOAuthProviderOptions {
     | undefined;
 }
 
-export class AnthropicOAuthProvider extends AnthropicProvider {
+export class AnthropicOAuthProvider extends WireFormatProvider<AnthropicStreamState> {
   override readonly id: string;
   override readonly capabilities: Capabilities;
 
@@ -151,7 +153,7 @@ export class AnthropicOAuthProvider extends AnthropicProvider {
   ) => Promise<AnthropicOAuthTokens>;
 
   constructor(opts: AnthropicOAuthProviderOptions) {
-    super({
+    super(anthropicWireFormat, {
       apiKey: opts.credentials.accessToken,
       baseUrl: opts.baseUrl ?? DEFAULT_BASE,
       fetchImpl: opts.fetchImpl,

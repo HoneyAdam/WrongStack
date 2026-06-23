@@ -18,7 +18,9 @@
 import type { Capabilities, Request } from '@wrongstack/core';
 import { ProviderError } from '@wrongstack/core';
 import { capabilitiesForFamily } from './family-capabilities.js';
-import { OpenAIProvider } from './openai.js';
+import { openaiWireFormat } from './presets/openai.js';
+import type { OpenAIStreamState } from './presets/openai.js';
+import { WireFormatProvider } from './wire-format.js';
 import type { WireAdapterStreamOptions } from './wire-adapter.js';
 
 const COPILOT_TOKEN_URL = 'https://api.github.com/copilot_internal/v2/token';
@@ -97,7 +99,7 @@ export interface GitHubCopilotProviderOptions {
     | undefined;
 }
 
-export class GitHubCopilotProvider extends OpenAIProvider {
+export class GitHubCopilotProvider extends WireFormatProvider<OpenAIStreamState> {
   override readonly capabilities: Capabilities;
 
   private copilotToken: string;
@@ -112,15 +114,11 @@ export class GitHubCopilotProvider extends OpenAIProvider {
 
   constructor(opts: GitHubCopilotProviderOptions) {
     const apiBase = copilotBaseUrlFromToken(opts.credentials.copilotToken);
-    super({
-      // OpenAIProvider requires a non-empty apiKey; use a placeholder when the
-      // Copilot token is empty (it will be minted before the first request).
+    super(openaiWireFormat, {
       apiKey: opts.credentials.copilotToken || 'pending',
       baseUrl: apiBase,
-      id: opts.id ?? 'github-copilot',
       fetchImpl: opts.fetchImpl,
       streamOpts: opts.streamOpts,
-      capabilities: opts.capabilities,
     });
     this.copilotToken = opts.credentials.copilotToken;
     this.githubToken = opts.credentials.githubToken;
@@ -167,6 +165,21 @@ export class GitHubCopilotProvider extends OpenAIProvider {
 
   protected override buildUrl(_req: Request): string {
     return `${this.apiBase.replace(/\/+$/, '')}/chat/completions`;
+  }
+
+  /**
+   * Copilot uses the legacy `max_tokens` field (OpenAI Chat Completions v1)
+   * rather than the newer `max_completion_tokens` that `openaiWireFormat`
+   * sends. Override buildBody to fix the field name after the preset runs.
+   */
+  protected override buildBody(req: Request): Record<string, unknown> {
+    const body = super.buildBody(req);
+    // Rename max_completion_tokens → max_tokens for Copilot's API
+    if ('max_completion_tokens' in body) {
+      body['max_tokens'] = body['max_completion_tokens'];
+      delete body['max_completion_tokens'];
+    }
+    return body;
   }
 
   protected override buildHeaders(_req: Request): Record<string, string> {

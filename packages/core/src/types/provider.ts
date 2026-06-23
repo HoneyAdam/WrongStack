@@ -28,6 +28,49 @@ import { truncate } from '../utils/string.js';
 export type ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type CacheTtl = '5m' | '1h';
 
+/**
+ * Provider-agnostic response-format directive.
+ *
+ * - `{ type: 'text' }` — free-form text (default).
+ * - `{ type: 'json_object' }` — valid JSON without a schema constraint.
+ * - `{ type: 'json_schema', jsonSchema: { name, schema, strict? } }` — JSON
+ *   constrained to the supplied JSON Schema. The `strict` flag is
+ *   OpenAI-specific; Gemini ignores it in favour of `responseMimeType`.
+ *
+ * Each provider adapter maps this into its own wire format:
+ *   OpenAI  → `response_format`
+ *   Gemini  → `responseMimeType` + `responseSchema`
+ *   Anthropic → (not yet supported; uses tools for structured output)
+ */
+export interface JsonSchemaSpec {
+  name: string;
+  /** OpenAI-specific: enable strict schema adherence. */
+  strict?: boolean | undefined;
+  /** The JSON Schema object describing the expected shape. */
+  schema: Record<string, unknown>;
+  /** Optional human-readable description (OpenAI). */
+  description?: string | undefined;
+}
+
+export type ResponseFormat =
+  | { type: 'text' }
+  | { type: 'json_object' }
+  | { type: 'json_schema'; jsonSchema: JsonSchemaSpec };
+
+/**
+ * Safety category threshold pair used by Google Gemini's `safetySettings`.
+ *
+ * Categories: `HARM_CATEGORY_HARASSMENT`, `HARM_CATEGORY_HATE_SPEECH`,
+ * `HARM_CATEGORY_SEXUALLY_EXPLICIT`, `HARM_CATEGORY_DANGEROUS_CONTENT`.
+ *
+ * Thresholds: `BLOCK_NONE`, `BLOCK_ONLY_HIGH`, `BLOCK_MEDIUM_AND_ABOVE`,
+ * `BLOCK_LOW_AND_ABOVE`.
+ */
+export interface SafetySetting {
+  category: string;
+  threshold: string;
+}
+
 export interface Usage {
   input: number;
   output: number;
@@ -68,6 +111,29 @@ export interface Capabilities {
   reasoning: boolean;
   maxContext: number;
   cacheControl: 'native' | 'auto' | 'none';
+
+  // ── Extended parameter support (optional; family defaults in CAPABILITIES_BY_FAMILY) ──
+
+  /** Model accepts `top_k` / `topK` sampling parameter. */
+  topK?: boolean | undefined;
+  /** Model accepts `frequency_penalty` / `frequencyPenalty` parameter. */
+  frequencyPenalty?: boolean | undefined;
+  /** Model accepts `presence_penalty` / `presencePenalty` parameter. */
+  presencePenalty?: boolean | undefined;
+  /** Model accepts `seed` parameter for deterministic generation. */
+  seed?: boolean | undefined;
+  /**
+   * Model accepts JSON Schema / structured-output constraints
+   * (OpenAI `response_format.json_schema`, Gemini `responseMimeType`+`responseSchema`).
+   * Distinct from `jsonMode` (which is just a system-prompt hint).
+   */
+  structuredOutput?: boolean | undefined;
+  /** Model supports log-probability output (`logprobs`, `top_logprobs`). */
+  logprobs?: boolean | undefined;
+  /** Model supports audio input/output modality. */
+  audio?: boolean | undefined;
+  /** Model supports the `n` parameter for multiple completions. */
+  multipleCompletions?: boolean | undefined;
 }
 
 export interface Request {
@@ -78,10 +144,55 @@ export interface Request {
   maxTokens: number;
   temperature?: number | undefined;
   topP?: number | undefined;
+  topK?: number | undefined;
+  frequencyPenalty?: number | undefined;
+  presencePenalty?: number | undefined;
+  seed?: number | undefined;
+  /**
+   * End-user identifier for abuse monitoring and per-user rate limiting.
+   * - Anthropic → `metadata.user_id`
+   * - OpenAI   → `user`
+   * - Gemini   → (not supported)
+   */
+  user?: string | undefined;
+  /**
+   * Number of response candidates to generate. Google Gemini supports
+   * this via `generationConfig.candidateCount`. OpenAI does not have
+   * an equivalent (`n` is conceptually similar but distinct).
+   */
+  candidateCount?: number | undefined;
+  /**
+   * Whether to return log probabilities for output tokens.
+   * - OpenAI → `logprobs: boolean` (+ `topLogprobs: number`)
+   * - Gemini → `generationConfig.logprobs: number` (how many top candidates)
+   * Default undefined = no logprobs requested.
+   */
+  logprobs?: boolean | undefined;
+  /**
+   * Number of most probable tokens to return log probabilities for
+   * (OpenAI `top_logprobs`). Only meaningful when `logprobs` is true.
+   * Range: 0-20. Gemini ignores this (uses `logprobs` as the count).
+   */
+  topLogprobs?: number | undefined;
   stopSequences?: string[] | undefined;
   toolChoice?: 'auto' | 'required' | 'none' | { type: 'tool' | undefined; name: string };
   reasoning?: ReasoningRequest | undefined;
   cache?: RequestCacheControl | undefined;
+  /**
+   * Structured-output / response-format directive.
+   * When set, the provider adapter maps this to its native response-format
+   * parameter (OpenAI `response_format`, Gemini `responseMimeType`, etc.).
+   * The model must advertise `capabilities.structuredOutput` for this to be
+   * honoured; unsupported models will likely 400 or ignore it.
+   */
+  responseFormat?: ResponseFormat | undefined;
+  /**
+   * Safety category thresholds for filtering harmful content.
+   * - Gemini → top-level `safetySettings` array with `{ category, threshold }`
+   * - OpenAI → not supported (uses server-side moderation)
+   * - Anthropic → not supported
+   */
+  safetySettings?: SafetySetting[] | undefined;
 }
 
 export type StopReason = 'end_turn' | 'tool_use' | 'max_tokens' | 'stop_sequence' | 'refusal';

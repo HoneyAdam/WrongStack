@@ -5,17 +5,173 @@
     "npm": "@ai-sdk/openai",
     "env": ["OPENAI_API_KEY"],
     "models": {
+      "gpt-4.1": {
+        "id": "gpt-4.1",
+        "name": "GPT-4.1",
+        "tool_call": true,
+        "modalities": { "input": ["text", "image"], "output": ["text"] },
+        "limit": { "context": 1050000, "output": 32000 },
+        "cost": { "input": 2, "output": 8 }
+      },
+      "gpt-4.1-mini": {
+        "id": "gpt-4.1-mini",
+        "name": "GPT-4.1 Mini",
+        "tool_call": true,
+        "modalities": { "input": ["text", "image"], "output": ["text"] },
+        "limit": { "context": 1050000, "output": 32000 },
+        "cost": { "input": 0.4, "output": 1.6 }
+      },
+      "gpt-4.1-nano": {
+        "id": "gpt-4.1-nano",
+        "name": "GPT-4.1 Nano",
+        "tool_call": true,
+        "modalities": { "input": ["text", "image"], "output": ["text"] },
+        "limit": { "context": 1050000, "output": 32000 },
+        "cost": { "input": 0.1, "output": 0.4 }
+      },
+      "o4-mini": {
+        "id": "o4-mini",
+        "name": "o4-mini",
+        "reasoning": true,
+        "tool_call": true,
+        "modalities": { "input": ["text", "image"], "output": ["text"] },
+        "limit": { "context": 200000, "output": 100000 },
+        "cost": { "input": 1.1, "output": 4.4 }
+      },
       "gpt-5.5": {
         "id": "gpt-5.5",
         "name": "GPT-5.5",
+        "reasoning": true,
         "tool_call": true,
-        "modalities": {
-          "input": ["text", "image"],
-          "output": ["text"]
-        },
-        "limit": {
-          "context": 1050000
-        }
+        "modalities": { "input": ["text", "image"], "output": ["text"] },
+        "limit": { "context": 1050000 },
+        "cost": { "input": 10, "output": 40 }
+      }
+    }
+  },
+  "anthropic": {
+    "id": "anthropic",
+    "name": "Anthropic",
+    "npm": "@ai-sdk/anthropic",
+    "env": ["ANTHROPIC_API_KEY"],
+    "models": {
+      "claude-sonnet-4-20250514": {
+        "id": "claude-sonnet-4-20250514",
+        "name": "Claude Sonnet 4",
+        "tool_call": true,
+        "modalities": { "input": ["text", "image"], "output": ["text"] },
+        "limit": { "context": 200000, "output": 8192 },
+        "cost": { "input": 3, "output": 15 }
+      },
+      "claude-haiku-4-20250514": {
+        "id": "claude-haiku-4-20250514",
+        "name": "Claude Haiku 4",
+        "tool_call": true,
+        "modalities": { "input": ["text", "image"], "output": ["text"] },
+        "limit": { "context": 200000, "output": 8192 },
+        "cost": { "input": 0.8, "output": 4 }
+      }
+    }
+  },
+  "google": {
+    "id": "google",
+    "name": "Google",
+    "npm": "@ai-sdk/google",
+    "env": ["GEMINI_API_KEY"],
+    "models": {
+      "gemini-2.5-flash": {
+        "id": "gemini-2.5-flash",
+        "name": "Gemini 2.5 Flash",
+        "tool_call": true,
+        "modalities": { "input": ["text", "image", "audio"], "output": ["text"] },
+        "limit": { "context": 1000000, "output": 8192 },
+        "cost": { "input": 0.15, "output": 0.6 }
+      },
+      "gemini-2.5-pro": {
+        "id": "gemini-2.5-pro",
+        "name": "Gemini 2.5 Pro",
+        "reasoning": true,
+        "tool_call": true,
+        "modalities": { "input": ["text", "image", "audio"], "output": ["text"] },
+        "limit": { "context": 1000000, "output": 65536 },
+        "cost": { "input": 1.25, "output": 5 }
+      }
+    }
+  },
+  "deepseek": {
+    "id": "deepseek",
+    "name": "DeepSeek",
+    "npm": "@ai-sdk/openai-compatible",
+    "api": "https://api.deepseek.com/v1",
+    "env": ["DEEPSEEK_API_KEY"],
+    "models": {
+      "deepseek-v4-pro": {
+        "id": "deepseek-v4-pro",
+        "name": "DeepSeek V4 Pro",
+        "reasoning": true,
+        "tool_call": true,
+        "modalities": { "input": ["text"], "output": ["text"] },
+        "limit": { "context": 128000, "output": 16384 },
+        "cost": { "input": 2, "output": 8 }
+      },
+      "deepseek-v4-flash": {
+        "id": "deepseek-v4-flash",
+        "name": "DeepSeek V4 Flash",
+        "reasoning": true,
+        "tool_call": true,
+        "modalities": { "input": ["text"], "output": ["text"] },
+        "limit": { "context": 128000, "output": 16384 },
+        "cost": { "input": 0.5, "output": 1.5 }
+      }
+    }
+  },
+  "mistral": {
+    "id": "mistral",
+    "name": "Mistral",
+    "npm": "@ai-sdk/mistral",
+    "env": ["MISTRAL_API_KEY"],
+    "models": {
+      "mistral-small-2506": {
+        "id": "mistral-small-2506",
+        "name": "Mistral Small",
+        "tool_call": true,
+        "modalities": { "input": ["text"], "output": ["text"] },
+        "limit": { "context": 128000, "output": 16384 },
+        "cost": { "input": 0.2, "output": 0.6 }
+      },
+      "mistral-large-2506": {
+        "id": "mistral-large-2506",
+        "name": "Mistral Large",
+        "tool_call": true,
+        "modalities": { "input": ["text"], "output": ["text"] },
+        "limit": { "context": 128000, "output": 16384 },
+        "cost": { "input": 2, "output": 6 }
+      }
+    }
+  },
+  "xai": {
+    "id": "xai",
+    "name": "xAI",
+    "npm": "@ai-sdk/xai",
+    "env": ["XAI_API_KEY"],
+    "models": {
+      "grok-3": {
+        "id": "grok-3",
+        "name": "Grok 3",
+        "reasoning": true,
+        "tool_call": true,
+        "modalities": { "input": ["text", "image"], "output": ["text"] },
+        "limit": { "context": 131072, "output": 16384 },
+        "cost": { "input": 3, "output": 15 }
+      },
+      "grok-3-mini": {
+        "id": "grok-3-mini",
+        "name": "Grok 3 Mini",
+        "reasoning": true,
+        "tool_call": true,
+        "modalities": { "input": ["text"], "output": ["text"] },
+        "limit": { "context": 131072, "output": 16384 },
+        "cost": { "input": 0.3, "output": 0.5 }
       }
     }
   }

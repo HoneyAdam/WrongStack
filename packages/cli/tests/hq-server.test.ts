@@ -12,7 +12,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
-import { type HqServerHandle, startHqServer } from '../src/hq-server.js';
+import { HQ_HTML, type HqServerHandle, startHqServer } from '../src/hq-server.js';
 
 let handle: HqServerHandle | null = null;
 let dataDir: string;
@@ -225,20 +225,14 @@ describe('HQ server', () => {
     const res = await fetch(`http://127.0.0.1:${handle.port}/`);
     expect(res.status).toBe(200);
     const html = await res.text();
-    expect(html).toContain('WrongStack HQ');
-    // Dashboard must expose the new mailbox table and clients table sections.
-    expect(html).toContain('id="tbody-mailboxes"');
-    expect(html).toContain('id="tbody-clients"');
-    // Stat cards for mailbox rollups.
-    expect(html).toContain('id="stat-mailboxes"');
-    expect(html).toContain('id="stat-high"');
-    expect(html).toContain('id="stat-agents"');
-    // Mailbox table headers.
-    expect(html).toContain('Mailboxes');
-    expect(html).toContain('High priority');
-    // JS-side applySnapshot reads snapshot.mailboxes + snapshot.clients.
-    expect(html).toContain('renderMailboxes');
-    expect(html).toContain('renderClients');
+    // `/` serves a dashboard page. When @wrongstack/webui is built it serves
+    // the React SPA; otherwise it falls back to the inline HQ_HTML dashboard.
+    // The release:check runs tests *before* the build step, so the webui dist
+    // may or may not exist here — assert only the contract shared by both:
+    // a 200 + a valid HTML document. The HQ_HTML fallback markup is covered
+    // exhaustively in the dedicated constant test below.
+    expect(html.toLowerCase()).toContain('<!doctype html>');
+    expect(html.toLowerCase()).toContain('<html');
 
     const snapRes = await fetch(`http://127.0.0.1:${handle.port}/api/snapshot`);
     expect(snapRes.status).toBe(200);
@@ -605,11 +599,23 @@ describe('HQ server', () => {
     expect(body.error.code).toBe('NOT_FOUND');
   });
 
-  it('renders drawer markup and project-link wiring in the dashboard HTML', async () => {
-    const port = getPort();
-    handle = await startOpenHqServer({ port });
-    const res = await fetch(`http://127.0.0.1:${handle.port}/`);
-    const html = await res.text();
+  it('HQ_HTML fallback dashboard exposes dashboard shell, drawer markup, and project-link wiring', () => {
+    // HQ_HTML is the inline fallback served from `/` when @wrongstack/webui
+    // is not built. Assert its markup against the constant directly so the
+    // coverage is independent of whether the webui dist exists at test time.
+    const html = HQ_HTML;
+    // Dashboard shell: header, mailbox/clients tables, stat cards, render fns.
+    expect(html).toContain('WrongStack HQ');
+    expect(html).toContain('id="tbody-mailboxes"');
+    expect(html).toContain('id="tbody-clients"');
+    expect(html).toContain('id="stat-mailboxes"');
+    expect(html).toContain('id="stat-high"');
+    expect(html).toContain('id="stat-agents"');
+    expect(html).toContain('Mailboxes');
+    expect(html).toContain('High priority');
+    expect(html).toContain('renderMailboxes');
+    expect(html).toContain('renderClients');
+    // Project drilldown drawer.
     expect(html).toContain('id="drawer"');
     expect(html).toContain('id="drawer-mailboxes"');
     expect(html).toContain('id="drawer-messages"');

@@ -15,7 +15,7 @@ import * as path from 'node:path';
 import type { Dirent, Stats } from 'node:fs';
 import type { Context } from '@wrongstack/core';
 import { compileGlob } from '@wrongstack/core';
-import type { FileMeta, IndexResult, Ref, Symbol as IndexSymbol, SymbolLang } from './schema.js';
+import type { FileMeta, IndexResult, Ref, SymbolLang } from './schema.js';
 import { IndexStore } from './writer.js';
 import { parseSymbols as parseTs, detectLang } from './ts-parser.js';
 import { parseSymbols as parseGo } from './go-parser.js';
@@ -342,11 +342,10 @@ async function runIndexerWithStore(store: IndexStore, opts: IndexerOptions): Pro
         continue;
       }
 
-      // Allocate ids from MAX(id), not COUNT(*): incremental reindexes leave gaps,
-      // so a count-based id would collide with a surviving row (symbols.id UNIQUE).
-      const nextId = store.getMaxSymbolId() + 1;
-      const symbolsWithIds: IndexSymbol[] = parsed.symbols.map((s: IndexSymbol, i: number) => ({ ...s, id: nextId + i }));
-      store.insertSymbols(symbolsWithIds, nextId);
+      // Insert symbols with IDs assigned atomically inside a BEGIN IMMEDIATE
+      // transaction, preventing UNIQUE constraint violations during concurrent
+      // indexing (each process sees a different MAX(id) without the lock).
+      const symbolsWithIds = store.insertSymbols(parsed.symbols);
       const count = symbolsWithIds.length;
       symbolsIndexed += count;
       langStats[lang] = (langStats[lang] ?? 0) + count;

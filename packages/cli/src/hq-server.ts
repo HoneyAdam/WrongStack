@@ -20,6 +20,7 @@ import * as fs from 'node:fs/promises';
 import type { Server as HttpServer } from 'node:http';
 import * as http from 'node:http';
 import * as path from 'node:path';
+import { createRequire } from 'node:module';
 import {
   DEFAULT_HQ_REDACTION_POLICY,
   HQ_PROTOCOL_VERSION,
@@ -43,6 +44,7 @@ import {
   scrubAndTruncateHqPreview,
   watchHqAuthFile,
 } from '@wrongstack/core';
+import { buildCspHeader, injectWsPort } from '@wrongstack/webui/server';
 import { WebSocket, WebSocketServer } from 'ws';
 
 export interface HqServerOptions {
@@ -177,7 +179,7 @@ function writeHqStartupInfo(write: (line: string) => void, handle: HqServerHandl
   }
 }
 
-const HQ_HTML = `<!DOCTYPE html>
+export const HQ_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
@@ -1000,6 +1002,220 @@ const HQ_HTML = `<!DOCTYPE html>
 </body>
 </html>`;
 
+// ── React frontend static serving ──────────────────────────────────────
+// Resolve the @wrongstack/webui dist directory. Returns null when the
+// webui package is not built (graceful degradation to WS-only).
+const requireFromCli = createRequire(import.meta.url);
+function resolveWebuiDistDir(): string | null {
+  try {
+    const serverEntry = requireFromCli.resolve('@wrongstack/webui/server');
+    return path.resolve(path.dirname(serverEntry), '..'); // .../dist
+  } catch {
+    return null;
+  }
+}
+
+const WEBUI_MIME: Record<string, string> = {
+  '.html': 'text/html',
+  '.js': 'application/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+};
+
+/** True when `candidate` (resolved absolute path) lies inside `rootDir`. */
+function isInsideDir(candidate: string, rootDir: string): boolean {
+  const resolved = path.resolve(candidate);
+  return resolved === rootDir || resolved.startsWith(rootDir + path.sep);
+}
+
+/** Serve a static file from distDir — no-cache for .html, CSP for all. */
+async function serveWebuiFile(
+  res: http.ServerResponse,
+  distDir: string,
+  urlPath: string,
+  wsPort: number,
+): Promise<boolean> {
+  const filePath = path.resolve(path.join(distDir, urlPath));
+  if (!isInsideDir(filePath, distDir)) return false;
+  const ext = path.extname(filePath);
+  try {
+    const content = await fs.readFile(filePath);
+    const contentType = WEBUI_MIME[ext] ?? 'application/octet-stream';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    if (ext === '.html') {
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Content-Security-Policy', buildCspHeader(wsPort));
+      const html = content.toString('utf8');
+      res.writeHead(200);
+      res.end(injectWsPort(html, wsPort));
+    } else {
+      res.writeHead(200);
+      res.end(content);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** SPA fallback: serve index.html for any unmatched route. */
+async function serveWebuiIndex(res: http.ServerResponse, distDir: string, wsPort: number): Promise<void> {
+  try {
+    const indexPath = path.join(distDir, 'index.html');
+    const html = await fs.readFile(indexPath, 'utf8');
+    res.setHeader('Content-Type', 'text/html');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Content-Security-Policy', buildCspHeader(wsPort));
+    res.writeHead(200);
+    res.end(injectWsPort(html, wsPort));
+  } catch {
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('Not found');
+  }
+}
+
+/** GET /api/sessions — list live sessions from the cross-process registry. */
+async function handleApiSessions(res: http.ServerResponse): Promise<void> {
+  const { SessionRegistry } = await import('@wrongstack/core');
+  const globalRoot = path.dirname(resolveHqDataDir());
+  try {
+    const registry = new SessionRegistry(globalRoot);
+    const sessions = await registry.list();
+    const result = sessions.filter(s => s.status !== 'stale').map((s) => ({
+      sessionId: s.sessionId,
+      projectSlug: s.projectSlug,
+      projectName: s.projectName,
+      projectRoot: s.projectRoot,
+      workingDir: s.workingDir,
+      status: s.status,
+      pid: s.pid,
+      startedAt: s.startedAt,
+      lastHeartbeatAt: s.lastHeartbeatAt,
+      agentCount: s.agentCount,
+      agents: s.agents.map((a) => ({
+        id: a.id, name: a.name, status: a.status,
+        currentTool: a.currentTool, iterations: a.iterations,
+        toolCalls: a.toolCalls, lastActivityAt: a.lastActivityAt,
+      })),
+    }));
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(result));
+  } catch (err) {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: String(err) }));
+  }
+}
+
+/** GET /api/sessions/:id/events — replay JSONL events for a session watch. */
+async function handleApiSessionEvents(res: http.ServerResponse, sessionId: string, limit: number): Promise<void> {
+  const { SessionRegistry, resolveWstackPaths, DefaultSessionStore, DefaultSessionReader } = await import('@wrongstack/core');
+  const globalRoot = path.dirname(resolveHqDataDir());
+  try {
+    const registry = new SessionRegistry(globalRoot);
+    const entry = await registry.get(sessionId);
+    if (!entry) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Session not found' }));
+      return;
+    }
+    const paths = resolveWstackPaths({ projectRoot: entry.projectRoot, globalRoot });
+    const store = new DefaultSessionStore({ dir: paths.projectSessions });
+    const reader = new DefaultSessionReader({ store });
+    // Map JSONL events to WatchEntry (same logic as webui api-handlers.ts)
+    function blocksToText(content: unknown): string {
+      if (typeof content === 'string') return content;
+      if (Array.isArray(content)) {
+        return content
+          .filter((b): b is { type: string; text: string } => !!b && typeof b === 'object' && (b as { type?: unknown }).type === 'text' && typeof (b as { text?: unknown }).text === 'string')
+          .map((b) => b.text).join('\n');
+      }
+      return '';
+    }
+    function asString(v: unknown): string {
+      if (typeof v === 'string') return v;
+      try { return JSON.stringify(v, null, 2); } catch { return String(v); }
+    }
+    interface WatchEntry { ts: string; role: string; text: string; tool: string | undefined; input: unknown | undefined; output: unknown | undefined; durationMs: number | undefined; isError: boolean | undefined; toolUseId: string | undefined; }
+    const rawEntries: WatchEntry[] = [];
+    for await (const ev of reader.replay(sessionId)) {
+      const e = ev as Record<string, unknown>;
+      const ts = typeof e['ts'] === 'string' ? e['ts'] as string : '';
+      let mapped: WatchEntry | null = null;
+      switch (e['type']) {
+        case 'user_input': { const t = blocksToText(e['content']); if (t.trim()) mapped = { ts, role: 'user', text: t, tool: undefined, input: undefined, output: undefined, durationMs: undefined, isError: undefined, toolUseId: undefined }; break; }
+        case 'llm_response': { const t = blocksToText(e['content']); if (t.trim()) mapped = { ts, role: 'assistant', text: t, tool: undefined, input: undefined, output: undefined, durationMs: undefined, isError: undefined, toolUseId: undefined }; break; }
+        case 'tool_use':
+        case 'tool_call_start': {
+          const toolName = String(e['name'] ?? 'tool');
+          const input = e['input'] ?? e['args'];
+          const text = input !== undefined && input !== null ? asString(input) : '';
+          mapped = { ts, role: 'tool', tool: toolName, text, input: input ?? undefined, output: undefined, durationMs: undefined, isError: undefined, toolUseId: typeof e['id'] === 'string' ? e['id'] : undefined };
+          break;
+        }
+        case 'tool_call_end':
+        case 'tool_result': {
+          const isError = e['isError'] === true;
+          const content = e['output'] ?? e['content'];
+          const outStr = content !== undefined && content !== null ? asString(content) : '';
+          const durationMs = typeof e['durationMs'] === 'number' ? e['durationMs'] : undefined;
+          const toolUseId = typeof e['id'] === 'string' ? e['id'] : undefined;
+          const toolName = typeof e['name'] === 'string' ? String(e['name']) : '↳ result';
+          if (!outStr.trim() && !isError) break;
+          mapped = { ts, role: isError ? 'error' : 'tool', tool: toolName, text: outStr, input: undefined, output: content ?? undefined, durationMs, isError: isError || undefined, toolUseId };
+          break;
+        }
+        case 'error':
+        case 'provider_error':
+          mapped = { ts, role: 'error', text: String(e['message'] ?? 'error'), tool: undefined, input: undefined, output: undefined, durationMs: undefined, isError: undefined, toolUseId: undefined }; break;
+        case 'agent_spawned':
+          mapped = { ts, role: 'system', text: `spawned ${String(e['role'] ?? 'agent')}`, tool: undefined, input: undefined, output: undefined, durationMs: undefined, isError: undefined, toolUseId: undefined }; break;
+        case 'task_completed':
+          mapped = { ts, role: 'system', text: `task done: ${String(e['title'] ?? '')}`, tool: undefined, input: undefined, output: undefined, durationMs: undefined, isError: undefined, toolUseId: undefined }; break;
+        case 'task_failed':
+          mapped = { ts, role: 'system', text: `task failed: ${String(e['title'] ?? '')}`, tool: undefined, input: undefined, output: undefined, durationMs: undefined, isError: undefined, toolUseId: undefined }; break;
+      }
+      if (mapped) rawEntries.push(mapped);
+    }
+    // Correlate paired tool events by toolUseId
+    const pending = new Map<string, WatchEntry>();
+    const correlated: WatchEntry[] = [];
+    for (const we of rawEntries) {
+      if (we.role === 'tool' && we.toolUseId && we.output === undefined && we.durationMs === undefined) {
+        pending.set(we.toolUseId, we);
+        continue;
+      }
+      if (we.toolUseId && pending.has(we.toolUseId)) {
+        const s = pending.get(we.toolUseId)!;
+        pending.delete(we.toolUseId);
+        correlated.push({ ts: s.ts, role: we.isError ? 'error' : 'tool', text: we.text || s.text, tool: s.tool, input: s.input, output: we.output, durationMs: we.durationMs, isError: we.isError, toolUseId: we.toolUseId });
+        continue;
+      }
+      correlated.push(we);
+    }
+    for (const e of pending.values()) correlated.push(e);
+    const tail = correlated.slice(-limit);
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      sessionId, status: entry.status, clientType: entry.clientType,
+      projectName: entry.projectName, total: correlated.length, entries: tail,
+    }));
+  } catch (err) {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: String(err) }));
+  }
+}
+
 export async function startHqServer(options: HqServerOptions = {}): Promise<HqServerHandle> {
   const host = options.host ?? DEFAULT_HOST;
   const port = options.port ?? DEFAULT_PORT;
@@ -1096,7 +1312,8 @@ function startHqServerWithAuth(
       if (clients.size > 0) snapshotBroadcaster.broadcast();
     }, CLIENT_CLEANUP_INTERVAL_MS);
 
-    const httpServer: HttpServer = http.createServer((req, res) => {
+    const httpServer: HttpServer = http.createServer(async (req, res) => {
+      try {
       const url = new URL(req.url ?? '/', `http://${host}:${port}`);
 
       // When browser TOKEN MODE is active, all HTTP routes require a valid
@@ -1121,12 +1338,30 @@ function startHqServerWithAuth(
         }
       }
 
+      // ── React frontend — serve the built WebUI SPA ─────────────────
+      const distDir = resolveWebuiDistDir();
+      const wsPort = port; // browser WS port matches the HTTP port
+
+      // `/` and `/index.html` — serve the React app
       if (url.pathname === '/' || url.pathname === '/index.html') {
+        if (distDir) {
+          await serveWebuiFile(res, distDir, '/index.html', wsPort);
+          return;
+        }
+        // Fallback: hardcoded dashboard when React is not built
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(HQ_HTML);
         return;
       }
 
+      // `/assets/*` — React build artifacts (JS, CSS, fonts, icons)
+      if (url.pathname.startsWith('/assets/') && distDir) {
+        const served = await serveWebuiFile(res, distDir, url.pathname, wsPort);
+        if (served) return;
+        // file not found — fall through to SPA fallback below
+      }
+
+      // ── HQ API routes ──────────────────────────────────────────────
       if (url.pathname === '/api/snapshot') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(buildSnapshot(clients)));
@@ -1157,8 +1392,38 @@ function startHqServerWithAuth(
         return;
       }
 
+      // ── WrongStack session API — enables SessionWatchPanel ─────────
+      if (url.pathname === '/api/sessions' && req.method === 'GET') {
+        await handleApiSessions(res);
+        return;
+      }
+
+      const eventsMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/events$/);
+      if (eventsMatch && req.method === 'GET') {
+        const rawLimit = Number.parseInt(url.searchParams.get('limit') ?? '200', 10);
+        const limit = Math.min(500, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 200));
+        await handleApiSessionEvents(res, decodeURIComponent(eventsMatch[1]!), limit);
+        return;
+      }
+
+      // ── SPA fallback — let the React frontend handle routing ───────
+      if (distDir) {
+        // Only fallback for non-API, non-dotfile routes
+        if (!url.pathname.startsWith('/api/') && !url.pathname.startsWith('/ws/') && !url.pathname.includes('.')) {
+          await serveWebuiIndex(res, distDir, wsPort);
+          return;
+        }
+      }
+
       res.writeHead(404, { 'Content-Type': 'text/plain' });
       res.end('Not found');
+      } catch (err) {
+        console.error(JSON.stringify({ level: 'error', event: 'hq.http_handler_error', message: String(err), timestamp: new Date().toISOString() }));
+        if (!res.headersSent) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Internal server error' }));
+        }
+      }
     });
 
     const wss = new WebSocketServer({ noServer: true, maxPayload: 1 * 1024 * 1024 });

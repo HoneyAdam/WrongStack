@@ -301,38 +301,62 @@ export class IndexStore {
 
   // ─── Symbol CRUD ─────────────────────────────────────────────────────────────
 
-  insertSymbols(symbols: IndexSymbol[], nextId: number): number {
+  /**
+   * Insert symbols, assigning IDs atomically inside `BEGIN IMMEDIATE` /
+   * `COMMIT`. The ID allocation (`SELECT MAX(id)`) and all `INSERT`s share
+   * the same transaction, preventing UNIQUE constraint violations when two
+   * processes index concurrently (each would see a different `MAX(id)` and
+   * neither can insert with the other's IDs).
+   *
+   * @returns The symbols array with `id` fields populated so the caller can
+   *          use them for refs without re-reading from the DB.
+   */
+  insertSymbols(symbols: IndexSymbol[]): IndexSymbol[] {
     return this.runWithRetry(() => {
-      const stmt = this.db.prepare(
-        `INSERT INTO symbols(id, lang, kind, name, file, line, col, signature, doc_comment, scope, text, file_fk)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      );
-      const ftsStmt = this.ftsAvailable
-        ? this.db.prepare('INSERT INTO symbols_fts(rowid, text) VALUES (?, ?)')
-        : null;
+      // BEGIN IMMEDIATE takes a write lock immediately (does not wait for the
+      // first INSERT). This serializes writers: the next process blocks here
+      // until this transaction commits, so its `SELECT MAX(id)` sees all IDs
+      // we assign — no collisions.
+      this.db.exec('BEGIN IMMEDIATE');
+      try {
+        const maxRows = this.db.prepare('SELECT MAX(id) AS m FROM symbols').all() as { m: number | null }[];
+        let nextId = (maxRows[0]?.m ?? 0) + 1;
 
-      let id = nextId;
-      for (const s of symbols) {
-        stmt.run(
-          id,
-          s.lang,
-          s.kind,
-          s.name,
-          s.file,
-          s.line,
-          s.col,
-          s.signature,
-          s.docComment,
-          s.scope,
-          s.text,
-          s.file,
+        const stmt = this.db.prepare(
+          `INSERT INTO symbols(id, lang, kind, name, file, line, col, signature, doc_comment, scope, text, file_fk)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         );
-        // The FTS row indexes the camelCase-split text so a query for "complex"
-        // matches "complexOperation" — same recall the JS BM25 path provided.
-        ftsStmt?.run(id, buildIndexableText(s.name, s.signature, s.docComment));
-        id++;
+        const ftsStmt = this.ftsAvailable
+          ? this.db.prepare('INSERT INTO symbols_fts(rowid, text) VALUES (?, ?)')
+          : null;
+
+        const result: IndexSymbol[] = [];
+        for (const s of symbols) {
+          const id = nextId++;
+          stmt.run(
+            id,
+            s.lang,
+            s.kind,
+            s.name,
+            s.file,
+            s.line,
+            s.col,
+            s.signature,
+            s.docComment,
+            s.scope,
+            s.text,
+            s.file,
+          );
+          ftsStmt?.run(id, buildIndexableText(s.name, s.signature, s.docComment));
+          result.push({ ...s, id });
+        }
+
+        this.db.exec('COMMIT');
+        return result;
+      } catch (err) {
+        this.db.exec('ROLLBACK');
+        throw err;
       }
-      return id;
     });
   }
 

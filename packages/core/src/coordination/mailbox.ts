@@ -330,36 +330,78 @@ export class DefaultMailbox implements Mailbox {
   private async _readAll(): Promise<MailboxMessage[]> {
     try {
       const raw = await fsp.readFile(this.filePath, 'utf8');
-      const lines = raw.split(LINE_SEPARATOR).filter((l) => l.trim().length > 0);
-      const messages: MailboxMessage[] = [];
-      for (const line of lines) {
-        try {
-          const parsed = JSON.parse(line) as Record<string, unknown>;
-          // Migrate old `read: boolean` + `readAt` to new `readBy`
-          if (!parsed['readBy']) {
-            const readBy: Record<string, unknown> = {};
-            if (parsed['read'] && parsed['readAt']) {
-              readBy[(parsed['to'] as string) ?? 'unknown'] = parsed['readAt'];
-            }
-            parsed['readBy'] = readBy;
-            delete parsed['read'];
-            delete parsed['readAt'];
-          }
-          messages.push(parsed as never as MailboxMessage);
-        } catch {
-          // Skip malformed lines
-        }
-      }
-      return messages;
+      return this._parseLines(raw);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
       throw err;
     }
   }
 
+  /**
+   * Read only newly-appended bytes from the file and append them to the
+   * in-memory cache, avoiding a full re-read when the file only grew.
+   */
+  private async _readNewMessagesOnly(
+    fd: fsp.FileHandle,
+    oldSize: number,
+    newSize: number,
+  ): Promise<MailboxMessage[]> {
+    const tailLen = newSize - oldSize;
+    const buf = Buffer.alloc(tailLen);
+    await fd.read(buf, 0, tailLen, oldSize);
+    const tail = buf.toString('utf8');
+    for (const line of tail.split(LINE_SEPARATOR)) {
+      if (!line.trim()) continue;
+      try {
+        const parsed = JSON.parse(line) as Record<string, unknown>;
+        if (!parsed['readBy']) {
+          const readBy: Record<string, string> = {};
+          if (parsed['read'] && parsed['readAt']) {
+            readBy[(parsed['to'] as string) ?? 'unknown'] = parsed['readAt'] as string;
+          }
+          parsed['readBy'] = readBy;
+          delete parsed['read'];
+          delete parsed['readAt'];
+        }
+        const msg = parsed as never as MailboxMessage;
+        this._messageCache!.push(msg);
+        this._indexMsg(msg);
+      } catch {
+        // Skip malformed lines
+      }
+    }
+    return this._messageCache!;
+  }
+
+  /** Parse a JSONL string into MailboxMessage[], including migration. */
+  private _parseLines(raw: string): MailboxMessage[] {
+    const lines = raw.split(LINE_SEPARATOR).filter((l) => l.trim().length > 0);
+    const messages: MailboxMessage[] = [];
+    for (const line of lines) {
+      try {
+        const parsed = JSON.parse(line) as Record<string, unknown>;
+        if (!parsed['readBy']) {
+          const readBy: Record<string, unknown> = {};
+          if (parsed['read'] && parsed['readAt']) {
+            readBy[(parsed['to'] as string) ?? 'unknown'] = parsed['readAt'];
+          }
+          parsed['readBy'] = readBy;
+          delete parsed['read'];
+          delete parsed['readAt'];
+        }
+        messages.push(parsed as never as MailboxMessage);
+      } catch {
+        // Skip malformed lines
+      }
+    }
+    return messages;
+  }
+
   private async _readAllCached(): Promise<MailboxMessage[]> {
     try {
       const st = await fsp.stat(this.filePath);
+
+      // Fast path: cache is current.
       if (
         this._messageCache !== null &&
         this._messageCacheMtime === st.mtimeMs &&
@@ -367,6 +409,25 @@ export class DefaultMailbox implements Mailbox {
       ) {
         return this._messageCache;
       }
+
+      // Incremental path: file only grew (appends, no rewrite).
+      if (
+        this._messageCache !== null &&
+        this._messageCacheSize >= 0 &&
+        st.size > this._messageCacheSize
+      ) {
+        const fd = await fsp.open(this.filePath, 'r');
+        try {
+          const updated = await this._readNewMessagesOnly(fd, this._messageCacheSize, st.size);
+          this._messageCacheMtime = st.mtimeMs;
+          this._messageCacheSize = st.size;
+          return updated;
+        } finally {
+          await fd.close();
+        }
+      }
+
+      // Full re-read: cache empty, file was rewritten (ack/purge).
       const all = await this._readAll();
       this._setMessageCache(all, st.mtimeMs, st.size);
       return all;

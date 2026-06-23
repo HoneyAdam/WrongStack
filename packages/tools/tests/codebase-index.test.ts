@@ -268,8 +268,8 @@ describe('IndexStore', () => {
     expect(stats.totalFiles).toBe(0);
   });
 
-  it('inserts symbols and returns the next id', () => {
-    const next = store.insertSymbols(
+  it('inserts symbols and returns them with assigned ids', () => {
+    const inserted = store.insertSymbols(
       [
         {
           id: 0,
@@ -298,9 +298,10 @@ describe('IndexStore', () => {
           text: 'function bar()',
         },
       ],
-      1,
     );
-    expect(next).toBe(3); // 1 + 2 symbols
+    expect(inserted).toHaveLength(2);
+    expect(inserted[0].id).toBe(1);
+    expect(inserted[1].id).toBe(2);
   });
 
   it('persists data across store reopens', () => {

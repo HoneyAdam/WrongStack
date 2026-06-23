@@ -161,6 +161,11 @@ export async function* spawnStream(
   // paused (queue full) or a win32 orphan holds them open — the executor's
   // iter.return() then never completes, the tool call hangs for the rest of
   // the session and retains the queue (up to maxQueue chunks) on the heap.
+  //
+  // Only on Windows: on POSIX the signal is already passed to spawn() above
+  // (line 72) so Node.js handles the kill via the signal; attaching a second
+  // handler here would double-kill the child and leak the listener when the
+  // generator exits without aborting.
   const onAbort = () => {
     if (typeof pid === 'number') {
       registry.kill(pid, { force: true });
@@ -174,8 +179,10 @@ export async function* spawnStream(
     queue.push({ kind: 'close', data: '', code: 124 });
     wake();
   };
-  if (opts.signal.aborted) onAbort();
-  else opts.signal.addEventListener('abort', onAbort, { once: true });
+  if (isWin) {
+    if (opts.signal.aborted) onAbort();
+    else opts.signal.addEventListener('abort', onAbort, { once: true });
+  }
 
   let exitCode = 0;
   let spawnFailed = false;
@@ -232,7 +239,7 @@ export async function* spawnStream(
     // child handle — alive until OOM. Detach the handlers, destroy the
     // pipes, and make sure nothing is left running.
     spool.finalize(); // idempotent — closes the file if the stream was abandoned
-    opts.signal.removeEventListener('abort', onAbort);
+    if (isWin) opts.signal.removeEventListener('abort', onAbort);
     child.stdout?.off('data', onOut);
     child.stderr?.off('data', onErr);
     child.stdout?.destroy();

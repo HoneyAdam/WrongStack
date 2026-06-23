@@ -215,4 +215,73 @@ describe('OpenAIProvider', () => {
       (spy.mock.calls[0]![1] as { headers: Record<string, string> }).headers['openai-organization'],
     ).toBe('org-x');
   });
+
+  it('sends frequency_penalty, presence_penalty, seed when set', async () => {
+    let captured: Record<string, unknown> | undefined;
+    const fetchImpl = vi.fn(async (_url: unknown, init: { body?: string } = {}) => {
+      captured = JSON.parse(init.body ?? '{}');
+      return { ok: true, status: 200, json: async () => ({ model: 'm', choices: [{ message: { role: 'assistant', content: 'k' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1 } }), text: async () => '' };
+    }) as never as typeof fetch;
+    const p = new OpenAIProvider({ apiKey: 'k', fetchImpl });
+    await p.complete({ model: 'o4', messages: [{ role: 'user', content: 'hi' }], maxTokens: 100, frequencyPenalty: 0.5, presencePenalty: 0.3, seed: 42 }, { signal: new AbortController().signal });
+    expect(captured?.['frequency_penalty']).toBe(0.5);
+    expect(captured?.['presence_penalty']).toBe(0.3);
+    expect(captured?.['seed']).toBe(42);
+  });
+
+  it('sends user when set', async () => {
+    let captured: Record<string, unknown> | undefined;
+    const fetchImpl = vi.fn(async (_url: unknown, init: { body?: string } = {}) => {
+      captured = JSON.parse(init.body ?? '{}');
+      return { ok: true, status: 200, json: async () => ({ model: 'm', choices: [{ message: { role: 'assistant', content: 'k' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1 } }), text: async () => '' };
+    }) as never as typeof fetch;
+    const p = new OpenAIProvider({ apiKey: 'k', fetchImpl });
+    await p.complete({ model: 'm', messages: [{ role: 'user', content: 'hi' }], maxTokens: 100, user: 'user-abc' }, { signal: new AbortController().signal });
+    expect(captured?.['user']).toBe('user-abc');
+  });
+
+  it('sends logprobs and top_logprobs when set', async () => {
+    let captured: Record<string, unknown> | undefined;
+    const fetchImpl = vi.fn(async (_url: unknown, init: { body?: string } = {}) => {
+      captured = JSON.parse(init.body ?? '{}');
+      return { ok: true, status: 200, json: async () => ({ model: 'm', choices: [{ message: { role: 'assistant', content: 'k' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1 } }), text: async () => '' };
+    }) as never as typeof fetch;
+    const p = new OpenAIProvider({ apiKey: 'k', fetchImpl });
+    await p.complete({ model: 'm', messages: [{ role: 'user', content: 'hi' }], maxTokens: 100, logprobs: true, topLogprobs: 5 }, { signal: new AbortController().signal });
+    expect(captured?.['logprobs']).toBe(true);
+    expect(captured?.['top_logprobs']).toBe(5);
+  });
+
+  it('sends response_format for json_schema', async () => {
+    let captured: Record<string, unknown> | undefined;
+    const fetchImpl = vi.fn(async (_url: unknown, init: { body?: string } = {}) => {
+      captured = JSON.parse(init.body ?? '{}');
+      return { ok: true, status: 200, json: async () => ({ model: 'm', choices: [{ message: { role: 'assistant', content: '{}' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1 } }), text: async () => '' };
+    }) as never as typeof fetch;
+    const p = new OpenAIProvider({ apiKey: 'k', fetchImpl });
+    await p.complete({ model: 'm', messages: [{ role: 'user', content: 'hi' }], maxTokens: 100, responseFormat: { type: 'json_schema', jsonSchema: { name: 'person', schema: { type: 'object', properties: { name: { type: 'string' } } } } } }, { signal: new AbortController().signal });
+    expect(captured?.['response_format']).toEqual({ type: 'json_schema', json_schema: { name: 'person', strict: true, schema: { type: 'object', properties: { name: { type: 'string' } } } } });
+  });
+
+  it('sends reasoning_effort when effort is a valid OpenAI value', async () => {
+    let captured: Record<string, unknown> | undefined;
+    const fetchImpl = vi.fn(async (_url: unknown, init: { body?: string } = {}) => {
+      captured = JSON.parse(init.body ?? '{}');
+      return { ok: true, status: 200, json: async () => ({ model: 'm', choices: [{ message: { role: 'assistant', content: 'k' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1 } }), text: async () => '' };
+    }) as never as typeof fetch;
+    const p = new OpenAIProvider({ apiKey: 'k', fetchImpl });
+    await p.complete({ model: 'o4', messages: [{ role: 'user', content: 'hi' }], maxTokens: 100, reasoning: { effort: 'high' } }, { signal: new AbortController().signal });
+    expect(captured?.['reasoning_effort']).toBe('high');
+  });
+
+  it('does not send reasoning_effort for non-OpenAI effort values (minimal, xhigh, max)', async () => {
+    let captured: Record<string, unknown> | undefined;
+    const fetchImpl = vi.fn(async (_url: unknown, init: { body?: string } = {}) => {
+      captured = JSON.parse(init.body ?? '{}');
+      return { ok: true, status: 200, json: async () => ({ model: 'm', choices: [{ message: { role: 'assistant', content: 'k' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1 } }), text: async () => '' };
+    }) as never as typeof fetch;
+    const p = new OpenAIProvider({ apiKey: 'k', fetchImpl });
+    await p.complete({ model: 'o4', messages: [{ role: 'user', content: 'hi' }], maxTokens: 100, reasoning: { effort: 'xhigh' } }, { signal: new AbortController().signal });
+    expect(captured).not.toHaveProperty('reasoning_effort');
+  });
 });

@@ -96,12 +96,26 @@ export async function handleApiSessionAgents(
   }
 }
 
-/** One line in the session "watch" stream sent to the browser. */
+/** One line in the session "watch" stream sent to the browser.
+ *  Rich enough for the frontend to render full tool call details,
+ *  markdown, and structured data — not just pre-clipped text. */
 interface WatchEntry {
   ts: string;
   role: 'user' | 'assistant' | 'tool' | 'system' | 'error';
+  /** Human-readable text summary (may be clipped for tool input/output). */
   text: string;
+  /** Tool name (for tool-role entries). */
   tool?: string;
+  /** Structured tool input (object or array — rendered by ToolInputView). */
+  input?: unknown;
+  /** Structured tool output (rendered as pre-formatted text / markdown). */
+  output?: unknown;
+  /** Wall-clock duration in ms (tool call / response). */
+  durationMs?: number;
+  /** Whether the tool/response had an error. */
+  isError?: boolean;
+  /** Tool use correlation id — pairs tool_call_start with tool_call_end. */
+  toolUseId?: string;
 }
 
 /** Join the text blocks of a message content value into a single string. */
@@ -120,48 +134,51 @@ function blocksToText(content: unknown): string {
   return '';
 }
 
-function clip(s: string, n = 600): string {
-  return s.length > n ? `${s.slice(0, n)}…` : s;
-}
-
 function asString(v: unknown): string {
   if (typeof v === 'string') return v;
   try {
-    return JSON.stringify(v);
+    return JSON.stringify(v, null, 2);
   } catch {
     return String(v);
   }
 }
 
-/** Map a raw session event to a compact watch line (or null to skip it). */
+/** Map a raw session event to a watch entry. Returns rich structured data
+ *  for tool calls (input + output + duration) so the frontend can render
+ *  full detail via WatchMessageBubble — matching the main ChatView. */
 function mapWatchEntry(ev: Record<string, unknown>): WatchEntry | null {
   const ts = typeof ev['ts'] === 'string' ? (ev['ts'] as string) : '';
   switch (ev['type']) {
-    case 'user_input':
-      return { ts, role: 'user', text: clip(blocksToText(ev['content'])) };
+    case 'user_input': {
+      const text = blocksToText(ev['content']);
+      return text.trim() ? { ts, role: 'user', text } : null;
+    }
     case 'llm_response': {
       const text = blocksToText(ev['content']);
-      return text.trim() ? { ts, role: 'assistant', text: clip(text) } : null;
+      return text.trim() ? { ts, role: 'assistant', text } : null;
     }
     case 'tool_use':
     case 'tool_call_start': {
-      // Surface a short input preview so the operator sees WHAT the tool ran
-      // (the command, path, query…), not just the tool name. JSONL tool
-      // payloads are already truncated on write, so this is bounded.
+      const toolName = String(ev['name'] ?? 'tool');
       const input = ev['input'] ?? ev['args'];
-      const preview = input !== undefined && input !== null ? clip(asString(input), 160) : '';
-      return { ts, role: 'tool', tool: String(ev['name'] ?? 'tool'), text: preview };
+      const text = input !== undefined && input !== null ? asString(input) : '';
+      const toolUseId = typeof ev['id'] === 'string' ? ev['id'] : undefined;
+      return { ts, role: 'tool', tool: toolName, text, input, toolUseId };
     }
+    case 'tool_call_end':
     case 'tool_result': {
-      // Show a short output preview for successes too (errors stay highlighted)
-      // so the full operation — inputs AND outputs — is visible in the stream.
-      if (ev['isError']) return { ts, role: 'error', text: clip(asString(ev['content'])) };
-      const out = asString(ev['content']).trim();
-      return out ? { ts, role: 'tool', tool: '↳ result', text: clip(out, 240) } : null;
+      const isError = ev['isError'] === true;
+      const content = ev['output'] ?? ev['content'];
+      const outStr = content !== undefined && content !== null ? asString(content) : '';
+      const durationMs = typeof ev['durationMs'] === 'number' ? ev['durationMs'] : undefined;
+      const toolUseId = typeof ev['id'] === 'string' ? ev['id'] : undefined;
+      const toolName = typeof ev['name'] === 'string' ? String(ev['name']) : '↳ result';
+      if (!outStr.trim() && !isError) return null;
+      return { ts, role: isError ? 'error' : 'tool', tool: toolName, text: outStr, output: content, durationMs, isError, toolUseId };
     }
     case 'error':
     case 'provider_error':
-      return { ts, role: 'error', text: clip(String(ev['message'] ?? 'error')) };
+      return { ts, role: 'error', text: String(ev['message'] ?? 'error') };
     case 'agent_spawned':
       return { ts, role: 'system', text: `spawned ${String(ev['role'] ?? 'agent')}` };
     case 'task_completed':
@@ -171,6 +188,42 @@ function mapWatchEntry(ev: Record<string, unknown>): WatchEntry | null {
     default:
       return null;
   }
+}
+
+/** Correlate tool_call_start + tool_call_end events by id and merge them
+ *  into unified WatchEntry entries with full input+output+duration.
+ *  Standalone events (unpaired) pass through as-is. */
+function correlateToolEvents(entries: WatchEntry[]): WatchEntry[] {
+  const pending = new Map<string, WatchEntry>(); // toolUseId → start entry
+  const result: WatchEntry[] = [];
+  for (const e of entries) {
+    if (e.role === 'tool' && e.toolUseId && e.output === undefined && e.durationMs === undefined) {
+      // This is a tool_call_start with no result yet — stash it
+      pending.set(e.toolUseId, e);
+      continue;
+    }
+    if (e.toolUseId && pending.has(e.toolUseId)) {
+      const start = pending.get(e.toolUseId)!;
+      pending.delete(e.toolUseId);
+      // Merge: keep the start's ts, tool name, and input; add the end's output/duration/error
+      result.push({
+        ts: start.ts,
+        role: e.isError ? 'error' : 'tool',
+        text: e.text || start.text,
+        tool: start.tool,
+        input: start.input,
+        output: e.output,
+        durationMs: e.durationMs,
+        isError: e.isError,
+        toolUseId: e.toolUseId,
+      });
+      continue;
+    }
+    result.push(e);
+  }
+  // Unpaired start events: flush at the end
+  for (const e of pending.values()) result.push(e);
+  return result;
 }
 
 export async function handleApiSessionEvents(
@@ -200,11 +253,13 @@ export async function handleApiSessionEvents(
     const store = new DefaultSessionStore({ dir: paths.projectSessions });
     const reader = new DefaultSessionReader({ store });
 
-    const all: WatchEntry[] = [];
+    const rawEntries: WatchEntry[] = [];
     for await (const ev of reader.replay(sessionId)) {
       const mapped = mapWatchEntry(ev as never as Record<string, unknown>);
-      if (mapped) all.push(mapped);
+      if (mapped) rawEntries.push(mapped);
     }
+    // Correlate paired tool call start+end events for rich combined rendering
+    const all = correlateToolEvents(rawEntries);
     const tail = all.slice(-limit);
 
     res.writeHead(200, { 'Content-Type': 'application/json' });

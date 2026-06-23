@@ -12,16 +12,19 @@
  * request.
  */
 import type {
+  Capabilities,
   ReasoningConfig,
   ReasoningRequest,
   Request,
   RequestCacheControl,
 } from '../types/provider.js';
-import type { ModelRuntimeConfig } from '../types/config.js';
+import type { ModelRuntimeConfig, ModelRuntimeParametersConfig } from '../types/config.js';
 
 export interface ResolvedModelRuntime {
   reasoning: Request['reasoning'];
   cache: Request['cache'];
+  /** Resolved generation parameters (topK, frequencyPenalty, etc.). */
+  parameters: Partial<Request> | undefined;
   /** Human-readable warnings for settings that were ignored for this model. */
   warnings: string[];
 }
@@ -41,16 +44,23 @@ export interface ResolvedModelRuntime {
 export function resolveModelRuntime(
   settings: ModelRuntimeConfig | undefined,
   reasoning: ReasoningConfig | undefined,
+  capabilities?: Capabilities | undefined,
 ): ResolvedModelRuntime {
   const warnings: string[] = [];
   if (!settings) {
-    return { reasoning: undefined, cache: undefined, warnings };
+    return { reasoning: undefined, cache: undefined, parameters: undefined, warnings };
   }
 
   const reasoningField = resolveReasoningForRequest(settings, reasoning, warnings);
   const cacheField = resolveCacheForRequest(settings, warnings);
+  const paramsField = resolveParametersForRequest(settings.parameters, capabilities, warnings);
 
-  return { reasoning: reasoningField, cache: cacheField, warnings };
+  return {
+    reasoning: reasoningField,
+    cache: cacheField,
+    parameters: paramsField,
+    warnings,
+  };
 }
 
 export function resolveReasoningForRequest(
@@ -131,6 +141,46 @@ export function resolveCacheForRequest(
   return out;
 }
 
+/**
+ * Map the user-facing `ModelRuntimeParametersConfig` onto `Request` fields,
+ * gated by the active model's `Capabilities`. Parameters whose capability
+ * flag is false (or unknown) are silently omitted so unsupported models
+ * never receive fields they'd reject.
+ */
+export function resolveParametersForRequest(
+  params: ModelRuntimeParametersConfig | undefined,
+  caps: Capabilities | undefined,
+  _warnings: string[],
+): Partial<Request> | undefined {
+  if (!params) return undefined;
+
+  const out: Partial<Request> = {};
+
+  if (params.topK !== undefined && caps?.topK !== false) {
+    out.topK = params.topK;
+  }
+  if (params.frequencyPenalty !== undefined && caps?.frequencyPenalty !== false) {
+    out.frequencyPenalty = params.frequencyPenalty;
+  }
+  if (params.presencePenalty !== undefined && caps?.presencePenalty !== false) {
+    out.presencePenalty = params.presencePenalty;
+  }
+  if (params.seed !== undefined && caps?.seed !== false) {
+    out.seed = params.seed;
+  }
+  if (params.user !== undefined) {
+    out.user = params.user;
+  }
+  if (params.logprobs !== undefined && caps?.logprobs !== false) {
+    out.logprobs = params.logprobs;
+    if (params.topLogprobs !== undefined) {
+      out.topLogprobs = params.topLogprobs;
+    }
+  }
+
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 export interface ModelRuntimeMiddlewareOptions {
   /** Provider id of the active model, for logging/diagnostics only. */
   providerId?: string | undefined;
@@ -140,6 +190,8 @@ export interface ModelRuntimeMiddlewareOptions {
   getSettings(): ModelRuntimeConfig | undefined;
   /** Current model capability profile. Called per-request. */
   getReasoningConfig(): ReasoningConfig | undefined;
+  /** Current model capabilities for parameter gating. Called per-request. */
+  getCapabilities?(): Capabilities | undefined;
   /** Optional sink for suppressed-setting warnings (e.g. emit to event bus). */
   onWarning?: ((message: string) => void) | undefined;
 }
@@ -147,8 +199,9 @@ export interface ModelRuntimeMiddlewareOptions {
 /**
  * Build a `request`-pipeline middleware that applies runtime settings. The
  * returned function mutates the outgoing request by overlaying resolved
- * `reasoning` / `cache` fields. Existing fields on the request are preserved
- * only when the resolver produces nothing for that field.
+ * `reasoning` / `cache` fields and generic parameters. Existing fields on
+ * the request are preserved only when the resolver produces nothing for
+ * that field.
  */
 export function applyModelRuntime(
   req: Request,
@@ -157,17 +210,19 @@ export function applyModelRuntime(
   const settings = opts.getSettings();
   if (!settings) return req;
   const rc = opts.getReasoningConfig();
-  const resolved = resolveModelRuntime(settings, rc);
+  const caps = opts.getCapabilities?.();
+  const resolved = resolveModelRuntime(settings, rc, caps);
   for (const w of resolved.warnings) opts.onWarning?.(w);
 
   const next: Request = { ...req };
   if (resolved.reasoning !== undefined) {
-    // Explicit runtime settings override anything the agent layer set, because
-    // the user explicitly asked for this mode/effort for this session.
     next.reasoning = resolved.reasoning;
   }
   if (resolved.cache !== undefined) {
     next.cache = resolved.cache;
+  }
+  if (resolved.parameters !== undefined) {
+    Object.assign(next, resolved.parameters);
   }
   return next;
 }

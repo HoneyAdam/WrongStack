@@ -56,6 +56,10 @@ export const mistralWireFormat = defineWireFormat<MistralStreamState>({
     }
     if (req.temperature !== undefined) body['temperature'] = req.temperature;
     if (req.topP !== undefined) body['top_p'] = req.topP;
+    if (req.topK !== undefined) body['top_k'] = req.topK;
+    if (req.frequencyPenalty !== undefined) body['frequency_penalty'] = req.frequencyPenalty;
+    if (req.presencePenalty !== undefined) body['presence_penalty'] = req.presencePenalty;
+    if (req.seed !== undefined) body['seed'] = req.seed;
     if (req.stopSequences) body['stop'] = req.stopSequences;
     return body;
   },

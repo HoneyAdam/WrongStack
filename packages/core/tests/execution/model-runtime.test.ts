@@ -3,9 +3,10 @@ import {
   resolveModelRuntime,
   resolveReasoningForRequest,
   resolveCacheForRequest,
+  resolveParametersForRequest,
 } from '../../src/execution/model-runtime.js';
 import type { ModelRuntimeConfig } from '../../src/types/config.js';
-import type { ReasoningConfig } from '../../src/types/provider.js';
+import type { Capabilities, ReasoningConfig } from '../../src/types/provider.js';
 
 const capsOn: ReasoningConfig = {
   default: 'enabled',
@@ -104,5 +105,100 @@ describe('resolveCacheForRequest (isolated)', () => {
   it('returns undefined when no cache in settings', () => {
     const r = resolveCacheForRequest({ reasoning: { mode: 'auto' } }, []);
     expect(r).toBeUndefined();
+  });
+});
+
+describe('resolveParametersForRequest', () => {
+  const anthropicCaps: Capabilities = {
+    tools: true, parallelTools: true, vision: true, streaming: true,
+    promptCache: true, systemPrompt: true, jsonMode: false, reasoning: false,
+    maxContext: 200_000, cacheControl: 'native',
+    topK: true, frequencyPenalty: false, presencePenalty: false, seed: false,
+    structuredOutput: false, logprobs: false, audio: false, multipleCompletions: false,
+  };
+
+  const openaiCaps: Capabilities = {
+    tools: true, parallelTools: true, vision: true, streaming: true,
+    promptCache: false, systemPrompt: true, jsonMode: true, reasoning: false,
+    maxContext: 128_000, cacheControl: 'auto',
+    topK: false, frequencyPenalty: true, presencePenalty: true, seed: true,
+    structuredOutput: true, logprobs: true, audio: true, multipleCompletions: true,
+  };
+
+  it('returns undefined when params is undefined', () => {
+    expect(resolveParametersForRequest(undefined, openaiCaps, [])).toBeUndefined();
+  });
+
+  it('returns undefined when params has no fields set', () => {
+    expect(resolveParametersForRequest({}, openaiCaps, [])).toBeUndefined();
+  });
+
+  it('passes topK when caps.topK is true (Anthropic)', () => {
+    const r = resolveParametersForRequest({ topK: 40 }, anthropicCaps, []);
+    expect(r?.topK).toBe(40);
+  });
+
+  it('suppresses topK when caps.topK is false (OpenAI)', () => {
+    const r = resolveParametersForRequest({ topK: 40 }, openaiCaps, []);
+    expect(r?.topK).toBeUndefined();
+  });
+
+  it('passes frequencyPenalty when caps.frequencyPenalty is true', () => {
+    const r = resolveParametersForRequest({ frequencyPenalty: 0.5 }, openaiCaps, []);
+    expect(r?.frequencyPenalty).toBe(0.5);
+  });
+
+  it('suppresses frequencyPenalty when caps.frequencyPenalty is false', () => {
+    const r = resolveParametersForRequest({ frequencyPenalty: 0.5 }, anthropicCaps, []);
+    expect(r?.frequencyPenalty).toBeUndefined();
+  });
+
+  it('passes presencePenalty when caps.presencePenalty is true', () => {
+    const r = resolveParametersForRequest({ presencePenalty: 0.3 }, openaiCaps, []);
+    expect(r?.presencePenalty).toBe(0.3);
+  });
+
+  it('suppresses presencePenalty when caps.presencePenalty is false', () => {
+    const r = resolveParametersForRequest({ presencePenalty: 0.3 }, anthropicCaps, []);
+    expect(r?.presencePenalty).toBeUndefined();
+  });
+
+  it('passes seed when caps.seed is true', () => {
+    const r = resolveParametersForRequest({ seed: 42 }, openaiCaps, []);
+    expect(r?.seed).toBe(42);
+  });
+
+  it('suppresses seed when caps.seed is false', () => {
+    const r = resolveParametersForRequest({ seed: 42 }, anthropicCaps, []);
+    expect(r?.seed).toBeUndefined();
+  });
+
+  it('passes user regardless of capabilities', () => {
+    const r = resolveParametersForRequest({ user: 'abc' }, anthropicCaps, []);
+    expect(r?.user).toBe('abc');
+  });
+
+  it('passes logprobs + topLogprobs when caps.logprobs is true', () => {
+    const r = resolveParametersForRequest({ logprobs: true, topLogprobs: 5 }, openaiCaps, []);
+    expect(r?.logprobs).toBe(true);
+    expect(r?.topLogprobs).toBe(5);
+  });
+
+  it('suppresses logprobs when caps.logprobs is false', () => {
+    const r = resolveParametersForRequest({ logprobs: true, topLogprobs: 5 }, anthropicCaps, []);
+    expect(r?.logprobs).toBeUndefined();
+    expect(r?.topLogprobs).toBeUndefined();
+  });
+
+  it('passes all params when caps is undefined (safe default)', () => {
+    const r = resolveParametersForRequest(
+      { topK: 40, frequencyPenalty: 0.5, seed: 42, user: 'abc', logprobs: true },
+      undefined, [],
+    );
+    expect(r?.topK).toBe(40);
+    expect(r?.frequencyPenalty).toBe(0.5);
+    expect(r?.seed).toBe(42);
+    expect(r?.user).toBe('abc');
+    expect(r?.logprobs).toBe(true);
   });
 });

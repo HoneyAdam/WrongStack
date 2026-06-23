@@ -318,4 +318,67 @@ describe('AnthropicProvider', () => {
       content: 'ok',
     });
   });
+
+  it('sends top_k when topK is set', async () => {
+    let captured: Record<string, unknown> | undefined;
+    const fetchImpl = vi.fn(async (_url: unknown, init: { body?: string } = {}) => {
+      captured = JSON.parse(init.body ?? '{}');
+      return { ok: true, status: 200, json: async () => ({ content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn', usage: { input_tokens: 1, output_tokens: 1 } }), text: async () => '' };
+    }) as never as typeof fetch;
+    const p = new AnthropicProvider({ apiKey: 'k', fetchImpl });
+    await p.complete({ model: 'm', messages: [{ role: 'user', content: 'hi' }], maxTokens: 100, topK: 40 }, { signal: new AbortController().signal });
+    expect(captured?.['top_k']).toBe(40);
+  });
+
+  it('sends metadata.user_id when user is set', async () => {
+    let captured: Record<string, unknown> | undefined;
+    const fetchImpl = vi.fn(async (_url: unknown, init: { body?: string } = {}) => {
+      captured = JSON.parse(init.body ?? '{}');
+      return { ok: true, status: 200, json: async () => ({ content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn', usage: { input_tokens: 1, output_tokens: 1 } }), text: async () => '' };
+    }) as never as typeof fetch;
+    const p = new AnthropicProvider({ apiKey: 'k', fetchImpl });
+    await p.complete({ model: 'm', messages: [{ role: 'user', content: 'hi' }], maxTokens: 100, user: 'user-abc' }, { signal: new AbortController().signal });
+    expect(captured?.['metadata']).toEqual({ user_id: 'user-abc' });
+  });
+
+  it('sends thinking.enabled when reasoning is on', async () => {
+    let captured: Record<string, unknown> | undefined;
+    const fetchImpl = vi.fn(async (_url: unknown, init: { body?: string } = {}) => {
+      captured = JSON.parse(init.body ?? '{}');
+      return { ok: true, status: 200, json: async () => ({ content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn', usage: { input_tokens: 1, output_tokens: 1 } }), text: async () => '' };
+    }) as never as typeof fetch;
+    const p = new AnthropicProvider({ apiKey: 'k', fetchImpl });
+    await p.complete({ model: 'm', messages: [{ role: 'user', content: 'hi' }], maxTokens: 100, reasoning: { enabled: true, effort: 'high' } }, { signal: new AbortController().signal });
+    expect(captured?.['thinking']).toMatchObject({ type: 'enabled' });
+    expect((captured?.['thinking'] as { budget_tokens: number }).budget_tokens).toBeGreaterThan(0);
+  });
+
+  it('sends thinking.disabled when reasoning is off', async () => {
+    let captured: Record<string, unknown> | undefined;
+    const fetchImpl = vi.fn(async (_url: unknown, init: { body?: string } = {}) => {
+      captured = JSON.parse(init.body ?? '{}');
+      return { ok: true, status: 200, json: async () => ({ content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn', usage: { input_tokens: 1, output_tokens: 1 } }), text: async () => '' };
+    }) as never as typeof fetch;
+    const p = new AnthropicProvider({ apiKey: 'k', fetchImpl });
+    await p.complete({ model: 'm', messages: [{ role: 'user', content: 'hi' }], maxTokens: 100, reasoning: { enabled: false } }, { signal: new AbortController().signal });
+    expect(captured?.['thinking']).toEqual({ type: 'disabled' });
+  });
+
+  it('does not send unsupported params (frequencyPenalty, presencePenalty, seed, logprobs)', async () => {
+    let captured: Record<string, unknown> | undefined;
+    const fetchImpl = vi.fn(async (_url: unknown, init: { body?: string } = {}) => {
+      captured = JSON.parse(init.body ?? '{}');
+      return { ok: true, status: 200, json: async () => ({ content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn', usage: { input_tokens: 1, output_tokens: 1 } }), text: async () => '' };
+    }) as never as typeof fetch;
+    const p = new AnthropicProvider({ apiKey: 'k', fetchImpl });
+    await p.complete({
+      model: 'm', messages: [{ role: 'user', content: 'hi' }], maxTokens: 100,
+      frequencyPenalty: 0.5, presencePenalty: 0.5, seed: 42, logprobs: true,
+    }, { signal: new AbortController().signal });
+    expect(captured).not.toHaveProperty('frequency_penalty');
+    expect(captured).not.toHaveProperty('presence_penalty');
+    expect(captured).not.toHaveProperty('seed');
+    expect(captured).not.toHaveProperty('logprobs');
+    expect(captured).not.toHaveProperty('top_logprobs');
+  });
 });
