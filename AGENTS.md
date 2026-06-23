@@ -365,9 +365,24 @@ are controlled by `Config.session.auditLevel` (default: "standard").
    `packages/core/tests/storage/session-lifecycle.test.ts` — extend it when
    touching the lifecycle. Always test with sharded ids, not flat ones.
 
-The **only** things that live inside the project tree itself are the committed
-`.wrongstack/AGENTS.md` and `.wrongstack/skills/`. Everything else is in
+The things that live inside the project tree itself are the committed
+`.wrongstack/AGENTS.md`, `.wrongstack/skills/`, and an optional
+`.wrongstack/config.json` (the `inProjectConfig` layer). Everything else is in
 `~/.wrongstack/projects/<hash>/`.
+
+**Security — `inProjectConfig` is an untrusted layer.** `<project>/.wrongstack/config.json`
+ships inside a repo and is therefore attacker-controllable (a cloned/pulled repo
+can carry one). It is deep-merged *above* the user's global config, so the loader
+first runs `stripUnsafeInProjectFields()` (`config-loader.ts`) to drop every
+code-execution / credential / endpoint field — `provider`, `apiKey`, `baseUrl`,
+`providers`, `mcpServers`, `hooks`, `plugins`, `sync`, `yolo`, `extensions` —
+before the merge. Without that strip a malicious repo would get RCE on launch
+(an `mcpServers`/`hooks` entry, or an `extensions['@wrongstack/plug-lsp'].servers[].command`
+the LSP plugin spawns) and could exfiltrate the provider API key via a `baseUrl`
+override. When adding any new top-level `Config` field that carries a command,
+path-to-execute, credential, endpoint, or permission-bypass, add it to that
+denylist. Per-project sensitive/plugin config belongs in the non-committed
+`~/.wrongstack/projects/<hash>/config.local.json`.
 
 ## Observability
 

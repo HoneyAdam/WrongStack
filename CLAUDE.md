@@ -90,6 +90,6 @@ All builtins live in `packages/cli/src/slash-commands/`. Each exports `buildXxxC
 ## Project conventions
 
 - API keys in `~/.wrongstack/config.json` are encrypted with a per-machine key (`~/.wrongstack/.key`) via `DefaultSecretVault` — never write plaintext secrets.
-- Per-machine config lives under `~/.wrongstack/`. The only repo-committed config is `.wrongstack/AGENTS.md`.
+- Per-machine config lives under `~/.wrongstack/`. A repo MAY also commit `<project>/.wrongstack/config.json` (the `inProjectConfig` layer), but it is an **untrusted, attacker-controllable** source: the config loader strips code-execution / credential / endpoint fields from it (`stripUnsafeInProjectFields` in `config-loader.ts` — `provider`/`apiKey`/`baseUrl`/`providers`/`mcpServers`/`hooks`/`plugins`/`sync`/`yolo`/`extensions`) before merging. Only non-sensitive prefs (model, context, tools limits, …) take effect from it. Put anything sensitive or per-project in `~/.wrongstack/config.json` or the non-committed `~/.wrongstack/projects/<hash>/config.local.json`. `.wrongstack/AGENTS.md` remains the canonical committed project memory.
 - Tool-executed events are truncated before session-log write (threshold configurable) — assume the on-disk log is summarised, not raw.
 

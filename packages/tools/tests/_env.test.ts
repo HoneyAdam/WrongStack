@@ -103,6 +103,48 @@ describe('buildChildEnv (security gate for bash/exec child env)', () => {
     expect(env['SOMETHING_RANDOM']).toBeUndefined();
   });
 
+  it('WS-01: strips connection-string vars with embedded credentials', () => {
+    set('DATABASE_URL', 'postgres://user:p4ss@db.internal:5432/app');
+    set('REDIS_URL', 'redis://:p4ss@cache.internal:6379');
+    set('MONGO_URI', 'mongodb://admin:secret@mongo.internal/db');
+    set('AMQP_URL', 'amqp://guest:guest@rabbit.internal:5672');
+    const env = buildChildEnv();
+    expect(env['DATABASE_URL']).toBeUndefined();
+    expect(env['REDIS_URL']).toBeUndefined();
+    expect(env['MONGO_URI']).toBeUndefined();
+    expect(env['AMQP_URL']).toBeUndefined();
+  });
+
+  it('WS-01: still forwards credential-free URLs', () => {
+    set('NPM_CONFIG_REGISTRY', 'https://registry.npmjs.org');
+    set('NODE_API_URL', 'https://api.example.com/v1'); // NODE_ prefix, no creds
+    const env = buildChildEnv();
+    expect(env['NPM_CONFIG_REGISTRY']).toBe('https://registry.npmjs.org');
+    expect(env['NODE_API_URL']).toBe('https://api.example.com/v1');
+  });
+
+  it('WS-02: strips NODE_OPTIONS module-preload directives, keeps benign flags', () => {
+    set('NODE_OPTIONS', '--no-warnings --require /tmp/evil.js --max-old-space-size=4096');
+    const env = buildChildEnv();
+    expect(env['NODE_OPTIONS']).toBe('--no-warnings --max-old-space-size=4096');
+  });
+
+  it('WS-02: strips --require=, --import, and --loader forms', () => {
+    set('NODE_OPTIONS', '--require=/tmp/a.js --import /tmp/b.mjs --loader ./l.js');
+    const env = buildChildEnv();
+    // Nothing benign left → variable dropped entirely.
+    expect(env['NODE_OPTIONS']).toBeUndefined();
+  });
+
+  it('WS-01/WS-02: passthrough mode forwards embedded creds and NODE_OPTIONS verbatim', () => {
+    set('WRONGSTACK_BASH_ENV_PASSTHROUGH', '1');
+    set('DATABASE_URL', 'postgres://user:p4ss@db/app');
+    set('NODE_OPTIONS', '--require /tmp/evil.js');
+    const env = buildChildEnv();
+    expect(env['DATABASE_URL']).toBe('postgres://user:p4ss@db/app');
+    expect(env['NODE_OPTIONS']).toBe('--require /tmp/evil.js');
+  });
+
   it('injects WRONGSTACK_SESSION_ID when provided', () => {
     const env = buildChildEnv('session-abc');
     expect(env['WRONGSTACK_SESSION_ID']).toBe('session-abc');

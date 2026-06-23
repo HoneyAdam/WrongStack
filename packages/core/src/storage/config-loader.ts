@@ -152,6 +152,82 @@ type PartialConfig = Partial<Config> & {
 };
 
 /**
+ * Top-level config keys a REPO-COMMITTED `<project>/.wrongstack/config.json`
+ * (the `inProjectConfig` layer) is NOT permitted to set. The in-project config
+ * is attacker-controllable (it ships inside a cloned/pulled repository), so
+ * honoring these fields would let a malicious repo achieve code execution or
+ * credential theft the moment the user runs the agent in that directory:
+ *
+ *   - `mcpServers` / `hooks` / `plugins` — each carries an arbitrary command /
+ *     module that is spawned or loaded at boot → remote code execution.
+ *   - `provider` / `apiKey` / `baseUrl` / `providers` / `sync` — redirect the
+ *     provider endpoint (the user's decrypted API key is sent to whatever
+ *     `baseUrl` is configured) or carry credentials → secret exfiltration.
+ *   - `yolo` — disables every permission confirmation prompt.
+ *   - `extensions` — per-plugin config that can itself carry command-spawning
+ *     fields (e.g. the LSP plugin's `servers[].command`/`env`, spawned on
+ *     autoStart) or credentials (e.g. a bot token) → RCE / secret exposure.
+ *
+ * Stripping them enforces the "safe fields only" contract documented on
+ * `WstackPaths.inProjectConfig`. Benign project-level preferences (model,
+ * context, tools limits, features display, autonomy, indexing, …) still merge.
+ * The user's own `~/.wrongstack/config.json`, the (non-committed) project-local
+ * config at `~/.wrongstack/projects/<hash>/config.local.json`, env vars, and
+ * CLI flags are all unaffected — per-project plugin/provider config belongs in
+ * those user-controlled layers, not in a repo-committed file.
+ */
+const IN_PROJECT_FORBIDDEN_KEYS: ReadonlySet<string> = new Set([
+  'provider',
+  'apiKey',
+  'baseUrl',
+  'providers',
+  'mcpServers',
+  'hooks',
+  'plugins',
+  'sync',
+  'yolo',
+  'extensions',
+]);
+
+/**
+ * Remove forbidden top-level keys from a repo-committed in-project config
+ * before it is merged. Returns a new object; the original is not mutated.
+ * Emits a warning (and a `config.read` failure-style event) naming the
+ * stripped keys so the behavior is observable rather than silent.
+ */
+export function stripUnsafeInProjectFields(
+  inProject: PartialConfig,
+  sourcePath: string,
+  warn: (msg: string) => void = (msg) => console.warn(msg),
+): PartialConfig {
+  const stripped: string[] = [];
+  const out: PartialConfig = {};
+  for (const [k, v] of Object.entries(inProject)) {
+    if (IN_PROJECT_FORBIDDEN_KEYS.has(k)) {
+      stripped.push(k);
+      continue;
+    }
+    (out as Record<string, unknown>)[k] = v;
+  }
+  if (stripped.length > 0) {
+    warn(
+      JSON.stringify({
+        level: 'warn',
+        event: 'config.in_project_unsafe_fields_ignored',
+        path: sourcePath,
+        ignoredKeys: stripped,
+        message:
+          `Ignored ${stripped.length} unsafe field(s) from the repo-committed config ` +
+          `"${sourcePath}": ${stripped.join(', ')}. These can only be set in your ` +
+          `personal ~/.wrongstack/config.json, not in a project-committed file.`,
+        timestamp: new Date().toISOString(),
+      }),
+    );
+  }
+  return out;
+}
+
+/**
  * Config-layer deep merge — delegates to the shared utility with
  * `arrayMode: 'concat-primitives'` and optional debug logging for
  * non-primitive array replacements.
@@ -228,7 +304,11 @@ export class DefaultConfigLoader implements ConfigLoader {
     ]);
     cfg = deepMerge(cfg, global);
     cfg = deepMerge(cfg, local);
-    cfg = deepMerge(cfg, inProject);
+    // The in-project config is repo-committed and therefore attacker-
+    // controllable. Strip credential/endpoint/code-execution fields before
+    // merging so a malicious repo cannot redirect the provider endpoint
+    // (API-key exfiltration) or auto-run an MCP server / hook (RCE) on launch.
+    cfg = deepMerge(cfg, stripUnsafeInProjectFields(inProject, this.paths.inProjectConfig));
 
     // Layer 4: env vars
     for (const [key, fn] of Object.entries(ENV_MAP)) {

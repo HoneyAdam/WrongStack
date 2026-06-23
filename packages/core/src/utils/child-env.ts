@@ -11,7 +11,13 @@
  * Strategy: copy a small, explicit allowlist of variables that real builds
  * need, then copy anything else that does NOT look secret-bearing. This
  * preserves user-friendly behavior (locale, terminal, npm config) while
- * blocking the obvious leak channels.
+ * blocking the obvious leak channels. Two value-side guards back up the
+ * name-based filter:
+ *   - any value carrying an embedded URI credential (`scheme://user:pass@host`,
+ *     e.g. `DATABASE_URL`/`REDIS_URL`/`*_DSN`) is dropped (WS-01);
+ *   - `NODE_OPTIONS` is forwarded but with module-preload directives
+ *     (`--require`/`--import`/`--loader`) stripped so a parent-set value can't
+ *     inject code into node children (WS-02).
  *
  * Override with `WRONGSTACK_CHILD_ENV_PASSTHROUGH=1` to forward the full
  * parent environment unchanged (opt-in for advanced users who understand
@@ -83,6 +89,54 @@ function looksSecret(name: string): boolean {
   return false;
 }
 
+/**
+ * Value-side secret detection (WS-01). The name-based `looksSecret` filter
+ * misses connection-string variables whose NAME is innocuous but whose VALUE
+ * embeds a password — e.g. `DATABASE_URL=postgres://user:pass@host`,
+ * `REDIS_URL=redis://:pass@host`, `MONGO_URI`, `AMQP_URL`, `*_DSN`. Forwarding
+ * these to a child (bash/exec/MCP server) leaks the embedded credential.
+ *
+ * Matches a URI userinfo component that contains a password, i.e.
+ * `scheme://[user]:<password>@host`. Deliberately precise: a credential-free
+ * URL (`https://api.example.com`, `https://user@host` with no password) is NOT
+ * matched, so non-secret `*_URL` knobs (registries, endpoints) still forward.
+ */
+function valueHasEmbeddedCredential(value: string): boolean {
+  // scheme:// then optional user, a ':' , a non-empty password, then '@'.
+  // Userinfo chars stop at '/', whitespace, ':' (separator) and '@'.
+  return /\b[a-z][a-z0-9+.-]*:\/\/[^/\s:@]*:[^/\s@]+@/i.test(value);
+}
+
+/**
+ * Code-injection directives that turn `NODE_OPTIONS` into an RCE channel by
+ * preloading an arbitrary module into every node child process (WS-02).
+ */
+const NODE_OPTIONS_INJECTION_FLAG =
+  /^(?:--require|-r|--import|--loader|--experimental-loader)$/;
+const NODE_OPTIONS_INJECTION_FLAG_EQ =
+  /^(?:--require|-r|--import|--loader|--experimental-loader)=/;
+
+/**
+ * Strip module-preload directives from a `NODE_OPTIONS` value while preserving
+ * benign flags (`--no-warnings`, `--max-old-space-size=…`, etc.). Handles both
+ * the `--require=./x.js` and space-separated `--require ./x.js` forms. Returns
+ * the sanitized string (possibly empty).
+ */
+export function sanitizeNodeOptions(value: string): string {
+  const tokens = value.split(/\s+/).filter(Boolean);
+  const kept: string[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i] as string;
+    if (NODE_OPTIONS_INJECTION_FLAG_EQ.test(tok)) continue; // --require=./x
+    if (NODE_OPTIONS_INJECTION_FLAG.test(tok)) {
+      i++; // also drop the following path token (--require ./x)
+      continue;
+    }
+    kept.push(tok);
+  }
+  return kept.join(' ');
+}
+
 export interface BuildChildEnvOptions {
   /** Session ID to inject as WRONGSTACK_SESSION_ID. */
   sessionId?: string | undefined;
@@ -139,6 +193,10 @@ export function buildChildEnv(optsOrSessionId?: BuildChildEnvOptions | string): 
       continue;
     }
     const upper = k.toUpperCase();
+    // 0. Strip any value with an embedded URI credential (user:pass@host),
+    //    regardless of the variable name (WS-01). Applied before the allowlist
+    //    so even a "system" name carrying a connection string is caught.
+    if (valueHasEmbeddedCredential(v)) continue;
     // 1. Forward names on the explicit allowlist — these are well-known
     //    non-secret system variables (PATH, HOME, LANG, ...).
     if (ALLOWED_KEYS.has(upper)) {
@@ -147,6 +205,15 @@ export function buildChildEnv(optsOrSessionId?: BuildChildEnvOptions | string): 
     }
     // 2. Strip anything that looks like a secret.
     if (looksSecret(upper)) continue;
+    // NODE_OPTIONS is forwarded (builds rely on flags like --no-warnings) but
+    // module-preload directives (--require/--import/--loader) are stripped —
+    // they would let a parent-set NODE_OPTIONS inject code into every node
+    // child (WS-02 defense-in-depth).
+    if (upper === 'NODE_OPTIONS') {
+      const sanitized = sanitizeNodeOptions(v);
+      if (sanitized) out[k] = sanitized;
+      continue;
+    }
     // 3. Forward tooling-prefixed vars that builds commonly need, unless
     //    they already failed the secret check above.
     if (
