@@ -724,6 +724,7 @@ export async function main(argv: string[]): Promise<number> {
     modelRuntime: {
       getSettings: () => configStore.get().modelRuntime,
       getReasoningConfig: () => activeReasoningConfig,
+      getCapabilities: () => provider.capabilities,
       onWarning: (message) => {
         logger.warn(`model-runtime: ${message}`);
       },

@@ -136,7 +136,7 @@ export class SessionMemoryConsolidator implements AgentExtension {
     this.maxExistingEntries = opts.maxExistingEntries ?? 15;
   }
 
-  afterRun: AfterRunHook = async (ctx: Context, result: RunResult) => {
+  afterRun: AfterRunHook = (ctx: Context, result: RunResult) => {
     // Only consolidate successful sessions with meaningful output
     if (result.status !== 'done') return;
     if (!result.finalText || result.finalText.trim().length < 20) return;
@@ -145,93 +145,103 @@ export class SessionMemoryConsolidator implements AgentExtension {
     const provider = this.provider ?? ctx.provider;
     if (!provider?.complete) return;
 
-    try {
-      // Load existing memory for dedup context
-      const existingEntries = await this.memoryStore.list('project-memory', this.maxExistingEntries);
-      const prompt = buildConsolidationPrompt(
-        result.finalText,
-        result.iterations,
-        existingEntries,
-      );
+    // Capture narrowed values for the fire-and-forget closure.
+    const _finalText: string = result.finalText;
+    const _iterations: number = result.iterations;
+    const _model: string | undefined = this.model ?? ctx.model;
 
-      // Call the LLM with a focused, one-shot prompt
-      const signal = AbortSignal.timeout(15_000);
-      const response = await provider.complete(
-        {
-          model: this.model ?? ctx.model,
-          system: [{ type: 'text', text: prompt }],
-          messages: [
-            { role: 'user', content: 'Review the session and return memory operations as JSON.' },
-          ],
-          maxTokens: 500,
-        },
-        { signal },
-      );
+    // Fire-and-forget: consolidation is best-effort and should never block
+    // session teardown (the LLM call can take up to 15s). The catch block
+    // below prevents unhandled rejections.
+    void (async () => {
+      try {
+        // Load existing memory for dedup context
+        const existingEntries = await this.memoryStore.list('project-memory', this.maxExistingEntries);
+        const prompt = buildConsolidationPrompt(
+          _finalText,
+          _iterations,
+          existingEntries,
+        );
 
-      const text = response.content
-        .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
-        .map((b) => b.text)
-        .join('')
-        .trim();
-      if (!text) return;
+        // Call the LLM with a focused, one-shot prompt
+        const signal = AbortSignal.timeout(15_000);
+        const response = await provider.complete(
+          {
+            model: _model,
+            system: [{ type: 'text', text: prompt }],
+            messages: [
+              { role: 'user', content: 'Review the session and return memory operations as JSON.' },
+            ],
+            maxTokens: 500,
+          },
+          { signal },
+        );
 
-      // Extract JSON from possible markdown wrapper
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) return;
+        const text = response.content
+          .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+          .map((b) => b.text)
+          .join('')
+          .trim();
+        if (!text) return;
 
-      const parsed: ConsolidationResponse = JSON.parse(jsonMatch[0]);
-      if (!Array.isArray(parsed.operations) || parsed.operations.length === 0) return;
+        // Extract JSON from possible markdown wrapper
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) return;
 
-      // Apply operations
-      let added = 0;
-      let edited = 0;
-      let deleted = 0;
+        const parsed: ConsolidationResponse = JSON.parse(jsonMatch[0]);
+        if (!Array.isArray(parsed.operations) || parsed.operations.length === 0) return;
 
-      for (const op of parsed.operations) {
-        switch (op.action) {
-          case 'add': {
-            if (op.text?.trim()) {
-              await this.memoryStore.remember(op.text.trim(), undefined, {
-                type: op.type as MemoryEntry['type'],
-                tags: op.tags,
-                priority: op.priority as MemoryEntry['priority'],
-              });
-              added++;
+        // Apply operations
+        let added = 0;
+        let edited = 0;
+        let deleted = 0;
+
+        for (const op of parsed.operations) {
+          switch (op.action) {
+            case 'add': {
+              if (op.text?.trim()) {
+                await this.memoryStore.remember(op.text.trim(), undefined, {
+                  type: op.type as MemoryEntry['type'],
+                  tags: op.tags,
+                  priority: op.priority as MemoryEntry['priority'],
+                });
+                added++;
+              }
+              break;
             }
-            break;
-          }
-          case 'edit': {
-            if (op.query && op.text?.trim()) {
-              await this.memoryStore.forget(op.query);
-              await this.memoryStore.remember(op.text.trim(), undefined, {
-                type: op.type as MemoryEntry['type'],
-                tags: op.tags,
-                priority: op.priority as MemoryEntry['priority'],
-              });
-              edited++;
+            case 'edit': {
+              if (op.query && op.text?.trim()) {
+                await this.memoryStore.forget(op.query);
+                await this.memoryStore.remember(op.text.trim(), undefined, {
+                  type: op.type as MemoryEntry['type'],
+                  tags: op.tags,
+                  priority: op.priority as MemoryEntry['priority'],
+                });
+                edited++;
+              }
+              break;
             }
-            break;
-          }
-          case 'delete': {
-            if (op.query) {
-              const n = await this.memoryStore.forget(op.query);
-              deleted += n;
+            case 'delete': {
+              if (op.query) {
+                const n = await this.memoryStore.forget(op.query);
+                deleted += n;
+              }
+              break;
             }
-            break;
           }
         }
-      }
 
-      if (added > 0 || edited > 0 || deleted > 0) {
-        const parts: string[] = [];
-        if (added) parts.push(`${added} added`);
-        if (edited) parts.push(`${edited} edited`);
-        if (deleted) parts.push(`${deleted} deleted`);
-        // Log to stderr so it surfaces in the terminal
-        process.stderr.write(`[memory] Session consolidation: ${parts.join(', ')}\n`);
+        if (added > 0 || edited > 0 || deleted > 0) {
+          const parts: string[] = [];
+          if (added) parts.push(`${added} added`);
+          if (edited) parts.push(`${edited} edited`);
+          if (deleted) parts.push(`${deleted} deleted`);
+          // Log to stderr so it surfaces in the terminal
+          process.stderr.write(`[memory] Session consolidation: ${parts.join(', ')}\n`);
+        }
+      } catch {
+        // Silent — memory consolidation is best-effort, never blocks session cleanup
       }
-    } catch {
-      // Silent — memory consolidation is best-effort, never blocks session cleanup
-    }
+    })();
   };
 }

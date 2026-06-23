@@ -34,6 +34,7 @@ export function setupPipelines(params: {
   modelRuntime?: {
     getSettings(): import('@wrongstack/core').ModelRuntimeConfig | undefined;
     getReasoningConfig(): import('@wrongstack/core').ReasoningConfig | undefined;
+    getCapabilities?(): import('@wrongstack/core').Capabilities | undefined;
     onWarning?: ((message: string) => void) | undefined;
   } | undefined;
 }): AgentPipelines {
@@ -51,6 +52,7 @@ export function setupPipelines(params: {
         return applyModelRuntime(req, {
           getSettings: mr.getSettings,
           getReasoningConfig: mr.getReasoningConfig,
+          ...(mr.getCapabilities ? { getCapabilities: mr.getCapabilities } : {}),
           onWarning: mr.onWarning,
         });
       },

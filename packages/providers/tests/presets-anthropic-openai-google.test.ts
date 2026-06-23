@@ -1212,7 +1212,7 @@ describe('Google preset - messagesToGemini coverage via buildBody', () => {
       ],
     } as Parameters<typeof googleWireFormat.buildBody>[0]);
     const contents = body.contents as Array<{ role: string; parts: unknown[] }>;
-    expect(contents[0].role).toBe('function');
+    expect(contents[0].role).toBe('user');
     expect(
       (contents[0].parts[0] as { functionResponse?: { name: string } }).functionResponse?.name,
     ).toBe('lookup');

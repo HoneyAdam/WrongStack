@@ -13,6 +13,8 @@ import { toErrorMessage } from '../utils/error.js';
 import { mergeModelsPayload } from '../utils/merge-models-payload.js';
 
 const DEFAULT_URL = 'https://models.dev/api.json';
+/** Env var to override the models.dev base URL (e.g. for self-hosted mirrors). */
+const ENV_URL_KEY = 'WRONGSTACK_MODELS_DEV_URL';
 const DEFAULT_TTL_SECONDS = 24 * 3600;
 const DEFAULT_REFRESH_TIMEOUT_MS = 15_000;
 
@@ -110,7 +112,7 @@ export class DefaultModelsRegistry implements ModelsRegistry {
 
   constructor(opts: DefaultModelsRegistryOptions) {
     this.cacheFile = opts.cacheFile;
-    this.url = opts.url ?? DEFAULT_URL;
+    this.url = opts.url ?? process.env[ENV_URL_KEY] ?? DEFAULT_URL;
     this.ttlMs = (opts.ttlSeconds ?? DEFAULT_TTL_SECONDS) * 1000;
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.seed = opts.seed;
@@ -170,6 +172,12 @@ export class DefaultModelsRegistry implements ModelsRegistry {
       const cached = await this.readCacheAt(this.cacheFile);
       if (cached && this.isWithinMaxStaleAge(cached.fetchedAt)) {
         this.fetchedAt = new Date(cached.fetchedAt);
+        const ageSeconds = Math.floor((Date.now() - this.fetchedAt.getTime()) / 1000);
+        // eslint-disable-next-line no-console -- user-visible operator warning
+        console.warn(
+          `ModelsRegistry: models.dev unavailable (${toErrorMessage(err)}); ` +
+            `using stale cache from ${formatAge(ageSeconds)} ago. Run \`wstack models refresh\` to retry.`,
+        );
         return cached.payload;
       }
       if (overlayAvailable) {
@@ -267,7 +275,14 @@ export class DefaultModelsRegistry implements ModelsRegistry {
       // Network/parse failure — fall back to stale overlay cache, then the
       // bundled file (handled by the caller).
       const cached = await this.readCacheAt(this.overlayCacheFile);
-      if (cached && this.isWithinMaxStaleAge(cached.fetchedAt)) return cached.payload;
+      if (cached && this.isWithinMaxStaleAge(cached.fetchedAt)) {
+        const ageSeconds = Math.floor((Date.now() - new Date(cached.fetchedAt).getTime()) / 1000);
+        // eslint-disable-next-line no-console -- operator-visible warning
+        console.warn(
+          `ModelsRegistry: overlay unavailable; using stale overlay from ${formatAge(ageSeconds)} ago.`,
+        );
+        return cached.payload;
+      }
       return undefined;
     }
   }
@@ -377,6 +392,18 @@ export class DefaultModelsRegistry implements ModelsRegistry {
   cacheLocation(): string {
     return path.resolve(this.cacheFile);
   }
+}
+
+/** Render a seconds-duration as a human-friendly "Xh Ym" or "Xd" string. */
+function formatAge(seconds: number): string {
+  if (seconds < 60) return '<1m';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86400) {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  }
+  return `${Math.floor(seconds / 86400)}d`;
 }
 
 function hasEntries(payload: ModelsDevPayload | undefined): payload is ModelsDevPayload {

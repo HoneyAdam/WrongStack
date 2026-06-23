@@ -498,7 +498,11 @@ describe('HQ — HTTP route token auth (browser TOKEN MODE)', () => {
     const res = await fetch(`http://127.0.0.1:${handle.port}/?token=${browserToken}`);
     expect(res.status).toBe(200);
     const html = await res.text();
-    expect(html).toContain('<!DOCTYPE html>');
+    // `/` serves either the React SPA (`<!doctype html>`) or the inline
+    // HQ_HTML fallback (`<!DOCTYPE html>`) depending on whether the webui
+    // dist is built. The point of this test is that a valid browser token
+    // grants HTML access in token mode — assert HTML case-insensitively.
+    expect(html.toLowerCase()).toContain('<!doctype html>');
   });
 
   it('rejects /api/projects/:id without token in browser TOKEN MODE', async () => {

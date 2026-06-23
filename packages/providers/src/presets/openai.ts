@@ -3,7 +3,7 @@
  * as `OpenAIProvider`; the per-message body is the loop body of
  * `parseOpenAIStream` split into a stateful step.
  */
-import type { Request, StopReason, StreamEvent, Usage } from '@wrongstack/core';
+import type { ReasoningEffort, Request, ResponseFormat, StopReason, StreamEvent, Usage } from '@wrongstack/core';
 import { safeParse } from '@wrongstack/core';
 import { parseToolInput } from '../_tool-input.js';
 import { capabilitiesForFamily } from '../family-capabilities.js';
@@ -11,7 +11,7 @@ import { normalizeOpenAI } from '../stop-reason.js';
 import { messagesToOpenAI, toolsToOpenAI } from '../tool-format/to-openai.js';
 import { defineWireFormat } from '../wire-format.js';
 
-interface OpenAIStreamState {
+export interface OpenAIStreamState {
   model: string;
   usage: Usage;
   stopReason: StopReason;
@@ -62,7 +62,21 @@ export const openaiWireFormat = defineWireFormat<OpenAIStreamState>({
     }
     if (req.temperature !== undefined) body['temperature'] = req.temperature;
     if (req.topP !== undefined) body['top_p'] = req.topP;
+    if (req.frequencyPenalty !== undefined) body['frequency_penalty'] = req.frequencyPenalty;
+    if (req.presencePenalty !== undefined) body['presence_penalty'] = req.presencePenalty;
+    if (req.seed !== undefined) body['seed'] = req.seed;
+    if (req.user) body['user'] = req.user;
+    if (req.logprobs === true) {
+      body['logprobs'] = true;
+      if (req.topLogprobs !== undefined) body['top_logprobs'] = req.topLogprobs;
+    }
     if (req.stopSequences) body['stop'] = req.stopSequences;
+    if (req.reasoning?.effort !== undefined && isOpenAIEffort(req.reasoning.effort)) {
+      body['reasoning_effort'] = req.reasoning.effort;
+    }
+    if (req.responseFormat) {
+      body['response_format'] = responseFormatToOpenAI(req.responseFormat);
+    }
     return body;
   },
   createStreamState: (fallbackModel) => ({
@@ -236,4 +250,32 @@ function stripCacheControl(system: Request['system']): Request['system'] {
     const { cache_control: _cc, ...rest } = b;
     return rest;
   });
+}
+
+/**
+ * OpenAI's Chat Completions API accepts `reasoning_effort` only for these
+ * values. Mirrors the same-named guard in ../openai.ts.
+ */
+const OPENAI_EFFORT_VALUES = new Set<ReasoningEffort>(['none', 'low', 'medium', 'high']);
+
+function isOpenAIEffort(effort: ReasoningEffort): boolean {
+  return OPENAI_EFFORT_VALUES.has(effort);
+}
+
+/**
+ * Translate a canonical `ResponseFormat` to OpenAI's `response_format` body field.
+ * Mirrors the same-named helper in ../openai.ts.
+ */
+function responseFormatToOpenAI(fmt: ResponseFormat): Record<string, unknown> {
+  if (fmt.type === 'text') return { type: 'text' };
+  if (fmt.type === 'json_object') return { type: 'json_object' };
+  return {
+    type: 'json_schema',
+    json_schema: {
+      name: fmt.jsonSchema.name,
+      strict: fmt.jsonSchema.strict ?? true,
+      schema: fmt.jsonSchema.schema,
+      ...(fmt.jsonSchema.description ? { description: fmt.jsonSchema.description } : {}),
+    },
+  };
 }

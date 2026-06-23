@@ -1,17 +1,14 @@
 /**
  * WatchMessageBubble — renders a session watch entry with the same visual
- * style as the main ChatView MessageBubble.
+ * style and level of detail as the main ChatView MessageBubble.
  *
- * Mirrors the ChatView bubble aesthetic:
- * - Avatar circle with role-specific icon
- * - Rounded bubble with role-specific background
- * - Full markdown rendering (ReactMarkdown + remarkGfm)
- * - Error styling for error-role entries
+ * Renders full tool call inputs (via ToolInputView), outputs, duration,
+ * error status, and full-length markdown for user/assistant messages.
  */
 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { AlertCircle, Bot, Terminal, User } from 'lucide-react';
+import { AlertCircle, Bot, Clock, Terminal, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { CopyButton } from './MessageBubble/CopyButton.js';
 import { ToolInputView } from './MessageBubble/ToolInputView.js';
@@ -23,11 +20,30 @@ interface WatchEntry {
   role: 'user' | 'assistant' | 'tool' | 'system' | 'error';
   text: string;
   tool?: string;
+  /** Structured tool input (object — rendered by ToolInputView). */
+  input?: unknown;
+  /** Structured tool output (rendered as full text / markdown). */
+  output?: unknown;
+  /** Wall-clock duration in ms. */
+  durationMs?: number;
+  /** Whether the tool/response had an error. */
+  isError?: boolean;
+  /** Tool use correlation id. */
+  toolUseId?: string;
 }
 
 interface WatchMessageBubbleProps {
   entry: WatchEntry;
   isContinuation?: boolean;
+}
+
+function fmtDuration(durationMs: number): string {
+  if (durationMs < 1000) return `${durationMs}ms`;
+  const s = Math.round(durationMs / 100);
+  if (s < 600) return `${(s / 10).toFixed(1)}s`;
+  const m = Math.floor(s / 600);
+  const sec = Math.round((s % 600) / 10);
+  return `${m}m ${sec}s`;
 }
 
 const ROLE_CONFIG: Record<
@@ -96,49 +112,77 @@ const ROLE_CONFIG: Record<
 };
 
 function WatchBubbleContent({ entry }: { entry: WatchEntry }) {
-  if (!entry.text) return null;
-
   if (entry.role === 'error') {
     return <ErrorBodyWithStack text={entry.text} />;
   }
 
   if (entry.role === 'tool') {
-    // Try to parse tool input from text (format: "toolName\n{json}")
-    const lines = entry.text.split('\n');
-    let toolName = entry.tool || 'tool';
-    let inputText: string | null = null;
-
-    // If text contains a JSON object, try to parse it
-    if (lines.length > 1) {
-      const maybeJson = lines.slice(1).join('\n');
-      try {
-        JSON.parse(maybeJson);
-        toolName = lines[0] || entry.tool || 'tool';
-        inputText = maybeJson;
-      } catch {
-        // Not JSON, render as plain text
-      }
-    }
-
     return (
       <div className="flex flex-col gap-1.5 tool-details">
+        {/* Tool name header */}
         <div className="flex items-center gap-1.5 text-sm font-medium text-foreground">
           <Terminal className="h-3 w-3" />
-          <span className="font-mono">{toolName}</span>
+          <span className="font-mono">{entry.tool ?? 'tool'}</span>
+          {entry.durationMs !== undefined && (
+            <span className="ml-auto text-[10px] text-muted-foreground font-normal tabular-nums">
+              <Clock className="h-3 w-3 inline mr-0.5 align-text-bottom" />
+              {fmtDuration(entry.durationMs)}
+            </span>
+          )}
         </div>
-        {inputText ? (
+
+        {/* Tool input — rendered with the rich ToolInputView when structured */}
+        {entry.input !== undefined && entry.input !== null && (
           <div className="p-3 bg-muted/50 rounded-lg overflow-x-auto">
-            <ToolInputView input={JSON.parse(inputText)} />
+            <ToolInputView input={entry.input} />
           </div>
-        ) : (
+        )}
+
+        {/* Tool output — full markdown rendering (not clipped) */}
+        {entry.output !== undefined && entry.output !== null ? (
           <div className="text-sm leading-relaxed markdown-content">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={rehypePlugins} components={markdownComponents}>{entry.text}</ReactMarkdown>
+            {typeof entry.output === 'string' ? (
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={rehypePlugins}
+                components={markdownComponents}
+              >
+                {entry.output}
+              </ReactMarkdown>
+            ) : (
+              <pre className="whitespace-pre-wrap font-mono text-xs bg-card rounded-lg p-2 border border-border overflow-x-auto">
+                {JSON.stringify(entry.output, null, 2)}
+              </pre>
+            )}
+          </div>
+        ) : entry.text ? (
+          <div className="text-sm leading-relaxed markdown-content">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              rehypePlugins={rehypePlugins}
+              components={markdownComponents}
+            >
+              {entry.text}
+            </ReactMarkdown>
+          </div>
+        ) : null}
+
+        {/* Error banner */}
+        {entry.isError && (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+            <span className="text-xs font-medium text-destructive">Tool failed</span>
+            {entry.text && (
+              <pre className="mt-1 text-xs whitespace-pre-wrap text-destructive/80">
+                {entry.text}
+              </pre>
+            )}
           </div>
         )}
       </div>
     );
   }
 
+  // User, assistant, system — full markdown rendering
   return (
     <div className="text-sm leading-relaxed markdown-content">
       <ReactMarkdown
@@ -161,7 +205,7 @@ export function WatchMessageBubble({
 
   return (
     <div className="group flex gap-3 animate-message msg-bubble rounded-lg transition-shadow">
-      {/* Avatar — blank spacer for continuation, matching ChatView continuation pattern */}
+      {/* Avatar — blank spacer for continuation */}
       {isContinuation ? (
         <div className="flex-shrink-0 w-8" />
       ) : (
@@ -182,12 +226,7 @@ export function WatchMessageBubble({
         {/* Role label + timestamp — only shown on first message of a chain */}
         {!isContinuation && (
           <div className="flex items-center gap-2">
-            <span
-              className={cn(
-                'text-xs font-medium',
-                cfg.textColor,
-              )}
-            >
+            <span className={cn('text-xs font-medium', cfg.textColor)}>
               {entry.role === 'tool' && entry.tool ? entry.tool : cfg.label}
             </span>
             <span className="text-xs text-muted-foreground">
@@ -196,6 +235,12 @@ export function WatchMessageBubble({
                 minute: '2-digit',
               })}
             </span>
+            {/* Show duration inline for tool entries with timing */}
+            {entry.role === 'tool' && entry.durationMs !== undefined && (
+              <span className="text-[10px] text-muted-foreground tabular-nums">
+                · {fmtDuration(entry.durationMs)}
+              </span>
+            )}
           </div>
         )}
 
@@ -212,17 +257,12 @@ export function WatchMessageBubble({
             cfg.bubbleBorder,
           )}
         >
-          <div
-            className={cn(
-              'text-sm leading-relaxed markdown-content',
-              cfg.textColor,
-            )}
-          >
+          <div className={cn('text-sm leading-relaxed markdown-content', cfg.textColor)}>
             <WatchBubbleContent entry={entry} />
           </div>
         </div>
 
-        {/* Copy button — group-hover for hover visibility, matching ChatView */}
+        {/* Copy button — group-hover for hover visibility */}
         {entry.text && entry.role !== 'error' && (
           <div className="opacity-0 group-hover:opacity-100 transition-opacity">
             <CopyButton text={entry.text} label="Copy" />

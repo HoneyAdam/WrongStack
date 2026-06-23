@@ -78,9 +78,11 @@ describe('SessionMemoryConsolidator operations', () => {
       ],
     };
     const c = new SessionMemoryConsolidator({ memoryStore: store, provider: mkProvider(JSON.stringify(ops)) });
-    await c.afterRun(ctx(), result());
-
-    expect(store.remember).toHaveBeenCalledTimes(2); // add + edit
+    c.afterRun(ctx(), result());
+    // Consolidation is fire-and-forget — wait for the background IIFE to settle.
+    await vi.waitFor(() => {
+      expect(store.remember).toHaveBeenCalledTimes(2); // add + edit
+    });
     expect(store.forget).toHaveBeenCalledTimes(2); // edit + delete
     expect(stderr).toHaveBeenCalledWith(expect.stringContaining('consolidation'));
   });
@@ -88,8 +90,10 @@ describe('SessionMemoryConsolidator operations', () => {
   it('wraps JSON in surrounding prose and still extracts it', async () => {
     const text = 'Here is the result:\n{"operations":[{"action":"add","text":"wrapped fact"}]}\nDone.';
     const c = new SessionMemoryConsolidator({ memoryStore: store, provider: mkProvider(text) });
-    await c.afterRun(ctx(), result());
-    expect(store.remember).toHaveBeenCalledWith('wrapped fact', undefined, expect.any(Object));
+    c.afterRun(ctx(), result());
+    await vi.waitFor(() => {
+      expect(store.remember).toHaveBeenCalledWith('wrapped fact', undefined, expect.any(Object));
+    });
   });
 
   it('ignores operations with missing fields without logging', async () => {
@@ -102,40 +106,49 @@ describe('SessionMemoryConsolidator operations', () => {
       ],
     };
     const c = new SessionMemoryConsolidator({ memoryStore: store, provider: mkProvider(JSON.stringify(ops)) });
-    await c.afterRun(ctx(), result());
+    c.afterRun(ctx(), result());
+    // Give the fire-and-forget IIFE time to settle, then verify nothing was written.
+    await new Promise((resolve) => setTimeout(resolve, 10));
     expect(store.remember).not.toHaveBeenCalled();
     expect(stderr).not.toHaveBeenCalled();
   });
 
   it('returns when the model produces no text', async () => {
     const c = new SessionMemoryConsolidator({ memoryStore: store, provider: mkProvider('   ') });
-    await c.afterRun(ctx(), result());
+    c.afterRun(ctx(), result());
+    await new Promise((resolve) => setTimeout(resolve, 10));
     expect(store.remember).not.toHaveBeenCalled();
   });
 
   it('returns when there is no JSON object in the response', async () => {
     const c = new SessionMemoryConsolidator({ memoryStore: store, provider: mkProvider('no json here') });
-    await c.afterRun(ctx(), result());
+    c.afterRun(ctx(), result());
+    await new Promise((resolve) => setTimeout(resolve, 10));
     expect(store.remember).not.toHaveBeenCalled();
   });
 
   it('returns when operations is empty or not an array', async () => {
     const c1 = new SessionMemoryConsolidator({ memoryStore: store, provider: mkProvider('{"operations":[]}') });
-    await c1.afterRun(ctx(), result());
+    c1.afterRun(ctx(), result());
     const c2 = new SessionMemoryConsolidator({ memoryStore: store, provider: mkProvider('{"operations":"nope"}') });
-    await c2.afterRun(ctx(), result());
+    c2.afterRun(ctx(), result());
+    await new Promise((resolve) => setTimeout(resolve, 10));
     expect(store.remember).not.toHaveBeenCalled();
   });
 
   it('swallows a malformed-JSON parse error', async () => {
     const c = new SessionMemoryConsolidator({ memoryStore: store, provider: mkProvider('{ not valid json }') });
-    await expect(c.afterRun(ctx(), result())).resolves.toBeUndefined();
+    c.afterRun(ctx(), result());
+    await new Promise((resolve) => setTimeout(resolve, 10));
     expect(store.remember).not.toHaveBeenCalled();
   });
 
   it('swallows a provider failure', async () => {
     const provider = { complete: vi.fn(async () => { throw new Error('llm down'); }) } as never as Provider;
     const c = new SessionMemoryConsolidator({ memoryStore: store, provider });
-    await expect(c.afterRun(ctx(), result())).resolves.toBeUndefined();
+    c.afterRun(ctx(), result());
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    // No throw = pass. No memory was touched.
+    expect(store.remember).not.toHaveBeenCalled();
   });
 });

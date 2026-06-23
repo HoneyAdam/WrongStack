@@ -29,7 +29,7 @@ interface GeminiCandidate {
   finishReason?: string | undefined;
 }
 
-interface GoogleStreamState {
+export interface GoogleStreamState {
   model: string;
   usage: Usage;
   stopReason: StopReason;
@@ -58,6 +58,9 @@ export const googleWireFormat = defineWireFormat<GoogleStreamState>({
     }
     if (req.tools && req.tools.length > 0) {
       body['tools'] = [{ functionDeclarations: toolsToGemini(req.tools) }];
+    }
+    if (req.safetySettings && req.safetySettings.length > 0) {
+      body['safetySettings'] = req.safetySettings;
     }
     return body;
   },
@@ -142,7 +145,25 @@ function buildGenConfig(req: Request): Record<string, unknown> {
   const cfg: Record<string, unknown> = { maxOutputTokens: req.maxTokens };
   if (req.temperature !== undefined) cfg['temperature'] = req.temperature;
   if (req.topP !== undefined) cfg['topP'] = req.topP;
+  if (req.topK !== undefined) cfg['topK'] = req.topK;
+  if (req.frequencyPenalty !== undefined) cfg['frequencyPenalty'] = req.frequencyPenalty;
+  if (req.presencePenalty !== undefined) cfg['presencePenalty'] = req.presencePenalty;
+  if (req.seed !== undefined) cfg['seed'] = req.seed;
+  if (req.candidateCount !== undefined) cfg['candidateCount'] = req.candidateCount;
+  if (req.logprobs === true) cfg['logprobs'] = true;
   if (req.stopSequences) cfg['stopSequences'] = req.stopSequences;
+  // Gemini thinkingConfig maps from canonical reasoning request.
+  if (req.reasoning?.enabled === true) {
+    cfg['thinkingConfig'] = { type: 'enabled' };
+  } else if (req.reasoning?.enabled === false) {
+    cfg['thinkingConfig'] = { type: 'disabled' };
+  }
+  if (req.responseFormat && req.responseFormat.type !== 'text') {
+    cfg['responseMimeType'] = 'application/json';
+    if (req.responseFormat.type === 'json_schema' && req.responseFormat.jsonSchema.schema) {
+      cfg['responseSchema'] = req.responseFormat.jsonSchema.schema;
+    }
+  }
   return cfg;
 }
 
@@ -263,8 +284,13 @@ function messagesToGemini(messages: Message[]): GeminiContent[] {
         });
       }
     }
-    if (textParts.length > 0) out.push({ role: 'user', parts: textParts });
-    if (functionParts.length > 0) out.push({ role: 'function', parts: functionParts });
+    const userParts: GeminiPart[] = [...textParts];
+    // Include function responses as parts of the user turn — Gemini's API
+    // accepts functionResponse blocks inline with text in a single user role.
+    // This handles the case where a user message consists only of tool_result
+    // blocks (no text): without this, the turn is silently dropped.
+    if (functionParts.length > 0) userParts.push(...functionParts);
+    if (userParts.length > 0) out.push({ role: 'user', parts: userParts });
   }
   return out;
 }

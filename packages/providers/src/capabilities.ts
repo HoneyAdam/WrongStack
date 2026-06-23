@@ -62,5 +62,14 @@ export async function capabilitiesFor(
     systemPrompt: customCaps?.systemPrompt ?? base.systemPrompt,
     jsonMode: customCaps?.jsonMode ?? base.jsonMode,
     cacheControl: customCaps?.cacheControl ?? base.cacheControl,
+    // Extended parameters: custom override wins, then family default
+    topK: customCaps?.topK ?? base.topK,
+    frequencyPenalty: customCaps?.frequencyPenalty ?? base.frequencyPenalty,
+    presencePenalty: customCaps?.presencePenalty ?? base.presencePenalty,
+    seed: customCaps?.seed ?? base.seed,
+    structuredOutput: customCaps?.structuredOutput ?? base.structuredOutput,
+    logprobs: customCaps?.logprobs ?? base.logprobs,
+    audio: customCaps?.audio ?? base.audio,
+    multipleCompletions: customCaps?.multipleCompletions ?? base.multipleCompletions,
   };
 }

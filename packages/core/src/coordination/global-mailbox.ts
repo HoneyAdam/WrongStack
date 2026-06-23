@@ -631,31 +631,79 @@ export class GlobalMailbox implements Mailbox {
   private async _readMessages(): Promise<MailboxMessage[]> {
     try {
       const raw = await fsp.readFile(this.messagePath, 'utf8');
-      const lines = raw.split(LINE_SEPARATOR).filter((l) => l.trim().length > 0);
-      const messages: MailboxMessage[] = [];
-      for (const line of lines) {
-        try {
-          const parsed = JSON.parse(line) as Record<string, unknown>;
-          // Migrate old `read: boolean` + `readAt` to new `readBy`
-          if (!parsed['readBy']) {
-            const readBy: Record<string, unknown> = {};
-            if (parsed['read'] && parsed['readAt']) {
-              readBy[parsed['to'] as string] = parsed['readAt'];
-            }
-            parsed['readBy'] = readBy;
-            delete parsed['read'];
-            delete parsed['readAt'];
-          }
-          messages.push(parsed as never as MailboxMessage);
-        } catch {
-          // Skip malformed lines
-        }
-      }
-      return messages;
+      return this._parseLines(raw);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
       throw err;
     }
+  }
+
+  /**
+   * Read only newly-appended bytes from the file and append them to the
+   * in-memory cache. This avoids re-reading and re-parsing the entire file
+   * when another process appended messages since our last read.
+   *
+   * Only safe when the file grew in size (messages are append-only). When
+   * the file was rewritten (ack/purge changed existing content), callers
+   * must fall back to {@link _readMessages}.
+   *
+   * @returns The (now up-to-date) message cache.
+   */
+  private async _readNewMessagesOnly(
+    fd: fsp.FileHandle,
+    oldSize: number,
+    newSize: number,
+  ): Promise<MailboxMessage[]> {
+    const tailLen = newSize - oldSize;
+    const buf = Buffer.alloc(tailLen);
+    await fd.read(buf, 0, tailLen, oldSize);
+    const tail = buf.toString('utf8');
+    // Parse and append each new line to the cache.
+    for (const line of tail.split(LINE_SEPARATOR)) {
+      if (!line.trim()) continue;
+      try {
+        const parsed = JSON.parse(line) as Record<string, unknown>;
+        // Migrate old `read: boolean` + `readAt` to new `readBy`
+        if (!parsed['readBy']) {
+          const readBy: Record<string, string> = {};
+          if (parsed['read'] && parsed['readAt']) {
+            readBy[parsed['to'] as string] = parsed['readAt'] as string;
+          }
+          parsed['readBy'] = readBy;
+          delete parsed['read'];
+          delete parsed['readAt'];
+        }
+        this._messageCache!.push(parsed as never as MailboxMessage);
+      } catch {
+        // Skip malformed lines
+      }
+    }
+    return this._messageCache!;
+  }
+
+  /** Parse a JSONL string into MailboxMessage[], including migration. */
+  private _parseLines(raw: string): MailboxMessage[] {
+    const lines = raw.split(LINE_SEPARATOR).filter((l) => l.trim().length > 0);
+    const messages: MailboxMessage[] = [];
+    for (const line of lines) {
+      try {
+        const parsed = JSON.parse(line) as Record<string, unknown>;
+        // Migrate old `read: boolean` + `readAt` to new `readBy`
+        if (!parsed['readBy']) {
+          const readBy: Record<string, unknown> = {};
+          if (parsed['read'] && parsed['readAt']) {
+            readBy[parsed['to'] as string] = parsed['readAt'];
+          }
+          parsed['readBy'] = readBy;
+          delete parsed['read'];
+          delete parsed['readAt'];
+        }
+        messages.push(parsed as never as MailboxMessage);
+      } catch {
+        // Skip malformed lines
+      }
+    }
+    return messages;
   }
 
   /**
@@ -678,13 +726,16 @@ export class GlobalMailbox implements Mailbox {
    * stat matches the cached mtime+size we return the cached array — no
    * file read and no JSON.parse — collapsing the per-iteration query
    * cost on the mailbox-loop hot path.
+   *
+   * When the file only grew (new messages appended by another process),
+   * we read and parse just the tail bytes instead of the entire file.
+   * This avoids re-parsing the full 10K-message history on every check.
    */
   private async _readMessagesCached(): Promise<MailboxMessage[]> {
-    // Hot path: cache populated and the file hasn't changed since we
-    // populated it. `stat` is a single inode lookup; everything after the
-    // early return is pure memory.
     try {
       const st = await fsp.stat(this.messagePath);
+
+      // Fast path: cache is current — no disk I/O beyond stat.
       if (
         this._messageCache !== null &&
         this._messageCacheMtime === st.mtimeMs &&
@@ -692,6 +743,28 @@ export class GlobalMailbox implements Mailbox {
       ) {
         return this._messageCache;
       }
+
+      // Incremental path: cache exists and the file only grew (appends).
+      // No ack/purge/clear rewrote the file, so we only need to parse
+      // the newly-appended bytes.
+      if (
+        this._messageCache !== null &&
+        this._messageCacheSize >= 0 &&
+        st.size > this._messageCacheSize
+      ) {
+        const fd = await fsp.open(this.messagePath, 'r');
+        try {
+          const updated = await this._readNewMessagesOnly(fd, this._messageCacheSize, st.size);
+          this._messageCacheMtime = st.mtimeMs;
+          this._messageCacheSize = st.size;
+          return updated;
+        } finally {
+          await fd.close();
+        }
+      }
+
+      // Full re-read: cache empty, file was rewritten (ack/purge), or
+      // this is the first read.
       const all = await this._readMessages();
       this._setMessageCache(all, st.mtimeMs, st.size);
       return all;

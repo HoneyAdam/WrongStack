@@ -103,6 +103,9 @@ export class OpenAICompatibleProvider extends OpenAIProvider {
   protected override buildBody(req: Request): Record<string, unknown> {
     const body = super.buildBody(req);
     applyThinkingParams(body, req, this.opts.quirks?.thinkingParam);
+    // Many OpenAI-compatible servers (Together, Fireworks, DeepSeek, etc.)
+    // accept the `top_k` parameter even though real OpenAI rejects it.
+    if (req.topK !== undefined) body['top_k'] = req.topK;
     return body;
   }
 

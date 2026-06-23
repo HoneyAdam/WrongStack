@@ -19,6 +19,16 @@ interface WatchEntry {
   role: 'user' | 'assistant' | 'tool' | 'system' | 'error';
   text: string;
   tool?: string;
+  /** Structured tool input (object — rendered by ToolInputView). */
+  input?: unknown;
+  /** Structured tool output (rendered as full text / markdown). */
+  output?: unknown;
+  /** Wall-clock duration in ms. */
+  durationMs?: number;
+  /** Whether the tool/response had an error. */
+  isError?: boolean;
+  /** Tool use correlation id. */
+  toolUseId?: string;
 }
 
 interface WatchResponse {

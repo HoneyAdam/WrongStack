@@ -7,7 +7,7 @@
  * `parseAnthropicStream` in `../anthropic.ts`, just split into a stateful
  * `parseStreamEvent` call instead of an async generator loop.
  */
-import type { Message, Request, StopReason, StreamEvent, Usage } from '@wrongstack/core';
+import type { ContentBlock, Message, ReasoningEffort, Request, StopReason, StreamEvent, Usage } from '@wrongstack/core';
 import { ProviderError, safeParse } from '@wrongstack/core';
 import { parseToolInput } from '../_tool-input.js';
 import { capabilitiesForFamily } from '../family-capabilities.js';
@@ -17,7 +17,7 @@ import { defineWireFormat } from '../wire-format.js';
 
 type BlockKind = 'text' | 'tool_use' | 'thinking' | 'unknown';
 
-interface AnthropicStreamState {
+export interface AnthropicStreamState {
   model: string;
   usage: Usage;
   stopReason: StopReason;
@@ -49,16 +49,34 @@ export const anthropicWireFormat = defineWireFormat<AnthropicStreamState>({
       max_tokens: req.maxTokens,
       messages: req.messages.map((m: Message) => ({
         role: m.role === 'system' ? 'user' : m.role,
-        content: m.content,
+        content: normalizeMessageContent(m),
       })),
       stream: true,
     };
-    if (req.system && req.system.length > 0) body['system'] = req.system;
+    if (req.system && req.system.length > 0) {
+      body['system'] = req.system.map((b, index) =>
+        req.cache?.ttl && index === req.system!.length - 1
+          ? { ...b, cache_control: { type: 'ephemeral', ttl: req.cache.ttl } }
+          : b,
+      );
+    }
     if (req.tools && req.tools.length > 0) body['tools'] = toolsToAnthropic(req.tools);
     if (req.temperature !== undefined) body['temperature'] = req.temperature;
     if (req.topP !== undefined) body['top_p'] = req.topP;
+    if (req.topK !== undefined) body['top_k'] = req.topK;
     if (req.stopSequences) body['stop_sequences'] = req.stopSequences;
     if (req.toolChoice) body['tool_choice'] = req.toolChoice;
+    if (req.user) body['metadata'] = { user_id: req.user };
+    if (req.reasoning) {
+      if (req.reasoning.enabled === false) {
+        body['thinking'] = { type: 'disabled' };
+      } else if (req.reasoning.enabled === true) {
+        body['thinking'] = {
+          type: 'enabled',
+          budget_tokens: deriveThinkingBudget(req.maxTokens, req.reasoning.effort),
+        };
+      }
+    }
     return body;
   },
   createStreamState: (fallbackModel) => ({
@@ -191,3 +209,71 @@ export const anthropicWireFormat = defineWireFormat<AnthropicStreamState>({
     return [];
   },
 });
+
+/**
+ * Derive a thinking budget_tokens value for Anthropic's extended thinking.
+ * Mirrors the same-named helper in ../anthropic.ts.
+ */
+function deriveThinkingBudget(
+  maxTokens: number,
+  effort: ReasoningEffort | undefined,
+): number {
+  const fraction =
+    effort === 'none' || effort === 'minimal'
+      ? 0.25
+      : effort === 'low'
+        ? 0.35
+        : effort === 'medium' || effort === undefined
+          ? 0.5
+          : effort === 'high'
+            ? 0.65
+            : /* 'xhigh' | 'max' */ 0.75;
+
+  return Math.max(1024, Math.min(Math.floor(maxTokens * fraction), Math.floor(maxTokens * 0.8)));
+}
+
+/**
+ * Normalize a message's content to the shape Anthropic accepts.
+ * String content is passed through; block content is sanitized via
+ * `sanitizeAnthropicBlock` to strip extra fields other wire formats
+ * inject (tool_result.name, tool_use.providerMeta, thinking.providerMeta).
+ */
+function normalizeMessageContent(m: Message): unknown {
+  if (typeof m.content === 'string') return m.content;
+  return (m.content as ContentBlock[]).map((b) => sanitizeAnthropicBlock(b));
+}
+
+/**
+ * Reduce a canonical ContentBlock to exactly the fields the Anthropic Messages
+ * API accepts. Strips extra fields that other wires inject:
+ *   - `tool_result.name`        — set by ToolExecutor for Google's functionResponse
+ *   - `tool_use.providerMeta`   — e.g. Gemini thought-signatures
+ *   - `thinking.providerMeta`   — provider-specific metadata
+ */
+function sanitizeAnthropicBlock(b: ContentBlock): Record<string, unknown> {
+  switch (b.type) {
+    case 'text':
+      return b.cache_control
+        ? { type: 'text', text: b.text, cache_control: b.cache_control }
+        : { type: 'text', text: b.text };
+    case 'tool_use':
+      return { type: 'tool_use', id: b.id, name: b.name, input: b.input };
+    case 'tool_result': {
+      const out: Record<string, unknown> = {
+        type: 'tool_result',
+        tool_use_id: b.tool_use_id,
+        content: b.content,
+      };
+      if (b.is_error) out['is_error'] = true;
+      return out;
+    }
+    case 'thinking':
+      return b.signature
+        ? { type: 'thinking', thinking: b.thinking, signature: b.signature }
+        : { type: 'thinking', thinking: b.thinking };
+    case 'image':
+      return { type: 'image', source: b.source };
+    default:
+      return b as never as Record<string, unknown>;
+  }
+}

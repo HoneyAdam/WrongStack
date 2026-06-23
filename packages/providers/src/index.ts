@@ -21,6 +21,9 @@ import {
   OpenAICompatibleProvider,
 } from './openai-compatible.js';
 import { OpenAIProvider } from './openai.js';
+import { createWireFormatFactory, type WireFormatConfig } from './wire-format.js';
+import { mistralWireFormat } from './presets/mistral.js';
+import { ollamaWireFormat, vllmWireFormat, lmstudioWireFormat } from './presets/local-llm.js';
 export { AnthropicProvider, type AnthropicProviderOptions } from './anthropic.js';
 export { OpenAIProvider, type OpenAIProviderOptions } from './openai.js';
 export {
@@ -75,6 +78,7 @@ export { mistralWireFormat } from './presets/mistral.js';
 export { anthropicWireFormat } from './presets/anthropic.js';
 export { openaiWireFormat } from './presets/openai.js';
 export { googleWireFormat } from './presets/google.js';
+export { ollamaWireFormat, vllmWireFormat, lmstudioWireFormat } from './presets/local-llm.js';
 export { capabilitiesFor } from './capabilities.js';
 export { capabilitiesForFamily, CAPABILITIES_BY_FAMILY } from './family-capabilities.js';
 export { parseProviderHttpError } from './error-parse.js';
@@ -125,6 +129,25 @@ export function setOAuthTokenPersister(
 
 /** @deprecated use setOAuthTokenPersister */
 export const setCodexTokenPersister = setOAuthTokenPersister;
+
+/**
+ * Known preset wire-format configs keyed by provider id. When the registry
+ * returns a provider whose family is `openai-compatible` and whose id matches
+ * one of these, the preset's tuned config (base URL, capability overrides,
+ * body extras) is used instead of the generic `OpenAICompatibleProvider`.
+ *
+ * Presets are also exported directly for manual use:
+ *   ```
+ *   import { mistralWireFormat } from '@wrongstack/providers';
+ *   const factory = createWireFormatFactory(mistralWireFormat);
+ *   ```
+ */
+const PRESET_BY_ID: Record<string, WireFormatConfig<any>> = {
+  mistral: mistralWireFormat,
+  ollama: ollamaWireFormat,
+  vllm: vllmWireFormat,
+  lmstudio: lmstudioWireFormat,
+};
 
 /**
  * Build one ProviderFactory per provider known to models.dev. The factory's
@@ -243,7 +266,15 @@ function makeProvider(p: ResolvedProvider, cfg: ProviderConfig): Provider {
         id: p.id,
         quirks: validateQuirks(p.id, cfg.quirks),
       });
-    case 'openai-compatible':
+    case 'openai-compatible': {
+      // Use a tuned preset when available (Mistral, Ollama, vLLM, LM Studio, …).
+      const preset = PRESET_BY_ID[p.id];
+      if (preset) {
+        return createWireFormatFactory(preset, {
+          apiKey: expectDefined(apiKey),
+          baseUrl: baseUrl ?? preset.defaultBaseUrl,
+        }).create(cfg);
+      }
       return new OpenAICompatibleProvider({
         id: p.id,
         apiKey: expectDefined(apiKey),
@@ -251,6 +282,7 @@ function makeProvider(p: ResolvedProvider, cfg: ProviderConfig): Provider {
         headers: cfg.headers,
         quirks: validateQuirks(p.id, cfg.quirks),
       });
+    }
     case 'openai-codex': {
       const entry = resolveActiveKeyEntry(cfg);
       const parsedExpiry = entry?.expiresAt ? Date.parse(entry.expiresAt) : Number.NaN;
