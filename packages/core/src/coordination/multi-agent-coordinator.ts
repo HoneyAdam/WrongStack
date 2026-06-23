@@ -17,7 +17,7 @@ import {
   BudgetExceededError,
   DECISION_TIMEOUT_MS,
   SubagentBudget,
-  TIMEOUT_PREEMPT_FRACTION,
+  TIMEOUT_PREEMPT_FRACTION as _preemptFraction,
 } from './subagent-budget.js';
 import { classifySubagentError } from './coordinator/error-classifier.js';
 import { applyRosterBudget } from './fleet.js';
@@ -662,7 +662,7 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
     task: TaskSpec,
     ctx: SubagentRunContext,
     budget: SubagentBudget,
-    preemptFraction: number = TIMEOUT_PREEMPT_FRACTION,
+    preemptFraction: number = _preemptFraction,
   ) {
     const initialTimeoutMs = budget.limits.timeoutMs;
     const idleLimitMs = budget.limits.idleTimeoutMs;
