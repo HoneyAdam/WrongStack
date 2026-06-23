@@ -486,6 +486,7 @@ export function FleetMonitor({
   const fleetConcurrency = useFleetStore((s) => s.fleetConcurrency);
   const fleetConcurrencyMax = useFleetStore((s) => s.fleetConcurrencyMax);
   const eventTimeline = useFleetStore((s) => s.eventTimeline);
+  const fleetAgentTimeline = useFleetStore((s) => s.agentTimeline);
 
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
   const [nowTick, setNowTick] = useState(Date.now());
@@ -666,11 +667,35 @@ export function FleetMonitor({
             <div className="px-4 py-2 border-b">
               <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium flex items-center gap-2">
                 <Clock className="h-3 w-3" />
-                Event Timeline
+                Agent Timeline
               </span>
             </div>
             <div className="px-4 py-2 max-h-32 overflow-y-auto">
               <EventTimeline events={eventTimeline} max={10} />
+            </div>
+            <div className="border-t border-dashed" />
+            <div className="px-4 py-2 max-h-40 overflow-y-auto">
+              {fleetAgentTimeline.length === 0 ? (
+                <p className="text-[10px] text-muted-foreground italic">No agent conversation events yet.</p>
+              ) : (
+                <div className="space-y-1">
+                  {fleetAgentTimeline.slice(0, 15).map((entry) => {
+                    const iconMap: Record<string, string> = { text: '\u{1F4AC}', tool_use: '\u{1F527}', error: '\u{274C}', status: '\u{1F4AC}' };
+                    const icon = iconMap[entry.kind] ?? '\u{25CF}';
+                    const statusColor = entry.status === 'running' || entry.status === 'spawned' ? 'text-emerald-500'
+                      : entry.status === 'failed' || entry.status === 'timeout' ? 'text-destructive' : 'text-muted-foreground';
+                    return (
+                      <div key={entry.id} className="flex items-start gap-1.5 text-[10px] leading-tight">
+                        <span className="shrink-0">{icon}</span>
+                        <span className="font-medium text-primary shrink-0">{entry.agentName}</span>
+                        {entry.status && <span className={`${statusColor} shrink-0`}>{entry.status}</span>}
+                        {entry.toolName && <span className="text-muted-foreground shrink-0">[{entry.toolName}]</span>}
+                        <span className="text-muted-foreground truncate">{entry.content}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
             <div className="px-4 py-1.5 border-t text-[10px] text-muted-foreground flex items-center gap-4">
               <span>↑↓ navigate</span>

@@ -19,7 +19,20 @@ interface FleetState {
   fleetConcurrencyMax: number;
   /** Last 20 fleet events for the Fleet Monitor timeline. */
   eventTimeline: FleetTimelineEvent[];
+  /** Agent conversation timeline entries (agent.timeline.message + agent.status_changed). */
+  agentTimeline: Array<{
+    id: string;
+    subagentId: string;
+    agentName: string;
+    content: string;
+    kind: string;
+    iteration: number;
+    ts: string;
+    toolName?: string;
+    status?: string;
+  }>;
   applyEvent: (e: SubagentEvent) => void;
+  pushAgentTimelineEntry: (entry: Omit<FleetState['agentTimeline'][number], 'id'>) => void;
   clear: () => void;
   /** Return all agents belonging to a session. Used for project-scoped filtering. */
   getAgentsBySession: (sessionId: string) => SubagentView[];
@@ -71,6 +84,14 @@ export const useFleetStore = create<FleetState>()((set, get) => ({
   fleetConcurrency: 0,
   fleetConcurrencyMax: 4,
   eventTimeline: [],
+  agentTimeline: [],
+  pushAgentTimelineEntry: (entry) =>
+    set((state) => ({
+      agentTimeline: [
+        { id: `agent_tl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, ...entry },
+        ...state.agentTimeline,
+      ].slice(0, 200),
+    })),
   clear: () =>
     set({
       agents: new Map(),
@@ -79,6 +100,7 @@ export const useFleetStore = create<FleetState>()((set, get) => ({
       fleetTokensOut: 0,
       fleetConcurrency: 0,
       eventTimeline: [],
+      agentTimeline: [],
     }),
   getAgentsBySession: (sessionId) => {
     const result: SubagentView[] = [];

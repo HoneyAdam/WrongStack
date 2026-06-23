@@ -1233,6 +1233,36 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       }),
     );
 
+    // ── Agent timeline events — WebUI conversation stream ─────────────
+    opts.events.on('agent.timeline.message', (e) => {
+      broadcast({
+        type: 'agent.timeline.message',
+        payload: {
+          subagentId: e.subagentId,
+          agentName: e.agentName,
+          content: e.content,
+          kind: e.kind,
+          iteration: e.iteration,
+          ts: e.ts,
+          toolName: e.toolName,
+          costUsd: e.costUsd,
+        },
+      });
+    });
+    opts.events.on('agent.status_changed', (e) => {
+      broadcast({
+        type: 'agent.status_changed',
+        payload: {
+          subagentId: e.subagentId,
+          agentName: e.agentName,
+          status: e.status,
+          ts: e.ts,
+          summary: e.summary,
+          task: e.task,
+        },
+      });
+    });
+
     // eternal-autonomy iteration events. Each iteration the engine
     // completes lands here and is fanned out to every connected client
     // so the frontend can render a live timeline of the autonomous loop.

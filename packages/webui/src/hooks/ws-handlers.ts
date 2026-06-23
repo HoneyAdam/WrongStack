@@ -173,6 +173,29 @@ export const WS_HANDLERS: Record<string, (msg: WSServerMessage) => void> = {
   'todos.cleared': (_msg: WSServerMessage) => {
     useSessionStore.getState().setTodos([]);
   },
+  'agent.timeline.message': (msg: WSServerMessage) => {
+    const p = msg.payload as {
+      subagentId: string; agentName: string; content: string;
+      kind: string; iteration: number; ts: string;
+      toolName?: string; costUsd?: number;
+    };
+    useFleetStore.getState().pushAgentTimelineEntry({
+      subagentId: p.subagentId, agentName: p.agentName,
+      content: p.content.slice(0, 200), kind: p.kind,
+      iteration: p.iteration, ts: p.ts, toolName: p.toolName,
+    });
+  },
+  'agent.status_changed': (msg: WSServerMessage) => {
+    const p = msg.payload as {
+      subagentId: string; agentName: string; status: string;
+      ts: string; summary?: string; task?: string;
+    };
+    useFleetStore.getState().pushAgentTimelineEntry({
+      subagentId: p.subagentId, agentName: p.agentName,
+      content: p.summary ?? p.status, kind: 'status',
+      iteration: 0, ts: p.ts, status: p.status,
+    });
+  },
   'tasks.updated': (msg: WSServerMessage) => {
     // Handled directly by TasksPanel component via WS client.on()
   },
