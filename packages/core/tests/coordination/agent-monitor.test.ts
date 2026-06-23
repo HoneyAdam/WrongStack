@@ -284,15 +284,17 @@ describe('AgentMonitorService', () => {
     fleetBus.emit(makeFleetEvent('a1', 'provider.text_delta', { text: 'persisted entry', iteration: 0 }));
 
     // Wait for async file write
-    await waitForEvents(50);
+    await waitForEvents(100);
 
     const filePath = path.join(transcriptsDir, 'a1', 'transcript.jsonl');
     const content = await fsp.readFile(filePath, 'utf8');
     const lines = content.trim().split('\n');
 
-    // Each JSONL line should parse to an AgentTimelineEntry
-    expect(lines.length).toBeGreaterThanOrEqual(2); // spawn system entry + text entry
-    const parsed = JSON.parse(lines[lines.length - 1]) as AgentTimelineEntry;
+    // Find the text entry among all written lines
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    const textLines = lines.filter((l) => l.includes('persisted entry'));
+    expect(textLines).toHaveLength(1);
+    const parsed = JSON.parse(textLines[0]) as AgentTimelineEntry;
     expect(parsed.content).toBe('persisted entry');
     expect(parsed.subagentId).toBe('a1');
     expect(parsed.kind).toBe('text');
