@@ -34,6 +34,29 @@ export { createModeTool } from './mode.js';
 export { getProcessRegistry, _resetProcessRegistry, type ProcessRegistryImpl, type KillOpts, type RegistryStats, type TrackedProcess, type BreakerCountdown } from './process-registry.js';
 export { CircuitBreaker, type CircuitBreakerSnapshot, type CircuitBreakerConfig } from './circuit-breaker.js';
 export {
+  getPersistentProcessRegistry,
+  resetPersistentProcessRegistry,
+  type PersistentProcessEntry,
+  type PersistentRegistryData,
+} from './process-registry-persistent.js';
+export {
+  getProcessGuardian,
+  startProcessGuardian,
+  stopProcessGuardian,
+  type ProcessGuardianConfig,
+} from './process-guardian.js';
+export {
+  createGlobalPsSlashCommand,
+  formatGlobalStatus,
+  formatInstanceList,
+  formatInstanceSummary,
+  listInstances,
+  getInstanceCount,
+  type GlobalProcessStatus,
+  type InstanceInfo,
+  type InstanceListOptions,
+} from './ps-slash.js';
+export {
   codebaseIndexTool,
   codebaseSearchTool,
   codebaseStatsTool,
