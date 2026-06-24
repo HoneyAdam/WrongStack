@@ -17,8 +17,16 @@ afterEach(async () => {
 });
 
 type TestRenderer = SubcommandDeps['renderer'] & {
-  write: ReturnType<typeof vi.fn>;
-  writeError: ReturnType<typeof vi.fn>;
+  write: ((input: string | TextBlock) => void) & ReturnType<typeof vi.fn>;
+  writeError: ((text: string) => void) & ReturnType<typeof vi.fn>;
+  writeWarning: ((text: string) => void) & ReturnType<typeof vi.fn>;
+  writeInfo: ((text: string) => void) & ReturnType<typeof vi.fn>;
+  writeLine: ((text?: string) => void) & ReturnType<typeof vi.fn>;
+  writeBlock: ((block: ContentBlock) => void) & ReturnType<typeof vi.fn>;
+  writeToolCall: ((name: string, input: unknown) => void) & ReturnType<typeof vi.fn>;
+  writeToolResult: ((name: string, content: unknown, isError: boolean) => void) & ReturnType<typeof vi.fn>;
+  writeDiff: ((unifiedDiff: string) => void) & ReturnType<typeof vi.fn>;
+  clear: (() => void) & ReturnType<typeof vi.fn>;
 };
 
 type TestDeps = SubcommandDeps & { renderer: TestRenderer };
