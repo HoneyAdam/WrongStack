@@ -155,7 +155,9 @@ describe('createFallbackModelExtension', () => {
     const ext = createFallbackModelExtension({
       getConfig: () => cfg({ fallbackModels: ['openai/gpt-x'] }),
       buildProvider: fakeProvider,
-      onModelSwitch: (p, m) => switches.push([p, m]),
+      onModelSwitch: (p, m) => {
+        switches.push([p, m]);
+      },
       events: new EventBus(),
       logger,
     })!;
