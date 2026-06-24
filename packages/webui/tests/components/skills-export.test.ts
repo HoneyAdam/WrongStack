@@ -11,9 +11,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // Mock JSZip before importing the component helpers
 vi.mock('jszip', () => ({
   default: {
-    loadAsync: vi.fn((bytes: Uint8Array) => {
+    loadAsync: vi.fn((_bytes: Uint8Array) => {
       // Return a minimal zip-like object that the decode path expects
-      const content: Record<string, string> = {};
+      const _content: Record<string, string> = {};
       return Promise.resolve({
         file: (name: string) => ({
           async: (type: string) => {
@@ -35,7 +35,7 @@ const revokedUrls: string[] = [];
 
 function mockWindow() {
   const originalCreateElement = document.createElement.bind(document);
-  const originalBody = document.body;
+  const _originalBody = document.body;
 
   // Provide a mock body when none exists (jsdom startup)
   if (!document.body) {

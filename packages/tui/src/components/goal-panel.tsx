@@ -60,9 +60,7 @@ export function GoalPanel({
               <Text dimColor>[S] Stop coordinator</Text>
             </>
           ) : (
-            <>
-              <Text dimColor>[C] Start coordinator</Text>
-            </>
+            <Text dimColor>[C] Start coordinator</Text>
           )}
         </Box>
       </Box>
@@ -125,7 +123,6 @@ export function GoalPanel({
           {goal.deliverables.map((d, i) => {
             const done = /^\[[x✓]\]|✅|\(done\)/i.test(d);
             return (
-              // biome-ignore lint/suspicious/noArrayIndexKey: deliverables are stable text strings
               <Box key={i}>
                 <Text {...(done ? { color: 'green' } : {})} dimColor={!done}>
                   {'  '}{done ? '✓' : '○'} {d}
@@ -163,9 +160,7 @@ export function GoalPanel({
               <Text dimColor>[S] Stop coordinator</Text>
             </>
           ) : (
-            <>
-              <Text dimColor>[C] Start coordinator</Text>
-            </>
+            <Text dimColor>[C] Start coordinator</Text>
           )}
         </Box>
       </Box>

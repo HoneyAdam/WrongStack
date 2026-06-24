@@ -7,7 +7,7 @@
  * These test the business logic in isolation, without React component rendering.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 // ─── Name conversion utility ──────────────────────────────────────────────────
 // The modal converts name input to kebab-case before submission.

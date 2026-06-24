@@ -89,7 +89,6 @@ export function BrainDecisionPrompt({
         <Box flexDirection="column" marginTop={1}>
           <Text dimColor>Context:</Text>
           {ctx.map((line, index) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: context lines are static for this prompt render
             <Text key={index} dimColor>
               {line}
             </Text>

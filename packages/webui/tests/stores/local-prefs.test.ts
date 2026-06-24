@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { useLocalPrefs } from '../../src/stores/local-prefs';
 
 const STORAGE_KEY = 'wrongstack-local-prefs';

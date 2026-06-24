@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { useVizStore, wsToVizEvent } from '../../src/stores/viz-store';
 
 // ── helpers ──────────────────────────────────────────────────────────
@@ -22,7 +22,7 @@ function resetStore() {
   });
 }
 
-function makeNode(overrides: Record<string, unknown> = {}): any {
+function _makeNode(overrides: Record<string, unknown> = {}): any {
   return {
     id: 'node-1',
     kind: 'agent',
@@ -46,7 +46,7 @@ function makeEvent(overrides: Record<string, unknown> = {}): any {
   };
 }
 
-function makeEdge(overrides: Record<string, unknown> = {}): any {
+function _makeEdge(overrides: Record<string, unknown> = {}): any {
   return {
     id: 'edge-1',
     source: 'provider',
@@ -160,7 +160,7 @@ describe('upsertNode', () => {
   });
 
   it('updates lastSeenAt on every upsert', () => {
-    const before = Date.now() - 1000;
+    const _before = Date.now() - 1000;
     useVizStore.getState().upsertNode({ id: 'n1', kind: 'agent', label: 'A' });
     const first = useVizStore.getState().nodes.get('n1')!.lastSeenAt;
     useVizStore.getState().upsertNode({ id: 'n1', label: 'B' });
@@ -267,7 +267,7 @@ describe('upsertEdge', () => {
     useVizStore.getState().upsertEdge({ id: 'e1', source: 'a', target: 'b', kind: 'provider:call', label: 'c' });
     const before = useVizStore.getState().edges.get('e1')!.lastActiveAt;
     // wait a tiny bit
-    const now = Date.now();
+    const _now = Date.now();
     useVizStore.getState().upsertEdge({ id: 'e1' });
     const after = useVizStore.getState().edges.get('e1')!.lastActiveAt;
     expect(after).toBeGreaterThanOrEqual(before);

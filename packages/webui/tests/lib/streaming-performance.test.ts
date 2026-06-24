@@ -1,6 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { StreamCoalescer } from '../../src/lib/stream-coalescer.js';
-import { useChatStore, type ChatMessage } from '../../src/stores/chat-store.js';
+import { useChatStore } from '../../src/stores/chat-store.js';
 
 /**
  * Performance tests for the streaming UI pipeline.

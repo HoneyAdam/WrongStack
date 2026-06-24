@@ -124,7 +124,7 @@ describe('usePasteDrop', () => {
     });
 
     it('onDrop inserts @filename tokens and opens atMention for last file', () => {
-      const { options, setInput, setAtMention, textarea } = makeHookOptions({ input: 'hello', selectionStart: 5 });
+      const { options, setInput, setAtMention, _textarea } = makeHookOptions({ input: 'hello', selectionStart: 5 });
 
       const { result } = renderHook(() => usePasteDrop(options));
 
@@ -223,7 +223,7 @@ describe('usePasteDrop', () => {
         fenced: '```typescript\nconst x = 1;\n```',
       });
 
-      const { options, setInput, textarea } = makeHookOptions({ input: 'before ', selectionStart: 7 });
+      const { options, setInput, _textarea } = makeHookOptions({ input: 'before ', selectionStart: 7 });
       const { result } = renderHook(() => usePasteDrop(options));
 
       const event = {

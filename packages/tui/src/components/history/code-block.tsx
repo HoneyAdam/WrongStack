@@ -63,14 +63,12 @@ export function CodeBlock({
     >
       {lang !== 'plain' ? <Text dimColor>{lang}</Text> : null}
       {rows.map((tokens, i) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: code lines are positional
         <Text key={i}>
           <Text dimColor>{`${String(i + 1).padStart(gutterW, ' ')} `}</Text>
           {tokens.length === 0
             ? ' '
             : tokens.map((t, j) => (
                 <Text
-                  // biome-ignore lint/suspicious/noArrayIndexKey: token order is stable per line
                   key={j}
                   dimColor={Boolean(t.dim)}
                   bold={Boolean(t.bold)}
@@ -219,6 +217,6 @@ export function extractDiffPreview(
     }
   }
 
-  if (!diff || !diff.trim() || diff.startsWith('(no-op')) return undefined;
+  if (!diff?.trim() || diff.startsWith('(no-op')) return undefined;
   return parseUnifiedDiff(diff, DIFF_MAX_LINES);
 }

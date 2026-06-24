@@ -13,11 +13,11 @@ function flushRaf() {
   for (const cb of cbs) if (cb) cb(performance.now());
 }
 import { render, screen, fireEvent } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { QueuedMessages } from '../../src/components/ChatInput/queued-messages.js';
 import { FileMentionPicker } from '../../src/components/ChatInput/file-mention-picker.js';
 
-function mockTextarea(): HTMLTextAreaElement {
+function _mockTextarea(): HTMLTextAreaElement {
   return {
     focus: vi.fn(),
     setSelectionRange: vi.fn(),

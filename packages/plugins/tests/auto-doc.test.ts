@@ -117,7 +117,7 @@ describe('runAutoDoc doc generation', () => {
     const filePath = path.join(tmpDir, 'sample.ts');
     await fs.writeFile(filePath, [
       'export function hello(name: string): string {',
-      '  return `Hello, ${name}`;',
+      `  return \`Hello, \${name}\`;`,
       '}',
     ].join('\n'));
 

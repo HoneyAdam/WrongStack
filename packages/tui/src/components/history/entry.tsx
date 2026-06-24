@@ -231,7 +231,6 @@ export const Entry = React.memo(function Entry({
             {sizeChip ? <Text dimColor>{`  ·  ${sizeChip}`}</Text> : null}
           </Text>
           {outLines.map((line, i) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: tool output lines are static, index is stable
             <Text key={i}>
               <Text dimColor>{i === outLines.length - 1 && !diff ? '  └─ ' : '  ├─ '}</Text>
               <Text
@@ -252,7 +251,6 @@ export const Entry = React.memo(function Entry({
       // first \x1b[22m close inside the text cancels the outer dim, leaving
       // the rest of the entry patchy half-dim/half-bright. Only dim plain,
       // unstyled lines.
-      // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI detection
       const hasAnsi = /\x1b\[/.test(entry.text);
       return <Text dimColor={!hasAnsi}>{entry.text}</Text>;
     }
@@ -358,7 +356,6 @@ export const Entry = React.memo(function Entry({
             ) : null}
           </Text>
           {lines.slice(1).map((line, i) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: stable line index
             <Text key={i}>
               <Text dimColor>{'  '}</Text>
               <Text>{line}</Text>

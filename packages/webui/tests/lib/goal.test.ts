@@ -3,7 +3,7 @@
  * Pure function with no React or external dependencies.
  */
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { parseGoalState, type GoalDeliverable, type GoalJournalEntry, type GoalState } from '../../src/lib/goal';
 
 // ─── Null / invalid input ─────────────────────────────────────────────────────

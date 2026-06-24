@@ -19,7 +19,7 @@ function createMockWs() {
 }
 
 function makeCtx(): WorklistContext {
-  const ws = createMockWs();
+  const _ws = createMockWs();
   return {
     context: {
       todos: [{ id: 't1', content: 'do thing', status: 'pending' } as never],

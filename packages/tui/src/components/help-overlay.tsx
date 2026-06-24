@@ -190,7 +190,6 @@ export function HelpOverlay(): React.ReactElement {
                 <Box flexDirection="column">
                   {leftCol.map((e, i) => (
                     <Box
-                      // biome-ignore lint/suspicious/noArrayIndexKey: positional, stable per column
                       key={i}
                       flexDirection="row"
                     >
@@ -203,7 +202,6 @@ export function HelpOverlay(): React.ReactElement {
                 <Box flexDirection="column">
                   {rightCol.map((e, i) => (
                     <Box
-                      // biome-ignore lint/suspicious/noArrayIndexKey: positional, stable per column
                       key={i}
                       flexDirection="row"
                     >
@@ -224,7 +222,6 @@ export function HelpOverlay(): React.ReactElement {
             </Text>
             {sec.entries.map((e, i) => (
               <Box
-                // biome-ignore lint/suspicious/noArrayIndexKey: positional, stable per section
                 key={i}
                 flexDirection="row"
               >

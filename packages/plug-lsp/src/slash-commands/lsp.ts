@@ -325,7 +325,7 @@ async function runInstallCommand(ctx: LspContext, language: string): Promise<{ m
         ),
         '```',
         '',
-        'Restart your WrongStack session to load the server, then run `/lsp start ${lang}`.',
+        `Restart your WrongStack session to load the server, then run \`/lsp start \${lang}\`.`,
       ].join('\n'),
     };
   } catch (err) {
