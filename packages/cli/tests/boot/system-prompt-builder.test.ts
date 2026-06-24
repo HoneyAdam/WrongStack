@@ -30,6 +30,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 const { bindSystemPromptBuilder } = await import('../../src/boot/system-prompt-builder.js');
 
+import type { TokenSavingTier } from '@wrongstack/core';
+
 interface CapturedBuilder {
   opts: {
     planPath?: string | (() => string | undefined);
@@ -46,7 +48,7 @@ function makeDeps(
     modeId: string;
     modePrompt: string;
     skillsEnabled: boolean;
-    tokenSavingMode: string | boolean | undefined;
+    tokenSavingMode: TokenSavingTier | boolean | undefined;
     autonomyMode: 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel';
     sessionId: string | undefined;
     projectGoal: string;
@@ -100,7 +102,9 @@ describe('bindSystemPromptBuilder (PR 5 of #29)', () => {
     const { container } = makeDeps();
     expect(container.bind).toHaveBeenCalledTimes(1);
     // Factory was captured but NOT called.
-    expect((container.bind as ReturnType<typeof vi.fn>).mock.calls[0][1]).toBeTypeOf('function');
+    const firstCall = (container.bind as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(firstCall).toBeDefined();
+    expect(firstCall?.[1]).toBeTypeOf('function');
   });
 
   it('planPath returns undefined when sessionRef.current is undefined', () => {
