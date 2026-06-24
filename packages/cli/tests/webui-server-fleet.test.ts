@@ -3,6 +3,26 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runWebUI } from '../src/webui-server.js';
 import { openWs } from './_ws-client.js';
 
+type SubagentEventPayload = {
+  kind: 'spawned' | 'iteration_summary' | 'task_completed';
+  subagentId: string;
+  taskId?: string;
+  name?: string;
+  provider?: string;
+  model?: string;
+  description?: string;
+  iteration?: number;
+  toolCalls?: number;
+  costUsd?: number;
+  currentTool?: string;
+  status?: string;
+  error?: { kind: string; message: string };
+};
+
+function payloadOf(msg: { payload: unknown }): SubagentEventPayload {
+  return msg.payload as SubagentEventPayload;
+}
+
 const ports = { next: 45_640 };
 const nextPort = (): number => ports.next++;
 
@@ -45,10 +65,11 @@ describe('runWebUI subagent fleet bridge', () => {
       model: 'claude-x',
       description: 'analyze the kernel',
     });
-    const spawned = await waitForMessage('subagent.event', (m) => m.payload.kind === 'spawned');
-    expect(spawned.payload.subagentId).toBe('sub-1');
-    expect(spawned.payload.name).toBe('Von Neumann');
-    expect(spawned.payload.model).toBe('claude-x');
+    const spawned = await waitForMessage('subagent.event', (m) => payloadOf(m).kind === 'spawned');
+    const spawnedPayload = payloadOf(spawned);
+    expect(spawnedPayload.subagentId).toBe('sub-1');
+    expect(spawnedPayload.name).toBe('Von Neumann');
+    expect(spawnedPayload.model).toBe('claude-x');
 
     // periodic summary → counters forwarded verbatim.
     events.emit('subagent.iteration_summary', {
@@ -60,11 +81,12 @@ describe('runWebUI subagent fleet bridge', () => {
     });
     const summary = await waitForMessage(
       'subagent.event',
-      (m) => m.payload.kind === 'iteration_summary',
+      (m) => payloadOf(m).kind === 'iteration_summary',
     );
-    expect(summary.payload.iteration).toBe(25);
-    expect(summary.payload.toolCalls).toBe(47);
-    expect(summary.payload.currentTool).toBe('grep');
+    const summaryPayload = payloadOf(summary);
+    expect(summaryPayload.iteration).toBe(25);
+    expect(summaryPayload.toolCalls).toBe(47);
+    expect(summaryPayload.currentTool).toBe('grep');
 
     // completion → status + structured error flattened to {kind,message}.
     events.emit('subagent.task_completed', {
@@ -76,11 +98,12 @@ describe('runWebUI subagent fleet bridge', () => {
       durationMs: 1000,
       error: { kind: 'rate_limit', message: '429 slow down', retryable: true },
     });
-    const done = await waitForMessage('subagent.event', (m) => m.payload.kind === 'task_completed');
-    expect(done.payload.status).toBe('failed');
-    expect(done.payload.error).toEqual({ kind: 'rate_limit', message: '429 slow down' });
+    const done = await waitForMessage('subagent.event', (m) => payloadOf(m).kind === 'task_completed');
+    const donePayload = payloadOf(done);
+    expect(donePayload.status).toBe('failed');
+    expect(donePayload.error).toEqual({ kind: 'rate_limit', message: '429 slow down' });
     // retryable/durationMs are intentionally not forwarded — keep the wire lean.
-    expect(done.payload.error.retryable).toBeUndefined();
+    expect((donePayload.error as { retryable?: boolean } | undefined)?.retryable).toBeUndefined();
 
     ws.close();
     process.emit('SIGTERM');
