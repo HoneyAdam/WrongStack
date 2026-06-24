@@ -66,7 +66,7 @@ function MetricCard({
   );
 }
 
-function StatusBadge({ active }: { active: boolean }) {
+function _StatusBadge({ active }: { active: boolean }) {
   return (
     <span
       className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium ${

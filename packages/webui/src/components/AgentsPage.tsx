@@ -1,15 +1,11 @@
-import { useWebSocket } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';
 import { useChatStore, useConfigStore, useFleetStore, useSessionStore } from '@/stores';
 import type { SubagentView } from '@/stores';
 import {
   Activity,
-  ArrowDown,
   ArrowRight,
-  ArrowUp,
   Bot,
   CheckCircle2,
-  ChevronDown,
   ChevronRight,
   Clock,
   Cpu,
@@ -17,16 +13,14 @@ import {
   Database,
   DollarSign,
   FolderOpen,
-  Gauge,
   Loader2,
-  Sparkles,
   Timer,
   Wrench,
   XCircle,
   Zap,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ContextBar, ContextFillBar } from './ContextBar';
+import { ContextFillBar } from './ContextBar';
 import { ContextBreakdownModal } from './ContextBreakdownModal';
 import { fmtTok } from './ChatView/utils';
 import { bucketActivity, fmtCost, fmtDuration, fmtElapsed, sparkline } from './AgentsPage/format';

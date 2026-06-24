@@ -8,7 +8,6 @@ import {
   MessageSquare,
   Users,
   Circle,
-  AlertCircle,
   FileText,
   HelpCircle,
   Send,

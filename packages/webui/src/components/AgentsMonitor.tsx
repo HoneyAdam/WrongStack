@@ -15,7 +15,7 @@
  * Keyboard: ↑↓ navigate agents, ←→ flip pages per agent, Esc close.
  */
 
-import { Bot, ChevronLeft, ChevronRight, Clock, Cpu, Crown, DollarSign, Loader2, Wrench, X, Zap } from 'lucide-react';
+import { Bot, ChevronLeft, ChevronRight, Cpu, Crown, Loader2, Wrench, X, Zap } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ContextBar } from '@/components/ContextBar';
 import { SparklineChart } from '@/components/ui/sparkline';
@@ -33,7 +33,7 @@ function fmtCost(v: number): string {
   return `$${v.toFixed(5)}`.replace(/0+$/, '').replace(/\.$/, '');
 }
 
-function fmtTok(n: number): string {
+function _fmtTok(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return String(n);

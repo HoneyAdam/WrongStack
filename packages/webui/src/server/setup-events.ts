@@ -674,7 +674,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
     // Log metrics every 60 seconds
     const metricsInterval = setInterval(logWatcherMetrics, 60_000);
 
-    const broadcastStatus = (projectHash: string, statusData: unknown, actualDelayMs: number) => {
+    const broadcastStatus = (_projectHash: string, statusData: unknown, actualDelayMs: number) => {
       broadcast(clients, { type: 'client.status_update', payload: statusData });
       if (watcherMetrics) {
         watcherMetrics.broadcastsSent++;

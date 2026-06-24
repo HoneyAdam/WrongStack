@@ -196,8 +196,7 @@ export function ProviderSection({
               No providers match "<span className="font-mono">{catalogQuery}</span>".
             </div>
           ) : (
-            <>
-              {PROVIDER_FAMILIES.map((family) => {
+            PROVIDER_FAMILIES.map((family) => {
                 const providers = catalogByFamily[family];
                 if (!providers?.length) return null;
                 return (
@@ -251,8 +250,7 @@ export function ProviderSection({
                     </div>
                   </div>
                 );
-              })}
-            </>
+              })
           )}
         </div>
       )}

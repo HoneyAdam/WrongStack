@@ -262,7 +262,7 @@ export function ChatInput({
               original: content,
               refined: content, // Will be replaced when backend responds
               english: content,
-              resolve: (decision) => {
+              resolve: (_decision) => {
                 // This is called when the refine panel is decided
               },
             });

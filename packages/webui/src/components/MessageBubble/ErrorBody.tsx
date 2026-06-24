@@ -1,6 +1,4 @@
 import { expectDefined } from '@wrongstack/core';
-import { cn } from '@/lib/utils';
-import type React from 'react';
 import { useState } from 'react';
 function detectStackBoundary(text: string): number {
   const lines = text.split('\n');

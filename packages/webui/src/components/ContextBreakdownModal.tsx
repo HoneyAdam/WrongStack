@@ -1,7 +1,7 @@
 import { getWSClient } from '@/lib/ws-client';
 import { useConfigStore, useSessionStore } from '@/stores';
 import { fmtTok } from '@/components/ChatView/utils';
-import { AlertTriangle, Cpu, FileText, MessageSquare, RefreshCw, Wrench, X } from 'lucide-react';
+import { AlertTriangle, FileText, MessageSquare, RefreshCw, Wrench, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 /** Debug payload from context.debug WS response. */

@@ -114,7 +114,7 @@ export function ProjectsPanel({ fullView }: { fullView?: boolean | undefined }) 
       off();
       // If the message includes a URL, try to open it in a new tab
       const urlMatch = payload.message.match(/(https?:\/\/[^\s]+)/);
-      if (urlMatch && urlMatch[1]) {
+      if (urlMatch?.[1]) {
         window.open(urlMatch[1], '_blank');
         toast.success(`Opening ${payload.name} in a new tab...`);
       } else {

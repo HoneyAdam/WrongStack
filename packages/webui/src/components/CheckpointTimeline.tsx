@@ -1,6 +1,6 @@
 import { cn } from '@/lib/utils';
 import { useWebSocket } from '@/hooks/useWebSocket';
-import { ChevronRight, Clock, GitBranch, History, Rewind, X } from 'lucide-react';
+import { Clock, History, Rewind, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 // ── Types ──────────────────────────────────────────────────────────────────

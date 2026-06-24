@@ -9,7 +9,6 @@ import {
   ArrowUp,
   Bot,
   ChevronDown,
-  Clock,
   Cpu,
   History,
   PanelLeftOpen,
@@ -195,7 +194,7 @@ export function ChatView() {
     maxContext > 0 && lastInputTokens > 0
       ? Math.round((lastInputTokens / maxContext) * 100)
       : 0;
-  const ctxTone =
+  const _ctxTone =
     ctxPct >= 85
       ? 'bg-red-500/15 text-red-600 dark:text-red-400'
       : ctxPct >= 70
@@ -247,7 +246,6 @@ export function ChatView() {
   // A session switch (resume / new) repopulates the transcript wholesale —
   // open it pinned to the end even if the user had scrolled up in the
   // previous session, so the replayed history starts at its latest turn.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: re-run only on session change
   useEffect(() => {
     setPinnedToBottom(true);
     setUnreadCount(0);

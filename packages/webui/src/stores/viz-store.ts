@@ -253,7 +253,7 @@ const EDGE_COLORS: Record<string, string> = {
 
 // ── Store ─────────────────────────────────────────────────────────────
 
-export const useVizStore = create<VizState>()((set, get) => ({
+export const useVizStore = create<VizState>()((set, _get) => ({
   events: [],
   nodes: new Map(),
   edges: new Map(),

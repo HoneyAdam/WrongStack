@@ -1,5 +1,4 @@
 import { cn } from '@/lib/utils';
-import { useWebSocket } from '@/hooks/useWebSocket';
 import {
   Activity,
   ArrowRightLeft,
@@ -7,7 +6,7 @@ import {
   Pause,
   Play,
 } from 'lucide-react';
-import { useCallback, useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 

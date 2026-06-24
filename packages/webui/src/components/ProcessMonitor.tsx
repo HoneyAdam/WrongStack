@@ -1,6 +1,6 @@
 import { cn } from '@/lib/utils';
 import { useWebSocket } from '@/hooks/useWebSocket';
-import { Cpu, Shield, Square, Terminal, X } from 'lucide-react';
+import { Shield, Square, Terminal, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 // ── Types ──────────────────────────────────────────────────────────────────

@@ -224,7 +224,7 @@ export const useCoordinatorMonitorStore = create<CoordinatorMonitorState>()((set
   lastUpdated: Date.now(),
 
   setCoordinatorStatus: (status, mode) =>
-    set((s) => ({ coordinatorStatus: status, coordinatorMode: mode, lastUpdated: Date.now() })),
+    set((_s) => ({ coordinatorStatus: status, coordinatorMode: mode, lastUpdated: Date.now() })),
 
   updateCoordinatorStats: (p) =>
     set((s) => {
@@ -450,7 +450,7 @@ export const useCoordinatorMonitorStore = create<CoordinatorMonitorState>()((set
     set((s) => {
       const subagents = new Map(s.subagents);
       const existing = subagents.get(subagentId);
-      if (existing && existing.budgetLimits) {
+      if (existing?.budgetLimits) {
         const updatedLimits = { ...existing.budgetLimits };
         if (kind === 'timeout' && extendedTo) updatedLimits.timeoutMs = extendedTo;
         if (kind === 'iterations') updatedLimits.maxIterations = extendedTo;
