@@ -111,7 +111,7 @@ describe('createContextManagerTool', () => {
       { role: 'user', content: 'a' },
       { role: 'user', content: 'b' },
     ]);
-    const result = await tool.execute({ action: 'add_note', text: 'inserted', afterIndex: 1 }, ctx);
+    const _result = await tool.execute({ action: 'add_note', text: 'inserted', afterIndex: 1 }, ctx);
     expect(ctx.messages[1].content).toContain('inserted');
   });
 
@@ -178,7 +178,7 @@ describe('createContextManagerTool', () => {
   it('compact uses registered compactor', async () => {
     const tool = createContextManagerTool({
       compactor: {
-        compact: async (ctx: any) => ({ after: 100, removed: 5 }),
+        compact: async (_ctx: any) => ({ after: 100, removed: 5 }),
       },
     });
     const ctx = makeCtx([{ role: 'user', content: 'a'.repeat(1000) }]);

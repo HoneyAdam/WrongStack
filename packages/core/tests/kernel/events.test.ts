@@ -64,8 +64,8 @@ describe('ScopedEventBus', () => {
     const bus = new ScopedEventBus();
     const a = vi.fn();
     const b = vi.fn();
-    const offA = bus.on('session.started', a);
-    const offB = bus.on('tool.executed', b);
+    const _offA = bus.on('session.started', a);
+    const _offB = bus.on('tool.executed', b);
     expect(bus.scopedListenerCount).toBe(2);
 
     bus.teardown();

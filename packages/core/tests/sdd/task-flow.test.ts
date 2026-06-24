@@ -4,9 +4,9 @@ import { SpecDrivenDev, TaskFlow } from '../../src/sdd/task-flow.js';
 import { DefaultTaskStore } from '../../src/sdd/task-generator.js';
 import { TaskTracker } from '../../src/sdd/task-tracker.js';
 import type { Specification } from '../../src/types/spec.js';
-import type { TaskGraph, TaskNode } from '../../src/types/task-graph.js';
+import type { TaskNode } from '../../src/types/task-graph.js';
 
-function makeSpec(overrides: Partial<Specification> = {}): Specification {
+function _makeSpec(overrides: Partial<Specification> = {}): Specification {
   return {
     id: 'spec-1',
     title: 'Test Specification',
@@ -33,7 +33,7 @@ function makeSpec(overrides: Partial<Specification> = {}): Specification {
   };
 }
 
-function makeTaskNode(overrides: Partial<TaskNode> = {}): TaskNode {
+function _makeTaskNode(overrides: Partial<TaskNode> = {}): TaskNode {
   return {
     id: 'task-1',
     title: 'Test Task',
@@ -103,9 +103,9 @@ describe('TaskFlow', () => {
       const flow = createFlow();
       const specContent = `# Test\n\nNo proper structure`;
 
-      let errorPayload: any = null;
+      let _errorPayload: any = null;
       events.on('error' as any, (payload: any) => {
-        errorPayload = payload;
+        _errorPayload = payload;
       });
 
       await expect(flow.fromSpec(specContent)).rejects.toThrow();
@@ -137,7 +137,7 @@ describe('TaskFlow', () => {
       await flow.fromSpec(specContent);
 
       let executedTask: any = null;
-      const result = await flow.execute({
+      const _result = await flow.execute({
         executeTask: async (task) => {
           executedTask = task;
           return 'task-result';
@@ -308,7 +308,7 @@ describe('TaskFlow', () => {
       await flow.fromSpec(specContent);
 
       let executedCount = 0;
-      const result = await flow.execute({
+      const _result = await flow.execute({
         executeTask: async () => {
           executedCount++;
           return 'done';
@@ -364,11 +364,11 @@ describe('TaskFlow', () => {
 });
 
 describe('SpecDrivenDev', () => {
-  let store: DefaultTaskStore;
+  let _store: DefaultTaskStore;
   let events: EventBus;
 
   beforeEach(() => {
-    store = new DefaultTaskStore();
+    _store = new DefaultTaskStore();
     events = new EventBus();
   });
 

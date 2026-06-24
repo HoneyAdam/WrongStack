@@ -68,10 +68,10 @@ describe('ProviderRegistry', () => {
 
   it('override replaces existing factory', () => {
     const r = new ProviderRegistry();
-    let callCount = 0;
+    let _callCount = 0;
     r.register(makeFactory('a', () => ({ ...fakeProvider, id: 'first' })));
     r.override('a', makeFactory('a', () => {
-      callCount++;
+      _callCount++;
       return { ...fakeProvider, id: 'second' };
     }));
     const prov = r.create({ type: 'a' }) as typeof fakeProvider & { id: string };

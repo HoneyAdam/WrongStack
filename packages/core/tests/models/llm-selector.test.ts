@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { LLMSelector } from '../../src/models/llm-selector.js';
 import type { Message } from '../../src/types/messages.js';
 import type { Provider, Capabilities } from '../../src/types/provider.js';
@@ -141,7 +141,7 @@ describe('LLMSelector', () => {
       const selector = new LLMSelector({ provider, maxContextTokens: 5000 });
       const messages = Array(10)
         .fill(null)
-        .map((_, i) => makeMessage('user', 'x'.repeat(100)));
+        .map((_, _i) => makeMessage('user', 'x'.repeat(100)));
       await selector.select(messages, 1000);
       // The effective budget should be min(maxToKeep, maxContextTokens) = min(1000, 5000) = 1000
     });
@@ -194,8 +194,8 @@ describe('LLMSelector', () => {
       const selector = new LLMSelector({ provider, maxContextTokens: 40000 });
       const messages = Array(5)
         .fill(null)
-        .map((_, i) => makeMessage('user', 'x'.repeat(200)));
-      const result = await selector.select(messages, 10); // tiny budget
+        .map((_, _i) => makeMessage('user', 'x'.repeat(200)));
+      const _result = await selector.select(messages, 10); // tiny budget
       // If budget is tiny, even 1 message might not fit
     });
 
@@ -209,7 +209,7 @@ describe('LLMSelector', () => {
       const selector = new LLMSelector({ provider, maxContextTokens: 40000 });
       const messages = Array(5)
         .fill(null)
-        .map((_, i) => makeMessage('user', 'short'));
+        .map((_, _i) => makeMessage('user', 'short'));
       const result = await selector.select(messages, 100000); // huge budget
       expect(result.collapsed).toHaveLength(0);
       expect(result.kept).toHaveLength(1); // All in one kept range

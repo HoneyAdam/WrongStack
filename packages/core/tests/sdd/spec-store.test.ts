@@ -1,7 +1,6 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import * as fsp from 'node:fs/promises';
 import { SpecStore } from '../../src/sdd/spec-store.js';
 
 function tmpDir(): string {

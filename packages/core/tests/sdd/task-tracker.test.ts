@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { DefaultTaskStore } from '../../src/sdd/task-generator.js';
 import { TaskTracker } from '../../src/sdd/task-tracker.js';
 import type { TaskGraph, TaskStore } from '../../src/types/task-graph.js';
 
@@ -114,7 +113,7 @@ describe('TaskTracker', () => {
 
     it('adds to rootNodes when no parentId', async () => {
       await tracker.createGraph('s', 't');
-      const node = tracker.addNode({
+      const _node = tracker.addNode({
         title: 'T',
         description: '',
         type: 'feature',
@@ -146,7 +145,7 @@ describe('TaskTracker', () => {
         parentId: parent.id,
       });
       expect(child.parentId).toBe(parent.id);
-      const graph = await store.loadGraph((await tracker.loadGraph('' as any))?.id ?? '');
+      const _graph = await store.loadGraph((await tracker.loadGraph('' as any))?.id ?? '');
     });
 
     it('persists node in store', async () => {
@@ -184,7 +183,7 @@ describe('TaskTracker', () => {
         status: 'pending',
       });
       tracker.addEdge(n1.id, n2.id);
-      const nodes = tracker.getAllNodes();
+      const _nodes = tracker.getAllNodes();
       // Edge should be persisted in store
     });
 

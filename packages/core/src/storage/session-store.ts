@@ -1743,7 +1743,6 @@ class FileSessionWriter implements SessionWriter {
 
       const writeFd = await fsp.open(tmpPath, 'w', 0o600);
       try {
-        let copied = 0;
         let readOffset = 0;
         while (readOffset < newlineAfterCheckpoint) {
           const toCopy = Math.min(CHUNK_SIZE, newlineAfterCheckpoint - readOffset);
@@ -1752,7 +1751,6 @@ class FileSessionWriter implements SessionWriter {
           if (r === 0) break;
           await writeFd.write(copyBuf, 0, r);
           readOffset += r;
-          copied += r;
         }
 
         // Preserve malformed JSONL records even after the rewind target. They

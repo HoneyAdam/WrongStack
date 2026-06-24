@@ -217,7 +217,7 @@ describe('SlashCommandRegistry', () => {
     r.register({
       name: 'check',
       description: '',
-      async run(args, ctx) {
+      async run(args, _ctx) {
         return { exit: true, message: `args="${args}"` };
       },
     });
