@@ -1,0 +1,19 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/core" },
+    { "path": "./packages/runtime" },
+    { "path": "./packages/tools" },
+    { "path": "./packages/providers" },
+    { "path": "./packages/acp" },
+    { "path": "./packages/plugins" },
+    { "path": "./packages/telegram" },
+    { "path": "./packages/mcp/tsconfig.test.json" },
+    { "path": "./packages/plug-lsp" },
+    { "path": "./packages/tui" },
+    { "path": "./packages/webui" },
+    { "path": "./packages/cli" },
+    { "path": "./packages/bench" },
+    { "path": "./website" }
+  ]
+}
