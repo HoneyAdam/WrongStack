@@ -47,16 +47,10 @@ interface CapturedRenderer {
   warn: string[];
 }
 
-type TestRenderer = {
-  write: ReturnType<typeof vi.fn>;
-  writeError: ReturnType<typeof vi.fn>;
-  writeWarning: ReturnType<typeof vi.fn>;
-  captured: CapturedRenderer;
-};
+type RendererWithCapture = SubcommandDeps['renderer'] & { captured: CapturedRenderer };
+type TestDeps = SubcommandDeps & { renderer: RendererWithCapture };
 
-type TestDeps = Omit<SubcommandDeps, 'renderer'> & { renderer: TestRenderer };
-
-function makeDeps(overrides: Partial<TestDeps> = {}): TestDeps {
+function makeDeps(overrides: Partial<SubcommandDeps> = {}): TestDeps {
   return {
     config: {} as SubcommandDeps['config'],
     renderer: makeStubRenderer(),
@@ -69,10 +63,10 @@ function makeDeps(overrides: Partial<TestDeps> = {}): TestDeps {
     userHome: tmpHome,
     flags: { 'data-dir': dataDir },
     ...overrides,
-  };
+  } as TestDeps;
 }
 
-function makeStubRenderer(): TestRenderer {
+function makeStubRenderer(): RendererWithCapture {
   const captured: CapturedRenderer = { out: [], err: [], warn: [] };
   return {
     write: vi.fn((s: string) => {
@@ -85,7 +79,7 @@ function makeStubRenderer(): TestRenderer {
       captured.warn.push(s);
     }),
     captured,
-  };
+  } as RendererWithCapture;
 }
 
 describe('wstack hq — token create', () => {
