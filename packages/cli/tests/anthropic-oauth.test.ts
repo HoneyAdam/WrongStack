@@ -52,7 +52,15 @@ describe('parseAuthorizationInput', () => {
 
 describe('exchangeAuthorizationCode', () => {
   it('POSTs a JSON authorization_code body and maps tokens', async () => {
-    let captured: { url?: string; body?: string; contentType?: string } = {};
+    let captured: {
+      url: string | undefined;
+      body: string | undefined;
+      contentType: string | undefined;
+    } = {
+      url: undefined,
+      body: undefined,
+      contentType: undefined,
+    };
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string, init: { body?: string; headers?: Record<string, string> }) => {
