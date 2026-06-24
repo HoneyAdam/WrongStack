@@ -1,4 +1,3 @@
-import { useWebSocket } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/stores';
 import { CheckCircle2, Cpu, Loader2, RefreshCw } from 'lucide-react';

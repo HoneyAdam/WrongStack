@@ -5,8 +5,6 @@ import type { AnnotationsStore, SessionReader } from '@wrongstack/core/storage';
 import { toErrorMessage } from '@wrongstack/core/utils';
 import type {
   CollabRole,
-  WSCollabParticipantJoined,
-  WSCollabParticipantLeft,
   WSCollabState,
   WSServerMessage,
 } from '../types.js';

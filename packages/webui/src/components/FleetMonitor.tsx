@@ -30,7 +30,7 @@ import {
   XCircle,
   Zap,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ConcurrencyGauge, EventTimeline } from '@/components/ui';
 import { SparklineChart } from '@/components/ui/sparkline';
 import { cn } from '@/lib/utils';

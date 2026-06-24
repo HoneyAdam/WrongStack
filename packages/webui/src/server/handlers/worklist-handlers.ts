@@ -227,7 +227,7 @@ export async function handlePlanItemUpdate(
     return;
   }
   try {
-    const { loadPlan, savePlan, mutatePlan, setPlanItemStatus } = await import('@wrongstack/core');
+    const { mutatePlan, setPlanItemStatus } = await import('@wrongstack/core');
     let changed = false;
     const plan = await mutatePlan(planPath, sessionId, async (p) => {
       const before = p.updatedAt;

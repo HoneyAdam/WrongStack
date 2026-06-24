@@ -10,7 +10,7 @@ import {
   TrendingUp,
   Minus,
 } from 'lucide-react';
-import { type ReactNode, useCallback, useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import type { GoalState } from '@/lib/goal';
 import { getWSClient } from '@/lib/ws-client';
 

@@ -25,7 +25,6 @@ import { useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/ui-store';
-import type { MailboxMessage } from '@/stores/mailbox-store';
 import { markdownComponents } from './MessageBubble/utils';
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -87,7 +86,7 @@ function EmptyState() {
   );
 }
 
-function MessageNotFound() {
+function _MessageNotFound() {
   return (
     <div className="flex flex-col items-center justify-center gap-3 p-8 text-muted-foreground">
       <AlertCircle className="h-10 w-10 opacity-30" />

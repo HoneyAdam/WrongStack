@@ -1,5 +1,3 @@
-import { cn } from '@/lib/utils';
-import { SlidersHorizontal } from 'lucide-react';
 
 /** A labeled slider with current value display. */
 export function PreferenceSlider({

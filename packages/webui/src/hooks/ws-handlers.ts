@@ -1,8 +1,3 @@
-import { expectDefined, normalizedEqual } from '@wrongstack/core';
-import { toast } from '@/components/Toaster';
-import { playPermissionChime } from '@/lib/chime';
-import { setFaviconStatus } from '@/lib/favicon';
-import { ensureNotificationPermission, notifyIfHidden } from '@/lib/notify';
 import { getWSClient } from '@/lib/ws-client';
 import { streamCoalescer } from '@/lib/stream-coalescer';
 import type { WrongStackWebSocketClient } from '@/lib/ws-client';
@@ -199,23 +194,23 @@ export const WS_HANDLERS: Record<string, (msg: WSServerMessage) => void> = {
   'tasks.updated': (msg: WSServerMessage) => {
     // Handled directly by TasksPanel component via WS client.on()
   },
-  'plan.updated': (msg: WSServerMessage) => {
+  'plan.updated': (_msg: WSServerMessage) => {
     // Handled directly by PlanPanel component via WS client.on()
   },
   'modes.list': handleModesList,
-  'session.checkpoints': (msg: WSServerMessage) => {
+  'session.checkpoints': (_msg: WSServerMessage) => {
     // Handled directly by CheckpointTimeline component via WS client.on()
   },
-  'process.list': (msg: WSServerMessage) => {
+  'process.list': (_msg: WSServerMessage) => {
     // Handled directly by ProcessMonitor component via WS client.on()
   },
-  'projects.list': (msg: WSServerMessage) => {
+  'projects.list': (_msg: WSServerMessage) => {
     // Handled directly by ProjectsPanel component
   },
-  'projects.added': (msg: WSServerMessage) => {
+  'projects.added': (_msg: WSServerMessage) => {
     // Handled directly by ProjectsPanel component
   },
-  'projects.selected': (msg: WSServerMessage) => {
+  'projects.selected': (_msg: WSServerMessage) => {
     // Handled directly by ProjectsPanel component
   },
 };

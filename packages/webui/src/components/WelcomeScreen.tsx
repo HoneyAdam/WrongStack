@@ -8,7 +8,6 @@ import {
   ArchiveRestore,
   ArrowRight,
   Clock,
-  Code2,
   Crosshair,
   KeyRound,
   Keyboard,
@@ -134,7 +133,6 @@ export function WelcomeScreen() {
    *  populated by the History tab on demand. */
   const { listSessions, resumeSession } = useWebSocket();
   const historyEntries = useHistoryStore((s) => s.entries);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional mount-only
   useEffect(() => {
     if (wsConnected && historyEntries.length === 0) listSessions(10);
     // Intentionally only fire on first connect — refreshing on every
