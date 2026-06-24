@@ -16,6 +16,7 @@ import * as fs from 'node:fs/promises';
 // Note: fsSync imported for potential future use with synchronous file operations
 import * as os from 'node:os';
 import * as path from 'node:path';
+import type { ChildProcess } from 'node:child_process';
 import { getProcessRegistry, type ProcessRegistryImpl } from './process-registry.js';
 
 const REGISTRY_FILE = '.wrongstack/process-registry.json';
@@ -64,6 +65,10 @@ function generateInstanceId(): string {
  * Acquire a file lock using flock-style locking.
  * On Windows, uses a separate lockfile with atomic rename.
  */
+function isNodeError(err: unknown): err is NodeJS.ErrnoException {
+  return typeof err === 'object' && err !== null && 'code' in err;
+}
+
 async function acquireLock(lockfilePath: string, timeoutMs = 5000): Promise<() => Promise<void>> {
   const start = Date.now();
   const pidStr = String(process.pid);
@@ -80,8 +85,8 @@ async function acquireLock(lockfilePath: string, timeoutMs = 5000): Promise<() =
           // Lock file may have been cleaned up by another process
         }
       };
-    } catch (err: any) {
-      if (err.code === 'EEXIST') {
+    } catch (err) {
+      if (isNodeError(err) && err.code === 'EEXIST') {
         // Lock exists - check if the holder is still alive
         try {
           const content = await fs.readFile(lockfilePath, 'utf-8');
@@ -101,11 +106,15 @@ async function acquireLock(lockfilePath: string, timeoutMs = 5000): Promise<() =
           }
         } catch {
           // Can't read lock file - assume stale, try to steal
-          try { await fs.unlink(lockfilePath); } catch { /* ignore */ }
+          try {
+            await fs.unlink(lockfilePath);
+          } catch {
+            /* ignore */
+          }
         }
 
         // Wait before retrying
-        await new Promise(r => setTimeout(r, 100));
+        await new Promise((r) => setTimeout(r, 100));
         continue;
       }
       throw err;
@@ -129,8 +138,8 @@ async function readRegistryFile(filePath: string): Promise<PersistentRegistryDat
     }
 
     return parsed;
-  } catch (err: any) {
-    if (err.code === 'ENOENT') {
+  } catch (err) {
+    if (isNodeError(err) && err.code === 'ENOENT') {
       return {
         version: 1,
         instances: new Map(),
@@ -187,8 +196,8 @@ export class PersistentProcessRegistry {
     const dir = path.dirname(this.registryPath);
     try {
       await fs.mkdir(dir, { recursive: true });
-    } catch (err: any) {
-      if (err.code !== 'EEXIST') throw err;
+    } catch (err) {
+      if (!isNodeError(err) || err.code !== 'EEXIST') throw err;
     }
   }
 
@@ -287,6 +296,7 @@ export class PersistentProcessRegistry {
       data.instances.set(String(entry.pid), entry);
 
       // Also update the in-memory registry
+      const child: ChildProcess = null as unknown as ChildProcess;
       this.baseRegistry.register({
         pid: entry.pid,
         name: entry.name,
@@ -294,7 +304,7 @@ export class PersistentProcessRegistry {
         startedAt: entry.startedAt,
         sessionId: entry.sessionId,
         protected: entry.protected,
-        child: null as any, // Main process has no child handle
+        child,
       });
 
       await writeRegistryFile(this.registryPath, data);
