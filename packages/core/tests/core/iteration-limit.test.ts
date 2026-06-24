@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, } from 'vitest';
 import { requestLimitExtension } from '../../src/core/iteration-limit.js';
 import { EventBus } from '../../src/kernel/events.js';
 

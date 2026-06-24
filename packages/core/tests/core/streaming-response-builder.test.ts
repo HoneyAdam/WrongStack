@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, } from 'vitest';
 import { EventBus } from '../../src/kernel/events.js';
 import {
   buildResponse,

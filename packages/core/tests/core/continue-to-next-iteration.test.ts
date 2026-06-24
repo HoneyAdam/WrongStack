@@ -2,8 +2,8 @@
  * Unit tests for the autonomous continue feature:
  * parseContinueDirective(), makeContinueToNextIterationTool().
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { parseContinueDirective, makeContinueToNextIterationTool, setAutonomousContinue, clearAutonomousContinue, consumeAutonomousContinue, type ContinueDirective } from '../../src/core/continue-to-next-iteration.js';
+import { beforeEach, describe, expect, it, } from 'vitest';
+import { parseContinueDirective, makeContinueToNextIterationTool, setAutonomousContinue, clearAutonomousContinue, consumeAutonomousContinue, } from '../../src/core/continue-to-next-iteration.js';
 import { Context } from '../../src/core/context.js';
 
 // ---------------------------------------------------------------------------

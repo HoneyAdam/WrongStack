@@ -4,7 +4,6 @@
  */
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
-import { join } from 'node:path';
 
 const sessionPath = process.argv[2];
 if (!sessionPath) {

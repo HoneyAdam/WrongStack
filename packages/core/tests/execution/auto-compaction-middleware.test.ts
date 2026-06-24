@@ -4,9 +4,9 @@ import { AutoCompactionMiddleware } from '../../src/execution/auto-compaction-mi
 import { EventBus } from '../../src/kernel/events.js';
 import type { SessionEventBridge } from '../../src/storage/session-event-bridge.js';
 import { createContextEvidenceState } from '../../src/utils/context-evidence.js';
-import type { CompactReport, Compactor } from '../../src/types/compactor.js';
+import type { Compactor } from '../../src/types/compactor.js';
 
-function mockContext(tokenEstimate: number): Context {
+function mockContext(_tokenEstimate: number): Context {
   return {
     messages: [],
     todos: [],
@@ -118,9 +118,9 @@ describe('AutoCompactionMiddleware', () => {
     });
 
     const ctx = mockContext(0); // 80% load — between soft and hard
-    let ran = false;
+    let _ran = false;
     await mw.handler()(ctx, async (c) => {
-      ran = true;
+      _ran = true;
       return c;
     });
 
@@ -136,9 +136,9 @@ describe('AutoCompactionMiddleware', () => {
     });
 
     const ctx = mockContext(0); // 95% load — above hard
-    let ran = false;
+    let _ran = false;
     await mw.handler()(ctx, async (c) => {
-      ran = true;
+      _ran = true;
       return c;
     });
 

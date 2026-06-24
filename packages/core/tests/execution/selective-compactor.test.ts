@@ -1,12 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Context } from '../../src/core/context.js';
 import { estimateMessages } from '../../src/execution/compaction-core.js';
 import { SelectiveCompactor } from '../../src/execution/selective-compactor.js';
 import type { ContentBlock, TextBlock } from '../../src/types/blocks.js';
-import type { CompactReport, Compactor } from '../../src/types/compactor.js';
 import type { Message } from '../../src/types/messages.js';
 import type { Provider, Capabilities } from '../../src/types/provider.js';
-import type { MessageSelector, SelectorResult } from '../../src/types/selector.js';
+import type { MessageSelector, } from '../../src/types/selector.js';
 
 function makeTextBlock(text: string): TextBlock {
   return { type: 'text', text };

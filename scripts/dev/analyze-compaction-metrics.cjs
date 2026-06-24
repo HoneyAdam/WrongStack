@@ -13,7 +13,7 @@ for (const raw of lines) {
   if (!line) continue;
   try {
     const ev = JSON.parse(line);
-    if (!ev.event || !ev.event.startsWith('compaction.')) continue;
+    if (!ev.event?.startsWith('compaction.')) continue;
     total++;
     const msgKey = String(ev.messageCount ?? '?');
     mc[msgKey] = (mc[msgKey] || 0) + 1;

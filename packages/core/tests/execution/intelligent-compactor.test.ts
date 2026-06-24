@@ -40,7 +40,7 @@ function makeFakeProvider(responses: string[]): Provider {
     stream() {
       return (async function* () {})();
     },
-    async complete(req) {
+    async complete(_req) {
       const text = responses[idx++] ?? 'summary placeholder';
       return {
         content: [{ type: 'text', text }],

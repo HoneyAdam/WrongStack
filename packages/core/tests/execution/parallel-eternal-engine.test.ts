@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -258,7 +258,7 @@ describe('ParallelEternalEngine', () => {
     });
 
     it('decomposes goal via the leader agent when no todos/git', async () => {
-      const { writeFile, readFile, rm } = await import('node:fs/promises');
+      const { writeFile, rm } = await import('node:fs/promises');
       const runCalls: string[] = [];
       const agent = makeMockAgent({
         run: vi.fn(async (messages) => {
@@ -345,7 +345,7 @@ describe('ParallelEternalEngine', () => {
 
   describe('compactEveryNIterations', () => {
     it('does not compact on first iteration', async () => {
-      const { writeFile, readFile, rm } = await import('node:fs/promises');
+      const { writeFile, rm } = await import('node:fs/promises');
       const compactCall = vi.fn();
       const agent = makeMockAgent({
         run: vi.fn(async () => ({

@@ -9,7 +9,7 @@ for (const raw of lines) {
   if (!line) continue;
   try {
     const ev = JSON.parse(line);
-    if (!ev.event || !ev.event.startsWith('compaction.')) continue;
+    if (!ev.event?.startsWith('compaction.')) continue;
     if (ev.messageCount !== 300) continue;
     console.log(JSON.stringify(ev));
     if (++shown >= 3) break;
