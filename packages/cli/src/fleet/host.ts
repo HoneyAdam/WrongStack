@@ -47,6 +47,10 @@ import { refreshRuntimeModelCatalog, resolveRuntimeMaxContext } from '../context
 import { createFallbackModelExtension } from '../fallback-model.js';
 import { buildRoutingRunner } from './routing.js';
 
+function buildShadowAgentTaskDescription(intervalMs: number): string {
+  return `Shadow Agent background fleet monitor. Start immediately, broadcast shadow:started via mailbox, schedule heartbeat every ${intervalMs}ms, call fleet_status and fleet_health on each heartbeat, inspect mail_inbox for hoop/shadow control messages, report anomalies via mail_send, and only terminate agents when explicitly commanded.`;
+}
+
 export interface MultiAgentDeps {
   container: Container;
   toolRegistry: ToolRegistry;
@@ -184,6 +188,16 @@ export interface MultiAgentHostOptions {
    * on completion, and starts the monitor's FleetBus listener.
    */
   agentMonitor?: import('@wrongstack/core/coordination').AgentMonitorService | undefined;
+  /**
+   * Called when the host auto-starts the Shadow Agent. The CLI uses this to
+   * keep /shadow duplicate checks in sync with the background auto-start path.
+   */
+  onShadowAgentStarted?: ((subagentId: string) => void) | undefined;
+  /**
+   * Called when the tracked Shadow Agent stops, so command surfaces do not keep
+   * treating a stale subagent id as active.
+   */
+  onShadowAgentStopped?: ((subagentId: string) => void) | undefined;
 }
 
 /**
@@ -231,6 +245,12 @@ export class MultiAgentHost {
    *  adaptiveConcurrency.enabled = true. Monitors FleetBus for 429 errors and
    *  automatically adjusts maxConcurrent to prevent rate limiting. */
   private adaptiveConcurrencyController?: AdaptiveConcurrencyController | undefined;
+  /** Active Shadow Agent spawned by the host or /shadow start. */
+  private shadowAgentId: string | null = null;
+  /** Assigned monitoring task for the active Shadow Agent. */
+  private shadowTaskId: string | null = null;
+  /** Suppresses buildDirector() auto-start while /shadow start is explicitly spawning one. */
+  private shadowAutoStartSuppressions = 0;
 
   constructor(
     private readonly deps: MultiAgentDeps,
@@ -437,9 +457,16 @@ export class MultiAgentHost {
         description: task.description,
       });
     };
+    const coordinatorSubagentStoppedHandler = ({ subagentId }: { subagentId: string }) => {
+      this.clearShadowAgent(subagentId);
+    };
     const coordinator = this.getCoordinator();
     coordinator.on('task.assigned', coordinatorTaskAssignedHandler);
-    this.coordinatorOffHandle = () => coordinator.off('task.assigned', coordinatorTaskAssignedHandler);
+    coordinator.on('subagent.stopped', coordinatorSubagentStoppedHandler);
+    this.coordinatorOffHandle = () => {
+      coordinator.off('task.assigned', coordinatorTaskAssignedHandler);
+      coordinator.off('subagent.stopped', coordinatorSubagentStoppedHandler);
+    };
     this.fleetEmitTool = makeFleetEmitTool(this.director);
     this.fleetStatusTool = makeFleetStatusTool(this.director);
 
@@ -471,38 +498,18 @@ export class MultiAgentHost {
    * Shadow Agent monitors the fleet, detects anomalies, and can intervene via 'hoop'.
    */
   private async spawnShadowAgentIfNeeded(): Promise<void> {
+    if (this.shadowAutoStartSuppressions > 0) return;
+    if (this.shadowAgentId && this.isActiveSubagent(this.shadowAgentId)) return;
+    if (this.shadowAgentId) this.clearShadowAgent(this.shadowAgentId);
+
     // Always auto-start shadow agent - it runs silently in background
     const intervalMs = 30_000; // 30 second heartbeat
+    const description = buildShadowAgentTaskDescription(intervalMs);
 
     try {
-      // Use director.spawn() which takes SubagentConfig and returns subagentId (string)
-      const subagentId = await this.director!.spawn({
+      const { subagentId, taskId } = await this._spawnAndAssign({
         name: 'shadow',
         role: 'shadow-agent',
-        prompt: `You are the Shadow Agent — a silent background monitor for the WrongStack fleet.
-
-Your job: observe, detect anomalies, and intervene when commanded via 'hoop'.
-
-## Behavior
-
-1. **Start immediately** — broadcast 'shadow:started' to all agents via mailbox
-2. **Heartbeat every ${intervalMs}ms**:
-   - Call \`fleet_status\` + \`fleet_health\` to track all agents
-   - Call \`mail_inbox\` to monitor broadcasts and status messages
-   - Detect: stuck agents (>5min no events), spike tasks (<5s), orphan assigns
-3. **Deterministic evaluation first** — use rules-based detection before LLM
-4. **LLM only when needed** — for complex anomaly classification or decision-making
-5. **'hoop <agentId>' command** — when received via mailbox:
-   - Terminate the target agent immediately via \`terminate_subagent\`
-   - Send email/telegram notification: "Shadow Agent: terminated rogue agent <id>"
-   - Log the action with timestamp and reason
-
-## Operating Rules
-- Silent by default — only speak when anomaly detected or commanded
-- Use \`mailbox\` to communicate with other agents
-- Log all interventions with full context
-
-Start your heartbeat loop now.`,
         maxTokens: 4096,
         maxCostUsd: 5,
         timeoutMs: 3_600_000, // 1 hour max
@@ -511,13 +518,43 @@ Start your heartbeat loop now.`,
         maxToolCalls: 500,
         provider: 'anthropic',
         model: 'claude-sonnet-4-20250514',
-      });
+        tools: [
+          'fleet_status', 'fleet_health', 'fleet_usage',
+          'mailbox', 'mail_inbox', 'mail_send',
+          'cron_schedule', 'cron_list', 'cron_cancel',
+          'spawn_subagent', 'assign_task', 'terminate_subagent',
+        ],
+        allowedCapabilities: ['net', 'shell'],
+      }, description);
+      this.recordShadowAgent(subagentId, taskId);
 
       // Log to console
       console.log(`[shadow] Auto-started ${subagentId} with interval=${intervalMs}ms`);
     } catch (err) {
       console.warn(`[shadow] Auto-start failed: ${err}`);
     }
+  }
+
+  private recordShadowAgent(subagentId: string, taskId: string): void {
+    this.shadowAgentId = subagentId;
+    this.shadowTaskId = taskId;
+    this.opts.onShadowAgentStarted?.(subagentId);
+  }
+
+  private clearShadowAgent(subagentId?: string): void {
+    if (subagentId && this.shadowAgentId !== subagentId) return;
+    const stoppedId = this.shadowAgentId;
+    this.shadowAgentId = null;
+    this.shadowTaskId = null;
+    if (stoppedId) this.opts.onShadowAgentStopped?.(stoppedId);
+  }
+
+  private isActiveSubagent(subagentId: string): boolean {
+    if (!this.director) return false;
+    const status = this.getCoordinator()
+      .getStatus()
+      .subagents.find((a) => a.id === subagentId)?.status;
+    return status === 'running' || status === 'idle';
   }
 
   /**
@@ -991,10 +1028,19 @@ Start your heartbeat loop now.`,
   ): Promise<{ subagentId: string; taskId: string }> {
     // Always build a Director (directorMode or not) so that spawn routes
     // through the same code path. The Director handles all orchestration.
-    await this.buildDirector();
+    const isShadowSpawn = opts?.name === 'shadow';
+    if (isShadowSpawn) this.shadowAutoStartSuppressions++;
+    try {
+      await this.buildDirector();
+    } finally {
+      if (isShadowSpawn) this.shadowAutoStartSuppressions--;
+    }
+    if (isShadowSpawn && this.shadowAgentId && this.isActiveSubagent(this.shadowAgentId)) {
+      return { subagentId: this.shadowAgentId, taskId: this.shadowTaskId ?? 'shadow-active' };
+    }
     const subagentConfig = {
       name: opts?.name ?? 'adhoc',
-      role: 'general',
+      role: isShadowSpawn ? 'shadow-agent' : 'general',
       provider: opts?.provider,
       model: opts?.model,
       tools: opts?.tools,
@@ -1007,10 +1053,15 @@ Start your heartbeat loop now.`,
     const { subagentId, taskId } = await this._spawnAndAssign(subagentConfig, description);
     // Track the pending task via FleetManager so status() can show descriptions
     // without host-side state duplication.
-    this.fleetManager?.addPendingTask(taskId, subagentId, description);
+    if (!isShadowSpawn) {
+      this.fleetManager?.addPendingTask(taskId, subagentId, description);
+    }
     // NOTE: subagent.spawned is now emitted via FleetBus in Director.spawn()
     // and bridged to EventBus in buildDirector(). This ensures the correct
     // nickname (e.g. "Einstein (Bug Hunter)") is captured, not the placeholder.
+    if (isShadowSpawn) {
+      this.recordShadowAgent(subagentId, taskId);
+    }
     return { subagentId, taskId };
   }
 
@@ -1057,14 +1108,7 @@ Start your heartbeat loop now.`,
    * and event emission — the helper only talks to the coordinator.
    */
   private async _spawnAndAssign(
-    subagentConfig: {
-      name: string;
-      role?: string | undefined;
-      provider?: string | undefined;
-      model?: string | undefined;
-      tools?: string[] | undefined;
-      allowedCapabilities?: readonly string[] | undefined;
-    },
+    subagentConfig: SubagentConfig,
     description: string = '',
   ): Promise<{ subagentId: string; taskId: string }> {
     const taskId = randomUUID();

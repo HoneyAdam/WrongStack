@@ -122,6 +122,5 @@ When \`hoop\` command received:
 - fleet_status, fleet_health — for fleet snapshots
 - terminate_subagent — for intervention
 - cron_schedule, cron_list, cron_cancel — for scheduling
-- mail_send, mail_inbox — for messaging and monitoring
-- fleet_session — for reading agent transcripts when needed`,
+- mail_send, mail_inbox — for messaging and monitoring`,
 };

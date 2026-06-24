@@ -13,6 +13,11 @@ import type { Context, SlashCommand } from '@wrongstack/core';
 import { color } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
 
+const DEFAULT_SHADOW_PROVIDER = 'anthropic';
+const DEFAULT_SHADOW_MODEL = 'claude-sonnet-4-20250514';
+const DEFAULT_SHADOW_INTERVAL_MS = 30_000;
+const MIN_SHADOW_INTERVAL_MS = 5_000;
+
 /**
  * /shadow — Shadow Agent management
  *
@@ -72,18 +77,23 @@ export function buildShadowCommand(opts: SlashCommandContext): SlashCommand {
             return { message: '/shadow requires a running director with subagent support.' };
           }
 
-          // Parse optional flags
-          const flags = Object.fromEntries(
-            rest.filter((f) => f.startsWith('--')).map((f) => [f.slice(2).split('=')[0], f.slice(2).split('=')[1] ?? true]),
-          );
+          const flags = parseFlags(rest);
 
-          const intervalMs = flags['interval'] ?? 30_000;
+          let intervalMs: number;
+          try {
+            intervalMs = parseInterval(flags['interval'] ?? String(DEFAULT_SHADOW_INTERVAL_MS));
+          } catch (e) {
+            return { message: `/shadow start: ${(e as Error).message}` };
+          }
 
           // Validate model format: must be provider/model
-          let model: string;
-          const modelRaw = flags['model'] ?? 'default';
+          let modelRef: ParsedModelRef;
+          const modelRaw = flags['model'];
+          if (modelRaw === true) {
+            return { message: '/shadow start: --model requires a provider/model value' };
+          }
           try {
-            model = requireProviderModelFormat(modelRaw);
+            modelRef = parseProviderModelRef(modelRaw ?? 'default');
           } catch (e) {
             return { message: `/shadow start: ${(e as Error).message}` };
           }
@@ -103,8 +113,8 @@ export function buildShadowCommand(opts: SlashCommandContext): SlashCommand {
           const spawnId = await opts.onSpawn(
             `Shadow Agent — background fleet monitor at ${intervalMs}ms interval`,
             {
-              provider: 'anthropic',
-              model,
+              provider: modelRef.provider,
+              model: modelRef.model,
               tools: [
                 'fleet_status', 'fleet_health', 'fleet_usage',
                 'mailbox', 'mail_inbox', 'mail_send',
@@ -116,20 +126,26 @@ export function buildShadowCommand(opts: SlashCommandContext): SlashCommand {
             },
           );
 
-          return { message: `${color.green('✓')} Shadow Agent spawned: ${spawnId}\n${color.dim('Interval:')} ${intervalMs}ms\n${color.dim('Model:')} ${model}` };
+          return { message: `${color.green('✓')} Shadow Agent spawned: ${spawnId}\n${color.dim('Interval:')} ${intervalMs}ms\n${color.dim('Model:')} ${modelRef.label}` };
         }
 
         case 'stop': {
-          // Shadow Agent cannot be stopped via slash command — it's a system agent
-          // Use /hoop <agent-id> to terminate specific agents
+          const activeId = opts.shadowController?.activeId;
+          if (!activeId) {
+            return { message: `${color.yellow('⚠')} No active Shadow Agent is registered for this session.` };
+          }
+          if (!opts.onFleetTerminate) {
+            return { message: '/shadow stop requires fleet termination support in this session.' };
+          }
+          const ok = opts.onFleetTerminate(activeId);
+          if (ok) {
+            opts.shadowController?.clear();
+            return { message: `${color.green('✓')} Shadow Agent stopped: ${activeId}` };
+          }
           return {
             message: [
-              `${color.yellow('⚠')} Shadow Agent cannot be stopped manually.`,
-              '',
-              `It auto-starts on first LLM request and runs until session end.`,
-              '',
-              `To stop a specific agent: ${color.bold('/hoop <agent-id>')}`,
-              `To stop all agents: ${color.bold('/hoop all')}`,
+              `${color.red('✗')} Failed to stop Shadow Agent ${color.bold(activeId)}.`,
+              `It may already be stopped. Use ${color.bold('/shadow status')} to inspect active agents.`,
             ].join('\n'),
           };
         }
@@ -154,20 +170,41 @@ export function buildShadowCommand(opts: SlashCommandContext): SlashCommand {
             ? reasonFlag.slice('--reason='.length)
             : 'Agent flagged by Shadow Agent';
 
-          // Get agent info for notification
-          const agentInfo = opts.onAgents?.() ?? '';
-          const agentLine = agentInfo.split('\n').find((l: string) => l.includes(targetId));
+          if (targetId.toLowerCase() === 'all') {
+            if (!opts.onFleetKill) {
+              return { message: '/shadow hoop all requires fleet kill support in this session.' };
+            }
+            const killed = opts.onFleetKill();
+            opts.shadowController?.clear();
+            return {
+              message: [
+                `${color.red('⚠')} HOOP: Stopped ${killed} running agent(s)`,
+                '',
+                `Target: ${color.bold('all')}`,
+                `Reason: ${color.yellow(reason)}`,
+              ].join('\n'),
+            };
+          }
+
+          if (!opts.onFleetTerminate) {
+            return { message: '/shadow hoop requires fleet termination support in this session.' };
+          }
+
+          const agentInfo = opts.onAgents?.(targetId) ?? '';
+          const ok = opts.onFleetTerminate(targetId);
+          if (ok && opts.shadowController?.activeId === targetId) {
+            opts.shadowController.clear();
+          }
 
           return {
             message: [
-              `${color.red('⚠')} HOOP: Stopping rogue agent`,
+              ok
+                ? `${color.red('⚠')} HOOP: Stopped agent`
+                : `${color.red('✗')} HOOP: Failed to stop agent`,
               '',
               `Target: ${color.bold(targetId)}`,
               `Reason: ${color.yellow(reason)}`,
-              agentLine ? `\nAgent info: ${agentLine}` : '',
-              '',
-              `${color.dim('Sending termination signal...')}`,
-              `${color.dim('Notification will be sent to project mailbox.')}`,
+              agentInfo ? `\nAgent info:\n${agentInfo}` : '',
             ].join('\n'),
           };
         }
@@ -175,10 +212,10 @@ export function buildShadowCommand(opts: SlashCommandContext): SlashCommand {
         case 'model': {
           const [modelId] = rest;
           if (!modelId) {
-            return { message: '/shadow model <provider/model> — change Shadow Agent analysis model.\nCurrent: anthropic/claude-3-5-sonnet (default)' };
+            return { message: `/shadow model <provider/model> — change Shadow Agent analysis model.\nCurrent default: ${DEFAULT_SHADOW_PROVIDER}/${DEFAULT_SHADOW_MODEL}` };
           }
           try {
-            requireProviderModelFormat(modelId);
+            parseProviderModelRef(modelId);
           } catch (e) {
             return { message: `/shadow model: ${(e as Error).message}` };
           }
@@ -188,11 +225,13 @@ export function buildShadowCommand(opts: SlashCommandContext): SlashCommand {
         case 'interval': {
           const [msStr] = rest;
           if (!msStr) {
-            return { message: '/shadow interval <ms> — change heartbeat interval.\nCurrent: 30000ms (30 seconds)' };
+            return { message: `/shadow interval <ms> — change heartbeat interval.\nCurrent default: ${DEFAULT_SHADOW_INTERVAL_MS}ms (30 seconds)` };
           }
-          const ms = parseInt(msStr, 10);
-          if (Number.isNaN(ms) || ms < 5000) {
-            return { message: '/shadow interval: must be >= 5000ms' };
+          let ms: number;
+          try {
+            ms = parseInterval(msStr);
+          } catch (e) {
+            return { message: `/shadow interval: ${(e as Error).message}` };
           }
           return { message: `/shadow interval ${ms}ms\n${color.dim('Interval will be applied on next /shadow start')}` };
         }
@@ -206,15 +245,55 @@ export function buildShadowCommand(opts: SlashCommandContext): SlashCommand {
 }
 
 /**
- * Validates that a model identifier follows the required `provider/model` format.
- * Returns the validated string on success, throws with a descriptive message on failure.
+ * Validates and splits a model identifier in the required `provider/model`
+ * format. `default` maps to the same provider/model used by host auto-start.
  */
-function requireProviderModelFormat(model: string): string {
-  if (model === 'default') return model;
+interface ParsedModelRef {
+  provider: string;
+  model: string;
+  label: string;
+}
+
+function parseProviderModelRef(model: string): ParsedModelRef {
+  if (model === 'default') {
+    return {
+      provider: DEFAULT_SHADOW_PROVIDER,
+      model: DEFAULT_SHADOW_MODEL,
+      label: `${DEFAULT_SHADOW_PROVIDER}/${DEFAULT_SHADOW_MODEL}`,
+    };
+  }
   if (!/^[^/]+\/[^/]+$/.test(model)) {
     throw new Error(`Model must be in provider/model format (e.g. anthropic/claude-3-5-sonnet), got: "${model}"`);
   }
-  return model;
+  const slash = model.indexOf('/');
+  return {
+    provider: model.slice(0, slash),
+    model: model.slice(slash + 1),
+    label: model,
+  };
+}
+
+function parseInterval(value: string | true): number {
+  if (value === true || !/^\d+$/.test(value)) {
+    throw new Error(`interval must be an integer >= ${MIN_SHADOW_INTERVAL_MS}ms`);
+  }
+  const ms = Number.parseInt(value, 10);
+  if (!Number.isFinite(ms) || ms < MIN_SHADOW_INTERVAL_MS) {
+    throw new Error(`interval must be an integer >= ${MIN_SHADOW_INTERVAL_MS}ms`);
+  }
+  return ms;
+}
+
+function parseFlags(args: string[]): Record<string, string | true> {
+  return Object.fromEntries(
+    args
+      .filter((f) => f.startsWith('--'))
+      .map((f) => {
+        const raw = f.slice(2);
+        const eq = raw.indexOf('=');
+        return eq >= 0 ? [raw.slice(0, eq), raw.slice(eq + 1)] : [raw, true];
+      }),
+  );
 }
 
 // Backwards-compatible export (slash-commands/index.ts imports this)

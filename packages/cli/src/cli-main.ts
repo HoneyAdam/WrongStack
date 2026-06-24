@@ -1296,6 +1296,18 @@ export async function main(argv: string[]): Promise<number> {
   // The execution phase owns its lifecycle (it has access to the Director and
   // the LLM provider). See execution.ts:onDirectorReady.
 
+  // Shadow controller — tracks the active shadow agent so /shadow commands can
+  // reject duplicate starts and stop the real background monitor.
+  const shadowController: NonNullable<Parameters<typeof buildBuiltinSlashCommands>[0]['shadowController']> = {
+    activeId: null,
+    register(id) {
+      this.activeId = id;
+    },
+    clear() {
+      this.activeId = null;
+    },
+  };
+
   const multiAgentHost = new MultiAgentHost(
     {
       container,
@@ -1325,6 +1337,10 @@ export async function main(argv: string[]): Promise<number> {
       brain,
       agentMonitor,
       traceId: sessResult.traceId,
+      onShadowAgentStarted: (subagentId) => shadowController.register(subagentId),
+      onShadowAgentStopped: (subagentId) => {
+        if (shadowController.activeId === subagentId) shadowController.clear();
+      },
     },
   );
   // ALWAYS register the `delegate` tool, even in non-director mode. It
@@ -1597,18 +1613,6 @@ export async function main(argv: string[]): Promise<number> {
   // Mutable coordinator controller — execution.ts fills its callbacks when
   // the AutonomousCoordinator is created lazily. Slash commands read from it.
   const coordinatorController: NonNullable<Parameters<typeof buildBuiltinSlashCommands>[0]['coordinatorController']> = {};
-
-  // Shadow controller — tracks the active shadow agent so /shadow start can
-  // reject spawn attempts when one is already running.
-  const shadowController: NonNullable<Parameters<typeof buildBuiltinSlashCommands>[0]['shadowController']> = {
-    activeId: null,
-    register(id) {
-      this.activeId = id;
-    },
-    clear() {
-      this.activeId = null;
-    },
-  };
 
   const slashCmds = buildBuiltinSlashCommands({
     registry: slashRegistry,
