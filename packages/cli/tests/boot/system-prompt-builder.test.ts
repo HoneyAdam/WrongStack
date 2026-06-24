@@ -37,7 +37,7 @@ interface CapturedBuilder {
     modeId: string;
     modePrompt: string;
     skillsEnabled: boolean;
-    tokenSavingMode?: string | boolean | undefined;
+    tokenSavingMode?: 'off' | 'minimal' | 'light' | 'medium' | 'aggressive' | boolean | undefined;
   };
 }
 
@@ -124,13 +124,14 @@ describe('bindSystemPromptBuilder (PR 5 of #29)', () => {
   it('planPath tracks subsequent sessionRef updates (lazy reads, not a snapshot)', () => {
     const sessionRef = { current: undefined as { id: string } | undefined };
     const autonomyModeRef = { current: 'off' as const };
+    let capturedFactory: (() => unknown) | undefined;
     const container = {
       bind: vi.fn((_t: unknown, f: () => unknown) => {
-        container._f = f as () => unknown;
-      }) as never as { bind: ReturnType<typeof vi.fn>; _f?: () => unknown },
+        capturedFactory = f;
+      }),
     };
     bindSystemPromptBuilder({
-      container: container as never,
+      container,
       modeStore: {},
       memoryStore: {},
       skillLoader: {},
@@ -145,8 +146,8 @@ describe('bindSystemPromptBuilder (PR 5 of #29)', () => {
       pathJoiner: { join: (a, b) => `${a}/${b}` },
       systemPromptBuilderToken: Symbol('s'),
     });
-    const factory = container._f!;
-    const builder = factory() as CapturedBuilder;
+    expect(capturedFactory).toBeDefined();
+    const builder = capturedFactory!() as CapturedBuilder;
     const planPath = builder.opts.planPath as () => string | undefined;
     // First call: no session yet.
     expect(planPath()).toBeUndefined();
