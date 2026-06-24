@@ -46,6 +46,7 @@ vi.mock('@wrongstack/runtime', async () => {
 const { wireContainer } = await import('../../src/boot/container-wiring.js');
 import { TOKENS } from '@wrongstack/core';
 import type { Config, Logger, ModelsRegistry, Renderer, WstackPaths } from '@wrongstack/core';
+import type { InputReader } from '@wrongstack/core';
 
 function makeLogger(): Logger {
   const calls: Array<{ level: string; msg: string }> = [];
@@ -76,9 +77,11 @@ function makeWpaths(): WstackPaths {
   } as never as WstackPaths;
 }
 
-function makeReader() {
+function makeReader(): InputReader {
   return {
-    read: async () => undefined,
+    readLine: async () => '',
+    readKey: async () => '',
+    close: async () => {},
   };
 }
 
@@ -132,11 +135,11 @@ describe('wireContainer (PR 3 of #29)', () => {
     // is attached internally and not observable from outside,
     // but the call returns successfully.
     let received: unknown;
-    events.on('test.topic', (msg: unknown) => {
+    events.on('session.started', (msg) => {
       received = msg;
     });
-    events.emit('test.topic' as never, { ok: true } as never);
-    expect(received).toEqual({ ok: true });
+    events.emit('session.started', { id: 'test-session' });
+    expect(received).toEqual({ id: 'test-session' });
   });
 
   it('binds PathResolver, Renderer, InputReader on top of the factory output', () => {
