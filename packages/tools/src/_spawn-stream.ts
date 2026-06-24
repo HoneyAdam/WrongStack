@@ -3,7 +3,7 @@ import { buildChildEnv } from '@wrongstack/core';
 import type { ToolProgressEvent } from '@wrongstack/core';
 import { createOutputSpool, spoolNote } from './_output-spool.js';
 import { getProcessRegistry, redactCommand } from './process-registry.js';
-import { resolveWin32Command } from './_win32-resolve.js';
+import { assertSafeWin32ShellArgs, resolveWin32Command } from './_win32-resolve.js';
 
 const isWin = process.platform === 'win32';
 export interface SpawnStreamResult {
@@ -60,6 +60,8 @@ export async function* spawnStream(
   // "C:\Program Files\nodejs\npx.cmd") breaks because cmd.exe splits on
   // the space. Use the original command name so the shell finds it.
   const cmd = needsShell ? opts.cmd : resolved;
+  // verbatim args reach cmd.exe unquoted — reject injection metacharacters.
+  if (needsShell) assertSafeWin32ShellArgs(opts.args);
 
   // On Windows the abort signal is handled manually below instead of being
   // passed to spawn(): Node's built-in handling kills only the direct child.

@@ -4,7 +4,7 @@ import { buildChildEnv } from './_env.js';
 import { createOutputSpool, spoolNote } from './_output-spool.js';
 import { COMMAND_OUTPUT_MAX_BYTES, normalizeCommandOutput, safeResolveReal } from './_util.js';
 import { getProcessRegistry, redactCommand } from './process-registry.js';
-import { resolveWin32Command } from './_win32-resolve.js';
+import { assertSafeWin32ShellArgs, resolveWin32Command } from './_win32-resolve.js';
 
 const isWin = process.platform === 'win32';
 
@@ -287,6 +287,8 @@ function runCommand(
     // "C:\Program Files\nodejs\pnpm.cmd") breaks because cmd.exe splits on
     // the space. Use the original command name so the shell finds it.
     const spawnCmd = needsShell ? cmd : resolved;
+    // verbatim args reach cmd.exe unquoted — reject injection metacharacters.
+    if (needsShell) assertSafeWin32ShellArgs(args);
 
     // On Windows the abort signal is handled manually below: Node's built-in
     // handling kills only the direct child, orphaning grandchildren (vitest

@@ -63,6 +63,17 @@ export function isLoopbackBind(wsHost: string): boolean {
 }
 
 /**
+ * True when the server is bound to a wildcard address that exposes it on every
+ * interface — IPv4 `0.0.0.0` OR IPv6 `::` (and its bracketed form). The
+ * "LAN exposure = deny" guards below must treat both families identically; a
+ * `::` bind is exactly as exposed as `0.0.0.0` and previously slipped past the
+ * `wsHost === '0.0.0.0'` string check.
+ */
+export function isWildcardBind(wsHost: string): boolean {
+  return wsHost === '0.0.0.0' || wsHost === '::' || wsHost === '[::]';
+}
+
+/**
  * Constant-time comparison of a provided token against the expected one.
  * A length mismatch short-circuits (lengths aren't secret); equal-length
  * inputs are compared with `timingSafeEqual` so the token can't be recovered
@@ -184,7 +195,7 @@ export function verifyClient(input: VerifyClientInput): boolean {
     // interface — a non-loopback peer is denied outright.
     const remoteIp = remoteAddress ?? '';
     const isRemoteLoopback = remoteIp === '127.0.0.1' || remoteIp === '::1';
-    if (!isRemoteLoopback && wsHost === '0.0.0.0') return false; // LAN exposure = deny
+    if (!isRemoteLoopback && isWildcardBind(wsHost)) return false; // LAN exposure = deny
     return urlTokenOk || cookieTokenOk || isLoopbackBind(wsHost);
   }
   try {
@@ -193,8 +204,9 @@ export function verifyClient(input: VerifyClientInput): boolean {
     // explicitly http://localhost or http://127.0.0.1 (defense-in-depth).
     // Reject file://, data://, and other schemes even on loopback.
     if (isLoopbackHostname(hostname)) {
-      // For stricter security on 0.0.0.0 binds, require a trusted origin scheme
-      if (wsHost === '0.0.0.0' && !isTrustedLoopbackOrigin(origin)) {
+      // For stricter security on wildcard binds (0.0.0.0 / ::), require a
+      // trusted origin scheme.
+      if (isWildcardBind(wsHost) && !isTrustedLoopbackOrigin(origin)) {
         return false;
       }
       return true;

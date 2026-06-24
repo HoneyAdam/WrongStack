@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { resolveWin32Command } from '../src/_win32-resolve.js';
+import { assertSafeWin32ShellArgs, resolveWin32Command } from '../src/_win32-resolve.js';
 
 const realPlatform = process.platform;
 const realPath = process.env['PATH'];
@@ -54,5 +54,34 @@ describe('resolveWin32Command', () => {
     delete process.env['PATH'];
     // No PATH → nothing found → returns original (exercises the ?? defaults).
     expect(resolveWin32Command('nope-cmd')).toBe('nope-cmd');
+  });
+});
+
+describe('assertSafeWin32ShellArgs', () => {
+  it('accepts ordinary flags, paths, and values', () => {
+    expect(() =>
+      assertSafeWin32ShellArgs([
+        'outdated',
+        '--json',
+        '--filter',
+        './packages/core',
+        'C:\\Program Files (x86)\\node\\pkg',
+        'feat: do thing #42@scope/name',
+      ]),
+    ).not.toThrow();
+  });
+
+  it('rejects command chaining and redirection metacharacters', () => {
+    for (const bad of ['a & calc', 'x | whoami', 'in < f', 'out > f', 'line1\nline2', 'cr\rinject', 'nul\0byte']) {
+      expect(() => assertSafeWin32ShellArgs(['ok', bad])).toThrow(/command injection|metacharacter/i);
+    }
+  });
+
+  it('ignores non-string entries without throwing', () => {
+    expect(() => assertSafeWin32ShellArgs(['ok', undefined as never, 123 as never])).not.toThrow();
+  });
+
+  it('is a no-op for an empty arg list', () => {
+    expect(() => assertSafeWin32ShellArgs([])).not.toThrow();
   });
 });

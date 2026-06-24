@@ -4,6 +4,7 @@ import {
   extractTokenFromCookie,
   hostHeaderOk,
   isLoopbackHostname,
+  isWildcardBind,
   tokenMatches,
   verifyClient,
 } from '../../src/server/ws-auth.js';
@@ -163,6 +164,42 @@ describe('verifyClient (WebSocket auth)', () => {
         expectedToken: TOKEN,
       }),
     ).toBe(false);
+  });
+});
+
+describe('isWildcardBind (IPv4 + IPv6 wildcard parity)', () => {
+  it('treats 0.0.0.0, ::, and [::] as wildcard binds', () => {
+    for (const h of ['0.0.0.0', '::', '[::]']) expect(isWildcardBind(h)).toBe(true);
+  });
+  it('does not treat loopback or LAN addresses as wildcard binds', () => {
+    for (const h of ['127.0.0.1', '::1', 'localhost', '192.168.1.10']) {
+      expect(isWildcardBind(h)).toBe(false);
+    }
+  });
+});
+
+describe('verifyClient — IPv6 wildcard (::) bind parity with 0.0.0.0', () => {
+  // Regression for the LAN-deny guard that previously string-matched only
+  // '0.0.0.0', letting a `::` (all-IPv6-interfaces) bind skip the deny.
+  it('denies a non-loopback peer (no origin) on a :: bind, even with a token', () => {
+    const base = { remoteAddress: 'fd00::1234', wsHost: '::', expectedToken: TOKEN } as const;
+    expect(verifyClient({ url: '/', ...base })).toBe(false);
+    expect(verifyClient({ url: `/?token=${TOKEN}`, ...base })).toBe(false);
+  });
+
+  it('still admits a loopback peer on a :: bind with the correct token', () => {
+    expect(
+      verifyClient({ url: `/?token=${TOKEN}`, remoteAddress: '::1', wsHost: '::', expectedToken: TOKEN }),
+    ).toBe(true);
+  });
+
+  it('requires a trusted loopback origin scheme on a :: bind (rejects file://)', () => {
+    expect(
+      verifyClient({ origin: 'file://localhost', url: '/', wsHost: '::', expectedToken: TOKEN }),
+    ).toBe(false);
+    expect(
+      verifyClient({ origin: 'http://localhost:3000', url: '/', wsHost: '::', expectedToken: TOKEN }),
+    ).toBe(true);
   });
 });
 
