@@ -44,6 +44,10 @@ describe('chimera session.close ordering', () => {
       recordFileChange: vi.fn(),
       writeCheckpoint: vi.fn(),
       writeFileSnapshot: vi.fn(),
+      truncateToCheckpoint: vi.fn(),
+      clearSession: vi.fn(),
+      writeInFlightMarker: vi.fn(),
+      clearInFlightMarker: vi.fn(),
     };
   }
 

@@ -52,7 +52,7 @@ function fakeDeps(overrides: Partial<SubcommandDeps> = {}): SubcommandDeps {
     cwd: '/tmp/proj',
     projectRoot: '/tmp/proj',
     userHome: '/tmp',
-    flags: undefined,
+    flags: {},
     ...overrides,
   };
 }
