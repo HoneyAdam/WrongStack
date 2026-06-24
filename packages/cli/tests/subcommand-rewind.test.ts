@@ -34,14 +34,25 @@ vi.mock('@wrongstack/core', async (orig) => {
 });
 
 import { rewindCmd } from '../src/subcommands/handlers/rewind.js';
+import type { SubcommandDeps } from '../src/subcommands/index.js';
 
-function fakeDeps(overrides: Record<string, unknown> = {}) {
+function fakeDeps(overrides: Partial<SubcommandDeps> = {}): SubcommandDeps {
   return {
-    renderer: { write: vi.fn(), writeError: vi.fn() },
+    config: {} as SubcommandDeps['config'],
+    renderer: { write: vi.fn(), writeError: vi.fn() } as unknown as SubcommandDeps['renderer'],
+    reader: {} as SubcommandDeps['reader'],
     sessionStore: {
       list: vi.fn().mockResolvedValue([{ id: 'auto-session-1' }]),
-    },
+    } as unknown as NonNullable<SubcommandDeps['sessionStore']>,
+    skillLoader: undefined,
+    toolRegistry: undefined,
+    modelsRegistry: {} as SubcommandDeps['modelsRegistry'],
+    paths: {} as SubcommandDeps['paths'],
+    vault: {} as SubcommandDeps['vault'],
+    cwd: '/tmp/proj',
     projectRoot: '/tmp/proj',
+    userHome: '/tmp',
+    flags: undefined,
     ...overrides,
   };
 }
