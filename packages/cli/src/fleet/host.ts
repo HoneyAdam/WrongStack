@@ -39,6 +39,7 @@ import {
   type Tool,
   ToolRegistry,
   WIDE_SUBAGENT_CAPABILITIES,
+  AdaptiveConcurrencyController,
 } from '@wrongstack/core';
 import { ToolExecutor } from '@wrongstack/core/execution';
 import { makeProviderFromConfig } from '@wrongstack/providers';
@@ -226,6 +227,10 @@ export class MultiAgentHost {
   private readonly acpRunnerCache = new Map<string, Promise<SubagentRunner>>();
   private readonly acpRunnerAccessOrder: string[] = [];
   private static readonly ACP_CACHE_MAX = 20;
+  /** Adaptive concurrency controller — created in buildDirector() when config has
+   *  adaptiveConcurrency.enabled = true. Monitors FleetBus for 429 errors and
+   *  automatically adjusts maxConcurrent to prevent rate limiting. */
+  private adaptiveConcurrencyController?: AdaptiveConcurrencyController | undefined;
 
   constructor(
     private readonly deps: MultiAgentDeps,
@@ -437,6 +442,17 @@ export class MultiAgentHost {
     this.coordinatorOffHandle = () => coordinator.off('task.assigned', coordinatorTaskAssignedHandler);
     this.fleetEmitTool = makeFleetEmitTool(this.director);
     this.fleetStatusTool = makeFleetStatusTool(this.director);
+
+    // Adaptive Concurrency Controller — auto-adjusts maxConcurrent based on 429 rate-limit errors
+    const adaptiveConfig = this.deps.configStore.get().adaptiveConcurrency;
+    if (adaptiveConfig?.enabled) {
+      this.adaptiveConcurrencyController = new AdaptiveConcurrencyController(
+        this.director.fleet,
+        (n: number) => coordinator.setMaxConcurrent(n),
+        adaptiveConfig,
+      );
+    }
+
     const runner = await this.buildSubagentRunner(config);
     // Guard: if spawnACP already set an ACP runner, don't overwrite it with the
     // routing runner. This prevents a race where buildDirector (called by
@@ -1318,6 +1334,9 @@ Start your heartbeat loop now.`,
     // Unregister coordinator task.assigned listener
     this.coordinatorOffHandle?.();
     this.coordinatorOffHandle = null;
+    // Stop the AdaptiveConcurrencyController
+    this.adaptiveConcurrencyController?.dispose();
+    this.adaptiveConcurrencyController = undefined;
     // Stop the director and all subagents
     if (this.director) {
       await this.director.shutdown();

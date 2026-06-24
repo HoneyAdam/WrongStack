@@ -110,6 +110,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unwritable prefix, non-npm global) and offers the equivalent pnpm/yarn/bun
   global-update commands, instead of only "Update failed with exit code N".
 
+- **global install/update native-script friction.** `wrongstack update` now accepts
+  `--pm npm|pnpm|yarn|bun`, detects common non-npm global installs, and runs the
+  matching update command. `@wrongstack/webui` no longer requires `node-pty` during
+  global installs; the integrated terminal loads it opportunistically and reports a
+  clear terminal-level error when the optional native dependency is absent.
+
 - **`packages/plug-lsp` — async tracker listener guard (#91).** The plugin's
   `tool.executed` listener now wraps its async `tracker.handleToolExecuted` call in a
   `.catch()` so an unexpected throw can't become a fatal unhandled rejection.

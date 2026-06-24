@@ -79,6 +79,7 @@ const mw: Middleware<Request> = {
 | Category | Events |
 |---|---|
 | **Session** | `session.started`, `session.ended`, `session.damaged`, `session.rewound` |
+| **Agent** | `agent.run.started`, `agent.run.completed`, `agent.run.error` |
 | **Iteration** | `iteration.started`, `iteration.completed`, `iteration.limit_reached` |
 | **Provider** | `provider.response`, `provider.text_delta`, `provider.thinking_delta`, `provider.tool_use_start`, `provider.tool_use_stop`, `provider.retry`, `provider.error`, `provider.fallback`, `provider.trust.persisted` |
 | **Tool** | `tool.started`, `tool.progress`, `tool.confirm_needed`, `tool.executed` |
@@ -92,7 +93,7 @@ const mw: Middleware<Request> = {
 | **Brain** | `brain.decision_requested`, `brain.decision_answered`, `brain.decision_ask_human`, `brain.human_answered`, `brain.decision_denied`, `brain.intervention` |
 | **Errors** | `error` |
 
-Total: **~50 events** across 12 categories. Source of truth is the `EventMap` type in `events.ts` — any new event must be added there AND to this table.
+Total: **~53 events** across 13 categories. Source of truth is the `EventMap` type in `events.ts` — any new event must be added there AND to this table.
 
 **RunController** — One per `Agent.run`. Owns `AbortController`, chains parent signal, drains abort hooks LIFO on dispose.
 

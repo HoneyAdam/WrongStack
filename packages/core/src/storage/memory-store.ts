@@ -68,6 +68,22 @@ export class DefaultMemoryStore implements MemoryStore {
    */
   private readonly persistBackup: boolean;
   private readonly backupDir: string;
+  /**
+   * Per-scope tracked byte sizes — incremented on `remember()`, decremented on
+   * `forget()`, recalculated after `consolidate()`. Eliminates the redundant
+   * readAll() call that previously checked the file size after every write.
+   */
+  private readonly _trackedByteSizes: Partial<Record<MemoryScope, number>> = {};
+
+  /** Result cache for scoreRelevant() — keyed by scope + context hash, TTL 30s. */
+  private readonly _scoreCache = new Map<string, { entries: MemoryEntry[]; scored: ScoredEntry[]; expiresAt: number }>();
+
+  /**
+   * Per-entry cached lowercase strings — computed once per scoreRelevant() call,
+   * stored here so repeated scoring of the same entries avoids re-computation.
+   * Cleared on every mutation (remember/forget/consolidate/clear).
+   */
+  private _cachedLower: WeakMap<MemoryEntry, { textLower: string; tagsLower: string[] }> | null = null;
 
   constructor(opts: MemoryStoreOptions) {
     this.files = {
@@ -111,6 +127,21 @@ export class DefaultMemoryStore implements MemoryStore {
         this.writeChain.delete(scope);
       }
     }
+  }
+
+  /**
+   * Recalculate the tracked byte size for a scope by re-reading the file and
+   * summing the serialized byte length of each line. Called after consolidate()
+   * (which modifies the file) to keep the tracker accurate.
+   */
+  private async _recalcTrackedByteSize(scope: MemoryScope): Promise<number> {
+    const raw = await this.backend.readAll(scope, this.files[scope]);
+    let total = 0;
+    for (const line of raw.split('\n')) {
+      if (line.trim()) total += Buffer.byteLength(line, 'utf8');
+    }
+    this._trackedByteSizes[scope] = total;
+    return total;
   }
 
   async readAll(): Promise<string> {
@@ -220,6 +251,8 @@ export class DefaultMemoryStore implements MemoryStore {
       const t0 = Date.now();
       try {
         await this.backend.remember(scope, entry, filePath);
+        // Invalidate the score cache — entries have changed.
+        this._scoreCache.clear();
         const dur = Date.now() - t0;
         this.events?.emit('storage.write', {
           sessionId: '~memory~',
@@ -245,17 +278,28 @@ export class DefaultMemoryStore implements MemoryStore {
         throw err;
       }
 
-      // Size check — consolidate if the file exceeds the cap.
-      const raw = await this.backend.readAll(scope, this.files[scope]);
-      if (Buffer.byteLength(raw, 'utf8') > MAX_BYTES_TOTAL) {
+      // Size check — consolidate if the tracked byte size exceeds the cap.
+      // Tracked size is updated incrementally; lazily initialized from the file
+      // on first mutation if not yet tracked (handles the case where the store was
+      // constructed but not yet mutated, or after a restart).
+      let trackedSize = this._trackedByteSizes[scope];
+      if (trackedSize === undefined) {
+        trackedSize = await this._recalcTrackedByteSize(scope);
+      }
+      if (trackedSize > MAX_BYTES_TOTAL) {
         const removed = await this.backend.consolidate(scope, this.files[scope]);
         if (removed > 0) {
           this.events?.emit('memory.consolidated', {
             scope,
             removed,
           } satisfies MemoryConsolidatedPayload);
+          // Recalculate after consolidation so the tracked size stays accurate.
+          await this._recalcTrackedByteSize(scope);
         }
       }
+
+      // Increment the tracked byte size for this scope.
+      this._trackedByteSizes[scope] = (this._trackedByteSizes[scope] ?? 0) + Buffer.byteLength(JSON.stringify(entry), 'utf8');
 
       // Mirror to persistent backup when running in a temp sandbox.
       await this.mirrorBackup(scope);
@@ -283,18 +327,43 @@ export class DefaultMemoryStore implements MemoryStore {
     const all = await this.list(scope);
     if (all.length === 0) return [];
 
+    // Build a context fingerprint for cache lookup.
+    const ctxHash =
+      `${scope}|${ctx.currentTask}|${(ctx.activeSkills ?? []).join(',')}|${(ctx.toolNames ?? []).join(',')}`;
+    const now = Date.now();
+    const TTL_MS = 30_000; // 30-second cache window
+
+    // Check the TTL cache first — return cached scored results if the same entries
+    // and context were scored within the last 30 seconds.
+    const cached = this._scoreCache.get(ctxHash);
+    if (cached && cached.expiresAt > now && cached.entries === all) {
+      return cached.scored.slice(0, Math.min(limit, 15));
+    }
+
     const taskWords = ctx.currentTask.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
     const skillWords = (ctx.activeSkills ?? []).flatMap((s) => s.split('-'));
     const toolWords = (ctx.toolNames ?? []).flatMap((t) => t.toLowerCase().split('_'));
-    const now = Date.now();
+
+    // Pre-build per-entry lowercase caches for this scoring pass. Reused below so
+    // we only call toLowerCase() once per entry instead of 3× per scoring loop.
+    this._cachedLower = new WeakMap<MemoryEntry, { textLower: string; tagsLower: string[] }>();
 
     const scored: ScoredEntry[] = [];
 
     for (const entry of all) {
       let score = 0;
       const reasons: string[] = [];
-      const textLower = entry.text.toLowerCase();
-      const tagsLower = (entry.tags ?? []).map((t) => t.toLowerCase());
+
+      // Use cached lowercase strings from the WeakMap; compute and store on first use.
+      let cachedLower = this._cachedLower.get(entry);
+      if (!cachedLower) {
+        cachedLower = {
+          textLower: entry.text.toLowerCase(),
+          tagsLower: (entry.tags ?? []).map((t) => t.toLowerCase()),
+        };
+        this._cachedLower.set(entry, cachedLower);
+      }
+      const { textLower, tagsLower } = cachedLower;
 
       // Word overlap with current task (primary signal)
       let taskHits = 0;
@@ -374,6 +443,9 @@ export class DefaultMemoryStore implements MemoryStore {
       (s) => s.score >= threshold || s.priority === 'critical' || s.priority === 'high',
     );
 
+    // Cache the full scored result for 30 seconds — cleared on every mutation.
+    this._scoreCache.set(ctxHash, { entries: all, scored: relevant, expiresAt: now + TTL_MS });
+
     return relevant.slice(0, Math.min(limit, 15));
   }
 
@@ -384,6 +456,8 @@ export class DefaultMemoryStore implements MemoryStore {
       let removed = 0;
       try {
         removed = await this.backend.forget(scope, query, filePath);
+        // Invalidate the score cache — entries have changed.
+        this._scoreCache.clear();
         const dur = Date.now() - t0;
         this.events?.emit('storage.write', {
           sessionId: '~memory~',
@@ -415,6 +489,7 @@ export class DefaultMemoryStore implements MemoryStore {
           removed,
         } satisfies MemoryForgottenPayload);
         await this.mirrorBackup(scope);
+        await this._recalcTrackedByteSize(scope);
       }
       return removed;
     });
@@ -427,6 +502,8 @@ export class DefaultMemoryStore implements MemoryStore {
       let removed = 0;
       try {
         removed = await this.backend.consolidate(scope, filePath);
+        // Invalidate the score cache — entries have changed.
+        this._scoreCache.clear();
         const dur = Date.now() - t0;
         this.events?.emit('storage.write', {
           sessionId: '~memory~',
@@ -457,6 +534,7 @@ export class DefaultMemoryStore implements MemoryStore {
           removed,
         } satisfies MemoryConsolidatedPayload);
         await this.mirrorBackup(scope);
+        await this._recalcTrackedByteSize(scope);
       }
     });
   }
@@ -468,6 +546,8 @@ export class DefaultMemoryStore implements MemoryStore {
         const t0 = Date.now();
         try {
           await this.backend.clear(scope, filePath);
+          // Invalidate the score cache — entries have changed.
+          this._scoreCache.clear();
           const dur = Date.now() - t0;
           this.events?.emit('storage.write', {
             sessionId: '~memory~',
@@ -494,6 +574,7 @@ export class DefaultMemoryStore implements MemoryStore {
         }
         this.events?.emit('memory.cleared', { scope } satisfies MemoryClearedPayload);
         await this.mirrorBackup(scope);
+        this._trackedByteSizes[scope] = 0;
       });
       return;
     }

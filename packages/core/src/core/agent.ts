@@ -164,13 +164,27 @@ export class Agent {
     const inputPayload = { content: blocks, text, ctx: this.ctx };
 
     await this.extensions.runBeforeRun(this.ctx, inputPayload);
+    const runStartedAt = Date.now();
+    const runStartedIso = new Date(runStartedAt).toISOString();
 
     try {
+      this.events.emit('agent.run.started', {
+        ctx: this.ctx,
+        model: opts.model ?? this.ctx.model,
+        at: runStartedIso,
+      });
       const autonomousContinue = opts.autonomousContinue ?? this.autonomousContinue;
       const result = await this._loopHandler.runInner(inputPayload, opts, controller, autonomousContinue);
       span?.setAttribute('agent.status', result.status);
       span?.setAttribute('agent.iterations', result.iterations);
       await this.extensions.runAfterRun(this.ctx, result);
+      this.events.emit('agent.run.completed', {
+        ctx: this.ctx,
+        status: result.status,
+        iterations: result.iterations,
+        at: new Date().toISOString(),
+        durationMs: Date.now() - runStartedAt,
+      });
       return result;
     } catch (err) {
       const wse = err instanceof AgentError ? err : toWrongStackError(err);
@@ -187,6 +201,21 @@ export class Agent {
         abortReason: signal.aborted ? signalAbortReason(signal) : undefined,
       };
       await this.extensions.runAfterRun(this.ctx, result);
+      if (result.status === 'failed') {
+        this.events.emit('agent.run.error', {
+          ctx: this.ctx,
+          err: safeError,
+          at: new Date().toISOString(),
+          durationMs: Date.now() - runStartedAt,
+        });
+      }
+      this.events.emit('agent.run.completed', {
+        ctx: this.ctx,
+        status: result.status,
+        iterations: result.iterations,
+        at: new Date().toISOString(),
+        durationMs: Date.now() - runStartedAt,
+      });
       return result;
     } finally {
       span?.end();

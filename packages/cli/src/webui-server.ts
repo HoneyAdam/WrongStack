@@ -59,7 +59,6 @@ import {
   DEFAULT_CONTEXT_WINDOW_MODE_ID,
   DefaultSecretScrubber,
   GlobalMailbox,
-  createHqPublisherFromEnv,
   projectHash,
   resolveProjectDir,
   TOKENS,
@@ -68,6 +67,7 @@ import {
 } from '@wrongstack/core';
 import { SkillInstaller } from '@wrongstack/core/skills';
 import type { MCPRegistry } from '@wrongstack/mcp';
+import { startCliHqConnection, type CliHqConnection } from './hq-publisher.js';
 import {
   AutoPhaseWebSocketHandler,
   type CustomModeStore,
@@ -474,37 +474,44 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   let webuiClientId: string | null = null;
   let webuiHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let stopWebuiHqBridge: (() => void) | undefined;
+  let webuiHqConnection: CliHqConnection | undefined;
   const CLIENT_HEARTBEAT_MS = 15_000;
 
   const registerWebuiClient = async (): Promise<string | null> => {
     if (!opts.projectRoot) return null;
     try {
-      const projectDir = resolveProjectDir(opts.projectRoot, wstackGlobalRoot());
-      const hqPublisher = createHqPublisherFromEnv({ clientKind: 'webui', projectRoot: opts.projectRoot, projectName: path.basename(opts.projectRoot), appConfig: opts.appConfig } as never as Parameters<typeof createHqPublisherFromEnv>[0]);
-      hqPublisher?.connect();
-      // Stream this WebUI's live session + full transcript to HQ, reusing the
-      // mailbox publisher so the process holds a single HQ socket.
-      if (hqPublisher) {
-        try {
-          const { startSessionTelemetryBridge } = await import('@wrongstack/core');
-          stopWebuiHqBridge = startSessionTelemetryBridge({
-            publisher: hqPublisher,
-            events: opts.events,
-            sessionId: opts.session.id,
-            projectRoot: opts.projectRoot,
-            projectName: path.basename(opts.projectRoot),
-            startedAt: new Date().toISOString(),
-          });
-        } catch {
-          // telemetry optional
-        }
-      }
-      const mailbox = new GlobalMailbox(projectDir, opts.events, hqPublisher);
+      const projectRoot = opts.projectRoot;
+      const projectDir = resolveProjectDir(projectRoot, wstackGlobalRoot());
+      webuiHqConnection = startCliHqConnection({
+        clientKind: 'webui',
+        projectRoot,
+        projectName: path.basename(projectRoot),
+        appConfig: opts.appConfig,
+        onConnect: (publisher) => {
+          stopWebuiHqBridge?.();
+          stopWebuiHqBridge = undefined;
+          void import('@wrongstack/core')
+            .then(({ startSessionTelemetryBridge }) => {
+              stopWebuiHqBridge = startSessionTelemetryBridge({
+                publisher,
+                events: opts.events,
+                sessionId: opts.session.id,
+                projectRoot,
+                projectName: path.basename(projectRoot),
+                startedAt: new Date().toISOString(),
+              });
+            })
+            .catch(() => {
+              // telemetry optional
+            });
+        },
+      });
+      const mailbox = new GlobalMailbox(projectDir, opts.events, () => webuiHqConnection?.getPublisher());
       webuiClientId = `webui@${crypto.randomUUID().slice(0, 8)}`;
       const projectName = opts.projectRoot ? path.basename(opts.projectRoot) : 'unknown';
       await mailbox.registerClient({
         clientId: webuiClientId,
-        sessionId: opts.projectRoot,
+        sessionId: projectRoot,
         name: `WebUI [${projectName}]`,
         source: 'webui',
         pid: process.pid,
@@ -533,6 +540,8 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       stopWebuiHqBridge();
       stopWebuiHqBridge = undefined;
     }
+    webuiHqConnection?.stop();
+    webuiHqConnection = undefined;
   };
 
   // Register immediately (fire-and-forget so it doesn't block server startup)

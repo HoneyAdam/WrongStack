@@ -56,6 +56,29 @@ describe('GlobalMailbox HQ publisher wiring', () => {
     expect(publishSnapshot.mock.calls.length).toBeGreaterThanOrEqual(6);
   });
 
+  it('starts publishing when a lazy HQ publisher becomes available', async () => {
+    let publisher: HqPublisher | undefined;
+    mailbox = new GlobalMailbox(dir, undefined, () => publisher);
+
+    await mailbox.send({ from: 'a', to: 'b', type: 'note', subject: 'before', body: 'before' });
+    expect(publishEvent).not.toHaveBeenCalled();
+    expect(publishSnapshot).not.toHaveBeenCalled();
+
+    publisher = makePublisher();
+    await mailbox.registerClient({
+      clientId: 'tui@1',
+      sessionId: 'session_1',
+      name: 'TUI',
+      source: 'tui',
+      pid: 1,
+    });
+    await mailbox.send({ from: 'a', to: 'b', type: 'note', subject: 'after', body: 'after' });
+
+    const actions = publishEvent.mock.calls.map((call) => (call[0] as { action: string }).action);
+    expect(actions).toContain('message.sent');
+    expect(publishSnapshot).toHaveBeenCalled();
+  });
+
   it('keeps mailbox behavior unaffected when the HQ publisher throws', async () => {
     const failingPublisher = {
       publishMailboxEvent: vi.fn(() => {

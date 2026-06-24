@@ -18,7 +18,7 @@ vi.mock('node:child_process', async (orig) => {
   };
 });
 
-import { updateCmd } from '../src/subcommands/handlers/update.js';
+import { detectUpdatePackageManager, updateCmd } from '../src/subcommands/handlers/update.js';
 
 let writes: string[];
 let deps: Parameters<typeof updateCmd>[1];
@@ -27,6 +27,7 @@ beforeEach(() => {
   writes = [];
   updateMocks.checkForUpdate.mockReset();
   updateMocks.spawn.mockReset();
+  vi.stubEnv('WRONGSTACK_UPDATE_PM', 'npm');
   deps = {
     cwd: '/tmp',
     renderer: {
@@ -38,6 +39,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
 
@@ -125,6 +127,31 @@ describe('updateCmd subcommand', () => {
     expect(out).toContain('Updated to v1.2.3');
   });
 
+  it('runs the selected package manager when --pm is provided', async () => {
+    updateMocks.checkForUpdate.mockResolvedValue({
+      outdated: true,
+      current: '1.0.0',
+      latest: '1.2.3',
+    });
+    updateMocks.spawn.mockReturnValue(makeFakeChild(0));
+    const code = await updateCmd(['--pm', 'pnpm'], deps);
+    expect(code).toBe(0);
+    expect(updateMocks.spawn).toHaveBeenCalledWith(
+      process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm',
+      ['add', '-g', 'wrongstack@latest'],
+      expect.objectContaining({ cwd: '/tmp', stdio: 'pipe' }),
+    );
+    expect(writes.join('')).toContain('Running: pnpm add -g wrongstack@latest');
+  });
+
+  it('rejects an invalid --pm value before checking for updates', async () => {
+    const code = await updateCmd(['--pm', 'pip'], deps);
+    expect(code).toBe(1);
+    expect(writes.join('')).toContain('Invalid package manager: pip');
+    expect(updateMocks.checkForUpdate).not.toHaveBeenCalled();
+    expect(updateMocks.spawn).not.toHaveBeenCalled();
+  });
+
   it('reports failure when npm exits non-zero', async () => {
     updateMocks.checkForUpdate.mockResolvedValue({
       outdated: true,
@@ -146,7 +173,10 @@ describe('updateCmd subcommand', () => {
     // Exit 243 with a real reason in stderr — previously discarded, leaving the
     // user with only the opaque code.
     updateMocks.spawn.mockReturnValue(
-      makeFakeChild(243, undefined, ['npm error code EACCES\n', 'npm error EACCES: permission denied\n']),
+      makeFakeChild(243, undefined, [
+        'npm error code EACCES\n',
+        'npm error EACCES: permission denied\n',
+      ]),
     );
     const code = await updateCmd([], deps);
     expect(code).toBe(243);
@@ -157,7 +187,7 @@ describe('updateCmd subcommand', () => {
     // And the alternative package managers are offered.
     expect(out).toContain('pnpm add -g wrongstack@latest');
     expect(out).toContain('yarn global add wrongstack@latest');
-    expect(out).toContain('bun  add -g wrongstack@latest');
+    expect(out).toContain('bun add -g wrongstack@latest');
   });
 
   it('handles ENOENT (npm not installed)', async () => {
@@ -186,5 +216,23 @@ describe('updateCmd subcommand', () => {
     const code = await updateCmd([], deps);
     expect(code).toBe(1);
     expect(writes.join('')).toContain('Update failed: boom');
+  });
+});
+
+describe('detectUpdatePackageManager', () => {
+  it('uses WRONGSTACK_UPDATE_PM when present', () => {
+    expect(detectUpdatePackageManager({ WRONGSTACK_UPDATE_PM: 'pnpm' }, [])).toBe('pnpm');
+  });
+
+  it('detects package managers from npm_config_user_agent', () => {
+    expect(
+      detectUpdatePackageManager({ npm_config_user_agent: 'pnpm/11.5.3 npm/? node/v24' }, []),
+    ).toBe('pnpm');
+    expect(
+      detectUpdatePackageManager({ npm_config_user_agent: 'yarn/1.22.22 npm/? node/v24' }, []),
+    ).toBe('yarn');
+    expect(
+      detectUpdatePackageManager({ npm_config_user_agent: 'bun/1.2.0 npm/? node/v24' }, []),
+    ).toBe('bun');
   });
 });

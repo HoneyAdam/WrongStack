@@ -217,6 +217,8 @@ export type HqSessionAgentLiveStatus =
 export interface HqSessionAgentSummary {
   id: string;
   name: string;
+  /** UTC ISO timestamp when this agent/run started, when known. */
+  startedAt?: string;
   status: HqSessionAgentLiveStatus;
   currentTool?: string;
   iterations: number;

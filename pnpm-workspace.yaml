@@ -33,9 +33,9 @@ allowBuilds:
   '@biomejs/biome': true
   better-sqlite3: true
   esbuild: true
-  # node-pty ships prebuilt binaries (node-gyp-build) that load without a
-  # compile step — decline its build script so machines without build tools
-  # still install cleanly. The WebUI integrated terminal uses the prebuild.
+  # node-pty is a local-dev/optional WebUI terminal dependency. Decline its
+  # build script here so workspace installs stay clean on machines without
+  # native build tools; published wrongstack installs do not require it.
   node-pty: false
 onlyBuiltDependencies:
   - "@biomejs/biome"

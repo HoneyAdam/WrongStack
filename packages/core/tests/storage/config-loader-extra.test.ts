@@ -147,6 +147,31 @@ describe('DefaultConfigLoader in-project config hardening (WS-06)', () => {
     expect(cfg.model).toBe('project-pinned-model');
     expect(cfg.tools.maxIterations).toBe(42);
   });
+
+  it('does not strip or warn when the project root is the user home (in-project path == global config)', async () => {
+    // Launching from `~`: `<projectRoot>/.wrongstack/config.json` resolves to the
+    // very same file as the trusted global config. The user's own provider/apiKey
+    // must survive and no spurious unsafe-field warning may fire.
+    const homeRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cfg-homeroot-'));
+    const collidingPaths = resolveWstackPaths({ projectRoot: homeRoot, userHome: homeRoot });
+    expect(path.resolve(collidingPaths.inProjectConfig)).toBe(path.resolve(collidingPaths.globalConfig));
+    await fs.mkdir(path.dirname(collidingPaths.globalConfig), { recursive: true });
+    await fs.writeFile(
+      collidingPaths.globalConfig,
+      JSON.stringify({ version: 1, provider: 'anthropic', apiKey: 'sk-user-real' }),
+    );
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const cfg = await new DefaultConfigLoader({ paths: collidingPaths }).load();
+    warn.mockRestore();
+
+    expect(cfg.provider).toBe('anthropic');
+    expect((cfg as { apiKey?: string }).apiKey).toBe('sk-user-real');
+    const warned = warn.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(warned).not.toContain('config.in_project_unsafe_fields_ignored');
+
+    await fs.rm(homeRoot, { recursive: true, force: true });
+  });
 });
 
 describe('DefaultConfigLoader extra sources', () => {

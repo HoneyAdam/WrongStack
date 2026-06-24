@@ -331,3 +331,9 @@ export {
   type AgentVirtualSession,
   type AgentMonitorOptions,
 } from './agent-monitor.js';
+
+// ── Adaptive Concurrency Controller ──────────────────────────────────────────
+export {
+  AdaptiveConcurrencyController,
+  type AdaptiveConcurrencyState,
+} from './adaptive-concurrency.js';

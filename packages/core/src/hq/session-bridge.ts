@@ -38,6 +38,8 @@ export interface SessionTelemetryBridgeOptions {
   projectName?: string | undefined;
   /** Override the global root used to resolve the session JSONL path. */
   globalRoot?: string | undefined;
+  /** Last-known agents to publish immediately before the next bus update. */
+  initialAgents?: readonly TrackedAgentSnapshot[] | undefined;
   gitBranch?: string | undefined;
   startedAt?: string | undefined;
   /** Snapshot republish interval (also refreshes lastActivity). Default 2500ms. */
@@ -66,6 +68,7 @@ function toAgentSummary(a: TrackedAgentSnapshot): HqSessionAgentSummary {
     iterations: a.iterations,
     toolCalls: a.toolCalls,
     lastActivityAt: a.lastActivityAt,
+    ...(a.startedAt !== undefined ? { startedAt: a.startedAt } : {}),
     ...(a.currentTool !== undefined ? { currentTool: a.currentTool } : {}),
     ...(a.costUsd !== undefined ? { costUsd: a.costUsd } : {}),
     ...(a.tokensIn !== undefined ? { tokensIn: a.tokensIn } : {}),
@@ -103,8 +106,11 @@ export function startSessionTelemetryBridge(opts: SessionTelemetryBridgeOptions)
   // produces the correct sharded `.jsonl` path on every platform.
   const sessionFile = path.join(wpaths.projectSessions, `${opts.sessionId}.jsonl`);
 
-  let agents: HqSessionAgentSummary[] = [];
-  let lastActivityAt = startedAt;
+  let agents: HqSessionAgentSummary[] = (opts.initialAgents ?? []).map(toAgentSummary);
+  let lastActivityAt = agents.reduce(
+    (latest, agent) => agent.lastActivityAt > latest ? agent.lastActivityAt : latest,
+    startedAt,
+  );
   let lastSnapshotHash = '';
   let disposed = false;
 

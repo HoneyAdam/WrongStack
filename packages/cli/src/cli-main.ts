@@ -37,7 +37,6 @@ import {
   createAutonomyBrain,
   type AuditLevel,
   createDelegateTool,
-  createHqPublisherFromEnv,
   createMcpControlTool,
   createSessionEventBridge,
   createTieredBrainArbiter,
@@ -64,6 +63,7 @@ import {
   type SessionEventBridge,
   SessionMemoryConsolidator,
   SlashCommandRegistry,
+  startSessionTelemetryBridge,
   type SystemPromptBuilder,
   startPackageOutdatedWatcher,
   startTechStackConsumer,
@@ -94,6 +94,7 @@ import { handleHqShortCircuit } from './boot/short-circuit-hq.js';
 import { refreshRuntimeModelCatalog, resolveRuntimeMaxContext } from './context-limit.js';
 import { type ExecutionDeps, execute } from './execution.js';
 import { createFallbackModelExtension } from './fallback-model.js';
+import { createCliHqPublisher, startCliHqConnection } from './hq-publisher.js';
 import { createLifecycleHooksExtension, createUserPromptSubmitMiddleware } from './hooks-wiring.js';
 import { MultiAgentHost } from './multi-agent.js';
 import { createAgentMonitorService } from '@wrongstack/core/coordination';
@@ -403,7 +404,7 @@ export async function main(argv: string[]): Promise<number> {
   // Fetch online agents from the shared mailbox to include in system prompt
   let onlineAgents: Awaited<ReturnType<GlobalMailbox['getAgentStatuses']>> = [];
   try {
-    const hqPublisher = createHqPublisherFromEnv({ clientKind: 'cli', projectRoot, projectName: path.basename(projectRoot), appConfig: config } as never as Parameters<typeof createHqPublisherFromEnv>[0]);
+    const hqPublisher = createCliHqPublisher({ clientKind: tuiOwnsScreen ? 'tui' : 'cli', projectRoot, projectName: path.basename(projectRoot), appConfig: config });
     hqPublisher?.connect();
     if (hqPublisher) teardownHandlers.push(() => hqPublisher.close());
     const systemMailbox = new GlobalMailbox(wpaths.projectDir, undefined, hqPublisher);
@@ -1224,29 +1225,56 @@ export async function main(argv: string[]): Promise<number> {
   // Tool-failure streaks and error storms engage the Brain proactively; a
   // "steer" decision lands in THIS session's leader inbox and is injected
   // before the agent's next step.
-  const hqPublisher = createHqPublisherFromEnv({ clientKind: 'cli', projectRoot, projectName: path.basename(projectRoot), appConfig: config } as never as Parameters<typeof createHqPublisherFromEnv>[0]);
-  hqPublisher?.connect();
-  if (hqPublisher) teardownHandlers.push(() => hqPublisher.close());
+  let hqPublisher: ReturnType<typeof createCliHqPublisher>;
+  let stopHqSessionBridge: (() => void) | undefined;
+  const hqConnection = startCliHqConnection({
+    clientKind: tuiOwnsScreen ? 'tui' : 'cli',
+    projectRoot,
+    projectName: path.basename(projectRoot),
+    appConfig: config,
+    onConnect: (publisher) => {
+      hqPublisher = publisher;
+      stopHqSessionBridge?.();
+      stopHqSessionBridge = undefined;
+      try {
+        stopHqSessionBridge = startSessionTelemetryBridge({
+          publisher,
+          events,
+          sessionId: session.id,
+          projectRoot,
+          projectName: path.basename(projectRoot),
+          globalRoot: wpaths.globalRoot,
+          initialAgents: tracker?.getAgents(),
+          startedAt: new Date().toISOString(),
+        });
+      } catch {
+        // HQ session telemetry is optional.
+      }
+    },
+  });
+  hqPublisher = hqConnection.getPublisher();
+  teardownHandlers.push(() => stopHqSessionBridge?.());
+  teardownHandlers.push(() => hqConnection.stop());
 
   // ── Agent Monitor → HQ Bridge ───────────────────────────────────
   // Forward agent.timeline.message and agent.status_changed events to
   // the HQ publisher so the HQ browser dashboard sees real-time agent
   // conversations.
-  if (hqPublisher && agentMonitor) {
+  if (agentMonitor) {
     const offMsg = events.on('agent.timeline.message', (payload) => {
       try {
-        hqPublisher.publishEvent({ type: 'agent.message' as never, payload, timestamp: payload.ts });
+        hqPublisher?.publishEvent({ type: 'agent.message' as never, payload, timestamp: payload.ts });
       } catch { /* best-effort */ }
     });
     const offStatus = events.on('agent.status_changed', (payload) => {
       try {
-        hqPublisher.publishEvent({ type: 'agent.status' as never, payload, timestamp: payload.ts });
+        hqPublisher?.publishEvent({ type: 'agent.status' as never, payload, timestamp: payload.ts });
       } catch { /* best-effort */ }
     });
     teardownHandlers.push(() => { offMsg(); offStatus(); });
   }
 
-  const brainMailbox = new GlobalMailbox(wpaths.projectDir, events, hqPublisher);
+  const brainMailbox = new GlobalMailbox(wpaths.projectDir, events, () => hqPublisher);
   const brainMonitor = new BrainMonitor({
     events,
     brain,

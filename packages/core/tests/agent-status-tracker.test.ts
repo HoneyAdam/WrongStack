@@ -63,22 +63,55 @@ describe('AgentStatusTracker', () => {
 
   it('sets leader to running on agent.run.started', () => {
     tracker.start();
-    events.emit('agent.run.started', {});
+    events.emit('agent.run.started', { at: '2026-06-24T10:00:00.000Z' });
 
     const call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
     const leader = call?.find((a: AgentEntry) => a.id === 'leader');
     expect(leader?.status).toBe('running');
     expect(leader?.iterations).toBe(1);
+    expect(leader?.startedAt).toBe('2026-06-24T10:00:00.000Z');
+  });
+
+  it('captures leader model and starts a run from iteration.started', () => {
+    tracker.start();
+    events.emit('iteration.started', {
+      index: 2,
+      ctx: {
+        model: 'anthropic/claude-opus-4-8',
+        lastRequestTokens: 42_000,
+        provider: { capabilities: { maxContext: 200_000 } },
+      },
+    });
+
+    const call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
+    const leader = call?.find((a: AgentEntry) => a.id === 'leader');
+    expect(leader?.status).toBe('running');
+    expect(leader?.iterations).toBe(3);
+    expect(leader?.model).toBe('anthropic/claude-opus-4-8');
+    expect(leader?.ctxPct).toBe(21);
+    expect(leader?.startedAt).toBeDefined();
   });
 
   it('sets leader to idle on agent.run.completed', () => {
     tracker.start();
     events.emit('agent.run.started', {});
-    events.emit('agent.run.completed', {});
+    events.emit('agent.run.completed', { status: 'done' });
 
     const call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
     const leader = call?.find((a: AgentEntry) => a.id === 'leader');
     expect(leader?.status).toBe('idle');
+    expect(leader?.startedAt).toBeUndefined();
+  });
+
+  it('sets leader to error on failed agent.run.completed and keeps run start', () => {
+    tracker.start();
+    events.emit('agent.run.started', { at: '2026-06-24T10:00:00.000Z' });
+    events.emit('agent.run.completed', { status: 'failed' });
+
+    const call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
+    const leader = call?.find((a: AgentEntry) => a.id === 'leader');
+    expect(leader?.status).toBe('error');
+    expect(leader?.startedAt).toBe('2026-06-24T10:00:00.000Z');
   });
 
   it('sets leader to error on agent.run.error', () => {
@@ -191,6 +224,29 @@ describe('AgentStatusTracker', () => {
     expect(leader?.tokensIn).toBe(1500);
     expect(leader?.tokensOut).toBe(300);
     expect(leader?.costUsd).toBeCloseTo(0.45, 5);
+  });
+
+  it('captures leader context fill from ctx.pct', () => {
+    tracker.start();
+    events.emit('ctx.pct', { load: 0.68, tokens: 136_000, maxContext: 200_000 });
+
+    const call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
+    const leader = call?.find((a: AgentEntry) => a.id === 'leader');
+    expect(leader?.ctxPct).toBe(68);
+  });
+
+  it('updates leader model when provider fallback switches model', () => {
+    tracker.start();
+    events.emit('provider.fallback', {
+      from: { providerId: 'anthropic', model: 'claude-opus-4-8' },
+      to: { providerId: 'openai', model: 'gpt-5' },
+      status: 529,
+      providerSwitched: true,
+    });
+
+    const call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
+    const leader = call?.find((a: AgentEntry) => a.id === 'leader');
+    expect(leader?.model).toBe('openai/gpt-5');
   });
 
   it('captures subagent model + context fill', () => {

@@ -1,4 +1,4 @@
-import { type IPty, spawn } from 'node-pty';
+import { createRequire } from 'node:module';
 import type { WebSocket } from 'ws';
 import type { Logger } from '@wrongstack/core';
 import { toErrorMessage } from '@wrongstack/core/utils';
@@ -6,11 +6,35 @@ import type { WSServerMessage } from '../types.js';
 
 /** Loose inbound shape — matches the server's internal WSClientMessage. */
 type IncomingMessage = { type: string; payload?: unknown };
+type PtyExit = { exitCode: number; signal?: number | undefined };
+interface PtyProcess {
+  write(data: string): void;
+  resize(cols: number, rows: number): void;
+  kill(): void;
+  onData(cb: (data: string) => void): unknown;
+  onExit(cb: (event: PtyExit) => void): unknown;
+}
+interface NodePtyApi {
+  spawn(
+    file: string,
+    args: string[],
+    opts: {
+      name: string;
+      cols: number;
+      rows: number;
+      cwd: string;
+      env: Record<string, string>;
+    },
+  ): PtyProcess;
+}
+type LoadNodePty = () => NodePtyApi | null;
 
 /** Hard cap on concurrent PTYs per connected client — a runaway-spawn backstop. */
 const MAX_SESSIONS_PER_CLIENT = 8;
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
+const requireFromHere = createRequire(import.meta.url);
+let cachedNodePty: NodePtyApi | null | undefined;
 
 /**
  * TerminalWebSocketHandler — backs the WebUI's integrated terminal panel.
@@ -26,12 +50,13 @@ const DEFAULT_ROWS = 24;
  */
 export class TerminalWebSocketHandler {
   /** ws → (terminalId → pty). */
-  private readonly sessions = new Map<WebSocket, Map<string, IPty>>();
+  private readonly sessions = new Map<WebSocket, Map<string, PtyProcess>>();
 
   constructor(
     /** Resolves the cwd new terminals open in — tracks the live working dir. */
     private readonly getCwd: () => string,
     private readonly logger: Logger,
+    private readonly loadNodePty: LoadNodePty = defaultLoadNodePty,
   ) {}
 
   addClient(ws: WebSocket): void {
@@ -50,7 +75,8 @@ export class TerminalWebSocketHandler {
     const p = (msg.payload ?? {}) as Record<string, unknown>;
     switch (msg.type) {
       case 'terminal.create':
-        if (isStr(p.id)) this.create(ws, { id: p.id, cols: numOrUndef(p.cols), rows: numOrUndef(p.rows) });
+        if (isStr(p.id))
+          this.create(ws, { id: p.id, cols: numOrUndef(p.cols), rows: numOrUndef(p.rows) });
         return true;
       case 'terminal.input':
         if (isStr(p.id) && isStr(p.data)) this.input(ws, { id: p.id, data: p.data });
@@ -68,8 +94,11 @@ export class TerminalWebSocketHandler {
 
   // ── internals ───────────────────────────────────────────────────────────
 
-  private create(ws: WebSocket, payload: { id: string; cols?: number | undefined; rows?: number | undefined }): void {
-    const map = this.sessions.get(ws) ?? new Map<string, IPty>();
+  private create(
+    ws: WebSocket,
+    payload: { id: string; cols?: number | undefined; rows?: number | undefined },
+  ): void {
+    const map = this.sessions.get(ws) ?? new Map<string, PtyProcess>();
     this.sessions.set(ws, map);
 
     if (map.has(payload.id)) return; // idempotent — already running
@@ -86,9 +115,20 @@ export class TerminalWebSocketHandler {
         ? process.env.COMSPEC || 'cmd.exe'
         : process.env.SHELL || '/bin/bash';
 
-    let pty: IPty;
+    const nodePty = this.loadNodePty();
+    if (!nodePty) {
+      const msg =
+        'Integrated terminal unavailable: optional dependency node-pty is not installed. ' +
+        'Install node-pty to enable WebUI terminal sessions.';
+      this.logger.warn?.(msg);
+      this.send(ws, { type: 'terminal.output', payload: { id: payload.id, data: `${msg}\r\n` } });
+      this.send(ws, { type: 'terminal.exit', payload: { id: payload.id, exitCode: -1 } });
+      return;
+    }
+
+    let pty: PtyProcess;
     try {
-      pty = spawn(shell, [], {
+      pty = nodePty.spawn(shell, [], {
         name: 'xterm-color',
         cols: clampDim(payload.cols, DEFAULT_COLS),
         rows: clampDim(payload.rows, DEFAULT_ROWS),
@@ -162,6 +202,16 @@ export class TerminalWebSocketHandler {
       /* client gone */
     }
   }
+}
+
+function defaultLoadNodePty(): NodePtyApi | null {
+  if (cachedNodePty !== undefined) return cachedNodePty;
+  try {
+    cachedNodePty = requireFromHere('node-pty') as NodePtyApi;
+  } catch {
+    cachedNodePty = null;
+  }
+  return cachedNodePty;
 }
 
 function isStr(v: unknown): v is string {

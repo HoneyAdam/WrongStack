@@ -73,6 +73,53 @@ async function writeSessionLog(sessionId: string, lines: object[]): Promise<void
 const tick = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe('session telemetry bridge', () => {
+  it('publishes initialAgents in the first snapshot', async () => {
+    const sessionId = '2026-06-23/11-00-00Z_test_seed';
+    await writeSessionLog(sessionId, []);
+
+    const calls: Calls = { snapshots: [], transcripts: [], ended: [] };
+    const dispose = startSessionTelemetryBridge({
+      publisher: fakePublisher(calls),
+      sessionId,
+      projectRoot,
+      projectName: 'demo',
+      globalRoot,
+      startedAt: '2026-06-23T11:00:00Z',
+      snapshotIntervalMs: 10_000,
+      transcriptIntervalMs: 10_000,
+      initialAgents: [
+        {
+          id: 'leader',
+          name: 'leader',
+          status: 'streaming',
+          iterations: 2,
+          toolCalls: 1,
+          model: 'openai/gpt-5',
+          ctxPct: 33,
+          partialText: 'working',
+          lastActivityAt: '2026-06-23T11:01:00Z',
+        },
+      ],
+    });
+
+    expect(calls.snapshots[0]).toMatchObject({
+      status: 'active',
+      agentCount: 1,
+      lastActivityAt: '2026-06-23T11:01:00Z',
+      agents: [
+        {
+          id: 'leader',
+          status: 'streaming',
+          model: 'openai/gpt-5',
+          ctxPct: 33,
+          partialText: 'working',
+        },
+      ],
+    });
+
+    dispose();
+  });
+
   it('publishes an initial snapshot, agent updates, transcript, and ended', async () => {
     const sessionId = '2026-06-23/12-00-00Z_test_aa11';
     await writeSessionLog(sessionId, [
@@ -114,9 +161,12 @@ describe('session telemetry bridge', () => {
         {
           id: 'leader',
           name: 'leader',
+          startedAt: '2026-06-23T12:00:00Z',
           status: 'running',
           iterations: 1,
           toolCalls: 0,
+          model: 'opus',
+          ctxPct: 42,
           lastActivityAt: 't',
         },
       ],
@@ -124,7 +174,13 @@ describe('session telemetry bridge', () => {
     const active = calls.snapshots[calls.snapshots.length - 1]!;
     expect(active.status).toBe('active');
     expect(active.agents).toHaveLength(1);
-    expect(active.agents[0]).toMatchObject({ id: 'leader', status: 'running' });
+    expect(active.agents[0]).toMatchObject({
+      id: 'leader',
+      status: 'running',
+      startedAt: '2026-06-23T12:00:00Z',
+      model: 'opus',
+      ctxPct: 42,
+    });
 
     // Transcript is tailed from the JSONL on disk.
     await tick(60);

@@ -31,6 +31,8 @@ export interface AgentEntry {
   id: string;
   /** Human-readable label (e.g. "leader", "bug-hunter #1"). */
   name: string;
+  /** UTC ISO timestamp when this agent/run started, when known. */
+  startedAt?: string | undefined;
   status: AgentLiveStatus;
   /** Current tool name if running, undefined otherwise. */
   currentTool?: string | undefined;

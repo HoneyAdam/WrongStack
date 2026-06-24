@@ -112,7 +112,7 @@ import { buildProviderFactoriesFromRegistry, makeProviderFromConfig } from '@wro
 import { builtinToolsPack, forgetTool, rememberTool, searchMemoryTool, relatedMemoryTool } from '@wrongstack/tools';
 import { MCPRegistry } from '@wrongstack/mcp';
 import { allServers } from '@wrongstack/core';
-import { type WebSocket, WebSocketServer } from 'ws';
+import { WebSocket, WebSocketServer } from 'ws';
 import { createDefaultContainer } from '../../../runtime/src/container.js';
 import { bootConfig, patchConfig } from './boot.js';
 import { AutoPhaseWebSocketHandler } from './autophase-ws-handler.js';
@@ -643,6 +643,7 @@ export async function startWebUI(
         projectRoot,
         projectName: path.basename(projectRoot),
         appConfig: config as never as Parameters<typeof createHqPublisherFromEnv>[0]['appConfig'],
+        socketFactory: (url: string) => new WebSocket(url) as unknown as import('@wrongstack/core').HqSocketLike,
       });
       if (hqTelemetry) {
         hqTelemetry.connect();
@@ -654,6 +655,7 @@ export async function startWebUI(
           projectRoot,
           projectName: path.basename(projectRoot),
           globalRoot: wpaths.globalRoot,
+          initialAgents: statusTracker?.getAgents(),
           startedAt: new Date().toISOString(),
         });
       }

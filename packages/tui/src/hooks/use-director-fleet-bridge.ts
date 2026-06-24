@@ -69,6 +69,9 @@ export function useDirectorFleetBridge({
       if (!batchTimer) batchTimer = setTimeout(flushBatch, FLUSH_MS);
     };
 
+    // Live-panel buffer. Periodically flushed deltas feed the FleetPanel's
+    // rolling preview (recentMessages), which is a short, transient view —
+    // cleared on every flush so it only reflects the most recent burst.
     const streamBuf = new Map<string, string>();
     let streamFlushTimer: ReturnType<typeof setTimeout> | null = null;
     const flushStreamBufs = () => {
@@ -78,23 +81,36 @@ export function useDirectorFleetBridge({
         // tags from appearing as literal text in the fleet panel.
         const cleaned = stripNextStepsBlock(text);
         if (!cleaned) continue;
-        const label = labelFor(labelsRef, id);
         enq({ type: 'fleetMessage', id, text: cleaned });
-        if (streamFleetRef.current) {
-          enq({
-            type: 'addEntry',
-            entry: {
-              kind: 'subagent',
-              agentLabel: label.label,
-              agentColor: label.color,
-              icon: '💬',
-              text: cleaned,
-            },
-          });
-        }
       }
       streamBuf.clear();
       streamFlushTimer = null;
+    };
+
+    // Chat-history buffer. Unlike streamBuf this accumulates the FULL assistant
+    // message per subagent across the whole turn and is NOT cleared on the
+    // periodic flush — it is committed to ONE chat entry only at a turn
+    // boundary (a tool call, session end, or task completion). This is what
+    // keeps a streamed subagent message as a single bubble instead of one
+    // fragmented entry per 600ms flush window.
+    const historyBuf = new Map<string, string>();
+    const finalizeHistory = (id: string): void => {
+      const text = historyBuf.get(id);
+      historyBuf.delete(id);
+      if (!text || !streamFleetRef.current) return;
+      const cleaned = stripNextStepsBlock(text);
+      if (!cleaned.trim()) return;
+      const label = labelFor(labelsRef, id);
+      enq({
+        type: 'addEntry',
+        entry: {
+          kind: 'subagent',
+          agentLabel: label.label,
+          agentColor: label.color,
+          icon: '💬',
+          text: cleaned,
+        },
+      });
     };
 
     const status = d.status();
@@ -172,6 +188,12 @@ export function useDirectorFleetBridge({
               event.subagentId,
               (streamBuf.get(event.subagentId) ?? '') + payload.text,
             );
+            // Accumulate the full assistant message for the chat-history bubble.
+            // Committed as one entry at the next turn boundary (see finalizeHistory).
+            historyBuf.set(
+              event.subagentId,
+              (historyBuf.get(event.subagentId) ?? '') + payload.text,
+            );
             if (streamFlushTimer) clearTimeout(streamFlushTimer);
             streamFlushTimer = setTimeout(flushStreamBufs, FLUSH_MS * 4);
           }
@@ -217,6 +239,9 @@ export function useDirectorFleetBridge({
         case 'tool.started': {
           const payload = event.payload as { name?: string | undefined };
           if (payload?.name) {
+            // Commit any assistant text that preceded this tool call as one
+            // complete bubble, so the tool entry renders separately after it.
+            finalizeHistory(event.subagentId);
             enqueue({ type: 'fleetToolStart', id: event.subagentId, name: payload.name });
           }
           break;
@@ -264,6 +289,8 @@ export function useDirectorFleetBridge({
           });
           break;
         case 'session.ended':
+          // Commit the subagent's final assistant message (no trailing tool).
+          finalizeHistory(event.subagentId);
           break;
         case 'compaction.fired':
           enqueue({
@@ -358,6 +385,8 @@ export function useDirectorFleetBridge({
         output: d.snapshot().total.output,
         perAgent: d.snapshot().perSubagent,
       });
+      // Commit any unflushed assistant text for this subagent before it's done.
+      finalizeHistory(payload.result.subagentId);
       if (streamFlushTimer) {
         clearTimeout(streamFlushTimer);
         flushStreamBufs();
@@ -373,6 +402,8 @@ export function useDirectorFleetBridge({
       doFlush();
       if (streamFlushTimer) clearTimeout(streamFlushTimer);
       flushStreamBufs();
+      // Commit any assistant text still buffered for any subagent on teardown.
+      for (const id of [...historyBuf.keys()]) finalizeHistory(id);
       if (batchTimer) clearTimeout(batchTimer);
       flushBatch();
     };

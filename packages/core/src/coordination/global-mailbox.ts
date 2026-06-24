@@ -67,6 +67,8 @@ const LINE_SEPARATOR = '\n';
  */
 const MESSAGE_CACHE_MAX_ENTRIES = 10_000;
 
+type HqPublisherRef = HqPublisher | (() => HqPublisher | undefined);
+
 /**
  * Derive the project-level mailbox directory path.
  *
@@ -95,7 +97,7 @@ export class GlobalMailbox implements Mailbox {
   /** Optional event bus for emitting agent registration/heartbeat events. */
   private readonly _events?: EventBus | undefined;
   /** Optional HQ publisher for cross-project command-center telemetry. */
-  private readonly _hqPublisher?: HqPublisher | undefined;
+  private readonly _hqPublisher?: HqPublisherRef | undefined;
   /**
    * Local cache of the agent registry to avoid re-reading on every call.
    * Time-bounded: the registry file is shared ACROSS PROCESSES (that's the
@@ -134,9 +136,9 @@ export class GlobalMailbox implements Mailbox {
   /**
    * @param projectDir — `~/.wrongstack/projects/<slug>/`
    * @param events — optional EventBus for real-time TUI/WebUI notifications
-   * @param hqPublisher — optional HQ publisher for cross-project telemetry
+   * @param hqPublisher — optional HQ publisher, or getter, for cross-project telemetry
    */
-  constructor(projectDir: string, events?: EventBus, hqPublisher?: HqPublisher) {
+  constructor(projectDir: string, events?: EventBus, hqPublisher?: HqPublisherRef) {
     this.messagePath = path.join(projectDir, MAILBOX_FILE);
     this.registryPath = path.join(projectDir, '_mailbox.registry.json');
     this.clientRegistryPath = path.join(projectDir, CLIENT_REGISTRY_FILE);
@@ -148,17 +150,22 @@ export class GlobalMailbox implements Mailbox {
     return `${path.basename(path.dirname(this.messagePath))}:mailbox`;
   }
 
+  private get hqPublisher(): HqPublisher | undefined {
+    return typeof this._hqPublisher === 'function' ? this._hqPublisher() : this._hqPublisher;
+  }
+
   private publishHqMailboxEvent(input: Parameters<HqPublisher['publishMailboxEvent']>[0]): void {
     try {
-      this._hqPublisher?.publishMailboxEvent(input);
+      this.hqPublisher?.publishMailboxEvent(input);
     } catch {
       // HQ telemetry is best-effort and must never affect mailbox behavior.
     }
   }
 
   private publishHqMailboxSnapshot(): void {
-    if (this._hqPublisher === undefined) return;
-    void this._hqPublisher.publishMailboxSnapshot(this, { mailboxId: this.hqMailboxId }).catch(() => {
+    const publisher = this.hqPublisher;
+    if (publisher === undefined) return;
+    void publisher.publishMailboxSnapshot(this, { mailboxId: this.hqMailboxId }).catch(() => {
       // HQ telemetry is best-effort and must never affect mailbox behavior.
     });
   }

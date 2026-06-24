@@ -141,6 +141,8 @@ export const HQ_HTML = `<!DOCTYPE html>
   .acard-stream { margin-top: 8px; font-size: 11px; color: var(--muted); background: var(--inset); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; font-family: ui-monospace, monospace; max-height: 58px; overflow: hidden; white-space: pre-wrap; word-break: break-word; }
   .acard-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; font-size: 10.5px; color: var(--dim); font-variant-numeric: tabular-nums; }
   .acard-meta .mut { color: var(--dim); }
+  .acard-meta .warm { color: var(--amber); }
+  .acard-meta .hot { color: var(--red); }
   .ctxbar { margin-top: 9px; height: 4px; border-radius: 999px; background: var(--inset); overflow: hidden; }
   .ctxbar-fill { height: 100%; background: var(--accent); border-radius: 999px; transition: width 0.3s ease; }
   .ctxbar-fill.warm { background: var(--amber); }
@@ -183,7 +185,7 @@ export const HQ_HTML = `<!DOCTYPE html>
   .fnode.terminal.k-repl { border-left-color: var(--amber); }
   .fnode.terminal.k-webui { border-left-color: var(--accent); }
   .fnode.terminal.k-cli { border-left-color: var(--cyan); }
-  .fnode.agent { width: 200px; }
+  .fnode.agent { width: 220px; }
   .fnode.agent.s-running, .fnode.agent.s-streaming { border-color: var(--green); box-shadow: 0 0 0 1px rgba(63,185,80,0.25), 0 10px 22px rgba(0,0,0,0.4); animation: pulse 1.8s ease-in-out infinite; }
   .fnode.agent.s-waiting_user { border-color: var(--amber); }
   .fnode.agent.s-error { border-color: var(--red); }
@@ -265,6 +267,7 @@ function withTok(p){ var u = new URL(p, location.href); var t = tokenStr(); if (
 function shortId(s){ if(!s) return '—'; s=String(s); return s.length>16 ? s.slice(0,8)+'…'+s.slice(-5) : s; }
 function fmtTime(iso){ if(!iso) return ''; var d=new Date(iso); return isNaN(d.getTime())?'':d.toLocaleTimeString(); }
 function fmtAgo(iso){ if(!iso) return ''; var d=new Date(iso).getTime(); if(isNaN(d)) return ''; var s=Math.max(0,Math.floor((Date.now()-d)/1000)); if(s<5) return 'now'; if(s<60) return s+'s ago'; var m=Math.floor(s/60); if(m<60) return m+'m ago'; var hh=Math.floor(m/60); if(hh<24) return hh+'h ago'; return Math.floor(hh/24)+'d ago'; }
+function fmtElapsed(iso){ if(!iso) return ''; var d=new Date(iso).getTime(); if(isNaN(d)) return ''; var s=Math.max(0,Math.floor((Date.now()-d)/1000)); if(s<60) return s+'s'; var m=Math.floor(s/60); if(m<60) return m+'m '+(s%60)+'s'; var h=Math.floor(m/60); if(h<24) return h+'h '+(m%60)+'m'; return Math.floor(h/24)+'d '+(h%24)+'h'; }
 function fmtNum(n){ n=Number(n)||0; if(n>=1e6) return (n/1e6).toFixed(1)+'M'; if(n>=1e3) return (n/1e3).toFixed(1)+'k'; return String(n); }
 function esc(s){ if(s==null) return ''; return String(s); }
 
@@ -399,19 +402,60 @@ function machineKey(hostname, machineId){
 function buildTree(snap){
   var sessions = (snap && snap.liveSessions) || [];
   var machines = (snap && snap.machines) || [];
+  var clients = (snap && snap.clients) || [];
+  var projects = (snap && snap.projects) || [];
   var mMap = {};
+  var pMap = {};
+  projects.forEach(function(p){ if(p && p.projectId) pMap[p.projectId] = p; });
   function ensure(hostname, machineId){
     var key = machineKey(hostname, machineId);
     if(!mMap[key]) mMap[key] = { key: key, machineId: machineId || key, hostname: (hostname && String(hostname).trim()) || machineId || 'machine', projects: {}, sessionCount: 0, agentCount: 0 };
     return mMap[key];
+  }
+  function ensureProject(mm, pid, seed){
+    if(!mm.projects[pid]) mm.projects[pid] = {
+      projectId: pid,
+      projectName: (seed && (seed.projectName || seed.projectId)) || pid,
+      gitBranch: seed && seed.gitBranch,
+      terminals: []
+    };
+    return mm.projects[pid];
   }
   sessions.forEach(function(s){
     var mm = ensure(s.hostname, s.machineId);
     mm.sessionCount++;
     mm.agentCount += (s.agents ? s.agents.length : 0);
     var pid = s.projectId || 'unknown';
-    if(!mm.projects[pid]) mm.projects[pid] = { projectId: pid, projectName: s.projectName || pid, gitBranch: s.gitBranch, terminals: [] };
-    mm.projects[pid].terminals.push(s);
+    ensureProject(mm, pid, s).terminals.push(s);
+  });
+  clients.forEach(function(c){
+    var alreadyRepresented = sessions.some(function(s){
+      return s.projectId === c.projectId &&
+        String(s.clientKind||'') === String(c.kind||'') &&
+        (!c.pid || !s.pid || c.pid === s.pid);
+    });
+    if(alreadyRepresented) return;
+    var project = pMap[c.projectId] || {};
+    var mm = ensure(c.hostname, c.machineId);
+    mm.sessionCount++;
+    var terminal = {
+      sessionId: 'client:' + (c.clientId || c.projectId || 'unknown'),
+      clientKind: c.kind || 'cli',
+      machineId: c.machineId,
+      hostname: c.hostname,
+      projectId: c.projectId || 'unknown',
+      projectName: project.projectName || c.projectId || 'unknown',
+      projectRoot: project.projectRootDisplay || '',
+      gitBranch: project.gitBranch,
+      status: c.connected ? 'active' : 'stale',
+      startedAt: c.connectedAt,
+      lastActivityAt: c.lastSeenAt,
+      pid: c.pid,
+      agentCount: 0,
+      agents: [],
+      synthetic: true
+    };
+    ensureProject(mm, terminal.projectId, terminal).terminals.push(terminal);
   });
   // Include machines that have a connected client but no live session yet.
   machines.forEach(function(m){ ensure(m.hostname, m.machineId); });
@@ -480,21 +524,26 @@ function projNode(id, p, machine){
   });
 }
 function termNode(id, t, sel){
+  var synthetic = !!t.synthetic;
   return fleetNode(id, 'terminal', {
     termKind: t.clientKind, status: t.status, icon: kindIcon(t.clientKind),
     label: (t.clientKind||'cli').toUpperCase() + ' · ' + shortId(t.sessionId),
-    sub: t.status + (t.pid ? (' · pid '+t.pid) : ''),
-    chips: [ (t.agentCount||(t.agents?t.agents.length:0))+' agents' ],
-    clickable: true, selected: !!(sel && sel.sessionId === t.sessionId && !sel.agentId),
-    onClick: function(){ selectSession(t.sessionId); }
+    sub: t.status + (t.pid ? (' · pid '+t.pid) : '') + (synthetic ? ' · waiting for session telemetry' : ''),
+    chips: synthetic ? ['connected', '0 agents'] : [ (t.agentCount||(t.agents?t.agents.length:0))+' agents' ],
+    clickable: !synthetic, selected: !synthetic && !!(sel && sel.sessionId === t.sessionId && !sel.agentId),
+    onClick: synthetic ? undefined : function(){ selectSession(t.sessionId); }
   });
 }
 function agentNode(id, a, t, sel){
   var chips = [];
+  var ctx = typeof a.ctxPct==='number' ? Math.max(0, Math.min(100, a.ctxPct)) : null;
+  var active = a.status==='running'||a.status==='streaming'||a.status==='waiting_user';
   if(a.currentTool) chips.push('⚙ '+a.currentTool);
+  if(a.model) chips.push(a.model);
+  if(ctx!=null) chips.push('ctx '+ctx+'%');
+  if(a.startedAt) chips.push((active?'run ':'last ')+fmtElapsed(a.startedAt));
   chips.push((a.iterations||0)+' it');
   if(typeof a.costUsd === 'number' && a.costUsd > 0) chips.push('$'+a.costUsd.toFixed(2));
-  if(a.model) chips.push(a.model);
   return fleetNode(id, 'agent', {
     status: a.status, label: a.name || a.id,
     sub: a.status + (a.partialText ? (' · '+String(a.partialText).slice(0,44)) : ''),
@@ -507,7 +556,7 @@ function kindIcon(k){ return k==='tui'?'🖳':k==='webui'?'🌐':k==='repl'?'⌨
 function miniColor(n){ var k=n.data&&n.data.kind; return k==='machine'?'#a371f7':k==='project'?'#58a6ff':k==='agent'?'#3fb950':'#39d0d8'; }
 
 // Node footprints (width × height) for dagre sizing.
-var NODE_SIZE = { machine: [220, 78], project: [220, 78], terminal: [220, 70], agent: [210, 62] };
+var NODE_SIZE = { machine: [220, 78], project: [220, 78], terminal: [220, 70], agent: [230, 92] };
 // Auto-layout the logical nodes into a clean tree using dagre.
 function layoutTree(nodes, edges, dir, dagre){
   if(!dagre || !nodes.length) return nodes;
@@ -803,13 +852,16 @@ async function boot(){
     var a = p.a, s = p.s, sel = Store.selected;
     var seld = sel && sel.sessionId===s.sessionId && sel.agentId===a.id;
     var meta = [];
+    var active = a.status==='running'||a.status==='streaming'||a.status==='waiting_user';
+    var ctx = typeof a.ctxPct==='number' ? Math.max(0, Math.min(100, a.ctxPct)) : null;
+    if(a.model) meta.push(h('span', { key:'md', className:'mut' }, 'model '+a.model));
+    if(ctx!=null) meta.push(h('span', { key:'cx', className: ctx>=85?'hot':ctx>=60?'warm':'mut' }, 'ctx '+ctx+'%'));
+    if(a.startedAt) meta.push(h('span', { key:'rt', className:'mut' }, (active?'run ':'last run ')+fmtElapsed(a.startedAt)));
     meta.push(h('span', { key:'it' }, (a.iterations||0)+' it'));
     if(a.toolCalls!=null) meta.push(h('span', { key:'tc' }, (a.toolCalls||0)+' tools'));
     if(a.tokensIn||a.tokensOut) meta.push(h('span', { key:'tk' }, fmtNum((a.tokensIn||0)+(a.tokensOut||0))+' tok'));
     if(typeof a.costUsd==='number' && a.costUsd>0) meta.push(h('span', { key:'co' }, '$'+a.costUsd.toFixed(3)));
-    if(a.model) meta.push(h('span', { key:'md', className:'mut' }, a.model));
     if(a.lastActivityAt) meta.push(h('span', { key:'ag', className:'mut' }, fmtAgo(a.lastActivityAt)));
-    var ctx = typeof a.ctxPct==='number' ? Math.max(0, Math.min(100, a.ctxPct)) : null;
     return h('div', { className: 'acard s-'+(a.status||'idle')+(seld?' selected':''), onClick: function(){ selectSession(s.sessionId, a.id); } },
       h('div', { className: 'acard-top' },
         h('span', { className: 'dot '+(a.status||'idle') }),
@@ -933,6 +985,10 @@ async function boot(){
     var streaming = ag && (ag.status==='streaming' || ag.status==='running');
     var liveText = streaming && ag.partialText ? String(ag.partialText) : '';
     var liveTool = streaming && ag.currentTool ? ag.currentTool : '';
+    var agBits = [];
+    if(ag && ag.model) agBits.push('model '+ag.model);
+    if(ag && typeof ag.ctxPct==='number') agBits.push('ctx '+Math.max(0, Math.min(100, ag.ctxPct))+'%');
+    if(ag && ag.startedAt) agBits.push((streaming?'run ':'last run ')+fmtElapsed(ag.startedAt));
 
     // Keep pinned to the bottom while new content streams in, unless the user
     // has scrolled up to read history.
@@ -941,7 +997,8 @@ async function boot(){
     }, [entries.length, liveText, liveTool, sel && sel.sessionId, sel && sel.agentId]);
     function onScroll(){ var el = bodyRef.current; if(!el) return; stickRef.current = (el.scrollHeight - el.scrollTop - el.clientHeight) < 40; }
 
-    var metaText = isSub ? (entries.length + ' messages' + (streaming?' · live':'')) : ((tc && tc.total!=null ? (tc.total+' turns') : '') + (tc && tc.source ? (' · '+tc.source) : ''));
+    var baseMeta = isSub ? (entries.length + ' messages' + (streaming?' · live':'')) : ((tc && tc.total!=null ? (tc.total+' turns') : '') + (tc && tc.source ? (' · '+tc.source) : ''));
+    var metaText = (agBits.length ? (agBits.join(' · ') + (baseMeta ? ' · ' : '')) : '') + baseMeta;
     var bodyEls = [];
     if(!isSub && tc && tc.loading && !entries.length && !liveText){ bodyEls.push(h('div', { key:'l', className: 'loading' }, 'Loading full chat history…')); }
     else if(!entries.length && !liveText){ bodyEls.push(h('div', { key:'e', className: 'side-empty' }, isSub ? ('No messages from ' + (ag?ag.name:'this subagent') + ' yet — its conversation streams here live as it works.') : ((tc&&tc.error)?'Could not load history.':'No transcript yet for this terminal.'))); }
@@ -1038,9 +1095,15 @@ function renderFallback(){
         html += '<div style="margin:6px 0 4px;color:var(--accent)">📁 '+escAttr(p.projectName)+(p.gitBranch?(' ⎇ '+escAttr(p.gitBranch)):'')+'</div>';
         p.terminals.forEach(function(term){
           html += '<div style="margin:2px 0 2px 14px">';
-          html += '<a href="#" data-sid="'+escAttr(term.sessionId)+'" style="color:var(--cyan);text-decoration:none">▷ '+escAttr((term.clientKind||'cli').toUpperCase())+' · '+escAttr(shortId(term.sessionId))+'</a> <span class="pill">'+escAttr(term.status)+'</span>';
+          if(term.synthetic) html += '<span style="color:var(--cyan)">▷ '+escAttr((term.clientKind||'cli').toUpperCase())+' · '+escAttr(shortId(term.sessionId))+'</span> <span class="pill">'+escAttr(term.status)+'</span> <span class="pill">waiting for session telemetry</span>';
+          else html += '<a href="#" data-sid="'+escAttr(term.sessionId)+'" style="color:var(--cyan);text-decoration:none">▷ '+escAttr((term.clientKind||'cli').toUpperCase())+' · '+escAttr(shortId(term.sessionId))+'</a> <span class="pill">'+escAttr(term.status)+'</span>';
           (term.agents||[]).forEach(function(a){
-            html += '<div style="margin-left:22px;color:var(--muted)"><a href="#" data-sid="'+escAttr(term.sessionId)+'" data-aid="'+escAttr(a.id)+'" style="color:var(--text);text-decoration:none"><span class="dot '+escAttr(a.status||'idle')+'"></span> '+escAttr(a.name||a.id)+'</a> <span class="pill">'+escAttr(a.status)+'</span>'+(a.currentTool?(' <span class="pill">⚙ '+escAttr(a.currentTool)+'</span>'):'')+'</div>';
+            var active = a.status==='running'||a.status==='streaming'||a.status==='waiting_user';
+            var extra = '';
+            if(a.model) extra += ' <span class="pill">model '+escAttr(a.model)+'</span>';
+            if(typeof a.ctxPct==='number') extra += ' <span class="pill">ctx '+escAttr(Math.max(0, Math.min(100, a.ctxPct)))+'%</span>';
+            if(a.startedAt) extra += ' <span class="pill">'+escAttr(active?'run ':'last ')+escAttr(fmtElapsed(a.startedAt))+'</span>';
+            html += '<div style="margin-left:22px;color:var(--muted)"><a href="#" data-sid="'+escAttr(term.sessionId)+'" data-aid="'+escAttr(a.id)+'" style="color:var(--text);text-decoration:none"><span class="dot '+escAttr(a.status||'idle')+'"></span> '+escAttr(a.name||a.id)+'</a> <span class="pill">'+escAttr(a.status)+'</span>'+(a.currentTool?(' <span class="pill">⚙ '+escAttr(a.currentTool)+'</span>'):'')+extra+'</div>';
           });
           html += '</div>';
         });

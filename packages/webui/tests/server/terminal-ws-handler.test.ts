@@ -39,8 +39,6 @@ const { spawned, spawnMock } = vi.hoisted(() => {
   return { spawned: spawnedArr, spawnMock: mock };
 });
 
-vi.mock('node-pty', () => ({ spawn: spawnMock }));
-
 import { TerminalWebSocketHandler } from '../../src/server/terminal-ws-handler.js';
 
 // ── Fake WebSocket ───────────────────────────────────────────────────────────
@@ -52,39 +50,46 @@ function makeWs() {
     sent,
     send: (data: string) => sent.push(JSON.parse(data)),
     on: (ev: string, cb: () => void) => {
-      (listeners[ev] ??= []).push(cb);
+      listeners[ev] ??= [];
+      listeners[ev].push(cb);
     },
     fire: (ev: string) => {
       for (const cb of listeners[ev] ?? []) cb();
     },
   };
-  // biome-ignore lint/suspicious/noExplicitAny: test double
   return ws as any;
 }
 
-const logger = { warn: vi.fn(), debug: vi.fn(), info: vi.fn(), error: vi.fn() } as never;
+const logger = { warn: vi.fn(), debug: vi.fn(), info: vi.fn(), error: vi.fn() };
+const loadFakeNodePty = () => ({ spawn: spawnMock });
 
 describe('TerminalWebSocketHandler', () => {
   beforeEach(() => {
     spawned.length = 0;
     spawnMock.mockClear();
+    logger.warn.mockClear();
   });
 
   it('terminal.create spawns a pty in the given cwd and streams output', () => {
-    const h = new TerminalWebSocketHandler(() => '/my/cwd', logger);
+    const h = new TerminalWebSocketHandler(() => '/my/cwd', logger, loadFakeNodePty);
     const ws = makeWs();
     h.addClient(ws);
 
-    expect(h.handleMessage(ws, { type: 'terminal.create', payload: { id: 't1', cols: 100, rows: 30 } })).toBe(true);
+    expect(
+      h.handleMessage(ws, { type: 'terminal.create', payload: { id: 't1', cols: 100, rows: 30 } }),
+    ).toBe(true);
     expect(spawnMock).toHaveBeenCalledTimes(1);
     expect(spawnMock.mock.calls[0]?.[2]).toMatchObject({ cwd: '/my/cwd', cols: 100, rows: 30 });
 
     spawned[0]?.emitData('hello');
-    expect(ws.sent).toContainEqual({ type: 'terminal.output', payload: { id: 't1', data: 'hello' } });
+    expect(ws.sent).toContainEqual({
+      type: 'terminal.output',
+      payload: { id: 't1', data: 'hello' },
+    });
   });
 
   it('terminal.create is idempotent for the same id', () => {
-    const h = new TerminalWebSocketHandler(() => '/c', logger);
+    const h = new TerminalWebSocketHandler(() => '/c', logger, loadFakeNodePty);
     const ws = makeWs();
     h.addClient(ws);
     h.handleMessage(ws, { type: 'terminal.create', payload: { id: 't1' } });
@@ -93,7 +98,7 @@ describe('TerminalWebSocketHandler', () => {
   });
 
   it('terminal.input writes to the pty', () => {
-    const h = new TerminalWebSocketHandler(() => '/c', logger);
+    const h = new TerminalWebSocketHandler(() => '/c', logger, loadFakeNodePty);
     const ws = makeWs();
     h.addClient(ws);
     h.handleMessage(ws, { type: 'terminal.create', payload: { id: 't1' } });
@@ -102,7 +107,7 @@ describe('TerminalWebSocketHandler', () => {
   });
 
   it('terminal.resize resizes the pty', () => {
-    const h = new TerminalWebSocketHandler(() => '/c', logger);
+    const h = new TerminalWebSocketHandler(() => '/c', logger, loadFakeNodePty);
     const ws = makeWs();
     h.addClient(ws);
     h.handleMessage(ws, { type: 'terminal.create', payload: { id: 't1' } });
@@ -111,7 +116,7 @@ describe('TerminalWebSocketHandler', () => {
   });
 
   it('terminal.close kills the pty', () => {
-    const h = new TerminalWebSocketHandler(() => '/c', logger);
+    const h = new TerminalWebSocketHandler(() => '/c', logger, loadFakeNodePty);
     const ws = makeWs();
     h.addClient(ws);
     h.handleMessage(ws, { type: 'terminal.create', payload: { id: 't1' } });
@@ -120,16 +125,19 @@ describe('TerminalWebSocketHandler', () => {
   });
 
   it('pty exit notifies the client', () => {
-    const h = new TerminalWebSocketHandler(() => '/c', logger);
+    const h = new TerminalWebSocketHandler(() => '/c', logger, loadFakeNodePty);
     const ws = makeWs();
     h.addClient(ws);
     h.handleMessage(ws, { type: 'terminal.create', payload: { id: 't1' } });
     spawned[0]?.emitExit(0);
-    expect(ws.sent).toContainEqual({ type: 'terminal.exit', payload: { id: 't1', exitCode: 0, signal: undefined } });
+    expect(ws.sent).toContainEqual({
+      type: 'terminal.exit',
+      payload: { id: 't1', exitCode: 0, signal: undefined },
+    });
   });
 
   it('client disconnect kills all its ptys', () => {
-    const h = new TerminalWebSocketHandler(() => '/c', logger);
+    const h = new TerminalWebSocketHandler(() => '/c', logger, loadFakeNodePty);
     const ws = makeWs();
     h.addClient(ws);
     h.handleMessage(ws, { type: 'terminal.create', payload: { id: 't1' } });
@@ -140,7 +148,7 @@ describe('TerminalWebSocketHandler', () => {
   });
 
   it('ignores malformed payloads without throwing', () => {
-    const h = new TerminalWebSocketHandler(() => '/c', logger);
+    const h = new TerminalWebSocketHandler(() => '/c', logger, loadFakeNodePty);
     const ws = makeWs();
     h.addClient(ws);
     expect(h.handleMessage(ws, { type: 'terminal.create', payload: {} })).toBe(true);
@@ -149,14 +157,14 @@ describe('TerminalWebSocketHandler', () => {
   });
 
   it('returns false for non-terminal messages', () => {
-    const h = new TerminalWebSocketHandler(() => '/c', logger);
+    const h = new TerminalWebSocketHandler(() => '/c', logger, loadFakeNodePty);
     const ws = makeWs();
     h.addClient(ws);
     expect(h.handleMessage(ws, { type: 'user_message', payload: {} })).toBe(false);
   });
 
   it('enforces the per-client session cap', () => {
-    const h = new TerminalWebSocketHandler(() => '/c', logger);
+    const h = new TerminalWebSocketHandler(() => '/c', logger, loadFakeNodePty);
     const ws = makeWs();
     h.addClient(ws);
     for (let i = 0; i < 8; i++) {
@@ -167,5 +175,25 @@ describe('TerminalWebSocketHandler', () => {
     h.handleMessage(ws, { type: 'terminal.create', payload: { id: 't8' } });
     expect(spawnMock).toHaveBeenCalledTimes(8);
     expect(ws.sent).toContainEqual({ type: 'terminal.exit', payload: { id: 't8', exitCode: -1 } });
+  });
+
+  it('reports terminal unavailability when node-pty is absent', () => {
+    const h = new TerminalWebSocketHandler(
+      () => '/c',
+      logger,
+      () => null,
+    );
+    const ws = makeWs();
+    h.addClient(ws);
+    expect(h.handleMessage(ws, { type: 'terminal.create', payload: { id: 't1' } })).toBe(true);
+    expect(spawnMock).not.toHaveBeenCalled();
+    expect(ws.sent).toContainEqual({
+      type: 'terminal.output',
+      payload: {
+        id: 't1',
+        data: expect.stringContaining('optional dependency node-pty is not installed'),
+      },
+    });
+    expect(ws.sent).toContainEqual({ type: 'terminal.exit', payload: { id: 't1', exitCode: -1 } });
   });
 });

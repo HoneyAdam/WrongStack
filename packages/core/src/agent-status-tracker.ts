@@ -61,6 +61,7 @@ export class AgentStatusTracker {
   private leaderCtxPct: number | undefined;
   private leaderModel: string | undefined;
   private leaderPartialText = '';
+  private leaderStartedAt: string | undefined;
 
   private unsubscribers: Array<() => void> = [];
   private readonly onUpdate: (() => void) | undefined;
@@ -82,7 +83,11 @@ export class AgentStatusTracker {
   start(): void {
     // Leader events
     this.unsubscribers.push(
-      this.events.onPattern('agent.run.started', () => {
+      this.events.onPattern('agent.run.started', (_event, payload) => {
+        const p = payload as { at?: string; model?: string; ctx?: unknown } | undefined;
+        this.markLeaderStarted(p?.at);
+        this.captureLeaderContext(p?.ctx);
+        if (p?.model) this.leaderModel = p.model;
         this.leaderStatus = 'running';
         this.leaderIterations++;
         this.flush();
@@ -92,27 +97,38 @@ export class AgentStatusTracker {
     // Capture the leader's model + context fill from each iteration's context.
     this.unsubscribers.push(
       this.events.onPattern('iteration.started', (_e, payload) => {
-        const ctx = (payload as { ctx?: { model?: string; tokenCount?: number; maxContext?: number } } | undefined)?.ctx;
-        if (!ctx) return;
-        if (ctx.model) this.leaderModel = ctx.model;
-        if (typeof ctx.tokenCount === 'number' && typeof ctx.maxContext === 'number' && ctx.maxContext > 0) {
-          this.leaderCtxPct = Math.round((ctx.tokenCount / ctx.maxContext) * 100);
+        const p = payload as { ctx?: unknown; index?: number } | undefined;
+        const ctx = p?.ctx;
+        this.markLeaderStarted();
+        this.leaderStatus = 'running';
+        if (typeof p?.index === 'number') {
+          this.leaderIterations = Math.max(this.leaderIterations, p.index + 1);
         }
+        if (!ctx) {
+          this.flush();
+          return;
+        }
+        this.captureLeaderContext(ctx);
         this.flush();
       }),
     );
 
     this.unsubscribers.push(
-      this.events.onPattern('agent.run.completed', () => {
-        this.leaderStatus = 'idle';
+      this.events.onPattern('agent.run.completed', (_event, payload) => {
+        const p = payload as { status?: string; ctx?: unknown } | undefined;
+        this.captureLeaderContext(p?.ctx);
+        this.leaderStatus = p?.status === 'failed' ? 'error' : 'idle';
         this.leaderCurrentTool = undefined;
         this.leaderPartialText = '';
+        if (this.leaderStatus === 'idle') this.leaderStartedAt = undefined;
         this.flush();
       }),
     );
 
     this.unsubscribers.push(
-      this.events.onPattern('agent.run.error', () => {
+      this.events.onPattern('agent.run.error', (_event, payload) => {
+        const p = payload as { ctx?: unknown } | undefined;
+        this.captureLeaderContext(p?.ctx);
         this.leaderStatus = 'error';
         this.leaderCurrentTool = undefined;
         this.leaderPartialText = '';
@@ -125,6 +141,7 @@ export class AgentStatusTracker {
       this.events.onPattern('tool.started', (_event, payload) => {
         const p = payload as { name?: string } | undefined;
         if (p?.name) {
+          this.markLeaderStarted();
           this.leaderCurrentTool = p.name;
           this.leaderToolCalls++;
         }
@@ -143,6 +160,7 @@ export class AgentStatusTracker {
     // Brain ask_human → waiting for user input
     this.unsubscribers.push(
       this.events.onPattern('brain.ask_human', () => {
+        this.markLeaderStarted();
         this.leaderStatus = 'waiting_user';
         this.flush();
       }),
@@ -151,6 +169,7 @@ export class AgentStatusTracker {
     // Streaming events
     this.unsubscribers.push(
       this.events.onPattern('llm.stream_started', () => {
+        this.markLeaderStarted();
         this.leaderStatus = 'streaming';
         // A new response is starting — drop the previous turn's live tail.
         this.leaderPartialText = '';
@@ -163,13 +182,46 @@ export class AgentStatusTracker {
     // (text_delta fires once per chunk → would thrash the shared registry).
     this.unsubscribers.push(
       this.events.onPattern('provider.text_delta', (_e, payload) => {
-        const text = (payload as { text?: string } | undefined)?.text;
+        const p = payload as { text?: string; ctx?: unknown } | undefined;
+        const text = p?.text;
         if (!text) return;
+        this.markLeaderStarted();
+        this.captureLeaderContext(p?.ctx);
         this.leaderStatus = 'streaming';
         const next = this.leaderPartialText + text;
         this.leaderPartialText =
           next.length > PARTIAL_TEXT_CAP ? next.slice(next.length - PARTIAL_TEXT_CAP) : next;
         this.schedulePartialFlush();
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.events.onPattern('provider.response', (_e, payload) => {
+        const p = payload as { ctx?: unknown } | undefined;
+        this.captureLeaderContext(p?.ctx);
+        this.flush();
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.events.onPattern('provider.fallback', (_e, payload) => {
+        const p = payload as { to?: { providerId?: string; model?: string } } | undefined;
+        if (p?.to?.model) {
+          this.leaderModel = p.to.providerId
+            ? `${p.to.providerId}/${p.to.model}`
+            : p.to.model;
+          this.flush();
+        }
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.events.onPattern('ctx.pct', (_e, payload) => {
+        const p = payload as { load?: number } | undefined;
+        if (typeof p?.load === 'number' && Number.isFinite(p.load)) {
+          this.leaderCtxPct = Math.round(p.load * 100);
+          this.flush();
+        }
       }),
     );
 
@@ -195,7 +247,8 @@ export class AgentStatusTracker {
     const touch = (id: string): AgentEntry => {
       let entry = this.agents.get(id);
       if (!entry) {
-        entry = { id, name: id, status: 'idle', iterations: 0, toolCalls: 0, lastActivityAt: new Date().toISOString() };
+        const now = new Date().toISOString();
+        entry = { id, name: id, status: 'idle', iterations: 0, toolCalls: 0, startedAt: now, lastActivityAt: now };
         this.agents.set(id, entry);
       }
       entry.lastActivityAt = new Date().toISOString();
@@ -209,6 +262,7 @@ export class AgentStatusTracker {
         const entry = touch(p.subagentId);
         entry.name = p.name?.trim() || entry.name;
         if (p.model) entry.model = p.model;
+        if (!entry.startedAt) entry.startedAt = new Date().toISOString();
         entry.status = 'running';
         this.flush();
       }),
@@ -230,6 +284,7 @@ export class AgentStatusTracker {
         if (!p?.subagentId) return;
         const entry = touch(p.subagentId);
         entry.status = 'running';
+        if (!entry.startedAt) entry.startedAt = new Date().toISOString();
         entry.iterations++;
         this.flush();
       }),
@@ -241,6 +296,7 @@ export class AgentStatusTracker {
         if (!p?.subagentId) return;
         const entry = touch(p.subagentId);
         entry.status = 'running';
+        if (!entry.startedAt) entry.startedAt = new Date().toISOString();
         entry.currentTool = p.name;
         entry.toolCalls++;
         this.flush();
@@ -262,6 +318,7 @@ export class AgentStatusTracker {
         if (!p?.subagentId) return;
         const entry = touch(p.subagentId);
         entry.status = 'running';
+        if (!entry.startedAt) entry.startedAt = new Date().toISOString();
         if (typeof p.iteration === 'number') entry.iterations = p.iteration;
         if (typeof p.toolCalls === 'number') entry.toolCalls = p.toolCalls;
         if (typeof p.costUsd === 'number') entry.costUsd = p.costUsd;
@@ -365,6 +422,7 @@ export class AgentStatusTracker {
     const leaderEntry: AgentEntry = {
       id: 'leader',
       name: this.leaderName,
+      startedAt: this.leaderStartedAt,
       status: this.leaderStatus,
       currentTool: this.leaderCurrentTool,
       iterations: this.leaderIterations,
@@ -400,5 +458,44 @@ export class AgentStatusTracker {
         }
       })
       .catch(() => undefined);
+  }
+
+  private markLeaderStarted(startedAt?: string): void {
+    if (
+      this.leaderStartedAt &&
+      (this.leaderStatus === 'running' ||
+        this.leaderStatus === 'streaming' ||
+        this.leaderStatus === 'waiting_user')
+    ) {
+      return;
+    }
+    this.leaderStartedAt = startedAt ?? new Date().toISOString();
+  }
+
+  private captureLeaderContext(ctx: unknown): void {
+    if (typeof ctx !== 'object' || ctx === null) return;
+    const c = ctx as {
+      model?: unknown;
+      lastRequestTokens?: unknown;
+      meta?: Record<string, unknown> | undefined;
+      provider?: { capabilities?: { maxContext?: unknown } | undefined } | undefined;
+    };
+    if (typeof c.model === 'string' && c.model.length > 0) this.leaderModel = c.model;
+
+    const metaLimit = c.meta?.['effectiveMaxContext'];
+    const providerMax = c.provider?.capabilities?.maxContext;
+    const maxContext =
+      typeof metaLimit === 'number' && metaLimit > 0
+        ? metaLimit
+        : typeof providerMax === 'number' && providerMax > 0
+          ? providerMax
+          : undefined;
+    if (
+      typeof c.lastRequestTokens === 'number' &&
+      c.lastRequestTokens > 0 &&
+      maxContext !== undefined
+    ) {
+      this.leaderCtxPct = Math.round((c.lastRequestTokens / maxContext) * 100);
+    }
   }
 }

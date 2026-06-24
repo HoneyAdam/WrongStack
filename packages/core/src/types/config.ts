@@ -195,6 +195,43 @@ export interface CircuitBreakerRuntimeConfig {
   autoKillResetMs?: number | undefined;
 }
 
+/**
+ * Adaptive concurrency controller configuration. When enabled, the controller
+ * automatically adjusts `maxConcurrent` based on rate-limit (429) errors:
+ * - On 429: halves `maxConcurrent` (floor at 1)
+ * - On sustained success (no 429 for `recoveryIntervalMs`): increases `maxConcurrent` by 1
+ */
+export interface AdaptiveConcurrencyConfig {
+  /** Enable adaptive concurrency. Default: false (disabled). */
+  enabled?: boolean | undefined;
+  /**
+   * Minimum concurrency floor. The controller never drops below this.
+   * Default: 1.
+   */
+  minConcurrent?: number | undefined;
+  /**
+   * Maximum concurrency ceiling. The controller never exceeds this.
+   * Default: 16 (matches MultiAgentCoordinator default).
+   */
+  maxConcurrent?: number | undefined;
+  /**
+   * Multiplicative decrease factor when a 429 is hit.
+   * `newConcurrency = floor(currentConcurrency * decreaseFactor)`.
+   * Default: 0.5 (halves concurrency).
+   */
+  decreaseFactor?: number | undefined;
+  /**
+   * Number of consecutive successful requests before increasing concurrency by 1.
+   * Default: 10.
+   */
+  successThreshold?: number | undefined;
+  /**
+   * How often (ms) to check for recovery and bump concurrency.
+   * Default: 30_000 (30 seconds).
+   */
+  recoveryIntervalMs?: number | undefined;
+}
+
 export interface ToolsConfig {
   defaultExecutionStrategy: 'parallel' | 'sequential' | 'smart';
   maxIterations: number;
@@ -600,6 +637,12 @@ export interface Config {
    * failures). Default off — toggle with `/settings breaker on|off`.
    */
   circuitBreaker?: CircuitBreakerRuntimeConfig | undefined;
+  /**
+   * Adaptive concurrency controller — automatically adjusts `maxConcurrent` based on
+   * rate-limit (429) errors. On 429: decreases concurrency. On sustained success:
+   * gradually increases concurrency back up. Default off.
+   */
+  adaptiveConcurrency?: AdaptiveConcurrencyConfig | undefined;
   /** Saved launch preferences — restored on next boot for one-line confirmation. */
   launch?: LaunchConfig | undefined;
 

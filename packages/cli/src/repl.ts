@@ -10,7 +10,6 @@ import type {
 } from '@wrongstack/core';
 import {
   color,
-  createHqPublisherFromEnv,
   estimateRequestTokensCalibrated,
   expectDefined,
   GlobalMailbox,
@@ -24,6 +23,7 @@ import {
 import { readClipboardImage, routeImagesForModel, type VisionAdapters } from '@wrongstack/runtime';
 import { parseNextSteps } from '@wrongstack/tui';
 import { contextOverflowHint } from './context-overflow-diagnostic.js';
+import { startCliHqConnection } from './hq-publisher.js';
 import type { ReadlineInputReader } from './input-reader.js';
 import { type PredictLLMProvider, predictNextTasks } from './next-task-predictor.js';
 import type { TerminalRenderer } from './renderer.js';
@@ -289,9 +289,8 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
   const replProjectRoot = opts.projectRoot ?? process.cwd();
   const projectDir = resolveProjectDir(replProjectRoot, wstackGlobalRoot());
   const clientId = `repl@${crypto.randomUUID().slice(0, 8)}`;
-  const hqPublisher = createHqPublisherFromEnv({ clientKind: 'repl', projectRoot: replProjectRoot, projectName: path.basename(replProjectRoot), appConfig: opts.appConfig } as never as Parameters<typeof createHqPublisherFromEnv>[0]);
-  hqPublisher?.connect();
-  const clientMailbox = new GlobalMailbox(projectDir, undefined, hqPublisher);
+  const hqConnection = startCliHqConnection({ clientKind: 'repl', projectRoot: replProjectRoot, projectName: path.basename(replProjectRoot), appConfig: opts.appConfig });
+  const clientMailbox = new GlobalMailbox(projectDir, undefined, () => hqConnection.getPublisher());
   let clientHeartbeat: ReturnType<typeof setInterval> | undefined;
   clientMailbox
     .registerClient({
@@ -999,6 +998,7 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
     });
     // Stop the client heartbeat so this REPL is marked offline.
     clearInterval(clientHeartbeat);
+    hqConnection.stop();
     // Run user-provided cleanup (e.g., SessionStats event listener removal).
     opts.onDestroy?.();
   }

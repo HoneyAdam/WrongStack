@@ -1,4 +1,5 @@
 import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import { decryptConfigSecrets } from '../security/secret-vault.js';
 import { atomicWrite } from '../utils/atomic-write.js';
 import { toErrorMessage } from '../utils/error.js';
@@ -228,6 +229,23 @@ export function stripUnsafeInProjectFields(
 }
 
 /**
+ * Compare two absolute filesystem paths for identity. Normalizes separators and
+ * `.`/`..` segments via `path.resolve`, and folds case on win32 (and darwin,
+ * whose default APFS/HFS+ volumes are case-insensitive) so the same file
+ * reached through differently-cased drive/dir spellings still compares equal —
+ * the same Windows path-casing hazard that bit the core token symbols.
+ */
+function samePath(a: string, b: string): boolean {
+  let ra = path.resolve(a);
+  let rb = path.resolve(b);
+  if (process.platform === 'win32' || process.platform === 'darwin') {
+    ra = ra.toLowerCase();
+    rb = rb.toLowerCase();
+  }
+  return ra === rb;
+}
+
+/**
  * Config-layer deep merge — delegates to the shared utility with
  * `arrayMode: 'concat-primitives'` and optional debug logging for
  * non-primitive array replacements.
@@ -297,10 +315,24 @@ export class DefaultConfigLoader implements ConfigLoader {
     // Layer 2, 3 & 3b: global + project-local + in-project config — read in parallel.
     // inProjectConfig (<project>/.wrongstack/config.json) merges AFTER
     // projectLocalConfig so it takes priority (user-intended > auto-cached).
+    //
+    // When the project root *is* the user's home (e.g. launching from `~`),
+    // `<projectRoot>/.wrongstack/config.json` resolves to the very same file as
+    // the trusted global config. Reading it again as the untrusted in-project
+    // layer would strip `provider`/`apiKey`/… from the user's *own* file and
+    // emit a spurious `config.in_project_unsafe_fields_ignored` warning — even
+    // though the trusted global layer already merged those fields. Skip the
+    // in-project read entirely on collision so trust isn't applied to a file
+    // the user fully controls.
+    const inProjectCollides =
+      samePath(this.paths.inProjectConfig, this.paths.globalConfig) ||
+      samePath(this.paths.inProjectConfig, this.paths.projectLocalConfig);
     const [global, local, inProject] = await Promise.all([
       this.readJson(this.paths.globalConfig),
       this.readJson(this.paths.projectLocalConfig),
-      this.readJson(this.paths.inProjectConfig),
+      inProjectCollides
+        ? Promise.resolve({} as PartialConfig)
+        : this.readJson(this.paths.inProjectConfig),
     ]);
     cfg = deepMerge(cfg, global);
     cfg = deepMerge(cfg, local);

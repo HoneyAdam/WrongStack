@@ -19,6 +19,7 @@ import type { ToolOutputMetadata } from '../types/context-evidence.js';
 export interface TrackedAgentSnapshot {
   id: string;
   name: string;
+  startedAt?: string | undefined;
   status: string;
   currentTool?: string | undefined;
   iterations: number;
@@ -72,6 +73,19 @@ export interface EventMap {
    * session-registry file.
    */
   'session.agents_updated': { agents: readonly TrackedAgentSnapshot[] };
+  /**
+   * Fired around a single Agent.run() call. Status trackers use these to
+   * measure active-run elapsed time instead of inferring it from iterations.
+   */
+  'agent.run.started': { ctx: Context; model: string; at: string };
+  'agent.run.completed': {
+    ctx: Context;
+    status: 'done' | 'failed' | 'max_iterations' | 'aborted';
+    iterations: number;
+    at: string;
+    durationMs: number;
+  };
+  'agent.run.error': { ctx: Context; err: Error; at: string; durationMs: number };
   'iteration.started': { ctx: Context; index: number };
   'iteration.completed': { ctx: Context; index: number };
   /**

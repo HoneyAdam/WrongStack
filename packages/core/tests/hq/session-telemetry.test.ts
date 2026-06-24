@@ -26,9 +26,12 @@ describe('hq session telemetry protocol', () => {
       {
         id: 'leader',
         name: 'leader',
+        startedAt: '2026-06-23T10:00:05.000Z',
         status: 'running',
         iterations: 2,
         toolCalls: 4,
+        model: 'opus',
+        ctxPct: 67,
         lastActivityAt: '2026-06-23T10:01:00.000Z',
       },
     ],

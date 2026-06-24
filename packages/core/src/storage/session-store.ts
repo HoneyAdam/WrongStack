@@ -27,7 +27,7 @@ export interface SessionStoreOptions {
   /**
    * Optional secret scrubber. When set, `user_input` and `llm_response` event
    * content is scrubbed before being persisted to the JSONL log and the
-   * summary sidecar — so a secret a user pastes or the model echoes does not
+   * summary sidecar â€” so a secret a user pastes or the model echoes does not
    * sit in cleartext on disk (and does not ride along in history cloud-sync).
    * Tool output is already scrubbed upstream by the executor; this closes the
    * conversation-turn gap (finding F-06).
@@ -36,7 +36,7 @@ export interface SessionStoreOptions {
 }
 
 /**
- * Cache entry for load() — stores the parsed SessionData along with the
+ * Cache entry for load() â€” stores the parsed SessionData along with the
  * file's mtimeMs and size at the time of loading. On subsequent calls,
  * if the file's mtimeMs+size match, we return the cached data without
  * re-reading or re-parsing the JSONL.
@@ -101,7 +101,7 @@ export class DefaultSessionStore implements SessionStore {
     }
   }
 
-  // ── Storage event helpers ───────────────────────────────────────────────────
+  // â”€â”€ Storage event helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   private emitRead(
     sessionId: string,
@@ -252,7 +252,7 @@ export class DefaultSessionStore implements SessionStore {
         this.events,
         {
           resumed: true,
-          // Shard directory (sessions/<date>/) — must match create() so the
+          // Shard directory (sessions/<date>/) â€” must match create() so the
           // .summary.json sidecar lands next to the JSONL instead of the
           // sessions root (where summaryFor() would never find it).
           dir: path.dirname(file),
@@ -301,10 +301,24 @@ export class DefaultSessionStore implements SessionStore {
         return cached.data;
       }
 
-      // Cache miss — do the full read + parse.
+      // Cache miss â€” do the full read + parse.
+      // Fused single pass: parse events + build messages + extract metadata together.
       const raw = await fsp.readFile(file, 'utf8');
       const lines = raw.split('\n').filter((l) => l.trim());
       const events: SessionEvent[] = [];
+
+      // Metadata extracted in the same single pass over the raw lines.
+      let sessionStartEvent: SessionEvent | undefined;
+      let sessionEndEvent: SessionEvent | undefined;
+      let sessionModel: string | undefined;
+      let sessionProvider: string | undefined;
+      let sessionPendingToolUses: string[] | undefined;
+
+      // Message builder state (equivalent to what replay() maintains).
+      const messages: Message[] = [];
+      const openToolUses = new Set<string>();
+      let usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+
       for (const line of lines) {
         try {
           const parsed: unknown = JSON.parse(line);
@@ -314,21 +328,102 @@ export class DefaultSessionStore implements SessionStore {
             typeof (parsed as { type?: unknown | undefined }).type === 'string' &&
             typeof (parsed as { ts?: unknown | undefined }).ts === 'string'
           ) {
-            events.push(parsed as SessionEvent);
+            const ev = parsed as SessionEvent;
+            events.push(ev);
+
+            // Track metadata in the same pass.
+            if (ev.type === 'session_start' && !sessionStartEvent) {
+              sessionStartEvent = ev;
+              sessionModel = ev.model;
+              sessionProvider = ev.provider;
+            }
+            if (ev.type === 'session_end') {
+              sessionEndEvent = ev;
+              sessionPendingToolUses = ev.pendingToolUses;
+            }
+
+            // Build messages in the same pass (replay() logic inlined).
+            if (ev.type === 'user_input') {
+              openToolUses.clear();
+              messages.push({ role: 'user', content: ev.content, ts: ev.ts });
+            } else if (ev.type === 'llm_response') {
+              messages.push({ role: 'assistant', content: ev.content, ts: ev.ts });
+              for (const b of ev.content) {
+                if (b.type === 'tool_use') openToolUses.add(b.id);
+              }
+              usage = {
+                input: usage.input + (ev.usage.input ?? 0),
+                output: usage.output + (ev.usage.output ?? 0),
+                cacheRead: (usage.cacheRead ?? 0) + (ev.usage.cacheRead ?? 0),
+                cacheWrite: (usage.cacheWrite ?? 0) + (ev.usage.cacheWrite ?? 0),
+              };
+            } else if (ev.type === 'tool_result') {
+              if (!openToolUses.has(ev.id)) {
+                this.events?.emit('session.damaged', {
+                  sessionId: id,
+                  detail: `Orphan tool_result "${ev.id}" has no matching tool_use`,
+                });
+                continue;
+              }
+              openToolUses.delete(ev.id);
+              const resultBlock: ContentBlock = {
+                type: 'tool_result',
+                tool_use_id: ev.id,
+                content: typeof ev.content === 'string' ? ev.content : JSON.stringify(ev.content),
+                is_error: ev.isError,
+              };
+              const last = messages[messages.length - 1];
+              const lastIsToolResultUser =
+                last?.role === 'user' &&
+                Array.isArray(last.content) &&
+                last.content.every((b) => (b as ContentBlock).type === 'tool_result');
+              if (lastIsToolResultUser && Array.isArray(last.content)) {
+                last.content.push(resultBlock);
+              } else {
+                messages.push({ role: 'user', content: [resultBlock], ts: ev.ts });
+              }
+            }
           }
         } catch {
           // skip malformed JSON
         }
       }
-      const meta = this.metaFromEvents(id, events);
-      const { messages, usage } = this.replay(events, id);
+
+      // Repair tool adjacency after the single parse + replay loop.
+      if (openToolUses.size > 0) {
+        this.events?.emit('session.damaged', {
+          sessionId: id,
+          detail: `${openToolUses.size} tool_use blocks without matching results - replay repaired`,
+        });
+      }
+      const repaired = repairToolUseAdjacency(messages);
+      if (repaired.report.changed) {
+        this.events?.emit('session.damaged', {
+          sessionId: id,
+          detail:
+            `Repaired replay adjacency: removed ${repaired.report.removedToolUses.length} tool_use, ` +
+            `${repaired.report.removedToolResults.length} tool_result, ` +
+            `${repaired.report.removedMessages} empty messages`,
+        });
+      }
+
+      // Build metadata from the extracted session_start/end events.
+      const meta: SessionMetadata = {
+        id,
+        startedAt: sessionStartEvent?.ts ?? new Date(0).toISOString(),
+        endedAt: sessionEndEvent?.ts,
+        model: sessionModel,
+        provider: sessionProvider,
+        pendingToolUses: sessionPendingToolUses,
+      };
+
       // Extract tool_call_end events for TUI tool entry rendering on resume.
       const toolCallEnds = extractToolCallEnds(events);
-      const data: SessionData = { metadata: meta, events, messages, usage, toolCallEnds };
+      const data: SessionData = { metadata: meta, events, messages: repaired.messages, usage, toolCallEnds };
 
       // Update the cache. Evict oldest entry if at capacity.
       if (this._loadCache.size >= DefaultSessionStore.LOAD_CACHE_MAX_ENTRIES) {
-        // Map iteration order is insertion order — delete the first key.
+        // Map iteration order is insertion order â€” delete the first key.
         const oldest = this._loadCache.keys().next().value;
         if (oldest !== undefined) {
           this._loadCache.delete(oldest);
@@ -369,7 +464,7 @@ export class DefaultSessionStore implements SessionStore {
         });
         return indexed.slice(0, limit);
       }
-      // Index unavailable — fall back to a directory scan. Prefer summary
+      // Index unavailable â€” fall back to a directory scan. Prefer summary
       // sidecars and only backfill full JSONL-derived summaries for the page
       // we are about to return.
       return await this.listFromDirectoryScan(limit);
@@ -378,7 +473,7 @@ export class DefaultSessionStore implements SessionStore {
     }
   }
 
-  // ── Session index (_index.jsonl) ─────────────────────────────────────────
+  // â”€â”€ Session index (_index.jsonl) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   //
   // One JSON line per closed session, appended atomically on close().
   // When a session is deleted, a tombstone {action:"delete",id:"..."} is
@@ -407,7 +502,7 @@ export class DefaultSessionStore implements SessionStore {
         this.indexAppendCount = 0;
       }
     } catch {
-      // best-effort — error surfaced via the storage.write event in doClose()
+      // best-effort â€” error surfaced via the storage.write event in doClose()
     }
   }
 
@@ -444,7 +539,7 @@ export class DefaultSessionStore implements SessionStore {
       outcome = 'failure';
       errorMsg = toErrorMessage(err);
     } finally {
-      // Compact is internal — use 'session' as the session ID placeholder.
+      // Compact is internal â€” use 'session' as the session ID placeholder.
       this.emitWrite('~compact~', this.indexFile, 'compact', outcome, Date.now() - t0, undefined, errorMsg);
     }
   }
@@ -587,7 +682,7 @@ export class DefaultSessionStore implements SessionStore {
   }
 
   /** Recursively collect session IDs from date-shard subdirectories.
-   *  IDs include the date-prefix path (e.g. "2026-06-06/17-46-57Z_…").
+   *  IDs include the date-prefix path (e.g. "2026-06-06/17-46-57Z_â€¦").
    *  Skips `.jsonl`/`.summary.json` root files, dot-files, and
    *  sub-directories that belong to fleet/subagent sessions. */
   private async collectSessionIds(
@@ -602,7 +697,7 @@ export class DefaultSessionStore implements SessionStore {
       return [];
     }
 
-    // Separate dirs and files in one pass — avoids a second iteration.
+    // Separate dirs and files in one pass â€” avoids a second iteration.
     const dirEntries: Dirent[] = [];
     const fileIds: string[] = [];
     for (const entry of entries) {
@@ -618,7 +713,7 @@ export class DefaultSessionStore implements SessionStore {
       }
     }
 
-    // At depth 0 the date-shard directories are independent — parallelize across
+    // At depth 0 the date-shard directories are independent â€” parallelize across
     // them. Deeper recursion (intra-shard) is sequential since shards are small.
     const childIdArrays = await Promise.all(
       dirEntries.map((entry) => {
@@ -654,7 +749,7 @@ export class DefaultSessionStore implements SessionStore {
         }));
       });
       outcome = 'failure';
-      errorMsg = 'summary fallback — manifest rebuilt';
+      errorMsg = 'summary fallback â€” manifest rebuilt';
       this.emitRead(id, manifest, 'summary', outcome, Date.now() - t0, errorMsg);
       return summary;
     } catch (err) {
@@ -765,7 +860,7 @@ export class DefaultSessionStore implements SessionStore {
     for (const r of results) {
       if (r.status === 'rejected') {
         const msg = r.reason instanceof Error ? r.reason.message : String(r.reason);
-        // ENOENT is expected (file may not exist — sidecars are optional).
+        // ENOENT is expected (file may not exist â€” sidecars are optional).
         if ((r.reason as NodeJS.ErrnoException)?.code !== 'ENOENT') {
           console.warn(JSON.stringify({
             level: 'warn',
@@ -810,7 +905,7 @@ export class DefaultSessionStore implements SessionStore {
       const active = JSON.parse(raw) as { sessionId?: string | undefined };
       activeSessionId = active.sessionId ?? null;
     } catch {
-      // no active.json — nothing to protect
+      // no active.json â€” nothing to protect
     }
 
     const isPrunableJsonl = (name: string): boolean =>
@@ -842,7 +937,7 @@ export class DefaultSessionStore implements SessionStore {
     const entries = await fsp.readdir(this.dir, { withFileTypes: true }).catch(() => []);
     for (const entry of entries) {
       if (entry.isFile()) {
-        // Flat legacy sessions at the sessions root — pre-shard layout.
+        // Flat legacy sessions at the sessions root â€” pre-shard layout.
         // A shard-only scan left these accumulating forever.
         if (isPrunableJsonl(entry.name)) await pruneFile(this.dir, entry.name, '');
         continue;
@@ -1002,94 +1097,7 @@ export class DefaultSessionStore implements SessionStore {
     }
   }
 
-  private metaFromEvents(id: string, events: SessionEvent[]): SessionMetadata {
-    const start = events.find((e) => e.type === 'session_start');
-    // Use the LAST session_end: resume cycles append a new session_end on
-    // every clean exit, and legacy /save commands wrote mid-stream markers.
-    const end = events.findLast((e) => e.type === 'session_end');
-    return {
-      id,
-      startedAt: start?.ts ?? new Date(0).toISOString(),
-      endedAt: end?.ts,
-      model: start?.model,
-      provider: start?.provider,
-      pendingToolUses: end?.pendingToolUses,
-    };
-  }
 
-  private replay(
-    events: SessionEvent[],
-    sessionId = 'unknown',
-  ): { messages: Message[]; usage: SessionData['usage'] } {
-    const messages: Message[] = [];
-    let usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
-    const openToolUses = new Set<string>();
-    for (const e of events) {
-      if (e.type === 'user_input') {
-        openToolUses.clear();
-        messages.push({ role: 'user', content: e.content, ts: e.ts });
-      } else if (e.type === 'llm_response') {
-        messages.push({ role: 'assistant', content: e.content, ts: e.ts });
-        for (const b of e.content) {
-          if (b.type === 'tool_use') openToolUses.add(b.id);
-        }
-        usage = {
-          input: usage.input + (e.usage.input ?? 0),
-          output: usage.output + (e.usage.output ?? 0),
-          cacheRead: (usage.cacheRead ?? 0) + (e.usage.cacheRead ?? 0),
-          cacheWrite: (usage.cacheWrite ?? 0) + (e.usage.cacheWrite ?? 0),
-        };
-      } else if (e.type === 'tool_result') {
-        if (!openToolUses.has(e.id)) {
-          this.events?.emit('session.damaged', {
-            sessionId,
-            detail: `Orphan tool_result "${e.id}" has no matching tool_use`,
-          });
-          continue;
-        }
-        openToolUses.delete(e.id);
-        // Provider protocol: tool_result blocks live in a USER message that
-        // follows the assistant's tool_use turn — never inside the assistant
-        // message itself (repairToolUseAdjacency would treat that as broken
-        // adjacency and strip the tool_use blocks, silently dropping the
-        // assistant turn on resume). Consecutive results from one turn are
-        // grouped into a single user message.
-        const resultBlock: ContentBlock = {
-          type: 'tool_result',
-          tool_use_id: e.id,
-          content: typeof e.content === 'string' ? e.content : JSON.stringify(e.content),
-          is_error: e.isError,
-        };
-        const last = messages[messages.length - 1];
-        const lastIsToolResultUser =
-          last?.role === 'user' &&
-          Array.isArray(last.content) &&
-          last.content.every((b) => (b as ContentBlock).type === 'tool_result');
-        if (lastIsToolResultUser && Array.isArray(last.content)) {
-          last.content.push(resultBlock);
-        } else {
-          messages.push({ role: 'user', content: [resultBlock], ts: e.ts });
-        }
-      }
-    }
-    if (openToolUses.size > 0) {
-      this.events?.emit('session.damaged', {
-        sessionId,
-        detail: `${openToolUses.size} tool_use blocks without matching results - replay repaired`,
-      });
-    }
-    const repaired = repairToolUseAdjacency(messages);
-    if (repaired.report.changed) {
-      this.events?.emit('session.damaged', {
-        sessionId,
-        detail:
-          `Repaired replay adjacency: removed ${repaired.report.removedToolUses.length} tool_use, ` +
-          `${repaired.report.removedToolResults.length} tool_result, ` +
-          `${repaired.report.removedMessages} empty messages`,
-      });
-    }
-    return { messages: repaired.messages, usage };
-  }
 }
 
 /**
@@ -1130,7 +1138,7 @@ class FileSessionWriter implements SessionWriter {
   /**
    * Lazy session_start/session_resumed init, shared by all appenders.
    * A single promise (not a boolean) so a second append racing the first
-   * can't push its event into the buffer BEFORE the first append's event —
+   * can't push its event into the buffer BEFORE the first append's event â€”
    * every appender awaits the same init and resumes in FIFO call order.
    */
   private initPromise: Promise<void> | null = null;
@@ -1143,26 +1151,26 @@ class FileSessionWriter implements SessionWriter {
   private lastAppendWarnAt = 0;
   private readonly secretScrubber?: SecretScrubber | undefined;
   private readonly onCloseCb?: (((summary: SessionSummary) => void | Promise<void>)) | undefined;
-  /** Implements SessionWriter.traceId — propagated from ContextInit.traceId. */
+  /** Implements SessionWriter.traceId â€” propagated from ContextInit.traceId. */
   traceId: string | undefined;
 
-  // ── Write buffer — batches events to reduce per-event disk I/O ─────────
+  // â”€â”€ Write buffer â€” batches events to reduce per-event disk I/O â”€â”€â”€â”€â”€â”€â”€â”€â”€
   //
   // Every append() pushes the scrubbed event into an in-memory buffer instead
   // of calling handle.appendFile() synchronously. The buffer flushes to disk
   // when it reaches FLUSH_SIZE events OR after FLUSH_INTERVAL_MS of inactivity.
   // This cuts the number of disk writes by ~95% without changing the on-disk
-  // format — the JSONL is still one JSON object per line.
+  // format â€” the JSONL is still one JSON object per line.
   private writeBuffer: SessionEvent[] = [];
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private static readonly FLUSH_INTERVAL_MS = 500;
   private static readonly FLUSH_SIZE = 50;
 
-  // ── Write serialization ─────────────────────────────────────────────────
+  // â”€â”€ Write serialization â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   //
   // All disk writes are funneled through a FIFO promise chain. Without it,
   // a timer-driven flush racing an explicit flush()/close() issues two
-  // concurrent appendFile() calls on the shared O_APPEND handle — the kernel
+  // concurrent appendFile() calls on the shared O_APPEND handle â€” the kernel
   // may complete them out of order (chronology breaks) or, for large
   // batches, interleave partial writes (torn JSONL lines). The chain keeps
   // exactly one write in flight; failures don't break the chain.
@@ -1178,7 +1186,7 @@ class FileSessionWriter implements SessionWriter {
     return write;
   }
 
-  // ── Enriched summary tracking ──────────────────────────────────────────
+  // â”€â”€ Enriched summary tracking â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   private iterationCount = 0;
   private toolCallCount = 0;
   private toolErrorCount = 0;
@@ -1246,8 +1254,8 @@ class FileSessionWriter implements SessionWriter {
     traceId?: string | undefined,
   ) {
     this.resumed = opts.resumed ?? false;
-    // id already contains a date-prefix shard (e.g. "2026-06-06/17-46-57Z_…").
-    // opts.dir is the shard directory — join with basename so the manifest
+    // id already contains a date-prefix shard (e.g. "2026-06-06/17-46-57Z_â€¦").
+    // opts.dir is the shard directory â€” join with basename so the manifest
     // lives next to the JSONL file instead of creating a double-nested path.
     this.manifestFile = opts.dir ? path.join(opts.dir, `${path.basename(id)}.summary.json`) : '';
     this.filePath = opts.filePath ?? '';
@@ -1272,7 +1280,7 @@ class FileSessionWriter implements SessionWriter {
   }
 
   private async writeSessionStartLazy(): Promise<void> {
-    // Write through the SAME file handle that flushBuffer() uses — avoids
+    // Write through the SAME file handle that flushBuffer() uses â€” avoids
     // cross-fd issues on Windows where a separate fsp.writeFile can contend
     // with the already-open append-mode handle. The handle was opened with
     // O_APPEND so this write lands at the current end-of-file regardless of
@@ -1298,7 +1306,7 @@ class FileSessionWriter implements SessionWriter {
     // content) and before buffering, so neither the JSONL nor the sidecar
     // ever holds a cleartext secret.
     const scrubbed = this.scrubEvent(event);
-    // observeForSummary MUST run synchronously here — the summary counters
+    // observeForSummary MUST run synchronously here â€” the summary counters
     // (toolCallCount, tokenIn/Out, outcome) drive the .summary.json sidecar
     // and the session index. Deferring observation to flush time would leave
     // the summary stale if close() fires before the next timer tick.
@@ -1306,7 +1314,7 @@ class FileSessionWriter implements SessionWriter {
     this.writeBuffer.push(scrubbed);
 
     if (this.writeBuffer.length >= FileSessionWriter.FLUSH_SIZE) {
-      // Buffer full — flush immediately. Cancel any pending timer so we
+      // Buffer full â€” flush immediately. Cancel any pending timer so we
       // don't double-flush on the next tick.
       if (this.flushTimer) {
         clearTimeout(this.flushTimer);
@@ -1342,7 +1350,7 @@ class FileSessionWriter implements SessionWriter {
    * (user_input, llm_response) call this so they survive SIGKILL/crash
    * instead of sitting in the in-memory buffer for up to 500ms.
    *
-   * Idempotent — cancels any pending timer and writes whatever has
+   * Idempotent â€” cancels any pending timer and writes whatever has
    * accumulated in the buffer. Safe to call even when the buffer
    * is empty (no-op).
    */
@@ -1371,7 +1379,7 @@ class FileSessionWriter implements SessionWriter {
   /**
    * Flush all buffered events to disk as a single appendFile call.
    * Errors use the same throttled-warning pattern the old per-event
-   * append path used — one warning every 5s with a suppressed count.
+   * append path used â€” one warning every 5s with a suppressed count.
    * On failure the buffer is cleared (events are best-effort, same as
    * the old per-event path where a failed write was silently dropped).
    */
@@ -1521,7 +1529,7 @@ class FileSessionWriter implements SessionWriter {
       }
     }
     // Notify the store so it can update the session index. Await so the
-    // index write completes before close() resolves — otherwise the
+    // index write completes before close() resolves â€” otherwise the
     // fire-and-forget _index.jsonl append races callers that tear down the
     // session directory right after close() (e.g. ENOTEMPTY on Windows).
     // Emit storage.write here so it carries this.traceId; the actual I/O
@@ -1591,14 +1599,14 @@ class FileSessionWriter implements SessionWriter {
   /**
    * Truncate the session file to the checkpoint with the given promptIndex,
    * removing all events that follow it. Uses a single-pass byte-offset scan
-   * so post-checkpoint content is never read or parsed — O(1) memory instead
+   * so post-checkpoint content is never read or parsed â€” O(1) memory instead
    * of O(N) JSON.parse calls over the full file.
    */
   async truncateToCheckpoint(targetPromptIndex: number): Promise<number> {
     /* v8 ignore next -- defensive: filePath is always set for a live writer */
     if (!this.filePath) return 0;
 
-    // Flush buffered events to disk before reading — otherwise the in-memory
+    // Flush buffered events to disk before reading â€” otherwise the in-memory
     // events that haven't hit the JSONL yet would be invisible to the
     // truncation logic and would be silently dropped by the rewrite.
     if (this.flushTimer) {
@@ -1610,7 +1618,7 @@ class FileSessionWriter implements SessionWriter {
     await this.writeChain;
 
     // Single-pass scan: track byte offset of each line start. Stop as soon as
-    // the target checkpoint is found — no I/O or parsing for post-checkpoint data.
+    // the target checkpoint is found â€” no I/O or parsing for post-checkpoint data.
     const CHUNK_SIZE = 65_536;
     let fd: fsp.FileHandle | undefined;
     let fileOffset = 0; // cumulative byte position of the start of the current chunk
@@ -1631,13 +1639,13 @@ class FileSessionWriter implements SessionWriter {
         while (chunkPos < bytesRead) {
           const idx = buf.indexOf('\n', chunkPos);
           if (idx === -1) {
-            // No complete line in this chunk — save partial for next iteration.
+            // No complete line in this chunk â€” save partial for next iteration.
             lineStartOffset = fileOffset + chunkPos;
             break;
           }
 
           if (checkpointByteOffset !== -1) {
-            // Target already found — every subsequent line is removed.
+            // Target already found â€” every subsequent line is removed.
             removedCount++;
           } else {
             // Only parse lines that could precede or be the checkpoint.
@@ -1649,17 +1657,17 @@ class FileSessionWriter implements SessionWriter {
                 const event = JSON.parse(line) as { type?: string; promptIndex?: number };
                 if (event.type === 'checkpoint') {
                   if (event.promptIndex === targetPromptIndex) {
-                    // Target found — record its byte offset and stop scanning.
+                    // Target found â€” record its byte offset and stop scanning.
                     checkpointByteOffset = lineStartOffset;
                     targetCheckpointSeen = true;
                   } else if (event.promptIndex !== undefined && event.promptIndex > targetPromptIndex) {
                     // A checkpoint with a higher promptIndex means the target is absent.
-                    // Truncate before this line (exclusive) — it and all following events
+                    // Truncate before this line (exclusive) â€” it and all following events
                     // will be replaced by the new rewinded history.
                     checkpointByteOffset = lineStartOffset;
                   }
                 } else if (targetCheckpointSeen && event.promptIndex !== undefined && event.promptIndex > targetPromptIndex) {
-                  // Post-target event with a later promptIndex — count as removed.
+                  // Post-target event with a later promptIndex â€” count as removed.
                   removedCount++;
                 } else if (targetCheckpointSeen && event.promptIndex === undefined) {
                   // After the target checkpoint was found: remove events with no
@@ -1680,9 +1688,9 @@ class FileSessionWriter implements SessionWriter {
                   removedCount++;
                 }
                 // Events with promptIndex <= targetPromptIndex (before the target is
-                // found) are implicitly kept — no action needed.
+                // found) are implicitly kept â€” no action needed.
               } catch {
-                // Malformed JSON — matches original: keep it.
+                // Malformed JSON â€” matches original: keep it.
               }
             }
           }
@@ -1795,7 +1803,7 @@ class FileSessionWriter implements SessionWriter {
   async clearSession(): Promise<void> {
     /* v8 ignore next -- defensive: filePath is always set for a live writer */
     if (!this.filePath) return;
-    // Discard any buffered events — the caller is explicitly resetting the
+    // Discard any buffered events â€” the caller is explicitly resetting the
     // session to a clean slate. Cancel the timer so it doesn't fire and
     // append stale events to the freshly-cleared file.
     if (this.flushTimer) {
@@ -1803,7 +1811,7 @@ class FileSessionWriter implements SessionWriter {
       this.flushTimer = null;
     }
     this.writeBuffer = [];
-    // Let any in-flight append land first — otherwise it would re-append
+    // Let any in-flight append land first â€” otherwise it would re-append
     // stale events AFTER the reset record below.
     await this.writeChain;
     const record = `${JSON.stringify({
@@ -1817,7 +1825,7 @@ class FileSessionWriter implements SessionWriter {
   }
 
   /**
-   * Idea #1 — write an in-flight marker. The agent loop should call
+   * Idea #1 â€” write an in-flight marker. The agent loop should call
    * this at the start of each long-running operation; a matching
    * `clearInFlightMarker` follows on clean exit. A stale marker
    * (no end) is what `SessionRecovery.detectStale` looks for.
@@ -1835,9 +1843,9 @@ class FileSessionWriter implements SessionWriter {
   }
 
   /**
-   * Idea #1 — close the in-flight marker. Idempotent in spirit
+   * Idea #1 â€” close the in-flight marker. Idempotent in spirit
    * (you can call it after a successful iteration even if you
-   * didn't open one this round) — but the session log records
+   * didn't open one this round) â€” but the session log records
    * every call so postmortem tooling can see "the agent finished
    * cleanly X times, then died without finishing Y".
    */

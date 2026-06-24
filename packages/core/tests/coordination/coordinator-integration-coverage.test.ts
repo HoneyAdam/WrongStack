@@ -537,7 +537,13 @@ describe('IC10: no wall-clock cap — timeout pre-empt never fires', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe('IC11: C1 watchdogActive — exactly one timeout event per deadline crossing', () => {
   it('rapid heartbeats during negotiation: still exactly 1 timeout event', async () => {
-    const timeoutMs = 200; // pre-empt fires at ~170ms (85%)
+    // Generous wall window so the pre-empt arm (at 85% → 1700ms) sits a full
+    // ~300ms below the deadline. A tight window (e.g. 200ms → pre-empt at 170ms,
+    // only 30ms of slack) flakes under full-suite CPU starvation: the
+    // setTimeout(170) fires late, onTick sees elapsed >= wallLimit and takes the
+    // at-deadline path (used == limit) instead of the proactive pre-empt path,
+    // breaking the `used < limit` assertion below.
+    const timeoutMs = 2000; // pre-empt fires at ~1700ms (85%)
 
     const timeoutEvents: Array<{ used: number; limit: number }> = [];
 
@@ -562,16 +568,16 @@ describe('IC11: C1 watchdogActive — exactly one timeout event per deadline cro
     await coord.spawn({ id: 's13', name: 'S13', timeoutMs });
     await coord.assign({ id: 't13', description: 'dual path race' });
 
-    // Wait for pre-empt to fire (at ~170ms)
-    // During this ~170ms window, the agent emits ~34 tool.executed events (every 5ms)
+    // Wait for pre-empt to fire (at ~1700ms)
+    // During this window the agent emits a tool.executed event every 5ms.
     // Without C1 fix: each tool.progress → checkTimeout → budget.threshold_reached
     // With C1 fix: _watchdogActive prevents checkTimeout from re-emitting
     // Poll for the pre-empt event rather than a fixed sleep (load-robust: under
     // CPU starvation a fixed wait can elapse before the watchdog timer fires).
-    await expect.poll(() => timeoutEvents.length, { timeout: 3000 }).toBeGreaterThanOrEqual(1);
+    await expect.poll(() => timeoutEvents.length, { timeout: 4000 }).toBeGreaterThanOrEqual(1);
     // Brief settle to confirm the C1 guard prevented a DUPLICATE from the
     // budget's own checkTimeout() (the grant raised the ceiling 10×, so no
-    // legitimate second pre-empt is due for ~1.7s).
+    // legitimate second pre-empt is due for ~17s).
     await new Promise((r) => setTimeout(r, 50));
 
     // Exactly ONE timeout event despite many tool.progress calls in the same window

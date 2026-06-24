@@ -2,8 +2,6 @@ import {
   GlobalMailbox,
   HQ_AUTH_FILE_VERSION,
   HQ_PROTOCOL_VERSION,
-  createHqPublisherFromEnv,
-  type HqSocketLike,
   writeHqAuthFile,
 } from '@wrongstack/core';
 import * as fs from 'node:fs/promises';
@@ -13,6 +11,7 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 import { HQ_HTML, type HqServerHandle, startHqServer } from '../src/hq-server.js';
+import { createCliHqPublisher } from '../src/hq-publisher.js';
 
 let handle: HqServerHandle | null = null;
 let dataDir: string;
@@ -319,12 +318,11 @@ describe('HQ server', () => {
     await waitForOpen(browser);
     const browserCol = makeBrowserCollector(browser);
 
-    const publisher = createHqPublisherFromEnv({
+    const publisher = createCliHqPublisher({
       clientKind: 'tui',
       projectRoot: path.join(dataDir, 'project-root'),
       projectName: 'HQ Integration Project',
       config: { url: `http://127.0.0.1:${handle.port}`, enabled: true },
-      socketFactory: (url) => new WebSocket(url) as HqSocketLike,
     });
     expect(publisher).toBeDefined();
     publisher!.connect();
@@ -618,6 +616,11 @@ describe('HQ server', () => {
     expect(html).toContain('machineNode');
     expect(html).toContain('termNode');
     expect(html).toContain('agentNode');
+    // Client-only fallback: even before session telemetry arrives, HQ should
+    // still render connected TUI/REPL/WebUI clients under their project.
+    expect(html).toContain('snap && snap.clients');
+    expect(html).toContain("sessionId: 'client:'");
+    expect(html).toContain('waiting for session telemetry');
     // Live data plane: WS + fleet/transcript endpoints.
     expect(html).toContain('connectWs');
     expect(html).toContain('/api/fleet');
