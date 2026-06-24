@@ -44,7 +44,6 @@ describe('chimera session.close ordering', () => {
       recordFileChange: vi.fn(),
       writeCheckpoint: vi.fn(),
       writeFileSnapshot: vi.fn(),
-      reopen: vi.fn(),
     };
   }
 
@@ -149,7 +148,7 @@ describe('chimera session.close ordering', () => {
     // It listens on session.ended and then synchronously emits chimera.review_needed.
     // This is synchronous so that pendingChimeraWork is set before emit() returns.
     events.onPattern('session.ended', () => {
-      events.emit('chimera.review_needed', {
+      events.emitCustom('chimera.review_needed', {
         config: { enabled: true, provider: 'test', model: 'test', maxFiles: 15, maxTokens: 4096 },
         cwd: '/tmp',
         files: [{ path: 'foo.ts', status: 'modified', content: '// test' }],
@@ -204,6 +203,9 @@ describe('chimera session.close ordering', () => {
     const appendCall = (session.append as ReturnType<typeof vi.fn>).mock.calls.at(-1)!;
     const event = appendCall[0] as SessionEvent;
     expect(event.type).toBe('llm_response');
+    if (event.type !== 'llm_response') {
+      throw new Error('expected llm_response event');
+    }
     expect(event.content).toContainEqual(
       expect.objectContaining({
         type: 'text',
