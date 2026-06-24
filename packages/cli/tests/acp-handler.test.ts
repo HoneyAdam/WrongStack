@@ -134,7 +134,10 @@ function mockEnsembleRun(
       };
     });
     const summary = { succeeded: 0, failed: 0, skipped: 0, cancelled: 0 };
-    for (const r of ensembleResults) summary[r.status]++;
+    for (const r of ensembleResults) {
+      if (r.status === 'success') summary.succeeded++;
+      else summary[r.status]++;
+    }
     return {
       task: '',
       requested: ids,
