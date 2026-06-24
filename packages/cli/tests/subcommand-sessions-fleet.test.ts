@@ -15,10 +15,17 @@ afterEach(async () => {
   await fs.rm(tmp, { recursive: true, force: true });
 });
 
-function deps(): SubcommandDeps {
+type TestRenderer = {
+  write: ReturnType<typeof vi.fn>;
+  writeError: ReturnType<typeof vi.fn>;
+};
+
+type TestDeps = Omit<SubcommandDeps, 'renderer'> & { renderer: TestRenderer };
+
+function deps(): TestDeps {
   return {
     config: {} as SubcommandDeps['config'],
-    renderer: { write: vi.fn(), writeError: vi.fn() } as unknown as SubcommandDeps['renderer'],
+    renderer: { write: vi.fn(), writeError: vi.fn() },
     reader: {} as SubcommandDeps['reader'],
     sessionStore: undefined,
     skillLoader: undefined,
@@ -33,7 +40,7 @@ function deps(): SubcommandDeps {
   };
 }
 
-function joined(spy: ReturnType<typeof vi.fn>): string {
+function joined(spy: { mock: { calls: Array<[string]> } }): string {
   return spy.mock.calls.map((c) => c[0]).join('');
 }
 
