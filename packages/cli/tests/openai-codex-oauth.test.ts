@@ -86,7 +86,13 @@ describe('extractAccountId', () => {
 
 describe('exchangeAuthorizationCode', () => {
   it('POSTs the authorization_code grant and maps the token response', async () => {
-    let captured: { url?: string; body?: string } = {};
+    let captured: {
+      url: string | undefined;
+      body: string | undefined;
+    } = {
+      url: undefined,
+      body: undefined,
+    };
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string, init: { body?: string }) => {
