@@ -4,6 +4,7 @@ import {
   buildAuthorizeUrl,
   exchangeAuthorizationCode,
   extractAccountId,
+  fetchCodexModels,
   generatePkce,
   parseAuthorizationInput,
   refreshCodexToken,
@@ -124,6 +125,114 @@ describe('exchangeAuthorizationCode', () => {
       vi.fn(async () => new Response('bad', { status: 400 })),
     );
     await expect(exchangeAuthorizationCode('CODE', 'V')).rejects.toThrow(/token exchange failed/i);
+  });
+});
+
+describe('fetchCodexModels', () => {
+  it('returns model ids from a standard OpenAI { data: [...] } response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          data: [
+            { id: 'gpt-5.5', object: 'model' },
+            { id: 'gpt-5.4', object: 'model' },
+            { id: 'gpt-5.4-mini', object: 'model' },
+          ],
+        }),
+      ),
+    );
+    const ids = await fetchCodexModels('test-token');
+    expect(ids).toEqual(['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini']);
+  });
+
+  it('returns model ids from a { models: [...] } response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          models: [
+            { id: 'gpt-5.3-codex-spark' },
+            { id: 'gpt-5.2' },
+          ],
+        }),
+      ),
+    );
+    const ids = await fetchCodexModels('test-token');
+    expect(ids).toEqual(['gpt-5.3-codex-spark', 'gpt-5.2']);
+  });
+
+  it('returns [] on HTTP error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('Forbidden', { status: 403 })),
+    );
+    const ids = await fetchCodexModels('test-token');
+    expect(ids).toEqual([]);
+  });
+
+  it('returns [] on network error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('ECONNREFUSED');
+      }),
+    );
+    const ids = await fetchCodexModels('test-token');
+    expect(ids).toEqual([]);
+  });
+
+  it('returns [] when json has no models array', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({})),
+    );
+    const ids = await fetchCodexModels('test-token');
+    expect(ids).toEqual([]);
+  });
+
+  it('uses custom baseUrl when provided', async () => {
+    let capturedUrl = '';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        capturedUrl = url;
+        return Response.json({ data: [{ id: 'gpt-5.5' }] });
+      }),
+    );
+    await fetchCodexModels('tok', 'https://my-proxy.example.com');
+    expect(capturedUrl).toBe('https://my-proxy.example.com/models');
+  });
+
+  it('strips trailing slashes from baseUrl before appending /models', async () => {
+    let capturedUrl = '';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        capturedUrl = url;
+        return Response.json({});
+      }),
+    );
+    await fetchCodexModels('tok', 'https://chatgpt.com/backend-api/');
+    expect(capturedUrl).toBe('https://chatgpt.com/backend-api/models');
+  });
+
+  it('skips entries without a string id', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          data: [
+            { id: 'gpt-5.5' },
+            { id: null },
+            { id: '' },
+            { notId: 'gpt-5.4' },
+          ],
+        }),
+      ),
+    );
+    const ids = await fetchCodexModels('test-token');
+    expect(ids).toEqual(['gpt-5.5']);
   });
 });
 

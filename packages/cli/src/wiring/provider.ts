@@ -1,6 +1,7 @@
 import type { ResolvedProvider } from '@wrongstack/core';
 import { type Config, type Logger, type ModelsRegistry, ProviderRegistry } from '@wrongstack/core';
 import { buildProviderFactoriesFromRegistry, makeProviderFromConfig } from '@wrongstack/providers';
+import { CODEX_DEFAULT_MODELS } from '../auth-menu/openai-codex-oauth.js';
 
 export interface ProviderSetupResult {
   resolvedProvider: ResolvedProvider | undefined;
@@ -30,13 +31,27 @@ export async function setupProvider(params: {
       // or any user-defined provider with an explicit `family`. Synthesize a
       // ResolvedProvider from config so boot proceeds (the actual transport is
       // still built below via makeProviderFromConfig / the registry).
+      // When the saved config carries no models but the family is one of
+      // the OAuth/subscription wire families, seed with the canonical
+      // model list so the provider shows up in pickers and the WebUI.
+      const family = savedProviderCfg.family;
+      const savedModels = savedProviderCfg.models;
+      let models: Array<{ id: string; name: string }>;
+      if (savedModels && savedModels.length > 0) {
+        models = savedModels.map((m) => ({ id: m, name: m }));
+      } else if (family === 'openai-codex') {
+        models = [...CODEX_DEFAULT_MODELS].map((m) => ({ id: m, name: m }));
+      } else {
+        models = [];
+      }
+
       resolvedProvider = {
         id: config.provider,
         name: config.provider,
-        family: savedProviderCfg.family,
+        family,
         apiBase: savedProviderCfg.baseUrl,
         envVars: savedProviderCfg.envVars ?? [],
-        models: (savedProviderCfg.models ?? []).map((m) => ({ id: m, name: m })),
+        models,
         npm: undefined,
       };
     } else {

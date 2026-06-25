@@ -5,8 +5,10 @@ export {
   runCodexOAuthLogin,
   refreshCodexToken,
   extractAccountId,
+  fetchCodexModels,
   CODEX_PROVIDER_ID,
   CODEX_BASE_URL,
+  CODEX_DEFAULT_MODELS,
   type CodexLoginOptions,
   type CodexTokens,
 } from './openai-codex-oauth.js';

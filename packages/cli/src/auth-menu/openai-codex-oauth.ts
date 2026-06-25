@@ -56,6 +56,24 @@ export const CODEX_PROVIDER_ID = 'openai-codex';
 /** Default ChatGPT backend base. The wire family appends `/codex/responses`. */
 export const CODEX_BASE_URL = 'https://chatgpt.com/backend-api';
 
+/**
+ * Canonical known Codex subscription models.
+ *
+ * These are the models documented at https://developers.openai.com/codex/models
+ * for ChatGPT-authenticated Codex usage. The list is used as a fallback when
+ * the live backend cannot be reached; `fetchCodexModels()` below attempts to
+ * fetch the actual list at login time.
+ *
+ * When updating this list, also check the family-capabilities defaults in
+ * `@wrongstack/providers` for alignment (especially maxContext and reasoning).
+ */
+export const CODEX_DEFAULT_MODELS: readonly string[] = [
+  'gpt-5.5',
+  'gpt-5.4',
+  'gpt-5.4-mini',
+  'gpt-5.3-codex-spark',
+];
+
 // ── Token shapes ────────────────────────────────────────────────────────────
 
 export interface CodexTokens {
@@ -137,6 +155,58 @@ export function extractAccountId(token: string): string | null {
   const auth = payload?.[JWT_CLAIM_PATH] as JwtAuthClaim | undefined;
   const id = auth?.chatgpt_account_id;
   return typeof id === 'string' && id.length > 0 ? id : null;
+}
+
+// ── Model discovery ──────────────────────────────────────────────────────────
+
+/**
+ * Fetch the account's available Codex model ids live from the ChatGPT backend.
+ *
+ * Hits `GET <baseUrl>/models` — the standard OpenAI-compatible model listing
+ * endpoint, which the Codex backend may expose. Best-effort: returns an empty
+ * array on any failure so login still succeeds with the hardcoded fallback.
+ */
+export async function fetchCodexModels(
+  accessToken: string,
+  baseUrl?: string | undefined,
+  signal?: AbortSignal,
+): Promise<string[]> {
+  const url = `${(baseUrl ?? CODEX_BASE_URL).replace(/\/+$/, '')}/models`;
+  try {
+    const res = await fetch(url, {
+      headers: {
+        accept: 'application/json',
+        authorization: `Bearer ${accessToken}`,
+        originator: 'wrongstack',
+        'OpenAI-Beta': 'responses=experimental',
+      },
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(8_000)])
+        : AbortSignal.timeout(8_000),
+    });
+    if (!res.ok) return [];
+    const json = (await res.json()) as
+      | { data?: Array<{ id?: string }> }
+      | { models?: Array<{ id?: string }> }
+      | null;
+    if (!json) return [];
+    // Standard OpenAI-compatible: { data: [{ id: "gpt-...", ... }] }
+    let rawList: unknown[] =
+      'data' in json && Array.isArray(json.data)
+        ? (json.data as unknown[])
+        : 'models' in json && Array.isArray(json.models)
+          ? (json.models as unknown[])
+          : [];
+    const ids: string[] = [];
+    for (const entry of rawList) {
+      if (!entry || typeof entry !== 'object') continue;
+      const id = (entry as Record<string, unknown>).id;
+      if (typeof id === 'string' && id.length > 0) ids.push(id);
+    }
+    return ids;
+  } catch {
+    return [];
+  }
 }
 
 // ── Token endpoint calls ────────────────────────────────────────────────────
@@ -457,13 +527,19 @@ export async function runCodexOAuthLogin(
       return 1;
     }
 
-    const saved = await saveCodexTokens(deps, providerId, tokens, accountId);
+    // Fetch available models from the Codex backend (best-effort).
+    deps.renderer.write(color.dim('  Fetching available models...\n'));
+    const fetchedModels = await fetchCodexModels(tokens.access, CODEX_BASE_URL, ac.signal);
+    const models = fetchedModels.length > 0 ? fetchedModels : [...CODEX_DEFAULT_MODELS];
+
+    const saved = await saveCodexTokens(deps, providerId, tokens, accountId, models);
     if (!saved) return 1;
 
+    const modelHint = models[0] ?? 'gpt-5.5';
     deps.renderer.write(color.green('\n  ✓ Signed in with ChatGPT!\n'));
     deps.renderer.writeInfo(
-      `  Saved as provider ${color.bold(providerId)}.\n` +
-        `  Use: ${color.bold(`wstack --provider ${providerId} --model gpt-5.5`)} "<task>"\n` +
+      `  Saved as provider ${color.bold(providerId)}${models.length > 0 ? ` (${models.length} models)` : ''}.\n` +
+        `  Use: ${color.bold(`wstack --provider ${providerId} --model ${modelHint}`)} "<task>"\n` +
         color.dim('  Tokens refresh automatically before they expire.\n'),
     );
     return 0;
@@ -487,6 +563,7 @@ async function saveCodexTokens(
   providerId: string,
   tokens: CodexTokens,
   accountId: string,
+  models: string[],
 ): Promise<boolean> {
   const entry: ProviderApiKey = {
     label: 'oauth-default',
@@ -506,9 +583,9 @@ async function saveCodexTokens(
       const p: ProviderConfig = existing ? { ...existing } : { type: providerId };
       p.family = 'openai-codex';
       if (!p.baseUrl) p.baseUrl = CODEX_BASE_URL;
-      if (!p.models || p.models.length === 0) {
-        p.models = ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex-spark'];
-      }
+      // The caller populates `models` from the live backend or the fallback
+      // constant. Always overwrite — the backend is authoritative.
+      p.models = [...models];
 
       const keys = normalizeKeys(p).filter((k) => k.label !== entry.label);
       keys.push(entry);
