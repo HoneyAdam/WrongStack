@@ -119,6 +119,10 @@ describe('pickShell — auto-detect (Codex-style commands)', () => {
     expect(pickShell(win, '$text -match "pattern"', envFrom({}))).toBe('pwsh');
     expect(pickShell(win, '$items -split ","', envFrom({}))).toBe('pwsh');
     expect(pickShell(win, '$data -csplit ";"', envFrom({}))).toBe('pwsh');
+    expect(pickShell(win, '$arr -notcontains "x"', envFrom({}))).toBe('pwsh');
+    expect(pickShell(win, '$val -notin $list', envFrom({}))).toBe('pwsh');
+    expect(pickShell(win, '$val -in $list', envFrom({}))).toBe('pwsh');
+    expect(pickShell(win, '$arr -contains "x"', envFrom({}))).toBe('pwsh');
   });
 
   it('detects .ps1 references', () => {
@@ -194,6 +198,17 @@ describe('looksLikePowerShell — unit-level', () => {
     expect(looksLikePowerShellExtended('$text -match "pattern"')).toBe(false); // first pass catches
     expect(looksLikePowerShellExtended('$items -split ","')).toBe(false); // first pass catches
     expect(looksLikePowerShellExtended('$data -csplit ";"')).toBe(false); // first pass catches
+  });
+
+  it('directly detects -notcontains, -notin, -contains, -in collection operators', () => {
+    // These are caught by the first-pass operator regex in looksLikePowerShell.
+    expect(looksLikePowerShell('$arr -notcontains "x"')).toBe(true);
+    expect(looksLikePowerShell('$val -notin $list')).toBe(true);
+    expect(looksLikePowerShell('$val -in $list')).toBe(true);
+    expect(looksLikePowerShell('$arr -contains "x"')).toBe(true);
+    // Negative: substring inside a path should NOT match.
+    expect(looksLikePowerShell('type C:\foo-notcontains\bar.txt')).toBe(false);
+    expect(looksLikePowerShell('type C:\foo-notin\bar.txt')).toBe(false);
   });
 });
 
