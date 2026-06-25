@@ -116,10 +116,31 @@ describe('pickShell — auto-detect (Codex-style commands)', () => {
     expect(pickShell(win, '$names -like "A*"', envFrom({}))).toBe('pwsh');
     expect(pickShell(win, '$a -and $b', envFrom({}))).toBe('pwsh');
     expect(pickShell(win, '$path -replace "foo", "bar"', envFrom({}))).toBe('pwsh');
+    expect(pickShell(win, '$text -match "pattern"', envFrom({}))).toBe('pwsh');
+    expect(pickShell(win, '$items -split ","', envFrom({}))).toBe('pwsh');
+    expect(pickShell(win, '$data -csplit ";"', envFrom({}))).toBe('pwsh');
   });
 
   it('detects .ps1 references', () => {
     expect(pickShell(win, './scripts/build.ps1 -Config Release', envFrom({}))).toBe('pwsh');
+  });
+
+  it('detects #requires directive', () => {
+    expect(pickShell(win, '#requires -Version 7', envFrom({}))).toBe('pwsh');
+    expect(pickShell(win, '  #requires -Modules Az', envFrom({}))).toBe('pwsh');
+    expect(pickShell(win, '#requires -RunAsAdministrator', envFrom({}))).toBe('pwsh');
+  });
+
+  it('detects param() block', () => {
+    expect(pickShell(win, 'param([string]$Name)', envFrom({}))).toBe('pwsh');
+    expect(pickShell(win, '  param($x, $y)', envFrom({}))).toBe('pwsh');
+    expect(pickShell(win, 'param(\n  [string]$Path\n)', envFrom({}))).toBe('pwsh');
+  });
+
+  it('detects splatting with @{} and @()', () => {
+    expect(pickShell(win, 'Get-Process @args', envFrom({}))).toBe('pwsh');
+    expect(pickShell(win, 'Invoke-Command @params', envFrom({}))).toBe('pwsh');
+    expect(pickShell(win, 'Test-Path @opts', envFrom({}))).toBe('pwsh');
   });
 
   it('does NOT flag plain cmd.exe commands as PowerShell', () => {
@@ -167,6 +188,12 @@ describe('looksLikePowerShell — unit-level', () => {
     // Plain commands still don't match
     expect(looksLikePowerShellExtended('echo hi')).toBe(false);
     expect(looksLikePowerShellExtended('pnpm install')).toBe(false);
+  });
+
+  it('extended detects -match, -split, -replace operators', () => {
+    expect(looksLikePowerShellExtended('$text -match "pattern"')).toBe(false); // first pass catches
+    expect(looksLikePowerShellExtended('$items -split ","')).toBe(false); // first pass catches
+    expect(looksLikePowerShellExtended('$data -csplit ";"')).toBe(false); // first pass catches
   });
 });
 

@@ -405,7 +405,7 @@ describe('bashTool Windows shell selection (Codex + PowerShell)', () => {
       expect(out.exit_code).toBeNull();
       expect(out.pid).toBe(7777);
       // Background path should also write to stdin + close it.
-      expect(cfg.stdinWrites[0]).toBe('Get-Process');
+      expect(cfg.stdinWrites[0]).toBe(wrapPowerShellScript('Get-Process'));
       expect(cfg.stdinEnds[0]).toBe(true);
     });
   });
@@ -420,13 +420,16 @@ describe('bashTool Windows shell selection (Codex + PowerShell)', () => {
     });
   });
 
-  it('multi-line PowerShell scripts are passed verbatim to stdin', async () => {
+  it('multi-line PowerShell scripts are preserved inside the stdin wrapper', async () => {
     cfg.platform = 'win32';
     cfg.stdout = '';
     await withShell(undefined, async () => {
       const script = "$env:PATH\nGet-ChildItem -Recurse | Where-Object { $_.PSIsContainer -eq $false }";
       await runFinal({ command: script });
-      expect(cfg.stdinWrites[0]).toBe(script);
+      // The script body is wrapped (BOM + bootstrap + try/finally) but its
+      // contents are carried through verbatim.
+      expect(cfg.stdinWrites[0]).toBe(wrapPowerShellScript(script));
+      expect(cfg.stdinWrites[0]).toContain(script);
     });
   });
 });

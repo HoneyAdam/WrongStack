@@ -91,7 +91,7 @@ export function pickShell(
  *   - $-prefixed variables (`$env:`, `$foo`, `$script:bar`, `$_`).
  *   - Subexpressions (`$(...)`).
  *   - Here-strings (`@"…"@`, `@'…'@`).
- *   - Splatting (`@(...)` at start of argument).
+ *   - Splatting (`@(...)` at start of argument, `@{}` hash table).
  *   - PowerShell-comparison operators (`-eq`, `-ne`, `-lt`, `-gt`, `-le`,
  *     `-ge`, `-like`, `-notlike`, `-match`, `-notmatch`, `-contains`,
  *     `-in`, `-and`, `-or`, `-not`, `-band`, `-bor`, `-bxor`,
@@ -103,6 +103,8 @@ export function pickShell(
  *     ambiguous (cmd.exe does NOT have `ls`), `cat`, `cp`, `mv`, `rm`,
  *     `echo` (echo is in cmd too), `gcm`, `gci`, `gps`, `ps`, `select`,
  *     `where`, `?`, `%`.
+ *   - `#requires` directive at start of script.
+ *   - `param()` block at start of script.
  *
  *    The Windows-style path `C:\` alone is not a PowerShell tell — both
  *    shells accept it. We only flip on PS-specific syntax.
@@ -116,6 +118,12 @@ export function looksLikePowerShell(command: string): boolean {
   // .ps1 file in the command → almost certainly PowerShell.
   if (/\.ps1\b/i.test(trimmed)) return true;
 
+  // #requires directive — only PowerShell has this.
+  if (/^\s*#requires\s/i.test(trimmed)) return true;
+
+  // param() block at start of script — PowerShell parameter declaration.
+  if (/^\s*param\s*\(/i.test(trimmed)) return true;
+
   // Variable reference / subexpression / here-string / splatting.
   // These four are unambiguous PowerShell syntax — no false positives in
   // any common cmd.exe or POSIX shell.
@@ -124,12 +132,13 @@ export function looksLikePowerShell(command: string): boolean {
   if (/@\s*['"]/.test(trimmed)) return true; // @'...'@ or @"..."@
   if (/&\s+\$/.test(trimmed)) return true; // & $cmd args
   if (/(^|\s)@\s*\(/.test(trimmed)) return true; // @(...) splat
+  if (/(^|\s)@\{/.test(trimmed)) return true; // @{} hash table / splatting
 
   // PowerShell comparison / logical operators. The leading dash + letter
   // pattern is rare in cmd.exe scripts (cmd.exe flags are usually `/x`),
   // so `-eq`, `-like`, etc. are reliable tells. We require a word boundary
   // on each side to avoid matching inside paths like `C:\foo-eq\bar`.
-  if (/(?:^|[\s\[\(\{,;])(?:-eq|-ne|-lt|-gt|-le|-ge|-like|-notlike|-match|-notmatch|-contains|-notcontains|-in|-notin|-and|-or|-not|-band|-bor|-bxor|-replace|-isplit|-join|-is|-as|-f)(?:$|[\s\]\)\},;])/i.test(trimmed)) {
+  if (/(?:^|[\s\[\(\{,;])(?:-eq|-ne|-lt|-gt|-le|-ge|-like|-notlike|-match|-notmatch|-contains|-notcontains|-in|-notin|-and|-or|-not|-band|-bor|-bxor|-replace|-isplit|-csplit|-osplit|-join|-is|-as|-f)(?:$|[\s\]\)\},;])/i.test(trimmed)) {
     return true;
   }
 
@@ -206,7 +215,7 @@ export function looksLikePowerShellExtended(command: string): boolean {
 
   // Common PS-only parameters: -AsPlainText, -PipelineVariable/-pv,
   // -FilterHashtable, -OutVariable/-ov
-  if (/(?:^|\s)[-\/](?:AsPlainText|PipelineVariable|pv|FilterHashtable|OutVariable|ov)(?:\s|=|$)/i.test(trimmed)) {
+  if (/(?:^|\s)[-/\/](?:AsPlainText|PipelineVariable|pv|FilterHashtable|OutVariable|ov)(?:\s|=|$)/i.test(trimmed)) {
     return true;
   }
 
