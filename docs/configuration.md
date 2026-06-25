@@ -505,6 +505,7 @@ Each key is a plugin name. The value is a free-form object validated by the plug
 | `WRONGSTACK_FETCH_ALLOW_PRIVATE` | Set `1` to allow localhost/private IPs in the `fetch` tool. |
 | `WRONGSTACK_BASH_ENV_PASSTHROUGH` | Set `1` to disable the bash-tool env allowlist (legacy unsafe mode). |
 | `WRONGSTACK_CHILD_ENV_PASSTHROUGH` | Set `1` to opt back to old child-process env behavior. |
+| `WRONGSTACK_SHELL` | Windows only. Force the shell the `bash` tool uses: `cmd`/`cmd.exe`, `powershell`/`powershell.exe`, or `pwsh`/`pwsh.exe`. When unset, auto-detects PowerShell commands, otherwise `cmd.exe`. See [Windows shell selection](#windows-shell-selection-wrongstack_shell). |
 | `WRONGSTACK_INDEX_QUESTION_THRESHOLD` | File-count threshold for the "Run codebase indexing now?" pre-launch prompt. Default `500`. Set to a high number to suppress the question. |
 | `WRONGSTACK_HQ_URL` | HQ command center URL for telemetry publishing (e.g. `http://localhost:3499`). When set, TUI/REPL/WebUI/CLI hosts connect to this HQ and publish mailbox events, fleet snapshots, and client lifecycle telemetry. See [HQ Command Center Plan](./plans/hq-command-center-2026-06.md). |
 | `WRONGSTACK_HQ_TOKEN` | Client enrollment token for HQ authentication. Required for non-loopback HQ servers. Passed as `?token=` on the outbound `/ws/client` WebSocket. |
@@ -539,6 +540,68 @@ export WRONGSTACK_HQ_PROJECT_ALIAS=my-project
 ```
 
 **Defaults:** when `WRONGSTACK_HQ_URL` is unset, no publisher is created and hosts run normally with zero overhead. Mailbox send/ack/register/heartbeat events are the primary telemetry source. Raw message bodies and file contents are never sent unless `WRONGSTACK_HQ_RAW_CONTENT=1`.
+
+### Windows shell selection (`WRONGSTACK_SHELL`)
+
+The `bash` tool historically ran everything through `cmd.exe` on Windows. That works for `echo`, `dir`, `set`, and other internal commands, but fails on PowerShell cmdlets (`Get-Content`, `Set-Location`, …) with "'Get-Content' is not recognized as an internal or external command." WrongStack now auto-detects PowerShell commands and routes them to the right shell.
+
+**Selection precedence** (Windows only):
+
+1. **`WRONGSTACK_SHELL` override** — if set to `cmd`/`cmd.exe`, `powershell`/`powershell.exe`, or `pwsh`/`pwsh.exe` (case-insensitive), that shell is used unconditionally. Unknown values (typos, other shells) are **silently ignored** — the override is a safety hatch, not a free-form field, so a config typo falls back to auto-detection rather than throwing.
+2. **Auto-detection** — if the command "looks like" PowerShell (see below), it runs in PowerShell. PowerShell 7 (`pwsh`) is preferred; Windows PowerShell 5.1 (`powershell`) is the fallback when `pwsh` is not on `PATH`.
+3. **Default** — `cmd.exe`, preserving legacy behavior.
+
+On non-Windows the picker is a no-op; the tool routes through `/bin/bash -c`.
+
+**Auto-detection signals.** A command is routed to PowerShell if it contains any of these unambiguous patterns:
+
+- **Cmdlet verb-noun syntax** — `Get-Content`, `Set-Location`, `Invoke-WebRequest`, `Remove-Item`
+- **Dollar-sign variables** — `$env:PATH`, `$foo`, `$_`, `$script:bar`
+- **Subexpressions** — `$(Get-Date)`
+- **Here-strings** — `@"..."@`, `@'...'@`
+- **Splatting / call operator** — `@( ... )`, `& $script`
+- **Comparison operators** — `-eq`, `-ne`, `-match`, `-like`, `-contains`, `-and`, `-replace`, `-split`
+- **`.ps1` extension** — `.\build.ps1`
+- **PS-only aliases** — `gci`, `gi`, `gp`, `gcm`, `gps`, `sl`, `rm`, `cat`, `cp`, `mv`
+- **Cmdlet flags** — `-WhatIf`, `-Confirm`, `-ErrorAction`
+- **Pipeline cmdlets** — `Where-Object`, `ForEach-Object`, `Select-Object`, `Sort-Object`, `Group-Object`
+- **Write-* output cmdlets** — `Write-Host`, `Write-Output`, `Write-Error`, `Write-Warning`
+- **Registry provider paths** — `HKLM:\`, `HKCU:\`, `HKCR:\`
+- **Bracketed type casts** — `[string]`, `[int]`, `[xml]`, `[System.IO.File]`
+- **PS comment blocks** — `<# ... #>`
+- **PS-only parameters** — `-AsPlainText`, `-PipelineVariable`, `-FilterHashtable`, `-OutVariable`
+
+Deliberately **not** treated as PowerShell tells (both shells accept them): `C:\`-style paths, `cd`/`echo` (exist in cmd.exe too), and lone `ls`/`where`/`select` (ambiguous with cmd.exe builtins and unix tools on `PATH`).
+
+**Execution model.** PowerShell commands are piped to the shell's stdin rather than interpolated into a `-Command "..."` argument:
+
+```
+pwsh -NoLogo -NoProfile -NonInteractive -Command -
+```
+
+This sidesteps the entire class of quoting bugs from embedding multi-line, single-quoted, or dollar-laden scripts into an argument string.
+
+**Script wrapping.** Every PowerShell command is wrapped with four reliability fixes before it reaches stdin:
+
+1. **UTF-8 BOM** (`U+FEFF`) — so PowerShell 5.1 decodes non-ASCII characters correctly (PS 7+ already defaults to UTF-8; the BOM is harmless there).
+2. **Console output encoding** — `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8` ensures PS 5.1 emits UTF-8 on stdout, preventing mojibake of non-ASCII filenames and CJK output.
+3. **Exit-code propagation** — the command runs inside `try { … } finally { exit $LASTEXITCODE }`, so native commands' exit codes (dotnet, npm, node) reach the parent. Without this, `pwsh -Command -` exits `0` even on failure.
+4. **Confirmation suppression** — `$ConfirmPreference='None'` and `$WhatIfPreference=$false` so `-Confirm` cmdlets don't block waiting for interactive input.
+
+**Forcing a shell.** To always use PowerShell regardless of detection:
+
+```bash
+# Windows (PowerShell 7 if available, else Windows PowerShell 5.1)
+set WRONGSTACK_SHELL=powershell
+# or explicitly
+set WRONGSTACK_SHELL=pwsh
+```
+
+To always use cmd.exe (disables auto-detection entirely):
+
+```bash
+set WRONGSTACK_SHELL=cmd
+```
 
 ---
 
