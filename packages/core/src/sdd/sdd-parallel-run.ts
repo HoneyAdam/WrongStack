@@ -910,7 +910,7 @@ export class SddParallelRun {
       // cleanly into the base. An unresolved conflict is treated like any other
       // failure (retry on a fresh base, else terminal-fail) so the run never
       // wedges and dependents never build on un-merged work.
-      const merged = await this.integrateWorktree(task);
+      const merged = await this.integrateWorktree(task, result);
       if (merged.ok) {
         success = true;
         this.opts.tracker.updateNodeStatus(taskId, 'completed');
@@ -922,6 +922,16 @@ export class SddParallelRun {
           subagentId,
           durationMs: result.durationMs,
         });
+      } else if (merged.reason) {
+        // A conflict-resolved merge that regressed re-verification — the squash
+        // commit was reverted. Surface it as a verification failure (not a raw
+        // conflict) and let the retry path re-run on a fresh base.
+        this.emit('sdd.task.verification_failed', {
+          runId: this.runId,
+          taskId,
+          reason: merged.reason,
+        });
+        await this.applyTaskFailure(taskId, subagentId, merged.reason);
       } else {
         this.emit('sdd.task.conflict', {
           runId: this.runId,
@@ -1036,13 +1046,19 @@ export class SddParallelRun {
    * disabled or none was allocated for this task. Never throws — a merge hiccup
    * degrades to a (retryable) failure rather than wedging the run.
    */
-  private async integrateWorktree(task: TaskNode): Promise<{ ok: boolean; conflictFiles?: string[] }> {
+  private async integrateWorktree(
+    task: TaskNode,
+    result?: TaskResult,
+  ): Promise<{ ok: boolean; conflictFiles?: string[]; reason?: string }> {
     const wt = this.opts.worktrees;
     if (!wt) return { ok: true };
     const handle = this.taskWorktrees.get(task.id);
     if (!handle) return { ok: true };
     try {
       await wt.commitAll(handle, `sdd(${task.title}): ${task.id}`);
+      // Capture the base tip before merging so a regressed conflict-resolution
+      // can be reverted to exactly this commit (see the re-verify branch below).
+      const baseSha = this.opts.conflictResolver ? await wt.baseHead(handle) : null;
       const res = await wt.merge(handle, {
         squash: true,
         ...(this.opts.conflictResolver
@@ -1053,6 +1069,29 @@ export class SddParallelRun {
           : {}),
       });
       if (res.ok) {
+        // A merge that only landed because the conflictResolver rewrote files is
+        // not trusted blindly: re-run the completion gate against the INTEGRATED
+        // base. If it regresses, revert the squash commit so the auto-resolution
+        // never sticks, and treat the task as a (retryable) failure.
+        if (res.resolved && this.opts.verifyTask && baseSha) {
+          let regressed: string | undefined;
+          try {
+            const verdict = await this.opts.verifyTask({
+              task,
+              result: result ?? ({} as TaskResult),
+              cwd: this.opts.projectRoot,
+            });
+            if (!verdict.ok) regressed = verdict.reason ?? 'verification failed after conflict resolution';
+          } catch (err) {
+            regressed = `verification error after conflict resolution: ${String(err)}`;
+          }
+          if (regressed) {
+            await wt.revertBaseTo(handle, baseSha).catch(() => {});
+            await wt.release(handle, { keep: false }).catch(() => {});
+            this.forgetWorktree(task.id, { keepBranchLabel: true });
+            return { ok: false, conflictFiles: [], reason: regressed };
+          }
+        }
         await wt.release(handle, { keep: false });
         this.forgetWorktree(task.id);
         return { ok: true };

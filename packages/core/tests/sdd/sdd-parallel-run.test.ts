@@ -97,6 +97,57 @@ describe('SddParallelRun.executeWave', () => {
     expect((run as never as { retryMap: Map<string, number> }).retryMap.get(t1.id)).toBe(1);
   });
 
+  it('re-verifies a conflict-resolved merge and reverts the base when it regresses', async () => {
+    // A fake worktree manager whose merge always lands as `resolved` (i.e. the
+    // conflictResolver rewrote files). verifyTask passes in the worktree (pre-
+    // merge) but FAILS against the integrated base (cwd === projectRoot), so the
+    // engine must revert the squash commit and fail the task — not complete it.
+    const revertCalls: string[] = [];
+    const fakeWorktrees = {
+      allocate: vi.fn(async (ownerId: string) => ({
+        id: ownerId,
+        ownerId,
+        status: 'active',
+        dir: `/wt/${ownerId}`,
+        branch: `b-${ownerId}`,
+        baseBranch: 'main',
+      })),
+      commitAll: vi.fn(async () => {}),
+      baseHead: vi.fn(async () => 'SHA0'),
+      merge: vi.fn(async () => ({ ok: true, resolved: true })),
+      revertBaseTo: vi.fn(async (_h: unknown, sha: string) => {
+        revertCalls.push(sha);
+        return true;
+      }),
+      release: vi.fn(async () => {}),
+    };
+    const verifyTask = vi.fn(async ({ cwd }: { cwd: string }) =>
+      cwd === '/proj' ? { ok: false, reason: 'integration regressed' } : { ok: true },
+    );
+
+    const { run, tracker, t1 } = await makeHarness({
+      maxRetries: 0,
+      worktrees: fakeWorktrees,
+      conflictResolver: async () => true,
+      verifyTask,
+    });
+    (run as never as { coordinator: unknown }).coordinator = fakeCoordinator();
+
+    const events: string[] = [];
+    (run as never as { emit: (e: string, p: unknown) => void }).emit = ((e: string) => {
+      events.push(e);
+    }) as never;
+
+    await run.executeWave({ wave: 0, tasks: [t1], deadlocked: false, allDone: false } as never);
+
+    // Reverted to the captured pre-merge tip, surfaced as a verification failure,
+    // and the task is NOT completed.
+    expect(revertCalls).toEqual(['SHA0']);
+    expect(events).toContain('sdd.task.verification_failed');
+    expect(tracker.getAllNodes({ status: ['completed'] })).toHaveLength(0);
+    expect(tracker.getAllNodes({ status: ['failed'] })).toHaveLength(1);
+  });
+
   it('marks a task failed once retries are exhausted, formatting the error', async () => {
     const { run, tracker, t1 } = await makeHarness({ maxRetries: 0 });
     const coord = fakeCoordinator({

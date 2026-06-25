@@ -216,8 +216,11 @@ a specific task.
 > added (`packages/core/src/sdd/conflict-resolver.ts`); the CLI wires it behind
 > `WRONGSTACK_SDD_CONFLICT_RESOLVER` (default unset → conservative retry-then-fail, unchanged). The
 > WorktreeManager still rejects any rewrite that leaves markers, so a bad resolution degrades
-> safely. **Deferred:** an LLM resolver, and re-running the verify gate *after* a resolved merge
-> (today verify runs before merge) — both noted as future work.
+> safely. **Verify-after-merge now CLOSED (2026-06-25):** a merge that only landed because the
+> resolver rewrote files (`MergeResult.resolved`) is re-verified against the integrated base; on
+> regression the squash commit is reverted (`WorktreeManager.baseHead` captured pre-merge +
+> `revertBaseTo`) and the task fails (retry on fresh base) — an auto-resolution can never silently
+> stick a broken base. **Deferred:** an LLM-backed resolver (the heuristic is the only tier).
 
 `integrateWorktree` accepts a `conflictResolver` but the CLI/standalone wiring injects none, so an
 unresolved conflict always degrades to a fresh-base retry then terminal-fail. That is correct and
