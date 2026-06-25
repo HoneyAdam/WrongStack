@@ -1806,728 +1806,279 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     registerWebuiSignalHandlers(signalShutdown);
   });
 
+  // ── Message router ──────────────────────────────────────────────────
+  // A declarative route table keyed by WSClientMessage['type']. Each entry
+  // is a closure that captures the context objects in scope. Replaces the
+  // former 112-case switch statement. Prefix-based handlers (autophase.*,
+  // specs.*, sdd.*) fall through to the fallback chain in handleMessage().
+  type WsRouteHandler = (msg: WSClientMessage, ws: WebSocket) => void | Promise<void>;
+  const noop = () => {};
+
+  const projectRootFor = () =>
+    opts.projectRoot ?? (opts.agent.ctx as { projectRoot?: string }).projectRoot ?? '';
+
+  const wsRoutes: Record<string, WsRouteHandler> = {
+    // ── Core connection ──
+    'user_message': (msg, ws) =>
+      handleUserMessage(connectionCtx, ws, (msg as { payload: { content: string } }).payload.content),
+    'abort': (_msg, ws) => handleAbort(connectionCtx, ws),
+    'ping': (_msg, ws) => handlePing(connectionCtx, ws),
+    'tool.confirm_result': (msg, _ws) => {
+      const { id, decision } = (msg as { payload: { id: string; decision: 'yes' | 'no' | 'always' | 'deny' } }).payload;
+      handleToolConfirmResult(connectionCtx, id, decision);
+    },
+    'webui.shutdown': () => {
+      console.log('[WebUI] Shutdown requested from client');
+      shutdown();
+    },
+
+    // ── Providers / keys ──
+    'providers.list': (_msg, ws) => handleProvidersList(wsHandlerCtx, ws),
+    'provider.models': (msg, ws) =>
+      handleProviderModels(wsHandlerCtx, ws, (msg as { payload: { providerId: string } }).payload.providerId),
+    'providers.saved': (_msg, ws) => handleProvidersSaved(wsHandlerCtx, ws),
+    'key.add': (msg, ws) => {
+      const m = msg as { payload: { providerId: string; label: string; apiKey: string } };
+      handleKeyUpsert(wsHandlerCtx, ws, m.payload.providerId, m.payload.label, m.payload.apiKey);
+    },
+    'key.update': (msg, ws) => {
+      const m = msg as { payload: { providerId: string; label: string; apiKey: string } };
+      handleKeyUpsert(wsHandlerCtx, ws, m.payload.providerId, m.payload.label, m.payload.apiKey);
+    },
+    'key.delete': (msg, ws) => {
+      const m = msg as { payload: { providerId: string; label: string } };
+      handleKeyDelete(wsHandlerCtx, ws, m.payload.providerId, m.payload.label);
+    },
+    'key.set_active': (msg, ws) => {
+      const m = msg as { payload: { providerId: string; label: string } };
+      handleKeySetActive(wsHandlerCtx, ws, m.payload.providerId, m.payload.label);
+    },
+    'provider.add': (msg, ws) =>
+      handleProviderAdd(wsHandlerCtx, ws, (msg as { payload: { id: string; family: string; baseUrl?: string; apiKey?: string } }).payload),
+    'provider.remove': (msg, ws) =>
+      handleProviderRemove(wsHandlerCtx, ws, (msg as { payload: { providerId: string } }).payload.providerId),
+    'provider.clear_models': (msg, ws) =>
+      handleProviderClearModels(wsHandlerCtx, ws, (msg as { payload: { providerId: string } }).payload.providerId),
+    'provider.undo_clear': (msg, ws) => {
+      const m = msg as { payload: { providerId: string; previousModels: string[] } };
+      handleProviderUndoClear(wsHandlerCtx, ws, m.payload.providerId, m.payload.previousModels);
+    },
+    'provider.update': (msg, ws) =>
+      handleProviderUpdate(wsHandlerCtx, ws, (msg as { payload: { id: string; family?: string; baseUrl?: string; envVars?: string[]; models?: string[] } }).payload),
+    'provider.probe': (msg, ws) => {
+      const m = msg as { payload: { providerId: string; timeoutMs?: number } };
+      handleProviderProbe(wsHandlerCtx, ws, m.payload.providerId, m.payload.timeoutMs);
+    },
+
+    // ── Todos / goals / plans / tasks ──
+    'todos.get': (_msg, ws) => handleTodosGet(worklistCtx, ws),
+    'todos.clear': (_msg, ws) => handleTodosClear(worklistCtx, ws),
+    'todos.remove': (msg, ws) =>
+      handleTodosRemove(worklistCtx, ws, msg.payload as { id?: string; index?: number } | undefined),
+    'todo.update': (msg, ws) =>
+      handleTodoUpdate(worklistCtx, ws, msg.payload as { id: string; status?: TodoItem['status']; activeForm?: string }),
+    'goal.get': (_msg, ws) => handleGoalGet(sessionsCtx, ws),
+    'plan.get': (_msg, ws) => handlePlanGet(worklistCtx, ws),
+    'plan.template_use': (msg, ws) =>
+      handlePlanTemplateUse(worklistCtx, ws, (msg as { payload: { template: string } }).payload.template),
+    'plan.item.update': (msg, ws) =>
+      handlePlanItemUpdate(worklistCtx, ws, msg.payload as { target: string; status: 'open' | 'in_progress' | 'done' }),
+    'tasks.get': (_msg, ws) => handleTasksGet(worklistCtx, ws),
+    'task.update': (msg, ws) =>
+      handleTaskUpdate(worklistCtx, ws, msg.payload as { id: string; status: 'pending' | 'in_progress' | 'blocked' | 'failed' | 'review' | 'completed' }),
+
+    // ── Sessions ──
+    'sessions.list': (msg, ws) =>
+      handleSessionsList(sessionsCtx, ws, (msg as { payload?: { limit?: number } }).payload?.limit ?? 50),
+    'session.new': (_msg, ws) => handleSessionNew(sessionsCtx, ws),
+    'session.delete': (msg, ws) =>
+      handleSessionDelete(sessionsCtx, ws, (msg as { payload: { id: string } }).payload.id),
+    'session.save': (_msg, ws) => handleSessionSave(sessionsCtx, ws),
+    'session.resume': (msg, ws) =>
+      handleSessionResume(sessionsCtx, ws, (msg as { payload: { id: string } }).payload.id),
+    'session.checkpoints': (_msg, ws) => handleSessionCheckpoints(sessionsCtx, ws),
+    'session.rewind': (msg, ws) =>
+      handleSessionRewind(sessionsCtx, ws, (msg as { payload: { checkpointIndex: number } }).payload.checkpointIndex),
+
+    // ── Context ──
+    'context.clear': (_msg, ws) => handleContextClear(contextHandlerCtx, ws),
+    'context.debug': (_msg, ws) => handleContextDebug(contextHandlerCtx, ws),
+    'context.compact': (msg, ws) =>
+      handleContextCompact(contextHandlerCtx, ws, !!(msg as { payload?: { aggressive?: boolean } }).payload?.aggressive),
+    'context.repair': (_msg, ws) => handleContextRepair(contextHandlerCtx, ws),
+    'context.modes.list': (_msg, ws) => handleContextModesList(contextHandlerCtx, ws),
+    'context.mode.switch': (msg, ws) =>
+      handleContextModeSwitch(contextHandlerCtx, ws, (msg as { payload: { id: string } }).payload.id),
+    'context.mode.create': (msg, ws) =>
+      handleContextModeCreate(contextHandlerCtx, ws, (msg as {
+        payload: { id: string; name: string; description: string; thresholds: { warn: number; soft: number; hard: number }; preserveK: number; eliseThreshold: number };
+      }).payload),
+    'context.mode.update': (msg, ws) =>
+      handleContextModeUpdate(contextHandlerCtx, ws, (msg as {
+        payload: { id: string; name?: string; description?: string; thresholds?: { warn?: number; soft?: number; hard?: number }; preserveK?: number; eliseThreshold?: number };
+      }).payload),
+    'context.mode.delete': (msg, ws) =>
+      handleContextModeDelete(contextHandlerCtx, ws, (msg as { payload: { id: string } }).payload.id),
+
+    // ── Agent config: modes / models ──
+    'modes.list': (_msg, ws) => handleModesList(agentConfigCtx, ws),
+    'mode.switch': (msg, ws) => handleModeSwitch(agentConfigCtx, ws, (msg as { payload: { id: string } }).payload.id),
+    'model.switch': (msg, ws) => handleModelSwitch(agentConfigCtx, ws, (msg as { payload: { provider: string; model: string } }).payload),
+    'model.refine': (msg, ws) => handleModelRefine(agentConfigCtx, ws, (msg as { payload: { text: string } }).payload.text),
+
+    // ── Process management ──
+    'process.list': (_msg, ws) => handleProcessList(wsCommon, ws),
+    'process.kill': (msg, ws) => handleProcessKill(wsCommon, ws, (msg as { payload: { pid: number } }).payload.pid),
+    'process.killAll': (_msg, ws) => handleProcessKillAll(wsCommon, ws),
+
+    // ── Diagnostics / introspection ──
+    'diag.get': (_msg, ws) => handleDiagGet(introspectionCtx, ws),
+    'stats.get': (_msg, ws) => handleStatsGet(introspectionCtx, ws),
+    'tools.list': (_msg, ws) => handleToolsList(introspectionCtx, ws),
+
+    // ── Autonomy ──
+    'autonomy.switch': (msg, ws) => handleAutonomySwitch(prefsCtx, ws, (msg as { payload: { mode: string } }).payload.mode),
+
+    // ── Brain ──
+    'brain.status': (_msg, ws) => handleBrainStatus(brainCtx, ws),
+    'brain.risk': (msg, ws) => handleBrainRisk(brainCtx, ws, (msg as { payload?: { level?: string } }).payload?.level ?? ''),
+    'brain.ask': (msg, ws) => handleBrainAsk(brainCtx, ws, (msg as { payload?: { question?: string } }).payload?.question),
+
+    // ── Preferences ──
+    'prefs.get': (_msg, ws) => handlePrefsGet(prefsCtx, ws),
+    'prefs.update': (msg, ws) => handlePrefsUpdate(prefsCtx, ws, (msg as { payload: Record<string, unknown> }).payload),
+
+    // ── File operations (delegated to shared file-handlers.ts) ──
+    'files.list': (msg, ws) => handleFilesList(ws, msg, projectRootFor()),
+    'files.tree': (msg, ws) => handleFilesTree(ws, msg, projectRootFor()),
+    'files.read': (msg, ws) => handleFilesRead(ws, msg, projectRootFor()),
+    'files.write': (msg, ws) => handleFilesWrite(ws, msg, projectRootFor()),
+    'completion.request': (msg, ws) =>
+      handleCompletionRequest(ws, msg, {
+        projectRoot: projectRootFor(),
+        provider: opts.agent.ctx.provider,
+        model: opts.agent.ctx.model,
+        indexDir: typeof opts.agent.ctx.meta['codebaseIndexDir'] === 'string'
+          ? opts.agent.ctx.meta['codebaseIndexDir']
+          : undefined,
+        lspCompletion: createToolLspCompletionSource(
+          opts.agent.ctx.tools.find((tool) => tool.name === 'lsp_completion'),
+          opts.agent.ctx,
+        ),
+      }),
+
+    // ── Memory (guarded — opts.memoryStore may be undefined) ──
+    'memory.list': (_msg, ws) => {
+      if (!opts.memoryStore) {
+        send(ws, { type: 'memory.list', payload: { text: '', error: 'Memory store not available' } });
+        return;
+      }
+      return handleMemoryList(ws, opts.memoryStore);
+    },
+    'memory.remember': (msg, ws) => {
+      if (!opts.memoryStore) {
+        sendResult(ws, false, 'Memory store not available');
+        return;
+      }
+      return handleMemoryRemember(ws, msg, opts.memoryStore);
+    },
+    'memory.forget': (msg, ws) => {
+      if (!opts.memoryStore) {
+        sendResult(ws, false, 'Memory store not available');
+        return;
+      }
+      return handleMemoryForget(ws, msg, opts.memoryStore);
+    },
+
+    // ── MCP operations (shared handlers from @wrongstack/webui/server) ──
+    'mcp.list': (msg, ws) => handleMcpList(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry),
+    'mcp.add': (msg, ws) => handleMcpAdd(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry),
+    'mcp.remove': (msg, ws) => handleMcpRemove(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry),
+    'mcp.update': (msg, ws) => handleMcpUpdate(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry),
+    'mcp.wake': (msg, ws) => handleMcpWake(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry),
+    'mcp.sleep': (msg, ws) => handleMcpSleep(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry),
+    'mcp.discover': (msg, ws) => handleMcpDiscover(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry),
+    'mcp.enable': (msg, ws) => handleMcpEnable(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry),
+    'mcp.disable': (msg, ws) => handleMcpDisable(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry),
+    'mcp.restart': (msg, ws) => handleMcpRestart(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry),
+
+    // ── Skills ──
+    'skills.list': (_msg, ws) => handleSkillsList(introspectionCtx, ws),
+    'skills.content': (msg, ws) => handleSkillsContent(ws, skillsCtx, msg),
+    'skills.install': (msg, ws) => handleSkillsInstall(ws, skillsCtx, msg),
+    'skills.uninstall': (msg, ws) => handleSkillsUninstall(ws, skillsCtx, msg),
+    'skills.update': (msg, ws) => handleSkillsUpdate(ws, skillsCtx, msg),
+    'skills.create': (msg, ws) => handleSkillsCreate(ws, skillsCtx, msg),
+    'skills.edit': (msg, ws) => handleSkillsEdit(ws, skillsCtx, msg),
+    'skills.export': (_msg, ws) => handleSkillsExport(ws, skillsCtx),
+
+    // ── Projects / working dir ──
+    'projects.list': (_msg, ws) => handleProjectsList(projectsCtx, ws),
+    'projects.select': (msg, ws) =>
+      handleProjectsSelect(projectsCtx, ws, (msg as { payload: { root: string; name?: string } }).payload),
+    'projects.add': (msg, ws) =>
+      handleProjectsAdd(projectsCtx, ws, (msg as { payload: { root: string; name?: string } }).payload),
+    'working_dir.set': (msg, ws) =>
+      handleWorkingDirSet(projectsCtx, ws, (msg as { payload: { path: string } }).payload.path),
+
+    // ── Git ──
+    'git.changes': (_msg, ws) => handleGitChanges(ws, projectRootFor()),
+    'git.diff': (msg, ws) =>
+      handleGitDiff(ws, projectRootFor(), (msg as { payload?: { path?: string } }).payload?.path ?? ''),
+    'git.info': (_msg, ws) => handleGitInfo(ws, projectRootFor()),
+
+    // ── Shell ──
+    'shell.open': async (msg, ws) => {
+      const result = await handleShellOpen(msg.payload as Parameters<typeof handleShellOpen>[0], consoleLogger);
+      sendResult(ws, result.success, result.message);
+    },
+
+    // ── Mailbox ──
+    'mailbox.messages': (msg, ws) =>
+      handleMailboxMessages(mailboxCtx, msg as Parameters<typeof handleMailboxMessages>[1], ws),
+    'mailbox.agents': (msg, ws) =>
+      handleMailboxAgents(mailboxCtx, msg as Parameters<typeof handleMailboxAgents>[1], ws),
+    'mailbox.clear': (_msg, ws) => handleMailboxClear(mailboxCtx, ws),
+    'mailbox.purge': (msg, ws) =>
+      handleMailboxPurge(mailboxCtx, msg as Parameters<typeof handleMailboxPurge>[1], ws),
+
+    // ── Silent no-ops (standalone server wires real handlers) ──
+    'collab.join': noop,
+    'collab.leave': noop,
+    'collab.annotate': noop,
+    'collab.resolve': noop,
+    'collab.request_pause': noop,
+    'collab.resume': noop,
+    'collab.grant_control': noop,
+    'collab.inject_tool': noop,
+    'terminal.create': noop,
+    'terminal.input': noop,
+    'terminal.resize': noop,
+    'terminal.close': noop,
+  };
+
   async function handleMessage(
     ws: WebSocket,
     _client: ConnectedClient,
     msg: WSClientMessage,
   ): Promise<void> {
-    switch (msg.type) {
-      case 'user_message':
-        await handleUserMessage(
-          connectionCtx,
-          ws,
-          (msg as { payload: { content: string } }).payload.content,
-        );
-        break;
-
-      case 'abort':
-        handleAbort(connectionCtx, ws);
-        break;
-
-      case 'ping':
-        handlePing(connectionCtx, ws);
-        break;
-
-      case 'tool.confirm_result': {
-        const { id, decision } = (
-          msg as { payload: { id: string; decision: 'yes' | 'no' | 'always' | 'deny' } }
-        ).payload;
-        handleToolConfirmResult(connectionCtx, id, decision);
-        break;
-      }
-
-      case 'providers.list':
-        await handleProvidersList(wsHandlerCtx, ws);
-        break;
-
-      case 'provider.models':
-        await handleProviderModels(
-          wsHandlerCtx,
-          ws,
-          (msg as { payload: { providerId: string } }).payload.providerId,
-        );
-        break;
-
-      case 'providers.saved':
-        await handleProvidersSaved(wsHandlerCtx, ws);
-        break;
-
-      case 'key.add':
-      case 'key.update': {
-        const m = msg as { payload: { providerId: string; label: string; apiKey: string } };
-        await handleKeyUpsert(
-          wsHandlerCtx,
-          ws,
-          m.payload.providerId,
-          m.payload.label,
-          m.payload.apiKey,
-        );
-        break;
-      }
-
-      case 'key.delete': {
-        const m = msg as { payload: { providerId: string; label: string } };
-        await handleKeyDelete(wsHandlerCtx, ws, m.payload.providerId, m.payload.label);
-        break;
-      }
-
-      case 'key.set_active': {
-        const m = msg as { payload: { providerId: string; label: string } };
-        await handleKeySetActive(wsHandlerCtx, ws, m.payload.providerId, m.payload.label);
-        break;
-      }
-
-      case 'provider.add': {
-        const m = msg as {
-          payload: {
-            id: string;
-            family: string;
-            baseUrl?: string | undefined;
-            apiKey?: string | undefined;
-          };
-        };
-        await handleProviderAdd(wsHandlerCtx, ws, m.payload);
-        break;
-      }
-
-      case 'provider.remove': {
-        const m = msg as { payload: { providerId: string } };
-        await handleProviderRemove(wsHandlerCtx, ws, m.payload.providerId);
-        break;
-      }
-
-      case 'provider.clear_models': {
-        const m = msg as { payload: { providerId: string } };
-        await handleProviderClearModels(wsHandlerCtx, ws, m.payload.providerId);
-        break;
-      }
-
-      case 'provider.undo_clear': {
-        const m = msg as { payload: { providerId: string; previousModels: string[] } };
-        await handleProviderUndoClear(
-          wsHandlerCtx,
-          ws,
-          m.payload.providerId,
-          m.payload.previousModels,
-        );
-        break;
-      }
-
-      case 'provider.update': {
-        const m = msg as {
-          payload: {
-            id: string;
-            family?: string | undefined;
-            baseUrl?: string | undefined;
-            envVars?: string[] | undefined;
-            models?: string[] | undefined;
-          };
-        };
-        await handleProviderUpdate(wsHandlerCtx, ws, m.payload);
-        break;
-      }
-
-      case 'provider.probe': {
-        const m = msg as { payload: { providerId: string; timeoutMs?: number | undefined } };
-        await handleProviderProbe(wsHandlerCtx, ws, m.payload.providerId, m.payload.timeoutMs);
-        break;
-      }
-
-      case 'todos.get': {
-        handleTodosGet(worklistCtx, ws);
-        break;
-      }
-
-      case 'goal.get': {
-        await handleGoalGet(sessionsCtx, ws);
-        break;
-      }
-
-      case 'sessions.list': {
-        await handleSessionsList(
-          sessionsCtx,
-          ws,
-          (msg as { payload?: { limit?: number | undefined } }).payload?.limit ?? 50,
-        );
-        break;
-      }
-
-      case 'session.new': {
-        await handleSessionNew(sessionsCtx, ws);
-        break;
-      }
-
-      case 'todos.clear': {
-        handleTodosClear(worklistCtx, ws);
-        break;
-      }
-
-      case 'todos.remove': {
-        handleTodosRemove(
-          worklistCtx,
-          ws,
-          msg.payload as { id?: string | undefined; index?: number | undefined } | undefined,
-        );
-        break;
-      }
-
-      case 'todo.update': {
-        handleTodoUpdate(
-          worklistCtx,
-          ws,
-          msg.payload as {
-            id: string;
-            status?: TodoItem['status'] | undefined;
-            activeForm?: string | undefined;
-          },
-        );
-        break;
-      }
-
-      case 'context.clear': {
-        await handleContextClear(contextHandlerCtx, ws);
-        break;
-      }
-
-      case 'process.list': {
-        handleProcessList(wsCommon, ws);
-        break;
-      }
-
-      case 'process.kill': {
-        handleProcessKill(wsCommon, ws, (msg as { payload: { pid: number } }).payload.pid);
-        break;
-      }
-
-      case 'process.killAll': {
-        handleProcessKillAll(wsCommon, ws);
-        break;
-      }
-
-      case 'diag.get': {
-        handleDiagGet(introspectionCtx, ws);
-        break;
-      }
-
-      case 'stats.get': {
-        await handleStatsGet(introspectionCtx, ws);
-        break;
-      }
-
-      case 'autonomy.switch': {
-        handleAutonomySwitch(prefsCtx, ws, (msg as { payload: { mode: string } }).payload.mode);
-        break;
-      }
-
-      case 'tools.list': {
-        handleToolsList(introspectionCtx, ws);
-        break;
-      }
-
-      case 'session.checkpoints': {
-        await handleSessionCheckpoints(sessionsCtx, ws);
-        break;
-      }
-
-      case 'session.rewind': {
-        await handleSessionRewind(
-          sessionsCtx,
-          ws,
-          (msg as { payload: { checkpointIndex: number } }).payload.checkpointIndex,
-        );
-        break;
-      }
-
-      // ── File operations — delegated to shared handlers (file-handlers.ts) ──
-      // These handlers are also used by the standalone WebUI server. When
-      // adding or modifying file-operation WebSocket messages, update
-      // file-handlers.ts — NOT these case blocks individually.
-      case 'files.list': {
-        const projectRoot = opts.projectRoot ?? opts.agent.ctx.projectRoot;
-        return handleFilesList(ws, msg, projectRoot);
-      }
-      case 'files.tree': {
-        const projectRoot = opts.projectRoot ?? opts.agent.ctx.projectRoot;
-        return handleFilesTree(ws, msg, projectRoot);
-      }
-      case 'files.read': {
-        const projectRoot = opts.projectRoot ?? opts.agent.ctx.projectRoot;
-        return handleFilesRead(ws, msg, projectRoot);
-      }
-      case 'files.write': {
-        const projectRoot = opts.projectRoot ?? opts.agent.ctx.projectRoot;
-        return handleFilesWrite(ws, msg, projectRoot);
-      }
-      case 'completion.request': {
-        const projectRoot = opts.projectRoot ?? opts.agent.ctx.projectRoot;
-        return handleCompletionRequest(ws, msg, {
-          projectRoot,
-          provider: opts.agent.ctx.provider,
-          model: opts.agent.ctx.model,
-          indexDir: typeof opts.agent.ctx.meta['codebaseIndexDir'] === 'string'
-            ? opts.agent.ctx.meta['codebaseIndexDir']
-            : undefined,
-          lspCompletion: createToolLspCompletionSource(
-            opts.agent.ctx.tools.find((tool) => tool.name === 'lsp_completion'),
-            opts.agent.ctx,
-          ),
-        });
-      }
-
-      case 'session.delete': {
-        await handleSessionDelete(sessionsCtx, ws, (msg as { payload: { id: string } }).payload.id);
-        break;
-      }
-
-      case 'session.save':
-        handleSessionSave(sessionsCtx, ws);
-        break;
-
-      case 'plan.get': {
-        await handlePlanGet(worklistCtx, ws);
-        break;
-      }
-
-      case 'plan.template_use': {
-        await handlePlanTemplateUse(
-          worklistCtx,
-          ws,
-          (msg as { payload: { template: string } }).payload.template,
-        );
-        break;
-      }
-
-      case 'plan.item.update': {
-        await handlePlanItemUpdate(
-          worklistCtx,
-          ws,
-          msg.payload as { target: string; status: 'open' | 'in_progress' | 'done' },
-        );
-        break;
-      }
-
-      // ── Memory operations — delegated to shared handlers (memory-handlers.ts) ──
-      case 'memory.list': {
-        if (!opts.memoryStore) {
-          send(ws, {
-            type: 'memory.list',
-            payload: { text: '', error: 'Memory store not available' },
-          });
-          break;
-        }
-        return handleMemoryList(ws, opts.memoryStore);
-      }
-      case 'memory.remember': {
-        if (!opts.memoryStore) {
-          sendResult(ws, false, 'Memory store not available');
-          break;
-        }
-        return handleMemoryRemember(ws, msg, opts.memoryStore);
-      }
-      case 'memory.forget': {
-        if (!opts.memoryStore) {
-          sendResult(ws, false, 'Memory store not available');
-          break;
-        }
-        return handleMemoryForget(ws, msg, opts.memoryStore);
-      }
-
-      // ── MCP operations — delegated to the shared handlers in
-      // @wrongstack/webui/server, which run against the same on-disk config
-      // and the live MCPRegistry the agent loop + `/mcp` use. ──
-      case 'mcp.list':
-        await handleMcpList(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry);
-        break;
-      case 'mcp.add':
-        await handleMcpAdd(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry);
-        break;
-      case 'mcp.remove':
-        await handleMcpRemove(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry);
-        break;
-      case 'mcp.update':
-        await handleMcpUpdate(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry);
-        break;
-      case 'mcp.wake':
-        await handleMcpWake(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry);
-        break;
-      case 'mcp.sleep':
-        await handleMcpSleep(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry);
-        break;
-      case 'mcp.discover':
-        await handleMcpDiscover(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry);
-        break;
-      case 'mcp.enable':
-        await handleMcpEnable(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry);
-        break;
-      case 'mcp.disable':
-        await handleMcpDisable(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry);
-        break;
-      case 'mcp.restart':
-        await handleMcpRestart(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry);
-        break;
-
-      case 'skills.list': {
-        await handleSkillsList(introspectionCtx, ws);
-        break;
-      }
-
-      case 'skills.content': {
-        await handleSkillsContent(ws, skillsCtx, msg);
-        break;
-      }
-
-      case 'skills.install': {
-        await handleSkillsInstall(ws, skillsCtx, msg);
-        break;
-      }
-
-      case 'skills.uninstall': {
-        await handleSkillsUninstall(ws, skillsCtx, msg);
-        break;
-      }
-
-      case 'skills.update': {
-        await handleSkillsUpdate(ws, skillsCtx, msg);
-        break;
-      }
-
-      case 'skills.create': {
-        await handleSkillsCreate(ws, skillsCtx, msg);
-        break;
-      }
-
-      case 'skills.edit': {
-        await handleSkillsEdit(ws, skillsCtx, msg);
-        break;
-      }
-
-      case 'skills.export': {
-        await handleSkillsExport(ws, skillsCtx);
-        break;
-      }
-
-      case 'modes.list': {
-        await handleModesList(agentConfigCtx, ws);
-        break;
-      }
-
-      case 'mode.switch': {
-        await handleModeSwitch(agentConfigCtx, ws, (msg as { payload: { id: string } }).payload.id);
-        break;
-      }
-
-      case 'model.switch': {
-        await handleModelSwitch(
-          agentConfigCtx,
-          ws,
-          (msg as { payload: { provider: string; model: string } }).payload,
-        );
-        break;
-      }
-
-      case 'session.resume': {
-        await handleSessionResume(sessionsCtx, ws, (msg as { payload: { id: string } }).payload.id);
-        break;
-      }
-
-      case 'context.debug': {
-        handleContextDebug(contextHandlerCtx, ws);
-        break;
-      }
-
-      case 'context.compact': {
-        await handleContextCompact(
-          contextHandlerCtx,
-          ws,
-          !!(msg as { payload?: { aggressive?: boolean | undefined } }).payload?.aggressive,
-        );
-        break;
-      }
-
-      case 'context.repair': {
-        handleContextRepair(contextHandlerCtx, ws);
-        break;
-      }
-
-      case 'context.modes.list': {
-        await handleContextModesList(contextHandlerCtx, ws);
-        break;
-      }
-
-      case 'context.mode.switch': {
-        await handleContextModeSwitch(
-          contextHandlerCtx,
-          ws,
-          (msg as { payload: { id: string } }).payload.id,
-        );
-        break;
-      }
-
-      case 'context.mode.create': {
-        await handleContextModeCreate(
-          contextHandlerCtx,
-          ws,
-          (
-            msg as {
-              payload: {
-                id: string;
-                name: string;
-                description: string;
-                thresholds: { warn: number; soft: number; hard: number };
-                preserveK: number;
-                eliseThreshold: number;
-              };
-            }
-          ).payload,
-        );
-        break;
-      }
-
-      case 'context.mode.update': {
-        await handleContextModeUpdate(
-          contextHandlerCtx,
-          ws,
-          (
-            msg as {
-              payload: {
-                id: string;
-                name?: string | undefined;
-                description?: string | undefined;
-                thresholds?:
-                  | {
-                      warn?: number | undefined;
-                      soft?: number | undefined;
-                      hard?: number | undefined;
-                    }
-                  | undefined;
-                preserveK?: number | undefined;
-                eliseThreshold?: number | undefined;
-              };
-            }
-          ).payload,
-        );
-        break;
-      }
-
-      case 'context.mode.delete': {
-        await handleContextModeDelete(
-          contextHandlerCtx,
-          ws,
-          (msg as { payload: { id: string } }).payload.id,
-        );
-        break;
-      }
-
-      // ── Brain — status, autonomy ceiling, direct decision support ───
-      // Shares the HOST's brain (TOKENS.BrainArbiter) and the same settings
-      // object the /brain slash command mutates, so the ceiling shown in the
-      // terminal and the WebUI never diverge. These used to be unknown
-      // message types on the embedded server.
-      case 'brain.status': {
-        handleBrainStatus(brainCtx, ws);
-        break;
-      }
-
-      case 'brain.risk': {
-        const level = (msg as { payload?: { level?: string } }).payload?.level ?? '';
-        handleBrainRisk(brainCtx, ws, level);
-        break;
-      }
-
-      case 'brain.ask': {
-        const question = (msg as { payload?: { question?: string } }).payload?.question;
-        await handleBrainAsk(brainCtx, ws, question);
-        break;
-      }
-
-      // ── Preferences ──────────────────────────────────────────
-
-      case 'prefs.get': {
-        handlePrefsGet(prefsCtx, ws);
-        break;
-      }
-
-      case 'prefs.update': {
-        handlePrefsUpdate(prefsCtx, ws, (msg as { payload: Record<string, unknown> }).payload);
-        break;
-      }
-
-      // ── Tasks ───────────────────────────────────────────────
-
-      case 'tasks.get': {
-        await handleTasksGet(worklistCtx, ws);
-        break;
-      }
-
-      case 'task.update': {
-        await handleTaskUpdate(
-          worklistCtx,
-          ws,
-          msg.payload as {
-            id: string;
-            status: 'pending' | 'in_progress' | 'blocked' | 'failed' | 'review' | 'completed';
-          },
-        );
-        break;
-      }
-
-      // Collaboration messages — the CLI webui-server doesn't run a
-      // full collab hub; silently acknowledge and ignore. request_pause /
-      // resume / grant_control / inject_tool are included so the CollabPanel's
-      // controller actions don't trip the "Unhandled message type" warning (the
-      // standalone webui server is the one that wires the real
-      // CollaborationWebSocketHandler).
-      case 'collab.join':
-      case 'collab.leave':
-      case 'collab.annotate':
-      case 'collab.resolve':
-      case 'collab.request_pause':
-      case 'collab.resume':
-      case 'collab.grant_control':
-      case 'collab.inject_tool':
-        break;
-
-      // Integrated terminal — the CLI embedded server doesn't run a pty
-      // transport (it already has its own terminal); silently acknowledge
-      // and ignore so the browser client's terminal panel doesn't trip the
-      // "Unhandled message type" warning. The standalone webui server wires
-      // the real TerminalWebSocketHandler.
-      case 'terminal.create':
-      case 'terminal.input':
-      case 'terminal.resize':
-      case 'terminal.close':
-        break;
-
-      case 'projects.list': {
-        await handleProjectsList(projectsCtx, ws);
-        break;
-      }
-
-      case 'projects.select': {
-        await handleProjectsSelect(
-          projectsCtx,
-          ws,
-          (msg as { payload: { root: string; name?: string | undefined } }).payload,
-        );
-        break;
-      }
-
-      case 'projects.add': {
-        await handleProjectsAdd(
-          projectsCtx,
-          ws,
-          (msg as { payload: { root: string; name?: string | undefined } }).payload,
-        );
-        break;
-      }
-
-      case 'working_dir.set': {
-        await handleWorkingDirSet(
-          projectsCtx,
-          ws,
-          (msg as { payload: { path: string } }).payload.path,
-        );
-        break;
-      }
-
-      case 'git.changes': {
-        const projectRoot = opts.projectRoot ?? (opts.agent.ctx as { projectRoot?: string }).projectRoot ?? '';
-        await handleGitChanges(ws, projectRoot);
-        break;
-      }
-
-      case 'git.diff': {
-        const projectRoot = opts.projectRoot ?? (opts.agent.ctx as { projectRoot?: string }).projectRoot ?? '';
-        const filePath = (msg as { payload?: { path?: string } }).payload?.path ?? '';
-        await handleGitDiff(ws, projectRoot, filePath);
-        break;
-      }
-
-      case 'shell.open': {
-        // Logic lives in `@wrongstack/webui/server`'s `shell-open.ts`
-        // so the standalone and CLI entry points share the same
-        // metacharacter guard + cross-platform spawn chain. See the
-        // docstring in shell-open.ts for the security rationale and
-        // the fallback chain. The CLI used to inline this 49-line
-        // block (and lacked the spawn-failure logger.warn that the
-        // standalone has) — this delegate brings them back in line.
-        const result = await handleShellOpen(
-          msg.payload as Parameters<typeof handleShellOpen>[0],
-          consoleLogger,
-        );
-        sendResult(ws, result.success, result.message);
-        break;
-      }
-
-      case 'model.refine': {
-        await handleModelRefine(
-          agentConfigCtx,
-          ws,
-          (msg as { payload: { text: string } }).payload.text,
-        );
-        break;
-      }
-
-      case 'webui.shutdown':
-        console.log('[WebUI] Shutdown requested from client');
-        shutdown();
-        break;
-
-      // ── Mailbox operations — project-level inter-agent messaging (PR 8 of #30) ────
-      case 'mailbox.messages':
-        await handleMailboxMessages(
-          mailboxCtx,
-          msg as Parameters<typeof handleMailboxMessages>[1],
-          ws,
-        );
-        break;
-
-      case 'mailbox.agents':
-        await handleMailboxAgents(mailboxCtx, msg as Parameters<typeof handleMailboxAgents>[1], ws);
-        break;
-
-      case 'mailbox.clear':
-        await handleMailboxClear(mailboxCtx, ws);
-        break;
-
-      case 'mailbox.purge':
-        await handleMailboxPurge(mailboxCtx, msg as Parameters<typeof handleMailboxPurge>[1], ws);
-        break;
-
-      case 'git.info': {
-        // Delegates to the shared handler (single source — see git-handlers.ts).
-        const projectRoot =
-          opts.projectRoot ?? (opts.agent.ctx as { projectRoot?: string }).projectRoot ?? '';
-        await handleGitInfo(ws, projectRoot);
-        break;
-      }
-
-      default: {
-        // Delegate AutoPhase lifecycle messages to the AutoPhase handler.
-        // If the message type starts with 'autophase.', forward it; otherwise
-        // log it as unhandled.
-        const msgType = (msg as { type: string }).type;
-        if (msgType.startsWith('autophase.')) {
-          await autoPhaseHandler.handleMessage(
-            msg as { type: string; payload?: Record<string, unknown> },
-          );
-        } else if (msgType.startsWith('specs.')) {
-          await specsHandler.handleMessage(
-            msg as { type: string; payload?: Record<string, unknown> },
-          );
-        } else if (msgType.startsWith('sdd.board.')) {
-          await sddBoardHandler.handleMessage(
-            msg as { type: string; payload?: Record<string, unknown> },
-          );
-        } else if (msgType.startsWith('sdd.spec.') || msgType.startsWith('sdd.run.')) {
-          await sddWizardHandler?.handleMessage(
-            msg as { type: string; payload?: Record<string, unknown> },
-          );
-        } else {
-          console.debug(`[WebUI] Unhandled message type: ${msgType}`);
-        }
-        break;
-      }
+    const handler = wsRoutes[msg.type];
+    if (handler) {
+      await handler(msg, ws);
+      return;
+    }
+    // ── Prefix-based fallback for delegated handlers ──
+    const msgType = (msg as { type: string }).type;
+    if (msgType.startsWith('autophase.')) {
+      await autoPhaseHandler.handleMessage(msg as { type: string; payload?: Record<string, unknown> });
+    } else if (msgType.startsWith('specs.')) {
+      await specsHandler.handleMessage(msg as { type: string; payload?: Record<string, unknown> });
+    } else if (msgType.startsWith('sdd.board.')) {
+      await sddBoardHandler.handleMessage(msg as { type: string; payload?: Record<string, unknown> });
+    } else if (msgType.startsWith('sdd.spec.') || msgType.startsWith('sdd.run.')) {
+      await sddWizardHandler?.handleMessage(msg as { type: string; payload?: Record<string, unknown> });
+    } else {
+      console.debug(`[WebUI] Unhandled message type: ${msgType}`);
     }
   }
 

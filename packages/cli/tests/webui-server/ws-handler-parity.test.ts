@@ -39,15 +39,42 @@ const standalonePaths = [
   path.join(repoRoot, 'packages/webui/src/server/specs-routes.ts'),
   path.join(repoRoot, 'packages/webui/src/server/sdd-board-routes.ts'),
   path.join(repoRoot, 'packages/webui/src/server/sdd-wizard-routes.ts'),
+  path.join(repoRoot, 'packages/webui/src/server/mcp-routes.ts'),
+  path.join(repoRoot, 'packages/webui/src/server/prefs-routes.ts'),
 ];
 
-/** Extract the set of `case '<label>'` labels from one or more source files. */
+/** Extract the set of dispatched message-type labels from one or more source
+ * files. Supports two formats:
+ *  - `case '<label>':` — a switch statement
+ *  - `'<label>':` — a route-map object literal (key inside a `wsRoutes = { }` block)
+ */
 function caseLabels(files: string | readonly string[]): Set<string> {
   const labels = new Set<string>();
   for (const file of Array.isArray(files) ? files : [files]) {
     const src = fs.readFileSync(file, 'utf8');
+    // switch-case labels: `case 'foo':`
     for (const m of src.matchAll(/case\s+'([^']+)'\s*:/g)) {
       labels.add(m[1] as string);
+    }
+    // route-map object-literal keys: `'foo':` inside a wsRoutes = { ... } block
+    const routesStart = src.indexOf('wsRoutes');
+    if (routesStart !== -1) {
+      const braceStart = src.indexOf('{', routesStart);
+      if (braceStart !== -1) {
+        let depth = 0;
+        let endIdx = braceStart;
+        for (let i = braceStart; i < src.length; i++) {
+          if (src[i] === '{') depth++;
+          else if (src[i] === '}') {
+            depth--;
+            if (depth === 0) { endIdx = i; break; }
+          }
+        }
+        const block = src.slice(braceStart, endIdx);
+        for (const m of block.matchAll(/^\s+'([a-z][a-zA-Z0-9_.]*)'\s*:/gm)) {
+          labels.add(m[1] as string);
+        }
+      }
     }
   }
   return labels;
