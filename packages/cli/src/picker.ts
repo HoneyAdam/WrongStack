@@ -3,7 +3,7 @@ import type { Config, ModelsRegistry, ResolvedProvider } from '@wrongstack/core'
 import { color, expectDefined } from '@wrongstack/core';
 import { appendHistory, backupCurrent } from './config-history.js';
 import type { ReadlineInputReader } from './input-reader.js';
-import { hasApiKey } from './provider-helpers.js';
+import { hasApiKey, visibleModelIds } from './provider-helpers.js';
 import type { TerminalRenderer } from './renderer.js';
 import { toErrorMessage } from '@wrongstack/core/utils';
 
@@ -149,10 +149,8 @@ export async function runPicker(deps: {
         // know which models their endpoint actually serves (e.g. LM
         // Studio, vLLM, or a proxy with custom model ids). Otherwise the
         // catalog list keeps providing suggestions.
-        models:
-          cfg.models && cfg.models.length > 0
-            ? cfg.models.map((m) => ({ id: m, name: m }))
-            : p.models,
+        models: visibleModelIds(p.id, config ?? ({ providers: {} } as Config), p.models.map((m) => m.id), cfg)
+          .map((m) => p.models.find((pm) => pm.id === m) ?? { id: m, name: m }),
       });
     } else {
       merged.push(p);
@@ -169,10 +167,8 @@ export async function runPicker(deps: {
       family: cfg.family,
       apiBase: cfg.baseUrl ?? inherited?.apiBase,
       envVars: cfg.envVars ?? inherited?.envVars ?? [],
-      models:
-        cfg.models && cfg.models.length > 0
-          ? cfg.models.map((m) => ({ id: m, name: m }))
-          : (inherited?.models ?? []),
+      models: visibleModelIds(id, config ?? ({ providers: {} } as Config), (inherited?.models ?? []).map((m) => m.id), cfg)
+        .map((m) => inherited?.models.find((pm) => pm.id === m) ?? { id: m, name: m }),
       npm: inherited?.npm,
     });
   }

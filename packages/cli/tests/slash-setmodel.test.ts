@@ -2,9 +2,10 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { AGENT_CATALOG, type Config } from '@wrongstack/core';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SlashCommandContext } from '../src/slash-commands/index.js';
 import { buildSetModelCommand } from '../src/slash-commands/setmodel.js';
+import { buildShadowCommand } from '../src/slash-commands/shadow.js';
 
 const sampleRole = Object.keys(AGENT_CATALOG)[0]!;
 
@@ -87,6 +88,37 @@ describe('/setmodel slash command', () => {
     expect(store.value.model).toBe('minimax-m3');
     expect(readFile().provider).toBe('minimax');
     expect(readFile().model).toBe('minimax-m3');
+  });
+
+  it('updated leader model becomes the shadow default on next start', async () => {
+    const { ctx, store } = makeCtx(baseConfig());
+    const setmodel = buildSetModelCommand(ctx);
+    await setmodel.run!('leader minimax minimax-m3', undefined);
+
+    const onSpawn = vi.fn(async () => 'sub-shadow');
+    const shadow = buildShadowCommand({
+      onSpawn,
+      configStore: ctx.configStore,
+      shadowController: {
+        activeId: null,
+        register: vi.fn(),
+        clear: vi.fn(),
+        getDefaults: vi.fn(() => ({})),
+        setDefaults: vi.fn(),
+      },
+      llmProvider: { id: 'anthropic' },
+      llmModel: 'stale-session-model',
+    } as never);
+
+    const out = await shadow.run!('start', undefined as never);
+
+    expect(onSpawn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ provider: 'minimax', model: 'minimax-m3' }),
+    );
+    expect(out!.message).toContain('minimax/minimax-m3');
+    expect(store.value.provider).toBe('minimax');
+    expect(store.value.model).toBe('minimax-m3');
   });
 
   it('rejects a leader provider without a key', async () => {

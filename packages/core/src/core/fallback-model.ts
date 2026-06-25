@@ -14,6 +14,11 @@
 import type { AgentExtension } from '../extension/extension-points.js';
 import type { EventBus } from '../kernel/events.js';
 import type { Config, ProviderConfig } from '../types/config.js';
+
+function visibleProviderModels(config: Config, providerId: string, providerModels: string[]): string[] {
+  const entry = config.providers?.[providerId];
+  return entry?.models !== undefined ? [...entry.models] : providerModels;
+}
 import type { Logger } from '../types/logger.js';
 import { type Provider, ProviderError, StreamHangError } from '../types/provider.js';
 
@@ -126,7 +131,7 @@ export function smartDefaultFallbackChain(config: Config): string[] {
   for (const id of ids) {
     const entry = providers[id];
     if (!providerHasKey(entry)) continue;
-    const models = entry?.models ?? [];
+    const models = visibleProviderModels(config, id, entry?.models ?? []);
     for (const model of models) {
       if (id === leaderProvider && model === leaderModel) continue;
       const ref = `${id}/${model}`;
@@ -144,7 +149,15 @@ export function smartDefaultFallbackChain(config: Config): string[] {
  */
 export function effectiveFallbackChain(config: Config): string[] {
   const explicit = config.fallbackModels ?? [];
-  if (explicit.length > 0) return explicit;
+  const filteredExplicit = explicit.filter((ref) => {
+    const parsed = parseModelRef(ref);
+    if (!parsed.model) return false;
+    const providerId = parsed.provider ?? config.provider;
+    const entry = config.providers?.[providerId];
+    if (!entry?.models) return true;
+    return entry.models.includes(parsed.model);
+  });
+  if (filteredExplicit.length > 0) return filteredExplicit;
   if (config.fallbackAuto === false) return [];
   return smartDefaultFallbackChain(config);
 }

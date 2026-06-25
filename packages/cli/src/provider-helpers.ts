@@ -3,7 +3,19 @@
  * and subcommands. Keeps provider key detection and alias resolution in
  * one place so the logic doesn't drift between call sites.
  */
-import type { Config, ModelsRegistry, ResolvedProvider } from '@wrongstack/core';
+import type { Config, ModelsRegistry, ProviderConfig, ResolvedProvider } from '@wrongstack/core';
+
+/** Return the provider's visible model ids. When `cfg.models` is defined, it is
+ * the allowlist; otherwise the catalog/default list is used. */
+export function visibleModelIds(
+  providerId: string,
+  config: Config,
+  catalogModelIds: string[],
+  cfg?: ProviderConfig | undefined,
+): string[] {
+  const entry = cfg ?? config.providers?.[providerId];
+  return entry?.models !== undefined ? [...entry.models] : [...catalogModelIds];
+}
 
 /**
  * Does this provider have an API key available — either in the
@@ -58,10 +70,7 @@ export async function buildPickableProviders(
     const inherited = catalogById.get(catalogType);
     const family = cfg.family ?? inherited?.family ?? 'unsupported';
     if (family === 'unsupported') continue;
-    const models =
-      cfg.models && cfg.models.length > 0
-        ? [...cfg.models]
-        : (inherited?.models ?? []).map((m) => m.id);
+    const models = visibleModelIds(id, config, (inherited?.models ?? []).map((m) => m.id), cfg);
     out.push({ id, family, models });
   }
   for (const p of catalog) {

@@ -14,7 +14,6 @@ import { color } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
 
 const DEFAULT_SHADOW_PROVIDER = 'anthropic';
-const DEFAULT_SHADOW_MODEL = 'claude-sonnet-4-20250514';
 const DEFAULT_SHADOW_INTERVAL_MS = 30_000;
 const MIN_SHADOW_INTERVAL_MS = 5_000;
 
@@ -60,7 +59,7 @@ export function buildShadowCommand(opts: SlashCommandContext): SlashCommand {
       '  • Uses deterministic rules first, LLM only for complex cases',
       '',
       'Model must be specified as provider/model, e.g. anthropic/claude-3-5-sonnet',
-      'When omitted, Shadow uses the current session provider/model.',
+      'When omitted, Shadow uses the current leader provider/model.',
       '',
       'Examples:',
       '  /shadow start --interval=15000',
@@ -264,12 +263,19 @@ interface ParsedModelRef {
 
 function getDefaultModelRef(opts: SlashCommandContext): ParsedModelRef {
   const shadowDefaults = opts.shadowController?.getDefaults?.();
-  const provider = shadowDefaults?.provider?.trim() || opts.llmProvider?.id?.trim() || DEFAULT_SHADOW_PROVIDER;
-  const model = shadowDefaults?.model?.trim() || opts.llmModel?.trim() || DEFAULT_SHADOW_MODEL;
+  const liveConfig = opts.configStore?.get?.();
+  const provider = shadowDefaults?.provider?.trim()
+    || liveConfig?.provider?.trim()
+    || opts.llmProvider?.id?.trim()
+    || DEFAULT_SHADOW_PROVIDER;
+  const model = shadowDefaults?.model?.trim()
+    || liveConfig?.model?.trim()
+    || opts.llmModel?.trim()
+    || '';
   return {
     provider,
     model,
-    label: `${provider}/${model}`,
+    label: model ? `${provider}/${model}` : provider,
   };
 }
 

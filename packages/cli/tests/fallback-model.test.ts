@@ -37,6 +37,35 @@ describe('parseModelRef', () => {
   });
 });
 
+describe('effectiveFallbackChain visibility filtering', () => {
+  it('drops explicit fallback entries hidden by provider visibility lists', () => {
+    expect(
+      effectiveFallbackChain(cfg({
+        provider: 'anthropic',
+        model: 'opus',
+        fallbackModels: ['sonnet', 'openai/gpt-x'],
+        providers: {
+          anthropic: { type: 'anthropic', models: ['haiku'] },
+          openai: { type: 'openai', models: [] },
+        },
+      })),
+    ).toEqual([]);
+  });
+
+  it('smart default only uses visible provider models', () => {
+    expect(
+      smartDefaultFallbackChain(cfg({
+        provider: 'anthropic',
+        model: 'opus',
+        providers: {
+          anthropic: { type: 'anthropic', apiKey: 'x', models: ['haiku'] },
+          openai: { type: 'openai', apiKey: 'y', models: ['gpt-x'] },
+        },
+      })),
+    ).toEqual(['anthropic/haiku', 'openai/gpt-x']);
+  });
+});
+
 describe('createFallbackModelExtension', () => {
   it('always returns an extension; an empty chain is a no-op (rethrows)', async () => {
     const ext = createFallbackModelExtension({

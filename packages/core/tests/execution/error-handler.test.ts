@@ -173,6 +173,39 @@ describe('recovery strategies', () => {
     });
   });
 
+  it('downgrade_model skips models hidden by provider visibility', async () => {
+    const modelsRegistry = {
+      getProvider: vi.fn(async () => ({
+        id: 'openai',
+        family: 'openai',
+        models: [
+          { id: 'gpt-4', cost: { input: 30 }, tool_call: true, modalities: { input: ['text'] } },
+          { id: 'gpt-3.5', cost: { input: 1 }, tool_call: true, modalities: { input: ['text'] } },
+          { id: 'gpt-3.7', cost: { input: 5 }, tool_call: true, modalities: { input: ['text'] } },
+        ],
+      })),
+      getModel: vi.fn(async (_p: string, m: string) => ({
+        id: m,
+        cost: { input: 30 },
+        capabilities: { tools: true, vision: false },
+      })),
+    } as never as ModelsRegistry;
+    const eh = new DefaultErrorHandler(buildRecoveryStrategies({
+      modelsRegistry,
+      getConfig: () => ({
+        provider: 'openai',
+        model: 'gpt-4',
+        providers: { openai: { type: 'openai', models: ['gpt-3.7'] } },
+      } as never),
+    }));
+    const res = await eh.recover(provErr('server', 503), makeCtx());
+    expect(res).toEqual({
+      action: 'retry',
+      reason: 'model_downgrade',
+      model: 'gpt-3.7',
+    });
+  });
+
   it('downgrade_model returns null when no cheaper model exists', async () => {
     const modelsRegistry = {
       getProvider: vi.fn(async () => ({

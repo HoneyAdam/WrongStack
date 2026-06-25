@@ -4,6 +4,7 @@ import { ProviderError } from '../types/provider.js';
 import { NETWORK_ERR_RE } from './regex-patterns.js';
 import type { Compactor } from '../types/compactor.js';
 import type { ModelsRegistry } from '../types/models-registry.js';
+import type { Config } from '../types/config.js';
 
 /**
  * Tiered error recovery strategies.
@@ -28,6 +29,7 @@ const CONTEXT_OVERFLOW_RE = /context|too long|tokens|exceeds the context window|
 export function buildRecoveryStrategies(opts?: {
   compactor?: Compactor | undefined;
   modelsRegistry?: ModelsRegistry | undefined;
+  getConfig?: (() => Config) | undefined;
 }): RecoveryStrategy[] {
   return [
     {
@@ -84,7 +86,9 @@ export function buildRecoveryStrategies(opts?: {
 
           // Find a cheaper fallback model with the same capabilities.
           // Prefer models with lower input cost, preferring the same family.
+          const visibleModels = opts?.getConfig?.().providers?.[providerId]?.models;
           const candidates = provider.models.filter((m) => {
+            if (visibleModels !== undefined && !visibleModels.includes(m.id)) return false;
             const modelCost = m.cost?.input ?? Number.POSITIVE_INFINITY;
             const currentCost = currentModel.cost?.input ?? Number.POSITIVE_INFINITY;
             if (modelCost >= currentCost) return false;

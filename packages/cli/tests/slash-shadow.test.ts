@@ -6,6 +6,20 @@ function ctx(): Context {
   return {} as never as Context;
 }
 
+function configStore(provider = 'anthropic', model = 'claude-sonnet-4-6') {
+  const live = { provider, model };
+  return {
+    live,
+    store: {
+      get: vi.fn(() => live),
+      update: vi.fn((partial: { provider?: string; model?: string }) => {
+        Object.assign(live, partial);
+        return live;
+      }),
+    },
+  };
+}
+
 function shadowController(activeId: string | null = null) {
   const defaults: { intervalMs?: number; provider?: string; model?: string } = {};
   const controller = {
@@ -52,7 +66,31 @@ describe('buildShadowCommand', () => {
     expect(res?.message).toContain('openai/gpt-5');
   });
 
-  it('start defaults to the current session provider and model', async () => {
+  it('start defaults to the current leader provider and model from config', async () => {
+    const onSpawn = vi.fn(async () => 'sub-shadow');
+    const cfg = configStore('local', 'qwen3-coder');
+    const cmd = buildShadowCommand({
+      onSpawn,
+      shadowController: shadowController(),
+      configStore: cfg.store,
+      llmProvider: { id: 'anthropic' },
+      llmModel: 'stale-session-model',
+    } as never);
+
+    const res = await cmd.run('start --interval=5000', ctx());
+
+    expect(onSpawn).toHaveBeenCalledWith(
+      'Shadow Agent — background fleet monitor at 5000ms interval',
+      expect.objectContaining({
+        provider: 'local',
+        model: 'qwen3-coder',
+        name: 'shadow',
+      }),
+    );
+    expect(res?.message).toContain('local/qwen3-coder');
+  });
+
+  it('start falls back to the session provider and model when config store is unavailable', async () => {
     const onSpawn = vi.fn(async () => 'sub-shadow');
     const cmd = buildShadowCommand({
       onSpawn,
@@ -77,9 +115,11 @@ describe('buildShadowCommand', () => {
   it('interval and model commands update the next start defaults', async () => {
     const onSpawn = vi.fn(async () => 'sub-shadow');
     const controller = shadowController();
+    const cfg = configStore('local', 'qwen3-coder');
     const cmd = buildShadowCommand({
       onSpawn,
       shadowController: controller,
+      configStore: cfg.store,
       llmProvider: { id: 'local' },
       llmModel: 'qwen3-coder',
     } as never);

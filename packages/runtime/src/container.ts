@@ -76,6 +76,7 @@ export function createDefaultContainer(opts: CreateContainerOptions): Container 
         buildRecoveryStrategies({
           compactor: container.resolve(TOKENS.Compactor),
           modelsRegistry,
+          getConfig: () => configStore.get(),
         }),
       ),
   );

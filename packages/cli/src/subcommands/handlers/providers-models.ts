@@ -7,8 +7,10 @@ import {
   decryptConfigSecrets,
   encryptConfigSecrets,
   expectDefined,
+  type ProviderConfig,
   type WireFamily,
 } from '@wrongstack/core';
+import { mutateConfigProviders } from '../../provider-config-utils.js';
 import type { SubcommandHandler } from '../index.js';
 export const providersCmd: SubcommandHandler = async (args, deps) => {
   const showAll = args.includes('--all');
@@ -110,6 +112,12 @@ function fmtPrice(usdPer1M: number | undefined): string {
 export const modelsCmd: SubcommandHandler = async (args, deps) => {
   const sub = args[0];
 
+  // ---- visibility commands ----
+  if (sub === 'hide') return modelsHide(args.slice(1), deps);
+  if (sub === 'show') return modelsShow(args.slice(1), deps);
+  if (sub === 'hidden') return modelsHidden(args.slice(1), deps);
+  if (sub === 'reset') return modelsReset(args.slice(1), deps);
+
   // ---- custom model commands ----
   if (sub === 'add') return modelsAdd(args.slice(1), deps);
   if (sub === 'remove') return modelsRemove(args.slice(1), deps);
@@ -166,15 +174,20 @@ export const modelsCmd: SubcommandHandler = async (args, deps) => {
 
   const userModels = deps.config.providers?.[providerId]?.models;
   const catalogById = new Map(provider.models.map((m) => [m.id, m]));
+  const allKnownSorted = [...provider.models].sort((a, b) =>
+    (b.release_date ?? '').localeCompare(a.release_date ?? ''),
+  );
   const allSorted =
-    userModels && userModels.length > 0
+    userModels !== undefined
       ? userModels.map((id) => catalogById.get(id) ?? { id, name: id })
-      : [...provider.models].sort((a, b) =>
-          (b.release_date ?? '').localeCompare(a.release_date ?? ''),
-        );
+      : allKnownSorted;
 
-  if (userModels && userModels.length > 0)
-    deps.renderer.write(color.dim(`(${userModels.length} model(s) from your saved config)\n`));
+  if (userModels !== undefined) {
+    const hiddenCount = Math.max(0, allKnownSorted.length - userModels.length);
+    deps.renderer.write(
+      color.dim(`(${userModels.length} visible model(s) from your saved config${hiddenCount > 0 ? `, ${hiddenCount} hidden` : ''})\n`),
+    );
+  }
 
   const filtered = search
     ? allSorted.filter((m) => m.id.toLowerCase().includes(search))
@@ -233,6 +246,176 @@ export const modelsCmd: SubcommandHandler = async (args, deps) => {
   );
   return 0;
 };
+
+function aliasProviderId(configProviderId: string, cfg: ProviderConfig | undefined): string {
+  return cfg?.type && cfg.type !== configProviderId ? cfg.type : configProviderId;
+}
+
+async function getCatalogProviderForConfigProvider(
+  providerId: string,
+  deps: Parameters<SubcommandHandler>[1],
+): Promise<{ providerId: string; provider: Awaited<ReturnType<typeof deps.modelsRegistry.getProvider>> }> {
+  const cfg = deps.config.providers?.[providerId];
+  const lookupId = aliasProviderId(providerId, cfg);
+  const provider = await deps.modelsRegistry.getProvider(lookupId);
+  return { providerId: lookupId, provider };
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.map((v) => v.trim()).filter(Boolean))];
+}
+
+async function modelsHide(args: string[], deps: Parameters<SubcommandHandler>[1]): Promise<number> {
+  const providerId = args[0];
+  const modelId = args[1];
+  if (!providerId || !modelId) {
+    deps.renderer.writeError('Usage: wstack models hide <provider> <model>');
+    return 1;
+  }
+  const saved = deps.config.providers?.[providerId];
+  if (!saved) {
+    deps.renderer.writeError(`Provider "${providerId}" is not configured.`);
+    return 1;
+  }
+  const { providerId: lookupId, provider } = await getCatalogProviderForConfigProvider(providerId, deps);
+  if (!provider) {
+    deps.renderer.writeError(
+      lookupId !== providerId
+        ? `Alias "${providerId}" points at catalog id "${lookupId}" which is not in the cache.`
+        : `Provider "${providerId}" not in catalog.`,
+    );
+    return 1;
+  }
+  const knownIds = provider.models.map((m) => m.id);
+  const visible = saved.models !== undefined ? [...saved.models] : [...knownIds];
+  if (!visible.includes(modelId)) {
+    deps.renderer.writeInfo(`${providerId}/${modelId} is already hidden.`);
+    return 0;
+  }
+  const nextVisible = visible.filter((id) => id !== modelId);
+  await mutateConfigProviders(deps.paths.globalConfig, deps.vault, (providers) => {
+    const p = providers[providerId];
+    if (!p) return;
+    p.models = nextVisible;
+  });
+  deps.config.providers = {
+    ...(deps.config.providers ?? {}),
+    [providerId]: { ...saved, models: nextVisible },
+  };
+  deps.renderer.writeInfo(
+    `Hidden ${providerId}/${modelId}. Visible: ${nextVisible.length}, hidden: ${Math.max(0, knownIds.length - nextVisible.length)}.`,
+  );
+  if (nextVisible.length === 0) {
+    deps.renderer.write(color.dim('This provider now has no visible models. Use `wstack models show` or `wstack models reset` to restore.\n'));
+  }
+  return 0;
+}
+
+async function modelsShow(args: string[], deps: Parameters<SubcommandHandler>[1]): Promise<number> {
+  const providerId = args[0];
+  const modelId = args[1];
+  if (!providerId || !modelId) {
+    deps.renderer.writeError('Usage: wstack models show <provider> <model>');
+    return 1;
+  }
+  const saved = deps.config.providers?.[providerId];
+  if (!saved) {
+    deps.renderer.writeError(`Provider "${providerId}" is not configured.`);
+    return 1;
+  }
+  const { providerId: lookupId, provider } = await getCatalogProviderForConfigProvider(providerId, deps);
+  if (!provider) {
+    deps.renderer.writeError(
+      lookupId !== providerId
+        ? `Alias "${providerId}" points at catalog id "${lookupId}" which is not in the cache.`
+        : `Provider "${providerId}" not in catalog.`,
+    );
+    return 1;
+  }
+  const knownIds = provider.models.map((m) => m.id);
+  if (saved.models === undefined) {
+    deps.renderer.writeInfo(`${providerId}/${modelId} is already visible.`);
+    return 0;
+  }
+  const nextVisible = uniqueStrings([...saved.models, modelId]);
+  await mutateConfigProviders(deps.paths.globalConfig, deps.vault, (providers) => {
+    const p = providers[providerId];
+    if (!p) return;
+    p.models = nextVisible;
+  });
+  deps.config.providers = {
+    ...(deps.config.providers ?? {}),
+    [providerId]: { ...saved, models: nextVisible },
+  };
+  const isKnown = knownIds.includes(modelId);
+  deps.renderer.writeInfo(
+    `Visible ${providerId}/${modelId}${isKnown ? '' : ' (not in current catalog)'}. Visible: ${nextVisible.length}.`,
+  );
+  return 0;
+}
+
+async function modelsHidden(args: string[], deps: Parameters<SubcommandHandler>[1]): Promise<number> {
+  const providerId = args[0] ?? deps.config.provider;
+  if (!providerId) {
+    deps.renderer.writeError('Usage: wstack models hidden <provider>');
+    return 1;
+  }
+  const saved = deps.config.providers?.[providerId];
+  if (!saved) {
+    deps.renderer.writeError(`Provider "${providerId}" is not configured.`);
+    return 1;
+  }
+  const { providerId: lookupId, provider } = await getCatalogProviderForConfigProvider(providerId, deps);
+  if (!provider) {
+    deps.renderer.writeError(
+      lookupId !== providerId
+        ? `Alias "${providerId}" points at catalog id "${lookupId}" which is not in the cache.`
+        : `Provider "${providerId}" not in catalog.`,
+    );
+    return 1;
+  }
+  const knownIds = provider.models.map((m) => m.id);
+  const visible = saved.models;
+  const hidden = visible === undefined ? [] : knownIds.filter((id) => !visible.includes(id));
+  deps.renderer.write(`${color.bold('Hidden models')} ${color.dim(`(${providerId})`)}\n`);
+  if (hidden.length === 0) {
+    deps.renderer.write(color.dim('(none hidden)\n'));
+    return 0;
+  }
+  for (const id of hidden) deps.renderer.write(`  ${id}\n`);
+  deps.renderer.write(color.dim(`\nRestore: wstack models show ${providerId} <model> · reset ${providerId}\n`));
+  return 0;
+}
+
+async function modelsReset(args: string[], deps: Parameters<SubcommandHandler>[1]): Promise<number> {
+  const providerId = args[0];
+  if (!providerId) {
+    deps.renderer.writeError('Usage: wstack models reset <provider>');
+    return 1;
+  }
+  const saved = deps.config.providers?.[providerId];
+  if (!saved) {
+    deps.renderer.writeError(`Provider "${providerId}" is not configured.`);
+    return 1;
+  }
+  if (saved.models === undefined) {
+    deps.renderer.writeInfo(`${providerId} already shows the full catalog model list.`);
+    return 0;
+  }
+  await mutateConfigProviders(deps.paths.globalConfig, deps.vault, (providers) => {
+    const p = providers[providerId];
+    if (!p) return;
+    delete p.models;
+  });
+  const nextProvider = { ...saved };
+  delete nextProvider.models;
+  deps.config.providers = {
+    ...(deps.config.providers ?? {}),
+    [providerId]: nextProvider,
+  };
+  deps.renderer.writeInfo(`Reset visible model list for ${providerId} to the full catalog default.`);
+  return 0;
+}
 
 async function modelsCaps(args: string[], deps: Parameters<SubcommandHandler>[1]): Promise<number> {
   const providerId = args[0] ?? deps.config.provider;

@@ -21,6 +21,7 @@ import {
   MessageSquare,
   Monitor,
   Moon,
+  MoreHorizontal,
   Rocket,
   Settings as SettingsIcon,
   Sparkles,
@@ -33,6 +34,17 @@ import {
 } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { useTheme } from './ThemeProvider';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 
 // ── Activity definitions ───────────────────────────────────────────────
 //
@@ -144,8 +156,8 @@ export function ActivityBar() {
 
   return (
     <div className="flex flex-col h-full w-12 shrink-0 border-r bg-card/60">
-      {/* ── Branding — logo + project name ── */}
-      <div className="flex flex-col items-center pt-2.5 pb-2 border-b border-border/50">
+      {/* ── Branding — logo + project name (pinned top) ── */}
+      <div className="flex flex-col items-center pt-2.5 pb-2 border-b border-border/50 shrink-0">
         <button
           type="button"
           onClick={() => {
@@ -176,8 +188,13 @@ export function ActivityBar() {
         />
       </div>
 
-      {/* ── Panel icons ── */}
-      <div className="flex flex-col items-center gap-0.5 pt-2">
+      {/* ── Scrollable icon column ──
+            Panels + main-view icons share one scroll region so a short
+            viewport scrolls them instead of pushing the bottom "More" menu
+            off-screen. The scrollbar is hidden (the bar is too thin to show
+            a 9px track). */}
+      <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar flex flex-col items-center pt-2 pb-1">
+        {/* Panel icons */}
         {PANELS.map((def) => (
           <ActivityIcon
             key={def.id}
@@ -188,59 +205,11 @@ export function ActivityBar() {
             onClick={() => openPanel(def.id)}
           />
         ))}
-      </div>
 
-      {/* ── Spacer ── */}
-      <div className="flex-1" />
+        {/* Divider between panels and main-view switchers */}
+        <div className="my-1.5 h-px w-6 bg-border/60 shrink-0" />
 
-      {/* ── Global utilities — app-wide controls that used to crowd the
-            chat header (palette, theme, shortcuts, fleet monitors) ── */}
-      <div className="flex flex-col items-center gap-0.5 pb-2 border-b border-border/50 mb-2">
-        <ActivityIcon
-          icon={<Command size={16} />}
-          label="Command palette (Ctrl+K)"
-          active={false}
-          onClick={() => useUIStore.getState().setPaletteOpen(true)}
-        />
-        <ThemeCycleIcon />
-        <ActivityIcon
-          icon={<Keyboard size={16} />}
-          label="Keyboard shortcuts (?)"
-          active={false}
-          onClick={() => useUIStore.getState().setShortcutsOpen(true)}
-        />
-        <ActivityIcon
-          icon={<LayoutGrid size={16} />}
-          label="Fleet Monitor (Ctrl+Shift+M)"
-          active={inspectorOpen && inspectorTab === 'fleet'}
-          onClick={() => {
-            const ui = useUIStore.getState();
-            if (ui.inspectorOpen && ui.inspectorTab === 'fleet') {
-              ui.setInspectorOpen(false);
-            } else {
-              ui.setInspectorTab('fleet');
-              ui.setInspectorOpen(true);
-            }
-          }}
-        />
-        <ActivityIcon
-          icon={<ActivityIconSvg size={16} />}
-          label="Agents Monitor (Ctrl+Shift+A)"
-          active={inspectorOpen && inspectorTab === 'agents'}
-          onClick={() => {
-            const ui = useUIStore.getState();
-            if (ui.inspectorOpen && ui.inspectorTab === 'agents') {
-              ui.setInspectorOpen(false);
-            } else {
-              ui.setInspectorTab('agents');
-              ui.setInspectorOpen(true);
-            }
-          }}
-        />
-      </div>
-
-      {/* ── Main-view icons ── */}
-      <div className="flex flex-col items-center gap-0.5 pb-2">
+        {/* Main-view icons */}
         {VIEWS.map((def) => (
           <ActivityIcon
             key={def.id}
@@ -251,23 +220,118 @@ export function ActivityBar() {
           />
         ))}
       </div>
+
+      {/* ── Utilities overflow menu — pinned bottom ──
+            App-wide controls (palette, theme, shortcuts, Fleet/Agents
+            monitors) collapsed into one popover so they never crowd the bar
+            or overflow on short screens. */}
+      <div className="flex flex-col items-center shrink-0 pt-1 pb-2 border-t border-border/50">
+        <UtilitiesMenu
+          monitorOpen={inspectorOpen && (inspectorTab === 'fleet' || inspectorTab === 'agents')}
+        />
+      </div>
     </div>
   );
 }
 
-/** Single-icon theme control: cycles light → dark → system. */
-function ThemeCycleIcon() {
+/**
+ * Bottom "More" popover collecting the app-wide utilities that used to sit as
+ * loose icons in the ActivityBar: command palette, theme, keyboard shortcuts,
+ * and the Fleet / Agents monitors. Keeping them behind one trigger frees four
+ * vertical slots so the bar fits comfortably on short viewports.
+ */
+function UtilitiesMenu({ monitorOpen }: { monitorOpen: boolean }) {
   const { theme, setTheme } = useTheme();
-  const next = theme === 'light' ? 'dark' : theme === 'dark' ? 'system' : 'light';
-  const icon =
-    theme === 'light' ? <Sun size={16} /> : theme === 'dark' ? <Moon size={16} /> : <Monitor size={16} />;
+  const inspectorOpen = useUIStore((s) => s.inspectorOpen);
+  const inspectorTab = useUIStore((s) => s.inspectorTab);
+
+  const toggleInspectorTab = (tab: 'fleet' | 'agents') => {
+    const ui = useUIStore.getState();
+    if (ui.inspectorOpen && ui.inspectorTab === tab) {
+      ui.setInspectorOpen(false);
+    } else {
+      ui.setInspectorTab(tab);
+      ui.setInspectorOpen(true);
+    }
+  };
+
   return (
-    <ActivityIcon
-      icon={icon}
-      label={`Theme: ${theme} — click for ${next}`}
-      active={false}
-      onClick={() => setTheme(next)}
-    />
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          title="More — palette, theme, shortcuts, monitors"
+          className={cn(
+            'relative flex items-center justify-center w-10 h-10 rounded-lg transition-colors',
+            'text-muted-foreground hover:text-foreground hover:bg-muted/70',
+            'data-[state=open]:text-primary data-[state=open]:bg-primary/10',
+            monitorOpen && 'text-primary',
+          )}
+        >
+          <span className="h-5 w-5 flex items-center justify-center">
+            <MoreHorizontal size={16} />
+          </span>
+          {/* Dot indicating a monitor is currently open behind the menu */}
+          {monitorOpen && (
+            <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-primary" />
+          )}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent side="right" align="end" sideOffset={8} className="w-56">
+        <DropdownMenuItem onSelect={() => useUIStore.getState().setPaletteOpen(true)}>
+          <Command size={16} />
+          <span>Command Palette</span>
+          <DropdownMenuShortcut>⌘K</DropdownMenuShortcut>
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => useUIStore.getState().setShortcutsOpen(true)}>
+          <Keyboard size={16} />
+          <span>Keyboard Shortcuts</span>
+          <DropdownMenuShortcut>?</DropdownMenuShortcut>
+        </DropdownMenuItem>
+
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel className="text-[11px] uppercase tracking-wide text-muted-foreground">
+          Theme
+        </DropdownMenuLabel>
+        <DropdownMenuRadioGroup value={theme} onValueChange={(v) => setTheme(v as typeof theme)}>
+          <DropdownMenuRadioItem value="light">
+            <Sun size={16} className="mr-2" />
+            Light
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="dark">
+            <Moon size={16} className="mr-2" />
+            Dark
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="system">
+            <Monitor size={16} className="mr-2" />
+            System
+          </DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
+
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel className="text-[11px] uppercase tracking-wide text-muted-foreground">
+          Monitors
+        </DropdownMenuLabel>
+        <DropdownMenuItem onSelect={() => toggleInspectorTab('fleet')}>
+          <LayoutGrid size={16} />
+          <span>Fleet Monitor</span>
+          {inspectorOpen && inspectorTab === 'fleet' ? (
+            <span className="ml-auto w-1.5 h-1.5 rounded-full bg-primary" />
+          ) : (
+            <DropdownMenuShortcut>⇧⌘M</DropdownMenuShortcut>
+          )}
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => toggleInspectorTab('agents')}>
+          <ActivityIconSvg size={16} />
+          <span>Agents Monitor</span>
+          {inspectorOpen && inspectorTab === 'agents' ? (
+            <span className="ml-auto w-1.5 h-1.5 rounded-full bg-primary" />
+          ) : (
+            <DropdownMenuShortcut>⇧⌘A</DropdownMenuShortcut>
+          )}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

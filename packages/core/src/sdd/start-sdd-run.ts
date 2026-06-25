@@ -33,6 +33,10 @@ export interface StartSddRunOptions {
   /** Registry the run is registered with for in-process control. */
   registry?: SddRunRegistry | undefined;
   parallelSlots?: number | undefined;
+  /** Opt-in hard wall-clock cap per task (ms). Omit → no cap (idle reaper guards). */
+  taskTimeoutMs?: number | undefined;
+  /** Idle reaper per task (ms); resets on activity. Default 600_000 (10 min). */
+  taskIdleTimeoutMs?: number | undefined;
   /** Run-level default worker model / provider / fallback chain (task overrides win). */
   defaultModel?: string | undefined;
   defaultProvider?: string | undefined;
@@ -73,6 +77,8 @@ export function startSddRun(opts: StartSddRunOptions): SddRunHandle {
     agent: opts.agent,
     projectRoot: opts.projectRoot,
     parallelSlots: opts.parallelSlots,
+    taskTimeoutMs: opts.taskTimeoutMs,
+    taskIdleTimeoutMs: opts.taskIdleTimeoutMs,
     subagentFactory: opts.subagentFactory,
     events: opts.events,
     worktrees: opts.worktrees,

@@ -205,6 +205,18 @@
   background-color: hsl(var(--primary) / 0.6);
 }
 
+/* Hide the scrollbar entirely (used by the narrow ActivityBar, which scrolls
+   on short viewports but is too thin to show a 9px track). */
+.no-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* legacy Edge */
+}
+.no-scrollbar::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
 /* — Message bubble depth — */
 .msg-bubble {
   transition: box-shadow 0.2s ease, transform 0.15s ease;

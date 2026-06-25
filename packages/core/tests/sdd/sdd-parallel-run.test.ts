@@ -139,6 +139,40 @@ describe('SddParallelRun.executeWave', () => {
   });
 });
 
+describe('SddParallelRun — task budget guard', () => {
+  it('spawns with an idle reaper and NO hard wall-clock cap by default', async () => {
+    const { run, t1 } = await makeHarness();
+    const configs: Array<Record<string, unknown>> = [];
+    const coord = fakeCoordinator({
+      spawn: vi.fn(async (c: Record<string, unknown>) => {
+        configs.push(c);
+        return { subagentId: c.id as string };
+      }),
+    });
+    (run as never as { coordinator: unknown }).coordinator = coord;
+    await run.executeWave({ wave: 0, tasks: [t1], deadlocked: false, allDone: false } as never);
+    // Default guard is the idle reaper (resets on activity), not a 5-min wall cap
+    // that hard-kills a productive task with budget_timeout.
+    expect(configs[0]?.idleTimeoutMs).toBe(600_000);
+    expect(configs[0]?.timeoutMs).toBeUndefined();
+  });
+
+  it('passes a hard wall-clock cap through only when taskTimeoutMs is opted in', async () => {
+    const { run, t1 } = await makeHarness({ taskTimeoutMs: 120_000, taskIdleTimeoutMs: 90_000 });
+    const configs: Array<Record<string, unknown>> = [];
+    const coord = fakeCoordinator({
+      spawn: vi.fn(async (c: Record<string, unknown>) => {
+        configs.push(c);
+        return { subagentId: c.id as string };
+      }),
+    });
+    (run as never as { coordinator: unknown }).coordinator = coord;
+    await run.executeWave({ wave: 0, tasks: [t1], deadlocked: false, allDone: false } as never);
+    expect(configs[0]?.timeoutMs).toBe(120_000);
+    expect(configs[0]?.idleTimeoutMs).toBe(90_000);
+  });
+});
+
 /** Spy executeOne so the real continuous scheduler drives a real tracker/graph. */
 function stubExecuteOne(
   run: SddParallelRun,

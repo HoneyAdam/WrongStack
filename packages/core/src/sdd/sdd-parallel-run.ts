@@ -44,8 +44,21 @@ export interface SddParallelRunOptions {
   projectRoot: string;
   /** Override default parallel slots (1–16). Default: 4. */
   parallelSlots?: number | undefined;
-  /** Per-task timeout in ms. Default: 300_000 (5 min). */
+  /**
+   * Hard wall-clock cap per task in ms. OPT-IN — `undefined` by default so a
+   * long-but-productive task is never killed merely for running long (the old
+   * 5-min default hard-killed real coding tasks with `budget_timeout`). When
+   * set, the coordinator watchdog enforces it. Prefer `taskIdleTimeoutMs`.
+   */
   taskTimeoutMs?: number | undefined;
+  /**
+   * Idle reaper per task in ms: reap a task only after this long with NO
+   * activity (iteration / tool call / streamed token / tool progress). Resets
+   * on every sign of forward motion, so an actively-working agent runs until
+   * its task naturally ends. Default: 600_000 (10 min of silence = genuinely
+   * stuck). This is the default guard — wall-clock (`taskTimeoutMs`) is opt-in.
+   */
+  taskIdleTimeoutMs?: number | undefined;
   /** Maximum retry attempts for failed tasks. Default: 2. */
   maxRetries?: number | undefined;
   /** Override the default agent factory. */
@@ -130,7 +143,10 @@ export interface RunResult {
 
 export class SddParallelRun {
   private readonly slots: number;
-  private readonly timeoutMs: number;
+  /** Opt-in hard wall-clock cap (undefined → no cap; idle reaper guards instead). */
+  private readonly timeoutMs: number | undefined;
+  /** Idle reaper window (ms) — resets on activity; reaps only a genuine stall. */
+  private readonly idleTimeoutMs: number;
   private readonly maxRetries: number;
   private decomposer: SddTaskDecomposer;
   private coordinator: DefaultMultiAgentCoordinator | null = null;
@@ -160,7 +176,11 @@ export class SddParallelRun {
 
   constructor(private readonly opts: SddParallelRunOptions) {
     this.slots = Math.min(16, Math.max(1, opts.parallelSlots ?? 4));
-    this.timeoutMs = opts.taskTimeoutMs ?? 300_000;
+    // Wall-clock cap is OPT-IN (undefined → none). The idle reaper is the
+    // default guard: it resets on every activity signal so a productive task
+    // is never killed for running long — only a genuine stall is reaped.
+    this.timeoutMs = opts.taskTimeoutMs;
+    this.idleTimeoutMs = Math.max(1, opts.taskIdleTimeoutMs ?? 600_000);
     this.maxRetries = Math.max(0, opts.maxRetries ?? 2);
     this.runId = opts.runId ?? `sdd-${randomUUID().slice(0, 8)}`;
     this.events = opts.events;
@@ -494,6 +514,13 @@ export class SddParallelRun {
       coordinatorId: `sdd-parallel-${randomUUID().slice(0, 8)}`,
       maxConcurrent: this.slots,
       doneCondition: { type: 'all_tasks_done' },
+      // Default budget guard for every spawned worker: idle reaper (resets on
+      // activity) plus the opt-in wall-clock cap when one was configured. This
+      // ensures the reaper applies even if a per-spawn config path is bypassed.
+      defaultBudget: {
+        idleTimeoutMs: this.idleTimeoutMs,
+        ...(this.timeoutMs ? { timeoutMs: this.timeoutMs } : {}),
+      },
     };
     this.coordinator = new DefaultMultiAgentCoordinator(config);
     // Wrap factory with disabled tool filtering to prevent subagents from
@@ -583,7 +610,9 @@ export class SddParallelRun {
       id: subagentId,
       name: agentName ?? subagentId,
       role: 'executor',
-      timeoutMs: this.timeoutMs,
+      // Idle reaper is always on; the hard wall-clock cap only when opted in.
+      idleTimeoutMs: this.idleTimeoutMs,
+      ...(this.timeoutMs ? { timeoutMs: this.timeoutMs } : {}),
       cwd: this.taskCwds.get(taskId),
       disabledTools: ['delegate'],
       ...(model ? { model } : {}),
@@ -630,7 +659,7 @@ export class SddParallelRun {
         task.description,
       ].join('\n'),
       subagentId,
-      timeoutMs: this.timeoutMs,
+      ...(this.timeoutMs ? { timeoutMs: this.timeoutMs } : {}),
     });
 
     let result: TaskResult;
