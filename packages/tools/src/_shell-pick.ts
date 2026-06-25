@@ -157,7 +157,100 @@ export function looksLikePowerShell(command: string): boolean {
     return true;
   }
 
+  // Second-pass: additional unambiguous PowerShell patterns.
+  if (looksLikePowerShellExtended(command)) return true;
+
   return false;
+}
+
+/**
+ * Extended PowerShell detection — patterns that are unambiguous but less
+ * common than the verb-noun cmdlets caught by the first pass.
+ *
+ * Covers: -WhatIf / -Confirm / -ErrorAction flags, trailing `2>&1` in
+ * combination with other PS signals, `[type]` casts, Where/ForEach/
+ * Select-Object pipeline, PS comment blocks, Write-* output cmdlets,
+ * registry paths (HKLM:/HKCU:), -AsPlainText, -PipelineVariable.
+ */
+export function looksLikePowerShellExtended(command: string): boolean {
+  if (!command) return false;
+  const trimmed = command.trimStart();
+
+  // -WhatIf / -Confirm / -ErrorAction — cmdlet-specific flags.
+  // Use \s before flag (not \b) because \b after word chars like `t` in
+  // `foo.txt` doesn't match the space before `-WhatIf`.
+  if (/(?:^|\s)[-/](?:WhatIf|Confirm|ErrorAction)(?::[^\s]+|\s|=|$)/i.test(trimmed)) {
+    return true;
+  }
+
+  // Pipeline cmdlets that only exist in PowerShell.
+  if (/(?:^|[\s;&|])(Where-Object|ForEach-Object|Select-Object|Sort-Object|Group-Object|Measure-Object|Compare-Object|Tee-Object)(?:\s|$)/i.test(trimmed)) {
+    return true;
+  }
+
+  // Write-* output cmdlets (Write-Host, Write-Output, Write-Error, etc.)
+  if (/\bWrite-(?:Host|Output|Error|Warning|Verbose|Debug|Information)(?:\s|$)/i.test(trimmed)) {
+    return true;
+  }
+
+  // Registry provider paths: HKLM:\ HKCU:\ HKCR:\ — only PowerShell.
+  if (/HK(?:LM|CU|CR|U|CC|DD|PD):\\/i.test(trimmed)) return true;
+
+  // [type] casts: [string], [int], [xml], [System.IO.File] etc.
+  if (/\[(?:string|int|bool|xml|double|float|decimal|char|byte|long|System\.)/i.test(trimmed)) {
+    return true;
+  }
+
+  // PS comment block start <# ... #>
+  if (/^\s*<#|#>\s*$/m.test(trimmed)) return true;
+
+  // Common PS-only parameters: -AsPlainText, -PipelineVariable/-pv,
+  // -FilterHashtable, -OutVariable/-ov
+  if (/(?:^|\s)[-\/](?:AsPlainText|PipelineVariable|pv|FilterHashtable|OutVariable|ov)(?:\s|=|$)/i.test(trimmed)) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Wrap a user command for execution via `pwsh -Command -` (stdin pipe).
+ *
+ * The wrapper addresses four reliability gaps in Windows PowerShell:
+ *
+ * 1. **UTF-8 stdin BOM**: PowerShell 5.1 decodes stdin as ASCII by default;
+ *    a leading BOM (`\uFEFF`) tells it to expect UTF-8 so non-ASCII
+ *    characters (CJK filenames, emoji, accented text) survive. PS 7+
+ *    already defaults to UTF-8, so the BOM is harmless there.
+ *
+ * 2. **Console output encoding**: PS 5.1 outputs in the system codepage
+ *    (often Windows-1252) which mojibakes non-ASCII. Setting
+ *    `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8` at the
+ *    top of the script ensures UTF-8 output in both editions.
+ *
+ * 3. **Exit-code propagation**: Native commands (dotnet, npm, node, etc.)
+ *    set `$LASTEXITCODE`. Without explicit propagation, `pwsh -Command -`
+ *    exits 0 even when the native command failed. Wrapping in
+ *    `try { ... } finally { exit $LASTEXITCODE }` fixes this.
+ *
+ * 4. **Confirmation suppression**: `$ConfirmPreference='None'` suppresses
+ *    interactive confirmation prompts (e.g. `-Confirm` cmdlets) so scripts
+ *    don't block waiting for user input. `$WhatIfPreference=$false` ensures
+ *    commands actually RUN (not just print what they would do).
+ */
+export function wrapPowerShellScript(command: string): string {
+  const bootstrap =
+    '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;' +
+    "$ConfirmPreference='None';$WhatIfPreference=$false";
+  // Prepend UTF-8 BOM (\uFEFF = U+FEFF). Use 4-digit \uFEFF in string
+  // literals; \u{FEFF} only works in ES2018+ regex with the 'u' flag.
+  return (
+    '\uFEFF' +
+    bootstrap +
+    '\ntry {\n' +
+    command +
+    '\n} finally { exit $LASTEXITCODE }'
+  );
 }
 
 /**

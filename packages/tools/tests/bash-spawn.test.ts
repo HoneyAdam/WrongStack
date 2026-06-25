@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { wrapPowerShellScript } from '../src/_shell-pick.js';
 
 // Drive bash's spawn-dependent branches deterministically (background buffering
 // + truncation, foreground error/throw, backpressure, teardown, both
@@ -334,7 +335,7 @@ describe('bashTool Windows shell selection (Codex + PowerShell)', () => {
       // stdinWrites).
       expect(call.args).toEqual(['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '-']);
       expect(call.cmd.toLowerCase()).toMatch(/pwsh|powershell/);
-      expect(cfg.stdinWrites[0]).toBe('Get-Content package.json');
+      expect(cfg.stdinWrites[0]).toBe(wrapPowerShellScript('Get-Content package.json'));
       expect(cfg.stdinEnds[0]).toBe(true);
     });
   });

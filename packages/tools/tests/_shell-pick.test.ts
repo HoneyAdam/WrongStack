@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   looksLikePowerShell,
+  looksLikePowerShellExtended,
+  wrapPowerShellScript,
   pickShell,
   POSIX_DEFAULT,
   shellArgs,
@@ -151,6 +153,45 @@ describe('looksLikePowerShell — unit-level', () => {
   it('returns false for plain POSIX-style commands', () => {
     expect(looksLikePowerShell('echo hi')).toBe(false);
     expect(looksLikePowerShell('ls -la')).toBe(false);
+  });
+
+  it('uses extended detection for PS flags and pipeline cmdlets', () => {
+    expect(looksLikePowerShellExtended('Remove-Item foo.txt -WhatIf')).toBe(true);
+    expect(looksLikePowerShellExtended('Get-Process -ErrorAction SilentlyContinue')).toBe(true);
+    expect(looksLikePowerShellExtended('Get-ChildItem | Select-Object Name')).toBe(true);
+    expect(looksLikePowerShellExtended('[string]$val = "test"')).toBe(true);
+    expect(looksLikePowerShellExtended('Write-Host "hello"')).toBe(true);
+    expect(looksLikePowerShellExtended('Get-ItemProperty HKLM:\\Software')).toBe(true);
+    // Full looksLikePowerShell also picks these up via the extended pass
+    expect(looksLikePowerShell('Remove-Item foo.txt -WhatIf')).toBe(true);
+    // Plain commands still don't match
+    expect(looksLikePowerShellExtended('echo hi')).toBe(false);
+    expect(looksLikePowerShellExtended('pnpm install')).toBe(false);
+  });
+});
+
+describe('wrapPowerShellScript', () => {
+  it('adds UTF-8 BOM and encoding bootstrap', () => {
+    const wrapped = wrapPowerShellScript('npm run build');
+    expect(wrapped.charCodeAt(0)).toBe(0xfeff);
+    expect(wrapped).toContain('[Console]::OutputEncoding = [System.Text.Encoding]::UTF8');
+  });
+  it('wraps user command in try/finally with exit code propagation', () => {
+    const wrapped = wrapPowerShellScript('npm run build');
+    expect(wrapped).toContain('try {');
+    expect(wrapped).toContain('npm run build');
+    expect(wrapped).toContain('} finally { exit $LASTEXITCODE }');
+  });
+  it('suppresses confirmations without enabling WhatIf mode', () => {
+    const wrapped = wrapPowerShellScript('Remove-Item foo.txt');
+    expect(wrapped).toContain("$ConfirmPreference='None'");
+    expect(wrapped).toContain('$WhatIfPreference=$false');
+    expect(wrapped).not.toContain('$WhatIfPreference=$true');
+  });
+  it('preserves multi-line scripts verbatim inside try block', () => {
+    const script = '$x = 1\n$x + 2';
+    const wrapped = wrapPowerShellScript(script);
+    expect(wrapped).toContain(script);
   });
 });
 

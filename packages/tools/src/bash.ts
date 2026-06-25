@@ -7,7 +7,7 @@ import { normalizeCommandOutput } from './_util.js';
 import { killWin32Tree, redactCommand } from './process-registry.js';
 import { getProcessRegistry } from './process-registry.js';
 import { checkAndBlockKillCommand } from './bash-kill-guard.js';
-import { pickShell, shellArgs, type BashShell } from './_shell-pick.js';
+import { pickShell, shellArgs, type BashShell, wrapPowerShellScript } from './_shell-pick.js';
 import { resolvePowerShell } from './_win32-resolve.js';
 
 interface BashInput {
@@ -189,6 +189,7 @@ export const bashTool: Tool<BashInput, BashOutput> = {
        *  dollar-signs can break `-Command "..."` quoting; `pwsh -Command -`
        *  reads the script from stdin verbatim. */
       useStdin: boolean;
+      stdinBody: string | undefined;
     };
     let plan: ShellPlan;
     if (isWin) {
@@ -220,6 +221,7 @@ export const bashTool: Tool<BashInput, BashOutput> = {
         bin,
         argv: shellArgs(shell),
         useStdin: shell === 'powershell' || shell === 'pwsh',
+        stdinBody: (shell === 'powershell' || shell === 'pwsh') ? wrapPowerShellScript(input.command) : undefined,
       };
     } else {
       // POSIX: use WRONGSTACK_SHELL if set; else honor $SHELL only when it
@@ -235,7 +237,7 @@ export const bashTool: Tool<BashInput, BashOutput> = {
           else bin = '/bin/bash';
         } else bin = '/bin/bash';
       }
-      plan = { bin, argv: ['-c'], useStdin: false };
+      plan = { bin, argv: ['-c'], useStdin: false, stdinBody: undefined };
     }
     const shell = plan.bin;
     const args = plan.useStdin ? [...plan.argv] : [...plan.argv, input.command];
@@ -280,7 +282,7 @@ export const bashTool: Tool<BashInput, BashOutput> = {
       // pipe stays open and pwsh waits forever for more input.
       if (plan.useStdin) {
         try {
-          child.stdin?.write(input.command);
+          child.stdin?.write(plan.stdinBody ?? input.command);
           child.stdin?.end();
         } catch {
           /* spawn already errored — the error handler below will fire */
@@ -372,7 +374,7 @@ export const bashTool: Tool<BashInput, BashOutput> = {
     // pipe stays open and pwsh waits forever for more input.
     if (plan.useStdin) {
       try {
-        child.stdin?.write(input.command);
+        child.stdin?.write(plan.stdinBody ?? input.command);
         child.stdin?.end();
       } catch {
         /* spawn already errored — the error handler below will fire */
