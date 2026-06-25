@@ -380,7 +380,18 @@ export {
   type SddProgress,
   type WaveResult,
   type RunResult,
+  type SddSubtaskSpec,
+  type SddSupervisorVerdict,
 } from '../sdd/sdd-parallel-run.js';
+export { SddSupervisor, type SddSupervisorOptions } from '../sdd/sdd-supervisor.js';
+export { makeCommandVerifier, type CommandVerifierOptions } from '../sdd/verify-task.js';
+export { makeLlmSubtaskGenerator, type SubtaskGeneratorOptions } from '../sdd/decompose-task.js';
+export {
+  makePreferSideConflictResolver,
+  resolveConflictText,
+  hasConflictMarkers,
+  type ConflictSide,
+} from '../sdd/conflict-resolver.js';
 // Live SDD board: model, persistence, projector, run registry.
 export {
   buildBoardTasks,

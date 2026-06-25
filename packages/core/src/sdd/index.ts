@@ -118,4 +118,15 @@ export {
   type SddProgress,
   type WaveResult,
   type RunResult,
+  type SddSubtaskSpec,
+  type SddSupervisorVerdict,
 } from './sdd-parallel-run.js';
+export { SddSupervisor, type SddSupervisorOptions } from './sdd-supervisor.js';
+export { makeCommandVerifier, type CommandVerifierOptions } from './verify-task.js';
+export { makeLlmSubtaskGenerator, type SubtaskGeneratorOptions } from './decompose-task.js';
+export {
+  makePreferSideConflictResolver,
+  resolveConflictText,
+  hasConflictMarkers,
+  type ConflictSide,
+} from './conflict-resolver.js';
