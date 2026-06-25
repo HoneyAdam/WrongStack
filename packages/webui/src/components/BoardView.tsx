@@ -1,0 +1,281 @@
+import { useCallback, useMemo, useState } from 'react';
+import { useWebSocket } from '@/hooks/useWebSocket';
+import { useAutoPhaseStore } from '@/stores';
+import { cn } from '@/lib/utils';
+import { Columns3, Plus, Rows3 } from 'lucide-react';
+import { TaskCard, type TaskItem } from './TaskCard';
+import type { PhaseItem } from './PhasePanel';
+
+type BoardLayout = 'phase' | 'status';
+
+type BoardTask = TaskItem & { phaseId: string };
+
+const STATUS_COLUMNS: Array<{ key: TaskItem['status']; label: string; match: TaskItem['status'][] }> = [
+  { key: 'pending', label: 'Pending', match: ['pending', 'blocked'] },
+  { key: 'in_progress', label: 'In Progress', match: ['in_progress'] },
+  { key: 'review', label: 'Review', match: ['review'] },
+  { key: 'failed', label: 'Failed', match: ['failed'] },
+  { key: 'completed', label: 'Done', match: ['completed'] },
+];
+
+const PHASE_STATUS_BADGE: Record<PhaseItem['status'], string> = {
+  pending: 'bg-muted text-muted-foreground',
+  ready: 'bg-[hsl(var(--info)/0.15)] text-[hsl(var(--info))]',
+  running: 'bg-primary/15 text-primary',
+  paused: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
+  completed: 'bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success))]',
+  failed: 'bg-destructive/15 text-destructive',
+  skipped: 'bg-muted text-muted-foreground',
+};
+
+/**
+ * BoardView — the interactive kanban over the live AutoPhase graph.
+ *
+ * Two toggleable layouts:
+ *   • "phase"  — one column per phase, cards are tasks; drag a card to another
+ *                phase column to move it (autophase.moveTask).
+ *   • "status" — Pending/In-Progress/Review/Failed/Done columns with one swimlane
+ *                per phase; drag a card to another status column to change it.
+ *
+ * Cards expose manual agent assignment + retry; in-progress cards show the live
+ * worker. Drag-drop uses the native HTML5 DnD API (no extra dependency).
+ */
+export function BoardView(): React.ReactElement {
+  const { client } = useWebSocket();
+  const phases = useAutoPhaseStore((s) => s.phases);
+  const [layout, setLayout] = useState<BoardLayout>('phase');
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [hoverKey, setHoverKey] = useState<string | null>(null);
+
+  const tasks = useMemo<BoardTask[]>(
+    () => phases.flatMap((p) => (p.tasks ?? []).map((t) => ({ ...t, phaseId: p.id }))),
+    [phases],
+  );
+
+  // Candidate agents for manual (re)assignment: the worker identities already
+  // present on the board (auto-assigned scientist names), deduped.
+  const agents = useMemo(
+    () => [...new Set(tasks.map((t) => t.assignee).filter((a): a is string => Boolean(a)))],
+    [tasks],
+  );
+
+  const send = useCallback(
+    (msg: Parameters<NonNullable<typeof client>['send']>[0]) => client?.send?.(msg),
+    [client],
+  );
+
+  const onStatusChange = useCallback(
+    (taskId: string, status: TaskItem['status']) =>
+      send({ type: 'autophase.taskStatus', payload: { taskId, status } }),
+    [send],
+  );
+  const onRetry = useCallback(
+    (taskId: string) => send({ type: 'autophase.retryTask', payload: { taskId } }),
+    [send],
+  );
+  const onAssign = useCallback(
+    (taskId: string, agentName: string) =>
+      send({ type: 'autophase.assignTask', payload: { taskId, agentName: agentName || undefined } }),
+    [send],
+  );
+  const onAddTask = useCallback(
+    (phaseId: string) => {
+      const title = window.prompt('New task title');
+      if (title?.trim()) send({ type: 'autophase.addTask', payload: { phaseId, title: title.trim() } });
+    },
+    [send],
+  );
+
+  const dropToPhase = useCallback(
+    (toPhaseId: string) => {
+      if (dragId) send({ type: 'autophase.moveTask', payload: { taskId: dragId, toPhaseId } });
+      setDragId(null);
+      setHoverKey(null);
+    },
+    [dragId, send],
+  );
+  const dropToStatus = useCallback(
+    (status: TaskItem['status']) => {
+      if (dragId) send({ type: 'autophase.taskStatus', payload: { taskId: dragId, status } });
+      setDragId(null);
+      setHoverKey(null);
+    },
+    [dragId, send],
+  );
+
+  const cardProps = { onStatusChange, onRetry, agents, onAssign };
+
+  function draggable(taskId: string) {
+    return {
+      draggable: true,
+      onDragStart: (e: React.DragEvent) => {
+        setDragId(taskId);
+        e.dataTransfer.effectAllowed = 'move';
+      },
+      onDragEnd: () => {
+        setDragId(null);
+        setHoverKey(null);
+      },
+    };
+  }
+  function dropZone(key: string, onDrop: () => void) {
+    return {
+      onDragOver: (e: React.DragEvent) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        if (hoverKey !== key) setHoverKey(key);
+      },
+      onDragLeave: () => setHoverKey((k) => (k === key ? null : k)),
+      onDrop: (e: React.DragEvent) => {
+        e.preventDefault();
+        onDrop();
+      },
+      'data-hover': hoverKey === key || undefined,
+    };
+  }
+
+  if (phases.length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center text-muted-foreground">
+        <p className="text-sm">No phases yet — start an AutoPhase run to populate the board.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full flex-col">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between border-b border-border px-4 py-2">
+        <span className="text-xs text-muted-foreground">
+          {phases.length} phases · {tasks.length} tasks
+        </span>
+        <div className="flex items-center gap-1 rounded-md border border-border p-0.5">
+          <button
+            type="button"
+            onClick={() => setLayout('phase')}
+            className={cn(
+              'inline-flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors',
+              layout === 'phase' ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            <Columns3 className="h-3.5 w-3.5" /> Phases
+          </button>
+          <button
+            type="button"
+            onClick={() => setLayout('status')}
+            className={cn(
+              'inline-flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors',
+              layout === 'status' ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            <Rows3 className="h-3.5 w-3.5" /> Status
+          </button>
+        </div>
+      </div>
+
+      {/* Board */}
+      {layout === 'phase' ? (
+        <div className="flex flex-1 gap-3 overflow-x-auto p-3">
+          {phases.map((phase) => {
+            const phaseTasks = tasks.filter((t) => t.phaseId === phase.id);
+            return (
+              <div
+                key={phase.id}
+                {...dropZone(`phase:${phase.id}`, () => dropToPhase(phase.id))}
+                className={cn(
+                  'flex w-80 shrink-0 flex-col rounded-lg border bg-muted/30 transition-colors',
+                  hoverKey === `phase:${phase.id}` ? 'border-primary/60 bg-primary/5' : 'border-border',
+                )}
+              >
+                <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate text-sm font-semibold">{phase.name}</span>
+                      <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-medium capitalize', PHASE_STATUS_BADGE[phase.status])}>
+                        {phase.status}
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-muted-foreground">
+                      {phase.completedTasks}/{phase.taskCount} · {phase.progressPercent}%
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onAddTask(phase.id)}
+                    title="Add task"
+                    className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="flex-1 space-y-2 overflow-y-auto p-2">
+                  {phaseTasks.length === 0 ? (
+                    <p className="px-1 py-4 text-center text-[11px] text-muted-foreground">Drop tasks here</p>
+                  ) : (
+                    phaseTasks.map((task) => (
+                      <div key={task.id} {...draggable(task.id)} className={cn(dragId === task.id && 'opacity-50')}>
+                        <TaskCard task={task} {...cardProps} />
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="flex-1 overflow-auto p-3">
+          {/* Status column headers */}
+          <div className="grid min-w-[900px] gap-2" style={{ gridTemplateColumns: `9rem repeat(${STATUS_COLUMNS.length}, minmax(0, 1fr))` }}>
+            <div />
+            {STATUS_COLUMNS.map((col) => (
+              <div key={col.key} className="px-2 pb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                {col.label}
+              </div>
+            ))}
+            {/* One swimlane row per phase */}
+            {phases.map((phase) => (
+              <FragmentRow key={phase.id}>
+                <div className="flex items-center pr-2">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium">{phase.name}</div>
+                    <span className={cn('mt-0.5 inline-block rounded px-1.5 py-0.5 text-[10px] capitalize', PHASE_STATUS_BADGE[phase.status])}>
+                      {phase.status}
+                    </span>
+                  </div>
+                </div>
+                {STATUS_COLUMNS.map((col) => {
+                  const cellTasks = tasks.filter(
+                    (t) => t.phaseId === phase.id && col.match.includes(t.status),
+                  );
+                  const key = `cell:${phase.id}:${col.key}`;
+                  return (
+                    <div
+                      key={col.key}
+                      {...dropZone(key, () => dropToStatus(col.key))}
+                      className={cn(
+                        'min-h-[4rem] space-y-2 rounded-md border p-1.5 transition-colors',
+                        hoverKey === key ? 'border-primary/60 bg-primary/5' : 'border-border bg-muted/20',
+                      )}
+                    >
+                      {cellTasks.map((task) => (
+                        <div key={task.id} {...draggable(task.id)} className={cn(dragId === task.id && 'opacity-50')}>
+                          <TaskCard task={task} compact {...cardProps} />
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
+              </FragmentRow>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Grid rows are flattened cells; this just groups a row's children inline. */
+function FragmentRow({ children }: { children: React.ReactNode }): React.ReactElement {
+  return <>{children}</>;
+}

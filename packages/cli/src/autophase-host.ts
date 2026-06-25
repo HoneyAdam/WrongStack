@@ -20,6 +20,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  assignNickname,
   AutoPhasePlanner,
   type BrainArbiter,
   buildChildEnv,
@@ -33,6 +34,16 @@ import {
   type TaskNode,
   WorktreeManager,
 } from '@wrongstack/core';
+
+/** Default concurrent tasks within a single phase (override via env). */
+const DEFAULT_TASK_CONCURRENCY = 2;
+
+/** Resolve per-phase task concurrency from env, clamped to a sane range. */
+function resolveTaskConcurrency(): number {
+  const raw = Number.parseInt(process.env['WRONGSTACK_AUTOPHASE_TASK_CONCURRENCY'] ?? '', 10);
+  if (!Number.isFinite(raw)) return DEFAULT_TASK_CONCURRENCY;
+  return Math.min(8, Math.max(1, raw));
+}
 import type { MultiAgentHost } from './multi-agent.js';
 
 /** Default parallel-phase concurrency once worktree isolation is available. */
@@ -223,6 +234,17 @@ export interface AutoPhaseHostHooks {
   onAutoPhaseResume: () => void;
   onAutoPhaseStop: () => void;
   getAutoPhaseRunner: () => AutoPhaseRunnerView | null;
+  /** Interactive board: move a task to another phase. */
+  onAutoPhaseMoveTask: (taskId: string, toPhaseId: string) => boolean;
+  /** Interactive board: (re)assign a task to a specific agent (clear with both omitted). */
+  onAutoPhaseAssignTask: (taskId: string, agentId?: string, agentName?: string) => boolean;
+  /** Interactive board: add a new task to a phase. Returns the new task id. */
+  onAutoPhaseAddTask: (
+    phaseId: string,
+    spec: { title: string; description?: string; type?: TaskNode['type']; priority?: TaskNode['priority'] },
+  ) => string | null;
+  /** Interactive board: requeue a task to pending so it (re)runs. */
+  onAutoPhaseRetryTask: (taskId: string) => boolean;
   /** Backs the /worktree slash command (list / merge / prune / clean). */
   onWorktree: (action: 'list' | 'merge' | 'prune' | 'clean', target?: string) => Promise<string>;
 }
@@ -380,6 +402,8 @@ export function createAutoPhaseHost(deps: AutoPhaseHostDeps): AutoPhaseHostHooks
       }
 
       const abort = new AbortController();
+      // Stable per-run worker identities, so the board can show "who is on what".
+      const usedNicknames = new Set<string>();
 
       // 1) PLAN
       log(`🧠 Planning phases for: ${goal}`);
@@ -452,9 +476,19 @@ export function createAutoPhaseHost(deps: AutoPhaseHostDeps): AutoPhaseHostHooks
           executeTask: async (task, phaseId, env) => {
             const phase = graph.phases.get(phaseId);
             const phaseName = phase?.name ?? phaseId;
+            // Give the task a human worker identity (reuse a manual assignment if
+            // one exists) and reflect it onto the node so the board shows who is
+            // running it — both via the periodic state and a live taskAssigned event.
+            let agentName = task.assignee;
+            if (!agentName) {
+              const nick = assignNickname('executor', usedNicknames);
+              usedNicknames.add(nick.key);
+              agentName = nick.display.replace(/\s*\([^)]*\)\s*$/, '');
+              active?.orchestrator.setTaskAssignee(task.id, undefined, agentName);
+            }
             return runOnce(
               buildTaskPrompt(task, phaseName, goal),
-              `autophase-${phaseName}-${task.title}`.slice(0, 48),
+              `autophase-${agentName}`.slice(0, 48),
               abort.signal,
               env?.cwd,
             );
@@ -507,9 +541,11 @@ export function createAutoPhaseHost(deps: AutoPhaseHostDeps): AutoPhaseHostHooks
         maxConcurrentPhases: worktrees
           ? (deps.maxConcurrentPhases ?? WORKTREE_PHASE_CONCURRENCY)
           : 1,
-        // Sequential within a phase: each todo is a full-tool agent and todos in
-        // a phase typically build on one another (they share the phase worktree).
-        maxConcurrentTasks: 1,
+        // Within a phase, todos share the phase worktree. Default to a small
+        // amount of parallelism so multiple agents genuinely pick up different
+        // tasks at once (visible on the board); raise/lower via
+        // WRONGSTACK_AUTOPHASE_TASK_CONCURRENCY (1 = strictly sequential).
+        maxConcurrentTasks: resolveTaskConcurrency(),
       });
 
       // Re-persist on terminal graph events.
@@ -581,6 +617,34 @@ export function createAutoPhaseHost(deps: AutoPhaseHostDeps): AutoPhaseHostHooks
         getProgress: () => a.orchestrator.getProgress(),
         isRunning: () => a.orchestrator.isRunning(),
       };
+    },
+
+    onAutoPhaseMoveTask(taskId, toPhaseId) {
+      if (!active) return false;
+      const ok = active.orchestrator.moveTask(taskId, toPhaseId);
+      if (ok) void persist(active.graph);
+      return ok;
+    },
+
+    onAutoPhaseAssignTask(taskId, agentId, agentName) {
+      if (!active) return false;
+      const ok = active.orchestrator.setTaskAssignee(taskId, agentId, agentName);
+      if (ok) void persist(active.graph);
+      return ok;
+    },
+
+    onAutoPhaseAddTask(phaseId, spec) {
+      if (!active) return null;
+      const id = active.orchestrator.addTask(phaseId, spec);
+      if (id) void persist(active.graph);
+      return id;
+    },
+
+    onAutoPhaseRetryTask(taskId) {
+      if (!active) return false;
+      const ok = active.orchestrator.requeueTask(taskId);
+      if (ok) void persist(active.graph);
+      return ok;
     },
 
     async onWorktree(action, target) {

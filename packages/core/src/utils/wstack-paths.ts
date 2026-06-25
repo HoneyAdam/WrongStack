@@ -84,6 +84,8 @@ export interface WstackPaths {
   projectPlan: string;
   /** ~/.wrongstack/projects/<hash>/autophase — AutoPhase phase-graph JSON files */
   projectAutophase: string;
+  /** ~/.wrongstack/projects/<hash>/sdd-boards — live SDD board snapshots + JSONL event logs */
+  projectSddBoards: string;
   /** ~/.wrongstack/sync.json — CloudSync configuration */
   syncConfig: string;
   /** Function to get the status.json path for a project given its hash. */
@@ -181,6 +183,7 @@ export function resolveWstackPaths(opts: WstackPathOptions): WstackPaths {
     projectSddSession: path.join(projectDir, 'sdd-session.json'),
     projectPlan: path.join(projectDir, 'plan.json'),
     projectAutophase: path.join(projectDir, 'autophase'),
+    projectSddBoards: path.join(projectDir, 'sdd-boards'),
     syncConfig: path.join(globalRoot, 'sync.json'),
     projectStatus: (projectHash: string) => path.join(globalRoot, 'projects', projectHash, 'status.json'),
   };

@@ -1,21 +1,10 @@
 import { cn } from '@/lib/utils';
-import { CheckCircle2, Circle, Clock, Pause, RotateCcw, XCircle } from 'lucide-react';
 import type React from 'react';
+import { TaskCard, type TaskItem } from './TaskCard';
 
-export interface TaskItem {
-  id: string;
-  title: string;
-  description: string;
-  status: 'pending' | 'in_progress' | 'blocked' | 'failed' | 'review' | 'completed';
-  priority: 'critical' | 'high' | 'medium' | 'low';
-  type: 'feature' | 'bugfix' | 'refactor' | 'docs' | 'test' | 'chore';
-  estimateHours?: number | undefined;
-  actualHours?: number | undefined;
-  assignee?: string | undefined;
-  tags: string[];
-  startedAt?: number | undefined;
-  completedAt?: number | undefined;
-}
+// Re-exported so existing importers (`PhasePanel`, `AutoPhaseView`) keep working
+// after the card was extracted into its own reusable component.
+export type { TaskItem } from './TaskCard';
 
 export interface TaskBoardProps {
   phaseName: string;
@@ -26,51 +15,12 @@ export interface TaskBoardProps {
   className?: string | undefined;
 }
 
-// Token-driven so every state reads correctly in both light and dark. Status
-// colors lean on the shared semantic vars (--success / --warning / --info /
-// primary); badges use translucent tints that sit on either background.
-const TASK_STATUS_CONFIG: Record<
-  TaskItem['status'],
-  { icon: React.ReactNode; color: string; label: string }
-> = {
-  pending: { icon: <Circle className="w-4 h-4" />, color: 'text-muted-foreground', label: 'Pending' },
-  in_progress: { icon: <Clock className="w-4 h-4 animate-spin" aria-label="In Progress" />, color: 'text-primary', label: 'In Progress' },
-  blocked: { icon: <Pause className="w-4 h-4" />, color: 'text-[hsl(var(--warning))]', label: 'Blocked' },
-  failed: { icon: <XCircle className="w-4 h-4" />, color: 'text-destructive', label: 'Failed' },
-  review: { icon: <RotateCcw className="w-4 h-4" />, color: 'text-[hsl(var(--info))]', label: 'Review' },
-  completed: { icon: <CheckCircle2 className="w-4 h-4" />, color: 'text-[hsl(var(--success))]', label: 'Done' },
-};
-
-const PRIORITY_BADGE: Record<TaskItem['priority'], string> = {
-  critical: 'bg-destructive/15 text-destructive',
-  high: 'bg-orange-500/15 text-orange-600 dark:text-orange-400',
-  medium: 'bg-[hsl(var(--info)/0.15)] text-[hsl(var(--info))]',
-  low: 'bg-muted text-muted-foreground',
-};
-
-const TYPE_BADGE: Record<TaskItem['type'], string> = {
-  feature: 'bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success))]',
-  bugfix: 'bg-destructive/15 text-destructive',
-  refactor: 'bg-violet-500/15 text-violet-600 dark:text-violet-400',
-  docs: 'bg-sky-500/15 text-sky-600 dark:text-sky-400',
-  test: 'bg-primary/15 text-primary',
-  chore: 'bg-muted text-muted-foreground',
-};
-
-function formatTime(ms?: number): string {
-  if (!ms) return '';
-  const m = Math.floor(ms / 60000);
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  const rem = m % 60;
-  return rem > 0 ? `${h}h ${rem}m` : `${h}h`;
-}
-
 /**
- * TaskBoard — Task list panel.
+ * TaskBoard — chat-area task list for a single selected phase.
  *
- * Shows all tasks for the selected phase as cards.
- * Each task displays: status, priority, type, estimated time, agent assignment.
+ * Groups the phase's tasks by status into stacked sections. The full kanban
+ * (phase columns / status swimlanes, drag-drop, manual assignment) lives in
+ * BoardView; this stays the compact in-context list.
  */
 export function TaskBoard({
   phaseName,
@@ -79,16 +29,22 @@ export function TaskBoard({
   onTaskStatusChange,
   className,
 }: TaskBoardProps): React.ReactElement {
-  // Group tasks by status
   const grouped = {
     in_progress: tasks.filter((t) => t.status === 'in_progress'),
     pending: tasks.filter((t) => t.status === 'pending' || t.status === 'blocked'),
-    completed: tasks.filter((t) => t.status === 'completed'),
-    failed: tasks.filter((t) => t.status === 'failed'),
     review: tasks.filter((t) => t.status === 'review'),
+    failed: tasks.filter((t) => t.status === 'failed'),
+    completed: tasks.filter((t) => t.status === 'completed'),
   };
 
   const statusOrder = ['in_progress', 'pending', 'review', 'failed', 'completed'] as const;
+  const groupLabels: Record<(typeof statusOrder)[number], string> = {
+    in_progress: 'In Progress',
+    pending: 'Pending',
+    review: 'Review',
+    failed: 'Failed',
+    completed: 'Completed',
+  };
 
   return (
     <div className={cn('flex flex-col h-full bg-background', className)}>
@@ -98,21 +54,32 @@ export function TaskBoard({
           <div>
             <h2 className="text-lg font-semibold text-foreground">{phaseName}</h2>
             <p className="text-sm text-muted-foreground mt-0.5">
-                {tasks.length} tasks · {tasks.filter((t) => t.status === 'completed').length} completed
-              </p>
+              {tasks.length} tasks · {tasks.filter((t) => t.status === 'completed').length} completed
+            </p>
           </div>
-          <div className={cn(
-            'px-3 py-1 rounded-full text-xs font-medium',
-            phaseStatus === 'running' ? 'bg-primary/15 text-primary' :
-            phaseStatus === 'completed' ? 'bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success))]' :
-            phaseStatus === 'failed' ? 'bg-destructive/15 text-destructive' :
-            'bg-muted text-muted-foreground',
-          )}>
-            {phaseStatus === 'running' ? 'Running' :
-             phaseStatus === 'completed' ? 'Completed' :
-             phaseStatus === 'failed' ? 'Failed' :
-             phaseStatus === 'paused' ? 'Paused' :
-             phaseStatus === 'ready' ? 'Ready' : 'Pending'}
+          <div
+            className={cn(
+              'px-3 py-1 rounded-full text-xs font-medium',
+              phaseStatus === 'running'
+                ? 'bg-primary/15 text-primary'
+                : phaseStatus === 'completed'
+                  ? 'bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success))]'
+                  : phaseStatus === 'failed'
+                    ? 'bg-destructive/15 text-destructive'
+                    : 'bg-muted text-muted-foreground',
+            )}
+          >
+            {phaseStatus === 'running'
+              ? 'Running'
+              : phaseStatus === 'completed'
+                ? 'Completed'
+                : phaseStatus === 'failed'
+                  ? 'Failed'
+                  : phaseStatus === 'paused'
+                    ? 'Paused'
+                    : phaseStatus === 'ready'
+                      ? 'Ready'
+                      : 'Pending'}
           </div>
         </div>
       </div>
@@ -122,132 +89,15 @@ export function TaskBoard({
         {statusOrder.map((groupKey) => {
           const groupTasks = grouped[groupKey];
           if (groupTasks.length === 0) return null;
-
-          const groupLabel = {
-            in_progress: 'In Progress',
-            pending: 'Pending',
-            review: 'Review',
-            failed: 'Failed',
-            completed: 'Completed',
-          }[groupKey];
-
           return (
             <div key={groupKey}>
               <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                {groupLabel} ({groupTasks.length})
+                {groupLabels[groupKey]} ({groupTasks.length})
               </h3>
               <div className="space-y-2">
-                {groupTasks.map((task) => {
-                  const status = TASK_STATUS_CONFIG[task.status];
-
-                  return (
-                    <button
-                      type="button"
-                      key={task.id}
-                      className={cn(
-                        'w-full text-left rounded-lg border p-3 transition-all hover:shadow-sm hover:border-primary/40 cursor-pointer',
-                        task.status === 'in_progress'
-                          ? 'border-primary/40 bg-primary/5'
-                          : task.status === 'completed'
-                            ? 'border-[hsl(var(--success)/0.35)] bg-[hsl(var(--success)/0.06)]'
-                            : task.status === 'failed'
-                              ? 'border-destructive/40 bg-destructive/5'
-                              : 'border-border bg-card',
-                      )}
-                    >
-                      {/* Task Header */}
-                      <div className="flex items-start gap-2">
-                        <span className={cn('mt-0.5', status.color)}>{status.icon}</span>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-sm font-medium">{task.title}</span>
-                            <span className={cn('px-1.5 py-0.5 rounded text-[10px] font-medium', PRIORITY_BADGE[task.priority])}>
-                              {task.priority}
-                            </span>
-                            <span className={cn('px-1.5 py-0.5 rounded text-[10px] font-medium', TYPE_BADGE[task.type])}>
-                              {task.type}
-                            </span>
-                          </div>
-                          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                            {task.description}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Task Meta */}
-                      <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-                        {task.estimateHours && (
-                          <span>~{task.estimateHours}h</span>
-                        )}
-                        {task.actualHours && (
-                          <span>• {task.actualHours}h</span>
-                        )}
-                        {task.assignee && (
-                          <span>• {task.assignee}</span>
-                        )}
-                        {task.startedAt && (
-                          <span>• {formatTime(Date.now() - task.startedAt)}</span>
-                        )}
-                      </div>
-
-                      {/* Tags */}
-                      {task.tags.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-2">
-                          {task.tags.map((tag) => (
-                            <span
-                              key={tag}
-                              className="px-1.5 py-0.5 rounded text-[10px] bg-muted text-muted-foreground"
-                            >
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Quick Actions */}
-                      {onTaskStatusChange && task.status !== 'completed' && (
-                        <div className="flex gap-1 mt-2">
-                          {task.status !== 'in_progress' && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onTaskStatusChange(task.id, 'in_progress');
-                              }}
-                              className="px-2 py-0.5 text-[10px] rounded bg-primary/15 text-primary hover:bg-primary/25 transition-colors"
-                            >
-                              Start
-                            </button>
-                          )}
-                          {task.status === 'in_progress' && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onTaskStatusChange(task.id, 'completed');
-                              }}
-                              className="px-2 py-0.5 text-[10px] rounded bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success))] hover:bg-[hsl(var(--success)/0.25)] transition-colors"
-                            >
-                              Complete
-                            </button>
-                          )}
-                          {task.status !== 'failed' && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onTaskStatusChange(task.id, 'failed');
-                              }}
-                              className="px-2 py-0.5 text-[10px] rounded bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors"
-                            >
-                              Fail
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </button>
-                  );
-                })}
+                {groupTasks.map((task) => (
+                  <TaskCard key={task.id} task={task} onStatusChange={onTaskStatusChange} />
+                ))}
               </div>
             </div>
           );

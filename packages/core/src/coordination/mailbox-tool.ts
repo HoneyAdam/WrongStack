@@ -14,6 +14,7 @@ import { createHash } from 'node:crypto';
 import type { EventBus } from '../kernel/events.js';
 import type { Context } from '../core/context.js';
 import type { Tool } from '../types/tool.js';
+import { ToolCapabilities } from '../security/capabilities.js';
 import { wstackGlobalRoot } from '../utils/wstack-paths.js';
 import { GlobalMailbox, resolveProjectDir } from './global-mailbox.js';
 import type { Mailbox, MailboxMessage, MailboxMessageType } from './mailbox-types.js';
@@ -114,6 +115,7 @@ export function makeMailboxTool(opts: MailboxToolOptions = {}): Tool {
     category: 'coordination',
     permission: 'auto',
     mutating: true,
+    capabilities: [ToolCapabilities.COORDINATION_MAIL],
     inputSchema: {
       type: 'object',
       properties: {

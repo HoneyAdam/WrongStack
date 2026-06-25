@@ -107,4 +107,30 @@ describe('buildChatRows', () => {
     expect(agent.items[0]?.kind === 'msg' && agent.items[0].isContinuation).toBe(false);
     expect(agent.items[1]?.kind === 'msg' && agent.items[1].isContinuation).toBe(true);
   });
+
+  it('folds archived thinking logs into the current agent turn', () => {
+    const rows = buildChatRows(
+      [
+        mk('user', { id: 'u1', timestamp: NOW }),
+        mk('assistant', { id: 'a1', timestamp: NOW, content: 'answer' }),
+        mk('system', {
+          id: 'th1',
+          timestamp: NOW,
+          content: '',
+          thinkingLog: {
+            iteration: 1,
+            text: 'reasoning trace',
+            startedAt: NOW,
+            durationMs: 500,
+          },
+        }),
+      ],
+      NOW,
+    );
+
+    const agent = rows.find((r) => r.kind === 'agent') as Extract<ChatRow, { kind: 'agent' }>;
+    expect(agent.items).toHaveLength(2);
+    expect(agent.items[1]?.kind === 'msg' && agent.items[1].message.thinkingLog?.text).toBe('reasoning trace');
+    expect(agent.items[1]?.kind === 'msg' && agent.items[1].isContinuation).toBe(true);
+  });
 });

@@ -106,6 +106,26 @@ export class SddTaskDecomposer {
     return this.wave;
   }
 
+  /**
+   * All ready (dependency-satisfied) pending tasks, priority-sorted — UNSLICED.
+   * The continuous scheduler fills its own free slots from this list, so unlike
+   * `nextBatch()` it does not cap at `slots`.
+   */
+  readyNodes(): TaskNode[] {
+    return this.pendingReadyNodes();
+  }
+
+  /**
+   * True when every node has reached a terminal state (completed or failed).
+   * This — not `isDone()` (which requires ALL completed) — is the correct loop
+   * exit for the continuous scheduler: a terminally-failed task must not keep
+   * the run spinning to its backstop.
+   */
+  isSettled(): boolean {
+    const nodes = this.tracker.getAllNodes();
+    return nodes.length > 0 && nodes.every((n) => n.status === 'completed' || n.status === 'failed');
+  }
+
   // -------------------------------------------------------------------
   // Internal helpers
   // -------------------------------------------------------------------

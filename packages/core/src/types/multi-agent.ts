@@ -71,6 +71,14 @@ export interface SubagentConfig {
   provider?: string | undefined;
 
   /**
+   * Ordered fallback model chain for THIS subagent (entries: `model` or
+   * `provider/model`). When the subagent's primary model 429s or stream-hangs,
+   * the factory's fallback extension rotates to the next entry. Empty/undefined
+   * → the factory's own default fallback behavior (usually the leader's config).
+   */
+  fallbackModels?: string[] | undefined;
+
+  /**
    * Per-subagent session JSONL path. When omitted the orchestrator-
    * supplied factory derives a path under `<sessionRoot>/<runId>/`.
    * Override to redirect the transcript elsewhere (long-term storage,

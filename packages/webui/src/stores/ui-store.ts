@@ -36,7 +36,7 @@ interface UIState {
   /** Which activity icon is selected in the ActivityBar — controls secondary panel content. */
   activeActivity: Activity;
   settingsOpen: boolean;
-  currentView: 'chat' | 'settings' | 'autophase' | 'files' | 'changes' | 'sessions' | 'setup' | 'skill' | 'officemap' | 'mailbox' | 'debug';
+  currentView: 'chat' | 'settings' | 'autophase' | 'specs' | 'sddboard' | 'sddwizard' | 'files' | 'changes' | 'sessions' | 'setup' | 'skill' | 'officemap' | 'mailbox' | 'debug';
   showConfirmDialog: boolean;
   confirmInfo: {
     id: string;
@@ -48,6 +48,7 @@ interface UIState {
   shortcutsOpen: boolean;
   searchOpen: boolean;
   searchQuery: string;
+  searchActiveMessageId: string | null;
   /** Imperative "scroll the virtualized chat list to this message" request.
    *  The chat list is virtualized, so an off-screen message has no DOM node to
    *  scrollIntoView — SearchOverlay sets this and ChatView consumes it by
@@ -134,6 +135,7 @@ interface UIState {
   setShortcutsOpen: (open: boolean) => void;
   setSearchOpen: (open: boolean) => void;
   setSearchQuery: (q: string) => void;
+  setSearchActiveMessageId: (id: string | null) => void;
   requestScrollToMessage: (id: string) => void;
   pushPrompt: (text: string) => void;
   setSidebarWidth: (px: number) => void;
@@ -173,6 +175,7 @@ export const useUIStore = create<UIState>()(
       shortcutsOpen: false,
       searchOpen: false,
       searchQuery: '',
+      searchActiveMessageId: null,
       scrollTarget: null,
       promptHistory: [],
       sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
@@ -214,8 +217,9 @@ export const useUIStore = create<UIState>()(
       hideConfirm: () => set({ showConfirmDialog: false, confirmInfo: null }),
       setPaletteOpen: (open) => set({ paletteOpen: open }),
       setShortcutsOpen: (open) => set({ shortcutsOpen: open }),
-      setSearchOpen: (open) => set({ searchOpen: open, searchQuery: open ? '' : '' }),
+      setSearchOpen: (open) => set({ searchOpen: open, searchQuery: '', searchActiveMessageId: null }),
       setSearchQuery: (q) => set({ searchQuery: q }),
+      setSearchActiveMessageId: (id) => set({ searchActiveMessageId: id }),
       requestScrollToMessage: (id) =>
         set((s) => ({ scrollTarget: { id, nonce: (s.scrollTarget?.nonce ?? 0) + 1 } })),
       pushPrompt: (text) =>

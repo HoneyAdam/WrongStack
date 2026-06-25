@@ -1,0 +1,190 @@
+import { describe, expect, it, beforeEach } from 'vitest';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import { SpecStore } from '../../src/sdd/spec-store.js';
+import { TaskGraphStore } from '../../src/sdd/task-graph-store.js';
+import { SddInterviewDriver } from '../../src/sdd/sdd-interview-driver.js';
+
+function tmp(prefix: string): string {
+  return path.join(os.tmpdir(), `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+}
+
+function makeDriver(over?: { sessionPath?: string }) {
+  const dir = tmp('sdd-interview');
+  const specStore = new SpecStore({ baseDir: path.join(dir, 'specs') });
+  const graphStore = new TaskGraphStore({ baseDir: path.join(dir, 'graphs') });
+  const driver = new SddInterviewDriver({
+    specStore,
+    graphStore,
+    sessionPath: over?.sessionPath,
+    minQuestions: 1,
+    maxQuestions: 3,
+  });
+  return { driver, specStore, graphStore, dir };
+}
+
+const SPEC_OUTPUT = [
+  'Here is the spec:',
+  '```json',
+  JSON.stringify({
+    title: 'OAuth login',
+    overview: 'Add OAuth-based login with session management.',
+    sections: [{ type: 'overview', title: 'Overview', content: 'OAuth login flow', level: 1 }],
+    requirements: [
+      { id: 'REQ-1', type: 'security', priority: 'critical', description: 'Verify OAuth tokens', acceptanceCriteria: ['tokens validated'] },
+      { id: 'REQ-2', type: 'functional', priority: 'high', description: 'Persist sessions', acceptanceCriteria: [] },
+    ],
+  }),
+  '```',
+].join('\n');
+
+const TASKS_OUTPUT = [
+  'Implementation plan: build the middleware first.',
+  '```json',
+  JSON.stringify([
+    { title: 'Create auth middleware', description: 'JWT verify', type: 'feature', priority: 'critical' },
+    { title: 'Write auth tests', description: 'tests', type: 'test', priority: 'high' },
+  ]),
+  '```',
+].join('\n');
+
+describe('SddInterviewDriver', () => {
+  let h: ReturnType<typeof makeDriver>;
+  beforeEach(() => {
+    h = makeDriver();
+  });
+
+  it('starts in questioning and returns a prompt', () => {
+    const prompt = h.driver.start('OAuth login');
+    expect(h.driver.phase()).toBe('questioning');
+    expect(prompt).toContain('SDD Spec Builder');
+    expect(h.driver.snapshot().title).toBe('OAuth login');
+  });
+
+  it('records answers from the Q&A loop', () => {
+    h.driver.start('OAuth login');
+    h.driver.submitAnswer('Which providers?', 'Google and GitHub');
+    const snap = h.driver.snapshot();
+    expect(snap.questionCount).toBe(1);
+    expect(snap.answers[0]).toEqual({ question: 'Which providers?', answer: 'Google and GitHub' });
+  });
+
+  it('detects a spec in agent output and advances to spec_review + persists it', async () => {
+    h.driver.start('OAuth login');
+    const res = await h.driver.ingestAgentOutput(SPEC_OUTPUT);
+    expect(res.specDetected).toBe(true);
+    expect(h.driver.phase()).toBe('spec_review');
+    const snap = h.driver.snapshot();
+    expect(snap.spec?.title).toBe('OAuth login');
+    expect(snap.spec?.requirements).toHaveLength(2);
+    // Persisted to the SpecStore.
+    const list = await h.specStore.list();
+    expect(list.length).toBe(1);
+  });
+
+  it('detects a task array and persists a graph to disk', async () => {
+    h.driver.start('OAuth login');
+    await h.driver.ingestAgentOutput(SPEC_OUTPUT);
+    const res = await h.driver.ingestAgentOutput(TASKS_OUTPUT);
+    expect(res.tasksDetected).toBe(true);
+    expect(res.graphId).toBeTruthy();
+    const graph = h.driver.getGraph();
+    expect(graph?.nodes.size).toBe(2);
+    // Loadable from disk by id.
+    const loaded = await h.graphStore.load(res.graphId as string);
+    expect(loaded?.nodes.size).toBe(2);
+  });
+
+  it('wires dependsOn references into real dependency edges', async () => {
+    const TASKS_WITH_DEPS = [
+      'Plan:',
+      '```json',
+      JSON.stringify([
+        { id: 't1', title: 'Create auth middleware', description: 'JWT verify', type: 'feature', priority: 'critical', dependsOn: [] },
+        { id: 't2', title: 'Write auth tests', description: 'tests', type: 'test', priority: 'high', dependsOn: ['t1'] },
+      ]),
+      '```',
+    ].join('\n');
+    h.driver.start('OAuth login');
+    await h.driver.ingestAgentOutput(SPEC_OUTPUT);
+    await h.driver.ingestAgentOutput(TASKS_WITH_DEPS);
+    const tracker = h.driver.getTracker();
+    const graph = h.driver.getGraph();
+    expect(graph?.nodes.size).toBe(2);
+    const nodes = [...(graph?.nodes.values() ?? [])];
+    const mw = nodes.find((n) => n.title === 'Create auth middleware');
+    const tests = nodes.find((n) => n.title === 'Write auth tests');
+    expect(mw && tests).toBeTruthy();
+    // The test task is blocked by the middleware task; the reverse is not true.
+    expect(tracker?.getBlockers(tests!.id)).toEqual([mw!.id]);
+    expect(tracker?.getBlockers(mw!.id)).toEqual([]);
+    expect(tracker?.canStart(tests!.id)).toBe(false); // mw not done yet
+    expect(tracker?.canStart(mw!.id)).toBe(true);
+  });
+
+  it('drops a self/cyclic dependsOn reference rather than creating a cycle', async () => {
+    const CYCLIC = [
+      '```json',
+      JSON.stringify([
+        { id: 'a', title: 'Task A', description: 'a', type: 'feature', priority: 'high', dependsOn: ['b'] },
+        { id: 'b', title: 'Task B', description: 'b', type: 'feature', priority: 'high', dependsOn: ['a'] },
+      ]),
+      '```',
+    ].join('\n');
+    h.driver.start('Cyclic');
+    await h.driver.ingestAgentOutput(SPEC_OUTPUT);
+    await h.driver.ingestAgentOutput(CYCLIC);
+    const tracker = h.driver.getTracker();
+    const graph = h.driver.getGraph();
+    const nodes = [...(graph?.nodes.values() ?? [])];
+    const a = nodes.find((n) => n.title === 'Task A')!;
+    const b = nodes.find((n) => n.title === 'Task B')!;
+    // Exactly one edge survives the cycle guard — at least one task must be runnable.
+    const aRunnable = tracker!.canStart(a.id);
+    const bRunnable = tracker!.canStart(b.id);
+    expect(aRunnable || bRunnable).toBe(true);
+    expect(graph!.edges.length).toBe(1);
+  });
+
+  it('deterministically generates a graph on approve→executing when no task array was emitted', async () => {
+    h.driver.start('OAuth login');
+    await h.driver.ingestAgentOutput(SPEC_OUTPUT); // → spec_review
+    expect(h.driver.getGraph()).toBeNull();
+    await h.driver.approve(); // spec_review → implementation
+    await h.driver.approve(); // implementation → task_review
+    const { phase } = await h.driver.approve(); // task_review → executing (ensureTaskGraph)
+    expect(phase).toBe('executing');
+    const graph = h.driver.getGraph();
+    expect(graph).not.toBeNull();
+    // TaskGenerator emits at least one task per requirement + tests/docs.
+    expect((graph?.nodes.size ?? 0)).toBeGreaterThanOrEqual(2);
+  });
+
+  it('ignores malformed agent output without throwing', async () => {
+    h.driver.start('OAuth login');
+    const res = await h.driver.ingestAgentOutput('I will now think about this. No JSON here.');
+    expect(res.specDetected).toBe(false);
+    expect(res.tasksDetected).toBe(false);
+    expect(h.driver.phase()).toBe('questioning');
+  });
+
+  it('resumes a persisted interview with its graph via loadExisting', async () => {
+    const sessionPath = path.join(h.dir, 'session.json');
+    const a = makeDriver({ sessionPath });
+    a.driver.start('OAuth login');
+    await a.driver.ingestAgentOutput(SPEC_OUTPUT);
+    await a.driver.ingestAgentOutput(TASKS_OUTPUT);
+    const graphId = a.driver.getGraph()?.id;
+
+    // Fresh driver over the same session + graph store → resumes.
+    const b = new SddInterviewDriver({
+      specStore: a.specStore,
+      graphStore: a.graphStore,
+      sessionPath,
+    });
+    const loaded = await b.loadExisting();
+    expect(loaded).toBe(true);
+    expect(b.phase()).toBe('spec_review');
+    expect(b.getGraph()?.id).toBe(graphId);
+  });
+});

@@ -1,11 +1,15 @@
 import { expectDefined } from '@wrongstack/core';
 import { useWebSocketBootstrap } from '@/hooks/useWebSocket';
+import { streamCoalescer } from '@/lib/stream-coalescer';
 import { cn } from '@/lib/utils';
 import { getWSClient } from '@/lib/ws-client';
 import { useChatStore, useConfigStore, useFileStore, useSessionStore, useUIStore } from '@/stores';
 import { useEffect } from 'react';
 import { ActivityBar, openPanel, PANEL_ORDER } from './components/ActivityBar';
 import { AutoPhaseView } from './components/AutoPhaseView';
+import { SpecsView } from './components/SpecsView';
+import { SddBoardView } from './components/SddBoardView';
+import { SddWizard } from './components/SddWizard';
 import { ChatView } from './components/ChatView';
 import { CodeEditor } from './components/CodeEditor';
 import { ChangesView } from './components/ChangesView';
@@ -248,6 +252,7 @@ function AppInner() {
       if (mod && !inField) {
         if (e.key.toLowerCase() === 'l') {
           e.preventDefault();
+          streamCoalescer.dropAll();
           useChatStore.getState().clearMessages();
           getWSClient(useConfigStore.getState().wsUrl)?.clearContext?.();
         } else if (e.key.toLowerCase() === 'n') {
@@ -401,6 +406,9 @@ function AppInner() {
         {currentView === 'autophase' && (
           <AutoPhaseView onClose={() => setCurrentView('chat')} />
         )}
+        {currentView === 'specs' && <SpecsView onClose={() => setCurrentView('chat')} />}
+        {currentView === 'sddboard' && <SddBoardView onClose={() => setCurrentView('chat')} />}
+        {currentView === 'sddwizard' && <SddWizard onClose={() => setCurrentView('chat')} />}
         {currentView === 'sessions' && (
           <div className="flex-1 overflow-y-auto">
             <SessionsDashboard />

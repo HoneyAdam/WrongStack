@@ -1,6 +1,7 @@
 import { cn } from '@/lib/utils';
 import { CheckCircle2, Circle, Clock, Pause, Play, SkipForward, XCircle } from 'lucide-react';
 import type React from 'react';
+import type { TaskItem } from './TaskBoard';
 
 export interface PhaseItem {
   id: string;
@@ -17,6 +18,8 @@ export interface PhaseItem {
   completedTasks: number;
   assignedAgents: string[];
   isActive: boolean;
+  /** Full task list for this phase — present when served by the board-aware state. */
+  tasks?: TaskItem[] | undefined;
 }
 
 export interface PhasePanelProps {

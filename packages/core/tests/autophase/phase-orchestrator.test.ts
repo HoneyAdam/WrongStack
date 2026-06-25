@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { EventBus } from '../../src/kernel/events.js';
 import { PhaseGraphBuilder } from '../../src/autophase/phase-graph-builder.js';
 import { PhaseOrchestrator } from '../../src/autophase/phase-orchestrator.js';
 import type { PhaseExecutionContext, PhaseGraph } from '../../src/autophase/types.js';
@@ -665,5 +666,137 @@ describe('PhaseOrchestrator + conflict resolution', () => {
     expect(phase.metadata?.brainConflictDecision).toBe('answer');
     expect(phase.metadata?.integrationStatus).toBe('merged');
     expect(wt.calls).toContain(`merge:${phase.id}:resolved`);
+  });
+});
+
+describe('PhaseOrchestrator — interactive board mutations', () => {
+  async function buildTwoPhaseGraph(): Promise<PhaseGraph> {
+    return new PhaseGraphBuilder({
+      title: 'Board Mutations',
+      phases: [
+        {
+          name: 'Alpha',
+          description: 'first',
+          priority: 'high',
+          estimateHours: 1,
+          parallelizable: false,
+          taskTemplates: [
+            { title: 'A1', description: 'a1', type: 'chore', priority: 'high', estimateHours: 0.5 },
+            { title: 'A2', description: 'a2', type: 'chore', priority: 'low', estimateHours: 0.5 },
+          ],
+        },
+        {
+          name: 'Beta',
+          description: 'second',
+          priority: 'medium',
+          estimateHours: 1,
+          parallelizable: false,
+          taskTemplates: [
+            { title: 'B1', description: 'b1', type: 'feature', priority: 'medium', estimateHours: 1 },
+          ],
+        },
+      ],
+    }).build();
+  }
+
+  function makeIdle(graph: PhaseGraph, events?: EventBus): PhaseOrchestrator {
+    const ctx: PhaseExecutionContext = { executeTask: async () => {} };
+    return new PhaseOrchestrator({ graph, ctx, autonomous: false, events });
+  }
+
+  function phaseByName(graph: PhaseGraph, name: string) {
+    return Array.from(graph.phases.values()).find((p) => p.name === name)!;
+  }
+  function taskByTitle(graph: PhaseGraph, title: string) {
+    for (const p of graph.phases.values()) {
+      for (const n of p.taskGraph.nodes.values()) if (n.title === title) return n;
+    }
+    throw new Error(`task ${title} not found`);
+  }
+
+  it('moveTask relocates a task to the target phase and emits an event', async () => {
+    const graph = await buildTwoPhaseGraph();
+    const events = new EventBus();
+    const moved: Array<{ taskId: string; fromPhaseId: string; toPhaseId: string }> = [];
+    (events.on as (e: string, h: (p: unknown) => void) => void)('phase.taskMoved', (p) =>
+      moved.push(p as { taskId: string; fromPhaseId: string; toPhaseId: string }),
+    );
+    const orch = makeIdle(graph, events);
+    const alpha = phaseByName(graph, 'Alpha');
+    const beta = phaseByName(graph, 'Beta');
+    const a2 = taskByTitle(graph, 'A2');
+
+    const ok = orch.moveTask(a2.id, beta.id);
+
+    expect(ok).toBe(true);
+    expect(alpha.taskGraph.nodes.has(a2.id)).toBe(false);
+    expect(beta.taskGraph.nodes.has(a2.id)).toBe(true);
+    expect(beta.taskGraph.rootNodes).toContain(a2.id);
+    expect(moved).toEqual([{ taskId: a2.id, fromPhaseId: alpha.id, toPhaseId: beta.id }]);
+  });
+
+  it('moveTask is a no-op for unknown task or same phase', async () => {
+    const graph = await buildTwoPhaseGraph();
+    const orch = makeIdle(graph);
+    const alpha = phaseByName(graph, 'Alpha');
+    const a1 = taskByTitle(graph, 'A1');
+    expect(orch.moveTask('nope', alpha.id)).toBe(false);
+    expect(orch.moveTask(a1.id, alpha.id)).toBe(false);
+  });
+
+  it('setTaskAssignee writes the assignee onto the node', async () => {
+    const graph = await buildTwoPhaseGraph();
+    const orch = makeIdle(graph);
+    const a1 = taskByTitle(graph, 'A1');
+    expect(orch.setTaskAssignee(a1.id, undefined, 'Einstein')).toBe(true);
+    expect(taskByTitle(graph, 'A1').assignee).toBe('Einstein');
+  });
+
+  it('addTask appends a pending task and returns its id', async () => {
+    const graph = await buildTwoPhaseGraph();
+    const orch = makeIdle(graph);
+    const beta = phaseByName(graph, 'Beta');
+    const before = beta.taskGraph.nodes.size;
+    const id = orch.addTask(beta.id, { title: 'B2', priority: 'high', type: 'test' });
+    expect(id).toBeTruthy();
+    expect(beta.taskGraph.nodes.size).toBe(before + 1);
+    const node = beta.taskGraph.nodes.get(id!)!;
+    expect(node.status).toBe('pending');
+    expect(node.title).toBe('B2');
+    expect(orch.addTask('missing-phase', { title: 'x' })).toBeNull();
+  });
+
+  it('requeueTask resets a failed phase to pending so it reruns', async () => {
+    const graph = await buildTwoPhaseGraph();
+    const orch = makeIdle(graph);
+    const alpha = phaseByName(graph, 'Alpha');
+    const a1 = taskByTitle(graph, 'A1');
+    // Simulate a finished/failed phase with a failed task.
+    alpha.status = 'failed';
+    graph.failedPhaseIds.push(alpha.id);
+    const tracker = (
+      orch as never as {
+        getTrackerForPhase: (p: typeof alpha) => { updateNodeStatus: (id: string, s: string) => void };
+      }
+    ).getTrackerForPhase(alpha);
+    tracker.updateNodeStatus(a1.id, 'failed');
+
+    expect(orch.requeueTask(a1.id)).toBe(true);
+    expect(alpha.status).toBe('pending');
+    expect(graph.failedPhaseIds).not.toContain(alpha.id);
+    expect(taskByTitle(graph, 'A1').status).toBe('pending');
+  });
+
+  it('emits phase.taskStarted when a task begins executing', async () => {
+    const graph = await buildTwoPhaseGraph();
+    const events = new EventBus();
+    const started: string[] = [];
+    (events.on as (e: string, h: (p: unknown) => void) => void)('phase.taskStarted', (p) =>
+      started.push((p as { taskTitle: string }).taskTitle),
+    );
+    const ctx: PhaseExecutionContext = { executeTask: async () => {} };
+    const orch = new PhaseOrchestrator({ graph, ctx, autonomous: false, events });
+    await orch.start();
+    expect(started).toEqual(expect.arrayContaining(['A1', 'A2', 'B1']));
   });
 });

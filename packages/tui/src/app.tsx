@@ -53,6 +53,7 @@ import { hitRegion, statusBarLineRow } from './hit-test.js';
 import { Input, type KeyEvent } from './components/input.js';
 import { ModelPicker, type ProviderOption } from './components/model-picker.js';
 import { PhaseMonitor } from './components/phase-monitor.js';
+import { SddBoardOverlay } from './components/sdd-board-overlay.js';
 import { PhasePanel } from './components/phase-panel.js';
 import { ProjectPicker } from './components/project-picker.js';
 import { QueuePanel } from './components/queue-panel.js';
@@ -1038,6 +1039,7 @@ export function App({
     eternalStage: null,
     goalSummary: null,
     autoPhase: null,
+    sddBoard: null,
     worktrees: {},
     worktreeMonitorOpen: false,
     coordinator: {
@@ -4479,6 +4481,12 @@ export function App({
       toggleWorktreeOverlay();
       return;
     }
+    // Ctrl+B → live multi-agent SDD board overlay (no-op until the first
+    // sdd.board.snapshot arrives from a running /sdd execute).
+    if (key.ctrl && input === 'b') {
+      dispatch({ type: 'toggleSddBoardMonitor' });
+      return;
+    }
     // F5 → plan panel overlay. Opening closes any other overlay or panel.
     if (key.fn === 5) {
       if (state.planPanelOpen) {
@@ -6446,6 +6454,8 @@ export function App({
               elapsedMs={state.autoPhase.elapsedMs}
               nowTick={nowTick}
             />
+          ) : state.sddBoard?.monitorOpen ? (
+            <SddBoardOverlay snapshot={state.sddBoard.snapshot} />
           ) : state.worktreeMonitorOpen ? (
             <WorktreeMonitor
               worktrees={state.worktrees}

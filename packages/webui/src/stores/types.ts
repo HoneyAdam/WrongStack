@@ -57,6 +57,16 @@ export interface ChatMessage {
     durationMs: number;
     costDelta: number;
   };
+  /** Archived extended-thinking text captured during one agent iteration.
+   *  The live thinking bubble is transient; this metadata keeps the final
+   *  process log in chat history once the iteration completes. */
+  thinkingLog?: {
+    iteration: number;
+    text: string;
+    startedAt: number;
+    durationMs: number;
+    replayed?: boolean | undefined;
+  } | undefined;
 }
 
 export interface SessionInfo {

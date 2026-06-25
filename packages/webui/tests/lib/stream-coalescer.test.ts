@@ -61,6 +61,16 @@ describe('StreamCoalescer', () => {
     expect(flush).not.toHaveBeenCalled();
   });
 
+  it('dropAll() discards every buffered stream without flushing', () => {
+    const c = new StreamCoalescer();
+    const flush = vi.fn();
+    c.push('a', 'A', flush);
+    c.push('b', 'B', flush);
+    c.dropAll();
+    tick();
+    expect(flush).not.toHaveBeenCalled();
+  });
+
   it('flushAll drains every key', () => {
     const c = new StreamCoalescer();
     const flush = vi.fn();

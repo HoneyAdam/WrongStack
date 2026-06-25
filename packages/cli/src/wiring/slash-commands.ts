@@ -54,6 +54,10 @@ export interface SlashCommandsDeps {
     activeId: string | null;
     register(id: string): void;
     clear(): void;
+    getDefaults?: (() => { intervalMs?: number; provider?: string; model?: string }) | undefined;
+    setDefaults?:
+      | ((defaults: { intervalMs?: number; provider?: string; model?: string }) => void)
+      | undefined;
   };
   /** Agent Monitor Service — subagent conversation tracking and HQ streaming. */
   agentMonitor?: import('@wrongstack/core/coordination').AgentMonitorService | undefined;
@@ -162,9 +166,6 @@ export async function setupSlashCommands(params: SlashCommandsDeps): Promise<voi
     agentMonitor: params.agentMonitor,
     onSpawn: async (description, spawnOpts) => {
       const { subagentId, taskId } = await multiAgentHost.spawn(description, spawnOpts);
-      if (shadowController && spawnOpts?.name === 'shadow') {
-        shadowController.register(subagentId);
-      }
       const tags: string[] = [];
       if (spawnOpts?.provider) tags.push(spawnOpts.provider);
       if (spawnOpts?.model) tags.push(spawnOpts.model);

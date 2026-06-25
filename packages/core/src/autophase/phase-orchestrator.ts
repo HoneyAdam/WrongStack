@@ -603,6 +603,14 @@ export class PhaseOrchestrator {
   private async executeSingleTask(task: TaskNode, phase: PhaseNode): Promise<unknown> {
     const tracker = this.getTrackerForPhase(phase);
     tracker.updateNodeStatus(task.id, 'in_progress');
+    // Signal the start so boards can move the card to "in progress" and show the
+    // worker. `executeTask` may assign/refine the agent right after (taskAssigned).
+    this.emit('phase.taskStarted', {
+      phaseId: phase.id,
+      taskId: task.id,
+      taskTitle: task.title,
+      agentName: task.assignee,
+    });
     const handle = this.phaseWorktrees.get(phase.id);
     return this.ctx.executeTask(task, phase.id, { cwd: handle?.dir, branch: handle?.branch });
   }
@@ -844,6 +852,116 @@ export class PhaseOrchestrator {
     if (!phase) return;
     phase.assignedAgents = phase.assignedAgents.filter((id) => id !== agentId);
     this.emit('agent.released', { phaseId, agentId });
+  }
+
+  // ─── Interactive board mutations ──────────────────────────────────────────
+  //
+  // These are driven by an interactive board (WebUI/TUI), not the autonomous
+  // loop. Each mutates the live graph, emits a typed event so every surface
+  // stays in sync, and bumps updatedAt so the host re-persists.
+
+  /** Find the phase whose task graph currently holds `taskId`. */
+  findPhaseOfTask(taskId: string): PhaseNode | undefined {
+    for (const phase of this.graph.phases.values()) {
+      if (phase.taskGraph.nodes.has(taskId)) return phase;
+    }
+    return undefined;
+  }
+
+  /**
+   * Move a task to another phase's task graph. Edges that referenced the task
+   * are dropped (cross-phase dependencies are not modeled). No-op when the task
+   * or target phase is missing, or it is already in the target phase.
+   */
+  moveTask(taskId: string, toPhaseId: string): boolean {
+    const from = this.findPhaseOfTask(taskId);
+    const to = this.graph.phases.get(toPhaseId);
+    if (!from || !to || from.id === toPhaseId) return false;
+
+    const node = from.taskGraph.nodes.get(taskId);
+    if (!node) return false;
+
+    // Detach from the source graph (nodes, rootNodes, touching edges).
+    from.taskGraph.nodes.delete(taskId);
+    from.taskGraph.rootNodes = from.taskGraph.rootNodes.filter((id) => id !== taskId);
+    from.taskGraph.edges = from.taskGraph.edges.filter((e) => e.from !== taskId && e.to !== taskId);
+    from.taskGraph.updatedAt = Date.now();
+
+    // Attach to the target graph as a root node.
+    node.parentId = undefined;
+    node.children = undefined;
+    node.updatedAt = Date.now();
+    to.taskGraph.nodes.set(taskId, node);
+    to.taskGraph.rootNodes.push(taskId);
+    to.taskGraph.updatedAt = Date.now();
+
+    // Invalidate cached trackers so getProgress/getExecutableTasks see the move.
+    this.trackerCache.delete(from.id);
+    this.trackerCache.delete(to.id);
+    this.graph.updatedAt = Date.now();
+    this.emit('phase.taskMoved', { taskId, fromPhaseId: from.id, toPhaseId });
+    return true;
+  }
+
+  /** (Re)assign a task to a specific agent (or clear with agentName/agentId omitted). */
+  setTaskAssignee(taskId: string, agentId?: string, agentName?: string): boolean {
+    const phase = this.findPhaseOfTask(taskId);
+    if (!phase) return false;
+    const tracker = this.getTrackerForPhase(phase);
+    tracker.updateNode(taskId, { assignee: agentName ?? agentId ?? '' });
+    this.graph.updatedAt = Date.now();
+    this.emit('phase.taskAssigned', { phaseId: phase.id, taskId, agentId, agentName });
+    return true;
+  }
+
+  /** Add a new task to a phase. Returns the created task id, or null if the phase is missing. */
+  addTask(
+    phaseId: string,
+    spec: {
+      title: string;
+      description?: string | undefined;
+      type?: TaskNode['type'] | undefined;
+      priority?: TaskNode['priority'] | undefined;
+    },
+  ): string | null {
+    const phase = this.graph.phases.get(phaseId);
+    if (!phase) return null;
+    const tracker = this.getTrackerForPhase(phase);
+    const node = tracker.addNode({
+      title: spec.title,
+      description: spec.description ?? '',
+      type: spec.type ?? 'feature',
+      priority: spec.priority ?? 'medium',
+      status: 'pending',
+    });
+    this.graph.updatedAt = Date.now();
+    this.emit('phase.taskAdded', { phaseId, taskId: node.id, taskTitle: node.title });
+    return node.id;
+  }
+
+  /**
+   * Requeue a task to `pending` (clearing its retry counter) and nudge a
+   * terminal/paused phase back to `ready` so the loop re-runs it. Backs both the
+   * board's "retry" and "start" affordances.
+   */
+  requeueTask(taskId: string): boolean {
+    const phase = this.findPhaseOfTask(taskId);
+    if (!phase) return false;
+    const tracker = this.getTrackerForPhase(phase);
+    tracker.updateNodeStatus(taskId, 'pending');
+    this.taskRetryCounts.delete(`${phase.id}:${taskId}`);
+    // A terminal/paused phase is reset to `pending` (the only status the
+    // ready-scan + tick loop pick up) so its newly-pending task re-runs. Drop
+    // the stale worktree handle so the rerun allocates a fresh isolated tree.
+    if (phase.status === 'completed' || phase.status === 'failed' || phase.status === 'paused') {
+      this.graph.failedPhaseIds = this.graph.failedPhaseIds.filter((id) => id !== phase.id);
+      this.graph.completedPhaseIds = this.graph.completedPhaseIds.filter((id) => id !== phase.id);
+      this.graph.activePhaseIds = this.graph.activePhaseIds.filter((id) => id !== phase.id);
+      this.phaseWorktrees.delete(phase.id);
+      this.updatePhaseStatus(phase, 'pending');
+    }
+    this.graph.updatedAt = Date.now();
+    return true;
   }
 
   // ─── Events ───────────────────────────────────────────────────────────────

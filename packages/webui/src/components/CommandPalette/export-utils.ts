@@ -1,4 +1,27 @@
 import { useChatStore, useSessionStore } from '@/stores';
+import type { ChatMessage } from '@/stores';
+
+function formatThinkingDuration(message: ChatMessage): string {
+  const log = message.thinkingLog;
+  if (!log) return '';
+  if (log.replayed) return 'replay';
+  const seconds = Math.max(0.1, log.durationMs / 1000);
+  return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
+}
+
+function markdownFence(text: string): string {
+  const longest = Math.max(3, ...Array.from(text.matchAll(/`+/g), (m) => m[0].length + 1));
+  return '`'.repeat(longest);
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 /**
  * Build a markdown export of the current chat and trigger a browser download.
@@ -14,7 +37,22 @@ export function downloadChatAsMarkdown(): void {
   lines.push(`*Exported: ${new Date().toISOString()}*`);
   lines.push('');
   for (const m of messages) {
-    if (m.role === 'user') {
+    if (m.thinkingLog) {
+      const fence = markdownFence(m.thinkingLog.text);
+      const lineCount = m.thinkingLog.text.split('\n').length;
+      lines.push(`### 🧠 Thinking process — iteration ${m.thinkingLog.iteration}`);
+      lines.push('');
+      lines.push(`_${formatThinkingDuration(m)} · ${lineCount} line${lineCount === 1 ? '' : 's'}_`);
+      lines.push('');
+      lines.push('<details><summary>Log</summary>');
+      lines.push('');
+      lines.push(`${fence}text`);
+      lines.push(m.thinkingLog.text);
+      lines.push(fence);
+      lines.push('');
+      lines.push('</details>');
+      lines.push('');
+    } else if (m.role === 'user') {
       lines.push('## 👤 User');
       lines.push('');
       lines.push(m.content);
@@ -62,17 +100,18 @@ export function downloadChatAsHtml(): void {
   const messages = useChatStore.getState().messages;
   const session = useSessionStore.getState();
   const projectName = session.projectName || 'chat';
-  const safeTitle = escape(session.session?.title || projectName);
+  const safeTitle = escapeHtml(session.session?.title || projectName);
   const now = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-  const escapeHtml = (s: string) =>
-    s
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
 
   const turns = messages.map((m) => {
+    if (m.thinkingLog) {
+      const lineCount = m.thinkingLog.text.split('\n').length;
+      return `
+        <section class="bubble thinking">
+          <header><span class="icon">🧠</span><strong>Thinking process</strong> <span class="meta-chip">iter ${m.thinkingLog.iteration} · ${escapeHtml(formatThinkingDuration(m))} · ${lineCount} line${lineCount === 1 ? '' : 's'}</span></header>
+          <details open><summary>Log</summary><pre>${escapeHtml(m.thinkingLog.text)}</pre></details>
+        </section>`;
+    }
     if (m.role === 'tool') {
       const status = m.isError ? '❌' : m.toolResult !== undefined ? '✅' : '⏳';
       return `
@@ -114,8 +153,10 @@ export function downloadChatAsHtml(): void {
   .bubble header .icon { margin-right: 4px; }
   .bubble.user { background: #eef4ff; border-color: #c8d8f5; }
   .bubble.assistant { background: #fff; }
+  .bubble.thinking { background: #fbf7ff; border-color: #dcc7ff; }
   .bubble.tool { background: #fafafa; }
   .bubble.tool.error { background: #fff5f5; border-color: #f5c8c8; }
+  .meta-chip { text-transform: none; letter-spacing: 0; font-weight: 400; }
   pre.content, .bubble pre { white-space: pre-wrap; word-break: break-word; font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; margin: 0; }
   details summary { cursor: pointer; color: #555; font-size: 12px; }
   details pre { margin-top: 6px; background: #f4f4f4; padding: 8px; border-radius: 6px; max-height: 360px; overflow: auto; }
@@ -124,6 +165,7 @@ export function downloadChatAsHtml(): void {
     .bubble { border-color: #2a2a2e; }
     .bubble.user { background: #16213a; border-color: #2a3d6b; }
     .bubble.assistant { background: #161618; }
+    .bubble.thinking { background: #1d1728; border-color: #4b3673; }
     .bubble.tool { background: #131315; }
     .bubble.tool.error { background: #2a1717; border-color: #5c2a2a; }
     details pre { background: #1a1a1c; }
@@ -133,7 +175,7 @@ export function downloadChatAsHtml(): void {
 </head><body>
 <h1>${safeTitle} — chat export</h1>
 <div class="meta">
-  Exported ${new Date().toISOString()}${session.session?.provider ? ` · ${escape(session.session.provider)}/${escape(session.session.model)}` : ''} · ${messages.length} message${messages.length === 1 ? '' : 's'}
+  Exported ${new Date().toISOString()}${session.session?.provider ? ` · ${escapeHtml(session.session.provider)}/${escapeHtml(session.session.model)}` : ''} · ${messages.length} message${messages.length === 1 ? '' : 's'}
 </div>
 ${turns.join('')}
 </body></html>`;

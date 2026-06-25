@@ -106,6 +106,14 @@ export interface PhaseEventMap {
   'phase.started': { phaseId: string; name: string };
   'phase.completed': { phaseId: string; name: string; durationMs: number };
   'phase.failed': { phaseId: string; name: string; error?: string | undefined };
+  /** A task began executing — carries the worker agent so boards can show who is on it. */
+  'phase.taskStarted': {
+    phaseId: string;
+    taskId: string;
+    taskTitle: string;
+    agentId?: string | undefined;
+    agentName?: string | undefined;
+  };
   'phase.taskCompleted': { phaseId: string; taskId: string; taskTitle: string };
   'phase.taskFailed': { phaseId: string; taskId: string; taskTitle: string; error: string };
   'phase.taskRetrying': {
@@ -126,6 +134,17 @@ export interface PhaseEventMap {
   'autonomous.tick': { activePhases: string[]; queuedPhases: string[] };
   'agent.assigned': { phaseId: string; agentId: string };
   'agent.released': { phaseId: string; agentId: string };
+  /** A task was moved between phases from an interactive board. */
+  'phase.taskMoved': { taskId: string; fromPhaseId: string; toPhaseId: string };
+  /** A task was (re)assigned to a specific agent from an interactive board. */
+  'phase.taskAssigned': {
+    phaseId: string;
+    taskId: string;
+    agentId?: string | undefined;
+    agentName?: string | undefined;
+  };
+  /** A task was added to a phase from an interactive board. */
+  'phase.taskAdded': { phaseId: string; taskId: string; taskTitle: string };
 }
 
 export type PhaseEventName = keyof PhaseEventMap;

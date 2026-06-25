@@ -75,6 +75,8 @@ export interface SlashCommandContext {
        *  tools' own capabilities. Pass this to narrow (e.g. read-only) or to
        *  grant an escape-hatch cap (fs.write.outside-project, config.mutate). */
       allowedCapabilities?: readonly string[] | undefined;
+      /** Shadow Agent heartbeat interval in ms. Only used when name === 'shadow'. */
+      shadowIntervalMs?: number | undefined;
     },
   ) => Promise<string>;
   /**
@@ -95,6 +97,8 @@ export interface SlashCommandContext {
        *  tools' own capabilities. Pass this to narrow (e.g. read-only) or to
        *  grant an escape-hatch cap (fs.write.outside-project, config.mutate). */
       allowedCapabilities?: readonly string[] | undefined;
+      /** Shadow Agent heartbeat interval in ms. Only used when name === 'shadow'. */
+      shadowIntervalMs?: number | undefined;
     },
   ) => Promise<string>;
   onAgents?: ((subagentId?: string) => string) | undefined;
@@ -113,7 +117,7 @@ export interface SlashCommandContext {
   /**
    * Kill all running subagents. Returns count of killed subagents.
    */
-  onFleetKill?: (() => number) | undefined;
+  onFleetKill?: (() => number | Promise<number>) | undefined;
   /**
    * Abort the in-flight leader run. Installed by the surface (REPL/TUI) on
    * startup so `/interrupt` can stop the current iteration — slash commands
@@ -128,7 +132,7 @@ export interface SlashCommandContext {
   /**
    * Terminate a specific subagent by id. Returns true if terminated.
    */
-  onFleetTerminate?: ((subagentId: string) => boolean) | undefined;
+  onFleetTerminate?: ((subagentId: string) => boolean | Promise<boolean>) | undefined;
   /**
    * Spawn a subagent of a given role. Returns the new subagent id.
    */
@@ -370,6 +374,26 @@ export interface SlashCommandContext {
     getProgress: () => import('@wrongstack/core').PhaseProgress | null;
     isRunning: () => boolean;
   } | null;
+  /** Interactive board: move a task to another phase (returns false when idle/invalid). */
+  onAutoPhaseMoveTask?: ((taskId: string, toPhaseId: string) => boolean) | undefined;
+  /** Interactive board: (re)assign a task to an agent (clear with both omitted). */
+  onAutoPhaseAssignTask?:
+    | ((taskId: string, agentId?: string, agentName?: string) => boolean)
+    | undefined;
+  /** Interactive board: add a new task to a phase, returning its id (or null when idle). */
+  onAutoPhaseAddTask?:
+    | ((
+        phaseId: string,
+        spec: {
+          title: string;
+          description?: string;
+          type?: import('@wrongstack/core').TaskNode['type'];
+          priority?: import('@wrongstack/core').TaskNode['priority'];
+        },
+      ) => string | null)
+    | undefined;
+  /** Interactive board: requeue a task to pending so it (re)runs. */
+  onAutoPhaseRetryTask?: ((taskId: string) => boolean) | undefined;
   /**
    * Manage git worktrees used for per-phase AutoPhase isolation.
    * `list` shows current worktrees, `merge <branch>` squash-merges a branch
@@ -416,6 +440,12 @@ export interface SlashCommandContext {
     register(id: string): void;
     /** Clear the active shadow agent id (called on termination). */
     clear(): void;
+    /** Read per-session defaults used by the next /shadow start. */
+    getDefaults?: (() => { intervalMs?: number; provider?: string; model?: string }) | undefined;
+    /** Update per-session defaults used by the next /shadow start. */
+    setDefaults?:
+      | ((defaults: { intervalMs?: number; provider?: string; model?: string }) => void)
+      | undefined;
   } | undefined;
 }
 

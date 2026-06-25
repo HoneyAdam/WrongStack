@@ -172,6 +172,98 @@ describe('MultiAgentHost', () => {
     await host.stopAll();
   });
 
+  it('shadow spawn exposes lazy director tools to the subagent', async () => {
+    const deps = makeDeps();
+    const host = new MultiAgentHost(deps);
+    await host.spawn('shadow monitor', {
+      name: 'shadow',
+      tools: ['fleet_status', 'fleet_health', 'fleet_usage', 'terminate_subagent'],
+    });
+
+    await vi.waitFor(() =>
+      expect(
+        (deps.systemPromptBuilder as { build: ReturnType<typeof vi.fn> }).build,
+      ).toHaveBeenCalled(),
+    );
+
+    const build = (deps.systemPromptBuilder as { build: ReturnType<typeof vi.fn> }).build;
+    const shadowBuild = build.mock.calls.find((call) => call[0]?.subagent === true);
+    const toolNames = ((shadowBuild?.[0]?.tools ?? []) as Tool[]).map((tool) => tool.name);
+    expect(toolNames).toEqual(expect.arrayContaining([
+      'fleet_status',
+      'fleet_health',
+      'fleet_usage',
+      'terminate_subagent',
+    ]));
+    await host.stopAll();
+  });
+
+  it('shadow heartbeat is host-assigned and excluded from fleet summaries', async () => {
+    const deps = makeDeps();
+    const startedEvents: unknown[] = [];
+    deps.events.on('subagent.task_started', (event) => startedEvents.push(event));
+    const host = new MultiAgentHost(deps);
+    await host.spawn('shadow monitor', {
+      name: 'shadow',
+      shadowIntervalMs: 10,
+      tools: ['fleet_status', 'fleet_health', 'fleet_usage', 'terminate_subagent'],
+    });
+
+    const build = (deps.systemPromptBuilder as { build: ReturnType<typeof vi.fn> }).build;
+    await vi.waitFor(() => expect(build.mock.calls.length).toBeGreaterThan(1));
+
+    const s = host.status();
+    expect(s.pending).toEqual([]);
+    expect(s.completed).toEqual([]);
+    expect(s.summary).toMatch(/active/);
+    expect(startedEvents).toEqual([]);
+    await host.stopAll();
+  });
+
+  it('clears tracked shadow state when the director removes the shadow subagent', async () => {
+    const deps = makeDeps();
+    const stopped = vi.fn();
+    const host = new MultiAgentHost(deps, { onShadowAgentStopped: stopped });
+    const { subagentId } = await host.spawn('shadow monitor', {
+      name: 'shadow',
+      tools: ['fleet_status', 'fleet_health', 'fleet_usage', 'terminate_subagent'],
+    });
+
+    await host.getDirector()?.remove(subagentId);
+
+    expect(stopped).toHaveBeenCalledWith(subagentId);
+    await host.stopAll();
+  });
+
+  it('auto-started shadow inherits the leader provider and model', async () => {
+    const providersMod = await import('@wrongstack/providers');
+    const mocked = providersMod.makeProviderFromConfig as ReturnType<typeof vi.fn>;
+    mocked.mockClear();
+
+    const deps = makeDeps();
+    (deps.configStore.get as ReturnType<typeof vi.fn>).mockReturnValue({
+      provider: 'openai',
+      model: 'gpt-5',
+      apiKey: 'leader-key',
+      providers: {
+        openai: { type: 'openai', family: 'openai', apiKey: 'openai-key' },
+      },
+    });
+
+    const host = new MultiAgentHost(deps);
+    await host.promoteToDirector();
+    await vi.waitFor(() =>
+      expect(
+        (deps.systemPromptBuilder as { build: ReturnType<typeof vi.fn> }).build,
+      ).toHaveBeenCalled(),
+    );
+    await host.stopAll();
+
+    const providerIds = mocked.mock.calls.map((c) => c[0]);
+    expect(providerIds).toContain('openai');
+    expect(providerIds).not.toContain('anthropic');
+  });
+
   it('spawn() works with a providers config entry (not just top-level apiKey)', async () => {
     const deps = makeDeps();
     (deps.configStore.get as ReturnType<typeof vi.fn>).mockReturnValueOnce({

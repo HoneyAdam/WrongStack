@@ -18,10 +18,12 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from '@/components/Toaster';
+import { useProviderModels } from '@/hooks/useProviderModels';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useConfigStore, useUIStore } from '@/stores';
 import { useLocalPrefs } from '@/stores/local-prefs';
 import type { WSServerMessage } from '@/types';
+import { FallbackEditor } from '../FallbackEditor';
 import { useTheme } from '../ThemeProvider';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -56,6 +58,8 @@ export function SettingsPanel() {
   const wsClient = ws.client;
   const { updatePrefs, switchAutonomy } = ws;
   const localPrefs = useLocalPrefs();
+  // Model catalogue for the global fallback chain editor (fetched while open).
+  const fallbackCandidates = useProviderModels(true);
 
   // Helper: apply a pref change locally AND push it to the server so the
   // running agent sees the new value immediately. Uses the batch
@@ -481,8 +485,35 @@ export function SettingsPanel() {
                   onChange={(v) => syncPref('cacheTtl', v)}
                 />
                 <p className="text-xs text-muted-foreground mt-2">
-                  Use <code className="bg-muted px-1 py-0.5 rounded">wstack models caps</code> to check what the current model supports. Unsupported settings are silently omitted per-request.
+                  Use <code className="bg-muted px-1 py-0.5 rounded">wstack models caps</code> to
+                  check what the current model supports. Unsupported settings are silently omitted
+                  per-request.
                 </p>
+              </div>
+
+              <div className="pt-2 border-t">
+                <h3 className="text-sm font-semibold mb-3 mt-3 flex items-center gap-2">
+                  <Cpu className="h-4 w-4 text-muted-foreground" />
+                  Model Fallbacks
+                </h3>
+                <p className="mb-2 text-xs text-muted-foreground">
+                  When the active model rate-limits (429/529), 5xx-errors, or stalls — after its own
+                  retries — the agent rotates to the next model in this chain. Also used as the
+                  default for SDD worker subagents.
+                </p>
+                <FallbackEditor
+                  value={localPrefs.fallbackModels}
+                  candidates={fallbackCandidates}
+                  onChange={(next) => syncPref('fallbackModels', next)}
+                />
+                <div className="pt-1">
+                  <PreferenceToggle
+                    label="Auto fallback"
+                    hint="When the chain above is empty, auto-derive one from your keyed providers."
+                    value={localPrefs.fallbackAuto}
+                    onChange={() => syncPref('fallbackAuto', !localPrefs.fallbackAuto)}
+                  />
+                </div>
               </div>
 
               <div className="pt-2 border-t">
@@ -503,7 +534,9 @@ export function SettingsPanel() {
                     placeholder="http://host:3499"
                     onChange={(e) => syncPref('hqUrl', e.target.value)}
                   />
-                  <p className="text-xs text-muted-foreground">Leave empty for same-machine auto-discovery.</p>
+                  <p className="text-xs text-muted-foreground">
+                    Leave empty for same-machine auto-discovery.
+                  </p>
                 </div>
                 <div className="space-y-1 py-2">
                   <label className="text-sm font-medium">HQ client token</label>

@@ -20,6 +20,7 @@
 import type { EventBus } from '../kernel/events.js';
 import type { Context } from '../core/context.js';
 import type { Tool } from '../types/tool.js';
+import { ToolCapabilities } from '../security/capabilities.js';
 import { GlobalMailbox } from './global-mailbox.js';
 import { normalizeRecipient } from './mailbox-types.js';
 import type { Mailbox, MailboxMessage, MailboxMessageType } from './mailbox-types.js';
@@ -78,6 +79,7 @@ export function makeMailSendTool(opts: MailToolsOptions = {}): Tool {
     category: 'coordination',
     permission: 'auto',
     mutating: true,
+    capabilities: [ToolCapabilities.COORDINATION_MAIL],
     inputSchema: {
       type: 'object',
       properties: {
@@ -143,6 +145,7 @@ export function makeMailInboxTool(opts: MailToolsOptions = {}): Tool {
     category: 'coordination',
     permission: 'auto',
     mutating: false,
+    capabilities: [ToolCapabilities.COORDINATION_MAIL],
     inputSchema: {
       type: 'object',
       properties: {

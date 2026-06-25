@@ -65,6 +65,38 @@ describe('session.start resume transition', () => {
     expect(messages[1]?.content).toBe('world');
   });
 
+  it('hydrates replayed thinking blocks as archived thinking logs', () => {
+    fireSessionStart({
+      ...BASE_PAYLOAD,
+      reset: true,
+      replayMessages: [
+        { role: 'user', content: 'hello', ts: '2026-06-11T10:00:00Z' },
+        {
+          role: 'assistant',
+          ts: '2026-06-11T10:00:05Z',
+          content: [
+            { type: 'thinking', thinking: 'first reasoning line' },
+            { type: 'thinking', thinking: 'second reasoning line' },
+            { type: 'text', text: 'world' },
+          ],
+        },
+      ],
+    });
+
+    const messages = useChatStore.getState().messages;
+    expect(messages.map((m) => m.role)).toEqual(['user', 'assistant', 'system']);
+    expect(messages[1]?.content).toBe('world');
+    expect(messages[2]?.content).toBe('');
+    expect(messages[2]?.timestamp).toBe(Date.parse('2026-06-11T10:00:05Z'));
+    expect(messages[2]?.thinkingLog).toEqual({
+      iteration: 1,
+      text: 'first reasoning line\n\nsecond reasoning line',
+      startedAt: Date.parse('2026-06-11T10:00:05Z'),
+      durationMs: 0,
+      replayed: true,
+    });
+  });
+
   it('attaches replayed tool_result blocks to tool_use messages by id', () => {
     fireSessionStart({
       ...BASE_PAYLOAD,
@@ -141,5 +173,13 @@ describe('session.start resume transition', () => {
     fireSessionStart({ ...BASE_PAYLOAD, reset: true });
     expect(useChatStore.getState().isLoading).toBe(false);
     expect(useSessionStore.getState().todos).toHaveLength(0);
+  });
+
+  it('clears stale active search hit state on reset', () => {
+    useUIStore.getState().setSearchActiveMessageId('old-thinking-log');
+
+    fireSessionStart({ ...BASE_PAYLOAD, reset: true });
+
+    expect(useUIStore.getState().searchActiveMessageId).toBeNull();
   });
 });

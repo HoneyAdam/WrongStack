@@ -156,6 +156,8 @@ export interface ExecutionDeps {
   config: Config;
   /** Live config store — used to read/persist `/settings` values from the TUI. */
   configStore: ConfigStore;
+  /** Per-task agent factory for the CLI-hosted WebUI's SDD wizard (multi-agent run). */
+  sddSubagentFactory?: import('@wrongstack/core').AgentFactory | undefined;
   renderer: TerminalRenderer;
   reader: ReadlineInputReader;
   session: SessionWriter;
@@ -367,6 +369,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
     tokenCounter,
     config,
     configStore,
+    sddSubagentFactory,
     renderer,
     reader,
     session,
@@ -1063,6 +1066,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
         onAutonomy,
         activeRecoveryLock,
         onModelContextResolved,
+        sddSubagentFactory,
       });
     } else {
       code = await runRepl({

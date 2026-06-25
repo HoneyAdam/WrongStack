@@ -17,6 +17,7 @@ import {
   makeWorkCompleteTool,
 } from '../../src/coordination/director-tools.js';
 import { FleetCostCapError, FleetSpawnBudgetError, type Director } from '../../src/coordination/director.js';
+import { ToolCapabilities } from '../../src/security/capabilities.js';
 
 const dispatchAgentMock = vi.fn();
 vi.mock('../../src/coordination/dispatcher.js', () => ({
@@ -55,6 +56,34 @@ beforeEach(() => {
   dispatchAgentMock.mockReset();
 });
 afterEach(() => vi.restoreAllMocks());
+
+describe('director tool capabilities', () => {
+  it('declares capabilities for subagent permission policy', () => {
+    const tools = [
+      makeSpawnTool(asDir()),
+      makeAssignTool(asDir()),
+      makeAwaitTasksTool(asDir()),
+      makeAskTool(asDir()),
+      makeAskResultTool(asDir()),
+      makeRollUpTool(asDir()),
+      makeTerminateTool(asDir()),
+      makeTerminateAllTool(asDir()),
+      makeFleetStatusTool(asDir()),
+      makeFleetUsageTool(asDir()),
+      makeFleetSessionTool(asDir()),
+      makeFleetHealthTool(asDir()),
+      makeCollabDebugTool(asDir()),
+      makeFleetEmitTool(asDir()),
+      makeWorkCompleteTool(asDir()),
+    ];
+
+    for (const tool of tools) {
+      expect(tool.capabilities?.length, tool.name).toBeGreaterThan(0);
+    }
+    expect(makeTerminateTool(asDir()).capabilities).toContain(ToolCapabilities.SUBAGENT_SPAWN);
+    expect(makeFleetStatusTool(asDir()).capabilities).toContain(ToolCapabilities.COORDINATION_FLEET_READ);
+  });
+});
 
 describe('makeSpawnTool', () => {
   it('spawns from a roster role and applies config overrides', async () => {

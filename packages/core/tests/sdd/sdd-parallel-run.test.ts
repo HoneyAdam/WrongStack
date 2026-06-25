@@ -139,81 +139,90 @@ describe('SddParallelRun.executeWave', () => {
   });
 });
 
-/** Drives run()'s loop with a scripted decomposer + a stubbed executeWave. */
-function scriptDecomposer(run: SddParallelRun, batches: Array<{ tasks: TaskNode[]; deadlocked?: boolean; allDone?: boolean }>) {
-  let i = 0;
-  let done = false;
-  (run as never as { decomposer: unknown }).decomposer = {
-    isDone: () => done,
-    nextBatch: () => ({ wave: i, tasks: [], deadlocked: false, allDone: false, ...batches[Math.min(i, batches.length - 1)] }),
-    acknowledgeBatch: () => { i++; if (i >= batches.length - 1) done = true; },
-    getWaveCount: () => i,
-  };
+/** Spy executeOne so the real continuous scheduler drives a real tracker/graph. */
+function stubExecuteOne(
+  run: SddParallelRun,
+  tracker: TaskTracker,
+  fn?: (task: TaskNode) => void | Promise<void>,
+) {
+  vi.spyOn(run as never as { buildCoordinator: () => void }, 'buildCoordinator').mockImplementation(() => {});
+  return vi.spyOn(run, 'executeOne').mockImplementation(async (task: TaskNode) => {
+    await fn?.(task);
+    tracker.updateNodeStatus(task.id, 'completed');
+    return { taskId: task.id, success: true };
+  });
 }
 
-describe('SddParallelRun.run', () => {
-  it('runs waves until the decomposer reports done', async () => {
-    const { run } = await makeHarness();
-    vi.spyOn(run as never as { buildCoordinator: () => void }, 'buildCoordinator').mockImplementation(() => {});
-    const exec = vi.spyOn(run, 'executeWave').mockResolvedValue({ wave: 0, batch: {} as never, results: [], successCount: 1, failCount: 0, durationMs: 1, stopRequested: false });
-    scriptDecomposer(run, [{ tasks: [{ id: 'x' } as TaskNode] }, { tasks: [], allDone: true }]);
+describe('SddParallelRun.run (continuous scheduler)', () => {
+  it('runs every ready task until the graph settles', async () => {
+    const { run, tracker } = await makeHarness();
+    const exec = stubExecuteOne(run, tracker);
     const result = await run.run();
-    expect(exec).toHaveBeenCalled();
-    expect(result.totalWaves).toBe(1);
-    expect(result.totalCompleted).toBe(1);
+    expect(exec).toHaveBeenCalledTimes(2);
+    expect(result.totalCompleted).toBe(2);
     expect(result.deadlocked).toBe(false);
+    expect(result.totalWaves).toBeGreaterThanOrEqual(1);
   });
 
-  it('breaks and reports deadlock when no task is runnable', async () => {
-    const { run } = await makeHarness();
-    vi.spyOn(run as never as { buildCoordinator: () => void }, 'buildCoordinator').mockImplementation(() => {});
-    (run as never as { decomposer: unknown }).decomposer = {
-      isDone: () => false,
-      nextBatch: () => ({ wave: 0, tasks: [], deadlocked: true, allDone: false }),
-      acknowledgeBatch: () => {},
-      getWaveCount: () => 0,
-    };
+  it('respects dependencies — a dependent only starts after its blocker completes', async () => {
+    const { run, tracker, t1, t2 } = await makeHarness();
+    tracker.addDependency(t1.id, t2.id); // t2 depends on t1
+    const order: string[] = [];
+    stubExecuteOne(run, tracker, (task) => {
+      order.push(task.id);
+    });
+    await run.run();
+    expect(order).toEqual([t1.id, t2.id]);
+  });
+
+  it('runs independent tasks in parallel (both in flight at once)', async () => {
+    const { run, tracker } = await makeHarness(); // t1, t2 — no edge
+    let inFlight = 0;
+    let maxInFlight = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    stubExecuteOne(run, tracker, async () => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      if (inFlight >= 2) release();
+      await gate;
+      inFlight--;
+    });
+    await run.run();
+    expect(maxInFlight).toBe(2);
+  });
+
+  it('reports deadlock when an incomplete task is blocked and nothing is runnable', async () => {
+    const { run, tracker, t1, t2 } = await makeHarness();
+    tracker.addDependency(t1.id, t2.id); // t2 depends on t1
+    tracker.updateNodeStatus(t1.id, 'blocked'); // t1 not runnable, not terminal
+    const exec = stubExecuteOne(run, tracker);
     const result = await run.run();
-    expect(result.totalWaves).toBe(0);
+    expect(exec).not.toHaveBeenCalled();
     expect(result.deadlocked).toBe(true);
   });
 
-  it('breaks cleanly when the graph is already complete', async () => {
-    const { run } = await makeHarness();
-    vi.spyOn(run as never as { buildCoordinator: () => void }, 'buildCoordinator').mockImplementation(() => {});
-    (run as never as { decomposer: unknown }).decomposer = {
-      isDone: () => false,
-      nextBatch: () => ({ wave: 0, tasks: [], deadlocked: false, allDone: true }),
-      acknowledgeBatch: () => {},
-      getWaveCount: () => 0,
-    };
+  it('stops promptly when stop() is called from onProgress', async () => {
+    let stopRef!: SddParallelRun;
+    const onProgress = vi.fn(() => stopRef.stop());
+    const { run, tracker } = await makeHarness({ onProgress });
+    stopRef = run;
+    stubExecuteOne(run, tracker);
     const result = await run.run();
-    expect(result.totalWaves).toBe(0);
-  });
-
-  it('stops after the current wave when stop() is called from onWave', async () => {
-    const { run } = await makeHarness();
-    let stopRun!: SddParallelRun;
-    const onWave = vi.fn(() => stopRun.stop());
-    const { run: r2 } = await makeHarness({ onWave });
-    stopRun = r2;
-    vi.spyOn(r2 as never as { buildCoordinator: () => void }, 'buildCoordinator').mockImplementation(() => {});
-    vi.spyOn(r2, 'executeWave').mockResolvedValue({ wave: 0, batch: {} as never, results: [], successCount: 0, failCount: 0, durationMs: 1, stopRequested: false });
-    scriptDecomposer(r2, [{ tasks: [{ id: 'x' } as TaskNode] }, { tasks: [{ id: 'y' } as TaskNode] }, { tasks: [], allDone: true }]);
-    const result = await r2.run();
     expect(result.stopRequested).toBe(true);
-    expect(onWave).toHaveBeenCalled();
-    void run;
+    expect(onProgress).toHaveBeenCalled();
   });
 
-  it('emits progress via onProgress', async () => {
+  it('emits progress via onProgress with the expected shape', async () => {
     const onProgress = vi.fn();
-    const { run } = await makeHarness({ onProgress });
-    vi.spyOn(run as never as { buildCoordinator: () => void }, 'buildCoordinator').mockImplementation(() => {});
-    vi.spyOn(run, 'executeWave').mockResolvedValue({ wave: 0, batch: {} as never, results: [], successCount: 1, failCount: 0, durationMs: 1, stopRequested: false });
-    scriptDecomposer(run, [{ tasks: [{ id: 'x' } as TaskNode] }, { tasks: [], allDone: true }]);
+    const { run, tracker } = await makeHarness({ onProgress });
+    stubExecuteOne(run, tracker);
     await run.run();
-    expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({ total: expect.any(Number), percent: expect.any(Number) }));
+    expect(onProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ total: expect.any(Number), percent: expect.any(Number) }),
+    );
   });
 });
 
@@ -242,5 +251,188 @@ describe('SddParallelRun — coordinator + helpers', () => {
     run.stop();
     expect((run as never as { stopRequested: boolean }).stopRequested).toBe(true);
     expect(stopAll).toHaveBeenCalled();
+  });
+});
+
+function fakeWorktrees() {
+  const calls: string[] = [];
+  const wm = {
+    async allocate(ownerId: string, o: { slugHint?: string; ownerLabel?: string } = {}) {
+      calls.push(`allocate:${ownerId}`);
+      return {
+        id: ownerId,
+        ownerId,
+        ownerLabel: o.ownerLabel ?? ownerId,
+        slug: o.slugHint ?? ownerId,
+        dir: `/wt/${ownerId}`,
+        branch: `wstack/sdd/${ownerId}`,
+        baseBranch: 'main',
+        status: 'active',
+        createdAt: 0,
+        updatedAt: 0,
+        insertions: 0,
+        deletions: 0,
+        files: 0,
+      };
+    },
+    async commitAll(h: { ownerId: string }) {
+      calls.push(`commit:${h.ownerId}`);
+      return { committed: true };
+    },
+    async merge(h: { ownerId: string }) {
+      calls.push(`merge:${h.ownerId}`);
+      return { ok: true, conflictFiles: [] };
+    },
+    async release(h: { ownerId: string }, o: { keep?: boolean } = {}) {
+      calls.push(`release:${h.ownerId}:${o.keep ? 'keep' : 'remove'}`);
+    },
+    list: () => [],
+  };
+  return { wm: wm as never, calls };
+}
+
+describe('SddParallelRun — Layer 2: worktree isolation', () => {
+  it('allocates a worktree per task, spawns into it, and squash-merges on success', async () => {
+    const wt = fakeWorktrees();
+    const { run, tracker, t1, t2 } = await makeHarness({ worktrees: wt.wm });
+    const spawnConfigs: Array<{ id: string; cwd?: string }> = [];
+    const coord = fakeCoordinator({
+      spawn: vi.fn(async (c: { id: string; cwd?: string }) => {
+        spawnConfigs.push(c);
+        return { subagentId: c.id };
+      }),
+    });
+    (run as never as { coordinator: unknown }).coordinator = coord;
+
+    await run.executeWave({ wave: 0, tasks: [t1, t2], deadlocked: false, allDone: false } as never);
+
+    // One worktree allocated per task, each spawn pointed at its worktree dir.
+    expect(wt.calls).toContain(`allocate:sdd-${t1.id}`);
+    expect(wt.calls).toContain(`allocate:sdd-${t2.id}`);
+    expect(spawnConfigs.every((c) => c.cwd?.startsWith('/wt/sdd-'))).toBe(true);
+    // Success → commit + merge + remove.
+    expect(wt.calls).toContain(`merge:sdd-${t1.id}`);
+    expect(wt.calls).toContain(`release:sdd-${t1.id}:remove`);
+    // Branch surfaced on the node metadata for the board.
+    expect((tracker.getNode(t1.id)?.metadata as { worktreeBranch?: string })?.worktreeBranch).toBe(
+      `wstack/sdd/sdd-${t1.id}`,
+    );
+  });
+
+  it('keeps a failed task worktree for review (no merge)', async () => {
+    const wt = fakeWorktrees();
+    const { run, t1 } = await makeHarness({ worktrees: wt.wm, maxRetries: 0 });
+    const coord = fakeCoordinator({ awaitTasks: vi.fn(async (ids: string[]) => ids.map((id) => failResult(id))) });
+    (run as never as { coordinator: unknown }).coordinator = coord;
+    await run.executeWave({ wave: 0, tasks: [t1], deadlocked: false, allDone: false } as never);
+    expect(wt.calls).toContain(`release:sdd-${t1.id}:keep`);
+    expect(wt.calls.some((c) => c.startsWith(`merge:sdd-${t1.id}`))).toBe(false);
+  });
+});
+
+describe('SddParallelRun — Layer 2: robustness', () => {
+  it('resetOrphans returns interrupted in_progress tasks to pending', async () => {
+    const { tracker, t1 } = await makeHarness();
+    tracker.updateNodeStatus(t1.id, 'in_progress');
+    const n = SddParallelRun.resetOrphans(tracker);
+    expect(n).toBe(1);
+    expect(tracker.getNode(t1.id)?.status).toBe('pending');
+  });
+
+  it('recoverFailedBlockers requeues a failed task that blocks a dependent', async () => {
+    const { run, tracker, t1, t2 } = await makeHarness();
+    tracker.addEdge(t1.id, t2.id, 'depends_on'); // t1 blocks t2
+    tracker.updateNodeStatus(t1.id, 'failed');
+    tracker.updateNodeStatus(t2.id, 'blocked');
+    const recovered = (run as never as { recoverFailedBlockers: () => boolean }).recoverFailedBlockers();
+    expect(recovered).toBe(true);
+    expect(tracker.getNode(t1.id)?.status).toBe('pending');
+  });
+
+  it('restoreRetryMap rehydrates retry counts from node metadata (resume)', async () => {
+    const { run, tracker, t1 } = await makeHarness();
+    const node = tracker.getNode(t1.id)!;
+    node.metadata = { retries: 2 };
+    (run as never as { restoreRetryMap: () => void }).restoreRetryMap();
+    expect((run as never as { retryMap: Map<string, number> }).retryMap.get(t1.id)).toBe(2);
+  });
+
+  it('the dispatch backstop guarantees termination when a task never settles', async () => {
+    const { run, tracker } = await makeHarness({ maxTotalWaves: 3, maxRetries: 100 });
+    vi.spyOn(run as never as { buildCoordinator: () => void }, 'buildCoordinator').mockImplementation(() => {});
+    // Re-queues itself forever — only the dispatch backstop can end the run.
+    vi.spyOn(run, 'executeOne').mockImplementation(async (task: TaskNode) => {
+      tracker.updateNodeStatus(task.id, 'pending');
+      return { taskId: task.id, success: false };
+    });
+    const result = await run.run();
+    expect(result.totalCompleted).toBe(0);
+    expect(result.totalWaves).toBeLessThanOrEqual(3); // bounded, not infinite
+  });
+});
+
+describe('SddParallelRun — task controls (model / cancel / delete)', () => {
+  it('setTaskModel + setTaskFallbacks patch node metadata for the next dispatch', async () => {
+    const { run, tracker, t1 } = await makeHarness();
+    expect(run.setTaskModel(t1.id, 'claude-opus-4-8', 'anthropic')).toBe(true);
+    expect(run.setTaskFallbacks(t1.id, ['anthropic/claude-haiku-4-5'])).toBe(true);
+    const m = tracker.getNode(t1.id)!.metadata!;
+    expect(m.model).toBe('claude-opus-4-8');
+    expect(m.provider).toBe('anthropic');
+    expect(m.fallbackModels).toEqual(['anthropic/claude-haiku-4-5']);
+  });
+
+  it('setTaskModel returns false for an unknown task', async () => {
+    const { run } = await makeHarness();
+    expect(run.setTaskModel('nope', 'x')).toBe(false);
+  });
+
+  it('cancelTask marks a not-running task terminal-cancelled', async () => {
+    const { run, tracker, t1 } = await makeHarness();
+    expect(await run.cancelTask(t1.id)).toBe(true);
+    const n = tracker.getNode(t1.id)!;
+    expect(n.status).toBe('failed');
+    expect(n.metadata?.cancelled).toBe(true);
+  });
+
+  it('cancelTask aborts the live subagent of a running task', async () => {
+    const { run, tracker, t1 } = await makeHarness();
+    const stop = vi.fn(async () => {});
+    (run as never as { coordinator: unknown }).coordinator = { stop };
+    (run as never as { taskSubagents: Map<string, string> }).taskSubagents.set(t1.id, 'sub-1');
+    expect(await run.cancelTask(t1.id)).toBe(true);
+    expect(stop).toHaveBeenCalledWith('sub-1');
+    expect(tracker.getNode(t1.id)?.metadata?.cancelled).toBe(true);
+  });
+
+  it('cancelTask returns false for an unknown task', async () => {
+    const { run } = await makeHarness();
+    expect(await run.cancelTask('nope')).toBe(false);
+  });
+
+  it('retryTask clears the cancel marker and re-queues to pending', async () => {
+    const { run, tracker, t1 } = await makeHarness();
+    await run.cancelTask(t1.id);
+    expect(run.retryTask(t1.id)).toBe(true);
+    const n = tracker.getNode(t1.id)!;
+    expect(n.status).toBe('pending');
+    expect(n.metadata?.cancelled).toBeFalsy();
+  });
+
+  it('deleteTask removes a pending task and unblocks its dependents', async () => {
+    const { run, tracker, t1, t2 } = await makeHarness();
+    tracker.addDependency(t1.id, t2.id); // t2 depends on t1
+    expect(tracker.canStart(t2.id)).toBe(false);
+    expect(run.deleteTask(t1.id)).toBe(true);
+    expect(tracker.getNode(t1.id)).toBeUndefined();
+    expect(tracker.getBlockers(t2.id)).toEqual([]);
+    expect(tracker.canStart(t2.id)).toBe(true); // blocker gone → runnable
+  });
+
+  it('deleteTask refuses a running task', async () => {
+    const { run, tracker, t1 } = await makeHarness();
+    tracker.updateNodeStatus(t1.id, 'in_progress');
+    expect(run.deleteTask(t1.id)).toBe(false);
+    expect(tracker.getNode(t1.id)).toBeTruthy();
   });
 });

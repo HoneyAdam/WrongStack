@@ -59,6 +59,13 @@ export {
 } from './core/agent.js';
 export { runProviderWithRetry } from './core/provider-runner.js';
 export {
+  createFallbackModelExtension,
+  parseModelRef,
+  smartDefaultFallbackChain,
+  effectiveFallbackChain,
+  type FallbackModelDeps,
+} from './core/fallback-model.js';
+export {
   HookRegistry,
   HookRunner,
   hookMatcherMatches,
@@ -330,6 +337,11 @@ export {
   type DirectorSessionFactory,
   type DirectorSessionFactoryOptions,
 } from './coordination/director-session.js';
+export {
+  assignNickname,
+  nicknameKeyFromDisplay,
+  type NicknameAssignment,
+} from './coordination/subagent-nicknames.js';
 export {
   FleetBus,
   FleetUsageAggregator,

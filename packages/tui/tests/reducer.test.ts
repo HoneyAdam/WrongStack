@@ -100,8 +100,36 @@ function initial() {
     projectPicker: { open: false, allItems: [], items: [], selected: 0, filter: '' },
     fKeyPicker: { open: false, selected: 0 },
     autoPhase: null,
+    sddBoard: null,
     worktreeMonitorOpen: false,
     coordinator: { goals: [], timeline: [], knowledgeCount: 0, monitorOpen: false, healthy: false },
+  };
+}
+
+function sampleSnapshot(over: Record<string, unknown> = {}) {
+  return {
+    runId: 'r1',
+    graphId: 'g1',
+    title: 'Build feature',
+    status: 'running' as const,
+    startedAt: 0,
+    updatedAt: 0,
+    progress: {
+      total: 2,
+      pending: 1,
+      inProgress: 1,
+      blocked: 0,
+      failed: 0,
+      review: 0,
+      completed: 0,
+      percentComplete: 0,
+      estimatedHours: 0,
+      actualHours: 0,
+    },
+    wave: 0,
+    tasks: [],
+    columns: [],
+    ...over,
   };
 }
 
@@ -150,6 +178,43 @@ describe('TUI reducer', () => {
     expect(out.autoPhase?.monitorOpen).toBe(false);
     expect(out.worktreeMonitorOpen).toBe(false);
     expect(out.coordinator.monitorOpen).toBe(false);
+  });
+
+  it('sddBoardSnapshot stores the snapshot and stays closed on first arrival', () => {
+    const out = reducer(initial(), { type: 'sddBoardSnapshot', snapshot: sampleSnapshot() as never });
+    expect(out.sddBoard?.snapshot.runId).toBe('r1');
+    expect(out.sddBoard?.monitorOpen).toBe(false);
+  });
+
+  it('sddBoardSnapshot preserves the overlay open state across snapshots', () => {
+    let s = reducer(initial(), { type: 'sddBoardSnapshot', snapshot: sampleSnapshot() as never });
+    s = reducer(s, { type: 'toggleSddBoardMonitor' });
+    expect(s.sddBoard?.monitorOpen).toBe(true);
+    // A fresh snapshot must not slam the overlay shut while the user watches.
+    s = reducer(s, {
+      type: 'sddBoardSnapshot',
+      snapshot: sampleSnapshot({ wave: 1 }) as never,
+    });
+    expect(s.sddBoard?.monitorOpen).toBe(true);
+    expect(s.sddBoard?.snapshot.wave).toBe(1);
+  });
+
+  it('toggleSddBoardMonitor is a no-op until the first snapshot arrives', () => {
+    const out = reducer(initial(), { type: 'toggleSddBoardMonitor' });
+    expect(out.sddBoard).toBeNull();
+  });
+
+  it('opening the SDD board closes other panels; opening another closes it', () => {
+    let s = reducer(initial(), { type: 'sddBoardSnapshot', snapshot: sampleSnapshot() as never });
+    s = { ...s, monitorOpen: true, worktreeMonitorOpen: true };
+    s = reducer(s, { type: 'toggleSddBoardMonitor' });
+    expect(s.sddBoard?.monitorOpen).toBe(true);
+    expect(s.monitorOpen).toBe(false);
+    expect(s.worktreeMonitorOpen).toBe(false);
+    // Opening the worktree monitor must close the SDD board (ternary exclusivity).
+    s = reducer(s, { type: 'worktreeMonitorToggle' });
+    expect(s.worktreeMonitorOpen).toBe(true);
+    expect(s.sddBoard?.monitorOpen).toBe(false);
   });
 
   it('opening another panel closes the F5 plan panel', () => {
@@ -976,5 +1041,87 @@ describe('Monitor overlays do not block input buffer mutations', () => {
     expect(buffer.slice(0, previousInputWordStart(buffer, chipEnd)) + buffer.slice(chipEnd)).toBe(
       'alpha  beta',
     );
+  });
+});
+
+describe('autoPhase board reducer', () => {
+  function withPhase() {
+    return reducer(initial() as never, {
+      type: 'autoPhasePhaseUpdate',
+      phaseId: 'p1',
+      name: 'Alpha',
+      status: 'running',
+      completedTasks: 0,
+      totalTasks: 2,
+    } as never);
+  }
+
+  it('autoPhaseTaskActive adds a live worker to its phase', () => {
+    let s = withPhase();
+    s = reducer(s, {
+      type: 'autoPhaseTaskActive',
+      phaseId: 'p1',
+      taskId: 't1',
+      title: 'Build login',
+      agent: 'Einstein',
+      active: true,
+    } as never);
+    const active = (
+      s as never as {
+        autoPhase: { phases: Record<string, { activeTasks?: Array<{ taskId: string; agent?: string }> }> };
+      }
+    ).autoPhase.phases.p1.activeTasks;
+    expect(active).toEqual([{ taskId: 't1', title: 'Build login', agent: 'Einstein' }]);
+  });
+
+  it('autoPhasePhaseUpdate preserves activeTasks across status/count updates', () => {
+    let s = withPhase();
+    s = reducer(s, {
+      type: 'autoPhaseTaskActive',
+      phaseId: 'p1',
+      taskId: 't1',
+      title: 'Build login',
+      agent: 'Einstein',
+      active: true,
+    } as never);
+    // A later count update (e.g. taskCompleted) must not wipe live workers.
+    s = reducer(s, {
+      type: 'autoPhasePhaseUpdate',
+      phaseId: 'p1',
+      name: 'Alpha',
+      status: 'running',
+      completedTasks: 1,
+      totalTasks: 2,
+    } as never);
+    const phase = (
+      s as never as {
+        autoPhase: { phases: Record<string, { completedTasks: number; activeTasks?: unknown[] }> };
+      }
+    ).autoPhase.phases.p1;
+    expect(phase.completedTasks).toBe(1);
+    expect(phase.activeTasks).toHaveLength(1);
+  });
+
+  it('autoPhaseTaskActive with active:false removes the worker', () => {
+    let s = withPhase();
+    s = reducer(s, {
+      type: 'autoPhaseTaskActive',
+      phaseId: 'p1',
+      taskId: 't1',
+      title: 'x',
+      agent: 'Tesla',
+      active: true,
+    } as never);
+    s = reducer(s, {
+      type: 'autoPhaseTaskActive',
+      phaseId: 'p1',
+      taskId: 't1',
+      title: '',
+      active: false,
+    } as never);
+    const active = (
+      s as never as { autoPhase: { phases: Record<string, { activeTasks?: unknown[] }> } }
+    ).autoPhase.phases.p1.activeTasks;
+    expect(active).toEqual([]);
   });
 });

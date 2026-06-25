@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { runChatSlashCommand, type RunChatSlashCommandOptions } from '../../src/components/ChatInput/slash-routing.js';
+import { streamCoalescer } from '../../src/lib/stream-coalescer.js';
 
 // Mock external store dependencies and downloadChatAsMarkdown
 const mocks = vi.hoisted(() => ({
@@ -91,6 +92,7 @@ describe('runChatSlashCommand', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    streamCoalescer.dropAll();
     options = makeOptions();
   });
 
@@ -122,8 +124,14 @@ describe('runChatSlashCommand', () => {
     });
   });
 
-  it('/clear calls clearMessages and client.clearContext', () => {
+  it('/clear drops pending streams, clears messages, and clears context', () => {
+    const pendingFlush = vi.fn();
+    streamCoalescer.push('__thinking__', 'stale reasoning', pendingFlush);
+
     expect(runChatSlashCommand({ ...options, raw: '/clear' })).toBe(true);
+    streamCoalescer.flushAll();
+
+    expect(pendingFlush).not.toHaveBeenCalled();
     expect(options.clearMessages).toHaveBeenCalledTimes(1);
     expect(options.client?.clearContext).toHaveBeenCalledTimes(1);
   });

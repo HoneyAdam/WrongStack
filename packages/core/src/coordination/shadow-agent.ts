@@ -2,12 +2,12 @@
  * Shadow Agent — Fleet Monitoring & Intervention
  *
  * A deterministic background agent that monitors all agents in the fleet via
- * scheduled heartbeat checks. Shadow Agents run silently, observe everything,
+ * host-assigned heartbeat checks. Shadow Agents run silently, observe everything,
  * and intervene only when explicitly commanded or when critical anomalies detected.
  *
  * Features:
  * - FleetBus subscription for live event monitoring
- * - Scheduled heartbeats via cron_schedule tool
+ * - Host-assigned heartbeat checks
  * - Mailbox surveillance for commands and anomalies
  * - Spike detection (instant start/stop tasks)
  * - Intervention via "hoop" command
@@ -397,9 +397,11 @@ export function resolveInterventionTarget(
   return { type: 'single', agentIds: [] }; // Not found
 }
 
-// ── Cron Job Name Constants ─────────────────────────────────────────────────
+// ── Legacy Cron Job Name Constants ──────────────────────────────────────────
 
+/** @deprecated Shadow heartbeat is host-assigned; kept for compatibility. */
 export const SHADOW_HEARTBEAT_CRON = 'shadow_heartbeat';
+/** @deprecated Shadow mailbox checks are part of each host-assigned heartbeat. */
 export const SHADOW_MAILBOX_CRON = 'shadow_mailbox_check';
 
 // ── Event Types for FleetBus ────────────────────────────────────────────────

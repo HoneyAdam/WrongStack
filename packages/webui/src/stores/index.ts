@@ -28,6 +28,26 @@ export { useWorktreeStore } from './worktree-store.js';
 export { useFleetStore } from './fleet-store.js';
 export { useGoalStore } from './goal-store.js';
 export { useAutoPhaseStore } from './autophase-store.js';
+export {
+  useSpecsStore,
+  type SpecListItem,
+  type SpecDetail,
+  type SpecColumn,
+  type BoardTaskItem,
+  type BoardTaskStatus,
+} from './specs-store.js';
+export {
+  useSddBoardStore,
+  type SddBoardSnapshotUI,
+  type SddBoardSummary,
+  type SddBoardStatus,
+  type SddBoardFeedEntry,
+} from './sdd-board-store.js';
+export {
+  useSddWizardStore,
+  type SddWizardSnapshot,
+  type SddWizardPhase,
+} from './sdd-wizard-store.js';
 export { useLocalPrefs } from './local-prefs.js';
 export { useFileStore } from './file-store.js';
 export type { TreeNode, OpenFile } from './file-store.js';

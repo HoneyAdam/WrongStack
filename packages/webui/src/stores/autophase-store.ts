@@ -5,6 +5,14 @@ import type { PhaseItem } from '@/components/PhasePanel';
 
 export type AutoPhaseStatus = 'idle' | 'running' | 'paused' | 'completed' | 'failed' | 'stopped';
 
+/** A persisted kanban board (one AutoPhase graph JSON per board on disk). */
+export interface AutoPhaseBoardSummary {
+  id: string;
+  title: string;
+  updatedAt: number;
+  status: string;
+}
+
 interface AutoPhaseState {
   phases: PhaseItem[];
   activePhaseId: string | null;
@@ -14,6 +22,8 @@ interface AutoPhaseState {
   status: AutoPhaseStatus;
   lastEvent: string | null;
   lastError: string | null;
+  /** All persisted boards for this project (from autophase.list). */
+  graphs: AutoPhaseBoardSummary[];
   progress: {
     totalPhases: number;
     completed: number;
@@ -32,6 +42,7 @@ interface AutoPhaseState {
     status?: AutoPhaseStatus | undefined;
     lastEvent?: string | null | undefined;
     lastError?: string | null | undefined;
+    graphs?: AutoPhaseBoardSummary[] | undefined;
     progress?: AutoPhaseState['progress'] | undefined;
   }) => void;
   clear: () => void;
@@ -46,6 +57,7 @@ export const useAutoPhaseStore = create<AutoPhaseState>()((set) => ({
   status: 'idle',
   lastEvent: null,
   lastError: null,
+  graphs: [],
   progress: null,
 
   setState: (patch) =>
@@ -58,6 +70,7 @@ export const useAutoPhaseStore = create<AutoPhaseState>()((set) => ({
       status: patch.status ?? prev.status,
       lastEvent: patch.lastEvent !== undefined ? patch.lastEvent : prev.lastEvent,
       lastError: patch.lastError !== undefined ? patch.lastError : prev.lastError,
+      graphs: patch.graphs ?? prev.graphs,
       progress: patch.progress !== undefined ? patch.progress : prev.progress,
     })),
   clear: () =>
@@ -70,6 +83,7 @@ export const useAutoPhaseStore = create<AutoPhaseState>()((set) => ({
       status: 'idle',
       lastEvent: null,
       lastError: null,
+      graphs: [],
       progress: null,
     }),
 }));

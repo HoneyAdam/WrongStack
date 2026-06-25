@@ -1,4 +1,4 @@
-import type { EventBus } from '@wrongstack/core';
+import type { EventBus, SddBoardSnapshot } from '@wrongstack/core';
 import { useEffect } from 'react';
 import type { Action, State } from '../app-reducer.js';
 import { useBrainEvents } from './use-brain-events.js';
@@ -134,8 +134,48 @@ function useAutoPhaseEvents(
           });
           break;
         }
+        case 'phase.taskStarted': {
+          const p = payload as { phaseId: string; taskId: string; taskTitle: string; agentName?: string };
+          dispatch({
+            type: 'autoPhaseTaskActive',
+            phaseId: p.phaseId,
+            taskId: p.taskId,
+            title: p.taskTitle,
+            agent: p.agentName,
+            active: true,
+          });
+          break;
+        }
+        case 'phase.taskAssigned': {
+          const p = payload as { phaseId: string; taskId: string; agentName?: string };
+          const active = stateRef.current.autoPhase?.phases[p.phaseId]?.activeTasks?.find(
+            (t) => t.taskId === p.taskId,
+          );
+          if (active) {
+            dispatch({
+              type: 'autoPhaseTaskActive',
+              phaseId: p.phaseId,
+              taskId: p.taskId,
+              title: active.title,
+              agent: p.agentName,
+              active: true,
+            });
+          }
+          break;
+        }
+        case 'phase.taskFailed': {
+          const p = payload as { phaseId: string; taskId: string };
+          dispatch({
+            type: 'autoPhaseTaskActive',
+            phaseId: p.phaseId,
+            taskId: p.taskId,
+            title: '',
+            active: false,
+          });
+          break;
+        }
         case 'phase.taskCompleted': {
-          const p = payload as { phaseId: string };
+          const p = payload as { phaseId: string; taskId: string };
           const existing = stateRef.current.autoPhase?.phases[p.phaseId];
           if (existing) {
             dispatch({
@@ -147,6 +187,13 @@ function useAutoPhaseEvents(
               totalTasks: existing.totalTasks,
             });
           }
+          dispatch({
+            type: 'autoPhaseTaskActive',
+            phaseId: p.phaseId,
+            taskId: p.taskId,
+            title: '',
+            active: false,
+          });
           break;
         }
         case 'autonomous.tick': {
@@ -168,6 +215,11 @@ function useAutoPhaseEvents(
         case 'graph.completed':
         case 'graph.failed': {
           dispatch({ type: 'autoPhaseReset' });
+          break;
+        }
+        case 'sdd.board.snapshot': {
+          const p = payload as { snapshot?: SddBoardSnapshot };
+          if (p.snapshot) dispatch({ type: 'sddBoardSnapshot', snapshot: p.snapshot });
           break;
         }
         case 'worktree.allocated': {

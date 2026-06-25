@@ -27,7 +27,6 @@ import {
   type ModelsRegistry,
   makeDirectorSessionFactory,
   makeFleetEmitTool,
-  makeFleetStatusTool,
   type Provider,
   type ProviderRegistry,
   resolveModelMatrix,
@@ -48,7 +47,11 @@ import { createFallbackModelExtension } from '../fallback-model.js';
 import { buildRoutingRunner } from './routing.js';
 
 function buildShadowAgentTaskDescription(intervalMs: number): string {
-  return `Shadow Agent background fleet monitor. Start immediately, broadcast shadow:started via mailbox, schedule heartbeat every ${intervalMs}ms, call fleet_status and fleet_health on each heartbeat, inspect mail_inbox for hoop/shadow control messages, report anomalies via mail_send, and only terminate agents when explicitly commanded.`;
+  return `Shadow Agent background fleet monitor. Run one startup check now: broadcast shadow:started via mailbox, call fleet_status and fleet_health, inspect mail_inbox for hoop/shadow control messages, report anomalies via mail_send, and only terminate agents when explicitly commanded. The host will assign follow-up heartbeat checks every ${intervalMs}ms; do not schedule cron jobs yourself.`;
+}
+
+function buildShadowHeartbeatTaskDescription(intervalMs: number): string {
+  return `Shadow Agent heartbeat. Run exactly one monitoring pass: call fleet_status and fleet_health, inspect mail_inbox for hoop/shadow control messages, report anomalies via mail_send, terminate only when explicitly commanded, then return a concise status summary. Host heartbeat interval: ${intervalMs}ms.`;
 }
 
 export interface MultiAgentDeps {
@@ -214,10 +217,9 @@ export class MultiAgentHost {
    *  critic.evaluation) onto the fleet bus without needing the tool registered
    *  in the host's ToolRegistry. */
   private fleetEmitTool?: import('@wrongstack/core').Tool | undefined;
-  /** Own FleetStatusTool — created in buildDirector() so subagents in director
-   *  mode can read fleet state (subagent statuses, task progress) without the
-   *  tool being in the host's ToolRegistry. */
-  private fleetStatusTool?: import('@wrongstack/core').Tool | undefined;
+  /** Director-owned tools available to scoped subagents even when the leader
+   * ToolRegistry was not populated because director mode was promoted lazily. */
+  private directorToolsByName = new Map<string, Tool>();
   /** Lazily built alongside the director — produces per-subagent JSONL
    *  writers under `<sessionsRoot>/<runId>/`. Null without sessionsRoot. */
   private sessionFactory?: DirectorSessionFactory | undefined;
@@ -249,6 +251,13 @@ export class MultiAgentHost {
   private shadowAgentId: string | null = null;
   /** Assigned monitoring task for the active Shadow Agent. */
   private shadowTaskId: string | null = null;
+  /** All internal Shadow Agent startup/heartbeat task ids, excluded from fleet summaries. */
+  private readonly shadowTaskIds = new Set<string>();
+  /** Shadow task ids assigned but not yet completed. Prevents heartbeat backlog. */
+  private readonly shadowOutstandingTaskIds = new Set<string>();
+  /** Host-owned heartbeat timer. The LLM cron tool cannot wake an idle subagent. */
+  private shadowHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private shadowHeartbeatIntervalMs = 30_000;
   /** Suppresses buildDirector() auto-start while /shadow start is explicitly spawning one. */
   private shadowAutoStartSuppressions = 0;
 
@@ -354,6 +363,11 @@ export class MultiAgentHost {
     });
     this.director.on('task.completed', ({ task, result }) => {
       this.fleetManager?.removePendingTask(task.id);
+      const isShadowTask = this.shadowTaskIds.has(task.id);
+      if (isShadowTask) {
+        this.shadowOutstandingTaskIds.delete(task.id);
+        return;
+      }
       this.emitLifecycleCompleted(task.id, result);
       // Mark subagent complete in the AgentMonitorService when available.
       const monitor = this.opts.agentMonitor;
@@ -451,6 +465,7 @@ export class MultiAgentHost {
       task: { id: string; description?: string | undefined };
       subagentId: string;
     }) => {
+      if (this.shadowTaskIds.has(task.id)) return;
       this.deps.events.emit('subagent.task_started', {
         subagentId,
         taskId: task.id,
@@ -460,6 +475,12 @@ export class MultiAgentHost {
     const coordinatorSubagentStoppedHandler = ({ subagentId }: { subagentId: string }) => {
       this.clearShadowAgent(subagentId);
     };
+    this.directorOffHandles.push(
+      this.director.fleet.filter('subagent.removed', (e) => {
+        const payload = e.payload as { subagentId?: string | undefined };
+        this.clearShadowAgent(payload.subagentId ?? e.subagentId);
+      }),
+    );
     const coordinator = this.getCoordinator();
     coordinator.on('task.assigned', coordinatorTaskAssignedHandler);
     coordinator.on('subagent.stopped', coordinatorSubagentStoppedHandler);
@@ -468,7 +489,9 @@ export class MultiAgentHost {
       coordinator.off('subagent.stopped', coordinatorSubagentStoppedHandler);
     };
     this.fleetEmitTool = makeFleetEmitTool(this.director);
-    this.fleetStatusTool = makeFleetStatusTool(this.director);
+    this.directorToolsByName = new Map(
+      this.director.tools(FLEET_ROSTER).map((tool) => [tool.name, tool] as const),
+    );
 
     // Adaptive Concurrency Controller — auto-adjusts maxConcurrent based on 429 rate-limit errors
     const adaptiveConfig = this.deps.configStore.get().adaptiveConcurrency;
@@ -516,16 +539,12 @@ export class MultiAgentHost {
         idleTimeoutMs: intervalMs * 2,
         maxIterations: 1000,
         maxToolCalls: 500,
-        provider: 'anthropic',
-        model: 'claude-sonnet-4-20250514',
         tools: [
           'fleet_status', 'fleet_health', 'fleet_usage',
           'mailbox', 'mail_inbox', 'mail_send',
-          'cron_schedule', 'cron_list', 'cron_cancel',
-          'spawn_subagent', 'assign_task', 'terminate_subagent',
+          'terminate_subagent',
         ],
-        allowedCapabilities: ['net', 'shell'],
-      }, description);
+      }, description, { internalTask: true });
       this.recordShadowAgent(subagentId, taskId);
 
       // Log to console
@@ -535,18 +554,65 @@ export class MultiAgentHost {
     }
   }
 
-  private recordShadowAgent(subagentId: string, taskId: string): void {
+  private recordShadowAgent(subagentId: string, taskId: string, intervalMs = this.shadowHeartbeatIntervalMs): void {
     this.shadowAgentId = subagentId;
     this.shadowTaskId = taskId;
+    this.shadowHeartbeatIntervalMs = intervalMs;
+    this.markShadowTask(taskId);
+    this.startShadowHeartbeat(intervalMs);
     this.opts.onShadowAgentStarted?.(subagentId);
   }
 
   private clearShadowAgent(subagentId?: string): void {
     if (subagentId && this.shadowAgentId !== subagentId) return;
     const stoppedId = this.shadowAgentId;
+    this.stopShadowHeartbeat();
     this.shadowAgentId = null;
     this.shadowTaskId = null;
+    this.shadowOutstandingTaskIds.clear();
     if (stoppedId) this.opts.onShadowAgentStopped?.(stoppedId);
+  }
+
+  private markShadowTask(taskId: string): void {
+    this.shadowTaskIds.add(taskId);
+    this.shadowOutstandingTaskIds.add(taskId);
+  }
+
+  private startShadowHeartbeat(intervalMs: number): void {
+    this.stopShadowHeartbeat();
+    this.shadowHeartbeatTimer = setInterval(() => {
+      void this.assignShadowHeartbeat();
+    }, intervalMs);
+    this.shadowHeartbeatTimer.unref?.();
+  }
+
+  private stopShadowHeartbeat(): void {
+    if (!this.shadowHeartbeatTimer) return;
+    clearInterval(this.shadowHeartbeatTimer);
+    this.shadowHeartbeatTimer = null;
+  }
+
+  private async assignShadowHeartbeat(): Promise<void> {
+    if (!this.director || !this.shadowAgentId) return;
+    if (this.shadowOutstandingTaskIds.size > 0) return;
+
+    const shadowStatus = this.getCoordinator()
+      .getStatus()
+      .subagents.find((a) => a.id === this.shadowAgentId)?.status;
+    if (shadowStatus !== 'idle') return;
+
+    const taskId = randomUUID();
+    this.markShadowTask(taskId);
+    try {
+      await this.director.assignInternal({
+        id: taskId,
+        subagentId: this.shadowAgentId,
+        description: buildShadowHeartbeatTaskDescription(this.shadowHeartbeatIntervalMs),
+      });
+    } catch {
+      this.shadowTaskIds.delete(taskId);
+      this.shadowOutstandingTaskIds.delete(taskId);
+    }
   }
 
   private isActiveSubagent(subagentId: string): boolean {
@@ -672,26 +738,7 @@ export class MultiAgentHost {
         } satisfies SessionWriter;
       }
 
-      // Expand fleet_emit and fleet_status: when a subagent requests these tools
-      // and the director has been built (director mode), inject them directly into
-      // the subagent's registry. This is the path that makes collab session agents
-      // (BugHunter, RefactorPlanner, Critic) able to emit and query fleet events
-      // without the host registering these tools in its own ToolRegistry.
       const tools = subCfg.tools ? [...subCfg.tools] : undefined;
-      let injectedFleetEmit: Tool | undefined;
-      let injectedFleetStatus: Tool | undefined;
-      if (tools) {
-        const emitIdx = tools.indexOf('fleet_emit');
-        if (emitIdx >= 0 && this.fleetEmitTool) {
-          tools.splice(emitIdx, 1);
-          injectedFleetEmit = this.fleetEmitTool;
-        }
-        const statusIdx = tools.indexOf('fleet_status');
-        if (statusIdx >= 0 && this.fleetStatusTool) {
-          tools.splice(statusIdx, 1);
-          injectedFleetStatus = this.fleetStatusTool;
-        }
-      }
 
       const ctx = new Context({
         systemPrompt: baseSystem,
@@ -715,8 +762,6 @@ export class MultiAgentHost {
       if (subCfg.role) ctx.meta['agentRole'] = subCfg.role;
 
       const baseRegistry = this.subagentToolRegistry(tools);
-      if (injectedFleetEmit) baseRegistry.register(injectedFleetEmit);
-      if (injectedFleetStatus) baseRegistry.register(injectedFleetStatus);
       // Per-spawn capability allowlist. The ToolExecutor and the Agent must
       // share the same policy semantics — resolve one allowlist and pass it to
       // both. See `resolveSubagentCapabilities` for the precedence rules.
@@ -754,7 +799,15 @@ export class MultiAgentHost {
       // subagent's own bus, mirroring its other provider.* events.
       agent.extensions.register(
         createFallbackModelExtension({
-          getConfig: () => this.deps.configStore.get(),
+          // A per-task `fallbackModels` (set from the SDD board) overrides the
+          // leader's chain for this subagent; otherwise it inherits the config's
+          // explicit list or smart default. Mirrors the runtime light factory.
+          getConfig: () => {
+            const live = this.deps.configStore.get();
+            return subCfg.fallbackModels && subCfg.fallbackModels.length
+              ? { ...live, fallbackModels: subCfg.fallbackModels }
+              : live;
+          },
           buildProvider: (id) => this.buildSubagentProvider(config, id, effModel),
           events,
         }),
@@ -959,7 +1012,15 @@ export class MultiAgentHost {
     const all = this.deps.toolRegistry.list();
     if (!allow || allow.length === 0) return all;
     const allowSet = new Set(allow);
-    return all.filter((t) => allowSet.has(t.name));
+    const result = new Map<string, Tool>();
+    for (const tool of all) {
+      if (allowSet.has(tool.name)) result.set(tool.name, tool);
+    }
+    for (const name of allowSet) {
+      const directorTool = this.directorToolsByName.get(name);
+      if (directorTool && !result.has(name)) result.set(name, directorTool);
+    }
+    return Array.from(result.values());
   }
 
   /**
@@ -1024,6 +1085,7 @@ export class MultiAgentHost {
       tools?: string[] | undefined;
       name?: string | undefined;
       allowedCapabilities?: readonly string[] | undefined;
+      shadowIntervalMs?: number | undefined;
     },
   ): Promise<{ subagentId: string; taskId: string }> {
     // Always build a Director (directorMode or not) so that spawn routes
@@ -1050,7 +1112,11 @@ export class MultiAgentHost {
     // so the director's manifest entries get populated. Calling the
     // underlying coordinator directly would still execute the task, but
     // the manifest would be empty — that surprised the first test.
-    const { subagentId, taskId } = await this._spawnAndAssign(subagentConfig, description);
+    const { subagentId, taskId } = await this._spawnAndAssign(
+      subagentConfig,
+      description,
+      { internalTask: isShadowSpawn },
+    );
     // Track the pending task via FleetManager so status() can show descriptions
     // without host-side state duplication.
     if (!isShadowSpawn) {
@@ -1060,7 +1126,7 @@ export class MultiAgentHost {
     // and bridged to EventBus in buildDirector(). This ensures the correct
     // nickname (e.g. "Einstein (Bug Hunter)") is captured, not the placeholder.
     if (isShadowSpawn) {
-      this.recordShadowAgent(subagentId, taskId);
+      this.recordShadowAgent(subagentId, taskId, opts?.shadowIntervalMs);
     }
     return { subagentId, taskId };
   }
@@ -1110,12 +1176,25 @@ export class MultiAgentHost {
   private async _spawnAndAssign(
     subagentConfig: SubagentConfig,
     description: string = '',
+    opts?: { internalTask?: boolean },
   ): Promise<{ subagentId: string; taskId: string }> {
     const taskId = randomUUID();
     // Always goes through the Director — single code path after buildDirector()
     if (!this.director) throw new Error('Director is not initialized');
     const subagentId = await this.director.spawn(subagentConfig);
-    await this.director.assign({ id: taskId, description, subagentId });
+    const task = { id: taskId, description, subagentId };
+    if (opts?.internalTask) {
+      this.markShadowTask(taskId);
+      try {
+        await this.director.assignInternal(task);
+      } catch (err) {
+        this.shadowTaskIds.delete(taskId);
+        this.shadowOutstandingTaskIds.delete(taskId);
+        throw err;
+      }
+    } else {
+      await this.director.assign(task);
+    }
     return { subagentId, taskId };
   }
 
@@ -1161,7 +1240,9 @@ export class MultiAgentHost {
     const fleetStatus = this.fleetManager?.getFleetStatus() ?? { pending: [], live: [] };
     const pending = fleetStatus.pending.filter((p) => activeSubagentIds.has(p.subagentId));
     // Results always from Director (single source of truth)
-    const completed = this.director ? this.director.completedResults() : [];
+    const completed = this.director
+      ? this.director.completedResults().filter((r) => !this.shadowTaskIds.has(r.taskId))
+      : [];
     const completedCount = completed.length;
     const liveCount = live.filter((s) => s.status === 'running' || s.status === 'idle').length;
     const summary = !this.director
@@ -1193,7 +1274,9 @@ export class MultiAgentHost {
     }>;
     totals: { tasks: number; iterations: number; toolCalls: number; durationMs: number };
   } {
-    const completed = this.director ? this.director.completedResults() : [];
+    const completed = this.director
+      ? this.director.completedResults().filter((r) => !this.shadowTaskIds.has(r.taskId))
+      : [];
     const bySubagent = new Map<
       string,
       {
@@ -1320,10 +1403,12 @@ export class MultiAgentHost {
   async kill(subagentId: string): Promise<boolean> {
     if (!this.director) return false;
     await this.getCoordinator().stop(subagentId);
+    if (this.shadowAgentId === subagentId) this.clearShadowAgent(subagentId);
     return true;
   }
 
   async stopAll(): Promise<void> {
+    this.clearShadowAgent();
     if (this.director) {
       await this.getCoordinator().stopAll();
     }
@@ -1370,6 +1455,7 @@ export class MultiAgentHost {
    * Safe to call multiple times — subsequent calls are no-ops.
    */
   async dispose(): Promise<void> {
+    this.clearShadowAgent();
     // Unregister FleetBus filter listeners
     for (const off of this.directorOffHandles) {
       off();

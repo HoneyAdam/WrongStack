@@ -43,6 +43,8 @@ beforeEach(() => {
     runStart: null,
     thinkingBuffer: '',
     thinkingStartedAt: null,
+    thinkingLogBuffer: '',
+    thinkingLogStartedAt: null,
   });
 });
 
@@ -154,6 +156,7 @@ describe('setMessages', () => {
     const assistantId = addMsg({ role: 'assistant', content: 'streaming', streaming: true });
     const toolId = addMsg({ role: 'tool', content: '', toolUseId: 'toolu_1' });
     useChatStore.setState({ currentAssistantMessageId: assistantId, currentToolId: toolId });
+    useChatStore.getState().appendThinking('old reasoning');
 
     useChatStore.getState().setMessages([
       { id: 'replay_0', role: 'user', content: 'resumed', timestamp: 123 },
@@ -165,6 +168,10 @@ describe('setMessages', () => {
     expect(state.currentToolId).toBeNull();
     expect(state.executions.size).toBe(0);
     expect(state.getToolMessageId('toolu_1')).toBeUndefined();
+    expect(state.thinkingBuffer).toBe('');
+    expect(state.thinkingStartedAt).toBeNull();
+    expect(state.thinkingLogBuffer).toBe('');
+    expect(state.thinkingLogStartedAt).toBeNull();
   });
 
   it('rebuilds the toolUseId index for replayed tool messages', () => {
@@ -404,6 +411,15 @@ describe('clearMessages', () => {
     useChatStore.getState().clearMessages();
     expect(useChatStore.getState().getToolMessageId('toolu_1')).toBeUndefined();
   });
+
+  it('clears live and archived thinking buffers', () => {
+    useChatStore.getState().appendThinking('thinking...');
+    useChatStore.getState().clearMessages();
+    expect(useChatStore.getState().thinkingBuffer).toBe('');
+    expect(useChatStore.getState().thinkingStartedAt).toBeNull();
+    expect(useChatStore.getState().thinkingLogBuffer).toBe('');
+    expect(useChatStore.getState().thinkingLogStartedAt).toBeNull();
+  });
 });
 
 // ── setCurrentAssistantMessage ────────────────────────────────────────
@@ -602,6 +618,13 @@ describe('appendThinking', () => {
     expect(useChatStore.getState().thinkingStartedAt).toBe(1_700_000_000_000);
   });
 
+  it('also appends to the persistent thinking log buffer', () => {
+    useChatStore.getState().appendThinking('part1');
+    useChatStore.getState().appendThinking('part2');
+    expect(useChatStore.getState().thinkingLogBuffer).toBe('part1part2');
+    expect(useChatStore.getState().thinkingLogStartedAt).toBe(1_700_000_000_000);
+  });
+
   it('does not reset thinkingStartedAt on subsequent calls', () => {
     useChatStore.getState().appendThinking('first');
     const firstAt = useChatStore.getState().thinkingStartedAt!;
@@ -621,5 +644,41 @@ describe('clearThinking', () => {
     useChatStore.getState().appendThinking('x');
     useChatStore.getState().clearThinking();
     expect(useChatStore.getState().thinkingStartedAt).toBeNull();
+  });
+
+  it('does not clear the persistent thinking log buffer', () => {
+    useChatStore.getState().appendThinking('thinking...');
+    useChatStore.getState().clearThinking();
+    expect(useChatStore.getState().thinkingLogBuffer).toBe('thinking...');
+    expect(useChatStore.getState().thinkingLogStartedAt).toBe(1_700_000_000_000);
+  });
+});
+
+describe('flushThinkingLog', () => {
+  it('archives the thinking log as a system chat message', () => {
+    useChatStore.getState().appendThinking('line 1\nline 2\n');
+    vi.spyOn(Date, 'now').mockReturnValue(1_700_000_001_250);
+
+    useChatStore.getState().flushThinkingLog(3);
+
+    const msg = useChatStore.getState().messages[0];
+    expect(msg.role).toBe('system');
+    expect(msg.content).toBe('');
+    expect(msg.thinkingLog).toEqual({
+      iteration: 3,
+      text: 'line 1\nline 2',
+      startedAt: 1_700_000_000_000,
+      durationMs: 1_250,
+    });
+    expect(useChatStore.getState().thinkingLogBuffer).toBe('');
+    expect(useChatStore.getState().thinkingLogStartedAt).toBeNull();
+  });
+
+  it('does not create a message for an empty thinking log', () => {
+    useChatStore.setState({ thinkingLogBuffer: '   \n', thinkingLogStartedAt: 1_700_000_000_000 });
+
+    useChatStore.getState().flushThinkingLog(1);
+
+    expect(useChatStore.getState().messages).toEqual([]);
   });
 });

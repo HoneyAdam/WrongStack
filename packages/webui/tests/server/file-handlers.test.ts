@@ -3,6 +3,12 @@ import type { WebSocket } from 'ws';
 import * as fsSync from 'node:fs';
 import * as path from 'node:path';
 import { randomBytes } from 'node:crypto';
+import {
+  handleFilesList,
+  handleFilesRead,
+  handleFilesTree,
+  handleFilesWrite,
+} from '../../src/server/file-handlers.js';
 
 // We'll test the actual implementation by creating temp directories
 // and checking the output
@@ -44,8 +50,6 @@ describe('file handlers integration', () => {
       fsSync.writeFileSync(path.join(tempDir, 'src', 'index.ts'), 'export const x = 1;');
       fsSync.writeFileSync(path.join(tempDir, 'package.json'), '{}');
 
-      // Import the handler
-      const { handleFilesTree } = await import('../../src/server/file-handlers.js');
       const ws = createMockWs();
 
       await handleFilesTree(ws, { type: 'files.tree', payload: {} }, tempDir);
@@ -58,7 +62,6 @@ describe('file handlers integration', () => {
     });
 
     it('handles path outside projectRoot', async () => {
-      const { handleFilesTree } = await import('../../src/server/file-handlers.js');
       const ws = createMockWs();
 
       await handleFilesTree(ws, { type: 'files.tree', payload: { path: '../outside' } }, tempDir);
@@ -74,7 +77,6 @@ describe('file handlers integration', () => {
       fsSync.mkdirSync(path.join(tempDir, '.git'), { recursive: true });
       fsSync.writeFileSync(path.join(tempDir, 'visible.txt'), 'visible');
 
-      const { handleFilesTree } = await import('../../src/server/file-handlers.js');
       const ws = createMockWs();
 
       await handleFilesTree(ws, { type: 'files.tree', payload: {} }, tempDir);
@@ -92,7 +94,6 @@ describe('file handlers integration', () => {
       const testFile = path.join(tempDir, 'test.txt');
       fsSync.writeFileSync(testFile, 'Hello World');
 
-      const { handleFilesRead } = await import('../../src/server/file-handlers.js');
       const ws = createMockWs();
 
       await handleFilesRead(ws, { type: 'files.read', payload: { filePath: 'test.txt' } }, tempDir);
@@ -103,7 +104,6 @@ describe('file handlers integration', () => {
     });
 
     it('returns error for path traversal', async () => {
-      const { handleFilesRead } = await import('../../src/server/file-handlers.js');
       const ws = createMockWs();
 
       await handleFilesRead(ws, { type: 'files.read', payload: { filePath: '../etc/passwd' } }, tempDir);
@@ -114,7 +114,6 @@ describe('file handlers integration', () => {
     });
 
     it('returns error for non-existent file', async () => {
-      const { handleFilesRead } = await import('../../src/server/file-handlers.js');
       const ws = createMockWs();
 
       await handleFilesRead(ws, { type: 'files.read', payload: { filePath: 'nonexistent.txt' } }, tempDir);
@@ -131,7 +130,6 @@ describe('file handlers integration', () => {
       fsSync.writeFileSync(path.join(tempDir, 'src', 'a.ts'), '');
       fsSync.writeFileSync(path.join(tempDir, 'src', 'b.ts'), '');
 
-      const { handleFilesList } = await import('../../src/server/file-handlers.js');
       const ws = createMockWs();
 
       await handleFilesList(ws, { type: 'files.list', payload: {} }, tempDir);
@@ -148,7 +146,6 @@ describe('file handlers integration', () => {
         fsSync.writeFileSync(path.join(tempDir, `file${i}.txt`), '');
       }
 
-      const { handleFilesList } = await import('../../src/server/file-handlers.js');
       const ws = createMockWs();
 
       await handleFilesList(ws, { type: 'files.list', payload: { limit: 3 } }, tempDir);
@@ -163,7 +160,6 @@ describe('file handlers integration', () => {
       fsSync.writeFileSync(path.join(tempDir, 'beta.ts'), '');
       fsSync.writeFileSync(path.join(tempDir, 'gamma.ts'), '');
 
-      const { handleFilesList } = await import('../../src/server/file-handlers.js');
       const ws = createMockWs();
 
       await handleFilesList(ws, { type: 'files.list', payload: { query: 'al' } }, tempDir);
@@ -175,7 +171,6 @@ describe('file handlers integration', () => {
     });
 
     it('returns empty for path outside projectRoot', async () => {
-      const { handleFilesList } = await import('../../src/server/file-handlers.js');
       const ws = createMockWs();
 
       await handleFilesList(ws, { type: 'files.list', payload: { path: '../outside' } }, tempDir);
@@ -188,7 +183,6 @@ describe('file handlers integration', () => {
 
   describe('handleFilesWrite', () => {
     it('writes file successfully', async () => {
-      const { handleFilesWrite } = await import('../../src/server/file-handlers.js');
       const ws = createMockWs();
       const onWritten = vi.fn();
 
@@ -210,7 +204,6 @@ describe('file handlers integration', () => {
     });
 
     it('returns error for path traversal', async () => {
-      const { handleFilesWrite } = await import('../../src/server/file-handlers.js');
       const ws = createMockWs();
 
       await handleFilesWrite(

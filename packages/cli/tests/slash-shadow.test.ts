@@ -7,6 +7,7 @@ function ctx(): Context {
 }
 
 function shadowController(activeId: string | null = null) {
+  const defaults: { intervalMs?: number; provider?: string; model?: string } = {};
   const controller = {
     activeId,
     register: vi.fn((id: string) => {
@@ -14,6 +15,10 @@ function shadowController(activeId: string | null = null) {
     }),
     clear: vi.fn(() => {
       controller.activeId = null;
+    }),
+    getDefaults: vi.fn(() => ({ ...defaults })),
+    setDefaults: vi.fn((next: { intervalMs?: number; provider?: string; model?: string }) => {
+      Object.assign(defaults, next);
     }),
   };
   return controller;
@@ -38,7 +43,80 @@ describe('buildShadowCommand', () => {
         tools: expect.arrayContaining(['fleet_status', 'terminate_subagent']),
       }),
     );
+    const spawnOpts = onSpawn.mock.calls[0]?.[1];
+    expect(spawnOpts?.tools).not.toContain('spawn_subagent');
+    expect(spawnOpts?.tools).not.toContain('assign_task');
+    expect(spawnOpts?.tools).not.toContain('cron_schedule');
+    expect(spawnOpts?.allowedCapabilities).toBeUndefined();
+    expect(spawnOpts?.shadowIntervalMs).toBe(15000);
     expect(res?.message).toContain('openai/gpt-5');
+  });
+
+  it('start defaults to the current session provider and model', async () => {
+    const onSpawn = vi.fn(async () => 'sub-shadow');
+    const cmd = buildShadowCommand({
+      onSpawn,
+      shadowController: shadowController(),
+      llmProvider: { id: 'local' },
+      llmModel: 'qwen3-coder',
+    } as never);
+
+    const res = await cmd.run('start --interval=5000', ctx());
+
+    expect(onSpawn).toHaveBeenCalledWith(
+      'Shadow Agent — background fleet monitor at 5000ms interval',
+      expect.objectContaining({
+        provider: 'local',
+        model: 'qwen3-coder',
+        name: 'shadow',
+      }),
+    );
+    expect(res?.message).toContain('local/qwen3-coder');
+  });
+
+  it('interval and model commands update the next start defaults', async () => {
+    const onSpawn = vi.fn(async () => 'sub-shadow');
+    const controller = shadowController();
+    const cmd = buildShadowCommand({
+      onSpawn,
+      shadowController: controller,
+      llmProvider: { id: 'local' },
+      llmModel: 'qwen3-coder',
+    } as never);
+
+    await cmd.run('interval 7000', ctx());
+    await cmd.run('model openai/gpt-5', ctx());
+    const res = await cmd.run('start', ctx());
+
+    expect(controller.setDefaults).toHaveBeenCalledWith({ intervalMs: 7000 });
+    expect(controller.setDefaults).toHaveBeenCalledWith({ provider: 'openai', model: 'gpt-5' });
+    expect(onSpawn).toHaveBeenCalledWith(
+      'Shadow Agent — background fleet monitor at 7000ms interval',
+      expect.objectContaining({
+        provider: 'openai',
+        model: 'gpt-5',
+        shadowIntervalMs: 7000,
+      }),
+    );
+    expect(res?.message).toContain('openai/gpt-5');
+  });
+
+  it('allows model ids that contain slashes after the provider prefix', async () => {
+    const onSpawn = vi.fn(async () => 'sub-shadow');
+    const cmd = buildShadowCommand({
+      onSpawn,
+      shadowController: shadowController(),
+    } as never);
+
+    await cmd.run('start --model=openrouter/anthropic/claude-sonnet-4', ctx());
+
+    expect(onSpawn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        provider: 'openrouter',
+        model: 'anthropic/claude-sonnet-4',
+      }),
+    );
   });
 
   it('start rejects invalid interval values without spawning', async () => {
@@ -80,6 +158,28 @@ describe('buildShadowCommand', () => {
     expect(onFleetTerminate).toHaveBeenCalledWith('sub-shadow');
     expect(controller.clear).toHaveBeenCalledTimes(1);
     expect(controller.activeId).toBeNull();
+    expect(res?.message).toContain('stopped');
+  });
+
+  it('stop waits for async termination before clearing the controller', async () => {
+    const controller = shadowController('sub-shadow');
+    let resolveTerminate!: (ok: boolean) => void;
+    const onFleetTerminate = vi.fn(() => new Promise<boolean>((resolve) => {
+      resolveTerminate = resolve;
+    }));
+    const cmd = buildShadowCommand({
+      onFleetTerminate,
+      shadowController: controller,
+    } as never);
+
+    const pending = cmd.run('stop', ctx());
+    await Promise.resolve();
+
+    expect(controller.clear).not.toHaveBeenCalled();
+    resolveTerminate(true);
+    const res = await pending;
+
+    expect(controller.clear).toHaveBeenCalledTimes(1);
     expect(res?.message).toContain('stopped');
   });
 

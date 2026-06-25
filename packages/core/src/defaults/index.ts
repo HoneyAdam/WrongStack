@@ -381,6 +381,39 @@ export {
   type WaveResult,
   type RunResult,
 } from '../sdd/sdd-parallel-run.js';
+// Live SDD board: model, persistence, projector, run registry.
+export {
+  buildBoardTasks,
+  buildBoardSnapshot,
+  shortIdMap,
+  type SddBoardSnapshot,
+  type SddBoardTask,
+  type SddBoardColumn,
+  type SddBoardStatus,
+  type SddTaskDisplayStatus,
+  type SddDeadlockChain,
+  type SddBoardFeedEntry,
+} from '../sdd/board-types.js';
+export {
+  SddBoardStore,
+  type SddBoardStoreOptions,
+  type SddBoardIndexEntry,
+  type SddBoardEvent,
+} from '../sdd/sdd-board-store.js';
+export { SddBoardProjector, type SddBoardProjectorOptions } from '../sdd/sdd-board-projector.js';
+export { SddRunRegistry, type SddRunControl } from '../sdd/sdd-run-registry.js';
+export {
+  SddInterviewDriver,
+  isExplanatoryText,
+  type SddInterviewDriverOptions,
+  type SddInterviewSnapshot,
+  type SddIngestResult,
+} from '../sdd/sdd-interview-driver.js';
+export {
+  startSddRun,
+  type StartSddRunOptions,
+  type SddRunHandle,
+} from '../sdd/start-sdd-run.js';
 
 // ---- Observability ----
 export {

@@ -1,0 +1,419 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useWebSocket } from '@/hooks/useWebSocket';
+import { useSddWizardStore, useUIStore } from '@/stores';
+import { cn } from '@/lib/utils';
+import { Loader2, Rocket, Send, Sparkles, X, Check, Network, Bot, User, SlidersHorizontal } from 'lucide-react';
+import { Button } from './ui/button';
+import { SddFlowGraph, type FlowTask } from './SddFlowGraph';
+import { ModelPicker } from './ModelPicker';
+import { FallbackEditor } from './FallbackEditor';
+import { useProviderModels } from '@/hooks/useProviderModels';
+import { priorityStyle } from '@/lib/sdd-theme';
+
+const PHASE_LABEL: Record<string, string> = {
+  idle: 'Start',
+  questioning: 'Interview',
+  spec_review: 'Spec Review',
+  implementation: 'Planning',
+  task_review: 'Task Review',
+  executing: 'Running',
+  done: 'Done',
+};
+
+const PHASE_ORDER = ['questioning', 'spec_review', 'implementation', 'task_review', 'executing'];
+
+/**
+ * SddWizard — the interactive "New SDD Project" flow. Drives the server-side
+ * SddInterviewDriver over WS: goal → Q&A → spec → task graph → Start Run, then
+ * hands off to the live board. Works on both webui servers (the run uses the
+ * CLI's director-backed fleet or the runtime light factory respectively).
+ */
+export function SddWizard({ onClose }: { onClose: () => void }): React.ReactElement {
+  const { client } = useWebSocket();
+  const snapshot = useSddWizardStore((s) => s.snapshot);
+  const agentText = useSddWizardStore((s) => s.agentText);
+  const error = useSddWizardStore((s) => s.error);
+  const startedRunId = useSddWizardStore((s) => s.startedRunId);
+  const setStartedRunId = useSddWizardStore((s) => s.setStartedRunId);
+  const setCurrentView = useUIStore((s) => s.setCurrentView);
+
+  const [goal, setGoal] = useState('');
+  const [reply, setReply] = useState('');
+  // Run config (the whole-plan default model + fallback chain), applied at Start Run.
+  const [runCfgOpen, setRunCfgOpen] = useState(false);
+  const [runModel, setRunModel] = useState<string | undefined>(undefined);
+  const [runProvider, setRunProvider] = useState<string | undefined>(undefined);
+  const [runFallbacks, setRunFallbacks] = useState<string[]>([]);
+  const modelCandidates = useProviderModels(runCfgOpen);
+  const send = useCallback(
+    (msg: Parameters<NonNullable<typeof client>['send']>[0]) => client?.send?.(msg),
+    [client],
+  );
+
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    send({ type: 'sdd.spec.get' });
+  }, [send]);
+
+  // Auto-scroll the transcript to the newest message as the interview advances.
+  const answerCount = snapshot?.answers.length ?? 0;
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [answerCount, agentText]);
+
+  // When the run starts, jump to the live board to watch the agents work.
+  useEffect(() => {
+    if (startedRunId) {
+      setCurrentView('sddboard');
+      setStartedRunId(null);
+    }
+  }, [startedRunId, setCurrentView, setStartedRunId]);
+
+  const busy = snapshot?.busy ?? false;
+  const phase = snapshot?.phase ?? 'idle';
+  const started = Boolean(snapshot);
+  const lastQuestion = snapshot?.answers[snapshot.answers.length - 1]?.question ?? '';
+  const canRun =
+    !!snapshot &&
+    (snapshot.taskCount > 0 ||
+      !!snapshot.graphId ||
+      phase === 'task_review' ||
+      phase === 'executing');
+
+  const startGoal = () => {
+    const g = goal.trim();
+    if (!g || busy) return;
+    send({ type: 'sdd.spec.start', payload: { goal: g } });
+  };
+  const sendReply = () => {
+    const t = reply.trim();
+    if (!t || busy) return;
+    send({ type: 'sdd.spec.message', payload: { text: t } });
+    setReply('');
+  };
+  const approve = () => !busy && send({ type: 'sdd.spec.approve', payload: {} });
+  const startRun = () => {
+    send({
+      type: 'sdd.run.start',
+      payload: {
+        ...(runModel ? { model: runModel, provider: runProvider } : {}),
+        ...(runFallbacks.length ? { fallbackModels: runFallbacks } : {}),
+      },
+    });
+    setRunCfgOpen(false);
+  };
+
+  const flowTasks = useMemo<FlowTask[]>(
+    () =>
+      (snapshot?.board?.tasks ?? []).map((t) => ({
+        id: t.id,
+        shortId: t.shortId,
+        title: t.title,
+        displayStatus: t.displayStatus,
+        priority: t.priority,
+        deps: t.deps,
+        agentName: t.agentName,
+        worktreeBranch: t.worktreeBranch,
+        retries: t.retries,
+      })),
+    [snapshot?.board],
+  );
+  const hasGraph = flowTasks.length > 0;
+
+  return (
+    <div className="flex h-full flex-col bg-background">
+      <header className="sdd-sheen flex shrink-0 items-center justify-between border-b border-white/5 px-4 py-2">
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-5 w-5 text-violet-400" />
+          <div>
+            <h1 className="text-lg font-semibold">{snapshot?.title || 'New SDD Project'}</h1>
+            {started && (
+              <p className="text-xs text-muted-foreground">
+                {PHASE_LABEL[phase] ?? phase}
+                {phase === 'questioning' &&
+                  ` · ${snapshot?.questionCount}/${snapshot?.maxQuestions} questions`}
+                {snapshot && snapshot.taskCount > 0 ? ` · ${snapshot.taskCount} tasks` : ''}
+              </p>
+            )}
+          </div>
+          {busy && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+        </div>
+        <div className="flex items-center gap-2">
+          {canRun && (
+            <div className="relative flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setRunCfgOpen((o) => !o)}
+                title="Run config — default model + fallback chain"
+                className={cn(
+                  'inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium',
+                  runModel || runFallbacks.length
+                    ? 'border-violet-500/40 bg-violet-500/10 text-violet-300'
+                    : 'border-white/10 bg-white/5 text-slate-400 hover:text-slate-200',
+                )}
+              >
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+                {runModel ? runModel : 'Models'}
+              </button>
+              <button
+                type="button"
+                onClick={startRun}
+                className="inline-flex items-center gap-1 rounded-md bg-emerald-500/15 px-2.5 py-1 text-xs font-medium text-emerald-400 hover:bg-emerald-500/25"
+              >
+                <Rocket className="h-3.5 w-3.5" /> Start Run
+              </button>
+
+              {runCfgOpen && (
+                <div className="sdd-rise absolute right-0 top-9 z-50 w-72 rounded-lg border border-white/10 bg-[#0e1117] p-3 shadow-xl">
+                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                    Default worker model
+                  </div>
+                  <ModelPicker
+                    value={runModel}
+                    provider={runProvider}
+                    candidates={modelCandidates}
+                    placeholder="Leader / session default"
+                    resetLabel="Use session default"
+                    onPick={(model, provider) => {
+                      setRunModel(model);
+                      setRunProvider(provider);
+                    }}
+                    onReset={
+                      runModel
+                        ? () => {
+                            setRunModel(undefined);
+                            setRunProvider(undefined);
+                          }
+                        : undefined
+                    }
+                  />
+                  <div className="mb-1 mt-3 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                    Fallback chain
+                  </div>
+                  <FallbackEditor value={runFallbacks} candidates={modelCandidates} onChange={setRunFallbacks} />
+                  <p className="mt-2 text-[10px] text-slate-600">
+                    Applies to every task. Override per-task from the live board after the run starts.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+          <Button variant="ghost" size="icon" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      </header>
+
+      {/* Phase stepper */}
+      {started && (
+        <div className="flex shrink-0 items-center gap-1 border-b bg-card/50 px-4 py-1.5 text-[11px]">
+          {PHASE_ORDER.map((p, i) => {
+            const active = p === phase;
+            const done = PHASE_ORDER.indexOf(phase) > i;
+            return (
+              <span key={p} className="flex items-center gap-1">
+                <span
+                  className={cn(
+                    'rounded-full px-2 py-0.5',
+                    active
+                      ? 'bg-violet-500/20 text-violet-300'
+                      : done
+                        ? 'text-emerald-400'
+                        : 'text-muted-foreground',
+                  )}
+                >
+                  {done && <Check className="mr-0.5 inline h-3 w-3" />}
+                  {PHASE_LABEL[p]}
+                </span>
+                {i < PHASE_ORDER.length - 1 && <span className="text-muted-foreground/40">→</span>}
+              </span>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="flex-1 overflow-auto p-4">
+        {error && (
+          <div className="mb-3 rounded-md border border-red-500/40 bg-red-500/5 p-2 text-xs text-red-300">
+            {error}
+          </div>
+        )}
+
+        {!started ? (
+          // ── Goal entry ──
+          <div className="mx-auto mt-8 max-w-xl">
+            <label className="mb-2 block text-sm font-medium" htmlFor="sdd-goal">
+              What do you want to build?
+            </label>
+            <textarea
+              id="sdd-goal"
+              value={goal}
+              onChange={(e) => setGoal(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) startGoal();
+              }}
+              rows={4}
+              placeholder="e.g. Add OAuth login (Google + GitHub) with session management"
+              className="w-full resize-none rounded-md border border-border bg-card px-3 py-2 text-sm outline-none focus:border-violet-500"
+            />
+            <Button className="mt-3" onClick={startGoal} disabled={!goal.trim()}>
+              <Sparkles className="mr-1.5 h-4 w-4" /> Start Interview
+            </Button>
+            <p className="mt-3 text-xs text-muted-foreground">
+              An isolated agent interviews you to build a spec, decomposes it into a dependency-ordered
+              task graph, then a real multi-agent fleet executes it — watch live on the board.
+            </p>
+          </div>
+        ) : (
+          // ── Conversation / review ──
+          <div className="space-y-4">
+            {/* Decomposition reveal — the task graph as an animated DAG. */}
+            {hasGraph && (
+              <div className="sdd-rise overflow-hidden rounded-lg border border-violet-500/20 bg-[#0a0d14]">
+                <div className="flex items-center gap-1.5 border-b border-white/5 px-3 py-1.5 text-[11px] font-medium text-violet-300">
+                  <Network className="h-3.5 w-3.5" />
+                  Task graph · {snapshot?.taskCount} tasks, dependency-ordered
+                  <span className="ml-auto text-slate-500">drag to explore</span>
+                </div>
+                <div className="h-[42vh] min-h-[260px]">
+                  <SddFlowGraph tasks={flowTasks} columns={snapshot?.board?.columns ?? []} />
+                </div>
+              </div>
+            )}
+
+            <div className="mx-auto max-w-2xl space-y-3">
+              {/* ── Interview transcript — full Q&A history ── */}
+              {(snapshot?.answers.length || (agentText && phase === 'questioning') || busy) ? (
+                <div className="space-y-2.5">
+                  {snapshot?.answers.map((qa, i) => (
+                    <div key={i} className="space-y-2.5">
+                      <ChatBubble role="assistant" text={qa.question} />
+                      <ChatBubble role="user" text={qa.answer} />
+                    </div>
+                  ))}
+                  {/* The current unanswered agent question. Hidden while it still
+                      equals the just-answered question (the next turn is in
+                      flight) so it never duplicates the last transcript entry. */}
+                  {agentText && phase === 'questioning' && agentText !== lastQuestion && (
+                    <ChatBubble role="assistant" text={agentText} />
+                  )}
+                  {/* "thinking" indicator while the agent works the next turn. */}
+                  {busy && <ChatBubble role="assistant" text="" thinking />}
+                </div>
+              ) : null}
+
+              {/* Spec card once generated */}
+              {snapshot?.spec && (
+                <div className="sdd-rise rounded-md border border-border bg-card p-3">
+                  <div className="mb-1 flex items-center gap-1.5 text-sm font-semibold">
+                    <Sparkles className="h-3.5 w-3.5 text-violet-400" />
+                    {snapshot.spec.title}
+                  </div>
+                  <p className="mb-2 text-xs text-muted-foreground">{snapshot.spec.overview}</p>
+                  <ul className="space-y-0.5 text-xs">
+                    {snapshot.spec.requirements.map((r, i) => (
+                      <li key={i} className="flex gap-1.5">
+                        <span className={cn('shrink-0 font-mono uppercase', priorityStyle(r.priority).text)}>
+                          {r.priority[0]}
+                        </span>
+                        <span>{r.description}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Agent narration in review phases (plan text, not the raw spec JSON). */}
+              {agentText && phase !== 'questioning' && !snapshot?.spec && (
+                <ChatBubble role="assistant" text={agentText} />
+              )}
+
+              {/* Approve button for review phases */}
+              {(phase === 'spec_review' || phase === 'implementation' || phase === 'task_review') && (
+                <Button variant="secondary" onClick={approve} disabled={busy}>
+                  <Check className="mr-1.5 h-4 w-4" />
+                  {phase === 'spec_review'
+                    ? 'Approve spec → plan implementation'
+                    : phase === 'task_review'
+                      ? 'Approve tasks'
+                      : 'Approve plan'}
+                </Button>
+              )}
+              <div ref={bottomRef} />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Reply input (during the interview) */}
+      {started && phase !== 'executing' && phase !== 'done' && (
+        <div className="flex shrink-0 items-end gap-2 border-t bg-card px-4 py-2">
+          <textarea
+            value={reply}
+            onChange={(e) => setReply(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendReply();
+              }
+            }}
+            rows={1}
+            placeholder={phase === 'questioning' ? 'Answer the question…' : 'Request a change…'}
+            disabled={busy}
+            className="max-h-32 flex-1 resize-none rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:border-violet-500 disabled:opacity-50"
+          />
+          <Button size="icon" onClick={sendReply} disabled={busy || !reply.trim()}>
+            <Send className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** One transcript message — agent question (left) or the user's answer (right). */
+function ChatBubble({
+  role,
+  text,
+  live,
+  thinking,
+}: {
+  role: 'assistant' | 'user';
+  text: string;
+  live?: boolean;
+  thinking?: boolean;
+}): React.ReactElement {
+  const isUser = role === 'user';
+  return (
+    <div className={cn('sdd-rise flex items-start gap-2', isUser && 'flex-row-reverse')}>
+      <span
+        className={cn(
+          'mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full',
+          isUser ? 'bg-sky-500/20 text-sky-300' : 'bg-violet-500/20 text-violet-300',
+          (live || thinking) && 'sdd-agent-live',
+        )}
+      >
+        {isUser ? <User className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5" />}
+      </span>
+      <div
+        className={cn(
+          'max-w-[80%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-sm leading-relaxed',
+          isUser
+            ? 'rounded-tr-sm bg-sky-500/15 text-sky-50'
+            : 'rounded-tl-sm bg-muted/50 text-slate-200',
+        )}
+      >
+        {thinking ? (
+          <span className="flex items-center gap-1 py-0.5">
+            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:-200ms]" />
+            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:-100ms]" />
+            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400" />
+          </span>
+        ) : (
+          text
+        )}
+      </div>
+    </div>
+  );
+}

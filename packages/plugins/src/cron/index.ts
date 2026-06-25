@@ -8,6 +8,8 @@
  */
 import type { Plugin } from '@wrongstack/core';
 
+const COORDINATION_CRON_CAPABILITY = 'coordination.cron';
+
 const API_VERSION = '^0.1.10';
 
 interface CronJob {
@@ -187,6 +189,7 @@ const plugin: Plugin = {
       },
       permission: 'confirm',
       mutating: false,
+      capabilities: [COORDINATION_CRON_CAPABILITY],
       async execute(input: Record<string, unknown>) {
         const name = input['name'] as string;
         const intervalMs = Math.max(1000, Number(input['intervalMs']));
@@ -240,6 +243,7 @@ const plugin: Plugin = {
       inputSchema: { type: 'object', properties: {} },
       permission: 'auto',
       mutating: false,
+      capabilities: [COORDINATION_CRON_CAPABILITY],
       async execute() {
         const jobs = Array.from(state.jobs.values()).map((j) => ({
           name: j.name,
@@ -274,6 +278,7 @@ const plugin: Plugin = {
       },
       permission: 'auto',
       mutating: false,
+      capabilities: [COORDINATION_CRON_CAPABILITY],
       async execute(input: Record<string, unknown>) {
         const name = input['name'] as string;
 

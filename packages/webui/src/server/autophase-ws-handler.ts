@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import type { WebSocket } from 'ws';
 import { toErrorMessage } from '@wrongstack/core/utils';
 import {
+  assignNickname,
   AutoPhasePlanner,
   PhaseGraphBuilder,
   PhaseOrchestrator,
@@ -53,6 +54,8 @@ export class AutoPhaseWebSocketHandler {
   private abort: AbortController | null = null;
   /** Optional per-phase git-worktree isolation (lazily created at start). */
   private worktrees: WorktreeManager | null = null;
+  /** Per-run worker identities so the board can show "who is on what". */
+  private usedNicknames = new Set<string>();
 
   constructor(
     private agent: Agent,
@@ -109,6 +112,39 @@ export class AutoPhaseWebSocketHandler {
       case 'autophase.taskStatus': {
         const { taskId, status } = msg.payload as { taskId: string; status: string };
         await this.handleTaskStatusChange(taskId, status);
+        break;
+      }
+      case 'autophase.moveTask': {
+        const { taskId, toPhaseId } = msg.payload as { taskId: string; toPhaseId: string };
+        if (this.orchestrator?.moveTask(taskId, toPhaseId)) this.afterBoardMutation();
+        break;
+      }
+      case 'autophase.assignTask': {
+        const { taskId, agentId, agentName } = msg.payload as {
+          taskId: string;
+          agentId?: string;
+          agentName?: string;
+        };
+        if (this.orchestrator?.setTaskAssignee(taskId, agentId, agentName)) this.afterBoardMutation();
+        break;
+      }
+      case 'autophase.addTask': {
+        const { phaseId, title, description, type, priority } = msg.payload as {
+          phaseId: string;
+          title: string;
+          description?: string;
+          type?: import('@wrongstack/core').TaskNode['type'];
+          priority?: import('@wrongstack/core').TaskNode['priority'];
+        };
+        if (title?.trim() && this.orchestrator?.addTask(phaseId, { title: title.trim(), description, type, priority })) {
+          this.afterBoardMutation();
+        }
+        break;
+      }
+      case 'autophase.retryTask':
+      case 'autophase.runTask': {
+        const { taskId } = msg.payload as { taskId: string };
+        if (this.orchestrator?.requeueTask(taskId)) this.afterBoardMutation();
         break;
       }
       case 'autophase.toggleAutonomous': {
@@ -284,6 +320,17 @@ export class AutoPhaseWebSocketHandler {
     phaseId: string,
     env?: { cwd?: string | undefined; branch?: string | undefined },
   ): Promise<unknown> {
+    // Give the task a human worker identity (reuse a manual assignment if one
+    // exists) so the board shows who is running it; reflect it on the node and
+    // push a live state update before the (long) run begins.
+    if (!task.assignee) {
+      const nick = assignNickname('executor', this.usedNicknames);
+      this.usedNicknames.add(nick.key);
+      task.assignee = nick.display.replace(/\s*\([^)]*\)\s*$/, '');
+      task.updatedAt = Date.now();
+      this.broadcastState();
+    }
+
     // Execute task with agent
     const prompt = `Execute task: ${task.title}\n\nDescription: ${task.description}\nPhase: ${phaseId}\nPriority: ${task.priority}\nType: ${task.type}`;
     const signal = this.abort?.signal ?? new AbortController().signal;
@@ -297,6 +344,12 @@ export class AutoPhaseWebSocketHandler {
     } finally {
       this.context.cwd = prevCwd;
     }
+  }
+
+  /** Persist + broadcast after an interactive board mutation. */
+  private afterBoardMutation(): void {
+    if (this.graph) void this.store.save(this.graph);
+    this.broadcastState();
   }
 
   private async handleTaskStatusChange(taskId: string, status: string): Promise<void> {
@@ -351,41 +404,49 @@ export class AutoPhaseWebSocketHandler {
       0,
     );
 
-    const phaseItems = phases.map((p) => ({
-      id: p.id,
-      name: p.name,
-      description: p.description,
-      status: p.status,
-      priority: p.priority,
-      estimateHours: p.estimateHours,
-      actualDurationMs: p.actualDurationMs,
-      startedAt: p.startedAt,
-      completedAt: p.completedAt,
-      progressPercent: p.taskGraph.nodes.size > 0
-        ? Math.round((Array.from(p.taskGraph.nodes.values()).filter((t) => t.status === 'completed').length / p.taskGraph.nodes.size) * 100)
-        : 0,
-      taskCount: p.taskGraph.nodes.size,
-      completedTasks: Array.from(p.taskGraph.nodes.values()).filter((t) => t.status === 'completed').length,
-      assignedAgents: p.assignedAgents,
-      isActive: p.id === currentActiveId,
-    }));
+    // Shared task → board-card mapper. Carries assignee/timestamps so the kanban
+    // can show who is on each card and how long it has been running.
+    const mapTask = (t: import('@wrongstack/core').TaskNode) => ({
+      id: t.id,
+      title: t.title,
+      description: t.description,
+      status: t.status,
+      priority: t.priority,
+      type: t.type,
+      estimateHours: t.estimateHours,
+      actualHours: t.actualHours,
+      assignee: t.assignee,
+      tags: t.tags || [],
+      startedAt: t.startedAt,
+      completedAt: t.completedAt,
+    });
 
-    const taskItems = activePhase
-      ? Array.from(activePhase.taskGraph.nodes.values()).map((t) => ({
-          id: t.id,
-          title: t.title,
-          description: t.description,
-          status: t.status,
-          priority: t.priority,
-          type: t.type,
-          estimateHours: t.estimateHours,
-          actualHours: t.actualHours,
-          assignee: t.assignee,
-          tags: t.tags || [],
-          startedAt: t.startedAt,
-          completedAt: t.completedAt,
-        }))
-      : [];
+    const phaseItems = phases.map((p) => {
+      const nodes = Array.from(p.taskGraph.nodes.values());
+      const done = nodes.filter((t) => t.status === 'completed').length;
+      return {
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        status: p.status,
+        priority: p.priority,
+        estimateHours: p.estimateHours,
+        actualDurationMs: p.actualDurationMs,
+        startedAt: p.startedAt,
+        completedAt: p.completedAt,
+        progressPercent: nodes.length > 0 ? Math.round((done / nodes.length) * 100) : 0,
+        taskCount: nodes.length,
+        completedTasks: done,
+        assignedAgents: p.assignedAgents,
+        isActive: p.id === currentActiveId,
+        // Every phase carries its full task list so the board can render each
+        // phase as a column (not just the selected one).
+        tasks: nodes.map(mapTask),
+      };
+    });
+
+    // Back-compat: the chat-area TaskBoard still reads the flat active-phase list.
+    const taskItems = activePhase ? Array.from(activePhase.taskGraph.nodes.values()).map(mapTask) : [];
 
     const completedPhases = phases.filter((p) => p.status === 'completed').length;
 

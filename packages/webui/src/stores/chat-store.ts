@@ -65,11 +65,17 @@ interface ChatState {
    *  events and shown as a soft, ephemeral bubble below the chat tail while
    *  the model is reasoning. Cleared the moment the model produces user-
    *  facing output (text_delta) or starts a tool — and at provider.response /
-   *  run.result. Never persisted into `messages`, so refresh wipes it. */
+   *  run.result. The archive buffer below is what eventually lands in
+   *  `messages`; this live buffer is only for the temporary bubble. */
   thinkingBuffer: string;
   /** Wall-clock ms when the current thinking burst started, for the chip's
    *  elapsed timer. Reset alongside `thinkingBuffer`. */
   thinkingStartedAt: number | null;
+  /** Full thinking text accumulated for the current iteration. Unlike the
+   *  live chip buffer, this survives text/tool events until iteration end. */
+  thinkingLogBuffer: string;
+  /** Wall-clock ms when the archived thinking text for this iteration began. */
+  thinkingLogStartedAt: number | null;
 
   addMessage: (msg: Omit<ChatMessage, 'id' | 'timestamp'> & { timestamp?: number }) => string;
   setMessages: (messages: ChatMessage[]) => void;
@@ -97,6 +103,8 @@ interface ChatState {
   setRunStart: (s: { at: number; cost: number } | null) => void;
   appendThinking: (text: string) => void;
   clearThinking: () => void;
+  flushThinkingLog: (iteration: number) => void;
+  clearThinkingLog: () => void;
 }
 
 interface ToolExecution {
@@ -124,6 +132,8 @@ export const useChatStore = create<ChatState>()(
       runStart: null,
       thinkingBuffer: '',
       thinkingStartedAt: null,
+      thinkingLogBuffer: '',
+      thinkingLogStartedAt: null,
 
       addMessage: (msg) => {
         const id = `msg_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
@@ -151,6 +161,10 @@ export const useChatStore = create<ChatState>()(
           currentToolId: null,
           executions: new Map(),
           toolMessageIdsByUseId: indexToolMessages(messages),
+          thinkingBuffer: '',
+          thinkingStartedAt: null,
+          thinkingLogBuffer: '',
+          thinkingLogStartedAt: null,
         });
       },
 
@@ -225,6 +239,10 @@ export const useChatStore = create<ChatState>()(
           currentToolId: null,
           executions: new Map(),
           toolMessageIdsByUseId: new Map(),
+          thinkingBuffer: '',
+          thinkingStartedAt: null,
+          thinkingLogBuffer: '',
+          thinkingLogStartedAt: null,
         }),
 
       setCurrentAssistantMessage: (id) => set({ currentAssistantMessageId: id }),
@@ -277,8 +295,28 @@ export const useChatStore = create<ChatState>()(
         set((state) => ({
           thinkingBuffer: state.thinkingBuffer + text,
           thinkingStartedAt: state.thinkingStartedAt ?? Date.now(),
+          thinkingLogBuffer: state.thinkingLogBuffer + text,
+          thinkingLogStartedAt: state.thinkingLogStartedAt ?? Date.now(),
         })),
       clearThinking: () => set({ thinkingBuffer: '', thinkingStartedAt: null }),
+      flushThinkingLog: (iteration) => {
+        const { thinkingLogBuffer, thinkingLogStartedAt } = get();
+        const text = thinkingLogBuffer.trim();
+        if (!text) return;
+        const startedAt = thinkingLogStartedAt ?? Date.now();
+        get().addMessage({
+          role: 'system',
+          content: '',
+          thinkingLog: {
+            iteration,
+            text,
+            startedAt,
+            durationMs: Math.max(0, Date.now() - startedAt),
+          },
+        });
+        get().clearThinkingLog();
+      },
+      clearThinkingLog: () => set({ thinkingLogBuffer: '', thinkingLogStartedAt: null }),
     }),
     {
       name: 'wrongstack-chat',

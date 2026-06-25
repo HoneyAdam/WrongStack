@@ -78,11 +78,17 @@ export class StreamCoalescer {
     }
   }
 
-  /** Discard a key's buffered text without flushing. Used when the thinking
-   *  buffer is cleared (model started replying) so a pending thinking delta
-   *  can't re-populate it a frame later. */
+  /** Discard a key's buffered text without flushing. Used when a later event
+   *  replaces a stream's final value, such as tool.executed replacing pending
+   *  progress with the complete result. */
   drop(key: string): void {
     this.pending.delete(key);
+  }
+
+  /** Discard every buffered stream without flushing. Used when the transcript
+   *  owner changes, such as session resume/new/project switch. */
+  dropAll(): void {
+    this.pending.clear();
   }
 
   /** Drain a single key immediately (if buffered). Safe to call when empty. */

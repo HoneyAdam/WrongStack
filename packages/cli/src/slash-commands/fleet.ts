@@ -88,7 +88,7 @@ export function buildFleetCommand(opts: SlashCommandContext): SlashCommand {
         // ── /fleet terminate <subagentId> ────────────────────────────────────
         case 'terminate':
         case 'stop':
-          return handleTerminate(opts, subargs);
+          return await handleTerminate(opts, subargs);
 
         // ── /fleet spawn <role> [count] ──────────────────────────────────────
         case 'spawn':
@@ -294,7 +294,7 @@ async function handleKill(
     return { message: msg };
   }
   if (opts.onFleetKill) {
-    const killed = opts.onFleetKill();
+    const killed = await opts.onFleetKill();
     const msg = `${color.red('✗ Killed')} ${killed} subagent(s).`;
     opts.renderer.write(msg);
     return { message: msg };
@@ -304,7 +304,7 @@ async function handleKill(
   return { message: msg };
 }
 
-function handleTerminate(opts: SlashCommandContext, subargs: string[]): { message: string } {
+async function handleTerminate(opts: SlashCommandContext, subargs: string[]): Promise<{ message: string }> {
   const targetId = subargs[0];
   if (!targetId) {
     const msg = `${color.amber('⚠ /fleet terminate requires a subagentId.')} Use /fleet to see active ids.`;
@@ -316,7 +316,7 @@ function handleTerminate(opts: SlashCommandContext, subargs: string[]): { messag
     opts.renderer.writeWarning(msg);
     return { message: msg };
   }
-  const ok = opts.onFleetTerminate(targetId);
+  const ok = await opts.onFleetTerminate(targetId);
   if (ok) {
     const msg = `${color.green('✓ Terminated')} subagent ${color.bold(targetId)}.`;
     opts.renderer.write(msg);

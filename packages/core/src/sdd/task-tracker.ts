@@ -34,11 +34,46 @@ export interface TaskTransition {
   reason?: string | undefined;
 }
 
+/** A change notification emitted to `TaskTracker.subscribe` listeners. */
+export interface TaskTrackerChange {
+  type: 'node_added' | 'node_updated' | 'status_changed' | 'node_removed';
+  nodeId: string;
+  /** For `node_removed` this is the node as it was just before deletion. */
+  node: TaskNode;
+  transition?: TaskTransition | undefined;
+}
+
+export type TaskTrackerListener = (change: TaskTrackerChange) => void;
+
 export class TaskTracker {
   private graph: TaskGraph | null = null;
   private transitions: TaskTransition[] = [];
+  private listeners: TaskTrackerListener[] = [];
 
   constructor(private readonly opts: TaskTrackerOptions) {}
+
+  /**
+   * Subscribe to live task mutations (add / update / status change). Returns an
+   * unsubscribe fn. This is the hook the board projector uses to stream a live
+   * snapshot — the tracker was previously fire-and-forget with no observability.
+   */
+  subscribe(listener: TaskTrackerListener): () => void {
+    this.listeners.push(listener);
+    return () => {
+      const i = this.listeners.indexOf(listener);
+      if (i >= 0) this.listeners.splice(i, 1);
+    };
+  }
+
+  private notifyChange(change: TaskTrackerChange): void {
+    for (const l of this.listeners) {
+      try {
+        l(change);
+      } catch {
+        // A faulty listener must never break a tracker mutation.
+      }
+    }
+  }
 
   /**
    * Attach an existing graph (used by PhaseOrchestrator to associate a tracker
@@ -91,6 +126,7 @@ export class TaskTracker {
 
     this.graph.updatedAt = now;
     this.persist();
+    this.notifyChange({ type: 'node_added', nodeId: newNode.id, node: newNode });
 
     return newNode;
   }
@@ -109,6 +145,76 @@ export class TaskTracker {
     });
     this.graph.updatedAt = Date.now();
     this.persist();
+  }
+
+  /**
+   * Declare that `taskId` depends on `depId` (a `depends_on` edge `depId → taskId`),
+   * guarding against self-loops, duplicates, missing nodes, and cycles. Returns
+   * true if the dependency now holds (added or already present), false if it was
+   * rejected (would create a cycle / unknown node). This is the safe entry point
+   * for wiring agent-declared `dependsOn` references into the graph.
+   */
+  addDependency(depId: string, taskId: string): boolean {
+    if (!this.graph) return false;
+    if (depId === taskId) return false;
+    if (!this.graph.nodes.has(depId) || !this.graph.nodes.has(taskId)) return false;
+    // Already a blocker — idempotent success.
+    if (this.getBlockers(taskId).includes(depId)) return true;
+    // Cycle guard: if `depId` already (transitively) depends on `taskId`, adding
+    // `taskId → depId` would close a loop. Reject rather than deadlock the run.
+    if (this.dependsOnTransitively(depId, taskId, new Set())) return false;
+    this.addEdge(depId, taskId, 'depends_on');
+    return true;
+  }
+
+  /** True when `taskId` transitively depends on `targetId` (follows depends_on blockers). */
+  private dependsOnTransitively(taskId: string, targetId: string, seen: Set<string>): boolean {
+    if (taskId === targetId) return true;
+    if (seen.has(taskId)) return false;
+    seen.add(taskId);
+    for (const blocker of this.getBlockers(taskId)) {
+      if (this.dependsOnTransitively(blocker, targetId, seen)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Merge `patch` into a node's `metadata` (used for per-task model/provider/
+   * fallback assignment and the cancel marker). Persists + notifies as a node
+   * update. No-op if the node is missing.
+   */
+  patchMetadata(id: string, patch: Record<string, unknown>): void {
+    if (!this.graph) return;
+    const node = this.graph.nodes.get(id);
+    if (!node) return;
+    node.metadata = { ...node.metadata, ...patch };
+    node.updatedAt = Date.now();
+    this.graph.updatedAt = node.updatedAt;
+    this.persist();
+    this.notifyChange({ type: 'node_updated', nodeId: id, node });
+  }
+
+  /**
+   * Remove a node and every edge touching it. Intended for deleting a task that
+   * has not started yet — callers must gate on status (do not remove a running
+   * task). Dependents simply lose this blocker (re-evaluated by `canStart`).
+   * Returns true if a node was removed.
+   */
+  removeNode(id: string): boolean {
+    if (!this.graph) return false;
+    const node = this.graph.nodes.get(id);
+    if (!node) return false;
+    this.graph.nodes.delete(id);
+    this.graph.edges = this.graph.edges.filter((e) => e.from !== id && e.to !== id);
+    this.graph.rootNodes = this.graph.rootNodes.filter((r) => r !== id);
+    // Detach from any parent's children list.
+    for (const n of this.graph.nodes.values()) {
+      if (n.children?.includes(id)) n.children = n.children.filter((c) => c !== id);
+    }
+    this.graph.updatedAt = Date.now();
+    this.persist();
+    this.notifyChange({ type: 'node_removed', nodeId: id, node });
+    return true;
   }
 
   updateNodeStatus(id: string, status: TaskNode['status'], reason?: string): void {
@@ -151,9 +257,15 @@ export class TaskTracker {
 
     this.graph.updatedAt = now;
     this.persist();
+    this.notifyChange({
+      type: 'status_changed',
+      nodeId: id,
+      node,
+      transition: { from, to: status, timestamp: now, reason },
+    });
   }
 
-  updateNode(id: string, patch: Partial<Pick<TaskNode, 'title' | 'description' | 'priority' | 'estimateHours' | 'tags'>>): void {
+  updateNode(id: string, patch: Partial<Pick<TaskNode, 'title' | 'description' | 'priority' | 'estimateHours' | 'tags' | 'assignee'>>): void {
     if (!this.graph) throw new SddError({
       message: 'No graph loaded',
       code: ERROR_CODES.SDD_INVALID_STATE,
@@ -171,9 +283,11 @@ export class TaskTracker {
     if (patch.priority !== undefined) node.priority = patch.priority;
     if (patch.estimateHours !== undefined) node.estimateHours = patch.estimateHours;
     if (patch.tags !== undefined) node.tags = patch.tags;
+    if (patch.assignee !== undefined) node.assignee = patch.assignee;
     node.updatedAt = Date.now();
     this.graph.updatedAt = node.updatedAt;
     this.persist();
+    this.notifyChange({ type: 'node_updated', nodeId: id, node });
   }
 
   getNode(id: string): TaskNode | undefined {

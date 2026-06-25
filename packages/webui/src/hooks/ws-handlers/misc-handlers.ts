@@ -86,10 +86,12 @@ export function handleAutoPhaseLifecycle(msg: WSServerMessage) {
 }
 
 export function handleAutoPhaseList(msg: WSServerMessage) {
-  const p = msg.payload as { graphs?: unknown[] | undefined };
+  const p = msg.payload as {
+    graphs?: Array<{ id: string; title: string; updatedAt: number; status: string }> | undefined;
+  };
   useAutoPhaseStore.getState().setState({
     lastEvent: 'list',
-    progress: p.graphs ? { totalPhases: p.graphs.length, completed: 0, failed: 0, totalTasks: 0, completedTasks: 0, failedTasks: 0 } : undefined,
+    graphs: Array.isArray(p.graphs) ? p.graphs : [],
   });
 }
 

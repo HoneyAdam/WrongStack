@@ -432,6 +432,9 @@ export class Director implements ICoordinator {
   /** Snapshot of which subagent owns each task — drives state-checkpoint
    *  status updates without re-walking the manifest. */
   private readonly taskOwners = new Map<string, string>();
+  /** Infrastructure-owned task ids that should not appear in user-visible
+   *  manifest/session/checkpoint/rollup state. */
+  private readonly internalTaskIds = new Set<string>();
   /** Cumulative auto-extension grants per subagent (all budget kinds). Lets
    *  /fleet render "⚡ extended ×N" without replaying the event stream. */
   private readonly extendTotals = new Map<string, number>();
@@ -573,19 +576,23 @@ export class Director implements ICoordinator {
     // EventEmitter's max-listener warning.
     this.taskCompletedListener = (payload: { task: TaskSpec; result: TaskResult }) => {
       const r = payload.result;
-      this.completed.set(r.taskId, r);
-      // Trim oldest entries when the cap is exceeded — keep most recent results
-      // so rollUp() and completedResults() still have data to return.
-      if (this.completed.size > Director.MAX_COMPLETED) {
-        const toDelete = this.completed.size - Director.MAX_COMPLETED;
-        const keys = [...this.completed.keys()].slice(0, toDelete);
-        for (const k of keys) this.completed.delete(k);
+      const internalTask = this.internalTaskIds.delete(r.taskId);
+      if (!internalTask) {
+        this.completed.set(r.taskId, r);
+        // Trim oldest entries when the cap is exceeded — keep most recent results
+        // so rollUp() and completedResults() still have data to return.
+        if (this.completed.size > Director.MAX_COMPLETED) {
+          const toDelete = this.completed.size - Director.MAX_COMPLETED;
+          const keys = [...this.completed.keys()].slice(0, toDelete);
+          for (const k of keys) this.completed.delete(k);
+        }
       }
       const waiter = this.taskWaiters.get(r.taskId);
       if (waiter) {
         waiter.resolve(r);
         this.taskWaiters.delete(r.taskId);
       }
+      if (internalTask) return;
       // Mirror into the on-disk checkpoint + session event stream so a
       // crashed director leaves a complete picture of which tasks landed.
       const title = this.taskDescriptions.get(r.taskId) ?? payload.task.description ?? r.taskId;
@@ -1431,6 +1438,24 @@ export class Director implements ICoordinator {
       title: taskWithId.description,
     });
     this.scheduleManifest();
+    return taskWithId.id;
+  }
+
+  /**
+   * Assign infrastructure-owned work directly to the coordinator without
+   * manifest/session/checkpoint bookkeeping. The task still uses the normal
+   * subagent runner, budget, and completion events, but it is excluded from
+   * rollups and persisted fleet task history.
+   */
+  async assignInternal(task: TaskSpec): Promise<string> {
+    const taskWithId: TaskSpec = task.id ? task : { ...task, id: randomUUID() };
+    this.internalTaskIds.add(taskWithId.id);
+    try {
+      await this.coordinator.assign(taskWithId);
+    } catch (err) {
+      this.internalTaskIds.delete(taskWithId.id);
+      throw err;
+    }
     return taskWithId.id;
   }
 

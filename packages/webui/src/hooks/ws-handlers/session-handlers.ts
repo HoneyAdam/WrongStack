@@ -30,10 +30,29 @@ function contentToToolResult(content: unknown): string {
 function hydrateReplayMessages(replay: ReplayMessage[]): ChatMessage[] {
   const messages: ChatMessage[] = [];
   const toolMessagesByUseId = new Map<string, ChatMessage>();
+  let thinkingLogIteration = 0;
 
   const pushText = (role: 'user' | 'assistant' | 'system', content: string, timestamp: number) => {
     if (!content) return;
     messages.push({ id: replayMessageId(messages.length), role, content, timestamp });
+  };
+  const pushThinkingLog = (text: string, timestamp: number) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    thinkingLogIteration += 1;
+    messages.push({
+      id: replayMessageId(messages.length),
+      role: 'system',
+      content: '',
+      timestamp,
+      thinkingLog: {
+        iteration: thinkingLogIteration,
+        text: trimmed,
+        startedAt: timestamp,
+        durationMs: 0,
+        replayed: true,
+      },
+    });
   };
 
   for (const m of replay) {
@@ -47,7 +66,12 @@ function hydrateReplayMessages(replay: ReplayMessage[]): ChatMessage[] {
     if (!Array.isArray(m.content)) continue;
 
     let text = '';
+    const thinking: string[] = [];
     for (const block of m.content as Array<Record<string, unknown>>) {
+      if (block.type === 'thinking' && typeof block.thinking === 'string') {
+        thinking.push(block.thinking);
+        continue;
+      }
       if (block.type === 'text' && typeof block.text === 'string') {
         text += (text ? '\n' : '') + block.text;
         continue;
@@ -79,6 +103,9 @@ function hydrateReplayMessages(replay: ReplayMessage[]): ChatMessage[] {
       }
     }
     pushText(role, text, timestamp);
+    if (role === 'assistant' && thinking.length > 0) {
+      pushThinkingLog(thinking.join('\n\n'), timestamp);
+    }
   }
 
   return messages;
@@ -96,6 +123,13 @@ const warnedCostModels = new Set<string>();
 
 function truncateLine(text: string, max = 140): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+function flushThinkingLogForCurrentIteration(): void {
+  streamCoalescer.flush('__thinking__');
+  const current = useSessionStore.getState().iteration;
+  useChatStore.getState().flushThinkingLog(Math.max(1, current?.index ?? 1));
+  useChatStore.getState().clearThinking();
 }
 
 export function handleSessionStart(msg: WSServerMessage) {
@@ -161,7 +195,9 @@ export function handleSessionStart(msg: WSServerMessage) {
     model: payload.model,
   });
   if (isReset) {
+    streamCoalescer.dropAll();
     useChatStore.getState().clearMessages();
+    useUIStore.getState().setSearchActiveMessageId(null);
     useChatStore.getState().setLoading(false);
     useSessionStore.setState({ todos: [] });
     setFaviconStatus('ready');
@@ -289,12 +325,16 @@ export function handleProviderResponse(msg: WSServerMessage) {
     if (payload.usage.output > 0) useChatStore.getState().updateMessage(id, { usage: payload.usage });
   }
   useChatStore.getState().setCurrentAssistantMessage(null);
+  streamCoalescer.flush('__thinking__');
   useChatStore.getState().clearThinking();
 }
 
 export function handleIterationCompleted(msg: WSServerMessage) {
   pipeViz(msg);
   const p = msg.payload as { index: number; totalIterations?: number | undefined };
+  streamCoalescer.flush('__thinking__');
+  useChatStore.getState().flushThinkingLog(p.index);
+  useChatStore.getState().clearThinking();
   const current = useSessionStore.getState().iteration;
   if (current) {
     useSessionStore.getState().setIteration({
@@ -558,6 +598,7 @@ export function handleSessionsList(msg: WSServerMessage) {
 
 export function handleError(msg: WSServerMessage) {
   const payload = msg.payload as { phase: string; message: string };
+  flushThinkingLogForCurrentIteration();
   useChatStore.getState().addMessage({ role: 'assistant', content: `[${payload.phase}] ${payload.message}`, isError: true });
   useChatStore.getState().setLoading(false);
 }

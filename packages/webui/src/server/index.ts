@@ -111,6 +111,12 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { createDefaultContainer } from '../../../runtime/src/container.js';
 import { bootConfig, patchConfig } from './boot.js';
 import { AutoPhaseWebSocketHandler } from './autophase-ws-handler.js';
+import { SpecsWebSocketHandler } from './specs-ws-handler.js';
+import { SddBoardWebSocketHandler } from './sdd-board-ws-handler.js';
+import { SddWizardWebSocketHandler } from './sdd-wizard-ws-handler.js';
+import { buildSddWizardDeps } from './sdd-wizard-wiring.js';
+import { handleSddWizardRoute, type SddWizardRouteHandlers } from './sdd-wizard-routes.js';
+import { makeLightSubagentFactory } from '@wrongstack/runtime';
 import { CollaborationWebSocketHandler } from './collaboration-ws-handler.js';
 import {
   ensureProjectDataDir,
@@ -139,6 +145,8 @@ import { handleShellGitRoute, type ShellGitRouteHandlers } from './shell-git-rou
 import { handleMailboxRoute, type MailboxRouteHandlers } from './mailbox-routes.js';
 import { handleBrainRoute, type BrainRouteHandlers } from './brain-routes.js';
 import { handleAutoPhaseRoute, type AutoPhaseRouteHandlers } from './autophase-routes.js';
+import { handleSpecsRoute, type SpecsRouteHandlers } from './specs-routes.js';
+import { handleSddBoardRoute, type SddBoardRouteHandlers } from './sdd-board-routes.js';
 import { setupEvents, type FileWatcherMetrics } from './setup-events.js';
 import { createCustomModeStore } from './custom-context-modes.js';
 import { maskedKey, normalizeKeys } from './provider-keys.js';
@@ -296,6 +304,10 @@ export {
 // Exported so the CLI's embedded webui-server can also handle autophase.*
 // messages when running in --webui mode.
 export { AutoPhaseWebSocketHandler } from './autophase-ws-handler.js';
+export { SpecsWebSocketHandler } from './specs-ws-handler.js';
+export { SddBoardWebSocketHandler } from './sdd-board-ws-handler.js';
+export { SddWizardWebSocketHandler, type SddWizardDeps } from './sdd-wizard-ws-handler.js';
+export { buildSddWizardDeps, type SddWizardWiringOptions } from './sdd-wizard-wiring.js';
 
 // Shared skills WebSocket handlers — one source of truth for both this
 // standalone server and the CLI's embedded --webui server. The CLI imports
@@ -837,6 +849,8 @@ export async function startWebUI(
     context.meta['enhanceDelayMs'] = (autonomyCfg['enhanceDelayMs'] as number) ?? 60_000;
     context.meta['enhanceLanguage'] = (autonomyCfg['enhanceLanguage'] as string) ?? 'original';
     context.meta['nextPrediction'] = config.nextPrediction ?? false;
+    context.meta['fallbackModels'] = config.fallbackModels ?? [];
+    context.meta['fallbackAuto'] = config.fallbackAuto !== false;
     context.meta['featureMcp'] = config.features.mcp !== false;
     context.meta['featurePlugins'] = config.features.plugins !== false;
     context.meta['featureMemory'] = config.features.memory !== false;
@@ -877,6 +891,7 @@ export async function startWebUI(
     'hqEnabled', 'hqUrl', 'hqToken', 'hqRawContent',
     'tgConfigured', 'tgSessionEnd', 'tgDelegate', 'tgLongToolMs',
     'reasoningMode', 'reasoningEffort', 'reasoningPreserve', 'cacheTtl',
+    'fallbackModels', 'fallbackAuto',
   ] as const;
 
   const prefSnapshot = (): Record<string, unknown> => {
@@ -920,6 +935,12 @@ export async function startWebUI(
       if (autonomyTouched) decrypted.autonomy = autonomyCfg;
 
       if (typeof payload['nextPrediction'] === 'boolean') decrypted.nextPrediction = payload['nextPrediction'];
+
+      // Global fallback model chain (top-level config). Read live by the leader's
+      // fallback extension each turn (effectiveFallbackChain), so it takes effect
+      // without a restart.
+      if (Array.isArray(payload['fallbackModels'])) decrypted.fallbackModels = payload['fallbackModels'];
+      if (typeof payload['fallbackAuto'] === 'boolean') decrypted.fallbackAuto = payload['fallbackAuto'];
 
       const FEATURE_MAP: Record<string, string> = {
         featureMcp: 'mcp',
@@ -1273,6 +1294,40 @@ export async function startWebUI(
     projectRoot,
   );
 
+  // Specs handler — FORGE-style browser of persisted SDD specs + their task
+  // graphs (dependency board). Reads the shared per-project SDD stores.
+  const specsHandler = new SpecsWebSocketHandler(wpaths.projectSpecs, wpaths.projectTaskGraphs);
+
+  // SDD live board handler — observes a CLI-owned multi-agent run. Standalone
+  // server is a different process from the run, so it polls the on-disk
+  // snapshot (no shared EventBus) and steers via the control file.
+  const sddBoardHandler = new SddBoardWebSocketHandler(wpaths.projectSddBoards);
+
+  // SDD wizard — the interactive "New SDD Project" flow (goal → Q&A → spec →
+  // task graph → start run). The standalone server runs the real fleet in-process
+  // via the runtime light subagent factory (no @wrongstack/cli MultiAgentHost —
+  // layer rule). The interview turns + run subagents share one factory.
+  const sddWizardHandler = new SddWizardWebSocketHandler(
+    buildSddWizardDeps({
+      agent,
+      events,
+      projectRoot,
+      subagentFactory: makeLightSubagentFactory({
+        container,
+        providerRegistry,
+        toolRegistry,
+        session,
+        projectRoot,
+      }),
+      paths: {
+        projectSpecs: wpaths.projectSpecs,
+        projectTaskGraphs: wpaths.projectTaskGraphs,
+        projectSddBoards: wpaths.projectSddBoards,
+        projectDir: wpaths.projectDir,
+      },
+    }),
+  );
+
   // Worktree handler — subscribes to the shared EventBus `worktree.*` events
   // and streams live swim-lane / DAG state to connected clients.
   const worktreeHandler = new WorktreeWebSocketHandler(events, logger);
@@ -1532,6 +1587,11 @@ export async function startWebUI(
 
     // Register this client with the AutoPhase handler so it receives phase events
     autoPhaseHandler.addClient(ws);
+    // …and the specs handler for the FORGE dependency board.
+    specsHandler.addClient(ws);
+    // …and the live SDD multi-agent board handler.
+    sddBoardHandler.addClient(ws);
+    sddWizardHandler.addClient(ws);
     // …and the worktree handler for live isolation lanes.
     worktreeHandler.addClient(ws);
     // …and the collaboration handler for read-only session observation.
@@ -1734,6 +1794,9 @@ export async function startWebUI(
   let mailboxRoutes: MailboxRouteHandlers;
   let brainRoutes: BrainRouteHandlers;
   let autoPhaseRoutes: AutoPhaseRouteHandlers;
+  let specsRoutes: SpecsRouteHandlers;
+  let sddBoardRoutes: SddBoardRouteHandlers;
+  let sddWizardRoutes: SddWizardRouteHandlers;
 
   async function handleMessage(
     ws: WebSocket,
@@ -1748,6 +1811,9 @@ export async function startWebUI(
     if (await handleMailboxRoute(ws, msg, mailboxRoutes)) return;
     if (await handleBrainRoute(ws, msg, brainRoutes)) return;
     if (await handleAutoPhaseRoute(ws, msg, autoPhaseRoutes)) return;
+    if (await handleSpecsRoute(ws, msg, specsRoutes)) return;
+    if (await handleSddBoardRoute(ws, msg, sddBoardRoutes)) return;
+    if (await handleSddWizardRoute(ws, msg, sddWizardRoutes)) return;
 
     switch (msg.type) {
       // Collaboration messages short-circuit the user/agent flow.
@@ -2113,6 +2179,13 @@ export async function startWebUI(
           config.features.skills = payload['featureSkills'];
         if (typeof payload['featureModelsRegistry'] === 'boolean')
           config.features.modelsRegistry = payload['featureModelsRegistry'];
+
+        // Global fallback chain: mutate the live config so the leader's fallback
+        // extension (which reads config each turn) honours it without a restart.
+        if (Array.isArray(payload['fallbackModels']))
+          config.fallbackModels = payload['fallbackModels'] as string[];
+        if (typeof payload['fallbackAuto'] === 'boolean')
+          config.fallbackAuto = payload['fallbackAuto'];
 
         // Runtime effects: apply prefs that change server behaviour immediately.
 
@@ -2525,6 +2598,18 @@ export async function startWebUI(
 
   autoPhaseRoutes = {
     handleMessage: (msg) => autoPhaseHandler.handleMessage(msg),
+  };
+
+  specsRoutes = {
+    handleMessage: (msg) => specsHandler.handleMessage(msg),
+  };
+
+  sddBoardRoutes = {
+    handleMessage: (msg) => sddBoardHandler.handleMessage(msg),
+  };
+
+  sddWizardRoutes = {
+    handleMessage: (msg) => sddWizardHandler.handleMessage(msg),
   };
 
   // HTTP server for the React frontend (port 3456) — see `http-server.ts`

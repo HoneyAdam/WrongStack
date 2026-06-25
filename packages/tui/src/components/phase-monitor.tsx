@@ -20,6 +20,7 @@ export interface PhaseMonitorProps {
       completedTasks: number;
       totalTasks: number;
       startedAt?: number | undefined;
+      activeTasks?: Array<{ taskId: string; title: string; agent?: string | undefined }> | undefined;
     }
   >;
   /** IDs of currently running phases. */
@@ -123,6 +124,15 @@ export function PhaseMonitor({
                   </>
                 )}
               </Box>
+              {/* Live workers — which agent is on which task right now. */}
+              {(phase.activeTasks ?? []).map((t) => (
+                <Box key={t.taskId} flexDirection="row" gap={1} marginLeft={2}>
+                  <Text color="yellow">●</Text>
+                  <Text color="cyan">{t.agent ?? 'agent'}</Text>
+                  <Text dimColor>→</Text>
+                  <Text dimColor>{t.title || '(task)'}</Text>
+                </Box>
+              ))}
             </Box>
           );
         })

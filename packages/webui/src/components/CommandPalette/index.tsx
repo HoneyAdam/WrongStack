@@ -1,5 +1,6 @@
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { playCompletionChime } from '@/lib/chime';
+import { streamCoalescer } from '@/lib/stream-coalescer';
 import { cn } from '@/lib/utils';
 import {
   useAutoPhaseStore,
@@ -127,7 +128,7 @@ export function CommandPalette() {
         id: 'clear', category: 'Session', label: 'Clear context',
         hint: 'Wipe in-memory context, keep session id',
         icon: Trash2, keywords: ['clear', 'reset', 'wipe'],
-        run: () => { clearMessages(); ws.client?.clearContext?.(); },
+        run: () => { streamCoalescer.dropAll(); clearMessages(); ws.client?.clearContext?.(); },
       },
       {
         id: 'new', category: 'Session', label: 'New session',

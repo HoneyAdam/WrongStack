@@ -12,6 +12,7 @@ import {
   Bot,
   Clock,
   Command,
+  FileText,
   GitCompare,
   FolderOpen,
   Folders,
@@ -28,6 +29,7 @@ import {
   LayoutGrid,
   Activity as ActivityIconSvg,
   Building2,
+  Wand2,
 } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { useTheme } from './ThemeProvider';
@@ -58,7 +60,7 @@ interface PanelDef {
  */
 const PANEL_OWNED_VIEWS = ['chat', 'files', 'skill', 'officemap', 'changes', 'mailbox'] as const;
 
-type MainView = 'autophase' | 'settings';
+type MainView = 'autophase' | 'specs' | 'sddboard' | 'sddwizard' | 'settings';
 
 interface ViewDef {
   id: MainView;
@@ -79,6 +81,9 @@ const PANELS: PanelDef[] = [
 ];
 
 const VIEWS: ViewDef[] = [
+  { id: 'sddwizard', icon: <Wand2 size={16} />, label: 'New SDD Project' },
+  { id: 'specs', icon: <FileText size={16} />, label: 'Specs' },
+  { id: 'sddboard', icon: <ActivityIconSvg size={16} />, label: 'Live Board' },
   { id: 'autophase', icon: <Rocket size={16} />, label: 'Phases' },
   { id: 'settings', icon: <SettingsIcon size={16} />, label: 'Settings' },
 ];

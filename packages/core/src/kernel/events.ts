@@ -603,6 +603,48 @@ export interface EventMap {
     tokens: number;
     maxContext: number;
   };
+  // ── SDD live board ──────────────────────────────────────────────────────
+  // Emitted by SddParallelRun so the board projector + every surface stream a
+  // live, dependency-aware multi-agent run. `runId` correlates all events of
+  // one run; the projector composes them into `sdd.board.snapshot`.
+  /** A parallel SDD run started. */
+  'sdd.run.started': { runId: string; graphId: string; specId?: string | undefined; total: number };
+  /** A parallel SDD run reached a terminal state. */
+  'sdd.run.finished': {
+    runId: string;
+    deadlocked: boolean;
+    completed: number;
+    failed: number;
+    stopped: boolean;
+  };
+  /** A task began executing on a worker (carries who + which worktree). */
+  'sdd.task.started': {
+    runId: string;
+    taskId: string;
+    subagentId: string;
+    agentName: string;
+    worktreeBranch?: string | undefined;
+  };
+  /** A task finished successfully. */
+  'sdd.task.completed': { runId: string; taskId: string; subagentId: string; durationMs: number };
+  /** A task failed terminally (retries exhausted). */
+  'sdd.task.failed': { runId: string; taskId: string; subagentId: string; error: string };
+  /** A failed task was requeued for another attempt. */
+  'sdd.task.retrying': { runId: string; taskId: string; attempt: number; maxRetries: number };
+  /** A new wave of dependency-ready tasks began. */
+  'sdd.wave': { runId: string; wave: number; batchSize: number };
+  /** No runnable tasks remain but some are still blocked — with the blocking chains. */
+  'sdd.deadlock': {
+    runId: string;
+    chains: Array<{ blocked: string; blockedBy: string[] }>;
+  };
+  /**
+   * Throttled full board snapshot composed by SddBoardProjector. `snapshot` is
+   * an `SddBoardSnapshot` (sdd/board-types) — typed `unknown` here so the kernel
+   * layer never imports from the higher `sdd/` layer (it sits below it in the
+   * DAG); consumers cast it back. The producer (SddBoardProjector) is typed.
+   */
+  'sdd.board.snapshot': { runId: string; snapshot: unknown };
   'mcp.server.connected': { name: string; toolCount: number };
   'mcp.server.reconnected': { name: string; toolCount: number };
   'mcp.server.disconnected': { name: string; reason: string };

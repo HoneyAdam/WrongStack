@@ -13,6 +13,8 @@ export {
   type TaskStore,
   type TaskTrackerOptions,
   type TaskTransition,
+  type TaskTrackerChange,
+  type TaskTrackerListener,
 } from './task-tracker.js';
 export {
   TaskFlow,
@@ -28,6 +30,40 @@ export {
 // Persistence
 export { SpecStore, type SpecStoreOptions, type SpecIndexEntry } from './spec-store.js';
 export { TaskGraphStore, type TaskGraphStoreOptions, type TaskGraphIndexEntry } from './task-graph-store.js';
+
+// Live board model + persistence
+export {
+  buildBoardTasks,
+  buildBoardSnapshot,
+  shortIdMap,
+  type SddBoardSnapshot,
+  type SddBoardTask,
+  type SddBoardColumn,
+  type SddBoardStatus,
+  type SddTaskDisplayStatus,
+  type SddDeadlockChain,
+  type SddBoardFeedEntry,
+} from './board-types.js';
+export {
+  SddBoardStore,
+  type SddBoardStoreOptions,
+  type SddBoardIndexEntry,
+  type SddBoardEvent,
+} from './sdd-board-store.js';
+export { SddBoardProjector, type SddBoardProjectorOptions } from './sdd-board-projector.js';
+export { SddRunRegistry, type SddRunControl } from './sdd-run-registry.js';
+export {
+  SddInterviewDriver,
+  isExplanatoryText,
+  type SddInterviewDriverOptions,
+  type SddInterviewSnapshot,
+  type SddIngestResult,
+} from './sdd-interview-driver.js';
+export {
+  startSddRun,
+  type StartSddRunOptions,
+  type SddRunHandle,
+} from './start-sdd-run.js';
 
 // AI-Driven Interactive Builder
 export {

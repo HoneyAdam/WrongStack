@@ -1,6 +1,6 @@
 // State, Action, and supporting types extracted from app-reducer.ts.
 // This file has NO React or Ink dependencies — pure type definitions.
-import type { AutonomyStage, ContentBlock, TokenSavingTier } from '@wrongstack/core';
+import type { AutonomyStage, ContentBlock, SddBoardSnapshot, TokenSavingTier } from '@wrongstack/core';
 import type { AutonomyOption } from './components/autonomy-picker.js';
 import type { HistoryEntry } from './components/history.js';
 import type { ProviderOption } from './components/model-picker.js';
@@ -511,6 +511,8 @@ export type State = {
         completedTasks: number;
         totalTasks: number;
         startedAt?: number | undefined;
+        /** Tasks currently executing in this phase, with the agent on each. */
+        activeTasks?: Array<{ taskId: string; title: string; agent?: string | undefined }> | undefined;
       }
     >;
     /** Active phase IDs (running phases). */
@@ -518,6 +520,11 @@ export type State = {
     /** Elapsed ms since graph start — drives the elapsed counter. */
     elapsedMs: number;
     /** True while the monitor overlay is open (Ctrl+P). */
+    monitorOpen: boolean;
+  } | null;
+  /** Live multi-agent SDD board — latest snapshot + overlay open state (Ctrl+B). */
+  sddBoard: {
+    snapshot: SddBoardSnapshot;
     monitorOpen: boolean;
   } | null;
   /** Git-worktree isolation state — rendered by WorktreePanel/WorktreeMonitor. */
@@ -917,8 +924,19 @@ export type Action =
     }
   | { type: 'autoPhaseRunningPhases'; phaseIds: string[] }
   | { type: 'autoPhaseElapsed'; ms: number }
+  | {
+      type: 'autoPhaseTaskActive';
+      phaseId: string;
+      taskId: string;
+      title: string;
+      agent?: string | undefined;
+      /** True when the task starts, false when it completes/fails. */
+      active: boolean;
+    }
   | { type: 'autoPhaseMonitorToggle' }
   | { type: 'autoPhaseReset' }
+  | { type: 'sddBoardSnapshot'; snapshot: SddBoardSnapshot }
+  | { type: 'toggleSddBoardMonitor' }
   | {
       type: 'worktreeUpsert';
       handleId: string;

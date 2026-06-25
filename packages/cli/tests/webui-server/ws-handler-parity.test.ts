@@ -36,6 +36,9 @@ const standalonePaths = [
   path.join(repoRoot, 'packages/webui/src/server/mailbox-routes.ts'),
   path.join(repoRoot, 'packages/webui/src/server/brain-routes.ts'),
   path.join(repoRoot, 'packages/webui/src/server/autophase-routes.ts'),
+  path.join(repoRoot, 'packages/webui/src/server/specs-routes.ts'),
+  path.join(repoRoot, 'packages/webui/src/server/sdd-board-routes.ts'),
+  path.join(repoRoot, 'packages/webui/src/server/sdd-wizard-routes.ts'),
 ];
 
 /** Extract the set of `case '<label>'` labels from one or more source files. */

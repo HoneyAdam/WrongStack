@@ -10,6 +10,7 @@ import { useLocalPrefs } from '@/stores/local-prefs';
 import { useAutoSubmitStreak } from '@/stores/auto-submit-streak.js';
 import {
   Bot,
+  Brain,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -24,7 +25,7 @@ import {
   User,
   XCircle,
 } from 'lucide-react';
-import { memo, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { DiffView, diffFromToolInput } from '../DiffView';
@@ -46,11 +47,13 @@ export const MessageBubble = memo(function MessageBubble({
   isContinuation = false,
 }: MessageBubbleProps) {
   const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>({});
+  const [thinkingExpanded, setThinkingExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
   const [showRaw, setShowRaw] = useState(false);
   const isUser = message.role === 'user';
   const isTool = message.role === 'tool';
+  const isThinkingLog = !!message.thinkingLog;
   void message.role;
 
   const truncateAfter = useChatStore((s) => s.truncateAfter);
@@ -61,6 +64,8 @@ export const MessageBubble = memo(function MessageBubble({
   const pinnedIds = useUIStore((s) => s.pinnedIds);
   const togglePin = useUIStore((s) => s.togglePin);
   const compactMode = useUIStore((s) => s.compactMode);
+  const searchOpen = useUIStore((s) => s.searchOpen);
+  const searchActiveMessageId = useUIStore((s) => s.searchActiveMessageId);
   const isPinned = pinnedIds.includes(message.id);
   const inputCost = useSessionStore((s) => s.inputCost);
   const outputCost = useSessionStore((s) => s.outputCost);
@@ -116,6 +121,14 @@ export const MessageBubble = memo(function MessageBubble({
     () => (isLatestAssistant && message.content ? parseNextSteps(message.content) : null),
     [isLatestAssistant, message.content],
   );
+
+  useEffect(() => {
+    if (!message.thinkingLog || !searchOpen || searchActiveMessageId !== message.id) return;
+    const query = useUIStore.getState().searchQuery.trim().toLowerCase();
+    if (query && message.thinkingLog.text.toLowerCase().includes(query)) {
+      setThinkingExpanded(true);
+    }
+  }, [message.id, message.thinkingLog, searchActiveMessageId, searchOpen]);
 
   const regenerate = () => {
     const all = useChatStore.getState().messages;
@@ -178,16 +191,16 @@ export const MessageBubble = memo(function MessageBubble({
         <div className={cn(
           'flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center',
           'ring-2 ring-offset-2 ring-offset-background',
-          isUser ? 'bg-primary text-primary-foreground ring-primary/20' : isTool ? 'bg-secondary text-secondary-foreground ring-secondary/20' : 'bg-accent text-accent-foreground ring-accent/20',
+          isUser ? 'bg-primary text-primary-foreground ring-primary/20' : isTool ? 'bg-secondary text-secondary-foreground ring-secondary/20' : isThinkingLog ? 'bg-violet-500/10 text-violet-600 dark:text-violet-400 ring-violet-500/20' : 'bg-accent text-accent-foreground ring-accent/20',
         )}>
-          {isUser ? <User className="h-4 w-4" /> : isTool ? <Terminal className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
+          {isUser ? <User className="h-4 w-4" /> : isTool ? <Terminal className="h-4 w-4" /> : isThinkingLog ? <Brain className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
         </div>
       )}
 
       <div className={cn('flex flex-col gap-1.5 max-w-[85%]', isUser && 'items-end')}>
         {isFirst && !isContinuation && (
-          <span className={cn('text-xs font-medium px-1', isUser ? 'text-primary' : isTool ? 'text-secondary' : 'text-muted-foreground')}>
-            {isUser ? 'You' : isTool ? 'Tool' : 'Assistant'}
+          <span className={cn('text-xs font-medium px-1', isUser ? 'text-primary' : isTool ? 'text-secondary' : isThinkingLog ? 'text-violet-600 dark:text-violet-400' : 'text-muted-foreground')}>
+            {isUser ? 'You' : isTool ? 'Tool' : isThinkingLog ? 'Thinking' : 'Assistant'}
           </span>
         )}
 
@@ -269,7 +282,49 @@ export const MessageBubble = memo(function MessageBubble({
                 </div>
               </div>
             </div>
-          ) : (() => {
+          ) : message.thinkingLog ? (() => {
+            const log = message.thinkingLog;
+            const lineCount = log.text.split('\n').length;
+            const seconds = Math.max(0.1, log.durationMs / 1000);
+            const durationLabel = log.replayed ? 'replay' : `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
+            const preview = log.text.split('\n').slice(-4).join('\n').trim();
+            return (
+              <div className="min-w-0 max-w-[min(720px,85vw)]">
+                <button
+                  type="button"
+                  onClick={() => setThinkingExpanded((v) => !v)}
+                  className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 text-left text-sm font-medium text-violet-600 dark:text-violet-400"
+                >
+                  <span className="text-muted-foreground/60">
+                    {thinkingExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                  </span>
+                  <Brain className="h-3.5 w-3.5" />
+                  <span className="min-w-0">Thinking process</span>
+                  <span className="ml-0 text-[10px] font-mono font-normal text-muted-foreground sm:ml-auto">
+                    iter {log.iteration} · {durationLabel} · {lineCount} line{lineCount === 1 ? '' : 's'}
+                  </span>
+                </button>
+                <pre className={cn(
+                  'mt-2 whitespace-pre-wrap break-words rounded-lg border border-violet-500/20 bg-violet-500/[0.04] p-3 font-mono text-xs leading-relaxed text-foreground/80',
+                  thinkingExpanded ? 'max-h-[32rem] overflow-auto' : 'max-h-24 overflow-hidden',
+                )}>
+                  {thinkingExpanded ? log.text : (preview || log.text)}
+                </pre>
+                <div className="mt-2 flex items-center gap-2">
+                  <CopyButton text={log.text} label="Copy log" className="opacity-70 hover:opacity-100 transition-opacity" />
+                  {!thinkingExpanded && lineCount > 4 && (
+                    <button
+                      type="button"
+                      onClick={() => setThinkingExpanded(true)}
+                      className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      Show full log
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })() : (() => {
             // For assistant output, strip the <next_steps>/"💡 Next steps" block
             // before passing to react-markdown — otherwise the raw tags leak
             // through as literal text. The parsed steps render as a separate

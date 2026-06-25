@@ -49,6 +49,7 @@ type PanelResetState = Pick<
   | 'projectPicker'
   | 'fKeyPicker'
   | 'autoPhase'
+  | 'sddBoard'
   | 'worktreeMonitorOpen'
   | 'coordinator'
 >;
@@ -69,6 +70,7 @@ function closePanels(state: State): PanelResetState {
     projectPicker: { ...state.projectPicker, open: false },
     fKeyPicker: { ...state.fKeyPicker, open: false },
     autoPhase: state.autoPhase ? { ...state.autoPhase, monitorOpen: false } : state.autoPhase,
+    sddBoard: state.sddBoard ? { ...state.sddBoard, monitorOpen: false } : state.sddBoard,
     worktreeMonitorOpen: false,
     coordinator: { ...state.coordinator, monitorOpen: false },
   };
@@ -1409,7 +1411,28 @@ export function reducer(state: State, action: Action): State {
               completedTasks: action.completedTasks,
               totalTasks: action.totalTasks,
               startedAt: action.startedAt,
+              // Preserve the live worker list across status/count updates.
+              activeTasks: existing.phases[action.phaseId]?.activeTasks,
             },
+          },
+        },
+      };
+    }
+    case 'autoPhaseTaskActive': {
+      if (!state.autoPhase) return state;
+      const phase = state.autoPhase.phases[action.phaseId];
+      if (!phase) return state;
+      const without = (phase.activeTasks ?? []).filter((t) => t.taskId !== action.taskId);
+      const activeTasks = action.active
+        ? [...without, { taskId: action.taskId, title: action.title, agent: action.agent }]
+        : without;
+      return {
+        ...state,
+        autoPhase: {
+          ...state.autoPhase,
+          phases: {
+            ...state.autoPhase.phases,
+            [action.phaseId]: { ...phase, activeTasks },
           },
         },
       };
@@ -1441,6 +1464,27 @@ export function reducer(state: State, action: Action): State {
     }
     case 'autoPhaseReset': {
       return { ...state, autoPhase: null };
+    }
+    case 'sddBoardSnapshot': {
+      // Preserve the overlay's open state across snapshots; default closed on
+      // the very first snapshot of a run.
+      const monitorOpen = state.sddBoard?.monitorOpen ?? false;
+      return { ...state, sddBoard: { snapshot: action.snapshot, monitorOpen } };
+    }
+    case 'toggleSddBoardMonitor': {
+      // Nothing to show until the first snapshot arrives.
+      if (!state.sddBoard) return state;
+      const opening = !state.sddBoard.monitorOpen;
+      return opening
+        ? {
+            ...state,
+            ...closePanels(state),
+            sddBoard: { ...state.sddBoard, monitorOpen: true },
+          }
+        : {
+            ...state,
+            sddBoard: { ...state.sddBoard, monitorOpen: false },
+          };
     }
     case 'worktreeUpsert': {
       const prev = state.worktrees[action.handleId];

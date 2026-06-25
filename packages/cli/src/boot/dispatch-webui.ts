@@ -48,6 +48,8 @@ export interface WebUIDispatchContext {
     clear: () => Promise<void>;
     write: (sessionId: string) => Promise<void>;
   };
+  /** Per-task agent factory for the SDD wizard's multi-agent run. */
+  sddSubagentFactory?: import('@wrongstack/core').AgentFactory | undefined;
 }
 
 /**
@@ -81,6 +83,7 @@ export async function runWebUIDispatch(ctx: WebUIDispatchContext): Promise<numbe
     onAutonomy,
     onModelContextResolved,
     activeRecoveryLock,
+    sddSubagentFactory,
   } = ctx;
 
   // Route permission confirmations to the browser (tool.confirm_needed
@@ -126,6 +129,7 @@ export async function runWebUIDispatch(ctx: WebUIDispatchContext): Promise<numbe
     modeStore,
     modeId,
     needsSetup,
+    sddSubagentFactory,
     // Print the "open this" banner only once the server is actually
     // listening, using the RESOLVED ports. The requested port
     // (flags.port) auto-advances past busy ports inside runWebUI, so a

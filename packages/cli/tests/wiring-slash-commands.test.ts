@@ -154,4 +154,24 @@ describe('setupSlashCommands', () => {
     // hasn't been triggered yet (callbacks only run on /spawn or /agents).
     expect((host as { spawn: ReturnType<typeof vi.fn> }).spawn).not.toHaveBeenCalled();
   });
+
+  it('lets the fleet host own Shadow Agent registration after /shadow start', async () => {
+    const registry = new SlashCommandRegistry();
+    const host = fakeMultiAgentHost();
+    const shadowController = {
+      activeId: null,
+      register: vi.fn(),
+      clear: vi.fn(),
+    };
+    await callSetup({ slashRegistry: registry, multiAgentHost: host, shadowController });
+
+    const result = await registry.dispatch('/shadow start --interval=5000', fakeContext() as never);
+
+    expect((host as { spawn: ReturnType<typeof vi.fn> }).spawn).toHaveBeenCalledWith(
+      'Shadow Agent — background fleet monitor at 5000ms interval',
+      expect.objectContaining({ name: 'shadow', shadowIntervalMs: 5000 }),
+    );
+    expect(shadowController.register).not.toHaveBeenCalled();
+    expect(result?.message).toContain('Shadow Agent spawned');
+  });
 });

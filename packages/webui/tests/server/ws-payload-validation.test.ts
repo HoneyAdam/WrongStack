@@ -209,8 +209,17 @@ describe('WebUI WebSocket payload validation', () => {
         tgSessionEnd: true,
         tgDelegate: false,
         tgLongToolMs: 30_000,
+        fallbackModels: ['anthropic/claude-haiku-4-5', 'openai/gpt-5'],
+        fallbackAuto: false,
       };
       expect(validatePrefsUpdatePayload(prefs)).toEqual({ ok: true, value: { prefs } });
+    });
+
+    it('accepts an empty fallbackModels array', () => {
+      expect(validatePrefsUpdatePayload({ fallbackModels: [] })).toEqual({
+        ok: true,
+        value: { prefs: { fallbackModels: [] } },
+      });
     });
 
     it.each([undefined, null, [], 'prefs', 123, true])('rejects non-object prefs.update payload %#', (payload) => {
@@ -228,6 +237,9 @@ describe('WebUI WebSocket payload validation', () => {
       { contextStrategy: 'random' },
       { logLevel: 'trace' },
       { auditLevel: 'verbose' },
+      { fallbackModels: 'anthropic/claude' },
+      { fallbackModels: [1, 2] },
+      { fallbackAuto: 'yes' },
     ])('rejects unknown keys or invalid preference values %#', (payload) => {
       const result = validatePrefsUpdatePayload(payload);
       expect(result.ok).toBe(false);

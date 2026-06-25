@@ -34,6 +34,15 @@ export const ToolCapabilities = {
   /** Can spawn or manage subagents / multi-agent tasks. */
   SUBAGENT_SPAWN: 'subagent.spawn',
 
+  /** Can inspect fleet/subagent coordination state without mutating it. */
+  COORDINATION_FLEET_READ: 'coordination.fleet.read',
+
+  /** Can read or write inter-agent mailbox messages. */
+  COORDINATION_MAIL: 'coordination.mail',
+
+  /** Can schedule, inspect, or cancel in-session cron jobs. */
+  COORDINATION_CRON: 'coordination.cron',
+
   /** Can mutate global or session configuration / trust state. */
   CONFIG_MUTATE: 'config.mutate',
 

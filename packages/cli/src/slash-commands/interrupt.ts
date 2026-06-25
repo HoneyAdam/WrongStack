@@ -29,7 +29,7 @@ export function buildInterruptCommand(opts: SlashCommandContext): SlashCommand {
     ].join('\n'),
     async run() {
       const aborted = opts.interruptController?.abortLeader() ?? false;
-      const killed = opts.onFleetKill?.() ?? 0;
+      const killed = opts.onFleetKill ? await opts.onFleetKill() : 0;
 
       if (!aborted && killed === 0) {
         return { message: color.dim('  Nothing to interrupt — no run in progress.') };

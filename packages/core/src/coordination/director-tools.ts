@@ -6,6 +6,7 @@ import { dispatchAgent } from './dispatcher.js';
 import type { AgentDefinition } from './agents/index.js';
 import type { CollabSessionOptions } from './collab-debug.js';
 import { toErrorMessage } from '../utils/error.js';
+import { ToolCapabilities } from '../security/capabilities.js';
 
 // ---------------------------------------------------------------------------
 // Director-facing tool factories.
@@ -39,6 +40,7 @@ export function makeSpawnTool(director: Director, roster?: Record<string, Subage
     usageHint: 'Pass `role` (matches the roster), `description` (smart dispatch to best agent), or `name` + `provider`/`model`. Returns `{ subagentId }`.',
     permission: 'auto',
     mutating: false,
+    capabilities: [ToolCapabilities.SUBAGENT_SPAWN],
     inputSchema,
     async execute(input: unknown) {
       const i = (input ?? {}) as Record<string, unknown>;
@@ -130,6 +132,7 @@ export function makeAssignTool(director: Director): Tool {
     description: 'Hand a task to a previously spawned subagent. Returns the task id.',
     permission: 'auto',
     mutating: false,
+    capabilities: [ToolCapabilities.SUBAGENT_SPAWN],
     inputSchema,
     async execute(input: unknown) {
       const i = input as { subagentId: string; description: string; maxToolCalls?: number | undefined; timeoutMs?: number | undefined };
@@ -146,6 +149,7 @@ export function makeAwaitTasksTool(director: Director): Tool {
     description: 'Block until every named task completes. Returns the array of TaskResult.',
     permission: 'auto',
     mutating: false,
+    capabilities: [ToolCapabilities.COORDINATION_FLEET_READ],
     inputSchema: { type: 'object', properties: { taskIds: { type: 'array', items: { type: 'string' }, description: 'One or more task ids returned by `assign_task`.' } }, required: ['taskIds'] },
     async execute(input: unknown) {
       const i = input as { taskIds: string[] };
@@ -161,6 +165,7 @@ export function makeAskTool(director: Director): Tool {
     description: 'Synchronously ask a subagent a question. Blocks until the subagent replies via the bridge.',
     permission: 'auto',
     mutating: false,
+    capabilities: [ToolCapabilities.COORDINATION_FLEET_READ],
     inputSchema: {
       type: 'object',
       properties: {
@@ -203,6 +208,7 @@ export function makeAskResultTool(director: Director): Tool {
     description: 'Retrieve a large `ask_subagent` response that was stored out-of-context (>2K chars). Returns the full stored value.',
     permission: 'auto',
     mutating: false,
+    capabilities: [ToolCapabilities.COORDINATION_FLEET_READ],
     inputSchema: {
       type: 'object',
       properties: {
@@ -231,6 +237,7 @@ export function makeRollUpTool(director: Director): Tool {
     description: "Aggregate completed task results into a single formatted summary.",
     permission: 'auto',
     mutating: false,
+    capabilities: [ToolCapabilities.COORDINATION_FLEET_READ],
     inputSchema: {
       type: 'object',
       properties: {
@@ -253,6 +260,7 @@ export function makeTerminateTool(director: Director): Tool {
     description: 'Forcibly abort a subagent. The subagent finishes its current iteration then exits with status "stopped".',
     permission: 'auto',
     mutating: true,
+    capabilities: [ToolCapabilities.SUBAGENT_SPAWN],
     inputSchema: { type: 'object', properties: { subagentId: { type: 'string', description: 'Subagent to abort.' } }, required: ['subagentId'] },
     async execute(input: unknown) {
       const i = input as { subagentId: string };
@@ -273,6 +281,7 @@ export function makeTerminateAllTool(director: Director): Tool {
       'Compare: work_complete stops spawning but lets running agents finish naturally.',
     permission: 'auto',
     mutating: true,
+    capabilities: [ToolCapabilities.SUBAGENT_SPAWN],
     inputSchema: { type: 'object', properties: {}, required: [] },
     async execute() {
       await director.terminateAll();
@@ -287,6 +296,7 @@ export function makeFleetStatusTool(director: Director): Tool {
     description: "Snapshot of the fleet — every subagent's current status, coordinator counts (total/running/idle/stopped), pending task descriptions, and usage rollup.",
     permission: 'auto',
     mutating: false,
+    capabilities: [ToolCapabilities.COORDINATION_FLEET_READ],
     inputSchema: { type: 'object', properties: {}, required: [] },
     async execute() {
       const base = director.status();
@@ -311,6 +321,7 @@ export function makeFleetUsageTool(director: Director): Tool {
     description: 'Token + cost breakdown across the fleet, per-subagent and totals.',
     permission: 'auto',
     mutating: false,
+    capabilities: [ToolCapabilities.COORDINATION_FLEET_READ],
     inputSchema: { type: 'object', properties: {}, required: [] },
     async execute() { return director.snapshot(); },
   };
@@ -329,6 +340,7 @@ export function makeFleetSessionTool(director: Director): Tool {
       'Read a subagent\'s JSONL transcript and extract its last assistant text, stop reason, and tool-use count. Use this to see what a running or timed-out subagent actually produced.',
     permission: 'auto',
     mutating: false,
+    capabilities: [ToolCapabilities.COORDINATION_FLEET_READ],
     inputSchema: {
       type: 'object',
       properties: {
@@ -362,6 +374,7 @@ export function makeFleetHealthTool(director: Director): Tool {
       'Per-subagent health report: budget pressure (pct of limits consumed), last activity timestamp, and current status. Use to decide whether to assign more work to a subagent or spawn a fresh one.',
     permission: 'auto',
     mutating: false,
+    capabilities: [ToolCapabilities.COORDINATION_FLEET_READ],
     inputSchema: { type: 'object', properties: {}, required: [] },
     async execute() {
       const status = director.status();
@@ -406,6 +419,7 @@ export function makeCollabDebugTool(director: Director): Tool {
       'Returns a structured report with overall verdict (approve / needs_revision / reject).',
     permission: 'auto',
     mutating: false,
+    capabilities: [ToolCapabilities.SUBAGENT_SPAWN],
     inputSchema: {
       type: 'object',
       properties: {
@@ -487,6 +501,7 @@ export function makeFleetEmitTool(director: Director): Tool {
       'Emit a structured event on the FleetBus. Any subagent can emit any event type; the Director routes it to all listeners. Use it to stream findings, progress updates, or final results to other agents in real time.',
     permission: 'auto',
     mutating: false,
+    capabilities: [ToolCapabilities.COORDINATION_FLEET_READ],
     inputSchema: {
       type: 'object',
       properties: {
@@ -538,6 +553,7 @@ export function makeWorkCompleteTool(director: Director): Tool {
       "Call terminate_subagent separately to stop specific subagents immediately.",
     permission: 'auto',
     mutating: false,
+    capabilities: [ToolCapabilities.SUBAGENT_SPAWN],
     inputSchema: { type: 'object', properties: {}, required: [] },
     async execute() {
       director.workComplete();

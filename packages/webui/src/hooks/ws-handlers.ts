@@ -1,10 +1,14 @@
-import { type SessionHistoryEntry, useChatStore, useConfigStore, useFleetStore, useHistoryStore, useSessionStore } from '@/stores';
+import { type SessionHistoryEntry, useChatStore, useConfigStore, useFleetStore, useHistoryStore, useSessionStore, useSpecsStore, useSddBoardStore, useSddWizardStore } from '@/stores';
 import type { WSServerMessage } from '@/types';
 
 // Chat domain handlers extracted to chat-handlers.ts
 import { chatHandlerMap } from './ws-handlers/chat-handlers.js';
 // Session domain handlers extracted to session-handlers.ts
-import { sessionHandlerMap, handleSessionStart } from './ws-handlers/session-handlers.js';
+import {
+  sessionHandlerMap,
+  handleSessionStart,
+  handleError as handleSessionDomainError,
+} from './ws-handlers/session-handlers.js';
 // Fleet domain handlers extracted to fleet-handlers.ts
 import { fleetHandlerMap } from './ws-handlers/fleet-handlers.js';
 // Files/mailbox domain handlers extracted to files-mailbox-handlers.ts
@@ -103,9 +107,7 @@ export function handleSessionsList(msg: WSServerMessage) {
 }
 
 export function handleError(msg: WSServerMessage) {
-  const payload = msg.payload as { phase: string; message: string };
-  useChatStore.getState().addMessage({ role: 'assistant', content: `[${payload.phase}] ${payload.message}`, isError: true });
-  useChatStore.getState().setLoading(false);
+  handleSessionDomainError(msg);
 }
 
 export const WS_HANDLERS: Record<string, (msg: WSServerMessage) => void> = {
@@ -118,6 +120,36 @@ export const WS_HANDLERS: Record<string, (msg: WSServerMessage) => void> = {
   'session.start': (msg: WSServerMessage) => {
     handleSessionStart(msg);
     queryMailbox();
+  },
+  'specs.list': (msg: WSServerMessage) => {
+    const p = msg.payload as { specs?: import('@/stores/specs-store').SpecListItem[] };
+    useSpecsStore.getState().setSpecs(p.specs ?? []);
+  },
+  'specs.detail': (msg: WSServerMessage) => {
+    useSpecsStore.getState().setDetail(msg.payload as unknown as import('@/stores/specs-store').SpecDetail);
+  },
+  'sdd.board.snapshot': (msg: WSServerMessage) => {
+    useSddBoardStore.getState().setSnapshot(
+      msg.payload as unknown as import('@/stores/sdd-board-store').SddBoardSnapshotUI,
+    );
+  },
+  'sdd.board.list': (msg: WSServerMessage) => {
+    const p = msg.payload as { boards?: import('@/stores/sdd-board-store').SddBoardSummary[] };
+    useSddBoardStore.getState().setBoards(p.boards ?? []);
+  },
+  'sdd.spec.snapshot': (msg: WSServerMessage) => {
+    useSddWizardStore.getState().setSnapshot(
+      msg.payload as unknown as import('@/stores/sdd-wizard-store').SddWizardSnapshot,
+    );
+  },
+  'sdd.spec.agent_text': (msg: WSServerMessage) => {
+    useSddWizardStore.getState().setAgentText((msg.payload as { text?: string }).text ?? '');
+  },
+  'sdd.spec.error': (msg: WSServerMessage) => {
+    useSddWizardStore.getState().setError((msg.payload as { message?: string }).message ?? 'Error');
+  },
+  'sdd.run.started': (msg: WSServerMessage) => {
+    useSddWizardStore.getState().setStartedRunId((msg.payload as { runId?: string }).runId ?? null);
   },
   'tools.list': handleToolsList,
   'memory.list': handleMemoryList,

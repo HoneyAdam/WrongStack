@@ -26,6 +26,10 @@ export interface LocalPrefs {
   streamFleet: boolean;
   /** Predict next steps after turn completes */
   nextPrediction: boolean;
+  /** Global fallback model chain (entries: `model` or `provider/model`). */
+  fallbackModels: string[];
+  /** Auto-derive a fallback chain from keyed providers when the list is empty. */
+  fallbackAuto: boolean;
 
   // --- Feature flags ---
   featureMcp: boolean;
@@ -90,6 +94,8 @@ const DEFAULTS: Omit<LocalPrefs, 'set' | 'reset'> = {
   confirmExit: true,
   streamFleet: true,
   nextPrediction: false,
+  fallbackModels: [],
+  fallbackAuto: true,
   featureMcp: true,
   featurePlugins: true,
   featureMemory: true,

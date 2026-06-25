@@ -1,4 +1,5 @@
 import type { WSClientMessage, WSCompletionRequest, WSServerMessage } from '../types';
+import { streamCoalescer } from './stream-coalescer';
 import {
   buildClearModelsMessage,
   buildProviderUpdateMessage,
@@ -346,6 +347,14 @@ export class WrongStackWebSocketClient {
   }
 
   send(message: WSClientMessage) {
+    if (
+      message.type === 'context.clear' ||
+      message.type === 'session.new' ||
+      message.type === 'session.resume' ||
+      message.type === 'projects.select'
+    ) {
+      streamCoalescer.dropAll();
+    }
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(message));
     } else {

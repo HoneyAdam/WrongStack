@@ -27,3 +27,7 @@ export * from './host.js';
 export * from './container.js';
 export * from './vision.js';
 export * from './clipboard.js';
+export {
+  makeLightSubagentFactory,
+  type LightSubagentFactoryDeps,
+} from './fleet/light-subagent-factory.js';

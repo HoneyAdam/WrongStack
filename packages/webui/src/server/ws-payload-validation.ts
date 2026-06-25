@@ -1,6 +1,4 @@
-export type PayloadValidationResult<T> =
-  | { ok: true; value: T }
-  | { ok: false; message: string };
+export type PayloadValidationResult<T> = { ok: true; value: T } | { ok: false; message: string };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -11,9 +9,14 @@ export interface ModelSwitchPayload {
   model: string;
 }
 
-export function validateModelSwitchPayload(payload: unknown): PayloadValidationResult<ModelSwitchPayload> {
+export function validateModelSwitchPayload(
+  payload: unknown,
+): PayloadValidationResult<ModelSwitchPayload> {
   if (!isRecord(payload)) {
-    return { ok: false, message: 'model.switch payload must be an object with string provider and model' };
+    return {
+      ok: false,
+      message: 'model.switch payload must be an object with string provider and model',
+    };
   }
   const provider = payload['provider'];
   const model = payload['model'];
@@ -38,7 +41,9 @@ export interface MailboxMessagesPayload {
   unreadOnly?: boolean;
 }
 
-export function validateMailboxMessagesPayload(payload: unknown): PayloadValidationResult<MailboxMessagesPayload | undefined> {
+export function validateMailboxMessagesPayload(
+  payload: unknown,
+): PayloadValidationResult<MailboxMessagesPayload | undefined> {
   if (payload === undefined) return { ok: true, value: undefined };
   if (!isRecord(payload)) {
     return { ok: false, message: 'mailbox.messages payload must be an object when provided' };
@@ -47,13 +52,22 @@ export function validateMailboxMessagesPayload(payload: unknown): PayloadValidat
   const agentId = payload['agentId'];
   const unreadOnly = payload['unreadOnly'];
   if (limit !== undefined && (typeof limit !== 'number' || !Number.isFinite(limit) || limit < 1)) {
-    return { ok: false, message: 'mailbox.messages payload.limit must be a positive number when provided' };
+    return {
+      ok: false,
+      message: 'mailbox.messages payload.limit must be a positive number when provided',
+    };
   }
   if (agentId !== undefined && typeof agentId !== 'string') {
-    return { ok: false, message: 'mailbox.messages payload.agentId must be a string when provided' };
+    return {
+      ok: false,
+      message: 'mailbox.messages payload.agentId must be a string when provided',
+    };
   }
   if (unreadOnly !== undefined && typeof unreadOnly !== 'boolean') {
-    return { ok: false, message: 'mailbox.messages payload.unreadOnly must be a boolean when provided' };
+    return {
+      ok: false,
+      message: 'mailbox.messages payload.unreadOnly must be a boolean when provided',
+    };
   }
   return { ok: true, value: { limit, agentId, unreadOnly } };
 }
@@ -62,14 +76,19 @@ export interface MailboxAgentsPayload {
   onlineOnly?: boolean;
 }
 
-export function validateMailboxAgentsPayload(payload: unknown): PayloadValidationResult<MailboxAgentsPayload | undefined> {
+export function validateMailboxAgentsPayload(
+  payload: unknown,
+): PayloadValidationResult<MailboxAgentsPayload | undefined> {
   if (payload === undefined) return { ok: true, value: undefined };
   if (!isRecord(payload)) {
     return { ok: false, message: 'mailbox.agents payload must be an object when provided' };
   }
   const onlineOnly = payload['onlineOnly'];
   if (onlineOnly !== undefined && typeof onlineOnly !== 'boolean') {
-    return { ok: false, message: 'mailbox.agents payload.onlineOnly must be a boolean when provided' };
+    return {
+      ok: false,
+      message: 'mailbox.agents payload.onlineOnly must be a boolean when provided',
+    };
   }
   return { ok: true, value: { onlineOnly } };
 }
@@ -79,18 +98,38 @@ export interface MailboxPurgePayload {
   incompleteMaxAgeMs?: number;
 }
 
-export function validateMailboxPurgePayload(payload: unknown): PayloadValidationResult<MailboxPurgePayload | undefined> {
+export function validateMailboxPurgePayload(
+  payload: unknown,
+): PayloadValidationResult<MailboxPurgePayload | undefined> {
   if (payload === undefined) return { ok: true, value: undefined };
   if (!isRecord(payload)) {
     return { ok: false, message: 'mailbox.purge payload must be an object when provided' };
   }
   const completedMaxAgeMs = payload['completedMaxAgeMs'];
   const incompleteMaxAgeMs = payload['incompleteMaxAgeMs'];
-  if (completedMaxAgeMs !== undefined && (typeof completedMaxAgeMs !== 'number' || !Number.isFinite(completedMaxAgeMs) || completedMaxAgeMs < 0)) {
-    return { ok: false, message: 'mailbox.purge payload.completedMaxAgeMs must be a non-negative number when provided' };
+  if (
+    completedMaxAgeMs !== undefined &&
+    (typeof completedMaxAgeMs !== 'number' ||
+      !Number.isFinite(completedMaxAgeMs) ||
+      completedMaxAgeMs < 0)
+  ) {
+    return {
+      ok: false,
+      message:
+        'mailbox.purge payload.completedMaxAgeMs must be a non-negative number when provided',
+    };
   }
-  if (incompleteMaxAgeMs !== undefined && (typeof incompleteMaxAgeMs !== 'number' || !Number.isFinite(incompleteMaxAgeMs) || incompleteMaxAgeMs < 0)) {
-    return { ok: false, message: 'mailbox.purge payload.incompleteMaxAgeMs must be a non-negative number when provided' };
+  if (
+    incompleteMaxAgeMs !== undefined &&
+    (typeof incompleteMaxAgeMs !== 'number' ||
+      !Number.isFinite(incompleteMaxAgeMs) ||
+      incompleteMaxAgeMs < 0)
+  ) {
+    return {
+      ok: false,
+      message:
+        'mailbox.purge payload.incompleteMaxAgeMs must be a non-negative number when provided',
+    };
   }
   return { ok: true, value: { completedMaxAgeMs, incompleteMaxAgeMs } };
 }
@@ -101,13 +140,18 @@ export interface BrainRiskPayload {
 
 const BRAIN_RISK_VALUES = new Set(['off', 'low', 'medium', 'high', 'all']);
 
-export function validateBrainRiskPayload(payload: unknown): PayloadValidationResult<BrainRiskPayload> {
+export function validateBrainRiskPayload(
+  payload: unknown,
+): PayloadValidationResult<BrainRiskPayload> {
   if (!isRecord(payload)) {
     return { ok: false, message: 'brain.risk payload must be an object with string level' };
   }
   const level = payload['level'];
   if (typeof level !== 'string' || !BRAIN_RISK_VALUES.has(level)) {
-    return { ok: false, message: 'brain.risk payload.level must be one of off, low, medium, high, all' };
+    return {
+      ok: false,
+      message: 'brain.risk payload.level must be one of off, low, medium, high, all',
+    };
   }
   return { ok: true, value: { level } };
 }
@@ -116,7 +160,9 @@ export interface BrainAskPayload {
   question: string;
 }
 
-export function validateBrainAskPayload(payload: unknown): PayloadValidationResult<BrainAskPayload> {
+export function validateBrainAskPayload(
+  payload: unknown,
+): PayloadValidationResult<BrainAskPayload> {
   if (!isRecord(payload)) {
     return { ok: false, message: 'brain.ask payload must be an object with string question' };
   }
@@ -131,7 +177,9 @@ export interface AutonomySwitchPayload {
   mode: string;
 }
 
-export function validateAutonomySwitchPayload(payload: unknown): PayloadValidationResult<AutonomySwitchPayload> {
+export function validateAutonomySwitchPayload(
+  payload: unknown,
+): PayloadValidationResult<AutonomySwitchPayload> {
   if (!isRecord(payload)) {
     return { ok: false, message: 'autonomy.switch payload must be an object with string mode' };
   }
@@ -146,9 +194,14 @@ export interface PlanTemplateUsePayload {
   template: string;
 }
 
-export function validatePlanTemplateUsePayload(payload: unknown): PayloadValidationResult<PlanTemplateUsePayload> {
+export function validatePlanTemplateUsePayload(
+  payload: unknown,
+): PayloadValidationResult<PlanTemplateUsePayload> {
   if (!isRecord(payload)) {
-    return { ok: false, message: 'plan.template_use payload must be an object with string template' };
+    return {
+      ok: false,
+      message: 'plan.template_use payload must be an object with string template',
+    };
   }
   const template = payload['template'];
   if (typeof template !== 'string' || template.trim().length === 0) {
@@ -163,7 +216,15 @@ const ENHANCE_LANGUAGE_VALUES = new Set(['original', 'english']);
 const LOG_LEVEL_VALUES = new Set(['debug', 'info', 'warn', 'error']);
 const AUDIT_LEVEL_VALUES = new Set(['minimal', 'standard', 'full']);
 const REASONING_MODE_VALUES = new Set(['auto', 'on', 'off']);
-const REASONING_EFFORT_VALUES = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+const REASONING_EFFORT_VALUES = new Set([
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+]);
 const CACHE_TTL_VALUES = new Set(['default', '5m', '1h']);
 
 const BOOLEAN_PREF_KEYS = new Set([
@@ -186,7 +247,11 @@ const BOOLEAN_PREF_KEYS = new Set([
   'reasoningPreserve',
   'hqEnabled',
   'hqRawContent',
+  'fallbackAuto',
 ]);
+
+/** Keys whose value must be an array of strings (e.g. an ordered model list). */
+const STRING_ARRAY_PREF_KEYS = new Set(['fallbackModels']);
 
 const NUMBER_PREF_KEYS = new Set([
   'autonomyDelayMs',
@@ -224,6 +289,11 @@ function validatePreferenceValue(key: string, value: unknown): string | null {
   if (STRING_PREF_KEYS.has(key)) {
     return typeof value === 'string' ? null : `prefs.update payload.${key} must be a string`;
   }
+  if (STRING_ARRAY_PREF_KEYS.has(key)) {
+    return Array.isArray(value) && value.every((v) => typeof v === 'string')
+      ? null
+      : `prefs.update payload.${key} must be an array of strings`;
+  }
   const allowed = ENUM_PREF_KEYS[key];
   if (allowed) {
     return typeof value === 'string' && allowed.has(value)
@@ -233,7 +303,9 @@ function validatePreferenceValue(key: string, value: unknown): string | null {
   return `prefs.update payload contains unknown preference key: ${key}`;
 }
 
-export function validatePrefsUpdatePayload(payload: unknown): PayloadValidationResult<PrefsUpdatePayload> {
+export function validatePrefsUpdatePayload(
+  payload: unknown,
+): PayloadValidationResult<PrefsUpdatePayload> {
   if (!isRecord(payload)) {
     return { ok: false, message: 'prefs.update payload must be an object' };
   }
@@ -250,7 +322,9 @@ export interface SkillsCreatePayload {
   scope: 'project' | 'global';
 }
 
-export function validateSkillsCreatePayload(payload: unknown): PayloadValidationResult<SkillsCreatePayload> {
+export function validateSkillsCreatePayload(
+  payload: unknown,
+): PayloadValidationResult<SkillsCreatePayload> {
   if (!isRecord(payload)) {
     return { ok: false, message: 'skills.create payload must be an object' };
   }
@@ -277,7 +351,9 @@ export interface SkillsEditPayload {
   body: string;
 }
 
-export function validateSkillsEditPayload(payload: unknown): PayloadValidationResult<SkillsEditPayload> {
+export function validateSkillsEditPayload(
+  payload: unknown,
+): PayloadValidationResult<SkillsEditPayload> {
   if (!isRecord(payload)) {
     return { ok: false, message: 'skills.edit payload must be an object' };
   }
@@ -296,7 +372,9 @@ export interface ProcessKillPayload {
   pid: number;
 }
 
-export function validateProcessKillPayload(payload: unknown): PayloadValidationResult<ProcessKillPayload> {
+export function validateProcessKillPayload(
+  payload: unknown,
+): PayloadValidationResult<ProcessKillPayload> {
   if (!isRecord(payload)) {
     return { ok: false, message: 'process.kill payload must be an object with numeric pid' };
   }
@@ -311,7 +389,9 @@ export interface WorkingDirSetPayload {
   path: string;
 }
 
-export function validateWorkingDirSetPayload(payload: unknown): PayloadValidationResult<WorkingDirSetPayload> {
+export function validateWorkingDirSetPayload(
+  payload: unknown,
+): PayloadValidationResult<WorkingDirSetPayload> {
   if (!isRecord(payload)) {
     return { ok: false, message: 'working_dir.set payload must be an object with string path' };
   }
@@ -326,7 +406,9 @@ export interface ModeSwitchPayload {
   id: string;
 }
 
-export function validateModeSwitchPayload(payload: unknown): PayloadValidationResult<ModeSwitchPayload> {
+export function validateModeSwitchPayload(
+  payload: unknown,
+): PayloadValidationResult<ModeSwitchPayload> {
   if (!isRecord(payload)) {
     return { ok: false, message: 'mode.switch payload must be an object with string id' };
   }
@@ -355,11 +437,15 @@ function validateContextModeIdPayload(
   return { ok: true, value: { id } };
 }
 
-export function validateContextModeSwitchPayload(payload: unknown): PayloadValidationResult<ContextModeIdPayload> {
+export function validateContextModeSwitchPayload(
+  payload: unknown,
+): PayloadValidationResult<ContextModeIdPayload> {
   return validateContextModeIdPayload(payload, 'context.mode.switch');
 }
 
-export function validateContextModeDeletePayload(payload: unknown): PayloadValidationResult<ContextModeIdPayload> {
+export function validateContextModeDeletePayload(
+  payload: unknown,
+): PayloadValidationResult<ContextModeIdPayload> {
   return validateContextModeIdPayload(payload, 'context.mode.delete');
 }
 
@@ -376,7 +462,9 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
-export function validateContextModeCreatePayload(payload: unknown): PayloadValidationResult<ContextModeCreatePayload> {
+export function validateContextModeCreatePayload(
+  payload: unknown,
+): PayloadValidationResult<ContextModeCreatePayload> {
   if (!isRecord(payload)) {
     return { ok: false, message: 'context.mode.create payload must be an object' };
   }
@@ -397,16 +485,30 @@ export function validateContextModeCreatePayload(payload: unknown): PayloadValid
     return { ok: false, message: 'context.mode.create payload.description must be a string' };
   }
   if (!isRecord(thresholds)) {
-    return { ok: false, message: 'context.mode.create payload.thresholds must be an object with warn/soft/hard numbers' };
+    return {
+      ok: false,
+      message:
+        'context.mode.create payload.thresholds must be an object with warn/soft/hard numbers',
+    };
   }
-  if (!isFiniteNumber(thresholds['warn']) || !isFiniteNumber(thresholds['soft']) || !isFiniteNumber(thresholds['hard'])) {
-    return { ok: false, message: 'context.mode.create payload.thresholds.warn/soft/hard must be finite numbers' };
+  if (
+    !isFiniteNumber(thresholds['warn']) ||
+    !isFiniteNumber(thresholds['soft']) ||
+    !isFiniteNumber(thresholds['hard'])
+  ) {
+    return {
+      ok: false,
+      message: 'context.mode.create payload.thresholds.warn/soft/hard must be finite numbers',
+    };
   }
   if (!isFiniteNumber(preserveK)) {
     return { ok: false, message: 'context.mode.create payload.preserveK must be a finite number' };
   }
   if (!isFiniteNumber(eliseThreshold)) {
-    return { ok: false, message: 'context.mode.create payload.eliseThreshold must be a finite number' };
+    return {
+      ok: false,
+      message: 'context.mode.create payload.eliseThreshold must be a finite number',
+    };
   }
   return {
     ok: true,
@@ -430,7 +532,9 @@ export interface ContextModeUpdatePayload {
   eliseThreshold?: number;
 }
 
-export function validateContextModeUpdatePayload(payload: unknown): PayloadValidationResult<ContextModeUpdatePayload> {
+export function validateContextModeUpdatePayload(
+  payload: unknown,
+): PayloadValidationResult<ContextModeUpdatePayload> {
   if (!isRecord(payload)) {
     return { ok: false, message: 'context.mode.update payload must be an object' };
   }
@@ -441,24 +545,36 @@ export function validateContextModeUpdatePayload(payload: unknown): PayloadValid
 
   const name = payload['name'];
   if (name !== undefined && typeof name !== 'string') {
-    return { ok: false, message: 'context.mode.update payload.name must be a string when provided' };
+    return {
+      ok: false,
+      message: 'context.mode.update payload.name must be a string when provided',
+    };
   }
 
   const description = payload['description'];
   if (description !== undefined && typeof description !== 'string') {
-    return { ok: false, message: 'context.mode.update payload.description must be a string when provided' };
+    return {
+      ok: false,
+      message: 'context.mode.update payload.description must be a string when provided',
+    };
   }
 
   const thresholds = payload['thresholds'];
   let validatedThresholds: ContextModeUpdatePayload['thresholds'];
   if (thresholds !== undefined) {
     if (!isRecord(thresholds)) {
-      return { ok: false, message: 'context.mode.update payload.thresholds must be an object when provided' };
+      return {
+        ok: false,
+        message: 'context.mode.update payload.thresholds must be an object when provided',
+      };
     }
     for (const key of ['warn', 'soft', 'hard'] as const) {
       const val = thresholds[key];
       if (val !== undefined && !isFiniteNumber(val)) {
-        return { ok: false, message: `context.mode.update payload.thresholds.${key} must be a finite number when provided` };
+        return {
+          ok: false,
+          message: `context.mode.update payload.thresholds.${key} must be a finite number when provided`,
+        };
       }
     }
     validatedThresholds = {
@@ -470,12 +586,18 @@ export function validateContextModeUpdatePayload(payload: unknown): PayloadValid
 
   const preserveK = payload['preserveK'];
   if (preserveK !== undefined && !isFiniteNumber(preserveK)) {
-    return { ok: false, message: 'context.mode.update payload.preserveK must be a finite number when provided' };
+    return {
+      ok: false,
+      message: 'context.mode.update payload.preserveK must be a finite number when provided',
+    };
   }
 
   const eliseThreshold = payload['eliseThreshold'];
   if (eliseThreshold !== undefined && !isFiniteNumber(eliseThreshold)) {
-    return { ok: false, message: 'context.mode.update payload.eliseThreshold must be a finite number when provided' };
+    return {
+      ok: false,
+      message: 'context.mode.update payload.eliseThreshold must be a finite number when provided',
+    };
   }
 
   return {
@@ -496,7 +618,9 @@ export interface ShellOpenPayload {
   target?: 'file' | 'terminal';
 }
 
-export function validateShellOpenPayload(payload: unknown): PayloadValidationResult<ShellOpenPayload> {
+export function validateShellOpenPayload(
+  payload: unknown,
+): PayloadValidationResult<ShellOpenPayload> {
   if (!isRecord(payload)) {
     return { ok: false, message: 'shell.open payload must be an object with string path' };
   }
@@ -506,7 +630,10 @@ export function validateShellOpenPayload(payload: unknown): PayloadValidationRes
   }
   const target = payload['target'];
   if (target !== undefined && target !== 'file' && target !== 'terminal') {
-    return { ok: false, message: 'shell.open payload.target must be "file" or "terminal" when provided' };
+    return {
+      ok: false,
+      message: 'shell.open payload.target must be "file" or "terminal" when provided',
+    };
   }
   return { ok: true, value: { path, target: target as ShellOpenPayload['target'] } };
 }
@@ -534,7 +661,9 @@ export interface ProjectsAddPayload {
   name?: string;
 }
 
-export function validateProjectsAddPayload(payload: unknown): PayloadValidationResult<ProjectsAddPayload> {
+export function validateProjectsAddPayload(
+  payload: unknown,
+): PayloadValidationResult<ProjectsAddPayload> {
   if (!isRecord(payload)) {
     return { ok: false, message: 'projects.add payload must be an object with string root' };
   }
@@ -554,7 +683,9 @@ export interface ProjectsSelectPayload {
   name?: string;
 }
 
-export function validateProjectsSelectPayload(payload: unknown): PayloadValidationResult<ProjectsSelectPayload> {
+export function validateProjectsSelectPayload(
+  payload: unknown,
+): PayloadValidationResult<ProjectsSelectPayload> {
   if (!isRecord(payload)) {
     return { ok: false, message: 'projects.select payload must be an object with string root' };
   }
@@ -568,4 +699,3 @@ export function validateProjectsSelectPayload(payload: unknown): PayloadValidati
   }
   return { ok: true, value: { root, name: typeof name === 'string' ? name : undefined } };
 }
-

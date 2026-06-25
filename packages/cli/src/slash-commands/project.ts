@@ -426,7 +426,7 @@ async function confirmProjectSwitch(
 
   // Kill all running agents
   if (fleetRunning > 0) {
-    const killed = opts.onFleetKill?.() ?? 0;
+    const killed = opts.onFleetKill ? await opts.onFleetKill() : 0;
     if (killed > 0) {
       opts.renderer.write(color.dim(`  Stopped ${killed} subagent(s).\n`));
     }

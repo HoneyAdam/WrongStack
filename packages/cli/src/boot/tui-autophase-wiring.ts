@@ -21,9 +21,13 @@ const AUTO_PHASE_EVENTS: readonly string[] = [
   'phase.completed',
   'phase.failed',
   'phase.statusChange',
+  'phase.taskStarted',
   'phase.taskCompleted',
   'phase.taskFailed',
   'phase.taskRetrying',
+  'phase.taskAssigned',
+  'phase.taskAdded',
+  'phase.taskMoved',
   'phase.verifying',
   'phase.verifyFailed',
   'phase.repairing',
@@ -34,6 +38,8 @@ const AUTO_PHASE_EVENTS: readonly string[] = [
   'graph.failed',
   'agent.assigned',
   'agent.released',
+  // Live multi-agent SDD board snapshot → TUI board overlay (Ctrl+B).
+  'sdd.board.snapshot',
   // Git-worktree isolation lifecycle → TUI worktree panel/monitor.
   'worktree.allocated',
   'worktree.committed',

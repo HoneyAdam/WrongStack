@@ -61,6 +61,7 @@ import {
   GlobalMailbox,
   projectHash,
   resolveProjectDir,
+  resolveWstackPaths,
   TOKENS,
   type TodoItem,
   wstackGlobalRoot,
@@ -70,6 +71,10 @@ import type { MCPRegistry } from '@wrongstack/mcp';
 import { startCliHqConnection, type CliHqConnection } from './hq-publisher.js';
 import {
   AutoPhaseWebSocketHandler,
+  SpecsWebSocketHandler,
+  SddBoardWebSocketHandler,
+  SddWizardWebSocketHandler,
+  buildSddWizardDeps,
   type CustomModeStore,
   createCustomModeStore,
   createEternalSubscription,
@@ -280,6 +285,12 @@ interface CliWebUIOptions {
     | undefined;
   /** Callback to invoke when the WebUI is shut down by a client request. */
   onExit?: (() => void) | undefined;
+  /**
+   * Per-task agent factory (the host's director-backed `makeSubagentFactory`).
+   * When present, the WebUI exposes the "New SDD Project" wizard, which runs the
+   * same multi-agent fleet as `/sdd execute`. Omitted → wizard is unavailable.
+   */
+  sddSubagentFactory?: import('@wrongstack/core').AgentFactory | undefined;
   /** Session store — enables session.resume and session.delete from the WebUI. */
   sessionStore?: SessionStore | undefined;
   /** Host Brain arbiter (same instance bound at TOKENS.BrainArbiter). */
@@ -396,6 +407,44 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     opts.projectRoot,
   );
   const worktreeHandler = new WorktreeWebSocketHandler(opts.events, consoleLogger);
+
+  // Specs handler — FORGE-style dependency board over the shared per-project
+  // SDD stores (where /sdd persists specs + task graphs).
+  const specsPaths = opts.projectRoot
+    ? resolveWstackPaths({ projectRoot: opts.projectRoot })
+    : null;
+  const specsHandler = new SpecsWebSocketHandler(
+    specsPaths?.projectSpecs ?? path.join(os.tmpdir(), '.wrongstack', 'specs'),
+    specsPaths?.projectTaskGraphs ?? path.join(os.tmpdir(), '.wrongstack', 'task-graphs'),
+  );
+
+  // SDD live board handler — same process as the run, so it streams instantly
+  // off the shared EventBus (no disk polling) and steers via the control file.
+  const sddBoardHandler = new SddBoardWebSocketHandler(
+    specsPaths?.projectSddBoards ?? path.join(os.tmpdir(), '.wrongstack', 'sdd-boards'),
+    opts.events,
+  );
+
+  // SDD wizard — interactive "New SDD Project" flow. Available only when the
+  // host threaded its director-backed subagent factory (so the run uses the
+  // same fleet as `/sdd execute`). The interview turns + run share that factory.
+  const sddWizardHandler =
+    opts.sddSubagentFactory && specsPaths
+      ? new SddWizardWebSocketHandler(
+          buildSddWizardDeps({
+            agent: opts.agent,
+            events: opts.events,
+            projectRoot: opts.projectRoot ?? process.cwd(),
+            subagentFactory: opts.sddSubagentFactory,
+            paths: {
+              projectSpecs: specsPaths.projectSpecs,
+              projectTaskGraphs: specsPaths.projectTaskGraphs,
+              projectSddBoards: specsPaths.projectSddBoards,
+              projectDir: specsPaths.projectDir,
+            },
+          }),
+        )
+      : null;
 
   // ── Settings parity with the TUI ─────────────────────────────────────
   // Seed agent.ctx.meta from config.json on startup, then snapshot/persist
@@ -825,9 +874,8 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     );
 
     // provider.thinking_delta — extended-thinking deltas. The WebUI renders a
-    // transient "Thinking…" chip from these; clears the moment text_delta /
-    // tool.started / provider.response / run.result lands so the chip never
-    // pollutes the persisted transcript.
+    // transient "Thinking…" chip from these and archives the full burst as a
+    // collapsible thinking log when the iteration ends.
     eventUnsubscribers.push(
       opts.events.on('provider.thinking_delta', (e) => {
         queueThinkingDelta(e.text);
@@ -1634,6 +1682,9 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
 
       // Register this client with the AutoPhase handler so it receives phase events
       autoPhaseHandler.addClient(ws);
+      specsHandler.addClient(ws);
+      sddBoardHandler.addClient(ws);
+      sddWizardHandler?.addClient(ws);
       worktreeHandler.addClient(ws);
 
       // Per-connection rate limiting — disabled unless WEBUI_RATE_LIMIT > 0.
@@ -2458,6 +2509,18 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
         const msgType = (msg as { type: string }).type;
         if (msgType.startsWith('autophase.')) {
           await autoPhaseHandler.handleMessage(
+            msg as { type: string; payload?: Record<string, unknown> },
+          );
+        } else if (msgType.startsWith('specs.')) {
+          await specsHandler.handleMessage(
+            msg as { type: string; payload?: Record<string, unknown> },
+          );
+        } else if (msgType.startsWith('sdd.board.')) {
+          await sddBoardHandler.handleMessage(
+            msg as { type: string; payload?: Record<string, unknown> },
+          );
+        } else if (msgType.startsWith('sdd.spec.') || msgType.startsWith('sdd.run.')) {
+          await sddWizardHandler?.handleMessage(
             msg as { type: string; payload?: Record<string, unknown> },
           );
         } else {

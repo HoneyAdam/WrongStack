@@ -24,6 +24,7 @@ function resetStore() {
     shortcutsOpen: false,
     searchOpen: false,
     searchQuery: '',
+    searchActiveMessageId: null,
     scrollTarget: null,
     promptHistory: [],
     pinnedIds: [],
@@ -592,9 +593,11 @@ describe('setSearchOpen', () => {
   });
 
   it('closes search', () => {
+    useUIStore.getState().setSearchActiveMessageId('msg-1');
     useUIStore.getState().setSearchOpen(true);
     useUIStore.getState().setSearchOpen(false);
     expect(useUIStore.getState().searchOpen).toBe(false);
+    expect(useUIStore.getState().searchActiveMessageId).toBeNull();
   });
 });
 
@@ -608,6 +611,16 @@ describe('setSearchQuery', () => {
     useUIStore.getState().setSearchQuery('foo');
     useUIStore.getState().setSearchQuery('');
     expect(useUIStore.getState().searchQuery).toBe('');
+  });
+});
+
+describe('setSearchActiveMessageId', () => {
+  it('sets and clears the active search message id', () => {
+    useUIStore.getState().setSearchActiveMessageId('msg-1');
+    expect(useUIStore.getState().searchActiveMessageId).toBe('msg-1');
+
+    useUIStore.getState().setSearchActiveMessageId(null);
+    expect(useUIStore.getState().searchActiveMessageId).toBeNull();
   });
 });
 

@@ -1,40 +1,44 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useAutoPhaseStore, useWorktreeStore } from '@/stores';
 import { cn } from '@/lib/utils';
-import { PhasePanel } from './PhasePanel';
-import { TaskBoard } from './TaskBoard';
+import { BoardView } from './BoardView';
 import { WorktreeGraph } from './WorktreeGraph';
 import { WorktreeLanes } from './WorktreeLanes';
-import { Layers, Play, Rocket, X } from 'lucide-react';
+import { Layers, Play, Rocket, X, Zap } from 'lucide-react';
 import { Button } from './ui/button';
 
 /**
- * AutoPhaseView — Full-screen phase planning view.
- * Left: phase list with progress. Right: task board for selected phase.
- * Bottom: worktree visualization when worktrees are active.
+ * AutoPhaseView — Full-screen phase view.
  *
- * Uses the shared useAutoPhaseStore (synced via autophase.state WS events)
- * so phase data stays consistent between this view and the chat-area PhasePanel.
+ * Start screen (no phases) → goal form. Once phases exist, the interactive
+ * kanban BoardView fills the area (phase columns / status swimlanes, drag-drop,
+ * manual assignment, live worker per task). Worktree visualization docks at the
+ * bottom while worktrees are active.
+ *
+ * Uses the shared useAutoPhaseStore (synced via autophase.state WS events) so
+ * board data stays consistent with the chat-area PhasePanel.
  */
 export function AutoPhaseView({ onClose }: { onClose: () => void }): React.ReactElement {
   const { client } = useWebSocket();
   const phases = useAutoPhaseStore((s) => s.phases);
-  const activePhaseId = useAutoPhaseStore((s) => s.activePhaseId);
   const overallPercent = useAutoPhaseStore((s) => s.overallPercent);
   const autonomous = useAutoPhaseStore((s) => s.autonomous);
   const title = useAutoPhaseStore((s) => s.title);
   const status = useAutoPhaseStore((s) => s.status);
   const lastError = useAutoPhaseStore((s) => s.lastError);
+  const graphs = useAutoPhaseStore((s) => s.graphs);
+
+  // Pull the list of persisted boards for this project on mount.
+  useEffect(() => {
+    client?.send?.({ type: 'autophase.list' });
+  }, [client]);
 
   const worktrees = useWorktreeStore((s) => s.worktrees);
   const baseBranch = useWorktreeStore((s) => s.baseBranch);
 
-  // Start flow state
   const [goal, setGoal] = useState('');
   const [starting, setStarting] = useState(false);
-
-  // Tasks from autophase state — extracted from phases
   const [showGraph, setShowGraph] = useState(false);
 
   const hasPhases = phases.length > 0;
@@ -43,36 +47,21 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
     const g = goal.trim();
     if (!g || starting) return;
     setStarting(true);
-    // Brief delay so the button state shows visually before the long WS roundtrip
     await new Promise((r) => setTimeout(r, 100));
     client?.send?.({ type: 'autophase.start', payload: { title: g, autonomous: true } });
     setStarting(false);
   }, [goal, starting, client]);
 
-  const handlePhaseClick = useCallback(
-    (phaseId: string) => {
-      client?.send?.({ type: 'autophase.selectPhase', payload: { phaseId } });
-    },
-    [client],
-  );
-
   const handleToggleAutonomous = useCallback(() => {
     client?.send?.({ type: 'autophase.toggleAutonomous', payload: {} });
   }, [client]);
 
-  const handleTaskStatusChange = useCallback(
-    (taskId: string, status: string) => {
-      client?.send?.({ type: 'autophase.taskStatus', payload: { taskId, status } });
+  const handleSelectBoard = useCallback(
+    (graphId: string) => {
+      if (graphId) client?.send?.({ type: 'autophase.load', payload: { graphId } });
     },
     [client],
   );
-
-  const activePhase = phases.find((p) => p.id === activePhaseId);
-
-  // Extract tasks from the active phase or all phases
-  const tasks = activePhase
-    ? (activePhase as never as { tasks?: Array<{ id: string; title: string; description: string; status: string; priority: string; type: string; estimateHours?: number; assignee?: string; tags?: string[] }> }).tasks ?? []
-    : [];
 
   return (
     <div className="flex flex-col h-full bg-background">
@@ -81,9 +70,7 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
         <div className="flex items-center gap-2">
           <Layers className="h-5 w-5 text-muted-foreground" />
           <div>
-            <h1 className="text-lg font-semibold">
-              {hasPhases ? (title || 'AutoPhase') : 'AutoPhase'}
-            </h1>
+            <h1 className="text-lg font-semibold">{hasPhases ? title || 'AutoPhase' : 'AutoPhase'}</h1>
             {hasPhases && (
               <p className="text-xs text-muted-foreground">
                 {phases.length} phase{phases.length === 1 ? '' : 's'} · {overallPercent}% complete
@@ -108,21 +95,57 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
             </span>
           )}
         </div>
-        <Button variant="ghost" size="icon" onClick={onClose}>
-          <X className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-2">
+          {/* Board selector — every AutoPhase run is a persisted board (JSON on
+              disk); switch between all boards saved for this project. */}
+          {graphs.length > 0 && (
+            <select
+              value={hasPhases ? (graphs.find((g) => g.title === title)?.id ?? '') : ''}
+              onChange={(e) => handleSelectBoard(e.target.value)}
+              title="Switch board"
+              className="rounded border border-border bg-card px-2 py-1 text-xs text-foreground"
+            >
+              <option value="" disabled>
+                {graphs.length} board{graphs.length === 1 ? '' : 's'}…
+              </option>
+              {graphs.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.title} · {g.status}
+                </option>
+              ))}
+            </select>
+          )}
+          {hasPhases && (
+            <button
+              type="button"
+              onClick={handleToggleAutonomous}
+              title="Toggle autonomous mode"
+              className={cn(
+                'inline-flex items-center gap-1 rounded border px-2 py-1 text-xs transition-colors',
+                autonomous
+                  ? 'border-primary/30 bg-primary/10 text-primary'
+                  : 'border-border text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <Zap className="h-3.5 w-3.5" /> {autonomous ? 'Autonomous' : 'Manual'}
+            </button>
+          )}
+          <Button variant="ghost" size="icon" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
       </header>
 
       {!hasPhases ? (
-        /* ── Start screen — shown when no phases exist ── */
+        /* ── Start screen ── */
         <div className="flex-1 flex items-center justify-center p-8">
           <div className="max-w-lg w-full space-y-6">
             <div className="text-center space-y-2">
               <Rocket className="h-10 w-10 mx-auto text-primary/60" />
               <h2 className="text-xl font-semibold">Start a Phase Plan</h2>
               <p className="text-sm text-muted-foreground">
-                Describe what you want to build. WrongStack will plan phases and tasks,
-                then execute them autonomously.
+                Describe what you want to build. WrongStack will plan phases and tasks, then execute
+                them — watch and steer the run on the board.
               </p>
             </div>
 
@@ -141,64 +164,25 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
             />
 
             <div className="flex items-center gap-3">
-              <Button
-                onClick={handleStart}
-                disabled={!goal.trim() || starting}
-                className="flex-1 gap-2"
-              >
+              <Button onClick={handleStart} disabled={!goal.trim() || starting} className="flex-1 gap-2">
                 <Play className="h-4 w-4" />
                 {starting ? 'Starting…' : 'Start AutoPhase'}
               </Button>
             </div>
 
             <p className="text-xs text-muted-foreground text-center">
-              Ctrl+Enter to start · Phases execute sequentially with full agent tool access
+              Ctrl+Enter to start · phases run in isolated worktrees with agents picking up tasks
             </p>
           </div>
         </div>
       ) : (
-        /* ── Active phase monitoring ── */
+        /* ── Interactive kanban board ── */
         <div className="flex min-h-0 flex-1">
-          {/* Left: Phase list */}
-          <PhasePanel
-            phases={phases}
-            activePhaseId={activePhaseId ?? undefined}
-            onPhaseClick={handlePhaseClick}
-            overallPercent={overallPercent}
-            autonomous={autonomous}
-            onToggleAutonomous={handleToggleAutonomous}
-            className="w-72 shrink-0"
-          />
-
-          {/* Right: Task board for selected phase */}
-          <div className="flex min-w-0 flex-1 flex-col">
-            {activePhase ? (
-              <TaskBoard
-                phaseName={activePhase.name}
-                phaseStatus={activePhase.status}
-                tasks={tasks.map((t) => ({
-                  id: t.id,
-                  title: t.title,
-                  description: t.description,
-                  status: t.status as TaskBoardProps['tasks'][0]['status'],
-                  priority: (t.priority as TaskBoardProps['tasks'][0]['priority']) || 'medium',
-                  type: (t.type as TaskBoardProps['tasks'][0]['type']) || 'feature',
-                  estimateHours: t.estimateHours,
-                  assignee: t.assignee,
-                  tags: t.tags ?? [],
-                }))}
-                onTaskStatusChange={handleTaskStatusChange}
-              />
-            ) : (
-              <div className="flex h-full items-center justify-center text-muted-foreground">
-                <p className="text-sm">Select a phase from the left panel to view its tasks.</p>
-              </div>
-            )}
-          </div>
+          <BoardView />
         </div>
       )}
 
-      {/* Bottom: Worktree visualization */}
+      {/* Worktree visualization */}
       {worktrees.length > 0 && (
         <div className="border-t bg-card/50 shrink-0">
           <div className="flex items-center justify-end gap-2 px-4 pt-2 text-xs">
@@ -239,6 +223,3 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
     </div>
   );
 }
-
-// Re-import needed types from TaskBoard
-import type { TaskBoardProps } from './TaskBoard';

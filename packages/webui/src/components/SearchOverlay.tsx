@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils';
-import { useChatStore, useUIStore } from '@/stores';
+import { useChatStore, useUIStore, type ChatMessage } from '@/stores';
 import { ArrowDown, ArrowUp, Search, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -12,6 +12,20 @@ const HIGHLIGHT_STYLES = `
 ::highlight(chat-search) { background-color: hsl(var(--primary) / 0.3); color: inherit; }
 ::highlight(chat-search-active) { background-color: hsl(var(--primary) / 0.85); color: hsl(var(--primary-foreground)); }
 `;
+
+export function messageSearchText(m: ChatMessage): string {
+  if (m.thinkingLog) {
+    return [m.content, m.thinkingLog.text].filter(Boolean).join('\n');
+  }
+  if (m.role === 'tool') {
+    return [
+      m.toolName ?? '',
+      m.toolResult ?? '',
+      JSON.stringify(m.toolInput ?? ''),
+    ].join('\n');
+  }
+  return m.content;
+}
 
 /**
  * Ctrl+F overlay that searches the current chat transcript. Hits are
@@ -29,6 +43,7 @@ export function SearchOverlay() {
   const messages = useChatStore((s) => s.messages);
 
   const requestScrollToMessage = useUIStore((s) => s.requestScrollToMessage);
+  const setSearchActiveMessageId = useUIStore((s) => s.setSearchActiveMessageId);
   const inputRef = useRef<HTMLInputElement>(null);
   const [activeHit, setActiveHit] = useState(0);
   // Bumped over a few frames after a navigation so the highlight pass re-runs
@@ -57,24 +72,17 @@ export function SearchOverlay() {
     const q = query.trim().toLowerCase();
     if (!q) return [] as string[];
     return messages
-      .filter((m) => {
-        if (m.role === 'tool') {
-          return (
-            (m.toolName ?? '').toLowerCase().includes(q) ||
-            (m.toolResult ?? '').toLowerCase().includes(q) ||
-            JSON.stringify(m.toolInput ?? '')
-              .toLowerCase()
-              .includes(q)
-          );
-        }
-        return m.content.toLowerCase().includes(q);
-      })
+      .filter((m) => messageSearchText(m).toLowerCase().includes(q))
       .map((m) => m.id);
   }, [messages, query]);
 
   useEffect(() => {
     if (activeHit >= hits.length) setActiveHit(0);
   }, [hits, activeHit]);
+
+  useEffect(() => {
+    setSearchActiveMessageId(open && query.trim() ? (hits[activeHit] ?? null) : null);
+  }, [open, query, hits, activeHit, setSearchActiveMessageId]);
 
   // Paint every match of the current query inside chat bubbles using the
   // CSS Custom Highlights API. We walk the text nodes under every

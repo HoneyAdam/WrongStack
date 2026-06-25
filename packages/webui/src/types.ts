@@ -22,7 +22,7 @@ export interface WSSessionStart {
     outputCost?: number | undefined;
     cacheReadCost?: number | undefined;
     reset?: boolean | undefined;
-    replayMessages?: Array<{ role: string | undefined; content: unknown }>;
+    replayMessages?: Array<{ role: string | undefined; content: unknown; ts?: string | undefined }>;
     replayUsage?: Usage | undefined;
     /** True when no provider+model is configured yet — show the setup screen. */
     needsSetup?: boolean | undefined;
@@ -838,6 +838,62 @@ export type WSClientMessage =
   | { type: 'autophase.toggleAutonomous'; payload: { autonomous?: boolean | undefined } }
   | { type: 'autophase.selectPhase'; payload: { phaseId: string } }
   | { type: 'autophase.taskStatus'; payload: { taskId: string; status: string } }
+  | { type: 'autophase.moveTask'; payload: { taskId: string; toPhaseId: string } }
+  | {
+      type: 'autophase.assignTask';
+      payload: { taskId: string; agentId?: string | undefined; agentName?: string | undefined };
+    }
+  | {
+      type: 'autophase.addTask';
+      payload: {
+        phaseId: string;
+        title: string;
+        description?: string | undefined;
+        type?: string | undefined;
+        priority?: string | undefined;
+      };
+    }
+  | { type: 'autophase.retryTask'; payload: { taskId: string } }
+  | { type: 'autophase.runTask'; payload: { taskId: string } }
+  | { type: 'specs.list'; payload?: Record<string, never> }
+  | { type: 'specs.get'; payload: { specId: string } }
+  | {
+      type: 'specs.taskStatus';
+      payload: { graphId: string; taskId: string; status: string };
+    }
+  | { type: 'sdd.board.get'; payload?: Record<string, never> }
+  | { type: 'sdd.board.list'; payload?: Record<string, never> }
+  | { type: 'sdd.board.pause'; payload?: { runId?: string | undefined } }
+  | { type: 'sdd.board.resume'; payload?: { runId?: string | undefined } }
+  | { type: 'sdd.board.stop'; payload?: { runId?: string | undefined } }
+  | { type: 'sdd.board.retry'; payload: { taskId: string; runId?: string | undefined } }
+  | {
+      type: 'sdd.board.reassign';
+      payload: { taskId: string; agentName: string; runId?: string | undefined };
+    }
+  | {
+      type: 'sdd.board.set_task_model';
+      payload: { taskId: string; model?: string | undefined; provider?: string | undefined; runId?: string | undefined };
+    }
+  | {
+      type: 'sdd.board.set_task_fallbacks';
+      payload: { taskId: string; fallbackModels?: string[] | undefined; runId?: string | undefined };
+    }
+  | { type: 'sdd.board.cancel_task'; payload: { taskId: string; runId?: string | undefined } }
+  | { type: 'sdd.board.delete_task'; payload: { taskId: string; runId?: string | undefined } }
+  | { type: 'sdd.spec.start'; payload: { goal: string } }
+  | { type: 'sdd.spec.message'; payload: { text: string } }
+  | { type: 'sdd.spec.approve'; payload?: Record<string, never> }
+  | { type: 'sdd.spec.get'; payload?: Record<string, never> }
+  | {
+      type: 'sdd.run.start';
+      payload?: {
+        parallelSlots?: number | undefined;
+        model?: string | undefined;
+        provider?: string | undefined;
+        fallbackModels?: string[] | undefined;
+      };
+    }
   | { type: 'abort'; payload: Record<string, never> }
   | { type: 'session.resume'; payload: { id: string } }
   | { type: 'session.new' }
@@ -1030,6 +1086,14 @@ export type WSServerMessage =
   | WSAutoPhaseProgress
   | WSAutoPhaseLifecycle
   | WSAutoPhaseList
+  | { type: 'specs.list'; payload: { specs: unknown[] } }
+  | { type: 'specs.detail'; payload: Record<string, unknown> }
+  | { type: 'sdd.board.snapshot'; payload: Record<string, unknown> }
+  | { type: 'sdd.board.list'; payload: { boards: unknown[] } }
+  | { type: 'sdd.spec.snapshot'; payload: Record<string, unknown> }
+  | { type: 'sdd.spec.agent_text'; payload: { text: string } }
+  | { type: 'sdd.spec.error'; payload: { message: string } }
+  | { type: 'sdd.run.started'; payload: { runId: string } }
   | WSEternalIteration
   | WSAgentTimelineMessage
   | WSAgentStatusChanged

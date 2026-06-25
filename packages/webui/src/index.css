@@ -381,3 +381,69 @@
 kbd {
   @apply px-1 py-0.5 rounded bg-muted text-[9px] font-mono border;
 }
+
+/* ─────────────────────────────────────────────────────────────────────
+   SDD visual show — animated task-graph DAG (React Flow) + wizard reveal.
+   ───────────────────────────────────────────────────────────────────── */
+
+/* A running task node: breathing amber glow + a slow rotating conic ring. */
+@keyframes sddRunPulse {
+  0%, 100% { box-shadow: 0 0 0 1px hsl(38 95% 55% / 0.55), 0 0 16px 1px hsl(38 95% 55% / 0.35); }
+  50%      { box-shadow: 0 0 0 1px hsl(38 95% 60% / 0.85), 0 0 28px 4px hsl(38 95% 55% / 0.6); }
+}
+.sdd-node-running { animation: sddRunPulse 1.8s ease-in-out infinite; }
+
+/* Completion flash — a one-shot emerald burst when a task finishes. */
+@keyframes sddCompleteFlash {
+  0%   { box-shadow: 0 0 0 1px hsl(152 60% 45% / 0.9), 0 0 30px 6px hsl(152 70% 45% / 0.7); }
+  100% { box-shadow: 0 0 0 1px hsl(152 45% 40% / 0.5), 0 0 0 0 transparent; }
+}
+.sdd-node-complete { animation: sddCompleteFlash 0.9s ease-out; }
+
+/* Failure shake. */
+@keyframes sddFail {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-3px); }
+  40%, 80% { transform: translateX(3px); }
+}
+.sdd-node-failed { animation: sddFail 0.45s ease-in-out; }
+
+/* Node pop-in when the graph first materializes (decomposition reveal). */
+@keyframes sddPopIn {
+  from { opacity: 0; transform: scale(0.82) translateY(6px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+.sdd-node-enter { animation: sddPopIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) backwards; }
+
+/* Live agent dot — a pulsing presence ring around the worker avatar. */
+@keyframes sddAgentPing {
+  0%   { box-shadow: 0 0 0 0 hsl(199 89% 60% / 0.7); }
+  70%  { box-shadow: 0 0 0 6px hsl(199 89% 60% / 0); }
+  100% { box-shadow: 0 0 0 0 hsl(199 89% 60% / 0); }
+}
+.sdd-agent-live { animation: sddAgentPing 1.6s ease-out infinite; }
+
+/* Conic sweep behind a running node's header (the "working" shimmer). */
+@keyframes sddConic { to { transform: rotate(360deg); } }
+.sdd-conic {
+  background: conic-gradient(from 0deg, transparent 0deg, hsl(38 95% 55% / 0.5) 40deg, transparent 80deg);
+  animation: sddConic 2.4s linear infinite;
+}
+
+/* Animated dependency edge — flowing dashes (React Flow strokeDashoffset). */
+@keyframes sddDash { to { stroke-dashoffset: -16; } }
+.sdd-edge-flow { stroke-dasharray: 6 6; animation: sddDash 0.6s linear infinite; }
+
+/* Wizard phase panel transition. */
+@keyframes sddRise {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.sdd-rise { animation: sddRise 0.45s cubic-bezier(0.16, 1, 0.3, 1) backwards; }
+
+/* Gradient sheen header used across the SDD surfaces. */
+.sdd-sheen {
+  background:
+    radial-gradient(1200px 200px at 0% -40%, hsl(265 80% 60% / 0.18), transparent),
+    radial-gradient(800px 200px at 100% -40%, hsl(199 89% 55% / 0.16), transparent);
+}

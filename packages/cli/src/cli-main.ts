@@ -62,6 +62,7 @@ import {
   type LogLevel,
   type SessionEventBridge,
   SessionMemoryConsolidator,
+  SddRunRegistry,
   SlashCommandRegistry,
   startSessionTelemetryBridge,
   type SystemPromptBuilder,
@@ -1298,6 +1299,7 @@ export async function main(argv: string[]): Promise<number> {
 
   // Shadow controller — tracks the active shadow agent so /shadow commands can
   // reject duplicate starts and stop the real background monitor.
+  let shadowDefaults: { intervalMs?: number; provider?: string; model?: string } = {};
   const shadowController: NonNullable<Parameters<typeof buildBuiltinSlashCommands>[0]['shadowController']> = {
     activeId: null,
     register(id) {
@@ -1305,6 +1307,12 @@ export async function main(argv: string[]): Promise<number> {
     },
     clear() {
       this.activeId = null;
+    },
+    getDefaults() {
+      return { ...shadowDefaults };
+    },
+    setDefaults(defaults) {
+      shadowDefaults = { ...shadowDefaults, ...defaults };
     },
   };
 
@@ -1614,6 +1622,10 @@ export async function main(argv: string[]): Promise<number> {
   // the AutonomousCoordinator is created lazily. Slash commands read from it.
   const coordinatorController: NonNullable<Parameters<typeof buildBuiltinSlashCommands>[0]['coordinatorController']> = {};
 
+  // Registry of the active multi-agent SDD board run. The webui board handler
+  // and slash hooks steer the run through this; the run itself is CLI-owned.
+  const sddRunRegistry = new SddRunRegistry();
+
   const slashCmds = buildBuiltinSlashCommands({
     registry: slashRegistry,
     toolRegistry,
@@ -1679,10 +1691,6 @@ export async function main(argv: string[]): Promise<number> {
     },
     onSpawn: async (description, spawnOpts) => {
       const { subagentId, taskId } = await multiAgentHost.spawn(description, spawnOpts);
-      // Auto-register shadow agents in the shadow controller
-      if (shadowController && spawnOpts?.name === 'shadow') {
-        shadowController.register(subagentId);
-      }
       const tags: string[] = [];
       if (spawnOpts?.provider) tags.push(spawnOpts.provider);
       if (spawnOpts?.model) tags.push(spawnOpts.model);
@@ -1881,7 +1889,7 @@ export async function main(argv: string[]): Promise<number> {
       if (!director) return null;
       return director.snapshot();
     },
-    onFleetKill: () => {
+    onFleetKill: async () => {
       if (!director) return 0;
       const s = director.status();
       // Kill and remove all subagents so their ids can be reused in future spawns.
@@ -1891,7 +1899,7 @@ export async function main(argv: string[]): Promise<number> {
       for (const sa of s.subagents) {
         if (sa.status === 'running' || sa.status === 'idle') {
           try {
-            director.remove(sa.id);
+            await director.remove(sa.id);
             killed++;
           } catch {
             /* best-effort */
@@ -1900,10 +1908,10 @@ export async function main(argv: string[]): Promise<number> {
       }
       return killed;
     },
-    onFleetTerminate: (subagentId) => {
+    onFleetTerminate: async (subagentId) => {
       if (!director) return false;
       try {
-        director.terminate(subagentId);
+        await director.terminate(subagentId);
         return true;
       } catch {
         return false;
@@ -2403,7 +2411,6 @@ export async function main(argv: string[]): Promise<number> {
       context.model,
     ),
     onSddParallelRun: async (opts) => {
-      const { SddParallelRun } = await import('@wrongstack/core');
       const sdd = await import('./slash-commands/sdd.js');
       const tracker = sdd.getTaskTracker();
       const builder = sdd.getActiveBuilder();
@@ -2422,31 +2429,58 @@ export async function main(argv: string[]): Promise<number> {
       if (!graph) {
         return 'No task graph found for the current SDD session.';
       }
-      const subagentFactory = multiAgentHost.makeSubagentFactory(config);
-      const run = new SddParallelRun({
+      const core = await import('@wrongstack/core');
+      // Resume safety (orphaned in_progress reset) is handled inside startSddRun.
+
+      // Per-task git-worktree isolation: each parallel agent works in its own
+      // checkout so they never collide on the same files. Gated to git repos;
+      // disable with WRONGSTACK_SDD_WORKTREES=0 (then tasks share the tree).
+      let worktrees: import('@wrongstack/core').WorktreeManager | undefined;
+      if (process.env['WRONGSTACK_SDD_WORKTREES'] !== '0') {
+        const { spawnSync } = await import('node:child_process');
+        const inGit =
+          spawnSync('git', ['rev-parse', '--is-inside-work-tree'], {
+            cwd: projectRoot,
+            encoding: 'utf8',
+            windowsHide: true,
+          }).stdout?.trim() === 'true';
+        if (inGit) worktrees = new core.WorktreeManager({ projectRoot, events });
+      }
+
+      const boardStore = new core.SddBoardStore({ baseDir: wpaths.projectSddBoards });
+      // Shared run-setup core (also used by the WebUI servers): orphan reset →
+      // run → board projector → registry → cross-process control drain.
+      const handle = core.startSddRun({
         tracker,
         graph,
         agent,
         projectRoot,
+        events,
         parallelSlots: opts?.parallelSlots,
-        subagentFactory,
+        subagentFactory: multiAgentHost.makeSubagentFactory(config),
+        worktrees,
+        boardStore,
+        registry: sddRunRegistry,
         onProgress: (p: import('@wrongstack/core').SddProgress) => {
           renderer.write(
             `  ░ wave ${p.wave + 1} · ${p.completed}/${p.total} tasks · ${p.percent}% done\n`,
           );
         },
       });
-      (globalThis as SddParallelRunGlobal).__sddParallelRun = run;
-      const result = await run.run();
-      (globalThis as SddParallelRunGlobal).__sddParallelRun = undefined;
-      const lines = [
-        `SDD parallel run complete:`,
-        `  ${result.totalWaves} waves · ${result.totalCompleted} done · ${result.totalFailed} failed`,
-        `  ${(result.totalDurationMs / 1000).toFixed(1)}s total`,
-      ];
-      if (result.deadlocked) lines.push(color.red('  ⚠ deadlock — tasks blocked by failed tasks.'));
-      if (result.stopRequested) lines.push(color.yellow('  ⚡ stopped by user.'));
-      return lines.join('\n');
+      (globalThis as SddParallelRunGlobal).__sddParallelRun = handle.run;
+      try {
+        const result = await handle.completion;
+        const lines = [
+          `SDD parallel run complete:`,
+          `  ${result.totalWaves} waves · ${result.totalCompleted} done · ${result.totalFailed} failed`,
+          `  ${(result.totalDurationMs / 1000).toFixed(1)}s total`,
+        ];
+        if (result.deadlocked) lines.push(color.red('  ⚠ deadlock — tasks blocked by failed tasks.'));
+        if (result.stopRequested) lines.push(color.yellow('  ⚡ stopped by user.'));
+        return lines.join('\n');
+      } finally {
+        (globalThis as SddParallelRunGlobal).__sddParallelRun = undefined;
+      }
     },
     onSddParallelStop: () => {
       const run = (globalThis as SddParallelRunGlobal).__sddParallelRun;
@@ -2457,6 +2491,10 @@ export async function main(argv: string[]): Promise<number> {
     onAutoPhaseResume: autoPhaseHost.onAutoPhaseResume,
     onAutoPhaseStop: autoPhaseHost.onAutoPhaseStop,
     getAutoPhaseRunner: autoPhaseHost.getAutoPhaseRunner,
+    onAutoPhaseMoveTask: autoPhaseHost.onAutoPhaseMoveTask,
+    onAutoPhaseAssignTask: autoPhaseHost.onAutoPhaseAssignTask,
+    onAutoPhaseAddTask: autoPhaseHost.onAutoPhaseAddTask,
+    onAutoPhaseRetryTask: autoPhaseHost.onAutoPhaseRetryTask,
     onWorktree: autoPhaseHost.onWorktree,
   });
   for (const cmd of slashCmds) slashRegistry.register(cmd);
@@ -2509,6 +2547,9 @@ export async function main(argv: string[]): Promise<number> {
     tokenCounter,
     config,
     configStore,
+    // Real director-backed per-task agent factory — threaded to the CLI-hosted
+    // WebUI so its "New SDD Project" wizard runs the same multi-agent fleet.
+    sddSubagentFactory: multiAgentHost.makeSubagentFactory(config),
     // Project-scoped mailbox — the AutonomousCoordinator in execution.ts
     // subscribes to it so goals/tasks/knowledge are shared with other
     // terminals working on the same project.

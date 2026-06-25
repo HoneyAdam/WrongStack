@@ -1,4 +1,5 @@
 import { useSessionStore, useUIStore } from '@/stores';
+import { streamCoalescer } from '@/lib/stream-coalescer';
 import type { WSClientMessage } from '@/types';
 import { downloadChatAsMarkdown } from '../CommandPalette';
 import { SLASH_COMMANDS } from './slash-commands.js';
@@ -117,6 +118,7 @@ export function runChatSlashCommand(options: RunChatSlashCommandOptions): boolea
       return true;
     }
     case '/clear':
+      streamCoalescer.dropAll();
       clearMessages();
       client?.clearContext?.();
       return true;

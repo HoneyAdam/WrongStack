@@ -47,6 +47,8 @@ export const PREF_KEYS = [
   'confirmExit',
   'streamFleet',
   'nextPrediction',
+  'fallbackModels',
+  'fallbackAuto',
   'enhanceEnabled',
   'enhanceDelayMs',
   'enhanceLanguage',
@@ -84,9 +86,7 @@ type PrefSnapshot = Record<string, unknown>;
  *
  * Best-effort – missing or corrupt config leaves prefs unseeded.
  */
-export async function seedConfigToMeta(
-  opts: CliWebUIOptions,
-): Promise<void> {
+export async function seedConfigToMeta(opts: CliWebUIOptions): Promise<void> {
   const configPath = opts.globalConfigPath;
   if (!configPath) return;
 
@@ -100,8 +100,7 @@ export async function seedConfigToMeta(
     const rawMode = autonomyCfg['defaultMode'];
     meta['autonomy'] = rawMode === 'suggest' || rawMode === 'auto' ? rawMode : 'off';
     meta['autonomyDelayMs'] = (autonomyCfg['autoProceedDelayMs'] as number) ?? 45_000;
-    meta['autoProceedMaxIterations'] =
-      (autonomyCfg['autoProceedMaxIterations'] as number) ?? 50;
+    meta['autoProceedMaxIterations'] = (autonomyCfg['autoProceedMaxIterations'] as number) ?? 50;
     meta['yolo'] = (autonomyCfg['yolo'] as boolean) ?? (cfg.yolo as boolean) ?? false;
     meta['chime'] = (autonomyCfg['chime'] as boolean) ?? false;
     meta['confirmExit'] = autonomyCfg['confirmExit'] !== false;
@@ -110,17 +109,17 @@ export async function seedConfigToMeta(
     meta['enhanceDelayMs'] = (autonomyCfg['enhanceDelayMs'] as number) ?? 60_000;
     meta['enhanceLanguage'] = (autonomyCfg['enhanceLanguage'] as string) ?? 'original';
     meta['nextPrediction'] = (cfg.nextPrediction as boolean) ?? false;
+    meta['fallbackModels'] = (cfg.fallbackModels as string[]) ?? [];
+    meta['fallbackAuto'] = cfg.fallbackAuto !== false;
     meta['featureMcp'] = features['mcp'] !== false;
     meta['featurePlugins'] = features['plugins'] !== false;
     meta['featureMemory'] = features['memory'] !== false;
     meta['featureSkills'] = features['skills'] !== false;
     meta['featureModelsRegistry'] = features['modelsRegistry'] !== false;
-    meta['indexOnStart'] =
-      (cfg.indexing as Record<string, unknown>)?.['onSessionStart'] !== false;
+    meta['indexOnStart'] = (cfg.indexing as Record<string, unknown>)?.['onSessionStart'] !== false;
     meta['contextAutoCompact'] =
       (cfg.context as Record<string, unknown>)?.['autoCompact'] !== false;
-    meta['contextStrategy'] =
-      (cfg.context as Record<string, unknown>)?.['strategy'] ?? 'hybrid';
+    meta['contextStrategy'] = (cfg.context as Record<string, unknown>)?.['strategy'] ?? 'hybrid';
     meta['logLevel'] = (cfg.log as Record<string, unknown>)?.['level'] ?? 'info';
     meta['auditLevel'] = (cfg.session as Record<string, unknown>)?.['auditLevel'] ?? 'standard';
     meta['maxIterations'] = (cfg.tools as Record<string, unknown>)?.['maxIterations'] ?? 500;
@@ -156,9 +155,7 @@ interface PrefsSeeding {
  * Factory – returns `prefSnapshot` and `persistPrefs` with file I/O captured
  * in closure. Call once per `runWebUI` instance.
  */
-export function createPrefsSeeding(
-  opts: CliWebUIOptions,
-): PrefsSeeding {
+export function createPrefsSeeding(opts: CliWebUIOptions): PrefsSeeding {
   let prefWriteLock: Promise<unknown> = Promise.resolve();
 
   /** Capture the current set of live preference values from agent.ctx.meta. */
@@ -186,8 +183,7 @@ export function createPrefsSeeding(
       // Map meta keys back to their config-file paths.
       const autonomy = (decrypted.autonomy as Record<string, unknown>) ?? {};
       if ('autonomy' in payload) autonomy['defaultMode'] = payload['autonomy'];
-      if ('autonomyDelayMs' in payload)
-        autonomy['autoProceedDelayMs'] = payload['autonomyDelayMs'];
+      if ('autonomyDelayMs' in payload) autonomy['autoProceedDelayMs'] = payload['autonomyDelayMs'];
       if ('autoProceedMaxIterations' in payload)
         autonomy['autoProceedMaxIterations'] = payload['autoProceedMaxIterations'];
       if ('yolo' in payload) {
@@ -199,14 +195,19 @@ export function createPrefsSeeding(
       if ('streamFleet' in payload) autonomy['streamFleet'] = payload['streamFleet'];
       if ('enhanceEnabled' in payload) autonomy['enhance'] = payload['enhanceEnabled'];
       if ('enhanceDelayMs' in payload) autonomy['enhanceDelayMs'] = payload['enhanceDelayMs'];
-      if ('enhanceLanguage' in payload)
-        autonomy['enhanceLanguage'] = payload['enhanceLanguage'];
+      if ('enhanceLanguage' in payload) autonomy['enhanceLanguage'] = payload['enhanceLanguage'];
       if ('nextPrediction' in payload) decrypted['nextPrediction'] = payload['nextPrediction'];
+      if ('fallbackModels' in payload) decrypted['fallbackModels'] = payload['fallbackModels'];
+      if ('fallbackAuto' in payload) decrypted['fallbackAuto'] = payload['fallbackAuto'];
       decrypted['autonomy'] = autonomy;
 
-      if ('featureMcp' in payload || 'featurePlugins' in payload ||
-          'featureMemory' in payload || 'featureSkills' in payload ||
-          'featureModelsRegistry' in payload) {
+      if (
+        'featureMcp' in payload ||
+        'featurePlugins' in payload ||
+        'featureMemory' in payload ||
+        'featureSkills' in payload ||
+        'featureModelsRegistry' in payload
+      ) {
         const features = (decrypted.features as Record<string, unknown>) ?? {};
         if ('featureMcp' in payload) features['mcp'] = payload['featureMcp'];
         if ('featurePlugins' in payload) features['plugins'] = payload['featurePlugins'];
@@ -250,8 +251,10 @@ export function createPrefsSeeding(
 
       // HQ settings → top-level `hq` key.
       if (
-        'hqEnabled' in payload || 'hqUrl' in payload ||
-        'hqToken' in payload || 'hqRawContent' in payload
+        'hqEnabled' in payload ||
+        'hqUrl' in payload ||
+        'hqToken' in payload ||
+        'hqRawContent' in payload
       ) {
         const hqCfg = (decrypted.hq as Record<string, unknown>) ?? {};
         if (typeof payload['hqEnabled'] === 'boolean') hqCfg['enabled'] = payload['hqEnabled'];

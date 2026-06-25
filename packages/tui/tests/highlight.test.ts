@@ -85,7 +85,7 @@ describe('detectLang', () => {
 // Fuzz-ish: random ASCII lines must always round-trip for every language.
 describe('highlightLine — never drops/adds glyphs (fuzz)', () => {
   const samples = [
-    `\`\\\\${a}\` "x\\"y" /*/ #@$%^&*()`,
+    `\`\\\\a\` "x\\"y" /*/ #@$%^&*()`,
     "'''not''' python? @x #y",
     `$VAR \${X} --flag -f "q'q" \`tick\``,
     '\t  mixed   ws\t\tend',

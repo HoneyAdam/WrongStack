@@ -22,15 +22,23 @@ export class TaskGenerator {
   async generateFromSpec(spec: Specification): Promise<TaskGraph> {
     const graph = await this.opts.taskTracker.createGraph(spec.id, spec.title);
 
+    // Track feature/implementation node ids so the deterministic fallback still
+    // produces a real DAG: tests depend on the features they cover, docs depend
+    // on everything. Without this the generated graph is edgeless and every task
+    // looks independently runnable (the naive slot-filling the user rejected).
+    const featureIds: string[] = [];
+
     const overview = spec.sections.find((s) => s.type === 'overview');
     if (overview) {
-      this.opts.taskTracker.addNode({
-        title: `Implement ${spec.title}`,
-        description: overview.content,
-        type: 'feature',
-        priority: 'high',
-        status: 'pending',
-      });
+      featureIds.push(
+        this.opts.taskTracker.addNode({
+          title: `Implement ${spec.title}`,
+          description: overview.content,
+          type: 'feature',
+          priority: 'high',
+          status: 'pending',
+        }).id,
+      );
     }
 
     // Group requirements by priority in a single pass, then emit in priority order.
@@ -48,7 +56,7 @@ export class TaskGenerator {
     const order: TaskPriority[] = ['critical', 'high', 'medium', 'low'];
     for (const p of order) {
       for (const req of byPriority[p]) {
-        this.opts.taskTracker.addNode(this.createTaskFromRequirement(req));
+        featureIds.push(this.opts.taskTracker.addNode(this.createTaskFromRequirement(req)).id);
       }
     }
 
@@ -61,33 +69,38 @@ export class TaskGenerator {
         priority: 'high',
         status: 'pending',
       });
+      featureIds.push(apiParent.id);
 
       for (const endpoint of spec.apiEndpoints) {
         const task = this.createTaskFromEndpoint(endpoint);
-        this.opts.taskTracker.addNode({
-          ...task,
-          parentId: apiParent.id,
-        });
+        featureIds.push(
+          this.opts.taskTracker.addNode({
+            ...task,
+            parentId: apiParent.id,
+          }).id,
+        );
       }
     }
 
-    // Test tasks
-    this.opts.taskTracker.addNode({
+    // Test tasks — depend on every feature so they run after implementation.
+    const testId = this.opts.taskTracker.addNode({
       title: 'Write Tests',
       description: 'Comprehensive test coverage for all features',
       type: 'test',
       priority: 'high',
       status: 'pending',
-    });
+    }).id;
+    for (const f of featureIds) this.opts.taskTracker.addDependency(f, testId);
 
-    // Documentation tasks
-    this.opts.taskTracker.addNode({
+    // Documentation tasks — depend on features + tests (last in the chain).
+    const docsId = this.opts.taskTracker.addNode({
       title: 'Update Documentation',
       description: 'Update docs for new features',
       type: 'docs',
       priority: 'medium',
       status: 'pending',
-    });
+    }).id;
+    for (const f of [...featureIds, testId]) this.opts.taskTracker.addDependency(f, docsId);
 
     return graph;
   }

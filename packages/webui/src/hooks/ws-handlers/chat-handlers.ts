@@ -54,8 +54,8 @@ export function handleIterationStarted(msg: WSServerMessage) {
 export function handleTextDelta(msg: WSServerMessage) {
   pipeViz(msg);
   const payload = msg.payload as { text: string; messageId: string };
+  streamCoalescer.flush('__thinking__');
   useChatStore.getState().clearThinking();
-  streamCoalescer.drop('__thinking__');
   let id = useChatStore.getState().currentAssistantMessageId;
   if (!id) {
     id = useChatStore.getState().addMessage({ role: 'assistant', content: '', streaming: true });
@@ -80,8 +80,8 @@ export function handleToolStarted(msg: WSServerMessage) {
   const payload = msg.payload as { id: string; name: string; input?: unknown | undefined; messageId: string };
   const existingId = useChatStore.getState().getToolMessageId(payload.id);
   if (existingId) { useChatStore.getState().setCurrentToolId(existingId); return; }
+  streamCoalescer.flush('__thinking__');
   useChatStore.getState().clearThinking();
-  streamCoalescer.drop('__thinking__');
   useChatStore.getState().setCurrentAssistantMessage(null);
   const id = useChatStore.getState().addMessage({ role: 'tool', content: '', toolName: payload.name, toolInput: payload.input, toolUseId: payload.id });
   useChatStore.getState().setCurrentToolId(id);
@@ -134,6 +134,7 @@ export function handleToolConfirmNeeded(msg: WSServerMessage) {
 export function handleRunResult(msg: WSServerMessage) {
   const payload = msg.payload as { status: string; iterations: number; finalText?: string | undefined; error?: { code: string | undefined; message: string; recoverable: boolean } };
   streamCoalescer.flushAll();
+  useChatStore.getState().flushThinkingLog(Math.max(1, payload.iterations));
   useSessionStore.getState().setIteration(null);
   useChatStore.getState().setLoading(false);
   useChatStore.getState().setCurrentAssistantMessage(null);
