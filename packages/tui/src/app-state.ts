@@ -526,6 +526,8 @@ export type State = {
   sddBoard: {
     snapshot: SddBoardSnapshot;
     monitorOpen: boolean;
+    /** Focused topological column index, or undefined for the all-columns view. */
+    focusColumn?: number | undefined;
   } | null;
   /** Git-worktree isolation state — rendered by WorktreePanel/WorktreeMonitor. */
   worktrees: Record<string, WorktreeRow & { baseBranch?: string | undefined }>;
@@ -937,6 +939,8 @@ export type Action =
   | { type: 'autoPhaseReset' }
   | { type: 'sddBoardSnapshot'; snapshot: SddBoardSnapshot }
   | { type: 'toggleSddBoardMonitor' }
+  | { type: 'sddBoardFocusNext' }
+  | { type: 'sddBoardFocusPrev' }
   | {
       type: 'worktreeUpsert';
       handleId: string;

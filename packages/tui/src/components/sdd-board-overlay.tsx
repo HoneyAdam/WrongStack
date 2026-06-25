@@ -84,14 +84,21 @@ function TaskCard({ task }: { task: SddBoardTask }): React.ReactElement {
  */
 export function SddBoardOverlay({
   snapshot,
+  focusColumn = null,
 }: {
   snapshot: SddBoardSnapshot;
+  focusColumn?: number | null | undefined;
 }): React.ReactElement {
   const byShort = new Map<string, SddBoardTask>(snapshot.tasks.map((t) => [t.shortId, t]));
   const p = snapshot.progress;
   const chains = snapshot.diagnostics?.deadlockChains ?? [];
   // Most-recent-first feed; the projector already caps + orders it.
   const recentFeed = (snapshot.feed ?? []).slice(0, 6);
+  const focused =
+    typeof focusColumn === 'number' && focusColumn >= 0 && focusColumn < snapshot.columns.length
+      ? focusColumn
+      : null;
+  const columns = focused === null ? snapshot.columns : [snapshot.columns[focused]!];
 
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
@@ -114,6 +121,11 @@ export function SddBoardOverlay({
         {p.inProgress > 0 ? <Text color="yellow">▶{p.inProgress}</Text> : null}
         {p.failed > 0 ? <Text color="red">✗{p.failed}</Text> : null}
         <Text dimColor>│ Ctrl+B close · c clean wt · z rollback</Text>
+        {focused !== null ? (
+          <Text dimColor>
+            │ column {focused + 1}/{snapshot.columns.length}
+          </Text>
+        ) : null}
       </Box>
 
       {/* Deadlock diagnostics */}
@@ -136,7 +148,7 @@ export function SddBoardOverlay({
         <Text dimColor>No active SDD run. Start one with /sdd execute.</Text>
       ) : (
         <Box flexDirection="row" gap={2}>
-          {snapshot.columns.map((col) => (
+          {columns.map((col) => (
             <Box key={col.label} flexDirection="column" marginRight={1}>
               <Text bold color="cyan">
                 {col.label}

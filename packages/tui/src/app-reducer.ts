@@ -1469,7 +1469,12 @@ export function reducer(state: State, action: Action): State {
       // Preserve the overlay's open state across snapshots; default closed on
       // the very first snapshot of a run.
       const monitorOpen = state.sddBoard?.monitorOpen ?? false;
-      return { ...state, sddBoard: { snapshot: action.snapshot, monitorOpen } };
+      const prevFocus = state.sddBoard?.focusColumn;
+      const focusColumn =
+        typeof prevFocus === 'number' && prevFocus >= 0 && prevFocus < action.snapshot.columns.length
+          ? prevFocus
+          : undefined;
+      return { ...state, sddBoard: { snapshot: action.snapshot, monitorOpen, focusColumn } };
     }
     case 'toggleSddBoardMonitor': {
       // Nothing to show until the first snapshot arrives.
@@ -1485,6 +1490,21 @@ export function reducer(state: State, action: Action): State {
             ...state,
             sddBoard: { ...state.sddBoard, monitorOpen: false },
           };
+    }
+    case 'sddBoardFocusNext': {
+      if (!state.sddBoard) return state;
+      const max = state.sddBoard.snapshot.columns.length - 1;
+      if (max < 0) return state;
+      const current = state.sddBoard.focusColumn;
+      const next = typeof current === 'number' ? Math.min(max, current + 1) : 0;
+      return { ...state, sddBoard: { ...state.sddBoard, focusColumn: next } };
+    }
+    case 'sddBoardFocusPrev': {
+      if (!state.sddBoard) return state;
+      const current = state.sddBoard.focusColumn;
+      if (typeof current !== 'number') return state;
+      const next = current <= 0 ? undefined : current - 1;
+      return { ...state, sddBoard: { ...state.sddBoard, focusColumn: next } };
     }
     case 'worktreeUpsert': {
       const prev = state.worktrees[action.handleId];
