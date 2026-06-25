@@ -37,15 +37,15 @@ export function FallbackEditor({
           {value.map((ref, i) => (
             <li
               key={`${ref}-${i}`}
-              className="flex items-center gap-1.5 rounded-md border border-white/5 bg-white/5 px-2 py-1 text-xs"
+              className="flex items-center gap-1.5 rounded-md border border-border bg-muted px-2 py-1 text-xs"
             >
-              <span className="font-mono text-[10px] text-slate-500">{i + 1}</span>
-              <span className="min-w-0 flex-1 truncate font-mono text-slate-300">{ref}</span>
+              <span className="font-mono text-[10px] text-muted-foreground">{i + 1}</span>
+              <span className="min-w-0 flex-1 truncate font-mono text-foreground">{ref}</span>
               <button
                 type="button"
                 onClick={() => move(i, -1)}
                 disabled={i === 0}
-                className="text-slate-500 hover:text-slate-200 disabled:opacity-30"
+                className="text-muted-foreground hover:text-foreground disabled:opacity-30"
                 title="Move up"
               >
                 <ArrowUp className="h-3 w-3" />
@@ -54,7 +54,7 @@ export function FallbackEditor({
                 type="button"
                 onClick={() => move(i, 1)}
                 disabled={i === value.length - 1}
-                className="text-slate-500 hover:text-slate-200 disabled:opacity-30"
+                className="text-muted-foreground hover:text-foreground disabled:opacity-30"
                 title="Move down"
               >
                 <ArrowDown className="h-3 w-3" />
@@ -62,7 +62,7 @@ export function FallbackEditor({
               <button
                 type="button"
                 onClick={() => remove(i)}
-                className="text-slate-500 hover:text-red-400"
+                className="text-muted-foreground hover:text-red-400"
                 title="Remove"
               >
                 <X className="h-3 w-3" />
@@ -73,7 +73,7 @@ export function FallbackEditor({
       )}
       <ModelPicker candidates={candidates} placeholder="Add a fallback model…" onPick={add} />
       {value.length === 0 && (
-        <p className="flex items-center gap-1 text-[10px] text-slate-600">
+        <p className="flex items-center gap-1 text-[10px] text-muted-foreground">
           <Plus className="h-2.5 w-2.5" /> Tried in order when the primary model rate-limits or
           stalls.
         </p>

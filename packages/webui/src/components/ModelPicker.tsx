@@ -54,32 +54,35 @@ export function ModelPicker({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-1.5 rounded-md border border-white/10 bg-white/5 px-2 py-1.5 text-left text-xs hover:border-violet-500/50"
+        className="flex w-full items-center gap-1.5 rounded-md border border-border bg-muted px-2 py-1.5 text-left text-xs hover:border-violet-500/50"
       >
         <Cpu className="h-3.5 w-3.5 shrink-0 text-violet-400" />
         <span
-          className={cn('min-w-0 flex-1 truncate', value ? 'text-slate-200' : 'text-slate-500')}
+          className={cn(
+            'min-w-0 flex-1 truncate',
+            value ? 'text-foreground' : 'text-muted-foreground',
+          )}
         >
           {value ? (provider ? `${provider}/${value}` : value) : placeholder}
         </span>
-        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-500" />
+        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       </button>
 
       {open && (
-        <div className="sdd-rise absolute z-50 mt-1 max-h-72 w-full min-w-[240px] overflow-hidden rounded-md border border-white/10 bg-[#0e1117] shadow-xl">
-          <div className="flex items-center gap-1.5 border-b border-white/5 px-2 py-1.5">
+        <div className="sdd-rise absolute z-50 mt-1 max-h-72 w-full min-w-[240px] overflow-hidden rounded-md border border-border bg-popover shadow-xl">
+          <div className="flex items-center gap-1.5 border-b border-border px-2 py-1.5">
             <input
               autoFocus
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Filter models…"
-              className="min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-slate-600"
+              className="min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
             />
             {query && (
               <button
                 type="button"
                 onClick={() => setQuery('')}
-                className="text-slate-500 hover:text-slate-300"
+                className="text-muted-foreground hover:text-foreground"
               >
                 <X className="h-3 w-3" />
               </button>
@@ -93,7 +96,7 @@ export function ModelPicker({
                   onReset();
                   setOpen(false);
                 }}
-                className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-xs text-slate-400 hover:bg-white/5"
+                className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-muted"
               >
                 <RotateCcw className="h-3 w-3" /> {resetLabel}
               </button>
@@ -109,8 +112,8 @@ export function ModelPicker({
                     setOpen(false);
                   }}
                   className={cn(
-                    'flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-xs hover:bg-white/5',
-                    selected ? 'text-violet-200' : 'text-slate-300',
+                    'flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-xs hover:bg-muted',
+                    selected ? 'text-violet-700 dark:text-violet-200' : 'text-foreground',
                   )}
                 >
                   {selected ? (
@@ -119,12 +122,14 @@ export function ModelPicker({
                     <span className="w-3 shrink-0" />
                   )}
                   <span className="min-w-0 flex-1 truncate">{c.label}</span>
-                  <span className="shrink-0 font-mono text-[9px] text-slate-600">{c.provider}</span>
+                  <span className="shrink-0 font-mono text-[9px] text-muted-foreground">
+                    {c.provider}
+                  </span>
                 </button>
               );
             })}
             {filtered.length === 0 && (
-              <div className="px-2 py-3 text-center text-[11px] text-slate-600">
+              <div className="px-2 py-3 text-center text-[11px] text-muted-foreground">
                 {candidates.length === 0 ? 'Loading models…' : 'No match'}
               </div>
             )}
