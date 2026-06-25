@@ -58,6 +58,31 @@ The session can auto-detect task completion from AI output:
 | `/sdd version <id>` | Show version history |
 | `/sdd parallel [slots]` | Start the parallel SDD fan-out when wired by the host |
 | `/sdd stop` | Stop the current parallel SDD fan-out |
+| `/sdd retry-failed` (alias `retry-all`) | Requeue every failed task in the active parallel run to pending |
+| `/sdd split <id> <A ; B>` | Split a task in the active run into `;`-separated sub-tasks (each `Title :: description`, description optional). Refused while the task is running |
+
+## Parallel run robustness
+
+A `/sdd parallel` run is guarded so it never silently gets stuck, explodes, or
+goes bad:
+
+- **Completion gate.** A task that sets `metadata.verificationCommand` only
+  completes when that command exits 0 (run in the task's worktree cwd, 180 s
+  timeout). Attach one per task from the WebUI board's task drawer, or omit it
+  (the default) for a fast run. The same gate runs from both the CLI and the
+  standalone WebUI (shared `makeCommandVerifier`).
+- **Mergeable worktrees.** A completed task is only marked done after a clean
+  squash-merge of its worktree. An unresolved conflict retries on a fresh base,
+  then fails — never a silent "completed". An opt-in heuristic resolver is
+  available via `WRONGSTACK_SDD_CONFLICT_RESOLVER=prefer-incoming|prefer-base`
+  (default off → the conservative retry-then-fail path).
+- **Failure supervisor.** When a task exhausts its retries, a `BrainArbiter`
+  decides retry / reassign (rotate the worker model through the fallback chain) /
+  split (LLM decomposition) / fail. The CLI keeps the conservative bounded-retry
+  default; the standalone WebUI lets the LLM layer pick (its brain can't block on
+  a human prompt).
+- **Live board events.** `verification failed`, `merge conflict`, `split into N`,
+  and supervisor decisions stream to the WebUI activity feed and the TUI overlay.
 
 ## Goal and Eternal Mode
 
