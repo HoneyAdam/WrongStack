@@ -361,6 +361,23 @@ export interface SlashCommandContext {
    */
   onSddSplitTask?: ((taskId: string, subtasks: Array<{ title: string; description: string }>) => string[] | null) | undefined;
   /**
+   * Remove the git worktrees + branches an SDD run created. Uses the live run
+   * when one is active (after a stop), else sweeps the project's leftovers from
+   * disk. Returns the number of worktrees removed.
+   */
+  onSddCleanWorktrees?: (() => Promise<number>) | undefined;
+  /**
+   * Roll back an SDD run's merged commits by reverting each on the base branch
+   * (history-preserving). Refuses while a run is still live. Returns the outcome.
+   */
+  onSddRollback?: (() => Promise<{ ok: boolean; reverted: number; reason?: string }>) | undefined;
+  /**
+   * Destroy the SDD project: stop any active run, clean worktrees, and delete the
+   * on-disk artifacts (specs, task-graphs, session, boards). Does NOT roll back
+   * commits — that is the separate `/sdd rollback`.
+   */
+  onSddDestroy?: (() => Promise<{ worktreesRemoved: number; deleted: string[] }>) | undefined;
+  /**
    * Start a real, LLM-driven AutoPhase run from a free-text goal. The host
    * plans phases (each holding many todos), persists the phase-graph as
    * per-project JSON, and drives the orchestrator — one subagent per task —

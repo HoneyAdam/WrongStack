@@ -428,6 +428,14 @@ export {
   type StartSddRunOptions,
   type SddRunHandle,
 } from '../sdd/start-sdd-run.js';
+export {
+  cleanupSddWorktrees,
+  rollbackSddRunFromDisk,
+  destroySddProject,
+  type RollbackFromDiskOptions,
+  type DestroySddProjectOptions,
+  type DestroySddProjectResult,
+} from '../sdd/sdd-lifecycle.js';
 
 // ---- Observability ----
 export {

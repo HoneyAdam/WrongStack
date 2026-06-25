@@ -311,6 +311,112 @@ export class WorktreeManager {
   }
 
   /**
+   * Current base branch + tip SHA, captured WITHOUT a handle. The SDD run calls
+   * this once at start so a later rollback knows which branch the run's squash
+   * commits landed on. Returns null when not in a usable git state.
+   */
+  async currentBase(): Promise<{ branch: string; sha: string } | null> {
+    const branch = await this.detectBaseBranch();
+    const head = await this.runGit(['rev-parse', 'HEAD'], this.projectRoot);
+    const sha = head.stdout.trim();
+    return head.code === 0 && sha ? { branch, sha } : null;
+  }
+
+  /**
+   * Force-remove EVERY managed worktree + branch this project owns, without
+   * relying on the in-memory `handles` map — so it works post-run (a fresh
+   * manager can clean up a previous run's leftovers). Enumerates
+   * `git worktree list --porcelain`, removes every checkout living under the
+   * `.wrongstack/worktrees` root, deletes every `wstack/ap/*` branch, then prunes.
+   * Returns the number of worktrees removed. Never throws — best-effort cleanup.
+   */
+  async cleanupAllManaged(): Promise<{ removed: number }> {
+    const root = resolve(this.worktreesRoot());
+    let removed = 0;
+    try {
+      const listed = await this.runGit(['worktree', 'list', '--porcelain'], this.projectRoot);
+      // Porcelain emits a `worktree <abs-path>` line per checkout (blank-line
+      // separated records). Match the ones under our worktrees root.
+      for (const line of listed.stdout.split('\n')) {
+        const m = line.match(/^worktree\s+(.+?)\s*$/);
+        if (!m?.[1]) continue;
+        const dir = resolve(m[1]);
+        if (dir !== root && (dir === root || dir.startsWith(root + sep))) {
+          const rm = await this.runGit(['worktree', 'remove', '--force', dir], this.projectRoot);
+          if (rm.code === 0) removed++;
+        }
+      }
+    } catch {
+      // best-effort
+    }
+    // Delete every wstack/ap/* branch (covers branches whose worktree was already
+    // gone, e.g. a merged task whose checkout was released but branch lingered).
+    try {
+      const branches = await this.runGit(
+        ['branch', '--list', '--format=%(refname:short)', 'wstack/ap/*'],
+        this.projectRoot,
+      );
+      for (const b of branches.stdout.split('\n').map((s) => s.trim()).filter(Boolean)) {
+        await this.runGit(['branch', '-D', b], this.projectRoot);
+      }
+    } catch {
+      // best-effort
+    }
+    await this.runGit(['worktree', 'prune'], this.projectRoot).catch(() => undefined);
+    // Drop any in-memory handles too, so a still-live manager forgets them.
+    this.handles.clear();
+    this.emit('worktree.released', {
+      handleId: 'cleanup-all',
+      ownerId: 'cleanup-all',
+      branch: 'wstack/ap/*',
+      kept: false,
+    });
+    return { removed };
+  }
+
+  /**
+   * Undo a run's squash commits by reverting each (newest → oldest) on the base
+   * branch — history-preserving, never a destructive reset. Refuses on a dirty
+   * working tree (so uncommitted work is never clobbered) and aborts cleanly if a
+   * revert conflicts, reporting which SHA. `shas` are the run commit SHAs in the
+   * order they landed; this reverses them. Returns the count reverted.
+   */
+  async revertCommits(
+    baseBranch: string,
+    shas: string[],
+  ): Promise<{ ok: boolean; reverted: number; reason?: string }> {
+    if (shas.length === 0) return { ok: true, reverted: 0, reason: 'nothing to revert' };
+
+    const status = await this.runGit(['status', '--porcelain'], this.projectRoot);
+    if (status.stdout.trim().length > 0) {
+      return { ok: false, reverted: 0, reason: 'working tree has uncommitted changes — commit or stash first' };
+    }
+
+    const co = await this.runGit(['checkout', baseBranch], this.projectRoot);
+    if (co.code !== 0) {
+      return { ok: false, reverted: 0, reason: co.stderr || `checkout ${baseBranch} failed` };
+    }
+
+    const idArgs = await this.identityArgs(this.projectRoot);
+    let reverted = 0;
+    // Newest commit first so each revert applies cleanly on top of the prior one.
+    for (const sha of [...shas].reverse()) {
+      const res = await this.runGit([...idArgs, 'revert', '--no-edit', sha], this.projectRoot);
+      if (res.code !== 0) {
+        // Conflict or bad ref — abort the in-progress revert so the tree is clean.
+        await this.runGit(['revert', '--abort'], this.projectRoot).catch(() => undefined);
+        return {
+          ok: false,
+          reverted,
+          reason: `revert of ${sha.slice(0, 8)} failed: ${(res.stderr || res.stdout).trim().split('\n')[0] ?? 'conflict'}`,
+        };
+      }
+      reverted++;
+    }
+    return { ok: true, reverted };
+  }
+
+  /**
    * Run the caller-supplied resolver against a conflicted squash-merge, then
    * commit if it cleared every marker. Returns a successful `MergeResult` on a
    * clean resolution, or `null` to signal the caller should fall back to the

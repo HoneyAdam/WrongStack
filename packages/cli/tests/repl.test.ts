@@ -658,4 +658,59 @@ describe('runRepl', () => {
       expect(run).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe('SIGINT — active SDD parallel run', () => {
+    // A `/sdd parallel` run blocks the prompt while it awaits completion, so the
+    // first Ctrl+C is the only mid-run stop path. The handler must call the
+    // active run's stop() and not fall through to "press again to exit".
+    it('stops the active SDD run on the first Ctrl+C', async () => {
+      const stop = vi.fn();
+      const sddRun = { isRunning: () => true, stop } as never;
+      const renderer = makeFakeRenderer();
+      const slashRegistry = makeFakeSlashRegistry();
+      // The (blocking) `/sdd parallel` dispatch synchronously fires SIGINT to
+      // mimic the user pressing Ctrl+C mid-run, then resolves.
+      (slashRegistry.dispatch as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+        process.emit('SIGINT');
+        return null;
+      });
+      const reader = makeFakeReader(['/sdd parallel\n']);
+
+      await runRepl({
+        agent: makeFakeAgent(),
+        renderer,
+        reader,
+        slashRegistry,
+        attachments: makeFakeAttachmentStore(),
+        banner: false,
+        getAutonomy: () => 'off',
+        getSddRun: () => sddRun,
+      });
+
+      expect(stop).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not throw when no SDD run is active', async () => {
+      const renderer = makeFakeRenderer();
+      const slashRegistry = makeFakeSlashRegistry();
+      (slashRegistry.dispatch as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+        process.emit('SIGINT');
+        return null;
+      });
+      const reader = makeFakeReader(['/help\n']);
+
+      await expect(
+        runRepl({
+          agent: makeFakeAgent(),
+          renderer,
+          reader,
+          slashRegistry,
+          attachments: makeFakeAttachmentStore(),
+          banner: false,
+          getAutonomy: () => 'off',
+          getSddRun: () => null,
+        }),
+      ).resolves.toBeDefined();
+    });
+  });
 });

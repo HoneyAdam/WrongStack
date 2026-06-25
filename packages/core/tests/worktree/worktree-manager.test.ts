@@ -142,6 +142,99 @@ describe('WorktreeManager (stubbed git)', () => {
     expect(wm.list()).toHaveLength(2);
     expect(wm.get('a')?.ownerId).toBe('a');
   });
+
+  it('currentBase() returns the detected branch + HEAD sha', async () => {
+    const { run } = stubRunner((args) => {
+      if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') {
+        return { code: 0, stdout: 'main\n', stderr: '' };
+      }
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { code: 0, stdout: 'abc123\n', stderr: '' };
+      }
+      return { code: 0, stdout: '', stderr: '' };
+    });
+    const wm = new WorktreeManager({ projectRoot: '/proj', run });
+    expect(await wm.currentBase()).toEqual({ branch: 'main', sha: 'abc123' });
+  });
+
+  it('cleanupAllManaged() removes worktrees under the root + wstack/ap branches, then prunes', async () => {
+    const root = path.join(path.resolve('/proj'), '.wrongstack', 'worktrees');
+    const { calls, run } = stubRunner((args) => {
+      if (args[0] === 'worktree' && args[1] === 'list') {
+        return {
+          code: 0,
+          // The main checkout (kept) + two managed worktrees (removed).
+          stdout: [
+            `worktree ${path.resolve('/proj')}`,
+            '',
+            `worktree ${path.join(root, 'a-111111')}`,
+            '',
+            `worktree ${path.join(root, 'b-222222')}`,
+            '',
+          ].join('\n'),
+          stderr: '',
+        };
+      }
+      if (args[0] === 'branch' && args[1] === '--list') {
+        return { code: 0, stdout: 'wstack/ap/a-111111\nwstack/ap/b-222222\n', stderr: '' };
+      }
+      return { code: 0, stdout: '', stderr: '' };
+    });
+    const wm = new WorktreeManager({ projectRoot: '/proj', run });
+    const res = await wm.cleanupAllManaged();
+
+    expect(res.removed).toBe(2);
+    const removes = calls.filter((c) => c.args[0] === 'worktree' && c.args[1] === 'remove');
+    expect(removes).toHaveLength(2);
+    // The main checkout must NOT be removed.
+    expect(removes.some((c) => c.args.includes(path.resolve('/proj')))).toBe(false);
+    expect(calls.filter((c) => c.args[0] === 'branch' && c.args[1] === '-D')).toHaveLength(2);
+    expect(calls.some((c) => c.args[0] === 'worktree' && c.args[1] === 'prune')).toBe(true);
+  });
+
+  it('revertCommits() reverts each sha newest→oldest on the base branch', async () => {
+    const { calls, run } = stubRunner(() => ({ code: 0, stdout: '', stderr: '' }));
+    const wm = new WorktreeManager({ projectRoot: '/proj', run });
+    const res = await wm.revertCommits('main', ['old', 'mid', 'new']);
+
+    expect(res).toEqual({ ok: true, reverted: 3 });
+    const reverts = calls.filter((c) => c.args.includes('revert')).map((c) => c.args.at(-1));
+    expect(reverts).toEqual(['new', 'mid', 'old']); // reverse landing order
+    expect(calls.some((c) => c.args[0] === 'checkout' && c.args[1] === 'main')).toBe(true);
+  });
+
+  it('revertCommits() refuses on a dirty working tree', async () => {
+    const { calls, run } = stubRunner((args) =>
+      args[0] === 'status'
+        ? { code: 0, stdout: ' M file.ts\n', stderr: '' }
+        : { code: 0, stdout: '', stderr: '' },
+    );
+    const wm = new WorktreeManager({ projectRoot: '/proj', run });
+    const res = await wm.revertCommits('main', ['a']);
+    expect(res.ok).toBe(false);
+    expect(res.reason).toMatch(/uncommitted/i);
+    expect(calls.some((c) => c.args.includes('revert'))).toBe(false);
+  });
+
+  it('revertCommits() aborts on a conflicting revert and reports the sha', async () => {
+    const { calls, run } = stubRunner((args) => {
+      if (args.includes('revert') && args.at(-1) === 'bad') {
+        return { code: 1, stdout: '', stderr: 'CONFLICT' };
+      }
+      return { code: 0, stdout: '', stderr: '' };
+    });
+    const wm = new WorktreeManager({ projectRoot: '/proj', run });
+    const res = await wm.revertCommits('main', ['bad']);
+    expect(res.ok).toBe(false);
+    expect(res.reason).toMatch(/revert of bad/);
+    expect(calls.some((c) => c.args[0] === 'revert' && c.args[1] === '--abort')).toBe(true);
+  });
+
+  it('revertCommits() with no shas is a no-op success', async () => {
+    const { run } = stubRunner();
+    const wm = new WorktreeManager({ projectRoot: '/proj', run });
+    expect(await wm.revertCommits('main', [])).toEqual({ ok: true, reverted: 0, reason: 'nothing to revert' });
+  });
 });
 
 describe.skipIf(!gitAvailable)('WorktreeManager (real repo)', () => {

@@ -26,6 +26,9 @@ const CONTROL_TYPES = new Set([
   'cancel_task',
   'delete_task',
   'split_task',
+  // Lifecycle (pair with a prior `stop`): sweep worktrees / revert merged commits.
+  'cleanup_worktrees',
+  'rollback',
 ]);
 
 /**

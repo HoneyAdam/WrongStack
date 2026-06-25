@@ -63,6 +63,11 @@ export interface RunTuiOptions {
    */
   getParallelEngine?: (() => import('@wrongstack/core').ParallelEternalEngine | null) | undefined;
   /**
+   * Access the active SDD parallel run's control surface (or null). The TUI's
+   * SIGINT handler uses it to stop a running `/sdd parallel` on the first Ctrl+C.
+   */
+  getSddRun?: (() => import('@wrongstack/core').SddRunControl | null) | undefined;
+  /**
    * Subscribe to live per-iteration events from the eternal engine.
    * Returns an unsubscribe function. TUI uses this to render each
    * iteration as a live timeline entry as it lands.
@@ -833,6 +838,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
           getAutonomy: opts.getAutonomy,
           getEternalEngine: opts.getEternalEngine,
           getParallelEngine: opts.getParallelEngine,
+          getSddRun: opts.getSddRun,
           subscribeEternalIteration: opts.subscribeEternalIteration,
           subscribeEternalStage: opts.subscribeEternalStage,
           subscribeAutoPhase: opts.subscribeAutoPhase,

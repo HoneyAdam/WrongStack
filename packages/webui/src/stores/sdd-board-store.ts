@@ -53,6 +53,10 @@ export interface SddBoardSnapshotUI {
   defaultModel?: string;
   defaultProvider?: string;
   fallbackModels?: string[];
+  /** Base branch the run's squash commits land on (for the Rollback control). */
+  baseBranch?: string;
+  /** Squash commits the run landed on the base branch (drives Rollback availability). */
+  mergedCommits?: Array<{ taskId: string; sha: string; title: string }>;
 }
 
 export interface SddBoardSummary {

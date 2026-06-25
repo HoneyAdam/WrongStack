@@ -36,6 +36,8 @@ export interface SddBoardProjectorOptions {
   defaultModel?: string | undefined;
   defaultProvider?: string | undefined;
   fallbackModels?: string[] | undefined;
+  /** Base branch the run's squash commits land on (for the board + rollback). */
+  baseBranch?: string | undefined;
   /** Snapshot coalescing window in ms (default 250). */
   throttleMs?: number | undefined;
   /** Clock injection for tests; defaults to Date.now. */
@@ -58,6 +60,10 @@ export class SddBoardProjector {
   private finished = false;
   private runDeadlocked = false;
   private runStopped = false;
+  /** Squash commits the run landed on the base branch (for post-run rollback). */
+  private mergedCommits: Array<{ taskId: string; sha: string; title: string }> = [];
+  /** Base branch reported by the run at start (overrides the constructor option). */
+  private runBaseBranch: string | undefined;
 
   private dirty = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -76,9 +82,10 @@ export class SddBoardProjector {
     this.unsubs.push(opts.tracker.subscribe(() => this.markDirty()));
 
     // Run lifecycle → status/wave/deadlock + JSONL audit.
-    this.onRun('sdd.run.started', () => {
+    this.onRun('sdd.run.started', (e) => {
       this.status = 'running';
       this.startedAt = this.now();
+      if (e.baseBranch) this.runBaseBranch = e.baseBranch;
       this.markDirty();
     });
     this.onRun('sdd.run.finished', (e) => {
@@ -169,6 +176,19 @@ export class SddBoardProjector {
         taskShortId: sid,
         agentName: this.assigneeOf(e.taskId),
         text: `${sid ?? 'task'}${this.titleOf(e.taskId)} merge conflict — ${files} file(s)${files ? `: ${e.conflictFiles.slice(0, 3).join(', ')}${files > 3 ? '…' : ''}` : ''}`,
+      });
+      this.markDirty();
+    });
+    this.onRun('sdd.task.merged', (e) => {
+      // Persist the run commit so a post-run rollback can revert it off disk.
+      const title = this.o.graph.nodes.get(e.taskId)?.title ?? '';
+      this.mergedCommits.push({ taskId: e.taskId, sha: e.sha, title });
+      const sid = this.shortId.get(e.taskId);
+      this.pushFeed({
+        ts: this.now(),
+        kind: 'completed',
+        taskShortId: sid,
+        text: `${sid ?? 'task'}${this.titleOf(e.taskId)} merged → ${this.runBaseBranch ?? this.o.baseBranch ?? 'base'} (${e.sha.slice(0, 8)})`,
       });
       this.markDirty();
     });
@@ -264,6 +284,8 @@ export class SddBoardProjector {
         defaultModel: this.o.defaultModel,
         defaultProvider: this.o.defaultProvider,
         fallbackModels: this.o.fallbackModels,
+        baseBranch: this.runBaseBranch ?? this.o.baseBranch,
+        mergedCommits: this.mergedCommits,
       },
       this.now(),
     );

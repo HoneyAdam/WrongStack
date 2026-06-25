@@ -608,7 +608,14 @@ export interface EventMap {
   // live, dependency-aware multi-agent run. `runId` correlates all events of
   // one run; the projector composes them into `sdd.board.snapshot`.
   /** A parallel SDD run started. */
-  'sdd.run.started': { runId: string; graphId: string; specId?: string | undefined; total: number };
+  'sdd.run.started': {
+    runId: string;
+    graphId: string;
+    specId?: string | undefined;
+    total: number;
+    /** Base branch the run's squash commits will land on (worktree runs only). */
+    baseBranch?: string | undefined;
+  };
   /** A parallel SDD run reached a terminal state. */
   'sdd.run.finished': {
     runId: string;
@@ -635,6 +642,8 @@ export interface EventMap {
   'sdd.task.verification_failed': { runId: string; taskId: string; reason: string };
   /** A completed task's worktree could not be merged back into the base branch. */
   'sdd.task.conflict': { runId: string; taskId: string; conflictFiles: string[] };
+  /** A completed task's worktree was squash-merged onto the base branch (sha = the run commit). */
+  'sdd.task.merged': { runId: string; taskId: string; sha: string };
   /** A task was split into sub-tasks (the parent becomes a completed container). */
   'sdd.task.split': { runId: string; taskId: string; subtaskIds: string[] };
   /** The supervisor made a decision about a failing/stuck task. */

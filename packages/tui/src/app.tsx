@@ -335,6 +335,12 @@ export interface AppProps {
    */
   getParallelEngine?: (() => import('@wrongstack/core').ParallelEternalEngine | null) | undefined;
   /**
+   * Access the active SDD parallel run's control surface (or null). The SIGINT
+   * handler uses it to stop a running `/sdd parallel` on the first Ctrl+C — the
+   * run has its own coordinator, so it is otherwise unreachable from there.
+   */
+  getSddRun?: (() => import('@wrongstack/core').SddRunControl | null) | undefined;
+  /**
    * Subscribe to live per-iteration events from the eternal engine. The
    * TUI installs this on mount to render each iteration as a timeline
    * entry the moment it lands — strictly more responsive than reading
@@ -728,6 +734,7 @@ export function App({
   getAutonomy,
   getEternalEngine,
   getParallelEngine,
+  getSddRun,
   subscribeEternalIteration,
   subscribeEternalStage,
   subscribeAutoPhase,
@@ -3528,13 +3535,19 @@ export function App({
           parallelLoopRunningRef.current ||
           getEternalEngine?.()?.currentState === 'running' ||
           getParallelEngine?.()?.currentState === 'running';
-        if (autonomyRunning || fleetRunning > 0) {
+        // A `/sdd parallel` run drives its own coordinator (not the autonomy
+        // engines / director fleet), so it must be stopped explicitly here — it's
+        // the only Ctrl+C path while the run blocks the prompt.
+        const sddRun = getSddRun?.();
+        const sddRunning = sddRun?.isRunning() ?? false;
+        if (autonomyRunning || fleetRunning > 0 || sddRunning) {
           // Halt the engines first — eternal's stop() aborts the in-flight
           // iteration; both flip their persisted state to 'stopped'. Then
           // flip autonomy off so the driver loop won't start another
           // iteration, and terminate the fleet + tracked processes.
           getEternalEngine?.()?.stop();
           getParallelEngine?.()?.stop();
+          if (sddRunning) sddRun?.stop();
           if (autonomyRunning) switchAutonomy?.('off');
           if (director) {
             const cap = new Promise<void>((resolve) => {
@@ -3546,6 +3559,7 @@ export function App({
           const killed = getProcessRegistry().killAll();
           const bits: string[] = [];
           if (autonomyRunning) bits.push('autonomy stopped');
+          if (sddRunning) bits.push('SDD run stopped');
           if (fleetRunning > 0)
             bits.push(`${fleetRunning} agent${fleetRunning === 1 ? '' : 's'} terminated`);
           if (killed.length > 0)
@@ -3576,7 +3590,7 @@ export function App({
     return () => {
       process.off('SIGINT', onSigint);
     };
-  }, [director, getEternalEngine, getParallelEngine, switchAutonomy, onExit, exit]);
+  }, [director, getEternalEngine, getParallelEngine, getSddRun, switchAutonomy, onExit, exit]);
 
   // Finalize a fully-assembled paste payload. A collapse-worthy paste (long
   // or many-lined) or any multi-line paste becomes an inline `[pasted #N, L
@@ -4486,6 +4500,44 @@ export function App({
     if (key.ctrl && input === 'b') {
       dispatch({ type: 'toggleSddBoardMonitor' });
       return;
+    }
+    // While the SDD board overlay is open, plain `c` / `z` drive run lifecycle
+    // (both refuse while the run is still live — stop it first with Ctrl+C).
+    if (state.sddBoard?.monitorOpen && !key.ctrl && !key.meta) {
+      if (input === 'c') {
+        const run = getSddRun?.();
+        if (run) {
+          void run.cleanupWorktrees().then((n) => {
+            dispatch({
+              type: 'addEntry',
+              entry: {
+                kind: n > 0 ? 'info' : 'warn',
+                text: n > 0 ? `Cleaned ${n} SDD worktree${n === 1 ? '' : 's'}.` : 'No SDD worktrees to clean (stop the run first if it is live).',
+              },
+            });
+          });
+        }
+        return;
+      }
+      if (input === 'z') {
+        const run = getSddRun?.();
+        if (run) {
+          void run.rollback().then((r) => {
+            dispatch({
+              type: 'addEntry',
+              entry: {
+                kind: r.ok ? 'info' : 'warn',
+                text: r.ok
+                  ? r.reverted > 0
+                    ? `Rolled back ${r.reverted} run commit${r.reverted === 1 ? '' : 's'} (revert commits added).`
+                    : 'Nothing to roll back.'
+                  : `Rollback failed: ${r.reason ?? 'unknown error'}`,
+              },
+            });
+          });
+        }
+        return;
+      }
     }
     // F5 → plan panel overlay. Opening closes any other overlay or panel.
     if (key.fn === 5) {

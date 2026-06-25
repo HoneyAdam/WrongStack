@@ -312,9 +312,68 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
           return { message };
         }
 
-        case 'stop': {
+        case 'stop':
+        case 'abort': {
           opts.onSddParallelStop?.();
-          return { message: 'SDD parallel run stopped.' };
+          return { message: 'SDD parallel run stopped. Use /sdd clean to remove worktrees, /sdd rollback to undo commits, or /sdd destroy to delete the project.' };
+        }
+
+        case 'clean':
+        case 'cleanup':
+        case 'worktrees': {
+          if (!opts.onSddCleanWorktrees) {
+            return { message: 'Worktree cleanup is not available in this session.' };
+          }
+          const removed = await opts.onSddCleanWorktrees();
+          return {
+            message:
+              removed > 0
+                ? `Cleaned ${removed} SDD worktree${removed === 1 ? '' : 's'} (and their wstack/ap branches).`
+                : 'No SDD worktrees to clean.',
+          };
+        }
+
+        case 'rollback':
+        case 'revert': {
+          if (!opts.onSddRollback) {
+            return { message: 'Rollback is not available in this session.' };
+          }
+          const res = await opts.onSddRollback();
+          if (res.ok) {
+            return {
+              message:
+                res.reverted > 0
+                  ? `Rolled back ${res.reverted} run commit${res.reverted === 1 ? '' : 's'} (revert commits added — history preserved).`
+                  : 'Nothing to roll back.',
+            };
+          }
+          return {
+            message: `Rollback failed${res.reverted ? ` after ${res.reverted} revert(s)` : ''}: ${res.reason ?? 'unknown error'}`,
+          };
+        }
+
+        case 'destroy':
+        case 'nuke': {
+          if (!opts.onSddDestroy) {
+            return { message: 'Destroy is not available in this session.' };
+          }
+          const res = await opts.onSddDestroy();
+          // Mirror /sdd cancel's in-memory cleanup so the session is fully gone.
+          const builder = sddState.getBuilder();
+          if (builder) {
+            await builder.deleteSession().catch(() => {});
+            sddState.setBuilder(null);
+          }
+          sddState.clearTaskState();
+          const parts = [
+            `SDD project destroyed.`,
+            res.worktreesRemoved > 0
+              ? `  Removed ${res.worktreesRemoved} worktree${res.worktreesRemoved === 1 ? '' : 's'}.`
+              : '',
+            res.deleted.length ? `  Deleted: ${res.deleted.join(', ')}.` : '',
+            `  (Merged commits left intact — use /sdd rollback to undo them.)`,
+          ].filter(Boolean);
+          return { message: parts.join('\n') };
         }
 
         case 'retry-failed':
@@ -1003,24 +1062,32 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
         }
 
         case 'cancel': {
-          // Always try to delete the session file and store dirs from disk
-          const sessionPath = opts.paths.projectSddSession;
+          // Cancel now fully tears down: stop any live parallel run, clean its
+          // worktrees, and delete every on-disk artifact (specs / task-graphs /
+          // session / boards). Falls back to the old fs deletes when the host
+          // didn't wire the destroy callback (e.g. a minimal test harness).
           let deletedFromDisk = false;
-          try {
-            await fsp.unlink(sessionPath);
-            deletedFromDisk = true;
-          } catch {
-            // No file on disk
-          }
-          try {
-            await fsp.rm(opts.paths.projectSpecs, { recursive: true, force: true });
-          } catch {
-            // No specs dir
-          }
-          try {
-            await fsp.rm(opts.paths.projectTaskGraphs, { recursive: true, force: true });
-          } catch {
-            // No task-graphs dir
+          if (opts.onSddDestroy) {
+            const res = await opts.onSddDestroy();
+            deletedFromDisk = res.deleted.length > 0 || res.worktreesRemoved > 0;
+          } else {
+            const sessionPath = opts.paths.projectSddSession;
+            try {
+              await fsp.unlink(sessionPath);
+              deletedFromDisk = true;
+            } catch {
+              // No file on disk
+            }
+            try {
+              await fsp.rm(opts.paths.projectSpecs, { recursive: true, force: true });
+            } catch {
+              // No specs dir
+            }
+            try {
+              await fsp.rm(opts.paths.projectTaskGraphs, { recursive: true, force: true });
+            } catch {
+              // No task-graphs dir
+            }
           }
 
           const cancelBuilder = sddState.getBuilder();

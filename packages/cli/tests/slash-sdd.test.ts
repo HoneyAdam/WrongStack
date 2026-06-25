@@ -392,6 +392,50 @@ describe('buildSddCommand verbs without an active session', () => {
     expect(res?.message).toContain("unknown / running");
   });
 
+  // ── lifecycle: clean / rollback / destroy ──────────────────────────────────
+  it('clean calls onSddCleanWorktrees and reports the count', async () => {
+    let called = 0;
+    const onSddCleanWorktrees = async () => {
+      called++;
+      return 3;
+    };
+    const res = await build({ onSddCleanWorktrees }).run('clean');
+    expect(called).toBe(1);
+    expect(res?.message).toContain('Cleaned 3 SDD worktrees');
+    const none = await build({ onSddCleanWorktrees: async () => 0 }).run('cleanup');
+    expect(none?.message).toContain('No SDD worktrees to clean');
+  });
+
+  it('rollback reports reverted count on success and the reason on failure', async () => {
+    const ok = await build({ onSddRollback: async () => ({ ok: true, reverted: 2 }) }).run('rollback');
+    expect(ok?.message).toContain('Rolled back 2 run commits');
+    const fail = await build({
+      onSddRollback: async () => ({ ok: false, reverted: 0, reason: 'working tree has uncommitted changes' }),
+    }).run('revert');
+    expect(fail?.message).toContain('Rollback failed');
+    expect(fail?.message).toContain('uncommitted');
+  });
+
+  it('destroy calls onSddDestroy and reports what was removed', async () => {
+    let called = 0;
+    const onSddDestroy = async () => {
+      called++;
+      return { worktreesRemoved: 2, deleted: ['specs', 'boards'] };
+    };
+    const res = await build({ onSddDestroy }).run('destroy');
+    expect(called).toBe(1);
+    expect(res?.message).toContain('SDD project destroyed');
+    expect(res?.message).toContain('Removed 2 worktrees');
+    expect(res?.message).toContain('specs, boards');
+  });
+
+  it('abort is an alias of stop', async () => {
+    let stopped = 0;
+    const res = await build({ onSddParallelStop: () => { stopped++; } }).run('abort');
+    expect(stopped).toBe(1);
+    expect(res?.message).toContain('stopped');
+  });
+
   it('tasks / task without an active tracker reports "no tasks generated yet"', async () => {
     expect((await build().run('tasks'))?.message).toContain('No tasks generated yet');
     expect((await build().run('task'))?.message).toContain('No tasks generated yet');

@@ -29,6 +29,20 @@ export interface SddRunControl {
   deleteTask(taskId: string): boolean;
   /** Split a task into sub-tasks (refused while running). Returns the new leaf ids. */
   splitTask(taskId: string, subtasks: SddSubtaskSpec[]): string[];
+  /**
+   * Remove every git worktree + branch the run created (refused while running —
+   * stop first). Returns the number removed.
+   */
+  cleanupWorktrees(): Promise<number>;
+  /**
+   * Undo the run's merged commits by reverting each on the base branch (refused
+   * while running). History-preserving; refuses on a dirty tree / revert conflict.
+   */
+  rollback(): Promise<{ ok: boolean; reverted: number; reason?: string }>;
+  /** Base branch the run's squash commits land on (worktree runs only). */
+  getBaseBranch(): string | undefined;
+  /** Squash commits the run landed on the base branch, in landing order. */
+  getMergedCommits(): ReadonlyArray<{ taskId: string; sha: string; title: string }>;
   /** Latest board snapshot (built on demand). */
   snapshot(): SddBoardSnapshot;
   isRunning(): boolean;

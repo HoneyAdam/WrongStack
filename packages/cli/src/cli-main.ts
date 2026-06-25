@@ -2565,6 +2565,34 @@ export async function main(argv: string[]): Promise<number> {
       const ids = active.splitTask(match?.id ?? taskId, subtasks);
       return ids.length ? ids : null;
     },
+    // ── SDD lifecycle: clean worktrees · rollback commits · destroy project ──
+    onSddCleanWorktrees: async () => {
+      const active = sddRunRegistry.getActive();
+      if (active) return active.cleanupWorktrees();
+      const core = await import('@wrongstack/core');
+      const { removed } = await core.cleanupSddWorktrees(projectRoot);
+      return removed;
+    },
+    onSddRollback: async () => {
+      const active = sddRunRegistry.getActive();
+      if (active) return active.rollback();
+      const core = await import('@wrongstack/core');
+      return core.rollbackSddRunFromDisk({ projectRoot, boardsDir: wpaths.projectSddBoards });
+    },
+    onSddDestroy: async () => {
+      // Stop any live run first so nothing writes while we delete.
+      sddRunRegistry.getActive()?.stop();
+      const core = await import('@wrongstack/core');
+      return core.destroySddProject({
+        projectRoot,
+        paths: {
+          projectSpecs: wpaths.projectSpecs,
+          projectTaskGraphs: wpaths.projectTaskGraphs,
+          projectSddSession: wpaths.projectSddSession,
+          projectSddBoards: wpaths.projectSddBoards,
+        },
+      });
+    },
     onAutoPhaseStart: autoPhaseHost.onAutoPhaseStart,
     onAutoPhasePause: autoPhaseHost.onAutoPhasePause,
     onAutoPhaseResume: autoPhaseHost.onAutoPhaseResume,
@@ -2806,6 +2834,10 @@ export async function main(argv: string[]): Promise<number> {
     },
     getEternalEngine: () => eternalEngine,
     getParallelEngine: () => parallelEngine,
+    // Active SDD parallel run (if any). Lets the REPL/TUI SIGINT handler stop a
+    // running `/sdd parallel` mid-flight — without this the run is unreachable
+    // from Ctrl+C (it has its own coordinator, not the autonomy engines).
+    getSddRun: () => sddRunRegistry.getActive(),
     subscribeEternalIteration: (fn) => {
       eternalListeners.add(fn);
       return () => eternalListeners.delete(fn);

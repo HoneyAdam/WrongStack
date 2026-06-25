@@ -65,6 +65,14 @@ export {
   type StartSddRunOptions,
   type SddRunHandle,
 } from './start-sdd-run.js';
+export {
+  cleanupSddWorktrees,
+  rollbackSddRunFromDisk,
+  destroySddProject,
+  type RollbackFromDiskOptions,
+  type DestroySddProjectOptions,
+  type DestroySddProjectResult,
+} from './sdd-lifecycle.js';
 
 // AI-Driven Interactive Builder
 export {

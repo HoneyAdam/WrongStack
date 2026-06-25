@@ -302,6 +302,12 @@ export interface ExecutionDeps {
    */
   getParallelEngine?: (() => import('@wrongstack/core').ParallelEternalEngine | null) | undefined;
   /**
+   * Access the active SDD parallel run's control surface (or null). The REPL/TUI
+   * SIGINT handler uses this to stop a running `/sdd parallel` on the first Ctrl+C
+   * — the run has its own coordinator, so it is otherwise unreachable from there.
+   */
+  getSddRun?: (() => import('@wrongstack/core').SddRunControl | null) | undefined;
+  /**
    * Subscribe to live per-iteration events from the eternal engine.
    * Returns an unsubscribe function. The TUI uses this to render each
    * iteration as a live event entry instead of polling goal.json after
@@ -421,6 +427,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
     onValidateAutoProceed,
     getEternalEngine,
     getParallelEngine,
+    getSddRun,
     subscribeEternalIteration,
     subscribeEternalStage,
     skillLoader,
@@ -794,6 +801,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
           // can access them (entry.tsx parses from rendered messages).
           setSuggestions,
           getEternalEngine,
+          getSddRun,
           subscribeEternalIteration,
           subscribeEternalStage,
           subscribeAutoPhase,
@@ -1096,6 +1104,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
         autoProceedMaxIterations,
         getEternalEngine,
         getParallelEngine,
+        getSddRun,
         skillLoader,
         agentsMonitorController,
         fleetStreamController,

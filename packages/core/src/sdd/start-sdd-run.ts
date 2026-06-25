@@ -134,6 +134,10 @@ export function startSddRun(opts: StartSddRunOptions): SddRunHandle {
     cancelTask: (id) => run.cancelTask(id),
     deleteTask: (id) => run.deleteTask(id),
     splitTask: (id, subtasks) => run.splitTask(id, subtasks),
+    cleanupWorktrees: () => run.cleanupWorktrees(),
+    rollback: () => run.rollback(),
+    getBaseBranch: () => run.getBaseBranch(),
+    getMergedCommits: () => run.getMergedCommits(),
     snapshot: () => projector.snapshot(),
     isRunning: () => run.isRunning(),
   });
@@ -167,6 +171,11 @@ export function startSddRun(opts: StartSddRunOptions): SddRunHandle {
         else if (c.type === 'cancel_task' && p.taskId) void run.cancelTask(p.taskId);
         else if (c.type === 'delete_task' && p.taskId) run.deleteTask(p.taskId);
         else if (c.type === 'split_task' && p.taskId && p.subtasks?.length) run.splitTask(p.taskId, p.subtasks);
+        // Lifecycle: stop the run first, then sweep worktrees / revert commits.
+        // (Both are no-ops while the run is still live — the user pairs them with
+        // a prior `stop`.)
+        else if (c.type === 'cleanup_worktrees') void run.cleanupWorktrees();
+        else if (c.type === 'rollback') void run.rollback();
       }
     });
   }, drainMs);

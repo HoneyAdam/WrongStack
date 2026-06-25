@@ -246,6 +246,17 @@ export class SddParallelRun {
   private taskSubagents = new Map<string, string>();
   /** Tasks the user cancelled mid-flight — skip retry, mark terminal-cancelled. */
   private cancelledTasks = new Set<string>();
+  /**
+   * Base branch the run's squash commits land on (captured once at start when
+   * worktrees are enabled). Anchors a later `rollback()`.
+   */
+  private baseBranch: string | undefined;
+  /**
+   * Squash-merge commits this run landed on the base branch, in landing order.
+   * `rollback()` reverts these (newest → oldest). Persisted via the board
+   * snapshot so a post-run rollback can read them off disk.
+   */
+  private mergedCommits: Array<{ taskId: string; sha: string; title: string }> = [];
   /** Monotonic dispatch counter (unique subagent ids) + dispatch-round counter. */
   private dispatchSeq = 0;
   private round = 0;
@@ -304,6 +315,52 @@ export class SddParallelRun {
   }
   isRunning(): boolean {
     return !this.stopRequested && !this.decomposer.isSettled();
+  }
+
+  /** Base branch the run's squash commits land on (undefined when worktrees off). */
+  getBaseBranch(): string | undefined {
+    return this.baseBranch;
+  }
+
+  /** Squash commits this run landed on the base branch, in landing order. */
+  getMergedCommits(): ReadonlyArray<{ taskId: string; sha: string; title: string }> {
+    return this.mergedCommits;
+  }
+
+  /**
+   * Remove every git worktree + branch this run (and any prior run) created.
+   * Refuses while the run is still live — cleaning a checkout under an active
+   * worker would corrupt it. Stop first. Returns the number of worktrees removed
+   * (0 when worktrees are disabled). Idempotent.
+   */
+  async cleanupWorktrees(): Promise<number> {
+    if (this.isRunning()) return 0;
+    const wt = this.opts.worktrees;
+    if (!wt) return 0;
+    // Release any handles this run still holds (kept on stop / needs-review).
+    for (const [taskId, handle] of [...this.taskWorktrees]) {
+      await wt.release(handle, { keep: false }).catch(() => {});
+      this.forgetWorktree(taskId);
+    }
+    const { removed } = await wt.cleanupAllManaged();
+    return removed;
+  }
+
+  /**
+   * Undo the run's merged commits by reverting each on the base branch (history
+   * preserving). Refuses while the run is still live (stop first). Returns the
+   * revert outcome; a dirty tree or revert conflict surfaces as `ok:false`.
+   */
+  async rollback(): Promise<{ ok: boolean; reverted: number; reason?: string }> {
+    if (this.isRunning()) return { ok: false, reverted: 0, reason: 'run still active — stop it first' };
+    const wt = this.opts.worktrees;
+    if (!wt || !this.baseBranch) {
+      return { ok: false, reverted: 0, reason: 'no worktree run to roll back' };
+    }
+    return wt.revertCommits(
+      this.baseBranch,
+      this.mergedCommits.map((c) => c.sha),
+    );
   }
 
   /** Requeue a task to `pending` so the scheduler re-runs it (clears retries + cancel marker). */
@@ -462,11 +519,19 @@ export class SddParallelRun {
 
     this.buildCoordinator();
 
+    // Capture the base branch once so a later rollback knows where the run's
+    // squash commits landed (worktree path only; no-op without a manager).
+    if (this.opts.worktrees && !this.baseBranch) {
+      const base = await this.opts.worktrees.currentBase().catch(() => null);
+      if (base) this.baseBranch = base.branch;
+    }
+
     this.emit('sdd.run.started', {
       runId: this.runId,
       graphId: this.opts.graph.id,
       specId: this.opts.graph.specId,
       total: this.opts.graph.nodes.size,
+      baseBranch: this.baseBranch,
     });
 
     this.recoveryRounds = 0;
@@ -1057,8 +1122,11 @@ export class SddParallelRun {
     try {
       await wt.commitAll(handle, `sdd(${task.title}): ${task.id}`);
       // Capture the base tip before merging so a regressed conflict-resolution
-      // can be reverted to exactly this commit (see the re-verify branch below).
-      const baseSha = this.opts.conflictResolver ? await wt.baseHead(handle) : null;
+      // can be reverted to exactly this commit (see the re-verify branch below),
+      // and so we can tell whether this merge actually advanced the base (an
+      // empty squash creates no commit → nothing to record for rollback).
+      const baseShaBefore = await wt.baseHead(handle);
+      const baseSha = this.opts.conflictResolver ? baseShaBefore : null;
       const res = await wt.merge(handle, {
         squash: true,
         ...(this.opts.conflictResolver
@@ -1091,6 +1159,13 @@ export class SddParallelRun {
             this.forgetWorktree(task.id, { keepBranchLabel: true });
             return { ok: false, conflictFiles: [], reason: regressed };
           }
+        }
+        // Record the squash commit for rollback — but only if the merge actually
+        // advanced the base tip (an empty/no-op squash leaves it unchanged).
+        const baseShaAfter = await wt.baseHead(handle);
+        if (baseShaAfter && baseShaAfter !== baseShaBefore) {
+          this.mergedCommits.push({ taskId: task.id, sha: baseShaAfter, title: task.title });
+          this.emit('sdd.task.merged', { runId: this.runId, taskId: task.id, sha: baseShaAfter });
         }
         await wt.release(handle, { keep: false });
         this.forgetWorktree(task.id);

@@ -894,6 +894,8 @@ export type WSClientMessage =
         runId?: string | undefined;
       };
     }
+  | { type: 'sdd.board.cleanup_worktrees'; payload?: { runId?: string | undefined } }
+  | { type: 'sdd.board.rollback'; payload?: { runId?: string | undefined } }
   | { type: 'sdd.spec.start'; payload: { goal: string } }
   | { type: 'sdd.spec.message'; payload: { text: string } }
   | { type: 'sdd.spec.approve'; payload?: Record<string, never> }

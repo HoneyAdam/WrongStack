@@ -113,7 +113,7 @@ export function SddBoardOverlay({
         <Text dimColor>({p.percentComplete}%)</Text>
         {p.inProgress > 0 ? <Text color="yellow">▶{p.inProgress}</Text> : null}
         {p.failed > 0 ? <Text color="red">✗{p.failed}</Text> : null}
-        <Text dimColor>│ Ctrl+B to close</Text>
+        <Text dimColor>│ Ctrl+B close · c clean wt · z rollback</Text>
       </Box>
 
       {/* Deadlock diagnostics */}

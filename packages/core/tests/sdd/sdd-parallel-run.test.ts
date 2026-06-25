@@ -346,8 +346,16 @@ describe('SddParallelRun — coordinator + helpers', () => {
   });
 });
 
-function fakeWorktrees(opts: { merge?: () => { ok: boolean; conflict?: boolean; conflictFiles?: string[] } } = {}) {
+function fakeWorktrees(
+  opts: {
+    merge?: () => { ok: boolean; conflict?: boolean; conflictFiles?: string[] };
+    revert?: (shas: string[]) => { ok: boolean; reverted: number; reason?: string };
+  } = {},
+) {
   const calls: string[] = [];
+  // baseHead returns a fresh sha each call so a successful merge's before/after
+  // differ → the run records a mergedCommit (sha = the value AFTER the merge).
+  let headSeq = 0;
   const wm = {
     async allocate(ownerId: string, o: { slugHint?: string; ownerLabel?: string } = {}) {
       calls.push(`allocate:${ownerId}`);
@@ -371,12 +379,26 @@ function fakeWorktrees(opts: { merge?: () => { ok: boolean; conflict?: boolean; 
       calls.push(`commit:${h.ownerId}`);
       return { committed: true };
     },
+    async baseHead() {
+      return `sha${headSeq++}`;
+    },
+    async currentBase() {
+      return { branch: 'main', sha: 'sha-base' };
+    },
     async merge(h: { ownerId: string }) {
       calls.push(`merge:${h.ownerId}`);
       return opts.merge ? opts.merge() : { ok: true, conflictFiles: [] };
     },
     async release(h: { ownerId: string }, o: { keep?: boolean } = {}) {
       calls.push(`release:${h.ownerId}:${o.keep ? 'keep' : 'remove'}`);
+    },
+    async cleanupAllManaged() {
+      calls.push('cleanupAllManaged');
+      return { removed: 2 };
+    },
+    async revertCommits(_branch: string, shas: string[]) {
+      calls.push(`revert:${shas.join(',')}`);
+      return opts.revert ? opts.revert(shas) : { ok: true, reverted: shas.length };
     },
     list: () => [],
   };
@@ -443,6 +465,61 @@ describe('SddParallelRun — Layer 2: worktree isolation', () => {
     // a genuine merge-conflict handle would be force-kept by the manager itself.
     expect(wt.calls).toContain(`release:sdd-${t1.id}:remove`);
     expect(wt.calls.some((c) => c.startsWith(`merge:sdd-${t1.id}`))).toBe(false);
+  });
+});
+
+describe('SddParallelRun — Layer 2: lifecycle (merged commits / cleanup / rollback)', () => {
+  it('records a mergedCommit + emits sdd.task.merged on a successful merge', async () => {
+    const events = new EventBus();
+    const merged: Array<{ taskId: string; sha: string }> = [];
+    events.on('sdd.task.merged', (e) => merged.push(e as never));
+    const wt = fakeWorktrees();
+    const { run, t1 } = await makeHarness({ worktrees: wt.wm, events });
+    (run as never as { coordinator: unknown }).coordinator = fakeCoordinator();
+
+    await run.executeWave({ wave: 0, tasks: [t1], deadlocked: false, allDone: false } as never);
+
+    const recorded = run.getMergedCommits();
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]?.taskId).toBe(t1.id);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.sha).toBe(recorded[0]?.sha);
+  });
+
+  it('cleanupWorktrees releases handles + sweeps managed worktrees (when not running)', async () => {
+    const wt = fakeWorktrees();
+    const { run } = await makeHarness({ worktrees: wt.wm });
+    // Not running (run() never started, decomposer settled at construction is
+    // false — but stop() forces isRunning() false).
+    run.stop();
+    const removed = await run.cleanupWorktrees();
+    expect(removed).toBe(2);
+    expect(wt.calls).toContain('cleanupAllManaged');
+  });
+
+  it('rollback reverts the run mergedCommits via the worktree manager', async () => {
+    const wt = fakeWorktrees();
+    const { run, t1 } = await makeHarness({ worktrees: wt.wm });
+    (run as never as { coordinator: unknown }).coordinator = fakeCoordinator();
+    await run.executeWave({ wave: 0, tasks: [t1], deadlocked: false, allDone: false } as never);
+    // baseBranch is captured at run() start; executeWave bypasses it, so seed it.
+    (run as never as { baseBranch: string }).baseBranch = 'main';
+    run.stop();
+
+    const shas = run.getMergedCommits().map((c) => c.sha);
+    const res = await run.rollback();
+    expect(res.ok).toBe(true);
+    expect(res.reverted).toBe(shas.length);
+    expect(wt.calls).toContain(`revert:${shas.join(',')}`);
+  });
+
+  it('rollback refuses while the run is still live', async () => {
+    const wt = fakeWorktrees();
+    const { run } = await makeHarness({ worktrees: wt.wm });
+    // Fresh run with pending tasks → isRunning() true.
+    const res = await run.rollback();
+    expect(res.ok).toBe(false);
+    expect(res.reason).toMatch(/still active/i);
   });
 });
 

@@ -115,6 +115,13 @@ export interface SddBoardSnapshot {
   defaultProvider?: string | undefined;
   /** Run-level default fallback model chain. */
   fallbackModels?: string[] | undefined;
+  /** Base branch the run's squash commits land on (worktree runs only). */
+  baseBranch?: string | undefined;
+  /**
+   * Squash commits the run landed on the base branch, in landing order. Lets a
+   * post-run `/sdd rollback` revert them from disk after the live run is gone.
+   */
+  mergedCommits?: Array<{ taskId: string; sha: string; title: string }> | undefined;
 }
 
 /**
@@ -230,6 +237,8 @@ export function buildBoardSnapshot(
     defaultModel?: string | undefined;
     defaultProvider?: string | undefined;
     fallbackModels?: string[] | undefined;
+    baseBranch?: string | undefined;
+    mergedCommits?: Array<{ taskId: string; sha: string; title: string }> | undefined;
   },
   now: number,
 ): SddBoardSnapshot {
@@ -250,5 +259,7 @@ export function buildBoardSnapshot(
     defaultModel: run.defaultModel,
     defaultProvider: run.defaultProvider,
     fallbackModels: run.fallbackModels,
+    baseBranch: run.baseBranch,
+    mergedCommits: run.mergedCommits?.length ? run.mergedCommits : undefined,
   };
 }

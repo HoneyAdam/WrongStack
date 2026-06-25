@@ -1,4 +1,4 @@
-import { Activity, AlertTriangle, Cpu, Pause, Play, RotateCcw, Square, X, Zap } from 'lucide-react';
+import { Activity, AlertTriangle, Cpu, Eraser, Pause, Play, RotateCcw, Square, Undo2, X, Zap } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useProviderModels } from '@/hooks/useProviderModels';
 import { useWebSocket } from '@/hooks/useWebSocket';
@@ -110,6 +110,15 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
   );
   const onRetryAllFailed = useCallback(
     () => send({ type: 'sdd.board.retry_all_failed', payload: {} }),
+    [send],
+  );
+  // Lifecycle (effective once the run is stopped): sweep worktrees / revert commits.
+  const onCleanWorktrees = useCallback(
+    () => send({ type: 'sdd.board.cleanup_worktrees', payload: {} }),
+    [send],
+  );
+  const onRollback = useCallback(
+    () => send({ type: 'sdd.board.rollback', payload: {} }),
     [send],
   );
   const onReassign = useCallback(
@@ -246,6 +255,31 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
                 >
                   <Square className="h-3.5 w-3.5" /> Stop
                 </button>
+              </>
+            )}
+            {/* Lifecycle controls — shown once the run is stopped/finished (they
+                are refused while a run is live). Clean removes the run's git
+                worktrees; Rollback reverts its merged commits (history-preserving). */}
+            {snapshot && !active && (
+              <>
+                <button
+                  type="button"
+                  onClick={onCleanWorktrees}
+                  title="Remove the run's git worktrees + wstack/ap branches"
+                  className="inline-flex items-center gap-1 rounded-md bg-slate-500/15 px-2.5 py-1 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-500/25"
+                >
+                  <Eraser className="h-3.5 w-3.5" /> Clean worktrees
+                </button>
+                {(snapshot.mergedCommits?.length ?? 0) > 0 && (
+                  <button
+                    type="button"
+                    onClick={onRollback}
+                    title={`Revert ${snapshot.mergedCommits?.length} merged commit(s) on ${snapshot.baseBranch ?? 'the base branch'}`}
+                    className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-2.5 py-1 text-xs font-medium text-amber-600 dark:text-amber-300 hover:bg-amber-500/25"
+                  >
+                    <Undo2 className="h-3.5 w-3.5" /> Rollback ({snapshot.mergedCommits?.length})
+                  </button>
+                )}
               </>
             )}
             <Button variant="ghost" size="icon" onClick={onClose}>

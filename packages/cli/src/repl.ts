@@ -154,6 +154,12 @@ export interface ReplOptions {
    * Returns null until /autonomy parallel primes it.
    */
   getParallelEngine?: (() => import('@wrongstack/core').ParallelEternalEngine | null) | undefined;
+  /**
+   * Access the active SDD parallel run's control surface (or null). A running
+   * `/sdd parallel` blocks the prompt while it awaits completion, so this is the
+   * only mid-run stop path from the REPL — the SIGINT handler calls `stop()`.
+   */
+  getSddRun?: (() => import('@wrongstack/core').SddRunControl | null) | undefined;
   /** Model-specific max context window (tokens). Used for the context bar in turn summaries. */
   effectiveMaxContext?: number | undefined;
   /** Live model-specific max context window. Prefer this over the startup snapshot when provided. */
@@ -263,6 +269,18 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
       opts.getParallelEngine?.()?.stop();
       opts.onAutonomy?.('off');
       opts.renderer.writeWarning('Engine stop requested. Press Ctrl+C again to exit.');
+      interrupts = 0;
+      return;
+    }
+    // A `/sdd parallel` run blocks the REPL prompt while it awaits completion, so
+    // `/sdd stop` can never be typed mid-run — Ctrl+C is the only stop path. The
+    // run has its own coordinator (not the autonomy engines above), so it is
+    // unreachable from the generic activeCtrl branch; stop it explicitly here.
+    // stop() aborts the in-flight workers; the run drains and the prompt returns.
+    const sddRun = opts.getSddRun?.();
+    if (sddRun?.isRunning()) {
+      sddRun.stop();
+      opts.renderer.writeWarning('SDD run stop requested. Press Ctrl+C again to exit.');
       interrupts = 0;
       return;
     }
