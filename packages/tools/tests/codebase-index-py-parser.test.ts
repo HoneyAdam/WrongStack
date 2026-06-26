@@ -4,18 +4,18 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parseSymbols } from '../src/codebase-index/py-parser.js';
 
-async function withPythonFile(content: string, run: (file: string) => Promise<void>) {
+async function withPythonFile(content: string, run: (file: string, content: string) => Promise<void>) {
   const dir = await mkdtemp(join(tmpdir(), 'ws-py-parser-'));
   const file = join(dir, 'mod.py');
   try {
     await writeFile(file, content, 'utf8');
-    await run(file);
+    await run(file, content);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 }
 
-const parse = (file: string) => parseSymbols({ file, content: 'ignored by py-parser', lang: 'py' });
+const parse = (file: string, content: string) => parseSymbols({ file, content, lang: 'py' });
 
 describe('py-parser parseSymbols', () => {
   it('extracts symbols from Python source', async () => {
@@ -23,8 +23,8 @@ describe('py-parser parseSymbols', () => {
       ['class Widget:', '    pass', '', 'def build():', '    return Widget()', '', 'y = 1'].join(
         '\n',
       ),
-      async (file) => {
-        const res = await parse(file);
+      async (file, content) => {
+        const res = await parse(file, content);
         expect(res.file).toBe(file);
         expect(res.symbols.find((s) => s.name === 'Widget')?.kind).toBe('class');
         expect(res.symbols.find((s) => s.name === 'build')?.kind).toBe('function');
@@ -34,8 +34,8 @@ describe('py-parser parseSymbols', () => {
   });
 
   it('returns no symbols for invalid Python source', async () => {
-    await withPythonFile('def broken(:', async (file) => {
-      const res = await parse(file);
+    await withPythonFile('def broken(:', async (file, content) => {
+      const res = await parse(file, content);
       expect(res.symbols).toEqual([]);
       expect(res.file).toBe(file);
     });

@@ -212,6 +212,10 @@ async function runIndexerWithStore(store: IndexStore, opts: IndexerOptions): Pro
   const isGitIgnored = await loadGitignoreMatcher(projectRoot);
 
   let files: string[];
+  /** Set of all files discovered on disk (before language filtering).
+   *  Used for O(1) stale-file detection instead of stat-ing every
+   *  previously-indexed file. Null when an explicit file list was given. */
+  let discoveredFiles: Set<string> | null = null;
   if (opts.files && opts.files.length > 0) {
     // Explicit file list (per-edit / watcher path): drop any that are gitignored
     // so an ignored file edited in the editor never enters the index.
@@ -220,6 +224,7 @@ async function runIndexerWithStore(store: IndexStore, opts: IndexerOptions): Pro
       .filter((f) => !isGitIgnored(path.relative(projectRoot, f).replace(/\\/g, '/'), false));
   } else {
     files = await findSourceFiles(projectRoot, ignore, isGitIgnored, signal);
+    discoveredFiles = new Set(files);
   }
 
   if (langs && langs.length > 0) {
@@ -376,12 +381,16 @@ async function runIndexerWithStore(store: IndexStore, opts: IndexerOptions): Pro
     }
   }
 
-  // Remove stale entries for files deleted since last run
-  for (const [file_] of existingMeta) {
-    try {
-      await fs.stat(file_);
-    } catch {
-      store.deleteFile(file_);
+  // Remove stale entries for files deleted since last run.
+  // Instead of stat-ing every previously-indexed file (O(total indexed)),
+  // derive stale files from the discovered set: any existingMeta entry not
+  // in the scanned files is stale. Skip entirely for explicit file lists
+  // (targeted reindex — can't derive stale from a subset).
+  if (discoveredFiles) {
+    for (const [file_] of existingMeta) {
+      if (!discoveredFiles.has(file_)) {
+        store.deleteFile(file_);
+      }
     }
   }
 

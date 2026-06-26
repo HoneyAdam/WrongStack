@@ -16,10 +16,10 @@ import type { FileSymbols, Symbol as IndexSymbol, SymbolLang } from './schema.js
 // ─── Public API ─────────────────────────────────────────────────────────────
 
 export async function parseSymbols(opts: { file: string; content: string; lang: SymbolLang }): Promise<FileSymbols> {
-  const { file, lang } = opts;
+  const { file, content, lang } = opts;
 
   try {
-    return await syncPyParse(file, lang);
+    return await syncPyParse(file, content, lang);
   } catch {
     /* v8 ignore next -- syncPyParse has its own catch; this outer guard is defensive. */
     return { file, lang, symbols: [], mtimeMs: Date.now() };
@@ -93,8 +93,7 @@ syms = []
 errors = []
 
 try:
-    with open(sys.argv[1], "r", encoding="utf-8") as f:
-        source = f.read()
+    source = sys.stdin.read()
     tree = ast.parse(source, filename=sys.argv[1])
 except Exception as e:
     errors.append(str(e))
@@ -237,23 +236,33 @@ print(json.dumps([s.to_dict() for s in syms]))
 
 // ─── Synchronous Python parse via child process ─────────────────────────────
 
-async function syncPyParse(filePath: string, lang: SymbolLang): Promise<FileSymbols> {
-	try {
-		// Write the parser to a temp .py and run it as a script. Passing the
-		// whole 200-line program via `python -c "..."` breaks under cmd.exe on
-		// Windows (embedded newlines truncate the command), so the child saw a
-		// mangled script and emitted nothing. A real file sidesteps all quoting.
-		const tmpDir = path.join(os.tmpdir(), 'ws-py-parse');
-		await fs.mkdir(tmpDir, { recursive: true });
-		const scriptPath = path.join(tmpDir, 'parse.py');
-		await fs.writeFile(scriptPath, PY_PARSE_SCRIPT, 'utf8');
+// Cache the temp script path so we don't rewrite it on every file.
+let _cachedScriptPath: string | null = null;
 
-		// argv-array form: no shell, so a hostile filename (e.g. one containing
-		// shell metacharacters or command substitution) cannot inject commands.
-		const proc = spawn('python', [scriptPath, filePath], {
+async function syncPyParse(filePath: string, content: string, lang: SymbolLang): Promise<FileSymbols> {
+	try {
+		// Write the parser script once per process — not per file.
+		// Passing the whole 200-line program via `python -c "..."` breaks
+		// under cmd.exe on Windows (embedded newlines truncate the command).
+		// A real file sidesteps all quoting and can be reused across calls.
+		if (!_cachedScriptPath) {
+			const tmpDir = path.join(os.tmpdir(), 'ws-py-parse');
+			await fs.mkdir(tmpDir, { recursive: true });
+			_cachedScriptPath = path.join(tmpDir, 'parse.py');
+			await fs.writeFile(_cachedScriptPath, PY_PARSE_SCRIPT, 'utf8');
+		}
+
+		// argv-array form: no shell, so a hostile filename cannot inject commands.
+		// Content is piped via stdin — avoids a second file read in the child.
+		const proc = spawn('python', [_cachedScriptPath, filePath], {
 			stdio: ['pipe', 'pipe', 'pipe'],
 			windowsHide: true,
 		});
+
+		// Write the already-read file content to stdin so the Python child
+		// doesn't reopen the file — eliminates one disk read per Python file.
+		proc.stdin?.write(content);
+		proc.stdin?.end();
 
 		let stdout = '';
 		proc.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });

@@ -269,6 +269,11 @@ export class IndexStore {
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_s_kind ON symbols(kind)');
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_s_lang ON symbols(lang)');
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_s_file ON symbols(file)');
+    // Compound index for the common lang+kind filter in ranked search.
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_s_lang_kind ON symbols(lang, kind)');
+    // Index on file_fk: deleteSymbolsForFile and FTS delete paths query by
+    // file_fk — without this index every reindex/delete scans the symbols table.
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_s_file_fk ON symbols(file_fk)');
 
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS refs (

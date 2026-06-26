@@ -79,20 +79,44 @@ export class DefaultSessionReader implements SessionReader {
   }
 
   async query(q: SessionQuery = {}): Promise<SessionSummaryLite[]> {
-    // Fetch only what's needed; in-process filters are cheap relative to store I/O.
-    // If a caller needs pagination, it should pass `q.limit` and page through results.
-    const raw = await this.store.list(q.limit ? Math.max(q.limit, 100) : 1000);
-    const titleNeedle = q.titleContains?.toLowerCase();
-    const filtered = raw.filter((s) => {
-      if (q.since && s.startedAt < q.since) return false;
-      if (q.until && s.startedAt > q.until) return false;
-      if (q.provider && s.provider !== q.provider) return false;
-      if (q.model && s.model !== q.model) return false;
-      if (q.minTokens !== undefined && s.tokenTotal < q.minTokens) return false;
-      if (titleNeedle && !s.title.toLowerCase().includes(titleNeedle)) return false;
-      return true;
-    });
-    const out: SessionSummaryLite[] = filtered.map((s) => ({
+    // Prefer the store's filtered list when available — it pushes the
+    // filter into the cached index instead of fetching 1000 + linear scan.
+    const storeWithFilter = this.store as SessionStore & {
+      listFiltered?: ((criteria: {
+        since?: string | undefined;
+        until?: string | undefined;
+        provider?: string | undefined;
+        model?: string | undefined;
+        minTokens?: number | undefined;
+        titleContains?: string | undefined;
+        limit?: number | undefined;
+      }) => Promise<import('../types/session.js').SessionSummary[]>) | undefined;
+    };
+    let raw: import('../types/session.js').SessionSummary[];
+    if (typeof storeWithFilter.listFiltered === 'function') {
+      raw = await storeWithFilter.listFiltered({
+        since: q.since,
+        until: q.until,
+        provider: q.provider,
+        model: q.model,
+        minTokens: q.minTokens,
+        titleContains: q.titleContains,
+        limit: q.limit,
+      });
+    } else {
+      const fetched = await this.store.list(q.limit ? Math.max(q.limit, 100) : 1000);
+      const titleNeedle = q.titleContains?.toLowerCase();
+      raw = fetched.filter((s) => {
+        if (q.since && s.startedAt < q.since) return false;
+        if (q.until && s.startedAt > q.until) return false;
+        if (q.provider && s.provider !== q.provider) return false;
+        if (q.model && s.model !== q.model) return false;
+        if (q.minTokens !== undefined && s.tokenTotal < q.minTokens) return false;
+        if (titleNeedle && !s.title.toLowerCase().includes(titleNeedle)) return false;
+        return true;
+      });
+    }
+    const out: SessionSummaryLite[] = raw.map((s) => ({
       id: s.id,
       title: s.title,
       startedAt: s.startedAt,
@@ -119,18 +143,44 @@ export class DefaultSessionReader implements SessionReader {
     if (sessionId) {
       ids = [sessionId];
     } else {
-      const sessions = await this.store.list(1000);
-      const titleNeedle = sessionQuery?.titleContains?.toLowerCase();
-      const filtered = sessions.filter((s) => {
-        if (sessionQuery?.since && s.startedAt < sessionQuery.since) return false;
-        if (sessionQuery?.until && s.startedAt > sessionQuery.until) return false;
-        if (sessionQuery?.provider && s.provider !== sessionQuery.provider) return false;
-        if (sessionQuery?.model && s.model !== sessionQuery.model) return false;
-        if (sessionQuery?.minTokens !== undefined && s.tokenTotal < sessionQuery.minTokens) return false;
-        if (titleNeedle && !s.title.toLowerCase().includes(titleNeedle)) return false;
-        return true;
-      });
-      ids = filtered.map((s) => s.id);
+      // Prefer the store's filtered list when available — avoids fetching
+      // 1000 sessions and linear-filtering in-process.
+      const storeWithFilter = this.store as SessionStore & {
+        listFiltered?: ((criteria: {
+          since?: string | undefined;
+          until?: string | undefined;
+          provider?: string | undefined;
+          model?: string | undefined;
+          minTokens?: number | undefined;
+          titleContains?: string | undefined;
+          limit?: number | undefined;
+        }) => Promise<import('../types/session.js').SessionSummary[]>) | undefined;
+      };
+      let sessions: import('../types/session.js').SessionSummary[];
+      if (typeof storeWithFilter.listFiltered === 'function') {
+        sessions = await storeWithFilter.listFiltered({
+          since: sessionQuery?.since,
+          until: sessionQuery?.until,
+          provider: sessionQuery?.provider,
+          model: sessionQuery?.model,
+          minTokens: sessionQuery?.minTokens,
+          titleContains: sessionQuery?.titleContains,
+          limit: 1000,
+        });
+      } else {
+        sessions = await this.store.list(1000);
+        const titleNeedle = sessionQuery?.titleContains?.toLowerCase();
+        sessions = sessions.filter((s) => {
+          if (sessionQuery?.since && s.startedAt < sessionQuery.since) return false;
+          if (sessionQuery?.until && s.startedAt > sessionQuery.until) return false;
+          if (sessionQuery?.provider && s.provider !== sessionQuery.provider) return false;
+          if (sessionQuery?.model && s.model !== sessionQuery.model) return false;
+          if (sessionQuery?.minTokens !== undefined && s.tokenTotal < sessionQuery.minTokens) return false;
+          if (titleNeedle && !s.title.toLowerCase().includes(titleNeedle)) return false;
+          return true;
+        });
+      }
+      ids = sessions.map((s) => s.id);
     }
 
     const hits: SessionSearchHit[] = [];
