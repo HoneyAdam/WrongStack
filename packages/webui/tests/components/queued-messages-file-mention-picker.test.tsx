@@ -1,21 +1,33 @@
-
 // requestAnimationFrame polyfill for jsdom — flush immediately
 const rafCallbacks: FrameRequestCallback[] = [];
-(globalThis as { requestAnimationFrame?: typeof requestAnimationFrame }).requestAnimationFrame = (cb: FrameRequestCallback) => {
+(globalThis as { requestAnimationFrame?: typeof requestAnimationFrame }).requestAnimationFrame = (
+  cb: FrameRequestCallback,
+) => {
   rafCallbacks.push(cb);
   return rafCallbacks.length;
 };
-(globalThis as { cancelAnimationFrame?: typeof cancelAnimationFrame }).cancelAnimationFrame = (handle: number) => {
+(globalThis as { cancelAnimationFrame?: typeof cancelAnimationFrame }).cancelAnimationFrame = (
+  handle: number,
+) => {
   rafCallbacks[handle - 1] = undefined as never as FrameRequestCallback;
 };
 function flushRaf() {
   const cbs = rafCallbacks.splice(0, rafCallbacks.length);
   for (const cb of cbs) if (cb) cb(performance.now());
 }
-import { render, screen, fireEvent } from '@testing-library/react';
+
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { QueuedMessages } from '../../src/components/ChatInput/queued-messages.js';
 import { FileMentionPicker } from '../../src/components/ChatInput/file-mention-picker.js';
+import { QueuedMessages } from '../../src/components/ChatInput/queued-messages.js';
+import type { QueuedItem } from '../../src/stores/chat-store.js';
+
+// Helper for test readability — wrap a string in the new queue-item shape.
+// `addedAt` is the index in the source list so tests can keep a stable
+// display order without having to mock `Date.now`.
+function makeQueue(items: ReadonlyArray<{ text: string; mode: QueuedItem['mode'] }>): QueuedItem[] {
+  return items.map((item, idx) => ({ text: item.text, mode: item.mode, addedAt: idx }));
+}
 
 function _mockTextarea(): HTMLTextAreaElement {
   return {
@@ -28,7 +40,15 @@ function _mockTextarea(): HTMLTextAreaElement {
 
 // Mock FilePicker so we can test FileMentionPicker logic without file-tree rendering
 vi.mock('../../src/components/FilePicker', () => ({
-  FilePicker: ({ query, onClose, onPick }: { query: string; onClose: () => void; onPick: (path: string) => void }) => (
+  FilePicker: ({
+    query,
+    onClose,
+    onPick,
+  }: {
+    query: string;
+    onClose: () => void;
+    onPick: (path: string) => void;
+  }) => (
     <div data-testid="file-picker">
       <span data-testid="fp-query">{query}</span>
       <button type="button" onClick={() => onPick('src/index.ts')}>
@@ -43,29 +63,97 @@ vi.mock('../../src/components/FilePicker', () => ({
 
 describe('QueuedMessages', () => {
   it('renders nothing when queue is empty', () => {
-    const { container } = render(<QueuedMessages queue={[]} onClear={vi.fn()} onRemove={vi.fn()} />);
+    const { container } = render(
+      <QueuedMessages queue={[]} onClear={vi.fn()} onRemove={vi.fn()} />,
+    );
     expect(container.children.length === 0 || container.firstChild === null).toBe(true);
   });
 
   it('renders queue count and items', () => {
-    render(<QueuedMessages queue={['first', 'second']} onClear={vi.fn()} onRemove={vi.fn()} />);
+    render(
+      <QueuedMessages
+        queue={makeQueue([
+          { text: 'first', mode: 'btw' },
+          { text: 'second', mode: 'queue' },
+        ])}
+        onClear={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
 
-    expect(screen.getByText(/Queued \(2\)/)).toBeDefined();
+    expect(screen.getByText(/Queue \(2\)/)).toBeDefined();
     expect(screen.getByText('first')).toBeDefined();
     expect(screen.getByText('second')).toBeDefined();
   });
 
+  it('renders a mode badge per item showing btw/steer/queue', () => {
+    render(
+      <QueuedMessages
+        queue={makeQueue([
+          { text: 'a', mode: 'btw' },
+          { text: 'b', mode: 'steer' },
+          { text: 'c', mode: 'queue' },
+        ])}
+        onClear={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByText('btw')).toHaveLength(1);
+    expect(screen.getAllByText('steer')).toHaveLength(1);
+    expect(screen.getAllByText('queue')).toHaveLength(1);
+  });
+
   it('calls onClear when Clear all is clicked', () => {
     const onClear = vi.fn();
-    render(<QueuedMessages queue={['msg']} onClear={onClear} onRemove={vi.fn()} />);
+    render(
+      <QueuedMessages
+        queue={makeQueue([{ text: 'msg', mode: 'queue' }])}
+        onClear={onClear}
+        onRemove={vi.fn()}
+      />,
+    );
 
     fireEvent.click(screen.getByText('Clear all'));
     expect(onClear).toHaveBeenCalledTimes(1);
   });
 
-  it('calls onRemove with correct index when × is clicked', () => {
+  it('calls onRemove with the source-array index even when sorted newest-first', () => {
     const onRemove = vi.fn();
-    render(<QueuedMessages queue={['a', 'b', 'c']} onClear={vi.fn()} onRemove={onRemove} />);
+    // Source order: [a@0, b@1, c@2]. addedAt is set so newest-first
+    // reorders the rendered list to [c, b, a] — but the × buttons must
+    // still pass the *source* index (1 for "b") so the store stays sane.
+    const queue = makeQueue([
+      { text: 'a', mode: 'btw' },
+      { text: 'b', mode: 'steer' },
+      { text: 'c', mode: 'queue' },
+    ]);
+    render(<QueuedMessages queue={queue} onClear={vi.fn()} onRemove={onRemove} />);
+
+    // Flip the sort to newest-first so the rendered order no longer
+    // matches the source order.
+    fireEvent.click(screen.getByTestId('inline-queue-sort'));
+
+    // The × button for the *middle* item in the source list ("b")
+    // is now rendered in a different position, but its data-testid
+    // stays tied to the source index.
+    fireEvent.click(screen.getByTestId('inline-queue-remove-1'));
+    expect(onRemove).toHaveBeenCalledWith(1);
+  });
+
+  it('calls onRemove with the source-array index when not sorted', () => {
+    const onRemove = vi.fn();
+    render(
+      <QueuedMessages
+        queue={makeQueue([
+          { text: 'a', mode: 'btw' },
+          { text: 'b', mode: 'steer' },
+          { text: 'c', mode: 'queue' },
+        ])}
+        onClear={vi.fn()}
+        onRemove={onRemove}
+      />,
+    );
 
     const removeButtons = screen.getAllByTitle('Remove from queue');
     expect(removeButtons).toHaveLength(3);
@@ -76,7 +164,6 @@ describe('QueuedMessages', () => {
 });
 
 describe('FileMentionPicker', () => {
-
   const mockTextarea = (overrides: Partial<HTMLTextAreaElement> = {}) =>
     ({
       focus: vi.fn(),

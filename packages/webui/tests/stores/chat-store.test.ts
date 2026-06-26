@@ -158,12 +158,14 @@ describe('setMessages', () => {
     useChatStore.setState({ currentAssistantMessageId: assistantId, currentToolId: toolId });
     useChatStore.getState().appendThinking('old reasoning');
 
-    useChatStore.getState().setMessages([
-      { id: 'replay_0', role: 'user', content: 'resumed', timestamp: 123 },
-    ]);
+    useChatStore
+      .getState()
+      .setMessages([{ id: 'replay_0', role: 'user', content: 'resumed', timestamp: 123 }]);
 
     const state = useChatStore.getState();
-    expect(state.messages).toEqual([{ id: 'replay_0', role: 'user', content: 'resumed', timestamp: 123 }]);
+    expect(state.messages).toEqual([
+      { id: 'replay_0', role: 'user', content: 'resumed', timestamp: 123 },
+    ]);
     expect(state.currentAssistantMessageId).toBeNull();
     expect(state.currentToolId).toBeNull();
     expect(state.executions.size).toBe(0);
@@ -175,9 +177,11 @@ describe('setMessages', () => {
   });
 
   it('rebuilds the toolUseId index for replayed tool messages', () => {
-    useChatStore.getState().setMessages([
-      { id: 'replay_tool', role: 'tool', content: '', timestamp: 123, toolUseId: 'toolu_replay' },
-    ]);
+    useChatStore
+      .getState()
+      .setMessages([
+        { id: 'replay_tool', role: 'tool', content: '', timestamp: 123, toolUseId: 'toolu_replay' },
+      ]);
 
     expect(useChatStore.getState().getToolMessageId('toolu_replay')).toBe('replay_tool');
   });
@@ -208,7 +212,9 @@ describe('updateMessage', () => {
 
   it('ignores unknown id', () => {
     addMsg();
-    expect(() => useChatStore.getState().updateMessage('not-found', { content: 'x' })).not.toThrow();
+    expect(() =>
+      useChatStore.getState().updateMessage('not-found', { content: 'x' }),
+    ).not.toThrow();
   });
 
   it('does not modify other messages when updating one', () => {
@@ -479,7 +485,11 @@ describe('truncateAfter', () => {
     addMsg({ content: 'msg2' });
     const id3 = addMsg({ content: 'msg3' });
     useChatStore.getState().truncateAfter(id3);
-    expect(useChatStore.getState().messages.map((m) => m.content)).toEqual(['msg1', 'msg2', 'msg3']);
+    expect(useChatStore.getState().messages.map((m) => m.content)).toEqual([
+      'msg1',
+      'msg2',
+      'msg3',
+    ]);
   });
 
   it('resets currentAssistantMessageId to null', () => {
@@ -540,13 +550,34 @@ describe('updateExecution', () => {
 describe('enqueue', () => {
   it('adds a message to the queue', () => {
     useChatStore.getState().enqueue('hello');
-    expect(useChatStore.getState().queue).toContain('hello');
+    const queue = useChatStore.getState().queue;
+    expect(queue).toHaveLength(1);
+    expect(queue[0]?.text).toBe('hello');
+    // Default mode is 'queue' so the next-run drain picks it up.
+    expect(queue[0]?.mode).toBe('queue');
   });
 
-  it('appends to existing queue', () => {
+  it('appends to existing queue in arrival order', () => {
     useChatStore.getState().enqueue('a');
     useChatStore.getState().enqueue('b');
-    expect(useChatStore.getState().queue).toEqual(['a', 'b']);
+    expect(useChatStore.getState().queue.map((q) => q.text)).toEqual(['a', 'b']);
+  });
+
+  it('stores the mode passed in (btw / steer / queue)', () => {
+    useChatStore.getState().enqueue('one', 'btw');
+    useChatStore.getState().enqueue('two', 'steer');
+    useChatStore.getState().enqueue('three', 'queue');
+    const modes = useChatStore.getState().queue.map((q) => q.mode);
+    expect(modes).toEqual(['btw', 'steer', 'queue']);
+  });
+
+  it('records a wall-clock timestamp on each enqueue', () => {
+    useChatStore.getState().enqueue('a');
+    useChatStore.getState().enqueue('b');
+    const [first, second] = useChatStore.getState().queue;
+    expect(typeof first?.addedAt).toBe('number');
+    expect(typeof second?.addedAt).toBe('number');
+    expect(second!.addedAt).toBeGreaterThanOrEqual(first!.addedAt);
   });
 });
 
@@ -554,8 +585,9 @@ describe('dequeue', () => {
   it('removes and returns the first item', () => {
     useChatStore.getState().enqueue('first');
     useChatStore.getState().enqueue('second');
-    expect(useChatStore.getState().dequeue()).toBe('first');
-    expect(useChatStore.getState().queue).toEqual(['second']);
+    const popped = useChatStore.getState().dequeue();
+    expect(popped?.text).toBe('first');
+    expect(useChatStore.getState().queue.map((q) => q.text)).toEqual(['second']);
   });
 
   it('returns null when queue is empty', () => {
@@ -569,7 +601,7 @@ describe('removeQueued', () => {
     useChatStore.getState().enqueue('b');
     useChatStore.getState().enqueue('c');
     useChatStore.getState().removeQueued(1);
-    expect(useChatStore.getState().queue).toEqual(['a', 'c']);
+    expect(useChatStore.getState().queue.map((q) => q.text)).toEqual(['a', 'c']);
   });
 });
 

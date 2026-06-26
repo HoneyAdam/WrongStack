@@ -1,19 +1,24 @@
 import { expectDefined, toErrorMessage } from '@wrongstack/core';
+import { Bell, ListPlus, Pencil, RotateCw, Sparkles, Square } from 'lucide-react';
+import type React from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';
 import { useChatStore, useSessionStore, useUIStore } from '@/stores';
 import { useAutoSubmitStreak } from '@/stores/auto-submit-streak.js';
-import { Pencil, Send, Square, Sparkles } from 'lucide-react';
-import type React from 'react';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Button } from './ui/button';
-
-import { type SlashCommandDef, SLASH_CATEGORY_ORDER, matchSlash, detectAtMention } from './ChatInput/slash-commands.js';
+import type { QueueMode } from '@/stores/chat-store';
 import { FileMentionPicker, type FileMentionState } from './ChatInput/file-mention-picker.js';
 import { QueuedMessages } from './ChatInput/queued-messages.js';
+import {
+  detectAtMention,
+  matchSlash,
+  SLASH_CATEGORY_ORDER,
+  type SlashCommandDef,
+} from './ChatInput/slash-commands.js';
 import { runChatSlashCommand } from './ChatInput/slash-routing.js';
 import { usePasteDrop } from './ChatInput/use-paste-drop.js';
 import { RefinePanel } from './RefinePanel.js';
+import { Button } from './ui/button';
 
 export function ChatInput({
   onOpenBreakdown,
@@ -150,11 +155,17 @@ export function ChatInput({
     let lastAssistant = '';
     for (let i = all.length - 1; i >= 0; i--) {
       const m = all[i];
-      if (m?.role === 'assistant' && m.content) { lastAssistant = m.content; break; }
+      if (m?.role === 'assistant' && m.content) {
+        lastAssistant = m.content;
+        break;
+      }
     }
     const steps = parseNextStepsFromContent(lastAssistant);
     if (steps.length === 0) {
-      addMessage({ role: 'assistant', content: '💡 _No next-step suggestions found. Use `/suggest` to generate some._' });
+      addMessage({
+        role: 'assistant',
+        content: '💡 _No next-step suggestions found. Use `/suggest` to generate some._',
+      });
       return true;
     }
     const lines = ['💡 **Next steps**', ''];
@@ -168,18 +179,26 @@ export function ChatInput({
   function handleNextSelect(input: string): true {
     const steps = parseNextStepsFromLastAssistant();
     if (steps.length === 0) {
-      addMessage({ role: 'assistant', content: '💡 _No suggestions available. Use `/suggest` first._' });
+      addMessage({
+        role: 'assistant',
+        content: '💡 _No suggestions available. Use `/suggest` first._',
+      });
       return true;
     }
     const parts = input.split(/[\s,]+/).filter(Boolean);
-    const indices = parts.map((p) => Number.parseInt(p, 10)).filter((n) => !Number.isNaN(n) && n > 0);
+    const indices = parts
+      .map((p) => Number.parseInt(p, 10))
+      .filter((n) => !Number.isNaN(n) && n > 0);
     if (indices.length === 0) {
       addMessage({ role: 'assistant', content: '💡 _No valid suggestion numbers._' });
       return true;
     }
     const invalid = indices.filter((i) => i > steps.length);
     if (invalid.length > 0) {
-      addMessage({ role: 'assistant', content: `💡 _Invalid suggestion(s): ${invalid.join(', ')}. Valid range: 1–${steps.length}._` });
+      addMessage({
+        role: 'assistant',
+        content: `💡 _Invalid suggestion(s): ${invalid.join(', ')}. Valid range: 1–${steps.length}._`,
+      });
       return true;
     }
     for (const i of indices) {
@@ -207,13 +226,28 @@ export function ChatInput({
       ta.value = '';
       ta.style.height = 'auto';
       ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
-      if (!isLoading) { ta.focus(); }
+      if (!isLoading) {
+        ta.focus();
+      }
     }
   }, [isLoading]);
 
-  const handleSubmit = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault();
+  /** Core submit path shared by Enter and the three mode buttons.
+   *
+   *  Modes:
+   *  - `btw`    — send the message without interrupting the running agent.
+   *               While idle this is identical to a plain send; while
+   *               running, the message goes through the queue so the
+   *               agent sees it on the next turn boundary.
+   *  - `steer`  — interrupt the running agent, then send. While idle
+   *               this collapses to a plain send (no abort target).
+   *  - `queue`  — always enqueue, regardless of `isLoading`. Held until
+   *               the current run completes, then sent in arrival order.
+   *
+   *  Refine + slash-command paths bypass this entirely — they short-circuit
+   *  before mode is applied. */
+  const submitWith = useCallback(
+    async (mode: QueueMode) => {
       // Manual submit re-arms the auto-proceed consecutive cap.
       resetAutoSubmitStreak();
       if (!input.trim() && !pendingImageRef.current) return;
@@ -238,26 +272,38 @@ export function ChatInput({
       pushPrompt(content);
       _clearTextarea(); // ensure textarea is cleared even if batching delays state
 
-      // If the agent is still running, queue the follow-up instead of
-      // dropping it. The run.result handler in useWebSocket drains the
-      // queue one message at a time. We also enable the textarea while
-      // running so this code path is reachable.
-      if (isLoading) {
-        // Append the pending image to the queued text so both arrive together
-        // when the queue drains.
-        const queued = pendingImage
-          ? `![pasted image](${pendingImage})\n\n${content}`
-          : content;
-        enqueue(queued);
+      // Build the full content: prepend the pasted image as a markdown
+      // image link so both the chat view and the agent receive it.
+      const fullContent = pendingImage ? `![pasted image](${pendingImage})\n\n${content}` : content;
+
+      // `queue` mode always enqueues, even when idle. The drain loop
+      // picks it up after the next run.result.
+      if (mode === 'queue') {
+        enqueue(fullContent, 'queue');
         return;
+      }
+
+      // `btw` while running enqueues (so the message rides alongside
+      // without interrupting). While idle, it sends normally.
+      // `steer` always tries to interrupt first, then sends.
+      const mustSteer = mode === 'steer' && isLoading;
+      const mustEnqueue = mode === 'btw' && isLoading;
+
+      if (mustEnqueue) {
+        enqueue(fullContent, 'btw');
+        return;
+      }
+
+      if (mustSteer) {
+        // Stop the in-flight run so the agent picks up our redirect at
+        // the next turn. sendAbort is a no-op if nothing is running.
+        sendAbort();
       }
 
       try {
         if (client?.isConnected) {
           // If refine is enabled, trigger the refinement flow instead of sending directly
           if (refineEnabled && refineModel) {
-            // Show the refine panel with the original text; the backend will return refined + english
-            // We use the original text as both refined and english for now — the backend will update
             setRefinePanel({
               original: content,
               refined: content, // Will be replaced when backend responds
@@ -266,23 +312,31 @@ export function ChatInput({
                 // This is called when the refine panel is decided
               },
             });
-            // Send the text to the backend for refinement
             refineModel(content);
           } else {
-            // Build the full content: prepend the pasted image as a markdown
-            // image link so both the chat view and the agent receive it.
-            const fullContent = pendingImage
-              ? `![pasted image](${pendingImage})\n\n${content}`
-              : content;
             addMessage({ role: 'user', content: fullContent });
             setLoading(true);
             sendMessage(content, pendingImage ?? undefined);
           }
         } else {
-          console.warn(JSON.stringify({ level: 'warn', event: 'ws_send_failed', reason: 'not_connected', timestamp: new Date().toISOString() }));
+          console.warn(
+            JSON.stringify({
+              level: 'warn',
+              event: 'ws_send_failed',
+              reason: 'not_connected',
+              timestamp: new Date().toISOString(),
+            }),
+          );
         }
       } catch (err) {
-        console.warn(JSON.stringify({ level: 'warn', event: 'ws_send_error', error: toErrorMessage(err), timestamp: new Date().toISOString() }));
+        console.warn(
+          JSON.stringify({
+            level: 'warn',
+            event: 'ws_send_error',
+            error: toErrorMessage(err),
+            timestamp: new Date().toISOString(),
+          }),
+        );
         setLoading(false);
       }
     },
@@ -292,6 +346,7 @@ export function ChatInput({
       enqueue,
       client,
       sendMessage,
+      sendAbort,
       refineModel,
       refineEnabled,
       setRefinePanel,
@@ -305,6 +360,27 @@ export function ChatInput({
       pendingImageRef,
     ],
   );
+
+  const handleSubmit = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault();
+      // Enter (and the form-submit button) default to btw — the softest
+      // mode. Users who want to interrupt or queue explicitly use the
+      // steer / add-queue buttons beside the input.
+      void submitWith('btw');
+    },
+    [submitWith],
+  );
+
+  const handleBtw = useCallback(() => {
+    void submitWith('btw');
+  }, [submitWith]);
+  const handleSteer = useCallback(() => {
+    void submitWith('steer');
+  }, [submitWith]);
+  const handleAddQueue = useCallback(() => {
+    void submitWith('queue');
+  }, [submitWith]);
 
   const handleAbort = useCallback(() => {
     sendAbort();
@@ -393,49 +469,58 @@ export function ChatInput({
       // Esc to dismiss. Matches the TUI's slash menu UX one-for-one so users
       // moving between surfaces don't have to relearn anything.
       if (slashSuggestions.length > 0) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setSlashIndex((i) => (i + 1) % slashSuggestions.length);
-        return;
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setSlashIndex((i) => (i - 1 + slashSuggestions.length) % slashSuggestions.length);
-        return;
-      }
-      if (e.key === 'Tab') {
-        e.preventDefault();
-        const pick = slashSuggestions[slashIndex];
-        if (pick) {
-          setInput(pick.name + ' ');
-          setSlashIndex(0);
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          setSlashIndex((i) => (i + 1) % slashSuggestions.length);
+          return;
         }
-        return;
-      }
-      if (e.key === 'Enter' && !e.shiftKey) {
-        // Commit the highlighted suggestion if there's an exact match below
-        // the cursor (or the user hasn't typed a full name yet). Otherwise
-        // fall through to normal submit.
-        const pick = slashSuggestions[slashIndex];
-        if (pick && pick.name !== input.toLowerCase().trim()) {
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          setSlashIndex((i) => (i - 1 + slashSuggestions.length) % slashSuggestions.length);
+          return;
+        }
+        if (e.key === 'Tab') {
+          e.preventDefault();
+          const pick = slashSuggestions[slashIndex];
+          if (pick) {
+            setInput(pick.name + ' ');
+            setSlashIndex(0);
+          }
+          return;
+        }
+        if (e.key === 'Enter' && !e.shiftKey) {
+          // Commit the highlighted suggestion if there's an exact match below
+          // the cursor (or the user hasn't typed a full name yet). Otherwise
+          // fall through to normal submit.
+          const pick = slashSuggestions[slashIndex];
+          if (pick && pick.name !== input.toLowerCase().trim()) {
+            e.preventDefault();
+            setInput('');
+            runSlashCommand(pick.name);
+            return;
+          }
+        }
+        if (e.key === 'Escape') {
           e.preventDefault();
           setInput('');
-          runSlashCommand(pick.name);
           return;
         }
       }
-      if (e.key === 'Escape') {
+      if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        setInput('');
-        return;
+        handleSubmit(e);
       }
-    }
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit(e);
-    }
     },
-    [slashSuggestions, slashIndex, atMention, promptHistory, historyIdx, input, runSlashCommand, handleSubmit],
+    [
+      slashSuggestions,
+      slashIndex,
+      atMention,
+      promptHistory,
+      historyIdx,
+      input,
+      runSlashCommand,
+      handleSubmit,
+    ],
   );
 
   const adjustTextareaHeight = () => {
@@ -451,27 +536,32 @@ export function ChatInput({
       {/* Smart paste hint — shows when code is auto-fenced (with undo)
           or when a large text block is pasted. Auto-dismisses. */}
       {pasteHint && (
-        <div className={cn(
-          'rounded-md border px-2.5 py-1.5 text-xs flex items-center justify-between gap-2 animate-message',
-          pasteHint.lang
-            ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-300'
-            : 'border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-300',
-        )}>
+        <div
+          className={cn(
+            'rounded-md border px-2.5 py-1.5 text-xs flex items-center justify-between gap-2 animate-message',
+            pasteHint.lang
+              ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-300'
+              : 'border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-300',
+          )}
+        >
           <span>
             {pasteHint.lang ? (
               <>
-                Auto-fenced as{' '}
-                <span className="font-mono font-semibold">{pasteHint.lang}</span>
+                Auto-fenced as <span className="font-mono font-semibold">{pasteHint.lang}</span>
                 {' — '}
-                <span className="font-mono tabular-nums">{pasteHint.chars.toLocaleString()}</span> chars
-                {' ('}<span className="font-mono tabular-nums">{pasteHint.lines}</span> lines)
+                <span className="font-mono tabular-nums">{pasteHint.chars.toLocaleString()}</span>{' '}
+                chars
+                {' ('}
+                <span className="font-mono tabular-nums">{pasteHint.lines}</span> lines)
               </>
             ) : (
               <>
                 Pasted{' '}
-                <span className="font-mono tabular-nums">{pasteHint.chars.toLocaleString()}</span> chars
-                {' ('}<span className="font-mono tabular-nums">{pasteHint.lines}</span> lines) — fenced code
-                blocks render best with <span className="font-mono">```</span>.
+                <span className="font-mono tabular-nums">{pasteHint.chars.toLocaleString()}</span>{' '}
+                chars
+                {' ('}
+                <span className="font-mono tabular-nums">{pasteHint.lines}</span> lines) — fenced
+                code blocks render best with <span className="font-mono">```</span>.
               </>
             )}
           </span>
@@ -662,7 +752,7 @@ export function ChatInput({
               !client?.isConnected
                 ? 'Connect to server first…'
                 : isLoading
-                  ? 'Agent is running — type to queue a follow-up…'
+                  ? 'Type a btw/steer/queue follow-up…'
                   : 'Message the agent… (type / for commands, @ for files)'
             }
             className={cn(
@@ -723,6 +813,9 @@ export function ChatInput({
         <div className="flex gap-1">
           {isLoading ? (
             <>
+              {/* Stop controls stay beside the new send-mode buttons so
+                  the user can interrupt from the same row. Stop-and-edit
+                  pulls the last prompt back; Stop aborts without editing. */}
               <Button
                 type="button"
                 size="icon"
@@ -730,6 +823,7 @@ export function ChatInput({
                 onClick={handleStopAndEdit}
                 className="h-[44px] w-[44px] rounded-lg"
                 title="Stop run and edit the last prompt (reuse + rewrite)"
+                data-testid="stop-and-edit"
               >
                 <Pencil className="h-4 w-4" />
               </Button>
@@ -740,36 +834,78 @@ export function ChatInput({
                 onClick={handleAbort}
                 className="h-[44px] w-[44px] rounded-lg"
                 title="Abort the current run"
+                data-testid="stop"
               >
                 <Square className="h-4 w-4 fill-current" />
               </Button>
             </>
           ) : (
-            <>
-              <Button
-                type="button"
-                size="icon"
-                variant={refineEnabled ? 'default' : 'outline'}
-                disabled={!client?.isConnected}
-                onClick={toggleRefineEnabled}
-                className={cn(
-                  'h-[44px] w-[44px] rounded-lg transition-colors',
-                  refineEnabled && 'bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-600 dark:text-yellow-400 border-yellow-500/50',
-                )}
-                title={refineEnabled ? 'Refining enabled — click to disable' : 'Refining disabled — click to enable'}
-              >
-                <Sparkles className="h-4 w-4" />
-              </Button>
-              <Button
-                type="submit"
-                size="icon"
-                disabled={!input.trim() || !client?.isConnected}
-                className="h-[44px] w-[44px] rounded-lg"
-              >
-                <Send className="h-4 w-4" />
-              </Button>
-            </>
+            <Button
+              type="button"
+              size="icon"
+              variant={refineEnabled ? 'default' : 'outline'}
+              disabled={!client?.isConnected}
+              onClick={toggleRefineEnabled}
+              className={cn(
+                'h-[44px] w-[44px] rounded-lg transition-colors',
+                refineEnabled &&
+                  'bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-600 dark:text-yellow-400 border-yellow-500/50',
+              )}
+              title={
+                refineEnabled
+                  ? 'Refining enabled — click to disable'
+                  : 'Refining disabled — click to enable'
+              }
+            >
+              <Sparkles className="h-4 w-4" />
+            </Button>
           )}
+
+          {/* Send-mode buttons. btw is the new default send (Enter also
+              routes here). steer interrupts the run and redirects; addQueue
+              always enqueues, regardless of run state. */}
+          <Button
+            type="button"
+            size="icon"
+            variant="default"
+            disabled={!input.trim() || !client?.isConnected}
+            onClick={handleBtw}
+            className="h-[44px] w-[44px] rounded-lg bg-sky-600 hover:bg-sky-700 text-white dark:bg-sky-500 dark:hover:bg-sky-600"
+            title={
+              isLoading ? 'btw — send without interrupting the running agent' : 'btw — send (Enter)'
+            }
+            data-testid="send-btw"
+          >
+            <Bell className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            size="icon"
+            variant="outline"
+            disabled={!input.trim() || !client?.isConnected}
+            onClick={handleSteer}
+            className="h-[44px] w-[44px] rounded-lg border-amber-500/50 text-amber-700 dark:text-amber-400 hover:bg-amber-500/10"
+            title={
+              isLoading
+                ? 'steer — interrupt the running agent and redirect'
+                : 'steer — send (no interrupt target while idle)'
+            }
+            data-testid="send-steer"
+          >
+            <RotateCw className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            size="icon"
+            variant="outline"
+            disabled={!input.trim() || !client?.isConnected}
+            onClick={handleAddQueue}
+            className="h-[44px] w-[44px] rounded-lg border-indigo-500/50 text-indigo-700 dark:text-indigo-400 hover:bg-indigo-500/10"
+            title="add queue — hold until the current run completes"
+            data-testid="send-queue"
+          >
+            <ListPlus className="h-4 w-4" />
+          </Button>
         </div>
       </form>
     </div>

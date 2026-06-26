@@ -175,8 +175,8 @@ export function handleRunResult(msg: WSServerMessage) {
   const next = useChatStore.getState().dequeue();
   if (next) {
     const client = getWSClient(useConfigStore.getState().wsUrl);
-    useChatStore.getState().addMessage({ role: 'user', content: next });
+    useChatStore.getState().addMessage({ role: 'user', content: next.text });
     useChatStore.getState().setLoading(true);
-    client.sendMessage(next);
+    client.sendMessage(next.text);
   }
 }

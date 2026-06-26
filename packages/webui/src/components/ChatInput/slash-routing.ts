@@ -1,5 +1,5 @@
-import { useSessionStore, useUIStore } from '@/stores';
 import { streamCoalescer } from '@/lib/stream-coalescer';
+import { useSessionStore, useUIStore } from '@/stores';
 import type { WSClientMessage } from '@/types';
 import { downloadChatAsMarkdown } from '../CommandPalette';
 import { SLASH_COMMANDS } from './slash-commands.js';
@@ -38,6 +38,10 @@ interface SlashRoutingClient {
   clearTodos?: () => void;
 }
 
+/** Stripped-down queue item for slash-command routing — only the text
+ *  is meaningful for `/queue` listing. */
+type SlashQueueItem = { text: string };
+
 interface SlashRoutingWs {
   listTools: () => void;
   listMemory: () => void;
@@ -54,7 +58,7 @@ export interface RunChatSlashCommandOptions {
   addMessage: (message: ChatAssistantMessage) => void;
   clearMessages: () => void;
   client: SlashRoutingClient | null | undefined;
-  queue: readonly string[];
+  queue: readonly SlashQueueItem[];
   sendAbort: () => void;
   sendMsg: (content: string) => void;
   setLoading: (loading: boolean) => void;
@@ -179,7 +183,10 @@ export function runChatSlashCommand(options: RunChatSlashCommandOptions): boolea
         return true;
       }
       if (!valid.includes(mode)) {
-        addMessage({ role: 'assistant', content: `Unknown autonomy mode \`${mode}\`. Try: ${valid.join(', ')}.` });
+        addMessage({
+          role: 'assistant',
+          content: `Unknown autonomy mode \`${mode}\`. Try: ${valid.join(', ')}.`,
+        });
         return true;
       }
       client?.send?.({ type: 'autonomy.switch', payload: { mode } });
@@ -209,7 +216,10 @@ export function runChatSlashCommand(options: RunChatSlashCommandOptions): boolea
       const id = args.trim();
       if (!id) {
         client?.send?.({ type: 'modes.list' });
-        addMessage({ role: 'assistant', content: 'Fetching available modes… (or pass `/mode <name>` to switch).' });
+        addMessage({
+          role: 'assistant',
+          content: 'Fetching available modes… (or pass `/mode <name>` to switch).',
+        });
         return true;
       }
       client?.send?.({ type: 'mode.switch', payload: { id } });
@@ -227,7 +237,9 @@ export function runChatSlashCommand(options: RunChatSlashCommandOptions): boolea
         const cwd = useSessionStore.getState().cwd;
         addMessage({
           role: 'assistant',
-          content: cwd ? `📂 Working directory: \`${cwd}\`\n\n_Pass \`/working-dir <path>\` to change it._` : 'Working directory unknown. Pass `/working-dir <path>` to set it.',
+          content: cwd
+            ? `📂 Working directory: \`${cwd}\`\n\n_Pass \`/working-dir <path>\` to change it._`
+            : 'Working directory unknown. Pass `/working-dir <path>` to set it.',
         });
         return true;
       }
@@ -390,7 +402,7 @@ export function runChatSlashCommand(options: RunChatSlashCommandOptions): boolea
       } else {
         const lines = [`📋 **Message Queue** (${q.length} queued)`, ''];
         q.forEach((item, i) => {
-          const preview = item.length > 80 ? `${item.slice(0, 77)}…` : item;
+          const preview = item.text.length > 80 ? `${item.text.slice(0, 77)}…` : item.text;
           lines.push(`${i + 1}. ${preview}`);
         });
         lines.push('', '_Use `/queue open` to manage, or `/queue clear` to wipe._');

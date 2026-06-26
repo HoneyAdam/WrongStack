@@ -1,7 +1,28 @@
-import { ListOrdered, Trash2, X } from 'lucide-react';
-import { useCallback } from 'react';
+import { ArrowDownAZ, ArrowUpAZ, ListOrdered, Trash2, X } from 'lucide-react';
+import { useCallback, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { useChatStore } from '@/stores';
+import type { QueuedItem, QueueMode } from '@/stores/chat-store';
+
+type SortDir = 'oldest' | 'newest';
+
+const MODE_META: Record<QueueMode, { label: string; title: string; tone: string }> = {
+  btw: {
+    label: 'btw',
+    title: 'By-the-way — sent as follow-up without interrupting the running agent',
+    tone: 'bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/30',
+  },
+  steer: {
+    label: 'steer',
+    title: 'Steer — interrupts the running agent and redirects it with this message',
+    tone: 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30',
+  },
+  queue: {
+    label: 'queue',
+    title: 'Queued — held until the current agent run completes, then sent in order',
+    tone: 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/30',
+  },
+};
 
 /** Queue Panel overlay — triggered by /queue slash command.
  *  Shows the pending message queue and lets users dequeue or clear items. */
@@ -11,10 +32,15 @@ export interface QueuePanelProps {
   className?: string;
 }
 
-export function QueuePanel({ open, onClose, className }: QueuePanelProps): React.ReactElement | null {
+export function QueuePanel({
+  open,
+  onClose,
+  className,
+}: QueuePanelProps): React.ReactElement | null {
   const queue = useChatStore((s) => s.queue);
   const removeQueued = useChatStore((s) => s.removeQueued);
   const clearQueue = useChatStore((s) => s.clearQueue);
+  const [sortDir, setSortDir] = useState<SortDir>('oldest');
 
   const handleRemove = useCallback(
     (index: number) => {
@@ -22,6 +48,17 @@ export function QueuePanel({ open, onClose, className }: QueuePanelProps): React
     },
     [removeQueued],
   );
+
+  // Display the queue in the user's chosen order. Sorting never mutates
+  // the underlying store — we only reorder a local copy for rendering.
+  // The store keeps items in arrival order; only this view flips them.
+  const sortedQueue = useMemo(() => {
+    // Copy first because Array#sort mutates in place, and the store array
+    // is shared by reference with the rest of the app.
+    const copy = queue.slice();
+    copy.sort((a, b) => (sortDir === 'newest' ? b.addedAt - a.addedAt : a.addedAt - b.addedAt));
+    return copy;
+  }, [queue, sortDir]);
 
   if (!open) return null;
 
@@ -50,12 +87,34 @@ export function QueuePanel({ open, onClose, className }: QueuePanelProps): React
             </div>
           </div>
           <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setSortDir((d) => (d === 'newest' ? 'oldest' : 'newest'))}
+              className={cn(
+                'flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs transition-colors font-medium',
+                'text-muted-foreground hover:bg-muted hover:text-foreground',
+              )}
+              title={
+                sortDir === 'newest'
+                  ? 'Sorted newest first — click to sort oldest first'
+                  : 'Sorted oldest first — click to sort newest first'
+              }
+              data-testid="queue-sort-toggle"
+            >
+              {sortDir === 'newest' ? (
+                <ArrowDownAZ className="h-3 w-3" />
+              ) : (
+                <ArrowUpAZ className="h-3 w-3" />
+              )}
+              {sortDir === 'newest' ? 'Newest' : 'Oldest'}
+            </button>
             {queue.length > 0 && (
               <button
                 type="button"
                 onClick={() => clearQueue()}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-destructive hover:bg-destructive/10 transition-colors font-medium"
                 title="Clear all queued messages"
+                data-testid="queue-clear-all"
               >
                 <Trash2 className="h-3 w-3" />
                 Clear
@@ -65,6 +124,7 @@ export function QueuePanel({ open, onClose, className }: QueuePanelProps): React
               type="button"
               onClick={onClose}
               className="p-1.5 rounded-md hover:bg-muted transition-colors"
+              title="Close"
             >
               <X className="h-4 w-4" />
             </button>
@@ -78,36 +138,57 @@ export function QueuePanel({ open, onClose, className }: QueuePanelProps): React
               <ListOrdered className="h-10 w-10 opacity-15" />
               <p className="text-sm font-medium">Queue is empty</p>
               <p className="text-xs text-center max-w-xs">
-                Type messages while the agent is running to queue them.
-                Queued messages are sent automatically when the agent finishes.
+                Use the <span className="font-mono">btw</span> /{' '}
+                <span className="font-mono">steer</span> /{' '}
+                <span className="font-mono">add queue</span> buttons beside the input to add
+                messages. Queued items are sent in order when the current agent run completes.
               </p>
             </div>
           ) : (
-            <div className="divide-y">
-              {queue.map((item, idx) => (
-                <div
-                  key={idx}
-                  className="flex items-start justify-between px-4 py-3 text-xs hover:bg-muted/30 transition-colors"
-                >
-                  <div className="flex items-start gap-3 min-w-0 flex-1">
-                    <span className="mt-0.5 text-[10px] font-mono text-muted-foreground shrink-0 w-5 text-right">
-                      {idx + 1}.
-                    </span>
-                    <p className="text-sm text-foreground leading-relaxed min-w-0 break-words">
-                      {item.length > 120 ? `${item.slice(0, 117)}…` : item}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleRemove(idx)}
-                    className="ml-3 p-1.5 rounded-md shrink-0 hover:bg-destructive/10 hover:text-destructive transition-colors"
-                    title="Remove from queue"
+            <ul className="divide-y" data-testid="queue-list">
+              {sortedQueue.map((item, idx) => {
+                // The original index is the position the item holds in the
+                // underlying store. Sorting must not break removal — we still
+                // pass the source index to removeQueued.
+                const sourceIdx = queue.indexOf(item);
+                const meta = MODE_META[item.mode];
+                return (
+                  <li
+                    key={`${item.addedAt}-${sourceIdx}`}
+                    className="flex items-start justify-between px-4 py-3 text-xs hover:bg-muted/30 transition-colors gap-3"
+                    data-testid="queue-item"
                   >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              ))}
-            </div>
+                    <div className="flex items-start gap-3 min-w-0 flex-1">
+                      <span className="mt-1 text-[10px] font-mono text-muted-foreground shrink-0 w-5 text-right tabular-nums">
+                        {idx + 1}.
+                      </span>
+                      <span
+                        className={cn(
+                          'shrink-0 inline-flex items-center justify-center text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded border',
+                          meta.tone,
+                        )}
+                        title={meta.title}
+                        data-testid={`queue-mode-${item.mode}`}
+                      >
+                        {meta.label}
+                      </span>
+                      <p className="text-sm text-foreground leading-relaxed min-w-0 break-words">
+                        {item.text.length > 120 ? `${item.text.slice(0, 117)}…` : item.text}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleRemove(sourceIdx)}
+                      className="ml-1 p-1.5 rounded-md shrink-0 hover:bg-destructive/10 hover:text-destructive transition-colors"
+                      title="Remove from queue"
+                      data-testid={`queue-remove-${sourceIdx}`}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
           )}
         </div>
 
@@ -115,7 +196,8 @@ export function QueuePanel({ open, onClose, className }: QueuePanelProps): React
         {queue.length > 0 && (
           <div className="px-4 py-2.5 border-t shrink-0">
             <p className="text-[10px] text-muted-foreground text-center">
-              Messages are sent in order when the current agent run completes.
+              Messages are sent in arrival order when the current agent run completes. Use the sort
+              toggle to view newest-first.
             </p>
           </div>
         )}
@@ -123,3 +205,7 @@ export function QueuePanel({ open, onClose, className }: QueuePanelProps): React
     </div>
   );
 }
+
+// Re-export for tests that want to inspect the item shape without
+// importing the store directly.
+export type { QueuedItem };

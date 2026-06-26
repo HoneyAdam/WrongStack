@@ -2,6 +2,7 @@ import { expectDefined } from '@wrongstack/core';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { ChatMessage } from './types.js';
+
 /**
  * Strip immediately-repeated paragraphs/lines from an assistant reply.
  * MiniMax-M2.7 (and other smaller open models) sometimes emit the same
@@ -43,6 +44,19 @@ function indexToolMessages(messages: readonly ChatMessage[]): Map<string, string
   return index;
 }
 
+/** Submit mode for a queued/typed message. Drives whether the message
+ *  interrupts the running agent (`steer`), rides alongside without
+ *  interrupting (`btw`), or is held for after the run completes (`queue`). */
+export type QueueMode = 'btw' | 'steer' | 'queue';
+
+/** One entry in the message queue — the text plus how it was added.
+ *  `addedAt` powers the optional sort-by-newest toggle. */
+export interface QueuedItem {
+  text: string;
+  mode: QueueMode;
+  addedAt: number;
+}
+
 interface ChatState {
   messages: ChatMessage[];
   currentAssistantMessageId: string | null;
@@ -53,8 +67,9 @@ interface ChatState {
   toolMessageIdsByUseId: Map<string, string>;
   /** Messages typed while the agent was running. Drained one-at-a-time
    *  after run.result lands so the user can stack up follow-ups without
-   *  waiting for each turn to finish. */
-  queue: string[];
+   *  waiting for each turn to finish. Each item carries the submit mode
+   *  so the queue panel can render the appropriate label. */
+  queue: QueuedItem[];
   /** Snapshot taken at the start of the current run (first iteration.started
    *  after idle). Used by run.result to compute the per-turn summary —
    *  duration is now-at minus this `at`, cost delta is the difference
@@ -96,8 +111,8 @@ interface ChatState {
   truncateAfter: (id: string) => void;
   addExecution: (exec: ToolExecution) => void;
   updateExecution: (id: string, updates: Partial<ToolExecution>) => void;
-  enqueue: (text: string) => void;
-  dequeue: () => string | null;
+  enqueue: (text: string, mode?: QueueMode) => void;
+  dequeue: () => QueuedItem | null;
   removeQueued: (idx: number) => void;
   clearQueue: () => void;
   setRunStart: (s: { at: number; cost: number } | null) => void;
@@ -280,7 +295,10 @@ export const useChatStore = create<ChatState>()(
         });
       },
 
-      enqueue: (text) => set((state) => ({ queue: [...state.queue, text] })),
+      enqueue: (text, mode = 'queue') =>
+        set((state) => ({
+          queue: [...state.queue, { text, mode, addedAt: Date.now() }],
+        })),
       dequeue: () => {
         const { queue } = get();
         if (queue.length === 0) return null;

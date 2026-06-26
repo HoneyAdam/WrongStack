@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { runChatSlashCommand, type RunChatSlashCommandOptions } from '../../src/components/ChatInput/slash-routing.js';
+import {
+  type RunChatSlashCommandOptions,
+  runChatSlashCommand,
+} from '../../src/components/ChatInput/slash-routing.js';
 import { streamCoalescer } from '../../src/lib/stream-coalescer.js';
 
 // Mock external store dependencies and downloadChatAsMarkdown
@@ -49,7 +52,9 @@ vi.mock('../../src/components/CommandPalette', () => ({
   downloadChatAsMarkdown: vi.fn(),
 }));
 
-function makeOptions(overrides: Partial<RunChatSlashCommandOptions> = {}): RunChatSlashCommandOptions {
+function makeOptions(
+  overrides: Partial<RunChatSlashCommandOptions> = {},
+): RunChatSlashCommandOptions {
   return {
     raw: '',
     addMessage: vi.fn(),
@@ -204,7 +209,13 @@ describe('runChatSlashCommand — /queue', () => {
   });
 
   it('shows queued items count and preview', () => {
-    const opts = makeOptions({ raw: '/queue', queue: ['first message', 'second'] });
+    const opts = makeOptions({
+      raw: '/queue',
+      queue: [
+        { text: 'first message', mode: 'btw', addedAt: 0 },
+        { text: 'second', mode: 'queue', addedAt: 1 },
+      ],
+    });
     expect(runChatSlashCommand(opts)).toBe(true);
     expect(opts.addMessage).toHaveBeenCalledWith(
       expect.objectContaining({ role: 'assistant', content: expect.stringContaining('2 queued') }),
@@ -246,7 +257,10 @@ describe('runChatSlashCommand — /f', () => {
     const opts = makeOptions({ raw: '/f' });
     expect(runChatSlashCommand(opts)).toBe(true);
     expect(opts.addMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ role: 'assistant', content: expect.stringContaining('F-key panels') }),
+      expect.objectContaining({
+        role: 'assistant',
+        content: expect.stringContaining('F-key panels'),
+      }),
     );
   });
 
@@ -308,7 +322,10 @@ describe('runChatSlashCommand — agent/autonomy commands', () => {
   it('/autonomy <mode> sends autonomy.switch', () => {
     const opts = makeOptions({ raw: '/autonomy auto' });
     expect(runChatSlashCommand(opts)).toBe(true);
-    expect(opts.client?.send).toHaveBeenCalledWith({ type: 'autonomy.switch', payload: { mode: 'auto' } });
+    expect(opts.client?.send).toHaveBeenCalledWith({
+      type: 'autonomy.switch',
+      payload: { mode: 'auto' },
+    });
   });
 
   it('/autonomy with no arg shows usage and does not send', () => {
@@ -348,7 +365,10 @@ describe('runChatSlashCommand — agent/autonomy commands', () => {
   it('/mode <name> sends mode.switch', () => {
     const opts = makeOptions({ raw: '/mode plan' });
     expect(runChatSlashCommand(opts)).toBe(true);
-    expect(opts.client?.send).toHaveBeenCalledWith({ type: 'mode.switch', payload: { id: 'plan' } });
+    expect(opts.client?.send).toHaveBeenCalledWith({
+      type: 'mode.switch',
+      payload: { id: 'plan' },
+    });
   });
 
   it('/mode with no arg lists modes', () => {
@@ -367,7 +387,10 @@ describe('runChatSlashCommand — agent/autonomy commands', () => {
   it('/working-dir <path> sends working_dir.set', () => {
     const opts = makeOptions({ raw: '/working-dir /tmp/x' });
     expect(runChatSlashCommand(opts)).toBe(true);
-    expect(opts.client?.send).toHaveBeenCalledWith({ type: 'working_dir.set', payload: { path: '/tmp/x' } });
+    expect(opts.client?.send).toHaveBeenCalledWith({
+      type: 'working_dir.set',
+      payload: { path: '/tmp/x' },
+    });
   });
 
   it('/working-dir with no arg shows current cwd', () => {
@@ -389,7 +412,11 @@ describe('runChatSlashCommand — agent/autonomy commands', () => {
     expect(mocks.setCurrentViewUI).toHaveBeenCalledWith('autophase');
   });
 
-  it.each(['pause', 'resume', 'stop'] as const)('/autophase %s sends the matching message', (sub) => {
+  it.each([
+    'pause',
+    'resume',
+    'stop',
+  ] as const)('/autophase %s sends the matching message', (sub) => {
     const opts = makeOptions({ raw: `/autophase ${sub}` });
     expect(runChatSlashCommand(opts)).toBe(true);
     expect(opts.client?.send).toHaveBeenCalledWith({ type: `autophase.${sub}`, payload: {} });
