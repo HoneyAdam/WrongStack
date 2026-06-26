@@ -1,7 +1,7 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { DefaultModelsRegistry, type CustomModelDefinition, type ModelsDevPayload } from '@wrongstack/core';
-import { describe, expect, it } from 'vitest';
+import { DefaultModelsRegistry, type CustomModelDefinition, type ModelsDevPayload, type ModelsRegistry } from '@wrongstack/core';
+import { describe, expect, it, vi } from 'vitest';
 import { capabilitiesFor } from '../src/capabilities.js';
 
 const SAMPLE: ModelsDevPayload = {
@@ -49,6 +49,47 @@ function reg() {
     cacheFile: path.join(os.tmpdir(), `wstack-cap-${Date.now()}.json`),
     seed: SAMPLE,
   });
+}
+
+function countingRegistry(): ModelsRegistry & {
+  getProvider: ReturnType<typeof vi.fn>;
+  getModel: ReturnType<typeof vi.fn>;
+  refresh: ReturnType<typeof vi.fn>;
+} {
+  const provider = {
+    id: 'anthropic',
+    name: 'Anthropic',
+    family: 'anthropic',
+    envVars: ['ANTHROPIC_API_KEY'],
+    models: [SAMPLE.anthropic.models['claude-sonnet-4-6']],
+  };
+  const model = {
+    providerId: 'anthropic',
+    modelId: 'claude-sonnet-4-6',
+    capabilities: {
+      tools: true,
+      vision: true,
+      reasoning: false,
+      maxContext: 200_000,
+      maxOutput: 64_000,
+    },
+  };
+
+  const registry = {
+    load: vi.fn(),
+    listProviders: vi.fn(),
+    suggestModel: vi.fn(),
+    ageSeconds: vi.fn(),
+    getProvider: vi.fn(async () => provider),
+    getModel: vi.fn(async () => model),
+    refresh: vi.fn(async () => SAMPLE),
+  } satisfies ModelsRegistry;
+
+  return registry as ModelsRegistry & {
+    getProvider: ReturnType<typeof vi.fn>;
+    getModel: ReturnType<typeof vi.fn>;
+    refresh: ReturnType<typeof vi.fn>;
+  };
 }
 
 describe('capabilitiesFor', () => {
@@ -178,5 +219,23 @@ describe('capabilitiesFor', () => {
     const c = await capabilitiesFor(reg(), 'anthropic', 'claude-sonnet-4-6', custom);
     // Custom wins over the catalog's 64_000
     expect(c.maxOutput).toBe(32_000);
+  });
+
+  it('memoizes per registry/provider/model and avoids repeated lookups until refresh', async () => {
+    const registry = countingRegistry();
+
+    const first = await capabilitiesFor(registry, 'anthropic', 'claude-sonnet-4-6');
+    const second = await capabilitiesFor(registry, 'anthropic', 'claude-sonnet-4-6');
+
+    expect(second).toBe(first);
+    expect(registry.getProvider).toHaveBeenCalledTimes(1);
+    expect(registry.getModel).toHaveBeenCalledTimes(1);
+
+    await registry.refresh();
+    const third = await capabilitiesFor(registry, 'anthropic', 'claude-sonnet-4-6');
+
+    expect(third).not.toBe(first);
+    expect(registry.getProvider).toHaveBeenCalledTimes(2);
+    expect(registry.getModel).toHaveBeenCalledTimes(2);
   });
 });

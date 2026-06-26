@@ -9,6 +9,21 @@ import { normalizeOpenAI } from './stop-reason.js';
 import { type ConvertOptions, messagesToOpenAI, toolsToOpenAI } from './tool-format/to-openai.js';
 import { WireAdapter, type WireAdapterStreamOptions } from './wire-adapter.js';
 
+interface StreamingArgBuffer {
+  chunks: string[];
+  length: number;
+}
+
+function appendArgChunk(buf: StreamingArgBuffer, chunk: string): void {
+  if (chunk.length === 0) return;
+  buf.chunks.push(chunk);
+  buf.length += chunk.length;
+}
+
+function joinArgBuffer(buf: StreamingArgBuffer): string {
+  return buf.chunks.length === 1 ? (buf.chunks[0] ?? '') : buf.chunks.join('');
+}
+
 export interface OpenAIProviderOptions {
   apiKey: string;
   baseUrl?: string | undefined;
@@ -201,7 +216,13 @@ async function* parseOpenAIStream(
   let thinkingOpen = false;
   const toolByIndex = new Map<
     number,
-    { id?: string | undefined; name?: string | undefined; argBuf: string; emittedStart: boolean; emittedArgLength: number }
+    {
+      id?: string | undefined;
+      name?: string | undefined;
+      argBuf: StreamingArgBuffer;
+      emittedStart: boolean;
+      emittedChunkIndex: number;
+    }
   >();
 
   for await (const msg of parseSSE(body)) {
@@ -274,9 +295,9 @@ async function* parseOpenAIStream(
           entry = {
             id: tc.id,
             name: tc.function?.name,
-            argBuf: '',
+            argBuf: { chunks: [], length: 0 },
             emittedStart: false,
-            emittedArgLength: 0,
+            emittedChunkIndex: 0,
           };
           toolByIndex.set(idx, entry);
         } else {
@@ -284,21 +305,21 @@ async function* parseOpenAIStream(
           if (tc.function?.name && !entry.name) entry.name = tc.function.name;
         }
         if (tc.function?.arguments) {
-          entry.argBuf += tc.function.arguments;
+          appendArgChunk(entry.argBuf, tc.function.arguments);
         }
         if (!entry.emittedStart && entry.id && entry.name) {
           entry.emittedStart = true;
           textOpen = false;
           yield { type: 'tool_use_start', id: entry.id, name: entry.name };
         }
-        if (entry.emittedStart && entry.id && entry.emittedArgLength < entry.argBuf.length) {
-          const partial = entry.argBuf.slice(entry.emittedArgLength);
-          entry.emittedArgLength = entry.argBuf.length;
-          yield {
-            type: 'tool_use_input_delta',
-            id: entry.id,
-            partial,
-          };
+        if (entry.emittedStart && entry.id && entry.emittedChunkIndex < entry.argBuf.chunks.length) {
+          for (; entry.emittedChunkIndex < entry.argBuf.chunks.length; entry.emittedChunkIndex++) {
+            yield {
+              type: 'tool_use_input_delta',
+              id: entry.id,
+              partial: entry.argBuf.chunks[entry.emittedChunkIndex] ?? '',
+            };
+          }
         }
       }
     }
@@ -353,7 +374,7 @@ async function* parseOpenAIStream(
     if (!entry.emittedStart) {
       yield { type: 'tool_use_start', id: entry.id, name: entry.name };
     }
-    const input = parseToolInput(entry.argBuf);
+    const input = parseToolInput(joinArgBuffer(entry.argBuf));
     yield { type: 'tool_use_stop', id: entry.id, input };
   }
   if (started) {

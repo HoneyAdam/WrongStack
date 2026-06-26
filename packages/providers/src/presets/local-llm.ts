@@ -27,6 +27,16 @@ import { normalizeOpenAI } from '../stop-reason.js';
 import { messagesToOpenAI, toolsToOpenAI } from '../tool-format/to-openai.js';
 import { defineWireFormat } from '../wire-format.js';
 
+function appendArgChunk(buf: StreamingArgBuffer, chunk: string): void {
+  if (chunk.length === 0) return;
+  buf.chunks.push(chunk);
+  buf.length += chunk.length;
+}
+
+function joinArgBuffer(buf: StreamingArgBuffer): string {
+  return buf.chunks.length === 1 ? (buf.chunks[0] ?? '') : buf.chunks.join('');
+}
+
 export interface LocalLlmPresetOptions {
   /** Provider id used for logging and the registry (e.g. 'ollama'). */
   id: string;
@@ -56,21 +66,25 @@ export interface LocalLlmPresetOptions {
   vision?: boolean | undefined;
 }
 
+interface StreamingArgBuffer {
+  chunks: string[];
+  length: number;
+}
+
+interface LocalLlmStreamToolState {
+  id?: string | undefined;
+  name?: string | undefined;
+  argBuf: StreamingArgBuffer;
+  emittedStart: boolean;
+  emittedChunkIndex: number;
+}
+
 interface LocalLlmStreamState {
   model: string;
   started: boolean;
   textOpen: boolean;
   thinkingOpen: boolean;
-  toolByIndex: Map<
-    number,
-    {
-      id?: string | undefined;
-      name?: string | undefined;
-      argBuf: string;
-      emittedStart: boolean;
-      emittedArgLength: number;
-    }
-  >;
+  toolByIndex: Map<number, LocalLlmStreamToolState>;
   usage: { input: number; output: number };
   stopReason: StopReason;
   /** Tracks whether the upstream emitted a terminal `data: [DONE]` or `finish_reason`. */
@@ -219,9 +233,9 @@ export function createLocalLlmPreset(opts: LocalLlmPresetOptions) {
             entry = {
               id: tc.id,
               name: tc.function?.name,
-              argBuf: '',
+              argBuf: { chunks: [], length: 0 },
               emittedStart: false,
-              emittedArgLength: 0,
+              emittedChunkIndex: 0,
             };
             state.toolByIndex.set(idx, entry);
           } else {
@@ -229,7 +243,7 @@ export function createLocalLlmPreset(opts: LocalLlmPresetOptions) {
             if (tc.function?.name && !entry.name) entry.name = tc.function.name;
           }
           if (tc.function?.arguments) {
-            entry.argBuf += tc.function.arguments;
+            appendArgChunk(entry.argBuf, tc.function.arguments);
           }
           if (!entry.emittedStart && entry.id && entry.name) {
             entry.emittedStart = true;
@@ -239,15 +253,15 @@ export function createLocalLlmPreset(opts: LocalLlmPresetOptions) {
           if (
             entry.emittedStart &&
             entry.id &&
-            entry.emittedArgLength < entry.argBuf.length
+            entry.emittedChunkIndex < entry.argBuf.chunks.length
           ) {
-            const partial = entry.argBuf.slice(entry.emittedArgLength);
-            entry.emittedArgLength = entry.argBuf.length;
-            out.push({
-              type: 'tool_use_input_delta',
-              id: entry.id,
-              partial,
-            });
+            for (; entry.emittedChunkIndex < entry.argBuf.chunks.length; entry.emittedChunkIndex++) {
+              out.push({
+                type: 'tool_use_input_delta',
+                id: entry.id,
+                partial: entry.argBuf.chunks[entry.emittedChunkIndex] ?? '',
+              });
+            }
           }
         }
       }
@@ -285,7 +299,7 @@ export function createLocalLlmPreset(opts: LocalLlmPresetOptions) {
         out.push({
           type: 'tool_use_stop',
           id: entry.id,
-          input: parseToolInput(entry.argBuf),
+          input: parseToolInput(joinArgBuffer(entry.argBuf)),
         });
       }
       // Even when the upstream emitted a clean stop, synthesize a

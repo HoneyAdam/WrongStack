@@ -34,6 +34,15 @@ export interface ResponsesTool {
 }
 
 const _toolCache = new WeakMap<Tool[], ResponsesTool[]>();
+const _stringifiedToolInputs = new WeakMap<Record<string, unknown>, string>();
+
+function stringifyToolInputOnce(input: Record<string, unknown>): string {
+  const hit = _stringifiedToolInputs.get(input);
+  if (hit) return hit;
+  const json = JSON.stringify(input);
+  _stringifiedToolInputs.set(input, json);
+  return json;
+}
 
 export function toolsToResponses(tools: Tool[]): ResponsesTool[] {
   const hit = _toolCache.get(tools);
@@ -112,7 +121,7 @@ export function messagesToResponsesInput(messages: Message[]): Record<string, un
           type: 'function_call',
           call_id: u.id,
           name: u.name,
-          arguments: JSON.stringify(u.input ?? {}),
+          arguments: stringifyToolInputOnce(u.input ?? {}),
         });
       }
     }

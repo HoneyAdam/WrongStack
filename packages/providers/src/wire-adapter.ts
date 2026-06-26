@@ -6,6 +6,8 @@ import { isNodeReadable } from './object-utils.js';
 import { Readable } from 'node:stream';
 import { toErrorMessage } from '@wrongstack/core/utils';
 
+const STREAM_DEBUG_TEXT_ENCODER = new TextEncoder();
+
 type Response2 = {
   ok: boolean;
   status: number;
@@ -193,7 +195,7 @@ export abstract class WireAdapter implements Provider {
         for await (const chunk of body) {
           const bytes: Uint8Array =
             typeof chunk === 'string'
-              ? new TextEncoder().encode(chunk)
+              ? STREAM_DEBUG_TEXT_ENCODER.encode(chunk)
               : new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
           const now = Date.now();
           logRawChunk(providerId, chunkIndex++, bytes, now - lastChunkTime);

@@ -12,6 +12,29 @@ import { messagesToOpenAI, toolsToOpenAI } from '../tool-format/to-openai.js';
 import { defineWireFormat } from '../wire-format.js';
 import { stripCacheControl } from '../object-utils.js';
 
+function appendArgChunk(buf: StreamingArgBuffer, chunk: string): void {
+  if (chunk.length === 0) return;
+  buf.chunks.push(chunk);
+  buf.length += chunk.length;
+}
+
+function joinArgBuffer(buf: StreamingArgBuffer): string {
+  return buf.chunks.length === 1 ? (buf.chunks[0] ?? '') : buf.chunks.join('');
+}
+
+interface StreamingArgBuffer {
+  chunks: string[];
+  length: number;
+}
+
+interface OpenAIStreamToolState {
+  id?: string | undefined;
+  name?: string | undefined;
+  argBuf: StreamingArgBuffer;
+  emittedStart: boolean;
+  emittedChunkIndex: number;
+}
+
 export interface OpenAIStreamState {
   model: string;
   usage: Usage;
@@ -19,10 +42,7 @@ export interface OpenAIStreamState {
   started: boolean;
   textOpen: boolean;
   thinkingOpen: boolean;
-  toolByIndex: Map<
-    number,
-    { id?: string | undefined; name?: string | undefined; argBuf: string; emittedStart: boolean; emittedArgLength: number }
-  >;
+  toolByIndex: Map<number, OpenAIStreamToolState>;
   finalEmitted: boolean;
 }
 
@@ -160,9 +180,9 @@ export const openaiWireFormat = defineWireFormat<OpenAIStreamState>({
           entry = {
             id: tc.id,
             name: tc.function?.name,
-            argBuf: '',
+            argBuf: { chunks: [], length: 0 },
             emittedStart: false,
-            emittedArgLength: 0,
+            emittedChunkIndex: 0,
           };
           state.toolByIndex.set(idx, entry);
         } else {
@@ -170,21 +190,21 @@ export const openaiWireFormat = defineWireFormat<OpenAIStreamState>({
           if (tc.function?.name && !entry.name) entry.name = tc.function.name;
         }
         if (tc.function?.arguments) {
-          entry.argBuf += tc.function.arguments;
+          appendArgChunk(entry.argBuf, tc.function.arguments);
         }
         if (!entry.emittedStart && entry.id && entry.name) {
           entry.emittedStart = true;
           state.textOpen = false;
           out.push({ type: 'tool_use_start', id: entry.id, name: entry.name });
         }
-        if (entry.emittedStart && entry.id && entry.emittedArgLength < entry.argBuf.length) {
-          const partial = entry.argBuf.slice(entry.emittedArgLength);
-          entry.emittedArgLength = entry.argBuf.length;
-          out.push({
-            type: 'tool_use_input_delta',
-            id: entry.id,
-            partial,
-          });
+        if (entry.emittedStart && entry.id && entry.emittedChunkIndex < entry.argBuf.chunks.length) {
+          for (; entry.emittedChunkIndex < entry.argBuf.chunks.length; entry.emittedChunkIndex++) {
+            out.push({
+              type: 'tool_use_input_delta',
+              id: entry.id,
+              partial: entry.argBuf.chunks[entry.emittedChunkIndex] ?? '',
+            });
+          }
         }
       }
     }
@@ -236,7 +256,7 @@ export const openaiWireFormat = defineWireFormat<OpenAIStreamState>({
       if (!entry.emittedStart) {
         out.push({ type: 'tool_use_start', id: entry.id, name: entry.name });
       }
-      const input = parseToolInput(entry.argBuf);
+      const input = parseToolInput(joinArgBuffer(entry.argBuf));
       out.push({ type: 'tool_use_stop', id: entry.id, input });
     }
     if (state.started) {

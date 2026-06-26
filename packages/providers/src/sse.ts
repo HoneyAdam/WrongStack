@@ -21,26 +21,84 @@ export interface SSEMessage {
 }
 
 /**
- * Cap on the unconsumed buffer (pending tail + chunk list). A malicious or
- * buggy upstream that sends megabytes without a newline could otherwise pin
- * a worker. 256 KB comfortably accommodates any sane SSE event while
- * ensuring we fail fast on garbage.
+ * Cap on the unconsumed buffer (pending tail). A malicious or buggy upstream
+ * that sends megabytes without a newline could otherwise pin a worker.
+ * 256 KB comfortably accommodates any sane SSE event while ensuring we fail
+ * fast on garbage.
  */
 const MAX_BUFFER_BYTES = 256 * 1024;
+const TEXT_DECODER = new TextDecoder('utf-8');
+const TEXT_ENCODER = new TextEncoder();
+
+function concatBytes(a: Uint8Array, b: Uint8Array): Uint8Array {
+  const out = new Uint8Array(new ArrayBuffer(a.length + b.length));
+  out.set(a);
+  out.set(b, a.length);
+  return out;
+}
+
+function decodeLine(bytes: Uint8Array): string {
+  return TEXT_DECODER.decode(bytes);
+}
+
+function findJsonSafeSplit(
+  payload: Uint8Array,
+  start: number,
+  maxLineBytes: number,
+): number {
+  const hardEnd = Math.min(start + maxLineBytes, payload.length);
+  let inString = false;
+  let escaped = false;
+  let lastSafe = -1;
+  // If the window ends inside a JSON string, extend the scan a little so the
+  // split lands *after* the closing quote rather than slicing through an
+  // escaped sequence. The extra scan is capped at 4 KiB to keep us safe
+  // against pathological or hostile payloads; if we still haven't found a
+  // close, we fall back to the byte boundary and let parseSSE surface the
+  // parse error with the original diagnostic intact.
+  let lastStringEnd = -1;
+
+  const step = (i: number): void => {
+    const byte = payload[i]!;
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (byte === 0x5c) {
+        escaped = true;
+      } else if (byte === 0x22) {
+        inString = false;
+        lastStringEnd = i + 1;
+      }
+      return;
+    }
+
+    if (byte === 0x22) {
+      inString = true;
+      return;
+    }
+    if (byte === 0x2c || byte === 0x7d || byte === 0x5d) {
+      lastSafe = i + 1;
+    }
+  };
+
+  for (let i = start; i < hardEnd; i++) step(i);
+
+  if (lastSafe <= start && inString) {
+    const cap = Math.min(payload.length, hardEnd + 4096);
+    for (let i = hardEnd; i < cap && inString; i++) step(i);
+  }
+
+  if (lastSafe > start) return lastSafe;
+  if (lastStringEnd > start) return lastStringEnd;
+  return hardEnd;
+}
 
 export async function* parseSSE(
   body: ReadableStream<Uint8Array> | NodeJS.ReadableStream | null,
 ): AsyncIterable<SSEMessage> {
   if (!body) return;
-  const decoder = new TextDecoder('utf-8');
-  // `pending` holds the unconsumed tail across chunks. We push new chunks
-  // onto `chunks` so we never re-copy already-buffered data; the tail is
-  // materialized into a single string for line scanning only when a
-  // newline arrives. The running `totalLen` tracks unconsumed bytes only,
-  // so the MAX_BUFFER_BYTES cap stays accurate after partial consumption.
-  const chunks: string[] = [];
-  let totalLen = 0;
-  let pending = '';
+
+  let pending: Uint8Array = new Uint8Array(0);
   let event = 'message';
   const dataLines: string[] = [];
 
@@ -55,7 +113,7 @@ export async function* parseSSE(
 
   const processLine = (line: string): SSEMessage | undefined => {
     if (line === '') return flush();
-    if (line.startsWith(':')) return undefined; // comment
+    if (line.startsWith(':')) return undefined;
     const colonIdx = line.indexOf(':');
     let field: string;
     let value: string;
@@ -69,89 +127,184 @@ export async function* parseSSE(
     }
     if (field === 'event') event = value || 'message';
     else if (field === 'data') dataLines.push(value);
-    // id / retry: ignored
     return undefined;
   };
 
-  // Append without copying the existing tail: push into the chunk list and
-  // bump the length counter. The tail is only joined when we need to scan it
-  // for newlines (i.e. when a newline arrives). Trailing CR (split across
-  // chunks) is handled by the per-line endsWith('\r') strip.
-  const appendChunk = (chunkStr: string): void => {
-    if (chunkStr.length === 0) return;
-    totalLen += chunkStr.length;
-    if (totalLen > MAX_BUFFER_BYTES) {
+  const consumeChunk = (chunk: Uint8Array): SSEMessage[] => {
+    if (chunk.length === 0) return [];
+
+    const out: SSEMessage[] = [];
+    let lineStart = 0;
+    for (let i = 0; i < chunk.length; i++) {
+      if (chunk[i] !== 0x0a) continue;
+      const isCr = i > lineStart && chunk[i - 1] === 0x0d;
+      const lineEnd = isCr ? i - 1 : i;
+      const lineBytes = chunk.subarray(lineStart, lineEnd);
+      const completeLine =
+        pending.length === 0 ? lineBytes : concatBytes(pending, lineBytes);
+      pending = new Uint8Array(0);
+      lineStart = i + 1;
+      const msg = processLine(decodeLine(completeLine));
+      if (msg) out.push(msg);
+    }
+
+    const tail = chunk.subarray(lineStart);
+    pending = pending.length === 0 ? new Uint8Array(tail) : concatBytes(pending, tail);
+    if (pending.length > MAX_BUFFER_BYTES) {
       throw new Error(
         `SSE: pending line exceeds ${MAX_BUFFER_BYTES} bytes — upstream is not framing events`,
       );
     }
-    if (pending.length === 0) {
-      pending = chunkStr;
-    } else {
-      chunks.push(pending);
-      pending = chunkStr;
-    }
-  };
-
-  // Scan only the unconsumed tail once per chunk. When the chunk list has
-  // more than one entry we materialize it once (this happens only on the
-  // chunk boundaries where lines actually cross, not every chunk). For the
-  // common case of one-line-at-a-time arrivals this stays a pure indexOf
-  // walk over a single string. Returns the parsed messages to the caller
-  // because arrow functions can't yield from an enclosing generator.
-  const consumeLines = (): SSEMessage[] => {
-    const tail = chunks.length === 0 ? pending : (chunks.shift() ?? '') + pending;
-    const buf = chunks.length === 0 ? tail : tail + chunks.join('');
-    chunks.length = 0;
-    pending = '';
-    const out: SSEMessage[] = [];
-    let start = 0;
-    const len = buf.length;
-    for (let i = 0; i < len; i++) {
-      if (buf.charCodeAt(i) !== 0x0a) continue;
-      const end = i > start && buf.charCodeAt(i - 1) === 0x0d ? i - 1 : i;
-      const line = buf.slice(start, end);
-      start = i + 1;
-      const msg = processLine(line);
-      if (msg) out.push(msg);
-    }
-    if (start < len) {
-      pending = buf.slice(start);
-      totalLen = pending.length;
-    } else {
-      totalLen = 0;
-    }
     return out;
   };
 
-  // Node.js Readable stream
+  const asBytes = (chunk: unknown): Uint8Array => {
+    if (typeof chunk === 'string') return TEXT_ENCODER.encode(chunk);
+    if (chunk instanceof Uint8Array) return chunk;
+    return new Uint8Array(
+      (chunk as Buffer).buffer,
+      (chunk as Buffer).byteOffset,
+      (chunk as Buffer).byteLength,
+    );
+  };
+
   if (isNodeReadable(body)) {
     for await (const chunk of body as NodeJS.ReadableStream) {
-      appendChunk(
-        typeof chunk === 'string' ? chunk : decoder.decode(chunk as Buffer, { stream: true }),
-      );
-      for (const msg of consumeLines()) yield msg;
+      for (const msg of consumeChunk(asBytes(chunk))) yield msg;
     }
   } else {
-    // Web ReadableStream
     const reader = (body as ReadableStream<Uint8Array>).getReader();
     try {
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
-        appendChunk(decoder.decode(value, { stream: true }));
-        for (const msg of consumeLines()) yield msg;
+        if (!value) continue;
+        for (const msg of consumeChunk(value)) yield msg;
       }
     } finally {
       reader.releaseLock();
     }
   }
-  // Flush any trailing buffered line (strip a final lone CR if the stream
-  // ended without a closing newline).
+
   if (pending.length > 0) {
-    const msg = processLine(pending.charCodeAt(pending.length - 1) === 0x0d ? pending.slice(0, -1) : pending);
+    const line =
+      pending[pending.length - 1] === 0x0d
+        ? decodeLine(pending.subarray(0, pending.length - 1))
+        : decodeLine(pending);
+    const msg = processLine(line);
     if (msg) yield msg;
   }
   const final = flush();
   if (final) yield final;
+}
+
+/**
+ * SSE line-folding transform stream.
+ *
+ * Wraps an upstream `ReadableStream<Uint8Array>` so oversized `data:` fields
+ * are split into multiple `data:` lines at JSON-safe boundaries. `parseSSE`
+ * rejoins those lines with `\n`, which preserves semantic content for the
+ * structured JSON envelopes emitted by provider streams while keeping the
+ * per-line pending buffer under the safety cap.
+ */
+export function createSseLineFoldingTransform(
+  source: ReadableStream<Uint8Array>,
+  maxLineBytes = 200 * 1024,
+): ReadableStream<Uint8Array> {
+  if (maxLineBytes <= 0) return source;
+
+  const encoder = new TextEncoder();
+  let lineBuf = new Uint8Array(0);
+
+  const emitFoldedDataLine = (
+    controller: ReadableStreamDefaultController<Uint8Array>,
+    payload: Uint8Array,
+  ): void => {
+    let offset = 0;
+    while (offset < payload.length) {
+      controller.enqueue(encoder.encode('data:'));
+      const end = findJsonSafeSplit(payload, offset, maxLineBytes);
+      controller.enqueue(payload.subarray(offset, end));
+      controller.enqueue(encoder.encode('\n'));
+      offset = end;
+    }
+  };
+
+  const emitLine = (
+    controller: ReadableStreamDefaultController<Uint8Array>,
+    line: Uint8Array,
+  ): void => {
+    const isData =
+      line.length >= 5 &&
+      line[0] === 0x64 &&
+      line[1] === 0x61 &&
+      line[2] === 0x74 &&
+      line[3] === 0x61 &&
+      line[4] === 0x3a;
+    if (isData && line.length > maxLineBytes) {
+      emitFoldedDataLine(controller, line.subarray(5));
+      return;
+    }
+    controller.enqueue(line);
+    controller.enqueue(encoder.encode('\n'));
+  };
+
+  const reader = source.getReader();
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      // Drain the source until we have emitted at least one chunk OR the
+      // source is exhausted. Without the inner loop, a chunk that only
+      // carries a partial line (no `\n` yet) would return from `pull`
+      // without enqueueing anything, and the consumer would block forever
+      // because Web Streams only re-invokes `pull` once the previous call
+      // made progress.
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) {
+          if (lineBuf.length > 0) {
+            controller.enqueue(lineBuf);
+          }
+          controller.close();
+          return;
+        }
+        if (!value || value.length === 0) continue;
+
+        let chunkStart = 0;
+        let emittedThisChunk = false;
+        for (let i = 0; i < value.length; i++) {
+          if (value[i] !== 0x0a) continue;
+          const isCr = i > chunkStart && value[i - 1] === 0x0d;
+          const lineEnd = isCr ? i - 1 : i;
+          const lineTail = value.subarray(chunkStart, lineEnd);
+          const line = lineBuf.length === 0 ? Uint8Array.from(lineTail) : concatBytes(lineBuf, lineTail);
+          lineBuf = new Uint8Array(0);
+          emitLine(controller, line);
+          emittedThisChunk = true;
+          chunkStart = i + 1;
+        }
+
+        if (chunkStart < value.length) {
+          const tail = value.subarray(chunkStart);
+          if (lineBuf.length === 0) {
+            const copiedTail = new Uint8Array(new ArrayBuffer(tail.length));
+            copiedTail.set(tail);
+            lineBuf = copiedTail;
+          } else {
+            const merged = concatBytes(lineBuf, tail);
+            lineBuf = new Uint8Array(new ArrayBuffer(merged.length));
+            lineBuf.set(merged);
+          }
+        }
+
+        // Made progress (at least one complete line was forwarded) — let the
+        // consumer drain before we go back to the source for more. Otherwise
+        // (no `\n` in this chunk, partial line still buffered) loop and read
+        // the next chunk synchronously to avoid the no-progress deadlock.
+        if (emittedThisChunk) return;
+      }
+    },
+    cancel(reason) {
+      return reader.cancel(reason);
+    },
+  });
 }

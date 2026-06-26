@@ -27,6 +27,15 @@ export interface OpenAIToolSchema {
  * the WeakMap, and the next call recomputes.
  */
 const _cache = new WeakMap<Tool[], OpenAIToolSchema[]>();
+const _stringifiedToolInputs = new WeakMap<Record<string, unknown>, string>();
+
+function stringifyToolInputOnce(input: Record<string, unknown>): string {
+  const hit = _stringifiedToolInputs.get(input);
+  if (hit) return hit;
+  const json = JSON.stringify(input);
+  _stringifiedToolInputs.set(input, json);
+  return json;
+}
 
 export function toolsToOpenAI(tools: Tool[]): OpenAIToolSchema[] {
   const hit = _cache.get(tools);
@@ -166,7 +175,7 @@ export function messagesToOpenAI(
       const toolCalls: OpenAIToolCall[] = toolUses.map((u) => ({
         id: u.id,
         type: 'function',
-        function: { name: u.name, arguments: JSON.stringify(u.input) },
+        function: { name: u.name, arguments: stringifyToolInputOnce(u.input) },
       }));
 
       const message: OpenAIMessage = { role: 'assistant' };

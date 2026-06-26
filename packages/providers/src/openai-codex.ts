@@ -30,7 +30,7 @@ import {
 import { parseToolInput } from './_tool-input.js';
 import { parseProviderHttpError } from './error-parse.js';
 import { capabilitiesForFamily } from './family-capabilities.js';
-import { parseSSE } from './sse.js';
+import { createSseLineFoldingTransform, parseSSE } from './sse.js';
 import { messagesToResponsesInput, toolsToResponses } from './tool-format/to-responses.js';
 import { WireAdapter, type WireAdapterStreamOptions } from './wire-adapter.js';
 
@@ -308,6 +308,21 @@ interface ResponsesUsage {
   input_tokens_details?: { cached_tokens?: number };
 }
 
+interface StreamingArgBuffer {
+  chunks: string[];
+  length: number;
+}
+
+function appendArgChunk(buf: StreamingArgBuffer, chunk: string): void {
+  if (chunk.length === 0) return;
+  buf.chunks.push(chunk);
+  buf.length += chunk.length;
+}
+
+function joinArgBuffer(buf: StreamingArgBuffer): string {
+  return buf.chunks.length === 1 ? (buf.chunks[0] ?? '') : buf.chunks.join('');
+}
+
 async function* parseCodexResponsesStream(
   body: ReadableStream<Uint8Array> | NodeJS.ReadableStream | null,
   fallbackModel: string,
@@ -320,7 +335,7 @@ async function* parseCodexResponsesStream(
 
   // Currently-streaming function call (Responses streams one item at a time).
   let toolCallId: string | undefined;
-  let toolArgBuf = '';
+  let toolArgBuf: StreamingArgBuffer = { chunks: [], length: 0 };
 
   const ensureStart = (): StreamEvent | undefined => {
     if (started) return undefined;
@@ -328,7 +343,19 @@ async function* parseCodexResponsesStream(
     return { type: 'message_start', model };
   };
 
-  for await (const msg of parseSSE(body)) {
+  // The ChatGPT-backend Responses API occasionally emits a single `data:`
+  // field (typically a `response.completed` envelope echoing large input, or
+  // a `function_call` with multi-KB JSON `arguments`) that exceeds parseSSE's
+  // 256 KiB safety cap. We fold any oversized `data:` line into multiple
+  // JSON-safe continuation lines before handing the stream to the parser —
+  // the parser then rejoins them via `dataLines.join('\n')` and JSON.parse
+  // reconstructs the original object. Wrapped only when the body is a Web
+  // ReadableStream; Node streams hit the existing path unchanged.
+  const foldedBody =
+    body && typeof (body as ReadableStream<Uint8Array>).getReader === 'function'
+      ? createSseLineFoldingTransform(body as ReadableStream<Uint8Array>)
+      : body;
+  for await (const msg of parseSSE(foldedBody)) {
     if (!msg.data || msg.data === '[DONE]') continue;
     const parsed = safeParse<Record<string, unknown>>(msg.data);
     if (!parsed.ok || !parsed.value) continue;
@@ -356,11 +383,12 @@ async function* parseCodexResponsesStream(
           yield { type: 'thinking_start' };
         } else if (item.type === 'function_call') {
           toolCallId = item.call_id ?? item.id ?? `call_${Math.random().toString(36).slice(2)}`;
-          toolArgBuf = item.arguments ?? '';
+          toolArgBuf = { chunks: [], length: 0 };
+          if (item.arguments) appendArgChunk(toolArgBuf, item.arguments);
           sawToolUse = true;
           yield { type: 'tool_use_start', id: toolCallId, name: item.name ?? 'unknown' };
-          if (toolArgBuf.length > 0) {
-            yield { type: 'tool_use_input_delta', id: toolCallId, partial: toolArgBuf };
+          for (const partial of toolArgBuf.chunks) {
+            yield { type: 'tool_use_input_delta', id: toolCallId, partial };
           }
         }
         // item.type === 'message' → text flows via output_text.delta
@@ -384,7 +412,7 @@ async function* parseCodexResponsesStream(
       case 'response.function_call_arguments.delta': {
         const delta = typeof evt['delta'] === 'string' ? (evt['delta'] as string) : '';
         if (toolCallId && delta) {
-          toolArgBuf += delta;
+          appendArgChunk(toolArgBuf, delta);
           yield { type: 'tool_use_input_delta', id: toolCallId, partial: delta };
         }
         break;
@@ -394,7 +422,9 @@ async function* parseCodexResponsesStream(
         // Final arguments authoritative — captured at output_item.done below.
         const args =
           typeof evt['arguments'] === 'string' ? (evt['arguments'] as string) : undefined;
-        if (args !== undefined) toolArgBuf = args;
+        if (args !== undefined) {
+          toolArgBuf = { chunks: [args], length: args.length };
+        }
         break;
       }
 
@@ -407,10 +437,10 @@ async function* parseCodexResponsesStream(
           yield { type: 'thinking_stop' };
         } else if (item.type === 'function_call') {
           const id = item.call_id ?? toolCallId ?? `call_${Math.random().toString(36).slice(2)}`;
-          const raw = item.arguments && item.arguments.length > 0 ? item.arguments : toolArgBuf;
+          const raw = item.arguments && item.arguments.length > 0 ? item.arguments : joinArgBuffer(toolArgBuf);
           yield { type: 'tool_use_stop', id, input: parseToolInput(raw || '{}') };
           toolCallId = undefined;
-          toolArgBuf = '';
+          toolArgBuf = { chunks: [], length: 0 };
         }
         break;
       }

@@ -1,6 +1,39 @@
 import type { Capabilities, CustomModelDefinition, ModelsRegistry } from '@wrongstack/core';
 import { capabilitiesForFamily } from './family-capabilities.js';
 
+const REGISTRY_CAP_CACHE = new WeakMap<ModelsRegistry, Map<string, Capabilities>>();
+const CUSTOM_MODEL_IDS = new WeakMap<Record<string, CustomModelDefinition>, number>();
+const WRAPPED_REFRESH = new WeakSet<ModelsRegistry>();
+let nextCustomModelId = 1;
+
+function customCacheKey(customModels?: Record<string, CustomModelDefinition>): string {
+  if (!customModels) return '';
+  let id = CUSTOM_MODEL_IDS.get(customModels);
+  if (id === undefined) {
+    id = nextCustomModelId++;
+    CUSTOM_MODEL_IDS.set(customModels, id);
+  }
+  return String(id);
+}
+
+function cacheKey(
+  providerId: string,
+  modelId: string,
+  customModels?: Record<string, CustomModelDefinition>,
+): string {
+  return `${providerId}\u0000${modelId}\u0000${customCacheKey(customModels)}`;
+}
+
+function ensureRefreshInvalidatesCache(registry: ModelsRegistry): void {
+  if (WRAPPED_REFRESH.has(registry)) return;
+  const originalRefresh = registry.refresh.bind(registry);
+  registry.refresh = async () => {
+    REGISTRY_CAP_CACHE.delete(registry);
+    return originalRefresh();
+  };
+  WRAPPED_REFRESH.add(registry);
+}
+
 /**
  * Resolve capabilities for a (provider, model) pair using the family default
  * as a baseline and overlaying per-model facts from the ModelsRegistry.
@@ -16,17 +49,30 @@ export async function capabilitiesFor(
   modelId: string,
   customModels?: Record<string, CustomModelDefinition>,
 ): Promise<Capabilities> {
+  ensureRefreshInvalidatesCache(registry);
+  const registryCache = REGISTRY_CAP_CACHE.get(registry) ?? new Map();
+  REGISTRY_CAP_CACHE.set(registry, registryCache);
+
+  const key = cacheKey(providerId, modelId, customModels);
+  const cached = registryCache.get(key);
+  if (cached) {
+    return cached;
+  }
+
   const provider = await registry.getProvider(providerId);
+  const model = await registry.getModel(providerId, modelId);
   const base = capabilitiesForFamily(provider?.family ?? 'unsupported');
 
   // User-defined custom model overrides take top priority when present.
   const customDef = customModels?.[modelId];
   const customCaps = customDef?.capabilities;
 
-  const model = await registry.getModel(providerId, modelId);
-
   // Without any model info at all, return base (possibly with custom overrides).
-  if (!model && !customCaps) return { ...base };
+  if (!model && !customCaps) {
+    const value = { ...base };
+    registryCache.set(key, value);
+    return value;
+  }
 
   // maxContext resolution:
   //  1. customCaps.maxContext              — user explicitly overrides
@@ -57,7 +103,7 @@ export async function capabilitiesFor(
   const modelVision = model?.capabilities.vision ?? false;
   const modelReasoning = model?.capabilities.reasoning ?? false;
 
-  return {
+  const value = {
     ...base,
     // Capability booleans: AND model facts with base unless custom overrides
     tools: customCaps?.tools ?? (modelTools && base.tools),
@@ -82,4 +128,6 @@ export async function capabilitiesFor(
     audio: customCaps?.audio ?? base.audio,
     multipleCompletions: customCaps?.multipleCompletions ?? base.multipleCompletions,
   };
+  registryCache.set(key, value);
+  return value;
 }

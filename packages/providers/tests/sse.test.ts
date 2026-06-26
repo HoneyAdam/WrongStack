@@ -1,7 +1,7 @@
 import type { StreamEvent } from '@wrongstack/core';
 import { describe, expect, it } from 'vitest';
 import { aggregateStream } from '../src/aggregate.js';
-import { parseSSE } from '../src/sse.js';
+import { createSseLineFoldingTransform, parseSSE } from '../src/sse.js';
 
 function bodyFrom(chunks: string[]): ReadableStream<Uint8Array> {
   const enc = new TextEncoder();
@@ -49,6 +49,21 @@ describe('parseSSE', () => {
     ]);
   });
 
+  it('handles UTF-8 code points split across chunks without corrupting lines', async () => {
+    const enc = new TextEncoder();
+    const full = enc.encode('data: 😀\n\n');
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(full.subarray(0, 7));
+        controller.enqueue(full.subarray(7));
+        controller.close();
+      },
+    });
+    const events = [];
+    for await (const msg of parseSSE(body)) events.push(msg);
+    expect(events).toEqual([{ event: 'message', data: '😀' }]);
+  });
+
   it('handles CRLF line endings', async () => {
     const body = bodyFrom(['event: x\r\ndata: y\r\n\r\n']);
     const events = [];
@@ -84,6 +99,71 @@ describe('parseSSE', () => {
     for await (const msg of parseSSE(body)) events.push(msg);
     expect(events).toHaveLength(1);
     expect(events[0]).toEqual({ event: 'web', data: 'streamed' });
+  });
+});
+
+async function readAll(rs: ReadableStream<Uint8Array>): Promise<string> {
+  const dec = new TextDecoder();
+  const reader = rs.getReader();
+  let out = '';
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) out += dec.decode(value, { stream: true });
+  }
+  return out;
+}
+
+describe('createSseLineFoldingTransform', () => {
+  it('passes small lines through unchanged', async () => {
+    const src = bodyFrom(['data: hello\n\n']);
+    const folded = createSseLineFoldingTransform(src, 200);
+    const out = await readAll(folded);
+    expect(out).toBe('data: hello\n\n');
+  });
+
+  it('folds a single oversized JSON data: line into multiple data: lines that parse back to the same object', async () => {
+    const bigPayload = {
+      items: Array.from({ length: 30_000 }, (_, i) => ({ id: i, text: 'x'.repeat(16) })),
+    };
+    const sse = `data: ${JSON.stringify(bigPayload)}\n\n`;
+    const src = bodyFrom([sse]);
+    const folded = createSseLineFoldingTransform(src, 200 * 1024);
+    const events: { event: string; data: string }[] = [];
+    for await (const msg of parseSSE(folded)) events.push(msg);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.event).toBe('message');
+    expect(JSON.parse(events[0]?.data ?? 'null')).toEqual(bigPayload);
+  });
+
+  it('never folds non-data fields (event:, id:, retry:, comments)', async () => {
+    // event:/id:/retry: lines must remain single-line per SSE spec.
+    const eventName = 'e'.repeat(300 * 1024);
+    const src = bodyFrom([`event: ${eventName}\ndata: short\n\n`]);
+    const folded = createSseLineFoldingTransform(src, 200 * 1024);
+    await expect(async () => {
+      for await (const _msg of parseSSE(folded)) {
+        // drain
+      }
+    }).rejects.toThrow(/pending line exceeds/);
+  });
+
+  it('folds JSON data: lines split across multiple chunks', async () => {
+    // Each individual chunk is small, but the line spans multiple chunks and
+    // still needs one safe fold before parseSSE consumes it.
+    const bigPayload = {
+      items: Array.from({ length: 6_500 }, (_, i) => ({ id: i, text: 'y'.repeat(16) })),
+    };
+    const json = JSON.stringify(bigPayload);
+    const splitAt = 120 * 1024;
+    const head = `data: ${json.slice(0, splitAt)}`;
+    const tail = json.slice(splitAt);
+    const src = bodyFrom([head, `${tail}\n\n`]);
+    const folded = createSseLineFoldingTransform(src, 150 * 1024);
+    const events: { event: string; data: string }[] = [];
+    for await (const msg of parseSSE(folded)) events.push(msg);
+    expect(events).toHaveLength(1);
+    expect(JSON.parse(events[0]?.data ?? 'null')).toEqual(bigPayload);
   });
 });
 

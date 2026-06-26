@@ -4,6 +4,7 @@ import { contentFromAnthropic } from '../src/tool-format/from-anthropic.js';
 import { contentFromOpenAI } from '../src/tool-format/from-openai.js';
 import { toolsToAnthropic } from '../src/tool-format/to-anthropic.js';
 import { messagesToOpenAI, toolsToOpenAI } from '../src/tool-format/to-openai.js';
+import { messagesToResponsesInput } from '../src/tool-format/to-responses.js';
 
 describe('tool-format conversions', () => {
   it('toolsToAnthropic passes name and schema', () => {
@@ -44,6 +45,24 @@ describe('tool-format conversions', () => {
     expect(out.some((m) => m.role === 'tool' && m.tool_call_id === 'u1')).toBe(true);
     const assistant = out.find((m) => m.role === 'assistant');
     expect(assistant?.tool_calls).toHaveLength(1);
+  });
+
+  it('reuses stringified tool inputs for identical object references across OpenAI and Responses adapters', () => {
+    const sharedInput = { path: 'a.ts' };
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'u1', name: 'read', input: sharedInput }],
+      },
+    ];
+
+    const openai = messagesToOpenAI(undefined, messages);
+    const responses = messagesToResponsesInput(messages);
+
+    const openAiArgs = openai[0]?.tool_calls?.[0]?.function.arguments;
+    const responsesArgs = responses[0]?.['arguments'];
+    expect(openAiArgs).toBe('{"path":"a.ts"}');
+    expect(responsesArgs).toBe('{"path":"a.ts"}');
   });
 
   it('messagesToOpenAI emits tool messages before user content in a mixed turn (DeepSeek adjacency)', () => {

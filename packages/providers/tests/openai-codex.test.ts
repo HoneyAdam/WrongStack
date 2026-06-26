@@ -154,6 +154,35 @@ describe('OpenAICodexProvider stream parsing', () => {
     expect(res.stopReason).toBe('tool_use');
     expect(res.usage).toMatchObject({ input: 8, output: 5, cacheRead: 2 });
   });
+
+  it('reconstructs streamed function-call arguments when output_item.done omits the final arguments field', async () => {
+    const sse = [
+      'data: {"type":"response.created","response":{"id":"r1","model":"gpt-5-codex"}}',
+      '',
+      'data: {"type":"response.output_item.added","item":{"type":"function_call","call_id":"call_late","name":"lookup"}}',
+      '',
+      'data: {"type":"response.function_call_arguments.delta","delta":"{\\"city\\":\\"NYC\\"}"}',
+      '',
+      'data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"call_late","name":"lookup"}}',
+      '',
+      'data: {"type":"response.completed","response":{"id":"r1","status":"completed","usage":{"input_tokens":1,"output_tokens":1}}}',
+      '',
+    ].join('\n');
+
+    const p = new OpenAICodexProvider({
+      credentials: { accessToken: fakeJwt('a'), expiresAt: Date.now() + 3_600_000 },
+      fetchImpl: (async () =>
+        new Response(sseBody(sse), { status: 200 })) as never as typeof fetch,
+    });
+    const res = await p.complete(baseReq, { signal: new AbortController().signal });
+
+    expect(res.content).toContainEqual({
+      type: 'tool_use',
+      id: 'call_late',
+      name: 'lookup',
+      input: { city: 'NYC' },
+    });
+  });
 });
 
 describe('OpenAICodexProvider token refresh', () => {
