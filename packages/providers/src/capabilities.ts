@@ -26,6 +26,10 @@ function cacheKey(
 
 function ensureRefreshInvalidatesCache(registry: ModelsRegistry): void {
   if (WRAPPED_REFRESH.has(registry)) return;
+  // Registries in tests (or minimal mocks) may not expose refresh; skip wrapping
+  // so the cache stays per-process for the lifetime of the registry. A real
+  // catalog refresh on such a registry would be a no-op anyway.
+  if (typeof registry.refresh !== 'function') return;
   const originalRefresh = registry.refresh.bind(registry);
   registry.refresh = async () => {
     REGISTRY_CAP_CACHE.delete(registry);
