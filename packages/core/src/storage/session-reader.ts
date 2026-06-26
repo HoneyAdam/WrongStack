@@ -1,3 +1,5 @@
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import { expectDefined } from '../utils/expect-defined.js';
 import type { ContentBlock } from '../types/blocks.js';
 import type {
@@ -10,21 +12,70 @@ import type {
   SessionSummaryLite,
 } from '../types/session-reader.js';
 import { compileUserRegex } from '../utils/regex-guard.js';
-import type { SessionEvent, SessionMetadata, SessionStore } from '../types/session.js';
+import type { SessionData, SessionEvent, SessionMetadata, SessionStore } from '../types/session.js';
 
 /**
  * L2-A: read-only view over a `SessionStore` with query, replay, search,
  * and export helpers. Implemented on top of the public `SessionStore`
  * surface so any concrete store can be inspected without re-implementation.
- *
- * The heavy operations re-parse the JSONL stream on every call — fine for
- * /resume and one-off analytics. Wrap with a memoizing decorator if needed.
  */
 export class DefaultSessionReader implements SessionReader {
   private readonly store: SessionStore;
+  private readonly eventCache = new Map<string, SessionData>();
+  private readonly eventCacheMtimes = new Map<string, number>();
+  private static readonly EVENT_CACHE_MAX_ENTRIES = 32;
 
   constructor(opts: DefaultSessionReaderOptions) {
     this.store = opts.store;
+  }
+
+  private async loadCachedSessionData(sessionId: string): Promise<SessionData> {
+    const storeWithPath = this.store as SessionStore & {
+      dir?: string | undefined;
+      clearLoadCache?: ((sessionId?: string | undefined) => void) | undefined;
+    };
+    const rootDir = storeWithPath.dir;
+    if (!rootDir) {
+      return await this.store.load(sessionId);
+    }
+    const sessionPath = path.join(rootDir, `${sessionId}.jsonl`);
+    let mtimeMs: number | null = null;
+    try {
+      const stat = await fs.stat(sessionPath);
+      mtimeMs = stat.mtimeMs;
+    } catch {
+      this.eventCache.delete(sessionId);
+      this.eventCacheMtimes.delete(sessionId);
+      return await this.store.load(sessionId);
+    }
+
+    const cachedMtime = this.eventCacheMtimes.get(sessionId);
+    const cachedData = this.eventCache.get(sessionId);
+    if (cachedData && cachedMtime === mtimeMs) {
+      this.eventCache.delete(sessionId);
+      this.eventCacheMtimes.delete(sessionId);
+      this.eventCache.set(sessionId, cachedData);
+      this.eventCacheMtimes.set(sessionId, mtimeMs);
+      return cachedData;
+    }
+
+    const data = await this.store.load(sessionId);
+    this.eventCache.delete(sessionId);
+    this.eventCacheMtimes.delete(sessionId);
+    this.eventCache.set(sessionId, data);
+    this.eventCacheMtimes.set(sessionId, mtimeMs);
+    while (this.eventCache.size > DefaultSessionReader.EVENT_CACHE_MAX_ENTRIES) {
+      const oldest = this.eventCache.keys().next().value;
+      if (oldest === undefined) break;
+      this.eventCache.delete(oldest);
+      this.eventCacheMtimes.delete(oldest);
+    }
+
+    if (data.metadata.endedAt) {
+      storeWithPath.clearLoadCache?.(sessionId);
+    }
+
+    return data;
   }
 
   async query(q: SessionQuery = {}): Promise<SessionSummaryLite[]> {
@@ -53,7 +104,7 @@ export class DefaultSessionReader implements SessionReader {
   }
 
   async *replay(sessionId: string): AsyncIterable<SessionEvent> {
-    const data = await this.store.load(sessionId);
+    const data = await this.loadCachedSessionData(sessionId);
     for (const e of data.events) yield e;
   }
 
@@ -124,7 +175,7 @@ export class DefaultSessionReader implements SessionReader {
     for (const id of ids) {
       let data;
       try {
-        data = await this.store.load(id);
+        data = await this.loadCachedSessionData(id);
       } catch {
         continue;
       }
@@ -149,7 +200,7 @@ export class DefaultSessionReader implements SessionReader {
   }
 
   async export(sessionId: string, opts: SessionExportOptions): Promise<string> {
-    const data = await this.store.load(sessionId);
+    const data = await this.loadCachedSessionData(sessionId);
     const includeTools = opts.includeTools ?? true;
     const includeDiagnostics = opts.includeDiagnostics ?? true;
 
@@ -182,7 +233,7 @@ export class DefaultSessionReader implements SessionReader {
   }
 
   async metadata(sessionId: string): Promise<SessionMetadata> {
-    const data = await this.store.load(sessionId);
+    const data = await this.loadCachedSessionData(sessionId);
     return data.metadata;
   }
 }

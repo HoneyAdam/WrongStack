@@ -74,13 +74,19 @@ export interface ReplayLogStoreOptions {
   traceId?: string;
 }
 
+interface ReplayEntryLocation {
+  entry?: ReplayEntry;
+  offset: number;
+  length: number;
+}
+
 export class ReplayLogStore {
   private readonly dir: string;
   private readonly events: EventBus | undefined;
   private readonly traceId: string | undefined;
   private readonly writeChains = new Map<string, Promise<void>>();
-  /** Per-session hash → entry index, kept in memory after the first load. */
-  private readonly cache = new Map<string, Map<string, ReplayEntry>>();
+  /** Per-session hash → on-disk location, with lazy entry hydration. */
+  private readonly cache = new Map<string, Map<string, ReplayEntryLocation>>();
   /** Per-session entry count on disk, to detect when compaction is needed. */
   private readonly diskCount = new Map<string, number>();
   private readonly maxEntries: number;
@@ -134,8 +140,16 @@ export class ReplayLogStore {
             // (atomicWrite of the entire file) on every single record, which
             // was quadratic in session length — a 1000-call session rewrote
             // a multi-MB file 1000 times.
-            await fs.appendFile(fp, JSON.stringify(entry) + '\n', 'utf8');
-            cache.set(hash, entry);
+            const line = JSON.stringify(entry) + '\n';
+            let offset = 0;
+            try {
+              const stat = await fs.stat(fp);
+              offset = stat.size;
+            } catch (err) {
+              if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+            }
+            await fs.appendFile(fp, line, 'utf8');
+            cache.set(hash, { entry, offset, length: Buffer.byteLength(line, 'utf8') });
             this.diskCount.set(input.sessionId, currentCount + 1);
             this.events?.emit('storage.write', {
               sessionId: input.sessionId,
@@ -155,8 +169,13 @@ export class ReplayLogStore {
           const all = await this.readAll(input.sessionId);
           all.push(entry);
           const keep = all.slice(-this.maxEntries);
-          const refreshed = new Map<string, ReplayEntry>();
-          for (const e of keep) refreshed.set(e.hash, e);
+          const refreshed = new Map<string, ReplayEntryLocation>();
+          let offset = 0;
+          for (const e of keep) {
+            const line = JSON.stringify(e) + '\n';
+            refreshed.set(e.hash, { entry: e, offset, length: Buffer.byteLength(line, 'utf8') });
+            offset += Buffer.byteLength(line, 'utf8');
+          }
           this.cache.set(input.sessionId, refreshed);
           this.diskCount.set(input.sessionId, keep.length);
           await this.writeAll(input.sessionId, keep, 'compact');
@@ -191,6 +210,8 @@ export class ReplayLogStore {
     const t0 = Date.now();
     try {
       const cache = await this.ensureCache(sessionId);
+      const location = cache.get(hash);
+      const entry = location ? await this.hydrateEntry(sessionId, hash, location) : null;
       this.events?.emit('storage.read', {
         sessionId,
         store: 'replay',
@@ -200,7 +221,7 @@ export class ReplayLogStore {
         durationMs: Date.now() - t0,
         ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
       });
-      return cache.get(hash) ?? null;
+      return entry;
     } catch (err) {
       this.events?.emit('storage.read', {
         sessionId,
@@ -222,6 +243,10 @@ export class ReplayLogStore {
     const t0 = Date.now();
     try {
       const cache = await this.ensureCache(sessionId);
+      const entries: ReplayEntry[] = [];
+      for (const [hash, location] of cache) {
+        entries.push(await this.hydrateEntry(sessionId, hash, location));
+      }
       const durationMs = Date.now() - t0;
       this.events?.emit('storage.read', {
         sessionId,
@@ -232,7 +257,7 @@ export class ReplayLogStore {
         durationMs,
         ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
       });
-      return [...cache.values()];
+      return entries;
     } catch (err) {
       const durationMs = Date.now() - t0;
       this.events?.emit('storage.read', {
@@ -339,6 +364,21 @@ export class ReplayLogStore {
     return count;
   }
 
+  private parseReplayLine(line: string): ReplayEntry | null {
+    try {
+      const parsed = safeParse<
+        { version?: number | undefined; entry?: ReplayEntry | undefined } & ReplayEntry
+      >(line);
+      if (!parsed.ok || !parsed.value) return null;
+      if ('entry' in parsed.value && parsed.value.entry) {
+        return parsed.value.entry;
+      }
+      return parsed.value;
+    } catch {
+      return null;
+    }
+  }
+
   private async readAll(sessionId: string): Promise<ReplayEntry[]> {
     const fp = this.filePath(sessionId);
     try {
@@ -346,29 +386,12 @@ export class ReplayLogStore {
       const out: ReplayEntry[] = [];
       for (const line of raw.split('\n')) {
         if (!line.trim()) continue;
-        try {
-          const parsed = safeParse<
-            { version?: number | undefined; entry?: ReplayEntry | undefined } & ReplayEntry
-          >(line);
-          if (!parsed.ok || !parsed.value) continue;
-          // Forward-compat: v1 stores entries one per line, no envelope.
-          // A future "v2" could wrap with `{version, entries:[...]}`;
-          // the loader would then branch on `parsed.version`.
-          if ('entry' in parsed.value && parsed.value.entry) {
-            out.push(parsed.value.entry);
-          } else {
-            out.push(parsed.value);
-          }
-        } catch {
-          // Skip a corrupt line — annotations-store and other sidecar
-          // stores take the same approach (meta-data, not fatal).
-        }
+        const parsed = this.parseReplayLine(line);
+        if (parsed) out.push(parsed);
       }
       return out;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
-      // Non-ENOENT errors (EACCES, ENOSPC, etc.) are real I/O failures —
-      // re-throw so callers can emit storage.error.
       throw err;
     }
   }
@@ -398,15 +421,85 @@ export class ReplayLogStore {
     void FILE_VERSION;
   }
 
-  private async ensureCache(sessionId: string): Promise<Map<string, ReplayEntry>> {
+  private async ensureCache(sessionId: string): Promise<Map<string, ReplayEntryLocation>> {
     let cache = this.cache.get(sessionId);
     if (cache) return cache;
-    const all = await this.readAll(sessionId);
+
+    const fp = this.filePath(sessionId);
     cache = new Map();
-    for (const e of all) cache.set(e.hash, e);
+    try {
+      const handle = await fs.open(fp, 'r');
+      const CHUNK = 64 * 1024;
+      const buffer = Buffer.alloc(CHUNK);
+      let leftover = '';
+      let leftoverOffset = 0;
+      let fileOffset = 0;
+      try {
+        while (true) {
+          const { bytesRead } = await handle.read(buffer, 0, CHUNK, fileOffset);
+          if (bytesRead === 0) break;
+          const chunk = buffer.subarray(0, bytesRead).toString('utf8');
+          const text = leftover + chunk;
+          let lineStart = leftoverOffset;
+          let searchFrom = 0;
+          while (true) {
+            const newlineIndex = text.indexOf('\n', searchFrom);
+            if (newlineIndex === -1) break;
+            const line = text.slice(searchFrom, newlineIndex);
+            const lineLength = Buffer.byteLength(text.slice(searchFrom, newlineIndex + 1), 'utf8');
+            if (line.trim()) {
+              const entry = this.parseReplayLine(line);
+              if (entry) {
+                cache.set(entry.hash, { offset: lineStart, length: lineLength });
+              }
+            }
+            lineStart += lineLength;
+            searchFrom = newlineIndex + 1;
+          }
+          leftover = text.slice(searchFrom);
+          leftoverOffset = lineStart;
+          fileOffset += bytesRead;
+        }
+        if (leftover.trim()) {
+          const entry = this.parseReplayLine(leftover);
+          if (entry) {
+            cache.set(entry.hash, { offset: leftoverOffset, length: Buffer.byteLength(leftover, 'utf8') });
+          }
+        }
+      } finally {
+        await handle.close();
+      }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    }
+
     this.cache.set(sessionId, cache);
-    this.diskCount.set(sessionId, all.length);
+    this.diskCount.set(sessionId, cache.size);
     return cache;
+  }
+
+  private async hydrateEntry(
+    sessionId: string,
+    hash: string,
+    location: ReplayEntryLocation,
+  ): Promise<ReplayEntry> {
+    if (location.entry) return location.entry;
+
+    const fp = this.filePath(sessionId);
+    const handle = await fs.open(fp, 'r');
+    try {
+      const buffer = Buffer.alloc(location.length);
+      const { bytesRead } = await handle.read(buffer, 0, location.length, location.offset);
+      const line = buffer.subarray(0, bytesRead).toString('utf8').trimEnd();
+      const entry = this.parseReplayLine(line);
+      if (!entry) {
+        throw new Error(`Replay entry ${hash} is unreadable`);
+      }
+      location.entry = entry;
+      return entry;
+    } finally {
+      await handle.close();
+    }
   }
 
   private enqueue(sessionId: string, fn: () => Promise<void>): Promise<void> {

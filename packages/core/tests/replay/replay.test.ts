@@ -219,6 +219,19 @@ describe('ReplayLogStore', () => {
     expect(entries).toHaveLength(N);
   });
 
+  it('lookup hydrates only the matched entry instead of reading the whole file', async () => {
+    const reqA = makeRequest({ messages: [{ role: 'user', content: [{ type: 'text', text: 'a' }] }] });
+    const reqB = makeRequest({ messages: [{ role: 'user', content: [{ type: 'text', text: 'b' }] }] });
+    const hashA = await store.record({ sessionId: 's1', request: reqA, response: makeResponse({ content: [{ type: 'text', text: 'first' }] }) });
+    await store.record({ sessionId: 's1', request: reqB, response: makeResponse({ content: [{ type: 'text', text: 'second' }] }) });
+
+    const readFileSpy = vi.spyOn(fs, 'readFile');
+    const entry = await store.lookup('s1', hashA);
+
+    expect(entry?.response.content[0]).toMatchObject({ text: 'first' });
+    expect(readFileSpy).not.toHaveBeenCalled();
+  });
+
   it('appends to file rather than rewriting entire file on each record', async () => {
     for (let i = 0; i < 5; i++) {
       await store.record({
@@ -290,16 +303,14 @@ describe('ReplayLogStore', () => {
   it('emits storage.read with outcome failure when load() encounters an unreadable file', async () => {
     const events: EventBus = { emit: vi.fn() } as never;
     const loggedStore = new ReplayLogStore({ dir, events });
-    // Write a valid file to disk using the real fs (bypass cache).  Then
-    // mock readFile to throw so load() emits storage.error.
     const realFs = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
     await realFs.writeFile(
       path.join(dir, 's1.replay.jsonl'),
       '{"hash":"sha256:' + '0'.repeat(64) + '","ts":"2026-01-01T00:00:00Z","request":{"model":"m","messages":[],"maxTokens":1},"response":{"content":[],"stopReason":"end_turn","usage":{"input":0,"output":0},"model":"m"}}\n',
       'utf8',
     );
-    fs.readFile.mockRejectedValueOnce(
-      Object.assign(new Error('Permission denied'), { code: 'EACCES' }),
+    const openSpy = vi.spyOn(fs, 'open').mockRejectedValueOnce(
+      Object.assign(new Error('Permission denied'), { code: 'EACCES' }) as never,
     );
     try {
       await expect(loggedStore.load('s1')).rejects.toThrow('Permission denied');
@@ -311,7 +322,7 @@ describe('ReplayLogStore', () => {
         error: expect.stringContaining('EACCES'),
       }));
     } finally {
-      fs.readFile.mockReset();
+      openSpy.mockRestore();
     }
   });
 
@@ -380,18 +391,24 @@ describe('ReplayLogStore', () => {
   it('emits storage.read with outcome failure when lookup() encounters an unreadable file', async () => {
     const events: EventBus = { emit: vi.fn() } as never;
     const loggedStore = new ReplayLogStore({ dir, events });
-    // Write to real disk using vi.importActual (bypasses in-memory cache).
+    const req = makeRequest();
+    const hash = hashRequest(req);
     const realFs = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
     await realFs.writeFile(
       path.join(dir, 's1.replay.jsonl'),
-      '{"hash":"sha256:' + '0'.repeat(64) + '","ts":"2026-01-01T00:00:00Z","request":{"model":"m","messages":[],"maxTokens":1},"response":{"content":[],"stopReason":"end_turn","usage":{"input":0,"output":0},"model":"m"}}\n',
+      JSON.stringify({
+        hash,
+        ts: '2026-01-01T00:00:00Z',
+        request: { model: 'm', messages: [], maxTokens: 1 },
+        response: { content: [], stopReason: 'end_turn', usage: { input: 0, output: 0 }, model: 'm' },
+      }) + '\n',
       'utf8',
     );
-    fs.readFile.mockRejectedValueOnce(
-      Object.assign(new Error('EACCES permission denied'), { code: 'EACCES' }),
+    const openSpy = vi.spyOn(fs, 'open').mockRejectedValueOnce(
+      Object.assign(new Error('EACCES permission denied'), { code: 'EACCES' }) as never,
     );
     try {
-      await expect(loggedStore.lookup('s1', 'sha256:0000')).rejects.toThrow('EACCES');
+      await expect(loggedStore.lookup('s1', hash)).rejects.toThrow('EACCES');
       expect(events.emit).toHaveBeenCalledWith('storage.read', expect.objectContaining({
         store: 'replay',
         operation: 'lookup',
@@ -399,7 +416,7 @@ describe('ReplayLogStore', () => {
         error: expect.stringContaining('EACCES'),
       }));
     } finally {
-      fs.readFile.mockReset();
+      openSpy.mockRestore();
     }
   });
 });

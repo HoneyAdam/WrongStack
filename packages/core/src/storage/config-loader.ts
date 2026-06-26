@@ -593,6 +593,11 @@ export interface ConfigLoaderOptions {
   traceId?: string;
 }
 
+interface MemoizedConfigSource {
+  mtimeMs: number | null;
+  value: PartialConfig;
+}
+
 export class DefaultConfigLoader implements ConfigLoader {
   private readonly paths: WstackPaths;
   private readonly strict: boolean;
@@ -600,6 +605,7 @@ export class DefaultConfigLoader implements ConfigLoader {
   private readonly extraSources: ConfigSource[];
   private readonly events: EventBus | undefined;
   private readonly traceId: string | undefined;
+  private readonly jsonCache = new Map<string, MemoizedConfigSource>();
 
   constructor(opts: ConfigLoaderOptions) {
     this.paths = opts.paths;
@@ -932,14 +938,44 @@ export class DefaultConfigLoader implements ConfigLoader {
   }
 
   private async readJson(file: string): Promise<PartialConfig> {
-    let raw: string;
     const t0 = Date.now();
+    let mtimeMs: number | null = null;
+    try {
+      const stat = await fs.stat(file);
+      mtimeMs = stat.mtimeMs;
+      const cached = this.jsonCache.get(file);
+      if (cached && cached.mtimeMs === mtimeMs) {
+        return structuredClone(cached.value);
+      }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        this.jsonCache.set(file, { mtimeMs: null, value: {} });
+        return {};
+      }
+      this.events?.emit('storage.read', {
+        sessionId: '~config~',
+        store: 'config',
+        filePath: file,
+        operation: 'read_json',
+        outcome: 'failure',
+        durationMs: Date.now() - t0,
+        error: storageErrorString(err),
+        ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
+      });
+      console.warn(JSON.stringify({
+        level: 'warn',
+        event: 'config.read_failed',
+        path: file,
+        message: toErrorMessage(err),
+        timestamp: new Date().toISOString(),
+      }));
+      return {};
+    }
+
+    let raw: string;
     try {
       raw = await fs.readFile(file, 'utf8');
     } catch (err) {
-      // Missing file is the common case (per-project local config rarely
-      // exists at start). Surface anything else (EACCES, EISDIR) so a
-      // mis-permissioned config doesn't silently fall back to defaults.
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
         this.events?.emit('storage.read', {
           sessionId: '~config~',
@@ -959,13 +995,11 @@ export class DefaultConfigLoader implements ConfigLoader {
           timestamp: new Date().toISOString(),
         }));
       }
+      this.jsonCache.set(file, { mtimeMs: null, value: {} });
       return {};
     }
     const parsed = safeParse<PartialConfig>(raw);
     if (!parsed.ok || !parsed.value) {
-      // The file exists but isn't valid JSON. Don't silently reset to
-      // defaults — that's hours of debug timesink for users who'd typo'd
-      // their config. Warn loudly and keep the in-memory defaults.
       this.events?.emit('storage.read', {
         sessionId: '~config~',
         store: 'config',
@@ -985,6 +1019,7 @@ export class DefaultConfigLoader implements ConfigLoader {
       }));
       return {};
     }
+    this.jsonCache.set(file, { mtimeMs, value: structuredClone(parsed.value) });
     return parsed.value;
   }
 

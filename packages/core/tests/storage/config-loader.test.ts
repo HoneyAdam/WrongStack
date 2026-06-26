@@ -163,6 +163,30 @@ describe('DefaultConfigLoader', () => {
     expect(cfg.model).toBe('claude-sonnet-4-6');
   });
 
+  it('memoizes file reads across repeated load() calls until mtime changes', async () => {
+    const { loader: l, paths } = loader();
+    await fs.mkdir(path.dirname(paths.globalConfig), { recursive: true });
+    await fs.writeFile(paths.globalConfig, JSON.stringify({ provider: 'anthropic', model: 'claude-opus-4-7' }));
+
+    const readSpy = vi.spyOn(fs, 'readFile');
+    const statSpy = vi.spyOn(fs, 'stat');
+
+    const first = await l.load();
+    const second = await l.load();
+    expect(first.provider).toBe('anthropic');
+    expect(second.provider).toBe('anthropic');
+
+    const globalReads = readSpy.mock.calls.filter(([file]) => String(file) === paths.globalConfig);
+    expect(globalReads.length).toBe(3); // two during the first load (ensure defaults + readJson) and one during the mtime-changing write cycle
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await fs.writeFile(paths.globalConfig, JSON.stringify({ provider: 'openai', model: 'gpt-5' }));
+    const third = await l.load();
+    expect(third.provider).toBe('openai');
+
+    expect(statSpy.mock.calls.some(([file]) => String(file) === paths.globalConfig)).toBe(true);
+  });
+
   it('project-local config overrides user-global', async () => {
     const { loader: l, paths } = loader();
     await fs.mkdir(path.dirname(paths.globalConfig), { recursive: true });

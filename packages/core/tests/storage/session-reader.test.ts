@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DefaultSessionReader } from '../../src/storage/session-reader.js';
 import { DefaultSessionStore } from '../../src/storage/session-store.js';
 
@@ -212,6 +212,26 @@ describe('DefaultSessionReader (L2-A)', () => {
     const hits = await reader.search({ query: 'foo' }, 'b');
     expect(hits).toHaveLength(1);
     expect(hits[0]!.sessionId).toBe('b');
+  });
+
+  it('reuses cached session data for replay/metadata/export on closed sessions', async () => {
+    await seedSession(dir, 'cache-me', {
+      model: 'm',
+      provider: 'p',
+      startedAt: '2026-01-01T00:00:00.000Z',
+      title: 'cached title',
+      body: 'cached body',
+    });
+
+    const loadSpy = vi.spyOn(store, 'load');
+
+    const replayed = [];
+    for await (const event of reader.replay('cache-me')) replayed.push(event.type);
+    expect(replayed).toContain('session_end');
+    await reader.metadata('cache-me');
+    await reader.export('cache-me', { format: 'text' });
+
+    expect(loadSpy).toHaveBeenCalledTimes(1);
   });
 
   it('export markdown renders user/assistant turns', async () => {

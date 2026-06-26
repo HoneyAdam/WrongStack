@@ -63,6 +63,11 @@ interface DirectorySummaryCandidate {
   needsBackfill: boolean;
 }
 
+interface ShardManifestEntry {
+  summaries: SessionSummary[];
+  ids: string[];
+}
+
 export class DefaultSessionStore implements SessionStore {
   private readonly dir: string;
   private readonly events?: EventBus | undefined;
@@ -80,6 +85,7 @@ export class DefaultSessionStore implements SessionStore {
    */
   private readonly _loadCache = new Map<string, LoadCacheEntry>();
   private _indexCache: IndexCacheEntry | null = null;
+  private readonly shardManifestCache = new Map<string, ShardManifestEntry>();
   private static readonly LOAD_CACHE_MAX_ENTRIES = 50;
   private static readonly LIST_SCAN_CONCURRENCY = 32;
 
@@ -168,6 +174,19 @@ export class DefaultSessionStore implements SessionStore {
   /** Join session ID to its absolute path within the store directory. */
   private sessionPath(id: string, ext: '.jsonl' | '.summary.json'): string {
     return path.join(this.dir, `${id}${ext}`);
+  }
+
+  private shardManifestPath(shardKey: string): string {
+    return shardKey ? path.join(this.dir, shardKey, '_manifest.json') : path.join(this.dir, '_manifest.json');
+  }
+
+  private shardKeyForSessionId(id: string): string {
+    const dirName = path.dirname(id);
+    return dirName === '.' ? '' : dirName;
+  }
+
+  private invalidateShardManifestBySessionId(id: string): void {
+    this.shardManifestCache.delete(this.shardKeyForSessionId(id));
   }
 
   /**
@@ -608,6 +627,7 @@ export class DefaultSessionStore implements SessionStore {
       const line = JSON.stringify(summary) + '\n';
       await fsp.appendFile(this.indexFile, line, 'utf8');
       this._indexCache = null;
+      this.invalidateShardManifestBySessionId(summary.id);
       this.indexAppendCount++;
       // Auto-compact the index periodically to remove tombstones and duplicates.
       if (this.indexAppendCount >= DefaultSessionStore.COMPACT_EVERY) {
@@ -626,6 +646,7 @@ export class DefaultSessionStore implements SessionStore {
       const line = JSON.stringify({ action: 'delete', id }) + '\n';
       await fsp.appendFile(this.indexFile, line, 'utf8');
       this._indexCache = null;
+      this.invalidateShardManifestBySessionId(id);
       this.indexAppendCount++;
     } catch {
       // best-effort
@@ -730,7 +751,66 @@ export class DefaultSessionStore implements SessionStore {
   }
 
   private async listFromDirectoryScan(limit: number): Promise<SessionSummary[]> {
-    const refs = await this.collectSessionFiles(this.dir);
+    const shardKeys = await this.collectShardKeys();
+    const shardEntries = await mapWithConcurrency(
+      shardKeys,
+      DefaultSessionStore.LIST_SCAN_CONCURRENCY,
+      async (shardKey) => await this.readOrBuildShardManifest(shardKey),
+    );
+
+    const out: DirectorySummaryCandidate[] = [];
+    for (const entry of shardEntries) {
+      for (const summary of entry.summaries) {
+        out.push({ summary, needsBackfill: false });
+      }
+    }
+    out.sort((a, b) => compareSessionSummaries(a.summary, b.summary));
+
+    const selected = out.slice(0, limit);
+    const summaries = await mapWithConcurrency(
+      selected,
+      Math.min(DefaultSessionStore.LIST_SCAN_CONCURRENCY, Math.max(1, limit)),
+      async (candidate): Promise<SessionSummary | null> => candidate.summary,
+    );
+    return summaries.filter((s): s is SessionSummary => s !== null);
+  }
+
+  private async collectShardKeys(): Promise<string[]> {
+    let entries: Dirent[];
+    try {
+      entries = await fsp.readdir(this.dir, { withFileTypes: true });
+    } catch {
+      return [''];
+    }
+
+    const shardKeys = [''];
+    for (const entry of entries) {
+      if (entry.name.startsWith('.') && entry.name !== '.wrongstack') continue;
+      if (entry.name === 'shared' || entry.name === 'subagents' || entry.name === 'attachments') continue;
+      if (entry.isDirectory()) shardKeys.push(entry.name);
+    }
+    return shardKeys;
+  }
+
+  private async readOrBuildShardManifest(shardKey: string): Promise<ShardManifestEntry> {
+    const cached = this.shardManifestCache.get(shardKey);
+    if (cached) return cached;
+
+    const manifestPath = this.shardManifestPath(shardKey);
+    try {
+      const raw = await fsp.readFile(manifestPath, 'utf8');
+      const parsed = JSON.parse(raw) as ShardManifestEntry;
+      const entry: ShardManifestEntry = {
+        summaries: Array.isArray(parsed.summaries) ? parsed.summaries : [],
+        ids: Array.isArray(parsed.ids) ? parsed.ids : [],
+      };
+      this.shardManifestCache.set(shardKey, entry);
+      return entry;
+    } catch {
+      // build below
+    }
+
+    const refs = await this.collectSessionFilesInShard(shardKey);
     const candidates = await mapWithConcurrency(
       refs,
       DefaultSessionStore.LIST_SCAN_CONCURRENCY,
@@ -738,22 +818,27 @@ export class DefaultSessionStore implements SessionStore {
         const manifest = await this.readSummaryManifest(ref.id);
         if (manifest) return { summary: manifest, needsBackfill: false };
         const summary = await this.summaryHeaderFor(ref);
-        return summary ? { summary, needsBackfill: true } : null;
+        if (!summary) return null;
+        const hydrated = await this.summaryFor(summary.id).catch(() => summary);
+        return { summary: hydrated, needsBackfill: false };
       },
     );
-    const out = candidates.filter((s): s is DirectorySummaryCandidate => s !== null);
-    out.sort((a, b) => compareSessionSummaries(a.summary, b.summary));
+    const summaries = candidates
+      .filter((candidate): candidate is DirectorySummaryCandidate => candidate !== null)
+      .map((candidate) => candidate.summary);
+    summaries.sort(compareSessionSummaries);
+    const entry: ShardManifestEntry = { summaries, ids: summaries.map((summary) => summary.id) };
+    this.shardManifestCache.set(shardKey, entry);
+    await atomicWrite(manifestPath, JSON.stringify(entry), { mode: 0o600 }).catch(() => undefined);
+    return entry;
+  }
 
-    const selected = out.slice(0, limit);
-    const summaries = await mapWithConcurrency(
-      selected,
-      Math.min(DefaultSessionStore.LIST_SCAN_CONCURRENCY, Math.max(1, limit)),
-      async (candidate): Promise<SessionSummary | null> => {
-        if (!candidate.needsBackfill) return candidate.summary;
-        return await this.summaryFor(candidate.summary.id).catch(() => candidate.summary);
-      },
-    );
-    return summaries.filter((s): s is SessionSummary => s !== null);
+  private async collectSessionFilesInShard(shardKey: string): Promise<SessionFileRef[]> {
+    const dir = shardKey ? path.join(this.dir, shardKey) : this.dir;
+    const entries = await this.collectSessionFiles(dir, shardKey);
+    return shardKey
+      ? entries.filter((entry) => entry.id.startsWith(`${shardKey}/`))
+      : entries.filter((entry) => !entry.id.includes('/'));
   }
 
   private async collectSessionFiles(

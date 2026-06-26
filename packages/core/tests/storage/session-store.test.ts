@@ -220,6 +220,33 @@ describe('DefaultSessionStore', () => {
     expect(list[0]!.tokenTotal).toBe(15);
   });
 
+  it('list() writes and reuses a shard-level manifest for cold sharded scans', async () => {
+    const shardDir = path.join(tmp, '2026-05-13');
+    await fs.mkdir(shardDir, { recursive: true });
+    const file = path.join(shardDir, 'legacy.jsonl');
+    const events = [
+      {
+        type: 'session_start',
+        ts: '2026-05-13T10:00:00.000Z',
+        id: '2026-05-13/legacy',
+        model: 'old',
+        provider: 'p',
+      },
+      { type: 'user_input', ts: '2026-05-13T10:00:01.000Z', content: 'older query' },
+    ];
+    await fs.writeFile(file, events.map((e) => JSON.stringify(e)).join('\n') + '\n');
+
+    const first = await store.list();
+    expect(first).toHaveLength(1);
+    const shardManifest = path.join(shardDir, '_manifest.json');
+    await expect(fs.access(shardManifest)).resolves.toBeUndefined();
+
+    await fs.writeFile(file, '{not json');
+    const second = await store.list();
+    expect(second).toHaveLength(1);
+    expect(second[0]!.id).toBe('2026-05-13/legacy');
+  });
+
   it('list() backfills a manifest from the jsonl when one is missing', async () => {
     // Hand-write a session WITHOUT going through the writer, so no manifest exists.
     const file = path.join(tmp, 'legacy.jsonl');

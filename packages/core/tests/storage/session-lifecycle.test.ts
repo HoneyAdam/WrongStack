@@ -128,6 +128,17 @@ describe('session lifecycle end-to-end (JSONL chain)', () => {
     // Index still lists the session exactly once after the resume cycle.
     const list2 = await store.list();
     expect(list2.filter((s) => s.id === id)).toHaveLength(1);
+
+    // The shard-level manifest is built on first cold list and contains the final summary.
+    await fs.unlink(path.join(tmp, '_index.jsonl')).catch(() => undefined);
+    const coldStore = new DefaultSessionStore({ dir: tmp });
+    await coldStore.list();
+    const shardManifestPath = path.join(shardDir, '_manifest.json');
+    const shardManifest = JSON.parse(await fs.readFile(shardManifestPath, 'utf8')) as {
+      summaries: Array<{ id: string; tokenTotal: number }>;
+    };
+    const shardEntry = shardManifest.summaries.find((summary) => summary.id === id);
+    expect(shardEntry?.tokenTotal).toBe(92);
   });
 
   it('a crash (no session_end, dangling in-flight) is visible to recovery after the same chain', async () => {
