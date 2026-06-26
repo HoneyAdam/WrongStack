@@ -126,7 +126,13 @@ export function WorkspaceDock({ sessionId }: { sessionId: string }) {
   const setDockCustomizeOpen = useUIStore((s) => s.setDockCustomizeOpen);
 
   const goal = useGoalStore((s) => s.goal);
-  const autoPhase = useAutoPhaseStore((s) => s);
+  // Narrow selectors for each field the dock reads — subscribing to the
+  // entire autoPhase store via `useAutoPhaseStore((s) => s)` re-renders the
+  // dock on every store change (including status flips the dock doesn't
+  // display). Each subscription only fires when its specific slice changes.
+  const phasesLength = useAutoPhaseStore((s) => s.phases.length);
+  const overallPercent = useAutoPhaseStore((s) => s.overallPercent);
+  const activePhaseId = useAutoPhaseStore((s) => s.activePhaseId);
   const worktrees = useWorktreeStore((s) => s.worktrees);
   const baseBranch = useWorktreeStore((s) => s.baseBranch);
   const todos = useSessionStore((s) => s.todos);
@@ -143,7 +149,7 @@ export function WorkspaceDock({ sessionId }: { sessionId: string }) {
   );
   const todosDone = todos.filter((t) => t.status === 'completed').length;
   const todosActive = todos.some((t) => t.status === 'in_progress');
-  const phasesActive = autoPhase.phases.length > 0;
+  const phasesActive = phasesLength > 0;
 
   // Chip visibility — a section without data shows no chip, and an open
   // section whose data vanished collapses rather than rendering a husk.
@@ -176,9 +182,9 @@ export function WorkspaceDock({ sessionId }: { sessionId: string }) {
             section="autophase"
             icon={<Rocket className="h-3 w-3" />}
             label="AutoPhase"
-            value={`${autoPhase.overallPercent}%`}
+            value={`${overallPercent}%`}
             active={false}
-            pulse={autoPhase.activePhaseId != null}
+            pulse={activePhaseId != null}
             // AutoPhase opens straight into the full board view — the inline
             // panel hogged vertical space above the chat history.
             onClick={() => setCurrentView('autophase')}
